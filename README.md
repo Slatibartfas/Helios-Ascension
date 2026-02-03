@@ -33,10 +33,20 @@ A 4X game inspired by Aurora 4X and Terra Invicta with realistic orbital mechani
 
 ### Linux
 ```bash
+# Required for running the game with graphics
 sudo apt-get install libwayland-dev libxkbcommon-dev libvulkan-dev libasound2-dev libudev-dev
+
+# Optional: Install LLD linker for much faster builds (2-5x faster linking)
+sudo apt-get install lld
 ```
 
 ## Building and Running
+
+The project is configured with several optimizations for fast compilation:
+- **LLD linker**: 2-5x faster linking than GNU ld
+- **Parallel compilation**: Uses all CPU cores (8 jobs)
+- **Incremental compilation**: Faster rebuilds by caching unchanged code
+- **Optimized test profile**: Faster test compilation
 
 ### Debug Build
 ```bash
@@ -54,6 +64,22 @@ cargo run --release
 ```bash
 cargo build --profile fast
 cargo run --profile fast
+```
+
+### Testing
+
+Run tests with standard cargo:
+```bash
+cargo test
+```
+
+Or use cargo-nextest for faster parallel test execution:
+```bash
+# Install cargo-nextest (one-time setup)
+cargo install cargo-nextest
+
+# Run tests in parallel
+cargo nextest run
 ```
 
 ## Project Structure
