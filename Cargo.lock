@@ -2381,6 +2381,8 @@ dependencies = [
  "bevy",
  "bevy-inspector-egui",
  "glam 0.28.0",
+ "ron",
+ "serde",
 ]
 
 [[package]]

@@ -1,0 +1,676 @@
+// Realistic Solar System Data
+// All units in SI unless otherwise specified
+// Distances in AU (Astronomical Units, 1 AU = 149,597,870,700 meters)
+// Masses in kg
+// Radii in km
+// Orbital periods in Earth days
+// Angles in degrees
+
+(
+    bodies: [
+        // THE SUN
+        (
+            name: "Sol",
+            body_type: Star,
+            mass: 1.9885e30,
+            radius: 695700.0,
+            color: (1.0, 0.95, 0.8),
+            emissive: (10.0, 9.0, 7.0),
+            parent: None,
+            orbit: None,
+            rotation_period: 609.12, // 25.38 days at equator
+        ),
+        
+        // PLANETS
+        
+        // Mercury
+        (
+            name: "Mercury",
+            body_type: Planet,
+            mass: 3.3011e23,
+            radius: 2439.7,
+            color: (0.7, 0.7, 0.7),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 0.387098,
+                eccentricity: 0.205630,
+                inclination: 7.005,
+                orbital_period: 87.9691,
+                initial_angle: 0.0,
+            )),
+            rotation_period: 1407.6,
+        ),
+        
+        // Venus
+        (
+            name: "Venus",
+            body_type: Planet,
+            mass: 4.8675e24,
+            radius: 6051.8,
+            color: (0.9, 0.8, 0.6),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 0.723332,
+                eccentricity: 0.006772,
+                inclination: 3.39458,
+                orbital_period: 224.701,
+                initial_angle: 50.0,
+            )),
+            rotation_period: -5832.5, // Negative = retrograde
+        ),
+        
+        // Earth
+        (
+            name: "Earth",
+            body_type: Planet,
+            mass: 5.97237e24,
+            radius: 6371.0,
+            color: (0.2, 0.5, 0.9),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 1.00000261,
+                eccentricity: 0.01671123,
+                inclination: 0.00005,
+                orbital_period: 365.256363,
+                initial_angle: 100.0,
+            )),
+            rotation_period: 0.99726968,
+        ),
+        
+        // Moon
+        (
+            name: "Moon",
+            body_type: Moon,
+            mass: 7.342e22,
+            radius: 1737.4,
+            color: (0.8, 0.8, 0.75),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Earth"),
+            orbit: Some((
+                semi_major_axis: 0.00257,
+                eccentricity: 0.0549,
+                inclination: 5.145,
+                orbital_period: 27.321661,
+                initial_angle: 0.0,
+            )),
+            rotation_period: 27.321661, // Tidally locked
+        ),
+        
+        // Mars
+        (
+            name: "Mars",
+            body_type: Planet,
+            mass: 6.4171e23,
+            radius: 3389.5,
+            color: (0.8, 0.4, 0.2),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 1.523679,
+                eccentricity: 0.0934,
+                inclination: 1.850,
+                orbital_period: 686.980,
+                initial_angle: 150.0,
+            )),
+            rotation_period: 1.025957,
+        ),
+        
+        // Phobos
+        (
+            name: "Phobos",
+            body_type: Moon,
+            mass: 1.0659e16,
+            radius: 11.267,
+            color: (0.6, 0.6, 0.55),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Mars"),
+            orbit: Some((
+                semi_major_axis: 0.0000627,
+                eccentricity: 0.0151,
+                inclination: 1.093,
+                orbital_period: 0.31891023,
+                initial_angle: 0.0,
+            )),
+            rotation_period: 0.31891023,
+        ),
+        
+        // Deimos
+        (
+            name: "Deimos",
+            body_type: Moon,
+            mass: 1.4762e15,
+            radius: 6.2,
+            color: (0.65, 0.65, 0.6),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Mars"),
+            orbit: Some((
+                semi_major_axis: 0.000157,
+                eccentricity: 0.00033,
+                inclination: 0.93,
+                orbital_period: 1.263,
+                initial_angle: 180.0,
+            )),
+            rotation_period: 1.263,
+        ),
+        
+        // Jupiter
+        (
+            name: "Jupiter",
+            body_type: Planet,
+            mass: 1.8982e27,
+            radius: 69911.0,
+            color: (0.85, 0.75, 0.6),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 5.2044,
+                eccentricity: 0.0489,
+                inclination: 1.303,
+                orbital_period: 4332.589,
+                initial_angle: 200.0,
+            )),
+            rotation_period: 0.41354,
+        ),
+        
+        // Io
+        (
+            name: "Io",
+            body_type: Moon,
+            mass: 8.9319e22,
+            radius: 1821.6,
+            color: (0.9, 0.8, 0.3),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Jupiter"),
+            orbit: Some((
+                semi_major_axis: 0.002819,
+                eccentricity: 0.0041,
+                inclination: 0.05,
+                orbital_period: 1.769137786,
+                initial_angle: 0.0,
+            )),
+            rotation_period: 1.769137786,
+        ),
+        
+        // Europa
+        (
+            name: "Europa",
+            body_type: Moon,
+            mass: 4.7998e22,
+            radius: 1560.8,
+            color: (0.85, 0.85, 0.8),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Jupiter"),
+            orbit: Some((
+                semi_major_axis: 0.004486,
+                eccentricity: 0.009,
+                inclination: 0.470,
+                orbital_period: 3.551181,
+                initial_angle: 90.0,
+            )),
+            rotation_period: 3.551181,
+        ),
+        
+        // Ganymede
+        (
+            name: "Ganymede",
+            body_type: Moon,
+            mass: 1.4819e23,
+            radius: 2634.1,
+            color: (0.7, 0.7, 0.65),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Jupiter"),
+            orbit: Some((
+                semi_major_axis: 0.007155,
+                eccentricity: 0.0013,
+                inclination: 0.20,
+                orbital_period: 7.15455296,
+                initial_angle: 180.0,
+            )),
+            rotation_period: 7.15455296,
+        ),
+        
+        // Callisto
+        (
+            name: "Callisto",
+            body_type: Moon,
+            mass: 1.0759e23,
+            radius: 2410.3,
+            color: (0.6, 0.6, 0.55),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Jupiter"),
+            orbit: Some((
+                semi_major_axis: 0.01258,
+                eccentricity: 0.0074,
+                inclination: 0.192,
+                orbital_period: 16.6890184,
+                initial_angle: 270.0,
+            )),
+            rotation_period: 16.6890184,
+        ),
+        
+        // Saturn
+        (
+            name: "Saturn",
+            body_type: Planet,
+            mass: 5.6834e26,
+            radius: 58232.0,
+            color: (0.9, 0.85, 0.7),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 9.5826,
+                eccentricity: 0.0565,
+                inclination: 2.485,
+                orbital_period: 10759.22,
+                initial_angle: 250.0,
+            )),
+            rotation_period: 0.445,
+        ),
+        
+        // Titan
+        (
+            name: "Titan",
+            body_type: Moon,
+            mass: 1.3452e23,
+            radius: 2574.73,
+            color: (0.85, 0.7, 0.5),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Saturn"),
+            orbit: Some((
+                semi_major_axis: 0.008168,
+                eccentricity: 0.0288,
+                inclination: 0.34854,
+                orbital_period: 15.945,
+                initial_angle: 0.0,
+            )),
+            rotation_period: 15.945,
+        ),
+        
+        // Rhea
+        (
+            name: "Rhea",
+            body_type: Moon,
+            mass: 2.306518e21,
+            radius: 763.8,
+            color: (0.75, 0.75, 0.7),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Saturn"),
+            orbit: Some((
+                semi_major_axis: 0.003520,
+                eccentricity: 0.001258,
+                inclination: 0.345,
+                orbital_period: 4.518212,
+                initial_angle: 120.0,
+            )),
+            rotation_period: 4.518212,
+        ),
+        
+        // Uranus
+        (
+            name: "Uranus",
+            body_type: Planet,
+            mass: 8.6810e25,
+            radius: 25362.0,
+            color: (0.5, 0.8, 0.9),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 19.19126,
+                eccentricity: 0.04717,
+                inclination: 0.773,
+                orbital_period: 30688.5,
+                initial_angle: 300.0,
+            )),
+            rotation_period: -0.71833, // Retrograde
+        ),
+        
+        // Titania
+        (
+            name: "Titania",
+            body_type: Moon,
+            mass: 3.527e21,
+            radius: 788.9,
+            color: (0.7, 0.7, 0.65),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Uranus"),
+            orbit: Some((
+                semi_major_axis: 0.002909,
+                eccentricity: 0.0011,
+                inclination: 0.340,
+                orbital_period: 8.706234,
+                initial_angle: 0.0,
+            )),
+            rotation_period: 8.706234,
+        ),
+        
+        // Neptune
+        (
+            name: "Neptune",
+            body_type: Planet,
+            mass: 1.02413e26,
+            radius: 24622.0,
+            color: (0.3, 0.4, 0.9),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 30.07,
+                eccentricity: 0.008678,
+                inclination: 1.770,
+                orbital_period: 60182.0,
+                initial_angle: 0.0,
+            )),
+            rotation_period: 0.6713,
+        ),
+        
+        // Triton
+        (
+            name: "Triton",
+            body_type: Moon,
+            mass: 2.14e22,
+            radius: 1353.4,
+            color: (0.85, 0.8, 0.75),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Neptune"),
+            orbit: Some((
+                semi_major_axis: 0.002371,
+                eccentricity: 0.000016,
+                inclination: 156.885, // Retrograde orbit
+                orbital_period: 5.876854,
+                initial_angle: 0.0,
+            )),
+            rotation_period: 5.876854,
+        ),
+        
+        // DWARF PLANETS & KUIPER BELT OBJECTS
+        
+        // Pluto
+        (
+            name: "Pluto",
+            body_type: DwarfPlanet,
+            mass: 1.303e22,
+            radius: 1188.3,
+            color: (0.85, 0.8, 0.7),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 39.482,
+                eccentricity: 0.2488,
+                inclination: 17.16,
+                orbital_period: 90560.0,
+                initial_angle: 10.0,
+            )),
+            rotation_period: 6.387230,
+        ),
+        
+        // Charon (Pluto's moon)
+        (
+            name: "Charon",
+            body_type: Moon,
+            mass: 1.586e21,
+            radius: 606.0,
+            color: (0.75, 0.7, 0.65),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Pluto"),
+            orbit: Some((
+                semi_major_axis: 0.0001308,
+                eccentricity: 0.0022,
+                inclination: 0.001,
+                orbital_period: 6.387230,
+                initial_angle: 0.0,
+            )),
+            rotation_period: 6.387230,
+        ),
+        
+        // Eris
+        (
+            name: "Eris",
+            body_type: DwarfPlanet,
+            mass: 1.66e22,
+            radius: 1163.0,
+            color: (0.9, 0.9, 0.85),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 67.668,
+                eccentricity: 0.44177,
+                inclination: 44.040,
+                orbital_period: 203830.0,
+                initial_angle: 45.0,
+            )),
+            rotation_period: 1.08,
+        ),
+        
+        // Makemake
+        (
+            name: "Makemake",
+            body_type: DwarfPlanet,
+            mass: 3.1e21,
+            radius: 715.0,
+            color: (0.85, 0.75, 0.65),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 45.792,
+                eccentricity: 0.159,
+                inclination: 28.96,
+                orbital_period: 112897.0,
+                initial_angle: 90.0,
+            )),
+            rotation_period: 0.95,
+        ),
+        
+        // Haumea
+        (
+            name: "Haumea",
+            body_type: DwarfPlanet,
+            mass: 4.006e21,
+            radius: 816.0,
+            color: (0.8, 0.8, 0.75),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 43.335,
+                eccentricity: 0.18874,
+                inclination: 28.22,
+                orbital_period: 103774.0,
+                initial_angle: 135.0,
+            )),
+            rotation_period: 0.163,
+        ),
+        
+        // MAIN BELT ASTEROIDS (Largest)
+        
+        // Ceres
+        (
+            name: "Ceres",
+            body_type: DwarfPlanet,
+            mass: 9.3835e20,
+            radius: 473.0,
+            color: (0.65, 0.65, 0.6),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 2.767,
+                eccentricity: 0.0760,
+                inclination: 10.593,
+                orbital_period: 1680.0,
+                initial_angle: 0.0,
+            )),
+            rotation_period: 0.3781,
+        ),
+        
+        // Vesta
+        (
+            name: "Vesta",
+            body_type: Asteroid,
+            mass: 2.59076e20,
+            radius: 262.7,
+            color: (0.7, 0.7, 0.65),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 2.362,
+                eccentricity: 0.0887,
+                inclination: 7.140,
+                orbital_period: 1325.0,
+                initial_angle: 30.0,
+            )),
+            rotation_period: 0.2226,
+        ),
+        
+        // Pallas
+        (
+            name: "Pallas",
+            body_type: Asteroid,
+            mass: 2.04e20,
+            radius: 256.0,
+            color: (0.6, 0.6, 0.55),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 2.773,
+                eccentricity: 0.2313,
+                inclination: 34.837,
+                orbital_period: 1686.0,
+                initial_angle: 60.0,
+            )),
+            rotation_period: 0.326,
+        ),
+        
+        // Hygiea
+        (
+            name: "Hygiea",
+            body_type: Asteroid,
+            mass: 8.32e19,
+            radius: 217.0,
+            color: (0.55, 0.55, 0.5),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 3.139,
+                eccentricity: 0.1146,
+                inclination: 3.842,
+                orbital_period: 2029.0,
+                initial_angle: 90.0,
+            )),
+            rotation_period: 1.151,
+        ),
+        
+        // Interamnia
+        (
+            name: "Interamnia",
+            body_type: Asteroid,
+            mass: 3.5e19,
+            radius: 166.0,
+            color: (0.6, 0.55, 0.5),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 3.067,
+                eccentricity: 0.1505,
+                inclination: 17.292,
+                orbital_period: 1955.0,
+                initial_angle: 120.0,
+            )),
+            rotation_period: 0.368,
+        ),
+        
+        // Davida
+        (
+            name: "Davida",
+            body_type: Asteroid,
+            mass: 3.84e19,
+            radius: 148.0,
+            color: (0.55, 0.5, 0.45),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 3.176,
+                eccentricity: 0.1835,
+                inclination: 15.942,
+                orbital_period: 2062.0,
+                initial_angle: 150.0,
+            )),
+            rotation_period: 0.21,
+        ),
+        
+        // Cybele
+        (
+            name: "Cybele",
+            body_type: Asteroid,
+            mass: 1.4e19,
+            radius: 145.0,
+            color: (0.5, 0.5, 0.45),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 3.433,
+                eccentricity: 0.1051,
+                inclination: 3.548,
+                orbital_period: 2320.0,
+                initial_angle: 180.0,
+            )),
+            rotation_period: 0.253,
+        ),
+        
+        // Europa (asteroid)
+        (
+            name: "52 Europa",
+            body_type: Asteroid,
+            mass: 2.27e19,
+            radius: 156.0,
+            color: (0.65, 0.6, 0.55),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 3.097,
+                eccentricity: 0.1020,
+                inclination: 7.466,
+                orbital_period: 1989.0,
+                initial_angle: 210.0,
+            )),
+            rotation_period: 0.233,
+        ),
+        
+        // Sylvia
+        (
+            name: "Sylvia",
+            body_type: Asteroid,
+            mass: 1.478e19,
+            radius: 128.0,
+            color: (0.5, 0.45, 0.4),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 3.487,
+                eccentricity: 0.0807,
+                inclination: 10.855,
+                orbital_period: 2376.0,
+                initial_angle: 240.0,
+            )),
+            rotation_period: 0.226,
+        ),
+        
+        // Thisbe
+        (
+            name: "Thisbe",
+            body_type: Asteroid,
+            mass: 1.6e19,
+            radius: 116.0,
+            color: (0.6, 0.55, 0.5),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 2.768,
+                eccentricity: 0.1653,
+                inclination: 5.217,
+                orbital_period: 1682.0,
+                initial_angle: 270.0,
+            )),
+            rotation_period: 0.255,
+        ),
+    ]
+)
