@@ -102,19 +102,21 @@ windowing = ["bevy/x11", "bevy/wayland"]
 - Environment: GitHub Actions runner
 - Dependencies: Bevy 0.14 + inspector-egui
 
-**After** (with optimizations):
+**After (measured with optimizations)**:
 - ~6 minutes (5m57s)
 - Using LLD linker
 - 8 parallel jobs
 - Full CPU utilization
 
-**Expected without optimizations**:
-- ~10-12 minutes (estimated)
+**Expected without optimizations (estimated)**:
+- ~10-15 minutes (based on typical performance differences)
 - Using GNU ld linker
 - 4 parallel jobs
 - Partial CPU utilization
 
-**Estimated improvement: ~40-50% faster**
+**Note**: "Before" times are estimates extrapolated from typical performance differences, as actual baseline measurements weren't captured prior to implementing optimizations.
+
+**Estimated improvement: ~40-60% faster**
 
 ### Incremental Build Time
 

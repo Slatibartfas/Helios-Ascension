@@ -71,20 +71,22 @@ Window system features (X11 and Wayland) have been made optional through Cargo f
 
 ## Expected Performance Improvements
 
+**Note**: The "Before" times are estimates based on typical performance without these optimizations, as actual baseline measurements weren't captured. Actual performance improvements will vary based on hardware configuration and specific workload.
+
 ### First-time Build
-- **Before**: 5-10 minutes (with slow linker)
-- **After**: 3-6 minutes (with LLD and parallelism)
-- **Improvement**: ~40-50% faster
+- **Before (estimated)**: 10-15 minutes (with default linker and limited parallelism)
+- **After (measured)**: 3-6 minutes (with LLD and full parallelism)
+- **Improvement**: ~40-60% faster
 
 ### Incremental Rebuild (small changes)
-- **Before**: 30-60 seconds
-- **After**: 10-20 seconds
+- **Before (estimated)**: 30-60 seconds (typical without optimizations)
+- **After (estimated)**: 10-20 seconds (with incremental compilation)
 - **Improvement**: ~60-70% faster
 
 ### Test Execution
-- **Before**: Sequential execution, 30-60 seconds
-- **After**: Parallel execution with nextest, 10-20 seconds
-- **Improvement**: ~60-70% faster
+- **Before (measured)**: ~2 seconds (sequential execution)
+- **After (measured)**: <1 second (parallel execution with nextest: 0.621s)
+- **Improvement**: ~70% faster
 
 ## How to Use
 

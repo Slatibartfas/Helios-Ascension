@@ -55,6 +55,7 @@ lto = "thin"
 codegen-units = 1
 opt-level = 3
 strip = true
+# Incremental compilation disabled in release for maximum runtime performance and smaller binary size
 incremental = false
 
 # Fast compile profile for development
