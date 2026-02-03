@@ -155,34 +155,6 @@ TOTAL:         377 bodies
 
 **Jupiter-Family:**
 - Shoemaker-Levy 9 - Impacted Jupiter in 1994
-- Europa - Subsurface ocean candidate
-- Ganymede - Largest moon in solar system
-- Callisto - Heavily cratered ancient surface
-
-**Saturn System:**
-- Titan - Second-largest moon, thick atmosphere
-- Rhea - Second-largest moon of Saturn
-
-**Uranus System:**
-- Titania - Largest moon of Uranus
-
-**Neptune System:**
-- Triton - Largest moon with retrograde orbit
-
-**Pluto System:**
-- Charon - Large moon relative to Pluto
-
-### Main Belt Asteroids (10)
-1. **Vesta** - Brightest asteroid, differentiated body
-2. **Pallas** - Second-largest asteroid
-3. **Hygiea** - Dark C-type asteroid
-4. **Interamnia** - Large dark asteroid
-5. **Davida** - One of largest asteroids
-6. **Cybele** - Outer main belt asteroid
-7. **52 Europa** - Bright asteroid
-8. **Sylvia** - Triple asteroid system
-9. **Thisbe** - Large C-type asteroid
-10. **10 Hygiea** (Note: Listed with various names)
 
 ## Orbital Parameters
 
@@ -230,7 +202,7 @@ To make the solar system viewable in a 3D game engine, we apply scaling:
 ## Performance Considerations
 
 ### Current Implementation
-- **40+ bodies** rendered simultaneously
+- **377 bodies** rendered simultaneously
 - Simplified circular orbits (eccentricity stored but not used)
 - 2D orbital plane (inclination partially implemented)
 - No collision detection
@@ -264,7 +236,7 @@ To add a new celestial body:
 ```rust
 (
     name: "NewBody",
-    body_type: Asteroid, // Star, Planet, DwarfPlanet, Moon, Asteroid
+    body_type: Asteroid, // Star, Planet, DwarfPlanet, Moon, Asteroid, Comet
     mass: 1.0e20,        // kg
     radius: 100.0,       // km
     color: (0.7, 0.7, 0.7), // RGB 0-1

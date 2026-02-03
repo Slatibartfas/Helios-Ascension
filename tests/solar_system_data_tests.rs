@@ -50,7 +50,7 @@ fn test_solar_system_hierarchy() {
     
     // Jupiter should have multiple moons
     let jupiter_moons = data.get_children("Jupiter");
-    assert!(jupiter_moons.len() >= 4, "Jupiter should have at least 4 Galilean moons");
+    assert!(jupiter_moons.len() >= 50, "Jupiter should have at least 50 moons, got {}", jupiter_moons.len());
     
     // Check for specific Jovian moons
     assert!(data.get_body("Io").is_some());
