@@ -107,7 +107,7 @@ cargo build
 # Run tests with cargo-nextest
 cargo nextest run
 
-# Fast profile for rapid iteration
+# Use the existing 'fast' profile for rapid iteration (pre-configured in Cargo.toml)
 cargo build --profile fast
 ```
 

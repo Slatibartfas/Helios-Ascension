@@ -60,7 +60,7 @@ cargo build --release
 cargo run --release
 ```
 
-### Fast Build (For rapid iteration)
+### Fast Build Profile (Pre-configured, for rapid iteration)
 ```bash
 cargo build --profile fast
 cargo run --profile fast
