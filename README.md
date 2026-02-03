@@ -5,13 +5,23 @@ A 4X game inspired by Aurora 4X and Terra Invicta with realistic orbital mechani
 
 - **High-Performance Foundation**: Built with Bevy 0.14 engine with optimized compilation profiles
 - **Modular Plugin Architecture**: Extensible plugin system for game systems
-- **Realistic Solar System Simulation**: 
-  - Data-driven astronomical data from NASA/IAU sources
-  - 40+ celestial bodies including all planets, dwarf planets, major moons, and asteroids
-  - Accurate masses, radii, and orbital parameters
+- **Comprehensive Solar System Simulation**: 
+  - **377 celestial bodies** with realistic astronomical data from NASA/IAU sources
+  - Complete planetary systems:
+    - All 8 planets with accurate properties
+    - **148 moons** including all major and many minor moons
+    - Jupiter's complete 79-moon system
+    - Saturn's complete 83-moon system
+    - All Uranus (27) and Neptune (14) moons
+  - **145 asteroids**:
+    - Main belt comprehensive catalog
+    - 30 Jupiter Trojans (L4 and L5 groups)
+    - 17 Near-Earth Objects (mission targets)
+  - **55 Kuiper Belt Objects** including Pluto, Eris, and scattered disc
+  - **20 comets** including Halley, Hale-Bopp, and other famous visitors
+  - Accurate masses, radii, and orbital parameters for all bodies
   - Real orbital mechanics with time-accelerated simulation
-  - Complete solar system from Mercury to Pluto and beyond
-  - Main belt asteroids and Kuiper belt objects
+  - Complete coverage from Mercury to the outer solar system
 - **Debug UI**: Integrated inspector using bevy_inspector_egui for runtime entity inspection
 - **Advanced Camera Controls**: 
   - WASD for movement

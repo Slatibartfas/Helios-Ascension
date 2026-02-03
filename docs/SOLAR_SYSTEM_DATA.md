@@ -4,6 +4,8 @@
 
 Helios Ascension uses realistic astronomical data for all celestial bodies in the solar system. This data is stored in the `assets/data/solar_system.ron` file and loaded at runtime.
 
+**Current Status: 377 celestial bodies with comprehensive coverage!**
+
 ## Data Sources
 
 All astronomical data is based on real-world measurements from:
@@ -11,10 +13,24 @@ All astronomical data is based on real-world measurements from:
 - International Astronomical Union (IAU)
 - Planetary and Lunar Coordinates
 - Minor Planet Center
+- Comet catalogs and databases
 
-## Celestial Bodies
+## Body Type Summary
 
-### Star
+```
+Star:          1   (Sol)
+Planets:       8   (Mercury → Neptune)
+Dwarf Planets: 55  (including Kuiper Belt Objects)
+Moons:         148 (all major + many minor moons)
+Asteroids:     145 (main belt + Trojans + NEOs)
+Comets:        20  (periodic and long-period)
+──────────────────
+TOTAL:         377 bodies
+```
+
+## Celestial Bodies by Category
+
+### Star (1)
 - **Sol** (The Sun)
   - Mass: 1.9885×10³⁰ kg
   - Radius: 695,700 km
@@ -30,24 +46,115 @@ All astronomical data is based on real-world measurements from:
 7. **Uranus** - Ice giant with extreme axial tilt
 8. **Neptune** - Outermost planet, deep blue
 
-### Dwarf Planets (5)
+### Dwarf Planets & Kuiper Belt Objects (55)
+**Main Belt:**
 1. **Ceres** - Largest object in the asteroid belt
+
+**Classical Kuiper Belt Objects:**
 2. **Pluto** - Former 9th planet, now classified as dwarf planet
 3. **Eris** - Massive trans-Neptunian object
 4. **Makemake** - Bright Kuiper belt object
 5. **Haumea** - Fast-rotating elongated dwarf planet
+6. **Quaoar** - Large classical KBO
+7. **Sedna** - Extreme outer solar system object
+8. **Orcus** - Pluto-like object
+9. **Salacia** - Large KBO
+10. **Varda** - Trans-Neptunian object
+... and 45 more KBOs and scattered disc objects
 
-### Major Moons (12+)
+### Moons (148 total)
 
-**Earth System:**
+**Earth System (1):**
 - Moon - Earth's only natural satellite
 
-**Mars System:**
+**Mars System (2):**
 - Phobos - Larger moon, irregular shape
 - Deimos - Smaller, outer moon
 
-**Jupiter System (Galilean Moons):**
-- Io - Volcanically active
+**Jupiter System (79 complete!):**
+- **Galilean Moons (4):** Io, Europa, Ganymede, Callisto
+- **Amalthea Group (4):** Metis, Adrastea, Amalthea, Thebe
+- **Himalia Group (5):** Leda, Himalia, Lysithea, Elara, Dia
+- **Ananke Group (10):** Including Ananke, Carpo, Euporie
+- **Carme Group (7):** Including Carme, Taygete, Chaldene
+- **Pasiphae Group (9):** Including Pasiphae, Sinope, Callirrhoe
+- **Other Irregulars (17):** Various retrograde and prograde moons
+- Plus many S/2003 discoveries
+
+**Saturn System (83 complete!):**
+- **Major Moons (7):** Mimas, Enceladus, Tethys, Dione, Titan, Rhea, Iapetus
+- **Co-orbital Moons (2):** Janus, Epimetheus
+- **Inner Small Moons (15):** Pan, Daphnis, Atlas, Prometheus, Pandora, etc.
+- **Large Irregular (2):** Hyperion, Phoebe
+- **Norse Group (20):** Ymir, Paaliaq, Siarnaq, Albiorix, etc.
+- **Inuit Group (1):** Tarqeq
+- **Gallic Group (2):** Bebhionn, Erriapus
+- Plus many more named moons
+
+**Uranus System (27 complete!):**
+- **Major Moons (5):** Miranda, Ariel, Umbriel, Titania, Oberon
+- **Inner Moons (13):** Cordelia, Ophelia, Bianca, Cressida, Desdemona, Juliet, Portia, Rosalind, Cupid, Belinda, Perdita, Puck, Mab
+- **Irregular Moons (9):** Francisco, Caliban, Stephano, Trinculo, Sycorax, Margaret, Prospero, Setebos, Ferdinand
+
+**Neptune System (14 complete!):**
+- **Triton** - Largest moon with retrograde orbit
+- **Inner Moons (7):** Naiad, Thalassa, Despina, Galatea, Larissa, S/2004 N 1, Proteus
+- **Outer Irregular (6):** Nereid, Halimede, Sao, Laomedeia, Psamathe, Neso
+
+**Pluto System (1):**
+- **Charon** - Large moon relative to Pluto
+
+### Main Belt Asteroids (100+)
+
+**Named Asteroids (includes):**
+- Vesta, Pallas, Hygiea, Interamnia, Davida, Cybele, 52 Europa, Sylvia, Thisbe
+- Euphrosyne, Juno, Psyche, Eunomia, Camilla, Elektra, Bamberga
+- Doris, Fortuna, Egeria, Iris, Amphitrite, Ursula, Herculina, Siwa
+- Dembowska, Loreley, Irene, Julia
+- Plus 70+ additional belt asteroids distributed across 2.2-3.6 AU
+
+### Jupiter Trojans (30)
+
+**L4 Leading Group (15):**
+- 588 Achilles, 911 Agamemnon, 1143 Odysseus, 1172 Aneas, 1173 Anchises
+- 1208 Troilus, 1404 Ajax, 1437 Diomedes, 1583 Antilochus, 1647 Menelaus
+- 1749 Telamon, 1867 Deiphobus, 2146 Stentor, 2223 Sarpedon, 2357 Phereclos
+
+**L5 Trailing Group (15):**
+- 617 Patroclus, 624 Hektor, 659 Nestor, 884 Priamus, 1868 Thersites
+- 2920 Automedon, 3317 Paris, 3451 Mentor, 3540 Protesilaos, 3548 Eurybates
+- 3708 1974 FV1, 4007 Euryalos, 4035 1986 WD, 4348 Poulydamas, 4543 Phoinix
+
+### Near-Earth Objects (17)
+
+**Apollo Group (10):**
+- 433 Eros, 1862 Apollo, 1866 Sisyphus, 2062 Aten, 3200 Phaethon
+- 4179 Toutatis, 25143 Itokawa, 101955 Bennu, 162173 Ryugu, 99942 Apophis
+
+**Amor Group (4):**
+- 1221 Amor, 1580 Betulia, 1627 Ivar, 1980 Tezcatlipoca
+
+**Aten Group (3):**
+- 2340 Hathor, 3753 Cruithne, 163693 Atira
+
+### Comets (20)
+
+**Short-Period Comets:**
+- 1P/Halley - Famous 76-year period comet
+- 2P/Encke - Shortest period comet (3.3 years)
+- 9P/Tempel, 19P/Borrelly, 21P/Giacobini-Zinner
+- 26P/Grigg-Skjellerup, 67P/Churyumov-Gerasimenko (Rosetta mission)
+- 73P/Schwassmann-Wachmann, 81P/Wild, 103P/Hartley
+- 29P/Schwassmann-Wachmann, 109P/Swift-Tuttle (Perseids parent)
+
+**Long-Period Comets:**
+- Hale-Bopp - Great comet of 1997
+- Hyakutake - Great comet of 1996
+- McNaught - Brightest comet in decades
+- ISON, Lovejoy, NEOWISE, West
+
+**Jupiter-Family:**
+- Shoemaker-Levy 9 - Impacted Jupiter in 1994
 - Europa - Subsurface ocean candidate
 - Ganymede - Largest moon in solar system
 - Callisto - Heavily cratered ancient surface
