@@ -1,0 +1,26 @@
+# Nextest configuration for faster test execution
+#
+# This configuration enables parallel test execution and optimizes
+# test running performance.
+
+[profile.default]
+# Run tests in parallel using all available CPU cores
+# This can speed up test execution significantly
+test-threads = "num-cpus"
+
+# No retries by default - intermittent failures should be investigated and fixed
+retries = 0
+
+# Show test output for failures only (keeps output clean)
+failure-output = "immediate"
+success-output = "never"
+
+# Timeout for slow tests (5 minutes per test)
+slow-timeout = { period = "300s" }
+
+[profile.ci]
+# CI-specific profile with stricter settings
+test-threads = "num-cpus"
+retries = 0  # No retries in CI
+failure-output = "immediate-final"
+success-output = "never"

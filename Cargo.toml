@@ -57,6 +57,13 @@ lto = false
 codegen-units = 16
 strip = false
 
+# Test profile optimized for fast test compilation and execution
+[profile.test]
+opt-level = 1
+
+[profile.test.package."*"]
+opt-level = 2
+
 # Bevy-specific compile optimizations
 [profile.dev.package.bevy_pbr]
 opt-level = 3
