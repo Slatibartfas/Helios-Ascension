@@ -16,7 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 # Bevy game engine with optimized features
-bevy = { version = "0.14", features = [
+bevy = { version = "0.14", default-features = false, features = [
     "bevy_pbr",
     "bevy_render",
     "bevy_core_pipeline",
@@ -24,8 +24,6 @@ bevy = { version = "0.14", features = [
     "bevy_winit",
     "bevy_text",
     "bevy_ui",
-    "x11",
-    "wayland",
 ] }
 
 # Debug and development tools
@@ -38,8 +36,16 @@ glam = "0.28"
 serde = { version = "1.0", features = ["derive"] }
 ron = "0.8"
 
+[features]
+# Default features for running the game
+default = ["windowing"]
+# Window system support - only needed when running the actual game
+windowing = ["bevy/x11", "bevy/wayland"]
+
 [profile.dev]
 opt-level = 1
+# Incremental compilation is enabled by default in dev mode, which speeds up recompilation
+incremental = true
 
 [profile.dev.package."*"]
 opt-level = 3
@@ -49,6 +55,7 @@ lto = "thin"
 codegen-units = 1
 opt-level = 3
 strip = true
+incremental = false
 
 # Fast compile profile for development
 [profile.fast]
@@ -56,6 +63,14 @@ inherits = "release"
 lto = false
 codegen-units = 16
 strip = false
+
+# Test profile optimized for fast test compilation and execution
+[profile.test]
+opt-level = 1
+incremental = true
+
+[profile.test.package."*"]
+opt-level = 2
 
 # Bevy-specific compile optimizations
 [profile.dev.package.bevy_pbr]
