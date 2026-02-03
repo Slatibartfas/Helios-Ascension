@@ -5,8 +5,8 @@ fn test_solar_system_data_loads() {
     let data = SolarSystemData::load_from_file("assets/data/solar_system.ron")
         .expect("Failed to load solar system data");
     
-    // Should have multiple bodies
-    assert!(data.bodies.len() > 30, "Expected at least 30 bodies");
+    // Should have 377+ bodies now!
+    assert!(data.bodies.len() >= 370, "Expected at least 370 bodies, got {}", data.bodies.len());
     
     // Check for specific bodies
     assert!(data.get_body("Sol").is_some(), "Sol should exist");
@@ -23,13 +23,16 @@ fn test_solar_system_data_loads() {
     assert_eq!(stars.len(), 1, "Should have 1 star");
     
     let moons = data.get_bodies_by_type(BodyType::Moon);
-    assert!(moons.len() >= 10, "Should have at least 10 moons");
+    assert!(moons.len() >= 140, "Should have at least 140 moons, got {}", moons.len());
     
     let asteroids = data.get_bodies_by_type(BodyType::Asteroid);
-    assert!(asteroids.len() >= 5, "Should have at least 5 asteroids");
+    assert!(asteroids.len() >= 100, "Should have at least 100 asteroids, got {}", asteroids.len());
     
     let dwarf_planets = data.get_bodies_by_type(BodyType::DwarfPlanet);
-    assert!(dwarf_planets.len() >= 4, "Should have at least 4 dwarf planets");
+    assert!(dwarf_planets.len() >= 50, "Should have at least 50 dwarf planets/KBOs, got {}", dwarf_planets.len());
+    
+    let comets = data.get_bodies_by_type(BodyType::Comet);
+    assert!(comets.len() >= 15, "Should have at least 15 comets, got {}", comets.len());
 }
 
 #[test]

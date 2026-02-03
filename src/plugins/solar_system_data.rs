@@ -8,6 +8,7 @@ pub enum BodyType {
     DwarfPlanet,
     Moon,
     Asteroid,
+    Comet,
 }
 
 /// Orbital parameters for a celestial body

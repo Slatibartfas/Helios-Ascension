@@ -38,6 +38,9 @@ pub struct Moon;
 pub struct Asteroid;
 
 #[derive(Component)]
+pub struct Comet;
+
+#[derive(Component)]
 pub struct OrbitalPath {
     pub parent: Option<Entity>,
     pub semi_major_axis: f32,
@@ -165,6 +168,9 @@ fn setup_solar_system(
             }
             BodyType::Asteroid => {
                 entity_commands.insert(Asteroid);
+            }
+            BodyType::Comet => {
+                entity_commands.insert(Comet);
             }
         }
         
