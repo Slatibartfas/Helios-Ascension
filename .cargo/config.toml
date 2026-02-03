@@ -1,0 +1,7 @@
+# Bevy-optimized build configuration
+
+# Enable parallel frontend for faster builds
+[build]
+jobs = 4
+
+
