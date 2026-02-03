@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy::window::WindowResolution;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
-mod plugins;
+pub mod plugins;
 
 use plugins::{camera::CameraPlugin, solar_system::SolarSystemPlugin};
 

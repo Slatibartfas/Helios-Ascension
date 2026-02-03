@@ -6,6 +6,14 @@ authors = ["Helios Development Team"]
 description = "A 4X Grand Strategy game inspired by Aurora 4X and Terra Invicta"
 license = "MIT"
 
+[lib]
+name = "helios_ascension"
+path = "src/lib.rs"
+
+[[bin]]
+name = "helios_ascension"
+path = "src/main.rs"
+
 [dependencies]
 # Bevy game engine with optimized features
 bevy = { version = "0.14", features = [
