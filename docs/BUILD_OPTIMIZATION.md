@@ -75,7 +75,7 @@ Window system features (X11 and Wayland) have been made optional through Cargo f
 
 ### First-time Build
 - **Before (estimated)**: 10-15 minutes (with default linker and limited parallelism)
-- **After (measured)**: 3-6 minutes (with LLD and full parallelism)
+- **After (measured)**: ~6 minutes (measured: 5m57s; may vary by system)
 - **Improvement**: ~40-60% faster
 
 ### Incremental Rebuild (small changes)

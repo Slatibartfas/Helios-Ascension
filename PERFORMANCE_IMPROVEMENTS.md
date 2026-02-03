@@ -103,7 +103,7 @@ windowing = ["bevy/x11", "bevy/wayland"]
 - Dependencies: Bevy 0.14 + inspector-egui
 
 **After (measured with optimizations)**:
-- ~6 minutes (5m57s)
+- 6 minutes (measured: 5m57s)
 - Using LLD linker
 - 8 parallel jobs
 - Full CPU utilization
