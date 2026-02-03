@@ -11,8 +11,11 @@ impl Plugin for SolarSystemPlugin {
 
 #[derive(Component)]
 pub struct CelestialBody {
+    #[allow(dead_code)]
     pub name: String,
+    #[allow(dead_code)]
     pub radius: f32,
+    #[allow(dead_code)]
     pub mass: f32,
 }
 
@@ -26,7 +29,9 @@ pub struct Planet;
 pub struct OrbitalPath {
     pub parent: Option<Entity>,
     pub semi_major_axis: f32,
+    #[allow(dead_code)]
     pub eccentricity: f32,
+    #[allow(dead_code)]
     pub orbital_period: f32,
     pub current_angle: f32,
     pub angular_velocity: f32,
