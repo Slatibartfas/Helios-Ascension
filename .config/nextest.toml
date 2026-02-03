@@ -8,8 +8,8 @@
 # This can speed up test execution significantly
 test-threads = "num-cpus"
 
-# Retry flaky tests up to 2 times
-retries = 2
+# No retries by default - intermittent failures should be investigated and fixed
+retries = 0
 
 # Show test output for failures only (keeps output clean)
 failure-output = "immediate"

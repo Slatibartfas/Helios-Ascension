@@ -6,51 +6,33 @@ This document summarizes the build and test performance improvements made to the
 
 ## Changes Made
 
-### 1. Linker Optimization
+### 1. Linker Optimization (Linux Only)
 **File**: `.cargo/config.toml`
 
-Switched from GNU ld to LLVM's LLD linker:
+Switched from GNU ld to LLVM's LLD linker on Linux:
 ```toml
 [target.x86_64-unknown-linux-gnu]
 linker = "clang"
 rustflags = ["-C", "link-arg=-fuse-ld=lld"]
 ```
 
-**Impact**: 2-5x faster linking times
+**Impact**: 2-5x faster linking times on Linux
+**Note**: macOS and Windows use their default optimized system linkers
 
-### 2. Increased Build Parallelism
-**File**: `.cargo/config.toml`
+### 2. Automatic Build Parallelism
 
-Increased parallel build jobs:
-```toml
-[build]
-jobs = 8  # Previously: 4
-```
+Cargo automatically detects and uses an appropriate number of parallel jobs based on available CPU cores.
 
 **Impact**: Better CPU utilization, faster compilation
+**Note**: No manual configuration needed - Cargo auto-detects optimal settings
 
-### 3. Incremental Compilation
-**File**: `Cargo.toml`
-
-Explicitly enabled incremental compilation:
-```toml
-[profile.dev]
-incremental = true
-
-[profile.test]
-incremental = true
-```
-
-**Impact**: Significantly faster rebuilds after small changes
-
-### 4. Optimized Test Profile
+### 3. Optimized Test Profile
 **File**: `Cargo.toml`
 
 Added balanced test profile:
 ```toml
 [profile.test]
 opt-level = 1
-incremental = true
 
 [profile.test.package."*"]
 opt-level = 2
@@ -58,26 +40,19 @@ opt-level = 2
 
 **Impact**: Faster test compilation while maintaining good test performance
 
-### 5. Cargo Nextest Integration
+### 4. Cargo Nextest Integration
 **File**: `.config/nextest.toml`
 
 Configured parallel test execution:
 ```toml
 [profile.default]
 test-threads = "num-cpus"
-retries = 2
+retries = 0
 failure-output = "immediate"
 success-output = "never"
 ```
 
 **Impact**: Parallel test execution on all CPU cores
-
-### 6. Optional Window System Features
-**File**: `Cargo.toml`
-
-Made window systems optional:
-```toml
-[features]
 default = ["windowing"]
 windowing = ["bevy/x11", "bevy/wayland"]
 ```
@@ -104,15 +79,14 @@ windowing = ["bevy/x11", "bevy/wayland"]
 
 **After (measured with optimizations)**:
 - 6 minutes (measured: 5m57s)
-- Using LLD linker
-- 8 parallel jobs
-- Full CPU utilization
+- Using LLD linker (Linux)
+- Automatic parallel compilation
+- Efficient CPU utilization
 
 **Expected without optimizations (estimated)**:
 - ~10-15 minutes (based on typical performance differences)
-- Using GNU ld linker
-- 4 parallel jobs
-- Partial CPU utilization
+- Using GNU ld linker (Linux) or default linkers
+- Default parallelism settings
 
 **Note**: "Before" times are estimates extrapolated from typical performance differences, as actual baseline measurements weren't captured prior to implementing optimizations.
 
@@ -154,23 +128,36 @@ Summary [   0.017s] 7 tests run: 7 passed, 0 skipped
 ### After
 1. ✅ Faster builds (~6 minutes first build)
 2. ✅ Parallel test execution (<1 second)
-3. ✅ Full CPU utilization during builds
-4. ✅ Fast LLD linker (2-5x faster)
-5. ✅ Incremental compilation for quick rebuilds
-6. ✅ Clear documentation and setup instructions
+3. ✅ Efficient CPU utilization during builds
+4. ✅ Fast LLD linker on Linux (2-5x faster)
+5. ✅ Clear documentation and setup instructions
 
 ## Setup Requirements
 
 ### For Developers
-1. Install LLD linker:
-   ```bash
-   sudo apt-get install lld
-   ```
 
-2. Install cargo-nextest (optional but recommended):
-   ```bash
-   cargo install cargo-nextest
-   ```
+**Linux (REQUIRED):**
+```bash
+# Ubuntu/Debian
+sudo apt-get install lld clang
+
+# Fedora/RHEL
+sudo dnf install lld clang
+
+# Arch
+sudo pacman -S lld clang
+
+# openSUSE
+sudo zypper install lld clang
+```
+
+**macOS / Windows:**
+No additional dependencies needed.
+
+**Optional (all platforms):**
+```bash
+cargo install cargo-nextest
+```
 
 ### Usage
 ```bash

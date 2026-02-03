@@ -1,13 +1,13 @@
 # Bevy-optimized build configuration
 
-# Enable parallel frontend for faster builds
-[build]
-# Use all available CPU cores for parallel compilation
-# This significantly speeds up compilation by utilizing all cores
-jobs = 8
-
 # Use LLD linker for much faster linking times
 # LLD is typically 2-5x faster than the default GNU ld linker
+
+# Linux-only linker configuration
+# This section applies only to the x86_64-unknown-linux-gnu target.
+# For other platforms:
+# - macOS: Uses default linker (ld64) which is already fast
+# - Windows: Uses default linker (link.exe from MSVC)
 [target.x86_64-unknown-linux-gnu]
 linker = "clang"
 rustflags = ["-C", "link-arg=-fuse-ld=lld"]

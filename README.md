@@ -36,16 +36,19 @@ A 4X game inspired by Aurora 4X and Terra Invicta with realistic orbital mechani
 # Required for running the game with graphics
 sudo apt-get install libwayland-dev libxkbcommon-dev libvulkan-dev libasound2-dev libudev-dev
 
-# Optional: Install LLD linker for much faster builds (2-5x faster linking)
-sudo apt-get install lld
+# Required for optimized build performance (LLD linker)
+# Without this, builds will fail on Linux due to .cargo/config.toml configuration
+sudo apt-get install lld clang
 ```
+
+### macOS / Windows
+No additional system requirements - uses default system linkers.
 
 ## Building and Running
 
-The project is configured with several optimizations for fast compilation:
-- **LLD linker**: 2-5x faster linking than GNU ld
-- **Parallel compilation**: Uses all CPU cores (8 jobs)
-- **Incremental compilation**: Faster rebuilds by caching unchanged code
+The project is configured with optimizations for fast compilation:
+- **LLD linker** (Linux only): 2-5x faster linking than GNU ld
+- **Parallel compilation**: Uses all available CPU cores automatically
 - **Optimized test profile**: Faster test compilation
 
 ### Debug Build
