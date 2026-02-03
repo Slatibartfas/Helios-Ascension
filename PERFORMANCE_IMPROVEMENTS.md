@@ -53,11 +53,6 @@ success-output = "never"
 ```
 
 **Impact**: Parallel test execution on all CPU cores
-default = ["windowing"]
-windowing = ["bevy/x11", "bevy/wayland"]
-```
-
-**Impact**: Flexibility for headless builds (future improvement)
 
 ## Performance Comparison
 
