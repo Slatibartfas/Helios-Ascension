@@ -13,8 +13,8 @@ use bevy::prelude::*;
 pub mod components;
 pub mod systems;
 
-pub use components::{KeplerOrbit, SpaceCoordinates};
-pub use systems::{propagate_orbits, update_render_transform, SCALING_FACTOR};
+pub use components::{KeplerOrbit, OrbitPath, SpaceCoordinates};
+pub use systems::{draw_orbit_paths, propagate_orbits, update_render_transform, SCALING_FACTOR};
 
 /// Plugin that adds astronomy systems to the Bevy app
 pub struct AstronomyPlugin;
@@ -24,6 +24,7 @@ impl Plugin for AstronomyPlugin {
         app.add_systems(Update, (
             propagate_orbits,
             update_render_transform.after(propagate_orbits),
+            draw_orbit_paths,
         ));
     }
 }

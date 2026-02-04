@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy::math::DVec3;
 
-use super::components::{KeplerOrbit, SpaceCoordinates};
+use super::components::{KeplerOrbit, OrbitPath, SpaceCoordinates};
 
 /// Scaling factor for converting astronomical units to Bevy rendering units
 /// 1 AU = 100.0 Bevy units keeps planets within reasonable camera frustum
@@ -156,6 +156,63 @@ pub fn update_render_transform(
             scaled_position.y as f32,
             scaled_position.z as f32,
         );
+    }
+}
+
+/// System that draws orbit paths using gizmos
+/// Visualizes Keplerian orbits as ellipses
+pub fn draw_orbit_paths(
+    mut gizmos: Gizmos,
+    query: Query<(&KeplerOrbit, &OrbitPath)>,
+) {
+    for (orbit, path) in query.iter() {
+        if !path.visible {
+            continue;
+        }
+
+        // Generate points along the orbit
+        let segments = path.segments;
+        let mut points = Vec::with_capacity(segments as usize + 1);
+
+        for i in 0..=segments {
+            let angle = (i as f64) * std::f64::consts::TAU / (segments as f64);
+            
+            // Calculate position at this angle (using true anomaly)
+            let radius = orbit.semi_major_axis * (1.0 - orbit.eccentricity * orbit.eccentricity)
+                / (1.0 + orbit.eccentricity * angle.cos());
+            
+            // Position in orbital plane
+            let x_orbital = radius * angle.cos();
+            let y_orbital = radius * angle.sin();
+            
+            // Apply argument of periapsis rotation
+            let cos_w = orbit.argument_of_periapsis.cos();
+            let sin_w = orbit.argument_of_periapsis.sin();
+            let x_perifocal = x_orbital * cos_w - y_orbital * sin_w;
+            let y_perifocal = x_orbital * sin_w + y_orbital * cos_w;
+            
+            // Apply inclination and longitude of ascending node
+            let cos_i = orbit.inclination.cos();
+            let sin_i = orbit.inclination.sin();
+            let cos_omega = orbit.longitude_ascending_node.cos();
+            let sin_omega = orbit.longitude_ascending_node.sin();
+            
+            let x = x_perifocal * cos_omega - y_perifocal * cos_i * sin_omega;
+            let y = x_perifocal * sin_omega + y_perifocal * cos_i * cos_omega;
+            let z = y_perifocal * sin_i;
+            
+            // Apply scaling to Bevy units
+            let scaled_x = (x * SCALING_FACTOR) as f32;
+            let scaled_y = (y * SCALING_FACTOR) as f32;
+            let scaled_z = (z * SCALING_FACTOR) as f32;
+            
+            points.push(Vec3::new(scaled_x, scaled_y, scaled_z));
+        }
+
+        // Draw the orbit as a line loop
+        for i in 0..points.len() - 1 {
+            gizmos.line(points[i], points[i + 1], path.color);
+        }
     }
 }
 

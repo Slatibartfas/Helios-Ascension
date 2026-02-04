@@ -2,8 +2,10 @@ use bevy::prelude::*;
 use bevy::window::WindowResolution;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
+pub mod astronomy;
 pub mod plugins;
 
+use astronomy::AstronomyPlugin;
 use plugins::{camera::CameraPlugin, solar_system::SolarSystemPlugin};
 
 fn main() {
@@ -20,6 +22,7 @@ fn main() {
         // Debug UI
         .add_plugins(WorldInspectorPlugin::new())
         // Game plugins
+        .add_plugins(AstronomyPlugin)
         .add_plugins(CameraPlugin)
         .add_plugins(SolarSystemPlugin)
         // Systems

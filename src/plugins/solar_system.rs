@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use std::collections::HashMap;
 
 use super::solar_system_data::{BodyType, SolarSystemData};
+use crate::astronomy::{KeplerOrbit, OrbitPath, SpaceCoordinates};
 
 pub struct SolarSystemPlugin;
 
@@ -204,6 +205,7 @@ fn setup_solar_system(
                 0.0
             };
 
+            // Add legacy OrbitalPath component (for backwards compatibility)
             commands.entity(*entity).insert(OrbitalPath {
                 parent: parent_entity,
                 semi_major_axis: orbit.semi_major_axis * AU_TO_UNITS,
@@ -212,6 +214,55 @@ fn setup_solar_system(
                 orbital_period: orbit.orbital_period,
                 current_angle: orbit.initial_angle.to_radians(),
                 angular_velocity,
+            });
+
+            // Add new high-precision astronomy components
+            // Convert orbital period in days to mean motion in radians/second
+            let mean_motion = if orbit.orbital_period > 0.0 {
+                (2.0 * std::f64::consts::PI) / (orbit.orbital_period as f64 * 86400.0)
+            } else {
+                0.0
+            };
+
+            // Create KeplerOrbit component with high-precision values
+            let kepler_orbit = KeplerOrbit::new(
+                orbit.eccentricity as f64,
+                orbit.semi_major_axis as f64, // Already in AU
+                orbit.inclination.to_radians() as f64,
+                0.0, // longitude_ascending_node - not in our data yet
+                0.0, // argument_of_periapsis - not in our data yet
+                orbit.initial_angle.to_radians() as f64, // mean_anomaly_epoch
+                mean_motion,
+            );
+
+            commands.entity(*entity).insert((
+                kepler_orbit,
+                SpaceCoordinates::default(),
+            ));
+
+            // Determine orbit color and visibility based on body type
+            let (orbit_color, should_show) = match body_data.body_type {
+                BodyType::Planet | BodyType::DwarfPlanet => {
+                    // Planets: always show, use bluish color
+                    (Color::srgba(0.3, 0.5, 0.8, 0.4), true)
+                }
+                BodyType::Moon => {
+                    // Moons: show with lower opacity, grayish color
+                    // Will be controlled by zoom level in a future update
+                    (Color::srgba(0.5, 0.5, 0.5, 0.2), true)
+                }
+                BodyType::Asteroid | BodyType::Comet => {
+                    // Asteroids/Comets: hidden by default, yellowish
+                    // Will be shown when selected
+                    (Color::srgba(0.8, 0.6, 0.2, 0.3), false)
+                }
+                _ => (Color::srgba(0.5, 0.5, 0.5, 0.3), false),
+            };
+
+            commands.entity(*entity).insert(OrbitPath {
+                color: orbit_color,
+                visible: should_show,
+                segments: 64,
             });
         }
     }

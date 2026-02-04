@@ -113,3 +113,43 @@ impl Default for KeplerOrbit {
         Self::circular(1.0, 0.0)
     }
 }
+
+/// Component that marks an entity as having a visible orbit path
+/// Used for orbit visualization
+#[derive(Component, Debug, Clone, Copy)]
+pub struct OrbitPath {
+    /// Color of the orbit line
+    pub color: Color,
+    
+    /// Whether the orbit is currently visible
+    pub visible: bool,
+    
+    /// Number of segments to use when drawing the orbit
+    pub segments: u32,
+}
+
+impl OrbitPath {
+    /// Create a new orbit path with default settings
+    pub fn new(color: Color) -> Self {
+        Self {
+            color,
+            visible: true,
+            segments: 64,
+        }
+    }
+
+    /// Create an orbit path with custom segment count
+    pub fn with_segments(color: Color, segments: u32) -> Self {
+        Self {
+            color,
+            visible: true,
+            segments,
+        }
+    }
+}
+
+impl Default for OrbitPath {
+    fn default() -> Self {
+        Self::new(Color::srgba(0.5, 0.5, 0.5, 0.3))
+    }
+}
