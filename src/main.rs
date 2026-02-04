@@ -3,14 +3,18 @@ use bevy::window::WindowResolution;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 pub mod astronomy;
+pub mod economy;
 pub mod plugins;
+pub mod ui;
 
 use astronomy::AstronomyPlugin;
+use economy::EconomyPlugin;
 use plugins::{
     camera::CameraPlugin, 
     solar_system::SolarSystemPlugin,
     visual_effects::VisualEffectsPlugin,
 };
+use ui::UIPlugin;
 
 fn main() {
     App::new()
@@ -25,11 +29,13 @@ fn main() {
         }))
         // Debug UI
         .add_plugins(WorldInspectorPlugin::new())
-        // Game plugins - CameraPlugin must be before VisualEffectsPlugin
+        // Game plugins - Order matters for dependencies
         .add_plugins(AstronomyPlugin)
         .add_plugins(CameraPlugin)
         .add_plugins(VisualEffectsPlugin)
         .add_plugins(SolarSystemPlugin)
+        .add_plugins(EconomyPlugin)
+        .add_plugins(UIPlugin)
         // Systems
         .add_systems(Startup, setup)
         .run();
