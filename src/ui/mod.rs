@@ -16,6 +16,7 @@ pub use interaction::Selection;
 use crate::astronomy::{KeplerOrbit, Selected, SpaceCoordinates};
 use crate::economy::{format_power, GlobalBudget, PlanetResources, ResourceType};
 use crate::plugins::solar_system::CelestialBody;
+use crate::plugins::solar_system_data::BodyType;
 use crate::plugins::camera::{CameraAnchor, GameCamera};
 
 /// Time scale resource for controlling simulation speed
@@ -100,6 +101,58 @@ fn apply_time_scale(
     }
 }
 
+fn render_body_row(
+    ui: &mut egui::Ui,
+    entity: Entity,
+    body: &CelestialBody,
+    selection: &mut Selection,
+    commands: &mut Commands,
+    selected_query: &Query<Entity, With<Selected>>,
+    anchor_query: &mut Query<&mut CameraAnchor, With<GameCamera>>,
+) {
+    let is_selected = selection.is_selected(entity);
+    ui.horizontal(|ui| {
+        ui.add_space(20.0);
+        if ui.small_button("⚓").on_hover_text("Anchor Camera").clicked() {
+            if let Ok(mut anchor) = anchor_query.get_single_mut() {
+                anchor.0 = Some(entity);
+            }
+        }
+        if ui.selectable_label(is_selected, &body.name).clicked() {
+             for e in selected_query.iter() { commands.entity(e).remove::<Selected>(); }
+             commands.entity(entity).insert(Selected);
+             selection.select(entity);
+        }
+    });
+}
+
+fn render_grouped_children(
+    ui: &mut egui::Ui,
+    children: &[Entity],
+    group_name: &str,
+    body_map: &std::collections::HashMap<Entity, &CelestialBody>,
+    selection: &mut Selection,
+    commands: &mut Commands,
+    selected_query: &Query<Entity, With<Selected>>,
+    anchor_query: &mut Query<&mut CameraAnchor, With<GameCamera>>,
+) {
+    if children.is_empty() { return; }
+    
+    let id = ui.make_persistent_id(group_name);
+    egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
+        .show_header(ui, |ui| {
+             ui.label(format!("{} ({})", group_name, children.len()));
+        })
+        .body(|ui| {
+            for &child_entity in children {
+                if let Some(body) = body_map.get(&child_entity) {
+                    render_body_row(ui, child_entity, body, selection, commands, selected_query, anchor_query);
+                }
+            }
+        });
+}
+
+
 fn render_body_tree(
     ui: &mut egui::Ui,
     entity: Entity,
@@ -112,8 +165,33 @@ fn render_body_tree(
 ) {
     if let Some(body) = body_map.get(&entity) {
         let is_selected = selection.is_selected(entity);
-        let has_children = hierarchy.contains_key(&entity);
         let id = ui.make_persistent_id(entity);
+        
+        // Group children by type
+        let mut child_planets = Vec::new();
+        let mut child_moons = Vec::new(); // Usually planets have moons
+        let mut child_asteroids = Vec::new();
+        let mut child_comets = Vec::new();
+        let mut child_dwarf_planets = Vec::new();
+        let mut child_others = Vec::new();
+
+        let has_children = if let Some(children) = hierarchy.get(&entity) {
+            for &child in children {
+                if let Some(child_body) = body_map.get(&child) {
+                     match child_body.body_type {
+                         BodyType::Planet => child_planets.push(child),
+                         BodyType::Moon => child_moons.push(child),
+                         BodyType::Asteroid => child_asteroids.push(child),
+                         BodyType::Comet => child_comets.push(child),
+                         BodyType::DwarfPlanet => child_dwarf_planets.push(child),
+                         _ => child_others.push(child),
+                     }
+                }
+            }
+            true
+        } else {
+            false
+        };
 
         if has_children {
              egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, body.name == "Sol")
@@ -130,26 +208,25 @@ fn render_body_tree(
                     }
                 })
                 .body(|ui| {
-                    if let Some(children) = hierarchy.get(&entity) {
-                        for child in children {
-                            render_body_tree(ui, *child, body_map, hierarchy, selection, commands, selected_query, anchor_query);
-                        }
+                     // 1. Planets (Recursive)
+                    for child in child_planets {
+                        render_body_tree(ui, child, body_map, hierarchy, selection, commands, selected_query, anchor_query);
+                    }
+                    // 2. Dwarf Planets (Grouped or Recursive if important?) Grouped.
+                    render_grouped_children(ui, &child_dwarf_planets, "Dwarf Planets", body_map, selection, commands, selected_query, anchor_query);
+                    // 3. Moons (Usually under planets, but if under Sol/others?)
+                    render_grouped_children(ui, &child_moons, "Moons", body_map, selection, commands, selected_query, anchor_query);
+                     // 4. Asteroids
+                    render_grouped_children(ui, &child_asteroids, "Asteroids", body_map, selection, commands, selected_query, anchor_query);
+                     // 5. Comets
+                    render_grouped_children(ui, &child_comets, "Comets", body_map, selection, commands, selected_query, anchor_query);
+                     // 6. Others
+                    for child in child_others {
+                        render_body_tree(ui, child, body_map, hierarchy, selection, commands, selected_query, anchor_query);
                     }
                 });
         } else {
-            ui.horizontal(|ui| {
-                ui.add_space(20.0);
-                if ui.small_button("⚓").on_hover_text("Anchor Camera").clicked() {
-                    if let Ok(mut anchor) = anchor_query.get_single_mut() {
-                        anchor.0 = Some(entity);
-                    }
-                }
-                if ui.selectable_label(is_selected, &body.name).clicked() {
-                     for e in selected_query.iter() { commands.entity(e).remove::<Selected>(); }
-                     commands.entity(entity).insert(Selected);
-                     selection.select(entity);
-                }
-            });
+             render_body_row(ui, entity, body, selection, commands, selected_query, anchor_query);
         }
     }
 }

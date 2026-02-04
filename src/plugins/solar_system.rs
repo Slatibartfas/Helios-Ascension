@@ -23,6 +23,7 @@ pub struct CelestialBody {
     pub radius: f32,
     #[allow(dead_code)]
     pub mass: f64,
+    pub body_type: BodyType,
 }
 
 #[derive(Component)]
@@ -49,9 +50,13 @@ pub struct Ring;
 #[derive(Component)]
 pub struct RotationSpeed(pub f32);
 
-// Visualization scale factors - Note: Legacy AU_TO_UNITS removed, now using astronomy module's SCALING_FACTOR
-const RADIUS_SCALE: f32 = 0.00005; // Scale down radii for visibility
-const MIN_VISUAL_RADIUS: f32 = 1.0; // Minimum visible radius
+// Visualization scale factors
+// Much larger scale for planets to be visible (10x previous)
+const RADIUS_SCALE: f32 = 0.0005; 
+// Minimum size to ensure small moons are visible
+const MIN_VISUAL_RADIUS: f32 = 2.0; 
+// Sun needs a separate, smaller scale to not engulf the inner system when planets are oversized
+const STAR_RADIUS_SCALE: f32 = 0.0001; 
 
 // Time conversion constants
 const SECONDS_PER_DAY: f64 = 86400.0; // Number of seconds in one Earth day
@@ -178,8 +183,13 @@ pub fn setup_solar_system(
 
     // First pass: Create all bodies
     for body_data in &data.bodies {
+        // Determine if this is the star (to add light)
+        let is_star = body_data.body_type == BodyType::Star;
+
         // Calculate visual radius (with minimum for visibility)
-        let visual_radius = (body_data.radius * RADIUS_SCALE).max(MIN_VISUAL_RADIUS);
+        // Use different scale for stars to avoid them being too huge compared to orbits
+        let scale_factor = if is_star { STAR_RADIUS_SCALE } else { RADIUS_SCALE };
+        let visual_radius = (body_data.radius * scale_factor).max(MIN_VISUAL_RADIUS);
 
         // Calculate rotation speed (convert from days to radians per second)
         let rotation_speed = if body_data.rotation_period != 0.0 {
@@ -233,10 +243,11 @@ pub fn setup_solar_system(
             materials.add(StandardMaterial {
                 base_color: material_color,
                 base_color_texture,
+                // Reduced emissive intensity to prevent blowout/whiteness
                 emissive: LinearRgba::from(Color::srgb(
-                    body_data.emissive.0,
-                    body_data.emissive.1,
-                    body_data.emissive.2,
+                   2.0, // Reduced from high values
+                   1.8,
+                   1.4,
                 )),
                 perceptual_roughness: 1.0, // Stars are rough/diffuse
                 metallic: 0.0,
@@ -304,6 +315,7 @@ pub fn setup_solar_system(
                 name: body_data.name.clone(),
                 radius: body_data.radius,
                 mass: body_data.mass,
+                body_type: body_data.body_type,
             },
             RotationSpeed(rotation_speed),
         ));
