@@ -41,13 +41,32 @@ impl GlobalBudget {
     }
 
     /// Add resources to the stockpile
+    /// 
+    /// # Arguments
+    /// * `resource` - The type of resource to add
+    /// * `amount` - The amount to add (must be non-negative)
+    /// 
+    /// # Panics
+    /// Panics if amount is negative
     pub fn add_resource(&mut self, resource: ResourceType, amount: f64) {
+        assert!(amount >= 0.0, "Cannot add negative resource amount: {}", amount);
         let current = self.get_stockpile(&resource);
         self.stockpiles.insert(resource, current + amount);
     }
 
     /// Remove resources from the stockpile (returns true if successful)
+    /// 
+    /// # Arguments
+    /// * `resource` - The type of resource to consume
+    /// * `amount` - The amount to consume (must be non-negative)
+    /// 
+    /// # Returns
+    /// `true` if the resource was successfully consumed, `false` if insufficient stockpile
+    /// 
+    /// # Panics
+    /// Panics if amount is negative
     pub fn consume_resource(&mut self, resource: ResourceType, amount: f64) -> bool {
+        assert!(amount >= 0.0, "Cannot consume negative resource amount: {}", amount);
         let current = self.get_stockpile(&resource);
         if current >= amount {
             self.stockpiles.insert(resource, current - amount);
@@ -139,8 +158,12 @@ impl Default for EnergyGrid {
 }
 
 /// System that updates the civilization score based on power generation
+/// Only recalculates when the GlobalBudget resource changes
 pub fn update_civilization_score(mut budget: ResMut<GlobalBudget>) {
-    budget.update_civilization_score();
+    // Only update if the budget has changed (more efficient)
+    if budget.is_changed() {
+        budget.update_civilization_score();
+    }
 }
 
 /// Format power value in human-readable units (W, kW, MW, GW, TW)
@@ -266,5 +289,19 @@ mod tests {
         budget.energy_grid.consumed = 800.0;
         
         assert!((budget.power_efficiency() - 0.8).abs() < 0.001);
+    }
+
+    #[test]
+    #[should_panic(expected = "Cannot add negative resource amount")]
+    fn test_add_resource_negative_panics() {
+        let mut budget = GlobalBudget::new();
+        budget.add_resource(ResourceType::Iron, -100.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Cannot consume negative resource amount")]
+    fn test_consume_resource_negative_panics() {
+        let mut budget = GlobalBudget::new();
+        budget.consume_resource(ResourceType::Iron, -50.0);
     }
 }

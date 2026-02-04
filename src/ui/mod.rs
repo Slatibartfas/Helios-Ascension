@@ -7,7 +7,7 @@
 //! - Time controls for simulation speed
 
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts, EguiPlugin};
+use bevy_egui::{egui, EguiContexts};
 
 pub mod interaction;
 
@@ -58,8 +58,7 @@ pub struct UIPlugin;
 impl Plugin for UIPlugin {
     fn build(&self, app: &mut App) {
         app
-            // Add egui plugin
-            .add_plugins(EguiPlugin)
+            // Note: EguiPlugin is already added by WorldInspectorPlugin in main.rs
             // Resources
             .init_resource::<Selection>()
             .init_resource::<TimeScale>()
@@ -89,12 +88,15 @@ fn sync_selection_with_astronomy(
 }
 
 /// System that applies the time scale to the game time
+/// Only updates when TimeScale resource changes for efficiency
 fn apply_time_scale(
     time_scale: Res<TimeScale>,
     mut time: ResMut<Time<Virtual>>,
 ) {
-    // Set the time dilation based on the time scale
-    time.set_relative_speed(time_scale.scale);
+    // Only update time scale when it changes
+    if time_scale.is_changed() {
+        time.set_relative_speed(time_scale.scale);
+    }
 }
 
 /// Main UI dashboard system
