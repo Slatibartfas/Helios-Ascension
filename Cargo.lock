@@ -2380,6 +2380,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy-inspector-egui",
+ "bevy_egui",
  "glam 0.28.0",
  "rand",
  "ron",
