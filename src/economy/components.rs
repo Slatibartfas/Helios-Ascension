@@ -4,6 +4,80 @@ use std::collections::HashMap;
 
 use super::types::ResourceType;
 
+/// Component that marks a star and defines its system properties
+/// Used for multi-star system support with different frost lines
+#[derive(Component, Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct StarSystem {
+    /// Frost line distance in Astronomical Units for this star
+    /// Beyond this distance, volatiles become more common
+    /// Depends on star's luminosity and temperature
+    pub frost_line_au: f64,
+    
+    /// Stellar classification (for future use: O, B, A, F, G, K, M)
+    /// Can affect resource generation parameters
+    pub spectral_class: SpectralClass,
+}
+
+impl StarSystem {
+    /// Create a Sun-like (G-type) star system with standard frost line
+    pub fn sun_like() -> Self {
+        Self {
+            frost_line_au: 2.5,
+            spectral_class: SpectralClass::G,
+        }
+    }
+    
+    /// Create a custom star system with specified frost line
+    pub fn new(frost_line_au: f64, spectral_class: SpectralClass) -> Self {
+        Self {
+            frost_line_au,
+            spectral_class,
+        }
+    }
+    
+    /// Calculate frost line based on star luminosity (for future procedural generation)
+    /// frost_line ≈ 2.7 * sqrt(L/L_sun) AU
+    pub fn from_luminosity(luminosity_solar: f64, spectral_class: SpectralClass) -> Self {
+        let frost_line_au = 2.7 * luminosity_solar.sqrt();
+        Self {
+            frost_line_au,
+            spectral_class,
+        }
+    }
+}
+
+impl Default for StarSystem {
+    fn default() -> Self {
+        Self::sun_like()
+    }
+}
+
+/// Stellar spectral classification
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SpectralClass {
+    O, // Blue, very hot, luminous
+    B, // Blue-white, hot
+    A, // White
+    F, // Yellow-white
+    G, // Yellow (Sun-like)
+    K, // Orange
+    M, // Red, cool
+}
+
+/// Component that tracks which body (usually a star) this body orbits
+/// Essential for multi-star system support
+#[derive(Component, Debug, Clone, Copy)]
+pub struct OrbitsBody {
+    /// Entity of the parent body being orbited
+    pub parent: Entity,
+}
+
+impl OrbitsBody {
+    pub fn new(parent: Entity) -> Self {
+        Self { parent }
+    }
+}
+
 /// Represents a mineral deposit on a celestial body
 /// Contains information about the quantity and ease of extraction
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -117,6 +191,33 @@ impl PlanetResources {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_star_system_sun_like() {
+        let star = StarSystem::sun_like();
+        assert_eq!(star.frost_line_au, 2.5);
+        assert_eq!(star.spectral_class, SpectralClass::G);
+    }
+
+    #[test]
+    fn test_star_system_from_luminosity() {
+        // Red dwarf (M-type) with 0.04 solar luminosity
+        let m_star = StarSystem::from_luminosity(0.04, SpectralClass::M);
+        // frost_line ≈ 2.7 * sqrt(0.04) ≈ 0.54 AU
+        assert!(m_star.frost_line_au > 0.5 && m_star.frost_line_au < 0.6);
+        
+        // Blue giant (A-type) with 40 solar luminosity
+        let a_star = StarSystem::from_luminosity(40.0, SpectralClass::A);
+        // frost_line ≈ 2.7 * sqrt(40) ≈ 17 AU
+        assert!(a_star.frost_line_au > 16.0 && a_star.frost_line_au < 18.0);
+    }
+
+    #[test]
+    fn test_orbits_body() {
+        let parent_entity = Entity::from_raw(42);
+        let orbits = OrbitsBody::new(parent_entity);
+        assert_eq!(orbits.parent, parent_entity);
+    }
 
     #[test]
     fn test_mineral_deposit_creation() {

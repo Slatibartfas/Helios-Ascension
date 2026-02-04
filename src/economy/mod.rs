@@ -15,7 +15,7 @@ pub mod generation;
 pub mod types;
 
 pub use budget::{format_power, update_civilization_score, EnergyGrid, GlobalBudget};
-pub use components::{MineralDeposit, PlanetResources};
+pub use components::{MineralDeposit, OrbitsBody, PlanetResources, SpectralClass, StarSystem};
 pub use generation::generate_solar_system_resources;
 pub use types::ResourceType;
 
