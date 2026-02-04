@@ -9,6 +9,20 @@ pub enum BodyType {
     Moon,
     Asteroid,
     Comet,
+    Ring,
+}
+
+/// Spectral/compositional class for asteroids
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum AsteroidClass {
+    /// Carbonaceous (dark, carbon-rich) - ~75% of asteroids
+    CType,
+    /// Silicaceous (stony) - ~17% of asteroids
+    SType,
+    /// Metallic (metal-rich) - ~8% of asteroids
+    MType,
+    /// Unknown/other types
+    Unknown,
 }
 
 /// Orbital parameters for a celestial body
@@ -32,6 +46,25 @@ pub struct OrbitData {
     pub initial_angle: f32,
 }
 
+/// Multi-layer texture configuration for advanced rendering
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MultiLayerTextures {
+    /// Base color/albedo texture (day side for planets)
+    pub base: String,
+    /// Night-side emissive texture (city lights, etc.)
+    #[serde(default)]
+    pub night: Option<String>,
+    /// Cloud/atmosphere layer texture
+    #[serde(default)]
+    pub clouds: Option<String>,
+    /// Normal/bump map for surface detail
+    #[serde(default)]
+    pub normal: Option<String>,
+    /// Specular/glossiness map (shininess variation)
+    #[serde(default)]
+    pub specular: Option<String>,
+}
+
 /// Complete data for a celestial body
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CelestialBodyData {
@@ -53,6 +86,15 @@ pub struct CelestialBodyData {
     pub orbit: Option<OrbitData>,
     /// Rotation period in Earth days (negative for retrograde)
     pub rotation_period: f32,
+    /// Optional texture path (relative to assets directory)
+    #[serde(default)]
+    pub texture: Option<String>,
+    /// Multi-layer texture configuration (replaces single texture if present)
+    #[serde(default)]
+    pub multi_layer_textures: Option<MultiLayerTextures>,
+    /// Asteroid spectral class (for procedural texture selection)
+    #[serde(default)]
+    pub asteroid_class: Option<AsteroidClass>,
 }
 
 /// Complete solar system data

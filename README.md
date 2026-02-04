@@ -113,9 +113,61 @@ The game uses a modular plugin architecture built on Bevy's ECS (Entity Componen
 - **Right Mouse Button + Drag**: Rotate camera
 - **Mouse Wheel**: Zoom in/out
 
+## Modding Support
+
+Helios Ascension supports **easy texture and body modding**:
+
+- ✅ **Replace any texture**: Add custom textures that automatically override defaults
+- ✅ **Add new bodies**: Create custom moons, planets, asteroids, or entire solar systems
+- ✅ **Texture packs**: Create complete texture replacement packs
+- ✅ **Procedural fallback**: Bodies without textures get appropriate generic textures with variations
+
+**The system prioritizes dedicated textures** - just add your texture path to the RON file and it works!
+
+📖 **See [MODDING_GUIDE.md](MODDING_GUIDE.md)** for complete modding documentation and examples.
+
+### Quick Example: Replace Mars Texture
+
+1. Add your texture: `assets/textures/celestial/planets/mars_custom_8k.jpg`
+2. Edit `assets/data/solar_system.ron`:
+```ron
+(
+    name: "Mars",
+    // ... other fields ...
+    texture: Some("textures/celestial/planets/mars_custom_8k.jpg"),  // Your texture!
+)
+```
+3. Restart the game - done!
+
 ## Development
 
 The project uses Bevy's development profile optimizations to provide fast compile times while maintaining good runtime performance. The inspector UI is enabled by default for debugging purposes.
+
+## Planetary Textures Attribution
+
+This game uses high-resolution (8K) planetary textures provided by Solar System Scope:
+
+**Textures provided by Solar System Scope**  
+https://www.solarsystemscope.com/  
+License: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)  
+Resolution: Up to 8K (8192x4096 pixels) for major celestial bodies
+
+These textures are based on NASA public domain mission data from:
+- Mercury: NASA Messenger mission
+- Venus: NASA Magellan mission
+- Earth: NASA Blue Marble project
+- Mars: NASA Viking/MGS missions
+- Jupiter: NASA Cassini/Juno missions
+- Saturn: NASA Cassini mission
+- Moon: NASA Lunar Reconnaissance Orbiter
+- Other bodies: Various NASA missions
+
+**Note**: The original NASA data is public domain and available at lower resolutions (2K-4K) from:
+- NASA 3D Resources: https://science.nasa.gov/3d-resources/
+- NASA Image Library: https://images.nasa.gov/
+- NASA GitHub: https://github.com/nasa/NASA-3D-Resources
+
+We chose to use Solar System Scope's convenient 8K packages for superior visual quality, which requires the CC BY 4.0 attribution above.
 
 ## License
 
