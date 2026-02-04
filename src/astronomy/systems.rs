@@ -173,10 +173,13 @@ pub fn draw_orbit_paths(
         // Generate points along the orbit by sampling mean anomaly uniformly
         let segments = path.segments;
         let mut points = Vec::with_capacity(segments as usize + 1);
+        
+        // Pre-calculate step size for mean anomaly sampling
+        let mean_anomaly_step = std::f64::consts::TAU / (segments as f64);
 
         for i in 0..=segments {
             // Uniformly sample mean anomaly (which represents time)
-            let mean_anomaly = (i as f64) * std::f64::consts::TAU / (segments as f64);
+            let mean_anomaly = (i as f64) * mean_anomaly_step;
             
             // Solve for eccentric anomaly
             let eccentric_anomaly = solve_kepler(mean_anomaly, orbit.eccentricity);
