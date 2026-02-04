@@ -69,9 +69,7 @@ fn eccentric_to_true_anomaly(eccentric_anomaly: f64, eccentricity: f64) -> f64 {
 
     // Calculate true anomaly using the formula
     let sqrt_term = ((1.0 + eccentricity) / (1.0 - eccentricity)).sqrt();
-    let true_anomaly = 2.0 * (sqrt_term * (eccentric_anomaly / 2.0).tan()).atan();
-    
-    true_anomaly
+    2.0 * (sqrt_term * (eccentric_anomaly / 2.0).tan()).atan()
 }
 
 /// Calculate the orbital radius at a given true anomaly

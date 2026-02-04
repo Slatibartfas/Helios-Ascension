@@ -84,7 +84,7 @@ impl SolarSystemData {
     pub fn get_children(&self, parent_name: &str) -> Vec<&CelestialBodyData> {
         self.bodies
             .iter()
-            .filter(|b| b.parent.as_ref().map(|p| p.as_str()) == Some(parent_name))
+            .filter(|b| b.parent.as_deref() == Some(parent_name))
             .collect()
     }
 }
