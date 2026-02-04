@@ -189,8 +189,9 @@ fn setup_solar_system(
         // Check for multi-layer textures first, then single texture, then generic
         let (base_color_texture, normal_map_texture, has_dedicated_texture) = 
             if let Some(ref multi) = body_data.multi_layer_textures {
-                // Multi-layer textures - use base texture for now
+                // Multi-layer textures - use base texture and normal map for now
                 // TODO: Implement full multi-layer rendering with night/clouds/specular
+                //       See assets/textures/MULTI_LAYER_TEXTURES.md for implementation roadmap
                 let base_tex = Some(asset_server.load::<Image>(multi.base.clone()));
                 let normal_tex = multi.normal.as_ref().map(|path| asset_server.load::<Image>(path.clone()));
                 (base_tex, normal_tex, true)
