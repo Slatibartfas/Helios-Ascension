@@ -105,7 +105,7 @@ fn setup_solar_system(
         // Determine if this is the star (to add light)
         let is_star = body_data.body_type == BodyType::Star;
 
-        // Create material
+        // Create material with improved visual properties
         let material = if is_star {
             materials.add(StandardMaterial {
                 base_color: Color::srgb(body_data.color.0, body_data.color.1, body_data.color.2),
@@ -114,11 +114,16 @@ fn setup_solar_system(
                     body_data.emissive.1,
                     body_data.emissive.2,
                 )),
+                perceptual_roughness: 1.0, // Stars are rough/diffuse
+                metallic: 0.0,
                 ..default()
             })
         } else {
             materials.add(StandardMaterial {
                 base_color: Color::srgb(body_data.color.0, body_data.color.1, body_data.color.2),
+                perceptual_roughness: 0.8, // Slightly rough for planets
+                metallic: 0.1, // Slight metallic for better lighting
+                reflectance: 0.3, // Some reflectance for rim lighting
                 ..default()
             })
         };
@@ -244,20 +249,19 @@ fn setup_solar_system(
             ));
 
             // Determine orbit color and visibility based on body type
+            // Using Terra Invicta-inspired colors: clear, functional, high contrast
             let (orbit_color, should_show) = match body_data.body_type {
                 BodyType::Planet | BodyType::DwarfPlanet => {
-                    // Planets: always show, use bluish color
-                    (Color::srgba(0.3, 0.5, 0.8, 0.4), true)
+                    // Planets: bright cyan/blue for high visibility (Terra Invicta style)
+                    (Color::srgba(0.4, 0.7, 1.0, 0.6), true)
                 }
                 BodyType::Moon => {
-                    // Moons: show with lower opacity, grayish color
-                    // Will be controlled by zoom level in a future update
-                    (Color::srgba(0.5, 0.5, 0.5, 0.2), true)
+                    // Moons: softer green-cyan, lower opacity
+                    (Color::srgba(0.3, 0.8, 0.7, 0.35), true)
                 }
                 BodyType::Asteroid | BodyType::Comet => {
-                    // Asteroids/Comets: hidden by default, yellowish
-                    // Will be shown when selected
-                    (Color::srgba(0.8, 0.6, 0.2, 0.3), false)
+                    // Asteroids/Comets: amber/yellow when selected
+                    (Color::srgba(1.0, 0.7, 0.2, 0.5), false)
                 }
                 _ => (Color::srgba(0.5, 0.5, 0.5, 0.3), false),
             };
@@ -265,7 +269,7 @@ fn setup_solar_system(
             commands.entity(*entity).insert(OrbitPath {
                 color: orbit_color,
                 visible: should_show,
-                segments: 64,
+                segments: 96, // Smoother orbit lines (increased from 64)
             });
         }
     }
