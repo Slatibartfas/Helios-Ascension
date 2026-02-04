@@ -166,7 +166,11 @@ Apply the [performance standards](./.github/instructions/performance.instruction
 
 Apply the [documentation standards](./.github/instructions/documentation.instructions.md).
 
-- Document all public APIs
+- **Cleanliness**: Maintain a clean project root. Move detailed docs to `docs/`, `docs/design/`, or `docs/archive/`.
+- **Maintenance**: Prefer updating existing documents over creating new ones. Consolidate related information.
+- **Synchronization**: Ensure every code change is reflected in the relevant documentation immediately.
+- **Review**: Regularly scan detailed documentation (`docs/`) to ensure it matches the current codebase state.
+- Document all public APIs with `///` doc comments
 - Include examples in doc comments
 - Keep README.md up to date
 - Update ARCHITECTURE.md for significant changes

@@ -16,6 +16,7 @@ pub use interaction::Selection;
 use crate::astronomy::{KeplerOrbit, Selected, SpaceCoordinates};
 use crate::economy::{format_power, GlobalBudget, PlanetResources, ResourceType};
 use crate::plugins::solar_system::CelestialBody;
+use crate::plugins::camera::{CameraAnchor, GameCamera};
 
 /// Time scale resource for controlling simulation speed
 #[derive(Resource, Debug, Clone)]
@@ -99,16 +100,113 @@ fn apply_time_scale(
     }
 }
 
+fn render_body_tree(
+    ui: &mut egui::Ui,
+    entity: Entity,
+    body_map: &std::collections::HashMap<Entity, &CelestialBody>,
+    hierarchy: &std::collections::HashMap<Entity, Vec<Entity>>,
+    selection: &mut Selection,
+    commands: &mut Commands,
+    selected_query: &Query<Entity, With<Selected>>,
+    anchor_query: &mut Query<&mut CameraAnchor, With<GameCamera>>,
+) {
+    if let Some(body) = body_map.get(&entity) {
+        let is_selected = selection.is_selected(entity);
+        let has_children = hierarchy.contains_key(&entity);
+        let id = ui.make_persistent_id(entity);
+
+        if has_children {
+             egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, body.name == "Sol")
+                .show_header(ui, |ui| {
+                    if ui.small_button("⚓").on_hover_text("Anchor Camera").clicked() {
+                        if let Ok(mut anchor) = anchor_query.get_single_mut() {
+                            anchor.0 = Some(entity);
+                        }
+                    }
+                    if ui.selectable_label(is_selected, &body.name).clicked() {
+                         for e in selected_query.iter() { commands.entity(e).remove::<Selected>(); }
+                         commands.entity(entity).insert(Selected);
+                         selection.select(entity);
+                    }
+                })
+                .body(|ui| {
+                    if let Some(children) = hierarchy.get(&entity) {
+                        for child in children {
+                            render_body_tree(ui, *child, body_map, hierarchy, selection, commands, selected_query, anchor_query);
+                        }
+                    }
+                });
+        } else {
+            ui.horizontal(|ui| {
+                ui.add_space(20.0);
+                if ui.small_button("⚓").on_hover_text("Anchor Camera").clicked() {
+                    if let Ok(mut anchor) = anchor_query.get_single_mut() {
+                        anchor.0 = Some(entity);
+                    }
+                }
+                if ui.selectable_label(is_selected, &body.name).clicked() {
+                     for e in selected_query.iter() { commands.entity(e).remove::<Selected>(); }
+                     commands.entity(entity).insert(Selected);
+                     selection.select(entity);
+                }
+            });
+        }
+    }
+}
+
 /// Main UI dashboard system
 fn ui_dashboard(
+    mut commands: Commands,
     mut contexts: EguiContexts,
     budget: Res<GlobalBudget>,
     mut time_scale: ResMut<TimeScale>,
-    selection: Res<Selection>,
+    mut selection: ResMut<Selection>,
     // Query for selected body information
     body_query: Query<(&CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>, Option<&PlanetResources>)>,
+    // Ledger queries
+    all_bodies_query: Query<(Entity, &CelestialBody, Option<&Parent>)>,
+    selected_query: Query<Entity, With<Selected>>,
+    mut anchor_query: Query<&mut CameraAnchor, With<GameCamera>>,
 ) {
-    let ctx = contexts.ctx_mut();
+    let ctx = match contexts.try_ctx_mut() {
+        Some(ctx) => ctx,
+        None => return,
+    };
+
+    // Ledger Panel (Left)
+    egui::SidePanel::left("ledger_panel")
+        .min_width(200.0)
+        .show(ctx, |ui| {
+            ui.heading("Celestial Objects");
+            ui.separator();
+            
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                let mut hierarchy: std::collections::HashMap<Entity, Vec<Entity>> = std::collections::HashMap::new();
+                let mut roots: Vec<Entity> = Vec::new();
+                let mut body_map: std::collections::HashMap<Entity, &CelestialBody> = std::collections::HashMap::new();
+
+                for (entity, body, parent) in all_bodies_query.iter() {
+                    body_map.insert(entity, body);
+                    if let Some(parent) = parent {
+                        hierarchy.entry(parent.get()).or_default().push(entity);
+                    } else {
+                        roots.push(entity);
+                    }
+                }
+                
+                 roots.sort_by(|a, b| {
+                     let name_a = &body_map.get(a).unwrap().name;
+                     let name_b = &body_map.get(b).unwrap().name;
+                     if name_a == "Sol" { return std::cmp::Ordering::Less; }
+                     if name_b == "Sol" { return std::cmp::Ordering::Greater; }
+                     name_a.cmp(name_b)
+                 });
+
+                for root in roots {
+                    render_body_tree(ui, root, &body_map, &hierarchy, &mut selection, &mut commands, &selected_query, &mut anchor_query);
+                }
+            });
+        });
 
     // Top header panel with critical resources and power
     egui::TopBottomPanel::top("header_panel")

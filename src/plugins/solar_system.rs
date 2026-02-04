@@ -3,12 +3,14 @@ use std::collections::HashMap;
 
 use super::solar_system_data::{AsteroidClass, BodyType, SolarSystemData};
 use crate::astronomy::{KeplerOrbit, OrbitPath, SpaceCoordinates};
+use crate::plugins::camera::{CameraAnchor, GameCamera};
 
 pub struct SolarSystemPlugin;
 
 impl Plugin for SolarSystemPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup_solar_system)
+            .add_systems(PostStartup, initial_camera_focus)
             .add_systems(Update, rotate_bodies);
     }
 }
@@ -48,8 +50,8 @@ pub struct Ring;
 pub struct RotationSpeed(pub f32);
 
 // Visualization scale factors - Note: Legacy AU_TO_UNITS removed, now using astronomy module's SCALING_FACTOR
-const RADIUS_SCALE: f32 = 0.0001; // Scale down radii for visibility
-const MIN_VISUAL_RADIUS: f32 = 0.3; // Minimum visible radius
+const RADIUS_SCALE: f32 = 0.00005; // Scale down radii for visibility
+const MIN_VISUAL_RADIUS: f32 = 1.0; // Minimum visible radius
 
 // Time conversion constants
 const SECONDS_PER_DAY: f64 = 86400.0; // Number of seconds in one Earth day
@@ -154,7 +156,7 @@ fn apply_procedural_variation(
     (color_variation, roughness_var, metallic_var)
 }
 
-fn setup_solar_system(
+pub fn setup_solar_system(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -334,17 +336,12 @@ fn setup_solar_system(
         let entity = entity_commands.id();
         entity_map.insert(body_data.name.clone(), entity);
         
-        // Handle parenting for Rings (and potentially others if we move to full hierarchy)
-        if body_data.body_type == BodyType::Ring {
-            if let Some(parent_name) = &body_data.parent {
-                if let Some(parent_entity) = entity_map.get(parent_name) {
-                    commands.entity(entity).set_parent(*parent_entity);
-                    // Ensure local transform is zero if parenting handled position
-                    // But wait, initial_pos was set to ZERO if no orbit.
-                    // So just setting parent is enough.
-                } else {
-                    warn!("Parent {} not found for ring {}", parent_name, body_data.name);
-                }
+        // Handle parenting for all bodies with a parent (enables relative positioning)
+        if let Some(parent_name) = &body_data.parent {
+            if let Some(parent_entity) = entity_map.get(parent_name) {
+                commands.entity(entity).set_parent(*parent_entity);
+            } else {
+                warn!("Parent {} not found for body {}", parent_name, body_data.name);
             }
         }
 
@@ -394,9 +391,13 @@ fn setup_solar_system(
             // Determine orbit color and visibility based on body type
             // Using Terra Invicta-inspired colors: clear, functional, high contrast
             let (orbit_color, should_show) = match body_data.body_type {
-                BodyType::Planet | BodyType::DwarfPlanet => {
+                BodyType::Planet => {
                     // Planets: bright cyan/blue for high visibility (Terra Invicta style)
                     (Color::srgba(0.4, 0.7, 1.0, 0.6), true)
+                }
+                BodyType::DwarfPlanet => {
+                    // Dwarf Planets: dimmer blue, hidden by default to reduce clutter
+                     (Color::srgba(0.3, 0.5, 0.8, 0.4), false)
                 }
                 BodyType::Moon => {
                     // Moons: softer green-cyan, lower opacity
@@ -424,5 +425,23 @@ fn setup_solar_system(
 fn rotate_bodies(time: Res<Time>, mut query: Query<(&mut Transform, &RotationSpeed)>) {
     for (mut transform, rotation_speed) in query.iter_mut() {
         transform.rotate_y(rotation_speed.0 * time.delta_seconds() * 1000.0);
+    }
+}
+
+// Sets the initial camera focus to the Sun
+fn initial_camera_focus(
+    query_bodies: Query<(Entity, &CelestialBody), With<Star>>,
+    mut query_camera: Query<&mut CameraAnchor, With<GameCamera>>,
+) {
+    // Find Sol
+    let sol_entity = query_bodies.iter().find(|(_, body)| body.name == "Sol").map(|(e, _)| e);
+    
+    if let Some(sol) = sol_entity {
+        if let Ok(mut anchor) = query_camera.get_single_mut() {
+            if anchor.0.is_none() {
+                info!("Setting initial camera focus to Sol");
+                anchor.0 = Some(sol);
+            }
+        }
     }
 }

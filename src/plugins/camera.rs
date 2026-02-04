@@ -6,90 +6,106 @@ pub struct CameraPlugin;
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, spawn_camera)
-            .add_systems(Update, (camera_movement, camera_zoom));
+            .add_systems(Update, (orbit_camera_controls, update_camera_transform));
     }
 }
 
 #[derive(Component)]
-pub struct GameCamera {
-    pub speed: f32,
-    pub zoom_speed: f32,
+pub struct GameCamera;
+
+#[derive(Component)]
+pub struct CameraAnchor(pub Option<Entity>);
+
+#[derive(Component)]
+pub struct OrbitCamera {
+    pub radius: f32,
+    pub pitch: f32,
+    pub yaw: f32,
+    pub min_radius: f32,
+    pub max_radius: f32,
+    pub zoom_sensitivity: f32,
+    pub rotate_sensitivity: f32,
+    pub target_center: Vec3,
+}
+
+impl Default for OrbitCamera {
+    fn default() -> Self {
+        Self {
+            radius: 2000.0,
+            pitch: 0.5,
+            yaw: 0.0,
+            min_radius: 5.0,
+            max_radius: 50000.0,
+            zoom_sensitivity: 100.0,
+            rotate_sensitivity: 0.003,
+            target_center: Vec3::ZERO,
+        }
+    }
 }
 
 fn spawn_camera(mut commands: Commands) {
     commands.spawn((
         Camera3dBundle {
-            transform: Transform::from_xyz(0.0, 50.0, 100.0).looking_at(Vec3::ZERO, Vec3::Y),
+            transform: Transform::from_xyz(0.0, 1000.0, 2000.0).looking_at(Vec3::ZERO, Vec3::Y),
+            projection: Projection::Perspective(PerspectiveProjection {
+                far: 100000.0,
+                ..default()
+            }),
             ..default()
         },
-        GameCamera {
-            speed: 50.0,
-            zoom_speed: 10.0,
-        },
+        GameCamera,
+        CameraAnchor(None),
+        OrbitCamera::default(),
     ));
 }
 
-fn camera_movement(
-    keyboard: Res<ButtonInput<KeyCode>>,
+fn orbit_camera_controls(
     mouse: Res<ButtonInput<MouseButton>>,
     mut motion_events: EventReader<MouseMotion>,
-    time: Res<Time>,
-    mut query: Query<(&mut Transform, &GameCamera)>,
+    mut scroll_events: EventReader<MouseWheel>,
+    mut query: Query<&mut OrbitCamera>,
 ) {
-    let (mut transform, camera) = query.single_mut();
+    let mut camera = query.single_mut();
 
-    // WASD movement
-    let mut direction = Vec3::ZERO;
-    if keyboard.pressed(KeyCode::KeyW) {
-        direction -= *transform.forward();
-    }
-    if keyboard.pressed(KeyCode::KeyS) {
-        direction += *transform.forward();
-    }
-    if keyboard.pressed(KeyCode::KeyA) {
-        direction -= *transform.right();
-    }
-    if keyboard.pressed(KeyCode::KeyD) {
-        direction += *transform.right();
-    }
-    if keyboard.pressed(KeyCode::KeyQ) {
-        direction.y -= 1.0;
-    }
-    if keyboard.pressed(KeyCode::KeyE) {
-        direction.y += 1.0;
-    }
-
-    if direction.length() > 0.0 {
-        transform.translation += direction.normalize() * camera.speed * time.delta_seconds();
-    }
-
-    // Mouse look when right button is held
+    // Mouse rotation when right button is held
     if mouse.pressed(MouseButton::Right) {
         for event in motion_events.read() {
-            let delta_x = event.delta.x * 0.003;
-            let delta_y = event.delta.y * 0.003;
-
-            // Rotate around Y axis for horizontal movement
-            transform.rotate_y(-delta_x);
-
-            // Rotate around local X axis for vertical movement
-            let right = transform.right();
-            transform.rotate_axis(right, -delta_y);
+            camera.yaw -= event.delta.x * camera.rotate_sensitivity;
+            camera.pitch -= event.delta.y * camera.rotate_sensitivity;
+            
+            // Clamp pitch to avoid gimbal lock or going under
+            camera.pitch = camera.pitch.clamp(-1.5, 1.5);
         }
     } else {
-        // Clear events if not using them
         motion_events.clear();
+    }
+
+    // Zoom
+    for event in scroll_events.read() {
+        let zoom_amount = event.y * camera.zoom_sensitivity * (camera.radius / 1000.0).max(0.1);
+        camera.radius -= zoom_amount;
+        camera.radius = camera.radius.clamp(camera.min_radius, camera.max_radius);
     }
 }
 
-fn camera_zoom(
-    mut scroll_events: EventReader<MouseWheel>,
-    mut query: Query<(&mut Transform, &GameCamera)>,
+fn update_camera_transform(
+    mut camera_query: Query<(&mut Transform, &mut OrbitCamera, &CameraAnchor)>,
+    target_query: Query<&GlobalTransform, Without<GameCamera>>,
 ) {
-    let (mut transform, camera) = query.single_mut();
+    let (mut transform, mut orbit, anchor) = camera_query.single_mut();
 
-    for event in scroll_events.read() {
-        let forward = *transform.forward();
-        transform.translation += forward * event.y * camera.zoom_speed;
+    // Update target center if anchored
+    if let Some(entity) = anchor.0 {
+        if let Ok(target_transform) = target_query.get(entity) {
+            orbit.target_center = target_transform.translation();
+        }
     }
+
+    // Calculate camera position
+    let rot = Quat::from_axis_angle(Vec3::Y, orbit.yaw) * Quat::from_axis_angle(Vec3::X, orbit.pitch);
+    let offset = rot * Vec3::Z * orbit.radius;
+    let position = orbit.target_center + offset;
+
+    transform.translation = position;
+    transform.look_at(orbit.target_center, Vec3::Y);
 }

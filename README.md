@@ -124,7 +124,7 @@ Helios Ascension supports **easy texture and body modding**:
 
 **The system prioritizes dedicated textures** - just add your texture path to the RON file and it works!
 
-📖 **See [MODDING_GUIDE.md](MODDING_GUIDE.md)** for complete modding documentation and examples.
+📖 **See [docs/MODDING_GUIDE.md](docs/MODDING_GUIDE.md)** for complete modding documentation and examples.
 
 ### Quick Example: Replace Mars Texture
 

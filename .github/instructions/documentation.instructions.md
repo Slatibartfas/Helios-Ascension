@@ -58,6 +58,20 @@ Use code blocks in doc comments:
 - Explain plugin interactions
 - Document data flow and system ordering
 
+## Documentation Maintenance & Organization
+
+### Organization
+- **Project Root**: Keep the root directory clean. Only essential files (`README.md`, `CONTRIBUTING.md`, `LICENSE`, etc.) should be in the root.
+- **docs/**: Place user guides and high-level documentation here.
+- **docs/design/**: Place architectural decisions, system designs, and data specifications here.
+- **docs/archive/**: Move outdated summaries, logs, or superseded designs here. Do not delete them unless they are completely irrelevant.
+
+### Maintenance Rules
+- **Update vs. Create**: Before creating a new document, check if an existing one can be updated or extended. Avoid fragmenting information across many small files.
+- **Continuous Updates**: When code functionality changes, update the corresponding documentation immediately. Do not treat documentation as an afterthought.
+- **Regular Audits**: Periodically review the `docs/` folder to ensure information is current.
+- **Consolidation**: If multiple documents cover similar topics, merge them into a single comprehensive guide.
+
 ## Markdown Documentation
 
 - Use proper headings hierarchy (# ## ### ####)

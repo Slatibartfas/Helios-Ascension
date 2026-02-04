@@ -4,12 +4,11 @@ use bevy::window::PrimaryWindow;
 
 use super::components::{KeplerOrbit, OrbitPath, Selected, SpaceCoordinates};
 use crate::plugins::solar_system::{CelestialBody, Moon};
-use crate::plugins::camera::GameCamera;
+use crate::plugins::camera::{CameraAnchor, GameCamera};
 
 /// Scaling factor for converting astronomical units to Bevy rendering units
-/// 1 AU = 50.0 Bevy units keeps planets within reasonable camera frustum
-/// This matches the legacy system's AU_TO_UNITS value for consistency
-pub const SCALING_FACTOR: f64 = 50.0;
+/// 1 AU = 1500.0 Bevy units ensures separation between planets and moons
+pub const SCALING_FACTOR: f64 = 1500.0;
 
 /// Distance threshold for showing moon orbits (in Bevy units)
 /// Moon orbits only visible when camera is closer than this distance
@@ -262,14 +261,23 @@ pub fn update_orbit_visibility_by_zoom(
     }
 }
 
+#[derive(Default)]
+pub struct SelectionState {
+    pub last_click_time: f64,
+    pub last_clicked_entity: Option<Entity>,
+}
+
 /// System that handles celestial body selection via mouse clicks
 pub fn handle_body_selection(
     mouse_button: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     camera_query: Query<(&Camera, &GlobalTransform), With<GameCamera>>,
-    body_query: Query<(Entity, &Transform, &CelestialBody)>,
+    body_query: Query<(Entity, &GlobalTransform, &CelestialBody)>,
     mut commands: Commands,
     selected_query: Query<Entity, With<Selected>>,
+    mut anchor_query: Query<&mut CameraAnchor, With<GameCamera>>,
+    time: Res<Time>,
+    mut selection_state: Local<SelectionState>,
 ) {
     // Only process on mouse click
     if !mouse_button.just_pressed(MouseButton::Left) {
@@ -299,7 +307,7 @@ pub fn handle_body_selection(
     let mut closest_body: Option<(Entity, f32, String)> = None;
     
     for (entity, transform, body) in body_query.iter() {
-        let body_pos = transform.translation;
+        let body_pos = transform.translation();
         
         // Calculate distance from ray to body center
         let to_body = body_pos - ray.origin;
@@ -334,6 +342,20 @@ pub fn handle_body_selection(
     if let Some((entity, _, name)) = closest_body {
         commands.entity(entity).insert(Selected);
         info!("Selected celestial body: {} (entity {:?})", name, entity);
+        
+        let current_time = time.elapsed_seconds_f64();
+        if let Some(last_entity) = selection_state.last_clicked_entity {
+             if last_entity == entity && (current_time - selection_state.last_click_time) < 0.5 {
+                 info!("Double click on {}, setting anchor.", name);
+                 if let Ok(mut anchor) = anchor_query.get_single_mut() {
+                     anchor.0 = Some(entity);
+                 }
+             }
+        }
+        selection_state.last_click_time = current_time;
+        selection_state.last_clicked_entity = Some(entity);
+    } else {
+        selection_state.last_clicked_entity = None;
     }
 }
 
