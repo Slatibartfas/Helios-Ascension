@@ -102,8 +102,9 @@ fn orbital_radius(semi_major_axis: f64, eccentricity: f64, true_anomaly: f64) ->
 
 /// System that propagates all orbits based on Keplerian mechanics
 /// Updates SpaceCoordinates based on KeplerOrbit elements and elapsed time
+/// Uses virtual time to allow time scaling via UI controls
 pub fn propagate_orbits(
-    time: Res<Time>,
+    time: Res<Time<Virtual>>,
     mut query: Query<(&KeplerOrbit, &mut SpaceCoordinates)>,
 ) {
     // Get elapsed time in seconds since game start
@@ -425,7 +426,7 @@ mod tests {
     fn test_propagate_orbits_system() {
         // Create a test app
         let mut app = App::new();
-        app.init_resource::<Time>();
+        app.init_resource::<Time<Virtual>>();
         app.add_systems(Update, propagate_orbits);
 
         // Spawn an entity with circular orbit

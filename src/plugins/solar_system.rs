@@ -51,7 +51,7 @@ const MIN_VISUAL_RADIUS: f32 = 0.3; // Minimum visible radius
 // Time conversion constants
 const SECONDS_PER_DAY: f64 = 86400.0; // Number of seconds in one Earth day
 
-fn setup_solar_system(
+pub fn setup_solar_system(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
