@@ -11,6 +11,19 @@ pub enum BodyType {
     Comet,
 }
 
+/// Spectral/compositional class for asteroids
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum AsteroidClass {
+    /// Carbonaceous (dark, carbon-rich) - ~75% of asteroids
+    CType,
+    /// Silicaceous (stony) - ~17% of asteroids
+    SType,
+    /// Metallic (metal-rich) - ~8% of asteroids
+    MType,
+    /// Unknown/other types
+    Unknown,
+}
+
 /// Orbital parameters for a celestial body
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrbitData {
@@ -56,6 +69,15 @@ pub struct CelestialBodyData {
     /// Optional texture path (relative to assets directory)
     #[serde(default)]
     pub texture: Option<String>,
+    /// Asteroid spectral class (for procedural texture selection)
+    #[serde(default)]
+    pub asteroid_class: Option<AsteroidClass>,
+}
+
+impl Default for AsteroidClass {
+    fn default() -> Self {
+        AsteroidClass::CType // Most common type
+    }
 }
 
 /// Complete solar system data

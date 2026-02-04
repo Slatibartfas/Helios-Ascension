@@ -141,6 +141,7 @@
                 initial_angle: 0.0,
             )),
             rotation_period: 0.31891023,
+            texture: Some("textures/celestial/moons/phobos_2k.jpg"),
         ),
         
         // Deimos
@@ -160,6 +161,7 @@
                 initial_angle: 180.0,
             )),
             rotation_period: 1.263,
+            texture: Some("textures/celestial/moons/deimos_2k.jpg"),
         ),
         
         // Jupiter
@@ -398,6 +400,7 @@
                 initial_angle: 0.0,
             )),
             rotation_period: 5.876854,
+            texture: Some("textures/celestial/moons/triton_2k.jpg"),
         ),
         
         // DWARF PLANETS & KUIPER BELT OBJECTS
@@ -518,6 +521,7 @@
                 initial_angle: 0.0,
             )),
             rotation_period: 0.3781,
+            asteroid_class: Some(CType),
             texture: Some("textures/celestial/planets/ceres_2k.jpg"),
         ),
         
@@ -538,6 +542,8 @@
                 initial_angle: 30.0,
             )),
             rotation_period: 0.2226,
+            asteroid_class: Some(SType),
+            texture: Some("textures/celestial/asteroids/vesta_2k.jpg"),
         ),
         
         // Pallas
@@ -557,6 +563,7 @@
                 initial_angle: 60.0,
             )),
             rotation_period: 0.326,
+            asteroid_class: Some(CType),
         ),
         
         // Hygiea
@@ -576,6 +583,7 @@
                 initial_angle: 90.0,
             )),
             rotation_period: 1.151,
+            asteroid_class: Some(CType),
         ),
         
         // Interamnia
@@ -1697,6 +1705,7 @@
                 initial_angle: 0,
             )),
             rotation_period: 0.942,
+            texture: Some("textures/celestial/moons/mimas_2k.jpg"),
         ),
         
         // Enceladus
@@ -1815,6 +1824,7 @@
                 initial_angle: 300,
             )),
             rotation_period: 0.386,
+            texture: Some("textures/celestial/moons/phoebe_2k.jpg"),
         ),
         
         // Pan
@@ -2556,6 +2566,7 @@
                 initial_angle: 0,
             )),
             rotation_period: 1.413,
+            texture: Some("textures/celestial/moons/miranda_2k.jpg"),
         ),
         
         // Ariel
@@ -3337,6 +3348,7 @@
                 initial_angle: 37.89473684210526,
             )),
             rotation_period: 0.46269670157575515,
+            asteroid_class: Some(MType),
         ),
         
         // Eunomia

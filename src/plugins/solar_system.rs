@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use std::collections::HashMap;
 
-use super::solar_system_data::{BodyType, SolarSystemData};
+use super::solar_system_data::{AsteroidClass, BodyType, SolarSystemData};
 use crate::astronomy::{KeplerOrbit, OrbitPath, SpaceCoordinates};
 
 pub struct SolarSystemPlugin;
@@ -51,6 +51,101 @@ const MIN_VISUAL_RADIUS: f32 = 0.3; // Minimum visible radius
 // Time conversion constants
 const SECONDS_PER_DAY: f64 = 86400.0; // Number of seconds in one Earth day
 
+/// Determine which generic texture to use for a body without a dedicated texture
+fn get_generic_texture_path(body_data: &super::solar_system_data::CelestialBodyData) -> Option<String> {
+    match body_data.body_type {
+        BodyType::Asteroid => {
+            // Choose based on asteroid class
+            let class = body_data.asteroid_class.unwrap_or(AsteroidClass::CType);
+            match class {
+                AsteroidClass::CType => Some("textures/celestial/asteroids/generic_c_type_2k.jpg".to_string()),
+                AsteroidClass::SType => Some("textures/celestial/asteroids/generic_s_type_2k.jpg".to_string()),
+                AsteroidClass::MType => Some("textures/celestial/asteroids/generic_s_type_2k.jpg".to_string()), // Use S-type for now
+                AsteroidClass::Unknown => Some("textures/celestial/asteroids/generic_c_type_2k.jpg".to_string()),
+            }
+        }
+        BodyType::Comet => {
+            Some("textures/celestial/comets/generic_nucleus_2k.jpg".to_string())
+        }
+        BodyType::Moon => {
+            // Use a generic icy or rocky texture based on density
+            // For now, use the C-type asteroid texture as a generic rocky surface
+            Some("textures/celestial/asteroids/generic_c_type_2k.jpg".to_string())
+        }
+        _ => None, // Planets and stars should have dedicated textures
+    }
+}
+
+/// Generate procedural variation for material based on body properties
+fn apply_procedural_variation(
+    body_data: &super::solar_system_data::CelestialBodyData,
+    base_color: Color,
+    has_texture: bool,
+) -> (Color, f32, f32) {
+    // Use body name as seed for consistent randomness
+    let mut seed = 0u32;
+    for byte in body_data.name.bytes() {
+        seed = seed.wrapping_mul(31).wrapping_add(byte as u32);
+    }
+    
+    // Generate pseudo-random values from seed
+    let random1 = ((seed % 1000) as f32) / 1000.0;
+    let random2 = (((seed / 1000) % 1000) as f32) / 1000.0;
+    let random3 = (((seed / 1000000) % 1000) as f32) / 1000.0;
+    
+    // Vary color slightly based on body properties
+    let color_variation = match body_data.body_type {
+        BodyType::Asteroid => {
+            // Asteroids: Vary brightness and hue slightly
+            let brightness_var = 0.8 + random1 * 0.4; // 0.8 to 1.2
+            Color::srgb(
+                (base_color.to_srgba().red * brightness_var).clamp(0.0, 1.0),
+                (base_color.to_srgba().green * brightness_var).clamp(0.0, 1.0),
+                (base_color.to_srgba().blue * brightness_var).clamp(0.0, 1.0),
+            )
+        }
+        BodyType::Comet => {
+            // Comets: Vary between icy white and dusty brown
+            let ice_factor = random1;
+            Color::srgb(
+                0.6 + ice_factor * 0.3,
+                0.6 + ice_factor * 0.2,
+                0.5 + ice_factor * 0.4,
+            )
+        }
+        BodyType::Moon => {
+            // Moons: Slight color variation
+            let gray_variation = 0.9 + random1 * 0.2;
+            Color::srgb(
+                (base_color.to_srgba().red * gray_variation).clamp(0.0, 1.0),
+                (base_color.to_srgba().green * gray_variation).clamp(0.0, 1.0),
+                (base_color.to_srgba().blue * gray_variation).clamp(0.0, 1.0),
+            )
+        }
+        _ => base_color,
+    };
+    
+    // Vary roughness for surface variation
+    let roughness_var = if has_texture {
+        0.7 + random2 * 0.2 // 0.7 to 0.9 for textured bodies
+    } else {
+        0.6 + random2 * 0.3 // 0.6 to 0.9 for non-textured bodies
+    };
+    
+    // Vary metallic slightly for asteroids
+    let metallic_var = match body_data.body_type {
+        BodyType::Asteroid if body_data.asteroid_class == Some(AsteroidClass::MType) => {
+            0.5 + random3 * 0.3 // 0.5 to 0.8 for metallic asteroids
+        }
+        BodyType::Asteroid => {
+            0.05 + random3 * 0.1 // 0.05 to 0.15 for rocky asteroids
+        }
+        _ => 0.1 + random3 * 0.1, // 0.1 to 0.2 for others
+    };
+    
+    (color_variation, roughness_var, metallic_var)
+}
+
 fn setup_solar_system(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -91,13 +186,25 @@ fn setup_solar_system(
         // Determine if this is the star (to add light)
         let is_star = body_data.body_type == BodyType::Star;
 
-        // Create material with improved visual properties
+        // Determine texture path - use dedicated texture if available, otherwise use generic
+        let texture_path = body_data.texture.clone()
+            .or_else(|| get_generic_texture_path(body_data));
+        
+        let has_texture = texture_path.is_some();
+        let base_color_texture = texture_path.map(|path| asset_server.load(path));
+        
+        // Apply procedural variation to material properties
+        let base_color = Color::srgb(body_data.color.0, body_data.color.1, body_data.color.2);
+        let (varied_color, roughness, metallic) = apply_procedural_variation(
+            body_data,
+            base_color,
+            has_texture,
+        );
+
+        // Create material with improved visual properties and procedural variation
         let material = if is_star {
-            // Load texture if available
-            let base_color_texture = body_data.texture.as_ref().map(|path| asset_server.load(path));
-            
             materials.add(StandardMaterial {
-                base_color: Color::srgb(body_data.color.0, body_data.color.1, body_data.color.2),
+                base_color: varied_color,
                 base_color_texture,
                 emissive: LinearRgba::from(Color::srgb(
                     body_data.emissive.0,
@@ -109,14 +216,11 @@ fn setup_solar_system(
                 ..default()
             })
         } else {
-            // Load texture if available
-            let base_color_texture = body_data.texture.as_ref().map(|path| asset_server.load(path));
-            
             materials.add(StandardMaterial {
-                base_color: Color::srgb(body_data.color.0, body_data.color.1, body_data.color.2),
+                base_color: varied_color,
                 base_color_texture,
-                perceptual_roughness: 0.8, // Slightly rough for planets
-                metallic: 0.1, // Slight metallic for better lighting
+                perceptual_roughness: roughness,
+                metallic,
                 reflectance: 0.3, // Some reflectance for rim lighting
                 ..default()
             })
