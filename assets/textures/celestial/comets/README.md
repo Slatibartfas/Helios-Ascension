@@ -1,24 +1,42 @@
-# Comet Textures
+# Generic Comet Textures
 
-For comets, we use a fallback approach since detailed comet nucleus textures are limited:
+For comets, we use a generic nucleus texture with procedural variations.
 
 ## Current Implementation
 
-Comets use their color data from `solar_system.ron` which provides realistic grey-brown colors typical of comet nuclei.
+1. **Generic Texture**: `generic_nucleus_2k.jpg` - Dark, icy comet nucleus texture
+   - Based on comet 67P/Churyumov-Gerasimenko from Rosetta mission
+   - Dark grey-brown with rough, porous surface features
+   - 2K resolution (2048x1024 pixels)
 
-## Future Enhancement
+2. **Procedural Variation**: Each comet gets unique appearance through:
+   - Color variation to simulate different compositions
+   - Brightness adjustments for surface properties
+   - Deterministic seed based on comet name for consistency
 
-If you want to add a generic comet nucleus texture:
+3. **Automatic Application**: All bodies with `body_type: Comet` automatically use the generic nucleus texture with variations
 
-### Recommended Texture
-- Dark, rough surface (similar to 67P/Churyumov-Gerasimenko)
-- Grey-brown color (very low albedo ~4%)
-- Irregular surface with sublimation features
+## Adding Dedicated Textures
 
-### Source
-The best reference is ESA's Rosetta mission imagery of comet 67P/Churyumov-Gerasimenko:
-- **ESA Rosetta Images**: https://www.esa.int/Science_Exploration/Space_Science/Rosetta
-- **License**: ESA images are generally available for educational use with attribution
+To add a dedicated texture for a specific comet:
+1. Add the texture file to this directory (e.g., `halley_2k.jpg`)
+2. Update the comet entry in `assets/data/solar_system.ron`:
+   ```ron
+   (
+       name: "1P/Halley",
+       body_type: Comet,
+       // ... other properties ...
+       texture: Some("textures/celestial/comets/halley_2k.jpg"),
+   )
+   ```
 
-### Creating a Generic Texture
-For now, using the procedural color approach provides adequate visual representation until high-quality generic textures are added.
+The dedicated texture will override the generic one.
+
+## Sources for Additional Textures
+
+1. **NASA Image Library**: https://images.nasa.gov/
+2. **ESA Rosetta Mission**: https://www.esa.int/Science_Exploration/Space_Science/Rosetta
+3. **NASA Small Bodies**: https://solarsystem.nasa.gov/asteroids-comets-and-meteors/
+
+All NASA/ESA mission data is typically public domain and free to use.
+

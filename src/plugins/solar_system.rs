@@ -194,17 +194,21 @@ fn setup_solar_system(
         let base_color_texture = texture_path.map(|path| asset_server.load(path));
         
         // Apply procedural variation to material properties
+        // For dedicated textures, use WHITE to avoid tinting the texture
+        // For generic/procedural textures, apply color variation for diversity
         let base_color = Color::srgb(body_data.color.0, body_data.color.1, body_data.color.2);
-        let (varied_color, roughness, metallic) = apply_procedural_variation(
-            body_data,
-            base_color,
-            has_texture,
-        );
+        let (material_color, roughness, metallic) = if body_data.texture.is_some() {
+            // Dedicated texture - use WHITE to show texture without tinting
+            (Color::WHITE, 0.7, 0.0)
+        } else {
+            // Generic/procedural texture - apply variation
+            apply_procedural_variation(body_data, base_color, has_texture)
+        };
 
-        // Create material with improved visual properties and procedural variation
+        // Create material with improved visual properties
         let material = if is_star {
             materials.add(StandardMaterial {
-                base_color: varied_color,
+                base_color: material_color,
                 base_color_texture,
                 emissive: LinearRgba::from(Color::srgb(
                     body_data.emissive.0,
@@ -217,7 +221,7 @@ fn setup_solar_system(
             })
         } else {
             materials.add(StandardMaterial {
-                base_color: varied_color,
+                base_color: material_color,
                 base_color_texture,
                 perceptual_roughness: roughness,
                 metallic,

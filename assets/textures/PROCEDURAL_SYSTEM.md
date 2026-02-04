@@ -101,7 +101,9 @@ This ensures:
 
 **Vesta** (S-type, dedicated texture):
 - Texture: vesta_2k.jpg (dedicated)
+- Color: WHITE (no tinting)
 - No procedural variation applied
+- Shows texture exactly as authored
 
 **Random C-type asteroid**:
 - Texture: generic_c_type_2k.jpg

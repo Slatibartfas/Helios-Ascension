@@ -74,12 +74,6 @@ pub struct CelestialBodyData {
     pub asteroid_class: Option<AsteroidClass>,
 }
 
-impl Default for AsteroidClass {
-    fn default() -> Self {
-        AsteroidClass::CType // Most common type
-    }
-}
-
 /// Complete solar system data
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SolarSystemData {

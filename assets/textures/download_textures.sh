@@ -40,10 +40,26 @@ download_texture() {
     fi
     
     echo "Downloading $name..."
-    if curl -L --retry 3 --retry-delay 2 -o "$output" "$url" 2>/dev/null; then
-        echo "✓ Downloaded $name"
+    if curl -L -f --retry 3 --retry-delay 2 --max-time 300 -o "$output" "$url" 2>/dev/null; then
+        # Check if file was actually downloaded and has content
+        if [ -s "$output" ]; then
+            # Validate it's actually a JPEG image
+            if file "$output" | grep -q "JPEG image data"; then
+                local size=$(du -h "$output" | cut -f1)
+                echo "✓ Downloaded $name - size: $size"
+            else
+                echo "✗ Failed to download $name (not a valid JPEG image)"
+                rm -f "$output"
+                return 1
+            fi
+        else
+            echo "✗ Failed to download $name (empty file)"
+            rm -f "$output"
+            return 1
+        fi
     else
-        echo "✗ Failed to download $name from $url"
+        echo "✗ Failed to download $name from $url (HTTP error)"
+        rm -f "$output"
         return 1
     fi
 }
