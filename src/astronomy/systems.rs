@@ -14,6 +14,10 @@ pub const SCALING_FACTOR: f64 = 100.0;
 /// Moon orbits only visible when camera is closer than this distance
 const MOON_ORBIT_VISIBILITY_DISTANCE: f32 = 500.0;
 
+/// Click radius for body selection (in Bevy units)
+/// Bodies within this distance from the ray are considered clickable
+const SELECTION_CLICK_RADIUS: f32 = 5.0;
+
 /// Maximum iterations for Kepler solver
 const MAX_KEPLER_ITERATIONS: u32 = 50;
 
@@ -289,9 +293,10 @@ pub fn handle_body_selection(
     };
 
     // Find the closest body to the ray
-    let mut closest_body: Option<(Entity, f32)> = None;
+    // Stores: (Entity, distance from camera, body name)
+    let mut closest_body: Option<(Entity, f32, String)> = None;
     
-    for (entity, transform, _body) in body_query.iter() {
+    for (entity, transform, body) in body_query.iter() {
         let body_pos = transform.translation;
         
         // Calculate distance from ray to body center
@@ -306,15 +311,12 @@ pub fn handle_body_selection(
         let closest_point = ray.origin + *ray.direction * projection;
         let distance = (body_pos - closest_point).length();
         
-        // Use a simple click radius based on body visual size
-        // For simplicity, use a fixed click radius
-        let click_radius = 5.0; // Adjust as needed
-        
-        if distance < click_radius {
+        // Check if click is within selection radius
+        if distance < SELECTION_CLICK_RADIUS {
             match closest_body {
-                None => closest_body = Some((entity, projection)),
-                Some((_, prev_dist)) if projection < prev_dist => {
-                    closest_body = Some((entity, projection));
+                None => closest_body = Some((entity, projection, body.name.clone())),
+                Some((_, prev_dist, _)) if projection < prev_dist => {
+                    closest_body = Some((entity, projection, body.name.clone()));
                 }
                 _ => {}
             }
@@ -327,9 +329,9 @@ pub fn handle_body_selection(
     }
 
     // Select the clicked body if any
-    if let Some((entity, _)) = closest_body {
+    if let Some((entity, _, name)) = closest_body {
         commands.entity(entity).insert(Selected);
-        info!("Selected celestial body");
+        info!("Selected celestial body: {} (entity {:?})", name, entity);
     }
 }
 
