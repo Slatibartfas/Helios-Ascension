@@ -1,6 +1,5 @@
 use bevy::prelude::*;
 use rand::Rng;
-use std::collections::HashMap;
 
 use super::components::{MineralDeposit, PlanetResources};
 use super::types::ResourceType;
@@ -10,9 +9,6 @@ use crate::plugins::solar_system::{CelestialBody, Planet, DwarfPlanet, Moon};
 /// Frost line distance in Astronomical Units
 /// Beyond this distance, volatiles become more common
 const FROST_LINE_AU: f64 = 2.5;
-
-/// Conversion factor from Bevy units to AU (inverse of SCALING_FACTOR)
-const BEVY_TO_AU: f64 = 1.0 / 50.0;
 
 /// System that generates resources for all celestial bodies on startup
 /// Uses realistic accretion chemistry based on distance from the sun
