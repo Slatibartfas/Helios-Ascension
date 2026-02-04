@@ -27,6 +27,7 @@ bevy = { version = "0.14", features = [
     "x11",
     "wayland",
     "jpeg",
+    "png",
 ] }
 
 # Debug and development tools

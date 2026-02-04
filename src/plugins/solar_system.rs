@@ -51,10 +51,10 @@ pub struct Ring;
 pub struct RotationSpeed(pub f32);
 
 // Visualization scale factors
-// Much larger scale for planets to be visible (10x previous)
-const RADIUS_SCALE: f32 = 0.0005; 
+// Much larger scale for planets to be visible (50x original)
+const RADIUS_SCALE: f32 = 0.001; 
 // Minimum size to ensure small moons are visible
-const MIN_VISUAL_RADIUS: f32 = 2.0; 
+const MIN_VISUAL_RADIUS: f32 = 3.0; 
 // Sun needs a separate, smaller scale to not engulf the inner system when planets are oversized
 const STAR_RADIUS_SCALE: f32 = 0.0001; 
 
