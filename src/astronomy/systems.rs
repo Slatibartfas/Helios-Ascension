@@ -170,20 +170,26 @@ pub fn draw_orbit_paths(
             continue;
         }
 
-        // Generate points along the orbit
+        // Generate points along the orbit by sampling mean anomaly uniformly
         let segments = path.segments;
         let mut points = Vec::with_capacity(segments as usize + 1);
 
         for i in 0..=segments {
-            let angle = (i as f64) * std::f64::consts::TAU / (segments as f64);
+            // Uniformly sample mean anomaly (which represents time)
+            let mean_anomaly = (i as f64) * std::f64::consts::TAU / (segments as f64);
             
-            // Calculate position at this angle (using true anomaly)
-            let radius = orbit.semi_major_axis * (1.0 - orbit.eccentricity * orbit.eccentricity)
-                / (1.0 + orbit.eccentricity * angle.cos());
+            // Solve for eccentric anomaly
+            let eccentric_anomaly = solve_kepler(mean_anomaly, orbit.eccentricity);
             
-            // Position in orbital plane
-            let x_orbital = radius * angle.cos();
-            let y_orbital = radius * angle.sin();
+            // Convert to true anomaly
+            let true_anomaly = eccentric_to_true_anomaly(eccentric_anomaly, orbit.eccentricity);
+            
+            // Calculate radius at this true anomaly
+            let radius = orbital_radius(orbit.semi_major_axis, orbit.eccentricity, true_anomaly);
+            
+            // Position in orbital plane (relative to focus)
+            let x_orbital = radius * true_anomaly.cos();
+            let y_orbital = radius * true_anomaly.sin();
             
             // Apply argument of periapsis rotation
             let cos_w = orbit.argument_of_periapsis.cos();

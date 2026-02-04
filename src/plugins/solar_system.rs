@@ -63,6 +63,9 @@ const AU_TO_UNITS: f32 = 50.0; // 1 AU = 50 game units for visibility
 const RADIUS_SCALE: f32 = 0.0001; // Scale down radii for visibility
 const MIN_VISUAL_RADIUS: f32 = 0.3; // Minimum visible radius
 
+// Time conversion constants
+const SECONDS_PER_DAY: f64 = 86400.0; // Number of seconds in one Earth day
+
 fn setup_solar_system(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -89,7 +92,7 @@ fn setup_solar_system(
 
         // Calculate rotation speed (convert from days to radians per second)
         let rotation_speed = if body_data.rotation_period != 0.0 {
-            (2.0 * std::f32::consts::PI) / (body_data.rotation_period.abs() * 86400.0)
+            (2.0 * std::f32::consts::PI) / (body_data.rotation_period.abs() * SECONDS_PER_DAY as f32)
                 * if body_data.rotation_period < 0.0 {
                     -1.0
                 } else {
@@ -200,7 +203,7 @@ fn setup_solar_system(
             // Calculate angular velocity (radians per second)
             // orbital_period is in Earth days
             let angular_velocity = if orbit.orbital_period > 0.0 {
-                (2.0 * std::f32::consts::PI) / (orbit.orbital_period * 86400.0)
+                (2.0 * std::f32::consts::PI) / (orbit.orbital_period * SECONDS_PER_DAY as f32)
             } else {
                 0.0
             };
@@ -219,18 +222,22 @@ fn setup_solar_system(
             // Add new high-precision astronomy components
             // Convert orbital period in days to mean motion in radians/second
             let mean_motion = if orbit.orbital_period > 0.0 {
-                (2.0 * std::f64::consts::PI) / (orbit.orbital_period as f64 * 86400.0)
+                (2.0 * std::f64::consts::PI) / (orbit.orbital_period as f64 * SECONDS_PER_DAY)
             } else {
                 0.0
             };
 
             // Create KeplerOrbit component with high-precision values
+            // TODO: Add longitude_ascending_node and argument_of_periapsis to solar system data
+            // Currently these are set to 0.0, which means all orbits share the same orientation
+            // in the orbital plane. For accurate 3D representation, these values should be
+            // loaded from the data file or calculated from reference data.
             let kepler_orbit = KeplerOrbit::new(
                 orbit.eccentricity as f64,
                 orbit.semi_major_axis as f64, // Already in AU
                 orbit.inclination.to_radians() as f64,
-                0.0, // longitude_ascending_node - not in our data yet
-                0.0, // argument_of_periapsis - not in our data yet
+                0.0, // longitude_ascending_node - TODO: add to data file
+                0.0, // argument_of_periapsis - TODO: add to data file
                 orbit.initial_angle.to_radians() as f64, // mean_anomaly_epoch
                 mean_motion,
             );
