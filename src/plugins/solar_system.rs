@@ -51,10 +51,10 @@ pub struct Ring;
 pub struct RotationSpeed(pub f32);
 
 // Visualization scale factors
-// Much larger scale for planets to be visible (50x original)
-const RADIUS_SCALE: f32 = 0.001; 
-// Minimum size to ensure small moons are visible
-const MIN_VISUAL_RADIUS: f32 = 3.0; 
+// Increased scale for planets to be easily visible and clickable
+const RADIUS_SCALE: f32 = 0.002; // Increased from 0.001 for better visibility
+// Minimum size to ensure small moons are visible and clickable
+const MIN_VISUAL_RADIUS: f32 = 5.0; // Increased from 3.0 for easier clicking
 // Sun needs a separate, smaller scale to not engulf the inner system when planets are oversized
 const STAR_RADIUS_SCALE: f32 = 0.0001; 
 
@@ -361,8 +361,8 @@ pub fn setup_solar_system(
         if is_star {
             commands.spawn(PointLightBundle {
                 point_light: PointLight {
-                    intensity: 5000000.0,
-                    range: 10000.0,
+                    intensity: 10000000.0, // Increased from 5000000.0 for better illumination
+                    range: 20000.0, // Increased from 10000.0 to reach distant bodies
                     shadows_enabled: false, // Disable for performance with many objects
                     ..default()
                 },
