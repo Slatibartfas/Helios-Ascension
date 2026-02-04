@@ -153,3 +153,8 @@ impl Default for OrbitPath {
         Self::new(Color::srgba(0.5, 0.5, 0.5, 0.3))
     }
 }
+
+/// Marker component for selected celestial bodies
+/// Selected bodies always have their orbits visible
+#[derive(Component, Debug, Clone, Copy, Default)]
+pub struct Selected;

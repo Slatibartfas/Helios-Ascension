@@ -228,16 +228,12 @@ fn setup_solar_system(
             };
 
             // Create KeplerOrbit component with high-precision values
-            // TODO: Add longitude_ascending_node and argument_of_periapsis to solar system data
-            // Currently these are set to 0.0, which means all orbits share the same orientation
-            // in the orbital plane. For accurate 3D representation, these values should be
-            // loaded from the data file or calculated from reference data.
             let kepler_orbit = KeplerOrbit::new(
                 orbit.eccentricity as f64,
                 orbit.semi_major_axis as f64, // Already in AU
                 orbit.inclination.to_radians() as f64,
-                0.0, // longitude_ascending_node - TODO: add to data file
-                0.0, // argument_of_periapsis - TODO: add to data file
+                orbit.longitude_ascending_node.to_radians() as f64,
+                orbit.argument_of_periapsis.to_radians() as f64,
                 orbit.initial_angle.to_radians() as f64, // mean_anomaly_epoch
                 mean_motion,
             );

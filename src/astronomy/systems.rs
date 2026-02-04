@@ -1,11 +1,18 @@
 use bevy::prelude::*;
 use bevy::math::DVec3;
+use bevy::window::PrimaryWindow;
 
-use super::components::{KeplerOrbit, OrbitPath, SpaceCoordinates};
+use super::components::{KeplerOrbit, OrbitPath, Selected, SpaceCoordinates};
+use crate::plugins::solar_system::{CelestialBody, Moon};
+use crate::plugins::camera::GameCamera;
 
 /// Scaling factor for converting astronomical units to Bevy rendering units
 /// 1 AU = 100.0 Bevy units keeps planets within reasonable camera frustum
 pub const SCALING_FACTOR: f64 = 100.0;
+
+/// Distance threshold for showing moon orbits (in Bevy units)
+/// Moon orbits only visible when camera is closer than this distance
+const MOON_ORBIT_VISIBILITY_DISTANCE: f32 = 500.0;
 
 /// Maximum iterations for Kepler solver
 const MAX_KEPLER_ITERATIONS: u32 = 50;
@@ -219,6 +226,121 @@ pub fn draw_orbit_paths(
         // Draw the orbit as a line loop
         for i in 0..points.len() - 1 {
             gizmos.line(points[i], points[i + 1], path.color);
+        }
+    }
+}
+
+/// System that controls orbit visibility based on camera distance
+/// Moon orbits are only visible when camera is close enough
+pub fn update_orbit_visibility_by_zoom(
+    camera_query: Query<&Transform, With<GameCamera>>,
+    mut orbit_query: Query<(&mut OrbitPath, Option<&Selected>), With<Moon>>,
+) {
+    // Get camera position
+    let Ok(camera_transform) = camera_query.get_single() else {
+        return;
+    };
+
+    // Calculate distance from camera to origin (solar system center)
+    let camera_distance = camera_transform.translation.length();
+
+    // Update visibility for moon orbits based on camera distance
+    for (mut orbit_path, selected) in orbit_query.iter_mut() {
+        // Always show orbits for selected bodies
+        if selected.is_some() {
+            orbit_path.visible = true;
+        } else {
+            // Show moon orbits only when zoomed in close enough
+            orbit_path.visible = camera_distance < MOON_ORBIT_VISIBILITY_DISTANCE;
+        }
+    }
+}
+
+/// System that handles celestial body selection via mouse clicks
+pub fn handle_body_selection(
+    mouse_button: Res<ButtonInput<MouseButton>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<GameCamera>>,
+    body_query: Query<(Entity, &Transform, &CelestialBody)>,
+    mut commands: Commands,
+    selected_query: Query<Entity, With<Selected>>,
+) {
+    // Only process on mouse click
+    if !mouse_button.just_pressed(MouseButton::Left) {
+        return;
+    }
+
+    let Ok(window) = windows.get_single() else {
+        return;
+    };
+
+    let Ok((camera, camera_transform)) = camera_query.get_single() else {
+        return;
+    };
+
+    // Get cursor position
+    let Some(cursor_position) = window.cursor_position() else {
+        return;
+    };
+
+    // Convert screen position to ray
+    let Some(ray) = camera.viewport_to_world(camera_transform, cursor_position) else {
+        return;
+    };
+
+    // Find the closest body to the ray
+    let mut closest_body: Option<(Entity, f32)> = None;
+    
+    for (entity, transform, _body) in body_query.iter() {
+        let body_pos = transform.translation;
+        
+        // Calculate distance from ray to body center
+        let to_body = body_pos - ray.origin;
+        let projection = to_body.dot(*ray.direction);
+        
+        // Skip if body is behind camera
+        if projection < 0.0 {
+            continue;
+        }
+        
+        let closest_point = ray.origin + *ray.direction * projection;
+        let distance = (body_pos - closest_point).length();
+        
+        // Use a simple click radius based on body visual size
+        // For simplicity, use a fixed click radius
+        let click_radius = 5.0; // Adjust as needed
+        
+        if distance < click_radius {
+            match closest_body {
+                None => closest_body = Some((entity, projection)),
+                Some((_, prev_dist)) if projection < prev_dist => {
+                    closest_body = Some((entity, projection));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Deselect all currently selected bodies
+    for entity in selected_query.iter() {
+        commands.entity(entity).remove::<Selected>();
+    }
+
+    // Select the clicked body if any
+    if let Some((entity, _)) = closest_body {
+        commands.entity(entity).insert(Selected);
+        info!("Selected celestial body");
+    }
+}
+
+/// System that ensures selected bodies have visible orbits
+pub fn update_selected_orbit_visibility(
+    selected_query: Query<Entity, (With<Selected>, With<OrbitPath>)>,
+    mut orbit_query: Query<&mut OrbitPath>,
+) {
+    for entity in selected_query.iter() {
+        if let Ok(mut orbit_path) = orbit_query.get_mut(entity) {
+            orbit_path.visible = true;
         }
     }
 }
