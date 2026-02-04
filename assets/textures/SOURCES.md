@@ -2,11 +2,40 @@
 
 This document lists the sources for all HIGH RESOLUTION celestial body textures used in Helios Ascension.
 
+## Licensing Decision - FINAL
+
+**We use Solar System Scope 8K textures (CC BY 4.0)** for superior visual quality.
+
+While NASA provides public domain textures (no attribution needed), they are typically 2K-4K resolution. We chose Solar System Scope's 8K packages for the significant quality improvement, accepting the simple CC BY 4.0 attribution requirement.
+
+**Attribution is provided in the main README.md**
+
 ## Resolution Upgrade Summary
 
 **Previous**: 1K-2K textures, 6MB total  
 **Current**: 8K textures for major bodies, 64MB total  
 **Improvement**: 10.6x larger, 4x resolution for planets
+
+## License Information
+
+**Source**: Solar System Scope (https://www.solarsystemscope.com/)  
+**License**: CC BY 4.0 (requires attribution)  
+**Based on**: NASA public domain mission data  
+**Attribution**: "Textures provided by Solar System Scope (https://www.solarsystemscope.com/)"
+
+### Why Not Pure NASA Public Domain?
+
+NASA offers public domain textures at **no cost and no attribution**, but:
+- Maximum resolution typically 2K-4K (not 8K)
+- Inconsistent formats and projections
+- Requires manual processing
+
+Solar System Scope offers:
+- Convenient 8K pre-processed packages
+- Consistent quality across all bodies
+- Simple attribution requirement
+
+**Trade-off**: We chose 8K quality with attribution over 2-4K with no attribution.
 
 ## Current Texture Resolutions
 
@@ -23,258 +52,167 @@ This document lists the sources for all HIGH RESOLUTION celestial body textures 
 - Jupiter's and Saturn's moons
 - File sizes: ~16KB each
 
-## Primary Sources
+## Source Information
 
-### NASA 3D Resources (PUBLIC DOMAIN - PREFERRED)
-- **URL**: https://science.nasa.gov/3d-resources/
-- **License**: Public Domain - No attribution required
-- **Usage**: Planetary and moon textures, 3D models
-- **Note**: This is the MOST PERMISSIVE option
-
-### NASA Image and Video Library (PUBLIC DOMAIN - PREFERRED)
-- **URL**: https://images.nasa.gov/
-- **License**: Public Domain - No attribution required  
-- **Usage**: High-resolution planetary imagery
-
-### NASA Visible Earth (PUBLIC DOMAIN - PREFERRED)
-- **URL**: https://visibleearth.nasa.gov/
-- **License**: Public Domain - No attribution required
-- **Usage**: Earth textures
-
-### USGS Astrogeology Science Center (PUBLIC DOMAIN - PREFERRED)
-- **URL**: https://astrogeology.usgs.gov/
-- **License**: Public Domain - No attribution required
-- **Usage**: High-resolution planetary textures and maps
-
-### Solar System Scope (CC BY 4.0 - Currently Used)
+### Solar System Scope (Our Choice - CC BY 4.0)
 - **URL**: https://www.solarsystemscope.com/textures/
 - **License**: CC BY 4.0 - Requires attribution
-- **Usage**: Convenient pre-packaged textures based on NASA data
+- **Resolution**: Up to 8K (8192x4096)
+- **Usage**: High-quality pre-packaged textures based on NASA data
 - **Attribution**: "Textures provided by Solar System Scope (https://www.solarsystemscope.com/)"
-- **Note**: Less restrictive than many licenses, but NASA sources are even better
+- **Why we use this**: 8K resolution, consistent quality, convenient packages
 
-## Current Texture List (CC BY 4.0 from Solar System Scope)
+### NASA Public Domain Sources (Alternative Lower-Res Option)
+These are the original data sources that Solar System Scope uses. Available for free with no attribution if you prefer lower resolution:
 
-**Note**: All these textures are based on NASA public domain data. You can replace them with direct NASA downloads for a more permissive license (no attribution required).
+**NASA 3D Resources**
+- **URL**: https://science.nasa.gov/3d-resources/
+- **License**: Public Domain - No attribution required
+- **Resolution**: Typically 2K-4K
+- **Usage**: Planetary and moon textures, 3D models
+
+**NASA Image and Video Library**
+- **URL**: https://images.nasa.gov/
+- **License**: Public Domain - No attribution required  
+- **Resolution**: Varies
+- **Usage**: High-resolution planetary imagery
+
+**USGS Astrogeology Science Center**
+- **URL**: https://astrogeology.usgs.gov/
+- **License**: Public Domain - No attribution required
+- **Resolution**: Typically 2K-4K
+- **Usage**: High-resolution planetary textures and maps
+
+## Current Texture List (8K from Solar System Scope)
+
+All textures listed below are from Solar System Scope (CC BY 4.0) at maximum available resolution.
 
 ### Stars
-- **Sun**: 2k resolution texture
-  - File: `assets/textures/celestial/stars/sun_2k.jpg`
-  - Current Source: Solar System Scope (CC BY 4.0)
-  - NASA Alternative: https://science.nasa.gov/sun/ (Public Domain)
+- **Sun**: 8K resolution
+  - File: `assets/textures/celestial/stars/sun_8k.jpg`
+  - Size: 3.6MB
+  - Original NASA Data: Solar Dynamics Observatory
 
 ### Planets
 
 #### Mercury
-- **Texture**: 2k resolution
-  - File: `assets/textures/celestial/planets/mercury_2k.jpg`
-  - Current Source: Solar System Scope (CC BY 4.0)
-  - Original Data: NASA Messenger mission (Public Domain)
-  - NASA Alternative: https://science.nasa.gov/mercury/ (Public Domain)
+- **Texture**: 8K resolution
+  - File: `assets/textures/celestial/planets/mercury_8k.jpg`
+  - Size: 15MB
+  - Original NASA Data: Messenger mission
 
 #### Venus
-- **Atmosphere Texture**: 2k resolution
+- **Atmosphere Texture**: 2K resolution
   - File: `assets/textures/celestial/planets/venus_atmosphere_2k.jpg`
-  - Current Source: Solar System Scope (CC BY 4.0)
-  - Original Data: NASA Magellan mission (Public Domain)
-  - NASA Alternative: https://science.nasa.gov/venus/ (Public Domain)
+  - Size: 225KB
+  - Original NASA Data: Magellan mission
+  
+- **Surface Texture**: 8K resolution
+  - File: `assets/textures/celestial/planets/venus_surface_8k.jpg`
+  - Size: 12MB
+  - Original NASA Data: Magellan radar mapping
 
 #### Earth
-- **Texture**: 2k resolution Blue Marble
-  - File: `assets/textures/celestial/planets/earth_2k.jpg`
-  - Current Source: Solar System Scope (CC BY 4.0)
-  - Original Data: NASA Blue Marble (Public Domain)
-  - NASA Alternative: https://visibleearth.nasa.gov/ (Public Domain)
+- **Texture**: 8K resolution
+  - File: `assets/textures/celestial/planets/earth_8k.jpg`
+  - Size: 4.4MB
+  - Original NASA Data: Blue Marble project
 
 #### Mars
-- **Texture**: 2k resolution
-  - File: `assets/textures/celestial/planets/mars_2k.jpg`
-  - Current Source: Solar System Scope (CC BY 4.0)
-  - Original Data: NASA Viking/MGS missions (Public Domain)
-  - NASA Alternative: https://science.nasa.gov/mars/ (Public Domain)
+- **Texture**: 8K resolution
+  - File: `assets/textures/celestial/planets/mars_8k.jpg`
+  - Size: 8.1MB
+  - Original NASA Data: Viking/MGS missions
 
 #### Jupiter
-- **Texture**: 2k resolution
-  - File: `assets/textures/celestial/planets/jupiter_2k.jpg`
-  - Current Source: Solar System Scope (CC BY 4.0)
-  - Original Data: NASA spacecraft imagery (Public Domain)
-  - NASA Alternative: https://science.nasa.gov/jupiter/ (Public Domain)
+- **Texture**: 8K resolution
+  - File: `assets/textures/celestial/planets/jupiter_8k.jpg`
+  - Size: 3.0MB
+  - Original NASA Data: Cassini/Juno missions
 
 #### Saturn
-- **Texture**: 2k resolution
-  - File: `assets/textures/celestial/planets/saturn_2k.jpg`
-  - Current Source: Solar System Scope (CC BY 4.0)
-  - Original Data: NASA Cassini mission (Public Domain)
-  - NASA Alternative: https://science.nasa.gov/saturn/ (Public Domain)
+- **Texture**: 8K resolution
+  - File: `assets/textures/celestial/planets/saturn_8k.jpg`
+  - Size: 1.1MB
+  - Original NASA Data: Cassini mission
 
 #### Uranus
-- **Texture**: 2k resolution
+- **Texture**: 2K resolution
   - File: `assets/textures/celestial/planets/uranus_2k.jpg`
-  - Current Source: Solar System Scope (CC BY 4.0)
-  - Original Data: NASA Voyager 2 (Public Domain)
-  - NASA Alternative: https://science.nasa.gov/uranus/ (Public Domain)
+  - Size: 76KB
+  - Original NASA Data: Voyager 2
+  - Note: 8K not available
 
 #### Neptune
-- **Texture**: 2k resolution
+- **Texture**: 2K resolution
   - File: `assets/textures/celestial/planets/neptune_2k.jpg`
-  - Current Source: Solar System Scope (CC BY 4.0)
-  - Original Data: NASA Voyager 2 (Public Domain)
-  - NASA Alternative: https://science.nasa.gov/neptune/ (Public Domain)
+  - Size: 236KB
+  - Original NASA Data: Voyager 2
+  - Note: 8K not available
 
 ### Major Moons
 
 #### Earth's Moon
-- **Texture**: 2k resolution
-  - File: `assets/textures/celestial/moons/moon_2k.jpg`
-  - Current Source: Solar System Scope (CC BY 4.0)
-  - Original Data: NASA Lunar Reconnaissance Orbiter (Public Domain)
-  - NASA Alternative: https://science.nasa.gov/moon/ (Public Domain)
+- **Texture**: 8K resolution
+  - File: `assets/textures/celestial/moons/moon_8k.jpg`
+  - Size: 15MB
+  - Original NASA Data: Lunar Reconnaissance Orbiter
 
 #### Jupiter's Galilean Moons
+All based on NASA Galileo mission data.
 
-All Jupiter moon textures are based on NASA Galileo mission data (Public Domain).
-
-##### Io
-- File: `assets/textures/celestial/moons/io_1k.jpg`
-- Current: Solar System Scope (CC BY 4.0)
-- NASA Alternative: https://science.nasa.gov/jupiter/moons/ (Public Domain)
-
-##### Europa
-- File: `assets/textures/celestial/moons/europa_1k.jpg`
-- Current: Solar System Scope (CC BY 4.0)
-- NASA Alternative: https://science.nasa.gov/jupiter/moons/ (Public Domain)
-
-##### Ganymede
-- File: `assets/textures/celestial/moons/ganymede_1k.jpg`
-- Current: Solar System Scope (CC BY 4.0)
-- NASA Alternative: https://science.nasa.gov/jupiter/moons/ (Public Domain)
-
-##### Callisto
-- File: `assets/textures/celestial/moons/callisto_1k.jpg`
-- Current: Solar System Scope (CC BY 4.0)
-- NASA Alternative: https://science.nasa.gov/jupiter/moons/ (Public Domain)
+- **Io**: 1K resolution, `assets/textures/celestial/moons/io_1k.jpg`, ~16KB
+- **Europa**: 1K resolution, `assets/textures/celestial/moons/europa_1k.jpg`, ~16KB
+- **Ganymede**: 1K resolution, `assets/textures/celestial/moons/ganymede_1k.jpg`, ~16KB
+- **Callisto**: 1K resolution, `assets/textures/celestial/moons/callisto_1k.jpg`, ~16KB
 
 #### Saturn's Major Moons
+All based on NASA Cassini mission data.
 
-All Saturn moon textures are based on NASA Cassini mission data (Public Domain).
-
-##### Titan
-- File: `assets/textures/celestial/moons/titan_1k.jpg`
-- Current: Solar System Scope (CC BY 4.0)
-- NASA Alternative: https://science.nasa.gov/saturn/moons/ (Public Domain)
-
-##### Enceladus
-- File: `assets/textures/celestial/moons/enceladus_1k.jpg`
-- Current: Solar System Scope (CC BY 4.0)
-- NASA Alternative: https://science.nasa.gov/saturn/moons/ (Public Domain)
-
-##### Rhea
-- File: `assets/textures/celestial/moons/rhea_1k.jpg`
-- Current: Solar System Scope (CC BY 4.0)
-- NASA Alternative: https://science.nasa.gov/saturn/moons/ (Public Domain)
-
-##### Iapetus
-- File: `assets/textures/celestial/moons/iapetus_1k.jpg`
-- Current: Solar System Scope (CC BY 4.0)
-- NASA Alternative: https://science.nasa.gov/saturn/moons/ (Public Domain)
-
-##### Dione
-- File: `assets/textures/celestial/moons/dione_1k.jpg`
-- Current: Solar System Scope (CC BY 4.0)
-- NASA Alternative: https://science.nasa.gov/saturn/moons/ (Public Domain)
-
-##### Tethys
-- File: `assets/textures/celestial/moons/tethys_1k.jpg`
-- Current: Solar System Scope (CC BY 4.0)
-- NASA Alternative: https://science.nasa.gov/saturn/moons/ (Public Domain)
+- **Titan**: 1K resolution, `assets/textures/celestial/moons/titan_1k.jpg`, ~16KB
+- **Enceladus**: 1K resolution, `assets/textures/celestial/moons/enceladus_1k.jpg`, ~16KB
+- **Rhea**: 1K resolution, `assets/textures/celestial/moons/rhea_1k.jpg`, ~16KB
+- **Iapetus**: 1K resolution, `assets/textures/celestial/moons/iapetus_1k.jpg`, ~16KB
+- **Dione**: 1K resolution, `assets/textures/celestial/moons/dione_1k.jpg`, ~16KB
+- **Tethys**: 1K resolution, `assets/textures/celestial/moons/tethys_1k.jpg`, ~16KB
 
 ### Dwarf Planets
 
 #### Pluto
-- File: `assets/textures/celestial/planets/pluto_1k.jpg`
-- Current: Solar System Scope (CC BY 4.0)
-- Original Data: NASA New Horizons (Public Domain)
-- NASA Alternative: https://science.nasa.gov/dwarf-planets/pluto/ (Public Domain)
+- **Texture**: 2K resolution
+  - File: `assets/textures/celestial/planets/pluto_2k.jpg`
+  - Size: 16KB
+  - Original NASA Data: New Horizons mission
 
 #### Ceres
-- File: `assets/textures/celestial/planets/ceres_1k.jpg`
-- Current: Solar System Scope (CC BY 4.0)
-- Original Data: NASA Dawn mission (Public Domain)
-- NASA Alternative: https://science.nasa.gov/dwarf-planets/ceres/ (Public Domain)
+- **Texture**: 2K resolution
+  - File: `assets/textures/celestial/planets/ceres_2k.jpg`
+  - Size: 1.1MB
+  - Original NASA Data: Dawn mission
 
 #### Eris
-- File: `assets/textures/celestial/planets/eris_1k.jpg`
-- Current: Solar System Scope (CC BY 4.0)
-- Note: Generic procedural texture (no direct imagery available)
+- **Texture**: 2K resolution (artistic interpretation)
+  - File: `assets/textures/celestial/planets/eris_2k.jpg`
+  - Size: 1.1MB
+  - Note: No spacecraft has visited Eris yet
 
-### Asteroids
+## Future Additions
 
-For asteroids, use generic textures or mission-specific data:
-- **NASA Dawn Mission** (Vesta, Bennu) - Public Domain
-- **OSIRIS-REx** (Bennu) - Public Domain
-- Generic rocky/metallic textures - Create procedurally or use NASA imagery
+See `EXPANSION_OPPORTUNITIES.md` for detailed information about additional celestial bodies that could have textures added, including:
+- Mars moons (Phobos, Deimos) - NASA public domain available
+- Additional asteroids (Vesta, Bennu) - NASA public domain available
+- Additional Saturn/Uranus/Neptune moons
 
-### Comets
+## Notes
 
-For comets, use mission-specific data:
-- **ESA Rosetta** (67P/Churyumov-Gerasimenko) - Check ESA license
-- Generic icy nucleus textures - Create procedurally or use NASA imagery
+1. **Resolution**: 8K (8192x4096) for major bodies, 2K (2048x1024) for others, 1K (1024x512) for small moons
+2. **Format**: JPEG for efficient storage
+3. **Projection**: Equirectangular (latitude-longitude mapping)
+4. **Total Size**: 64MB for all 24 textures
+5. **Attribution**: Required - see main README.md
 
-## How to Switch to NASA Public Domain Textures
+## Summary
 
-To use the **least restrictive license** (NASA Public Domain, no attribution required):
+All textures use Solar System Scope's 8K packages (CC BY 4.0) for maximum visual quality. Attribution is provided in the main README.md file as required by the license.
 
-1. Visit https://science.nasa.gov/3d-resources/
-2. Search for the planet or moon you need
-3. Download the texture in your preferred resolution
-4. Replace the corresponding file in `assets/textures/celestial/`
-
-Alternatively, use the NASA GitHub repository:
-```bash
-git clone https://github.com/nasa/NASA-3D-Resources
-# Browse the repository for planetary textures
-```
-
-## Attribution Requirements
-
-### Current Setup (Solar System Scope - CC BY 4.0)
-If using the provided textures, include this attribution:
-```
-Textures provided by Solar System Scope (https://www.solarsystemscope.com/)
-License: CC BY 4.0
-```
-
-### NASA Public Domain Alternative (Recommended)
-If you replace with NASA textures:
-- **No attribution required** (Public Domain)
-- Attribution appreciated but optional: "Imagery courtesy of NASA"
-
-## Notes on Usage
-
-1. **Resolution**: Textures are provided in 1k (1024x512) and 2k (2048x1024) resolutions to balance quality and performance.
-
-2. **Formats**: All textures are in JPEG format for efficient storage and loading.
-
-3. **Mapping**: All textures use equirectangular projection (latitude-longitude mapping) suitable for spherical UV mapping.
-
-4. **Fallback**: Bodies without specific textures use procedurally generated colors based on their physical properties from `solar_system.ron`.
-
-5. **Future Additions**: As new high-quality imagery becomes available from missions, textures can be updated or added.
-
-## Best Practice
-
-**For an open-source MIT-licensed game**, using NASA public domain textures is the best choice:
-- ✅ No license conflicts
-- ✅ No attribution requirements
-- ✅ Same or better quality
-- ✅ Directly from the source
-- ✅ Free for any use (commercial, non-commercial, modifications)
-
-The Solar System Scope textures are convenient but add an attribution requirement that NASA sources don't have.
-
-## Final Recommendation
-
-**Replace all current textures with NASA public domain versions** from:
-- https://science.nasa.gov/3d-resources/ (PRIMARY)
-- https://images.nasa.gov/ (BACKUP)
-- https://github.com/nasa/NASA-3D-Resources (TECHNICAL)
+For information about potential future texture additions (Mars moons, asteroids, comets, etc.), see `EXPANSION_OPPORTUNITIES.md`.
