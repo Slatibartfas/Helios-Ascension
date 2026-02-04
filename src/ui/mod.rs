@@ -93,11 +93,8 @@ fn apply_time_scale(
     time_scale: Res<TimeScale>,
     mut time: ResMut<Time<Virtual>>,
 ) {
-    // Only access the mutable resource when time scale has actually changed
-    if time_scale.is_changed() && !time_scale.is_added() {
-        time.set_relative_speed(time_scale.scale);
-    } else if time_scale.is_added() {
-        // Always set on first frame to initialize
+    // Only update when time scale changes or is first added
+    if time_scale.is_changed() || time_scale.is_added() {
         time.set_relative_speed(time_scale.scale);
     }
 }
