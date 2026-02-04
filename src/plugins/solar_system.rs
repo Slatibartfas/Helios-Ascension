@@ -2,13 +2,14 @@ use bevy::prelude::*;
 use std::collections::HashMap;
 
 use super::solar_system_data::{BodyType, SolarSystemData};
+use crate::astronomy::{KeplerOrbit, OrbitPath, SpaceCoordinates};
 
 pub struct SolarSystemPlugin;
 
 impl Plugin for SolarSystemPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup_solar_system)
-            .add_systems(Update, (update_orbits, rotate_bodies));
+            .add_systems(Update, rotate_bodies);
     }
 }
 
@@ -41,26 +42,14 @@ pub struct Asteroid;
 pub struct Comet;
 
 #[derive(Component)]
-pub struct OrbitalPath {
-    pub parent: Option<Entity>,
-    pub semi_major_axis: f32,
-    #[allow(dead_code)]
-    pub eccentricity: f32,
-    #[allow(dead_code)]
-    pub inclination: f32,
-    #[allow(dead_code)]
-    pub orbital_period: f32,
-    pub current_angle: f32,
-    pub angular_velocity: f32,
-}
-
-#[derive(Component)]
 pub struct RotationSpeed(pub f32);
 
-// Visualization scale factors
-const AU_TO_UNITS: f32 = 50.0; // 1 AU = 50 game units for visibility
+// Visualization scale factors - Note: Legacy AU_TO_UNITS removed, now using astronomy module's SCALING_FACTOR
 const RADIUS_SCALE: f32 = 0.0001; // Scale down radii for visibility
 const MIN_VISUAL_RADIUS: f32 = 0.3; // Minimum visible radius
+
+// Time conversion constants
+const SECONDS_PER_DAY: f64 = 86400.0; // Number of seconds in one Earth day
 
 fn setup_solar_system(
     mut commands: Commands,
@@ -88,7 +77,7 @@ fn setup_solar_system(
 
         // Calculate rotation speed (convert from days to radians per second)
         let rotation_speed = if body_data.rotation_period != 0.0 {
-            (2.0 * std::f32::consts::PI) / (body_data.rotation_period.abs() * 86400.0)
+            (2.0 * std::f32::consts::PI) / (body_data.rotation_period.abs() * SECONDS_PER_DAY as f32)
                 * if body_data.rotation_period < 0.0 {
                     -1.0
                 } else {
@@ -101,7 +90,7 @@ fn setup_solar_system(
         // Determine if this is the star (to add light)
         let is_star = body_data.body_type == BodyType::Star;
 
-        // Create material
+        // Create material with improved visual properties
         let material = if is_star {
             materials.add(StandardMaterial {
                 base_color: Color::srgb(body_data.color.0, body_data.color.1, body_data.color.2),
@@ -110,19 +99,26 @@ fn setup_solar_system(
                     body_data.emissive.1,
                     body_data.emissive.2,
                 )),
+                perceptual_roughness: 1.0, // Stars are rough/diffuse
+                metallic: 0.0,
                 ..default()
             })
         } else {
             materials.add(StandardMaterial {
                 base_color: Color::srgb(body_data.color.0, body_data.color.1, body_data.color.2),
+                perceptual_roughness: 0.8, // Slightly rough for planets
+                metallic: 0.1, // Slight metallic for better lighting
+                reflectance: 0.3, // Some reflectance for rim lighting
                 ..default()
             })
         };
 
         // Determine initial position
+        // Note: Initial position is approximate - astronomy module handles precise orbital mechanics
         let initial_pos = if let Some(ref orbit) = body_data.orbit {
             let angle_rad = orbit.initial_angle.to_radians();
-            let distance = orbit.semi_major_axis * AU_TO_UNITS;
+            // Use 50.0 to match SCALING_FACTOR (1 AU = 50 Bevy units)
+            let distance = orbit.semi_major_axis * 50.0;
             Vec3::new(distance * angle_rad.cos(), 0.0, distance * angle_rad.sin())
         } else {
             Vec3::ZERO
@@ -184,81 +180,61 @@ fn setup_solar_system(
         }
     }
 
-    // Second pass: Add orbital components with parent references
+    // Second pass: Add high-precision astronomy components with parent references
     for body_data in &data.bodies {
         if let Some(ref orbit) = body_data.orbit {
             let entity = entity_map.get(&body_data.name).unwrap();
 
-            // Get parent entity
-            let parent_entity = body_data
-                .parent
-                .as_ref()
-                .and_then(|parent_name| entity_map.get(parent_name))
-                .copied();
-
-            // Calculate angular velocity (radians per second)
-            // orbital_period is in Earth days
-            let angular_velocity = if orbit.orbital_period > 0.0 {
-                (2.0 * std::f32::consts::PI) / (orbit.orbital_period * 86400.0)
+            // Convert orbital period in days to mean motion in radians/second
+            let mean_motion = if orbit.orbital_period > 0.0 {
+                (2.0 * std::f64::consts::PI) / (orbit.orbital_period as f64 * SECONDS_PER_DAY)
             } else {
                 0.0
             };
 
-            commands.entity(*entity).insert(OrbitalPath {
-                parent: parent_entity,
-                semi_major_axis: orbit.semi_major_axis * AU_TO_UNITS,
-                eccentricity: orbit.eccentricity,
-                inclination: orbit.inclination,
-                orbital_period: orbit.orbital_period,
-                current_angle: orbit.initial_angle.to_radians(),
-                angular_velocity,
+            // Create KeplerOrbit component with high-precision values
+            let kepler_orbit = KeplerOrbit::new(
+                orbit.eccentricity as f64,
+                orbit.semi_major_axis as f64, // Already in AU
+                orbit.inclination.to_radians() as f64,
+                orbit.longitude_ascending_node.to_radians() as f64,
+                orbit.argument_of_periapsis.to_radians() as f64,
+                orbit.initial_angle.to_radians() as f64, // mean_anomaly_epoch
+                mean_motion,
+            );
+
+            commands.entity(*entity).insert((
+                kepler_orbit,
+                SpaceCoordinates::default(),
+            ));
+
+            // Determine orbit color and visibility based on body type
+            // Using Terra Invicta-inspired colors: clear, functional, high contrast
+            let (orbit_color, should_show) = match body_data.body_type {
+                BodyType::Planet | BodyType::DwarfPlanet => {
+                    // Planets: bright cyan/blue for high visibility (Terra Invicta style)
+                    (Color::srgba(0.4, 0.7, 1.0, 0.6), true)
+                }
+                BodyType::Moon => {
+                    // Moons: softer green-cyan, lower opacity
+                    (Color::srgba(0.3, 0.8, 0.7, 0.35), true)
+                }
+                BodyType::Asteroid | BodyType::Comet => {
+                    // Asteroids/Comets: amber/yellow when selected
+                    (Color::srgba(1.0, 0.7, 0.2, 0.5), false)
+                }
+                _ => (Color::srgba(0.5, 0.5, 0.5, 0.3), false),
+            };
+
+            commands.entity(*entity).insert(OrbitPath {
+                color: orbit_color,
+                visible: should_show,
+                segments: 96, // Smoother orbit lines (increased from 64)
             });
         }
     }
 
     info!("Solar system setup complete!");
-}
-
-fn update_orbits(
-    time: Res<Time>,
-    mut query: Query<(&mut Transform, &mut OrbitalPath, &CelestialBody)>,
-    parent_query: Query<&Transform, Without<OrbitalPath>>,
-) {
-    // Use a larger time multiplier for faster orbits at high simulation speeds
-    let time_multiplier = 1000.0; // Make orbits 1000x faster for visibility
-
-    for (mut transform, mut orbit, _body) in query.iter_mut() {
-        // Update the angle based on angular velocity
-        orbit.current_angle += orbit.angular_velocity * time.delta_seconds() * time_multiplier;
-
-        // Keep angle in range [0, 2π]
-        if orbit.current_angle > 2.0 * std::f32::consts::PI {
-            orbit.current_angle -= 2.0 * std::f32::consts::PI;
-        }
-
-        // Calculate position based on orbital parameters
-        // For now, using simplified circular orbits (eccentricity not yet implemented)
-        let x = orbit.semi_major_axis * orbit.current_angle.cos();
-        let z = orbit.semi_major_axis * orbit.current_angle.sin();
-
-        // Apply inclination
-        let y = orbit.semi_major_axis
-            * orbit.inclination.to_radians().sin()
-            * orbit.current_angle.sin();
-
-        // Get parent position if it exists
-        let parent_pos = if let Some(parent_entity) = orbit.parent {
-            if let Ok(parent_transform) = parent_query.get(parent_entity) {
-                parent_transform.translation
-            } else {
-                Vec3::ZERO
-            }
-        } else {
-            Vec3::ZERO
-        };
-
-        transform.translation = parent_pos + Vec3::new(x, y, z);
-    }
 }
 
 fn rotate_bodies(time: Res<Time>, mut query: Query<(&mut Transform, &RotationSpeed)>) {

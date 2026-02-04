@@ -20,9 +20,15 @@ pub struct OrbitData {
     pub eccentricity: f32,
     /// Orbital inclination in degrees
     pub inclination: f32,
+    /// Longitude of ascending node (Ω) in degrees
+    #[serde(default)]
+    pub longitude_ascending_node: f32,
+    /// Argument of periapsis (ω) in degrees
+    #[serde(default)]
+    pub argument_of_periapsis: f32,
     /// Orbital period in Earth days
     pub orbital_period: f32,
-    /// Initial angle in degrees
+    /// Initial angle in degrees (mean anomaly at epoch)
     pub initial_angle: f32,
 }
 
@@ -84,7 +90,7 @@ impl SolarSystemData {
     pub fn get_children(&self, parent_name: &str) -> Vec<&CelestialBodyData> {
         self.bodies
             .iter()
-            .filter(|b| b.parent.as_ref().map(|p| p.as_str()) == Some(parent_name))
+            .filter(|b| b.parent.as_deref() == Some(parent_name))
             .collect()
     }
 }
