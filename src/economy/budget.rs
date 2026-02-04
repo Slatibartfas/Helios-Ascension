@@ -192,12 +192,13 @@ mod tests {
     #[test]
     fn test_consume_resource_insufficient() {
         let mut budget = GlobalBudget::new();
-        budget.add_resource(ResourceType::Iron, 10.0);
+        // Set a specific amount
+        budget.stockpiles.insert(ResourceType::Titanium, 10.0);
         
-        let success = budget.consume_resource(ResourceType::Iron, 50.0);
+        let success = budget.consume_resource(ResourceType::Titanium, 50.0);
         
         assert!(!success);
-        assert_eq!(budget.get_stockpile(&ResourceType::Iron), 10.0); // Unchanged
+        assert_eq!(budget.get_stockpile(&ResourceType::Titanium), 10.0); // Unchanged
     }
 
     #[test]
