@@ -7,8 +7,9 @@ use crate::plugins::solar_system::{CelestialBody, Moon};
 use crate::plugins::camera::GameCamera;
 
 /// Scaling factor for converting astronomical units to Bevy rendering units
-/// 1 AU = 100.0 Bevy units keeps planets within reasonable camera frustum
-pub const SCALING_FACTOR: f64 = 100.0;
+/// 1 AU = 50.0 Bevy units keeps planets within reasonable camera frustum
+/// This matches the legacy system's AU_TO_UNITS value for consistency
+pub const SCALING_FACTOR: f64 = 50.0;
 
 /// Distance threshold for showing moon orbits (in Bevy units)
 /// Moon orbits only visible when camera is closer than this distance

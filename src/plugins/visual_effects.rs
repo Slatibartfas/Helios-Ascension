@@ -11,9 +11,9 @@ impl Plugin for VisualEffectsPlugin {
     }
 }
 
-/// Component for star particles in the background
+/// Component for starfield background particles
 #[derive(Component)]
-pub struct Star {
+pub struct StarParticle {
     pub brightness: f32,
     pub size: f32,
 }
@@ -51,19 +51,19 @@ fn setup_starfield(
             let brightness = base_brightness * brightness_variance;
             let size = base_size * size_variance;
             
-            // Star color - mostly white with slight color variations
+            // Star color distribution: 75% white, 10% blue, 10% yellow/orange, 5% red
             let color_temp = rng.gen::<f32>();
-            let star_color = if color_temp < 0.05 {
-                // Blue stars (hot)
+            let star_color = if color_temp < 0.10 {
+                // Blue stars (hot) - 10%
                 Color::srgb(0.7, 0.8, 1.0)
-            } else if color_temp < 0.15 {
-                // Yellow/orange stars
+            } else if color_temp < 0.20 {
+                // Yellow/orange stars - 10%
                 Color::srgb(1.0, 0.9, 0.7)
-            } else if color_temp < 0.2 {
-                // Red stars (cool)
+            } else if color_temp < 0.25 {
+                // Red stars (cool) - 5%
                 Color::srgb(1.0, 0.7, 0.6)
             } else {
-                // White stars (most common)
+                // White stars (most common) - 75%
                 Color::srgb(1.0, 1.0, 1.0)
             };
             
@@ -83,7 +83,7 @@ fn setup_starfield(
                     transform: Transform::from_xyz(x, y, z),
                     ..default()
                 },
-                Star {
+                StarParticle {
                     brightness,
                     size,
                 },

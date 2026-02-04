@@ -9,7 +9,7 @@ pub struct SolarSystemPlugin;
 impl Plugin for SolarSystemPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup_solar_system)
-            .add_systems(Update, (update_orbits, rotate_bodies));
+            .add_systems(Update, rotate_bodies);
     }
 }
 
@@ -42,24 +42,9 @@ pub struct Asteroid;
 pub struct Comet;
 
 #[derive(Component)]
-pub struct OrbitalPath {
-    pub parent: Option<Entity>,
-    pub semi_major_axis: f32,
-    #[allow(dead_code)]
-    pub eccentricity: f32,
-    #[allow(dead_code)]
-    pub inclination: f32,
-    #[allow(dead_code)]
-    pub orbital_period: f32,
-    pub current_angle: f32,
-    pub angular_velocity: f32,
-}
-
-#[derive(Component)]
 pub struct RotationSpeed(pub f32);
 
-// Visualization scale factors
-const AU_TO_UNITS: f32 = 50.0; // 1 AU = 50 game units for visibility
+// Visualization scale factors - Note: Legacy AU_TO_UNITS removed, now using astronomy module's SCALING_FACTOR
 const RADIUS_SCALE: f32 = 0.0001; // Scale down radii for visibility
 const MIN_VISUAL_RADIUS: f32 = 0.3; // Minimum visible radius
 
@@ -129,9 +114,11 @@ fn setup_solar_system(
         };
 
         // Determine initial position
+        // Note: Initial position is approximate - astronomy module handles precise orbital mechanics
         let initial_pos = if let Some(ref orbit) = body_data.orbit {
             let angle_rad = orbit.initial_angle.to_radians();
-            let distance = orbit.semi_major_axis * AU_TO_UNITS;
+            // Use 50.0 to match SCALING_FACTOR (1 AU = 50 Bevy units)
+            let distance = orbit.semi_major_axis * 50.0;
             Vec3::new(distance * angle_rad.cos(), 0.0, distance * angle_rad.sin())
         } else {
             Vec3::ZERO
@@ -193,38 +180,11 @@ fn setup_solar_system(
         }
     }
 
-    // Second pass: Add orbital components with parent references
+    // Second pass: Add high-precision astronomy components with parent references
     for body_data in &data.bodies {
         if let Some(ref orbit) = body_data.orbit {
             let entity = entity_map.get(&body_data.name).unwrap();
 
-            // Get parent entity
-            let parent_entity = body_data
-                .parent
-                .as_ref()
-                .and_then(|parent_name| entity_map.get(parent_name))
-                .copied();
-
-            // Calculate angular velocity (radians per second)
-            // orbital_period is in Earth days
-            let angular_velocity = if orbit.orbital_period > 0.0 {
-                (2.0 * std::f32::consts::PI) / (orbit.orbital_period * SECONDS_PER_DAY as f32)
-            } else {
-                0.0
-            };
-
-            // Add legacy OrbitalPath component (for backwards compatibility)
-            commands.entity(*entity).insert(OrbitalPath {
-                parent: parent_entity,
-                semi_major_axis: orbit.semi_major_axis * AU_TO_UNITS,
-                eccentricity: orbit.eccentricity,
-                inclination: orbit.inclination,
-                orbital_period: orbit.orbital_period,
-                current_angle: orbit.initial_angle.to_radians(),
-                angular_velocity,
-            });
-
-            // Add new high-precision astronomy components
             // Convert orbital period in days to mean motion in radians/second
             let mean_motion = if orbit.orbital_period > 0.0 {
                 (2.0 * std::f64::consts::PI) / (orbit.orbital_period as f64 * SECONDS_PER_DAY)
@@ -275,48 +235,6 @@ fn setup_solar_system(
     }
 
     info!("Solar system setup complete!");
-}
-
-fn update_orbits(
-    time: Res<Time>,
-    mut query: Query<(&mut Transform, &mut OrbitalPath, &CelestialBody)>,
-    parent_query: Query<&Transform, Without<OrbitalPath>>,
-) {
-    // Use a larger time multiplier for faster orbits at high simulation speeds
-    let time_multiplier = 1000.0; // Make orbits 1000x faster for visibility
-
-    for (mut transform, mut orbit, _body) in query.iter_mut() {
-        // Update the angle based on angular velocity
-        orbit.current_angle += orbit.angular_velocity * time.delta_seconds() * time_multiplier;
-
-        // Keep angle in range [0, 2π]
-        if orbit.current_angle > 2.0 * std::f32::consts::PI {
-            orbit.current_angle -= 2.0 * std::f32::consts::PI;
-        }
-
-        // Calculate position based on orbital parameters
-        // For now, using simplified circular orbits (eccentricity not yet implemented)
-        let x = orbit.semi_major_axis * orbit.current_angle.cos();
-        let z = orbit.semi_major_axis * orbit.current_angle.sin();
-
-        // Apply inclination
-        let y = orbit.semi_major_axis
-            * orbit.inclination.to_radians().sin()
-            * orbit.current_angle.sin();
-
-        // Get parent position if it exists
-        let parent_pos = if let Some(parent_entity) = orbit.parent {
-            if let Ok(parent_transform) = parent_query.get(parent_entity) {
-                parent_transform.translation
-            } else {
-                Vec3::ZERO
-            }
-        } else {
-            Vec3::ZERO
-        };
-
-        transform.translation = parent_pos + Vec3::new(x, y, z);
-    }
 }
 
 fn rotate_bodies(time: Res<Time>, mut query: Query<(&mut Transform, &RotationSpeed)>) {

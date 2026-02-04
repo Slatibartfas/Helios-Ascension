@@ -25,10 +25,10 @@ fn main() {
         }))
         // Debug UI
         .add_plugins(WorldInspectorPlugin::new())
-        // Game plugins
-        .add_plugins(VisualEffectsPlugin)
+        // Game plugins - CameraPlugin must be before VisualEffectsPlugin
         .add_plugins(AstronomyPlugin)
         .add_plugins(CameraPlugin)
+        .add_plugins(VisualEffectsPlugin)
         .add_plugins(SolarSystemPlugin)
         // Systems
         .add_systems(Startup, setup)
