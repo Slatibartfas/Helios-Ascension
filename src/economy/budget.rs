@@ -158,11 +158,20 @@ impl Default for EnergyGrid {
 }
 
 /// System that updates the civilization score based on power generation
-/// Only recalculates when the GlobalBudget resource changes
-pub fn update_civilization_score(mut budget: ResMut<GlobalBudget>) {
-    // Only update if the budget has changed (more efficient)
-    if budget.is_changed() {
+/// Uses Local state to track previous energy grid values for efficient change detection
+pub fn update_civilization_score(
+    mut budget: ResMut<GlobalBudget>,
+    mut last_produced: Local<f64>,
+    mut last_consumed: Local<f64>,
+) {
+    // Only recalculate if energy grid values have changed
+    let current_produced = budget.energy_grid.produced;
+    let current_consumed = budget.energy_grid.consumed;
+    
+    if current_produced != *last_produced || current_consumed != *last_consumed {
         budget.update_civilization_score();
+        *last_produced = current_produced;
+        *last_consumed = current_consumed;
     }
 }
 
