@@ -37,9 +37,9 @@ pub fn generate_solar_system_resources(
                 let distance = (coords.position - star_coords.position).length();
                 (distance, star_system.frost_line_au)
             } else {
-                // Parent not found, use fallback
+                // Parent entity exists but is not a star or doesn't have required components
                 warn!(
-                    "Parent body not found for {}, using origin distance and default frost line",
+                    "Parent star not found or invalid for {}, using origin distance and default frost line",
                     body.name
                 );
                 (coords.position.length(), DEFAULT_FROST_LINE_AU)

@@ -35,8 +35,17 @@ impl StarSystem {
         }
     }
     
-    /// Calculate frost line based on star luminosity (for future procedural generation)
-    /// frost_line ≈ 2.7 * sqrt(L/L_sun) AU
+    /// Calculate frost line based on star luminosity (for procedural generation)
+    /// 
+    /// Uses the simplified formula: `frost_line = 2.7 * sqrt(L/L_sun)` AU
+    /// 
+    /// This is a first-order approximation based on stellar equilibrium temperature.
+    /// More accurate models would account for:
+    /// - Stellar age and protoplanetary disk composition
+    /// - Stellar wind effects
+    /// - Specific molecular freeze-out temperatures (H2O vs CH4 vs CO2)
+    /// 
+    /// For game purposes, this provides realistic variety across stellar types.
     pub fn from_luminosity(luminosity_solar: f64, spectral_class: SpectralClass) -> Self {
         let frost_line_au = 2.7 * luminosity_solar.sqrt();
         Self {
