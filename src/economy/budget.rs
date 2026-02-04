@@ -159,12 +159,18 @@ impl Default for EnergyGrid {
 
 /// System that updates the civilization score based on power generation
 /// Uses Local state to track previous energy grid values for efficient change detection
+/// 
+/// Note: Uses direct equality comparison for f64 values. This is safe here because
+/// energy grid values are set directly (not computed), so no floating-point precision
+/// issues occur. If values were computed through arithmetic, an epsilon comparison
+/// would be needed.
 pub fn update_civilization_score(
     mut budget: ResMut<GlobalBudget>,
     mut last_produced: Local<f64>,
     mut last_consumed: Local<f64>,
 ) {
     // Only recalculate if energy grid values have changed
+    // Direct equality is safe here since values are assigned, not computed
     let current_produced = budget.energy_grid.produced;
     let current_consumed = budget.energy_grid.consumed;
     
