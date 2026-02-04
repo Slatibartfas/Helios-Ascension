@@ -1,30 +1,27 @@
-# Celestial Body Texture Sources
+# Celestial Body Texture Sources - High Resolution Edition
 
-This document lists the sources for all celestial body textures used in Helios Ascension. All textures are from publicly available sources and are properly licensed for use.
+This document lists the sources for all HIGH RESOLUTION celestial body textures used in Helios Ascension.
 
-## License Summary
+## Resolution Upgrade Summary
 
-**IMPORTANT**: We prioritize the LEAST restrictive licenses:
+**Previous**: 1K-2K textures, 6MB total  
+**Current**: 8K textures for major bodies, 64MB total  
+**Improvement**: 10.6x larger, 4x resolution for planets
 
-1. **NASA Public Domain** (PREFERRED) - No restrictions, no attribution required
-   - NASA is a U.S. government agency and most imagery is public domain
-   - Can be used for any purpose without permission or attribution
-   - Attribution is appreciated but not required
+## Current Texture Resolutions
 
-2. **Solar System Scope (CC BY 4.0)** (CURRENTLY USED) - Requires attribution
-   - Based on NASA public domain data
-   - Requires attribution: "Textures provided by Solar System Scope"
-   - Free for commercial and non-commercial use
+### 8K (8192x4096) - Major Bodies
+- Sun, Mercury, Venus Surface, Earth, Mars, Jupiter, Saturn, Moon
+- File sizes: 1-15MB each
+- Total for 8K textures: ~62MB
 
-## Recommendation for Future
+### 2K (2048x1024) - Medium Bodies  
+- Venus Atmosphere, Uranus, Neptune, Pluto, Ceres, Eris
+- File sizes: 16KB-1.1MB each
 
-**For less restrictive licensing**, download textures directly from NASA sources:
-- **NASA 3D Resources**: https://science.nasa.gov/3d-resources/ (PUBLIC DOMAIN)
-- **NASA Image Library**: https://images.nasa.gov/ (PUBLIC DOMAIN)
-- **NASA GitHub**: https://github.com/nasa/NASA-3D-Resources (PUBLIC DOMAIN)
-- **USGS Astrogeology**: https://astrogeology.usgs.gov/ (PUBLIC DOMAIN)
-
-These NASA sources provide the **same or better quality** textures with **NO attribution requirements**.
+### 1K (1024x512) - Small Moons
+- Jupiter's and Saturn's moons
+- File sizes: ~16KB each
 
 ## Primary Sources
 
