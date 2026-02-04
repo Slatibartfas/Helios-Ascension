@@ -55,6 +55,7 @@ fn setup_solar_system(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
 ) {
     // Load solar system data
     let data = match SolarSystemData::load_from_file("assets/data/solar_system.ron") {
@@ -92,8 +93,12 @@ fn setup_solar_system(
 
         // Create material with improved visual properties
         let material = if is_star {
+            // Load texture if available
+            let base_color_texture = body_data.texture.as_ref().map(|path| asset_server.load(path));
+            
             materials.add(StandardMaterial {
                 base_color: Color::srgb(body_data.color.0, body_data.color.1, body_data.color.2),
+                base_color_texture,
                 emissive: LinearRgba::from(Color::srgb(
                     body_data.emissive.0,
                     body_data.emissive.1,
@@ -104,8 +109,12 @@ fn setup_solar_system(
                 ..default()
             })
         } else {
+            // Load texture if available
+            let base_color_texture = body_data.texture.as_ref().map(|path| asset_server.load(path));
+            
             materials.add(StandardMaterial {
                 base_color: Color::srgb(body_data.color.0, body_data.color.1, body_data.color.2),
+                base_color_texture,
                 perceptual_roughness: 0.8, // Slightly rough for planets
                 metallic: 0.1, // Slight metallic for better lighting
                 reflectance: 0.3, // Some reflectance for rim lighting

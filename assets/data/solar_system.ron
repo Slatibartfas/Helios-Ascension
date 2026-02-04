@@ -19,6 +19,7 @@
             parent: None,
             orbit: None,
             rotation_period: 609.12, // 25.38 days at equator
+            texture: Some("textures/celestial/stars/sun_2k.jpg"),
         ),
         
         // PLANETS
@@ -40,6 +41,7 @@
                 initial_angle: 0.0,
             )),
             rotation_period: 1407.6,
+            texture: Some("textures/celestial/planets/mercury_2k.jpg"),
         ),
         
         // Venus
@@ -59,6 +61,7 @@
                 initial_angle: 50.0,
             )),
             rotation_period: -5832.5, // Negative = retrograde
+            texture: Some("textures/celestial/planets/venus_atmosphere_2k.jpg"),
         ),
         
         // Earth
@@ -78,6 +81,7 @@
                 initial_angle: 100.0,
             )),
             rotation_period: 0.99726968,
+            texture: Some("textures/celestial/planets/earth_2k.jpg"),
         ),
         
         // Moon
@@ -97,6 +101,7 @@
                 initial_angle: 0.0,
             )),
             rotation_period: 27.321661, // Tidally locked
+            texture: Some("textures/celestial/moons/moon_2k.jpg"),
         ),
         
         // Mars
@@ -116,6 +121,7 @@
                 initial_angle: 150.0,
             )),
             rotation_period: 1.025957,
+            texture: Some("textures/celestial/planets/mars_2k.jpg"),
         ),
         
         // Phobos
@@ -173,6 +179,7 @@
                 initial_angle: 200.0,
             )),
             rotation_period: 0.41354,
+            texture: Some("textures/celestial/planets/jupiter_2k.jpg"),
         ),
         
         // Io
@@ -192,6 +199,7 @@
                 initial_angle: 0.0,
             )),
             rotation_period: 1.769137786,
+            texture: Some("textures/celestial/moons/io_1k.jpg"),
         ),
         
         // Europa
@@ -211,6 +219,7 @@
                 initial_angle: 90.0,
             )),
             rotation_period: 3.551181,
+            texture: Some("textures/celestial/moons/europa_1k.jpg"),
         ),
         
         // Ganymede
@@ -230,6 +239,7 @@
                 initial_angle: 180.0,
             )),
             rotation_period: 7.15455296,
+            texture: Some("textures/celestial/moons/ganymede_1k.jpg"),
         ),
         
         // Callisto
@@ -249,6 +259,7 @@
                 initial_angle: 270.0,
             )),
             rotation_period: 16.6890184,
+            texture: Some("textures/celestial/moons/callisto_1k.jpg"),
         ),
         
         // Saturn
@@ -268,6 +279,7 @@
                 initial_angle: 250.0,
             )),
             rotation_period: 0.445,
+            texture: Some("textures/celestial/planets/saturn_2k.jpg"),
         ),
         
         // Titan
@@ -287,6 +299,7 @@
                 initial_angle: 0.0,
             )),
             rotation_period: 15.945,
+            texture: Some("textures/celestial/moons/titan_1k.jpg"),
         ),
         
         // Rhea
@@ -306,6 +319,7 @@
                 initial_angle: 120.0,
             )),
             rotation_period: 4.518212,
+            texture: Some("textures/celestial/moons/rhea_1k.jpg"),
         ),
         
         // Uranus
@@ -325,6 +339,7 @@
                 initial_angle: 300.0,
             )),
             rotation_period: -0.71833, // Retrograde
+            texture: Some("textures/celestial/planets/uranus_2k.jpg"),
         ),
         
         // Titania
@@ -363,6 +378,7 @@
                 initial_angle: 0.0,
             )),
             rotation_period: 0.6713,
+            texture: Some("textures/celestial/planets/neptune_2k.jpg"),
         ),
         
         // Triton
@@ -403,6 +419,7 @@
                 initial_angle: 10.0,
             )),
             rotation_period: 6.387230,
+            texture: Some("textures/celestial/planets/pluto_1k.jpg"),
         ),
         
         // Charon (Pluto's moon)
@@ -441,6 +458,7 @@
                 initial_angle: 45.0,
             )),
             rotation_period: 1.08,
+            texture: Some("textures/celestial/planets/eris_1k.jpg"),
         ),
         
         // Makemake
@@ -500,6 +518,7 @@
                 initial_angle: 0.0,
             )),
             rotation_period: 0.3781,
+            texture: Some("textures/celestial/planets/ceres_1k.jpg"),
         ),
         
         // Vesta
@@ -1697,6 +1716,7 @@
                 initial_angle: 50,
             )),
             rotation_period: 1.37,
+            texture: Some("textures/celestial/moons/enceladus_1k.jpg"),
         ),
         
         // Tethys
@@ -1716,6 +1736,7 @@
                 initial_angle: 100,
             )),
             rotation_period: 1.888,
+            texture: Some("textures/celestial/moons/tethys_1k.jpg"),
         ),
         
         // Dione
@@ -1735,6 +1756,7 @@
                 initial_angle: 150,
             )),
             rotation_period: 2.737,
+            texture: Some("textures/celestial/moons/dione_1k.jpg"),
         ),
         
         // Iapetus
@@ -1754,6 +1776,7 @@
                 initial_angle: 200,
             )),
             rotation_period: 79.33,
+            texture: Some("textures/celestial/moons/iapetus_1k.jpg"),
         ),
         
         // Hyperion

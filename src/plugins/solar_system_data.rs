@@ -53,6 +53,9 @@ pub struct CelestialBodyData {
     pub orbit: Option<OrbitData>,
     /// Rotation period in Earth days (negative for retrograde)
     pub rotation_period: f32,
+    /// Optional texture path (relative to assets directory)
+    #[serde(default)]
+    pub texture: Option<String>,
 }
 
 /// Complete solar system data
