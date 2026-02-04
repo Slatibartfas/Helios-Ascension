@@ -186,18 +186,30 @@ fn setup_solar_system(
         // Determine if this is the star (to add light)
         let is_star = body_data.body_type == BodyType::Star;
 
-        // Determine texture path - use dedicated texture if available, otherwise use generic
-        let texture_path = body_data.texture.clone()
-            .or_else(|| get_generic_texture_path(body_data));
+        // Check for multi-layer textures first, then single texture, then generic
+        let (base_color_texture, normal_map_texture, has_dedicated_texture) = 
+            if let Some(ref multi) = body_data.multi_layer_textures {
+                // Multi-layer textures - use base texture for now
+                // TODO: Implement full multi-layer rendering with night/clouds/specular
+                let base_tex = Some(asset_server.load::<Image>(multi.base.clone()));
+                let normal_tex = multi.normal.as_ref().map(|path| asset_server.load::<Image>(path.clone()));
+                (base_tex, normal_tex, true)
+            } else if let Some(ref texture) = body_data.texture {
+                // Single dedicated texture
+                (Some(asset_server.load(texture.clone())), None, true)
+            } else {
+                // Generic texture based on body type
+                let generic_path = get_generic_texture_path(body_data);
+                (generic_path.map(|path| asset_server.load(path)), None, false)
+            };
         
-        let has_texture = texture_path.is_some();
-        let base_color_texture = texture_path.map(|path| asset_server.load(path));
+        let has_texture = base_color_texture.is_some();
         
         // Apply procedural variation to material properties
         // For dedicated textures, use WHITE to avoid tinting the texture
         // For generic/procedural textures, apply color variation for diversity
         let base_color = Color::srgb(body_data.color.0, body_data.color.1, body_data.color.2);
-        let (material_color, roughness, metallic) = if body_data.texture.is_some() {
+        let (material_color, roughness, metallic) = if has_dedicated_texture {
             // Dedicated texture - use WHITE to show texture without tinting
             (Color::WHITE, 0.7, 0.0)
         } else {
@@ -223,6 +235,7 @@ fn setup_solar_system(
             materials.add(StandardMaterial {
                 base_color: material_color,
                 base_color_texture,
+                normal_map_texture,
                 perceptual_roughness: roughness,
                 metallic,
                 reflectance: 0.3, // Some reflectance for rim lighting

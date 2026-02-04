@@ -61,9 +61,11 @@
                 initial_angle: 50.0,
             )),
             rotation_period: -5832.5, // Negative = retrograde
-            // TODO: Support two-layer materials for atmosphere + surface
-            // Currently using surface texture; atmosphere texture available at venus_atmosphere_2k.jpg
-            texture: Some("textures/celestial/planets/venus_surface_8k.jpg"),
+            // Multi-layer textures for surface + atmosphere
+            multi_layer_textures: Some((
+                base: "textures/celestial/planets/venus_surface_8k.jpg",
+                clouds: Some("textures/celestial/planets/venus_atmosphere_2k.jpg"),
+            )),
         ),
         
         // Earth
@@ -83,7 +85,14 @@
                 initial_angle: 100.0,
             )),
             rotation_period: 0.99726968,
-            texture: Some("textures/celestial/planets/earth_8k.jpg"),
+            // Multi-layer textures for advanced rendering
+            multi_layer_textures: Some((
+                base: "textures/celestial/planets/earth_daymap_8k.jpg",
+                night: Some("textures/celestial/planets/earth_nightmap_8k.jpg"),
+                clouds: Some("textures/celestial/planets/earth_clouds_8k.jpg"),
+                normal: Some("textures/celestial/planets/earth_normal_8k.tif"),
+                specular: Some("textures/celestial/planets/earth_specular_8k.tif"),
+            )),
         ),
         
         // Moon

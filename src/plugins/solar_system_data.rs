@@ -45,6 +45,25 @@ pub struct OrbitData {
     pub initial_angle: f32,
 }
 
+/// Multi-layer texture configuration for advanced rendering
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MultiLayerTextures {
+    /// Base color/albedo texture (day side for planets)
+    pub base: String,
+    /// Night-side emissive texture (city lights, etc.)
+    #[serde(default)]
+    pub night: Option<String>,
+    /// Cloud/atmosphere layer texture
+    #[serde(default)]
+    pub clouds: Option<String>,
+    /// Normal/bump map for surface detail
+    #[serde(default)]
+    pub normal: Option<String>,
+    /// Specular/glossiness map (shininess variation)
+    #[serde(default)]
+    pub specular: Option<String>,
+}
+
 /// Complete data for a celestial body
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CelestialBodyData {
@@ -69,6 +88,9 @@ pub struct CelestialBodyData {
     /// Optional texture path (relative to assets directory)
     #[serde(default)]
     pub texture: Option<String>,
+    /// Multi-layer texture configuration (replaces single texture if present)
+    #[serde(default)]
+    pub multi_layer_textures: Option<MultiLayerTextures>,
     /// Asteroid spectral class (for procedural texture selection)
     #[serde(default)]
     pub asteroid_class: Option<AsteroidClass>,
