@@ -9,6 +9,7 @@ pub enum BodyType {
     Moon,
     Asteroid,
     Comet,
+    Ring,
 }
 
 /// Spectral/compositional class for asteroids

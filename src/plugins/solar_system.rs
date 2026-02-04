@@ -42,6 +42,9 @@ pub struct Asteroid;
 pub struct Comet;
 
 #[derive(Component)]
+pub struct Ring;
+
+#[derive(Component)]
 pub struct RotationSpeed(pub f32);
 
 // Visualization scale factors - Note: Legacy AU_TO_UNITS removed, now using astronomy module's SCALING_FACTOR
@@ -122,12 +125,17 @@ fn apply_procedural_variation(
                 (base_color.to_srgba().blue * gray_variation).clamp(0.0, 1.0),
             )
         }
+        BodyType::Ring => base_color, // Rings rely on texture/transparency
         _ => base_color,
     };
     
     // Vary roughness for surface variation
     let roughness_var = if has_texture {
-        0.7 + random2 * 0.2 // 0.7 to 0.9 for textured bodies
+        if body_data.body_type == BodyType::Ring {
+            0.8 // Rings are dusty/icy
+        } else {
+            0.7 + random2 * 0.2 // 0.7 to 0.9 for textured bodies
+        }
     } else {
         0.6 + random2 * 0.3 // 0.6 to 0.9 for non-textured bodies
     };
@@ -232,6 +240,20 @@ fn setup_solar_system(
                 metallic: 0.0,
                 ..default()
             })
+        } else if body_data.body_type == BodyType::Ring {
+            materials.add(StandardMaterial {
+                base_color: material_color,
+                base_color_texture: base_color_texture.clone(),
+                perceptual_roughness: roughness,
+                metallic: 0.0,
+                reflectance: 0.2,
+                alpha_mode: AlphaMode::Blend,
+                cull_mode: None, // Double-sided
+                unlit: true, // Rings often look better unlit or carefully lit, but for now transparent unlit or lit? 
+                            // Real rings are lit by sun. But avoiding shadows casting weirdly. 
+                            // Let's stick to lit but standard.
+                ..default()
+            })
         } else {
             materials.add(StandardMaterial {
                 base_color: material_color,
@@ -256,9 +278,22 @@ fn setup_solar_system(
         };
 
         // Build entity with appropriate components
+        let mesh = if body_data.body_type == BodyType::Ring {
+            // Plane for rings (2x radius because plane size is usually defined by "size" which maps to width/height, 
+            // but Plane3d uses specific construction. 
+            // Plane3d::default() is infinite? No, Bevy primitives changed. 
+            // Let's use Plane3d and Rectangle mesh builder or similar.
+            // Bevy 0.14: Mesh::from(Plane3d { normal: Dir3::Y, half_size: Vec2::splat(visual_radius) }) theoretically.
+            // Or Mesh::from(Rectangle::new(visual_radius * 2.0, visual_radius * 2.0)) rotated?
+            // Plane usually implies XZ.
+            meshes.add(Plane3d::default().mesh().size(visual_radius * 2.0, visual_radius * 2.0))
+        } else {
+            meshes.add(Sphere::new(visual_radius))
+        };
+
         let mut entity_commands = commands.spawn((
             PbrBundle {
-                mesh: meshes.add(Sphere::new(visual_radius)),
+                mesh,
                 material,
                 transform: Transform::from_translation(initial_pos),
                 ..default()
@@ -291,10 +326,27 @@ fn setup_solar_system(
             BodyType::Comet => {
                 entity_commands.insert(Comet);
             }
+            BodyType::Ring => {
+                entity_commands.insert(Ring);
+            }
         }
 
         let entity = entity_commands.id();
         entity_map.insert(body_data.name.clone(), entity);
+        
+        // Handle parenting for Rings (and potentially others if we move to full hierarchy)
+        if body_data.body_type == BodyType::Ring {
+            if let Some(parent_name) = &body_data.parent {
+                if let Some(parent_entity) = entity_map.get(parent_name) {
+                    commands.entity(entity).set_parent(*parent_entity);
+                    // Ensure local transform is zero if parenting handled position
+                    // But wait, initial_pos was set to ZERO if no orbit.
+                    // So just setting parent is enough.
+                } else {
+                    warn!("Parent {} not found for ring {}", parent_name, body_data.name);
+                }
+            }
+        }
 
         // Add light for stars
         if is_star {
@@ -354,6 +406,7 @@ fn setup_solar_system(
                     // Asteroids/Comets: amber/yellow when selected
                     (Color::srgba(1.0, 0.7, 0.2, 0.5), false)
                 }
+                BodyType::Ring => (Color::srgba(0.0, 0.0, 0.0, 0.0), false), // No orbit line for rings
                 _ => (Color::srgba(0.5, 0.5, 0.5, 0.3), false),
             };
 

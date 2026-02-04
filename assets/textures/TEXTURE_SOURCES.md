@@ -18,29 +18,26 @@ For the moon textures that are currently placeholders, you can download from:
 Visit: https://www.solarsystemscope.com/textures/
 
 Download these files (2K resolution):
-- Io: 2k_io.jpg → rename to io_1k.jpg
-- Europa: 2k_europa.jpg → rename to europa_1k.jpg
-- Ganymede: 2k_ganymede.jpg → rename to ganymede_1k.jpg
-- Callisto: 2k_callisto.jpg → rename to callisto_1k.jpg
-- Titan: 2k_titan.jpg → rename to titan_1k.jpg
-- Enceladus: 2k_enceladus.jpg → rename to enceladus_1k.jpg
-- Tethys: 2k_tethys.jpg → rename to tethys_1k.jpg
-- Dione: 2k_dione.jpg → rename to dione_1k.jpg
-- Rhea: 2k_rhea.jpg → rename to rhea_1k.jpg
-- Iapetus: 2k_iapetus.jpg → rename to iapetus_1k.jpg
-- Phobos: 2k_phobos.jpg → rename to phobos_2k.jpg
-- Deimos: 2k_deimos.jpg → rename to deimos_2k.jpg
-- Miranda: 2k_miranda.jpg → rename to miranda_2k.jpg
-- Triton: 2k_triton.jpg → rename to triton_2k.jpg
-- Mimas: 2k_mimas.jpg → rename to mimas_2k.jpg
-- Phoebe: 2k_phoebe.jpg → rename to phoebe_2k.jpg
+- Phobos: 2k_phobos.jpg → rename to phobos_2k.jpg (Verified Availability)
+- Deimos: 2k_deimos.jpg → rename to deimos_2k.jpg (Verified Availability)
 
-Place them in the appropriate subdirectories:
-- Jupiter/Saturn moons → `celestial/moons/`
-- Mars moons → `celestial/moons/`
-- Uranus/Neptune moons → `celestial/moons/`
+### Option 2: USGS Astrogeology (Scientific, High Accuracy)
 
-### Option 2: NASA Public Domain (Various resolutions)
+**Phobos:**
+- **Primary Source (Mars Express SRC):** [Phobos ME SRC Mosaic Global 1024.jpg](https://astrogeology.usgs.gov/ckan/dataset/ca781f2d-0e29-4560-a14e-1b41269c74a9/resource/6c47165c-4094-4ff5-8a21-065deb4319d6/download/phobos_me_src_mosaic_global_1024.jpg)
+  - Resolution: 1024x512
+  - Description: Global mosaic from Mars Express Super Resolution Channel.
+  - Verification: **Verified Link** (Direct Download)
+
+- **Alternative (Viking):** [Phobos Viking Global Mosaic](https://astrogeology.usgs.gov/search/map/phobos_viking_global_mosaic_5m)
+  - Higher resolution TIF available.
+
+**Deimos:**
+- **Search Query:** [USGS Deimos Search](https://astrogeology.usgs.gov/search/results?q=Deimos+Mosaic)
+- **Target Map:** Look for "Deimos Pictorial Map" or "Deimos Viking Global Mosaic".
+- *Note:* Direct permanent links for Deimos textures on USGS are currently fluctuating. The search link provides the most up-to-date access to available products.
+
+### Option 3: NASA Public Domain (Various resolutions)
 
 NASA provides public domain textures but they require more processing:
 
