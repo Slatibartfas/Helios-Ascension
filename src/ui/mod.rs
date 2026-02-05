@@ -13,7 +13,7 @@ pub mod interaction;
 
 pub use interaction::Selection;
 
-use crate::astronomy::{Hovered, KeplerOrbit, Selected, SpaceCoordinates};
+use crate::astronomy::{AtmosphereComposition, Hovered, KeplerOrbit, Selected, SpaceCoordinates};
 use crate::economy::{format_power, GlobalBudget, PlanetResources, ResourceType};
 use crate::plugins::solar_system::CelestialBody;
 use crate::plugins::solar_system_data::BodyType;
@@ -310,7 +310,7 @@ fn ui_dashboard(
     mut time_scale: ResMut<TimeScale>,
     mut selection: ResMut<Selection>,
     // Query for selected body information
-    body_query: Query<(&CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>, Option<&PlanetResources>)>,
+    body_query: Query<(&CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>, Option<&PlanetResources>, Option<&AtmosphereComposition>)>,
     // Ledger queries
     all_bodies_query: Query<(Entity, &CelestialBody, Option<&Parent>)>,
     selected_query: Query<Entity, With<Selected>>,
@@ -415,7 +415,7 @@ fn ui_dashboard(
                 ui.separator();
 
                 if let Some(entity) = selection.get() {
-                    if let Ok((body, coords, orbit, resources)) = body_query.get(entity) {
+                    if let Ok((body, coords, orbit, resources, atmosphere)) = body_query.get(entity) {
                         // Body name and basic info
                         ui.label(egui::RichText::new(&body.name).size(18.0).strong());
                         ui.add_space(10.0);
@@ -447,6 +447,74 @@ fn ui_dashboard(
                                 } else {
                                     ui.label(format!("Period: {:.2} years", period_days / 365.25));
                                 }
+                            });
+
+                            ui.add_space(10.0);
+                        }
+
+                        // Atmosphere data if available
+                        if let Some(atmosphere) = atmosphere {
+                            ui.group(|ui| {
+                                let id = ui.make_persistent_id("atmosphere_header");
+                                egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
+                                    .show_header(ui, |ui| {
+                                        ui.label(egui::RichText::new("🌍 Atmosphere").strong());
+                                    })
+                                    .body(|ui| {
+                                        // Basic atmosphere properties
+                                        ui.horizontal(|ui| {
+                                            ui.label("Pressure:");
+                                            let pressure_bar = atmosphere.surface_pressure_mbar / 1000.0;
+                                            if pressure_bar >= 1.0 {
+                                                ui.label(format!("{:.2} bar", pressure_bar));
+                                            } else {
+                                                ui.label(format!("{:.0} mbar", atmosphere.surface_pressure_mbar));
+                                            }
+                                        });
+                                        
+                                        ui.horizontal(|ui| {
+                                            ui.label("Temperature:");
+                                            ui.label(format!("{:.1}°C", atmosphere.surface_temperature_celsius));
+                                        });
+                                        
+                                        ui.horizontal(|ui| {
+                                            ui.label("Breathable:");
+                                            if atmosphere.breathable {
+                                                ui.colored_label(egui::Color32::GREEN, "✓ Yes");
+                                            } else {
+                                                ui.colored_label(egui::Color32::RED, "✗ No");
+                                            }
+                                        });
+                                        
+                                        ui.horizontal(|ui| {
+                                            ui.label("Colony Cost:");
+                                            let cost = atmosphere.calculate_colony_cost();
+                                            let cost_color = match cost {
+                                                0 => egui::Color32::GREEN,
+                                                1..=3 => egui::Color32::YELLOW,
+                                                4..=6 => egui::Color32::from_rgb(255, 165, 0), // Orange
+                                                _ => egui::Color32::RED,
+                                            };
+                                            ui.colored_label(cost_color, format!("{}/8", cost));
+                                        });
+                                        
+                                        ui.add_space(5.0);
+                                        
+                                        // Gas composition in collapsible section
+                                        let gas_id = ui.make_persistent_id("gas_composition");
+                                        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), gas_id, false)
+                                            .show_header(ui, |ui| {
+                                                ui.label(egui::RichText::new("Gas Composition").size(12.0));
+                                            })
+                                            .body(|ui| {
+                                                for gas in &atmosphere.gases {
+                                                    ui.horizontal(|ui| {
+                                                        ui.label(format!("  {}:", gas.name));
+                                                        ui.label(format!("{:.2}%", gas.percentage));
+                                                    });
+                                                }
+                                            });
+                                    });
                             });
 
                             ui.add_space(10.0);
