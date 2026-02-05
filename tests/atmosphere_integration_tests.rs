@@ -63,10 +63,7 @@ fn test_atmosphere_breathability_check() {
         let gases: Vec<AtmosphericGas> = earth_atmo_data
             .gases
             .iter()
-            .map(|g| {
-                let name: &'static str = Box::leak(g.name.clone().into_boxed_str());
-                AtmosphericGas::new(name, g.percentage)
-            })
+            .map(|g| AtmosphericGas::new(&g.name, g.percentage))
             .collect();
         
         let atmosphere = AtmosphereComposition::new(
@@ -87,10 +84,7 @@ fn test_atmosphere_breathability_check() {
         let gases: Vec<AtmosphericGas> = mars_atmo_data
             .gases
             .iter()
-            .map(|g| {
-                let name: &'static str = Box::leak(g.name.clone().into_boxed_str());
-                AtmosphericGas::new(name, g.percentage)
-            })
+            .map(|g| AtmosphericGas::new(&g.name, g.percentage))
             .collect();
         
         let atmosphere = AtmosphereComposition::new(

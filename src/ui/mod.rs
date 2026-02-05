@@ -455,7 +455,7 @@ fn ui_dashboard(
                         // Atmosphere data if available
                         if let Some(atmosphere) = atmosphere {
                             ui.group(|ui| {
-                                let id = ui.make_persistent_id("atmosphere_header");
+                                let id = ui.make_persistent_id(("atmosphere_header", entity));
                                 egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
                                     .show_header(ui, |ui| {
                                         ui.label(egui::RichText::new("🌍 Atmosphere").strong());
@@ -501,7 +501,7 @@ fn ui_dashboard(
                                         ui.add_space(5.0);
                                         
                                         // Gas composition in collapsible section
-                                        let gas_id = ui.make_persistent_id("gas_composition");
+                                        let gas_id = ui.make_persistent_id(("gas_composition", entity));
                                         egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), gas_id, false)
                                             .show_header(ui, |ui| {
                                                 ui.label(egui::RichText::new("Gas Composition").size(12.0));

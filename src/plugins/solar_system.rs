@@ -353,12 +353,7 @@ pub fn setup_solar_system(
             let gases: Vec<AtmosphericGas> = atmo_data
                 .gases
                 .iter()
-                .map(|g| {
-                    // Leak the string to get a 'static str - this is acceptable for gas names
-                    // which are known at compile time and never change
-                    let name: &'static str = Box::leak(g.name.clone().into_boxed_str());
-                    AtmosphericGas::new(name, g.percentage)
-                })
+                .map(|g| AtmosphericGas::new(&g.name, g.percentage))
                 .collect();
             
             let atmosphere = AtmosphereComposition::new(

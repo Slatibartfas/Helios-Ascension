@@ -165,18 +165,21 @@ pub struct Selected;
 pub struct Hovered;
 
 /// Represents a gas component in an atmosphere
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AtmosphericGas {
-    /// Name of the gas (stored as a compile-time constant)
-    pub name: &'static str,
+    /// Name of the gas
+    pub name: String,
     /// Percentage of the gas in the atmosphere (0.0 to 100.0)
     pub percentage: f32,
 }
 
 impl AtmosphericGas {
     /// Create a new atmospheric gas with a name and percentage
-    pub fn new(name: &'static str, percentage: f32) -> Self {
-        Self { name, percentage }
+    pub fn new(name: impl Into<String>, percentage: f32) -> Self {
+        Self {
+            name: name.into(),
+            percentage,
+        }
     }
 }
 
