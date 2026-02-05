@@ -3,7 +3,7 @@ use bevy::math::DVec3;
 use bevy::window::PrimaryWindow;
 
 use super::components::{KeplerOrbit, OrbitPath, Selected, Hovered, SpaceCoordinates};
-use crate::plugins::solar_system::{CelestialBody, Moon, Star};
+use crate::plugins::solar_system::{CelestialBody, Moon, Star, RADIUS_SCALE};
 use crate::plugins::camera::{CameraAnchor, GameCamera, OrbitCamera};
 
 /// Scaling factor for converting astronomical units to Bevy rendering units
@@ -17,6 +17,9 @@ const MOON_ORBIT_VISIBILITY_DISTANCE: f32 = 500.0;
 /// Click radius for body selection (in Bevy units)
 /// Bodies within this distance from the ray are considered clickable
 const SELECTION_CLICK_RADIUS: f32 = 5.0;
+
+/// Padding for the hover ring around celestial bodies (in Bevy units)
+const HOVER_RING_PADDING: f32 = 8.0;
 
 /// Maximum iterations for Kepler solver
 const MAX_KEPLER_ITERATIONS: u32 = 50;
@@ -450,7 +453,7 @@ pub fn draw_hover_effects(
 ) {
     for (transform, body) in query.iter() {
         let pos = transform.translation();
-        let radius = body.radius * 0.002 + 8.0; // Slightly larger than the body
+        let radius = body.radius * RADIUS_SCALE + HOVER_RING_PADDING;
         
         // Draw glowing ring effect using multiple circles with varying opacity
         let ring_color = Color::srgba(0.4, 0.8, 1.0, 0.8);
@@ -488,11 +491,11 @@ pub fn zoom_camera_to_anchored_body(
                     let zoom_distance = if is_star.is_some() {
                         // For the Sun, show the entire solar system
                         // Approximately 40 AU should show out to Neptune
-                        40.0 * 1500.0 // 1500 is the SCALING_FACTOR
+                        40.0 * SCALING_FACTOR as f32
                     } else {
                         // For other bodies, make them fill about 10% of the screen
                         // Assuming a 60° FOV, we need distance = radius * 10
-                        let visual_radius = body.radius * 0.002; // RADIUS_SCALE
+                        let visual_radius = body.radius * RADIUS_SCALE;
                         let target_distance = visual_radius * 20.0; // Fill ~10% of screen
                         target_distance.clamp(50.0, 10000.0) // Clamp to reasonable range
                     };

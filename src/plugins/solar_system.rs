@@ -52,7 +52,7 @@ pub struct RotationSpeed(pub f32);
 
 // Visualization scale factors
 // Increased scale for planets to be easily visible and clickable
-const RADIUS_SCALE: f32 = 0.002; // Increased from 0.001 for better visibility
+pub const RADIUS_SCALE: f32 = 0.002; // Increased from 0.001 for better visibility
 // Minimum size to ensure small moons are visible and clickable
 const MIN_VISUAL_RADIUS: f32 = 5.0; // Increased from 3.0 for easier clicking
 // Sun needs a separate, smaller scale to not engulf the inner system when planets are oversized

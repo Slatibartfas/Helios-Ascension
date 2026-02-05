@@ -90,7 +90,7 @@ fn sync_selection_with_astronomy(
     }
 }
 
-/// System that applies the time scale to the game time
+/// Apply time scale to the game time
 /// Only updates when TimeScale resource changes for efficiency
 fn apply_time_scale(
     time_scale: Res<TimeScale>,
@@ -99,6 +99,19 @@ fn apply_time_scale(
     // Only update when time scale changes or is first added
     if time_scale.is_changed() || time_scale.is_added() {
         time.set_relative_speed(time_scale.scale);
+    }
+}
+
+/// Helper function to render a selectable label with highlighting for selected items
+fn render_selectable_label(
+    ui: &mut egui::Ui,
+    is_selected: bool,
+    name: &str,
+) -> egui::Response {
+    if is_selected {
+        ui.selectable_label(is_selected, name).highlight()
+    } else {
+        ui.selectable_label(is_selected, name)
     }
 }
 
@@ -127,11 +140,7 @@ fn render_body_row(
         }
         
         // Use a visually distinct style for selected items
-        let mut label = ui.selectable_label(is_selected, &body.name);
-        if is_selected {
-            label = label.highlight();
-        }
-        if label.clicked() {
+        if render_selectable_label(ui, is_selected, &body.name).clicked() {
              for e in selected_query.iter() { commands.entity(e).remove::<Selected>(); }
              commands.entity(entity).insert(Selected);
              selection.select(entity);
@@ -226,11 +235,7 @@ fn render_body_tree(
                     }
                     
                     // Use a visually distinct style for selected items
-                    let mut label = ui.selectable_label(is_selected, &body.name);
-                    if is_selected {
-                        label = label.highlight();
-                    }
-                    if label.clicked() {
+                    if render_selectable_label(ui, is_selected, &body.name).clicked() {
                          for e in selected_query.iter() { commands.entity(e).remove::<Selected>(); }
                          commands.entity(entity).insert(Selected);
                          selection.select(entity);
