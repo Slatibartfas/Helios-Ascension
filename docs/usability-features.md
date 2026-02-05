@@ -18,15 +18,32 @@ When you move your mouse cursor over a celestial body, the following happens:
 
 The hover system uses ray casting to detect which body is closest to the mouse cursor, ensuring accurate selection even when bodies overlap in the view.
 
+## Selection Highlight Ring
+
+When a body is selected in the ledger (left sidebar), a glowing cyan ring appears around it in the 3D view:
+
+1. **Visual Ring**: The same glowing effect as the hover ring
+   - Makes it easy to locate the selected body in the 3D solar system view
+   - Remains visible as long as the body is selected
+   - Uses the same three-layer effect (main ring, outer glow, inner highlight)
+
+2. **Combined Effects**: When hovering over the selected body:
+   - Only one ring is shown (the hover effect takes precedence)
+   - This prevents visual clutter from overlapping rings
+
 ## Ledger Highlighting
 
 The ledger (left sidebar) now provides enhanced visual feedback:
 
 1. **Selection Highlighting**: Selected bodies are highlighted in the ledger with a distinct visual style
    - The label uses egui's `.highlight()` modifier for emphasis
-   - Makes it easy to see which body is currently selected
+   - Makes it easy to see which body is currently selected in the UI
 
-2. **Anchor Integration**: Clicking the anchor button (⚓) now:
+2. **3D View Synchronization**: When selecting a body in the ledger:
+   - A glowing ring appears around it in the 3D view
+   - Helps you quickly locate the body in the solar system
+
+3. **Anchor Integration**: Clicking the anchor button (⚓) now:
    - Automatically selects the body
    - Anchors the camera to follow it
    - Triggers the zoom-to-fit behavior

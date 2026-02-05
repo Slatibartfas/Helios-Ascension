@@ -446,12 +446,34 @@ pub fn handle_body_hover(
     }
 }
 
-/// System that draws glowing rings around hovered celestial bodies
+/// System that draws glowing rings around hovered and selected celestial bodies
 pub fn draw_hover_effects(
     mut gizmos: Gizmos,
-    query: Query<(&GlobalTransform, &CelestialBody), With<Hovered>>,
+    hovered_query: Query<(&GlobalTransform, &CelestialBody), With<Hovered>>,
+    selected_query: Query<(&GlobalTransform, &CelestialBody), (With<Selected>, Without<Hovered>)>,
 ) {
-    for (transform, body) in query.iter() {
+    // Draw rings around hovered bodies
+    for (transform, body) in hovered_query.iter() {
+        let pos = transform.translation();
+        let radius = body.radius * RADIUS_SCALE + HOVER_RING_PADDING;
+        
+        // Draw glowing ring effect using multiple circles with varying opacity
+        let ring_color = Color::srgba(0.4, 0.8, 1.0, 0.8);
+        
+        // Main ring
+        gizmos.circle(pos, Dir3::Y, radius, ring_color);
+        
+        // Outer glow
+        let glow_color = Color::srgba(0.4, 0.8, 1.0, 0.4);
+        gizmos.circle(pos, Dir3::Y, radius + 2.0, glow_color);
+        
+        // Inner highlight
+        let highlight_color = Color::srgba(0.6, 0.9, 1.0, 0.6);
+        gizmos.circle(pos, Dir3::Y, radius - 2.0, highlight_color);
+    }
+    
+    // Draw rings around selected bodies (same visual effect)
+    for (transform, body) in selected_query.iter() {
         let pos = transform.translation();
         let radius = body.radius * RADIUS_SCALE + HOVER_RING_PADDING;
         
