@@ -2,9 +2,9 @@ use bevy::prelude::*;
 use bevy::math::DVec3;
 use bevy::window::PrimaryWindow;
 
-use super::components::{KeplerOrbit, OrbitPath, Selected, SpaceCoordinates};
-use crate::plugins::solar_system::{CelestialBody, Moon};
-use crate::plugins::camera::{CameraAnchor, GameCamera};
+use super::components::{KeplerOrbit, OrbitPath, Selected, Hovered, SpaceCoordinates};
+use crate::plugins::solar_system::{CelestialBody, Moon, Star, RADIUS_SCALE};
+use crate::plugins::camera::{CameraAnchor, GameCamera, OrbitCamera};
 
 /// Scaling factor for converting astronomical units to Bevy rendering units
 /// 1 AU = 1500.0 Bevy units ensures separation between planets and moons
@@ -17,6 +17,9 @@ const MOON_ORBIT_VISIBILITY_DISTANCE: f32 = 500.0;
 /// Click radius for body selection (in Bevy units)
 /// Bodies within this distance from the ray are considered clickable
 const SELECTION_CLICK_RADIUS: f32 = 5.0;
+
+/// Padding for the hover ring around celestial bodies (in Bevy units)
+const HOVER_RING_PADDING: f32 = 8.0;
 
 /// Maximum iterations for Kepler solver
 const MAX_KEPLER_ITERATIONS: u32 = 50;
@@ -268,6 +271,7 @@ pub struct SelectionState {
 }
 
 /// System that handles celestial body selection via mouse clicks
+#[allow(clippy::too_many_arguments)]
 pub fn handle_body_selection(
     mouse_button: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
@@ -367,6 +371,146 @@ pub fn update_selected_orbit_visibility(
     for entity in selected_query.iter() {
         if let Ok(mut orbit_path) = orbit_query.get_mut(entity) {
             orbit_path.visible = true;
+        }
+    }
+}
+
+/// System that handles celestial body hover detection via mouse position
+pub fn handle_body_hover(
+    windows: Query<&Window, With<PrimaryWindow>>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<GameCamera>>,
+    body_query: Query<(Entity, &GlobalTransform, &CelestialBody)>,
+    mut commands: Commands,
+    hovered_query: Query<Entity, With<Hovered>>,
+) {
+    let Ok(window) = windows.get_single() else {
+        return;
+    };
+
+    let Ok((camera, camera_transform)) = camera_query.get_single() else {
+        return;
+    };
+
+    // Get cursor position
+    let Some(cursor_position) = window.cursor_position() else {
+        // No cursor, clear all hovers
+        for entity in hovered_query.iter() {
+            commands.entity(entity).remove::<Hovered>();
+        }
+        return;
+    };
+
+    // Convert screen position to ray
+    let Some(ray) = camera.viewport_to_world(camera_transform, cursor_position) else {
+        return;
+    };
+
+    // Find the closest body to the ray
+    let mut closest_body: Option<(Entity, f32)> = None;
+    
+    for (entity, transform, _body) in body_query.iter() {
+        let body_pos = transform.translation();
+        
+        // Calculate distance from ray to body center
+        let to_body = body_pos - ray.origin;
+        let projection = to_body.dot(*ray.direction);
+        
+        // Skip if body is behind camera
+        if projection < 0.0 {
+            continue;
+        }
+        
+        let closest_point = ray.origin + *ray.direction * projection;
+        let distance = (body_pos - closest_point).length();
+        
+        // Check if cursor is within hover radius
+        if distance < SELECTION_CLICK_RADIUS {
+            match closest_body {
+                None => closest_body = Some((entity, projection)),
+                Some((_, prev_dist)) if projection < prev_dist => {
+                    closest_body = Some((entity, projection));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Clear all hovers first
+    for entity in hovered_query.iter() {
+        commands.entity(entity).remove::<Hovered>();
+    }
+
+    // Set the hovered body if any
+    if let Some((entity, _)) = closest_body {
+        commands.entity(entity).insert(Hovered);
+    }
+}
+
+/// Helper function to draw a glowing ring around a celestial body
+fn draw_body_selection_ring(gizmos: &mut Gizmos, pos: Vec3, radius: f32) {
+    // Draw glowing ring effect using multiple circles with varying opacity
+    let ring_color = Color::srgba(0.4, 0.8, 1.0, 0.8);
+    
+    // Main ring
+    gizmos.circle(pos, Dir3::Y, radius, ring_color);
+    
+    // Outer glow
+    let glow_color = Color::srgba(0.4, 0.8, 1.0, 0.4);
+    gizmos.circle(pos, Dir3::Y, radius + 2.0, glow_color);
+    
+    // Inner highlight
+    let highlight_color = Color::srgba(0.6, 0.9, 1.0, 0.6);
+    gizmos.circle(pos, Dir3::Y, radius - 2.0, highlight_color);
+}
+
+/// System that draws glowing rings around hovered and selected celestial bodies
+pub fn draw_hover_effects(
+    mut gizmos: Gizmos,
+    hovered_query: Query<(&GlobalTransform, &CelestialBody), With<Hovered>>,
+    selected_query: Query<(&GlobalTransform, &CelestialBody), (With<Selected>, Without<Hovered>)>,
+) {
+    // Draw rings around hovered bodies
+    for (transform, body) in hovered_query.iter() {
+        let pos = transform.translation();
+        let radius = body.radius * RADIUS_SCALE + HOVER_RING_PADDING;
+        draw_body_selection_ring(&mut gizmos, pos, radius);
+    }
+    
+    // Draw rings around selected bodies (same visual effect)
+    for (transform, body) in selected_query.iter() {
+        let pos = transform.translation();
+        let radius = body.radius * RADIUS_SCALE + HOVER_RING_PADDING;
+        draw_body_selection_ring(&mut gizmos, pos, radius);
+    }
+}
+
+/// System that automatically zooms camera when anchoring to a body
+pub fn zoom_camera_to_anchored_body(
+    body_query: Query<(&CelestialBody, Option<&Star>)>,
+    mut camera_query: Query<(&mut OrbitCamera, &CameraAnchor), (With<GameCamera>, Changed<CameraAnchor>)>,
+) {
+    // Only trigger when camera anchor changes
+    let Ok((mut orbit_camera, anchor)) = camera_query.get_single_mut() else {
+        return;
+    };
+    
+    // Check if we have an anchored body
+    if let Some(anchored_entity) = anchor.0 {
+        if let Ok((body, is_star)) = body_query.get(anchored_entity) {
+            // Calculate appropriate zoom distance
+            let zoom_distance = if is_star.is_some() {
+                // For the Sun, show the entire solar system
+                // Approximately 40 AU should show out to Neptune
+                40.0 * SCALING_FACTOR as f32
+            } else {
+                // For other bodies, make them fill about 10% of the screen
+                // Assuming a 60° FOV, we need distance = radius * 10
+                let visual_radius = body.radius * RADIUS_SCALE;
+                let target_distance = visual_radius * 20.0; // Fill ~10% of screen
+                target_distance.clamp(50.0, 10000.0) // Clamp to reasonable range
+            };
+            
+            orbit_camera.radius = zoom_distance;
         }
     }
 }

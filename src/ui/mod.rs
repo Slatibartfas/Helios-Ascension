@@ -13,7 +13,7 @@ pub mod interaction;
 
 pub use interaction::Selection;
 
-use crate::astronomy::{KeplerOrbit, Selected, SpaceCoordinates};
+use crate::astronomy::{Hovered, KeplerOrbit, Selected, SpaceCoordinates};
 use crate::economy::{format_power, GlobalBudget, PlanetResources, ResourceType};
 use crate::plugins::solar_system::CelestialBody;
 use crate::plugins::solar_system_data::BodyType;
@@ -67,6 +67,7 @@ impl Plugin for UIPlugin {
             // Systems
             .add_systems(Update, (
                 ui_dashboard,
+                ui_hover_tooltip,
                 sync_selection_with_astronomy,
                 apply_time_scale,
             ));
@@ -101,6 +102,19 @@ fn apply_time_scale(
     }
 }
 
+/// Helper function to render a selectable label with highlighting for selected items
+fn render_selectable_label(
+    ui: &mut egui::Ui,
+    is_selected: bool,
+    name: &str,
+) -> egui::Response {
+    if is_selected {
+        ui.selectable_label(is_selected, name).highlight()
+    } else {
+        ui.selectable_label(is_selected, name)
+    }
+}
+
 fn render_body_row(
     ui: &mut egui::Ui,
     entity: Entity,
@@ -114,11 +128,19 @@ fn render_body_row(
     ui.horizontal(|ui| {
         ui.add_space(20.0);
         if ui.small_button("⚓").on_hover_text("Anchor Camera").clicked() {
+            // Select the body when anchoring
+            for e in selected_query.iter() { commands.entity(e).remove::<Selected>(); }
+            commands.entity(entity).insert(Selected);
+            selection.select(entity);
+            
+            // Anchor the camera
             if let Ok(mut anchor) = anchor_query.get_single_mut() {
                 anchor.0 = Some(entity);
             }
         }
-        if ui.selectable_label(is_selected, &body.name).clicked() {
+        
+        // Use a visually distinct style for selected items
+        if render_selectable_label(ui, is_selected, &body.name).clicked() {
              for e in selected_query.iter() { commands.entity(e).remove::<Selected>(); }
              commands.entity(entity).insert(Selected);
              selection.select(entity);
@@ -126,6 +148,7 @@ fn render_body_row(
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_grouped_children(
     ui: &mut egui::Ui,
     children: &[Entity],
@@ -155,6 +178,7 @@ fn render_grouped_children(
 }
 
 
+#[allow(clippy::too_many_arguments)]
 fn render_body_tree(
     ui: &mut egui::Ui,
     entity: Entity,
@@ -199,11 +223,19 @@ fn render_body_tree(
              egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, body.name == "Sol")
                 .show_header(ui, |ui| {
                     if ui.small_button("⚓").on_hover_text("Anchor Camera").clicked() {
+                        // Select the body when anchoring
+                        for e in selected_query.iter() { commands.entity(e).remove::<Selected>(); }
+                        commands.entity(entity).insert(Selected);
+                        selection.select(entity);
+                        
+                        // Anchor the camera
                         if let Ok(mut anchor) = anchor_query.get_single_mut() {
                             anchor.0 = Some(entity);
                         }
                     }
-                    if ui.selectable_label(is_selected, &body.name).clicked() {
+                    
+                    // Use a visually distinct style for selected items
+                    if render_selectable_label(ui, is_selected, &body.name).clicked() {
                          for e in selected_query.iter() { commands.entity(e).remove::<Selected>(); }
                          commands.entity(entity).insert(Selected);
                          selection.select(entity);
@@ -233,7 +265,44 @@ fn render_body_tree(
     }
 }
 
+/// System that displays a tooltip for hovered celestial bodies
+fn ui_hover_tooltip(
+    mut contexts: EguiContexts,
+    hovered_query: Query<&CelestialBody, With<Hovered>>,
+) {
+    let ctx = match contexts.try_ctx_mut() {
+        Some(ctx) => ctx,
+        None => return,
+    };
+
+    // Display hover tooltip if a body is hovered
+    if let Ok(body) = hovered_query.get_single() {
+        egui::Area::new("hover_tooltip".into())
+            .fixed_pos(egui::pos2(10.0, 60.0))
+            .show(ctx, |ui| {
+                egui::Frame::none()
+                    .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 30, 240))
+                    .stroke(egui::Stroke::new(2.0, egui::Color32::from_rgb(100, 180, 255)))
+                    .inner_margin(12.0)
+                    .show(ui, |ui| {
+                        ui.label(
+                            egui::RichText::new(&body.name)
+                                .size(16.0)
+                                .color(egui::Color32::from_rgb(150, 220, 255))
+                                .strong()
+                        );
+                        ui.label(
+                            egui::RichText::new(format!("Type: {:?}", body.body_type))
+                                .size(12.0)
+                                .color(egui::Color32::from_rgb(180, 180, 180))
+                        );
+                    });
+            });
+    }
+}
+
 /// Main UI dashboard system
+#[allow(clippy::too_many_arguments)]
 fn ui_dashboard(
     mut commands: Commands,
     mut contexts: EguiContexts,
@@ -448,10 +517,8 @@ fn ui_dashboard(
                     if ui.button("▶ Resume").clicked() {
                         time_scale.resume();
                     }
-                } else {
-                    if ui.button("⏸ Pause").clicked() {
-                        time_scale.pause();
-                    }
+                } else if ui.button("⏸ Pause").clicked() {
+                    time_scale.pause();
                 }
 
                 ui.separator();
