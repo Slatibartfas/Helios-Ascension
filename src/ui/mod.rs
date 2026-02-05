@@ -130,6 +130,7 @@ fn render_grouped_children(
     ui: &mut egui::Ui,
     children: &[Entity],
     group_name: &str,
+    parent_entity: Entity,
     body_map: &std::collections::HashMap<Entity, &CelestialBody>,
     selection: &mut Selection,
     commands: &mut Commands,
@@ -138,7 +139,8 @@ fn render_grouped_children(
 ) {
     if children.is_empty() { return; }
     
-    let id = ui.make_persistent_id(group_name);
+    // Make ID unique by including parent entity to avoid UI jumping bug
+    let id = ui.make_persistent_id((group_name, parent_entity));
     egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
         .show_header(ui, |ui| {
              ui.label(format!("{} ({})", group_name, children.len()));
@@ -213,13 +215,13 @@ fn render_body_tree(
                         render_body_tree(ui, child, body_map, hierarchy, selection, commands, selected_query, anchor_query);
                     }
                     // 2. Dwarf Planets (Grouped or Recursive if important?) Grouped.
-                    render_grouped_children(ui, &child_dwarf_planets, "Dwarf Planets", body_map, selection, commands, selected_query, anchor_query);
+                    render_grouped_children(ui, &child_dwarf_planets, "Dwarf Planets", entity, body_map, selection, commands, selected_query, anchor_query);
                     // 3. Moons (Usually under planets, but if under Sol/others?)
-                    render_grouped_children(ui, &child_moons, "Moons", body_map, selection, commands, selected_query, anchor_query);
+                    render_grouped_children(ui, &child_moons, "Moons", entity, body_map, selection, commands, selected_query, anchor_query);
                      // 4. Asteroids
-                    render_grouped_children(ui, &child_asteroids, "Asteroids", body_map, selection, commands, selected_query, anchor_query);
+                    render_grouped_children(ui, &child_asteroids, "Asteroids", entity, body_map, selection, commands, selected_query, anchor_query);
                      // 5. Comets
-                    render_grouped_children(ui, &child_comets, "Comets", body_map, selection, commands, selected_query, anchor_query);
+                    render_grouped_children(ui, &child_comets, "Comets", entity, body_map, selection, commands, selected_query, anchor_query);
                      // 6. Others
                     for child in child_others {
                         render_body_tree(ui, child, body_map, hierarchy, selection, commands, selected_query, anchor_query);
