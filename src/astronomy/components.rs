@@ -163,3 +163,111 @@ pub struct Selected;
 /// Hovered bodies show a glowing ring and name label
 #[derive(Component, Debug, Clone, Copy, Default)]
 pub struct Hovered;
+
+/// Represents a gas component in an atmosphere
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AtmosphericGas {
+    /// Name of the gas (stored as a compile-time constant)
+    pub name: &'static str,
+    /// Percentage of the gas in the atmosphere (0.0 to 100.0)
+    pub percentage: f32,
+}
+
+impl AtmosphericGas {
+    /// Create a new atmospheric gas with a name and percentage
+    pub fn new(name: &'static str, percentage: f32) -> Self {
+        Self { name, percentage }
+    }
+}
+
+/// Component representing a celestial body's atmosphere
+/// Based on real data from NASA for solar system bodies
+#[derive(Component, Debug, Clone)]
+pub struct AtmosphereComposition {
+    /// Surface pressure in millibars (1 bar = 1000 millibars)
+    /// Earth's surface pressure is approximately 1013 millibars
+    pub surface_pressure_mbar: f32,
+    
+    /// Average surface temperature in Celsius
+    pub surface_temperature_celsius: f32,
+    
+    /// List of atmospheric gases and their percentages
+    /// Should sum to approximately 100%
+    pub gases: Vec<AtmosphericGas>,
+    
+    /// Whether the atmosphere is breathable for humans
+    /// True if oxygen is present at safe levels (0.1-0.3 atm)
+    pub breathable: bool,
+}
+
+impl AtmosphereComposition {
+    /// Create a new atmosphere composition
+    pub fn new(
+        surface_pressure_mbar: f32,
+        surface_temperature_celsius: f32,
+        gases: Vec<AtmosphericGas>,
+    ) -> Self {
+        // Determine if atmosphere is breathable
+        // Need 0.1-0.3 atm of O2 (100-300 mbar)
+        let o2_pressure = gases
+            .iter()
+            .find(|g| g.name == "O2")
+            .map(|g| surface_pressure_mbar * g.percentage / 100.0)
+            .unwrap_or(0.0);
+        
+        let breathable = o2_pressure >= 100.0 && o2_pressure <= 300.0;
+        
+        Self {
+            surface_pressure_mbar,
+            surface_temperature_celsius,
+            gases,
+            breathable,
+        }
+    }
+    
+    /// Check if the atmosphere has a specific gas
+    pub fn has_gas(&self, gas_name: &str) -> bool {
+        self.gases.iter().any(|g| g.name == gas_name)
+    }
+    
+    /// Get the percentage of a specific gas
+    pub fn get_gas_percentage(&self, gas_name: &str) -> Option<f32> {
+        self.gases
+            .iter()
+            .find(|g| g.name == gas_name)
+            .map(|g| g.percentage)
+    }
+    
+    /// Calculate the colony cost based on Aurora 4X model
+    /// 0 = Earth-like, 8+ = extremely hostile
+    pub fn calculate_colony_cost(&self) -> u8 {
+        let mut cost = 0u8;
+        
+        // Temperature factor
+        let temp_diff = (self.surface_temperature_celsius - 15.0).abs();
+        if temp_diff > 100.0 {
+            cost += 3;
+        } else if temp_diff > 50.0 {
+            cost += 2;
+        } else if temp_diff > 25.0 {
+            cost += 1;
+        }
+        
+        // Pressure factor
+        let pressure_bar = self.surface_pressure_mbar / 1000.0;
+        if pressure_bar < 0.01 || pressure_bar > 10.0 {
+            cost += 3;
+        } else if pressure_bar < 0.5 || pressure_bar > 2.0 {
+            cost += 2;
+        } else if pressure_bar < 0.8 || pressure_bar > 1.5 {
+            cost += 1;
+        }
+        
+        // Breathability factor
+        if !self.breathable {
+            cost += 2;
+        }
+        
+        cost.min(8)
+    }
+}

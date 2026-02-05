@@ -13,7 +13,7 @@ use bevy::prelude::*;
 pub mod components;
 pub mod systems;
 
-pub use components::{Hovered, KeplerOrbit, OrbitPath, Selected, SpaceCoordinates};
+pub use components::{AtmosphereComposition, AtmosphericGas, Hovered, KeplerOrbit, OrbitPath, Selected, SpaceCoordinates};
 pub use systems::{
     draw_orbit_paths, handle_body_selection, handle_body_hover, draw_hover_effects, 
     zoom_camera_to_anchored_body, propagate_orbits, 

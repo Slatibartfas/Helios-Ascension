@@ -66,6 +66,14 @@
                 base: "textures/celestial/planets/venus_surface_8k.jpg",
                 clouds: Some("textures/celestial/planets/venus_atmosphere_2k.jpg"),
             )),
+            atmosphere: Some((
+                surface_pressure_mbar: 92000.0, // 92 bar
+                surface_temperature_celsius: 465.0,
+                gases: [
+                    (name: "CO2", percentage: 96.5),
+                    (name: "N2", percentage: 3.5),
+                ],
+            )),
         ),
         
         // Earth
@@ -92,6 +100,16 @@
                 clouds: Some("textures/celestial/planets/earth_clouds_8k.jpg"),
                 normal: Some("textures/celestial/planets/earth_normal_8k.tif"),
                 specular: Some("textures/celestial/planets/earth_specular_8k.tif"),
+            )),
+            atmosphere: Some((
+                surface_pressure_mbar: 1013.0, // 1 bar (1 atm)
+                surface_temperature_celsius: 15.0,
+                gases: [
+                    (name: "N2", percentage: 78.0),
+                    (name: "O2", percentage: 21.0),
+                    (name: "Ar", percentage: 0.93),
+                    (name: "CO2", percentage: 0.04),
+                ],
             )),
         ),
         
@@ -133,6 +151,16 @@
             )),
             rotation_period: 1.025957,
             texture: Some("textures/celestial/planets/mars_8k.jpg"),
+            atmosphere: Some((
+                surface_pressure_mbar: 6.0, // ~0.006 bar
+                surface_temperature_celsius: -63.0,
+                gases: [
+                    (name: "CO2", percentage: 95.0),
+                    (name: "N2", percentage: 2.7),
+                    (name: "Ar", percentage: 1.6),
+                    (name: "O2", percentage: 0.13),
+                ],
+            )),
         ),
         
         // Phobos
@@ -193,6 +221,14 @@
             )),
             rotation_period: 0.41354,
             texture: Some("textures/celestial/planets/jupiter_8k.jpg"),
+            atmosphere: Some((
+                surface_pressure_mbar: 1000.0, // Reference at 1 bar level
+                surface_temperature_celsius: -145.0, // Cloud top temperature
+                gases: [
+                    (name: "H2", percentage: 90.0),
+                    (name: "He", percentage: 10.0),
+                ],
+            )),
         ),
         
         // Io
@@ -293,6 +329,15 @@
             )),
             rotation_period: 0.445,
             texture: Some("textures/celestial/planets/saturn_8k.jpg"),
+            atmosphere: Some((
+                surface_pressure_mbar: 1000.0, // Reference at 1 bar level
+                surface_temperature_celsius: -178.0, // Cloud top temperature
+                gases: [
+                    (name: "H2", percentage: 96.0),
+                    (name: "He", percentage: 3.0),
+                    (name: "CH4", percentage: 0.4),
+                ],
+            )),
         ),
         
         // Titan
@@ -313,6 +358,14 @@
             )),
             rotation_period: 15.945,
             texture: Some("textures/celestial/moons/titan_4k.jpg"),
+            atmosphere: Some((
+                surface_pressure_mbar: 1500.0, // 1.5 bar - denser than Earth!
+                surface_temperature_celsius: -179.0,
+                gases: [
+                    (name: "N2", percentage: 98.4),
+                    (name: "CH4", percentage: 1.4),
+                ],
+            )),
         ),
         
         // Rhea
@@ -353,6 +406,15 @@
             )),
             rotation_period: -0.71833, // Retrograde
             texture: Some("textures/celestial/planets/uranus_2k.jpg"),
+            atmosphere: Some((
+                surface_pressure_mbar: 1000.0, // Reference at 1 bar level
+                surface_temperature_celsius: -224.0, // Coldest planetary atmosphere
+                gases: [
+                    (name: "H2", percentage: 83.0),
+                    (name: "He", percentage: 15.0),
+                    (name: "CH4", percentage: 2.0), // Methane gives blue color
+                ],
+            )),
         ),
         
         // Titania
@@ -392,6 +454,15 @@
             )),
             rotation_period: 0.6713,
             texture: Some("textures/celestial/planets/neptune_2k.jpg"),
+            atmosphere: Some((
+                surface_pressure_mbar: 1000.0, // Reference at 1 bar level
+                surface_temperature_celsius: -218.0,
+                gases: [
+                    (name: "H2", percentage: 80.0),
+                    (name: "He", percentage: 19.0),
+                    (name: "CH4", percentage: 1.5), // Methane gives blue color
+                ],
+            )),
         ),
         
         // Triton

@@ -345,6 +345,31 @@ pub fn setup_solar_system(
             }
         }
 
+        // Add atmosphere component if the body has atmosphere data
+        if let Some(ref atmo_data) = body_data.atmosphere {
+            use crate::astronomy::{AtmosphereComposition, AtmosphericGas};
+            
+            // Convert gas data from deserialized format to runtime format
+            let gases: Vec<AtmosphericGas> = atmo_data
+                .gases
+                .iter()
+                .map(|g| {
+                    // Leak the string to get a 'static str - this is acceptable for gas names
+                    // which are known at compile time and never change
+                    let name: &'static str = Box::leak(g.name.clone().into_boxed_str());
+                    AtmosphericGas::new(name, g.percentage)
+                })
+                .collect();
+            
+            let atmosphere = AtmosphereComposition::new(
+                atmo_data.surface_pressure_mbar,
+                atmo_data.surface_temperature_celsius,
+                gases,
+            );
+            
+            entity_commands.insert(atmosphere);
+        }
+
         let entity = entity_commands.id();
         entity_map.insert(body_data.name.clone(), entity);
         

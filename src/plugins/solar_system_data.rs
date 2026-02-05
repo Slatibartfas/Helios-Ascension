@@ -25,6 +25,26 @@ pub enum AsteroidClass {
     Unknown,
 }
 
+/// Atmospheric gas composition for a celestial body
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AtmosphericGasData {
+    /// Name of the gas (e.g., "N2", "O2", "CO2", "H2", "He", "CH4", "NH3", "Ar")
+    pub name: String,
+    /// Percentage of the gas in the atmosphere (0.0 to 100.0)
+    pub percentage: f32,
+}
+
+/// Atmospheric data for a celestial body
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AtmosphereData {
+    /// Surface pressure in millibars (1 bar = 1000 millibars)
+    pub surface_pressure_mbar: f32,
+    /// Average surface temperature in Celsius
+    pub surface_temperature_celsius: f32,
+    /// List of atmospheric gases
+    pub gases: Vec<AtmosphericGasData>,
+}
+
 /// Orbital parameters for a celestial body
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrbitData {
@@ -95,6 +115,9 @@ pub struct CelestialBodyData {
     /// Asteroid spectral class (for procedural texture selection)
     #[serde(default)]
     pub asteroid_class: Option<AsteroidClass>,
+    /// Atmosphere data (if the body has an atmosphere)
+    #[serde(default)]
+    pub atmosphere: Option<AtmosphereData>,
 }
 
 /// Complete solar system data
