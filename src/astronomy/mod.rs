@@ -16,7 +16,7 @@ pub mod systems;
 pub use components::{Hovered, KeplerOrbit, OrbitPath, Selected, SpaceCoordinates};
 pub use systems::{
     draw_orbit_paths, handle_body_selection, handle_body_hover, draw_hover_effects, 
-    draw_hover_labels, zoom_camera_to_anchored_body, propagate_orbits, 
+    zoom_camera_to_anchored_body, propagate_orbits, 
     update_orbit_visibility_by_zoom, update_render_transform, update_selected_orbit_visibility, 
     SCALING_FACTOR,
 };
@@ -43,7 +43,6 @@ impl Plugin for AstronomyPlugin {
                 // Rendering
                 draw_orbit_paths.after(update_selected_orbit_visibility),
                 draw_hover_effects,
-                draw_hover_labels,
             ),
         );
     }

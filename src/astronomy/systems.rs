@@ -268,6 +268,7 @@ pub struct SelectionState {
 }
 
 /// System that handles celestial body selection via mouse clicks
+#[allow(clippy::too_many_arguments)]
 pub fn handle_body_selection(
     mouse_button: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
@@ -467,35 +468,6 @@ pub fn draw_hover_effects(
     }
 }
 
-/// System that draws name labels for hovered celestial bodies
-pub fn draw_hover_labels(
-    mut gizmos: Gizmos,
-    query: Query<(&GlobalTransform, &CelestialBody), With<Hovered>>,
-    camera_query: Query<&GlobalTransform, With<GameCamera>>,
-) {
-    let Ok(camera_transform) = camera_query.get_single() else {
-        return;
-    };
-    
-    for (transform, _body) in query.iter() {
-        let body_pos = transform.translation();
-        let camera_pos = camera_transform.translation();
-        
-        // Calculate label position (above the body)
-        let to_camera = (camera_pos - body_pos).normalize();
-        let label_offset = to_camera * 50.0 + Vec3::Y * 30.0;
-        let label_pos = body_pos + label_offset;
-        
-        // Draw a line from body to label
-        let line_color = Color::srgba(0.4, 0.8, 1.0, 0.5);
-        gizmos.line(body_pos, label_pos, line_color);
-        
-        // Note: Actual text rendering would require a more sophisticated system
-        // For now, we'll just draw a marker where the text would be
-        gizmos.sphere(label_pos, Quat::IDENTITY, 3.0, Color::srgba(0.4, 0.8, 1.0, 0.9));
-    }
-}
-
 /// System that automatically zooms camera when anchoring to a body
 pub fn zoom_camera_to_anchored_body(
     body_query: Query<(&CelestialBody, Option<&Star>), Changed<Selected>>,
@@ -522,7 +494,7 @@ pub fn zoom_camera_to_anchored_body(
                         // Assuming a 60° FOV, we need distance = radius * 10
                         let visual_radius = body.radius * 0.002; // RADIUS_SCALE
                         let target_distance = visual_radius * 20.0; // Fill ~10% of screen
-                        target_distance.max(50.0).min(10000.0) // Clamp to reasonable range
+                        target_distance.clamp(50.0, 10000.0) // Clamp to reasonable range
                     };
                     
                     orbit_camera.radius = zoom_distance;

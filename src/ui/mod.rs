@@ -13,7 +13,7 @@ pub mod interaction;
 
 pub use interaction::Selection;
 
-use crate::astronomy::{KeplerOrbit, Selected, SpaceCoordinates};
+use crate::astronomy::{Hovered, KeplerOrbit, Selected, SpaceCoordinates};
 use crate::economy::{format_power, GlobalBudget, PlanetResources, ResourceType};
 use crate::plugins::solar_system::CelestialBody;
 use crate::plugins::solar_system_data::BodyType;
@@ -67,6 +67,7 @@ impl Plugin for UIPlugin {
             // Systems
             .add_systems(Update, (
                 ui_dashboard,
+                ui_hover_tooltip,
                 sync_selection_with_astronomy,
                 apply_time_scale,
             ));
@@ -138,6 +139,7 @@ fn render_body_row(
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_grouped_children(
     ui: &mut egui::Ui,
     children: &[Entity],
@@ -167,6 +169,7 @@ fn render_grouped_children(
 }
 
 
+#[allow(clippy::too_many_arguments)]
 fn render_body_tree(
     ui: &mut egui::Ui,
     entity: Entity,
@@ -257,7 +260,47 @@ fn render_body_tree(
     }
 }
 
+/// System that displays a tooltip for hovered celestial bodies
+fn ui_hover_tooltip(
+    mut contexts: EguiContexts,
+    hovered_query: Query<&CelestialBody, With<Hovered>>,
+) {
+    let ctx = match contexts.try_ctx_mut() {
+        Some(ctx) => ctx,
+        None => return,
+    };
+
+    // Display hover tooltip if a body is hovered
+    if let Ok(body) = hovered_query.get_single() {
+        egui::Area::new("hover_tooltip".into())
+            .fixed_pos(egui::pos2(10.0, 60.0))
+            .show(ctx, |ui| {
+                ui.visuals_mut().window_fill = egui::Color32::from_rgba_unmultiplied(30, 30, 30, 240);
+                ui.visuals_mut().window_stroke = egui::Stroke::new(2.0, egui::Color32::from_rgb(100, 180, 255));
+                
+                egui::Frame::none()
+                    .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 30, 240))
+                    .stroke(egui::Stroke::new(2.0, egui::Color32::from_rgb(100, 180, 255)))
+                    .inner_margin(12.0)
+                    .show(ui, |ui| {
+                        ui.label(
+                            egui::RichText::new(&body.name)
+                                .size(16.0)
+                                .color(egui::Color32::from_rgb(150, 220, 255))
+                                .strong()
+                        );
+                        ui.label(
+                            egui::RichText::new(format!("Type: {:?}", body.body_type))
+                                .size(12.0)
+                                .color(egui::Color32::from_rgb(180, 180, 180))
+                        );
+                    });
+            });
+    }
+}
+
 /// Main UI dashboard system
+#[allow(clippy::too_many_arguments)]
 fn ui_dashboard(
     mut commands: Commands,
     mut contexts: EguiContexts,
@@ -472,10 +515,8 @@ fn ui_dashboard(
                     if ui.button("▶ Resume").clicked() {
                         time_scale.resume();
                     }
-                } else {
-                    if ui.button("⏸ Pause").clicked() {
-                        time_scale.pause();
-                    }
+                } else if ui.button("⏸ Pause").clicked() {
+                    time_scale.pause();
                 }
 
                 ui.separator();
