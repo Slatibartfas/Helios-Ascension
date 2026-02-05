@@ -90,7 +90,7 @@ fn sync_selection_with_astronomy(
     }
 }
 
-/// Apply time scale to the game time
+/// System that applies the time scale to the game time
 /// Only updates when TimeScale resource changes for efficiency
 fn apply_time_scale(
     time_scale: Res<TimeScale>,
@@ -280,9 +280,6 @@ fn ui_hover_tooltip(
         egui::Area::new("hover_tooltip".into())
             .fixed_pos(egui::pos2(10.0, 60.0))
             .show(ctx, |ui| {
-                ui.visuals_mut().window_fill = egui::Color32::from_rgba_unmultiplied(30, 30, 30, 240);
-                ui.visuals_mut().window_stroke = egui::Stroke::new(2.0, egui::Color32::from_rgb(100, 180, 255));
-                
                 egui::Frame::none()
                     .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 30, 240))
                     .stroke(egui::Stroke::new(2.0, egui::Color32::from_rgb(100, 180, 255)))

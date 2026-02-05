@@ -446,6 +446,23 @@ pub fn handle_body_hover(
     }
 }
 
+/// Helper function to draw a glowing ring around a celestial body
+fn draw_body_selection_ring(gizmos: &mut Gizmos, pos: Vec3, radius: f32) {
+    // Draw glowing ring effect using multiple circles with varying opacity
+    let ring_color = Color::srgba(0.4, 0.8, 1.0, 0.8);
+    
+    // Main ring
+    gizmos.circle(pos, Dir3::Y, radius, ring_color);
+    
+    // Outer glow
+    let glow_color = Color::srgba(0.4, 0.8, 1.0, 0.4);
+    gizmos.circle(pos, Dir3::Y, radius + 2.0, glow_color);
+    
+    // Inner highlight
+    let highlight_color = Color::srgba(0.6, 0.9, 1.0, 0.6);
+    gizmos.circle(pos, Dir3::Y, radius - 2.0, highlight_color);
+}
+
 /// System that draws glowing rings around hovered and selected celestial bodies
 pub fn draw_hover_effects(
     mut gizmos: Gizmos,
@@ -456,75 +473,44 @@ pub fn draw_hover_effects(
     for (transform, body) in hovered_query.iter() {
         let pos = transform.translation();
         let radius = body.radius * RADIUS_SCALE + HOVER_RING_PADDING;
-        
-        // Draw glowing ring effect using multiple circles with varying opacity
-        let ring_color = Color::srgba(0.4, 0.8, 1.0, 0.8);
-        
-        // Main ring
-        gizmos.circle(pos, Dir3::Y, radius, ring_color);
-        
-        // Outer glow
-        let glow_color = Color::srgba(0.4, 0.8, 1.0, 0.4);
-        gizmos.circle(pos, Dir3::Y, radius + 2.0, glow_color);
-        
-        // Inner highlight
-        let highlight_color = Color::srgba(0.6, 0.9, 1.0, 0.6);
-        gizmos.circle(pos, Dir3::Y, radius - 2.0, highlight_color);
+        draw_body_selection_ring(&mut gizmos, pos, radius);
     }
     
     // Draw rings around selected bodies (same visual effect)
     for (transform, body) in selected_query.iter() {
         let pos = transform.translation();
         let radius = body.radius * RADIUS_SCALE + HOVER_RING_PADDING;
-        
-        // Draw glowing ring effect using multiple circles with varying opacity
-        let ring_color = Color::srgba(0.4, 0.8, 1.0, 0.8);
-        
-        // Main ring
-        gizmos.circle(pos, Dir3::Y, radius, ring_color);
-        
-        // Outer glow
-        let glow_color = Color::srgba(0.4, 0.8, 1.0, 0.4);
-        gizmos.circle(pos, Dir3::Y, radius + 2.0, glow_color);
-        
-        // Inner highlight
-        let highlight_color = Color::srgba(0.6, 0.9, 1.0, 0.6);
-        gizmos.circle(pos, Dir3::Y, radius - 2.0, highlight_color);
+        draw_body_selection_ring(&mut gizmos, pos, radius);
     }
 }
 
 /// System that automatically zooms camera when anchoring to a body
 pub fn zoom_camera_to_anchored_body(
-    body_query: Query<(&CelestialBody, Option<&Star>), Changed<Selected>>,
-    selected_query: Query<Entity, (With<Selected>, With<CelestialBody>)>,
-    mut camera_query: Query<(&mut OrbitCamera, &CameraAnchor), With<GameCamera>>,
+    body_query: Query<(&CelestialBody, Option<&Star>)>,
+    mut camera_query: Query<(&mut OrbitCamera, &CameraAnchor), (With<GameCamera>, Changed<CameraAnchor>)>,
 ) {
-    // Only trigger when selection changes
+    // Only trigger when camera anchor changes
     let Ok((mut orbit_camera, anchor)) = camera_query.get_single_mut() else {
         return;
     };
     
-    // Check if we have an anchored body that was just selected
+    // Check if we have an anchored body
     if let Some(anchored_entity) = anchor.0 {
-        if let Ok(entity) = selected_query.get_single() {
-            if entity == anchored_entity {
-                if let Ok((body, is_star)) = body_query.get(entity) {
-                    // Calculate appropriate zoom distance
-                    let zoom_distance = if is_star.is_some() {
-                        // For the Sun, show the entire solar system
-                        // Approximately 40 AU should show out to Neptune
-                        40.0 * SCALING_FACTOR as f32
-                    } else {
-                        // For other bodies, make them fill about 10% of the screen
-                        // Assuming a 60° FOV, we need distance = radius * 10
-                        let visual_radius = body.radius * RADIUS_SCALE;
-                        let target_distance = visual_radius * 20.0; // Fill ~10% of screen
-                        target_distance.clamp(50.0, 10000.0) // Clamp to reasonable range
-                    };
-                    
-                    orbit_camera.radius = zoom_distance;
-                }
-            }
+        if let Ok((body, is_star)) = body_query.get(anchored_entity) {
+            // Calculate appropriate zoom distance
+            let zoom_distance = if is_star.is_some() {
+                // For the Sun, show the entire solar system
+                // Approximately 40 AU should show out to Neptune
+                40.0 * SCALING_FACTOR as f32
+            } else {
+                // For other bodies, make them fill about 10% of the screen
+                // Assuming a 60° FOV, we need distance = radius * 10
+                let visual_radius = body.radius * RADIUS_SCALE;
+                let target_distance = visual_radius * 20.0; // Fill ~10% of screen
+                target_distance.clamp(50.0, 10000.0) // Clamp to reasonable range
+            };
+            
+            orbit_camera.radius = zoom_distance;
         }
     }
 }

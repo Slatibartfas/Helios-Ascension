@@ -67,7 +67,7 @@ The camera system has been enhanced with automatic zoom and following:
 
 3. **Automatic Triggering**: Zoom-to-fit triggers when:
    - You click the anchor button (⚓) in the ledger
-   - A body is selected and anchored via the UI
+   - The camera anchor changes to a different body
 
 ## Technical Implementation
 

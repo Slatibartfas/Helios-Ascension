@@ -96,7 +96,7 @@ Clicking the anchor button (⚓) next to a body should:
 - ✓ Body is selected after clicking anchor
 - ✓ Selection ring appears in 3D view
 - ✓ Camera is anchored (follows the body)
-- ✓ Zoom-to-fit activates automatically
+- ✓ Zoom-to-fit activates when anchor button is clicked
 
 ## Test 5: Camera Zoom-to-Fit (Regular Bodies)
 
