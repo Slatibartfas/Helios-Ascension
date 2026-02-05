@@ -164,6 +164,26 @@ pub struct Selected;
 #[derive(Component, Debug, Clone, Copy, Default)]
 pub struct Hovered;
 
+/// Marker component for a glossy selection ring mesh.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct SelectionMarker;
+
+/// Marker component for a glossy hover ring mesh.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct HoverMarker;
+
+/// Associates a marker entity with its owning celestial body.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct MarkerOwner(pub Entity);
+
+/// Animated bright dot that moves around a marker ring.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct MarkerDot {
+    pub angle: f32,
+    pub angular_speed: f32,
+    pub radius: f32,
+}
+
 /// Represents a gas component in an atmosphere
 #[derive(Debug, Clone, PartialEq)]
 pub struct AtmosphericGas {

@@ -2,8 +2,11 @@ use bevy::prelude::*;
 use bevy::math::DVec3;
 use bevy::window::PrimaryWindow;
 
-use super::components::{KeplerOrbit, OrbitPath, Selected, Hovered, SpaceCoordinates};
-use crate::plugins::solar_system::{CelestialBody, Moon, Star, RADIUS_SCALE};
+use super::components::{
+    HoverMarker, Hovered, KeplerOrbit, MarkerDot, MarkerOwner, OrbitPath, Selected,
+    SelectionMarker, SpaceCoordinates,
+};
+use crate::plugins::solar_system::{CelestialBody, Moon, Planet, Star, RADIUS_SCALE};
 use crate::plugins::camera::{CameraAnchor, GameCamera, OrbitCamera};
 
 /// Scaling factor for converting astronomical units to Bevy rendering units
@@ -19,7 +22,7 @@ const MOON_ORBIT_VISIBILITY_DISTANCE: f32 = 500.0;
 const SELECTION_CLICK_RADIUS: f32 = 5.0;
 
 /// Padding for the hover ring around celestial bodies (in Bevy units)
-const HOVER_RING_PADDING: f32 = 8.0;
+const HOVER_RING_PADDING: f32 = 8.0;  // Creates visible gap between marker and body
 
 /// Maximum iterations for Kepler solver
 const MAX_KEPLER_ITERATIONS: u32 = 50;
@@ -64,6 +67,47 @@ pub fn solve_kepler(mean_anomaly: f64, eccentricity: f64) -> f64 {
     }
 
     eccentric_anomaly
+}
+
+/// Calculate the 3D orbital position from a mean anomaly.
+///
+/// # Arguments
+/// * `orbit` - Keplerian orbital elements
+/// * `mean_anomaly` - Mean anomaly in radians
+///
+/// # Returns
+/// Position in AU in the orbit's reference frame
+pub fn orbit_position_from_mean_anomaly(orbit: &KeplerOrbit, mean_anomaly: f64) -> DVec3 {
+    // Solve Kepler's equation for eccentric anomaly
+    let eccentric_anomaly = solve_kepler(mean_anomaly, orbit.eccentricity);
+
+    // Convert to true anomaly
+    let true_anomaly = eccentric_to_true_anomaly(eccentric_anomaly, orbit.eccentricity);
+
+    // Calculate orbital radius
+    let radius = orbital_radius(orbit.semi_major_axis, orbit.eccentricity, true_anomaly);
+
+    // Position in the orbital plane
+    let x_orbital = radius * true_anomaly.cos();
+    let y_orbital = radius * true_anomaly.sin();
+
+    // Apply argument of periapsis rotation
+    let cos_w = orbit.argument_of_periapsis.cos();
+    let sin_w = orbit.argument_of_periapsis.sin();
+    let x_perifocal = x_orbital * cos_w - y_orbital * sin_w;
+    let y_perifocal = x_orbital * sin_w + y_orbital * cos_w;
+
+    // Apply inclination and longitude of ascending node rotations
+    let cos_i = orbit.inclination.cos();
+    let sin_i = orbit.inclination.sin();
+    let cos_omega = orbit.longitude_ascending_node.cos();
+    let sin_omega = orbit.longitude_ascending_node.sin();
+
+    let x = x_perifocal * cos_omega - y_perifocal * cos_i * sin_omega;
+    let y = x_perifocal * sin_omega + y_perifocal * cos_i * cos_omega;
+    let z = y_perifocal * sin_i;
+
+    DVec3::new(x, y, z)
 }
 
 /// Calculate true anomaly from eccentric anomaly
@@ -116,40 +160,8 @@ pub fn propagate_orbits(
         // Calculate current mean anomaly: M = M₀ + n*t
         let mean_anomaly = orbit.mean_anomaly_epoch + orbit.mean_motion * elapsed_time;
 
-        // Solve Kepler's equation for eccentric anomaly
-        let eccentric_anomaly = solve_kepler(mean_anomaly, orbit.eccentricity);
-
-        // Convert to true anomaly
-        let true_anomaly = eccentric_to_true_anomaly(eccentric_anomaly, orbit.eccentricity);
-
-        // Calculate orbital radius
-        let radius = orbital_radius(orbit.semi_major_axis, orbit.eccentricity, true_anomaly);
-
-        // Calculate position in the orbital plane
-        // In orbital frame: x-axis points to periapsis, z-axis is orbit normal
-        let x_orbital = radius * true_anomaly.cos();
-        let y_orbital = radius * true_anomaly.sin();
-
-        // Apply argument of periapsis rotation (rotation in orbital plane)
-        let cos_w = orbit.argument_of_periapsis.cos();
-        let sin_w = orbit.argument_of_periapsis.sin();
-        let x_perifocal = x_orbital * cos_w - y_orbital * sin_w;
-        let y_perifocal = x_orbital * sin_w + y_orbital * cos_w;
-
-        // Apply inclination and longitude of ascending node rotations
-        // to transform from perifocal to heliocentric coordinates
-        let cos_i = orbit.inclination.cos();
-        let sin_i = orbit.inclination.sin();
-        let cos_omega = orbit.longitude_ascending_node.cos();
-        let sin_omega = orbit.longitude_ascending_node.sin();
-
-        // Heliocentric position using rotation matrices
-        let x = x_perifocal * cos_omega - y_perifocal * cos_i * sin_omega;
-        let y = x_perifocal * sin_omega + y_perifocal * cos_i * cos_omega;
-        let z = y_perifocal * sin_i;
-
         // Update space coordinates (in AU)
-        coords.position = DVec3::new(x, y, z);
+        coords.position = orbit_position_from_mean_anomaly(orbit, mean_anomaly);
     }
 }
 
@@ -172,77 +184,89 @@ pub fn update_render_transform(
     }
 }
 
-/// System that draws orbit paths using gizmos
-/// Visualizes Keplerian orbits as ellipses
+/// System that draws orbit paths as fading trails (Terra Invicta style).
+/// The trail is brightest at the body's current position and fades out
+/// behind it, creating a comet-tail effect along the orbit.
 pub fn draw_orbit_paths(
     mut gizmos: Gizmos,
-    query: Query<(&KeplerOrbit, &OrbitPath)>,
+    time: Res<Time<Virtual>>,
+    query: Query<(&KeplerOrbit, &OrbitPath, Option<&Parent>)>,
+    parent_query: Query<&GlobalTransform>,
 ) {
-    for (orbit, path) in query.iter() {
+    let elapsed_time = time.elapsed_seconds_f64();
+
+    for (orbit, path, parent) in query.iter() {
         if !path.visible {
             continue;
         }
 
-        // Generate points along the orbit by sampling mean anomaly uniformly
+        let parent_offset = parent
+            .and_then(|parent| parent_query.get(parent.get()).ok())
+            .map(|transform| transform.translation())
+            .unwrap_or(Vec3::ZERO);
+
+        // Current mean anomaly of the body (where it actually is now)
+        let current_mean_anomaly = (orbit.mean_anomaly_epoch + orbit.mean_motion * elapsed_time)
+            .rem_euclid(std::f64::consts::TAU);
+
         let segments = path.segments;
-        let mut points = Vec::with_capacity(segments as usize + 1);
-        
-        // Pre-calculate step size for mean anomaly sampling
         let mean_anomaly_step = std::f64::consts::TAU / (segments as f64);
 
-        for i in 0..=segments {
-            // Uniformly sample mean anomaly (which represents time)
-            let mean_anomaly = (i as f64) * mean_anomaly_step;
-            
-            // Solve for eccentric anomaly
-            let eccentric_anomaly = solve_kepler(mean_anomaly, orbit.eccentricity);
-            
-            // Convert to true anomaly
-            let true_anomaly = eccentric_to_true_anomaly(eccentric_anomaly, orbit.eccentricity);
-            
-            // Calculate radius at this true anomaly
-            let radius = orbital_radius(orbit.semi_major_axis, orbit.eccentricity, true_anomaly);
-            
-            // Position in orbital plane (relative to focus)
-            let x_orbital = radius * true_anomaly.cos();
-            let y_orbital = radius * true_anomaly.sin();
-            
-            // Apply argument of periapsis rotation
-            let cos_w = orbit.argument_of_periapsis.cos();
-            let sin_w = orbit.argument_of_periapsis.sin();
-            let x_perifocal = x_orbital * cos_w - y_orbital * sin_w;
-            let y_perifocal = x_orbital * sin_w + y_orbital * cos_w;
-            
-            // Apply inclination and longitude of ascending node
-            let cos_i = orbit.inclination.cos();
-            let sin_i = orbit.inclination.sin();
-            let cos_omega = orbit.longitude_ascending_node.cos();
-            let sin_omega = orbit.longitude_ascending_node.sin();
-            
-            let x = x_perifocal * cos_omega - y_perifocal * cos_i * sin_omega;
-            let y = x_perifocal * sin_omega + y_perifocal * cos_i * cos_omega;
-            let z = y_perifocal * sin_i;
-            
-            // Apply scaling to Bevy units
-            let scaled_x = (x * SCALING_FACTOR) as f32;
-            let scaled_y = (y * SCALING_FACTOR) as f32;
-            let scaled_z = (z * SCALING_FACTOR) as f32;
-            
-            points.push(Vec3::new(scaled_x, scaled_y, scaled_z));
-        }
+        // Extract base color channels from path color
+        let base = path.color.to_srgba();
 
-        // Draw the orbit as a line loop
-        for i in 0..points.len() - 1 {
-            gizmos.line(points[i], points[i + 1], path.color);
+        // Trail covers the full orbit but fades from current position backwards.
+        // Segment 0 is the body's current position (brightest).
+        // Segment N is the point just before the body (dimmest / invisible).
+        let mut prev_point: Option<Vec3> = None;
+
+        for i in 0..=segments {
+            // Walk backwards from the current position
+            let mean_anomaly = current_mean_anomaly - (i as f64) * mean_anomaly_step;
+            let position_au = orbit_position_from_mean_anomaly(orbit, mean_anomaly);
+
+            let scaled_x = (position_au.x * SCALING_FACTOR) as f32;
+            let scaled_y = (position_au.y * SCALING_FACTOR) as f32;
+            let scaled_z = (position_au.z * SCALING_FACTOR) as f32;
+
+            let point = Vec3::new(scaled_x, scaled_y, scaled_z) + parent_offset;
+
+            if let Some(prev) = prev_point {
+                // t goes from 0.0 (at the body) to 1.0 (full orbit behind)
+                let t = i as f32 / segments as f32;
+
+                // Fade curve: bright near the body, fading to near-zero
+                // Use a smooth power curve for a natural look
+                let alpha = base.alpha * (1.0 - t).powf(1.8);
+
+                // Glow boost near the head of the trail
+                let glow = if t < 0.08 { 1.3 } else { 1.0 };
+
+                if alpha > 0.01 {
+                    let segment_color = Color::srgba(
+                        (base.red * glow).min(1.0),
+                        (base.green * glow).min(1.0),
+                        (base.blue * glow).min(1.0),
+                        alpha,
+                    );
+                    gizmos.line(prev, point, segment_color);
+                }
+            }
+
+            prev_point = Some(point);
         }
     }
 }
 
-/// System that controls orbit visibility based on camera distance
-/// Moon orbits are only visible when camera is close enough
-pub fn update_orbit_visibility_by_zoom(
+/// System that controls orbit visibility based on body type, selection, and camera distance
+pub fn update_orbit_visibility(
     camera_query: Query<&Transform, With<GameCamera>>,
-    mut orbit_query: Query<(&mut OrbitPath, Option<&Selected>), With<Moon>>,
+    mut orbit_query: Query<(
+        &mut OrbitPath,
+        Option<&Selected>,
+        Option<&Planet>,
+        Option<&Moon>,
+    )>,
 ) {
     // Get camera position
     let Ok(camera_transform) = camera_query.get_single() else {
@@ -252,14 +276,19 @@ pub fn update_orbit_visibility_by_zoom(
     // Calculate distance from camera to origin (solar system center)
     let camera_distance = camera_transform.translation.length();
 
-    // Update visibility for moon orbits based on camera distance
-    for (mut orbit_path, selected) in orbit_query.iter_mut() {
-        // Always show orbits for selected bodies
+    for (mut orbit_path, selected, planet, moon) in orbit_query.iter_mut() {
         if selected.is_some() {
+            // Selected bodies always show their orbit
             orbit_path.visible = true;
-        } else {
+        } else if planet.is_some() {
+            // Planets always show their orbit
+            orbit_path.visible = true;
+        } else if moon.is_some() {
             // Show moon orbits only when zoomed in close enough
             orbit_path.visible = camera_distance < MOON_ORBIT_VISIBILITY_DISTANCE;
+        } else {
+            // Asteroids, Comets, DwarfPlanets are hidden by default
+            orbit_path.visible = false;
         }
     }
 }
@@ -282,9 +311,15 @@ pub fn handle_body_selection(
     mut anchor_query: Query<&mut CameraAnchor, With<GameCamera>>,
     time: Res<Time>,
     mut selection_state: Local<SelectionState>,
+    mut egui_contexts: bevy_egui::EguiContexts,
 ) {
     // Only process on mouse click
     if !mouse_button.just_pressed(MouseButton::Left) {
+        return;
+    }
+
+    // Don't process if egui is using the mouse (e.g., clicking on UI)
+    if egui_contexts.ctx_mut().wants_pointer_input() {
         return;
     }
 
@@ -325,8 +360,12 @@ pub fn handle_body_selection(
         let closest_point = ray.origin + *ray.direction * projection;
         let distance = (body_pos - closest_point).length();
         
-        // Check if click is within selection radius
-        if distance < SELECTION_CLICK_RADIUS {
+        // Check if click is within visual radius + margin
+        // This allows clicking on the visible surface of large bodies, and provides
+        // a generous margin for small bodies
+        let selection_radius = body.visual_radius + SELECTION_CLICK_RADIUS;
+
+        if distance < selection_radius {
             match closest_body {
                 None => closest_body = Some((entity, projection, body.name.clone())),
                 Some((_, prev_dist, _)) if projection < prev_dist => {
@@ -363,18 +402,6 @@ pub fn handle_body_selection(
     }
 }
 
-/// System that ensures selected bodies have visible orbits
-pub fn update_selected_orbit_visibility(
-    selected_query: Query<Entity, (With<Selected>, With<OrbitPath>)>,
-    mut orbit_query: Query<&mut OrbitPath>,
-) {
-    for entity in selected_query.iter() {
-        if let Ok(mut orbit_path) = orbit_query.get_mut(entity) {
-            orbit_path.visible = true;
-        }
-    }
-}
-
 /// System that handles celestial body hover detection via mouse position
 pub fn handle_body_hover(
     windows: Query<&Window, With<PrimaryWindow>>,
@@ -408,7 +435,7 @@ pub fn handle_body_hover(
     // Find the closest body to the ray
     let mut closest_body: Option<(Entity, f32)> = None;
     
-    for (entity, transform, _body) in body_query.iter() {
+    for (entity, transform, body) in body_query.iter() {
         let body_pos = transform.translation();
         
         // Calculate distance from ray to body center
@@ -423,8 +450,9 @@ pub fn handle_body_hover(
         let closest_point = ray.origin + *ray.direction * projection;
         let distance = (body_pos - closest_point).length();
         
-        // Check if cursor is within hover radius
-        if distance < SELECTION_CLICK_RADIUS {
+        // Check if cursor is within hover radius (visual radius + margin)
+        let selection_radius = body.visual_radius + SELECTION_CLICK_RADIUS;
+        if distance < selection_radius {
             match closest_body {
                 None => closest_body = Some((entity, projection)),
                 Some((_, prev_dist)) if projection < prev_dist => {
@@ -446,42 +474,197 @@ pub fn handle_body_hover(
     }
 }
 
-/// Helper function to draw a glowing ring around a celestial body
-fn draw_body_selection_ring(gizmos: &mut Gizmos, pos: Vec3, radius: f32) {
-    // Draw glowing ring effect using multiple circles with varying opacity
-    let ring_color = Color::srgba(0.4, 0.8, 1.0, 0.8);
-    
-    // Main ring
-    gizmos.circle(pos, Dir3::Y, radius, ring_color);
-    
-    // Outer glow
-    let glow_color = Color::srgba(0.4, 0.8, 1.0, 0.4);
-    gizmos.circle(pos, Dir3::Y, radius + 2.0, glow_color);
-    
-    // Inner highlight
-    let highlight_color = Color::srgba(0.6, 0.9, 1.0, 0.6);
-    gizmos.circle(pos, Dir3::Y, radius - 2.0, highlight_color);
+/// System that spawns glossy selection markers for newly selected bodies.
+pub fn spawn_selection_markers(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    selected_query: Query<(Entity, &CelestialBody), Added<Selected>>,
+    hover_markers: Query<(Entity, &MarkerOwner), With<HoverMarker>>,
+) {
+    for (entity, body) in selected_query.iter() {
+        // Remove hover marker if it exists
+        for (marker_entity, owner) in hover_markers.iter() {
+            if owner.0 == entity {
+                commands.entity(marker_entity).despawn_recursive();
+            }
+        }
+
+        let marker_radius = body.visual_radius + HOVER_RING_PADDING;
+        spawn_marker(
+            &mut commands,
+            &mut meshes,
+            &mut materials,
+            entity,
+            marker_radius,
+            true,
+        );
+    }
 }
 
-/// System that draws glowing rings around hovered and selected celestial bodies
-pub fn draw_hover_effects(
-    mut gizmos: Gizmos,
-    hovered_query: Query<(&GlobalTransform, &CelestialBody), With<Hovered>>,
-    selected_query: Query<(&GlobalTransform, &CelestialBody), (With<Selected>, Without<Hovered>)>,
+/// System that removes selection markers when selection is cleared.
+pub fn despawn_selection_markers(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut removed_selected: RemovedComponents<Selected>,
+    marker_query: Query<(Entity, &MarkerOwner), With<SelectionMarker>>,
+    body_query: Query<(&CelestialBody, Option<&Hovered>)>,
 ) {
-    // Draw rings around hovered bodies
-    for (transform, body) in hovered_query.iter() {
-        let pos = transform.translation();
-        let radius = body.radius * RADIUS_SCALE + HOVER_RING_PADDING;
-        draw_body_selection_ring(&mut gizmos, pos, radius);
+    for entity in removed_selected.read() {
+        for (marker_entity, owner) in marker_query.iter() {
+            if owner.0 == entity {
+                commands.entity(marker_entity).despawn_recursive();
+            }
+        }
+
+        // If still hovered, add a hover marker
+        if let Ok((body, Some(_))) = body_query.get(entity) {
+            let marker_radius = body.visual_radius + HOVER_RING_PADDING;
+            spawn_marker(
+                &mut commands,
+                &mut meshes,
+                &mut materials,
+                entity,
+                marker_radius,
+                false,
+            );
+        }
     }
-    
-    // Draw rings around selected bodies (same visual effect)
-    for (transform, body) in selected_query.iter() {
-        let pos = transform.translation();
-        let radius = body.radius * RADIUS_SCALE + HOVER_RING_PADDING;
-        draw_body_selection_ring(&mut gizmos, pos, radius);
+}
+
+/// System that spawns glossy hover markers for newly hovered bodies.
+pub fn spawn_hover_markers(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    hovered_query: Query<(Entity, &CelestialBody), (Added<Hovered>, Without<Selected>)>,
+) {
+    for (entity, body) in hovered_query.iter() {
+        let marker_radius = body.visual_radius + HOVER_RING_PADDING;
+        spawn_marker(
+            &mut commands,
+            &mut meshes,
+            &mut materials,
+            entity,
+            marker_radius,
+            false,
+        );
     }
+}
+
+/// System that removes hover markers when hover ends.
+pub fn despawn_hover_markers(
+    mut commands: Commands,
+    mut removed_hovered: RemovedComponents<Hovered>,
+    marker_query: Query<(Entity, &MarkerOwner), With<HoverMarker>>,
+) {
+    for entity in removed_hovered.read() {
+        for (marker_entity, owner) in marker_query.iter() {
+            if owner.0 == entity {
+                commands.entity(marker_entity).despawn_recursive();
+            }
+        }
+    }
+}
+
+/// System that animates marker dots around selection/hover rings.
+pub fn animate_marker_dots(time: Res<Time>, mut query: Query<(&mut Transform, &mut MarkerDot)>) {
+    for (mut transform, mut dot) in query.iter_mut() {
+        dot.angle = (dot.angle + dot.angular_speed * time.delta_seconds())
+            .rem_euclid(std::f32::consts::TAU);
+        transform.translation = Vec3::new(
+            dot.radius * dot.angle.cos(),
+            0.0,
+            dot.radius * dot.angle.sin(),
+        );
+    }
+}
+
+fn spawn_marker(
+    commands: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<StandardMaterial>>,
+    owner: Entity,
+    radius: f32,
+    is_selected: bool,
+) {
+    let ring_color = if is_selected {
+        Color::srgb(0.45, 0.85, 1.0)
+    } else {
+        Color::srgb(0.35, 0.7, 0.9)
+    };
+
+    let emissive = if is_selected { 0.25 } else { 0.12 };
+    let ring_material = materials.add(StandardMaterial {
+        base_color: ring_color,
+        emissive: LinearRgba::from(ring_color) * emissive,
+        metallic: 0.6,
+        perceptual_roughness: 0.15,
+        reflectance: 0.8,
+        ..default()
+    });
+
+    let ring_mesh = meshes.add(Torus {
+        minor_radius: 0.6,
+        major_radius: radius,
+        ..default()
+    });
+
+    let marker_entity = commands
+        .spawn((
+            PbrBundle {
+                mesh: ring_mesh,
+                material: ring_material,
+                transform: Transform::default(),
+                ..default()
+            },
+            MarkerOwner(owner),
+        ))
+        .id();
+
+    if is_selected {
+        commands.entity(marker_entity).insert(SelectionMarker);
+    } else {
+        commands.entity(marker_entity).insert(HoverMarker);
+    }
+
+    commands.entity(marker_entity).set_parent(owner);
+
+    let dot_color = if is_selected {
+        Color::srgb(0.9, 0.95, 1.0)
+    } else {
+        Color::srgb(0.7, 0.85, 1.0)
+    };
+
+    // Create glowing transparent material for the marker dot
+    let dot_material = materials.add(StandardMaterial {
+        base_color: Color::srgba(1.0, 1.0, 1.0, 0.6),
+        emissive: LinearRgba::from(dot_color) * 3.0,  // Strong glow
+        alpha_mode: AlphaMode::Blend,
+        metallic: 0.0,
+        perceptual_roughness: 0.1,
+        unlit: true,  // Pure glow effect
+        ..default()
+    });
+
+    let dot_mesh = meshes.add(Sphere::new(1.2));
+
+    commands.entity(marker_entity).with_children(|parent| {
+        parent.spawn((
+            PbrBundle {
+                mesh: dot_mesh,
+                material: dot_material,
+                transform: Transform::from_translation(Vec3::new(radius, 0.0, 0.0)),
+                ..default()
+            },
+            MarkerDot {
+                angle: 0.0,
+                angular_speed: if is_selected { 0.3 } else { 0.2 },
+                radius,
+            },
+        ));
+    });
 }
 
 /// System that automatically zooms camera when anchoring to a body
@@ -512,6 +695,33 @@ pub fn zoom_camera_to_anchored_body(
             
             orbit_camera.radius = zoom_distance;
         }
+    }
+}
+
+/// System that scales selection and hover markers based on camera zoom distance.
+///
+/// This ensures markers remain a consistent visual size regardless of how far
+/// the camera is from the target body. Markers scale linearly with camera distance,
+/// with a reference distance of 200 Bevy units where scale is 1.0.
+pub fn scale_markers_with_zoom(
+    camera_query: Query<&OrbitCamera, With<GameCamera>>,
+    mut marker_query: Query<
+        &mut Transform,
+        Or<(With<SelectionMarker>, With<HoverMarker>)>,
+    >,
+) {
+    let Ok(orbit_camera) = camera_query.get_single() else {
+        return;
+    };
+
+    // Reference distance where markers appear at their base size
+    let reference_distance = 1000.0_f32;
+    // Scale factor: markers grow with camera distance when zoomed out
+    // Never shrink below 1.0 to prevent rings from going inside the body
+    let zoom_scale = (orbit_camera.radius / reference_distance).clamp(1.0, 3.0);
+
+    for mut transform in marker_query.iter_mut() {
+        transform.scale = Vec3::splat(zoom_scale);
     }
 }
 
