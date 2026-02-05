@@ -13,10 +13,12 @@ use bevy::prelude::*;
 pub mod components;
 pub mod systems;
 
-pub use components::{KeplerOrbit, OrbitPath, Selected, SpaceCoordinates};
+pub use components::{Hovered, KeplerOrbit, OrbitPath, Selected, SpaceCoordinates};
 pub use systems::{
-    draw_orbit_paths, handle_body_selection, propagate_orbits, update_orbit_visibility_by_zoom,
-    update_render_transform, update_selected_orbit_visibility, SCALING_FACTOR,
+    draw_orbit_paths, handle_body_selection, handle_body_hover, draw_hover_effects, 
+    draw_hover_labels, zoom_camera_to_anchored_body, propagate_orbits, 
+    update_orbit_visibility_by_zoom, update_render_transform, update_selected_orbit_visibility, 
+    SCALING_FACTOR,
 };
 
 /// Plugin that adds astronomy systems to the Bevy app
@@ -30,12 +32,18 @@ impl Plugin for AstronomyPlugin {
                 // Core orbital mechanics
                 propagate_orbits,
                 update_render_transform.after(propagate_orbits),
-                // Selection and visibility
+                // Selection and hover
                 handle_body_selection,
+                handle_body_hover,
+                // Camera zoom
+                zoom_camera_to_anchored_body,
+                // Visibility
                 update_orbit_visibility_by_zoom,
                 update_selected_orbit_visibility.after(update_orbit_visibility_by_zoom),
                 // Rendering
                 draw_orbit_paths.after(update_selected_orbit_visibility),
+                draw_hover_effects,
+                draw_hover_labels,
             ),
         );
     }

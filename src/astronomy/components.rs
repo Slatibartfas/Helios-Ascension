@@ -158,3 +158,8 @@ impl Default for OrbitPath {
 /// Selected bodies always have their orbits visible
 #[derive(Component, Debug, Clone, Copy, Default)]
 pub struct Selected;
+
+/// Marker component for hovered celestial bodies
+/// Hovered bodies show a glowing ring and name label
+#[derive(Component, Debug, Clone, Copy, Default)]
+pub struct Hovered;

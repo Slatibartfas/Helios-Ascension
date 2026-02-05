@@ -2,9 +2,9 @@ use bevy::prelude::*;
 use bevy::math::DVec3;
 use bevy::window::PrimaryWindow;
 
-use super::components::{KeplerOrbit, OrbitPath, Selected, SpaceCoordinates};
-use crate::plugins::solar_system::{CelestialBody, Moon};
-use crate::plugins::camera::{CameraAnchor, GameCamera};
+use super::components::{KeplerOrbit, OrbitPath, Selected, Hovered, SpaceCoordinates};
+use crate::plugins::solar_system::{CelestialBody, Moon, Star};
+use crate::plugins::camera::{CameraAnchor, GameCamera, OrbitCamera};
 
 /// Scaling factor for converting astronomical units to Bevy rendering units
 /// 1 AU = 1500.0 Bevy units ensures separation between planets and moons
@@ -367,6 +367,167 @@ pub fn update_selected_orbit_visibility(
     for entity in selected_query.iter() {
         if let Ok(mut orbit_path) = orbit_query.get_mut(entity) {
             orbit_path.visible = true;
+        }
+    }
+}
+
+/// System that handles celestial body hover detection via mouse position
+pub fn handle_body_hover(
+    windows: Query<&Window, With<PrimaryWindow>>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<GameCamera>>,
+    body_query: Query<(Entity, &GlobalTransform, &CelestialBody)>,
+    mut commands: Commands,
+    hovered_query: Query<Entity, With<Hovered>>,
+) {
+    let Ok(window) = windows.get_single() else {
+        return;
+    };
+
+    let Ok((camera, camera_transform)) = camera_query.get_single() else {
+        return;
+    };
+
+    // Get cursor position
+    let Some(cursor_position) = window.cursor_position() else {
+        // No cursor, clear all hovers
+        for entity in hovered_query.iter() {
+            commands.entity(entity).remove::<Hovered>();
+        }
+        return;
+    };
+
+    // Convert screen position to ray
+    let Some(ray) = camera.viewport_to_world(camera_transform, cursor_position) else {
+        return;
+    };
+
+    // Find the closest body to the ray
+    let mut closest_body: Option<(Entity, f32)> = None;
+    
+    for (entity, transform, _body) in body_query.iter() {
+        let body_pos = transform.translation();
+        
+        // Calculate distance from ray to body center
+        let to_body = body_pos - ray.origin;
+        let projection = to_body.dot(*ray.direction);
+        
+        // Skip if body is behind camera
+        if projection < 0.0 {
+            continue;
+        }
+        
+        let closest_point = ray.origin + *ray.direction * projection;
+        let distance = (body_pos - closest_point).length();
+        
+        // Check if cursor is within hover radius
+        if distance < SELECTION_CLICK_RADIUS {
+            match closest_body {
+                None => closest_body = Some((entity, projection)),
+                Some((_, prev_dist)) if projection < prev_dist => {
+                    closest_body = Some((entity, projection));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Clear all hovers first
+    for entity in hovered_query.iter() {
+        commands.entity(entity).remove::<Hovered>();
+    }
+
+    // Set the hovered body if any
+    if let Some((entity, _)) = closest_body {
+        commands.entity(entity).insert(Hovered);
+    }
+}
+
+/// System that draws glowing rings around hovered celestial bodies
+pub fn draw_hover_effects(
+    mut gizmos: Gizmos,
+    query: Query<(&GlobalTransform, &CelestialBody), With<Hovered>>,
+) {
+    for (transform, body) in query.iter() {
+        let pos = transform.translation();
+        let radius = body.radius * 0.002 + 8.0; // Slightly larger than the body
+        
+        // Draw glowing ring effect using multiple circles with varying opacity
+        let ring_color = Color::srgba(0.4, 0.8, 1.0, 0.8);
+        
+        // Main ring
+        gizmos.circle(pos, Dir3::Y, radius, ring_color);
+        
+        // Outer glow
+        let glow_color = Color::srgba(0.4, 0.8, 1.0, 0.4);
+        gizmos.circle(pos, Dir3::Y, radius + 2.0, glow_color);
+        
+        // Inner highlight
+        let highlight_color = Color::srgba(0.6, 0.9, 1.0, 0.6);
+        gizmos.circle(pos, Dir3::Y, radius - 2.0, highlight_color);
+    }
+}
+
+/// System that draws name labels for hovered celestial bodies
+pub fn draw_hover_labels(
+    mut gizmos: Gizmos,
+    query: Query<(&GlobalTransform, &CelestialBody), With<Hovered>>,
+    camera_query: Query<&GlobalTransform, With<GameCamera>>,
+) {
+    let Ok(camera_transform) = camera_query.get_single() else {
+        return;
+    };
+    
+    for (transform, _body) in query.iter() {
+        let body_pos = transform.translation();
+        let camera_pos = camera_transform.translation();
+        
+        // Calculate label position (above the body)
+        let to_camera = (camera_pos - body_pos).normalize();
+        let label_offset = to_camera * 50.0 + Vec3::Y * 30.0;
+        let label_pos = body_pos + label_offset;
+        
+        // Draw a line from body to label
+        let line_color = Color::srgba(0.4, 0.8, 1.0, 0.5);
+        gizmos.line(body_pos, label_pos, line_color);
+        
+        // Note: Actual text rendering would require a more sophisticated system
+        // For now, we'll just draw a marker where the text would be
+        gizmos.sphere(label_pos, Quat::IDENTITY, 3.0, Color::srgba(0.4, 0.8, 1.0, 0.9));
+    }
+}
+
+/// System that automatically zooms camera when anchoring to a body
+pub fn zoom_camera_to_anchored_body(
+    body_query: Query<(&CelestialBody, Option<&Star>), Changed<Selected>>,
+    selected_query: Query<Entity, (With<Selected>, With<CelestialBody>)>,
+    mut camera_query: Query<(&mut OrbitCamera, &CameraAnchor), With<GameCamera>>,
+) {
+    // Only trigger when selection changes
+    let Ok((mut orbit_camera, anchor)) = camera_query.get_single_mut() else {
+        return;
+    };
+    
+    // Check if we have an anchored body that was just selected
+    if let Some(anchored_entity) = anchor.0 {
+        if let Ok(entity) = selected_query.get_single() {
+            if entity == anchored_entity {
+                if let Ok((body, is_star)) = body_query.get(entity) {
+                    // Calculate appropriate zoom distance
+                    let zoom_distance = if is_star.is_some() {
+                        // For the Sun, show the entire solar system
+                        // Approximately 40 AU should show out to Neptune
+                        40.0 * 1500.0 // 1500 is the SCALING_FACTOR
+                    } else {
+                        // For other bodies, make them fill about 10% of the screen
+                        // Assuming a 60° FOV, we need distance = radius * 10
+                        let visual_radius = body.radius * 0.002; // RADIUS_SCALE
+                        let target_distance = visual_radius * 20.0; // Fill ~10% of screen
+                        target_distance.max(50.0).min(10000.0) // Clamp to reasonable range
+                    };
+                    
+                    orbit_camera.radius = zoom_distance;
+                }
+            }
         }
     }
 }

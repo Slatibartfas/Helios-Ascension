@@ -114,11 +114,23 @@ fn render_body_row(
     ui.horizontal(|ui| {
         ui.add_space(20.0);
         if ui.small_button("⚓").on_hover_text("Anchor Camera").clicked() {
+            // Select the body when anchoring
+            for e in selected_query.iter() { commands.entity(e).remove::<Selected>(); }
+            commands.entity(entity).insert(Selected);
+            selection.select(entity);
+            
+            // Anchor the camera
             if let Ok(mut anchor) = anchor_query.get_single_mut() {
                 anchor.0 = Some(entity);
             }
         }
-        if ui.selectable_label(is_selected, &body.name).clicked() {
+        
+        // Use a visually distinct style for selected items
+        let mut label = ui.selectable_label(is_selected, &body.name);
+        if is_selected {
+            label = label.highlight();
+        }
+        if label.clicked() {
              for e in selected_query.iter() { commands.entity(e).remove::<Selected>(); }
              commands.entity(entity).insert(Selected);
              selection.select(entity);
@@ -199,11 +211,23 @@ fn render_body_tree(
              egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, body.name == "Sol")
                 .show_header(ui, |ui| {
                     if ui.small_button("⚓").on_hover_text("Anchor Camera").clicked() {
+                        // Select the body when anchoring
+                        for e in selected_query.iter() { commands.entity(e).remove::<Selected>(); }
+                        commands.entity(entity).insert(Selected);
+                        selection.select(entity);
+                        
+                        // Anchor the camera
                         if let Ok(mut anchor) = anchor_query.get_single_mut() {
                             anchor.0 = Some(entity);
                         }
                     }
-                    if ui.selectable_label(is_selected, &body.name).clicked() {
+                    
+                    // Use a visually distinct style for selected items
+                    let mut label = ui.selectable_label(is_selected, &body.name);
+                    if is_selected {
+                        label = label.highlight();
+                    }
+                    if label.clicked() {
                          for e in selected_query.iter() { commands.entity(e).remove::<Selected>(); }
                          commands.entity(entity).insert(Selected);
                          selection.select(entity);
