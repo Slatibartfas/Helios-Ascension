@@ -61,8 +61,8 @@ pub struct MultiLayerTextures {
         base: "textures/celestial/planets/earth_daymap_8k.jpg",
         night: Some("textures/celestial/planets/earth_nightmap_8k.jpg"),
         clouds: Some("textures/celestial/planets/earth_clouds_8k.jpg"),
-        normal: Some("textures/celestial/planets/earth_normal_8k.tif"),
-        specular: Some("textures/celestial/planets/earth_specular_8k.tif"),
+        normal: Some("textures/celestial/planets/earth_normal_8k.png"),
+        specular: Some("textures/celestial/planets/earth_specular_8k.png"),
     )),
 )
 ```
@@ -119,8 +119,8 @@ let (base_texture, normal_texture, is_dedicated) =
 - **Daymap**: `earth_daymap_8k.jpg` (4.4MB, 8192×4096)
 - **Nightmap**: `earth_nightmap_8k.jpg` (3.0MB, 8192×4096) - city lights
 - **Clouds**: `earth_clouds_8k.jpg` (12MB, 8192×4096)
-- **Normal**: `earth_normal_8k.tif` (9.1MB, 8192×4096)
-- **Specular**: `earth_specular_8k.tif` (1.8MB, 8192×4096)
+- **Normal**: `earth_normal_8k.png` (9.1MB, 8192×4096)
+- **Specular**: `earth_specular_8k.png` (1.8MB, 8192×4096)
 
 **Total**: 30.3MB for complete Earth multi-layer
 
@@ -208,7 +208,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
 ### Memory Usage
 - 8K textures: ~4-12MB each (JPEG compressed)
-- Normal/specular TIF: ~2-9MB each (uncompressed)
+- Normal/specular PNG (lossless): ~2-9MB each (compressed/lossless)
 - Full multi-layer Earth: ~30MB VRAM
 
 ### Optimization Strategies

@@ -2,12 +2,35 @@ use bevy::prelude::*;
 use bevy::core_pipeline::bloom::BloomSettings;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use rand::Rng;
+use bevy::render::render_resource::{AsBindGroup, ShaderRef};
 
 pub struct VisualEffectsPlugin;
 
 impl Plugin for VisualEffectsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, (setup_starfield, setup_camera_effects));
+        app.add_plugins(MaterialPlugin::<NightMaterial>::default());
+    }
+}
+
+/// Material for night-side textures (city lights)
+#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
+pub struct NightMaterial {
+    #[texture(0)]
+    #[sampler(1)]
+    pub night_texture: Handle<Image>,
+    #[uniform(2)]
+    pub sun_position: Vec4,
+}
+
+impl Material for NightMaterial {
+    fn fragment_shader() -> ShaderRef {
+        "shaders/night_material.wgsl".into()
+    }
+    
+    // Set transparency mode to additive blending
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::Add
     }
 }
 
@@ -92,10 +115,11 @@ fn setup_starfield(
     }
     
     // Add a subtle nebula effect using a large semi-transparent sphere with gradient
-    create_nebula_backdrop(&mut commands, &mut meshes, &mut materials);
+    // create_nebula_backdrop(&mut commands, &mut meshes, &mut materials); // Disabled per user feedback (looks like weird circles)
 }
 
 /// Create a subtle nebula background
+#[allow(dead_code)]
 fn create_nebula_backdrop(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
@@ -103,20 +127,26 @@ fn create_nebula_backdrop(
 ) {
     let mut rng = rand::thread_rng();
     
-    // Create several large spheres with nebula colors at different positions
+    // Create large nebula clouds for a rich space backdrop
     let nebula_positions = vec![
-        (Vec3::new(3000.0, 1000.0, 2000.0), Color::srgba(0.3, 0.15, 0.4, 0.02)),  // Purple
-        (Vec3::new(-2500.0, -1500.0, 1800.0), Color::srgba(0.15, 0.25, 0.5, 0.015)), // Blue
-        (Vec3::new(1000.0, -2000.0, -2500.0), Color::srgba(0.5, 0.2, 0.3, 0.015)), // Pink
-        (Vec3::new(-1500.0, 2500.0, -2000.0), Color::srgba(0.4, 0.3, 0.15, 0.01)), // Orange
+        // Large distant nebulae
+        (Vec3::new(4000.0, 800.0, 3000.0), Color::srgba(0.25, 0.10, 0.35, 0.04), 1800.0),    // Deep purple
+        (Vec3::new(-3500.0, -1200.0, 2500.0), Color::srgba(0.10, 0.18, 0.40, 0.035), 2000.0), // Deep blue
+        (Vec3::new(1500.0, -2500.0, -3500.0), Color::srgba(0.40, 0.12, 0.22, 0.03), 1600.0),  // Crimson
+        (Vec3::new(-2000.0, 3000.0, -2500.0), Color::srgba(0.35, 0.25, 0.10, 0.025), 1900.0), // Amber
+        // Medium clouds for mid-field depth
+        (Vec3::new(2200.0, -600.0, 1800.0), Color::srgba(0.15, 0.20, 0.45, 0.03), 1200.0),   // Violet-blue
+        (Vec3::new(-1800.0, 1500.0, 2200.0), Color::srgba(0.30, 0.08, 0.30, 0.035), 1400.0),  // Magenta
+        (Vec3::new(500.0, 2800.0, -1500.0), Color::srgba(0.08, 0.25, 0.35, 0.025), 1500.0),   // Teal
+        (Vec3::new(-3000.0, -800.0, -1800.0), Color::srgba(0.20, 0.15, 0.40, 0.03), 1700.0),  // Lavender
     ];
     
-    for (position, color) in nebula_positions {
-        let size = rng.gen::<f32>() * 500.0 + 800.0;
-        let nebula_mesh = meshes.add(Sphere::new(size));
+    for (position, color, size) in nebula_positions {
+        let size_varied = size + rng.gen::<f32>() * 400.0;
+        let nebula_mesh = meshes.add(Sphere::new(size_varied));
         let nebula_material = materials.add(StandardMaterial {
             base_color: color,
-            emissive: LinearRgba::from(color) * 0.5,
+            emissive: LinearRgba::from(color) * 0.8,
             alpha_mode: AlphaMode::Blend,
             unlit: true,
             ..default()
@@ -137,20 +167,20 @@ fn setup_camera_effects(
     camera_query: Query<Entity, With<Camera3d>>,
 ) {
     if let Ok(camera_entity) = camera_query.get_single() {
-        // Add bloom effect for bright objects (stars, sun)
+        // Add bloom effect for bright objects (stars, sun) — boosted for vibrant glow
         commands.entity(camera_entity).insert((
             BloomSettings {
-                intensity: 0.15,
-                low_frequency_boost: 0.5,
-                low_frequency_boost_curvature: 0.8,
-                high_pass_frequency: 0.9,
+                intensity: 0.3, // Moderate intensity
+                low_frequency_boost: 0.8, // Boost wide glow
+                low_frequency_boost_curvature: 0.6,
+                high_pass_frequency: 0.2, // Allow more range to contribute to glow shape
                 prefilter_settings: bevy::core_pipeline::bloom::BloomPrefilterSettings {
-                    threshold: 0.8,
-                    threshold_softness: 0.2,
+                    threshold: 50.0, // VERY HIGH threshold - only the Sun (emissive > 50) will bloom
+                    threshold_softness: 0.4,
                 },
                 composite_mode: bevy::core_pipeline::bloom::BloomCompositeMode::Additive,
             },
-            Tonemapping::TonyMcMapface,
+            Tonemapping::ReinhardLuminance, // Better for handling extreme dynamic range
         ));
     }
 }

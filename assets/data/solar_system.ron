@@ -98,8 +98,8 @@
                 base: "textures/celestial/planets/earth_daymap_8k.jpg",
                 night: Some("textures/celestial/planets/earth_nightmap_8k.jpg"),
                 clouds: Some("textures/celestial/planets/earth_clouds_8k.jpg"),
-                normal: Some("textures/celestial/planets/earth_normal_8k.tif"),
-                specular: Some("textures/celestial/planets/earth_specular_8k.tif"),
+                normal: Some("textures/celestial/planets/earth_normal_8k.png"),
+                specular: Some("textures/celestial/planets/earth_specular_8k.png"),
             )),
             atmosphere: Some((
                 surface_pressure_mbar: 1013.0, // 1 bar (1 atm)

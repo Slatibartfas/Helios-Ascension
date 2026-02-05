@@ -1,8 +1,15 @@
 use bevy::prelude::*;
+use bevy::render::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
+use bevy::render::render_asset::RenderAssetUsages;
 use std::collections::HashMap;
+use rand::prelude::*;
+use std::hash::{Hash, Hasher};
+use std::collections::hash_map::DefaultHasher;
 
 use super::solar_system_data::{AsteroidClass, BodyType, SolarSystemData};
-use crate::astronomy::{KeplerOrbit, OrbitPath, SpaceCoordinates};
+use crate::astronomy::{
+    orbit_position_from_mean_anomaly, KeplerOrbit, OrbitPath, SpaceCoordinates, SCALING_FACTOR,
+};
 use crate::plugins::camera::{CameraAnchor, GameCamera};
 
 pub struct SolarSystemPlugin;
@@ -11,7 +18,26 @@ impl Plugin for SolarSystemPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup_solar_system)
             .add_systems(PostStartup, initial_camera_focus)
-            .add_systems(Update, rotate_bodies);
+            .add_systems(Update, (rotate_bodies, update_billboards))
+            // System to convert loaded normal/specular textures to linear formats
+            .add_systems(Update, apply_linear_to_images_system);
+    }
+}
+
+/// Component to make an entity always face the camera (e.g. sun glare)
+#[derive(Component)]
+pub struct Billboard;
+
+fn update_billboards(
+    mut query: Query<&mut Transform, With<Billboard>>,
+    camera_query: Query<&GlobalTransform, With<Camera3d>>,
+) {
+    if let Ok(camera_global_transform) = camera_query.get_single() {
+        let camera_pos = camera_global_transform.translation();
+        for mut transform in query.iter_mut() {
+            // Point the Z-axis at the camera
+            transform.look_at(camera_pos, Vec3::Y);
+        }
     }
 }
 
@@ -24,7 +50,12 @@ pub struct CelestialBody {
     #[allow(dead_code)]
     pub mass: f64,
     pub body_type: BodyType,
+    pub visual_radius: f32,
 }
+
+/// Logical parent for UI hierarchy, separate from spatial transform parenting
+#[derive(Component)]
+pub struct LogicalParent(pub Entity);
 
 #[derive(Component)]
 pub struct Star;
@@ -52,11 +83,11 @@ pub struct RotationSpeed(pub f32);
 
 // Visualization scale factors
 // Increased scale for planets to be easily visible and clickable
-pub const RADIUS_SCALE: f32 = 0.002; // Increased from 0.001 for better visibility
+pub const RADIUS_SCALE: f32 = 0.01; // Increased for better visibility
 // Minimum size to ensure small moons are visible and clickable
 const MIN_VISUAL_RADIUS: f32 = 5.0; // Increased from 3.0 for easier clicking
 // Sun needs a separate, smaller scale to not engulf the inner system when planets are oversized
-const STAR_RADIUS_SCALE: f32 = 0.0001; 
+const STAR_RADIUS_SCALE: f32 = 0.00015; // Slightly increased from 0.0001, kept safe for Mercury orbit
 
 // Time conversion constants
 const SECONDS_PER_DAY: f64 = 86400.0; // Number of seconds in one Earth day
@@ -161,12 +192,21 @@ fn apply_procedural_variation(
     (color_variation, roughness_var, metallic_var)
 }
 
+#[derive(Resource, Default)]
+struct LinearImageQueue {
+    handles: Vec<Handle<Image>>,
+}
+
 pub fn setup_solar_system(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials_night: ResMut<Assets<crate::plugins::visual_effects::NightMaterial>>,
     asset_server: Res<AssetServer>,
 ) {
+    // Queue to collect normal/specular handles that must be treated as linear textures
+    let mut linear_handle_queue: Vec<Handle<Image>> = Vec::new();
+
     // Load solar system data
     let data = match SolarSystemData::load_from_file("assets/data/solar_system.ron") {
         Ok(data) => data,
@@ -207,32 +247,41 @@ pub fn setup_solar_system(
         let is_star = body_data.body_type == BodyType::Star;
 
         // Check for multi-layer textures first, then single texture, then generic
-        let (base_color_texture, normal_map_texture, has_dedicated_texture) = 
+        let (base_color_texture, _normal_map_texture, clouds_texture, night_texture, has_dedicated_texture) = 
             if let Some(ref multi) = body_data.multi_layer_textures {
                 // Multi-layer textures - use base texture and normal map for now
                 // TODO: Implement full multi-layer rendering with night/clouds/specular
                 //       See assets/textures/MULTI_LAYER_TEXTURES.md for implementation roadmap
                 let base_tex = Some(asset_server.load::<Image>(multi.base.clone()));
                 let normal_tex = multi.normal.as_ref().map(|path| asset_server.load::<Image>(path.clone()));
-                (base_tex, normal_tex, true)
+                let clouds_tex = multi.clouds.as_ref().map(|path| asset_server.load::<Image>(path.clone()));
+                let night_tex = multi.night.as_ref().map(|path| asset_server.load::<Image>(path.clone()));
+
+                // Also load specular if present so we can ensure it's treated as linear (even if not used by StandardMaterial yet)
+                let specular_tex = multi.specular.as_ref().map(|path| asset_server.load::<Image>(path.clone()));
+                // Collect normal/specular handles for later conversion to linear color space
+                if let Some(ref h) = normal_tex { linear_handle_queue.push(h.clone()); }
+                if let Some(ref h) = specular_tex { linear_handle_queue.push(h.clone()); }
+                // Night needs to be linear? Probably sRGB for emissive, but if it behaves as data, maybe linear. 
+                // Usually diffuse/emissive maps are sRGB.
+                
+                (base_tex, normal_tex, clouds_tex, night_tex, true)
             } else if let Some(ref texture) = body_data.texture {
                 // Single dedicated texture
-                (Some(asset_server.load(texture.clone())), None, true)
+                (Some(asset_server.load(texture.clone())), None, None, None, true)
             } else {
                 // Generic texture based on body type
                 let generic_path = get_generic_texture_path(body_data);
-                (generic_path.map(|path| asset_server.load(path)), None, false)
+                (generic_path.map(|path| asset_server.load(path)), None, None, None, false)
             };
         
         let has_texture = base_color_texture.is_some();
         
         // Apply procedural variation to material properties
-        // For dedicated textures, use WHITE to avoid tinting the texture
-        // For generic/procedural textures, apply color variation for diversity
         let base_color = Color::srgb(body_data.color.0, body_data.color.1, body_data.color.2);
         let (material_color, roughness, metallic) = if has_dedicated_texture {
-            // Dedicated texture - use WHITE to show texture without tinting
-            (Color::WHITE, 0.7, 0.0)
+            // For textured bodies, use slightly tinted color to enhance texture
+            (Color::srgb(1.0, 1.0, 1.0), 0.7, 0.0)
         } else {
             // Generic/procedural texture - apply variation
             apply_procedural_variation(body_data, base_color, has_texture)
@@ -243,12 +292,13 @@ pub fn setup_solar_system(
             materials.add(StandardMaterial {
                 base_color: material_color,
                 base_color_texture,
-                // Reduced emissive intensity to prevent blowout/whiteness
+                // Extreme Emissive to trigger the high bloom threshold (50.0)
                 emissive: LinearRgba::from(Color::srgb(
-                   2.0, // Reduced from high values
-                   1.8,
-                   1.4,
+                   150.0,
+                   130.0,
+                   100.0,
                 )),
+                unlit: true, // Stars self-illuminate, show texture directly
                 perceptual_roughness: 1.0, // Stars are rough/diffuse
                 metallic: 0.0,
                 ..default()
@@ -268,40 +318,47 @@ pub fn setup_solar_system(
                 ..default()
             })
         } else {
+            // For textured bodies, use the actual body color for emissive
+            // For non-textured bodies, use material_color
+            let emissive_base = if has_dedicated_texture {
+                base_color // Use the body's actual color for emissive
+            } else {
+                material_color
+            };
             materials.add(StandardMaterial {
                 base_color: material_color,
                 base_color_texture,
-                normal_map_texture,
+                // Note: normal_map_texture is loaded but not applied yet
+                // TODO: Enable once multi-layer rendering is fully implemented
+                // normal_map_texture,
+                // Small emissive for ambient visibility on dark side, but low enough not to wash out texture
+                emissive: LinearRgba::from(emissive_base) * 0.01,
                 perceptual_roughness: roughness,
                 metallic,
-                reflectance: 0.3, // Some reflectance for rim lighting
+                reflectance: 0.5, // Higher reflectance for better lighting response
                 ..default()
             })
         };
 
-        // Determine initial position
-        // Note: Initial position is approximate - astronomy module handles precise orbital mechanics
-        let initial_pos = if let Some(ref orbit) = body_data.orbit {
-            let angle_rad = orbit.initial_angle.to_radians();
-            // Use 50.0 to match SCALING_FACTOR (1 AU = 50 Bevy units)
-            let distance = orbit.semi_major_axis * 50.0;
-            Vec3::new(distance * angle_rad.cos(), 0.0, distance * angle_rad.sin())
-        } else {
-            Vec3::ZERO
-        };
+        // Initial transform will be updated after precise orbital data is inserted
+        let initial_pos = Vec3::ZERO;
 
         // Build entity with appropriate components
         let mesh = if body_data.body_type == BodyType::Ring {
-            // Plane for rings (2x radius because plane size is usually defined by "size" which maps to width/height, 
-            // but Plane3d uses specific construction. 
-            // Plane3d::default() is infinite? No, Bevy primitives changed. 
-            // Let's use Plane3d and Rectangle mesh builder or similar.
-            // Bevy 0.14: Mesh::from(Plane3d { normal: Dir3::Y, half_size: Vec2::splat(visual_radius) }) theoretically.
-            // Or Mesh::from(Rectangle::new(visual_radius * 2.0, visual_radius * 2.0)) rotated?
-            // Plane usually implies XZ.
-            meshes.add(Plane3d::default().mesh().size(visual_radius * 2.0, visual_radius * 2.0))
+            // Create a custom donut/annulus mesh for the rings
+            // Inner radius is approx 74,500km, Outer is 140,000km from center
+            // Ratio is ~0.53
+            let inner_radius = visual_radius * 0.53;
+            let outer_radius = visual_radius;
+            
+            // Create ring mesh with high segment count for smoothness
+            // We'll define a helper function create_ring_mesh
+            meshes.add(create_ring_mesh(outer_radius, inner_radius, 128))
+        } else if body_data.body_type == BodyType::Asteroid {
+             let seed = calculate_hash(&body_data.name);
+             meshes.add(create_asteroid_mesh(visual_radius, body_data.radius, seed))
         } else {
-            meshes.add(Sphere::new(visual_radius))
+            meshes.add(Sphere::new(visual_radius).mesh().uv(64, 32))
         };
 
         let mut entity_commands = commands.spawn((
@@ -316,6 +373,7 @@ pub fn setup_solar_system(
                 radius: body_data.radius,
                 mass: body_data.mass,
                 body_type: body_data.body_type,
+                visual_radius,
             },
             RotationSpeed(rotation_speed),
         ));
@@ -366,31 +424,126 @@ pub fn setup_solar_system(
         }
 
         let entity = entity_commands.id();
-        entity_map.insert(body_data.name.clone(), entity);
+
+        // Add cloud layer if texture exists (e.g. Earth, Venus)
+        if let Some(clouds_tex) = clouds_texture {
+             commands.entity(entity).with_children(|parent| {
+                parent.spawn(PbrBundle {
+                    mesh: meshes.add(Sphere::new(visual_radius * 1.015).mesh().uv(64, 32)), // 1.5% larger than surface
+                    material: materials.add(StandardMaterial {
+                        base_color_texture: Some(clouds_tex),
+                        base_color: Color::WHITE,
+                        // Use additive blending since cloud textures are often black/white
+                        // This makes black transparent and white opaque/bright
+                        alpha_mode: AlphaMode::Add, 
+                        unlit: false, // Clouds should be lit by the sun
+                        perceptual_roughness: 0.8, // Clouds are rough (diffuse)
+                        reflectance: 0.6,
+                        ..default()
+                    }),
+                    transform: Transform::default(), // Relative to parent (0,0,0)
+                    ..default()
+                });
+             });
+        }
         
-        // Handle parenting for all bodies with a parent (enables relative positioning)
-        if let Some(parent_name) = &body_data.parent {
-            if let Some(parent_entity) = entity_map.get(parent_name) {
-                commands.entity(entity).set_parent(*parent_entity);
-            } else {
-                warn!("Parent {} not found for body {}", parent_name, body_data.name);
+        // Add night lights layer if texture exists (e.g. Earth)
+        if let Some(night_tex) = night_texture {
+            // Import the NightMaterial from visual_effects
+            use crate::plugins::visual_effects::NightMaterial;
+            
+            commands.entity(entity).with_children(|parent| {
+               parent.spawn(MaterialMeshBundle {
+                   mesh: meshes.add(Sphere::new(visual_radius * 1.002).mesh().uv(64, 32)), // Just slightly above surface
+                   material: materials_night.add(NightMaterial {
+                       night_texture: night_tex,
+                       // Sun is at 0,0,0. 
+                       // Note: If we had moving sun or dynamic lights, we'd need to update this uniform every frame.
+                       // For now, Sun is static at 0,0,0.
+                       sun_position: Vec4::new(0.0, 0.0, 0.0, 0.0), 
+                   }),
+                   transform: Transform::default(),
+                   ..default()
+               });
+            });
+       }
+
+        entity_map.insert(body_data.name.clone(), entity);
+    }
+
+    // Second pass: Set up parenting and logical hierarchy
+    for body_data in &data.bodies {
+        if let Some(entity) = entity_map.get(&body_data.name) {
+            if let Some(parent_name) = &body_data.parent {
+                if let Some(parent_entity) = entity_map.get(parent_name) {
+                    // Always set LogicalParent for UI hierarchy
+                    commands.entity(*entity).insert(LogicalParent(*parent_entity));
+                    
+                    // Only set spatial parent for moons and rings
+                    // Planets use absolute coordinates to match their orbit paths
+                    if body_data.body_type == BodyType::Moon || body_data.body_type == BodyType::Ring {
+                        commands.entity(*entity).set_parent(*parent_entity);
+                    }
+                } else {
+                    warn!("Parent {} not found for body {}", parent_name, body_data.name);
+                }
             }
         }
+    }
 
-        // Add light for stars
-        if is_star {
-            commands.spawn(PointLightBundle {
-                point_light: PointLight {
-                    intensity: 10000000.0, // Increased from 5000000.0 for better illumination
-                    range: 20000.0, // Increased from 10000.0 to reach distant bodies
-                    shadows_enabled: false, // Disable for performance with many objects
-                    ..default()
-                },
-                transform: Transform::from_translation(initial_pos),
-                ..default()
-            });
+    // Third pass: Add lights and corona visuals to stars
+    for body_data in &data.bodies {
+        if body_data.body_type == BodyType::Star {
+            if let Some(entity) = entity_map.get(&body_data.name) {
+                // Recalculate radius for visual effects
+                let visual_radius = (body_data.radius * STAR_RADIUS_SCALE).max(MIN_VISUAL_RADIUS);
+                
+                // Spawn light as a child of the star entity so it follows the star
+                commands.entity(*entity).with_children(|parent| {
+                    parent.spawn(PointLightBundle {
+                        point_light: PointLight {
+                            // Intensity needs to be extremely high because of the 1 AU = 1500.0 scale
+                            // Physical sun is ~3.75e28 lumens.
+                            // Scaled down to be reasonable for 10,000 lux at 1 AU (1500 units):
+                            // I = E * 4 * pi * r^2 = 10000 * 4 * pi * 1500^2 ≈ 2.8e11
+                            intensity: 2.8e11, 
+                            range: 2.0e9, // Effectively infinite within solar system bounds
+                            shadows_enabled: false, // Disable to prevent star mesh from blocking its own light
+                            ..default()
+                        },
+                        transform: Transform::default(),
+                        ..default()
+                    });
+
+                    // Add Soft Glow visual (Billboard)
+                    // Simplified to a soft radial gradient that blooms
+                    parent.spawn((
+                        PbrBundle {
+                            mesh: create_glow_mesh(meshes.as_mut(), visual_radius * 4.0),
+                            material: materials.add(StandardMaterial {
+                                base_color: Color::WHITE,
+                                emissive: LinearRgba::from(Color::srgb(50.0, 30.0, 10.0)), // High emissive for bloom
+                                alpha_mode: AlphaMode::Add,
+                                unlit: true,
+                                ..default()
+                            }),
+                            // Push it slightly behind the sun so it backgrounds it (-0.1 Z local space?)
+                            // Actually billboard overrides rotation, so translation is world relative usually.
+                            // Just put it at center.
+                            transform: Transform::from_xyz(0.0, 0.0, 0.0),
+                            ..default()
+                        },
+                        Billboard,
+                    ));
+                });
+            }
         }
     }
+
+    // Store handles that need linear color space conversion
+    commands.insert_resource(LinearImageQueue {
+        handles: linear_handle_queue,
+    });
 
     // Second pass: Add high-precision astronomy components with parent references
     for body_data in &data.bodies {
@@ -415,43 +568,85 @@ pub fn setup_solar_system(
                 mean_motion,
             );
 
+            let initial_coords = orbit_position_from_mean_anomaly(
+                &kepler_orbit,
+                kepler_orbit.mean_anomaly_epoch,
+            );
+            let initial_translation = Vec3::new(
+                (initial_coords.x * SCALING_FACTOR) as f32,
+                (initial_coords.y * SCALING_FACTOR) as f32,
+                (initial_coords.z * SCALING_FACTOR) as f32,
+            );
+
             commands.entity(*entity).insert((
                 kepler_orbit,
-                SpaceCoordinates::default(),
+                SpaceCoordinates::new(initial_coords),
+                Transform::from_translation(initial_translation),
             ));
 
             // Determine orbit color and visibility based on body type
-            // Using Terra Invicta-inspired colors: clear, functional, high contrast
+            // Terra Invicta-inspired colors with higher alpha for bright trail heads
             let (orbit_color, should_show) = match body_data.body_type {
                 BodyType::Planet => {
-                    // Planets: bright cyan/blue for high visibility (Terra Invicta style)
-                    (Color::srgba(0.4, 0.7, 1.0, 0.6), true)
+                    // Planets: bright cyan/blue, high alpha — trail head glows
+                    (Color::srgba(0.4, 0.75, 1.0, 0.85), true)
                 }
                 BodyType::DwarfPlanet => {
-                    // Dwarf Planets: dimmer blue, hidden by default to reduce clutter
-                     (Color::srgba(0.3, 0.5, 0.8, 0.4), false)
+                    // Dwarf Planets: dimmer blue, hidden by default
+                     (Color::srgba(0.3, 0.5, 0.8, 0.6), false)
                 }
                 BodyType::Moon => {
-                    // Moons: softer green-cyan, lower opacity
-                    (Color::srgba(0.3, 0.8, 0.7, 0.35), true)
+                    // Moons: softer green-cyan
+                    (Color::srgba(0.3, 0.8, 0.7, 0.7), true)
                 }
                 BodyType::Asteroid | BodyType::Comet => {
                     // Asteroids/Comets: amber/yellow when selected
-                    (Color::srgba(1.0, 0.7, 0.2, 0.5), false)
+                    (Color::srgba(1.0, 0.7, 0.2, 0.65), false)
                 }
-                BodyType::Ring => (Color::srgba(0.0, 0.0, 0.0, 0.0), false), // No orbit line for rings
-                _ => (Color::srgba(0.5, 0.5, 0.5, 0.3), false),
+                BodyType::Ring => (Color::srgba(0.0, 0.0, 0.0, 0.0), false),
+                _ => (Color::srgba(0.5, 0.5, 0.5, 0.4), false),
             };
 
             commands.entity(*entity).insert(OrbitPath {
                 color: orbit_color,
                 visible: should_show,
-                segments: 96, // Smoother orbit lines (increased from 64)
+                segments: 128, // High segment count for smooth fading trails
             });
         }
     }
 
     info!("Solar system setup complete!");
+}
+
+// System to convert any queued normal/specular images to linear format once they are loaded
+fn apply_linear_to_images_system(
+    mut images: ResMut<Assets<Image>>,
+    mut queue: ResMut<LinearImageQueue>,
+) {
+    use bevy::render::render_resource::TextureFormat;
+
+    // Retain only those handles that are not yet processed
+    queue.handles.retain(|handle| {
+        if let Some(image) = images.get_mut(handle) {
+            // If image uses an sRGB format, switch it to the linear equivalent
+            match image.texture_descriptor.format {
+                TextureFormat::Rgba8UnormSrgb => {
+                    image.texture_descriptor.format = TextureFormat::Rgba8Unorm;
+                }
+                TextureFormat::Bgra8UnormSrgb => {
+                    image.texture_descriptor.format = TextureFormat::Bgra8Unorm;
+                }
+                // Add more mappings if other srgb formats are encountered
+                _ => {}
+            }
+
+            // Processed — remove from queue
+            false
+        } else {
+            // Not yet loaded — keep for future frames
+            true
+        }
+    });
 }
 
 fn rotate_bodies(time: Res<Time>, mut query: Query<(&mut Transform, &RotationSpeed)>) {
@@ -476,4 +671,173 @@ fn initial_camera_focus(
             }
         }
     }
+}
+
+// Helper to create a flat ring (annulus) mesh
+fn create_ring_mesh(outer_radius: f32, inner_radius: f32, segments: u32) -> Mesh {
+    let mut positions = Vec::new();
+    let mut normals = Vec::new();
+    let mut uvs = Vec::new();
+    let mut indices = Vec::new();
+
+    // Create vertices
+    for i in 0..=segments {
+        let angle_fraction = i as f32 / segments as f32; // 0 to 1
+        let angle = angle_fraction * std::f32::consts::TAU;
+        let (sin, cos) = angle.sin_cos();
+
+        // Inner vertex
+        positions.push([inner_radius * cos, 0.0, inner_radius * sin]);
+        normals.push([0.0, 1.0, 0.0]); // Up-facing normal
+        
+        // Outer vertex
+        positions.push([outer_radius * cos, 0.0, outer_radius * sin]);
+        normals.push([0.0, 1.0, 0.0]); // Up-facing normal
+
+        // UV Mapping:
+        // U coordinate maps to radius (0 = inner, 1 = outer)
+        // V coordinate maps to angle (0 = 0deg, 1 = 360deg)
+        uvs.push([0.0, angle_fraction]);
+        uvs.push([1.0, angle_fraction]);
+    }
+
+    // Create indices (two triangles per segment)
+    for i in 0..segments {
+        let base = i * 2;
+        // Vertices at this segment: base (inner), base+1 (outer)
+        // Vertices at next segment: base+2 (inner), base+3 (outer)
+        
+        // Triangle 1: Inner-Current, Outer-Current, Inner-Next
+        indices.push(base);
+        indices.push(base + 2);
+        indices.push(base + 1);
+
+        // Triangle 2: Inner-Next, Outer-Next, Outer-Current
+        indices.push(base + 2);
+        indices.push(base + 3);
+        indices.push(base + 1);
+    }
+    
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(Indices::U32(indices));
+    
+    mesh
+}
+
+// Helper to create a soft radial gradient mesh (disk)
+fn create_glow_mesh(meshes: &mut Assets<Mesh>, radius: f32) -> Handle<Mesh> {
+    let mut positions = Vec::new();
+    let mut normals = Vec::new();
+    let mut uvs = Vec::new();
+    let mut indices = Vec::new();
+    let mut colors = Vec::new();
+
+    // Center vertex
+    positions.push([0.0, 0.0, 0.0]);
+    normals.push([0.0, 0.0, 1.0]);
+    uvs.push([0.5, 0.5]);
+    colors.push([1.0, 0.9, 0.7, 1.0]); // Warm center, full alpha
+
+    let segments = 32;
+    for i in 0..=segments {
+        let angle = (i as f32 / segments as f32) * std::f32::consts::TAU;
+        let (sin, cos) = angle.sin_cos();
+
+        positions.push([cos * radius, sin * radius, 0.0]);
+        normals.push([0.0, 0.0, 1.0]);
+        uvs.push([0.5 + cos * 0.5, 0.5 + sin * 0.5]);
+        colors.push([0.8, 0.4, 0.1, 0.0]); // Orange edge, zero alpha (transparent)
+    }
+
+    // Indices (Fan)
+    for i in 1..=segments {
+        indices.push(0);
+        indices.push(i);
+        indices.push(i + 1);
+    }
+
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
+    mesh.insert_indices(Indices::U32(indices));
+    
+    meshes.add(mesh)
+}
+
+fn calculate_hash<T: Hash>(t: &T) -> u64 {
+    let mut s = DefaultHasher::new();
+    t.hash(&mut s);
+    s.finish()
+}
+
+fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) -> Mesh {
+    // Generate base sphere
+    // Use lower resolution for asteroids to make them look more jagged naturally,
+    // but high enough to support the noise deformation.
+    // 32 sectors, 16 stacks
+    let mut mesh = Mesh::from(Sphere::new(visual_radius).mesh().uv(32, 16));
+
+    if let Some(VertexAttributeValues::Float32x3(positions)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
+        let mut rng = StdRng::seed_from_u64(seed);
+        
+        // Define random axes for sine wave superposition
+        let mut axes = Vec::new();
+        let mut phases = Vec::new();
+        let num_layers = 6;
+        
+        for _ in 0..num_layers {
+            axes.push(Vec3::new(
+                rng.gen::<f32>() * 2.0 - 1.0, 
+                rng.gen::<f32>() * 2.0 - 1.0, 
+                rng.gen::<f32>() * 2.0 - 1.0
+            ).normalize_or_zero());
+            phases.push(rng.gen::<f32>() * std::f32::consts::TAU);
+        }
+
+        // Determine roughness based on physical size
+        // Bodies > 500km tend to be spherical (hydrostatic equilibrium)
+        // Bodies < 200km are very irregular
+        let irregularity_factor = if physical_radius_km > 500.0 {
+            0.05 // Mostly round
+        } else if physical_radius_km > 200.0 {
+            // Linear interpolation from 0.05 at 500km to 0.4 at 200km
+            0.05 + (1.0 - (physical_radius_km - 200.0) / 300.0) * 0.35
+        } else {
+            0.4 // Very irregular
+        };
+
+        let new_positions: Vec<[f32; 3]> = positions.iter().map(|p| {
+            let v = Vec3::from(*p);
+            let dir = v.normalize_or_zero();
+            
+            let mut noise = 0.0;
+            for i in 0..num_layers {
+                let frequency = 2.0 + (i as f32); // increasing frequency
+                let val = (dir.dot(axes[i]) * frequency + phases[i]).sin();
+                noise += val * (1.0 / (i as f32 + 1.0)); // decreasing amplitude
+            }
+            
+            // Normalize noise to roughly -1 to 1 range
+            noise /= 2.5; 
+            
+            let displacement = 1.0 + noise * irregularity_factor;
+            
+            (dir * visual_radius * displacement).into()
+        }).collect();
+
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, new_positions);
+        
+        // Essential to recompute normals so lighting looks correct on the deformed mesh
+        // We want a flat-shaded, faceted look for asteroids, so we must duplicate vertices
+        // to make the mesh non-indexed before computing flat normals.
+        mesh.duplicate_vertices();
+        mesh.compute_flat_normals(); 
+    }
+    
+    mesh
 }
