@@ -44,8 +44,8 @@ fn main() {
 fn setup(mut commands: Commands) {
     // Add ambient light for space atmosphere - increased for better visibility
     commands.insert_resource(AmbientLight {
-        color: Color::srgb(0.7, 0.75, 0.85), // Slightly blue-tinted for space
-        brightness: 0.3, // Increased from 0.1 for better body visibility
+        color: Color::srgb(0.9, 0.92, 1.0), // Neutral to slightly blue for space
+        brightness: 0.8, // Strong ambient light to prevent black bodies
     });
     
     // Set clear color to deep black for space

@@ -15,7 +15,7 @@ pub use interaction::Selection;
 
 use crate::astronomy::{AtmosphereComposition, Hovered, KeplerOrbit, Selected, SpaceCoordinates};
 use crate::economy::{format_power, GlobalBudget, PlanetResources, ResourceType};
-use crate::plugins::solar_system::CelestialBody;
+use crate::plugins::solar_system::{CelestialBody, LogicalParent};
 use crate::plugins::solar_system_data::BodyType;
 use crate::plugins::camera::{CameraAnchor, GameCamera};
 
@@ -312,7 +312,7 @@ fn ui_dashboard(
     // Query for selected body information
     body_query: Query<(&CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>, Option<&PlanetResources>, Option<&AtmosphereComposition>)>,
     // Ledger queries
-    all_bodies_query: Query<(Entity, &CelestialBody, Option<&Parent>)>,
+    all_bodies_query: Query<(Entity, &CelestialBody, Option<&LogicalParent>)>,
     selected_query: Query<Entity, With<Selected>>,
     mut anchor_query: Query<&mut CameraAnchor, With<GameCamera>>,
 ) {
@@ -333,10 +333,10 @@ fn ui_dashboard(
                 let mut roots: Vec<Entity> = Vec::new();
                 let mut body_map: std::collections::HashMap<Entity, &CelestialBody> = std::collections::HashMap::new();
 
-                for (entity, body, parent) in all_bodies_query.iter() {
+                for (entity, body, logical_parent) in all_bodies_query.iter() {
                     body_map.insert(entity, body);
-                    if let Some(parent) = parent {
-                        hierarchy.entry(parent.get()).or_default().push(entity);
+                    if let Some(logical_parent) = logical_parent {
+                        hierarchy.entry(logical_parent.0).or_default().push(entity);
                     } else {
                         roots.push(entity);
                     }
