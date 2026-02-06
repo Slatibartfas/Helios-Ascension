@@ -476,7 +476,12 @@ fn ui_dashboard(
                                     .body(|ui| {
                                         // Basic atmosphere properties
                                         ui.horizontal(|ui| {
-                                            ui.label("Pressure:");
+                                            // Display appropriate label based on whether this is reference or surface pressure
+                                            if atmosphere.is_reference_pressure {
+                                                ui.label("Pressure (at 1 bar ref):");
+                                            } else {
+                                                ui.label("Surface Pressure:");
+                                            }
                                             let pressure_bar = atmosphere.surface_pressure_mbar / 1000.0;
                                             if pressure_bar >= 1.0 {
                                                 ui.label(format!("{:.2} bar", pressure_bar));

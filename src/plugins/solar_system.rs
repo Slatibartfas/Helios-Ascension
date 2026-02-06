@@ -498,6 +498,7 @@ pub fn setup_solar_system(
                 gases,
                 body_data.mass,
                 body_data.radius,
+                atmo_data.is_reference_pressure,
             );
             
             entity_commands.insert(atmosphere);

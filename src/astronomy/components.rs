@@ -227,6 +227,10 @@ pub struct AtmosphereComposition {
     /// This uses a simplified binary threshold (≥ 2.0 km/s) for gameplay purposes.
     /// Physically: ≥ 5 km/s retains most gases; 2-5 km/s retains heavy gases; < 2 km/s loses atmosphere.
     pub can_support_atmosphere: bool,
+    
+    /// Whether this is a reference altitude pressure (true for gas giants) or actual surface pressure (false for terrestrial)
+    /// Gas giants lack solid surfaces, so their pressure is measured at the conventional 1 bar reference level
+    pub is_reference_pressure: bool,
 }
 
 impl AtmosphereComposition {
@@ -260,6 +264,7 @@ impl AtmosphereComposition {
         gases: Vec<AtmosphericGas>,
         body_mass_kg: f64,
         body_radius_km: f32,
+        is_reference_pressure: bool,
     ) -> Self {
         // Determine if atmosphere is breathable
         // Need 0.1-0.3 atm of O2 (100-300 mbar)
@@ -279,6 +284,7 @@ impl AtmosphereComposition {
             gases,
             breathable,
             can_support_atmosphere,
+            is_reference_pressure,
         }
     }
     
@@ -305,6 +311,7 @@ impl AtmosphereComposition {
             gases,
             breathable,
             can_support_atmosphere: true, // Default to true for backwards compatibility
+            is_reference_pressure: false, // Default to surface pressure for backwards compatibility
         }
     }
     

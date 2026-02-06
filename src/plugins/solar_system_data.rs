@@ -51,11 +51,16 @@ pub struct AtmosphericGasData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AtmosphereData {
     /// Surface pressure in millibars (1 bar = 1000 millibars)
+    /// For gas giants, this is the pressure at a reference altitude (conventionally 1 bar level)
     pub surface_pressure_mbar: f32,
     /// Average surface temperature in Celsius
     pub surface_temperature_celsius: f32,
     /// List of atmospheric gases
     pub gases: Vec<AtmosphericGasData>,
+    /// Whether this is a reference altitude pressure (true for gas giants) or actual surface pressure (false for terrestrial)
+    /// Gas giants lack solid surfaces, so their pressure is measured at the conventional 1 bar reference level
+    #[serde(default)]
+    pub is_reference_pressure: bool,
 }
 
 /// Orbital parameters for a celestial body

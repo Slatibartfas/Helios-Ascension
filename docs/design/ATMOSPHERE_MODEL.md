@@ -8,12 +8,21 @@ Helios Ascension now includes a comprehensive atmosphere model for celestial bod
 
 ### Atmospheric Composition
 Each celestial body with an atmosphere stores:
-- **Surface Pressure**: Measured in millibars (1 bar = 1000 millibars)
-  - For gas giants, this represents the 1 bar reference level (scientific convention)
-- **Surface Temperature**: Average temperature in Celsius
+- **Pressure**: Measured in millibars (1 bar = 1000 millibars)
+  - **Terrestrial planets**: This is the actual surface pressure
+  - **Gas giants**: This is the pressure at the 1 bar reference level (scientific convention)
+  - The system explicitly tracks whether pressure is at a reference altitude or at the surface
+- **Temperature**: Average temperature in Celsius
   - For gas giants, temperature at the 1 bar reference level
 - **Gas Composition**: List of atmospheric gases with their percentages
 - **Atmosphere Retention**: Calculated flag based on escape velocity physics
+- **Pressure Type Flag**: Indicates whether this is a reference altitude pressure (gas giants) or surface pressure (terrestrial)
+
+### Reference Pressure vs Surface Pressure
+Since gas giants lack solid surfaces, atmospheric measurements are taken at a reference altitude where pressure equals 1 bar (Earth sea level). This distinction is important for:
+- **Player understanding**: The UI displays "Pressure (at 1 bar ref)" for gas giants vs "Surface Pressure" for terrestrial planets
+- **Scientific accuracy**: Reflects how real planetary scientists measure gas giant atmospheres
+- **Future gameplay**: Matters for atmospheric mining, colonization attempts, and terraforming mechanics
 
 ### Atmospheric Retention Physics
 The system calculates whether a body can physically support an atmosphere based on its escape velocity:

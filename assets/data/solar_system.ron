@@ -228,6 +228,7 @@
                     (name: "H2", percentage: 90.0),
                     (name: "He", percentage: 10.0),
                 ],
+                is_reference_pressure: true, // Gas giant: pressure at reference altitude, not surface
             )),
         ),
         
@@ -337,6 +338,7 @@
                     (name: "He", percentage: 3.0),
                     (name: "CH4", percentage: 0.4),
                 ],
+                is_reference_pressure: true, // Gas giant: pressure at reference altitude, not surface
             )),
         ),
         
@@ -414,6 +416,7 @@
                     (name: "He", percentage: 15.0),
                     (name: "CH4", percentage: 2.0), // Methane gives blue color
                 ],
+                is_reference_pressure: true, // Gas giant: pressure at reference altitude, not surface
             )),
         ),
         
@@ -462,6 +465,7 @@
                     (name: "He", percentage: 19.0),
                     (name: "CH4", percentage: 1.5), // Methane gives blue color
                 ],
+                is_reference_pressure: true, // Gas giant: pressure at reference altitude, not surface
             )),
         ),
         

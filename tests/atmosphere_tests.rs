@@ -244,6 +244,7 @@ fn test_atmosphere_with_body_data() {
         ],
         5.97237e24, // Earth mass
         6371.0,     // Earth radius
+        false,      // Surface pressure
     );
     
     assert!(earth_atmosphere.can_support_atmosphere, "Earth should support atmosphere");
@@ -260,8 +261,52 @@ fn test_atmosphere_with_body_data() {
         ],
         6.4171e23, // Mars mass
         3389.5,    // Mars radius
+        false,     // Surface pressure, not reference
     );
     
     assert!(mars_atmosphere.can_support_atmosphere, "Mars should support atmosphere");
     assert!(!mars_atmosphere.breathable, "Mars atmosphere should not be breathable");
+    assert!(!mars_atmosphere.is_reference_pressure, "Mars has surface pressure");
+}
+
+#[test]
+fn test_gas_giant_reference_pressure() {
+    // Test Jupiter with reference pressure flag
+    let jupiter_atmosphere = AtmosphereComposition::new_with_body_data(
+        1000.0, // 1 bar reference level
+        -108.0,
+        vec![
+            AtmosphericGas::new("H2", 90.0),
+            AtmosphericGas::new("He", 10.0),
+        ],
+        1.8982e27, // Jupiter mass
+        69911.0,   // Jupiter radius
+        true,      // Reference pressure, not surface
+    );
+    
+    assert!(jupiter_atmosphere.can_support_atmosphere, "Jupiter should support atmosphere");
+    assert!(!jupiter_atmosphere.breathable, "Jupiter atmosphere should not be breathable");
+    assert!(jupiter_atmosphere.is_reference_pressure, "Jupiter uses reference pressure at 1 bar level");
+    assert_eq!(jupiter_atmosphere.surface_pressure_mbar, 1000.0);
+}
+
+#[test]
+fn test_terrestrial_surface_pressure() {
+    // Test Earth with surface pressure (not reference)
+    let earth_atmosphere = AtmosphereComposition::new_with_body_data(
+        1013.0,
+        15.0,
+        vec![
+            AtmosphericGas::new("N2", 78.0),
+            AtmosphericGas::new("O2", 21.0),
+            AtmosphericGas::new("Ar", 0.93),
+        ],
+        5.97237e24, // Earth mass
+        6371.0,     // Earth radius
+        false,      // Surface pressure, not reference
+    );
+    
+    assert!(earth_atmosphere.can_support_atmosphere, "Earth should support atmosphere");
+    assert!(earth_atmosphere.breathable, "Earth atmosphere should be breathable");
+    assert!(!earth_atmosphere.is_reference_pressure, "Earth has actual surface pressure");
 }
