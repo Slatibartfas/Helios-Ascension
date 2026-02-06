@@ -1,0 +1,160 @@
+// Example multi-system galaxy data format
+// This file demonstrates how multiple star systems would be defined
+// for the galaxy-scale simulation
+
+(
+    // Galaxy-wide configuration
+    name: "Milky Way (Local Bubble)",
+    description: "Local region of the Milky Way galaxy",
+    
+    // List of star systems
+    systems: [
+        // Sol - Our solar system
+        (
+            id: 0,
+            name: "Sol",
+            star_type: "G2V",
+            position: (0.0, 0.0, 0.0), // Reference point (light years)
+            data_file: "assets/data/solar_system.ron",
+            starting_system: true,
+        ),
+        
+        // Alpha Centauri System
+        (
+            id: 1,
+            name: "Alpha Centauri A",
+            star_type: "G2V",
+            position: (4.37, 0.0, 0.0), // 4.37 light years from Sol
+            data_file: "assets/data/alpha_centauri_a.ron",
+            starting_system: false,
+        ),
+        
+        (
+            id: 2,
+            name: "Alpha Centauri B",
+            star_type: "K1V",
+            position: (4.37, 0.01, 0.0), // Binary partner, very close
+            data_file: "assets/data/alpha_centauri_b.ron",
+            starting_system: false,
+        ),
+        
+        (
+            id: 3,
+            name: "Proxima Centauri",
+            star_type: "M5.5Ve",
+            position: (4.24, 0.0, 0.0), // Actually closest, part of Alpha Centauri system
+            data_file: "assets/data/proxima_centauri.ron",
+            starting_system: false,
+        ),
+        
+        // Barnard's Star
+        (
+            id: 4,
+            name: "Barnard's Star",
+            star_type: "M4V",
+            position: (5.96, 0.0, 0.0),
+            data_file: "assets/data/barnards_star.ron",
+            starting_system: false,
+        ),
+        
+        // Wolf 359
+        (
+            id: 5,
+            name: "Wolf 359",
+            star_type: "M6V",
+            position: (7.86, 0.0, 0.0),
+            data_file: "assets/data/wolf_359.ron",
+            starting_system: false,
+        ),
+        
+        // Lalande 21185
+        (
+            id: 6,
+            name: "Lalande 21185",
+            star_type: "M2V",
+            position: (8.29, 0.0, 0.0),
+            data_file: "assets/data/lalande_21185.ron",
+            starting_system: false,
+        ),
+        
+        // Sirius System
+        (
+            id: 7,
+            name: "Sirius A",
+            star_type: "A1V",
+            position: (8.60, 0.0, 0.0),
+            data_file: "assets/data/sirius_a.ron",
+            starting_system: false,
+        ),
+        
+        (
+            id: 8,
+            name: "Sirius B",
+            star_type: "DA2", // White dwarf
+            position: (8.60, 0.001, 0.0), // Binary partner
+            data_file: "assets/data/sirius_b.ron",
+            starting_system: false,
+        ),
+        
+        // Luyten 726-8 System
+        (
+            id: 9,
+            name: "Luyten 726-8 A",
+            star_type: "M5.5V",
+            position: (8.73, 0.0, 0.0),
+            data_file: "assets/data/luyten_726_8_a.ron",
+            starting_system: false,
+        ),
+        
+        (
+            id: 10,
+            name: "Luyten 726-8 B",
+            star_type: "M6V",
+            position: (8.73, 0.001, 0.0),
+            data_file: "assets/data/luyten_726_8_b.ron",
+            starting_system: false,
+        ),
+        
+        // Ross 154
+        (
+            id: 11,
+            name: "Ross 154",
+            star_type: "M3.5V",
+            position: (9.69, 0.0, 0.0),
+            data_file: "assets/data/ross_154.ron",
+            starting_system: false,
+        ),
+        
+        // Epsilon Eridani
+        (
+            id: 12,
+            name: "Epsilon Eridani",
+            star_type: "K2V",
+            position: (10.50, 0.0, 0.0),
+            data_file: "assets/data/epsilon_eridani.ron",
+            starting_system: false,
+        ),
+        
+        // Tau Ceti
+        (
+            id: 13,
+            name: "Tau Ceti",
+            star_type: "G8V",
+            position: (11.89, 0.0, 0.0),
+            data_file: "assets/data/tau_ceti.ron",
+            starting_system: false,
+        ),
+        
+        // Add more systems as needed...
+        // Procedurally generated systems could also be added dynamically
+    ],
+    
+    // Configuration for procedural generation (future)
+    procedural_config: Some((
+        enable: false, // Disabled for now, all systems hand-crafted
+        seed: 12345,
+        min_systems: 100,
+        max_systems: 1000,
+        generation_radius_ly: 100.0,
+    )),
+)
