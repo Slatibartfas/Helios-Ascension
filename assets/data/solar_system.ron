@@ -2665,25 +2665,6 @@
             rotation_period: 0.5,
         ),
         
-        // Erriapus
-        (
-            name: "Erriapus",
-            body_type: Moon,
-            mass: 760000000000000.0,
-            radius: 5.0,
-            color: (0.58, 0.58, 0.56),
-            emissive: (0.0, 0.0, 0.0),
-            parent: Some("Saturn"),
-            orbit: Some((
-                semi_major_axis: 0.116,
-                eccentricity: 0.47,
-                inclination: 34.7,
-                orbital_period: 871.2,
-                initial_angle: 270,
-            )),
-            rotation_period: 0.5,
-        ),
-        
         // Miranda
         (
             name: "Miranda",

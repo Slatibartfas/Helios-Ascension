@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, ShaderRef, RenderPipelineDescriptor, SpecializedMeshPipelineError};
+use bevy::render::render_resource::{AsBindGroup, ShaderRef, RenderPipelineDescriptor, SpecializedMeshPipelineError, Face};
 use bevy::render::mesh::MeshVertexBufferLayoutRef;
 use bevy::render::view::RenderLayers;
 
@@ -47,7 +47,7 @@ impl Material for SkyboxMaterial {
         AlphaMode::Opaque
     }
     
-    // Override specialize to disable depth write so backdrop doesn't interfere with gameplay entities
+    // Override specialize to disable depth write and enable back-face rendering
     fn specialize(
         _pipeline: &bevy::pbr::MaterialPipeline<Self>,
         descriptor: &mut RenderPipelineDescriptor,
@@ -58,6 +58,10 @@ impl Material for SkyboxMaterial {
         if let Some(depth_stencil) = &mut descriptor.depth_stencil {
             depth_stencil.depth_write_enabled = false;
         }
+        
+        // Cull front faces instead of back faces so we can see the inside of the sphere
+        descriptor.primitive.cull_mode = Some(Face::Front);
+        
         Ok(())
     }
 }
