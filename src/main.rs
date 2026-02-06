@@ -5,6 +5,7 @@ use bevy_inspector_egui::quick::WorldInspectorPlugin;
 pub mod astronomy;
 pub mod economy;
 pub mod plugins;
+pub mod render;
 pub mod ui;
 
 use astronomy::AstronomyPlugin;
@@ -14,6 +15,7 @@ use plugins::{
     solar_system::SolarSystemPlugin,
     visual_effects::VisualEffectsPlugin,
 };
+use render::backdrop::BackdropPlugin;
 use ui::UIPlugin;
 
 fn main() {
@@ -32,6 +34,7 @@ fn main() {
         // Game plugins - Order matters for dependencies
         .add_plugins(AstronomyPlugin)
         .add_plugins(CameraPlugin)
+        .add_plugins(BackdropPlugin)
         .add_plugins(VisualEffectsPlugin)
         .add_plugins(SolarSystemPlugin)
         .add_plugins(EconomyPlugin)
