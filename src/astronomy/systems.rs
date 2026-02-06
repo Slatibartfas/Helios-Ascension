@@ -42,7 +42,6 @@ const MIN_TRANSLATION_CHANGE_THRESHOLD: f32 = 1e-6;
 
 /// LOD (Level of Detail) reference distance for orbit trails (in Bevy units)
 /// Orbits at this distance get intermediate detail scaling
-/// Must be > LOD_MIN_DISTANCE to avoid division by zero
 const LOD_REFERENCE_DISTANCE: f32 = 3000.0;
 
 /// LOD minimum distance for orbit trails (in Bevy units)
@@ -56,8 +55,9 @@ const LOD_MIN_FACTOR: f32 = 0.25;
 /// Minimum segment count for orbit trails
 /// Even with maximum LOD reduction, orbits have at least this many segments
 /// Note: For a 128-segment orbit with LOD_MIN_FACTOR (0.25), this ensures
-/// we never go below 16 segments even if the calculation would produce fewer
-const MIN_ORBIT_SEGMENTS: u32 = 16;
+/// we never go below 8 segments even if the calculation would produce fewer
+/// Reduced from 16 to 8 for better performance at high time scales
+const MIN_ORBIT_SEGMENTS: u32 = 8;
 
 /// Solves Kepler's equation: M = E - e*sin(E) for eccentric anomaly E
 /// Uses Newton-Raphson iteration for high accuracy
@@ -178,10 +178,30 @@ fn orbital_radius(semi_major_axis: f64, eccentricity: f64, true_anomaly: f64) ->
 /// System that propagates all orbits based on Keplerian mechanics
 /// Updates SpaceCoordinates based on KeplerOrbit elements and elapsed time
 /// Uses virtual time to allow time scaling via UI controls
+/// Implements adaptive update frequency for performance at high time scales
 pub fn propagate_orbits(
     time: Res<Time<Virtual>>,
+    time_scale: Res<crate::ui::TimeScale>,
     mut query: Query<(&KeplerOrbit, &mut SpaceCoordinates)>,
+    mut frame_counter: Local<u32>,
 ) {
+    // Adaptive update frequency based on time scale
+    // At high time scales, we don't need every-frame updates
+    let update_interval = if time_scale.scale < 1000.0 {
+        1 // Update every frame for smooth animation at low speeds
+    } else if time_scale.scale < 100000.0 {
+        3 // Update every 3 frames for medium-high speeds
+    } else if time_scale.scale < 1000000.0 {
+        5 // Update every 5 frames for high speeds
+    } else {
+        10 // Update every 10 frames for extreme speeds
+    };
+    
+    *frame_counter += 1;
+    if *frame_counter % update_interval != 0 {
+        return; // Skip this frame
+    }
+    
     // Get elapsed time in seconds since game start
     let elapsed_time = time.elapsed_seconds_f64();
 
@@ -224,13 +244,31 @@ pub fn update_render_transform(
 /// The trail is brightest at the body's current position and fades out
 /// behind it, creating a comet-tail effect along the orbit.
 /// Uses LOD (Level of Detail) to reduce segment count for distant/less important orbits.
+/// Implements adaptive update frequency for performance at high time scales.
 pub fn draw_orbit_paths(
     mut gizmos: Gizmos,
     time: Res<Time<Virtual>>,
+    time_scale: Res<crate::ui::TimeScale>,
     camera_query: Query<&Transform, With<GameCamera>>,
     query: Query<(&KeplerOrbit, &OrbitPath, Option<&Parent>, Option<&Selected>)>,
     parent_query: Query<&GlobalTransform>,
+    mut frame_counter: Local<u32>,
 ) {
+    // Adaptive rendering frequency based on time scale
+    // At very high time scales, skip some frames to improve performance
+    let render_interval = if time_scale.scale < 100000.0 {
+        1 // Render every frame for smooth trails at normal/medium speeds
+    } else if time_scale.scale < 1000000.0 {
+        2 // Render every 2 frames at high speeds
+    } else {
+        3 // Render every 3 frames at extreme speeds
+    };
+    
+    *frame_counter += 1;
+    if *frame_counter % render_interval != 0 {
+        return; // Skip this frame
+    }
+    
     let elapsed_time = time.elapsed_seconds_f64();
     
     // Get camera position for LOD calculations

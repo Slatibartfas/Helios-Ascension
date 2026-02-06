@@ -710,7 +710,7 @@ pub fn setup_solar_system(
             commands.entity(*entity).insert(OrbitPath {
                 color: orbit_color,
                 visible: should_show,
-                segments: 128, // High segment count for smooth fading trails
+                segments: 64, // Reduced from 128 for better performance
             });
         }
     }
