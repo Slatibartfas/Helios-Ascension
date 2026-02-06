@@ -224,8 +224,8 @@ pub struct AtmosphereComposition {
     pub breathable: bool,
     
     /// Whether this body can physically support an atmosphere based on escape velocity
-    /// Calculated from mass and radius: bodies with escape velocity > 5 km/s can typically
-    /// retain atmospheres over geological timescales
+    /// Calculated from mass and radius: bodies with escape velocity ≥ 2.0 km/s can retain
+    /// heavy gases; bodies with ≥ 5 km/s can retain most atmospheric gases over geological timescales
     pub can_support_atmosphere: bool,
 }
 
@@ -241,9 +241,9 @@ impl AtmosphereComposition {
     }
     
     /// Determine if a body can support an atmosphere based on escape velocity
-    /// Bodies with escape velocity > 5 km/s can typically retain atmospheres
-    /// Bodies with 2-5 km/s can retain heavy gases but lose lighter ones
-    /// Bodies with < 2 km/s (like the Moon) cannot retain atmospheres
+    /// Bodies with escape velocity ≥ 5 km/s can retain most gases including light gases
+    /// Bodies with 2-5 km/s can retain heavy gases but lose lighter ones (H₂, He) over time
+    /// Bodies with < 2 km/s cannot retain significant atmospheres over geological timescales
     pub fn can_retain_atmosphere(mass_kg: f64, radius_km: f32) -> bool {
         let escape_velocity = Self::calculate_escape_velocity(mass_kg, radius_km);
         escape_velocity >= 2.0 // Threshold for retaining at least heavy gases
