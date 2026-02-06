@@ -32,7 +32,12 @@ const KEPLER_TOLERANCE: f64 = 1e-10;
 
 /// Minimum translation change threshold (in Bevy units squared)
 /// Transform updates skip when squared distance change is below this threshold
-/// Prevents unnecessary updates when changes are below f32 precision (~0.001 units)
+/// Prevents unnecessary updates when changes are below f32 precision
+/// Linear distance threshold: sqrt(1e-6) ≈ 0.001 Bevy units
+/// Note: This threshold is safe even for slow-moving bodies because:
+/// - At 1000x time acceleration, even distant asteroids move > 0.001 units/frame
+/// - At normal speed, bodies with imperceptible motion don't need visual updates
+/// - Orbital calculations still run at full precision (f64) regardless of this threshold
 const MIN_TRANSLATION_CHANGE_THRESHOLD: f32 = 1e-6;
 
 /// LOD (Level of Detail) reference distance for orbit trails (in Bevy units)
@@ -250,9 +255,18 @@ pub fn draw_orbit_paths(
         let segments = if selected.is_some() {
             path.segments // Full detail for selected
         } else {
-            // Scale segments based on distance
-            // Close orbits: full detail, distant orbits: reduced detail
-            let lod_factor = (LOD_REFERENCE_DISTANCE / distance_to_camera.max(LOD_MIN_DISTANCE)).clamp(LOD_MIN_FACTOR, 1.0);
+            // Scale segments based on distance using smooth interpolation
+            // This provides gradual detail reduction rather than sharp transitions
+            let lod_factor = if distance_to_camera < LOD_MIN_DISTANCE {
+                1.0 // Full detail when close
+            } else if distance_to_camera > LOD_REFERENCE_DISTANCE {
+                LOD_MIN_FACTOR // Minimum detail when far
+            } else {
+                // Smooth interpolation between min and reference distance
+                // Lerp from 1.0 (at LOD_MIN_DISTANCE) to LOD_MIN_FACTOR (at LOD_REFERENCE_DISTANCE)
+                let t = (distance_to_camera - LOD_MIN_DISTANCE) / (LOD_REFERENCE_DISTANCE - LOD_MIN_DISTANCE);
+                1.0 - t * (1.0 - LOD_MIN_FACTOR)
+            };
             ((path.segments as f32 * lod_factor) as u32).max(MIN_ORBIT_SEGMENTS)
         };
 

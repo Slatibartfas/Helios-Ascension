@@ -65,8 +65,11 @@
 
 ### 2. Transform Update Optimization
 **Implementation**: Only updates Transform when change exceeds threshold
-- Checks if new translation differs from current by > 1e-6
+- Checks if new translation differs from current by > sqrt(1e-6) ≈ 0.001 Bevy units (using squared distance for efficiency)
 - Prevents unnecessary updates when orbital changes are below f32 precision
+- Safe for slow-moving bodies: at 1000x time acceleration, even distant asteroids move > 0.001 units/frame
+- At normal speed, imperceptibly slow movement doesn't need visual updates
+- Orbital calculations still run at full f64 precision regardless of this rendering threshold
 - Reduces downstream transform propagation in Bevy's hierarchy
 
 ### 3. Change Detection Usage
