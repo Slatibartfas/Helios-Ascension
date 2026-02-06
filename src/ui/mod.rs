@@ -18,7 +18,8 @@ use crate::astronomy::{AtmosphereComposition, Hovered, KeplerOrbit, Selected, Sp
 use crate::economy::{format_power, GlobalBudget, PlanetResources, ResourceType};
 use crate::plugins::solar_system::{CelestialBody, LogicalParent};
 use crate::plugins::solar_system_data::BodyType;
-use crate::plugins::camera::{CameraAnchor, GameCamera};
+use crate::plugins::camera::{CameraAnchor, GameCamera, ViewMode};
+use crate::plugins::starmap::{SelectedStarSystem, StarSystemIcon};
 
 /// Maximum time scale: 1 year per second (365.25 * 86400 ≈ 31,557,600)
 const MAX_TIME_SCALE: f32 = 31_557_600.0;
@@ -75,17 +76,96 @@ impl Default for TimeScale {
 pub struct SimulationTime {
     /// Total elapsed simulation time in seconds (f64 for precision)
     pub elapsed: f64,
+    /// Starting date as Unix timestamp (January 1, 2026 00:00:00 UTC)
+    start_timestamp: i64,
 }
 
 impl SimulationTime {
+    /// January 1, 2026 00:00:00 UTC as Unix timestamp
+    const START_TIMESTAMP: i64 = 1_767_225_600; // Jan 1, 2026 00:00:00 UTC
+    
     pub fn new() -> Self {
-        Self { elapsed: 0.0 }
+        Self { 
+            elapsed: 0.0,
+            start_timestamp: Self::START_TIMESTAMP,
+        }
+    }
+    
+    /// Create a SimulationTime with a custom start date
+    /// 
+    /// For custom game start dates, use this constructor along with
+    /// `crate::astronomy::calculate_positions_at_timestamp()` to compute
+    /// initial orbital positions for all celestial bodies.
+    pub fn with_start_timestamp(start_timestamp: i64) -> Self {
+        Self {
+            elapsed: 0.0,
+            start_timestamp,
+        }
     }
 
     /// Total elapsed simulation seconds
     pub fn elapsed_seconds(&self) -> f64 {
         self.elapsed
     }
+    
+    /// Get the current simulation date as Unix timestamp
+    pub fn current_timestamp(&self) -> i64 {
+        self.start_timestamp + self.elapsed as i64
+    }
+    
+    /// Format the current date/time as DD.MM.YYYY HH:MM
+    pub fn format_date_time(&self) -> String {
+        let timestamp = self.current_timestamp();
+        
+        // Convert Unix timestamp to date components
+        let total_days = timestamp / 86400;
+        let time_of_day = timestamp % 86400;
+        
+        let hours = (time_of_day / 3600) % 24;
+        let minutes = (time_of_day % 3600) / 60;
+        
+        // Simplified date calculation starting from Unix epoch (1970-01-01)
+        // This is a simplified calculation for display purposes
+        let mut days_remaining = total_days;
+        let mut year = 1970;
+        
+        loop {
+            let days_in_year = if is_leap_year(year) { 366 } else { 365 };
+            if days_remaining >= days_in_year {
+                days_remaining -= days_in_year;
+                year += 1;
+            } else {
+                break;
+            }
+        }
+        
+        let mut month = 1;
+        let days_in_months = get_days_in_months(year);
+        
+        for &days_in_month in &days_in_months {
+            if days_remaining >= days_in_month {
+                days_remaining -= days_in_month;
+                month += 1;
+            } else {
+                break;
+            }
+        }
+        
+        let day = days_remaining + 1; // Days are 1-indexed
+        
+        format!("{:02}.{:02}.{} {:02}:{:02}", day, month, year, hours, minutes)
+    }
+}
+
+/// Check if a year is a leap year
+fn is_leap_year(year: i64) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+}
+
+/// Get the number of days in each month for a given year
+fn get_days_in_months(year: i64) -> [i64; 12] {
+    let feb_days = if is_leap_year(year) { 29 } else { 28 };
+    [31, feb_days, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 }
 
 impl Default for SimulationTime {
@@ -124,7 +204,7 @@ pub struct UIPlugin;
 impl Plugin for UIPlugin {
     fn build(&self, app: &mut App) {
         app
-            // Note: EguiPlugin is already added by WorldInspectorPlugin in main.rs
+            // Egui plugin is added in `main.rs` (explicit bevy_egui integration)
             // Resources
             .init_resource::<Selection>()
             .init_resource::<TimeScale>()
@@ -133,6 +213,7 @@ impl Plugin for UIPlugin {
             .add_systems(Update, (
                 ui_dashboard,
                 ui_hover_tooltip,
+                ui_starmap_labels,
                 sync_selection_with_astronomy,
                 advance_simulation_time,
             ));
@@ -166,6 +247,47 @@ fn advance_simulation_time(
 ) {
     let real_delta = real_time.delta_seconds_f64();
     sim_time.elapsed += real_delta * time_scale.scale as f64;
+}
+
+/// Render floating labels next to star system icons in starmap view
+fn ui_starmap_labels(
+    mut contexts: EguiContexts,
+    view_mode: Res<ViewMode>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<GameCamera>>,
+    icon_query: Query<(&GlobalTransform, &StarSystemIcon, Option<&SelectedStarSystem>)>,
+) {
+    if *view_mode != ViewMode::Starmap {
+        return;
+    }
+
+    let Ok((camera, camera_transform)) = camera_query.get_single() else {
+        return;
+    };
+
+    let ctx = contexts.ctx_mut();
+
+    for (icon_transform, icon, is_selected) in icon_query.iter() {
+        let icon_pos = icon_transform.translation();
+        
+        // Project 3D position to screen space
+        if let Some(screen_pos) = camera.world_to_viewport(camera_transform, icon_pos) {
+            // Offset label to the right of the icon
+            let label_pos = egui::pos2(screen_pos.x + 30.0, screen_pos.y - 10.0);
+            
+            egui::Area::new(egui::Id::new(format!("starmap_label_{}", icon.name)))
+                .fixed_pos(label_pos)
+                .interactable(false)
+                .show(ctx, |ui| {
+                    let color = if is_selected.is_some() {
+                        egui::Color32::from_rgb(100, 200, 255) // Bright blue for selected
+                    } else {
+                        egui::Color32::from_rgb(200, 200, 200) // Light gray for others
+                    };
+                    
+                    ui.colored_label(color, &icon.name);
+                });
+        }
+    }
 }
 
 /// Helper function to render a selectable label with highlighting for selected items
@@ -343,25 +465,39 @@ fn ui_hover_tooltip(
 
     // Display hover tooltip if a body is hovered
     if let Ok(body) = hovered_query.get_single() {
+        // Anchor the tooltip near the mouse pointer so it appears over the 3D view
+        let tooltip_pos = ctx.input(|i| i.pointer.hover_pos())
+            .map(|p| egui::pos2(p.x + 12.0, p.y + 12.0))
+            .unwrap_or(egui::pos2(100.0, 100.0));
+
         egui::Area::new("hover_tooltip".into())
-            .fixed_pos(egui::pos2(10.0, 60.0))
+            .fixed_pos(tooltip_pos)
+            .interactable(false)
+            .order(egui::Order::Tooltip)
             .show(ctx, |ui| {
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                 egui::Frame::none()
                     .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 30, 240))
                     .stroke(egui::Stroke::new(2.0, egui::Color32::from_rgb(100, 180, 255)))
                     .inner_margin(12.0)
                     .show(ui, |ui| {
-                        ui.label(
-                            egui::RichText::new(&body.name)
-                                .size(16.0)
-                                .color(egui::Color32::from_rgb(150, 220, 255))
-                                .strong()
-                        );
-                        ui.label(
-                            egui::RichText::new(format!("Type: {:?}", body.body_type))
-                                .size(12.0)
-                                .color(egui::Color32::from_rgb(180, 180, 180))
-                        );
+                        // Use horizontal layout to prevent narrow wrapping
+                        ui.horizontal(|ui| {
+                             ui.label(
+                                egui::RichText::new(&body.name)
+                                    .size(16.0)
+                                    .color(egui::Color32::from_rgb(150, 220, 255))
+                                    .strong()
+                            );
+                        });
+                        
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new(format!("Type: {:?}", body.body_type))
+                                    .size(12.0)
+                                    .color(egui::Color32::from_rgb(180, 180, 180))
+                            );
+                        });
                     });
             });
     }
@@ -374,12 +510,16 @@ fn ui_dashboard(
     mut contexts: EguiContexts,
     budget: Res<GlobalBudget>,
     mut time_scale: ResMut<TimeScale>,
+    sim_time: Res<SimulationTime>,
     mut selection: ResMut<Selection>,
+    view_mode: Res<ViewMode>,
     // Query for selected body information
     body_query: Query<(&CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>, Option<&PlanetResources>, Option<&AtmosphereComposition>)>,
     // Ledger queries
-    all_bodies_query: Query<(Entity, &CelestialBody, Option<&LogicalParent>)>,
+    all_bodies_query: Query<(Entity, &CelestialBody, Option<&LogicalParent>, Option<&KeplerOrbit>)>,
     selected_query: Query<Entity, With<Selected>>,
+    // Starmap queries
+    star_system_query: Query<(Entity, &StarSystemIcon, Option<&SelectedStarSystem>)>,
     mut anchor_query: Query<&mut CameraAnchor, With<GameCamera>>,
 ) {
     let ctx = match contexts.try_ctx_mut() {
@@ -391,35 +531,85 @@ fn ui_dashboard(
     egui::SidePanel::left("ledger_panel")
         .min_width(200.0)
         .show(ctx, |ui| {
-            ui.heading("Celestial Objects");
-            ui.separator();
-            
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                let mut hierarchy: std::collections::HashMap<Entity, Vec<Entity>> = std::collections::HashMap::new();
-                let mut roots: Vec<Entity> = Vec::new();
-                let mut body_map: std::collections::HashMap<Entity, &CelestialBody> = std::collections::HashMap::new();
-
-                for (entity, body, logical_parent) in all_bodies_query.iter() {
-                    body_map.insert(entity, body);
-                    if let Some(logical_parent) = logical_parent {
-                        hierarchy.entry(logical_parent.0).or_default().push(entity);
-                    } else {
-                        roots.push(entity);
-                    }
+            match *view_mode {
+                ViewMode::Starmap => {
+                    // Starmap view: show list of star systems
+                    ui.heading("Star Systems");
+                    ui.separator();
+                    
+                    egui::ScrollArea::vertical().id_source("starmap_ledger_scroll").show(ui, |ui| {
+                        for (entity, icon, is_selected) in star_system_query.iter() {
+                            let response = render_selectable_label(ui, is_selected.is_some(), &icon.name);
+                            
+                            if response.double_clicked() {
+                                // Anchor camera to this system
+                                if let Ok(mut anchor) = anchor_query.get_single_mut() {
+                                    anchor.0 = Some(entity);
+                                    info!("Anchored to {}", icon.name);
+                                }
+                            }
+                        }
+                    });
                 }
-                
-                 roots.sort_by(|a, b| {
-                     let name_a = &body_map.get(a).unwrap().name;
-                     let name_b = &body_map.get(b).unwrap().name;
-                     if name_a == "Sol" { return std::cmp::Ordering::Less; }
-                     if name_b == "Sol" { return std::cmp::Ordering::Greater; }
-                     name_a.cmp(name_b)
-                 });
+                ViewMode::System => {
+                    // System view: show celestial body hierarchy
+                    ui.heading("Celestial Objects");
+                    ui.separator();
+                    
+                    egui::ScrollArea::vertical().id_source("ledger_scroll").show(ui, |ui| {
+                        let mut hierarchy: std::collections::HashMap<Entity, Vec<Entity>> = std::collections::HashMap::new();
+                        let mut roots: Vec<Entity> = Vec::new();
+                        let mut body_map: std::collections::HashMap<Entity, &CelestialBody> = std::collections::HashMap::new();
+                        let mut orbit_map: std::collections::HashMap<Entity, f64> = std::collections::HashMap::new();
 
-                for root in roots {
-                    render_body_tree(ui, root, &body_map, &hierarchy, &mut selection, &mut commands, &selected_query, &mut anchor_query);
+                        for (entity, body, logical_parent, orbit) in all_bodies_query.iter() {
+                            body_map.insert(entity, body);
+                            if let Some(orbit) = orbit {
+                                orbit_map.insert(entity, orbit.semi_major_axis);
+                            }
+                            
+                            if let Some(logical_parent) = logical_parent {
+                                hierarchy.entry(logical_parent.0).or_default().push(entity);
+                            } else {
+                                roots.push(entity);
+                            }
+                        }
+                        
+                        // Helper closure to sort entities
+                        let sort_entities = |entities: &mut Vec<Entity>| {
+                            entities.sort_by(|a, b| {
+                                let name_a = &body_map.get(a).unwrap().name;
+                                let name_b = &body_map.get(b).unwrap().name;
+                                
+                                // Always keep Sol at the top
+                                if name_a == "Sol" { return std::cmp::Ordering::Less; }
+                                if name_b == "Sol" { return std::cmp::Ordering::Greater; }
+                                
+                                // Sort by orbit distance (semi-major axis)
+                                let dist_a = orbit_map.get(a).unwrap_or(&0.0);
+                                let dist_b = orbit_map.get(b).unwrap_or(&0.0);
+                                
+                                match dist_a.partial_cmp(dist_b) {
+                                    Some(std::cmp::Ordering::Equal) | None => name_a.cmp(name_b), // Fallback to name
+                                    Some(ord) => ord,
+                                }
+                            });
+                        };
+
+                        // Sort roots
+                        sort_entities(&mut roots);
+                        
+                        // Sort all children lists in the hierarchy
+                        for children in hierarchy.values_mut() {
+                            sort_entities(children);
+                        }
+
+                        for root in roots {
+                            render_body_tree(ui, root, &body_map, &hierarchy, &mut selection, &mut commands, &selected_query, &mut anchor_query);
+                        }
+                    });
                 }
-            });
+            }
         });
 
     // Top header panel with resource categories and power
@@ -708,6 +898,9 @@ fn ui_dashboard(
                 ui.separator();
 
                 // Preset speed buttons with meaningful labels
+                if ui.button("1 hr/s").clicked() {
+                    time_scale.scale = 3_600.0;
+                }
                 if ui.button("1 day/s").clicked() {
                     time_scale.scale = 86_400.0;
                 }
@@ -738,6 +931,15 @@ fn ui_dashboard(
                 if time_scale.is_paused() {
                     ui.colored_label(egui::Color32::RED, "⏸ PAUSED");
                 }
+                ui.separator();
+                ui.label(format!("Date: {}", sim_time.format_date_time()));
+                ui.separator();
+                // View mode indicator
+                let (view_label, view_color) = match *view_mode {
+                    ViewMode::System => ("🔭 System View", egui::Color32::from_rgb(120, 180, 255)),
+                    ViewMode::Starmap => ("🌌 Starmap View", egui::Color32::from_rgb(255, 200, 100)),
+                };
+                ui.colored_label(view_color, view_label);
             });
         });
 }

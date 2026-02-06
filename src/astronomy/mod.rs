@@ -11,18 +11,21 @@
 use bevy::prelude::*;
 
 pub mod components;
+pub mod ephemeris;
 pub mod systems;
 
 pub use components::{
-    AtmosphereComposition, AtmosphericGas, Hovered, KeplerOrbit, OrbitPath, Selected,
-    SpaceCoordinates,
+    AtmosphereComposition, AtmosphericGas, CometTail, Destroyed, FloatingOrigin, Hovered, KeplerOrbit,
+    LocalOrbitAmplification, OrbitPath, Selected, SpaceCoordinates,
 };
+pub use ephemeris::{calculate_position_for_body, calculate_positions_at_timestamp};
 pub use systems::{
-    animate_marker_dots, despawn_hover_markers, despawn_selection_markers, draw_orbit_paths,
-    handle_body_selection, handle_body_hover, orbit_position_from_mean_anomaly, propagate_orbits,
-    scale_markers_with_zoom, spawn_hover_markers, spawn_selection_markers,
-    update_orbit_visibility, update_render_transform,
-    zoom_camera_to_anchored_body, SCALING_FACTOR,
+    animate_marker_dots, check_natural_destruction, despawn_hover_markers,
+    despawn_selection_markers, draw_orbit_paths, fade_destroyed_bodies, handle_body_selection,
+    handle_body_hover, manage_comet_tail_meshes, orbit_position_from_mean_anomaly,
+    propagate_orbits, scale_markers_with_zoom, spawn_hover_markers, spawn_selection_markers,
+    update_body_lod_visibility, update_orbit_visibility, update_render_transform,
+    update_tail_transforms, zoom_camera_to_anchored_body, SCALING_FACTOR,
 };
 
 /// Plugin that adds astronomy systems to the Bevy app
@@ -36,6 +39,9 @@ impl Plugin for AstronomyPlugin {
                 // Core orbital mechanics
                 propagate_orbits,
                 update_render_transform.after(propagate_orbits),
+                // Destruction and lifecycle
+                check_natural_destruction.after(propagate_orbits),
+                fade_destroyed_bodies.after(check_natural_destruction),
                 // Selection and hover
                 handle_body_selection,
                 handle_body_hover,
@@ -48,10 +54,14 @@ impl Plugin for AstronomyPlugin {
                 scale_markers_with_zoom,
                 // Camera zoom
                 zoom_camera_to_anchored_body,
-                // Visibility
+                // Visibility / LOD
                 update_orbit_visibility,
+                update_body_lod_visibility,
                 // Rendering
                 draw_orbit_paths.after(update_orbit_visibility),
+                // Comet tail meshes
+                manage_comet_tail_meshes.after(propagate_orbits),
+                update_tail_transforms.after(manage_comet_tail_meshes),
             ),
         );
     }
