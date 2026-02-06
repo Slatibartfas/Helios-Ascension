@@ -22,7 +22,7 @@ use crate::plugins::camera::{CameraAnchor, GameCamera};
 /// Time scale resource for controlling simulation speed
 #[derive(Resource, Debug, Clone)]
 pub struct TimeScale {
-    /// Current time scale multiplier (0.0 = paused, 1.0 = normal, up to 1000.0)
+    /// Current time scale multiplier (0.0 = paused, 1.0 = normal, up to 50,000,000)
     pub scale: f32,
 }
 
@@ -641,29 +641,34 @@ fn ui_dashboard(
 
                 ui.separator();
 
-                // Preset speed buttons
-                if ui.button("0.1x").clicked() {
-                    time_scale.scale = 0.1;
+                // Preset speed buttons with realistic time scales
+                // Speed 1: 1 Earth rotation per 5 seconds (1 day in 5s)
+                if ui.button("⟳ 1d/5s").on_hover_text("1 Earth rotation per 5 seconds").clicked() {
+                    time_scale.scale = 17280.0;
                 }
-                if ui.button("1x").clicked() {
-                    time_scale.scale = 1.0;
+                // Speed 2: 1 week in 5 seconds
+                if ui.button("🗓 1w/5s").on_hover_text("1 week per 5 seconds").clicked() {
+                    time_scale.scale = 120960.0;
                 }
-                if ui.button("10x").clicked() {
-                    time_scale.scale = 10.0;
+                // Speed 3: 1 week in 1 second
+                if ui.button("🗓 1w/1s").on_hover_text("1 week per second").clicked() {
+                    time_scale.scale = 604800.0;
                 }
-                if ui.button("100x").clicked() {
-                    time_scale.scale = 100.0;
+                // Speed 4: 1 year in 30 seconds
+                if ui.button("🌍 1y/30s").on_hover_text("1 year per 30 seconds").clicked() {
+                    time_scale.scale = 1051938.0;
                 }
-                if ui.button("1000x").clicked() {
-                    time_scale.scale = 1000.0;
+                // Speed 5: 1 orbit in 1 second (very fast)
+                if ui.button("🚀 1y/1s").on_hover_text("1 orbit per second (very fast)").clicked() {
+                    time_scale.scale = 31558150.0;
                 }
 
                 ui.separator();
 
-                // Slider for fine control
+                // Slider for fine control with extended range
                 ui.label("Time Scale:");
                 ui.add(
-                    egui::Slider::new(&mut time_scale.scale, 0.0..=1000.0)
+                    egui::Slider::new(&mut time_scale.scale, 0.0..=50000000.0)
                         .logarithmic(true)
                         .text("x")
                 );

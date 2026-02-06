@@ -9,6 +9,7 @@ use std::collections::hash_map::DefaultHasher;
 use super::solar_system_data::{AsteroidClass, BodyType, SolarSystemData};
 use crate::astronomy::{
     orbit_position_from_mean_anomaly, KeplerOrbit, OrbitPath, SpaceCoordinates, SCALING_FACTOR,
+    StarSystem, SystemMember, ActiveSystem, GalacticCoordinates, SystemSimulationState,
 };
 use crate::plugins::camera::{CameraAnchor, GameCamera};
 
@@ -295,6 +296,23 @@ pub fn setup_solar_system(
 
     info!("Loaded {} celestial bodies", data.bodies.len());
 
+    // Create the StarSystem entity for Sol
+    let star_system_entity = commands.spawn((
+        StarSystem {
+            id: 0,
+            name: "Sol".to_string(),
+            galactic_position: bevy::math::DVec3::ZERO,  // Sol is at galactic origin
+            simulation_state: SystemSimulationState::Active,
+            bounding_radius_au: 50.0,  // Approximate size of outer solar system
+            body_count: data.bodies.len(),
+            star_type: "G2V".to_string(),
+        },
+        ActiveSystem,
+        GalacticCoordinates::new(0.0, 0.0, 0.0),
+    )).id();
+
+    info!("Created StarSystem entity for Sol (id: {:?})", star_system_entity);
+
     // Map to track entities by name for parent-child relationships
     let mut entity_map: HashMap<String, Entity> = HashMap::new();
 
@@ -454,6 +472,7 @@ pub fn setup_solar_system(
                 asteroid_class: body_data.asteroid_class,
             },
             RotationSpeed(rotation_speed),
+            SystemMember::new(star_system_entity),  // Link to parent star system
         ));
 
         // Add type-specific component
