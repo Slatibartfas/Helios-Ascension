@@ -51,6 +51,8 @@ pub struct CelestialBody {
     pub mass: f64,
     pub body_type: BodyType,
     pub visual_radius: f32,
+    /// Asteroid spectral class (if applicable)
+    pub asteroid_class: Option<AsteroidClass>,
 }
 
 /// Logical parent for UI hierarchy, separate from spatial transform parenting
@@ -374,6 +376,7 @@ pub fn setup_solar_system(
                 mass: body_data.mass,
                 body_type: body_data.body_type,
                 visual_radius,
+                asteroid_class: body_data.asteroid_class,
             },
             RotationSpeed(rotation_speed),
         ));

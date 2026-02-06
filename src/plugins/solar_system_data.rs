@@ -13,14 +13,27 @@ pub enum BodyType {
 }
 
 /// Spectral/compositional class for asteroids
+/// Based on scientific taxonomy from JPL, Asterank, and asteroid surveys
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum AsteroidClass {
     /// Carbonaceous (dark, carbon-rich) - ~75% of asteroids
+    /// High volatiles: Water, Hydrogen, Ammonia, Methane
     CType,
     /// Silicaceous (stony) - ~17% of asteroids
+    /// High silicates: Iron, Aluminum, Silicates, Magnesium
     SType,
     /// Metallic (metal-rich) - ~8% of asteroids
+    /// High metals: Nickel-Iron, Copper, Noble Metals, Rare Earths
     MType,
+    /// Vestoid (basaltic) - Rare, from Vesta family
+    /// High titanium and silicates from differentiated crust
+    VType,
+    /// Dark/Primitive - Outer belt, very carbon-rich
+    /// Extremely high volatiles and organics
+    DType,
+    /// Primitive - Similar to D-type, outer belt
+    /// Very high volatiles, low metal content
+    PType,
     /// Unknown/other types
     Unknown,
 }

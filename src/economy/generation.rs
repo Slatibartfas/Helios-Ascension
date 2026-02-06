@@ -60,6 +60,7 @@ pub fn generate_solar_system_resources(
         let resources = generate_resources_for_body(
             &body.name, 
             body.body_type,
+            body.asteroid_class,
             distance_from_star, 
             frost_line, 
             &mut rng
@@ -71,17 +72,20 @@ pub fn generate_solar_system_resources(
 }
 
 /// Generate resources for a celestial body based on its distance from parent star
-/// Implements the frost line rule, realistic accretion chemistry, and body-specific profiles
+/// Implements the frost line rule, realistic accretion chemistry, body-specific profiles,
+/// and scientific spectral class mapping for asteroids
 /// 
 /// # Arguments
 /// * `body_name` - Name of the celestial body (for special cases like Europa, Mars)
 /// * `body_type` - Type of the body (Planet, Moon, Asteroid, etc.)
+/// * `asteroid_class` - Spectral class for asteroids (C, S, M, V, D, P types)
 /// * `distance_au` - Distance from parent star in AU
 /// * `frost_line_au` - Frost line distance for the parent star in AU
 /// * `rng` - Random number generator for variability
 fn generate_resources_for_body(
     body_name: &str,
     body_type: crate::plugins::solar_system_data::BodyType,
+    asteroid_class: Option<AsteroidClass>,
     distance_au: f64, 
     frost_line_au: f64, 
     rng: &mut impl Rng
@@ -91,6 +95,15 @@ fn generate_resources_for_body(
     // Check for special body-specific resource profiles
     if let Some(special_resources) = apply_special_body_profile(body_name, rng) {
         return special_resources;
+    }
+
+    // For asteroids with known spectral class, apply scientific resource mapping
+    if matches!(body_type, crate::plugins::solar_system_data::BodyType::Asteroid) {
+        if let Some(class) = asteroid_class {
+            if let Some(spectral_resources) = apply_spectral_class_profile(class, body_name, distance_au, frost_line_au, rng) {
+                return spectral_resources;
+            }
+        }
     }
 
     // Determine if we're inside or outside the frost line
@@ -216,6 +229,158 @@ fn apply_special_body_profile(body_name: &str, rng: &mut impl Rng) -> Option<Pla
         
         _ => None, // Normal generation for other bodies
     }
+}
+
+/// Apply scientifically-based resource profiles based on asteroid spectral class
+/// Based on data from NASA, JPL, Asterank, and asteroid taxonomy research
+/// 
+/// # Arguments
+/// * `class` - The spectral class of the asteroid
+/// * `body_name` - Name of the asteroid (for logging)
+/// * `distance_au` - Distance from star (affects volatiles retention)
+/// * `frost_line_au` - Frost line distance
+/// * `rng` - Random number generator for variation
+/// 
+/// References:
+/// - JPL Small-Body Database: https://ssd.jpl.nasa.gov/sbdb.cgi
+/// - Asterank Economic Database: http://www.asterank.com/
+/// - DeMeo et al. (2009) - Asteroid taxonomy
+fn apply_spectral_class_profile(
+    class: AsteroidClass,
+    body_name: &str,
+    distance_au: f64,
+    frost_line_au: f64,
+    rng: &mut impl Rng
+) -> Option<PlanetResources> {
+    let mut resources = PlanetResources::new();
+    let is_beyond_frost_line = distance_au > frost_line_au;
+    
+    match class {
+        // C-Type: Carbonaceous - High volatiles
+        // ~75% of asteroids, carbon-rich, dark surface
+        // Scientific basis: Contain water ice, organics, carbonates
+        AsteroidClass::CType => {
+            // Volatiles are primary composition
+            let water_abundance = if is_beyond_frost_line {
+                rng.gen_range(0.25..0.45) // High water content beyond frost line
+            } else {
+                rng.gen_range(0.10..0.25) // Moderate even in inner system
+            };
+            resources.add_deposit(ResourceType::Water, MineralDeposit::new(water_abundance, rng.gen_range(0.6..0.85)));
+            resources.add_deposit(ResourceType::Hydrogen, MineralDeposit::new(rng.gen_range(0.08..0.15), rng.gen_range(0.5..0.75)));
+            resources.add_deposit(ResourceType::Ammonia, MineralDeposit::new(rng.gen_range(0.05..0.12), rng.gen_range(0.5..0.75)));
+            resources.add_deposit(ResourceType::Methane, MineralDeposit::new(rng.gen_range(0.03..0.08), rng.gen_range(0.4..0.7)));
+            resources.add_deposit(ResourceType::CarbonDioxide, MineralDeposit::new(rng.gen_range(0.04..0.10), rng.gen_range(0.5..0.75)));
+            
+            // Low metals but present
+            resources.add_deposit(ResourceType::Iron, MineralDeposit::new(rng.gen_range(0.05..0.15), rng.gen_range(0.4..0.65)));
+            resources.add_deposit(ResourceType::Silicates, MineralDeposit::new(rng.gen_range(0.15..0.25), rng.gen_range(0.5..0.7)));
+            
+            info!("Applied C-Type spectral profile to {}: High volatiles", body_name);
+        }
+        
+        // S-Type: Silicaceous - Stony, high silicates and metals
+        // ~17% of asteroids, stony composition
+        // Scientific basis: Olivine, pyroxene, iron-nickel metal
+        AsteroidClass::SType => {
+            // Silicates dominant
+            resources.add_deposit(ResourceType::Silicates, MineralDeposit::new(rng.gen_range(0.35..0.50), rng.gen_range(0.7..0.9)));
+            resources.add_deposit(ResourceType::Iron, MineralDeposit::new(rng.gen_range(0.20..0.35), rng.gen_range(0.7..0.9)));
+            resources.add_deposit(ResourceType::Aluminum, MineralDeposit::new(rng.gen_range(0.08..0.15), rng.gen_range(0.6..0.85)));
+            
+            // Some metals
+            resources.add_deposit(ResourceType::Copper, MineralDeposit::new(rng.gen_range(0.0002..0.0008), rng.gen_range(0.5..0.75)));
+            resources.add_deposit(ResourceType::RareEarths, MineralDeposit::new(rng.gen_range(0.0001..0.0004), rng.gen_range(0.4..0.7)));
+            
+            // Low volatiles
+            if is_beyond_frost_line {
+                resources.add_deposit(ResourceType::Water, MineralDeposit::new(rng.gen_range(0.02..0.08), rng.gen_range(0.3..0.6)));
+            }
+            
+            info!("Applied S-Type spectral profile to {}: High silicates and iron", body_name);
+        }
+        
+        // M-Type: Metallic - Almost pure metal, nickel-iron
+        // ~8% of asteroids, exposed planetary cores
+        // Scientific basis: Differentiated bodies, metal-rich cores
+        AsteroidClass::MType => {
+            // Dominated by iron and nickel
+            resources.add_deposit(ResourceType::Iron, MineralDeposit::new(rng.gen_range(0.70..0.85), rng.gen_range(0.85..0.98)));
+            
+            // High precious metals (10-20x normal)
+            resources.add_deposit(ResourceType::Platinum, MineralDeposit::new(rng.gen_range(0.00001..0.0001), rng.gen_range(0.7..0.9)));
+            resources.add_deposit(ResourceType::Gold, MineralDeposit::new(rng.gen_range(0.000005..0.00005), rng.gen_range(0.7..0.9)));
+            resources.add_deposit(ResourceType::Silver, MineralDeposit::new(rng.gen_range(0.00001..0.00008), rng.gen_range(0.7..0.9)));
+            
+            // Some copper and rare earths
+            resources.add_deposit(ResourceType::Copper, MineralDeposit::new(rng.gen_range(0.001..0.005), rng.gen_range(0.7..0.9)));
+            resources.add_deposit(ResourceType::RareEarths, MineralDeposit::new(rng.gen_range(0.0002..0.001), rng.gen_range(0.6..0.85)));
+            
+            // Minimal silicates and volatiles
+            resources.add_deposit(ResourceType::Silicates, MineralDeposit::new(rng.gen_range(0.02..0.08), rng.gen_range(0.3..0.6)));
+            
+            info!("Applied M-Type spectral profile to {}: Metallic, high iron and precious metals", body_name);
+        }
+        
+        // V-Type: Vestoid - Basaltic, from differentiated bodies
+        // Rare, fragments of Vesta's crust
+        // Scientific basis: Basaltic composition, high titanium
+        AsteroidClass::VType => {
+            // Basaltic composition - high silicates and titanium
+            resources.add_deposit(ResourceType::Silicates, MineralDeposit::new(rng.gen_range(0.40..0.55), rng.gen_range(0.75..0.92)));
+            resources.add_deposit(ResourceType::Titanium, MineralDeposit::new(rng.gen_range(0.02..0.05), rng.gen_range(0.7..0.9)));
+            resources.add_deposit(ResourceType::Iron, MineralDeposit::new(rng.gen_range(0.15..0.28), rng.gen_range(0.7..0.88)));
+            resources.add_deposit(ResourceType::Aluminum, MineralDeposit::new(rng.gen_range(0.10..0.18), rng.gen_range(0.65..0.85)));
+            
+            // Some pyroxene-related metals
+            resources.add_deposit(ResourceType::Copper, MineralDeposit::new(rng.gen_range(0.0001..0.0005), rng.gen_range(0.5..0.75)));
+            
+            info!("Applied V-Type spectral profile to {}: Basaltic, high titanium", body_name);
+        }
+        
+        // D-Type: Dark primitive - Very high volatiles, organic-rich
+        // Outer belt, Jupiter Trojans
+        // Scientific basis: Very dark, primitive composition, high organics
+        AsteroidClass::DType => {
+            // Extremely high volatiles
+            resources.add_deposit(ResourceType::Water, MineralDeposit::new(rng.gen_range(0.35..0.55), rng.gen_range(0.7..0.9)));
+            resources.add_deposit(ResourceType::Methane, MineralDeposit::new(rng.gen_range(0.15..0.30), rng.gen_range(0.6..0.85)));
+            resources.add_deposit(ResourceType::Ammonia, MineralDeposit::new(rng.gen_range(0.12..0.25), rng.gen_range(0.6..0.85)));
+            resources.add_deposit(ResourceType::Hydrogen, MineralDeposit::new(rng.gen_range(0.10..0.20), rng.gen_range(0.6..0.8)));
+            resources.add_deposit(ResourceType::Nitrogen, MineralDeposit::new(rng.gen_range(0.05..0.12), rng.gen_range(0.5..0.75)));
+            
+            // Very low metals
+            resources.add_deposit(ResourceType::Silicates, MineralDeposit::new(rng.gen_range(0.05..0.15), rng.gen_range(0.4..0.6)));
+            resources.add_deposit(ResourceType::Iron, MineralDeposit::new(rng.gen_range(0.02..0.08), rng.gen_range(0.3..0.55)));
+            
+            info!("Applied D-Type spectral profile to {}: Primitive, extremely high volatiles", body_name);
+        }
+        
+        // P-Type: Primitive - Similar to D-type, outer belt
+        // Low albedo, primitive
+        // Scientific basis: Similar to D-type but slightly different composition
+        AsteroidClass::PType => {
+            // Very high volatiles (slightly less than D-type)
+            resources.add_deposit(ResourceType::Water, MineralDeposit::new(rng.gen_range(0.30..0.48), rng.gen_range(0.65..0.88)));
+            resources.add_deposit(ResourceType::Ammonia, MineralDeposit::new(rng.gen_range(0.10..0.22), rng.gen_range(0.6..0.82)));
+            resources.add_deposit(ResourceType::Methane, MineralDeposit::new(rng.gen_range(0.12..0.25), rng.gen_range(0.55..0.8)));
+            resources.add_deposit(ResourceType::Hydrogen, MineralDeposit::new(rng.gen_range(0.08..0.18), rng.gen_range(0.55..0.78)));
+            resources.add_deposit(ResourceType::CarbonDioxide, MineralDeposit::new(rng.gen_range(0.06..0.15), rng.gen_range(0.5..0.75)));
+            
+            // Low metals
+            resources.add_deposit(ResourceType::Silicates, MineralDeposit::new(rng.gen_range(0.08..0.18), rng.gen_range(0.45..0.65)));
+            resources.add_deposit(ResourceType::Iron, MineralDeposit::new(rng.gen_range(0.03..0.10), rng.gen_range(0.35..0.6)));
+            
+            info!("Applied P-Type spectral profile to {}: Primitive, very high volatiles", body_name);
+        }
+        
+        AsteroidClass::Unknown => {
+            // No spectral profile, fall through to normal generation
+            return None;
+        }
+    }
+    
+    Some(resources)
 }
 
 /// Determine if an asteroid should have specialized resources
@@ -553,6 +718,7 @@ mod tests {
         let resources = generate_resources_for_body(
             "TestBody", 
             crate::plugins::solar_system_data::BodyType::Planet,
+            None,
             1.0, 
             frost_line, 
             &mut rng
@@ -573,6 +739,7 @@ mod tests {
         let resources = generate_resources_for_body(
             "TestBody",
             crate::plugins::solar_system_data::BodyType::Planet,
+            None,
             5.0, 
             frost_line, 
             &mut rng
@@ -592,6 +759,7 @@ mod tests {
         let resources = generate_resources_for_body(
             "Europa",
             crate::plugins::solar_system_data::BodyType::Moon,
+            None,
             5.2, 
             2.5, 
             &mut rng
@@ -608,6 +776,7 @@ mod tests {
         let resources = generate_resources_for_body(
             "Mars",
             crate::plugins::solar_system_data::BodyType::Planet,
+            None,
             1.52, 
             2.5, 
             &mut rng
@@ -628,6 +797,7 @@ mod tests {
         let resources = generate_resources_for_body(
             "TestBody",
             crate::plugins::solar_system_data::BodyType::Planet,
+            None,
             1.0, 
             frost_line, 
             &mut rng
@@ -650,6 +820,7 @@ mod tests {
         let resources = generate_resources_for_body(
             "TestBody",
             crate::plugins::solar_system_data::BodyType::Planet,
+            None,
             1.0, 
             frost_line, 
             &mut rng
@@ -705,6 +876,7 @@ mod tests {
         let resources_m = generate_resources_for_body(
             "TestBody",
             crate::plugins::solar_system_data::BodyType::Planet,
+            None,
             1.0, 
             m_star_frost_line, 
             &mut rng
@@ -722,6 +894,7 @@ mod tests {
         let resources_a = generate_resources_for_body(
             "TestBody",
             crate::plugins::solar_system_data::BodyType::Planet,
+            None,
             1.0, 
             a_star_frost_line, 
             &mut rng
@@ -733,5 +906,100 @@ mod tests {
         if iron > 0.0 {
             assert!(iron > 0.1, "Should have decent iron abundance inside frost line");
         }
+    }
+
+    #[test]
+    fn test_c_type_asteroid_spectral_profile() {
+        let mut rng = rand::thread_rng();
+        let resources = generate_resources_for_body(
+            "TestAsteroid",
+            crate::plugins::solar_system_data::BodyType::Asteroid,
+            Some(AsteroidClass::CType),
+            2.8,
+            2.5,
+            &mut rng
+        );
+
+        // C-Type should have high volatiles
+        let water = resources.get_abundance(&ResourceType::Water);
+        assert!(water > 0.10, "C-Type should have >10% water");
+    }
+
+    #[test]
+    fn test_s_type_asteroid_spectral_profile() {
+        let mut rng = rand::thread_rng();
+        let resources = generate_resources_for_body(
+            "TestAsteroid",
+            crate::plugins::solar_system_data::BodyType::Asteroid,
+            Some(AsteroidClass::SType),
+            2.8,
+            2.5,
+            &mut rng
+        );
+
+        // S-Type should have high silicates and iron
+        let silicates = resources.get_abundance(&ResourceType::Silicates);
+        let iron = resources.get_abundance(&ResourceType::Iron);
+        assert!(silicates > 0.30, "S-Type should have >30% silicates");
+        assert!(iron > 0.15, "S-Type should have >15% iron");
+    }
+
+    #[test]
+    fn test_m_type_asteroid_spectral_profile() {
+        let mut rng = rand::thread_rng();
+        let resources = generate_resources_for_body(
+            "TestAsteroid",
+            crate::plugins::solar_system_data::BodyType::Asteroid,
+            Some(AsteroidClass::MType),
+            2.8,
+            2.5,
+            &mut rng
+        );
+
+        // M-Type should be dominated by iron
+        let iron = resources.get_abundance(&ResourceType::Iron);
+        assert!(iron > 0.65, "M-Type should have >65% iron");
+
+        // Should have elevated precious metals
+        let platinum = resources.get_abundance(&ResourceType::Platinum);
+        if platinum > 0.0 {
+            assert!(platinum > 0.000005, "M-Type should have elevated platinum");
+        }
+    }
+
+    #[test]
+    fn test_v_type_asteroid_spectral_profile() {
+        let mut rng = rand::thread_rng();
+        let resources = generate_resources_for_body(
+            "TestAsteroid",
+            crate::plugins::solar_system_data::BodyType::Asteroid,
+            Some(AsteroidClass::VType),
+            2.8,
+            2.5,
+            &mut rng
+        );
+
+        // V-Type should have high titanium
+        let titanium = resources.get_abundance(&ResourceType::Titanium);
+        assert!(titanium > 0.015, "V-Type should have >1.5% titanium");
+    }
+
+    #[test]
+    fn test_d_type_asteroid_spectral_profile() {
+        let mut rng = rand::thread_rng();
+        let resources = generate_resources_for_body(
+            "TestAsteroid",
+            crate::plugins::solar_system_data::BodyType::Asteroid,
+            Some(AsteroidClass::DType),
+            5.2,
+            2.5,
+            &mut rng
+        );
+
+        // D-Type should have extremely high volatiles
+        let water = resources.get_abundance(&ResourceType::Water);
+        let methane = resources.get_abundance(&ResourceType::Methane);
+        assert!(water > 0.30, "D-Type should have >30% water");
+        assert!(methane > 0.10, "D-Type should have >10% methane");
     }
 }
