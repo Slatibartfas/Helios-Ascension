@@ -10,6 +10,13 @@ pub struct SpaceCoordinates {
     pub position: DVec3,
 }
 
+/// Resource defining the center of the rendering coordinate system in Universe space (AU).
+/// Used to implement the "floating origin" to avoid f32 jitter at large distances.
+#[derive(Resource, Default, Debug, Clone, Copy)]
+pub struct FloatingOrigin {
+    pub position: DVec3,
+}
+
 impl SpaceCoordinates {
     /// Create new space coordinates from a DVec3 position
     pub fn new(position: DVec3) -> Self {
@@ -163,6 +170,54 @@ pub struct Selected;
 /// Hovered bodies show a glowing ring and name label
 #[derive(Component, Debug, Clone, Copy, Default)]
 pub struct Hovered;
+
+/// Marker component for destroyed/disintegrated celestial bodies.
+/// Used for bodies that have been destroyed by natural causes (e.g., ISON solar disintegration),
+/// mining operations, weapons, orbital decay, etc.
+/// Bodies with this component will be despawned after a brief fade-out period.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct Destroyed {
+    /// Time (in seconds) when the body was destroyed
+    pub destruction_time: f64,
+    /// Duration (in seconds) of the fade-out animation before despawn
+    pub fade_duration: f64,
+}
+
+impl Destroyed {
+    pub fn new(current_time: f64, fade_duration: f64) -> Self {
+        Self {
+            destruction_time: current_time,
+            fade_duration,
+        }
+    }
+
+    /// Instant destruction (no fade)
+    pub fn instant(current_time: f64) -> Self {
+        Self {
+            destruction_time: current_time,
+            fade_duration: 0.0,
+        }
+    }
+}
+
+/// Marker component for comet tail mesh entities.
+/// Used to track and update dynamically generated 3D tail meshes.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct CometTail {
+    /// The entity of the parent comet
+    pub comet_entity: Entity,
+    /// Whether this is an ion tail (true) or dust tail (false)
+    pub is_ion_tail: bool,
+}
+
+/// Local orbit amplification factor for moons.
+///
+/// Scales the orbital position so moons render outside their parent's visual mesh.
+/// All moons of the same parent share the same factor to preserve relative spacing.
+/// At system-wide zoom levels this is paired with LOD visibility — moons are hidden
+/// when the camera is far from the parent, and revealed with amplified orbits when close.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct LocalOrbitAmplification(pub f32);
 
 /// Marker component for a glossy selection ring mesh.
 #[derive(Component, Debug, Clone, Copy)]

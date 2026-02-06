@@ -3,20 +3,18 @@ use bevy::math::DVec3;
 use bevy::window::PrimaryWindow;
 
 use super::components::{
-    HoverMarker, Hovered, KeplerOrbit, MarkerDot, MarkerOwner, OrbitPath, Selected,
-    SelectionMarker, SpaceCoordinates,
+    CometTail, Destroyed, HoverMarker, Hovered, KeplerOrbit, LocalOrbitAmplification, MarkerDot,
+    MarkerOwner, OrbitPath, Selected, SelectionMarker, SpaceCoordinates,
 };
-use crate::plugins::solar_system::{CelestialBody, Moon, Planet, Star, RADIUS_SCALE};
-use crate::plugins::camera::{CameraAnchor, GameCamera, OrbitCamera};
+use crate::plugins::solar_system::{CelestialBody, Comet, LogicalParent, Moon, Planet, Star, RADIUS_SCALE};
+use crate::plugins::camera::{CameraAnchor, GameCamera, OrbitCamera, ViewMode};
 use crate::ui::SimulationTime;
 
 /// Scaling factor for converting astronomical units to Bevy rendering units
 /// 1 AU = 1500.0 Bevy units ensures separation between planets and moons
 pub const SCALING_FACTOR: f64 = 1500.0;
 
-/// Distance threshold for showing moon orbits (in Bevy units)
-/// Moon orbits only visible when camera is closer than this distance
-const MOON_ORBIT_VISIBILITY_DISTANCE: f32 = 500.0;
+
 
 /// Click radius for body selection (in Bevy units)
 /// Bodies within this distance from the ray are considered clickable
@@ -198,22 +196,54 @@ pub fn propagate_orbits(
     }
 }
 
-/// System that converts high-precision SpaceCoordinates to rendering Transform
-/// Implements "floating origin" technique by scaling down coordinates and converting to f32
+/// System that converts high-precision SpaceCoordinates to rendering Transform.
+/// Implements "floating origin" technique by scaling down coordinates and converting to f32.
+///
+/// For moons with a [`LocalOrbitAmplification`] component the local position is
+/// additionally scaled so that the moon renders outside the parent's visual mesh.
 pub fn update_render_transform(
-    mut query: Query<(&SpaceCoordinates, &mut Transform), Changed<SpaceCoordinates>>,
+    mut query: Query<
+        (
+            &SpaceCoordinates,
+            &mut Transform,
+            Option<&LocalOrbitAmplification>,
+            Option<&LogicalParent>,
+        ),
+        Changed<SpaceCoordinates>,
+    >,
+    parent_coords: Query<&SpaceCoordinates>,
+    floating_origin: Option<Res<crate::astronomy::components::FloatingOrigin>>,
 ) {
-    for (coords, mut transform) in query.iter_mut() {
-        // Convert from AU to Bevy units using scaling factor
-        let scaled_position = coords.position * SCALING_FACTOR;
+    let origin_offset = floating_origin.map(|fo| fo.position).unwrap_or(DVec3::ZERO);
+
+    for (coords, mut transform, amplification, logical_parent) in query.iter_mut() {
+        let amp = amplification.map(|a| a.0 as f64).unwrap_or(1.0);
+
+        // Convert from AU to Bevy units, applying local amplification for moons
+        // Shift by floating origin BEFORE scaling
+        let scaled_position = (coords.position - origin_offset) * SCALING_FACTOR * amp;
+
+        // For moons (with orbit amplification) add the parent's world position,
+        // since moons are NOT spatial children of their parent planet.
+        // This avoids the planet's spin rotation being applied to the moon.
+        let parent_offset = if amplification.is_some() {
+            logical_parent
+                .and_then(|lp| parent_coords.get(lp.0).ok())
+                .map(|parent_sc| {
+                    let pos = (parent_sc.position - origin_offset) * SCALING_FACTOR;
+                    Vec3::new(pos.x as f32, pos.y as f32, pos.z as f32)
+                })
+                .unwrap_or(Vec3::ZERO)
+        } else {
+            Vec3::ZERO
+        };
 
         // Convert from f64 to f32 for rendering
-        // This is safe because we've scaled coordinates to reasonable rendering range
         transform.translation = Vec3::new(
             scaled_position.x as f32,
             scaled_position.y as f32,
             scaled_position.z as f32,
-        );
+        ) + parent_offset;
     }
 }
 
@@ -227,19 +257,31 @@ pub fn update_render_transform(
 pub fn draw_orbit_paths(
     mut gizmos: Gizmos,
     sim_time: Res<SimulationTime>,
-    query: Query<(&KeplerOrbit, &OrbitPath, Option<&Parent>)>,
-    parent_query: Query<&GlobalTransform>,
+    query: Query<(
+        &KeplerOrbit,
+        &OrbitPath,
+        Option<&LogicalParent>,
+        Option<&LocalOrbitAmplification>,
+    )>,
+    parent_coords: Query<&SpaceCoordinates>,
+    floating_origin: Option<Res<crate::astronomy::components::FloatingOrigin>>,
 ) {
     let elapsed_time = sim_time.elapsed_seconds();
+    let origin_offset = floating_origin.map(|fo| fo.position).unwrap_or(DVec3::ZERO);
 
-    for (orbit, path, parent) in query.iter() {
+    for (orbit, path, logical_parent, amplification) in query.iter() {
         if !path.visible {
             continue;
         }
 
-        let parent_offset = parent
-            .and_then(|parent| parent_query.get(parent.get()).ok())
-            .map(|transform| transform.translation())
+        let amp = amplification.map(|a| a.0 as f64).unwrap_or(1.0);
+
+        let parent_offset = logical_parent
+            .and_then(|lp| parent_coords.get(lp.0).ok())
+            .map(|sc| {
+                let pos = (sc.position - origin_offset) * SCALING_FACTOR;
+                Vec3::new(pos.x as f32, pos.y as f32, pos.z as f32)
+            })
             .unwrap_or(Vec3::ZERO);
 
         // Current true anomaly of the body
@@ -271,9 +313,9 @@ pub fn draw_orbit_paths(
             let true_anomaly = current_true_anomaly - (i as f64) * true_anomaly_step;
             let position_au = orbit_position_from_true_anomaly(orbit, true_anomaly);
 
-            let scaled_x = (position_au.x * SCALING_FACTOR) as f32;
-            let scaled_y = (position_au.y * SCALING_FACTOR) as f32;
-            let scaled_z = (position_au.z * SCALING_FACTOR) as f32;
+            let scaled_x = (position_au.x * SCALING_FACTOR * amp) as f32;
+            let scaled_y = (position_au.y * SCALING_FACTOR * amp) as f32;
+            let scaled_z = (position_au.z * SCALING_FACTOR * amp) as f32;
 
             let point = Vec3::new(scaled_x, scaled_y, scaled_z) + parent_offset;
 
@@ -304,25 +346,625 @@ pub fn draw_orbit_paths(
     }
 }
 
-/// System that controls orbit visibility based on body type, selection, and camera distance
+/// Distance in AU within which a comet tail becomes visible.
+/// Real comets start developing tails around 3-5 AU from the Sun.
+const COMET_TAIL_ONSET_AU: f64 = 5.0;
+
+/// Minimum distance from sun (in AU) to render tail - avoids rendering inside sun
+const COMET_TAIL_MIN_DISTANCE_AU: f64 = 0.02;
+
+/// Maximum visual tail length in Bevy units at perihelion
+const COMET_TAIL_MAX_LENGTH: f32 = 300.0;
+
+/// Number of radial segments around the tail cone
+const TAIL_RADIAL_SEGMENTS: u32 = 16;
+
+/// Number of length segments for smooth gradients
+const TAIL_LENGTH_SEGMENTS: u32 = 32;
+
+/// Number of volumetric strands for ion/dust tail gizmo lines
+const TAIL_VOLUME_STRANDS: u32 = 6;
+
+/// Number of line segments per individual comet-tail strand
+const COMET_TAIL_SEGMENTS: u32 = 24;
+
+/// Creates a tapered cone mesh with vertex colors for gradient transparency.
+/// Used for volumetric comet tails with smooth fade from base to tip.
+fn create_tail_cone_mesh(
+    length: f32,
+    base_radius: f32,
+    tip_radius: f32,
+    base_color: Color,
+    tip_color: Color,
+) -> Mesh {
+    use bevy::render::mesh::{Indices, PrimitiveTopology};
+    use bevy::render::render_asset::RenderAssetUsages;
+    
+    let mut positions = Vec::new();
+    let mut normals = Vec::new();
+    let mut colors = Vec::new();
+    let mut indices = Vec::new();
+
+    // Generate vertices along the cone length
+    for length_i in 0..=TAIL_LENGTH_SEGMENTS {
+        let t = length_i as f32 / TAIL_LENGTH_SEGMENTS as f32;
+        let z = length * t;
+        let radius = base_radius + (tip_radius - base_radius) * t;
+        
+        // Interpolate color
+        let base_rgba = base_color.to_srgba();
+        let tip_rgba = tip_color.to_srgba();
+        let color = Color::srgba(
+            base_rgba.red + (tip_rgba.red - base_rgba.red) * t,
+            base_rgba.green + (tip_rgba.green - base_rgba.green) * t,
+            base_rgba.blue + (tip_rgba.blue - base_rgba.blue) * t,
+            base_rgba.alpha + (tip_rgba.alpha - base_rgba.alpha) * t,
+        );
+
+        // Create ring of vertices
+        for radial_i in 0..TAIL_RADIAL_SEGMENTS {
+            let theta = (radial_i as f32 / TAIL_RADIAL_SEGMENTS as f32) * std::f32::consts::TAU;
+            let (sin_theta, cos_theta) = theta.sin_cos();
+            
+            let x = radius * cos_theta;
+            let y = radius * sin_theta;
+            
+            positions.push([x, y, z]);
+            
+            // Normal points outward from cone surface
+            let normal = Vec3::new(cos_theta, sin_theta, 0.0).normalize();
+            normals.push(normal.to_array());
+            
+            colors.push(color.to_linear().to_f32_array());
+        }
+    }
+
+    // Generate indices for triangle strip
+    for length_i in 0..TAIL_LENGTH_SEGMENTS {
+        for radial_i in 0..TAIL_RADIAL_SEGMENTS {
+            let next_radial = (radial_i + 1) % TAIL_RADIAL_SEGMENTS;
+            
+            let current_ring = length_i * TAIL_RADIAL_SEGMENTS;
+            let next_ring = (length_i + 1) * TAIL_RADIAL_SEGMENTS;
+            
+            let i0 = current_ring + radial_i;
+            let i1 = current_ring + next_radial;
+            let i2 = next_ring + radial_i;
+            let i3 = next_ring + next_radial;
+            
+            // Two triangles per quad
+            indices.push(i0);
+            indices.push(i2);
+            indices.push(i1);
+            
+            indices.push(i1);
+            indices.push(i2);
+            indices.push(i3);
+        }
+    }
+
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
+    mesh.insert_indices(Indices::U32(indices));
+    
+    mesh
+}
+
+/// System that spawns and manages volumetric 3D mesh-based comet tails.
+/// Creates true geometry with gradient transparency for realistic appearance.
+pub fn manage_comet_tail_meshes(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    comet_query: Query<(Entity, &CelestialBody, &KeplerOrbit, &SpaceCoordinates), (With<Comet>, Without<Destroyed>)>,
+    tail_query: Query<(Entity, &CometTail)>,
+    existing_tails: Query<&CometTail>,
+) {
+    // Track which comets should have tails
+    let mut comets_needing_tails = std::collections::HashSet::new();
+    
+    for (entity, body, _orbit, coords) in comet_query.iter() {
+        let distance_au = coords.position.length();
+
+        // Check if tail should be visible
+        if distance_au <= COMET_TAIL_ONSET_AU 
+            && distance_au >= COMET_TAIL_MIN_DISTANCE_AU 
+            && distance_au > 1e-6 {
+            comets_needing_tails.insert(entity);
+            
+            // Check if this comet already has tails
+            let has_tails = existing_tails.iter().any(|t| t.comet_entity == entity);
+            
+            if !has_tails {
+                // Spawn tail meshes for this comet
+                spawn_comet_tail_meshes(
+                    &mut commands,
+                    &mut meshes,
+                    &mut materials,
+                    entity,
+                    body,
+                    coords,
+                    distance_au,
+                );
+            }
+        }
+    }
+    
+    // Despawn tails for comets that no longer need them
+    for (tail_entity, tail) in tail_query.iter() {
+        if !comets_needing_tails.contains(&tail.comet_entity) {
+            commands.entity(tail_entity).despawn_recursive();
+        }
+    }
+}
+
+/// Spawns ion and dust tail meshes for a comet
+fn spawn_comet_tail_meshes(
+    commands: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<StandardMaterial>>,
+    comet_entity: Entity,
+    body: &CelestialBody,
+    _coords: &SpaceCoordinates,
+    distance_au: f64,
+) {
+    // Calculate tail parameters
+    let intensity = ((1.0 - distance_au / COMET_TAIL_ONSET_AU) as f32).clamp(0.0, 1.0);
+    let proximity_boost = (0.5 / distance_au.max(0.1)) as f32;
+    let brightness = (intensity * proximity_boost.min(3.0)).clamp(0.0, 1.0);
+    let tail_length = COMET_TAIL_MAX_LENGTH * intensity * proximity_boost.min(2.5);
+
+    // Seed for procedural variation
+    let mut seed = 0u32;
+    for byte in body.name.bytes() {
+        seed = seed.wrapping_mul(31).wrapping_add(byte as u32);
+    }
+
+    // === ION TAIL (Type I): narrow, bluish-white ===
+    // Use fixed small radii, slightly larger as requested
+    let ion_base_radius = 1.0; 
+    let ion_tip_radius = 0.2;
+    let ion_base_color = Color::srgba(0.7, 0.85, 1.0, brightness * 0.6);
+    let ion_tip_color = Color::srgba(0.5, 0.75, 1.0, 0.0);
+    
+    let ion_mesh = meshes.add(create_tail_cone_mesh(
+        tail_length,
+        ion_base_radius,
+        ion_tip_radius,
+        ion_base_color,
+        ion_tip_color,
+    ));
+    
+    let ion_material = materials.add(StandardMaterial {
+        base_color: Color::WHITE,
+        emissive: LinearRgba::new(0.5, 0.7, 1.0, 0.0) * brightness,
+        alpha_mode: AlphaMode::Add,
+        unlit: true,
+        cull_mode: None, // Double-sided
+        ..default()
+    });
+    
+    commands.spawn((
+        PbrBundle {
+            mesh: ion_mesh,
+            material: ion_material,
+            transform: Transform::default(), // Will be updated by update_tail_transforms
+            ..default()
+        },
+        CometTail {
+            comet_entity,
+            is_ion_tail: true,
+        },
+    ));
+
+    // === DUST TAIL (Type II): wider, yellowish ===
+    // Fixed radii, wider than ion tail and enclosing it at base
+    let dust_base_radius = 1.6;
+    let dust_tip_radius = 0.4;
+    let dust_base_color = Color::srgba(1.0, 0.85, 0.4, brightness * 0.5);
+    let dust_tip_color = Color::srgba(1.0, 0.7, 0.2, 0.0);
+    
+    let dust_mesh = meshes.add(create_tail_cone_mesh(
+        tail_length * 0.7, // Dust tail is shorter
+        dust_base_radius,
+        dust_tip_radius,
+        dust_base_color,
+        dust_tip_color,
+    ));
+    
+    let dust_material = materials.add(StandardMaterial {
+        base_color: Color::WHITE,
+        emissive: LinearRgba::new(1.0, 0.75, 0.3, 0.0) * brightness * 0.8,
+        alpha_mode: AlphaMode::Add,
+        unlit: true,
+        cull_mode: None,
+        ..default()
+    });
+    
+    commands.spawn((
+        PbrBundle {
+            mesh: dust_mesh,
+            material: dust_material,
+            transform: Transform::default(),
+            ..default()
+        },
+        CometTail {
+            comet_entity,
+            is_ion_tail: false,
+        },
+    ));
+}
+
+/// System that updates tail mesh positions and orientations each frame.
+/// Tails always point away from the sun and follow their parent comet.
+pub fn update_tail_transforms(
+    comet_query: Query<(&SpaceCoordinates, &KeplerOrbit, &CelestialBody), With<Comet>>,
+    mut tail_query: Query<(&mut Transform, &CometTail)>,
+) {
+    for (mut transform, tail) in tail_query.iter_mut() {
+        if let Ok((coords, orbit, body)) = comet_query.get(tail.comet_entity) {
+            // Convert comet position to rendering coordinates
+            let comet_pos_scaled = coords.position * SCALING_FACTOR;
+            let comet_pos = Vec3::new(
+                comet_pos_scaled.x as f32,
+                comet_pos_scaled.y as f32,
+                comet_pos_scaled.z as f32,
+            );
+
+            // Anti-sunward direction (sun at origin)
+            let to_sun = -comet_pos;
+            let sun_distance = to_sun.length();
+            if sun_distance < 1e-6 {
+                continue;
+            }
+            let anti_sun_dir = -to_sun.normalize();
+
+            // Offset tail to start at comet surface
+            // Both tails start at the same point to avoid dual-cone effect
+            let surface_offset = body.visual_radius * anti_sun_dir;
+            
+            transform.translation = comet_pos + surface_offset;
+
+            // Orient tail to point away from sun
+            // Cone extends along +Z axis, so look along anti-sunward direction
+            if tail.is_ion_tail {
+                // Ion tail points straight away from sun
+                transform.rotation = Quat::from_rotation_arc(Vec3::Z, anti_sun_dir);
+            } else {
+                // Dust tail has slight curve based on orbit
+                let orbit_normal = Vec3::new(
+                    orbit.longitude_ascending_node.sin() as f32 * orbit.inclination.sin() as f32,
+                    orbit.inclination.cos() as f32,
+                    orbit.longitude_ascending_node.cos() as f32 * orbit.inclination.sin() as f32,
+                );
+                let velocity_dir = anti_sun_dir.cross(orbit_normal).normalize_or_zero();
+                let curved_dir = (anti_sun_dir + velocity_dir * 0.15).normalize();
+                
+                transform.rotation = Quat::from_rotation_arc(Vec3::Z, curved_dir);
+            }
+        }
+    }
+}
+///
+/// The tail always points away from the Sun and grows longer + brighter
+/// as the comet approaches perihelion. Two visual tails are drawn:
+/// - **Ion tail**: straight, narrow, bluish — points directly anti-sunward
+/// - **Dust tail**: slightly curved, broader, yellowish — trails behind
+///
+/// Uses SpaceCoordinates directly for smooth rendering during time acceleration.
+pub fn draw_comet_tails(
+    view_mode: Res<ViewMode>,
+    mut gizmos: Gizmos,
+    query: Query<(&CelestialBody, &KeplerOrbit, &SpaceCoordinates), (With<Comet>, Without<Destroyed>)>,
+) {
+    // Skip comet tails in starmap view
+    if *view_mode == ViewMode::Starmap {
+        return;
+    }
+
+    for (body, orbit, coords) in query.iter() {
+        // Current heliocentric distance in AU
+        let distance_au = coords.position.length();
+
+        // Only draw tail if within the onset distance and not too close to sun
+        if distance_au > COMET_TAIL_ONSET_AU 
+            || distance_au < COMET_TAIL_MIN_DISTANCE_AU 
+            || distance_au < 1e-6 {
+            continue;
+        }
+
+        // Convert high-precision position to rendering coordinates
+        let body_pos_scaled = coords.position * SCALING_FACTOR;
+        let body_pos = Vec3::new(
+            body_pos_scaled.x as f32,
+            body_pos_scaled.y as f32,
+            body_pos_scaled.z as f32,
+        );
+
+        // Anti-sunward direction (sun is at origin)
+        let to_sun = -body_pos;
+        let sun_distance = to_sun.length();
+        if sun_distance < 1e-6 {
+            continue;
+        }
+        let anti_sun_dir = -to_sun.normalize();
+
+        // Tail intensity scales inversely with distance squared (solar radiation)
+        // Normalized: 1.0 at 0.5 AU, fading to 0 at onset distance
+        let intensity = ((1.0 - distance_au / COMET_TAIL_ONSET_AU) as f32).clamp(0.0, 1.0);
+        let proximity_boost = (0.5 / distance_au.max(0.1)) as f32; // Brighter when closer
+        let brightness = (intensity * proximity_boost.min(3.0)).clamp(0.0, 1.0);
+
+        // Tail length scales with proximity - longer when closer to sun
+        let tail_length = COMET_TAIL_MAX_LENGTH * intensity * proximity_boost.min(2.5);
+
+        if tail_length < 1.0 || brightness < 0.01 {
+            continue;
+        }
+
+        // Use body name hash for consistent slight curl direction on the dust tail
+        let mut seed = 0u32;
+        for byte in body.name.bytes() {
+            seed = seed.wrapping_mul(31).wrapping_add(byte as u32);
+        }
+        let curl_angle = ((seed % 1000) as f32 / 1000.0 - 0.5) * 0.3; // slight random curl
+
+        // Find a perpendicular vector for the dust tail curve
+        let up = if anti_sun_dir.y.abs() > 0.9 {
+            Vec3::X
+        } else {
+            Vec3::Y
+        };
+        let perp = anti_sun_dir.cross(up).normalize();
+        let perp2 = anti_sun_dir.cross(perp).normalize();
+
+        // Compute orbit velocity direction for a more realistic dust tail curve
+        // Dust tail curves slightly in the direction opposite to orbital motion
+        let orbit_normal = Vec3::new(
+            orbit.longitude_ascending_node.sin() as f32 * orbit.inclination.sin() as f32,
+            orbit.inclination.cos() as f32,
+            orbit.longitude_ascending_node.cos() as f32 * orbit.inclination.sin() as f32,
+        );
+        let velocity_approx = anti_sun_dir.cross(orbit_normal).normalize_or_zero();
+
+        // === ION TAIL (Type I): straight, narrow, bluish-white ===
+        // Draw multiple strands with Fibonacci spiral distribution for natural appearance
+        for strand in 0..TAIL_VOLUME_STRANDS {
+            // Fibonacci spiral for even distribution (better than uniform circle)
+            let golden_angle = std::f32::consts::PI * (3.0 - 5.0_f32.sqrt());
+            let angle = golden_angle * (strand as f32);
+            let radius_factor = ((strand as f32 + 0.5) / TAIL_VOLUME_STRANDS as f32).sqrt();
+            
+            let (sin_a, cos_a) = angle.sin_cos();
+            
+            // Offset perpendicular to tail direction - varies by strand
+            let base_offset_radius = tail_length * 0.02 * radius_factor; // 0-2% of tail length
+            let base_offset = (perp * cos_a + perp2 * sin_a) * base_offset_radius;
+            
+            // Procedural variation per strand for natural look
+            let strand_seed = seed.wrapping_add(strand * 997);
+            let strand_var = ((strand_seed % 1000) as f32) / 1000.0;
+            let wiggle_phase = strand_var * std::f32::consts::TAU;
+            
+            let mut prev = body_pos;
+            for i in 1..=COMET_TAIL_SEGMENTS {
+                let t = i as f32 / COMET_TAIL_SEGMENTS as f32;
+                
+                // Gentle expansion and wiggle along the tail
+                let expanding = 1.0 + t * 0.4;
+                let wiggle = (t * 8.0 + wiggle_phase).sin() * 0.15 * t;
+                let offset = base_offset * expanding + perp2 * wiggle * base_offset_radius;
+                
+                let pos = body_pos + anti_sun_dir * tail_length * t + offset;
+
+                // Fade from bright near body to transparent at tip
+                // Use per-strand brightness variation for natural look
+                let strand_brightness = 0.8 + strand_var * 0.4;
+                let alpha = brightness * 0.5 * strand_brightness * (1.0 - t).powf(1.5) / (TAIL_VOLUME_STRANDS as f32 * 0.7);
+                
+                if alpha > 0.005 {
+                    // Slight color variation per strand
+                    let blue_var = 0.95 + strand_var * 0.05;
+                    let color = Color::srgba(
+                        0.5 + 0.3 * (1.0 - t), // slight white near head
+                        0.65 + 0.2 * (1.0 - t),
+                        blue_var,
+                        alpha,
+                    );
+                    gizmos.line(prev, pos, color);
+                }
+                prev = pos;
+            }
+        }
+
+        // === DUST TAIL (Type II): curved, broader, yellowish ===
+        // Draw multiple strands with more variation and curvature
+        for strand in 0..TAIL_VOLUME_STRANDS {
+            // Fibonacci spiral distribution
+            let golden_angle = std::f32::consts::PI * (3.0 - 5.0_f32.sqrt());
+            let angle = golden_angle * (strand as f32) + 0.5; // offset from ion tail
+            let radius_factor = ((strand as f32 + 0.5) / TAIL_VOLUME_STRANDS as f32).sqrt();
+            
+            let (sin_a, cos_a) = angle.sin_cos();
+            
+            // Wider cone for dust tail
+            let base_offset_radius = tail_length * 0.045 * radius_factor; // 0-4.5% of tail length
+            let base_offset = (perp * cos_a + perp2 * sin_a) * base_offset_radius;
+            
+            // More variation for dust particles
+            let strand_seed = seed.wrapping_add(strand * 1009);
+            let strand_var = ((strand_seed % 1000) as f32) / 1000.0;
+            let wiggle_phase = strand_var * std::f32::consts::TAU;
+            
+            let mut prev = body_pos;
+            for i in 1..=COMET_TAIL_SEGMENTS {
+                let t = i as f32 / COMET_TAIL_SEGMENTS as f32;
+
+                // Dust tail is shorter and curves away from orbit direction
+                let dust_length = tail_length * 0.7;
+                let curve = t * t * 0.3; // quadratic curve
+                
+                // More expansion and wiggle for dust
+                let expanding = 1.0 + t * 1.5;
+                let wiggle = ((t * 6.0 + wiggle_phase).sin() * 0.2 + (t * 3.5).cos() * 0.15) * t;
+                let offset = base_offset * expanding + perp2 * wiggle * base_offset_radius;
+
+                let pos = body_pos
+                    + anti_sun_dir * dust_length * t
+                    + (perp * curl_angle + velocity_approx * 0.15) * dust_length * curve
+                    + offset;
+
+                // More variation in dust brightness
+                let strand_brightness = 0.7 + strand_var * 0.5;
+                let alpha = brightness * 0.4 * strand_brightness * (1.0 - t).powf(1.3) / (TAIL_VOLUME_STRANDS as f32 * 0.7);
+                
+                if alpha > 0.005 {
+                    // Color varies more along dust tail
+                    let yellow_var = 0.92 + strand_var * 0.08;
+                    let color = Color::srgba(
+                        1.0,
+                        yellow_var - 0.15 * t, // yellower at tip
+                        0.4 - 0.2 * t,         // orange tint at tip
+                        alpha,
+                    );
+                    gizmos.line(prev, pos, color);
+                }
+                prev = pos;
+            }
+        }
+
+        // === COMA (fuzzy glow around the nucleus) ===
+        // Draw a small radial starburst around the body
+        {
+            let coma_radius = body.visual_radius * 2.5 * brightness.max(0.3);
+            let coma_alpha = brightness * 0.35;
+            if coma_alpha > 0.01 {
+                let num_rays = 12;
+                for i in 0..num_rays {
+                    let angle = (i as f32 / num_rays as f32) * std::f32::consts::TAU;
+                    let (sin_a, cos_a) = angle.sin_cos();
+
+                    // Use perpendicular vectors to create rays in a plane
+                    let ray_dir = (perp * cos_a + perp2 * sin_a).normalize();
+                    let tip = body_pos + ray_dir * coma_radius;
+
+                    let color = Color::srgba(0.9, 0.95, 1.0, coma_alpha * 0.5);
+                    gizmos.line(body_pos, tip, color);
+                }
+
+                // Sunward jet (brighter toward sun)
+                let jet_length = coma_radius * 1.5;
+                let jet_tip = body_pos - anti_sun_dir * jet_length; // toward sun
+                let jet_color = Color::srgba(0.95, 0.95, 1.0, coma_alpha * 0.7);
+                gizmos.line(body_pos, jet_tip, jet_color);
+            }
+        }
+    }
+}
+
+/// Perihelion distance (in AU) at which ISON disintegrates
+/// Historical: ISON broke apart around 730,000 km from sun surface (0.0049 AU from center)
+const ISON_DESTRUCTION_DISTANCE_AU: f64 = 0.005;
+
+/// System that checks for natural destruction events (e.g., Comet ISON solar disintegration).
+/// This system monitors comets approaching the sun and triggers destruction for historically
+/// accurate events like ISON's breakup.
+pub fn check_natural_destruction(
+    mut commands: Commands,
+    sim_time: Res<SimulationTime>,
+    query: Query<(Entity, &CelestialBody, &SpaceCoordinates), (With<Comet>, Without<Destroyed>)>,
+) {
+    for (entity, body, coords) in query.iter() {
+        let distance_au = coords.position.length();
+        
+        // Check for ISON specifically - historically disintegrated near perihelion in Nov 2013
+        if body.name == "Comet ISON" && distance_au < ISON_DESTRUCTION_DISTANCE_AU {
+            info!("Comet ISON disintegrating due to solar proximity at {:.4} AU", distance_au);
+            commands.entity(entity).insert(Destroyed::new(
+                sim_time.elapsed_seconds(),
+                2.0, // 2 second fade-out
+            ));
+        }
+        
+        // Additional destruction checks can be added here for other scenarios:
+        // - Mining operations completing
+        // - Weapon impacts
+        // - Orbital decay into planets
+        // - Collision events
+    }
+}
+
+/// System that fades out and despawns destroyed celestial bodies.
+/// Bodies fade out over their specified duration, then are removed from the simulation along
+/// with any child entities (markers, trails, etc.).
+pub fn fade_destroyed_bodies(
+    mut commands: Commands,
+    sim_time: Res<SimulationTime>,
+    mut query: Query<(
+        Entity,
+        &Destroyed,
+        Option<&mut Visibility>,
+        &Children,
+    ), With<CelestialBody>>,
+    child_query: Query<Entity>,
+) {
+    let current_time = sim_time.elapsed_seconds();
+    
+    for (entity, destroyed, visibility, children) in query.iter_mut() {
+        let elapsed = current_time - destroyed.destruction_time;
+        
+        if destroyed.fade_duration <= 0.0 || elapsed >= destroyed.fade_duration {
+            // Fade complete or instant destruction - despawn the entity and all children
+            info!("Despawning destroyed celestial body (entity {:?})", entity);
+            
+            // Despawn all children first (markers, trails, etc.)
+            for child in children.iter() {
+                if let Ok(child_entity) = child_query.get(*child) {
+                    commands.entity(child_entity).despawn_recursive();
+                }
+            }
+            
+            // Despawn the body itself
+            commands.entity(entity).despawn_recursive();
+        } else if let Some(mut vis) = visibility {
+            // During fade-out, gradually hide the body
+            // Could also modify alpha/emissive here if we add that capability
+            let fade_progress = elapsed / destroyed.fade_duration;
+            if fade_progress > 0.8 {
+                *vis = Visibility::Hidden;
+            }
+        }
+    }
+}
+
+/// System that controls orbit visibility based on body type and camera anchor.
+///
+/// Moon orbits are only shown when their parent planet is the camera's anchor,
+/// preventing overlapping moon systems from cluttering the view.
 pub fn update_orbit_visibility(
-    camera_query: Query<&Transform, With<GameCamera>>,
+    view_mode: Res<ViewMode>,
+    camera_query: Query<&CameraAnchor, With<GameCamera>>,
     mut orbit_query: Query<(
         &mut OrbitPath,
         Option<&Selected>,
         Option<&Planet>,
         Option<&Moon>,
+        Option<&LogicalParent>,
     )>,
 ) {
-    // Get camera position
-    let Ok(camera_transform) = camera_query.get_single() else {
+    let Ok(anchor) = camera_query.get_single() else {
         return;
     };
 
-    // Calculate distance from camera to origin (solar system center)
-    let camera_distance = camera_transform.translation.length();
+    for (mut orbit_path, selected, planet, moon, logical_parent) in orbit_query.iter_mut() {
+        // Hide all orbits in starmap view
+        if *view_mode == ViewMode::Starmap {
+            orbit_path.visible = false;
+            continue;
+        }
 
-    for (mut orbit_path, selected, planet, moon) in orbit_query.iter_mut() {
         if selected.is_some() {
             // Selected bodies always show their orbit
             orbit_path.visible = true;
@@ -330,12 +972,54 @@ pub fn update_orbit_visibility(
             // Planets always show their orbit
             orbit_path.visible = true;
         } else if moon.is_some() {
-            // Show moon orbits only when zoomed in close enough
-            orbit_path.visible = camera_distance < MOON_ORBIT_VISIBILITY_DISTANCE;
+            // Show moon orbits only when the parent planet is the camera anchor
+            orbit_path.visible = anchor.0.is_some()
+                && logical_parent.map(|lp| Some(lp.0) == anchor.0).unwrap_or(false);
         } else {
             // Asteroids, Comets, DwarfPlanets are hidden by default
             orbit_path.visible = false;
         }
+    }
+}
+
+/// System that toggles moon mesh visibility based on camera anchor.
+///
+/// Moons are only visible when their parent planet is the camera's anchor.
+/// This prevents overlapping moon systems from different planets.
+pub fn update_body_lod_visibility(
+    camera_query: Query<&CameraAnchor, With<GameCamera>>,
+    mut body_query: Query<
+        (
+            &mut Visibility,
+            Option<&LogicalParent>,
+            Option<&Moon>,
+            Option<&Selected>,
+        ),
+        With<CelestialBody>,
+    >,
+) {
+    let Ok(anchor) = camera_query.get_single() else {
+        return;
+    };
+
+    for (mut visibility, logical_parent, moon, selected) in body_query.iter_mut() {
+        // Selected bodies are always visible
+        if selected.is_some() {
+            *visibility = Visibility::Inherited;
+            continue;
+        }
+
+        if moon.is_some() {
+            // Moon visibility: only when parent planet is the camera anchor
+            let parent_anchored = anchor.0.is_some()
+                && logical_parent.map(|lp| Some(lp.0) == anchor.0).unwrap_or(false);
+            *visibility = if parent_anchored {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
+        }
+        // Planets, Stars, Asteroids, Dwarf Planets: always visible
     }
 }
 
@@ -348,6 +1032,7 @@ pub struct SelectionState {
 /// System that handles celestial body selection via mouse clicks
 #[allow(clippy::too_many_arguments)]
 pub fn handle_body_selection(
+    view_mode: Res<ViewMode>,
     mouse_button: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     camera_query: Query<(&Camera, &GlobalTransform), With<GameCamera>>,
@@ -359,6 +1044,11 @@ pub fn handle_body_selection(
     mut selection_state: Local<SelectionState>,
     mut egui_contexts: bevy_egui::EguiContexts,
 ) {
+    // Disable body selection in starmap view
+    if *view_mode == ViewMode::Starmap {
+        return;
+    }
+
     // Only process on mouse click
     if !mouse_button.just_pressed(MouseButton::Left) {
         return;
@@ -450,12 +1140,33 @@ pub fn handle_body_selection(
 
 /// System that handles celestial body hover detection via mouse position
 pub fn handle_body_hover(
+    view_mode: Res<ViewMode>,
     windows: Query<&Window, With<PrimaryWindow>>,
     camera_query: Query<(&Camera, &GlobalTransform), With<GameCamera>>,
     body_query: Query<(Entity, &GlobalTransform, &CelestialBody)>,
     mut commands: Commands,
     hovered_query: Query<Entity, With<Hovered>>,
+    mut egui_contexts: bevy_egui::EguiContexts,
 ) {
+    // Disable hover in starmap view
+    if *view_mode == ViewMode::Starmap {
+        for entity in hovered_query.iter() {
+            commands.entity(entity).remove::<Hovered>();
+        }
+        return;
+    }
+
+    // Safety check: ensure we have access to egui context
+    // If the cursor is over a UI element, don't perform world picking
+    let ctx = egui_contexts.ctx_mut();
+    if ctx.is_pointer_over_area() || ctx.wants_pointer_input() {
+        // Clear all hovers if we are over UI
+        for entity in hovered_query.iter() {
+            commands.entity(entity).remove::<Hovered>();
+        }
+        return;
+    }
+
     let Ok(window) = windows.get_single() else {
         return;
     };
@@ -716,6 +1427,7 @@ fn spawn_marker(
 /// System that automatically zooms camera when anchoring to a body
 pub fn zoom_camera_to_anchored_body(
     body_query: Query<(&CelestialBody, Option<&Star>)>,
+    moon_parent_query: Query<&LogicalParent, With<Moon>>,
     mut camera_query: Query<(&mut OrbitCamera, &CameraAnchor), (With<GameCamera>, Changed<CameraAnchor>)>,
 ) {
     // Only trigger when camera anchor changes
@@ -732,11 +1444,24 @@ pub fn zoom_camera_to_anchored_body(
                 // Approximately 40 AU should show out to Neptune
                 40.0 * SCALING_FACTOR as f32
             } else {
-                // For other bodies, make them fill about 10% of the screen
-                // Assuming a 60° FOV, we need distance = radius * 10
-                let visual_radius = body.radius * RADIUS_SCALE;
-                let target_distance = visual_radius * 20.0; // Fill ~10% of screen
-                target_distance.clamp(50.0, 10000.0) // Clamp to reasonable range
+                let visual_radius = (body.radius * RADIUS_SCALE).max(5.0);
+                
+                // Check if any moon has this body as its logical parent
+                let has_moons = moon_parent_query
+                    .iter()
+                    .any(|lp| lp.0 == anchored_entity);
+                
+                if has_moons {
+                    // Zoom to show the entire moon system
+                    // Outermost moon is at ~6× parent visual radius (OUTER_MOON_MULTIPLIER),
+                    // so zoom to ~2.5× that for comfortable framing
+                    let target_distance = visual_radius * 15.0;
+                    target_distance.clamp(200.0, 50000.0)
+                } else {
+                    // No moons: zoom to show the body itself
+                    let target_distance = visual_radius * 20.0;
+                    target_distance.clamp(50.0, 10000.0)
+                }
             };
             
             orbit_camera.radius = zoom_distance;
