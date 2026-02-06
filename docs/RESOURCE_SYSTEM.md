@@ -197,17 +197,6 @@ The resource system is designed to support:
 - **Trade and economic simulation**: Rare resources drive interplanetary commerce
 - **Strategic resource management**: Balancing extraction vs. preservation
 
-Resource amounts are displayed in **megatons (Mt)** based on:
-- Body mass (in kg)
-- Resource abundance (as fraction of body mass)
-
-Formula: `Amount (Mt) = (Body Mass × Abundance) / 1e9`
-
-Example:
-- Earth mass: 5.972×10²⁴ kg
-- Iron abundance: 50%
-- Iron amount: 2.986×10¹⁵ Mt
-
 ## UI Display
 
 ### Empire View (Header Panel)
