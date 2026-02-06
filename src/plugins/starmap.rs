@@ -229,21 +229,16 @@ fn setup_starmap(
 // ── Systems ─────────────────────────────────────────────────────────────────
 
 /// Tag all celestial bodies spawned by solar_system.rs as belonging to System 0 (Sol).
-/// Also tags any children (like lights or clouds) recursively implies ownership, 
-/// but for explicit queries we tag them if possible.
+/// We only tag the CelestialBody entity itself. Child entities (lights, clouds, etc)
+/// may be added/removed asynchronously and inserting into them here can panic
+/// if they are despawned before buffered commands are applied. Child entities'
+/// ownership is inferred from their Parent during visibility logic.
 fn tag_sol_bodies(
     mut commands: Commands,
-    query: Query<(Entity, &Children), (With<CelestialBody>, Without<SystemId>)>,
-    child_query: Query<Entity, Without<SystemId>>,
+    query: Query<Entity, (With<CelestialBody>, Without<SystemId>)>,
 ) {
-    for (entity, children) in query.iter() {
+    for entity in query.iter() {
         commands.entity(entity).insert(SystemId(0));
-        // Tag children (lights, clouds, etc) so they can be hidden/shown with the parent
-        for &child in children.iter() {
-            if child_query.get(child).is_ok() {
-                commands.entity(child).insert(SystemId(0));
-            }
-        }
     }
 }
 
@@ -352,7 +347,8 @@ fn toggle_system_view_entities(
     view_mode: Res<ViewMode>,
     current_system: Res<CurrentStarSystem>,
     mut body_query: Query<(&mut Visibility, Option<&SystemId>), With<CelestialBody>>,
-    mut light_query: Query<(&mut Visibility, Option<&SystemId>), (With<PointLight>, Without<CelestialBody>, Without<StarSystemIcon>)>,
+    mut light_query: Query<(&mut Visibility, Option<&SystemId>, Option<&Parent>), (With<PointLight>, Without<CelestialBody>, Without<StarSystemIcon>)>,
+    parent_sys_query: Query<&SystemId>,
 ) {
     if !view_mode.is_changed() && !current_system.is_changed() {
         return;
@@ -369,14 +365,24 @@ fn toggle_system_view_entities(
                     *vis = Visibility::Hidden;
                 }
             }
-            // Update lights
-            for (mut vis, sys_id) in light_query.iter_mut() {
-                 let id = sys_id.map(|s| s.0).unwrap_or(0);
-                 if id == current_system.0 {
+            // Update lights and other child entities by checking their own SystemId,
+            // falling back to their Parent's SystemId if available. This avoids
+            // inserting components into children (which can panic if they are
+            // despawned before command application).
+            for (mut vis, sys_id, parent) in light_query.iter_mut() {
+                let id = if let Some(s) = sys_id {
+                    s.0
+                } else if let Some(parent) = parent {
+                    parent_sys_query.get(parent.get()).map(|s| s.0).unwrap_or(0)
+                } else {
+                    0
+                };
+
+                if id == current_system.0 {
                     *vis = Visibility::Inherited;
-                 } else {
+                } else {
                     *vis = Visibility::Hidden;
-                 }
+                }
             }
         },
         ViewMode::Starmap => {
@@ -384,7 +390,7 @@ fn toggle_system_view_entities(
             for (mut vis, _) in body_query.iter_mut() {
                 *vis = Visibility::Hidden;
             }
-            for (mut vis, _) in light_query.iter_mut() {
+            for (mut vis, _, _) in light_query.iter_mut() {
                 *vis = Visibility::Hidden;
             }
         }
