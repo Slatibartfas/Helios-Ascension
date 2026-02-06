@@ -1,54 +1,45 @@
 # UI Changes Summary
 
-## Before vs After
+## Enhanced Resource System (20 Resources, 7 Categories)
 
 ### Empire View (Header Panel)
 
-**BEFORE:**
+**BEFORE (15 resources, 5 categories):**
 ```
-Helios: Ascension | H2O: 100.0 | Fe: 50.0 | He3: 0.0 | U: 0.0 | Au/Pt: 0.0 | ⚡ 1.00 GW (Net: 500.00 MW)
-Civilization Score: 90.0 | Grid Efficiency: 50.0%
-```
-
-**AFTER:**
-```
-Helios: Ascension | Volatiles: 100.0 Mt | Construction: 50.0 Mt | Noble Gases: 0.0 Mt | Fissiles: 0.0 Mt | Specialty: 0.0 Mt | ⚡ 1.00 GW (Net: 500.00 MW)
-Civilization Score: 90.0 | Grid Efficiency: 50.0%
+Helios: Ascension | Volatiles: 100.0 Mt | Construction: 50.0 Mt | Noble Gases: 0.0 Mt | Fissiles: 0.0 Mt | Specialty: 0.0 Mt | ⚡ 1.00 GW
 ```
 
-**Hover over "Volatiles: 100.0 Mt" reveals:**
+**AFTER (20 resources, 7 categories):**
 ```
-┌─────────────────────────┐
-│ Volatiles               │
-│ ─────────────────────── │
-│   Water (H2O): 100.0 Mt │
-│   Hydrogen (H2): 0.0 Mt │
-│   Ammonia (NH3): 0.0 Mt │
-│   Methane (CH4): 0.0 Mt │
-└─────────────────────────┘
+Helios: Ascension | Volatiles: 100.0 Mt | Atmospheric Gases: 50.0 Mt | Construction: 50.0 Mt | Fusion Fuel: 0.0 Mt | Fissiles: 0.0 Mt | Precious Metals: 0.0 Mt | Specialty: 0.0 Mt | ⚡ 1.00 GW
+```
+
+**Hover over "Atmospheric Gases: 50.0 Mt" reveals:**
+```
+┌────────────────────────────────┐
+│ Atmospheric Gases              │
+│ ────────────────────────────── │
+│   Nitrogen (N2): 25.0 Mt       │
+│   Oxygen (O2): 20.0 Mt         │
+│   Carbon Dioxide (CO2): 5.0 Mt │
+│   Argon (Ar): 0.0 Mt           │
+└────────────────────────────────┘
+```
+
+**Hover over "Precious Metals: 0.0 Mt" reveals:**
+```
+┌────────────────────────────┐
+│ Precious Metals            │
+│ ────────────────────────── │
+│   Gold (Au): 0.0 Mt        │
+│   Silver (Ag): 0.0 Mt      │
+│   Platinum (Pt): 0.0 Mt    │
+└────────────────────────────┘
 ```
 
 ### Selection Panel (When Body Selected)
 
-**BEFORE:**
-```
-Resources
-─────────
-Water (H2O)
-  Abundance: [████████░░] 80.0%
-  Access:    [██████░░░░] 60.0%
-
-Iron (Fe)
-  Abundance: [██████░░░░] 60.0%
-  Access:    [████████░░] 80.0%
-
-[... continues for all resources ...]
-
-Total viable deposits: 10
-Total resource value: 5.42
-```
-
-**AFTER:**
+**AFTER (with realistic abundances):**
 ```
 Resources
 Body mass: 5.97e+24 kg
@@ -57,61 +48,141 @@ Body mass: 5.97e+24 kg
 ─────────────────────────────────
 Volatiles
   Water (H2O)
-    Amount: 4.78e+15 Mt
-    Concentration: [████████░░] 80.0%
+    Amount: 3.58e+15 Mt
+    Concentration: [████████░░] 60.0%
     Accessibility: [██████░░░░] 60.0%
+
+Atmospheric Gases
+  Nitrogen (N2)
+    Amount: 5.97e+14 Mt
+    Concentration: [██████░░░░] 10.0%
+    Accessibility: [████████░░] 80.0%
   
-  Hydrogen (H2)
+  Oxygen (O2)
     Amount: 2.99e+14 Mt
-    Concentration: [█████░░░░░] 50.0%
+    Concentration: [█████░░░░░] 5.0%
     Accessibility: [███████░░░] 70.0%
+  
+  Carbon Dioxide (CO2)
+    Amount: 5.97e+13 Mt
+    Concentration: [█░░░░░░░░░] 1.0%
+    Accessibility: [██████░░░░] 60.0%
 
 Construction
   Iron (Fe)
-    Amount: 3.58e+15 Mt
-    Concentration: [██████░░░░] 60.0%
+    Amount: 1.79e+15 Mt
+    Concentration: [███████████] 30.0%
     Accessibility: [████████░░] 80.0%
   
-  [... other construction materials ...]
+  Silicates (SiO2)
+    Amount: 2.39e+15 Mt
+    Concentration: [████████████] 40.0%
+    Accessibility: [████████░░] 80.0%
+  
+  Aluminum (Al)
+    Amount: 4.78e+14 Mt
+    Concentration: [████████░░] 8.0%
+    Accessibility: [███████░░░] 70.0%
+  
+  Titanium (Ti)
+    Amount: 3.58e+13 Mt
+    Concentration: [█░░░░░░░░░] 0.6%
+    Accessibility: [██████░░░░] 60.0%
 
-Noble Gases
-  [... noble gases ...]
+Fusion Fuel
+  Helium-3 (He3)
+    Amount: 5.97e+08 Mt
+    Concentration: [░░░░░░░░░░] 0.00001%
+    Accessibility: [█████░░░░░] 50.0%
 
 Fissiles
-  [... fissiles ...]
+  Uranium (U)
+    Amount: 1.79e+07 Mt
+    Concentration: [░░░░░░░░░░] 0.0003%
+    Accessibility: [█████░░░░░] 50.0%
+  
+  Thorium (Th)
+    Amount: 7.16e+07 Mt
+    Concentration: [░░░░░░░░░░] 0.0012%
+    Accessibility: [█████░░░░░] 50.0%
+
+Precious Metals
+  Gold (Au)
+    Amount: 2.39e+06 Mt
+    Concentration: [░░░░░░░░░░] 0.00004%
+    Accessibility: [████░░░░░░] 40.0%
+  
+  Silver (Ag)
+    Amount: 4.78e+06 Mt
+    Concentration: [░░░░░░░░░░] 0.00008%
+    Accessibility: [████░░░░░░] 40.0%
+  
+  Platinum (Pt)
+    Amount: 2.99e+05 Mt
+    Concentration: [░░░░░░░░░░] 0.000005%
+    Accessibility: [███░░░░░░░] 30.0%
 
 Specialty
-  [... specialty materials ...]
+  Copper (Cu)
+    Amount: 3.58e+08 Mt
+    Concentration: [░░░░░░░░░░] 0.006%
+    Accessibility: [██████░░░░] 60.0%
+  
+  Rare Earths (REE)
+    Amount: 1.19e+09 Mt
+    Concentration: [░░░░░░░░░░] 0.02%
+    Accessibility: [██████░░░░] 60.0%
 
 ─────────────────────────────────
-Total viable deposits: 10
-Total resource value: 5.42
+Total viable deposits: 18
+Total resource value: 6.42
 ```
 
 ## Key Improvements
 
-1. **More Intuitive Values**: Absolute amounts in megatons are easier to understand than percentages
-2. **Better Organization**: Resources grouped by category with color-coded headers
-3. **Compact Overview**: Empire view shows totals by category, not individual resources
-4. **Hover Expansion**: Details available on-demand without cluttering the main view
-5. **Context**: Body mass shown so players understand why amounts differ between bodies
-6. **Consistent Units**: All resources use "Mt" (megatons) as the standard unit
+1. **Terraforming Gases Added**: N2, O2, CO2 essential for creating breathable atmospheres
+2. **Precious Metals Separated**: Gold, Silver, Platinum now individual resources for clearer gameplay
+3. **Realistic Abundances**: Based on actual planetary compositions
+   - Common materials (Iron, Silicates): 15-45% of body mass
+   - Rare materials (Gold, Platinum): ppm to ppb levels
+   - This makes mining depletion mechanics realistic
+4. **Better Organization**: 7 categories vs. 5 for clearer resource management
+5. **Mining-Ready**: Abundances reflect actual composition, so mining will realistically deplete resources
+6. **Strategic Depth**: Rare materials will deplete quickly, common materials last longer
 
-## Category Colors
+## New Categories
 
-- **Volatiles**: Light blue header (contains terraforming resources)
-- **Construction**: Light blue header (structural materials)
-- **Noble Gases**: Light blue header (fusion and atmosphere)
-- **Fissiles**: Light blue header (nuclear power)
-- **Specialty**: Light blue header (advanced technology)
+1. **Volatiles** (Water, Hydrogen, Ammonia, Methane) - Common in outer system
+2. **Atmospheric Gases** (N2, O2, CO2, Ar) - **NEW** - For terraforming
+3. **Construction** (Iron, Al, Ti, Silicates) - Building materials
+4. **Fusion Fuel** (He-3) - **RENAMED** - Extremely valuable
+5. **Fissiles** (Uranium, Thorium) - Nuclear power
+6. **Precious Metals** (Au, Ag, Pt) - **NEW** - High-value trade goods
+7. **Specialty** (Copper, Rare Earths) - Advanced technology
 
 ## Resource Coverage
 
-Now **ALL** celestial body types have resources:
-- ✅ Planets (e.g., Earth, Mars, Jupiter)
-- ✅ Dwarf Planets (e.g., Pluto, Ceres)
-- ✅ Moons (e.g., Moon, Europa, Titan)
-- ✅ Asteroids (e.g., Vesta, Pallas) - **NEW**
-- ✅ Comets (e.g., Halley) - **NEW**
+ALL celestial body types have resources with realistic compositions:
+- ✅ Planets - Full resource profiles based on composition
+- ✅ Dwarf Planets - Varied resources
+- ✅ Moons - Dependent on parent body location
+- ✅ Asteroids - Can be rich in precious metals (asteroid belt bonus)
+- ✅ Comets - Rich in volatiles
 
-This means asteroids and comets are now viable targets for mining operations!
+## Mining Depletion Example
+
+**Asteroid with realistic Gold abundance:**
+- Mass: 1.0×10¹⁸ kg (small asteroid)
+- Gold abundance: 0.0000005 (0.00005%)
+- Gold amount: 5.0×10² Mt (500 megatons)
+
+**After mining 100 Mt of gold:**
+- Mass: 9.99999×10¹⁷ kg (barely changed)
+- Gold abundance: 0.0000004 (decreased 20%)
+- Gold remaining: 4.0×10² Mt (400 megatons)
+
+This realistic system means:
+- **Common resources** (Iron, Silicates) will last through extensive mining
+- **Rare resources** (Gold, Platinum, Uranium) will deplete quickly
+- **Body mass** decreases realistically with extraction
+- **Strategic decisions** about which bodies to mine and when to move on

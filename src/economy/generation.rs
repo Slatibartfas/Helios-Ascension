@@ -299,10 +299,10 @@ mod tests {
         let frost_line = 2.5;
         let resources = generate_resources_for_body(1.0, frost_line, &mut rng);
 
-        // Inner system should have high construction materials
-        assert!(resources.get_abundance(&ResourceType::Iron) > 0.3);
+        // Inner system should have construction materials
+        assert!(resources.get_abundance(&ResourceType::Iron) > 0.1);
         // Inner system should have low volatiles
-        assert!(resources.get_abundance(&ResourceType::Water) < 0.2);
+        assert!(resources.get_abundance(&ResourceType::Water) < 0.05);
     }
 
     #[test]
@@ -311,9 +311,41 @@ mod tests {
         let frost_line = 2.5;
         let resources = generate_resources_for_body(5.0, frost_line, &mut rng);
 
-        // Outer system should have high volatiles
-        assert!(resources.get_abundance(&ResourceType::Water) > 0.4);
-        assert!(resources.get_abundance(&ResourceType::Methane) > 0.4);
+        // Outer system should have volatiles
+        assert!(resources.get_abundance(&ResourceType::Water) > 0.2);
+        assert!(resources.get_abundance(&ResourceType::Methane) > 0.2);
+    }
+
+    #[test]
+    fn test_atmospheric_gases_present() {
+        let mut rng = rand::thread_rng();
+        let frost_line = 2.5;
+        let resources = generate_resources_for_body(1.0, frost_line, &mut rng);
+
+        // Atmospheric gases should be present
+        let nitrogen = resources.get_abundance(&ResourceType::Nitrogen);
+        let oxygen = resources.get_abundance(&ResourceType::Oxygen);
+        
+        // At least one should be present
+        assert!(nitrogen > 0.0 || oxygen > 0.0);
+    }
+
+    #[test]
+    fn test_precious_metals_rare() {
+        let mut rng = rand::thread_rng();
+        let frost_line = 2.5;
+        let resources = generate_resources_for_body(1.0, frost_line, &mut rng);
+
+        // Precious metals should be very rare
+        let gold = resources.get_abundance(&ResourceType::Gold);
+        let platinum = resources.get_abundance(&ResourceType::Platinum);
+        
+        if gold > 0.0 {
+            assert!(gold < 0.00001, "Gold should be extremely rare");
+        }
+        if platinum > 0.0 {
+            assert!(platinum < 0.000001, "Platinum should be extremely rare");
+        }
     }
 
     #[test]
