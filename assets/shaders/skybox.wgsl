@@ -5,6 +5,18 @@
 @group(2) @binding(0) var<uniform> camera_rotation: mat3x3<f32>;
 @group(2) @binding(1) var<uniform> camera_distance: f32;
 
+// Visual parameters - extracted as constants for easy tuning
+const FBM_OCTAVES: i32 = 4;                  // Number of noise octaves for nebulae
+const STAR_GRID_SIZE: f32 = 0.1;             // Grid cell size for star placement
+const STAR_DENSITY_THRESHOLD: f32 = 0.98;    // ~2% of cells contain stars
+const STAR_SIZE_MIN: f32 = 0.001;            // Minimum star angular size
+const STAR_SIZE_RANGE: f32 = 0.002;          // Star size variation range
+const STAR_INTENSITY_MIN: f32 = 0.15;        // Minimum star brightness
+const STAR_INTENSITY_RANGE: f32 = 0.15;      // Star intensity variation range
+const NEBULA_PARALLAX_FACTOR: f32 = 0.5;     // Nebula layer moves at 0.5x speed for depth
+const LUMINANCE_CAP: f32 = 0.4;              // Maximum brightness for any pixel
+const DISTANCE_FADE_AMOUNT: f32 = 0.3;       // Maximum dimming at far distance (30%)
+
 struct FragmentInput {
     @builtin(position) frag_coord: vec4<f32>,
     @location(0) world_position: vec4<f32>,
@@ -63,7 +75,7 @@ fn fbm(p: vec3<f32>) -> f32 {
     var frequency = 1.0;
     var pp = p;
     
-    for (var i = 0; i < 4; i++) {
+    for (var i = 0; i < FBM_OCTAVES; i++) {
         value += amplitude * noise3d(pp * frequency);
         frequency *= 2.0;
         amplitude *= 0.5;
@@ -74,7 +86,7 @@ fn fbm(p: vec3<f32>) -> f32 {
 
 // Generate star layer
 fn generate_stars(direction: vec3<f32>, scale: f32) -> f32 {
-    let grid_size = 0.1 * scale;
+    let grid_size = STAR_GRID_SIZE * scale;
     let cell = floor(direction / grid_size);
     
     // Check cell and neighbors for stars
@@ -86,8 +98,8 @@ fn generate_stars(direction: vec3<f32>, scale: f32) -> f32 {
                 let neighbor_cell = cell + vec3<f32>(f32(x), f32(y), f32(z));
                 let hash_val = hash13(neighbor_cell);
                 
-                // Only ~2% of cells have stars
-                if (hash_val > 0.98) {
+                // Only ~2% of cells have stars (based on STAR_DENSITY_THRESHOLD)
+                if (hash_val > STAR_DENSITY_THRESHOLD) {
                     // Get star position within cell
                     let star_offset = hash33(neighbor_cell) - 0.5;
                     let star_pos = (neighbor_cell + star_offset) * grid_size;
@@ -97,8 +109,8 @@ fn generate_stars(direction: vec3<f32>, scale: f32) -> f32 {
                     let angular_dist = acos(clamp(dot(direction, to_star), -1.0, 1.0));
                     
                     // Star size and intensity based on hash
-                    let star_size = 0.001 + hash13(neighbor_cell * 1.234) * 0.002;
-                    let star_intensity = 0.15 + hash13(neighbor_cell * 5.678) * 0.15;
+                    let star_size = STAR_SIZE_MIN + hash13(neighbor_cell * 1.234) * STAR_SIZE_RANGE;
+                    let star_intensity = STAR_INTENSITY_MIN + hash13(neighbor_cell * 5.678) * STAR_INTENSITY_RANGE;
                     
                     // Create sharp star point
                     let star_brightness = star_intensity * smoothstep(star_size * 2.0, 0.0, angular_dist);
@@ -144,9 +156,8 @@ fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
     // Layer 1: Deep space stars - static, low intensity, tiny
     let star_layer = generate_stars(rotated_direction, 1.0);
     
-    // Layer 2: Galactic dust/nebulae with slower parallax (0.5x speed)
-    let parallax_factor = 0.5;
-    let nebula_layer = generate_nebula(rotated_direction, parallax_factor);
+    // Layer 2: Galactic dust/nebulae with slower parallax
+    let nebula_layer = generate_nebula(rotated_direction, NEBULA_PARALLAX_FACTOR);
     
     // Combine layers
     var final_color = vec3<f32>(0.0);
@@ -159,13 +170,13 @@ fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
     
     // Distance fading: dim stars as camera zooms out
     // camera_distance is normalized: 0.0 = min_radius, 1.0 = max_radius
-    let distance_fade = 1.0 - (camera_distance * 0.3); // Reduce by up to 30%
+    let distance_fade = 1.0 - (camera_distance * DISTANCE_FADE_AMOUNT);
     final_color *= distance_fade;
     
-    // Luminance cap: no pixel should exceed 0.4 brightness
+    // Luminance cap: no pixel should exceed LUMINANCE_CAP brightness
     let luminance = dot(final_color, vec3<f32>(0.299, 0.587, 0.114));
-    if (luminance > 0.4) {
-        final_color *= 0.4 / luminance;
+    if (luminance > LUMINANCE_CAP) {
+        final_color *= LUMINANCE_CAP / luminance;
     }
     
     return vec4<f32>(final_color, 1.0);

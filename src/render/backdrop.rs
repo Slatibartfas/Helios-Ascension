@@ -1,5 +1,6 @@
 use bevy::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, ShaderRef};
+use bevy::render::render_resource::{AsBindGroup, ShaderRef, RenderPipelineDescriptor, SpecializedMeshPipelineError};
+use bevy::render::mesh::MeshVertexBufferLayoutRef;
 use bevy::render::view::RenderLayers;
 
 /// Plugin that manages the procedural space backdrop
@@ -39,9 +40,18 @@ impl Material for SkyboxMaterial {
         AlphaMode::Opaque
     }
     
-    // Disable depth write so backdrop doesn't interfere with gameplay entities
-    fn depth_bias(&self) -> f32 {
-        0.0
+    // Override specialize to disable depth write so backdrop doesn't interfere with gameplay entities
+    fn specialize(
+        _pipeline: &bevy::pbr::MaterialPipeline<Self>,
+        descriptor: &mut RenderPipelineDescriptor,
+        _layout: &MeshVertexBufferLayoutRef,
+        _key: bevy::pbr::MaterialPipelineKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        // Disable depth write - backdrop should not affect depth buffer
+        if let Some(depth_stencil) = &mut descriptor.depth_stencil {
+            depth_stencil.depth_write_enabled = false;
+        }
+        Ok(())
     }
 }
 
