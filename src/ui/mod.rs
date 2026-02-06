@@ -476,7 +476,12 @@ fn ui_dashboard(
                                     .body(|ui| {
                                         // Basic atmosphere properties
                                         ui.horizontal(|ui| {
-                                            ui.label("Pressure:");
+                                            // Display appropriate label based on whether this is reference or surface pressure
+                                            if atmosphere.is_reference_pressure {
+                                                ui.label("Pressure (at 1 bar ref):");
+                                            } else {
+                                                ui.label("Surface Pressure:");
+                                            }
                                             let pressure_bar = atmosphere.surface_pressure_mbar / 1000.0;
                                             if pressure_bar >= 1.0 {
                                                 ui.label(format!("{:.2} bar", pressure_bar));
@@ -484,6 +489,22 @@ fn ui_dashboard(
                                                 ui.label(format!("{:.0} mbar", atmosphere.surface_pressure_mbar));
                                             }
                                         });
+                                        
+                                        // Show harvest altitude for gas giants
+                                        if atmosphere.is_reference_pressure && atmosphere.harvest_altitude_bar > 0.0 {
+                                            ui.horizontal(|ui| {
+                                                ui.label("Harvest Altitude:");
+                                                let yield_mult = atmosphere.harvest_yield_multiplier();
+                                                ui.label(format!("{:.1} bar ({:.1}× yield)", 
+                                                    atmosphere.harvest_altitude_bar, yield_mult));
+                                            });
+                                            
+                                            ui.horizontal(|ui| {
+                                                ui.label("Max Harvest Depth:");
+                                                ui.label(format!("{:.1} bar (tech-limited)", 
+                                                    atmosphere.max_harvest_altitude_bar));
+                                            });
+                                        }
                                         
                                         ui.horizontal(|ui| {
                                             ui.label("Temperature:");
