@@ -8,7 +8,8 @@ use std::collections::hash_map::DefaultHasher;
 
 use super::solar_system_data::{AsteroidClass, BodyType, SolarSystemData};
 use crate::astronomy::{
-    orbit_position_from_mean_anomaly, KeplerOrbit, OrbitPath, SpaceCoordinates, SCALING_FACTOR,
+    orbit_position_from_mean_anomaly, KeplerOrbit, LocalOrbitAmplification, OrbitPath,
+    SpaceCoordinates, SCALING_FACTOR,
 };
 use crate::plugins::camera::{CameraAnchor, GameCamera};
 use crate::ui::SimulationTime;
@@ -139,6 +140,20 @@ fn get_generic_texture_path(body_data: &super::solar_system_data::CelestialBodyD
             // For now, use the C-type asteroid texture as a generic rocky surface
             Some("textures/celestial/asteroids/generic_c_type_2k.jpg".to_string())
         }
+        BodyType::DwarfPlanet => {
+            // Dwarf planets without dedicated textures use a generic rocky surface
+            // Procedural color/brightness variation makes each one look distinct
+            // Use C-type for darker/icy KBOs, S-type for rockier ones
+            let mut seed = 0u32;
+            for byte in body_data.name.bytes() {
+                seed = seed.wrapping_mul(31).wrapping_add(byte as u32);
+            }
+            if seed % 3 == 0 {
+                Some("textures/celestial/asteroids/generic_s_type_2k.jpg".to_string())
+            } else {
+                Some("textures/celestial/asteroids/generic_c_type_2k.jpg".to_string())
+            }
+        }
         _ => None, // Planets and stars should have dedicated textures
     }
 }
@@ -232,13 +247,57 @@ fn apply_procedural_variation(
             }
         }
         BodyType::Comet => {
-            // Comets: Vary between icy white and dusty brown
-            let ice_factor = random1;
-            Color::srgb(
-                0.6 + ice_factor * 0.3,
-                0.6 + ice_factor * 0.2,
-                0.5 + ice_factor * 0.4,
-            )
+            // Comets: Wide variety from pristine icy to dark carbonaceous
+            // Use multiple random values for more distinct appearances
+            let comet_type = (random1 * 5.0) as u32;
+            match comet_type {
+                0 => {
+                    // Pristine icy comet - bluish-white
+                    let brightness = 0.75 + random2 * 0.25;
+                    Color::srgb(
+                        brightness * 0.85,
+                        brightness * 0.90,
+                        brightness * 1.0,
+                    )
+                }
+                1 => {
+                    // Dusty/old comet - warm brown/tan
+                    let brightness = 0.4 + random2 * 0.3;
+                    Color::srgb(
+                        brightness * 1.1,
+                        brightness * 0.85,
+                        brightness * 0.65,
+                    )
+                }
+                2 => {
+                    // Dark carbonaceous nucleus
+                    let brightness = 0.25 + random2 * 0.2;
+                    Color::srgb(
+                        brightness * 1.0,
+                        brightness * 0.95,
+                        brightness * 0.85,
+                    )
+                }
+                3 => {
+                    // Reddish organic-rich surface
+                    let brightness = 0.45 + random2 * 0.25;
+                    Color::srgb(
+                        brightness * 1.2,
+                        brightness * 0.75,
+                        brightness * 0.6,
+                    )
+                }
+                _ => {
+                    // Mixed ice and dust - gray with slight variation
+                    let brightness = 0.5 + random2 * 0.3;
+                    let tint = random3 * 0.15;
+                    Color::srgb(
+                        brightness + tint,
+                        brightness,
+                        brightness - tint * 0.5,
+                    )
+                }
+            }
         }
         BodyType::Moon => {
             // Moons: Slight color variation
@@ -248,6 +307,68 @@ fn apply_procedural_variation(
                 (base_color.to_srgba().green * gray_variation).clamp(0.0, 1.0),
                 (base_color.to_srgba().blue * gray_variation).clamp(0.0, 1.0),
             )
+        }
+        BodyType::DwarfPlanet => {
+            // Dwarf planets: diverse surface compositions
+            // KBOs range from bright icy to dark reddish
+            let dp_type = (random1 * 6.0) as u32;
+            match dp_type {
+                0 => {
+                    // Bright icy surface (like Eris/Makemake)
+                    let brightness = 0.85 + random2 * 0.15;
+                    Color::srgb(
+                        brightness * 0.95,
+                        brightness * 0.95,
+                        brightness * 1.0,
+                    )
+                }
+                1 => {
+                    // Reddish tholins (like Sedna/Quaoar)
+                    let brightness = 0.55 + random2 * 0.25;
+                    Color::srgb(
+                        (brightness * 1.25).min(1.0),
+                        brightness * 0.78,
+                        brightness * 0.6,
+                    )
+                }
+                2 => {
+                    // Gray rocky (like Orcus)
+                    let brightness = 0.6 + random2 * 0.2;
+                    Color::srgb(
+                        brightness,
+                        brightness * 0.97,
+                        brightness * 0.95,
+                    )
+                }
+                3 => {
+                    // Dark with slight blue tint (water ice patches)
+                    let brightness = 0.45 + random2 * 0.2;
+                    Color::srgb(
+                        brightness * 0.9,
+                        brightness * 0.92,
+                        brightness * 1.05,
+                    )
+                }
+                4 => {
+                    // Warm brownish (like Haumea family)
+                    let brightness = 0.65 + random2 * 0.2;
+                    Color::srgb(
+                        brightness * 1.05,
+                        brightness * 0.92,
+                        brightness * 0.8,
+                    )
+                }
+                _ => {
+                    // Neutral slightly varied
+                    let brightness = 0.55 + random2 * 0.25;
+                    let tint = (random3 - 0.5) * 0.1;
+                    Color::srgb(
+                        (brightness + tint).clamp(0.0, 1.0),
+                        brightness.clamp(0.0, 1.0),
+                        (brightness - tint * 0.5).clamp(0.0, 1.0),
+                    )
+                }
+            }
         }
         BodyType::Ring => base_color, // Rings rely on texture/transparency
         _ => base_color,
@@ -263,6 +384,10 @@ fn apply_procedural_variation(
                 AsteroidClass::DType | AsteroidClass::PType => 0.8 + random2 * 0.15, // 0.8 to 0.95 (very rough, primitive)
                 _ => 0.7 + random2 * 0.2, // 0.7 to 0.9 for others
             }
+        } else if body_data.body_type == BodyType::Comet {
+            0.75 + random2 * 0.2 // 0.75 to 0.95 (rough, irregular surface)
+        } else if body_data.body_type == BodyType::DwarfPlanet {
+            0.6 + random2 * 0.25 // 0.6 to 0.85 (varied surfaces)
         } else {
             0.7 + random2 * 0.2 // 0.7 to 0.9 for other textured bodies
         }
@@ -280,6 +405,8 @@ fn apply_procedural_variation(
                 _ => 0.05 + random3 * 0.1, // 0.05 to 0.15 for C/S types
             }
         }
+        BodyType::Comet => 0.02 + random3 * 0.06, // 0.02 to 0.08 (low metallic, icy/dusty)
+        BodyType::DwarfPlanet => 0.05 + random3 * 0.15, // 0.05 to 0.2 (varied)
         _ => 0.1 + random3 * 0.1, // 0.1 to 0.2 for others
     };
     
@@ -386,11 +513,11 @@ pub fn setup_solar_system(
             materials.add(StandardMaterial {
                 base_color: material_color,
                 base_color_texture,
-                // Extreme Emissive to trigger the high bloom threshold (50.0)
+                // Emissive above bloom threshold (50.0) – white-yellow like the real Sun
                 emissive: LinearRgba::from(Color::srgb(
-                   150.0,
-                   130.0,
-                   100.0,
+                   80.0,
+                   76.0,
+                   68.0,
                 )),
                 unlit: true, // Stars self-illuminate, show texture directly
                 perceptual_roughness: 1.0, // Stars are rough/diffuse
@@ -412,21 +539,17 @@ pub fn setup_solar_system(
                 ..default()
             })
         } else {
-            // For textured bodies, use the actual body color for emissive
-            // For non-textured bodies, use material_color
-            let emissive_base = if has_dedicated_texture {
-                base_color // Use the body's actual color for emissive
-            } else {
-                material_color
-            };
             materials.add(StandardMaterial {
                 base_color: material_color,
-                base_color_texture,
+                base_color_texture: base_color_texture.clone(),
                 // Note: normal_map_texture is loaded but not applied yet
                 // TODO: Enable once multi-layer rendering is fully implemented
                 // normal_map_texture,
-                // Small emissive for ambient visibility on dark side, but low enough not to wash out texture
-                emissive: LinearRgba::from(emissive_base) * 0.01,
+                // Subtle emissive so the dark side isn't pitch-black.
+                // Use the base-color texture as emissive_texture so the glow
+                // preserves surface detail instead of washing it out with a flat color.
+                emissive: LinearRgba::WHITE * 0.02,
+                emissive_texture: base_color_texture,
                 perceptual_roughness: roughness,
                 metallic,
                 reflectance: 0.5, // Higher reflectance for better lighting response
@@ -448,7 +571,7 @@ pub fn setup_solar_system(
             // Create ring mesh with high segment count for smoothness
             // We'll define a helper function create_ring_mesh
             meshes.add(create_ring_mesh(outer_radius, inner_radius, 128))
-        } else if body_data.body_type == BodyType::Asteroid {
+        } else if body_data.body_type == BodyType::Asteroid || body_data.body_type == BodyType::Comet {
              let seed = calculate_hash(&body_data.name);
              meshes.add(create_asteroid_mesh(visual_radius, body_data.radius, seed))
         } else {
@@ -577,9 +700,10 @@ pub fn setup_solar_system(
                     // Always set LogicalParent for UI hierarchy
                     commands.entity(*entity).insert(LogicalParent(*parent_entity));
                     
-                    // Only set spatial parent for moons and rings
-                    // Planets use absolute coordinates to match their orbit paths
-                    if body_data.body_type == BodyType::Moon || body_data.body_type == BodyType::Ring {
+                    // Only set spatial parent for rings (they rotate with their planet)
+                    // Moons and planets use world-space coordinates so that the
+                    // parent planet's spin rotation does NOT drag moon positions
+                    if body_data.body_type == BodyType::Ring {
                         commands.entity(*entity).set_parent(*parent_entity);
                     }
                 } else {
@@ -614,20 +738,17 @@ pub fn setup_solar_system(
                     });
 
                     // Add Soft Glow visual (Billboard)
-                    // Simplified to a soft radial gradient that blooms
+                    // A subtle corona that fades out – smaller than before for realism
                     parent.spawn((
                         PbrBundle {
-                            mesh: create_glow_mesh(meshes.as_mut(), visual_radius * 4.0),
+                            mesh: create_glow_mesh(meshes.as_mut(), visual_radius * 2.0),
                             material: materials.add(StandardMaterial {
                                 base_color: Color::WHITE,
-                                emissive: LinearRgba::from(Color::srgb(50.0, 30.0, 10.0)), // High emissive for bloom
+                                emissive: LinearRgba::from(Color::srgb(15.0, 12.0, 8.0)), // Subtle warm glow
                                 alpha_mode: AlphaMode::Add,
                                 unlit: true,
                                 ..default()
                             }),
-                            // Push it slightly behind the sun so it backgrounds it (-0.1 Z local space?)
-                            // Actually billboard overrides rotation, so translation is world relative usually.
-                            // Just put it at center.
                             transform: Transform::from_xyz(0.0, 0.0, 0.0),
                             ..default()
                         },
@@ -642,6 +763,80 @@ pub fn setup_solar_system(
     commands.insert_resource(LinearImageQueue {
         handles: linear_handle_queue,
     });
+
+    // ── Compute per-moon adaptive orbit amplification ───────────────
+    // Moons' orbital distances in Bevy units are tiny compared to the
+    // parent's upscaled visual radius, so they end up *inside* the mesh.
+    //
+    // Universe Sandbox-style approach: map all moon orbits into a bounded
+    // visual range using logarithmic spacing:
+    //   inner bound = parent_visual_radius * INNER_MOON_MULTIPLIER
+    //   outer bound = parent_visual_radius * OUTER_MOON_MULTIPLIER
+    // This keeps orbits compact, preserves orbital ordering via log
+    // distribution, and works well regardless of how many moons a planet has.
+
+    /// Innermost moon orbits at this multiple of parent visual radius
+    const INNER_MOON_MULTIPLIER: f64 = 1.5;
+    /// Outermost moon orbits at this multiple of parent visual radius
+    const OUTER_MOON_MULTIPLIER: f64 = 6.0;
+
+    // Per-moon amplification factor: moon_name → amplification
+    let mut moon_amplification: HashMap<String, f32> = HashMap::new();
+    {
+        // Group moons by parent, collecting (name, semi_major_axis)
+        let mut moons_by_parent: HashMap<String, Vec<(String, f64)>> = HashMap::new();
+        for body_data in &data.bodies {
+            if body_data.body_type == BodyType::Moon {
+                if let (Some(parent_name), Some(orbit)) = (&body_data.parent, &body_data.orbit) {
+                    moons_by_parent
+                        .entry(parent_name.clone())
+                        .or_default()
+                        .push((body_data.name.clone(), orbit.semi_major_axis as f64));
+                }
+            }
+        }
+
+        for (parent_name, moons) in &moons_by_parent {
+            // Find parent visual radius
+            let parent_visual_radius = data
+                .bodies
+                .iter()
+                .find(|b| &b.name == parent_name)
+                .map(|b| {
+                    let is_star = b.body_type == BodyType::Star;
+                    let sf = if is_star { STAR_RADIUS_SCALE } else { RADIUS_SCALE };
+                    (b.radius * sf).max(MIN_VISUAL_RADIUS)
+                })
+                .unwrap_or(MIN_VISUAL_RADIUS) as f64;
+
+            let inner_display = parent_visual_radius * INNER_MOON_MULTIPLIER;
+            let outer_display = parent_visual_radius * OUTER_MOON_MULTIPLIER;
+
+            // Find min/max real orbit distances
+            let min_orbit = moons.iter().map(|(_, a)| *a).fold(f64::MAX, f64::min);
+            let max_orbit = moons.iter().map(|(_, a)| *a).fold(f64::MIN, f64::max);
+
+            for (moon_name, orbit_au) in moons {
+                let orbit_bevy = orbit_au * SCALING_FACTOR;
+
+                if moons.len() == 1 || (max_orbit / min_orbit) < 1.01 {
+                    // Single moon or all at same distance: place at midpoint
+                    let mid_display = (inner_display + outer_display) * 0.5;
+                    let amp = (mid_display / orbit_bevy).max(1.0) as f32;
+                    moon_amplification.insert(moon_name.clone(), amp);
+                } else {
+                    // Log-space interpolation for even visual distribution
+                    let log_min = min_orbit.ln();
+                    let log_max = max_orbit.ln();
+                    let t = (orbit_au.ln() - log_min) / (log_max - log_min);
+
+                    let display_distance = inner_display + t * (outer_display - inner_display);
+                    let amp = (display_distance / orbit_bevy).max(1.0) as f32;
+                    moon_amplification.insert(moon_name.clone(), amp);
+                }
+            }
+        }
+    }
 
     // Second pass: Add high-precision astronomy components with parent references
     for body_data in &data.bodies {
@@ -670,17 +865,34 @@ pub fn setup_solar_system(
                 &kepler_orbit,
                 kepler_orbit.mean_anomaly_epoch,
             );
+
+            // Apply local orbit amplification for moons (per-moon adaptive factor)
+            let amp = if body_data.body_type == BodyType::Moon {
+                moon_amplification
+                    .get(&body_data.name)
+                    .copied()
+                    .unwrap_or(1.0)
+            } else {
+                1.0
+            };
+
             let initial_translation = Vec3::new(
-                (initial_coords.x * SCALING_FACTOR) as f32,
-                (initial_coords.y * SCALING_FACTOR) as f32,
-                (initial_coords.z * SCALING_FACTOR) as f32,
+                (initial_coords.x * SCALING_FACTOR * amp as f64) as f32,
+                (initial_coords.y * SCALING_FACTOR * amp as f64) as f32,
+                (initial_coords.z * SCALING_FACTOR * amp as f64) as f32,
             );
 
-            commands.entity(*entity).insert((
+            let mut entity_cmds = commands.entity(*entity);
+            entity_cmds.insert((
                 kepler_orbit,
                 SpaceCoordinates::new(initial_coords),
                 Transform::from_translation(initial_translation),
             ));
+
+            // Insert amplification component for moons
+            if body_data.body_type == BodyType::Moon && amp > 1.0 {
+                entity_cmds.insert(LocalOrbitAmplification(amp));
+            }
 
             // Determine orbit color and visibility based on body type
             // Terra Invicta-inspired colors with higher alpha for bright trail heads
@@ -843,11 +1055,11 @@ fn create_glow_mesh(meshes: &mut Assets<Mesh>, radius: f32) -> Handle<Mesh> {
     let mut indices = Vec::new();
     let mut colors = Vec::new();
 
-    // Center vertex
+    // Center vertex – near-white for a realistic solar core
     positions.push([0.0, 0.0, 0.0]);
     normals.push([0.0, 0.0, 1.0]);
     uvs.push([0.5, 0.5]);
-    colors.push([1.0, 0.9, 0.7, 1.0]); // Warm center, full alpha
+    colors.push([1.0, 0.97, 0.92, 0.6]); // Near-white, semi-transparent center
 
     let segments = 32;
     for i in 0..=segments {
@@ -857,7 +1069,7 @@ fn create_glow_mesh(meshes: &mut Assets<Mesh>, radius: f32) -> Handle<Mesh> {
         positions.push([cos * radius, sin * radius, 0.0]);
         normals.push([0.0, 0.0, 1.0]);
         uvs.push([0.5 + cos * 0.5, 0.5 + sin * 0.5]);
-        colors.push([0.8, 0.4, 0.1, 0.0]); // Orange edge, zero alpha (transparent)
+        colors.push([1.0, 0.85, 0.55, 0.0]); // Warm yellow edge, zero alpha (transparent)
     }
 
     // Indices (Fan)
