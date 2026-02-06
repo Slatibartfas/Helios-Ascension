@@ -98,22 +98,23 @@ fn generate_stars(direction: vec3<f32>, scale: f32) -> f32 {
                 let neighbor_cell = cell + vec3<f32>(f32(x), f32(y), f32(z));
                 let hash_val = hash13(neighbor_cell);
                 
-                // Only ~2% of cells have stars (based on STAR_DENSITY_THRESHOLD)
+                // Only ~5% of cells have stars (based on STAR_DENSITY_THRESHOLD)
                 if (hash_val > STAR_DENSITY_THRESHOLD) {
                     // Get star position within cell
                     let star_offset = hash33(neighbor_cell) - 0.5;
                     let star_pos = (neighbor_cell + star_offset) * grid_size;
                     
-                    // Calculate angular distance to star
+                    // Calculate direction to star
                     let to_star = normalize(star_pos);
-                    let angular_dist = acos(clamp(dot(direction, to_star), -1.0, 1.0));
+                    let dot_val = clamp(dot(direction, to_star), -1.0, 1.0);
                     
                     // Star size and intensity based on hash
                     let star_size = STAR_SIZE_MIN + hash13(neighbor_cell * 1.234) * STAR_SIZE_RANGE;
                     let star_intensity = STAR_INTENSITY_MIN + hash13(neighbor_cell * 5.678) * STAR_INTENSITY_RANGE;
                     
-                    // Create sharp star point
-                    let star_brightness = star_intensity * smoothstep(star_size * 2.0, 0.0, angular_dist);
+                    // Create sharp star point using dot-product falloff (avoids expensive acos)
+                    let cos_max_angle = cos(star_size * 2.0);
+                    let star_brightness = star_intensity * smoothstep(cos_max_angle, 1.0, dot_val);
                     brightness += star_brightness;
                 }
             }
@@ -125,8 +126,9 @@ fn generate_stars(direction: vec3<f32>, scale: f32) -> f32 {
 
 // Generate nebula layer with parallax
 fn generate_nebula(direction: vec3<f32>, parallax_factor: f32) -> vec3<f32> {
-    // Apply slower parallax to nebula layer
-    let parallaxed_dir = direction * parallax_factor;
+    // Apply slower rotation for parallax effect by reducing the camera rotation influence
+    // This makes nebulae appear to move slower than stars when camera rotates
+    let parallaxed_dir = mix(direction, normalize(vec3<f32>(direction.x, direction.y, direction.z * 0.8)), 1.0 - parallax_factor);
     
     // Sample noise at multiple scales
     let noise_scale = 2.0;
@@ -148,16 +150,14 @@ fn generate_nebula(direction: vec3<f32>, parallax_factor: f32) -> vec3<f32> {
 @fragment
 fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
     // Get direction from sphere center to fragment (normalized view direction)
+    // This already accounts for camera orientation via the view matrix
     let direction = normalize(in.world_normal);
     
-    // Apply camera rotation to direction for parallax
-    let rotated_direction = camera_rotation * direction;
-    
     // Layer 1: Deep space stars - static, low intensity, tiny
-    let star_layer = generate_stars(rotated_direction, 1.0);
+    let star_layer = generate_stars(direction, 1.0);
     
     // Layer 2: Galactic dust/nebulae with slower parallax
-    let nebula_layer = generate_nebula(rotated_direction, NEBULA_PARALLAX_FACTOR);
+    let nebula_layer = generate_nebula(direction, NEBULA_PARALLAX_FACTOR);
     
     // Combine layers
     var final_color = vec3<f32>(0.0);

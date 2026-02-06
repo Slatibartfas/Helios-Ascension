@@ -4,11 +4,10 @@ use bevy::render::mesh::MeshVertexBufferLayoutRef;
 use bevy::render::view::RenderLayers;
 
 // Backdrop configuration constants
-const BACKDROP_SPHERE_RADIUS: f32 = 100000.0;
+// Keep backdrop radius below camera far plane (100000.0) to avoid clipping
+const BACKDROP_SPHERE_RADIUS: f32 = 90000.0;
 const BACKDROP_SPHERE_UV_SEGMENTS: usize = 32;
 const BACKDROP_SPHERE_UV_RINGS: usize = 18;
-const CAMERA_MIN_RADIUS: f32 = 5.0;
-const CAMERA_MAX_RADIUS: f32 = 50000.0;
 
 /// Plugin that manages the procedural space backdrop
 pub struct BackdropPlugin;
@@ -17,7 +16,7 @@ impl Plugin for BackdropPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(MaterialPlugin::<SkyboxMaterial>::default())
             .add_systems(Startup, spawn_backdrop_sphere)
-            .add_systems(Update, update_backdrop_position);
+            .add_systems(PostUpdate, update_backdrop_position);
     }
 }
 
@@ -100,18 +99,17 @@ fn spawn_backdrop_sphere(
             ..default()
         },
         BackdropSphere,
-        // Use a render layer to ensure backdrop renders behind everything
-        RenderLayers::layer(0),
+        RenderLayers::layer(0), // Backdrop is on default render layer (layer 0)
     ));
 }
 
 /// Update backdrop sphere to always center on the camera
 fn update_backdrop_position(
     mut backdrop_query: Query<(&mut Transform, &Handle<SkyboxMaterial>), With<BackdropSphere>>,
-    camera_query: Query<&Transform, (With<Camera3d>, Without<BackdropSphere>)>,
+    camera_query: Query<(&Transform, &crate::plugins::camera::OrbitCamera), (With<Camera3d>, Without<BackdropSphere>)>,
     mut materials: ResMut<Assets<SkyboxMaterial>>,
 ) {
-    if let (Ok((mut backdrop_transform, material_handle)), Ok(camera_transform)) = 
+    if let (Ok((mut backdrop_transform, material_handle)), Ok((camera_transform, orbit_camera))) = 
         (backdrop_query.get_single_mut(), camera_query.get_single()) 
     {
         // Center backdrop on camera position
@@ -122,14 +120,10 @@ fn update_backdrop_position(
             // Extract rotation from camera transform
             material.camera_rotation = Mat3::from_quat(camera_transform.rotation);
             
-            // Calculate normalized camera distance for distance fading
-            // This would ideally come from the camera's orbit distance
-            // For now, use a simple calculation based on distance from origin
-            let distance_from_origin = camera_transform.translation.length();
-            
-            // Normalize between min and max camera distances
-            material.camera_distance = ((distance_from_origin - CAMERA_MIN_RADIUS) 
-                / (CAMERA_MAX_RADIUS - CAMERA_MIN_RADIUS)).clamp(0.0, 1.0);
+            // Calculate normalized camera distance from orbit camera zoom level
+            // This properly tracks zoom rather than world position
+            material.camera_distance = ((orbit_camera.radius - orbit_camera.min_radius) 
+                / (orbit_camera.max_radius - orbit_camera.min_radius)).clamp(0.0, 1.0);
         }
     }
 }
