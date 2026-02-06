@@ -16,20 +16,24 @@ The game follows a modular plugin architecture where each major system is isolat
 ### Current Plugins
 
 #### 1. CameraPlugin (`src/plugins/camera.rs`)
-Manages the game's 3D camera system with intuitive controls.
+Manages the game's 3D camera system with intuitive controls and view mode transitions.
 
 **Components:**
 - `GameCamera`: Stores camera movement and zoom speeds
 
+**Resources:**
+- `ViewMode`: Tracks the current view (`System` or `Starmap`), driven by zoom level
+
 **Systems:**
 - `spawn_camera`: Initializes the 3D camera at startup
-- `camera_movement`: Handles WASD/QE keyboard movement and mouse look
-- `camera_zoom`: Handles mouse wheel zoom
+- `orbit_camera_controls`: Handles right-click rotation and mouse wheel zoom
+- `update_camera_transform`: Positions camera relative to anchor target
+- `update_view_mode`: Switches between System and Starmap views based on zoom radius
 
 **Features:**
-- Smooth WASD movement
 - Right-click mouse look
-- Mouse wheel zoom
+- Mouse wheel zoom (up to ~333 AU from anchor)
+- Automatic System ↔ Starmap transition at ~100 AU with hysteresis
 - Configurable speeds
 
 #### 2. SolarSystemPlugin (`src/plugins/solar_system.rs`)
@@ -75,6 +79,27 @@ Egui-based dashboard with time controls, body info, and resource display.
 - `SimulationTime` advances by `real_delta × time_scale` with no cap.
 - All game-world systems MUST use `SimulationTime`, not `Time<Virtual>`.
 - All calculations must be analytical (state from total time), not incremental.
+
+### Custom Start Dates & Ephemeris (New)
+- The project includes an **ephemeris module** (`src/astronomy/ephemeris.rs`) capable of calculating mean anomalies (orbital positions) for planets, moons, and dwarf planets at any Unix timestamp using J2000-based elements.
+- To support custom game start dates, create a `SimulationTime` with `SimulationTime::with_start_timestamp(start_timestamp)` where `start_timestamp` is a Unix timestamp for the desired start date.
+- Immediately after creating the world (or during world initialization), call `calculate_positions_at_timestamp(start_timestamp)` to compute mean anomalies for all bodies and use the returned values to set the Keplerian `mean_anomaly_epoch` (or `initial_angle` in degree form) for each celestial body before spawning them.
+- This ensures that the visual and simulated positions of bodies match the chosen start date and remain analytically correct as the simulation advances.
+
+Example (conceptual):
+```rust
+use helios_ascension::astronomy::{calculate_positions_at_timestamp};
+use helios_ascension::ui::SimulationTime;
+
+let start_ts = 1_767_225_600; // Jan 1, 2026 00:00:00 UTC
+let sim_time = SimulationTime::with_start_timestamp(start_ts);
+let positions = calculate_positions_at_timestamp(start_ts);
+
+// For each CelestialBodyData loaded from RON, override its orbit.initial_angle
+// with `positions.get(&body_name)` (degrees → radians) and then spawn.
+```
+
+*Note:* The current implementation uses simplified moon/dwarf-planet models; for higher precision use JPL Horizons data and expand the ephemeris module accordingly.
 
 ## ECS Architecture
 
@@ -137,9 +162,10 @@ src/
 │   ├── generation.rs    # Procedural resource generation
 │   └── types.rs         # ResourceType definitions
 ├── plugins/             # Game systems
-│   ├── camera.rs        # Camera movement & anchoring
+│   ├── camera.rs        # Camera movement, anchoring & ViewMode
 │   ├── solar_system.rs  # Body spawning, rotation, billboards
 │   ├── solar_system_data.rs # RON data loader
+│   ├── starmap.rs       # Starmap view (system icons, visibility toggle)
 │   └── visual_effects.rs    # Bloom, starfield, night materials
 ├── render/              # Rendering utilities
 │   └── backdrop.rs      # Skybox background

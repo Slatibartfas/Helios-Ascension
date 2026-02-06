@@ -145,6 +145,13 @@ cargo clippy             # Linting
 - `Time` / `Time<Real>` should only be used for UI animations, camera movement, and other real-time visual effects that should not scale with game speed.
 - All positional/rotational calculations must be **analytical** (compute state from total elapsed time), not **incremental** (accumulate deltas). This ensures correctness at any speed.
 
+#### Custom game start dates & ephemeris (how to implement)
+- Use the ephemeris utility in `src/astronomy/ephemeris.rs` to compute mean anomalies for a chosen Unix timestamp: `calculate_positions_at_timestamp(start_timestamp)`.
+- Create `SimulationTime` with `SimulationTime::with_start_timestamp(start_timestamp)` so that the UI and systems display the correct date and time.
+- When spawning bodies at game start (e.g., in `src/plugins/solar_system.rs::setup_solar_system`), override loaded `initial_angle` / set `KeplerOrbit.mean_anomaly_epoch` from the values returned by `calculate_positions_at_timestamp` (convert degrees to radians as necessary).
+- Ensure this initialization runs before any systems that propagate or render orbits, so all bodies begin at the correct positions for the start date.
+- Add tests to validate a few canonical dates (e.g., Jan 1, 2026) to ensure the ephemeris integration remains correct.
+
 ### Orbit Rendering
 - Orbit trails sample uniformly in **true anomaly** for even point density
 - Highly eccentric orbits (e > 0.6) automatically get more segments
