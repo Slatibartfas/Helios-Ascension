@@ -30,6 +30,27 @@ const MAX_KEPLER_ITERATIONS: u32 = 50;
 /// Convergence tolerance for Kepler solver
 const KEPLER_TOLERANCE: f64 = 1e-10;
 
+/// Minimum translation change threshold (in Bevy units squared)
+/// Transform updates skip when squared distance change is below this threshold
+/// Prevents unnecessary updates when changes are below f32 precision (~0.001 units)
+const MIN_TRANSLATION_CHANGE_THRESHOLD: f32 = 1e-6;
+
+/// LOD (Level of Detail) reference distance for orbit trails (in Bevy units)
+/// Orbits at this distance get intermediate detail scaling
+const LOD_REFERENCE_DISTANCE: f32 = 3000.0;
+
+/// LOD minimum distance for orbit trails (in Bevy units)
+/// Orbits closer than this always get maximum detail
+const LOD_MIN_DISTANCE: f32 = 300.0;
+
+/// LOD minimum scaling factor for distant orbits
+/// Even the most distant orbits get at least 25% of segments
+const LOD_MIN_FACTOR: f32 = 0.25;
+
+/// Minimum segment count for orbit trails
+/// Even with maximum LOD reduction, orbits have at least this many segments
+const MIN_ORBIT_SEGMENTS: u32 = 16;
+
 /// Solves Kepler's equation: M = E - e*sin(E) for eccentric anomaly E
 /// Uses Newton-Raphson iteration for high accuracy
 ///
@@ -185,7 +206,7 @@ pub fn update_render_transform(
         
         // Only update if the translation has actually changed
         // This prevents unnecessary transform updates when position changes are below f32 precision
-        if (new_translation - transform.translation).length_squared() > 1e-6 {
+        if (new_translation - transform.translation).length_squared() > MIN_TRANSLATION_CHANGE_THRESHOLD {
             transform.translation = new_translation;
         }
     }
@@ -231,8 +252,8 @@ pub fn draw_orbit_paths(
         } else {
             // Scale segments based on distance
             // Close orbits: full detail, distant orbits: reduced detail
-            let lod_factor = (3000.0 / distance_to_camera.max(300.0)).clamp(0.25, 1.0);
-            ((path.segments as f32 * lod_factor) as u32).max(16) // Minimum 16 segments
+            let lod_factor = (LOD_REFERENCE_DISTANCE / distance_to_camera.max(LOD_MIN_DISTANCE)).clamp(LOD_MIN_FACTOR, 1.0);
+            ((path.segments as f32 * lod_factor) as u32).max(MIN_ORBIT_SEGMENTS)
         };
 
         // Current mean anomaly of the body (where it actually is now)
