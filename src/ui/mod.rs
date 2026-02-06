@@ -7,6 +7,7 @@
 //! - Time controls for simulation speed
 
 use bevy::prelude::*;
+use bevy::time::Real;
 use bevy_egui::{egui, EguiContexts};
 
 pub mod interaction;
@@ -19,27 +20,38 @@ use crate::plugins::solar_system::{CelestialBody, LogicalParent};
 use crate::plugins::solar_system_data::BodyType;
 use crate::plugins::camera::{CameraAnchor, GameCamera};
 
+/// Maximum time scale: 1 year per second (365.25 * 86400 ≈ 31,557,600)
+const MAX_TIME_SCALE: f32 = 31_557_600.0;
+
 /// Time scale resource for controlling simulation speed
 #[derive(Resource, Debug, Clone)]
 pub struct TimeScale {
-    /// Current time scale multiplier (0.0 = paused, 1.0 = normal, up to 1000.0)
+    /// Current time scale multiplier (0.0 = paused, 1.0 = normal, up to 604,800.0)
     pub scale: f32,
+    /// Last active scale before pausing, restored on resume
+    last_active_scale: f32,
 }
 
 impl TimeScale {
     /// Create a new time scale with default value
     pub fn new() -> Self {
-        Self { scale: 1.0 }
+        Self {
+            scale: 1.0,
+            last_active_scale: 1.0,
+        }
     }
 
     /// Pause the simulation
     pub fn pause(&mut self) {
+        if self.scale > 0.0 {
+            self.last_active_scale = self.scale;
+        }
         self.scale = 0.0;
     }
 
-    /// Resume at normal speed
+    /// Resume at the speed that was active before pausing
     pub fn resume(&mut self) {
-        self.scale = 1.0;
+        self.scale = self.last_active_scale;
     }
 
     /// Check if paused
@@ -54,6 +66,58 @@ impl Default for TimeScale {
     }
 }
 
+/// Custom simulation clock that tracks game-world elapsed time.
+///
+/// Unlike Bevy's `Time<Virtual>`, this has **no max-delta cap**, so analytical
+/// calculations (Keplerian orbits, body rotation) scale to any speed.
+/// Each frame the clock advances by `real_delta × time_scale`.
+#[derive(Resource, Debug, Clone)]
+pub struct SimulationTime {
+    /// Total elapsed simulation time in seconds (f64 for precision)
+    pub elapsed: f64,
+}
+
+impl SimulationTime {
+    pub fn new() -> Self {
+        Self { elapsed: 0.0 }
+    }
+
+    /// Total elapsed simulation seconds
+    pub fn elapsed_seconds(&self) -> f64 {
+        self.elapsed
+    }
+}
+
+impl Default for SimulationTime {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Format a time scale multiplier as a human-readable rate string.
+/// Examples: "Real time", "2.5 min/s", "1.0 day/s", "1.0 wk/s"
+fn format_time_rate(scale: f32) -> String {
+    if scale <= 0.0 {
+        "Paused".to_string()
+    } else if (scale - 1.0).abs() < 0.01 {
+        "Real time".to_string()
+    } else if scale < 60.0 {
+        format!("{:.1}x", scale)
+    } else if scale < 3_600.0 {
+        format!("{:.1} min/s", scale / 60.0)
+    } else if scale < 86_400.0 {
+        format!("{:.1} hr/s", scale / 3_600.0)
+    } else if scale < 604_800.0 {
+        format!("{:.1} day/s", scale / 86_400.0)
+    } else if scale < 2_592_000.0 {
+        format!("{:.1} wk/s", scale / 604_800.0)
+    } else if scale < 31_557_600.0 {
+        format!("{:.1} mo/s", scale / 2_592_000.0)
+    } else {
+        format!("{:.1} yr/s", scale / 31_557_600.0)
+    }
+}
+
 /// Plugin that adds the UI system to the Bevy app
 pub struct UIPlugin;
 
@@ -64,12 +128,13 @@ impl Plugin for UIPlugin {
             // Resources
             .init_resource::<Selection>()
             .init_resource::<TimeScale>()
+            .init_resource::<SimulationTime>()
             // Systems
             .add_systems(Update, (
                 ui_dashboard,
                 ui_hover_tooltip,
                 sync_selection_with_astronomy,
-                apply_time_scale,
+                advance_simulation_time,
             ));
     }
 }
@@ -90,16 +155,17 @@ fn sync_selection_with_astronomy(
     }
 }
 
-/// System that applies the time scale to the game time
-/// Only updates when TimeScale resource changes for efficiency
-fn apply_time_scale(
+/// Advances the custom simulation clock each frame.
+///
+/// Uses real (wall-clock) delta to avoid Bevy's virtual-time max-delta cap,
+/// which previously limited effective speed to ~15×.
+fn advance_simulation_time(
+    real_time: Res<Time<Real>>,
     time_scale: Res<TimeScale>,
-    mut time: ResMut<Time<Virtual>>,
+    mut sim_time: ResMut<SimulationTime>,
 ) {
-    // Only update when time scale changes or is first added
-    if time_scale.is_changed() || time_scale.is_added() {
-        time.set_relative_speed(time_scale.scale);
-    }
+    let real_delta = real_time.delta_seconds_f64();
+    sim_time.elapsed += real_delta * time_scale.scale as f64;
 }
 
 /// Helper function to render a selectable label with highlighting for selected items
@@ -641,36 +707,34 @@ fn ui_dashboard(
 
                 ui.separator();
 
-                // Preset speed buttons
-                if ui.button("0.1x").clicked() {
-                    time_scale.scale = 0.1;
+                // Preset speed buttons with meaningful labels
+                if ui.button("1 day/s").clicked() {
+                    time_scale.scale = 86_400.0;
                 }
-                if ui.button("1x").clicked() {
-                    time_scale.scale = 1.0;
+                if ui.button("1 wk/s").clicked() {
+                    time_scale.scale = 604_800.0;
                 }
-                if ui.button("10x").clicked() {
-                    time_scale.scale = 10.0;
+                if ui.button("1 mo/s").clicked() {
+                    time_scale.scale = 2_592_000.0;
                 }
-                if ui.button("100x").clicked() {
-                    time_scale.scale = 100.0;
-                }
-                if ui.button("1000x").clicked() {
-                    time_scale.scale = 1000.0;
+                if ui.button("1 yr/s").clicked() {
+                    time_scale.scale = 31_557_600.0;
                 }
 
                 ui.separator();
 
-                // Slider for fine control
-                ui.label("Time Scale:");
+                // Logarithmic slider for fine control
+                ui.label("Speed:");
                 ui.add(
-                    egui::Slider::new(&mut time_scale.scale, 0.0..=1000.0)
+                    egui::Slider::new(&mut time_scale.scale, 1.0..=MAX_TIME_SCALE)
                         .logarithmic(true)
-                        .text("x")
+                        .text("")
+                        .custom_formatter(|v, _| format_time_rate(v as f32))
                 );
             });
 
             ui.horizontal(|ui| {
-                ui.label(format!("Current speed: {:.1}x", time_scale.scale));
+                ui.label(format!("Speed: {}", format_time_rate(time_scale.scale)));
                 if time_scale.is_paused() {
                     ui.colored_label(egui::Color32::RED, "⏸ PAUSED");
                 }
@@ -701,11 +765,12 @@ mod tests {
     #[test]
     fn test_time_scale_resume() {
         let mut time_scale = TimeScale::new();
+        time_scale.scale = 100.0;
         time_scale.pause();
         time_scale.resume();
-        
+
         assert!(!time_scale.is_paused());
-        assert_eq!(time_scale.scale, 1.0);
+        assert_eq!(time_scale.scale, 100.0);
     }
 
     #[test]

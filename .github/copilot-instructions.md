@@ -134,8 +134,21 @@ cargo clippy             # Linting
 ### Celestial Bodies
 - All astronomical data is based on real NASA/IAU sources
 - Orbital mechanics use simplified Keplerian elements
-- Time acceleration is supported for simulation speed
+- Time acceleration is supported for simulation speed (up to 1 year/second)
 - Bodies are organized hierarchically (Sun -> Planets -> Moons)
+
+### Simulation Time (IMPORTANT)
+- **Never use `Time<Virtual>`** for game-world calculations. Bevy's virtual time has a hard `max_delta` cap (~250ms) that silently limits effective speed to ~15×.
+- Use `SimulationTime` (defined in `src/ui/mod.rs`) for all game-world elapsed time. It reads `Time<Real>` delta and scales it by `TimeScale`, with **no cap**, enabling speeds up to 1 year/second.
+- Access via `Res<SimulationTime>` — call `.elapsed_seconds()` to get total simulation time in f64.
+- All time-dependent game systems (orbits, rotation, economy ticks, research, production) **must** use `SimulationTime`, not `Time`, `Time<Virtual>`, or `time.delta_seconds()`.
+- `Time` / `Time<Real>` should only be used for UI animations, camera movement, and other real-time visual effects that should not scale with game speed.
+- All positional/rotational calculations must be **analytical** (compute state from total elapsed time), not **incremental** (accumulate deltas). This ensures correctness at any speed.
+
+### Orbit Rendering
+- Orbit trails sample uniformly in **true anomaly** for even point density
+- Highly eccentric orbits (e > 0.6) automatically get more segments
+- Trail fades from the body's current position backwards around the orbit
 
 ### Camera System
 - Free-flight camera with WASD + Q/E controls

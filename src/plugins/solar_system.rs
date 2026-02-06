@@ -11,6 +11,7 @@ use crate::astronomy::{
     orbit_position_from_mean_anomaly, KeplerOrbit, OrbitPath, SpaceCoordinates, SCALING_FACTOR,
 };
 use crate::plugins::camera::{CameraAnchor, GameCamera};
+use crate::ui::SimulationTime;
 
 pub struct SolarSystemPlugin;
 
@@ -29,14 +30,30 @@ impl Plugin for SolarSystemPlugin {
 pub struct Billboard;
 
 fn update_billboards(
-    mut query: Query<&mut Transform, With<Billboard>>,
+    mut query: Query<(&mut Transform, &GlobalTransform, &Parent), With<Billboard>>,
+    parent_query: Query<&GlobalTransform, Without<Billboard>>,
     camera_query: Query<&GlobalTransform, With<Camera3d>>,
 ) {
     if let Ok(camera_global_transform) = camera_query.get_single() {
         let camera_pos = camera_global_transform.translation();
-        for mut transform in query.iter_mut() {
-            // Point the Z-axis at the camera
-            transform.look_at(camera_pos, Vec3::Y);
+        for (mut transform, _global, parent) in query.iter_mut() {
+            // Compute the billboard's world position from its parent
+            let parent_global = parent_query
+                .get(parent.get())
+                .map(|g| g.compute_transform())
+                .unwrap_or_default();
+
+            let world_pos = parent_global.transform_point(transform.translation);
+
+            // Compute world-space rotation that faces the camera
+            let forward = (camera_pos - world_pos).normalize_or_zero();
+            if forward.length_squared() < 0.001 {
+                continue;
+            }
+            let world_rotation = Transform::IDENTITY.looking_at(-forward, Vec3::Y).rotation;
+
+            // Convert to local space by removing the parent's rotation
+            transform.rotation = parent_global.rotation.inverse() * world_rotation;
         }
     }
 }
@@ -730,9 +747,19 @@ fn apply_linear_to_images_system(
     });
 }
 
-fn rotate_bodies(time: Res<Time>, mut query: Query<(&mut Transform, &RotationSpeed)>) {
+/// Analytically computes body rotation from total elapsed simulation time.
+/// Instead of accumulating incremental `rotate_y()` calls (which drift and
+/// break at high time-scales), we compute the absolute Y-axis rotation
+/// directly: angle = speed × t.
+fn rotate_bodies(
+    sim_time: Res<SimulationTime>,
+    mut query: Query<(&mut Transform, &RotationSpeed)>,
+) {
+    let t = sim_time.elapsed_seconds() as f32;
     for (mut transform, rotation_speed) in query.iter_mut() {
-        transform.rotate_y(rotation_speed.0 * time.delta_seconds() * 1000.0);
+        // Preserve existing translation and scale, only replace rotation
+        let angle = rotation_speed.0 * t;
+        transform.rotation = Quat::from_rotation_y(angle);
     }
 }
 

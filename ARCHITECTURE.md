@@ -36,30 +36,45 @@ Manages the game's 3D camera system with intuitive controls.
 Simulates celestial bodies and their orbital mechanics.
 
 **Components:**
-- `CelestialBody`: Basic properties (name, radius, mass)
-- `Star`: Marker for stars
-- `Planet`: Marker for planets
-- `OrbitalPath`: Defines orbital parameters and current position
-- `RotationSpeed`: Controls body rotation speed
+- `CelestialBody`: Basic properties (name, radius, mass, body_type, visual_radius)
+- `Star`, `Planet`, `Moon`, `DwarfPlanet`, `Asteroid`, `Comet`: Type markers
+- `RotationSpeed`: Angular speed in radians/second (rotation computed analytically)
+- `Billboard`: Marker for entities that always face the camera
+- `LogicalParent`: Tracks hierarchical parent (e.g., moons -> planet)
 
 **Systems:**
-- `setup_solar_system`: Creates the initial solar system at startup
-- `update_orbits`: Updates planetary positions based on orbital mechanics
-- `rotate_bodies`: Rotates celestial bodies
+- `setup_solar_system`: Creates 377+ celestial bodies from RON data at startup
+- `rotate_bodies`: Analytical body rotation from `SimulationTime` (angle = speed × t)
+- `update_billboards`: Keeps glow/flare quads facing the camera
 
-**Celestial Bodies:**
-- Sol (Sun) - Emissive material with point light
-- Mercury - Small gray planet
-- Venus - Yellow-tinted planet
-- Earth - Blue planet
-- Mars - Red planet
-- Jupiter - Large gas giant
+#### 3. AstronomyPlugin (`src/astronomy/`)
+High-precision Keplerian orbital mechanics with f64 coordinates.
 
-**Features:**
-- Circular orbits with configurable parameters
-- Self-rotation of bodies
-- Physically-based rendering (PBR)
-- Emissive sun with dynamic lighting
+**Components:**
+- `SpaceCoordinates`: Double-precision (DVec3) position in AU
+- `KeplerOrbit`: Full Keplerian elements (e, a, i, Ω, ω, M₀, n)
+- `OrbitPath`: Orbit trail rendering configuration
+- `Selected`, `Hovered`: Interaction markers
+
+**Systems:**
+- `propagate_orbits`: Analytical position from `SimulationTime` (M = M₀ + n·t)
+- `update_render_transform`: Floating-origin conversion (DVec3 → Vec3 with scaling)
+- `draw_orbit_paths`: Trail rendering with true-anomaly sampling
+- `handle_body_selection`, `handle_body_hover`: Click/hover detection
+
+#### 4. UIPlugin (`src/ui/`)
+Egui-based dashboard with time controls, body info, and resource display.
+
+**Resources:**
+- `SimulationTime`: Custom game clock (elapsed f64 seconds, no delta cap)
+- `TimeScale`: Speed multiplier (1 day/s, 1 wk/s, 1 mo/s, 1 yr/s)
+- `Selection`: Currently selected entity
+
+**Key Design Decision — SimulationTime:**
+- Bevy's `Time<Virtual>` caps delta at 250ms, limiting effective speed to ~15×.
+- `SimulationTime` advances by `real_delta × time_scale` with no cap.
+- All game-world systems MUST use `SimulationTime`, not `Time<Virtual>`.
+- All calculations must be analytical (state from total time), not incremental.
 
 ## ECS Architecture
 
@@ -94,13 +109,10 @@ Functions that operate on entities with specific components:
 ## Future Architecture Plans
 
 ### Upcoming Plugins
-1. **UIPlugin**: Game HUD and menus
-2. **ResourcePlugin**: Resource management system
-3. **ResearchPlugin**: Technology tree
-4. **ShipPlugin**: Spacecraft management
-5. **ColonyPlugin**: Planetary colonies
-6. **DiplomacyPlugin**: Faction interactions
-7. **EconomyPlugin**: Economic simulation
+1. **ResearchPlugin**: Technology tree
+2. **ShipPlugin**: Spacecraft management
+3. **ColonyPlugin**: Planetary colonies
+4. **DiplomacyPlugin**: Faction interactions
 
 ### Data-Driven Design
 Future systems will use data files (RON/JSON) for configuration:
@@ -114,13 +126,26 @@ Future systems will use data files (RON/JSON) for configuration:
 ```
 src/
 ├── main.rs              # Entry point, app setup
+├── lib.rs               # Library root
+├── astronomy/           # Orbital mechanics & coordinate systems
+│   ├── components.rs    # SpaceCoordinates, KeplerOrbit, OrbitPath
+│   ├── systems.rs       # Orbit propagation, rendering, selection
+│   └── mod.rs           # AstronomyPlugin
+├── economy/             # Resource & budget systems
+│   ├── components.rs    # PlanetResources, MineralDeposit
+│   ├── budget.rs        # GlobalBudget, EnergyGrid
+│   ├── generation.rs    # Procedural resource generation
+│   └── types.rs         # ResourceType definitions
 ├── plugins/             # Game systems
-│   ├── mod.rs          # Plugin exports
-│   ├── camera.rs       # Camera system
-│   └── solar_system.rs # Solar system simulation
-├── components/          # Shared components (future)
-├── resources/           # Global resources (future)
-└── utils/              # Helper functions (future)
+│   ├── camera.rs        # Camera movement & anchoring
+│   ├── solar_system.rs  # Body spawning, rotation, billboards
+│   ├── solar_system_data.rs # RON data loader
+│   └── visual_effects.rs    # Bloom, starfield, night materials
+├── render/              # Rendering utilities
+│   └── backdrop.rs      # Skybox background
+└── ui/                  # User interface
+    ├── mod.rs           # UIPlugin, SimulationTime, TimeScale
+    └── interaction.rs   # Selection management
 ```
 
 ## Adding New Plugins

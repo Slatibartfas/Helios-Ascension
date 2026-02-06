@@ -8,6 +8,7 @@ use super::components::{
 };
 use crate::plugins::solar_system::{CelestialBody, Moon, Planet, Star, RADIUS_SCALE};
 use crate::plugins::camera::{CameraAnchor, GameCamera, OrbitCamera};
+use crate::ui::SimulationTime;
 
 /// Scaling factor for converting astronomical units to Bevy rendering units
 /// 1 AU = 1500.0 Bevy units ensures separation between planets and moons
@@ -146,15 +147,47 @@ fn orbital_radius(semi_major_axis: f64, eccentricity: f64, true_anomaly: f64) ->
     numerator / denominator
 }
 
+/// Calculate the 3D orbital position directly from a true anomaly.
+/// Unlike `orbit_position_from_mean_anomaly`, this skips the Kepler solver
+/// and is used for drawing orbit paths with uniform geometric spacing.
+fn orbit_position_from_true_anomaly(orbit: &KeplerOrbit, true_anomaly: f64) -> DVec3 {
+    let radius = orbital_radius(orbit.semi_major_axis, orbit.eccentricity, true_anomaly);
+
+    let x_orbital = radius * true_anomaly.cos();
+    let y_orbital = radius * true_anomaly.sin();
+
+    let cos_w = orbit.argument_of_periapsis.cos();
+    let sin_w = orbit.argument_of_periapsis.sin();
+    let x_perifocal = x_orbital * cos_w - y_orbital * sin_w;
+    let y_perifocal = x_orbital * sin_w + y_orbital * cos_w;
+
+    let cos_i = orbit.inclination.cos();
+    let sin_i = orbit.inclination.sin();
+    let cos_omega = orbit.longitude_ascending_node.cos();
+    let sin_omega = orbit.longitude_ascending_node.sin();
+
+    let x = x_perifocal * cos_omega - y_perifocal * cos_i * sin_omega;
+    let y = x_perifocal * sin_omega + y_perifocal * cos_i * cos_omega;
+    let z = y_perifocal * sin_i;
+
+    DVec3::new(x, y, z)
+}
+
+/// Convert mean anomaly to true anomaly via the Kepler solver
+fn mean_anomaly_to_true_anomaly(mean_anomaly: f64, eccentricity: f64) -> f64 {
+    let e_anom = solve_kepler(mean_anomaly, eccentricity);
+    eccentric_to_true_anomaly(e_anom, eccentricity)
+}
+
 /// System that propagates all orbits based on Keplerian mechanics
 /// Updates SpaceCoordinates based on KeplerOrbit elements and elapsed time
-/// Uses virtual time to allow time scaling via UI controls
+/// Uses SimulationTime to allow time scaling via UI controls
 pub fn propagate_orbits(
-    time: Res<Time<Virtual>>,
+    sim_time: Res<SimulationTime>,
     mut query: Query<(&KeplerOrbit, &mut SpaceCoordinates)>,
 ) {
-    // Get elapsed time in seconds since game start
-    let elapsed_time = time.elapsed_seconds_f64();
+    // Get elapsed simulation time in seconds
+    let elapsed_time = sim_time.elapsed_seconds();
 
     for (orbit, mut coords) in query.iter_mut() {
         // Calculate current mean anomaly: M = M₀ + n*t
@@ -187,13 +220,17 @@ pub fn update_render_transform(
 /// System that draws orbit paths as fading trails (Terra Invicta style).
 /// The trail is brightest at the body's current position and fades out
 /// behind it, creating a comet-tail effect along the orbit.
+///
+/// Samples uniformly in **true anomaly** so that highly eccentric orbits
+/// (comets, long-period objects) get even point density along the geometric
+/// ellipse rather than clustering near apoapsis.
 pub fn draw_orbit_paths(
     mut gizmos: Gizmos,
-    time: Res<Time<Virtual>>,
+    sim_time: Res<SimulationTime>,
     query: Query<(&KeplerOrbit, &OrbitPath, Option<&Parent>)>,
     parent_query: Query<&GlobalTransform>,
 ) {
-    let elapsed_time = time.elapsed_seconds_f64();
+    let elapsed_time = sim_time.elapsed_seconds();
 
     for (orbit, path, parent) in query.iter() {
         if !path.visible {
@@ -205,12 +242,21 @@ pub fn draw_orbit_paths(
             .map(|transform| transform.translation())
             .unwrap_or(Vec3::ZERO);
 
-        // Current mean anomaly of the body (where it actually is now)
-        let current_mean_anomaly = (orbit.mean_anomaly_epoch + orbit.mean_motion * elapsed_time)
-            .rem_euclid(std::f64::consts::TAU);
+        // Current true anomaly of the body
+        let current_mean_anomaly = orbit.mean_anomaly_epoch + orbit.mean_motion * elapsed_time;
+        let current_true_anomaly = mean_anomaly_to_true_anomaly(
+            current_mean_anomaly.rem_euclid(std::f64::consts::TAU),
+            orbit.eccentricity,
+        );
 
-        let segments = path.segments;
-        let mean_anomaly_step = std::f64::consts::TAU / (segments as f64);
+        // Use more segments for eccentric orbits to keep the periapsis region smooth
+        let segments = if orbit.eccentricity > 0.6 {
+            (path.segments as f64 * (1.0 + orbit.eccentricity * 2.0)) as u32
+        } else {
+            path.segments
+        };
+
+        let true_anomaly_step = std::f64::consts::TAU / (segments as f64);
 
         // Extract base color channels from path color
         let base = path.color.to_srgba();
@@ -221,9 +267,9 @@ pub fn draw_orbit_paths(
         let mut prev_point: Option<Vec3> = None;
 
         for i in 0..=segments {
-            // Walk backwards from the current position
-            let mean_anomaly = current_mean_anomaly - (i as f64) * mean_anomaly_step;
-            let position_au = orbit_position_from_mean_anomaly(orbit, mean_anomaly);
+            // Walk backwards from the current position in true anomaly
+            let true_anomaly = current_true_anomaly - (i as f64) * true_anomaly_step;
+            let position_au = orbit_position_from_true_anomaly(orbit, true_anomaly);
 
             let scaled_x = (position_au.x * SCALING_FACTOR) as f32;
             let scaled_y = (position_au.y * SCALING_FACTOR) as f32;
@@ -802,7 +848,7 @@ mod tests {
     fn test_propagate_orbits_system() {
         // Create a test app
         let mut app = App::new();
-        app.init_resource::<Time<Virtual>>();
+        app.init_resource::<SimulationTime>();
         app.add_systems(Update, propagate_orbits);
 
         // Spawn an entity with circular orbit
@@ -810,14 +856,17 @@ mod tests {
         let coords = SpaceCoordinates::default();
         app.world_mut().spawn((orbit, coords));
 
+        // Advance simulation time so orbit has moved
+        app.world_mut().resource_mut::<SimulationTime>().elapsed = 0.1;
+
         // Run one update
         app.update();
 
         // Verify the entity was processed (coordinates should be updated)
         let mut query = app.world_mut().query::<&SpaceCoordinates>();
         let coords = query.iter(app.world()).next().unwrap();
-        // For a circular orbit starting at mean anomaly 0, should be at (a, 0, 0)
-        assert!(coords.position.x > 0.0);
+        // For a circular orbit with elapsed > 0, position should have moved from origin
+        assert!(coords.position.x.abs() > 0.0 || coords.position.y.abs() > 0.0);
     }
 
     #[test]
