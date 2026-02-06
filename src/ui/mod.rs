@@ -490,6 +490,22 @@ fn ui_dashboard(
                                             }
                                         });
                                         
+                                        // Show harvest altitude for gas giants
+                                        if atmosphere.is_reference_pressure && atmosphere.harvest_altitude_bar > 0.0 {
+                                            ui.horizontal(|ui| {
+                                                ui.label("Harvest Altitude:");
+                                                let yield_mult = atmosphere.harvest_yield_multiplier();
+                                                ui.label(format!("{:.1} bar ({:.1}× yield)", 
+                                                    atmosphere.harvest_altitude_bar, yield_mult));
+                                            });
+                                            
+                                            ui.horizontal(|ui| {
+                                                ui.label("Max Harvest Depth:");
+                                                ui.label(format!("{:.1} bar (tech-limited)", 
+                                                    atmosphere.max_harvest_altitude_bar));
+                                            });
+                                        }
+                                        
                                         ui.horizontal(|ui| {
                                             ui.label("Temperature:");
                                             ui.label(format!("{:.1}°C", atmosphere.surface_temperature_celsius));

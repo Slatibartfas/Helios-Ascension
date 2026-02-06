@@ -162,25 +162,75 @@ atmosphere: Some((
 ### Component System
 The `AtmosphereComposition` component is automatically attached to celestial body entities during system initialization.
 
+## Gas Giant Atmospheric Harvesting
+
+### Harvest Altitude Mechanics
+
+Gas giants support atmospheric harvesting (gas scooping) at various depths. Unlike the 1 bar reference level used for scientific measurement, harvesting operations occur at higher pressures for better efficiency.
+
+#### Harvest Altitude Pressure
+- **Default Harvest Altitude**: 10 bar for gas giants
+- **Maximum Harvest Depth**: 50 bar with basic technology (upgradeable via research)
+- **Yield Relationship**: Harvest yield scales linearly with pressure/density
+  - At 10 bar: ~10× yield compared to 1 bar reference
+  - At 50 bar: ~50× yield compared to 1 bar reference
+  - At 100 bar: ~100× yield (requires advanced technology)
+
+#### Physical Basis
+Using the ideal gas law approximation, atmospheric density (and thus harvestable gas per volume) is proportional to pressure at roughly constant temperature. Deeper atmospheric harvesting provides:
+- **Higher gas density**: More molecules per cubic meter
+- **Better efficiency**: More gas collected per scoop operation
+- **Greater yield**: Linear scaling with pressure level
+
+#### Technology Progression
+- **Basic Tech**: Harvest up to 10 bar (default starting point)
+- **Standard Tech**: Harvest up to 50 bar (10× baseline capacity)
+- **Advanced Tech**: Harvest up to 100+ bar (requires structural reinforcement research)
+- **Future**: Extreme-depth harvesting at 200+ bar (experimental technology)
+
+#### Gameplay Implications
+1. **Early Game**: Start with shallow harvesting (10 bar) at lower yield
+2. **Mid Game**: Research deeper harvesting technology to increase yield
+3. **Late Game**: Achieve maximum efficiency with extreme-depth capability
+4. **Trade-offs**: Deeper harvesting requires more advanced (expensive) infrastructure
+
+#### Example: Jupiter
+```
+Reference Level: 1.00 bar (scientific baseline)
+Harvest Altitude: 10.0 bar (10× yield)
+Max Harvest Depth: 50.0 bar (tech-limited, upgradeable to 100+ bar)
+Composition: 90% H₂, 10% He
+```
+
+At 10 bar harvest altitude on Jupiter, a gas scoop station would collect:
+- Hydrogen: 90% × 10× yield multiplier = excellent H₂ source
+- Helium: 10% × 10× yield multiplier = good He source
+
 ## Future Development
 
 ### Planned Features
-1. **Terraforming System**: 
+1. **Atmospheric Harvesting System**:
+   - Gas scoop stations at adjustable altitudes
+   - Technology research to increase max harvest depth
+   - Yield calculations based on harvest altitude and gas composition
+   - Infrastructure costs scale with harvest depth
+
+2. **Terraforming System**: 
    - Installations to add/remove atmospheric gases
    - Temperature regulation through greenhouse gas management
    - Pressure adjustment for Mars-like bodies
 
-2. **Colonization Mechanics**:
+3. **Colonization Mechanics**:
    - Infrastructure requirements based on colony cost
    - Dome construction for hostile environments
    - Life support systems
 
-3. **Procedural Generation**:
+4. **Procedural Generation**:
    - For exoplanets and procedurally generated systems
    - Based on planet type, distance to star, and mass
    - Realistic distribution of gas types
 
-4. **Atmospheric Effects**:
+5. **Atmospheric Effects**:
    - Visual effects for thick atmospheres
    - Weather systems
    - Atmospheric entry calculations for spacecraft

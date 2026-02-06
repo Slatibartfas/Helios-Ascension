@@ -310,3 +310,79 @@ fn test_terrestrial_surface_pressure() {
     assert!(earth_atmosphere.breathable, "Earth atmosphere should be breathable");
     assert!(!earth_atmosphere.is_reference_pressure, "Earth has actual surface pressure");
 }
+
+#[test]
+fn test_harvest_altitude_gas_giant() {
+    // Test Jupiter with harvest altitude
+    let jupiter = AtmosphereComposition::new_with_body_data(
+        1000.0, // 1 bar reference
+        -108.0,
+        vec![
+            AtmosphericGas::new("H2", 90.0),
+            AtmosphericGas::new("He", 10.0),
+        ],
+        1.8982e27, // Jupiter mass
+        69911.0,   // Jupiter radius
+        true,      // Gas giant: reference pressure
+    );
+    
+    // Should have default harvest altitude of 10 bar
+    assert_eq!(jupiter.harvest_altitude_bar, 10.0);
+    assert_eq!(jupiter.max_harvest_altitude_bar, 50.0);
+    
+    // Yield multiplier should be ~10x at 10 bar (vs 1 bar reference)
+    let yield_mult = jupiter.harvest_yield_multiplier();
+    assert!((yield_mult - 10.0).abs() < 0.1, "Yield at 10 bar should be ~10x, got {}", yield_mult);
+    
+    // Should be able to increase harvest altitude
+    assert!(jupiter.can_increase_harvest_altitude());
+    assert_eq!(jupiter.remaining_harvest_capacity_bar(), 40.0); // 50 - 10 = 40
+}
+
+#[test]
+fn test_harvest_altitude_terrestrial() {
+    // Test Earth - should have no harvest altitude (not a gas giant)
+    let earth = AtmosphereComposition::new_with_body_data(
+        1013.0,
+        15.0,
+        vec![
+            AtmosphericGas::new("N2", 78.0),
+            AtmosphericGas::new("O2", 21.0),
+        ],
+        5.97237e24, // Earth mass
+        6371.0,     // Earth radius
+        false,      // Terrestrial: surface pressure
+    );
+    
+    // Terrestrial planets have no harvest altitude
+    assert_eq!(earth.harvest_altitude_bar, 0.0);
+    assert_eq!(earth.max_harvest_altitude_bar, 0.0);
+    
+    // Harvest yield should be 0 for terrestrial
+    assert_eq!(earth.harvest_yield_multiplier(), 0.0);
+    assert!(!earth.can_increase_harvest_altitude());
+    assert_eq!(earth.remaining_harvest_capacity_bar(), 0.0);
+}
+
+#[test]
+fn test_harvest_yield_scaling() {
+    // Test that harvest yield scales linearly with pressure
+    let mut atmosphere = AtmosphereComposition::new_with_body_data(
+        1000.0, // 1 bar reference
+        -150.0,
+        vec![AtmosphericGas::new("H2", 100.0)],
+        1.0e27, // Large mass
+        50000.0, // Large radius
+        true,   // Gas giant
+    );
+    
+    // Manually set different harvest altitudes to test scaling
+    atmosphere.harvest_altitude_bar = 1.0;
+    assert!((atmosphere.harvest_yield_multiplier() - 1.0).abs() < 0.01);
+    
+    atmosphere.harvest_altitude_bar = 25.0;
+    assert!((atmosphere.harvest_yield_multiplier() - 25.0).abs() < 0.01);
+    
+    atmosphere.harvest_altitude_bar = 100.0;
+    assert!((atmosphere.harvest_yield_multiplier() - 100.0).abs() < 0.01);
+}

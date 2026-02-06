@@ -231,6 +231,17 @@ pub struct AtmosphereComposition {
     /// Whether this is a reference altitude pressure (true for gas giants) or actual surface pressure (false for terrestrial)
     /// Gas giants lack solid surfaces, so their pressure is measured at the conventional 1 bar reference level
     pub is_reference_pressure: bool,
+    
+    /// Harvest altitude pressure in bars for gas scooping operations (gas giants only)
+    /// This represents the atmospheric pressure level where gas harvesting stations operate.
+    /// Deeper = higher pressure = better yield. Default: 10 bar for gas giants, 0 for terrestrial.
+    /// Higher values require better technology.
+    pub harvest_altitude_bar: f32,
+    
+    /// Maximum harvest altitude pressure achievable with current technology (gas giants only)
+    /// Technology research can increase this limit to allow deeper, more efficient harvesting.
+    /// Default: 50 bar for basic tech, can be increased to 100+ bar with advanced tech.
+    pub max_harvest_altitude_bar: f32,
 }
 
 impl AtmosphereComposition {
@@ -278,6 +289,15 @@ impl AtmosphereComposition {
         
         let can_support_atmosphere = Self::can_retain_atmosphere(body_mass_kg, body_radius_km);
         
+        // Set default harvest altitudes for gas giants
+        let (harvest_altitude_bar, max_harvest_altitude_bar) = if is_reference_pressure {
+            // Gas giants: default 10 bar harvest, max 50 bar with basic tech
+            (10.0, 50.0)
+        } else {
+            // Terrestrial planets: no atmospheric harvesting
+            (0.0, 0.0)
+        };
+        
         Self {
             surface_pressure_mbar,
             surface_temperature_celsius,
@@ -285,6 +305,8 @@ impl AtmosphereComposition {
             breathable,
             can_support_atmosphere,
             is_reference_pressure,
+            harvest_altitude_bar,
+            max_harvest_altitude_bar,
         }
     }
     
@@ -312,6 +334,8 @@ impl AtmosphereComposition {
             breathable,
             can_support_atmosphere: true, // Default to true for backwards compatibility
             is_reference_pressure: false, // Default to surface pressure for backwards compatibility
+            harvest_altitude_bar: 0.0,    // No harvesting for terrestrial by default
+            max_harvest_altitude_bar: 0.0,
         }
     }
     
@@ -359,5 +383,43 @@ impl AtmosphereComposition {
         }
         
         cost.min(8)
+    }
+    
+    /// Calculate harvest yield multiplier based on harvest altitude vs reference pressure.
+    /// For gas giants, deeper atmospheric harvesting yields more gas per volume.
+    /// Uses simplified ideal gas law approximation: density ∝ pressure at constant temperature.
+    /// 
+    /// Returns multiplier relative to 1 bar reference level:
+    /// - At 1 bar: 1.0x yield
+    /// - At 10 bar: ~10x yield
+    /// - At 50 bar: ~50x yield
+    pub fn harvest_yield_multiplier(&self) -> f32 {
+        if !self.is_reference_pressure {
+            // Terrestrial planets: no atmospheric harvesting
+            return 0.0;
+        }
+        
+        // For gas giants, yield is proportional to pressure/density
+        // Using harvest altitude relative to 1 bar reference
+        let reference_bar = self.surface_pressure_mbar / 1000.0;
+        if reference_bar <= 0.0 || self.harvest_altitude_bar <= 0.0 {
+            return 0.0;
+        }
+        
+        // Yield multiplier is approximately harvest pressure / reference pressure
+        self.harvest_altitude_bar / reference_bar
+    }
+    
+    /// Check if harvest altitude can be increased (not at maximum yet)
+    pub fn can_increase_harvest_altitude(&self) -> bool {
+        self.is_reference_pressure && self.harvest_altitude_bar < self.max_harvest_altitude_bar
+    }
+    
+    /// Get remaining harvest altitude capacity (how much deeper we can go with tech upgrades)
+    pub fn remaining_harvest_capacity_bar(&self) -> f32 {
+        if !self.is_reference_pressure {
+            return 0.0;
+        }
+        (self.max_harvest_altitude_bar - self.harvest_altitude_bar).max(0.0)
     }
 }
