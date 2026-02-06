@@ -98,8 +98,6 @@ fn spawn_backdrop_sphere(
         BackdropSphere,
         // Use a render layer to ensure backdrop renders behind everything
         RenderLayers::layer(0),
-        // Disable visibility culling since it should always be visible
-        VisibilityBundle::default(),
     ));
 }
 
