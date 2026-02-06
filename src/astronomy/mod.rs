@@ -7,11 +7,14 @@
 //! - KeplerOrbit: Standard orbital elements for elliptical orbits
 //! - Kepler solver: Newton-Raphson solver for orbit propagation
 //! - Floating origin: Conversion from simulation to rendering coordinates
+//! - Multi-system support: Components for galaxy-scale simulation
 
 use bevy::prelude::*;
 
 pub mod components;
 pub mod systems;
+pub mod multi_system;
+pub mod multi_system_systems;
 
 pub use components::{
     AtmosphereComposition, AtmosphericGas, Hovered, KeplerOrbit, OrbitPath, Selected,
@@ -23,6 +26,14 @@ pub use systems::{
     scale_markers_with_zoom, spawn_hover_markers, spawn_selection_markers,
     update_orbit_visibility, update_render_transform,
     zoom_camera_to_anchored_body, SCALING_FACTOR,
+};
+pub use multi_system::{
+    ActiveSystem, GalacticCoordinates, MultiSystemConfig, StarSystem, SystemMember,
+    SystemPerformanceMetrics, SystemSimulationState, ViewMode, ViewModeThresholds, ViewModeType,
+};
+pub use multi_system_systems::{
+    MultiSystemPlugin, update_view_mode, apply_view_mode_culling,
+    update_performance_metrics, auto_transition_systems,
 };
 
 /// Plugin that adds astronomy systems to the Bevy app
