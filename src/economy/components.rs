@@ -127,6 +127,25 @@ impl MineralDeposit {
     pub fn is_viable(&self) -> bool {
         self.effective_value() > 0.01
     }
+
+    /// Calculate the absolute amount of resource in megatons (Mt)
+    /// 
+    /// # Arguments
+    /// * `body_mass_kg` - Mass of the celestial body in kilograms
+    /// 
+    /// # Returns
+    /// Resource amount in megatons (Mt)
+    pub fn calculate_megatons(&self, body_mass_kg: f64) -> f64 {
+        // Assume resources make up a fraction of total body mass based on abundance
+        // This is a simplified model:
+        // - abundance represents what fraction of the body is this resource
+        // - accessibility doesn't affect total amount, only extraction difficulty
+        let resource_mass_kg = body_mass_kg * self.abundance;
+        
+        // Convert kg to megatons (Mt)
+        // 1 Mt = 1,000,000,000 kg = 1e9 kg
+        resource_mass_kg / 1e9
+    }
 }
 
 impl Default for MineralDeposit {
@@ -255,6 +274,32 @@ mod tests {
 
         let not_viable = MineralDeposit::new(0.01, 0.01);
         assert!(!not_viable.is_viable());
+    }
+
+    #[test]
+    fn test_mineral_deposit_calculate_megatons() {
+        let deposit = MineralDeposit::new(0.5, 0.8);
+        
+        // Test with Earth-like mass: 5.972e24 kg
+        let earth_mass_kg = 5.972e24;
+        let amount_mt = deposit.calculate_megatons(earth_mass_kg);
+        
+        // 50% abundance of Earth mass = 2.986e24 kg = 2.986e15 Mt
+        let expected_mt = earth_mass_kg * 0.5 / 1e9;
+        assert!((amount_mt - expected_mt).abs() / expected_mt < 0.001);
+    }
+
+    #[test]
+    fn test_mineral_deposit_calculate_megatons_small_body() {
+        let deposit = MineralDeposit::new(0.1, 0.5);
+        
+        // Test with asteroid-like mass: 1e15 kg
+        let asteroid_mass_kg = 1e15;
+        let amount_mt = deposit.calculate_megatons(asteroid_mass_kg);
+        
+        // 10% abundance = 1e14 kg = 1e5 Mt
+        let expected_mt = 1e5;
+        assert!((amount_mt - expected_mt).abs() / expected_mt < 0.001);
     }
 
     #[test]

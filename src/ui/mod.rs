@@ -356,26 +356,39 @@ fn ui_dashboard(
             });
         });
 
-    // Top header panel with critical resources and power
+    // Top header panel with resource categories and power
     egui::TopBottomPanel::top("header_panel")
-        .min_height(60.0)
+        .min_height(80.0)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.heading("Helios: Ascension");
                 ui.separator();
 
-                // Show top 5 critical resources
-                let critical_resources = [
-                    ResourceType::Water,
-                    ResourceType::Iron,
-                    ResourceType::Helium3,
-                    ResourceType::Uranium,
-                    ResourceType::NobleMetals,
-                ];
-
-                for resource in &critical_resources {
-                    let amount = budget.get_stockpile(resource);
-                    ui.label(format!("{}: {:.1}", resource.symbol(), amount));
+                // Show resource categories with hover expansion
+                for (category_name, resources) in ResourceType::by_category() {
+                    // Calculate total for category
+                    let category_total: f64 = resources.iter()
+                        .map(|r| budget.get_stockpile(r))
+                        .sum();
+                    
+                    let category_label = ui.label(format!("{}: {:.1} Mt", category_name, category_total));
+                    
+                    // Show detailed breakdown on hover
+                    category_label.on_hover_ui(|ui| {
+                        ui.vertical(|ui| {
+                            ui.label(egui::RichText::new(category_name).strong());
+                            ui.separator();
+                            for resource in &resources {
+                                let amount = budget.get_stockpile(resource);
+                                ui.label(format!("  {} ({}): {:.1} Mt", 
+                                    resource.display_name(),
+                                    resource.symbol(),
+                                    amount
+                                ));
+                            }
+                        });
+                    });
+                    
                     ui.separator();
                 }
 
@@ -524,34 +537,50 @@ fn ui_dashboard(
                         if let Some(resources) = resources {
                             ui.group(|ui| {
                                 ui.label(egui::RichText::new("Resources").strong());
+                                ui.label(format!("Body mass: {:.2e} kg", body.mass));
+                                ui.add_space(5.0);
                                 
                                 egui::ScrollArea::vertical()
                                     .max_height(400.0)
                                     .show(ui, |ui| {
-                                        // Show all 15 resources
-                                        for resource_type in ResourceType::all() {
-                                            if let Some(deposit) = resources.get_deposit(resource_type) {
-                                                ui.horizontal(|ui| {
-                                                    ui.label(format!("{} ({})", 
-                                                        resource_type.display_name(),
-                                                        resource_type.symbol()
-                                                    ));
-                                                });
-                                                
-                                                ui.horizontal(|ui| {
-                                                    ui.label("  Abundance:");
-                                                    ui.add(egui::ProgressBar::new(deposit.abundance as f32)
-                                                        .text(format!("{:.1}%", deposit.abundance * 100.0)));
-                                                });
-                                                
-                                                ui.horizontal(|ui| {
-                                                    ui.label("  Access:");
-                                                    ui.add(egui::ProgressBar::new(deposit.accessibility)
-                                                        .text(format!("{:.1}%", deposit.accessibility * 100.0)));
-                                                });
-                                                
-                                                ui.add_space(5.0);
+                                        // Group resources by category
+                                        for (category_name, category_resources) in ResourceType::by_category() {
+                                            ui.label(egui::RichText::new(category_name).strong().color(egui::Color32::LIGHT_BLUE));
+                                            
+                                            for resource_type in &category_resources {
+                                                if let Some(deposit) = resources.get_deposit(resource_type) {
+                                                    // Calculate absolute amount in megatons
+                                                    let amount_mt = deposit.calculate_megatons(body.mass);
+                                                    
+                                                    ui.horizontal(|ui| {
+                                                        ui.label(format!("  {} ({})", 
+                                                            resource_type.display_name(),
+                                                            resource_type.symbol()
+                                                        ));
+                                                    });
+                                                    
+                                                    ui.horizontal(|ui| {
+                                                        ui.label("    Amount:");
+                                                        ui.label(egui::RichText::new(format!("{:.2e} Mt", amount_mt)).strong());
+                                                    });
+                                                    
+                                                    ui.horizontal(|ui| {
+                                                        ui.label("    Concentration:");
+                                                        ui.add(egui::ProgressBar::new(deposit.abundance as f32)
+                                                            .text(format!("{:.1}%", deposit.abundance * 100.0)));
+                                                    });
+                                                    
+                                                    ui.horizontal(|ui| {
+                                                        ui.label("    Accessibility:");
+                                                        ui.add(egui::ProgressBar::new(deposit.accessibility)
+                                                            .text(format!("{:.1}%", deposit.accessibility * 100.0)));
+                                                    });
+                                                    
+                                                    ui.add_space(3.0);
+                                                }
                                             }
+                                            
+                                            ui.add_space(8.0);
                                         }
 
                                         // Summary

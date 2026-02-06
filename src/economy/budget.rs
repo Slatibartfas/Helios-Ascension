@@ -25,6 +25,7 @@ impl GlobalBudget {
 
         // Initialize with some starting resources for gameplay
         stockpiles.insert(ResourceType::Water, 100.0);
+        stockpiles.insert(ResourceType::Oxygen, 50.0);
         stockpiles.insert(ResourceType::Iron, 50.0);
         stockpiles.insert(ResourceType::Copper, 20.0);
 
