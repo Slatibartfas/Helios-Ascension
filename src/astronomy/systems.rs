@@ -187,15 +187,23 @@ pub fn update_render_transform(
 /// System that draws orbit paths as fading trails (Terra Invicta style).
 /// The trail is brightest at the body's current position and fades out
 /// behind it, creating a comet-tail effect along the orbit.
+/// Uses LOD (Level of Detail) to reduce segment count for distant/less important orbits.
 pub fn draw_orbit_paths(
     mut gizmos: Gizmos,
     time: Res<Time<Virtual>>,
-    query: Query<(&KeplerOrbit, &OrbitPath, Option<&Parent>)>,
+    camera_query: Query<&Transform, With<GameCamera>>,
+    query: Query<(&KeplerOrbit, &OrbitPath, Option<&Parent>, Option<&Selected>)>,
     parent_query: Query<&GlobalTransform>,
 ) {
     let elapsed_time = time.elapsed_seconds_f64();
+    
+    // Get camera position for LOD calculations
+    let camera_pos = camera_query
+        .get_single()
+        .map(|t| t.translation)
+        .unwrap_or(Vec3::ZERO);
 
-    for (orbit, path, parent) in query.iter() {
+    for (orbit, path, parent, selected) in query.iter() {
         if !path.visible {
             continue;
         }
@@ -205,11 +213,25 @@ pub fn draw_orbit_paths(
             .map(|transform| transform.translation())
             .unwrap_or(Vec3::ZERO);
 
+        // Calculate orbit center for LOD
+        let orbit_center = parent_offset;
+        let distance_to_camera = (orbit_center - camera_pos).length();
+        
+        // LOD: Reduce segment count for distant orbits
+        // Selected orbits always get full detail
+        let segments = if selected.is_some() {
+            path.segments // Full detail for selected
+        } else {
+            // Scale segments based on distance
+            // Close orbits: full detail, distant orbits: reduced detail
+            let lod_factor = (3000.0 / distance_to_camera.max(300.0)).clamp(0.25, 1.0);
+            ((path.segments as f32 * lod_factor) as u32).max(16) // Minimum 16 segments
+        };
+
         // Current mean anomaly of the body (where it actually is now)
         let current_mean_anomaly = (orbit.mean_anomaly_epoch + orbit.mean_motion * elapsed_time)
             .rem_euclid(std::f64::consts::TAU);
 
-        let segments = path.segments;
         let mean_anomaly_step = std::f64::consts::TAU / (segments as f64);
 
         // Extract base color channels from path color
