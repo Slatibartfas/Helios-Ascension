@@ -137,6 +137,54 @@ impl ResourceType {
                 | ResourceType::NobleMetals
         )
     }
+
+    /// Returns the category name for UI grouping
+    pub fn category(&self) -> &'static str {
+        if self.is_volatile() {
+            "Volatiles"
+        } else if self.is_construction() {
+            "Construction"
+        } else if self.is_noble_gas() {
+            "Noble Gases"
+        } else if self.is_fissile() {
+            "Fissiles"
+        } else if self.is_specialty() {
+            "Specialty"
+        } else {
+            "Other"
+        }
+    }
+
+    /// Returns all resources by category
+    pub fn by_category() -> Vec<(&'static str, Vec<ResourceType>)> {
+        vec![
+            ("Volatiles", vec![
+                ResourceType::Water,
+                ResourceType::Hydrogen,
+                ResourceType::Ammonia,
+                ResourceType::Methane,
+            ]),
+            ("Construction", vec![
+                ResourceType::Iron,
+                ResourceType::Aluminum,
+                ResourceType::Titanium,
+                ResourceType::Silicates,
+            ]),
+            ("Noble Gases", vec![
+                ResourceType::Helium3,
+                ResourceType::Argon,
+            ]),
+            ("Fissiles", vec![
+                ResourceType::Uranium,
+                ResourceType::Thorium,
+            ]),
+            ("Specialty", vec![
+                ResourceType::Copper,
+                ResourceType::NobleMetals,
+                ResourceType::RareEarths,
+            ]),
+        ]
+    }
 }
 
 impl fmt::Display for ResourceType {
@@ -185,5 +233,33 @@ mod tests {
         assert_eq!(ResourceType::Water.symbol(), "H2O");
         assert_eq!(ResourceType::Iron.symbol(), "Fe");
         assert_eq!(ResourceType::Helium3.symbol(), "He3");
+    }
+
+    #[test]
+    fn test_resource_category() {
+        assert_eq!(ResourceType::Water.category(), "Volatiles");
+        assert_eq!(ResourceType::Iron.category(), "Construction");
+        assert_eq!(ResourceType::Helium3.category(), "Noble Gases");
+        assert_eq!(ResourceType::Uranium.category(), "Fissiles");
+        assert_eq!(ResourceType::Copper.category(), "Specialty");
+    }
+
+    #[test]
+    fn test_by_category() {
+        let categories = ResourceType::by_category();
+        
+        // Should have 5 categories
+        assert_eq!(categories.len(), 5);
+        
+        // Check category names
+        assert_eq!(categories[0].0, "Volatiles");
+        assert_eq!(categories[1].0, "Construction");
+        assert_eq!(categories[2].0, "Noble Gases");
+        assert_eq!(categories[3].0, "Fissiles");
+        assert_eq!(categories[4].0, "Specialty");
+        
+        // Check total resources (should be all 15)
+        let total_resources: usize = categories.iter().map(|(_, resources)| resources.len()).sum();
+        assert_eq!(total_resources, 15);
     }
 }

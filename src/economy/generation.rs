@@ -4,7 +4,7 @@ use rand::Rng;
 use super::components::{MineralDeposit, OrbitsBody, PlanetResources, StarSystem};
 use super::types::ResourceType;
 use crate::astronomy::SpaceCoordinates;
-use crate::plugins::solar_system::{CelestialBody, Planet, DwarfPlanet, Moon};
+use crate::plugins::solar_system::{CelestialBody, Planet, DwarfPlanet, Moon, Asteroid, Comet};
 
 /// Default frost line distance in Astronomical Units (for backwards compatibility)
 /// Used when no StarSystem component is found (single-star legacy mode)
@@ -16,11 +16,11 @@ const DEFAULT_FROST_LINE_AU: f64 = 2.5;
 /// Supports multiple star systems with different frost lines
 pub fn generate_solar_system_resources(
     mut commands: Commands,
-    // Query planets, dwarf planets, and moons without resources
+    // Query planets, dwarf planets, moons, asteroids, and comets without resources
     body_query: Query<
         (Entity, &CelestialBody, &SpaceCoordinates, Option<&OrbitsBody>),
         (
-            Or<(With<Planet>, With<DwarfPlanet>, With<Moon>)>,
+            Or<(With<Planet>, With<DwarfPlanet>, With<Moon>, With<Asteroid>, With<Comet>)>,
             Without<PlanetResources>,
         ),
     >,
