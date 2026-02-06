@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy::window::WindowResolution;
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use bevy_egui::EguiPlugin;
 
 pub mod astronomy;
 pub mod economy;
@@ -13,6 +13,7 @@ use economy::EconomyPlugin;
 use plugins::{
     camera::CameraPlugin, 
     solar_system::SolarSystemPlugin,
+    starmap::StarmapPlugin,
     visual_effects::VisualEffectsPlugin,
 };
 use render::backdrop::BackdropPlugin;
@@ -29,14 +30,15 @@ fn main() {
             }),
             ..default()
         }))
-        // Debug UI
-        .add_plugins(WorldInspectorPlugin::new())
+        // Debug UI (egui)
+        .add_plugins(EguiPlugin)
         // Game plugins - Order matters for dependencies
         .add_plugins(AstronomyPlugin)
         .add_plugins(CameraPlugin)
         .add_plugins(BackdropPlugin)
         .add_plugins(VisualEffectsPlugin)
         .add_plugins(SolarSystemPlugin)
+        .add_plugins(StarmapPlugin)
         .add_plugins(EconomyPlugin)
         .add_plugins(UIPlugin)
         // Systems
@@ -45,10 +47,13 @@ fn main() {
 }
 
 fn setup(mut commands: Commands) {
-    // Add ambient light for space atmosphere - increased for better visibility
+    // Add ambient light for space atmosphere
+    // In Bevy 0.14, brightness is measured in lux (default: 80.0).
+    // 30 lux provides enough fill light so textures are visible on all bodies,
+    // while still allowing the Sun's point-light to create clear day/night contrast.
     commands.insert_resource(AmbientLight {
         color: Color::srgb(0.9, 0.92, 1.0), // Neutral to slightly blue for space
-        brightness: 0.8, // Strong ambient light to prevent black bodies
+        brightness: 30.0,
     });
     
     // Set clear color to deep black for space

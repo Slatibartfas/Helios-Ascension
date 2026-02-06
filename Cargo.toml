@@ -32,7 +32,7 @@ bevy = { version = "0.14", features = [
 
 # Debug and development tools
 bevy-inspector-egui = "0.25"
-bevy_egui = "0.28"
+bevy_egui = { version = "0.28", features = ["render"] }
 
 # Math and physics
 glam = "0.28"
@@ -69,6 +69,9 @@ opt-level = 1
 
 [profile.test.package."*"]
 opt-level = 2
+
+[features]
+default = []
 
 # Bevy-specific compile optimizations
 [profile.dev.package.bevy_pbr]

@@ -167,16 +167,16 @@ fn setup_camera_effects(
     camera_query: Query<Entity, With<Camera3d>>,
 ) {
     if let Ok(camera_entity) = camera_query.get_single() {
-        // Add bloom effect for bright objects (stars, sun) — boosted for vibrant glow
+        // Add bloom effect for bright objects (stars, sun) — tuned for subtle, realistic corona
         commands.entity(camera_entity).insert((
             BloomSettings {
-                intensity: 0.3, // Moderate intensity
-                low_frequency_boost: 0.8, // Boost wide glow
-                low_frequency_boost_curvature: 0.6,
-                high_pass_frequency: 0.2, // Allow more range to contribute to glow shape
+                intensity: 0.15, // Restrained bloom intensity
+                low_frequency_boost: 0.5, // Moderate wide glow
+                low_frequency_boost_curvature: 0.5,
+                high_pass_frequency: 0.3, // Tighter frequency range
                 prefilter_settings: bevy::core_pipeline::bloom::BloomPrefilterSettings {
                     threshold: 50.0, // VERY HIGH threshold - only the Sun (emissive > 50) will bloom
-                    threshold_softness: 0.4,
+                    threshold_softness: 0.3,
                 },
                 composite_mode: bevy::core_pipeline::bloom::BloomCompositeMode::Additive,
             },

@@ -4,8 +4,8 @@ use bevy::render::mesh::MeshVertexBufferLayoutRef;
 use bevy::render::view::RenderLayers;
 
 // Backdrop configuration constants
-// Keep backdrop radius below camera far plane (100000.0) to avoid clipping
-const BACKDROP_SPHERE_RADIUS: f32 = 90000.0;
+// Keep backdrop radius below camera far plane (1_500_000.0) to avoid clipping
+const BACKDROP_SPHERE_RADIUS: f32 = 1_400_000.0;
 const BACKDROP_SPHERE_UV_SEGMENTS: usize = 32;
 const BACKDROP_SPHERE_UV_RINGS: usize = 18;
 
