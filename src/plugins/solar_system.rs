@@ -730,9 +730,9 @@ fn apply_linear_to_images_system(
     });
 }
 
-fn rotate_bodies(time: Res<Time>, mut query: Query<(&mut Transform, &RotationSpeed)>) {
+fn rotate_bodies(time: Res<Time<Virtual>>, mut query: Query<(&mut Transform, &RotationSpeed)>) {
     for (mut transform, rotation_speed) in query.iter_mut() {
-        transform.rotate_y(rotation_speed.0 * time.delta_seconds() * 1000.0);
+        transform.rotate_y(rotation_speed.0 * time.delta_seconds());
     }
 }
 
