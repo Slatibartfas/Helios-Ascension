@@ -56,11 +56,11 @@
 
 ### 1. LOD System for Orbit Trails
 **Implementation**: Dynamically adjusts segment count based on camera distance using smooth linear interpolation
-- **Close orbits** (< 300 units): Full detail (base segment count, typically 128)
+- **Close orbits** (< LOD_MIN_DISTANCE = 300 units): Full detail (base segment count, typically 128)
 - **Intermediate range** (300-3000 units): Gradual linear reduction
-- **Distant orbits** (> 3000 units): Minimum detail (25% of base, but at least 16 segments)
+- **Distant orbits** (> LOD_REFERENCE_DISTANCE = 3000 units): Minimum detail (LOD_MIN_FACTOR = 25% of base, but at least MIN_ORBIT_SEGMENTS = 16)
 - **Selected orbits**: Always full detail regardless of distance
-- **Formula**: `segments = max(base_segments * lerp(1.0, 0.25, (distance - 300) / 2700), 16)`
+- **Formula**: `segments = max(base_segments * lerp(1.0, LOD_MIN_FACTOR, (distance - LOD_MIN_DISTANCE) / (LOD_REFERENCE_DISTANCE - LOD_MIN_DISTANCE)), MIN_ORBIT_SEGMENTS)`
 
 **Impact**: Reduces rendering cost from O(bodies × 128) to O(bodies × adaptive) segments. Smooth interpolation prevents visual popping during zoom.
 

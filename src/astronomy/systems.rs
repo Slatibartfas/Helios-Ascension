@@ -42,6 +42,7 @@ const MIN_TRANSLATION_CHANGE_THRESHOLD: f32 = 1e-6;
 
 /// LOD (Level of Detail) reference distance for orbit trails (in Bevy units)
 /// Orbits at this distance get intermediate detail scaling
+/// Must be > LOD_MIN_DISTANCE to avoid division by zero
 const LOD_REFERENCE_DISTANCE: f32 = 3000.0;
 
 /// LOD minimum distance for orbit trails (in Bevy units)
@@ -266,7 +267,9 @@ pub fn draw_orbit_paths(
             } else {
                 // Smooth interpolation between min and reference distance
                 // Lerp from 1.0 (at LOD_MIN_DISTANCE) to LOD_MIN_FACTOR (at LOD_REFERENCE_DISTANCE)
-                let t = (distance_to_camera - LOD_MIN_DISTANCE) / (LOD_REFERENCE_DISTANCE - LOD_MIN_DISTANCE);
+                let distance_range = LOD_REFERENCE_DISTANCE - LOD_MIN_DISTANCE;
+                debug_assert!(distance_range > 0.0, "LOD_REFERENCE_DISTANCE must be > LOD_MIN_DISTANCE");
+                let t = (distance_to_camera - LOD_MIN_DISTANCE) / distance_range;
                 1.0 - t * (1.0 - LOD_MIN_FACTOR)
             };
             ((path.segments as f32 * lod_factor) as u32).max(MIN_ORBIT_SEGMENTS)
