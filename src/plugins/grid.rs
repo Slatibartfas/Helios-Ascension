@@ -65,7 +65,7 @@ fn setup_grid(
     
     let grid_material = materials.add(GridMaterial {
         grid_params: GridParams {
-            grid_scale: 1000.0,      // Grid cell size in game units (1000 = ~6.68 AU if 1 unit = 1 million km)
+            grid_scale: 1000.0,      // Grid cell size in game units (1000 units ≈ 6.68 AU when 1 unit = 1 million km)
             fade_distance: 20000.0,  // Start fading at this distance from center
             max_distance: 50000.0,   // Fully transparent at this distance
             alpha: 0.1,              // Base transparency (very subtle)

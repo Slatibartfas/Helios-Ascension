@@ -18,18 +18,8 @@ struct FragmentInput {
     @location(2) uv: vec2<f32>,
 };
 
-// Hexagonal grid pattern function
-fn hex_grid(pos: vec2<f32>, scale: f32) -> f32 {
-    let p = pos / scale;
-    
-    // Hexagonal grid using sine waves
-    let a = sin(p.x) + sin(p.y + p.x * 0.577) + sin(p.y - p.x * 0.577);
-    
-    // Create sharp lines from the sine pattern
-    let grid_line = smoothstep(0.95, 0.97, abs(fract(a * 0.5) * 2.0 - 1.0));
-    
-    return grid_line;
-}
+// Constants
+const TAU: f32 = 6.283185307; // 2π for circular calculations
 
 // Simple circular grid pattern function
 fn circular_grid(pos: vec2<f32>, scale: f32) -> f32 {
@@ -39,9 +29,9 @@ fn circular_grid(pos: vec2<f32>, scale: f32) -> f32 {
     let radial = abs(fract(dist / scale) - 0.5) * 2.0;
     let radial_line = smoothstep(0.95, 0.97, radial);
     
-    // Angular lines
+    // Angular lines (16 divisions around the circle)
     let angle = atan2(pos.y, pos.x);
-    let angular = abs(fract(angle * 8.0 / 6.283185307) - 0.5) * 2.0;
+    let angular = abs(fract(angle * 8.0 / TAU) - 0.5) * 2.0;
     let angular_line = smoothstep(0.95, 0.97, angular);
     
     return max(radial_line, angular_line);
