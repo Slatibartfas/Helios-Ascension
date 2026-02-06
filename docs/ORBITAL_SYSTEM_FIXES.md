@@ -55,20 +55,21 @@
 ## Performance Optimizations
 
 ### 1. LOD System for Orbit Trails
-**Implementation**: Dynamically adjusts segment count based on camera distance
-- **Close orbits** (< 300 units): Full detail (128 segments)
-- **Distant orbits** (> 3000 units): Reduced detail (32 segments minimum)
+**Implementation**: Dynamically adjusts segment count based on camera distance using smooth linear interpolation
+- **Close orbits** (< 300 units): Full detail (base segment count, typically 128)
+- **Intermediate range** (300-3000 units): Gradual linear reduction
+- **Distant orbits** (> 3000 units): Minimum detail (25% of base, but at least 16 segments)
 - **Selected orbits**: Always full detail regardless of distance
-- **Formula**: `segments = base_segments * clamp(3000 / distance, 0.25, 1.0)`
+- **Formula**: `segments = max(base_segments * lerp(1.0, 0.25, (distance - 300) / 2700), 16)`
 
-**Impact**: Reduces rendering cost from O(bodies × 128) to O(bodies × adaptive) segments
+**Impact**: Reduces rendering cost from O(bodies × 128) to O(bodies × adaptive) segments. Smooth interpolation prevents visual popping during zoom.
 
 ### 2. Transform Update Optimization
 **Implementation**: Only updates Transform when change exceeds threshold
-- Checks if new translation differs from current by > sqrt(1e-6) ≈ 0.001 Bevy units (using squared distance for efficiency)
-- Prevents unnecessary updates when orbital changes are below f32 precision
+- Uses squared distance comparison for efficiency: `length_squared() > 1e-6`
+- This is equivalent to linear distance change > 0.001 Bevy units (sqrt(1e-6))
 - Safe for slow-moving bodies: at 1000x time acceleration, even distant asteroids move > 0.001 units/frame
-- At normal speed, imperceptibly slow movement doesn't need visual updates
+- At normal speed, imperceptibly slow movement doesn't need visual updates (< 0.001 units is sub-pixel on most displays)
 - Orbital calculations still run at full f64 precision regardless of this rendering threshold
 - Reduces downstream transform propagation in Bevy's hierarchy
 

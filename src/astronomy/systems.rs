@@ -54,6 +54,8 @@ const LOD_MIN_FACTOR: f32 = 0.25;
 
 /// Minimum segment count for orbit trails
 /// Even with maximum LOD reduction, orbits have at least this many segments
+/// Note: For a 128-segment orbit with LOD_MIN_FACTOR (0.25), this ensures
+/// we never go below 16 segments even if the calculation would produce fewer
 const MIN_ORBIT_SEGMENTS: u32 = 16;
 
 /// Solves Kepler's equation: M = E - e*sin(E) for eccentric anomaly E
