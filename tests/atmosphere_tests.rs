@@ -212,11 +212,11 @@ fn test_atmosphere_retention() {
     assert!(AtmosphereComposition::can_retain_atmosphere(mars_mass, mars_radius),
             "Mars should be able to retain an atmosphere");
     
-    // Moon should NOT retain atmosphere well (escape velocity ~2.4 km/s)
+    // Moon is at the retention threshold (escape velocity ~2.4 km/s)
     let moon_mass = 7.342e22; // kg
     let moon_radius = 1737.4; // km
     assert!(AtmosphereComposition::can_retain_atmosphere(moon_mass, moon_radius),
-            "Moon can retain heavy gases but not light ones");
+            "Moon is at boundary: can retain heavy gases but threshold is ≥ 2.0 km/s");
     
     // Titan should retain atmosphere (escape velocity ~2.6 km/s, denser than Moon)
     let titan_mass = 1.3452e23; // kg

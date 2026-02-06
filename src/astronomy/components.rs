@@ -223,9 +223,9 @@ pub struct AtmosphereComposition {
     /// True if oxygen is present at safe levels (0.1-0.3 atm)
     pub breathable: bool,
     
-    /// Whether this body can physically support an atmosphere based on escape velocity
-    /// Calculated from mass and radius: bodies with escape velocity ≥ 2.0 km/s can retain
-    /// heavy gases; bodies with ≥ 5 km/s can retain most atmospheric gases over geological timescales
+    /// Whether this body can physically support an atmosphere based on escape velocity.
+    /// This uses a simplified binary threshold (≥ 2.0 km/s) for gameplay purposes.
+    /// Physically: ≥ 5 km/s retains most gases; 2-5 km/s retains heavy gases; < 2 km/s loses atmosphere.
     pub can_support_atmosphere: bool,
 }
 
@@ -240,13 +240,17 @@ impl AtmosphereComposition {
         v_e_m_s / 1000.0 // Convert m/s to km/s
     }
     
-    /// Determine if a body can support an atmosphere based on escape velocity
-    /// Bodies with escape velocity ≥ 5 km/s can retain most gases including light gases
-    /// Bodies with 2-5 km/s can retain heavy gases but lose lighter ones (H₂, He) over time
-    /// Bodies with < 2 km/s cannot retain significant atmospheres over geological timescales
+    /// Determine if a body can support an atmosphere based on escape velocity.
+    /// 
+    /// Returns true if escape velocity ≥ 2.0 km/s (simplified threshold for gameplay).
+    /// 
+    /// Physical reality (for future enhancement):
+    /// - ≥ 5 km/s: Can retain most gases including light gases (H₂, He)
+    /// - 2-5 km/s: Can retain heavy gases (N₂, O₂, CO₂) but lose lighter ones over geological time
+    /// - < 2 km/s: Cannot retain significant atmospheres over geological timescales
     pub fn can_retain_atmosphere(mass_kg: f64, radius_km: f32) -> bool {
         let escape_velocity = Self::calculate_escape_velocity(mass_kg, radius_km);
-        escape_velocity >= 2.0 // Threshold for retaining at least heavy gases
+        escape_velocity >= 2.0 // Simplified threshold: can retain at least heavy gases
     }
     
     /// Create a new atmosphere composition with mass and radius for calculating retention
