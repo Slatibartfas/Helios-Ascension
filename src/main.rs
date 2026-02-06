@@ -11,6 +11,7 @@ use astronomy::AstronomyPlugin;
 use economy::EconomyPlugin;
 use plugins::{
     camera::CameraPlugin, 
+    grid::GridPlugin,
     solar_system::SolarSystemPlugin,
     visual_effects::VisualEffectsPlugin,
 };
@@ -33,6 +34,7 @@ fn main() {
         .add_plugins(AstronomyPlugin)
         .add_plugins(CameraPlugin)
         .add_plugins(VisualEffectsPlugin)
+        .add_plugins(GridPlugin)
         .add_plugins(SolarSystemPlugin)
         .add_plugins(EconomyPlugin)
         .add_plugins(UIPlugin)
