@@ -7,12 +7,12 @@
 
 // Visual parameters - extracted as constants for easy tuning
 const FBM_OCTAVES: i32 = 4;                  // Number of noise octaves for nebulae
-const STAR_GRID_SIZE: f32 = 0.1;             // Grid cell size for star placement
-const STAR_DENSITY_THRESHOLD: f32 = 0.98;    // ~2% of cells contain stars
-const STAR_SIZE_MIN: f32 = 0.001;            // Minimum star angular size
-const STAR_SIZE_RANGE: f32 = 0.002;          // Star size variation range
-const STAR_INTENSITY_MIN: f32 = 0.15;        // Minimum star brightness
-const STAR_INTENSITY_RANGE: f32 = 0.15;      // Star intensity variation range
+const STAR_GRID_SIZE: f32 = 0.01;            // Grid cell size for star placement (smaller = more stars)
+const STAR_DENSITY_THRESHOLD: f32 = 0.95;    // ~5% of cells contain stars (more visible)
+const STAR_SIZE_MIN: f32 = 0.0001;           // Minimum star angular size (much smaller)
+const STAR_SIZE_RANGE: f32 = 0.0002;         // Star size variation range
+const STAR_INTENSITY_MIN: f32 = 0.2;         // Minimum star brightness (increased)
+const STAR_INTENSITY_RANGE: f32 = 0.25;      // Star intensity variation range (increased)
 const NEBULA_PARALLAX_FACTOR: f32 = 0.5;     // Nebula layer moves at 0.5x speed for depth
 const LUMINANCE_CAP: f32 = 0.4;              // Maximum brightness for any pixel
 const DISTANCE_FADE_AMOUNT: f32 = 0.3;       // Maximum dimming at far distance (30%)
