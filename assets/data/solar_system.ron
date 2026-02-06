@@ -673,6 +673,7 @@
         (
             name: "Interamnia",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 3.5e19,
             radius: 166.0,
             color: (0.6, 0.55, 0.5),
@@ -692,6 +693,7 @@
         (
             name: "Davida",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 3.84e19,
             radius: 148.0,
             color: (0.55, 0.5, 0.45),
@@ -711,6 +713,7 @@
         (
             name: "Cybele",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 1.4e19,
             radius: 145.0,
             color: (0.5, 0.5, 0.45),
@@ -730,6 +733,7 @@
         (
             name: "52 Europa",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 2.27e19,
             radius: 156.0,
             color: (0.65, 0.6, 0.55),
@@ -749,6 +753,7 @@
         (
             name: "Sylvia",
             body_type: Asteroid,
+            asteroid_class: Some(PType),
             mass: 1.478e19,
             radius: 128.0,
             color: (0.5, 0.45, 0.4),
@@ -768,6 +773,7 @@
         (
             name: "Thisbe",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 1.6e19,
             radius: 116.0,
             color: (0.6, 0.55, 0.5),
@@ -3380,6 +3386,7 @@
         (
             name: "Euphrosyne",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 5.7e+19,
             radius: 128.0,
             color: (0.6, 0.58, 0.54),
@@ -3399,6 +3406,7 @@
         (
             name: "Juno",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 2.67e+19,
             radius: 123.5,
             color: (0.6, 0.58, 0.54),
@@ -3438,6 +3446,7 @@
         (
             name: "Eunomia",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 3.12e+19,
             radius: 136.0,
             color: (0.6, 0.58, 0.54),
@@ -3457,6 +3466,7 @@
         (
             name: "Camilla",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 1.12e+19,
             radius: 115.0,
             color: (0.6, 0.58, 0.54),
@@ -3476,6 +3486,7 @@
         (
             name: "Elektra",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 6.6e+18,
             radius: 104.0,
             color: (0.6, 0.58, 0.54),
@@ -3495,6 +3506,7 @@
         (
             name: "Bamberga",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 1e+19,
             radius: 114.0,
             color: (0.6, 0.58, 0.54),
@@ -3514,6 +3526,7 @@
         (
             name: "Doris",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 5.5e+18,
             radius: 111.0,
             color: (0.6, 0.58, 0.54),
@@ -3533,6 +3546,7 @@
         (
             name: "Fortuna",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 7.5e+18,
             radius: 107.0,
             color: (0.6, 0.58, 0.54),
@@ -3552,6 +3566,7 @@
         (
             name: "Egeria",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 8.3e+18,
             radius: 108.0,
             color: (0.6, 0.58, 0.54),
@@ -3571,6 +3586,7 @@
         (
             name: "Iris",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 1.2e+19,
             radius: 100.0,
             color: (0.6, 0.58, 0.54),
@@ -3590,6 +3606,7 @@
         (
             name: "Amphitrite",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 1.2e+19,
             radius: 106.0,
             color: (0.6, 0.58, 0.54),
@@ -3609,6 +3626,7 @@
         (
             name: "Ursula",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 1.4e+19,
             radius: 108.0,
             color: (0.6, 0.58, 0.54),
@@ -3628,6 +3646,7 @@
         (
             name: "Herculina",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 1.4e+19,
             radius: 108.0,
             color: (0.6, 0.58, 0.54),
@@ -3647,6 +3666,7 @@
         (
             name: "Siwa",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 1.4e+19,
             radius: 110.0,
             color: (0.6, 0.58, 0.54),
@@ -3666,6 +3686,7 @@
         (
             name: "Dembowska",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 1.35e+19,
             radius: 70.0,
             color: (0.6, 0.58, 0.54),
@@ -3685,6 +3706,7 @@
         (
             name: "Loreley",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 1.1e+19,
             radius: 78.0,
             color: (0.6, 0.58, 0.54),
@@ -3704,6 +3726,7 @@
         (
             name: "Irene",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 1.5e+19,
             radius: 76.0,
             color: (0.6, 0.58, 0.54),
@@ -3723,6 +3746,7 @@
         (
             name: "Julia",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 1.2e+19,
             radius: 76.0,
             color: (0.6, 0.58, 0.54),
@@ -3742,6 +3766,7 @@
         (
             name: "110 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 4.105686083542029e+19,
             radius: 47.3021377551026,
             color: (0.58, 0.56, 0.52),
@@ -3761,6 +3786,7 @@
         (
             name: "111 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 1.5475364947489583e+19,
             radius: 65.6713956588426,
             color: (0.58, 0.56, 0.52),
@@ -3780,6 +3806,7 @@
         (
             name: "112 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 3.172922811568623e+19,
             radius: 81.26365888029883,
             color: (0.58, 0.56, 0.52),
@@ -3799,6 +3826,7 @@
         (
             name: "113 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 1.956533502592379e+19,
             radius: 89.61020381540331,
             color: (0.58, 0.56, 0.52),
@@ -3818,6 +3846,7 @@
         (
             name: "114 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 6.405798389308066e+19,
             radius: 62.263155131434516,
             color: (0.58, 0.56, 0.52),
@@ -3837,6 +3866,7 @@
         (
             name: "115 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 4.10591419818261e+19,
             radius: 47.74355508234939,
             color: (0.58, 0.56, 0.52),
@@ -3856,6 +3886,7 @@
         (
             name: "116 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 3.414833732790609e+18,
             radius: 48.22348257036028,
             color: (0.58, 0.56, 0.52),
@@ -3875,6 +3906,7 @@
         (
             name: "117 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(PType),
             mass: 3.766760865424669e+19,
             radius: 59.248199801337506,
             color: (0.58, 0.56, 0.52),
@@ -3894,6 +3926,7 @@
         (
             name: "118 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 6.274448555453598e+19,
             radius: 80.9491346925753,
             color: (0.58, 0.56, 0.52),
@@ -3913,6 +3946,7 @@
         (
             name: "119 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 5.762177803903199e+19,
             radius: 64.02920189158027,
             color: (0.58, 0.56, 0.52),
@@ -3932,6 +3966,7 @@
         (
             name: "120 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 2.5858078037755548e+19,
             radius: 46.970442132758095,
             color: (0.58, 0.56, 0.52),
@@ -3951,6 +3986,7 @@
         (
             name: "121 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 2.7079324348138353e+19,
             radius: 75.1020170182133,
             color: (0.58, 0.56, 0.52),
@@ -3970,6 +4006,7 @@
         (
             name: "122 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(PType),
             mass: 7.109965339154177e+19,
             radius: 43.908138603928634,
             color: (0.58, 0.56, 0.52),
@@ -3989,6 +4026,7 @@
         (
             name: "123 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 7.142546687687814e+19,
             radius: 50.253972544021316,
             color: (0.58, 0.56, 0.52),
@@ -4008,6 +4046,7 @@
         (
             name: "124 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 6.5313241518779195e+19,
             radius: 59.417119606271285,
             color: (0.58, 0.56, 0.52),
@@ -4027,6 +4066,7 @@
         (
             name: "125 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 2.788350258860045e+19,
             radius: 81.51406359888206,
             color: (0.58, 0.56, 0.52),
@@ -4046,6 +4086,7 @@
         (
             name: "126 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 9.813592192240525e+18,
             radius: 59.8376922957374,
             color: (0.58, 0.56, 0.52),
@@ -4065,6 +4106,7 @@
         (
             name: "127 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 4.804272623184091e+18,
             radius: 50.892951403648105,
             color: (0.58, 0.56, 0.52),
@@ -4084,6 +4126,7 @@
         (
             name: "128 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 5.38082406566625e+19,
             radius: 73.81211421620569,
             color: (0.58, 0.56, 0.52),
@@ -4103,6 +4146,7 @@
         (
             name: "129 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 4.45134166944831e+19,
             radius: 54.838490184776575,
             color: (0.58, 0.56, 0.52),
@@ -4122,6 +4166,7 @@
         (
             name: "130 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 7.116568326536036e+19,
             radius: 54.11160312666709,
             color: (0.58, 0.56, 0.52),
@@ -4141,6 +4186,7 @@
         (
             name: "131 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 2.6861530880519918e+19,
             radius: 71.98027457111408,
             color: (0.58, 0.56, 0.52),
@@ -4160,6 +4206,7 @@
         (
             name: "132 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 3.8174161764890984e+19,
             radius: 82.07768238798775,
             color: (0.58, 0.56, 0.52),
@@ -4179,6 +4226,7 @@
         (
             name: "133 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 6.995502470365042e+19,
             radius: 80.69343600592138,
             color: (0.58, 0.56, 0.52),
@@ -4198,6 +4246,7 @@
         (
             name: "134 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 5.41136598950512e+19,
             radius: 68.75812027998838,
             color: (0.58, 0.56, 0.52),
@@ -4217,6 +4266,7 @@
         (
             name: "135 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 1.4599660770126e+19,
             radius: 45.56787061983944,
             color: (0.58, 0.56, 0.52),
@@ -4236,6 +4286,7 @@
         (
             name: "136 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 7.990955725668373e+19,
             radius: 81.34587036694737,
             color: (0.58, 0.56, 0.52),
@@ -4255,6 +4306,7 @@
         (
             name: "137 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 4.647965310803992e+19,
             radius: 42.51442786981095,
             color: (0.58, 0.56, 0.52),
@@ -4274,6 +4326,7 @@
         (
             name: "138 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 4.429357237818376e+19,
             radius: 49.93874196605785,
             color: (0.58, 0.56, 0.52),
@@ -4293,6 +4346,7 @@
         (
             name: "139 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 1.6107804584956547e+19,
             radius: 65.48860629848053,
             color: (0.58, 0.56, 0.52),
@@ -4312,6 +4366,7 @@
         (
             name: "140 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(PType),
             mass: 7.512538993258547e+19,
             radius: 58.04910538351547,
             color: (0.58, 0.56, 0.52),
@@ -4331,6 +4386,7 @@
         (
             name: "141 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 1.5264280366707167e+19,
             radius: 75.90027809724674,
             color: (0.58, 0.56, 0.52),
@@ -4350,6 +4406,7 @@
         (
             name: "142 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 4.648078181158468e+19,
             radius: 85.70977030793256,
             color: (0.58, 0.56, 0.52),
@@ -4369,6 +4426,7 @@
         (
             name: "143 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 7.809513620067869e+19,
             radius: 70.29298795389765,
             color: (0.58, 0.56, 0.52),
@@ -4388,6 +4446,7 @@
         (
             name: "144 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 7.436114336932469e+19,
             radius: 71.0170722512164,
             color: (0.58, 0.56, 0.52),
@@ -4407,6 +4466,7 @@
         (
             name: "145 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 1.5265626877487677e+19,
             radius: 50.430418218294264,
             color: (0.58, 0.56, 0.52),
@@ -4426,6 +4486,7 @@
         (
             name: "146 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 1.2678630756240312e+19,
             radius: 67.6473699474597,
             color: (0.58, 0.56, 0.52),
@@ -4445,6 +4506,7 @@
         (
             name: "147 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 2.762607943240318e+18,
             radius: 68.44406643378719,
             color: (0.58, 0.56, 0.52),
@@ -4464,6 +4526,7 @@
         (
             name: "148 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 4.66924395232774e+19,
             radius: 49.15408516872569,
             color: (0.58, 0.56, 0.52),
@@ -4483,6 +4546,7 @@
         (
             name: "149 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 3.1239160124612735e+19,
             radius: 41.39014415423872,
             color: (0.58, 0.56, 0.52),
@@ -4502,6 +4566,7 @@
         (
             name: "150 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 5.0732184063117935e+19,
             radius: 57.05919511752303,
             color: (0.58, 0.56, 0.52),
@@ -4521,6 +4586,7 @@
         (
             name: "151 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 7.129053799639856e+19,
             radius: 42.16434908505542,
             color: (0.58, 0.56, 0.52),
@@ -4540,6 +4606,7 @@
         (
             name: "152 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 7.109871569200046e+19,
             radius: 45.38185072098868,
             color: (0.58, 0.56, 0.52),
@@ -4559,6 +4626,7 @@
         (
             name: "153 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 2.1128353970774376e+19,
             radius: 44.433873098547664,
             color: (0.58, 0.56, 0.52),
@@ -4578,6 +4646,7 @@
         (
             name: "154 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 1.4424275079417702e+18,
             radius: 49.80075725635613,
             color: (0.58, 0.56, 0.52),
@@ -4597,6 +4666,7 @@
         (
             name: "155 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 5.00022554558141e+19,
             radius: 48.60275780357631,
             color: (0.58, 0.56, 0.52),
@@ -4616,6 +4686,7 @@
         (
             name: "156 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 9.913191220560818e+18,
             radius: 90.01794791815396,
             color: (0.58, 0.56, 0.52),
@@ -4635,6 +4706,7 @@
         (
             name: "157 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 7.093832785053721e+19,
             radius: 73.99500753794769,
             color: (0.58, 0.56, 0.52),
@@ -4654,6 +4726,7 @@
         (
             name: "158 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(PType),
             mass: 6.123886769646988e+19,
             radius: 79.70207149798276,
             color: (0.58, 0.56, 0.52),
@@ -4673,6 +4746,7 @@
         (
             name: "159 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 7.967728389369907e+19,
             radius: 62.51386397742685,
             color: (0.58, 0.56, 0.52),
@@ -4692,6 +4766,7 @@
         (
             name: "160 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(PType),
             mass: 7.835807420726926e+19,
             radius: 87.38302641381038,
             color: (0.58, 0.56, 0.52),
@@ -4711,6 +4786,7 @@
         (
             name: "161 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 1.90243646868948e+19,
             radius: 62.597620380162304,
             color: (0.58, 0.56, 0.52),
@@ -4730,6 +4806,7 @@
         (
             name: "162 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 4.005570200681769e+19,
             radius: 88.35507412424296,
             color: (0.58, 0.56, 0.52),
@@ -4749,6 +4826,7 @@
         (
             name: "163 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(PType),
             mass: 8.228184445977387e+18,
             radius: 58.75893327419537,
             color: (0.58, 0.56, 0.52),
@@ -4768,6 +4846,7 @@
         (
             name: "164 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 7.046554501780561e+19,
             radius: 61.3702294649995,
             color: (0.58, 0.56, 0.52),
@@ -4787,6 +4866,7 @@
         (
             name: "165 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 2.9053995078904398e+19,
             radius: 51.91730325073538,
             color: (0.58, 0.56, 0.52),
@@ -4806,6 +4886,7 @@
         (
             name: "166 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 4.800839433226456e+19,
             radius: 89.2455283774675,
             color: (0.58, 0.56, 0.52),
@@ -4825,6 +4906,7 @@
         (
             name: "167 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 6.989489762798188e+18,
             radius: 87.27567462396178,
             color: (0.58, 0.56, 0.52),
@@ -4844,6 +4926,7 @@
         (
             name: "168 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 2.719613555751733e+19,
             radius: 88.23557723923685,
             color: (0.58, 0.56, 0.52),
@@ -4863,6 +4946,7 @@
         (
             name: "169 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 3.875787513819629e+19,
             radius: 52.59632295530122,
             color: (0.58, 0.56, 0.52),
@@ -4882,6 +4966,7 @@
         (
             name: "170 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 6.493186848677899e+18,
             radius: 48.41781115001734,
             color: (0.58, 0.56, 0.52),
@@ -4901,6 +4986,7 @@
         (
             name: "171 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(PType),
             mass: 4.666723023417378e+19,
             radius: 67.17472616271252,
             color: (0.58, 0.56, 0.52),
@@ -4920,6 +5006,7 @@
         (
             name: "172 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 3.131366663273917e+19,
             radius: 58.52606626687327,
             color: (0.58, 0.56, 0.52),
@@ -4939,6 +5026,7 @@
         (
             name: "173 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 5.990032683516415e+19,
             radius: 40.61200886062262,
             color: (0.58, 0.56, 0.52),
@@ -4958,6 +5046,7 @@
         (
             name: "174 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 7.353501710201841e+19,
             radius: 68.20068169720965,
             color: (0.58, 0.56, 0.52),
@@ -4977,6 +5066,7 @@
         (
             name: "175 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 6.748222385500921e+19,
             radius: 93.91462430469997,
             color: (0.58, 0.56, 0.52),
@@ -4996,6 +5086,7 @@
         (
             name: "176 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 6.448084843292198e+19,
             radius: 80.9148898906092,
             color: (0.58, 0.56, 0.52),
@@ -5015,6 +5106,7 @@
         (
             name: "177 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 7.199479652389152e+18,
             radius: 83.64643344877197,
             color: (0.58, 0.56, 0.52),
@@ -5034,6 +5126,7 @@
         (
             name: "178 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(CType),
             mass: 1.340763014008991e+19,
             radius: 69.14700090005088,
             color: (0.58, 0.56, 0.52),
@@ -5053,6 +5146,7 @@
         (
             name: "179 Asteroid",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 7.355581464961424e+19,
             radius: 64.18247011212974,
             color: (0.58, 0.56, 0.52),
@@ -6022,6 +6116,7 @@
         (
             name: "588 Achilles",
             body_type: Asteroid,
+            asteroid_class: Some(DType),
             mass: 1.1e+17,
             radius: 67.5,
             color: (0.55, 0.52, 0.48),
@@ -6041,6 +6136,7 @@
         (
             name: "911 Agamemnon",
             body_type: Asteroid,
+            asteroid_class: Some(DType),
             mass: 7.5e+16,
             radius: 82.0,
             color: (0.55, 0.52, 0.48),
@@ -6060,6 +6156,7 @@
         (
             name: "1143 Odysseus",
             body_type: Asteroid,
+            asteroid_class: Some(PType),
             mass: 1e+17,
             radius: 62.5,
             color: (0.55, 0.52, 0.48),
@@ -6079,6 +6176,7 @@
         (
             name: "1172 Aneas",
             body_type: Asteroid,
+            asteroid_class: Some(PType),
             mass: 5.6e+16,
             radius: 71.0,
             color: (0.55, 0.52, 0.48),
@@ -6098,6 +6196,7 @@
         (
             name: "1173 Anchises",
             body_type: Asteroid,
+            asteroid_class: Some(PType),
             mass: 7e+16,
             radius: 62.0,
             color: (0.55, 0.52, 0.48),
@@ -6117,6 +6216,7 @@
         (
             name: "1208 Troilus",
             body_type: Asteroid,
+            asteroid_class: Some(DType),
             mass: 5e+16,
             radius: 56.0,
             color: (0.55, 0.52, 0.48),
@@ -6136,6 +6236,7 @@
         (
             name: "1404 Ajax",
             body_type: Asteroid,
+            asteroid_class: Some(PType),
             mass: 9e+16,
             radius: 45.0,
             color: (0.55, 0.52, 0.48),
@@ -6155,6 +6256,7 @@
         (
             name: "1437 Diomedes",
             body_type: Asteroid,
+            asteroid_class: Some(PType),
             mass: 6.5e+16,
             radius: 81.5,
             color: (0.55, 0.52, 0.48),
@@ -6174,6 +6276,7 @@
         (
             name: "1583 Antilochus",
             body_type: Asteroid,
+            asteroid_class: Some(PType),
             mass: 4.8e+16,
             radius: 55.0,
             color: (0.55, 0.52, 0.48),
@@ -6193,6 +6296,7 @@
         (
             name: "1647 Menelaus",
             body_type: Asteroid,
+            asteroid_class: Some(PType),
             mass: 5.5e+16,
             radius: 73.5,
             color: (0.55, 0.52, 0.48),
@@ -6212,6 +6316,7 @@
         (
             name: "1749 Telamon",
             body_type: Asteroid,
+            asteroid_class: Some(PType),
             mass: 3.5e+16,
             radius: 42.0,
             color: (0.55, 0.52, 0.48),
@@ -6231,6 +6336,7 @@
         (
             name: "1867 Deiphobus",
             body_type: Asteroid,
+            asteroid_class: Some(DType),
             mass: 4.2e+16,
             radius: 62.0,
             color: (0.55, 0.52, 0.48),
@@ -6250,6 +6356,7 @@
         (
             name: "2146 Stentor",
             body_type: Asteroid,
+            asteroid_class: Some(PType),
             mass: 3.8e+16,
             radius: 36.0,
             color: (0.55, 0.52, 0.48),
@@ -6269,6 +6376,7 @@
         (
             name: "2223 Sarpedon",
             body_type: Asteroid,
+            asteroid_class: Some(DType),
             mass: 5.8e+16,
             radius: 54.0,
             color: (0.55, 0.52, 0.48),
@@ -6288,6 +6396,7 @@
         (
             name: "2357 Phereclos",
             body_type: Asteroid,
+            asteroid_class: Some(DType),
             mass: 3.2e+16,
             radius: 29.0,
             color: (0.55, 0.52, 0.48),
@@ -6307,6 +6416,7 @@
         (
             name: "617 Patroclus",
             body_type: Asteroid,
+            asteroid_class: Some(PType),
             mass: 1e+18,
             radius: 70.5,
             color: (0.52, 0.50, 0.46),
@@ -6326,6 +6436,7 @@
         (
             name: "624 Hektor",
             body_type: Asteroid,
+            asteroid_class: Some(DType),
             mass: 1.4e+19,
             radius: 122.0,
             color: (0.52, 0.50, 0.46),
@@ -6345,6 +6456,7 @@
         (
             name: "659 Nestor",
             body_type: Asteroid,
+            asteroid_class: Some(DType),
             mass: 1.3e+17,
             radius: 56.0,
             color: (0.52, 0.50, 0.46),
@@ -6364,6 +6476,7 @@
         (
             name: "884 Priamus",
             body_type: Asteroid,
+            asteroid_class: Some(PType),
             mass: 6.8e+16,
             radius: 55.0,
             color: (0.52, 0.50, 0.46),
@@ -6383,6 +6496,7 @@
         (
             name: "1868 Thersites",
             body_type: Asteroid,
+            asteroid_class: Some(DType),
             mass: 4e+16,
             radius: 47.5,
             color: (0.52, 0.50, 0.46),
@@ -6402,6 +6516,7 @@
         (
             name: "2920 Automedon",
             body_type: Asteroid,
+            asteroid_class: Some(DType),
             mass: 3.5e+16,
             radius: 36.0,
             color: (0.52, 0.50, 0.46),
@@ -6421,6 +6536,7 @@
         (
             name: "3317 Paris",
             body_type: Asteroid,
+            asteroid_class: Some(PType),
             mass: 6.2e+16,
             radius: 52.0,
             color: (0.52, 0.50, 0.46),
@@ -6440,6 +6556,7 @@
         (
             name: "3451 Mentor",
             body_type: Asteroid,
+            asteroid_class: Some(PType),
             mass: 3e+16,
             radius: 35.0,
             color: (0.52, 0.50, 0.46),
@@ -6459,6 +6576,7 @@
         (
             name: "3540 Protesilaos",
             body_type: Asteroid,
+            asteroid_class: Some(PType),
             mass: 5e+16,
             radius: 58.0,
             color: (0.52, 0.50, 0.46),
@@ -6478,6 +6596,7 @@
         (
             name: "3548 Eurybates",
             body_type: Asteroid,
+            asteroid_class: Some(PType),
             mass: 1.5e+17,
             radius: 32.0,
             color: (0.52, 0.50, 0.46),
@@ -6497,6 +6616,7 @@
         (
             name: "3708 1974 FV1",
             body_type: Asteroid,
+            asteroid_class: Some(DType),
             mass: 4.5e+16,
             radius: 45.0,
             color: (0.52, 0.50, 0.46),
@@ -6516,6 +6636,7 @@
         (
             name: "4007 Euryalos",
             body_type: Asteroid,
+            asteroid_class: Some(DType),
             mass: 3.2e+16,
             radius: 36.5,
             color: (0.52, 0.50, 0.46),
@@ -6535,6 +6656,7 @@
         (
             name: "4035 1986 WD",
             body_type: Asteroid,
+            asteroid_class: Some(DType),
             mass: 4e+16,
             radius: 41.0,
             color: (0.52, 0.50, 0.46),
@@ -6554,6 +6676,7 @@
         (
             name: "4348 Poulydamas",
             body_type: Asteroid,
+            asteroid_class: Some(DType),
             mass: 3.8e+16,
             radius: 34.0,
             color: (0.52, 0.50, 0.46),
@@ -6573,6 +6696,7 @@
         (
             name: "4543 Phoinix",
             body_type: Asteroid,
+            asteroid_class: Some(PType),
             mass: 3e+16,
             radius: 30.0,
             color: (0.52, 0.50, 0.46),
@@ -6592,6 +6716,7 @@
         (
             name: "433 Eros",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 6690000000000000.0,
             radius: 8.4,
             color: (0.7, 0.65, 0.6),
@@ -6611,6 +6736,7 @@
         (
             name: "1862 Apollo",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 5000000000000000.0,
             radius: 0.7,
             color: (0.7, 0.65, 0.6),
@@ -6630,6 +6756,7 @@
         (
             name: "1866 Sisyphus",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 1800000000000000.0,
             radius: 4.2,
             color: (0.7, 0.65, 0.6),
@@ -6649,6 +6776,7 @@
         (
             name: "2062 Aten",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 750000000000000.0,
             radius: 0.5,
             color: (0.7, 0.65, 0.6),
@@ -6668,6 +6796,7 @@
         (
             name: "3200 Phaethon",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 140000000000000.0,
             radius: 2.6,
             color: (0.7, 0.65, 0.6),
@@ -6687,6 +6816,7 @@
         (
             name: "4179 Toutatis",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 50000000000000.0,
             radius: 2.5,
             color: (0.7, 0.65, 0.6),
@@ -6706,6 +6836,7 @@
         (
             name: "25143 Itokawa",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 35100000000.0,
             radius: 0.17,
             color: (0.7, 0.65, 0.6),
@@ -6725,6 +6856,7 @@
         (
             name: "101955 Bennu",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 78000000000.0,
             radius: 0.245,
             color: (0.7, 0.65, 0.6),
@@ -6744,6 +6876,7 @@
         (
             name: "162173 Ryugu",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 450000000000.0,
             radius: 0.45,
             color: (0.7, 0.65, 0.6),
@@ -6763,6 +6896,7 @@
         (
             name: "99942 Apophis",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 61000000000.0,
             radius: 0.185,
             color: (0.7, 0.65, 0.6),
@@ -6782,6 +6916,7 @@
         (
             name: "1221 Amor",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 2000000000000000.0,
             radius: 0.5,
             color: (0.68, 0.63, 0.58),
@@ -6801,6 +6936,7 @@
         (
             name: "1580 Betulia",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 3500000000000000.0,
             radius: 3.2,
             color: (0.68, 0.63, 0.58),
@@ -6820,6 +6956,7 @@
         (
             name: "1627 Ivar",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 420000000000000.0,
             radius: 4.8,
             color: (0.68, 0.63, 0.58),
@@ -6839,6 +6976,7 @@
         (
             name: "1980 Tezcatlipoca",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 150000000000000.0,
             radius: 3.0,
             color: (0.68, 0.63, 0.58),
@@ -6858,6 +6996,7 @@
         (
             name: "2340 Hathor",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 280000000000000.0,
             radius: 0.27,
             color: (0.72, 0.67, 0.62),
@@ -6877,6 +7016,7 @@
         (
             name: "3753 Cruithne",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 130000000000.0,
             radius: 2.5,
             color: (0.72, 0.67, 0.62),
@@ -6896,6 +7036,7 @@
         (
             name: "163693 Atira",
             body_type: Asteroid,
+            asteroid_class: Some(SType),
             mass: 35000000000000.0,
             radius: 2.3,
             color: (0.72, 0.67, 0.62),

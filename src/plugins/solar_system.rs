@@ -103,7 +103,14 @@ fn get_generic_texture_path(body_data: &super::solar_system_data::CelestialBodyD
             match class {
                 AsteroidClass::CType => Some("textures/celestial/asteroids/generic_c_type_2k.jpg".to_string()),
                 AsteroidClass::SType => Some("textures/celestial/asteroids/generic_s_type_2k.jpg".to_string()),
-                AsteroidClass::MType => Some("textures/celestial/asteroids/generic_s_type_2k.jpg".to_string()), // Use S-type for now
+                // M-Type: Metallic - use S-type for now, procedural variation adds metallic property
+                AsteroidClass::MType => Some("textures/celestial/asteroids/generic_s_type_2k.jpg".to_string()),
+                // V-Type: Basaltic - use S-type for now, procedural variation adds reddish tint
+                AsteroidClass::VType => Some("textures/celestial/asteroids/generic_s_type_2k.jpg".to_string()),
+                // D-Type: Dark primitive - use C-type (both very dark), procedural variation enhances darkness
+                AsteroidClass::DType => Some("textures/celestial/asteroids/generic_c_type_2k.jpg".to_string()),
+                // P-Type: Primitive - use C-type (both dark), procedural variation creates distinction
+                AsteroidClass::PType => Some("textures/celestial/asteroids/generic_c_type_2k.jpg".to_string()),
                 AsteroidClass::Unknown => Some("textures/celestial/asteroids/generic_c_type_2k.jpg".to_string()),
             }
         }
@@ -120,6 +127,7 @@ fn get_generic_texture_path(body_data: &super::solar_system_data::CelestialBodyD
 }
 
 /// Generate procedural variation for material based on body properties
+/// Enhanced to visually distinguish all 6 asteroid spectral classes
 fn apply_procedural_variation(
     body_data: &super::solar_system_data::CelestialBodyData,
     base_color: Color,
@@ -136,16 +144,75 @@ fn apply_procedural_variation(
     let random2 = (((seed / 1000) % 1000) as f32) / 1000.0;
     let random3 = (((seed / 1000000) % 1000) as f32) / 1000.0;
     
-    // Vary color slightly based on body properties
+    // Vary color based on body type and asteroid spectral class
     let color_variation = match body_data.body_type {
         BodyType::Asteroid => {
-            // Asteroids: Vary brightness and hue slightly
-            let brightness_var = 0.8 + random1 * 0.4; // 0.8 to 1.2
-            Color::srgb(
-                (base_color.to_srgba().red * brightness_var).clamp(0.0, 1.0),
-                (base_color.to_srgba().green * brightness_var).clamp(0.0, 1.0),
-                (base_color.to_srgba().blue * brightness_var).clamp(0.0, 1.0),
-            )
+            // Apply spectral class-specific coloring and brightness
+            match body_data.asteroid_class.unwrap_or(AsteroidClass::CType) {
+                AsteroidClass::CType => {
+                    // Carbonaceous: Very dark gray
+                    let brightness_var = 0.6 + random1 * 0.3; // 0.6 to 0.9 (dark)
+                    Color::srgb(
+                        (base_color.to_srgba().red * brightness_var).clamp(0.0, 1.0),
+                        (base_color.to_srgba().green * brightness_var).clamp(0.0, 1.0),
+                        (base_color.to_srgba().blue * brightness_var).clamp(0.0, 1.0),
+                    )
+                }
+                AsteroidClass::SType => {
+                    // Silicaceous: Medium gray, stony
+                    let brightness_var = 0.9 + random1 * 0.4; // 0.9 to 1.3 (medium-bright)
+                    Color::srgb(
+                        (base_color.to_srgba().red * brightness_var).clamp(0.0, 1.0),
+                        (base_color.to_srgba().green * brightness_var).clamp(0.0, 1.0),
+                        (base_color.to_srgba().blue * brightness_var).clamp(0.0, 1.0),
+                    )
+                }
+                AsteroidClass::MType => {
+                    // Metallic: Bright silvery-gray
+                    let brightness_var = 1.2 + random1 * 0.4; // 1.2 to 1.6 (bright, metallic)
+                    Color::srgb(
+                        (base_color.to_srgba().red * brightness_var).clamp(0.0, 1.5),
+                        (base_color.to_srgba().green * brightness_var).clamp(0.0, 1.5),
+                        (base_color.to_srgba().blue * brightness_var).clamp(0.0, 1.5),
+                    )
+                }
+                AsteroidClass::VType => {
+                    // Vestoid: Reddish-gray basaltic
+                    let brightness_var = 1.0 + random1 * 0.3; // 1.0 to 1.3
+                    Color::srgb(
+                        (base_color.to_srgba().red * brightness_var * 1.15).clamp(0.0, 1.0), // Enhanced red
+                        (base_color.to_srgba().green * brightness_var * 0.95).clamp(0.0, 1.0),
+                        (base_color.to_srgba().blue * brightness_var * 0.90).clamp(0.0, 1.0),
+                    )
+                }
+                AsteroidClass::DType => {
+                    // Dark primitive: Extremely dark, brownish
+                    let brightness_var = 0.4 + random1 * 0.2; // 0.4 to 0.6 (very dark)
+                    Color::srgb(
+                        (base_color.to_srgba().red * brightness_var * 1.1).clamp(0.0, 1.0), // Slightly warmer
+                        (base_color.to_srgba().green * brightness_var * 0.9).clamp(0.0, 1.0),
+                        (base_color.to_srgba().blue * brightness_var * 0.8).clamp(0.0, 1.0),
+                    )
+                }
+                AsteroidClass::PType => {
+                    // Primitive: Very dark gray-brown
+                    let brightness_var = 0.5 + random1 * 0.25; // 0.5 to 0.75 (very dark but not extreme)
+                    Color::srgb(
+                        (base_color.to_srgba().red * brightness_var).clamp(0.0, 1.0),
+                        (base_color.to_srgba().green * brightness_var * 0.95).clamp(0.0, 1.0),
+                        (base_color.to_srgba().blue * brightness_var * 0.90).clamp(0.0, 1.0),
+                    )
+                }
+                AsteroidClass::Unknown => {
+                    // Default to C-type appearance
+                    let brightness_var = 0.7 + random1 * 0.3;
+                    Color::srgb(
+                        (base_color.to_srgba().red * brightness_var).clamp(0.0, 1.0),
+                        (base_color.to_srgba().green * brightness_var).clamp(0.0, 1.0),
+                        (base_color.to_srgba().blue * brightness_var).clamp(0.0, 1.0),
+                    )
+                }
+            }
         }
         BodyType::Comet => {
             // Comets: Vary between icy white and dusty brown
@@ -169,24 +236,32 @@ fn apply_procedural_variation(
         _ => base_color,
     };
     
-    // Vary roughness for surface variation
+    // Vary roughness for surface variation based on spectral class
     let roughness_var = if has_texture {
         if body_data.body_type == BodyType::Ring {
             0.8 // Rings are dusty/icy
+        } else if body_data.body_type == BodyType::Asteroid {
+            match body_data.asteroid_class.unwrap_or(AsteroidClass::CType) {
+                AsteroidClass::MType => 0.2 + random2 * 0.2, // 0.2 to 0.4 (smooth, metallic)
+                AsteroidClass::DType | AsteroidClass::PType => 0.8 + random2 * 0.15, // 0.8 to 0.95 (very rough, primitive)
+                _ => 0.7 + random2 * 0.2, // 0.7 to 0.9 for others
+            }
         } else {
-            0.7 + random2 * 0.2 // 0.7 to 0.9 for textured bodies
+            0.7 + random2 * 0.2 // 0.7 to 0.9 for other textured bodies
         }
     } else {
         0.6 + random2 * 0.3 // 0.6 to 0.9 for non-textured bodies
     };
     
-    // Vary metallic slightly for asteroids
+    // Vary metallic property strongly by spectral class
     let metallic_var = match body_data.body_type {
-        BodyType::Asteroid if body_data.asteroid_class == Some(AsteroidClass::MType) => {
-            0.5 + random3 * 0.3 // 0.5 to 0.8 for metallic asteroids
-        }
         BodyType::Asteroid => {
-            0.05 + random3 * 0.1 // 0.05 to 0.15 for rocky asteroids
+            match body_data.asteroid_class.unwrap_or(AsteroidClass::CType) {
+                AsteroidClass::MType => 0.6 + random3 * 0.3, // 0.6 to 0.9 (highly metallic)
+                AsteroidClass::VType => 0.15 + random3 * 0.1, // 0.15 to 0.25 (slightly metallic, basaltic)
+                AsteroidClass::DType | AsteroidClass::PType => 0.0 + random3 * 0.05, // 0.0 to 0.05 (minimal metal)
+                _ => 0.05 + random3 * 0.1, // 0.05 to 0.15 for C/S types
+            }
         }
         _ => 0.1 + random3 * 0.1, // 0.1 to 0.2 for others
     };
