@@ -44,7 +44,18 @@ The game includes 20 resource types divided into 7 categories:
 
 ## Realistic Resource Abundances
 
-Resource abundances are based on real-world planetary compositions and designed to support mining depletion mechanics:
+Resource abundances are based on real-world planetary compositions and designed to support mining depletion mechanics. **Important: Not all bodies have all resources!** Each body has natural variation with 40% of non-critical resources randomly absent.
+
+### Resource Variation
+
+Bodies in Helios Ascension have **realistic variation** in their resource composition:
+
+**Resource Skipping:**
+- Non-critical resources have a 40% chance to be absent from any given body
+- This creates natural variation where bodies specialize in different resources
+- Critical resources (Water, Oxygen, Iron, He-3, Uranium) are more likely to be present
+
+**Result:** No two asteroids are exactly alike - some are rich in certain resources, others completely lack them.
 
 ### Construction Materials
 Most abundant resources in rocky bodies:
@@ -89,6 +100,81 @@ Resources are procedurally generated for all celestial bodies based on:
 - **Fissiles**: Very rare everywhere, slightly more common in inner system
 - **Precious Metals**: Extremely rare, peak in asteroid belt regions
 - **Specialty Materials**: Moderate rarity, peak around optimal orbital distances
+
+### Specialized Asteroids
+
+**15% of all asteroids** are specialized with concentrated resource deposits:
+
+**Platinum-Rich Asteroids (3% chance):**
+- Platinum: 100-500x normal abundance (up to 5% of body mass!)
+- Gold/Silver: 10-50x normal abundance
+- Other materials: Reduced to 20% of normal
+
+**Gold-Rich Asteroids (3% chance):**
+- Gold: 100-500x normal abundance (up to 3% of body mass)
+- Silver: 50x normal abundance
+- Copper: 10x normal abundance
+- Other materials: Reduced
+
+**Iron-Nickel Metallic Asteroids (4% chance):**
+- Iron: 70-90% of body mass
+- Precious metals: 10-20x normal abundance
+- Volatiles: Nearly absent (1% of normal)
+- **M-type asteroids** (like Psyche) automatically get this profile
+
+**Carbonaceous Asteroids (5% chance):**
+- High volatiles even in inner system
+- Water/Ammonia/Methane: Elevated to 20%+ even at 1 AU
+- Atmospheric gases: 3x normal abundance
+
+**Impact:** Finding a platinum-rich asteroid can make a fortune! A small 1×10¹⁸ kg asteroid could contain:
+- Normal: 500 Mt platinum
+- Platinum-rich: 125,000 Mt platinum (250x more!)
+
+### Special Body Profiles
+
+Some well-known bodies have unique resource profiles based on scientific data:
+
+**Europa (Jupiter's moon):**
+- Water: 85% (massive subsurface ocean)
+- Oxygen: 5% (locked in ice)
+- Silicates: 8% (rocky core)
+- Iron: 2% (small core)
+- Extremely high water accessibility after ice drilling
+
+**Mars:**
+- Water: 15% (polar ice caps and permafrost)
+- CO2: 8% (polar dry ice caps)
+- Iron: 25% (oxidized "rust" surface)
+- Silicates: 35%
+- Nitrogen: 2% (thin atmosphere)
+
+**Moon (Earth's):**
+- Water: 5% (permanently shadowed polar craters)
+- Oxygen: 2% (bound in regolith, can be extracted)
+- Silicates: 45% (major component)
+- Iron: 15%
+- Helium-3: Trace amounts (solar wind implantation, very accessible)
+
+**Titan (Saturn's moon):**
+- Methane: 45% (liquid methane lakes)
+- Nitrogen: 35% (thick atmosphere)
+- Ammonia: 8%
+- Water: 10% (ice crust)
+
+**Enceladus (Saturn's moon):**
+- Water: 75% (active geysers make it highly accessible!)
+- Nitrogen: 5%
+- Ammonia: 3%
+- Accessibility for water is 90% due to active geysers
+
+**Ceres (dwarf planet):**
+- Water: 40% (ice-rich mantle)
+- Ammonia: 8%
+- Silicates: 35%
+- Iron: 12%
+
+These special profiles make exploring these bodies worthwhile and match real scientific understanding.
 
 ## Resource Deposits
 
