@@ -209,6 +209,7 @@ impl AtmosphericGas {
 pub struct AtmosphereComposition {
     /// Surface pressure in millibars (1 bar = 1000 millibars)
     /// Earth's surface pressure is approximately 1013 millibars
+    /// For gas giants, this represents the reference level (conventionally 1 bar)
     pub surface_pressure_mbar: f32,
     
     /// Average surface temperature in Celsius
@@ -221,10 +222,64 @@ pub struct AtmosphereComposition {
     /// Whether the atmosphere is breathable for humans
     /// True if oxygen is present at safe levels (0.1-0.3 atm)
     pub breathable: bool,
+    
+    /// Whether this body can physically support an atmosphere based on escape velocity
+    /// Calculated from mass and radius: bodies with escape velocity > 5 km/s can typically
+    /// retain atmospheres over geological timescales
+    pub can_support_atmosphere: bool,
 }
 
 impl AtmosphereComposition {
-    /// Create a new atmosphere composition
+    /// Calculate escape velocity in km/s from mass (kg) and radius (km)
+    /// Formula: v_e = sqrt(2 * G * M / r)
+    /// where G = 6.674e-11 N⋅m²/kg²
+    pub fn calculate_escape_velocity(mass_kg: f64, radius_km: f32) -> f64 {
+        const G: f64 = 6.674e-11; // Gravitational constant in m³/(kg⋅s²)
+        let radius_m = radius_km as f64 * 1000.0; // Convert km to m
+        let v_e_m_s = (2.0 * G * mass_kg / radius_m).sqrt();
+        v_e_m_s / 1000.0 // Convert m/s to km/s
+    }
+    
+    /// Determine if a body can support an atmosphere based on escape velocity
+    /// Bodies with escape velocity > 5 km/s can typically retain atmospheres
+    /// Bodies with 2-5 km/s can retain heavy gases but lose lighter ones
+    /// Bodies with < 2 km/s (like the Moon) cannot retain atmospheres
+    pub fn can_retain_atmosphere(mass_kg: f64, radius_km: f32) -> bool {
+        let escape_velocity = Self::calculate_escape_velocity(mass_kg, radius_km);
+        escape_velocity >= 2.0 // Threshold for retaining at least heavy gases
+    }
+    
+    /// Create a new atmosphere composition with mass and radius for calculating retention
+    pub fn new_with_body_data(
+        surface_pressure_mbar: f32,
+        surface_temperature_celsius: f32,
+        gases: Vec<AtmosphericGas>,
+        body_mass_kg: f64,
+        body_radius_km: f32,
+    ) -> Self {
+        // Determine if atmosphere is breathable
+        // Need 0.1-0.3 atm of O2 (100-300 mbar)
+        let o2_pressure = gases
+            .iter()
+            .find(|g| g.name == "O2")
+            .map(|g| surface_pressure_mbar * g.percentage / 100.0)
+            .unwrap_or(0.0);
+        
+        let breathable = o2_pressure >= 100.0 && o2_pressure <= 300.0;
+        
+        let can_support_atmosphere = Self::can_retain_atmosphere(body_mass_kg, body_radius_km);
+        
+        Self {
+            surface_pressure_mbar,
+            surface_temperature_celsius,
+            gases,
+            breathable,
+            can_support_atmosphere,
+        }
+    }
+    
+    /// Create a new atmosphere composition (legacy method for backwards compatibility)
+    /// Assumes the body can support atmosphere (for compatibility with existing code)
     pub fn new(
         surface_pressure_mbar: f32,
         surface_temperature_celsius: f32,
@@ -245,6 +300,7 @@ impl AtmosphereComposition {
             surface_temperature_celsius,
             gases,
             breathable,
+            can_support_atmosphere: true, // Default to true for backwards compatibility
         }
     }
     

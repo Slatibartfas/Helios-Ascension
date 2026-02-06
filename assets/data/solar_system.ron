@@ -222,8 +222,8 @@
             rotation_period: 0.41354,
             texture: Some("textures/celestial/planets/jupiter_8k.jpg"),
             atmosphere: Some((
-                surface_pressure_mbar: 1000.0, // Reference at 1 bar level
-                surface_temperature_celsius: -145.0, // Cloud top temperature
+                surface_pressure_mbar: 1000.0, // Reference at 1 bar level (scientific convention for gas giants)
+                surface_temperature_celsius: -108.0, // Temperature at 1 bar level (NASA data)
                 gases: [
                     (name: "H2", percentage: 90.0),
                     (name: "He", percentage: 10.0),
@@ -330,8 +330,8 @@
             rotation_period: 0.445,
             texture: Some("textures/celestial/planets/saturn_8k.jpg"),
             atmosphere: Some((
-                surface_pressure_mbar: 1000.0, // Reference at 1 bar level
-                surface_temperature_celsius: -178.0, // Cloud top temperature
+                surface_pressure_mbar: 1000.0, // Reference at 1 bar level (scientific convention for gas giants)
+                surface_temperature_celsius: -133.0, // Temperature at 1 bar level (NASA data)
                 gases: [
                     (name: "H2", percentage: 96.0),
                     (name: "He", percentage: 3.0),
@@ -407,8 +407,8 @@
             rotation_period: -0.71833, // Retrograde
             texture: Some("textures/celestial/planets/uranus_2k.jpg"),
             atmosphere: Some((
-                surface_pressure_mbar: 1000.0, // Reference at 1 bar level
-                surface_temperature_celsius: -224.0, // Coldest planetary atmosphere
+                surface_pressure_mbar: 1000.0, // Reference at 1 bar level (scientific convention for gas giants)
+                surface_temperature_celsius: -197.0, // Temperature at 1 bar level (NASA data)
                 gases: [
                     (name: "H2", percentage: 83.0),
                     (name: "He", percentage: 15.0),
@@ -455,8 +455,8 @@
             rotation_period: 0.6713,
             texture: Some("textures/celestial/planets/neptune_2k.jpg"),
             atmosphere: Some((
-                surface_pressure_mbar: 1000.0, // Reference at 1 bar level
-                surface_temperature_celsius: -218.0,
+                surface_pressure_mbar: 1000.0, // Reference at 1 bar level (scientific convention for gas giants)
+                surface_temperature_celsius: -201.0, // Temperature at 1 bar level (NASA data)
                 gases: [
                     (name: "H2", percentage: 80.0),
                     (name: "He", percentage: 19.0),

@@ -9,8 +9,24 @@ Helios Ascension now includes a comprehensive atmosphere model for celestial bod
 ### Atmospheric Composition
 Each celestial body with an atmosphere stores:
 - **Surface Pressure**: Measured in millibars (1 bar = 1000 millibars)
+  - For gas giants, this represents the 1 bar reference level (scientific convention)
 - **Surface Temperature**: Average temperature in Celsius
+  - For gas giants, temperature at the 1 bar reference level
 - **Gas Composition**: List of atmospheric gases with their percentages
+- **Atmosphere Retention**: Calculated flag based on escape velocity physics
+
+### Atmospheric Retention Physics
+The system calculates whether a body can physically support an atmosphere based on its escape velocity:
+- **Escape Velocity Formula**: v_e = √(2GM/r)
+  - G = gravitational constant (6.674×10⁻¹¹ N⋅m²/kg²)
+  - M = body mass (kg)
+  - r = body radius (m)
+- **Retention Threshold**: Bodies with escape velocity ≥ 2.0 km/s can retain heavy gases
+  - Earth: 11.2 km/s - excellent retention
+  - Mars: 5.0 km/s - good retention
+  - Titan: 2.6 km/s - can retain atmosphere
+  - Moon: 2.4 km/s - marginal retention
+  - Small asteroids: < 1 km/s - cannot retain atmosphere
 
 ### Breathability Detection
 The system automatically determines if an atmosphere is breathable for humans based on oxygen partial pressure:
@@ -37,6 +53,8 @@ Factors affecting colony cost:
 - **Pressure**: 92,000 millibars (92 bar) - crushing pressure
 - **Temperature**: 465°C - hottest planet
 - **Composition**: 96.5% CO₂, 3.5% N₂
+- **Escape Velocity**: 10.4 km/s
+- **Can Support Atmosphere**: Yes
 - **Colony Cost**: 8 (maximum) - extreme greenhouse effect
 - **Note**: Thick atmosphere creates a runaway greenhouse effect
 
@@ -44,6 +62,8 @@ Factors affecting colony cost:
 - **Pressure**: 1,013 millibars (1 bar) - perfect baseline
 - **Temperature**: 15°C - ideal
 - **Composition**: 78% N₂, 21% O₂, 0.93% Ar, 0.04% CO₂
+- **Escape Velocity**: 11.2 km/s
+- **Can Support Atmosphere**: Yes
 - **Colony Cost**: 0 - perfect for human habitation
 - **Breathable**: Yes
 
@@ -51,6 +71,8 @@ Factors affecting colony cost:
 - **Pressure**: 6 millibars (0.006 bar) - very thin
 - **Temperature**: -63°C - cold
 - **Composition**: 95% CO₂, 2.7% N₂, 1.6% Ar, 0.13% O₂
+- **Escape Velocity**: 5.0 km/s
+- **Can Support Atmosphere**: Yes
 - **Colony Cost**: 7 - difficult but possible target for terraforming
 - **Note**: Low pressure makes liquid water impossible on surface
 
@@ -58,28 +80,36 @@ Factors affecting colony cost:
 
 #### Jupiter
 - **Pressure**: 1,000 millibars (1 bar) at reference level
-- **Temperature**: -145°C at cloud tops
+- **Temperature**: -108°C at 1 bar level (NASA data)
 - **Composition**: 90% H₂, 10% He
+- **Escape Velocity**: 60 km/s
+- **Can Support Atmosphere**: Yes (massive retention)
 - **Note**: No solid surface; pressure increases dramatically with depth
 
 #### Saturn
 - **Pressure**: 1,000 millibars (1 bar) at reference level
-- **Temperature**: -178°C at cloud tops
+- **Temperature**: -133°C at 1 bar level (NASA data)
 - **Composition**: 96% H₂, 3% He, 0.4% CH₄
+- **Escape Velocity**: 36 km/s
+- **Can Support Atmosphere**: Yes (massive retention)
 - **Note**: Less dense than water; could float
 
 ### Ice Giants
 
 #### Uranus
 - **Pressure**: 1,000 millibars (1 bar) at reference level
-- **Temperature**: -224°C - coldest planetary atmosphere
+- **Temperature**: -197°C at 1 bar level (NASA data)
 - **Composition**: 83% H₂, 15% He, 2% CH₄
+- **Escape Velocity**: 21 km/s
+- **Can Support Atmosphere**: Yes (massive retention)
 - **Note**: Methane gives the planet its blue-green color
 
 #### Neptune
 - **Pressure**: 1,000 millibars (1 bar) at reference level
-- **Temperature**: -218°C
+- **Temperature**: -201°C at 1 bar level (NASA data)
 - **Composition**: 80% H₂, 19% He, 1.5% CH₄
+- **Escape Velocity**: 23 km/s
+- **Can Support Atmosphere**: Yes (massive retention)
 - **Note**: Most dynamic weather in the solar system
 
 ### Moons with Atmospheres
@@ -87,6 +117,8 @@ Factors affecting colony cost:
 #### Titan (Saturn's Moon)
 - **Pressure**: 1,500 millibars (1.5 bar) - denser than Earth!
 - **Temperature**: -179°C
+- **Escape Velocity**: 2.6 km/s
+- **Can Support Atmosphere**: Yes (sufficient retention for nitrogen/methane)
 - **Composition**: 98.4% N₂, 1.4% CH₄
 - **Note**: Only moon with a substantial atmosphere; methane lakes on surface
 

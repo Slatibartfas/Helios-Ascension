@@ -492,10 +492,12 @@ pub fn setup_solar_system(
                 .map(|g| AtmosphericGas::new(&g.name, g.percentage))
                 .collect();
             
-            let atmosphere = AtmosphereComposition::new(
+            let atmosphere = AtmosphereComposition::new_with_body_data(
                 atmo_data.surface_pressure_mbar,
                 atmo_data.surface_temperature_celsius,
                 gases,
+                body_data.mass,
+                body_data.radius,
             );
             
             entity_commands.insert(atmosphere);

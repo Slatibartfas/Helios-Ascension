@@ -167,3 +167,101 @@ fn test_get_gas_percentage_nonexistent() {
     assert_eq!(atmosphere.get_gas_percentage("He"), None);
     assert!(!atmosphere.has_gas("He"));
 }
+
+#[test]
+fn test_escape_velocity_calculation() {
+    // Test Earth's escape velocity (should be ~11.2 km/s)
+    let earth_mass = 5.97237e24; // kg
+    let earth_radius = 6371.0; // km
+    let earth_escape_velocity = AtmosphereComposition::calculate_escape_velocity(earth_mass, earth_radius);
+    
+    // Should be close to 11.2 km/s (within 0.1 km/s)
+    assert!((earth_escape_velocity - 11.2).abs() < 0.1, 
+            "Earth escape velocity should be ~11.2 km/s, got {}", earth_escape_velocity);
+    
+    // Test Moon's escape velocity (should be ~2.4 km/s)
+    let moon_mass = 7.342e22; // kg
+    let moon_radius = 1737.4; // km
+    let moon_escape_velocity = AtmosphereComposition::calculate_escape_velocity(moon_mass, moon_radius);
+    
+    // Should be close to 2.4 km/s
+    assert!((moon_escape_velocity - 2.4).abs() < 0.1,
+            "Moon escape velocity should be ~2.4 km/s, got {}", moon_escape_velocity);
+    
+    // Test Jupiter's escape velocity (should be ~60 km/s)
+    let jupiter_mass = 1.8982e27; // kg
+    let jupiter_radius = 69911.0; // km
+    let jupiter_escape_velocity = AtmosphereComposition::calculate_escape_velocity(jupiter_mass, jupiter_radius);
+    
+    // Should be close to 60 km/s (within 1 km/s)
+    assert!((jupiter_escape_velocity - 60.0).abs() < 1.0,
+            "Jupiter escape velocity should be ~60 km/s, got {}", jupiter_escape_velocity);
+}
+
+#[test]
+fn test_atmosphere_retention() {
+    // Earth should retain atmosphere (escape velocity ~11.2 km/s)
+    let earth_mass = 5.97237e24; // kg
+    let earth_radius = 6371.0; // km
+    assert!(AtmosphereComposition::can_retain_atmosphere(earth_mass, earth_radius),
+            "Earth should be able to retain an atmosphere");
+    
+    // Mars should retain atmosphere (escape velocity ~5.0 km/s)
+    let mars_mass = 6.4171e23; // kg
+    let mars_radius = 3389.5; // km
+    assert!(AtmosphereComposition::can_retain_atmosphere(mars_mass, mars_radius),
+            "Mars should be able to retain an atmosphere");
+    
+    // Moon should NOT retain atmosphere well (escape velocity ~2.4 km/s)
+    let moon_mass = 7.342e22; // kg
+    let moon_radius = 1737.4; // km
+    assert!(AtmosphereComposition::can_retain_atmosphere(moon_mass, moon_radius),
+            "Moon can retain heavy gases but not light ones");
+    
+    // Titan should retain atmosphere (escape velocity ~2.6 km/s, denser than Moon)
+    let titan_mass = 1.3452e23; // kg
+    let titan_radius = 2574.73; // km
+    assert!(AtmosphereComposition::can_retain_atmosphere(titan_mass, titan_radius),
+            "Titan should be able to retain an atmosphere");
+    
+    // Very small asteroid should NOT retain atmosphere
+    let small_asteroid_mass = 1.0e15; // kg (very small)
+    let small_asteroid_radius = 1.0; // km
+    assert!(!AtmosphereComposition::can_retain_atmosphere(small_asteroid_mass, small_asteroid_radius),
+            "Small asteroid should not be able to retain an atmosphere");
+}
+
+#[test]
+fn test_atmosphere_with_body_data() {
+    // Test Earth with body data
+    let earth_atmosphere = AtmosphereComposition::new_with_body_data(
+        1013.0,
+        15.0,
+        vec![
+            AtmosphericGas::new("N2", 78.0),
+            AtmosphericGas::new("O2", 21.0),
+            AtmosphericGas::new("Ar", 0.93),
+        ],
+        5.97237e24, // Earth mass
+        6371.0,     // Earth radius
+    );
+    
+    assert!(earth_atmosphere.can_support_atmosphere, "Earth should support atmosphere");
+    assert!(earth_atmosphere.breathable, "Earth atmosphere should be breathable");
+    assert_eq!(earth_atmosphere.surface_pressure_mbar, 1013.0);
+    
+    // Test Mars with body data
+    let mars_atmosphere = AtmosphereComposition::new_with_body_data(
+        6.0,
+        -63.0,
+        vec![
+            AtmosphericGas::new("CO2", 95.0),
+            AtmosphericGas::new("N2", 2.7),
+        ],
+        6.4171e23, // Mars mass
+        3389.5,    // Mars radius
+    );
+    
+    assert!(mars_atmosphere.can_support_atmosphere, "Mars should support atmosphere");
+    assert!(!mars_atmosphere.breathable, "Mars atmosphere should not be breathable");
+}
