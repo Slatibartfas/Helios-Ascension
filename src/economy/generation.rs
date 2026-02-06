@@ -105,55 +105,97 @@ fn generate_resource_deposit(
     rng: &mut impl Rng,
 ) -> MineralDeposit {
     // Base probabilities and parameters
+    // Note: Abundance values are more realistic now to support mining depletion
+    // Values represent fraction of body composition, not absolute amounts
     let (base_abundance, base_accessibility) = match (resource, is_inner) {
         // Volatiles - HIGH in outer system, VERY LOW in inner system
         (r, false) if r.is_volatile() => (
-            rng.gen_range(0.6..0.95),  // High abundance beyond frost line
+            rng.gen_range(0.3..0.7),   // Realistic ice composition
             rng.gen_range(0.5..0.9),   // Good accessibility (ice on surface)
         ),
         (r, true) if r.is_volatile() => (
-            rng.gen_range(0.0..0.05),  // Almost none in inner system
+            rng.gen_range(0.0..0.02),  // Almost none in inner system
             rng.gen_range(0.0..0.1),   // Poor accessibility if any
         ),
 
-        // Construction materials - HIGH in inner system, LOW accessibility in outer
-        (r, true) if r.is_construction() => (
-            rng.gen_range(0.5..0.9),   // High abundance in rocky planets
-            rng.gen_range(0.6..0.95),  // Good accessibility (near surface)
+        // Atmospheric gases - Present in atmospheres and trapped in ice
+        (r, false) if r.is_atmospheric_gas() => (
+            rng.gen_range(0.1..0.4),   // Moderate in outer system (trapped in ice)
+            rng.gen_range(0.4..0.8),   // Moderate-good accessibility
         ),
+        (r, true) if r.is_atmospheric_gas() => (
+            rng.gen_range(0.0..0.15),  // Trace to moderate in atmospheres
+            rng.gen_range(0.2..0.6),   // Variable accessibility (atmospheric mining)
+        ),
+
+        // Construction materials - HIGH in inner system, present in outer
+        // More realistic abundances based on actual planetary composition
+        (r, true) if r.is_construction() => {
+            let abundance = match resource {
+                ResourceType::Iron => rng.gen_range(0.15..0.35),      // ~30% of Earth's composition
+                ResourceType::Silicates => rng.gen_range(0.25..0.45), // Major component
+                ResourceType::Aluminum => rng.gen_range(0.05..0.12),  // ~8% of crust
+                ResourceType::Titanium => rng.gen_range(0.003..0.01), // ~0.6% of crust
+                _ => rng.gen_range(0.1..0.3),
+            };
+            (abundance, rng.gen_range(0.6..0.95)) // Good accessibility (near surface)
+        },
         (r, false) if r.is_construction() => (
-            rng.gen_range(0.2..0.5),   // Present but less concentrated
+            rng.gen_range(0.05..0.2),  // Present but less concentrated
             rng.gen_range(0.1..0.3),   // Poor accessibility (buried under ice)
         ),
 
-        // Noble gases - HIGH in outer system, trace in inner
+        // Noble gases - He3 is very rare but valuable for fusion
         (r, false) if r.is_noble_gas() => (
-            rng.gen_range(0.4..0.8),   // Good amounts in outer system
-            rng.gen_range(0.3..0.7),   // Moderate accessibility (atmospheres)
+            rng.gen_range(0.00001..0.0001), // Extremely rare He3
+            rng.gen_range(0.3..0.7),        // Moderate accessibility
         ),
         (r, true) if r.is_noble_gas() => (
-            rng.gen_range(0.0..0.1),   // Trace amounts only
-            rng.gen_range(0.1..0.3),   // Poor accessibility
+            rng.gen_range(0.000001..0.00001), // Trace He3 in inner system
+            rng.gen_range(0.1..0.3),          // Poor accessibility
         ),
 
-        // Fissile materials - Rare everywhere, slightly better in inner system
-        (r, true) if r.is_fissile() => (
-            rng.gen_range(0.05..0.25), // Rare but present
-            rng.gen_range(0.3..0.6),   // Moderate accessibility
-        ),
+        // Fissile materials - Rare everywhere, more realistic abundances
+        (r, true) if r.is_fissile() => {
+            let abundance = match resource {
+                ResourceType::Uranium => rng.gen_range(0.000001..0.00001),  // ~3 ppm in Earth's crust
+                ResourceType::Thorium => rng.gen_range(0.000003..0.00003),  // ~12 ppm in Earth's crust
+                _ => rng.gen_range(0.00001..0.0001),
+            };
+            (abundance, rng.gen_range(0.3..0.6)) // Moderate accessibility
+        },
         (r, false) if r.is_fissile() => (
-            rng.gen_range(0.01..0.15), // Very rare
-            rng.gen_range(0.1..0.3),   // Poor accessibility
+            rng.gen_range(0.0000001..0.000001), // Very rare in outer system
+            rng.gen_range(0.1..0.3),            // Poor accessibility
         ),
 
-        // Specialty materials - Varied distribution, slightly favor inner system
-        (r, true) if r.is_specialty() => (
-            rng.gen_range(0.1..0.4),   // Moderate abundance
-            rng.gen_range(0.3..0.7),   // Moderate accessibility
+        // Precious metals - Very rare but valuable
+        (r, true) if r.is_precious_metal() => {
+            let abundance = match resource {
+                ResourceType::Gold => rng.gen_range(0.0000001..0.000001),     // ~0.004 ppm in crust
+                ResourceType::Silver => rng.gen_range(0.0000003..0.000003),   // ~0.08 ppm in crust
+                ResourceType::Platinum => rng.gen_range(0.00000001..0.0000001), // ~0.005 ppb in crust
+                _ => rng.gen_range(0.0000001..0.000001),
+            };
+            (abundance, rng.gen_range(0.2..0.5)) // Harder to access (concentrated deposits)
+        },
+        (r, false) if r.is_precious_metal() => (
+            rng.gen_range(0.0000001..0.000001), // Rare in outer system too
+            rng.gen_range(0.1..0.3),            // Poor accessibility
         ),
+
+        // Specialty materials - Moderate rarity
+        (r, true) if r.is_specialty() => {
+            let abundance = match resource {
+                ResourceType::Copper => rng.gen_range(0.00003..0.0001),    // ~60 ppm in crust
+                ResourceType::RareEarths => rng.gen_range(0.00005..0.0002), // Variable, ~200 ppm combined
+                _ => rng.gen_range(0.0001..0.001),
+            };
+            (abundance, rng.gen_range(0.3..0.7)) // Moderate accessibility
+        },
         (r, false) if r.is_specialty() => (
-            rng.gen_range(0.05..0.3),  // Lower abundance
-            rng.gen_range(0.2..0.5),   // Harder to access
+            rng.gen_range(0.00001..0.0001), // Lower abundance
+            rng.gen_range(0.2..0.5),        // Harder to access
         ),
 
         // Fallback (shouldn't happen)
@@ -186,6 +228,15 @@ fn calculate_distance_modifier(resource: ResourceType, distance_au: f64, frost_l
             }
         }
 
+        // Atmospheric gases are present everywhere but more in outer system
+        r if r.is_atmospheric_gas() => {
+            if distance_au > frost_line_au {
+                1.0 + (distance_au - frost_line_au) * 0.15
+            } else {
+                0.8 // Still present in inner system atmospheres
+            }
+        }
+
         // Construction materials decrease with distance
         r if r.is_construction() => {
             if distance_au < frost_line_au {
@@ -195,12 +246,12 @@ fn calculate_distance_modifier(resource: ResourceType, distance_au: f64, frost_l
             }
         }
 
-        // Noble gases favor outer system
+        // Noble gases (He3) favor outer system but very rare
         r if r.is_noble_gas() => {
             if distance_au > frost_line_au {
                 1.0 + (distance_au - frost_line_au) * 0.1
             } else {
-                0.3
+                0.2
             }
         }
 
@@ -211,6 +262,14 @@ fn calculate_distance_modifier(resource: ResourceType, distance_au: f64, frost_l
             } else {
                 0.8
             }
+        }
+
+        // Precious metals have complex distribution - can be concentrated in asteroids
+        r if r.is_precious_metal() => {
+            // Peak in asteroid belt region (around frost line)
+            let optimal_distance = frost_line_au * 1.2;
+            let distance_diff = (distance_au - optimal_distance).abs();
+            1.0 - (distance_diff * 0.1).min(0.5) // Less penalty for distance
         }
 
         // Specialty materials have complex distribution
