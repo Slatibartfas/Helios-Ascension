@@ -39,8 +39,8 @@ fn circular_grid(pos: vec2<f32>, scale: f32) -> f32 {
 
 @fragment
 fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
-    // Use world position XZ for grid coordinates (Y is up)
-    let grid_pos = in.world_position.xz;
+    // Use world position XY for grid coordinates (Z is up/down from ecliptic)
+    let grid_pos = in.world_position.xy;
     
     // Calculate distance from center (sun at origin)
     let dist_from_center = length(grid_pos);

@@ -59,7 +59,8 @@ fn setup_grid(
     mut materials: ResMut<Assets<GridMaterial>>,
 ) {
     // Create a large horizontal plane for the grid
-    // The plane is in the XZ plane (Y=0), which represents the ecliptic
+    // The plane is in the XY plane (Z=0), which represents the ecliptic
+    // Plane3d by default lies in XY plane, so we don't need to rotate it
     let grid_size = 100000.0; // Large enough to cover the solar system view
     let grid_mesh = meshes.add(Plane3d::default().mesh().size(grid_size, grid_size));
     
@@ -133,7 +134,10 @@ fn spawn_droplines(
         ));
         
         // Mark the parent entity as having a dropline to avoid duplicate creation
-        commands.entity(entity).insert(HasDropline);
+        // Use try_insert to avoid panic if entity was despawned
+        if let Some(mut entity_commands) = commands.get_entity(entity) {
+            entity_commands.insert(HasDropline);
+        }
     }
 }
 
@@ -146,18 +150,19 @@ fn update_droplines(
         if let Ok(parent_transform) = entities_query.get(dropline.parent_entity) {
             let parent_pos = parent_transform.translation();
             
-            // Position the dropline from the parent entity down to Y=0 (ecliptic plane)
-            let height = parent_pos.y.abs();
-            let midpoint_y = parent_pos.y / 2.0;
+            // Position the dropline from the parent entity down to Z=0 (ecliptic plane in XY)
+            let height = parent_pos.z.abs();
+            let midpoint_z = parent_pos.z / 2.0;
             
             // Scale the cylinder to reach from object to plane
             // Cylinder has default height of 1.0, so scale by the actual height needed
             transform.scale = Vec3::new(1.0, height, 1.0);
             
             // Position at the midpoint between object and plane
-            transform.translation = Vec3::new(parent_pos.x, midpoint_y, parent_pos.z);
+            transform.translation = Vec3::new(parent_pos.x, parent_pos.y, midpoint_z);
             
-            // No rotation needed - cylinder is already vertical (along Y axis)
+            // Rotate the cylinder 90 degrees to align with Z axis (from Y axis default)
+            transform.rotation = Quat::from_rotation_x(std::f32::consts::FRAC_PI_2);
         }
     }
 }

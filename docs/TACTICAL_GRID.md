@@ -8,7 +8,7 @@ The Tactical Grid system provides visual aids for spatial awareness in the 3D so
 
 ### 1. Ecliptic Grid Plane
 
-A subtle, semi-transparent circular grid rendered on the ecliptic plane (XZ plane at Y=0).
+A subtle, semi-transparent circular grid rendered on the ecliptic plane (XY plane at Z=0).
 
 **Features:**
 - Circular pattern with radial and angular lines
@@ -54,7 +54,7 @@ No additional configuration is required. The grid and droplines will automatical
 ### Shader
 
 The grid is rendered using a custom WGSL shader (`grid_material.wgsl`) that:
-1. Uses world position XZ coordinates for grid pattern
+1. Uses world position XY coordinates for grid pattern (Z is perpendicular to ecliptic)
 2. Calculates distance from center for fade effect
 3. Generates circular grid with radial and angular lines
 4. Applies smooth fade-out based on distance
