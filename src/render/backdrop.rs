@@ -3,6 +3,13 @@ use bevy::render::render_resource::{AsBindGroup, ShaderRef, RenderPipelineDescri
 use bevy::render::mesh::MeshVertexBufferLayoutRef;
 use bevy::render::view::RenderLayers;
 
+// Backdrop configuration constants
+const BACKDROP_SPHERE_RADIUS: f32 = 100000.0;
+const BACKDROP_SPHERE_UV_SEGMENTS: usize = 32;
+const BACKDROP_SPHERE_UV_RINGS: usize = 18;
+const CAMERA_MIN_RADIUS: f32 = 5.0;
+const CAMERA_MAX_RADIUS: f32 = 50000.0;
+
 /// Plugin that manages the procedural space backdrop
 pub struct BackdropPlugin;
 
@@ -70,13 +77,16 @@ fn spawn_backdrop_sphere(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<SkyboxMaterial>>,
 ) {
-    // Create a massive sphere (100,000 units radius) for the backdrop
-    let backdrop_radius = 100000.0;
-    let backdrop_mesh = meshes.add(Sphere::new(backdrop_radius).mesh().uv(32, 18));
+    // Create a massive sphere for the backdrop
+    let backdrop_mesh = meshes.add(
+        Sphere::new(BACKDROP_SPHERE_RADIUS)
+            .mesh()
+            .uv(BACKDROP_SPHERE_UV_SEGMENTS, BACKDROP_SPHERE_UV_RINGS)
+    );
     
     let backdrop_material = materials.add(SkyboxMaterial::default());
     
-    info!("Spawning procedural space backdrop sphere with radius {}", backdrop_radius);
+    info!("Spawning procedural space backdrop sphere with radius {}", BACKDROP_SPHERE_RADIUS);
     
     commands.spawn((
         MaterialMeshBundle {
@@ -115,11 +125,9 @@ fn update_backdrop_position(
             // For now, use a simple calculation based on distance from origin
             let distance_from_origin = camera_transform.translation.length();
             
-            // Normalize between typical min (5.0) and max (50000.0) camera distances
-            let min_camera_radius = 5.0;
-            let max_camera_radius = 50000.0;
-            material.camera_distance = ((distance_from_origin - min_camera_radius) 
-                / (max_camera_radius - min_camera_radius)).clamp(0.0, 1.0);
+            // Normalize between min and max camera distances
+            material.camera_distance = ((distance_from_origin - CAMERA_MIN_RADIUS) 
+                / (CAMERA_MAX_RADIUS - CAMERA_MIN_RADIUS)).clamp(0.0, 1.0);
         }
     }
 }
