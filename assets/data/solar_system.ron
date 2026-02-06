@@ -625,8 +625,50 @@
                 initial_angle: 30.0,
             )),
             rotation_period: 0.2226,
-            asteroid_class: Some(SType),
+            asteroid_class: Some(VType),
             texture: Some("textures/celestial/asteroids/vesta_4k.png"),
+        ),
+        
+        // 1459 Magnya - V-Type asteroid in outer belt
+        // Rare basaltic asteroid suggesting destroyed differentiated body
+        (
+            name: "1459 Magnya",
+            body_type: Asteroid,
+            asteroid_class: Some(VType),
+            mass: 1.0e16,
+            radius: 15.0,
+            color: (0.72, 0.68, 0.62),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 3.1437,
+                eccentricity: 0.23,
+                inclination: 16.94,
+                orbital_period: 2034.0,
+                initial_angle: 45.0,
+            )),
+            rotation_period: 0.25,
+        ),
+        
+        // 3908 Nyx - V-Type near-Earth asteroid
+        // Small basaltic asteroid, possible Vesta fragment
+        (
+            name: "3908 Nyx",
+            body_type: Asteroid,
+            asteroid_class: Some(VType),
+            mass: 1.5e12,
+            radius: 0.5,
+            color: (0.70, 0.66, 0.60),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 1.928,
+                eccentricity: 0.459,
+                inclination: 2.18,
+                orbital_period: 977.0,
+                initial_angle: 90.0,
+            )),
+            rotation_period: 0.184,
         ),
         
         // Pallas
@@ -3440,6 +3482,48 @@
             )),
             rotation_period: 0.46269670157575515,
             asteroid_class: Some(MType),
+        ),
+        
+        // 21 Lutetia - M-Type asteroid visited by Rosetta probe
+        // Metal-rich composition with high density (3.4 g/cm³)
+        (
+            name: "21 Lutetia",
+            body_type: Asteroid,
+            asteroid_class: Some(MType),
+            mass: 1.7e18,
+            radius: 49.0,
+            color: (0.65, 0.62, 0.58),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 2.435,
+                eccentricity: 0.164,
+                inclination: 3.06,
+                orbital_period: 1390.0,
+                initial_angle: 120.0,
+            )),
+            rotation_period: 0.334,
+        ),
+        
+        // 216 Kleopatra - M-Type "dog-bone" shaped asteroid with two moons
+        // Highly elongated metallic asteroid (276 × 94 × 78 km)
+        (
+            name: "216 Kleopatra",
+            body_type: Asteroid,
+            asteroid_class: Some(MType),
+            mass: 3.0e18,
+            radius: 120.0,
+            color: (0.62, 0.60, 0.56),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 2.79,
+                eccentricity: 0.251,
+                inclination: 13.1,
+                orbital_period: 1708.0,
+                initial_angle: 210.0,
+            )),
+            rotation_period: 0.214,
         ),
         
         // Eunomia
@@ -6450,6 +6534,27 @@
                 initial_angle: 30.0,
             )),
             rotation_period: 0.3898499684803339,
+        ),
+        
+        // 10199 Chariklo - D-Type Centaur with ring system
+        // Largest known Centaur, first minor planet discovered with rings
+        (
+            name: "10199 Chariklo",
+            body_type: Asteroid,
+            asteroid_class: Some(DType),
+            mass: 6.4e18,
+            radius: 125.0,
+            color: (0.48, 0.44, 0.40),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 15.79,
+                eccentricity: 0.17,
+                inclination: 23.4,
+                orbital_period: 22827.0,
+                initial_angle: 180.0,
+            )),
+            rotation_period: 0.292,
         ),
         
         // 659 Nestor
