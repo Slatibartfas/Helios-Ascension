@@ -167,6 +167,7 @@ pub fn propagate_orbits(
 
 /// System that converts high-precision SpaceCoordinates to rendering Transform
 /// Implements "floating origin" technique by scaling down coordinates and converting to f32
+/// Uses change detection to only update when coordinates have changed
 pub fn update_render_transform(
     mut query: Query<(&SpaceCoordinates, &mut Transform), Changed<SpaceCoordinates>>,
 ) {
@@ -176,11 +177,17 @@ pub fn update_render_transform(
 
         // Convert from f64 to f32 for rendering
         // This is safe because we've scaled coordinates to reasonable rendering range
-        transform.translation = Vec3::new(
+        let new_translation = Vec3::new(
             scaled_position.x as f32,
             scaled_position.y as f32,
             scaled_position.z as f32,
         );
+        
+        // Only update if the translation has actually changed
+        // This prevents unnecessary transform updates when position changes are below f32 precision
+        if (new_translation - transform.translation).length_squared() > 1e-6 {
+            transform.translation = new_translation;
+        }
     }
 }
 
