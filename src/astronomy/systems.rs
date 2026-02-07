@@ -1426,7 +1426,15 @@ fn spawn_marker(
         commands.entity(marker_entity).insert(HoverMarker);
     }
 
-    commands.entity(marker_entity).set_parent(owner);
+    // IMPORTANT: Do NOT parent the marker to the owner. 
+    // We want the marker to be:
+    // 1. "Billboarded" (always facing the camera)
+    // 2. "Stationary" relative to rotation (not spinning with the planet)
+    // 
+    // Trying to billboard a child of a rotating parent is complex because standard billboarding 
+    // is overridden by parent rotation. Instead, we keep the marker detached and 
+    // manually sync its position every frame in `scale_markers_with_zoom`.
+    // commands.entity(marker_entity).set_parent(owner);
 
     // Create Terra Invicta-style corner brackets using boxes
     // Each corner has two bars forming an L-shape
@@ -1531,18 +1539,19 @@ pub fn zoom_camera_to_anchored_body(
     }
 }
 
-/// System that scales selection and hover markers based on camera zoom distance
-/// and makes them always face the camera (billboard effect).
-///
-/// This ensures markers remain a consistent visual size regardless of how far
-/// the camera is from the target body, and are always perpendicular to the camera vector.
+/// System that updates selection and hover markers:
+/// 1. Updates position to match the owner (since markers are not parented).
+/// 2. Scales based on camera zoom distance.
+/// 3. Billboards the marker (makes it face the camera).
 pub fn scale_markers_with_zoom(
+    mut commands: Commands,
     camera_query: Query<&GlobalTransform, With<GameCamera>>,
     orbit_camera_query: Query<&OrbitCamera, With<GameCamera>>,
     mut marker_query: Query<
-        (&mut Transform, &GlobalTransform),
+        (Entity, &mut Transform, &MarkerOwner),
         Or<(With<SelectionMarker>, With<HoverMarker>)>,
     >,
+    owner_query: Query<&GlobalTransform, Without<MarkerOwner>>,
 ) {
     let Ok(orbit_camera) = orbit_camera_query.get_single() else {
         return;
@@ -1560,16 +1569,25 @@ pub fn scale_markers_with_zoom(
     // Never shrink below 1.0 to prevent rings from going inside the body
     let zoom_scale = (orbit_camera.radius / reference_distance).clamp(1.0, 3.0);
 
-    for (mut transform, global_transform) in marker_query.iter_mut() {
-        // Apply zoom scaling
-        transform.scale = Vec3::splat(zoom_scale);
-        
-        // Make marker face the camera (billboard effect)
-        let marker_position = global_transform.translation();
-        let direction = (camera_position - marker_position).normalize();
-        
-        // Look at the camera, keeping Y as up vector
-        transform.rotation = Quat::from_rotation_arc(Vec3::Y, direction);
+    for (entity, mut transform, owner) in marker_query.iter_mut() {
+        if let Ok(owner_transform) = owner_query.get(owner.0) {
+            // 1. Match owner position
+            let owner_position = owner_transform.translation();
+            transform.translation = owner_position;
+
+            // 2. Apply zoom scaling
+            transform.scale = Vec3::splat(zoom_scale);
+            
+            // 3. Make marker face the camera (billboard effect)
+            // Align local Y (plane normal) to point at camera
+            let direction = (camera_position - owner_position).normalize_or_zero();
+            if direction != Vec3::ZERO {
+                transform.rotation = Quat::from_rotation_arc(Vec3::Y, direction);
+            }
+        } else {
+            // Owner doesn't exist anymore (destroyed?), clean up marker
+            commands.entity(entity).despawn_recursive();
+        }
     }
 }
 

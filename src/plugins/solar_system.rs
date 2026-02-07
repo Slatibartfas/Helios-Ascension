@@ -207,8 +207,14 @@ pub struct Comet;
 #[derive(Component)]
 pub struct Ring;
 
+/// Axial tilt (obliquity) and north-pole direction of a celestial body.
+/// `obliquity` is the angle between the spin axis and the ecliptic normal (radians).
+/// `north_pole_ra` is the right-ascension direction the north pole tilts toward (radians).
 #[derive(Component)]
-pub struct AxialTilt(pub f32);
+pub struct AxialTilt {
+    pub obliquity: f32,
+    pub north_pole_ra: f32,
+}
 
 #[derive(Component)]
 pub struct RotationSpeed(pub f32);
@@ -710,8 +716,11 @@ pub fn setup_solar_system(
         ));
 
         // Add axial tilt if present (convert degrees to radians)
-        if body_data.axial_tilt != 0.0 {
-            entity_commands.insert(AxialTilt(body_data.axial_tilt.to_radians()));
+        if body_data.axial_tilt != 0.0 || body_data.north_pole_ra != 0.0 {
+            entity_commands.insert(AxialTilt {
+                obliquity: body_data.axial_tilt.to_radians(),
+                north_pole_ra: body_data.north_pole_ra.to_radians(),
+            });
         }
 
         // Add type-specific component
@@ -1084,8 +1093,12 @@ fn apply_linear_to_images_system(
 
 /// Analytically computes body rotation from total elapsed simulation time.
 /// Instead of accumulating incremental `rotate_y()` calls (which drift and
-/// break at high time-scales), we compute the absolute Y-axis rotation
-/// directly: angle = speed × t.
+/// break at high time-scales), we compute the absolute rotation directly: angle = speed × t.
+///
+/// When an `AxialTilt` is present the spin axis is oriented in 3-D:
+///   1. Spin by `angle` around local Y (body’s day/night cycle)
+///   2. Tilt by `obliquity` around X (lean the pole)
+///   3. Rotate by `north_pole_ra` around Y (orient the lean direction)
 fn rotate_bodies(
     sim_time: Res<SimulationTime>,
     mut query: Query<(&mut Transform, &RotationSpeed, Option<&AxialTilt>)>,
@@ -1094,17 +1107,16 @@ fn rotate_bodies(
     for (mut transform, rotation_speed, axial_tilt) in query.iter_mut() {
         // Preserve existing translation and scale, only replace rotation
         let angle = rotation_speed.0 * t;
-        let spin_rotation = Quat::from_rotation_y(angle);
-        
-        if let Some(tilt) = axial_tilt {
-            // Apply constant axial tilt (obliquity)
-            // We rotate around X-axis for the tilt
-            // Note: In a full simulation we'd also handle precession (rotation of the tilt axis)
-            let tilt_rotation = Quat::from_rotation_x(tilt.0);
-            transform.rotation = tilt_rotation * spin_rotation;
+        let spin = Quat::from_rotation_y(angle);
+
+        transform.rotation = if let Some(tilt) = axial_tilt {
+            // Orient the tilt direction (north pole RA), then tilt, then spin
+            let ra   = Quat::from_rotation_y(tilt.north_pole_ra);
+            let obl  = Quat::from_rotation_x(tilt.obliquity);
+            ra * obl * spin
         } else {
-            transform.rotation = spin_rotation;
-        }
+            spin
+        };
     }
 }
 

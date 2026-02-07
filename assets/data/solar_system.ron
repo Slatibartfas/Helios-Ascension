@@ -18,8 +18,9 @@
             emissive: (10.0, 9.0, 7.0),
             parent: None,
             orbit: None,
-            rotation_period: 609.12, // 25.38 days at equator
+            rotation_period: 25.38, // days at equator
             axial_tilt: 7.25,
+            north_pole_ra: 286.13,
             texture: Some("textures/celestial/stars/sun_8k.jpg"),
         ),
         
@@ -41,8 +42,9 @@
                 orbital_period: 87.9691,
                 initial_angle: 155.76,
             )),
-            rotation_period: 1407.6,
+            rotation_period: 58.646, // 1407.6 hours
             axial_tilt: 0.03,
+            north_pole_ra: 281.01,
             texture: Some("textures/celestial/planets/mercury_8k.jpg"),
         ),
         
@@ -62,8 +64,9 @@
                 orbital_period: 224.701,
                 initial_angle: 144.26,
             )),
-            rotation_period: -5832.5, // Negative = retrograde
-            axial_tilt: 2.64,
+            rotation_period: 243.025, // retrograde handled by axial_tilt > 90
+            axial_tilt: 177.36, // >90 = retrograde rotation
+            north_pole_ra: 272.76,
             // Multi-layer textures for surface + atmosphere
             multi_layer_textures: Some((
                 base: "textures/celestial/planets/venus_surface_8k.jpg",
@@ -97,6 +100,7 @@
             )),
             rotation_period: 0.99726968,
             axial_tilt: 23.44,
+            north_pole_ra: 0.0, // Earth defines the reference direction
             // Multi-layer textures for advanced rendering
             multi_layer_textures: Some((
                 base: "textures/celestial/planets/earth_daymap_8k.jpg",
@@ -135,6 +139,7 @@
             )),
             rotation_period: 27.321661, // Tidally locked
             axial_tilt: 6.68,
+            north_pole_ra: 270.0,
             texture: Some("textures/celestial/moons/moon_8k.jpg"),
         ),
         
@@ -156,6 +161,7 @@
             )),
             rotation_period: 1.025957,
             axial_tilt: 25.19,
+            north_pole_ra: 317.68,
             texture: Some("textures/celestial/planets/mars_8k.jpg"),
             atmosphere: Some((
                 surface_pressure_mbar: 6.0, // ~0.006 bar
@@ -227,6 +233,7 @@
             )),
             rotation_period: 0.41354,
             axial_tilt: 3.13,
+            north_pole_ra: 268.06,
             texture: Some("textures/celestial/planets/jupiter_8k.jpg"),
             atmosphere: Some((
                 surface_pressure_mbar: 1000.0, // Reference at 1 bar level (scientific convention for gas giants)
@@ -337,6 +344,7 @@
             )),
             rotation_period: 0.445,
             axial_tilt: 26.73,
+            north_pole_ra: 40.60,
             texture: Some("textures/celestial/planets/saturn_8k.jpg"),
             atmosphere: Some((
                 surface_pressure_mbar: 1000.0, // Reference at 1 bar level (scientific convention for gas giants)
@@ -414,8 +422,9 @@
                 orbital_period: 30688.5,
                 initial_angle: 253.67,
             )),
-            rotation_period: -0.71833, // Retrograde
+            rotation_period: 0.71833, // retrograde handled by axial_tilt > 90
             axial_tilt: 97.77,
+            north_pole_ra: 257.31,
             texture: Some("textures/celestial/planets/uranus_2k.jpg"),
             atmosphere: Some((
                 surface_pressure_mbar: 1000.0, // Reference at 1 bar level (scientific convention for gas giants)
@@ -466,6 +475,7 @@
             )),
             rotation_period: 0.6713,
             axial_tilt: 28.32,
+            north_pole_ra: 299.36,
             texture: Some("textures/celestial/planets/neptune_2k.jpg"),
             atmosphere: Some((
                 surface_pressure_mbar: 1000.0, // Reference at 1 bar level (scientific convention for gas giants)
@@ -519,6 +529,7 @@
             )),
             rotation_period: 6.387230,
             axial_tilt: 119.59,
+            north_pole_ra: 132.99,
             texture: Some("textures/celestial/planets/pluto_8k.png"),
         ),
         

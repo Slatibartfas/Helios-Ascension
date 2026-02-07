@@ -125,8 +125,15 @@ pub struct CelestialBodyData {
     /// Rotation period in Earth days (negative for retrograde)
     pub rotation_period: f32,
     /// Axial tilt in degrees (obliquity to orbit)
+    /// For retrograde rotators (Venus, Uranus, Pluto), use values > 90°
+    /// so that the tilt itself encodes retrograde — keep rotation_period positive.
     #[serde(default)]
     pub axial_tilt: f32,
+    /// Right ascension of the north pole in degrees (direction the tilt points).
+    /// Gives each body a unique rotation axis orientation in 3D space.
+    /// 0° = tilts toward vernal equinox direction, 90° = tilts 90° around ecliptic, etc.
+    #[serde(default)]
+    pub north_pole_ra: f32,
     /// Optional texture path (relative to assets directory)
     #[serde(default)]
     pub texture: Option<String>,

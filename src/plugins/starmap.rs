@@ -17,7 +17,8 @@ use bevy::math::DVec3;
 use super::camera::{CameraAnchor, GameCamera, OrbitCamera, ViewMode};
 use super::solar_system::{CelestialBody, Star, Planet, RADIUS_SCALE};
 use super::solar_system_data::BodyType;
-use crate::astronomy::components::{FloatingOrigin, CurrentStarSystem, SystemId, KeplerOrbit, SpaceCoordinates, OrbitCenter};
+use crate::astronomy::components::{FloatingOrigin, CurrentStarSystem, SystemId, KeplerOrbit, SpaceCoordinates, OrbitCenter, OrbitPath};
+use crate::astronomy::SCALING_FACTOR;
 use crate::astronomy::nearby_stars::NearbyStarsData;
 use rand::prelude::*;
 use std::f64::consts::PI;
@@ -449,7 +450,14 @@ fn spawn_detailed_system(
                 estimate_planet_radius_km(planet.mass_earth)
             };
             
-            let planet_visual_radius = (planet_radius_km * RADIUS_SCALE).max(MIN_VISUAL_RADIUS);
+            // Adjust visual radius for very close orbits (like Proxima b)
+            // Prevent the planet from visually engulfing the star
+            let orbit_dist_bu = planet.semi_major_axis_au as f32 * SCALING_FACTOR as f32;
+            let max_visual_radius = orbit_dist_bu * 0.3; // Max 30% of orbit distance
+            
+            let nominal_visual_radius = (planet_radius_km * RADIUS_SCALE).max(MIN_VISUAL_RADIUS);
+            let planet_visual_radius = nominal_visual_radius.min(max_visual_radius);
+
             let p_color = planet_type_to_color(&planet.planet_type);
             
             commands.spawn((
@@ -459,6 +467,8 @@ fn spawn_detailed_system(
                         base_color: p_color,
                         perceptual_roughness: 0.8,
                         reflectance: 0.1,
+                        // Add slight emissive so it's visible against dark space
+                        emissive: LinearRgba::from(p_color) * 0.05,
                         ..default()
                     }),
                     transform: Transform::IDENTITY,
@@ -475,6 +485,11 @@ fn spawn_detailed_system(
                 SystemId(sys_id),
                 Planet,
                 orbit,
+                OrbitPath {
+                   color: Color::srgba(0.4, 0.75, 1.0, 0.85),
+                   visible: true,
+                   segments: 128,
+                },
                 OrbitCenter(parent_star),
                 // Initial position will be computed by propagate_orbits
                 SpaceCoordinates { position: system_offset },
