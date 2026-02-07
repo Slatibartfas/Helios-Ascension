@@ -222,11 +222,11 @@ impl PlanetResources {
     }
 
     /// Get the abundance of a specific resource (returns 0.0 if not present)
-    /// Deprecated: Use get_proven_amount instead
+    /// Returns the total mass including planetary bulk, deep deposits, and proven reserves
     pub fn get_abundance(&self, resource: &ResourceType) -> f64 {
         self.deposits
             .get(resource)
-            .map(|d| d.reserve.proven_crustal) // Return proven amount for now as proxy
+            .map(|d| d.reserve.proven_crustal + d.reserve.deep_deposits + d.reserve.planetary_bulk)
             .unwrap_or(0.0)
     }
 
@@ -292,68 +292,53 @@ mod tests {
 
     #[test]
     fn test_mineral_deposit_creation() {
-        let deposit = MineralDeposit::new(0.8, 0.6);
-        assert_eq!(deposit.abundance, 0.8);
+        // proven, deep, bulk, conc, access
+        let deposit = MineralDeposit::new(100.0, 500.0, 1000.0, 0.5, 0.6);
+        assert_eq!(deposit.reserve.proven_crustal, 100.0);
+        assert_eq!(deposit.reserve.concentration, 0.5);
         assert_eq!(deposit.accessibility, 0.6);
     }
 
     #[test]
     fn test_mineral_deposit_clamping() {
-        let deposit = MineralDeposit::new(1.5, -0.5);
-        assert_eq!(deposit.abundance, 1.0);
+        // concentration clamped 0.0001-1.0, accessibility 0.0-1.0
+        let deposit = MineralDeposit::new(100.0, 0.0, 0.0, 1.5, -0.5);
+        assert_eq!(deposit.reserve.concentration, 1.0);
         assert_eq!(deposit.accessibility, 0.0);
     }
 
     #[test]
     fn test_mineral_deposit_effective_value() {
-        let deposit = MineralDeposit::new(0.8, 0.5);
-        assert!((deposit.effective_value() - 0.4).abs() < 0.001);
+        // proven * conc * access
+        let deposit = MineralDeposit::new(100.0, 0.0, 0.0, 0.8, 0.5);
+        // 100 * 0.8 * 0.5 = 40.0
+        assert!((deposit.effective_value() - 40.0).abs() < 0.001);
     }
 
     #[test]
     fn test_mineral_deposit_viability() {
-        let viable = MineralDeposit::new(0.5, 0.5);
-        assert!(viable.is_viable());
+        let viable = MineralDeposit::new(0.2, 0.0, 0.0, 1.0, 1.0);
+        assert!(viable.is_viable()); // proven > 0.1
 
-        let not_viable = MineralDeposit::new(0.01, 0.01);
+        let not_viable = MineralDeposit::new(0.01, 0.01, 0.0, 1.0, 1.0);
         assert!(!not_viable.is_viable());
     }
 
     #[test]
-    fn test_mineral_deposit_calculate_megatons() {
-        let deposit = MineralDeposit::new(0.5, 0.8);
-        
-        // Test with Earth-like mass: 5.972e24 kg
-        let earth_mass_kg = 5.972e24;
-        let amount_mt = deposit.calculate_megatons(earth_mass_kg);
-        
-        // 50% abundance of Earth mass = 2.986e24 kg = 2.986e15 Mt
-        let expected_mt = earth_mass_kg * 0.5 / 1e9;
-        assert!((amount_mt - expected_mt).abs() / expected_mt < 0.001);
-    }
-
-    #[test]
-    fn test_mineral_deposit_calculate_megatons_small_body() {
-        let deposit = MineralDeposit::new(0.1, 0.5);
-        
-        // Test with asteroid-like mass: 1e15 kg
-        let asteroid_mass_kg = 1e15;
-        let amount_mt = deposit.calculate_megatons(asteroid_mass_kg);
-        
-        // 10% abundance = 1e14 kg = 1e5 Mt
-        let expected_mt = 1e5;
-        assert!((amount_mt - expected_mt).abs() / expected_mt < 0.001);
+    fn test_mineral_deposit_total_megatons() {
+        let deposit = MineralDeposit::new(10.0, 20.0, 30.0, 1.0, 1.0);
+        assert_eq!(deposit.total_megatons(), 60.0);
     }
 
     #[test]
     fn test_planet_resources_add_and_get() {
         let mut resources = PlanetResources::new();
-        let deposit = MineralDeposit::new(0.7, 0.8);
+        let deposit = MineralDeposit::new(100.0, 50.0, 0.0, 0.7, 0.8);
         
         resources.add_deposit(ResourceType::Iron, deposit);
         
         let retrieved = resources.get_deposit(&ResourceType::Iron).unwrap();
-        assert_eq!(retrieved.abundance, 0.7);
+        assert_eq!(retrieved.reserve.proven_crustal, 100.0);
         assert_eq!(retrieved.accessibility, 0.8);
     }
 
@@ -362,9 +347,9 @@ mod tests {
         let mut resources = PlanetResources::new();
         
         // Add viable deposit
-        resources.add_deposit(ResourceType::Iron, MineralDeposit::new(0.8, 0.7));
+        resources.add_deposit(ResourceType::Iron, MineralDeposit::new(100.0, 0.0, 0.0, 1.0, 1.0));
         // Add non-viable deposit
-        resources.add_deposit(ResourceType::Water, MineralDeposit::new(0.001, 0.001));
+        resources.add_deposit(ResourceType::Water, MineralDeposit::new(0.01, 0.0, 0.0, 1.0, 1.0));
         
         assert_eq!(resources.viable_count(), 1);
     }
@@ -373,10 +358,10 @@ mod tests {
     fn test_planet_resources_total_value() {
         let mut resources = PlanetResources::new();
         
-        resources.add_deposit(ResourceType::Iron, MineralDeposit::new(0.8, 0.5)); // 0.4
-        resources.add_deposit(ResourceType::Water, MineralDeposit::new(0.6, 0.5)); // 0.3
+        resources.add_deposit(ResourceType::Iron, MineralDeposit::new(100.0, 0.0, 0.0, 0.8, 0.5)); // 40
+        resources.add_deposit(ResourceType::Water, MineralDeposit::new(200.0, 0.0, 0.0, 0.6, 0.5)); // 60
         
         let total = resources.total_value();
-        assert!((total - 0.7).abs() < 0.001);
+        assert!((total - 100.0).abs() < 0.001);
     }
 }

@@ -17,6 +17,7 @@ pub use interaction::Selection;
 use crate::astronomy::{AtmosphereComposition, Hovered, KeplerOrbit, Selected, SpaceCoordinates};
 use crate::astronomy::components::{CurrentStarSystem, SystemId};
 use crate::economy::{format_power, GlobalBudget, PlanetResources, ResourceType};
+use crate::economy::components::SurveyLevel;
 use crate::plugins::solar_system::{CelestialBody, LogicalParent};
 use crate::plugins::solar_system_data::BodyType;
 use crate::plugins::camera::{CameraAnchor, GameCamera, ViewMode};
@@ -560,7 +561,7 @@ fn ui_dashboard(
     view_mode: Res<ViewMode>,
     current_system: Res<CurrentStarSystem>,
     // Query for selected body information
-    body_query: Query<(&CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>, Option<&PlanetResources>, Option<&AtmosphereComposition>)>,
+    mut body_query: Query<(&CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>, Option<&PlanetResources>, Option<&AtmosphereComposition>, Option<&mut SurveyLevel>)>,
     // Ledger queries
     all_bodies_query: Query<(Entity, &CelestialBody, Option<&LogicalParent>, Option<&KeplerOrbit>, Option<&SystemId>)>,
     selected_query: Query<Entity, With<Selected>>,
@@ -736,7 +737,7 @@ fn ui_dashboard(
                 ui.separator();
 
                 if let Some(entity) = selection.get() {
-                    if let Ok((body, coords, orbit, resources, atmosphere)) = body_query.get(entity) {
+                    if let Ok((body, coords, orbit, resources, atmosphere, mut survey_level)) = body_query.get_mut(entity) {
                         // Body name and basic info
                         ui.label(egui::RichText::new(&body.name).size(18.0).strong());
                         ui.add_space(10.0);
@@ -869,54 +870,122 @@ fn ui_dashboard(
                                 ui.label(format!("Body mass: {:.2e} kg", body.mass));
                                 ui.add_space(5.0);
                                 
-                                egui::ScrollArea::vertical()
-                                    .max_height(400.0)
-                                    .show(ui, |ui| {
-                                        // Group resources by category
-                                        for (category_name, category_resources) in ResourceType::by_category() {
-                                            ui.label(egui::RichText::new(category_name).strong().color(egui::Color32::LIGHT_BLUE));
-                                            
-                                            for resource_type in &category_resources {
-                                                if let Some(deposit) = resources.get_deposit(resource_type) {
-                                                    // Calculate absolute amount in megatons
-                                                    let amount_mt = deposit.total_megatons();
-                                                    
-                                                    ui.horizontal(|ui| {
-                                                        ui.label(format!("  {} ({})", 
-                                                            resource_type.display_name(),
-                                                            resource_type.symbol()
-                                                        ));
-                                                    });
-                                                    
-                                                    ui.horizontal(|ui| {
-                                                        ui.label("    Amount:");
-                                                        ui.label(egui::RichText::new(format_mass(amount_mt)).strong());
-                                                    });
-                                                    
-                                                    ui.horizontal(|ui| {
-                                                        ui.label("    Concentration:");
-                                                        ui.add(egui::ProgressBar::new(deposit.reserve.concentration)
-                                                            .text(format!("{:.1}%", deposit.reserve.concentration * 100.0)));
-                                                    });
-                                                    
-                                                    ui.horizontal(|ui| {
-                                                        ui.label("    Accessibility:");
-                                                        ui.add(egui::ProgressBar::new(deposit.accessibility)
-                                                            .text(format!("{:.1}%", deposit.accessibility * 100.0)));
-                                                    });
-                                                    
-                                                    ui.add_space(3.0);
-                                                }
-                                            }
-                                            
-                                            ui.add_space(8.0);
-                                        }
-
-                                        // Summary
-                                        ui.separator();
-                                        ui.label(format!("Total viable deposits: {}", resources.viable_count()));
-                                        ui.label(format!("Total resource value: {:.2}", resources.total_value()));
+                                // Survey Controls
+                                let current_level = survey_level.as_deref().copied().unwrap_or(SurveyLevel::Unsurveyed);
+                                
+                                ui.group(|ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.label("Survey Status:");
+                                        let status_color = match current_level {
+                                            SurveyLevel::Unsurveyed => egui::Color32::GRAY,
+                                            SurveyLevel::OrbitalScan => egui::Color32::LIGHT_BLUE,
+                                            SurveyLevel::SeismicSurvey => egui::Color32::YELLOW,
+                                            SurveyLevel::CoreSample => egui::Color32::GREEN,
+                                        };
+                                        ui.label(egui::RichText::new(format!("{:?}", current_level)).strong().color(status_color));
                                     });
+                                    
+                                    if let Some(survey) = survey_level.as_deref_mut() {
+                                        if *survey != SurveyLevel::CoreSample {
+                                            if ui.button("Upgrade Survey").clicked() {
+                                                *survey = match *survey {
+                                                    SurveyLevel::Unsurveyed => SurveyLevel::OrbitalScan,
+                                                    SurveyLevel::OrbitalScan => SurveyLevel::SeismicSurvey,
+                                                    SurveyLevel::SeismicSurvey => SurveyLevel::CoreSample,
+                                                    _ => SurveyLevel::CoreSample,
+                                                };
+                                            }
+                                        }
+                                    } else {
+                                        if ui.button("Initialize Survey System").clicked() {
+                                            commands.entity(entity).insert(SurveyLevel::OrbitalScan);
+                                        }
+                                    }
+                                });
+                                
+                                ui.add_space(5.0);
+
+                                if current_level != SurveyLevel::Unsurveyed {
+                                    egui::ScrollArea::vertical()
+                                        .max_height(400.0)
+                                        .show(ui, |ui| {
+                                            // Group resources by category
+                                            for (category_name, category_resources) in ResourceType::by_category() {
+                                                ui.label(egui::RichText::new(category_name).strong().color(egui::Color32::LIGHT_BLUE));
+                                                
+                                                for resource_type in &category_resources {
+                                                    if let Some(deposit) = resources.get_deposit(resource_type) {
+                                                        // Calculate discovered amount
+                                                        let discovered_mt = current_level.discovered_amount(&deposit.reserve);
+                                                        
+                                                        // Skip if nothing discovered yet (or if very trace)
+                                                        if discovered_mt <= 0.0 && !deposit.is_viable() {
+                                                             continue;
+                                                        }
+
+                                                        ui.horizontal(|ui| {
+                                                            ui.label(format!("  {} ({})", 
+                                                                resource_type.display_name(),
+                                                                resource_type.symbol()
+                                                            ));
+                                                        });
+                                                        
+                                                        // Tiered Display
+                                                        ui.horizontal(|ui| {
+                                                            ui.label("    Total Discovered:");
+                                                            ui.label(egui::RichText::new(format_mass(discovered_mt)).strong());
+                                                        });
+                                                        
+                                                        // Proven (Always visible if Orbital+)
+                                                        ui.horizontal(|ui| {
+                                                            ui.label("    Proven Reserves:");
+                                                            ui.add(egui::ProgressBar::new(1.0) // Just a full bar or use ratio?
+                                                                .text(format_mass(deposit.reserve.proven_crustal)));
+                                                        });
+                                                        
+                                                        // Deep
+                                                        if matches!(current_level, SurveyLevel::SeismicSurvey | SurveyLevel::CoreSample) {
+                                                            ui.horizontal(|ui| {
+                                                                ui.label("    Deep Deposits:");
+                                                                ui.add(egui::ProgressBar::new(1.0)
+                                                                    .text(format_mass(deposit.reserve.deep_deposits)));
+                                                            });
+                                                        } else {
+                                                             ui.label("    Deep Deposits: ???");
+                                                        }
+                                                        
+                                                        // Bulk
+                                                        if current_level == SurveyLevel::CoreSample {
+                                                            ui.horizontal(|ui| {
+                                                                ui.label("    Planetary Bulk:");
+                                                                 ui.add(egui::ProgressBar::new(1.0)
+                                                                    .text(format_mass(deposit.reserve.planetary_bulk)));
+                                                            });
+                                                        } else {
+                                                            ui.label("    Planetary Bulk: ???");
+                                                        }
+                                                        
+                                                        ui.horizontal(|ui| {
+                                                            ui.label("    Concentration:");
+                                                            ui.add(egui::ProgressBar::new(deposit.reserve.concentration)
+                                                                .text(format!("{:.1}%", deposit.reserve.concentration * 100.0)));
+                                                        });
+                                                        
+                                                        ui.add_space(3.0);
+                                                    }
+                                                }
+                                                
+                                                ui.add_space(8.0);
+                                            }
+
+                                            // Summary
+                                            ui.separator();
+                                            ui.label(format!("Total viable deposits: {}", resources.viable_count()));
+                                            ui.label(format!("Total resource value estimates: {:.2}", resources.total_value()));
+                                        });
+                                } else {
+                                    ui.label("Perform orbital scan to detect resources.");
+                                }
                             });
                         } else {
                             ui.label("No resource data available");

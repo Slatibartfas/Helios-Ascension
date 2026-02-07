@@ -43,7 +43,6 @@ ron = "0.8"
 
 # Random number generation for visual effects
 rand = "0.8"
-bevy_hanabi = "0.12.0"
 
 [profile.dev]
 opt-level = 1
@@ -73,10 +72,3 @@ opt-level = 2
 
 [features]
 default = []
-
-# Bevy-specific compile optimizations
-[profile.dev.package.bevy_pbr]
-opt-level = 3
-
-[profile.dev.package.bevy_render]
-opt-level = 3

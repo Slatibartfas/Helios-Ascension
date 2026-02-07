@@ -159,8 +159,10 @@ fn test_asteroid_class_distribution() {
             Some(AsteroidClass::CType) => c_type_count += 1,
             Some(AsteroidClass::SType) => s_type_count += 1,
             Some(AsteroidClass::MType) => m_type_count += 1,
-            Some(AsteroidClass::Unknown) | None => unknown_count += 1,
+            // Treat other types (V, D, P, etc) as unknown for this test or just count them
+            _ => unknown_count += 1,
         }
+
     }
 
     // C-type should be the most common

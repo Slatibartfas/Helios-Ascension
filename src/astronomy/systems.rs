@@ -547,7 +547,7 @@ fn spawn_comet_tail_meshes(
     
     let ion_material = materials.add(StandardMaterial {
         base_color: Color::WHITE,
-        emissive: LinearRgba::new(0.5, 0.7, 1.0, 0.0) * brightness,
+        emissive: LinearRgba::new(0.5, 0.7, 1.0, 0.0) * brightness * 10.0, // Increased glare (HDR)
         alpha_mode: AlphaMode::Add,
         unlit: true,
         cull_mode: None, // Double-sided
@@ -584,7 +584,7 @@ fn spawn_comet_tail_meshes(
     
     let dust_material = materials.add(StandardMaterial {
         base_color: Color::WHITE,
-        emissive: LinearRgba::new(1.0, 0.75, 0.3, 0.0) * brightness * 0.8,
+        emissive: LinearRgba::new(1.0, 0.75, 0.3, 0.0) * brightness * 8.0, // Increased glare (HDR)
         alpha_mode: AlphaMode::Add,
         unlit: true,
         cull_mode: None,

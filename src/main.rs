@@ -12,7 +12,6 @@ use astronomy::AstronomyPlugin;
 use economy::EconomyPlugin;
 use plugins::{
     camera::CameraPlugin,
-    comet_vfx::CometVfxPlugin,
     solar_system::SolarSystemPlugin,
     starmap::StarmapPlugin,
     visual_effects::VisualEffectsPlugin,
@@ -38,7 +37,6 @@ fn main() {
         .add_plugins(CameraPlugin)
         .add_plugins(BackdropPlugin)
         .add_plugins(VisualEffectsPlugin)
-        .add_plugins(CometVfxPlugin)
         .add_plugins(SolarSystemPlugin)
         .add_plugins(StarmapPlugin)
         .add_plugins(EconomyPlugin)

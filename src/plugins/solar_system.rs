@@ -768,13 +768,14 @@ pub fn setup_solar_system(
                     });
 
                     // Add Soft Glow visual (Billboard)
-                    // A subtle corona that fades out – smaller than before for realism
+                    // A larger, smoother corona that uses vertex alpha for soft falloff
                     parent.spawn((
                         PbrBundle {
-                            mesh: create_glow_mesh(meshes.as_mut(), visual_radius * 2.0),
+                            mesh: create_glow_mesh(meshes.as_mut(), visual_radius * 4.0),
                             material: materials.add(StandardMaterial {
-                                base_color: Color::WHITE,
-                                emissive: LinearRgba::from(Color::srgb(15.0, 12.0, 8.0)), // Subtle warm glow
+                                // Use HDR base_color for bloom intensity. 
+                                // Vertex alpha controls transparency.
+                                base_color: Color::srgb(5.0, 4.0, 2.5), 
                                 alpha_mode: AlphaMode::Add,
                                 unlit: true,
                                 ..default()
@@ -1078,6 +1079,7 @@ fn create_ring_mesh(outer_radius: f32, inner_radius: f32, segments: u32) -> Mesh
 }
 
 // Helper to create a soft radial gradient mesh (disk)
+// Creates a multi-ring mesh for smoother gradients and vertex-color interpolation
 fn create_glow_mesh(meshes: &mut Assets<Mesh>, radius: f32) -> Handle<Mesh> {
     let mut positions = Vec::new();
     let mut normals = Vec::new();
@@ -1085,28 +1087,63 @@ fn create_glow_mesh(meshes: &mut Assets<Mesh>, radius: f32) -> Handle<Mesh> {
     let mut indices = Vec::new();
     let mut colors = Vec::new();
 
-    // Center vertex – near-white for a realistic solar core
-    positions.push([0.0, 0.0, 0.0]);
-    normals.push([0.0, 0.0, 1.0]);
-    uvs.push([0.5, 0.5]);
-    colors.push([1.0, 0.97, 0.92, 0.6]); // Near-white, semi-transparent center
+    let segments = 64; // Smoother circle
+    let rings = 16;    // Gradient steps from center to edge
 
-    let segments = 32;
-    for i in 0..=segments {
-        let angle = (i as f32 / segments as f32) * std::f32::consts::TAU;
-        let (sin, cos) = angle.sin_cos();
+    // We generate rings from center to outside
+    for r in 0..=rings {
+        let r_ratio = r as f32 / rings as f32; // 0.0 to 1.0
+        let current_radius = radius * r_ratio;
+        
+        // Gaussianish falloff for alpha: (1 - r^2)^2 or similar
+        // Using a custom curve to keep the core bright and fade smoothly
+        // Center (r=0) -> 1.0
+        // Edge (r=1) -> 0.0
+        
+        // "Power" curve: Start strong, fade out.
+        // Try (1 - x)^2 * (exponential decay)
+        let alpha = (-4.0 * r_ratio * r_ratio).exp();
+        
+        // Color gradient: Core is white/bright, Edge is warm/yellow
+        let c_core = Vec3::new(1.0, 1.0, 1.0);
+        let c_edge = Vec3::new(1.0, 0.85, 0.55);
+        let c = c_core.lerp(c_edge, r_ratio);
 
-        positions.push([cos * radius, sin * radius, 0.0]);
-        normals.push([0.0, 0.0, 1.0]);
-        uvs.push([0.5 + cos * 0.5, 0.5 + sin * 0.5]);
-        colors.push([1.0, 0.85, 0.55, 0.0]); // Warm yellow edge, zero alpha (transparent)
+        // Force zero alpha at the very edge to prevent hard cuts
+        let final_alpha = if r == rings { 0.0 } else { alpha };
+
+        for s in 0..=segments {
+            let angle = (s as f32 / segments as f32) * std::f32::consts::TAU;
+            let (sin, cos) = angle.sin_cos();
+
+            positions.push([cos * current_radius, sin * current_radius, 0.0]);
+            normals.push([0.0, 0.0, 1.0]);
+            uvs.push([0.5 + cos * 0.5 * r_ratio, 0.5 + sin * 0.5 * r_ratio]);
+            colors.push([c.x, c.y, c.z, final_alpha]);
+        }
     }
 
-    // Indices (Fan)
-    for i in 1..=segments {
-        indices.push(0);
-        indices.push(i);
-        indices.push(i + 1);
+    // Indices (Grid of quads)
+    for r in 0..rings {
+         for s in 0..segments {
+            let current_ring_start = (r * (segments + 1)) as u32;
+            let next_ring_start = ((r + 1) * (segments + 1)) as u32;
+            
+            let p0 = current_ring_start + s as u32;
+            let p1 = current_ring_start + s as u32 + 1;
+            let p2 = next_ring_start + s as u32 + 1;
+            let p3 = next_ring_start + s as u32;
+
+            // Triangle 1
+            indices.push(p0);
+            indices.push(p1);
+            indices.push(p2);
+            
+            // Triangle 2
+            indices.push(p0);
+            indices.push(p2);
+            indices.push(p3);
+         }
     }
 
     let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());

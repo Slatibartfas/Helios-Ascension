@@ -12,11 +12,13 @@ use bevy::prelude::*;
 pub mod budget;
 pub mod components;
 pub mod generation;
+pub mod mining;
 pub mod types;
 
 pub use budget::{format_power, update_civilization_score, EnergyGrid, GlobalBudget};
 pub use components::{MineralDeposit, OrbitsBody, PlanetResources, SpectralClass, StarSystem};
 pub use generation::generate_solar_system_resources;
+pub use mining::{MiningOperation, extract_resources};
 pub use types::ResourceType;
 
 /// Plugin that adds the economy system to the Bevy app
@@ -33,6 +35,9 @@ impl Plugin for EconomyPlugin {
                 crate::plugins::solar_system::setup_solar_system,
             ))
             // Update systems
-            .add_systems(Update, update_civilization_score);
+            .add_systems(Update, (
+                update_civilization_score,
+                extract_resources,
+            ));
     }
 }
