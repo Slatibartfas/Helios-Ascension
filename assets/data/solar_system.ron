@@ -19,6 +19,7 @@
             parent: None,
             orbit: None,
             rotation_period: 609.12, // 25.38 days at equator
+            axial_tilt: 7.25,
             texture: Some("textures/celestial/stars/sun_8k.jpg"),
         ),
         
@@ -41,6 +42,7 @@
                 initial_angle: 155.76,
             )),
             rotation_period: 1407.6,
+            axial_tilt: 0.03,
             texture: Some("textures/celestial/planets/mercury_8k.jpg"),
         ),
         
@@ -61,6 +63,7 @@
                 initial_angle: 144.26,
             )),
             rotation_period: -5832.5, // Negative = retrograde
+            axial_tilt: 2.64,
             // Multi-layer textures for surface + atmosphere
             multi_layer_textures: Some((
                 base: "textures/celestial/planets/venus_surface_8k.jpg",
@@ -93,6 +96,7 @@
                 initial_angle: 356.86,
             )),
             rotation_period: 0.99726968,
+            axial_tilt: 23.44,
             // Multi-layer textures for advanced rendering
             multi_layer_textures: Some((
                 base: "textures/celestial/planets/earth_daymap_8k.jpg",
@@ -130,6 +134,7 @@
                 initial_angle: 337.70,
             )),
             rotation_period: 27.321661, // Tidally locked
+            axial_tilt: 6.68,
             texture: Some("textures/celestial/moons/moon_8k.jpg"),
         ),
         
@@ -150,6 +155,7 @@
                 initial_angle: 315.63,
             )),
             rotation_period: 1.025957,
+            axial_tilt: 25.19,
             texture: Some("textures/celestial/planets/mars_8k.jpg"),
             atmosphere: Some((
                 surface_pressure_mbar: 6.0, // ~0.006 bar
@@ -220,6 +226,7 @@
                 initial_angle: 88.68,
             )),
             rotation_period: 0.41354,
+            axial_tilt: 3.13,
             texture: Some("textures/celestial/planets/jupiter_8k.jpg"),
             atmosphere: Some((
                 surface_pressure_mbar: 1000.0, // Reference at 1 bar level (scientific convention for gas giants)
@@ -329,6 +336,7 @@
                 initial_angle: 275.25,
             )),
             rotation_period: 0.445,
+            axial_tilt: 26.73,
             texture: Some("textures/celestial/planets/saturn_8k.jpg"),
             atmosphere: Some((
                 surface_pressure_mbar: 1000.0, // Reference at 1 bar level (scientific convention for gas giants)
@@ -407,6 +415,7 @@
                 initial_angle: 253.67,
             )),
             rotation_period: -0.71833, // Retrograde
+            axial_tilt: 97.77,
             texture: Some("textures/celestial/planets/uranus_2k.jpg"),
             atmosphere: Some((
                 surface_pressure_mbar: 1000.0, // Reference at 1 bar level (scientific convention for gas giants)
@@ -456,6 +465,7 @@
                 initial_angle: 316.71,
             )),
             rotation_period: 0.6713,
+            axial_tilt: 28.32,
             texture: Some("textures/celestial/planets/neptune_2k.jpg"),
             atmosphere: Some((
                 surface_pressure_mbar: 1000.0, // Reference at 1 bar level (scientific convention for gas giants)
@@ -508,6 +518,7 @@
                 initial_angle: 217.75,
             )),
             rotation_period: 6.387230,
+            axial_tilt: 119.59,
             texture: Some("textures/celestial/planets/pluto_8k.png"),
         ),
         

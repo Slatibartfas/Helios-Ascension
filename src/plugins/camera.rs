@@ -90,16 +90,17 @@ fn orbit_camera_controls(
     let mut camera = query.single_mut();
 
     // Check if Egui wants the input (e.g. mouse over a window)
-    let ctx = contexts.ctx_mut();
-    
-    // Robust check for Egui interaction:
-    // 1. is_pointer_over_area() - covers windows/panels
-    // 2. wants_pointer_input() - covers active interaction (scrolling, clicking)
-    // 3. is_using_pointer() - covers dragging
-    if ctx.is_pointer_over_area() || ctx.wants_pointer_input() || ctx.is_using_pointer() {
-        motion_events.clear();
-        scroll_events.clear();
-        return;
+    // Use try_ctx_mut() to avoid panicking if the window is closed/uninitialized
+    if let Some(ctx) = contexts.try_ctx_mut() {
+        // Robust check for Egui interaction:
+        // 1. is_pointer_over_area() - covers windows/panels
+        // 2. wants_pointer_input() - covers active interaction (scrolling, clicking)
+        // 3. is_using_pointer() - covers dragging
+        if ctx.is_pointer_over_area() || ctx.wants_pointer_input() || ctx.is_using_pointer() {
+            motion_events.clear();
+            scroll_events.clear();
+            return;
+        }
     }
 
     // Mouse rotation when right button is held

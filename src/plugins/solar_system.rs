@@ -208,6 +208,9 @@ pub struct Comet;
 pub struct Ring;
 
 #[derive(Component)]
+pub struct AxialTilt(pub f32);
+
+#[derive(Component)]
 pub struct RotationSpeed(pub f32);
 
 // Visualization scale factors
@@ -706,6 +709,11 @@ pub fn setup_solar_system(
             RotationSpeed(rotation_speed),
         ));
 
+        // Add axial tilt if present (convert degrees to radians)
+        if body_data.axial_tilt != 0.0 {
+            entity_commands.insert(AxialTilt(body_data.axial_tilt.to_radians()));
+        }
+
         // Add type-specific component
         match body_data.body_type {
             BodyType::Star => {
@@ -1080,13 +1088,23 @@ fn apply_linear_to_images_system(
 /// directly: angle = speed × t.
 fn rotate_bodies(
     sim_time: Res<SimulationTime>,
-    mut query: Query<(&mut Transform, &RotationSpeed)>,
+    mut query: Query<(&mut Transform, &RotationSpeed, Option<&AxialTilt>)>,
 ) {
     let t = sim_time.elapsed_seconds() as f32;
-    for (mut transform, rotation_speed) in query.iter_mut() {
+    for (mut transform, rotation_speed, axial_tilt) in query.iter_mut() {
         // Preserve existing translation and scale, only replace rotation
         let angle = rotation_speed.0 * t;
-        transform.rotation = Quat::from_rotation_y(angle);
+        let spin_rotation = Quat::from_rotation_y(angle);
+        
+        if let Some(tilt) = axial_tilt {
+            // Apply constant axial tilt (obliquity)
+            // We rotate around X-axis for the tilt
+            // Note: In a full simulation we'd also handle precession (rotation of the tilt axis)
+            let tilt_rotation = Quat::from_rotation_x(tilt.0);
+            transform.rotation = tilt_rotation * spin_rotation;
+        } else {
+            transform.rotation = spin_rotation;
+        }
     }
 }
 

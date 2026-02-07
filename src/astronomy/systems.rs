@@ -17,8 +17,9 @@ pub const SCALING_FACTOR: f64 = 1500.0;
 
 
 /// Click radius for body selection (in Bevy units)
-/// Bodies within this distance from the ray are considered clickable
-const SELECTION_CLICK_RADIUS: f32 = 5.0;
+/// Bodies within this distance from the ray are considered clickable.
+/// Increased so selection is easier to hit with the mouse.
+const SELECTION_CLICK_RADIUS: f32 = 20.0;
 
 /// Padding for the hover ring around celestial bodies (in Bevy units)
 const HOVER_RING_PADDING: f32 = 8.0;  // Creates visible gap between marker and body
@@ -187,33 +188,48 @@ fn mean_anomaly_to_true_anomaly(mean_anomaly: f64, eccentricity: f64) -> f64 {
 /// is correct for Sol-system bodies orbiting the Sun.
 pub fn propagate_orbits(
     sim_time: Res<SimulationTime>,
-    mut query: Query<(&KeplerOrbit, &mut SpaceCoordinates, Option<&OrbitCenter>)>,
-    center_query: Query<&SpaceCoordinates, Without<KeplerOrbit>>,
-    // Second query for centers that also have orbits (binary stars)
-    center_orbiting_query: Query<&SpaceCoordinates>,
+    mut param_set: ParamSet<(
+        Query<(Entity, &KeplerOrbit, Option<&OrbitCenter>)>,
+        Query<&mut SpaceCoordinates>,
+        Query<&SpaceCoordinates, Without<KeplerOrbit>>,
+        Query<&SpaceCoordinates>,
+    )>,
 ) {
     // Get elapsed simulation time in seconds
     let elapsed_time = sim_time.elapsed_seconds();
 
-    for (orbit, mut coords, orbit_center) in query.iter_mut() {
+    // First pass: collect all orbiting entities and their (copied) orbital data
+    let mut entries: Vec<(Entity, KeplerOrbit, Option<Entity>)> = Vec::new();
+    for (entity, orbit, orbit_center) in param_set.p0().iter() {
+        entries.push((entity, *orbit, orbit_center.map(|oc| oc.0)));
+    }
+
+    // Second pass: perform lookups and mutation without holding the p0 iterator borrow
+    for (entity, orbit, orbit_center_entity) in entries {
         // Calculate current mean anomaly: M = M₀ + n*t
         let mean_anomaly = orbit.mean_anomaly_epoch + orbit.mean_motion * elapsed_time;
 
         // Compute orbital position relative to center
-        let orbit_pos = orbit_position_from_mean_anomaly(orbit, mean_anomaly);
+        let orbit_pos = orbit_position_from_mean_anomaly(&orbit, mean_anomaly);
 
         // Add parent position if an OrbitCenter is specified
-        let parent_pos = orbit_center
-            .and_then(|oc| {
-                // Try non-orbiting centers first (static stars), then orbiting ones (binary stars)
-                center_query.get(oc.0).ok()
-                    .or_else(|| center_orbiting_query.get(oc.0).ok())
-            })
-            .map(|sc| sc.position)
-            .unwrap_or(DVec3::ZERO);
+        let parent_pos = if let Some(oc_entity) = orbit_center_entity {
+            // Try non-orbiting centers first (static stars), then orbiting ones (binary stars)
+            if let Ok(sc) = param_set.p2().get(oc_entity) {
+                sc.position
+            } else if let Ok(sc) = param_set.p3().get(oc_entity) {
+                sc.position
+            } else {
+                DVec3::ZERO
+            }
+        } else {
+            DVec3::ZERO
+        };
 
         // Update space coordinates (in AU)
-        coords.position = parent_pos + orbit_pos;
+        if let Ok(mut coords) = param_set.p1().get_mut(entity) {
+            coords.position = parent_pos + orbit_pos;
+        }
     }
 }
 
@@ -1188,13 +1204,14 @@ pub fn handle_body_hover(
 
     // Safety check: ensure we have access to egui context
     // If the cursor is over a UI element, don't perform world picking
-    let ctx = egui_contexts.ctx_mut();
-    if ctx.is_pointer_over_area() || ctx.wants_pointer_input() {
-        // Clear all hovers if we are over UI
-        for entity in hovered_query.iter() {
-            commands.entity(entity).remove::<Hovered>();
+    if let Some(ctx) = egui_contexts.try_ctx_mut() {
+        if ctx.is_pointer_over_area() || ctx.wants_pointer_input() {
+            // Clear all hovers if we are over UI
+            for entity in hovered_query.iter() {
+                commands.entity(entity).remove::<Hovered>();
+            }
+            return;
         }
-        return;
     }
 
     let Ok(window) = windows.get_single() else {
@@ -1376,36 +1393,29 @@ fn spawn_marker(
     radius: f32,
     is_selected: bool,
 ) {
+    // Make hovered markers slightly brighter; selected/anchored markers a bit darker
     let ring_color = if is_selected {
-        Color::srgb(0.45, 0.85, 1.0)
+        // Darker, more subdued color for selected/anchored
+        Color::srgb(0.3, 0.65, 0.85)
     } else {
-        Color::srgb(0.35, 0.7, 0.9)
+        // Brighter color for hover to indicate immediacy
+        Color::srgb(0.5, 0.9, 1.0)
     };
 
-    let emissive = if is_selected { 0.25 } else { 0.12 };
-    let ring_material = materials.add(StandardMaterial {
+    let emissive = if is_selected { 0.6 } else { 1.0 };
+    let bracket_material = materials.add(StandardMaterial {
         base_color: ring_color,
         emissive: LinearRgba::from(ring_color) * emissive,
-        metallic: 0.6,
-        perceptual_roughness: 0.15,
-        reflectance: 0.8,
+        metallic: 0.7,
+        perceptual_roughness: 0.1,
+        reflectance: 0.9,
         ..default()
     });
 
-    let ring_mesh = meshes.add(Torus {
-        minor_radius: 0.6,
-        major_radius: radius,
-        ..default()
-    });
-
+    // Create a parent entity for the reticle (no mesh, just a transform anchor)
     let marker_entity = commands
         .spawn((
-            PbrBundle {
-                mesh: ring_mesh,
-                material: ring_material,
-                transform: Transform::default(),
-                ..default()
-            },
+            SpatialBundle::default(),
             MarkerOwner(owner),
         ))
         .id();
@@ -1418,40 +1428,62 @@ fn spawn_marker(
 
     commands.entity(marker_entity).set_parent(owner);
 
-    let dot_color = if is_selected {
-        Color::srgb(0.9, 0.95, 1.0)
-    } else {
-        Color::srgb(0.7, 0.85, 1.0)
-    };
+    // Create Terra Invicta-style corner brackets using boxes
+    // Each corner has two bars forming an L-shape
+    let bracket_thickness = (radius * 0.08).max(2.0); // Scale with body size, minimum 2.0
+    let bracket_length = radius * 0.25; // Length of each bracket arm
+    let bracket_offset = radius * 0.92; // Distance from center to bracket corner
 
-    // Create glowing transparent material for the marker dot
-    let dot_material = materials.add(StandardMaterial {
-        base_color: Color::srgba(1.0, 1.0, 1.0, 0.6),
-        emissive: LinearRgba::from(dot_color) * 3.0,  // Strong glow
-        alpha_mode: AlphaMode::Blend,
-        metallic: 0.0,
-        perceptual_roughness: 0.1,
-        unlit: true,  // Pure glow effect
-        ..default()
-    });
+    // Define four corners and create L-shaped brackets at each
+    let corners = [
+        // Top-right (positive X, positive Z)
+        (1.0, 1.0),
+        // Top-left (negative X, positive Z)
+        (-1.0, 1.0),
+        // Bottom-left (negative X, negative Z)
+        (-1.0, -1.0),
+        // Bottom-right (positive X, negative Z)
+        (1.0, -1.0),
+    ];
 
-    let dot_mesh = meshes.add(Sphere::new(1.2));
-
-    commands.entity(marker_entity).with_children(|parent| {
-        parent.spawn((
-            PbrBundle {
-                mesh: dot_mesh,
-                material: dot_material,
-                transform: Transform::from_translation(Vec3::new(radius, 0.0, 0.0)),
+    for (x_sign, z_sign) in corners {
+        let corner_x = bracket_offset * x_sign;
+        let corner_z = bracket_offset * z_sign;
+        
+        // Horizontal bar extending inward from corner (along X axis)
+        let h_bar_mesh = meshes.add(Cuboid::new(bracket_length, bracket_thickness, bracket_thickness));
+        let h_bar_pos = Vec3::new(
+            corner_x - x_sign * bracket_length * 0.5,
+            0.0,
+            corner_z,
+        );
+        
+        commands.entity(marker_entity).with_children(|parent| {
+            parent.spawn(PbrBundle {
+                mesh: h_bar_mesh,
+                material: bracket_material.clone(),
+                transform: Transform::from_translation(h_bar_pos),
                 ..default()
-            },
-            MarkerDot {
-                angle: 0.0,
-                angular_speed: if is_selected { 0.3 } else { 0.2 },
-                radius,
-            },
-        ));
-    });
+            });
+        });
+
+        // Vertical bar extending inward from corner (along Z axis)
+        let v_bar_mesh = meshes.add(Cuboid::new(bracket_thickness, bracket_thickness, bracket_length));
+        let v_bar_pos = Vec3::new(
+            corner_x,
+            0.0,
+            corner_z - z_sign * bracket_length * 0.5,
+        );
+        
+        commands.entity(marker_entity).with_children(|parent| {
+            parent.spawn(PbrBundle {
+                mesh: v_bar_mesh,
+                material: bracket_material.clone(),
+                transform: Transform::from_translation(v_bar_pos),
+                ..default()
+            });
+        });
+    }
 }
 
 /// System that automatically zooms camera when anchoring to a body
@@ -1499,21 +1531,28 @@ pub fn zoom_camera_to_anchored_body(
     }
 }
 
-/// System that scales selection and hover markers based on camera zoom distance.
+/// System that scales selection and hover markers based on camera zoom distance
+/// and makes them always face the camera (billboard effect).
 ///
 /// This ensures markers remain a consistent visual size regardless of how far
-/// the camera is from the target body. Markers scale linearly with camera distance,
-/// with a reference distance of 200 Bevy units where scale is 1.0.
+/// the camera is from the target body, and are always perpendicular to the camera vector.
 pub fn scale_markers_with_zoom(
-    camera_query: Query<&OrbitCamera, With<GameCamera>>,
+    camera_query: Query<&GlobalTransform, With<GameCamera>>,
+    orbit_camera_query: Query<&OrbitCamera, With<GameCamera>>,
     mut marker_query: Query<
-        &mut Transform,
+        (&mut Transform, &GlobalTransform),
         Or<(With<SelectionMarker>, With<HoverMarker>)>,
     >,
 ) {
-    let Ok(orbit_camera) = camera_query.get_single() else {
+    let Ok(orbit_camera) = orbit_camera_query.get_single() else {
         return;
     };
+    
+    let Ok(camera_global_transform) = camera_query.get_single() else {
+        return;
+    };
+
+    let camera_position = camera_global_transform.translation();
 
     // Reference distance where markers appear at their base size
     let reference_distance = 1000.0_f32;
@@ -1521,8 +1560,16 @@ pub fn scale_markers_with_zoom(
     // Never shrink below 1.0 to prevent rings from going inside the body
     let zoom_scale = (orbit_camera.radius / reference_distance).clamp(1.0, 3.0);
 
-    for mut transform in marker_query.iter_mut() {
+    for (mut transform, global_transform) in marker_query.iter_mut() {
+        // Apply zoom scaling
         transform.scale = Vec3::splat(zoom_scale);
+        
+        // Make marker face the camera (billboard effect)
+        let marker_position = global_transform.translation();
+        let direction = (camera_position - marker_position).normalize();
+        
+        // Look at the camera, keeping Y as up vector
+        transform.rotation = Quat::from_rotation_arc(Vec3::Y, direction);
     }
 }
 
