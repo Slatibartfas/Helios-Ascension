@@ -65,7 +65,7 @@ impl Default for OrbitCamera {
             pitch: 0.5,
             yaw: 0.0,
             min_radius: 5.0,
-            max_radius: 500_000.0,
+            max_radius: 2_000_000.0, // Increased to exceed max threshold (Sol: 400*1500*2.5 = 1.5M)
             zoom_sensitivity: 100.0,
             rotate_sensitivity: 0.003,
             target_center: Vec3::ZERO,
@@ -78,7 +78,7 @@ fn spawn_camera(mut commands: Commands) {
         Camera3dBundle {
             transform: Transform::from_xyz(0.0, 1000.0, 2000.0).looking_at(Vec3::ZERO, Vec3::Y),
             projection: Projection::Perspective(PerspectiveProjection {
-                far: 1_500_000.0,
+                far: 3_000_000.0, // Increased to comfortably render at max camera distance
                 ..default()
             }),
             ..default()

@@ -50,7 +50,7 @@ impl SystemMetadata {
     }
     
     pub fn get_bounding_radius(&self, system_id: usize) -> f64 {
-        self.bounding_radii.get(&system_id).copied().unwrap_or(DEFAULT_BOUNDING_RADIUS_AU)
+        self.bounding_radii.get(&system_id).copied().unwrap_or(FALLBACK_BOUNDING_RADIUS_AU)
     }
 }
 
