@@ -8,9 +8,10 @@ use crate::plugins::starmap::SystemMetadata;
 
 /// Base zoom threshold multiplier. The actual threshold is calculated as
 /// `bounding_radius_au * SCALING_FACTOR * THRESHOLD_MULTIPLIER`.
-/// This ensures the camera needs to zoom out significantly beyond the system's
-/// outermost body before transitioning to starmap view.
-pub const STARMAP_THRESHOLD_MULTIPLIER: f32 = 2.5;
+/// This provides comfortable zoom distances without requiring excessive scrolling.
+/// Value of 0.6 gives Sol (~400 AU) a threshold of ~360k units, close to the
+/// original fixed threshold of 350k that worked well.
+pub const STARMAP_THRESHOLD_MULTIPLIER: f32 = 0.6;
 
 /// Minimum zoom threshold in game units to ensure reasonable behavior for very small systems.
 pub const MIN_STARMAP_THRESHOLD: f32 = 50_000.0;
