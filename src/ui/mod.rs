@@ -503,6 +503,49 @@ fn ui_hover_tooltip(
     }
 }
 
+/// Formats large mass values (in megatons) to user-readable strings with metric prefixes.
+/// Supports kt, Mt, Gt, Tt, Pt, Et...
+fn format_mass(megatons: f64) -> String {
+    let abs_val = megatons.abs();
+    
+    // Handle 0
+    if abs_val == 0.0 {
+        return "0.0 kt".to_string();
+    }
+
+    // Smallest unit: kilotons (kt)
+    // 1 Mt = 1000 kt
+    if abs_val < 1.0 { 
+         // For very small amounts (e.g. < 0.1 kt), maybe use tons? 
+         // But user requested "kilotons, megatons and Gigatons".
+         return format!("{:.1} kt", megatons * 1000.0);
+    }
+    
+    // Megatons (Mt)
+    if abs_val < 1000.0 {
+        return format!("{:.1} Mt", megatons);
+    }
+    
+    // Gigatons (Gt) - 1 Gt = 1000 Mt
+    if abs_val < 1_000_000.0 {
+        return format!("{:.1} Gt", megatons / 1000.0);
+    }
+    
+    // Teratons (Tt) - 1 Tt = 1000 Gt = 1,000,000 Mt
+    if abs_val < 1_000_000_000.0 {
+         return format!("{:.1} Tt", megatons / 1_000_000.0);
+    }
+    
+    // Petatons (Pt) - 1 Pt = 1000 Tt = 1,000,000,000 Mt
+    if abs_val < 1_000_000_000_000.0 {
+        return format!("{:.1} Pt", megatons / 1_000_000_000.0);
+    }
+
+    // Exatons (Et) and beyond
+    // 1 Et = 1000 Pt = 1,000,000,000,000 Mt
+    format!("{:.1} Et", megatons / 1_000_000_000_000.0)
+}
+
 /// Main UI dashboard system
 #[allow(clippy::too_many_arguments)]
 fn ui_dashboard(
@@ -627,7 +670,7 @@ fn ui_dashboard(
                         .map(|r| budget.get_stockpile(r))
                         .sum();
                     
-                    let category_label = ui.label(format!("{}: {:.1} Mt", category_name, category_total));
+                    let category_label = ui.label(format!("{}: {}", category_name, format_mass(category_total)));
                     
                     // Show detailed breakdown on hover
                     category_label.on_hover_ui(|ui| {
@@ -636,10 +679,10 @@ fn ui_dashboard(
                             ui.separator();
                             for resource in &resources {
                                 let amount = budget.get_stockpile(resource);
-                                ui.label(format!("  {} ({}): {:.1} Mt", 
+                                ui.label(format!("  {} ({}): {}", 
                                     resource.display_name(),
                                     resource.symbol(),
-                                    amount
+                                    format_mass(amount)
                                 ));
                             }
                         });
@@ -838,7 +881,7 @@ fn ui_dashboard(
                                                     
                                                     ui.horizontal(|ui| {
                                                         ui.label("    Amount:");
-                                                        ui.label(egui::RichText::new(format!("{:.2e} Mt", amount_mt)).strong());
+                                                        ui.label(egui::RichText::new(format_mass(amount_mt)).strong());
                                                     });
                                                     
                                                     ui.horizontal(|ui| {

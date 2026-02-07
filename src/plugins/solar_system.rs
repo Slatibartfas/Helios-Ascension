@@ -1097,10 +1097,9 @@ fn calculate_hash<T: Hash>(t: &T) -> u64 {
 
 fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) -> Mesh {
     // Generate base sphere
-    // Use lower resolution for asteroids to make them look more jagged naturally,
-    // but high enough to support the noise deformation.
-    // 32 sectors, 16 stacks
-    let mut mesh = Mesh::from(Sphere::new(visual_radius).mesh().uv(32, 16));
+    // Use higher resolution for smoother look as requested
+    // 64 sectors, 32 stacks
+    let mut mesh = Mesh::from(Sphere::new(visual_radius).mesh().uv(64, 32));
 
     if let Some(VertexAttributeValues::Float32x3(positions)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
         let mut rng = StdRng::seed_from_u64(seed);
@@ -1152,11 +1151,8 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
 
         mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, new_positions);
         
-        // Essential to recompute normals so lighting looks correct on the deformed mesh
-        // We want a flat-shaded, faceted look for asteroids, so we must duplicate vertices
-        // to make the mesh non-indexed before computing flat normals.
-        mesh.duplicate_vertices();
-        mesh.compute_flat_normals(); 
+        // Recompute normals for smooth shading
+        mesh.compute_normals();
     }
     
     mesh

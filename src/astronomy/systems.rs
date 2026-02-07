@@ -524,8 +524,8 @@ fn spawn_comet_tail_meshes(
 
     // === ION TAIL (Type I): narrow, bluish-white ===
     // Use fixed small radii, slightly larger as requested
-    let ion_base_radius = 1.0; 
-    let ion_tip_radius = 0.2;
+    let ion_base_radius = 1.5; 
+    let ion_tip_radius = 0.3;
     let ion_base_color = Color::srgba(0.7, 0.85, 1.0, brightness * 0.6);
     let ion_tip_color = Color::srgba(0.5, 0.75, 1.0, 0.0);
     
@@ -561,8 +561,8 @@ fn spawn_comet_tail_meshes(
 
     // === DUST TAIL (Type II): wider, yellowish ===
     // Fixed radii, wider than ion tail and enclosing it at base
-    let dust_base_radius = 1.6;
-    let dust_tip_radius = 0.4;
+    let dust_base_radius = 2.5;
+    let dust_tip_radius = 0.6;
     let dust_base_color = Color::srgba(1.0, 0.85, 0.4, brightness * 0.5);
     let dust_tip_color = Color::srgba(1.0, 0.7, 0.2, 0.0);
     
@@ -623,7 +623,8 @@ pub fn update_tail_transforms(
 
             // Offset tail to start at comet surface
             // Both tails start at the same point to avoid dual-cone effect
-            let surface_offset = body.visual_radius * anti_sun_dir;
+            // Move start point slightly inside the body (0.9) to avoid gaps with irregular meshes
+            let surface_offset = (body.visual_radius * 0.9) * anti_sun_dir;
             
             transform.translation = comet_pos + surface_offset;
 
