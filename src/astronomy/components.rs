@@ -25,6 +25,12 @@ pub struct CurrentStarSystem(pub usize);
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SystemId(pub usize);
 
+/// Component referencing the entity that this body orbits around.
+/// Without this component, orbits are computed relative to the universe origin (0,0,0).
+/// With it, the orbit position is offset by the parent entity's SpaceCoordinates.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct OrbitCenter(pub Entity);
+
 impl SpaceCoordinates {
     /// Create new space coordinates from a DVec3 position
     pub fn new(position: DVec3) -> Self {

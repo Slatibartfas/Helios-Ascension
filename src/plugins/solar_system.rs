@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy::render::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
 use bevy::render::render_asset::RenderAssetUsages;
+use bevy::render::render_resource::{AsBindGroup, ShaderRef};
 use std::collections::HashMap;
 use rand::prelude::*;
 use std::hash::{Hash, Hasher};
@@ -19,17 +20,50 @@ pub struct SolarSystemPlugin;
 
 impl Plugin for SolarSystemPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup_solar_system)
+        app.add_plugins(MaterialPlugin::<StarGlowMaterial>::default())
+            .add_systems(Startup, setup_solar_system)
             .add_systems(PostStartup, initial_camera_focus)
-            .add_systems(Update, (rotate_bodies, update_billboards, update_body_visibility))
+            .add_systems(Update, (rotate_bodies, update_billboards, update_body_visibility, update_star_glare_lod))
             // System to convert loaded normal/specular textures to linear formats
             .add_systems(Update, apply_linear_to_images_system);
+    }
+}
+
+/// Material for the star glow/corona effect
+#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
+pub struct StarGlowMaterial {
+    #[uniform(0)]
+    pub color_core: Vec4,
+    #[uniform(1)]
+    pub color_halo: Vec4,
+}
+
+impl Material for StarGlowMaterial {
+    fn fragment_shader() -> ShaderRef {
+        "shaders/star_glow.wgsl".into()
+    }
+    
+    // Set transparency mode to additive blending
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::Add
+    }
+
+    // Force rendering on top of the star mesh to prevent clipping/z-fighting
+    fn depth_bias(&self) -> f32 {
+        100.0
     }
 }
 
 /// Component to make an entity always face the camera (e.g. sun glare)
 #[derive(Component)]
 pub struct Billboard;
+
+/// Component to tag the star glare entity for LOD updates
+#[derive(Component)]
+pub struct StarGlare {
+    pub base_core_color: Vec4,
+    pub base_halo_color: Vec4,
+}
 
 fn update_billboards(
     mut query: Query<(&mut Transform, &GlobalTransform, &Parent), With<Billboard>>,
@@ -88,6 +122,51 @@ fn update_body_visibility(
     }
 }
 
+/// Dynamically adjusts star glare intensity/opacity based on camera distance (LOD).
+/// When zoomed out, the glare is full brightness, hiding the surface.
+/// When zoomed in close, the glare fades to transparent, revealing the star surface.
+fn update_star_glare_lod(
+    camera_query: Query<&GlobalTransform, With<Camera3d>>,
+    mut glare_query: Query<(&GlobalTransform, &Handle<StarGlowMaterial>, &StarGlare)>,
+    mut materials: ResMut<Assets<StarGlowMaterial>>,
+) {
+    if let Ok(cam_transform) = camera_query.get_single() {
+        let cam_pos = cam_transform.translation();
+
+        for (glare_transform, mat_handle, glare_data) in glare_query.iter_mut() {
+            let glare_pos = glare_transform.translation();
+            let distance = (cam_pos - glare_pos).length();
+
+            // Defined LOD ranges based on typical Solar System visual scale
+            // Visual radius of Sun is approx 104.0
+            // Close up: ~200-400 units
+            // Far out: > 2000 units
+            
+            let min_dist = 200.0;   // Fully transparent (revealing surface)
+            let max_dist = 1500.0;  // Fully opaque/bright (hidden surface)
+
+            // Normalize distance 0.0 .. 1.0
+            let t = ((distance - min_dist) / (max_dist - min_dist)).clamp(0.0, 1.0);
+            
+            // Apply easing curve for smoother transition (e.g. smoothstep or quadratic)
+            // t * t gives a slower fade-in, keeping surface visible longer
+            // sqrt(t) gives faster fade-in
+            let t_eased = t * t * (3.0 - 2.0 * t); // Smoothstep
+
+            if let Some(material) = materials.get_mut(mat_handle) {
+                // Modulate brightness. 
+                // We keep the HDR intensity but fade alpha/mix to 0 when close.
+                // Multiplying the whole vector scales both brightness and alpha (if alpha is in .w)
+                
+                material.color_core = glare_data.base_core_color * t_eased;
+                material.color_halo = glare_data.base_halo_color * t_eased;
+                
+                // Ensure alpha doesn't drop below 0 (vector mul handles this)
+                // When t -> 0, colors -> 0 (black/transparent with Additive blending)
+            }
+        }
+    }
+}
 
 #[derive(Component)]
 pub struct CelestialBody {
@@ -453,6 +532,7 @@ pub fn setup_solar_system(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut materials_night: ResMut<Assets<crate::plugins::visual_effects::NightMaterial>>,
+    mut materials_glow: ResMut<Assets<StarGlowMaterial>>,
     asset_server: Res<AssetServer>,
 ) {
     // Queue to collect normal/specular handles that must be treated as linear textures
@@ -768,22 +848,26 @@ pub fn setup_solar_system(
                     });
 
                     // Add Soft Glow visual (Billboard)
-                    // A larger, smoother corona that uses vertex alpha for soft falloff
+                    // 使用 custom shader for a high-quality procedural corona/glare
+                    // Size is large because the shader fades out significantly towards the edges
+                    let core_col = Vec4::new(5.0, 5.0, 5.0, 1.0);  // Blinding white core
+                    let halo_col = Vec4::new(4.0, 2.5, 0.5, 1.0);  // Golden/Orange halo
+                    
                     parent.spawn((
-                        PbrBundle {
-                            mesh: create_glow_mesh(meshes.as_mut(), visual_radius * 4.0),
-                            material: materials.add(StandardMaterial {
-                                // Use HDR base_color for bloom intensity. 
-                                // Vertex alpha controls transparency.
-                                base_color: Color::srgb(5.0, 4.0, 2.5), 
-                                alpha_mode: AlphaMode::Add,
-                                unlit: true,
-                                ..default()
+                        MaterialMeshBundle {
+                            mesh: meshes.add(Rectangle::new(visual_radius * 12.0, visual_radius * 12.0)),
+                            material: materials_glow.add(StarGlowMaterial {
+                                color_core: core_col,
+                                color_halo: halo_col,
                             }),
-                            transform: Transform::from_xyz(0.0, 0.0, 0.0),
+                            transform: Transform::from_translation(Vec3::Z * 0.1), // Slight offset to avoid z-fighting with star
                             ..default()
                         },
                         Billboard,
+                        StarGlare {
+                            base_core_color: core_col,
+                            base_halo_color: halo_col,
+                        },
                     ));
                 });
             }
@@ -1076,84 +1160,6 @@ fn create_ring_mesh(outer_radius: f32, inner_radius: f32, segments: u32) -> Mesh
     mesh.insert_indices(Indices::U32(indices));
     
     mesh
-}
-
-// Helper to create a soft radial gradient mesh (disk)
-// Creates a multi-ring mesh for smoother gradients and vertex-color interpolation
-fn create_glow_mesh(meshes: &mut Assets<Mesh>, radius: f32) -> Handle<Mesh> {
-    let mut positions = Vec::new();
-    let mut normals = Vec::new();
-    let mut uvs = Vec::new();
-    let mut indices = Vec::new();
-    let mut colors = Vec::new();
-
-    let segments = 64; // Smoother circle
-    let rings = 16;    // Gradient steps from center to edge
-
-    // We generate rings from center to outside
-    for r in 0..=rings {
-        let r_ratio = r as f32 / rings as f32; // 0.0 to 1.0
-        let current_radius = radius * r_ratio;
-        
-        // Gaussianish falloff for alpha: (1 - r^2)^2 or similar
-        // Using a custom curve to keep the core bright and fade smoothly
-        // Center (r=0) -> 1.0
-        // Edge (r=1) -> 0.0
-        
-        // "Power" curve: Start strong, fade out.
-        // Try (1 - x)^2 * (exponential decay)
-        let alpha = (-4.0 * r_ratio * r_ratio).exp();
-        
-        // Color gradient: Core is white/bright, Edge is warm/yellow
-        let c_core = Vec3::new(1.0, 1.0, 1.0);
-        let c_edge = Vec3::new(1.0, 0.85, 0.55);
-        let c = c_core.lerp(c_edge, r_ratio);
-
-        // Force zero alpha at the very edge to prevent hard cuts
-        let final_alpha = if r == rings { 0.0 } else { alpha };
-
-        for s in 0..=segments {
-            let angle = (s as f32 / segments as f32) * std::f32::consts::TAU;
-            let (sin, cos) = angle.sin_cos();
-
-            positions.push([cos * current_radius, sin * current_radius, 0.0]);
-            normals.push([0.0, 0.0, 1.0]);
-            uvs.push([0.5 + cos * 0.5 * r_ratio, 0.5 + sin * 0.5 * r_ratio]);
-            colors.push([c.x, c.y, c.z, final_alpha]);
-        }
-    }
-
-    // Indices (Grid of quads)
-    for r in 0..rings {
-         for s in 0..segments {
-            let current_ring_start = (r * (segments + 1)) as u32;
-            let next_ring_start = ((r + 1) * (segments + 1)) as u32;
-            
-            let p0 = current_ring_start + s as u32;
-            let p1 = current_ring_start + s as u32 + 1;
-            let p2 = next_ring_start + s as u32 + 1;
-            let p3 = next_ring_start + s as u32;
-
-            // Triangle 1
-            indices.push(p0);
-            indices.push(p1);
-            indices.push(p2);
-            
-            // Triangle 2
-            indices.push(p0);
-            indices.push(p2);
-            indices.push(p3);
-         }
-    }
-
-    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
-    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
-    mesh.insert_indices(Indices::U32(indices));
-    
-    meshes.add(mesh)
 }
 
 fn calculate_hash<T: Hash>(t: &T) -> u64 {

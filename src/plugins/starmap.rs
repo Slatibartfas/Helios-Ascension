@@ -15,8 +15,12 @@ use bevy::window::PrimaryWindow;
 use bevy::math::DVec3;
 
 use super::camera::{CameraAnchor, GameCamera, OrbitCamera, ViewMode};
-use super::solar_system::{CelestialBody, Star};
-use crate::astronomy::components::{FloatingOrigin, CurrentStarSystem, SystemId};
+use super::solar_system::{CelestialBody, Star, Planet, RADIUS_SCALE};
+use super::solar_system_data::BodyType;
+use crate::astronomy::components::{FloatingOrigin, CurrentStarSystem, SystemId, KeplerOrbit, SpaceCoordinates, OrbitCenter};
+use crate::astronomy::nearby_stars::NearbyStarsData;
+use rand::prelude::*;
+use std::f64::consts::PI;
 
 // Local constant for star scaling (matches solar_system.rs)
 const STAR_RADIUS_SCALE: f32 = 0.00015;
@@ -234,6 +238,8 @@ fn tag_sol_bodies(
     }
 }
 
+const SECONDS_PER_DAY: f64 = 86400.0;
+
 /// Spawns minimal celestial bodies (Star) for non-Sol systems when visited.
 fn spawn_system_bodies(
     mut commands: Commands,
@@ -241,6 +247,7 @@ fn spawn_system_bodies(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     existing_bodies: Query<&SystemId, With<CelestialBody>>,
+    nearby_stars: Res<NearbyStarsData>,
 ) {
     if !current_system.is_changed() { return; }
     
@@ -254,7 +261,6 @@ fn spawn_system_bodies(
 
     // Determine star data index
     // SystemId is 1-based index into NEARBY_STARS + Sol (0)
-    // So SystemId(1) corresponding to NEARBY_STARS[0]
     let star_idx = sys_id - 1;
     if star_idx >= NEARBY_STARS.len() { 
         warn!("System ID {} is out of range for nearby stars", sys_id);
@@ -262,34 +268,232 @@ fn spawn_system_bodies(
     }
     
     let star_data = &NEARBY_STARS[star_idx];
-    info!("Spawning bodies for system: {}", star_data.name);
-
-    // Determines color from spectral type (Simplified)
-    // First letter: O, B, A, F, G, K, M, L, T, Y
-    let spectral = star_data.spectral_type;
-    let color = if spectral.starts_with('O') { Color::srgb(0.6, 0.8, 1.0) }
-        else if spectral.starts_with('B') { Color::srgb(0.7, 0.85, 1.0) }
-        else if spectral.starts_with('A') { Color::WHITE }
-        else if spectral.starts_with('F') { Color::srgb(1.0, 1.0, 0.9) }
-        else if spectral.starts_with('G') { Color::srgb(1.0, 0.95, 0.8) } // Sun-like
-        else if spectral.starts_with('K') { Color::srgb(1.0, 0.7, 0.4) }
-        else if spectral.starts_with('M') { Color::srgb(1.0, 0.4, 0.2) } // Red dwarf
-        else if spectral.starts_with('L') 
-             || spectral.starts_with('T') 
-             || spectral.starts_with('Y') { Color::srgb(0.8, 0.2, 0.1) } // Brown dwarf
-        else { Color::WHITE };
-
-    // Create the Star entity
-    // Assume standard radius for now (e.g. 1 Solar Radius)
-    // Real radius data isn't in NEARBY_STARS, so we estimate based on spectral
-    let radius_mult = if spectral.starts_with('M') { 0.3 }
-        else if spectral.starts_with('K') { 0.7 }
-        else if spectral.starts_with('G') { 1.0 }
-        else if spectral.starts_with('F') { 1.3 }
-        else if spectral.starts_with('A') { 1.8 }
-        else { 0.1 }; // Brown dwarfs are small
+    let position_ly = Vec3::from_array([star_data.pos_ly[0] as f32, star_data.pos_ly[1] as f32, star_data.pos_ly[2] as f32]);
+    let system_offset = DVec3::new(
+        position_ly.x as f64 * LY_TO_AU, 
+        position_ly.y as f64 * LY_TO_AU, 
+        position_ly.z as f64 * LY_TO_AU
+    );
     
-    // Scale factor similar to Sol
+    // Check if we have detailed data for this system
+    if let Some(detailed_data) = nearby_stars.get_by_name(star_data.name) {
+        info!("Spawning detailed system: {}", star_data.name);
+        spawn_detailed_system(&mut commands, sys_id, system_offset, detailed_data, &mut meshes, &mut materials);
+        return;
+    }
+
+    // --- Fallback: Procedural fallback ---
+    info!("Spawning fallback system: {}", star_data.name);
+    spawn_fallback_system(&mut commands, sys_id, system_offset, star_data, &mut meshes, &mut materials);
+}
+
+fn spawn_detailed_system(
+    commands: &mut Commands,
+    sys_id: usize,
+    system_offset: DVec3,
+    data: &crate::astronomy::nearby_stars::StarSystemData,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<StandardMaterial>>,
+) {
+    let mut rng = rand::thread_rng();
+    let seconds_per_year: f64 = 365.25 * SECONDS_PER_DAY;
+
+    // --- Phase 1: Spawn a virtual barycenter entity for the system ---
+    let barycenter = commands.spawn((
+        TransformBundle::from_transform(Transform::IDENTITY),
+        VisibilityBundle { visibility: Visibility::Hidden, ..default() },
+        SpaceCoordinates { position: system_offset },
+        SystemId(sys_id),
+    )).id();
+
+    // --- Phase 2: Spawn all stars ---
+    let mut star_entities: Vec<Entity> = Vec::new();
+    
+    for (_star_idx, star_data) in data.stars.iter().enumerate() {
+        let color = get_color_from_spectral_type(&star_data.spectral_type);
+        let visual_radius = (696340.0 * star_data.radius_sol * STAR_RADIUS_SCALE).max(MIN_VISUAL_RADIUS);
+        
+        let star_entity = commands.spawn((
+            PbrBundle {
+                mesh: meshes.add(Sphere::new(visual_radius).mesh().uv(64, 32)),
+                material: materials.add(StandardMaterial {
+                    base_color: color,
+                    emissive: LinearRgba::from(color).into(),
+                    unlit: true,
+                    ..default()
+                }),
+                transform: Transform::IDENTITY, // Will be set by propagate_orbits + update_render_transform
+               ..default()
+            },
+            CelestialBody {
+                name: star_data.name.clone(),
+                radius: 696340.0 * star_data.radius_sol,
+                mass: 1.989e30 * star_data.mass_sol as f64,
+                body_type: BodyType::Star,
+                visual_radius,
+                asteroid_class: None,
+            },
+            SystemId(sys_id),
+            Star,
+            // Initial position at barycenter; will be updated if it has a binary orbit
+            SpaceCoordinates { position: system_offset },
+        )).with_children(|parent| {
+            let intensity = 2.8e11 * star_data.luminosity_sol.sqrt();
+            parent.spawn((
+                PointLightBundle {
+                    point_light: PointLight {
+                        intensity,
+                        range: 2.0e9,
+                        shadows_enabled: false,
+                        color,
+                        ..default()
+                    },
+                    ..default()
+                },
+                SystemId(sys_id),
+            ));
+        }).id();
+        
+        star_entities.push(star_entity);
+    }
+
+    // --- Phase 3: Set up binary/multiple star orbits ---
+    for binary in &data.binary_orbits {
+        if binary.primary_idx >= star_entities.len() || binary.secondary_idx >= star_entities.len() {
+            warn!("Binary orbit indices out of range for system {}", data.system_name);
+            continue;
+        }
+        
+        let primary_mass = data.stars[binary.primary_idx].mass_sol as f64;
+        let secondary_mass = data.stars[binary.secondary_idx].mass_sol as f64;
+        let total_mass = primary_mass + secondary_mass;
+        
+        // For a binary, both stars orbit the barycenter.
+        // The secondary orbits at distance: a * M_primary / (M_primary + M_secondary)
+        // The primary orbits at distance: a * M_secondary / (M_primary + M_secondary)
+        let period_seconds = binary.period_years * seconds_per_year;
+        let mean_motion = 2.0 * PI / period_seconds;
+        let incl_rad = binary.inclination_deg.to_radians();
+        let arg_peri_rad = binary.arg_periastron_deg.to_radians();
+        let initial_anomaly: f64 = rng.gen_range(0.0..2.0*PI);
+        
+        // Secondary star orbit around barycenter
+        let secondary_sma = binary.semi_major_axis_au * primary_mass / total_mass;
+        let secondary_orbit = KeplerOrbit {
+            eccentricity: binary.eccentricity,
+            semi_major_axis: secondary_sma,
+            inclination: incl_rad,
+            longitude_ascending_node: rng.gen_range(0.0..2.0*PI),
+            argument_of_periapsis: arg_peri_rad,
+            mean_anomaly_epoch: initial_anomaly,
+            mean_motion,
+        };
+        commands.entity(star_entities[binary.secondary_idx])
+            .insert((secondary_orbit, OrbitCenter(barycenter)));
+        
+        // Primary star orbit around barycenter (opposite phase)
+        let primary_sma = binary.semi_major_axis_au * secondary_mass / total_mass;
+        let primary_orbit = KeplerOrbit {
+            eccentricity: binary.eccentricity,
+            semi_major_axis: primary_sma,
+            inclination: incl_rad,
+            longitude_ascending_node: rng.gen_range(0.0..2.0*PI),
+            argument_of_periapsis: arg_peri_rad + PI, // Opposite side
+            mean_anomaly_epoch: initial_anomaly,
+            mean_motion,
+        };
+        commands.entity(star_entities[binary.primary_idx])
+            .insert((primary_orbit, OrbitCenter(barycenter)));
+    }
+    
+    // For single stars with no binary orbit defined, they stay at barycenter
+    // (their SpaceCoordinates = system_offset, no KeplerOrbit)
+    // If only 1 star, no binary orbits → star sits at center. Perfect.
+    // If multiple stars but some have no binary_orbit entry (e.g. Proxima),
+    // place them statically far out with an OrbitCenter:
+    if data.stars.len() > 1 {
+        let has_binary: Vec<bool> = (0..data.stars.len()).map(|i| {
+            data.binary_orbits.iter().any(|b| b.primary_idx == i || b.secondary_idx == i)
+        }).collect();
+        
+        for (i, &has_orbit) in has_binary.iter().enumerate() {
+            if !has_orbit && i > 0 {
+                // This is a wide companion (like Proxima) with no defined binary orbit
+                // Place it at a static offset
+                let offset = DVec3::new(100.0 * i as f64, 0.0, 50.0 * i as f64);
+                commands.entity(star_entities[i]).insert(
+                    SpaceCoordinates { position: system_offset + offset }
+                );
+            }
+        }
+    }
+        
+    // --- Phase 4: Spawn planets for each star ---
+    for (star_idx, star_data) in data.stars.iter().enumerate() {
+        let parent_star = star_entities[star_idx];
+        
+        for planet in &star_data.planets {
+            let orbit = KeplerOrbit {
+                eccentricity: planet.eccentricity as f64,
+                semi_major_axis: planet.semi_major_axis_au as f64,
+                inclination: rng.gen_range(0.0..0.15),
+                longitude_ascending_node: rng.gen_range(0.0..2.0*PI),
+                argument_of_periapsis: rng.gen_range(0.0..2.0*PI),
+                mean_anomaly_epoch: rng.gen_range(0.0..2.0*PI),
+                mean_motion: 2.0 * PI / (planet.period_days as f64 * SECONDS_PER_DAY),
+            };
+            
+            let planet_radius_km = if let Some(r) = planet.radius_earth { 
+                r * 6371.0 
+            } else { 
+                estimate_planet_radius_km(planet.mass_earth)
+            };
+            
+            let planet_visual_radius = (planet_radius_km * RADIUS_SCALE).max(MIN_VISUAL_RADIUS);
+            let p_color = planet_type_to_color(&planet.planet_type);
+            
+            commands.spawn((
+                PbrBundle {
+                    mesh: meshes.add(Sphere::new(planet_visual_radius).mesh().uv(32, 16)),
+                    material: materials.add(StandardMaterial {
+                        base_color: p_color,
+                        perceptual_roughness: 0.8,
+                        reflectance: 0.1,
+                        ..default()
+                    }),
+                    transform: Transform::IDENTITY,
+                    ..default()
+                },
+                CelestialBody {
+                    name: planet.name.clone(),
+                    radius: planet_radius_km,
+                    mass: 5.972e24 * planet.mass_earth as f64,
+                    body_type: BodyType::Planet,
+                    visual_radius: planet_visual_radius,
+                    asteroid_class: None,
+                },
+                SystemId(sys_id),
+                Planet,
+                orbit,
+                OrbitCenter(parent_star),
+                // Initial position will be computed by propagate_orbits
+                SpaceCoordinates { position: system_offset },
+            ));
+        }
+    }
+}
+
+fn spawn_fallback_system(
+    commands: &mut Commands,
+    sys_id: usize,
+    system_offset: DVec3,
+    star_data: &NearbyStarData,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<StandardMaterial>>,
+) {
+    let spectral = star_data.spectral_type;
+    let color = get_color_from_spectral_type(spectral);
+    let radius_mult = estimate_radius_from_spectral(spectral);
     let visual_radius = (696340.0 * radius_mult * STAR_RADIUS_SCALE).max(MIN_VISUAL_RADIUS);
 
     commands.spawn((
@@ -301,22 +505,22 @@ fn spawn_system_bodies(
                 unlit: true,
                 ..default()
             }),
-            transform: Transform::from_translation(Vec3::ZERO), // Center of the system
+            transform: Transform::IDENTITY,
             ..default()
         },
         CelestialBody {
             name: star_data.name.to_string(),
             radius: 696340.0 * radius_mult,
-            mass: 1.989e30 * (radius_mult as f64), // Rough approximation
-            body_type: crate::plugins::solar_system_data::BodyType::Star,
+            mass: 1.989e30 * radius_mult as f64, 
+            body_type: BodyType::Star,
             visual_radius,
             asteroid_class: None,
         },
-        Star,
         SystemId(sys_id),
+        Star,
+        SpaceCoordinates { position: system_offset },
     )).with_children(|parent| {
-        // Add Light
-        let intensity = 2.8e11 * radius_mult; // Scale intensity
+        let intensity = 2.8e11 * radius_mult; 
         parent.spawn((
             PointLightBundle {
                 point_light: PointLight {
@@ -328,10 +532,67 @@ fn spawn_system_bodies(
                 },
                 ..default()
             },
-            SystemId(sys_id), // Tag light so it shows up for this system
+            SystemId(sys_id),
         ));
     });
 }
+
+fn get_color_from_spectral_type(spectral: &str) -> Color {
+    if spectral.starts_with('O') { Color::srgb(0.6, 0.8, 1.0) }
+    else if spectral.starts_with('B') { Color::srgb(0.7, 0.85, 1.0) }
+    else if spectral.starts_with('A') { Color::WHITE }
+    else if spectral.starts_with('F') { Color::srgb(1.0, 1.0, 0.9) }
+    else if spectral.starts_with('G') { Color::srgb(1.0, 0.95, 0.8) }
+    else if spectral.starts_with('K') { Color::srgb(1.0, 0.7, 0.4) }
+    else if spectral.starts_with('M') { Color::srgb(1.0, 0.4, 0.2) }
+    else if spectral.starts_with('L') || spectral.starts_with('T') || spectral.starts_with('Y') { 
+        Color::srgb(0.8, 0.2, 0.1) 
+    } else { 
+        Color::WHITE 
+    }
+}
+
+fn estimate_radius_from_spectral(spectral: &str) -> f32 {
+    let spectral = spectral.trim(); // Just in case
+    if spectral.starts_with('M') { 0.3 }
+    else if spectral.starts_with('K') { 0.7 }
+    else if spectral.starts_with('G') { 1.0 }
+    else if spectral.starts_with('F') { 1.3 }
+    else if spectral.starts_with('A') { 1.8 }
+    else if spectral.starts_with('B') { 3.0 }
+    else if spectral.starts_with('O') { 10.0 }
+    else { 0.1 }
+}
+
+fn planet_type_to_color(ptype: &str) -> Color {
+    let lower = ptype.to_lowercase();
+    if lower.contains("gas") || lower.contains("jupiter") { Color::srgb(0.9, 0.8, 0.6) } 
+    else if lower.contains("telluric") || lower.contains("terrestrial") || lower.contains("earth") { Color::srgb(0.2, 0.5, 0.8) }
+    else if lower.contains("super-earth") || lower.contains("super_earth") { Color::srgb(0.4, 0.6, 0.7) }
+    else if lower.contains("neptun") { Color::srgb(0.3, 0.3, 0.9) }
+    else if lower.contains("sub-earth") || lower.contains("sub_earth") { Color::srgb(0.6, 0.55, 0.5) }
+    else if lower.contains("rocky") { Color::srgb(0.5, 0.45, 0.4) }
+    else if lower.contains("mars") { Color::srgb(0.8, 0.3, 0.1) } 
+    else { Color::srgb(0.5, 0.5, 0.5) }
+}
+
+/// Estimate planet radius in km from mass in Earth masses
+fn estimate_planet_radius_km(mass_earth: f32) -> f32 {
+    if mass_earth > 100.0 {
+        // Gas giant territory
+        71492.0 * (mass_earth / 318.0).powf(0.06) // Jupiter-like, weak mass-radius
+    } else if mass_earth > 10.0 {
+        // Neptune-like
+        24764.0 * (mass_earth / 17.0).powf(0.3)
+    } else if mass_earth > 1.0 {
+        // Super-Earth
+        6371.0 * mass_earth.powf(0.28) // Rocky scaling
+    } else {
+        // Sub-Earth
+        6371.0 * mass_earth.powf(0.33)
+    }
+}
+
 
 /// Hide all celestial bodies and their orbit gizmos when in Starmap mode.
 /// Also handles hiding bodies from other systems when in System mode.

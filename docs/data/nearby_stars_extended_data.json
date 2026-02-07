@@ -1,0 +1,1121 @@
+{
+  "_metadata": {
+    "description": "Extended data for nearby star systems: binary orbits, exoplanets, debris disks",
+    "sources": [
+      "Wikipedia (verified against cited primary sources)",
+      "NASA Exoplanet Archive",
+      "Gaia DR3",
+      "SIMBAD"
+    ],
+    "date_compiled": "2026-02-07",
+    "notes": "Values marked 'unconfirmed' or 'candidate' should be treated cautiously. Masses given as m*sin(i) are minimum masses unless noted."
+  },
+
+  "binary_orbital_parameters": {
+    "alpha_centauri_ab": {
+      "system": "Alpha Centauri",
+      "primary": "Alpha Centauri A",
+      "secondary": "Alpha Centauri B",
+      "semi_major_axis_au": 23.299,
+      "period_years": 79.762,
+      "eccentricity": 0.51947,
+      "inclination_deg": 79.243,
+      "mass_a_solar": 1.0788,
+      "mass_b_solar": 0.9092,
+      "mass_ratio_b_over_a": 0.8428,
+      "periastron_au": 11.2,
+      "apastron_au": 35.6,
+      "periastron_epoch": "1955 Aug (next: 2035 May)",
+      "longitude_node_deg": 205.073,
+      "arg_periastron_deg": 231.519,
+      "source": "Pourbaix et al. / Akeson et al. 2021, Gaia"
+    },
+    "alpha_centauri_ab_proxima": {
+      "system": "Alpha Centauri (Proxima orbit around AB)",
+      "primary": "Alpha Centauri AB (barycenter)",
+      "secondary": "Proxima Centauri (C)",
+      "semi_major_axis_au": 8700,
+      "semi_major_axis_au_note": "Ranges from ~4100 AU at periastron to ~12300 AU at apastron",
+      "period_years": 511000,
+      "period_years_uncertainty": "+41000/-30000",
+      "eccentricity": 0.50,
+      "mass_ab_solar": 1.988,
+      "mass_c_solar": 0.1221,
+      "mass_ratio_c_over_ab": 0.0614,
+      "source": "Kervella et al. 2017"
+    },
+    "sirius": {
+      "system": "Sirius",
+      "primary": "Sirius A",
+      "secondary": "Sirius B",
+      "semi_major_axis_au": 19.8,
+      "semi_major_axis_arcsec": 7.4957,
+      "period_years": 50.1284,
+      "eccentricity": 0.59142,
+      "inclination_deg": 136.336,
+      "mass_a_solar": 2.063,
+      "mass_b_solar": 1.018,
+      "mass_ratio_b_over_a": 0.4934,
+      "periastron_au": 8.1,
+      "apastron_au": 31.5,
+      "periastron_epoch": "1994.57",
+      "longitude_node_deg": 45.400,
+      "arg_periastron_deg": 149.161,
+      "note": "Sirius B is a white dwarf. No confirmed planets. Infrared excess suggests possible dust.",
+      "source": "Bond et al. 2017 (HST astrometry)"
+    },
+    "procyon": {
+      "system": "Procyon",
+      "primary": "Procyon A",
+      "secondary": "Procyon B",
+      "semi_major_axis_au": 15.0,
+      "semi_major_axis_arcsec": 4.3075,
+      "period_years": 40.84,
+      "eccentricity": 0.39785,
+      "inclination_deg": 31.408,
+      "mass_a_solar": 1.478,
+      "mass_b_solar": 0.592,
+      "mass_ratio_b_over_a": 0.4005,
+      "periastron_au": 8.9,
+      "apastron_au": 21.0,
+      "periastron_epoch": "1968.076",
+      "longitude_node_deg": 100.683,
+      "arg_periastron_deg": 89.23,
+      "note": "Procyon B is a white dwarf (DQZ). No confirmed planets.",
+      "source": "Bond et al. 2015 (HST astrometry)"
+    },
+    "61_cygni": {
+      "system": "61 Cygni",
+      "primary": "61 Cygni A",
+      "secondary": "61 Cygni B",
+      "semi_major_axis_au": 86.76,
+      "period_years": 707.1,
+      "period_years_note": "Updated 2025 value; older sources cite ~659 years",
+      "eccentricity": 0.4424,
+      "inclination_deg": 52.99,
+      "mass_a_solar": 0.6771,
+      "mass_b_solar": 0.6289,
+      "mass_ratio_b_over_a": 0.9288,
+      "periastron_au": 44,
+      "apastron_au": 124,
+      "longitude_node_deg": 355.73,
+      "arg_periastron_deg": 150.61,
+      "note": "No confirmed planets. Infrared excess detected but no resolved debris disk.",
+      "source": "Giovinazzi et al. 2025 (NEID); Izmailov & Apetyan 2024"
+    },
+    "luyten_726_8": {
+      "system": "Luyten 726-8 / UV Ceti (GJ 65)",
+      "primary": "BL Ceti (GJ 65 A)",
+      "secondary": "UV Ceti (GJ 65 B)",
+      "semi_major_axis_au": 5.459,
+      "semi_major_axis_arcsec": 2.0584,
+      "period_years": 26.38,
+      "eccentricity": 0.6172,
+      "inclination_deg": 128.0,
+      "mass_a_solar": 0.122,
+      "mass_b_solar": 0.116,
+      "mass_ratio_b_over_a": 0.9508,
+      "periastron_au": 2.09,
+      "apastron_au": 8.82,
+      "longitude_node_deg": 325.9,
+      "arg_periastron_deg": 103.2,
+      "note": "Candidate super-Neptune planet detected in 2024 (GRAVITY). Unconfirmed.",
+      "source": "Kervella et al. 2016; Ségransan et al. 2000"
+    },
+    "struve_2398": {
+      "system": "Struve 2398 (GJ 725)",
+      "primary": "Struve 2398 A (GJ 725 A)",
+      "secondary": "Struve 2398 B (GJ 725 B)",
+      "semi_major_axis_au": 63.0,
+      "period_years": 1166,
+      "eccentricity": 0.4396,
+      "inclination_deg": 73.8,
+      "mass_a_solar": 0.330,
+      "mass_b_solar": 0.25,
+      "mass_ratio_b_over_a": 0.7576,
+      "longitude_node_deg": 145.32,
+      "arg_periastron_deg": 321.3,
+      "note": "Both stars host confirmed planets (see exoplanets section).",
+      "source": "Izmailov & Khovritchev 2025"
+    },
+    "kruger_60": {
+      "system": "Kruger 60 (GJ 860)",
+      "primary": "Kruger 60 A",
+      "secondary": "Kruger 60 B (DO Cephei)",
+      "semi_major_axis_au": 9.8,
+      "semi_major_axis_au_note": "Derived from 2.45 arcsec and parallax ~250 mas",
+      "semi_major_axis_arcsec": 2.45,
+      "period_years": 45.13,
+      "eccentricity": 0.4131,
+      "inclination_deg": 165.41,
+      "mass_a_solar": 0.271,
+      "mass_b_solar": 0.176,
+      "mass_ratio_b_over_a": 0.6494,
+      "longitude_node_deg": 152.6,
+      "arg_periastron_deg": 208.2,
+      "note": "No confirmed planets. B is a flare star (DO Cep).",
+      "source": "Mann et al. 2019; CARMENES IX (Cifuentes et al. 2025)"
+    },
+    "ez_aquarii": {
+      "system": "EZ Aquarii (GJ 866, triple system)",
+      "configuration": "Hierarchical triple: tight AC pair orbited by B",
+      "inner_pair_ac": {
+        "primary": "EZ Aquarii A",
+        "secondary": "EZ Aquarii C",
+        "semi_major_axis_au": 0.03,
+        "period_days": 3.787,
+        "period_years": 0.01037,
+        "eccentricity": 0.0,
+        "mass_a_solar": 0.1187,
+        "mass_c_solar": 0.0930,
+        "mass_ratio_c_over_a": 0.7834
+      },
+      "outer_orbit_b_around_ac": {
+        "primary": "EZ Aquarii AC (barycenter)",
+        "secondary": "EZ Aquarii B",
+        "semi_major_axis_au": 1.18,
+        "semi_major_axis_au_note": "Derived from 0.346 arcsec and parallax ~294 mas",
+        "semi_major_axis_arcsec": 0.346,
+        "period_years": 2.2506,
+        "period_days": 822.6,
+        "eccentricity": 0.437,
+        "inclination_deg": 112.4,
+        "mass_b_solar": 0.1145,
+        "mass_ratio_b_over_ac": 0.5417
+      },
+      "note": "No confirmed planets. Circumbinary planets around AC pair theoretically possible near HZ.",
+      "source": "Torres et al. 2010; Ségransan et al. 2000; Woitas et al. 2000"
+    },
+    "groombridge_34": {
+      "system": "Groombridge 34 (GJ 15)",
+      "primary": "Groombridge 34 A (GX Andromedae)",
+      "secondary": "Groombridge 34 B (GQ Andromedae)",
+      "semi_major_axis_au": 93,
+      "semi_major_axis_au_note": "+42/-6 AU uncertainty",
+      "period_years": 1065,
+      "period_years_uncertainty": "±22",
+      "eccentricity": 0.73,
+      "inclination_deg": 36.7,
+      "mass_a_solar": 0.393,
+      "mass_b_solar": 0.15,
+      "mass_ratio_b_over_a": 0.3817,
+      "longitude_node_deg": 254.77,
+      "arg_periastron_deg": 324.7,
+      "note": "Two confirmed planets around A (see exoplanets section).",
+      "source": "Izmailov & Khovritchev 2025; Pinamonti et al. 2018"
+    },
+    "wolf_424": {
+      "system": "Wolf 424 (GJ 473, FL Virginis)",
+      "primary": "Wolf 424 A",
+      "secondary": "Wolf 424 B",
+      "semi_major_axis_au": 4.062,
+      "semi_major_axis_arcsec": 0.910,
+      "period_years": 15.811,
+      "eccentricity": 0.301,
+      "inclination_deg": 102.8,
+      "mass_a_solar": 0.1379,
+      "mass_b_solar": 0.1258,
+      "mass_ratio_b_over_a": 0.9122,
+      "longitude_node_deg": 143.2,
+      "arg_periastron_deg": 347.7,
+      "note": "No confirmed planets. Both components are flare stars.",
+      "source": "Ling et al. 2022; Chevalier et al. 2023 (Gaia DR3); Cifuentes et al. 2025"
+    },
+    "gj_1245": {
+      "system": "GJ 1245 (triple system)",
+      "configuration": "Hierarchical triple: close AB pair + wide C",
+      "inner_pair_ab": {
+        "primary": "GJ 1245 A",
+        "secondary": "GJ 1245 B",
+        "semi_major_axis_au": 5.3,
+        "semi_major_axis_au_note": "Estimated from ~1.9 arcsec separation and ~220 mas parallax",
+        "period_years": 24.5,
+        "period_years_note": "Approximate; poorly constrained",
+        "eccentricity": 0.4,
+        "eccentricity_note": "Approximate",
+        "mass_a_solar": 0.177,
+        "mass_b_solar": 0.109,
+        "mass_ratio_b_over_a": 0.616
+      },
+      "outer_c": {
+        "primary": "GJ 1245 AB (barycenter)",
+        "secondary": "GJ 1245 C",
+        "separation_au": 33,
+        "separation_au_note": "Projected separation; true orbit poorly constrained",
+        "period_years_estimate": "~500",
+        "period_years_note": "Very uncertain, based on projected separation",
+        "mass_c_solar": 0.074,
+        "mass_c_note": "Near hydrogen-burning limit"
+      },
+      "note": "No confirmed planets. Orbital parameters for C are poorly determined. System is ~14.8 ly from Sun.",
+      "source": "Henry et al. 1999; Delfosse et al. 2000; RECONS"
+    },
+    "ross_614": {
+      "system": "Ross 614 (GJ 234, V577 Mon)",
+      "primary": "Ross 614 A",
+      "secondary": "Ross 614 B",
+      "semi_major_axis_au": 4.187,
+      "semi_major_axis_arcsec": 1.1012,
+      "period_years": 16.586,
+      "eccentricity": 0.382,
+      "inclination_deg": 52.918,
+      "mass_a_solar": 0.2228,
+      "mass_b_solar": 0.0906,
+      "mass_b_note": "94.8 Jupiter masses, near hydrogen-burning limit",
+      "mass_ratio_b_over_a": 0.4067,
+      "longitude_node_deg": 210.385,
+      "arg_periastron_deg": 220.898,
+      "note": "No confirmed planets. B is an ultracool dwarf (M8V), nearly a brown dwarf.",
+      "source": "Gatewood 2003; Feng et al. 2022"
+    },
+    "gliese_412": {
+      "system": "Gliese 412 (GJ 412)",
+      "primary": "Gliese 412 A (LHS 38)",
+      "secondary": "Gliese 412 B (WX Ursae Majoris, LHS 39)",
+      "semi_major_axis_au": 190,
+      "semi_major_axis_au_note": "Wide pair; projected separation ~31 arcsec at ~4.83 pc",
+      "period_years_estimate": "~2700",
+      "period_years_note": "Very uncertain; derived from projected separation",
+      "eccentricity": null,
+      "eccentricity_note": "Not well determined due to very long period",
+      "mass_a_solar": 0.39,
+      "mass_b_solar": 0.10,
+      "mass_ratio_b_over_a": 0.256,
+      "note": "Wide visual binary. B is a flare star (UV Ceti type). No confirmed planets. Distance ~15.8 ly.",
+      "source": "Gliese & Jahreiß 1991; Mann et al. 2015"
+    }
+  },
+
+  "debris_disks_and_asteroid_belts": {
+    "epsilon_eridani": {
+      "system": "Epsilon Eridani",
+      "distance_ly": 10.475,
+      "spectral_type": "K2V",
+      "age_myr": "400-800",
+      "inner_asteroid_belt": {
+        "location_au_inner": 1.5,
+        "location_au_outer": 4.0,
+        "location_au_note": "Some models suggest ~3-4 AU for inner edge; warm dust emission between 1.5-4 AU. Analogous to our asteroid belt.",
+        "analog": "Solar System asteroid belt"
+      },
+      "middle_belt": {
+        "location_au_inner": 8,
+        "location_au_outer": 20,
+        "location_au_note": "Second warm dust component detected by Spitzer between ~8-20 AU",
+        "analog": "Possibly analogous to Uranus-Neptune region"
+      },
+      "outer_ring": {
+        "location_au_inner": 65,
+        "location_au_outer": 75,
+        "location_au_center": 70,
+        "inclination_deg": 33.7,
+        "inclination_uncertainty_deg": 0.5,
+        "dust_mass_lunar": 0.167,
+        "dust_mass_note": "About 1/6 the mass of the Moon",
+        "analog": "Kuiper Belt analog",
+        "imaged_by": "ALMA at 1.3mm; Spitzer; CSO"
+      },
+      "proposed_shepherding_planet": {
+        "location_au": "40-50",
+        "note": "A planet at 40-50 AU was proposed to explain clumps in the outer ring via orbital resonances, but the brightest clumps have since been identified as background sources. Existence remains debated."
+      },
+      "source": "Backman et al. 2009; Su et al. 2017; Booth et al. 2017 (ALMA)"
+    },
+    "tau_ceti": {
+      "system": "Tau Ceti",
+      "distance_ly": 11.9,
+      "has_debris_disk": true,
+      "disk_description": "Massive debris disk with ~10x the dust of our solar system. Extends from roughly 6 to 52 AU. This would make any planets in the system subject to significantly more asteroid/comet impacts than Earth.",
+      "disk_mass_note": "Estimated total mass ~1.2 Earth masses of material",
+      "inner_edge_au": 6,
+      "outer_edge_au": 52,
+      "source": "Greaves et al. 2004; Lawler et al. 2014"
+    },
+    "fomalhaut": {
+      "system": "Fomalhaut",
+      "distance_ly": 25.1,
+      "has_debris_disk": true,
+      "note": "Famous debris disk imaged by HST and JWST. Beyond 50 nearest stars but notable reference. Three rings of debris detected by JWST.",
+      "in_nearest_50": false
+    },
+    "vega": {
+      "system": "Vega",
+      "distance_ly": 25.0,
+      "has_debris_disk": true,
+      "note": "Known debris disk. Beyond 50 nearest stars for this survey.",
+      "in_nearest_50": false
+    },
+    "other_nearby_stars_with_dust": {
+      "note": "Among the 50 nearest stars, Epsilon Eridani and Tau Ceti are the only ones with well-characterized debris disks. Sirius shows marginal infrared excess possibly indicating some dust. 61 Cygni showed far-infrared excess but no resolved disk. Most nearby M dwarfs lack sufficient dust for detection."
+    }
+  },
+
+  "exoplanets": {
+    "proxima_centauri": {
+      "star": "Proxima Centauri",
+      "distance_ly": 4.244,
+      "spectral_type": "M5.5V",
+      "mass_solar": 0.1221,
+      "planets": [
+        {
+          "name": "Proxima Centauri b",
+          "status": "confirmed",
+          "period_days": 11.186,
+          "semi_major_axis_au": 0.04856,
+          "eccentricity": 0.02,
+          "mass_earth": 1.07,
+          "mass_note": "m*sin(i) minimum mass",
+          "radius_earth": null,
+          "radius_note": "Not measured (does not transit from our vantage point)",
+          "planet_type": "Rocky / Earth-like",
+          "habitable_zone": true,
+          "discovery_year": 2016,
+          "source": "Anglada-Escudé et al. 2016"
+        },
+        {
+          "name": "Proxima Centauri c",
+          "status": "disputed",
+          "period_days": 1928,
+          "semi_major_axis_au": 1.489,
+          "eccentricity": 0.04,
+          "mass_earth": 7.0,
+          "mass_note": "~7 Earth masses; existence disputed",
+          "radius_earth": null,
+          "planet_type": "Super-Earth or Mini-Neptune",
+          "habitable_zone": false,
+          "discovery_year": 2020,
+          "source": "Damasso et al. 2020"
+        },
+        {
+          "name": "Proxima Centauri d",
+          "status": "confirmed",
+          "period_days": 5.122,
+          "semi_major_axis_au": 0.02885,
+          "eccentricity": 0.04,
+          "mass_earth": 0.26,
+          "mass_note": "m*sin(i); sub-Earth mass",
+          "radius_earth": null,
+          "planet_type": "Sub-Earth",
+          "habitable_zone": false,
+          "discovery_year": 2022,
+          "source": "Faria et al. 2022"
+        }
+      ]
+    },
+    "epsilon_eridani": {
+      "star": "Epsilon Eridani",
+      "distance_ly": 10.475,
+      "spectral_type": "K2V",
+      "mass_solar": 0.82,
+      "planets": [
+        {
+          "name": "Epsilon Eridani b (AEgir)",
+          "status": "confirmed",
+          "period_days": 2678,
+          "period_years": 7.33,
+          "semi_major_axis_au": 3.53,
+          "eccentricity": 0.06,
+          "eccentricity_note": "+0.06/-0.04; near-circular",
+          "mass_jupiter": 1.00,
+          "mass_jupiter_uncertainty": "±0.10",
+          "mass_earth": 318,
+          "radius_earth": null,
+          "inclination_deg": 40,
+          "planet_type": "Gas Giant (Jupiter analog)",
+          "habitable_zone": false,
+          "discovery_year": 2000,
+          "iau_name": "AEgir",
+          "source": "Thompson et al. 2025 (revised); Hatzes et al. 2000 (discovery)"
+        }
+      ],
+      "note": "Only one confirmed planet. JWST rules out anything more massive than Saturn beyond 16 AU. A second planet proposed at 30-35 AU based on debris disk structure has not been confirmed."
+    },
+    "tau_ceti": {
+      "star": "Tau Ceti",
+      "distance_ly": 11.9,
+      "spectral_type": "G8.5V",
+      "mass_solar": 0.783,
+      "planets": [
+        {
+          "name": "Tau Ceti e",
+          "status": "candidate",
+          "period_days": 162.87,
+          "semi_major_axis_au": 0.538,
+          "eccentricity": 0.18,
+          "mass_earth": 3.93,
+          "mass_note": "m*sin(i); status debated",
+          "planet_type": "Super-Earth",
+          "habitable_zone": true,
+          "habitable_zone_note": "Near inner edge of optimistic HZ",
+          "source": "Feng et al. 2017"
+        },
+        {
+          "name": "Tau Ceti f",
+          "status": "candidate",
+          "period_days": 636.13,
+          "semi_major_axis_au": 1.334,
+          "eccentricity": 0.16,
+          "mass_earth": 3.93,
+          "mass_note": "m*sin(i); status debated",
+          "planet_type": "Super-Earth",
+          "habitable_zone": true,
+          "source": "Feng et al. 2017"
+        },
+        {
+          "name": "Tau Ceti g",
+          "status": "candidate",
+          "period_days": 20.00,
+          "semi_major_axis_au": 0.133,
+          "eccentricity": 0.06,
+          "mass_earth": 1.75,
+          "mass_note": "m*sin(i)",
+          "planet_type": "Super-Earth",
+          "habitable_zone": false,
+          "source": "Feng et al. 2017"
+        },
+        {
+          "name": "Tau Ceti h",
+          "status": "candidate",
+          "period_days": 49.41,
+          "semi_major_axis_au": 0.243,
+          "eccentricity": 0.23,
+          "mass_earth": 1.83,
+          "mass_note": "m*sin(i)",
+          "planet_type": "Super-Earth",
+          "habitable_zone": false,
+          "source": "Feng et al. 2017"
+        }
+      ],
+      "note": "All 4 candidates from Feng et al. 2017. Earlier claimed planets b and c (Tuomi 2012) are generally considered spurious. All candidates remain unconfirmed and debated. The star's massive debris disk would make habitability challenging."
+    },
+    "gliese_876": {
+      "star": "Gliese 876 (Ross 780)",
+      "distance_ly": 15.2,
+      "spectral_type": "M3.5V",
+      "mass_solar": 0.37,
+      "planets": [
+        {
+          "name": "Gliese 876 d",
+          "status": "confirmed",
+          "period_days": 1.938,
+          "semi_major_axis_au": 0.02081,
+          "eccentricity": 0.207,
+          "mass_earth": 6.83,
+          "planet_type": "Super-Earth (hot)",
+          "habitable_zone": false,
+          "discovery_year": 2005,
+          "source": "Rivera et al. 2005"
+        },
+        {
+          "name": "Gliese 876 c",
+          "status": "confirmed",
+          "period_days": 30.08,
+          "semi_major_axis_au": 0.1303,
+          "eccentricity": 0.2559,
+          "mass_jupiter": 0.7142,
+          "mass_earth": 227,
+          "planet_type": "Gas Giant",
+          "habitable_zone": false,
+          "discovery_year": 2001,
+          "note": "In 2:1 mean-motion resonance with planet b",
+          "source": "Marcy et al. 2001"
+        },
+        {
+          "name": "Gliese 876 b",
+          "status": "confirmed",
+          "period_days": 61.12,
+          "semi_major_axis_au": 0.2083,
+          "eccentricity": 0.0324,
+          "mass_jupiter": 2.2756,
+          "mass_earth": 723,
+          "planet_type": "Gas Giant",
+          "habitable_zone": false,
+          "discovery_year": 1998,
+          "note": "First planet discovered in system",
+          "source": "Marcy et al. 1998; Delfosse et al. 1998"
+        },
+        {
+          "name": "Gliese 876 e",
+          "status": "confirmed",
+          "period_days": 124.26,
+          "semi_major_axis_au": 0.3343,
+          "eccentricity": 0.055,
+          "mass_earth": 14.6,
+          "planet_type": "Neptune-mass",
+          "habitable_zone": false,
+          "discovery_year": 2010,
+          "note": "In Laplace resonance with b and c (1:2:4)",
+          "source": "Rivera et al. 2010"
+        }
+      ]
+    },
+    "wolf_1061": {
+      "star": "Wolf 1061 (GJ 628)",
+      "distance_ly": 14.1,
+      "spectral_type": "M3V",
+      "mass_solar": 0.294,
+      "planets": [
+        {
+          "name": "Wolf 1061 b",
+          "status": "confirmed",
+          "period_days": 4.888,
+          "semi_major_axis_au": 0.0375,
+          "eccentricity": 0.15,
+          "mass_earth": 1.91,
+          "mass_note": "m*sin(i)",
+          "planet_type": "Super-Earth (hot)",
+          "habitable_zone": false,
+          "discovery_year": 2015,
+          "source": "Wright et al. 2016"
+        },
+        {
+          "name": "Wolf 1061 c",
+          "status": "confirmed",
+          "period_days": 17.867,
+          "semi_major_axis_au": 0.0890,
+          "eccentricity": 0.11,
+          "mass_earth": 3.41,
+          "mass_note": "m*sin(i)",
+          "planet_type": "Super-Earth",
+          "habitable_zone": true,
+          "habitable_zone_note": "Near inner edge of HZ",
+          "discovery_year": 2015,
+          "source": "Wright et al. 2016"
+        },
+        {
+          "name": "Wolf 1061 d",
+          "status": "confirmed",
+          "period_days": 67.274,
+          "semi_major_axis_au": 0.2039,
+          "eccentricity": 0.02,
+          "mass_earth": 7.70,
+          "mass_note": "m*sin(i)",
+          "planet_type": "Super-Earth / Mini-Neptune",
+          "habitable_zone": false,
+          "discovery_year": 2015,
+          "source": "Wright et al. 2016"
+        }
+      ]
+    },
+    "gj_1002": {
+      "star": "GJ 1002",
+      "distance_ly": 15.8,
+      "spectral_type": "M5.5V",
+      "mass_solar": 0.12,
+      "planets": [
+        {
+          "name": "GJ 1002 b",
+          "status": "confirmed",
+          "period_days": 10.35,
+          "semi_major_axis_au": 0.0457,
+          "eccentricity": 0.07,
+          "mass_earth": 1.08,
+          "mass_note": "m*sin(i)",
+          "planet_type": "Earth-mass",
+          "habitable_zone": true,
+          "discovery_year": 2022,
+          "source": "Suárez Mascareño et al. 2023"
+        },
+        {
+          "name": "GJ 1002 c",
+          "status": "confirmed",
+          "period_days": 20.20,
+          "semi_major_axis_au": 0.0738,
+          "eccentricity": 0.05,
+          "mass_earth": 1.36,
+          "mass_note": "m*sin(i)",
+          "planet_type": "Earth-mass",
+          "habitable_zone": true,
+          "discovery_year": 2022,
+          "source": "Suárez Mascareño et al. 2023"
+        }
+      ]
+    },
+    "gj_1061": {
+      "star": "GJ 1061",
+      "distance_ly": 11.98,
+      "spectral_type": "M5.5V",
+      "mass_solar": 0.12,
+      "planets": [
+        {
+          "name": "GJ 1061 b",
+          "status": "candidate",
+          "period_days": 3.204,
+          "semi_major_axis_au": 0.021,
+          "eccentricity": 0.31,
+          "mass_earth": 1.38,
+          "mass_note": "m*sin(i)",
+          "planet_type": "Super-Earth (hot)",
+          "habitable_zone": false,
+          "source": "Dreizler et al. 2020"
+        },
+        {
+          "name": "GJ 1061 c",
+          "status": "candidate",
+          "period_days": 6.689,
+          "semi_major_axis_au": 0.035,
+          "eccentricity": 0.29,
+          "mass_earth": 1.74,
+          "mass_note": "m*sin(i)",
+          "planet_type": "Super-Earth",
+          "habitable_zone": false,
+          "source": "Dreizler et al. 2020"
+        },
+        {
+          "name": "GJ 1061 d",
+          "status": "candidate",
+          "period_days": 13.031,
+          "semi_major_axis_au": 0.054,
+          "eccentricity": 0.53,
+          "mass_earth": 1.64,
+          "mass_note": "m*sin(i)",
+          "planet_type": "Super-Earth",
+          "habitable_zone": true,
+          "habitable_zone_note": "Within optimistic HZ",
+          "source": "Dreizler et al. 2020"
+        }
+      ],
+      "note": "All three are candidates from a single study. Require independent confirmation."
+    },
+    "ross_128": {
+      "star": "Ross 128 (GJ 447)",
+      "distance_ly": 11.01,
+      "spectral_type": "M4V",
+      "mass_solar": 0.168,
+      "planets": [
+        {
+          "name": "Ross 128 b",
+          "status": "confirmed",
+          "period_days": 9.8656,
+          "semi_major_axis_au": 0.0496,
+          "eccentricity": 0.036,
+          "mass_earth": 1.40,
+          "mass_note": "m*sin(i)",
+          "radius_earth": null,
+          "planet_type": "Earth-mass",
+          "habitable_zone": true,
+          "habitable_zone_note": "In the temperate zone; receives ~1.38x Earth's insolation",
+          "discovery_year": 2017,
+          "source": "Bonfils et al. 2018"
+        }
+      ]
+    },
+    "teegardens_star": {
+      "star": "Teegarden's Star (GJ 1243)",
+      "distance_ly": 12.5,
+      "spectral_type": "M7V",
+      "mass_solar": 0.089,
+      "planets": [
+        {
+          "name": "Teegarden's Star b",
+          "status": "confirmed",
+          "period_days": 4.91,
+          "semi_major_axis_au": 0.0252,
+          "eccentricity": 0.00,
+          "mass_earth": 1.05,
+          "mass_note": "m*sin(i)",
+          "planet_type": "Earth-mass",
+          "habitable_zone": true,
+          "habitable_zone_note": "Receives similar insolation to Earth",
+          "discovery_year": 2019,
+          "source": "Zechmeister et al. 2019"
+        },
+        {
+          "name": "Teegarden's Star c",
+          "status": "confirmed",
+          "period_days": 11.409,
+          "semi_major_axis_au": 0.0443,
+          "eccentricity": 0.00,
+          "mass_earth": 1.11,
+          "mass_note": "m*sin(i)",
+          "planet_type": "Earth-mass",
+          "habitable_zone": true,
+          "habitable_zone_note": "Near outer edge of HZ; receives Mars-like insolation",
+          "discovery_year": 2019,
+          "source": "Zechmeister et al. 2019"
+        }
+      ]
+    },
+    "yz_ceti": {
+      "star": "YZ Ceti (GJ 54.1)",
+      "distance_ly": 12.1,
+      "spectral_type": "M4.5V",
+      "mass_solar": 0.13,
+      "planets": [
+        {
+          "name": "YZ Ceti b",
+          "status": "confirmed",
+          "period_days": 2.021,
+          "semi_major_axis_au": 0.01634,
+          "eccentricity": 0.06,
+          "mass_earth": 0.75,
+          "mass_note": "m*sin(i)",
+          "planet_type": "Sub-Earth (hot)",
+          "habitable_zone": false,
+          "discovery_year": 2017,
+          "source": "Astudillo-Defru et al. 2017; Stock et al. 2020"
+        },
+        {
+          "name": "YZ Ceti c",
+          "status": "confirmed",
+          "period_days": 3.060,
+          "semi_major_axis_au": 0.02156,
+          "eccentricity": 0.04,
+          "mass_earth": 1.14,
+          "mass_note": "m*sin(i)",
+          "planet_type": "Earth-mass (hot)",
+          "habitable_zone": false,
+          "discovery_year": 2017,
+          "source": "Astudillo-Defru et al. 2017; Stock et al. 2020"
+        },
+        {
+          "name": "YZ Ceti d",
+          "status": "confirmed",
+          "period_days": 4.656,
+          "semi_major_axis_au": 0.02851,
+          "eccentricity": 0.13,
+          "mass_earth": 1.09,
+          "mass_note": "m*sin(i)",
+          "planet_type": "Earth-mass (hot)",
+          "habitable_zone": false,
+          "discovery_year": 2017,
+          "note": "Radio observations suggest star-planet magnetic interaction; possible first detection of exoplanet magnetosphere",
+          "source": "Astudillo-Defru et al. 2017; Stock et al. 2020"
+        }
+      ]
+    },
+    "luytens_star": {
+      "star": "Luyten's Star (GJ 273)",
+      "distance_ly": 12.37,
+      "spectral_type": "M3.5V",
+      "mass_solar": 0.29,
+      "planets": [
+        {
+          "name": "GJ 273 b",
+          "status": "confirmed",
+          "period_days": 18.650,
+          "semi_major_axis_au": 0.0911,
+          "eccentricity": 0.10,
+          "mass_earth": 2.89,
+          "mass_note": "m*sin(i)",
+          "planet_type": "Super-Earth",
+          "habitable_zone": true,
+          "discovery_year": 2017,
+          "source": "Astudillo-Defru et al. 2017"
+        },
+        {
+          "name": "GJ 273 c",
+          "status": "confirmed",
+          "period_days": 4.723,
+          "semi_major_axis_au": 0.0367,
+          "eccentricity": 0.17,
+          "mass_earth": 1.18,
+          "mass_note": "m*sin(i)",
+          "planet_type": "Earth-mass (hot)",
+          "habitable_zone": false,
+          "discovery_year": 2017,
+          "source": "Astudillo-Defru et al. 2017"
+        }
+      ],
+      "note": "Two confirmed planets. Earlier claims of additional candidates (d and e from Tuomi et al.) are generally not confirmed."
+    },
+    "groombridge_34": {
+      "star": "Groombridge 34 A (GJ 15 A)",
+      "distance_ly": 11.62,
+      "spectral_type": "M1.4V",
+      "mass_solar": 0.393,
+      "planets": [
+        {
+          "name": "Groombridge 34 Ab (GJ 15 Ab)",
+          "status": "confirmed",
+          "period_days": 11.4407,
+          "semi_major_axis_au": 0.072,
+          "eccentricity": 0.094,
+          "mass_earth": 3.03,
+          "mass_note": "m*sin(i); +0.46/-0.44",
+          "planet_type": "Super-Earth",
+          "habitable_zone": false,
+          "discovery_year": 2014,
+          "source": "Howard et al. 2014; Pinamonti et al. 2018"
+        },
+        {
+          "name": "Groombridge 34 Ac (GJ 15 Ac)",
+          "status": "confirmed",
+          "period_days": 7600,
+          "period_days_note": "~20.8 years",
+          "semi_major_axis_au": 5.4,
+          "eccentricity": 0.27,
+          "mass_earth": 36,
+          "mass_note": "m*sin(i); +25/-18; Neptune-mass",
+          "planet_type": "Neptune-mass (cold)",
+          "habitable_zone": false,
+          "discovery_year": 2018,
+          "note": "Longest-period Neptune-mass exoplanet known at time of discovery",
+          "source": "Pinamonti et al. 2018"
+        }
+      ]
+    },
+    "struve_2398": {
+      "star_a": "Struve 2398 A (GJ 725 A)",
+      "star_b": "Struve 2398 B (GJ 725 B)",
+      "distance_ly": 11.49,
+      "planets_a": [
+        {
+          "name": "GJ 725 A b",
+          "status": "confirmed",
+          "period_days": 11.2201,
+          "semi_major_axis_au": 0.068,
+          "eccentricity": null,
+          "eccentricity_note": "Not constrained",
+          "mass_earth": 2.78,
+          "mass_note": "m*sin(i); ±0.35",
+          "planet_type": "Super-Earth",
+          "habitable_zone": false,
+          "discovery_year": 2024,
+          "source": "Cortés-Zuleta et al. 2025"
+        }
+      ],
+      "planets_b": [
+        {
+          "name": "GJ 725 B b",
+          "status": "candidate",
+          "period_days": 4.765,
+          "semi_major_axis_au": 0.035,
+          "eccentricity": null,
+          "mass_earth": 1.5,
+          "mass_note": "m*sin(i); ±0.4; unconfirmed",
+          "planet_type": "Super-Earth (hot)",
+          "habitable_zone": false,
+          "discovery_year": 2025,
+          "source": "Ould-Elhkim et al. 2026"
+        },
+        {
+          "name": "GJ 725 B c",
+          "status": "confirmed",
+          "period_days": 37.90,
+          "semi_major_axis_au": 0.139,
+          "eccentricity": null,
+          "mass_earth": 3.4,
+          "mass_note": "m*sin(i); ±0.7",
+          "planet_type": "Super-Earth",
+          "habitable_zone": true,
+          "habitable_zone_note": "Within the habitable zone of the star",
+          "discovery_year": 2025,
+          "source": "Ould-Elhkim et al. 2026"
+        }
+      ],
+      "note": "Rare system where BOTH stars in a binary host planets."
+    },
+    "gliese_687": {
+      "star": "Gliese 687",
+      "distance_ly": 14.8,
+      "spectral_type": "M3V",
+      "mass_solar": 0.413,
+      "planets": [
+        {
+          "name": "Gliese 687 b",
+          "status": "confirmed",
+          "period_days": 38.14,
+          "semi_major_axis_au": 0.1634,
+          "eccentricity": 0.04,
+          "mass_earth": 17.2,
+          "mass_note": "m*sin(i); Neptune-mass",
+          "planet_type": "Neptune-mass",
+          "habitable_zone": false,
+          "discovery_year": 2014,
+          "source": "Burt et al. 2014"
+        }
+      ],
+      "note": "One confirmed Neptune-mass planet. A candidate second planet at ~730 days proposed but disputed."
+    },
+    "gliese_674": {
+      "star": "Gliese 674",
+      "distance_ly": 14.8,
+      "spectral_type": "M2.5V",
+      "mass_solar": 0.35,
+      "planets": [
+        {
+          "name": "Gliese 674 b",
+          "status": "confirmed",
+          "period_days": 4.694,
+          "semi_major_axis_au": 0.039,
+          "eccentricity": 0.20,
+          "mass_earth": 11.09,
+          "mass_note": "m*sin(i)",
+          "planet_type": "Super-Earth / Mini-Neptune",
+          "habitable_zone": false,
+          "discovery_year": 2007,
+          "source": "Bonfils et al. 2007"
+        }
+      ]
+    },
+    "kapteyns_star": {
+      "star": "Kapteyn's Star (GJ 191)",
+      "distance_ly": 12.78,
+      "spectral_type": "M1V",
+      "mass_solar": 0.281,
+      "planets": [
+        {
+          "name": "Kapteyn b",
+          "status": "disputed",
+          "period_days": 48.616,
+          "semi_major_axis_au": 0.168,
+          "eccentricity": 0.21,
+          "mass_earth": 4.8,
+          "mass_note": "m*sin(i); signal likely due to stellar activity",
+          "planet_type": "Super-Earth",
+          "habitable_zone": true,
+          "discovery_year": 2014,
+          "source": "Anglada-Escudé et al. 2014; Robertson 2015 disputes"
+        },
+        {
+          "name": "Kapteyn c",
+          "status": "disputed",
+          "period_days": 121.54,
+          "semi_major_axis_au": 0.311,
+          "eccentricity": 0.23,
+          "mass_earth": 7.0,
+          "mass_note": "m*sin(i); signal likely due to stellar activity",
+          "planet_type": "Super-Earth",
+          "habitable_zone": false,
+          "discovery_year": 2014,
+          "source": "Anglada-Escudé et al. 2014; Robertson 2015 disputes"
+        }
+      ],
+      "note": "Both candidates are disputed. Robertson (2015) argued the signals are stellar activity aliases of the star's rotation period. Most recent analyses do not support the planets' existence."
+    },
+    "lacaille_9352": {
+      "star": "Lacaille 9352 (GJ 887)",
+      "distance_ly": 10.74,
+      "spectral_type": "M2V",
+      "mass_solar": 0.489,
+      "planets": [
+        {
+          "name": "GJ 887 b",
+          "status": "confirmed",
+          "period_days": 9.262,
+          "semi_major_axis_au": 0.0680,
+          "eccentricity": 0.06,
+          "mass_earth": 4.2,
+          "mass_note": "m*sin(i)",
+          "planet_type": "Super-Earth",
+          "habitable_zone": false,
+          "discovery_year": 2020,
+          "source": "Jeffers et al. 2020"
+        },
+        {
+          "name": "GJ 887 c",
+          "status": "confirmed",
+          "period_days": 21.79,
+          "semi_major_axis_au": 0.120,
+          "eccentricity": 0.08,
+          "mass_earth": 7.6,
+          "mass_note": "m*sin(i)",
+          "planet_type": "Super-Earth / Mini-Neptune",
+          "habitable_zone": false,
+          "habitable_zone_note": "Just inside inner edge of HZ",
+          "discovery_year": 2020,
+          "source": "Jeffers et al. 2020"
+        }
+      ],
+      "note": "Two confirmed super-Earths. A candidate third signal at ~50 days also reported but unconfirmed."
+    },
+    "groombridge_1618": {
+      "star": "Groombridge 1618 (GJ 380)",
+      "distance_ly": 15.9,
+      "spectral_type": "K7V",
+      "mass_solar": 0.67,
+      "planets": [
+        {
+          "name": "Groombridge 1618 b",
+          "status": "candidate",
+          "period_days": 122,
+          "period_days_note": "Approximate",
+          "semi_major_axis_au": 0.41,
+          "eccentricity": null,
+          "mass_jupiter": 4,
+          "mass_note": "Very uncertain; old astrometric claim not confirmed by modern RV surveys",
+          "planet_type": "Gas Giant (if real)",
+          "habitable_zone": false,
+          "discovery_year": 1990,
+          "source": "Historical claim; not confirmed"
+        }
+      ],
+      "note": "Only a historical unconfirmed candidate from astrometric perturbations. Modern radial velocity surveys have not confirmed any planets."
+    },
+    "luyten_726_8": {
+      "star": "Gliese 65 (Luyten 726-8 / UV Ceti)",
+      "distance_ly": 8.77,
+      "planets": [
+        {
+          "name": "GJ 65 b",
+          "status": "candidate",
+          "period_days": 156,
+          "semi_major_axis_au": 0.283,
+          "eccentricity": 0.33,
+          "mass_earth": 39,
+          "mass_note": "m*sin(i); ±7; super-Neptune; detected by VLTI/GRAVITY astrometry",
+          "radius_earth": 7,
+          "radius_note": "Estimated from mass-radius relationship",
+          "planet_type": "Super-Neptune",
+          "habitable_zone": false,
+          "discovery_year": 2024,
+          "note": "Unclear which star (A or B) it orbits. Parameters vary slightly depending on host.",
+          "source": "GRAVITY Collaboration 2024"
+        }
+      ]
+    },
+    "alpha_centauri_a": {
+      "star": "Alpha Centauri A",
+      "distance_ly": 4.344,
+      "planets": [
+        {
+          "name": "Alpha Centauri Ab",
+          "status": "candidate",
+          "period_years": "2-3",
+          "semi_major_axis_au": 2.0,
+          "eccentricity": 0.4,
+          "mass_earth": "90-150",
+          "mass_note": "Direct imaging candidate; if real, would be a warm Neptune/sub-Saturn",
+          "radius_jupiter": "1.0-1.1",
+          "planet_type": "Giant (warm Neptune/sub-Saturn if confirmed)",
+          "habitable_zone": false,
+          "discovery_year": 2025,
+          "source": "Sanghi et al. 2025 (JWST MIRI direct imaging candidate)"
+        }
+      ]
+    }
+  },
+
+  "summary_table": {
+    "confirmed_exoplanet_systems_within_16ly": [
+      {"system": "Proxima Centauri", "distance_ly": 4.24, "confirmed_planets": 2, "candidates": 1},
+      {"system": "Epsilon Eridani", "distance_ly": 10.48, "confirmed_planets": 1, "candidates": 0},
+      {"system": "Lacaille 9352 (GJ 887)", "distance_ly": 10.74, "confirmed_planets": 2, "candidates": 0},
+      {"system": "Ross 128", "distance_ly": 11.01, "confirmed_planets": 1, "candidates": 0},
+      {"system": "Luyten's Star (GJ 273)", "distance_ly": 12.37, "confirmed_planets": 2, "candidates": 0},
+      {"system": "Groombridge 34 A (GJ 15 A)", "distance_ly": 11.62, "confirmed_planets": 2, "candidates": 0},
+      {"system": "Struve 2398 A (GJ 725 A)", "distance_ly": 11.49, "confirmed_planets": 1, "candidates": 0},
+      {"system": "Struve 2398 B (GJ 725 B)", "distance_ly": 11.49, "confirmed_planets": 1, "candidates": 1},
+      {"system": "YZ Ceti", "distance_ly": 12.1, "confirmed_planets": 3, "candidates": 0},
+      {"system": "Teegarden's Star", "distance_ly": 12.5, "confirmed_planets": 2, "candidates": 0},
+      {"system": "Wolf 1061", "distance_ly": 14.1, "confirmed_planets": 3, "candidates": 0},
+      {"system": "Gliese 674", "distance_ly": 14.8, "confirmed_planets": 1, "candidates": 0},
+      {"system": "Gliese 687", "distance_ly": 14.8, "confirmed_planets": 1, "candidates": 0},
+      {"system": "Gliese 876", "distance_ly": 15.2, "confirmed_planets": 4, "candidates": 0},
+      {"system": "GJ 1002", "distance_ly": 15.8, "confirmed_planets": 2, "candidates": 0}
+    ],
+    "candidate_only_systems": [
+      {"system": "Tau Ceti", "distance_ly": 11.9, "candidates": 4, "note": "All candidates disputed"},
+      {"system": "GJ 1061", "distance_ly": 11.98, "candidates": 3},
+      {"system": "Kapteyn's Star", "distance_ly": 12.78, "candidates": 2, "note": "Likely spurious (stellar activity)"},
+      {"system": "Luyten 726-8 (UV Ceti)", "distance_ly": 8.77, "candidates": 1},
+      {"system": "Alpha Centauri A", "distance_ly": 4.34, "candidates": 1},
+      {"system": "Groombridge 1618", "distance_ly": 15.9, "candidates": 1, "note": "Historical unconfirmed astrometric claim"}
+    ],
+    "systems_with_debris_disks": [
+      {"system": "Epsilon Eridani", "disk_type": "Three-component: inner belt + middle belt + outer ring"},
+      {"system": "Tau Ceti", "disk_type": "Massive debris disk (10x solar system)"}
+    ]
+  }
+}

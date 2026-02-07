@@ -12,11 +12,12 @@ use bevy::prelude::*;
 
 pub mod components;
 pub mod ephemeris;
+pub mod nearby_stars;
 pub mod systems;
 
 pub use components::{
     AtmosphereComposition, AtmosphericGas, CometTail, Destroyed, FloatingOrigin, Hovered, KeplerOrbit,
-    LocalOrbitAmplification, OrbitPath, Selected, SpaceCoordinates,
+    LocalOrbitAmplification, OrbitCenter, OrbitPath, Selected, SpaceCoordinates,
 };
 pub use ephemeris::{calculate_position_for_body, calculate_positions_at_timestamp};
 pub use systems::{
@@ -33,7 +34,8 @@ pub struct AstronomyPlugin;
 
 impl Plugin for AstronomyPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
+        app.add_plugins(nearby_stars::NearbyStarsPlugin)
+            .add_systems(
             Update,
             (
                 // Core orbital mechanics
@@ -59,9 +61,9 @@ impl Plugin for AstronomyPlugin {
                 update_body_lod_visibility,
                 // Rendering
                 draw_orbit_paths.after(update_orbit_visibility),
-                // Comet tail meshes
-                manage_comet_tail_meshes.after(propagate_orbits),
-                update_tail_transforms.after(manage_comet_tail_meshes),
+                // Comet tail meshes - Disabled in favor of particle-based CometVfxPlugin
+                // manage_comet_tail_meshes.after(propagate_orbits),
+                // update_tail_transforms.after(manage_comet_tail_meshes),
             ),
         );
     }

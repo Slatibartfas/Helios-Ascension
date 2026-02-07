@@ -4,7 +4,7 @@ use bevy::window::PrimaryWindow;
 
 use super::components::{
     CometTail, Destroyed, HoverMarker, Hovered, KeplerOrbit, LocalOrbitAmplification, MarkerDot,
-    MarkerOwner, OrbitPath, Selected, SelectionMarker, SpaceCoordinates,
+    MarkerOwner, OrbitCenter, OrbitPath, Selected, SelectionMarker, SpaceCoordinates,
 };
 use crate::plugins::solar_system::{CelestialBody, Comet, LogicalParent, Moon, Planet, Star, RADIUS_SCALE};
 use crate::plugins::camera::{CameraAnchor, GameCamera, OrbitCamera, ViewMode};
@@ -180,19 +180,40 @@ fn mean_anomaly_to_true_anomaly(mean_anomaly: f64, eccentricity: f64) -> f64 {
 /// System that propagates all orbits based on Keplerian mechanics
 /// Updates SpaceCoordinates based on KeplerOrbit elements and elapsed time
 /// Uses SimulationTime to allow time scaling via UI controls
+///
+/// If an entity has an [`OrbitCenter`] component, its orbital position is
+/// computed relative to that parent entity's current [`SpaceCoordinates`].
+/// Without it, the orbit is relative to the universe origin (0,0,0), which
+/// is correct for Sol-system bodies orbiting the Sun.
 pub fn propagate_orbits(
     sim_time: Res<SimulationTime>,
-    mut query: Query<(&KeplerOrbit, &mut SpaceCoordinates)>,
+    mut query: Query<(&KeplerOrbit, &mut SpaceCoordinates, Option<&OrbitCenter>)>,
+    center_query: Query<&SpaceCoordinates, Without<KeplerOrbit>>,
+    // Second query for centers that also have orbits (binary stars)
+    center_orbiting_query: Query<&SpaceCoordinates>,
 ) {
     // Get elapsed simulation time in seconds
     let elapsed_time = sim_time.elapsed_seconds();
 
-    for (orbit, mut coords) in query.iter_mut() {
+    for (orbit, mut coords, orbit_center) in query.iter_mut() {
         // Calculate current mean anomaly: M = M₀ + n*t
         let mean_anomaly = orbit.mean_anomaly_epoch + orbit.mean_motion * elapsed_time;
 
+        // Compute orbital position relative to center
+        let orbit_pos = orbit_position_from_mean_anomaly(orbit, mean_anomaly);
+
+        // Add parent position if an OrbitCenter is specified
+        let parent_pos = orbit_center
+            .and_then(|oc| {
+                // Try non-orbiting centers first (static stars), then orbiting ones (binary stars)
+                center_query.get(oc.0).ok()
+                    .or_else(|| center_orbiting_query.get(oc.0).ok())
+            })
+            .map(|sc| sc.position)
+            .unwrap_or(DVec3::ZERO);
+
         // Update space coordinates (in AU)
-        coords.position = orbit_position_from_mean_anomaly(orbit, mean_anomaly);
+        coords.position = parent_pos + orbit_pos;
     }
 }
 
