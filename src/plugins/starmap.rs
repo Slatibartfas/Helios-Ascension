@@ -28,6 +28,14 @@ use std::f64::consts::PI;
 const STAR_RADIUS_SCALE: f32 = 0.00015;
 const MIN_VISUAL_RADIUS: f32 = 5.0;
 
+/// Default bounding radius for systems without calculated data (in AU).
+/// Used for Sol system and as fallback. Sol extends to ~355 AU (Comet NEOWISE).
+const DEFAULT_BOUNDING_RADIUS_AU: f64 = 400.0;
+
+/// Default bounding radius for procedurally generated systems (in AU).
+/// Most exoplanet systems have planets within ~10 AU; use conservative estimate.
+const FALLBACK_BOUNDING_RADIUS_AU: f64 = 50.0;
+
 /// Resource storing metadata about each star system, primarily their bounding radius.
 /// This is used to calculate dynamic zoom thresholds.
 #[derive(Resource, Default)]
@@ -42,7 +50,7 @@ impl SystemMetadata {
     }
     
     pub fn get_bounding_radius(&self, system_id: usize) -> f64 {
-        self.bounding_radii.get(&system_id).copied().unwrap_or(400.0)
+        self.bounding_radii.get(&system_id).copied().unwrap_or(DEFAULT_BOUNDING_RADIUS_AU)
     }
 }
 
@@ -170,7 +178,7 @@ fn setup_starmap(
     mut system_metadata: ResMut<SystemMetadata>,
 ) {
     // Initialize Sol's bounding radius
-    system_metadata.set_bounding_radius(0, 400.0);
+    system_metadata.set_bounding_radius(0, DEFAULT_BOUNDING_RADIUS_AU);
     
     // A bright glowing sphere representing the star system
     let icon_mesh = meshes.add(Sphere::new(1.0).mesh().uv(16, 8));
@@ -197,7 +205,7 @@ fn setup_starmap(
             id: 0,
             name: "Sol System".to_string(),
             position: DVec3::ZERO,
-            bounding_radius_au: 400.0, // Sol system extends to ~355 AU (comets)
+            bounding_radius_au: DEFAULT_BOUNDING_RADIUS_AU,
         },
         SolSystemIcon,
     ));
@@ -236,8 +244,8 @@ fn setup_starmap(
         // Estimate bounding radius for systems without detailed data
         // Most exoplanet systems discovered so far have planets within ~10 AU
         // Binary stars can extend much farther (hundreds to thousands of AU)
-        // Use a conservative estimate of 50 AU for unknown systems
-        let bounding_radius_au = 50.0;
+        // Use a conservative estimate for unknown systems
+        let bounding_radius_au = FALLBACK_BOUNDING_RADIUS_AU;
 
         commands.spawn((
             PbrBundle {
@@ -342,8 +350,8 @@ fn spawn_detailed_system(
     // Check planet orbits
     for star_data in &data.stars {
         for planet in &star_data.planets {
-            let aphelion = planet.semi_major_axis_au * (1.0 + planet.eccentricity);
-            max_radius_au = max_radius_au.max(aphelion as f64);
+            let aphelion = (planet.semi_major_axis_au * (1.0 + planet.eccentricity)) as f64;
+            max_radius_au = max_radius_au.max(aphelion);
         }
     }
     
@@ -615,7 +623,7 @@ fn spawn_fallback_system(
     });
     
     // For fallback systems without detailed data, use default bounding radius
-    system_metadata.set_bounding_radius(sys_id, 50.0);
+    system_metadata.set_bounding_radius(sys_id, FALLBACK_BOUNDING_RADIUS_AU);
 }
 
 fn get_color_from_spectral_type(spectral: &str) -> Color {

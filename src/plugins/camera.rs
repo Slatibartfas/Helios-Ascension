@@ -15,11 +15,6 @@ pub const STARMAP_THRESHOLD_MULTIPLIER: f32 = 2.5;
 /// Minimum zoom threshold in game units to ensure reasonable behavior for very small systems.
 pub const MIN_STARMAP_THRESHOLD: f32 = 50_000.0;
 
-/// Legacy constant for reference. Now replaced by dynamic thresholds.
-/// ~233 AU worth of game units (well past Kuiper Belt for Sol).
-#[allow(dead_code)]
-pub const STARMAP_TRANSITION_THRESHOLD: f32 = 350_000.0;
-
 /// The active view mode, driven by camera zoom level.
 ///
 /// - `System` — normal solar-system view with orbits, planets, moons.
