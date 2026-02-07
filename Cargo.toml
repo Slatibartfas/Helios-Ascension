@@ -43,6 +43,7 @@ ron = "0.8"
 
 # Random number generation for visual effects
 rand = "0.8"
+bevy_hanabi = "0.12.0"
 
 [profile.dev]
 opt-level = 1

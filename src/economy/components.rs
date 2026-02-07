@@ -87,13 +87,41 @@ impl OrbitsBody {
     }
 }
 
+/// Represents the tiered reserves of a resource
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+pub struct ResourceReserve {
+    /// Accessible now, limited scale (Megatons)
+    pub proven_crustal: f64,
+    /// Mid-game, requires tech/high energy (Megatons)
+    pub deep_deposits: f64,
+    /// The 'Exaton' scale, effectively inaccessible early-game (Megatons)
+    pub planetary_bulk: f64,
+    /// 0.0 to 1.0, determines energy cost per ton extracted
+    pub concentration: f32,
+}
+
+impl ResourceReserve {
+    pub fn new(proven: f64, deep: f64, bulk: f64, concentration: f32) -> Self {
+        Self {
+            proven_crustal: proven,
+            deep_deposits: deep,
+            planetary_bulk: bulk,
+            concentration: concentration.clamp(0.0001, 1.0),
+        }
+    }
+
+    /// Total theoretical mass of the resource
+    pub fn total_mass(&self) -> f64 {
+        self.proven_crustal + self.deep_deposits + self.planetary_bulk
+    }
+}
+
 /// Represents a mineral deposit on a celestial body
 /// Contains information about the quantity and ease of extraction
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Component, Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct MineralDeposit {
-    /// Abundance of the resource (0.0 to 1.0, where 1.0 is extremely abundant)
-    /// This represents the concentration and total amount available
-    pub abundance: f64,
+    /// tiered reserve data replacing simple abundance
+    pub reserve: ResourceReserve,
     
     /// Accessibility of the resource (0.0 to 1.0, where 1.0 is easily accessible)
     /// This represents how difficult it is to extract (depth, location, processing difficulty)
@@ -102,9 +130,9 @@ pub struct MineralDeposit {
 
 impl MineralDeposit {
     /// Create a new mineral deposit
-    pub fn new(abundance: f64, accessibility: f32) -> Self {
+    pub fn new(proven: f64, deep: f64, bulk: f64, concentration: f32, accessibility: f32) -> Self {
         Self {
-            abundance: abundance.clamp(0.0, 1.0),
+            reserve: ResourceReserve::new(proven, deep, bulk, concentration),
             accessibility: accessibility.clamp(0.0, 1.0),
         }
     }
@@ -112,39 +140,53 @@ impl MineralDeposit {
     /// Create a deposit with zero resources
     pub fn none() -> Self {
         Self {
-            abundance: 0.0,
+            reserve: ResourceReserve::default(),
             accessibility: 0.0,
         }
     }
 
-    /// Calculate the effective resource value (abundance * accessibility)
-    /// This represents the practical value of the deposit
+    /// Calculate the effective resource value
     pub fn effective_value(&self) -> f64 {
-        self.abundance * self.accessibility as f64
+        // Simplified value estimation using proven reserves
+        self.reserve.proven_crustal * (self.reserve.concentration as f64) * (self.accessibility as f64)
     }
 
     /// Returns true if this deposit is economically viable (has meaningful resources)
     pub fn is_viable(&self) -> bool {
-        self.effective_value() > 0.01
+        self.reserve.proven_crustal > 0.1 || self.reserve.deep_deposits > 1.0
     }
+    
+    /// Get total mass in Megatons
+    pub fn total_megatons(&self) -> f64 {
+        self.reserve.total_mass()
+    }
+    
+    /// Calculate energy cost per ton (Energy_Cost = (Base_Cost / Concentration) * (1.0 / Accessibility))
+    pub fn energy_cost_per_ton(&self, base_cost: f64) -> f64 {
+        let conc = self.reserve.concentration.max(0.0001);
+        let access = self.accessibility.max(0.0001);
+        (base_cost / conc as f64) * (1.0 / access as f64)
+    }
+}
 
-    /// Calculate the absolute amount of resource in megatons (Mt)
-    /// 
-    /// # Arguments
-    /// * `body_mass_kg` - Mass of the celestial body in kilograms
-    /// 
-    /// # Returns
-    /// Resource amount in megatons (Mt)
-    pub fn calculate_megatons(&self, body_mass_kg: f64) -> f64 {
-        // Assume resources make up a fraction of total body mass based on abundance
-        // This is a simplified model:
-        // - abundance represents what fraction of the body is this resource
-        // - accessibility doesn't affect total amount, only extraction difficulty
-        let resource_mass_kg = body_mass_kg * self.abundance;
-        
-        // Convert kg to megatons (Mt)
-        // 1 Mt = 1,000,000,000 kg = 1e9 kg
-        resource_mass_kg / 1e9
+/// Component that tracks the survey level of a celestial body
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum SurveyLevel {
+    #[default]
+    Unsurveyed,
+    OrbitalScan,    // Reveals proven_crustal
+    SeismicSurvey,  // Reveals deep_deposits
+    CoreSample,     // Reveals planetary_bulk
+}
+
+impl SurveyLevel {
+    pub fn discovered_amount(&self, reserve: &ResourceReserve) -> f64 {
+        match self {
+            SurveyLevel::Unsurveyed => 0.0,
+            SurveyLevel::OrbitalScan => reserve.proven_crustal,
+            SurveyLevel::SeismicSurvey => reserve.proven_crustal + reserve.deep_deposits,
+            SurveyLevel::CoreSample => reserve.proven_crustal + reserve.deep_deposits + reserve.planetary_bulk,
+        }
     }
 }
 
@@ -180,10 +222,11 @@ impl PlanetResources {
     }
 
     /// Get the abundance of a specific resource (returns 0.0 if not present)
+    /// Deprecated: Use get_proven_amount instead
     pub fn get_abundance(&self, resource: &ResourceType) -> f64 {
         self.deposits
             .get(resource)
-            .map(|d| d.abundance)
+            .map(|d| d.reserve.proven_crustal) // Return proven amount for now as proxy
             .unwrap_or(0.0)
     }
 

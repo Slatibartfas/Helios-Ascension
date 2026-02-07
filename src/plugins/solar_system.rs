@@ -11,6 +11,7 @@ use crate::astronomy::{
     orbit_position_from_mean_anomaly, KeplerOrbit, LocalOrbitAmplification, OrbitPath,
     SpaceCoordinates, SCALING_FACTOR,
 };
+use crate::astronomy::components::{CurrentStarSystem, SystemId};
 use crate::plugins::camera::{CameraAnchor, GameCamera};
 use crate::ui::SimulationTime;
 
@@ -20,7 +21,7 @@ impl Plugin for SolarSystemPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup_solar_system)
             .add_systems(PostStartup, initial_camera_focus)
-            .add_systems(Update, (rotate_bodies, update_billboards))
+            .add_systems(Update, (rotate_bodies, update_billboards, update_body_visibility))
             // System to convert loaded normal/specular textures to linear formats
             .add_systems(Update, apply_linear_to_images_system);
     }
@@ -58,6 +59,35 @@ fn update_billboards(
         }
     }
 }
+/// Updates visibility of celestial bodies based on the current star system
+fn update_body_visibility(
+    current_system: Res<CurrentStarSystem>,
+    mut param_set: ParamSet<(
+        // Case 1: System Changed - update everyone
+        Query<(&mut Visibility, &SystemId), With<CelestialBody>>,
+        // Case 2: System Stable - update only new/changed bodies
+        Query<(&mut Visibility, &SystemId), (With<CelestialBody>, Changed<SystemId>)>,
+    )>,
+) {
+    if current_system.is_changed() {
+        for (mut vis, system_id) in param_set.p0().iter_mut() {
+            *vis = if system_id.0 == current_system.0 {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
+        }
+    } else {
+        for (mut vis, system_id) in param_set.p1().iter_mut() {
+            *vis = if system_id.0 == current_system.0 {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
+        }
+    }
+}
+
 
 #[derive(Component)]
 pub struct CelestialBody {

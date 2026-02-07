@@ -15,6 +15,7 @@ pub mod interaction;
 pub use interaction::Selection;
 
 use crate::astronomy::{AtmosphereComposition, Hovered, KeplerOrbit, Selected, SpaceCoordinates};
+use crate::astronomy::components::{CurrentStarSystem, SystemId};
 use crate::economy::{format_power, GlobalBudget, PlanetResources, ResourceType};
 use crate::plugins::solar_system::{CelestialBody, LogicalParent};
 use crate::plugins::solar_system_data::BodyType;
@@ -277,6 +278,7 @@ fn ui_starmap_labels(
             egui::Area::new(egui::Id::new(format!("starmap_label_{}", icon.name)))
                 .fixed_pos(label_pos)
                 .interactable(false)
+                .order(egui::Order::Background)
                 .show(ctx, |ui| {
                     let color = if is_selected.is_some() {
                         egui::Color32::from_rgb(100, 200, 255) // Bright blue for selected
@@ -556,10 +558,11 @@ fn ui_dashboard(
     sim_time: Res<SimulationTime>,
     mut selection: ResMut<Selection>,
     view_mode: Res<ViewMode>,
+    current_system: Res<CurrentStarSystem>,
     // Query for selected body information
     body_query: Query<(&CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>, Option<&PlanetResources>, Option<&AtmosphereComposition>)>,
     // Ledger queries
-    all_bodies_query: Query<(Entity, &CelestialBody, Option<&LogicalParent>, Option<&KeplerOrbit>)>,
+    all_bodies_query: Query<(Entity, &CelestialBody, Option<&LogicalParent>, Option<&KeplerOrbit>, Option<&SystemId>)>,
     selected_query: Query<Entity, With<Selected>>,
     // Starmap queries
     star_system_query: Query<(Entity, &StarSystemIcon, Option<&SelectedStarSystem>)>,
@@ -605,7 +608,13 @@ fn ui_dashboard(
                         let mut body_map: std::collections::HashMap<Entity, &CelestialBody> = std::collections::HashMap::new();
                         let mut orbit_map: std::collections::HashMap<Entity, f64> = std::collections::HashMap::new();
 
-                        for (entity, body, logical_parent, orbit) in all_bodies_query.iter() {
+                        for (entity, body, logical_parent, orbit, system_id) in all_bodies_query.iter() {
+                            // Filter by current star system
+                            let sys_id = system_id.map(|s| s.0).unwrap_or(0);
+                            if sys_id != current_system.0 {
+                                continue;
+                            }
+
                             body_map.insert(entity, body);
                             if let Some(orbit) = orbit {
                                 orbit_map.insert(entity, orbit.semi_major_axis);
@@ -870,7 +879,7 @@ fn ui_dashboard(
                                             for resource_type in &category_resources {
                                                 if let Some(deposit) = resources.get_deposit(resource_type) {
                                                     // Calculate absolute amount in megatons
-                                                    let amount_mt = deposit.calculate_megatons(body.mass);
+                                                    let amount_mt = deposit.total_megatons();
                                                     
                                                     ui.horizontal(|ui| {
                                                         ui.label(format!("  {} ({})", 
@@ -886,8 +895,8 @@ fn ui_dashboard(
                                                     
                                                     ui.horizontal(|ui| {
                                                         ui.label("    Concentration:");
-                                                        ui.add(egui::ProgressBar::new(deposit.abundance as f32)
-                                                            .text(format!("{:.1}%", deposit.abundance * 100.0)));
+                                                        ui.add(egui::ProgressBar::new(deposit.reserve.concentration)
+                                                            .text(format!("{:.1}%", deposit.reserve.concentration * 100.0)));
                                                     });
                                                     
                                                     ui.horizontal(|ui| {

@@ -17,6 +17,14 @@ pub struct FloatingOrigin {
     pub position: DVec3,
 }
 
+/// Resource tracking the currently loaded star system (0 = Sol).
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CurrentStarSystem(pub usize);
+
+/// Component identifying which star system a celestial body belongs to.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SystemId(pub usize);
+
 impl SpaceCoordinates {
     /// Create new space coordinates from a DVec3 position
     pub fn new(position: DVec3) -> Self {

@@ -262,6 +262,7 @@ pub fn draw_orbit_paths(
         &OrbitPath,
         Option<&LogicalParent>,
         Option<&LocalOrbitAmplification>,
+        Option<&Visibility>,
     )>,
     parent_coords: Query<&SpaceCoordinates>,
     floating_origin: Option<Res<crate::astronomy::components::FloatingOrigin>>,
@@ -269,9 +270,16 @@ pub fn draw_orbit_paths(
     let elapsed_time = sim_time.elapsed_seconds();
     let origin_offset = floating_origin.map(|fo| fo.position).unwrap_or(DVec3::ZERO);
 
-    for (orbit, path, logical_parent, amplification) in query.iter() {
+    for (orbit, path, logical_parent, amplification, visibility) in query.iter() {
         if !path.visible {
             continue;
+        }
+
+        // If the entity is hidden (e.g. because it's in another star system), don't draw the orbit
+        if let Some(vis) = visibility {
+            if *vis == Visibility::Hidden {
+                continue;
+            }
         }
 
         let amp = amplification.map(|a| a.0 as f64).unwrap_or(1.0);

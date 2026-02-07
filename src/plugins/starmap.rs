@@ -16,7 +16,7 @@ use bevy::math::DVec3;
 
 use super::camera::{CameraAnchor, GameCamera, OrbitCamera, ViewMode};
 use super::solar_system::{CelestialBody, Star};
-use crate::astronomy::components::FloatingOrigin;
+use crate::astronomy::components::{FloatingOrigin, CurrentStarSystem, SystemId};
 
 // Local constant for star scaling (matches solar_system.rs)
 const STAR_RADIUS_SCALE: f32 = 0.00015;
@@ -47,14 +47,6 @@ impl Plugin for StarmapPlugin {
 }
 
 // ── Components ──────────────────────────────────────────────────────────────
-
-/// Resource tracking the currently loaded star system (0 = Sol).
-#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CurrentStarSystem(pub usize);
-
-/// Component identifying which star system a celestial body belongs to.
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SystemId(pub usize);
 
 /// Marker for starmap-level star system icons.
 #[derive(Component)]
@@ -525,7 +517,8 @@ fn handle_starmap_selection(
     }
 
     // Don't process if egui is using the mouse
-    if egui_contexts.ctx_mut().wants_pointer_input() {
+    let ctx = egui_contexts.ctx_mut();
+    if ctx.is_pointer_over_area() || ctx.wants_pointer_input() || ctx.is_using_pointer() {
         return;
     }
 

@@ -60,6 +60,7 @@ pub fn generate_solar_system_resources(
         let resources = generate_resources_for_body(
             &body.name, 
             body.body_type,
+            body.mass,
             body.asteroid_class,
             distance_from_star, 
             frost_line, 
@@ -78,6 +79,7 @@ pub fn generate_solar_system_resources(
 /// # Arguments
 /// * `body_name` - Name of the celestial body (for special cases like Europa, Mars)
 /// * `body_type` - Type of the body (Planet, Moon, Asteroid, etc.)
+/// * `body_mass` - Mass of the body in kg
 /// * `asteroid_class` - Spectral class for asteroids (C, S, M, V, D, P types)
 /// * `distance_au` - Distance from parent star in AU
 /// * `frost_line_au` - Frost line distance for the parent star in AU
@@ -85,6 +87,7 @@ pub fn generate_solar_system_resources(
 fn generate_resources_for_body(
     body_name: &str,
     body_type: crate::plugins::solar_system_data::BodyType,
+    body_mass: f64,
     asteroid_class: Option<AsteroidClass>,
     distance_au: f64, 
     frost_line_au: f64, 
@@ -93,14 +96,14 @@ fn generate_resources_for_body(
     let mut resources = PlanetResources::new();
 
     // Check for special body-specific resource profiles
-    if let Some(special_resources) = apply_special_body_profile(body_name, rng) {
+    if let Some(special_resources) = apply_special_body_profile(body_name, body_mass, rng) {
         return special_resources;
     }
 
     // For asteroids with known spectral class, apply scientific resource mapping
     if matches!(body_type, crate::plugins::solar_system_data::BodyType::Asteroid) {
         if let Some(class) = asteroid_class {
-            if let Some(spectral_resources) = apply_spectral_class_profile(class, body_name, distance_au, frost_line_au, rng) {
+            if let Some(spectral_resources) = apply_spectral_class_profile(class, body_name, body_mass, distance_au, frost_line_au, rng) {
                 return spectral_resources;
             }
         }
@@ -125,6 +128,7 @@ fn generate_resources_for_body(
 
         let mut deposit = generate_resource_deposit(
             *resource_type, 
+            body_mass,
             distance_au, 
             frost_line_au, 
             is_inner, 
@@ -135,12 +139,31 @@ fn generate_resources_for_body(
         deposit = apply_asteroid_specialization(deposit, *resource_type, &asteroid_specialization);
 
         // Only add deposits that have some presence
-        if deposit.abundance > 0.0001 || deposit.accessibility > 0.001 {
+        if deposit.is_viable() {
             resources.add_deposit(*resource_type, deposit);
         }
     }
 
     resources
+}
+
+/// Helper to create a tiered deposit from legacy parameters
+fn create_deposit_legacy(abundance: f64, accessibility: f32, body_mass_kg: f64) -> MineralDeposit {
+    // 1 Mt = 1e9 kg
+    let total_mass_mt = (body_mass_kg * abundance) / 1e9;
+    
+    // Split into tiers based on accessibility
+    // High accessibility -> more proven/deep
+    let access_factor = accessibility as f64;
+    
+    let proven = total_mass_mt * (0.0001 + access_factor * 0.001); // 0.01% - 0.1% proven
+    let deep = total_mass_mt * (0.01 + access_factor * 0.05); // 1% - 6% deep
+    let bulk = total_mass_mt - proven - deep;
+    
+    // Concentration roughly matches abundance or better
+    let concentration = (abundance as f32).clamp(0.001, 1.0);
+    
+    MineralDeposit::new(proven, deep, bulk.max(0.0), concentration, accessibility)
 }
 
 /// Asteroid specialization types for concentrated resource deposits
@@ -155,74 +178,74 @@ enum AsteroidSpecialization {
 
 /// Apply special resource profiles for known celestial bodies
 /// Returns Some(resources) for special bodies, None for normal generation
-fn apply_special_body_profile(body_name: &str, rng: &mut impl Rng) -> Option<PlanetResources> {
+fn apply_special_body_profile(body_name: &str, body_mass: f64, _rng: &mut impl Rng) -> Option<PlanetResources> {
     let mut resources = PlanetResources::new();
     
     match body_name {
         // Europa: Massive subsurface ocean (80-90% water)
         "Europa" => {
-            resources.add_deposit(ResourceType::Water, MineralDeposit::new(0.85, 0.4)); // Massive water, but under ice
-            resources.add_deposit(ResourceType::Oxygen, MineralDeposit::new(0.05, 0.3)); // Some O2 in ice
-            resources.add_deposit(ResourceType::Silicates, MineralDeposit::new(0.08, 0.2)); // Rocky core
-            resources.add_deposit(ResourceType::Iron, MineralDeposit::new(0.02, 0.1)); // Small iron core
+            resources.add_deposit(ResourceType::Water, create_deposit_legacy(0.85, 0.4, body_mass)); // Massive water, but under ice
+            resources.add_deposit(ResourceType::Oxygen, create_deposit_legacy(0.05, 0.3, body_mass)); // Some O2 in ice
+            resources.add_deposit(ResourceType::Silicates, create_deposit_legacy(0.08, 0.2, body_mass)); // Rocky core
+            resources.add_deposit(ResourceType::Iron, create_deposit_legacy(0.02, 0.1, body_mass)); // Small iron core
             info!("Applied Europa special profile: massive water ocean");
             Some(resources)
         }
         
         // Mars: Polar ice caps and subsurface ice
         "Mars" => {
-            resources.add_deposit(ResourceType::Water, MineralDeposit::new(0.15, 0.5)); // Significant ice caps
-            resources.add_deposit(ResourceType::CarbonDioxide, MineralDeposit::new(0.08, 0.7)); // CO2 ice caps
-            resources.add_deposit(ResourceType::Iron, MineralDeposit::new(0.25, 0.7)); // Oxidized iron (rust)
-            resources.add_deposit(ResourceType::Silicates, MineralDeposit::new(0.35, 0.8));
-            resources.add_deposit(ResourceType::Aluminum, MineralDeposit::new(0.08, 0.6));
-            resources.add_deposit(ResourceType::Nitrogen, MineralDeposit::new(0.02, 0.4)); // Thin atmosphere
+            resources.add_deposit(ResourceType::Water, create_deposit_legacy(0.15, 0.5, body_mass)); // Significant ice caps
+            resources.add_deposit(ResourceType::CarbonDioxide, create_deposit_legacy(0.08, 0.7, body_mass)); // CO2 ice caps
+            resources.add_deposit(ResourceType::Iron, create_deposit_legacy(0.25, 0.7, body_mass)); // Oxidized iron (rust)
+            resources.add_deposit(ResourceType::Silicates, create_deposit_legacy(0.35, 0.8, body_mass));
+            resources.add_deposit(ResourceType::Aluminum, create_deposit_legacy(0.08, 0.6, body_mass));
+            resources.add_deposit(ResourceType::Nitrogen, create_deposit_legacy(0.02, 0.4, body_mass)); // Thin atmosphere
             info!("Applied Mars special profile: ice caps and oxidized surface");
             Some(resources)
         }
         
         // Moon (Earth's): Water ice in permanently shadowed craters
         "Moon" => {
-            resources.add_deposit(ResourceType::Water, MineralDeposit::new(0.05, 0.3)); // Polar ice in craters
-            resources.add_deposit(ResourceType::Oxygen, MineralDeposit::new(0.02, 0.4)); // Bound in regolith
-            resources.add_deposit(ResourceType::Silicates, MineralDeposit::new(0.45, 0.8));
-            resources.add_deposit(ResourceType::Iron, MineralDeposit::new(0.15, 0.6));
-            resources.add_deposit(ResourceType::Aluminum, MineralDeposit::new(0.10, 0.7));
-            resources.add_deposit(ResourceType::Titanium, MineralDeposit::new(0.008, 0.5));
-            resources.add_deposit(ResourceType::Helium3, MineralDeposit::new(0.00000001, 0.8)); // Solar wind implanted
+            resources.add_deposit(ResourceType::Water, create_deposit_legacy(0.05, 0.3, body_mass)); // Polar ice in craters
+            resources.add_deposit(ResourceType::Oxygen, create_deposit_legacy(0.02, 0.4, body_mass)); // Bound in regolith
+            resources.add_deposit(ResourceType::Silicates, create_deposit_legacy(0.45, 0.8, body_mass));
+            resources.add_deposit(ResourceType::Iron, create_deposit_legacy(0.15, 0.6, body_mass));
+            resources.add_deposit(ResourceType::Aluminum, create_deposit_legacy(0.10, 0.7, body_mass));
+            resources.add_deposit(ResourceType::Titanium, create_deposit_legacy(0.008, 0.5, body_mass));
+            resources.add_deposit(ResourceType::Helium3, create_deposit_legacy(0.00000001, 0.8, body_mass)); // Solar wind implanted
             info!("Applied Moon special profile: polar ice and regolith resources");
             Some(resources)
         }
         
         // Titan: Hydrocarbon-rich moon
         "Titan" => {
-            resources.add_deposit(ResourceType::Methane, MineralDeposit::new(0.45, 0.9)); // Methane lakes
-            resources.add_deposit(ResourceType::Nitrogen, MineralDeposit::new(0.35, 0.8)); // Thick N2 atmosphere
-            resources.add_deposit(ResourceType::Ammonia, MineralDeposit::new(0.08, 0.6));
-            resources.add_deposit(ResourceType::Water, MineralDeposit::new(0.10, 0.3)); // Water ice crust
-            resources.add_deposit(ResourceType::Silicates, MineralDeposit::new(0.02, 0.2));
+            resources.add_deposit(ResourceType::Methane, create_deposit_legacy(0.45, 0.9, body_mass)); // Methane lakes
+            resources.add_deposit(ResourceType::Nitrogen, create_deposit_legacy(0.35, 0.8, body_mass)); // Thick N2 atmosphere
+            resources.add_deposit(ResourceType::Ammonia, create_deposit_legacy(0.08, 0.6, body_mass));
+            resources.add_deposit(ResourceType::Water, create_deposit_legacy(0.10, 0.3, body_mass)); // Water ice crust
+            resources.add_deposit(ResourceType::Silicates, create_deposit_legacy(0.02, 0.2, body_mass));
             info!("Applied Titan special profile: hydrocarbon lakes and thick atmosphere");
             Some(resources)
         }
         
         // Enceladus: Water geysers
         "Enceladus" => {
-            resources.add_deposit(ResourceType::Water, MineralDeposit::new(0.75, 0.9)); // Active geysers make water very accessible
-            resources.add_deposit(ResourceType::Nitrogen, MineralDeposit::new(0.05, 0.7));
-            resources.add_deposit(ResourceType::Ammonia, MineralDeposit::new(0.03, 0.6));
-            resources.add_deposit(ResourceType::Silicates, MineralDeposit::new(0.15, 0.4));
-            resources.add_deposit(ResourceType::Iron, MineralDeposit::new(0.02, 0.3));
+            resources.add_deposit(ResourceType::Water, create_deposit_legacy(0.75, 0.9, body_mass)); // Active geysers make water very accessible
+            resources.add_deposit(ResourceType::Nitrogen, create_deposit_legacy(0.05, 0.7, body_mass));
+            resources.add_deposit(ResourceType::Ammonia, create_deposit_legacy(0.03, 0.6, body_mass));
+            resources.add_deposit(ResourceType::Silicates, create_deposit_legacy(0.15, 0.4, body_mass));
+            resources.add_deposit(ResourceType::Iron, create_deposit_legacy(0.02, 0.3, body_mass));
             info!("Applied Enceladus special profile: water geysers");
             Some(resources)
         }
         
         // Ceres: Dwarf planet with significant water ice
         "Ceres" => {
-            resources.add_deposit(ResourceType::Water, MineralDeposit::new(0.40, 0.6));
-            resources.add_deposit(ResourceType::Ammonia, MineralDeposit::new(0.08, 0.5));
-            resources.add_deposit(ResourceType::Silicates, MineralDeposit::new(0.35, 0.7));
-            resources.add_deposit(ResourceType::Iron, MineralDeposit::new(0.12, 0.5));
-            resources.add_deposit(ResourceType::Copper, MineralDeposit::new(0.0001, 0.4));
+            resources.add_deposit(ResourceType::Water, create_deposit_legacy(0.40, 0.6, body_mass));
+            resources.add_deposit(ResourceType::Ammonia, create_deposit_legacy(0.08, 0.5, body_mass));
+            resources.add_deposit(ResourceType::Silicates, create_deposit_legacy(0.35, 0.7, body_mass));
+            resources.add_deposit(ResourceType::Iron, create_deposit_legacy(0.12, 0.5, body_mass));
+            resources.add_deposit(ResourceType::Copper, create_deposit_legacy(0.0001, 0.4, body_mass));
             info!("Applied Ceres special profile: water-rich dwarf planet");
             Some(resources)
         }
@@ -233,21 +256,10 @@ fn apply_special_body_profile(body_name: &str, rng: &mut impl Rng) -> Option<Pla
 
 /// Apply scientifically-based resource profiles based on asteroid spectral class
 /// Based on data from NASA, JPL, Asterank, and asteroid taxonomy research
-/// 
-/// # Arguments
-/// * `class` - The spectral class of the asteroid
-/// * `body_name` - Name of the asteroid (for logging)
-/// * `distance_au` - Distance from star (affects volatiles retention)
-/// * `frost_line_au` - Frost line distance
-/// * `rng` - Random number generator for variation
-/// 
-/// References:
-/// - JPL Small-Body Database: https://ssd.jpl.nasa.gov/sbdb.cgi
-/// - Asterank Economic Database: http://www.asterank.com/
-/// - DeMeo et al. (2009) - Asteroid taxonomy
 fn apply_spectral_class_profile(
     class: AsteroidClass,
     body_name: &str,
+    body_mass: f64,
     distance_au: f64,
     frost_line_au: f64,
     rng: &mut impl Rng
@@ -257,119 +269,107 @@ fn apply_spectral_class_profile(
     
     match class {
         // C-Type: Carbonaceous - High volatiles
-        // ~75% of asteroids, carbon-rich, dark surface
-        // Scientific basis: Contain water ice, organics, carbonates
         AsteroidClass::CType => {
             // Volatiles are primary composition
             let water_abundance = if is_beyond_frost_line {
-                rng.gen_range(0.25..0.45) // High water content beyond frost line
+                rng.gen_range(0.25..0.45)
             } else {
-                rng.gen_range(0.10..0.25) // Moderate even in inner system
+                rng.gen_range(0.10..0.25)
             };
-            resources.add_deposit(ResourceType::Water, MineralDeposit::new(water_abundance, rng.gen_range(0.6..0.85)));
-            resources.add_deposit(ResourceType::Hydrogen, MineralDeposit::new(rng.gen_range(0.08..0.15), rng.gen_range(0.5..0.75)));
-            resources.add_deposit(ResourceType::Ammonia, MineralDeposit::new(rng.gen_range(0.05..0.12), rng.gen_range(0.5..0.75)));
-            resources.add_deposit(ResourceType::Methane, MineralDeposit::new(rng.gen_range(0.03..0.08), rng.gen_range(0.4..0.7)));
-            resources.add_deposit(ResourceType::CarbonDioxide, MineralDeposit::new(rng.gen_range(0.04..0.10), rng.gen_range(0.5..0.75)));
+            resources.add_deposit(ResourceType::Water, create_deposit_legacy(water_abundance, rng.gen_range(0.6..0.85), body_mass));
+            resources.add_deposit(ResourceType::Hydrogen, create_deposit_legacy(rng.gen_range(0.08..0.15), rng.gen_range(0.5..0.75), body_mass));
+            resources.add_deposit(ResourceType::Ammonia, create_deposit_legacy(rng.gen_range(0.05..0.12), rng.gen_range(0.5..0.75), body_mass));
+            resources.add_deposit(ResourceType::Methane, create_deposit_legacy(rng.gen_range(0.03..0.08), rng.gen_range(0.4..0.7), body_mass));
+            resources.add_deposit(ResourceType::CarbonDioxide, create_deposit_legacy(rng.gen_range(0.04..0.10), rng.gen_range(0.5..0.75), body_mass));
             
             // Low metals but present
-            resources.add_deposit(ResourceType::Iron, MineralDeposit::new(rng.gen_range(0.05..0.15), rng.gen_range(0.4..0.65)));
-            resources.add_deposit(ResourceType::Silicates, MineralDeposit::new(rng.gen_range(0.15..0.25), rng.gen_range(0.5..0.7)));
+            resources.add_deposit(ResourceType::Iron, create_deposit_legacy(rng.gen_range(0.05..0.15), rng.gen_range(0.4..0.65), body_mass));
+            resources.add_deposit(ResourceType::Silicates, create_deposit_legacy(rng.gen_range(0.15..0.25), rng.gen_range(0.5..0.7), body_mass));
             
             info!("Applied C-Type spectral profile to {}: High volatiles", body_name);
         }
         
         // S-Type: Silicaceous - Stony, high silicates and metals
-        // ~17% of asteroids, stony composition
-        // Scientific basis: Olivine, pyroxene, iron-nickel metal
         AsteroidClass::SType => {
             // Silicates dominant
-            resources.add_deposit(ResourceType::Silicates, MineralDeposit::new(rng.gen_range(0.35..0.50), rng.gen_range(0.7..0.9)));
-            resources.add_deposit(ResourceType::Iron, MineralDeposit::new(rng.gen_range(0.20..0.35), rng.gen_range(0.7..0.9)));
-            resources.add_deposit(ResourceType::Aluminum, MineralDeposit::new(rng.gen_range(0.08..0.15), rng.gen_range(0.6..0.85)));
+            resources.add_deposit(ResourceType::Silicates, create_deposit_legacy(rng.gen_range(0.35..0.50), rng.gen_range(0.7..0.9), body_mass));
+            resources.add_deposit(ResourceType::Iron, create_deposit_legacy(rng.gen_range(0.20..0.35), rng.gen_range(0.7..0.9), body_mass));
+            resources.add_deposit(ResourceType::Aluminum, create_deposit_legacy(rng.gen_range(0.08..0.15), rng.gen_range(0.6..0.85), body_mass));
             
             // Some metals
-            resources.add_deposit(ResourceType::Copper, MineralDeposit::new(rng.gen_range(0.0002..0.0008), rng.gen_range(0.5..0.75)));
-            resources.add_deposit(ResourceType::RareEarths, MineralDeposit::new(rng.gen_range(0.0001..0.0004), rng.gen_range(0.4..0.7)));
+            resources.add_deposit(ResourceType::Copper, create_deposit_legacy(rng.gen_range(0.0002..0.0008), rng.gen_range(0.5..0.75), body_mass));
+            resources.add_deposit(ResourceType::RareEarths, create_deposit_legacy(rng.gen_range(0.0001..0.0004), rng.gen_range(0.4..0.7), body_mass));
             
             // Low volatiles
             if is_beyond_frost_line {
-                resources.add_deposit(ResourceType::Water, MineralDeposit::new(rng.gen_range(0.02..0.08), rng.gen_range(0.3..0.6)));
+                resources.add_deposit(ResourceType::Water, create_deposit_legacy(rng.gen_range(0.02..0.08), rng.gen_range(0.3..0.6), body_mass));
             }
             
             info!("Applied S-Type spectral profile to {}: High silicates and iron", body_name);
         }
         
         // M-Type: Metallic - Almost pure metal, nickel-iron
-        // ~8% of asteroids, exposed planetary cores
-        // Scientific basis: Differentiated bodies, metal-rich cores
         AsteroidClass::MType => {
             // Dominated by iron and nickel
-            resources.add_deposit(ResourceType::Iron, MineralDeposit::new(rng.gen_range(0.70..0.85), rng.gen_range(0.85..0.98)));
+            resources.add_deposit(ResourceType::Iron, create_deposit_legacy(rng.gen_range(0.70..0.85), rng.gen_range(0.85..0.98), body_mass));
             
             // High precious metals (10-20x normal)
-            resources.add_deposit(ResourceType::Platinum, MineralDeposit::new(rng.gen_range(0.00001..0.0001), rng.gen_range(0.7..0.9)));
-            resources.add_deposit(ResourceType::Gold, MineralDeposit::new(rng.gen_range(0.000005..0.00005), rng.gen_range(0.7..0.9)));
-            resources.add_deposit(ResourceType::Silver, MineralDeposit::new(rng.gen_range(0.00001..0.00008), rng.gen_range(0.7..0.9)));
+            resources.add_deposit(ResourceType::Platinum, create_deposit_legacy(rng.gen_range(0.00001..0.0001), rng.gen_range(0.7..0.9), body_mass));
+            resources.add_deposit(ResourceType::Gold, create_deposit_legacy(rng.gen_range(0.000005..0.00005), rng.gen_range(0.7..0.9), body_mass));
+            resources.add_deposit(ResourceType::Silver, create_deposit_legacy(rng.gen_range(0.00001..0.00008), rng.gen_range(0.7..0.9), body_mass));
             
             // Some copper and rare earths
-            resources.add_deposit(ResourceType::Copper, MineralDeposit::new(rng.gen_range(0.001..0.005), rng.gen_range(0.7..0.9)));
-            resources.add_deposit(ResourceType::RareEarths, MineralDeposit::new(rng.gen_range(0.0002..0.001), rng.gen_range(0.6..0.85)));
+            resources.add_deposit(ResourceType::Copper, create_deposit_legacy(rng.gen_range(0.001..0.005), rng.gen_range(0.7..0.9), body_mass));
+            resources.add_deposit(ResourceType::RareEarths, create_deposit_legacy(rng.gen_range(0.0002..0.001), rng.gen_range(0.6..0.85), body_mass));
             
             // Minimal silicates and volatiles
-            resources.add_deposit(ResourceType::Silicates, MineralDeposit::new(rng.gen_range(0.02..0.08), rng.gen_range(0.3..0.6)));
+            resources.add_deposit(ResourceType::Silicates, create_deposit_legacy(rng.gen_range(0.02..0.08), rng.gen_range(0.3..0.6), body_mass));
             
             info!("Applied M-Type spectral profile to {}: Metallic, high iron and precious metals", body_name);
         }
         
         // V-Type: Vestoid - Basaltic, from differentiated bodies
-        // Rare, fragments of Vesta's crust
-        // Scientific basis: Basaltic composition, high titanium
         AsteroidClass::VType => {
             // Basaltic composition - high silicates and titanium
-            resources.add_deposit(ResourceType::Silicates, MineralDeposit::new(rng.gen_range(0.40..0.55), rng.gen_range(0.75..0.92)));
-            resources.add_deposit(ResourceType::Titanium, MineralDeposit::new(rng.gen_range(0.02..0.05), rng.gen_range(0.7..0.9)));
-            resources.add_deposit(ResourceType::Iron, MineralDeposit::new(rng.gen_range(0.15..0.28), rng.gen_range(0.7..0.88)));
-            resources.add_deposit(ResourceType::Aluminum, MineralDeposit::new(rng.gen_range(0.10..0.18), rng.gen_range(0.65..0.85)));
+            resources.add_deposit(ResourceType::Silicates, create_deposit_legacy(rng.gen_range(0.40..0.55), rng.gen_range(0.75..0.92), body_mass));
+            resources.add_deposit(ResourceType::Titanium, create_deposit_legacy(rng.gen_range(0.02..0.05), rng.gen_range(0.7..0.9), body_mass));
+            resources.add_deposit(ResourceType::Iron, create_deposit_legacy(rng.gen_range(0.15..0.28), rng.gen_range(0.7..0.88), body_mass));
+            resources.add_deposit(ResourceType::Aluminum, create_deposit_legacy(rng.gen_range(0.10..0.18), rng.gen_range(0.65..0.85), body_mass));
             
             // Some pyroxene-related metals
-            resources.add_deposit(ResourceType::Copper, MineralDeposit::new(rng.gen_range(0.0001..0.0005), rng.gen_range(0.5..0.75)));
+            resources.add_deposit(ResourceType::Copper, create_deposit_legacy(rng.gen_range(0.0001..0.0005), rng.gen_range(0.5..0.75), body_mass));
             
             info!("Applied V-Type spectral profile to {}: Basaltic, high titanium", body_name);
         }
         
         // D-Type: Dark primitive - Very high volatiles, organic-rich
-        // Outer belt, Jupiter Trojans
-        // Scientific basis: Very dark, primitive composition, high organics
         AsteroidClass::DType => {
             // Extremely high volatiles
-            resources.add_deposit(ResourceType::Water, MineralDeposit::new(rng.gen_range(0.35..0.55), rng.gen_range(0.7..0.9)));
-            resources.add_deposit(ResourceType::Methane, MineralDeposit::new(rng.gen_range(0.15..0.30), rng.gen_range(0.6..0.85)));
-            resources.add_deposit(ResourceType::Ammonia, MineralDeposit::new(rng.gen_range(0.12..0.25), rng.gen_range(0.6..0.85)));
-            resources.add_deposit(ResourceType::Hydrogen, MineralDeposit::new(rng.gen_range(0.10..0.20), rng.gen_range(0.6..0.8)));
-            resources.add_deposit(ResourceType::Nitrogen, MineralDeposit::new(rng.gen_range(0.05..0.12), rng.gen_range(0.5..0.75)));
+            resources.add_deposit(ResourceType::Water, create_deposit_legacy(rng.gen_range(0.35..0.55), rng.gen_range(0.7..0.9), body_mass));
+            resources.add_deposit(ResourceType::Methane, create_deposit_legacy(rng.gen_range(0.15..0.30), rng.gen_range(0.6..0.85), body_mass));
+            resources.add_deposit(ResourceType::Ammonia, create_deposit_legacy(rng.gen_range(0.12..0.25), rng.gen_range(0.6..0.85), body_mass));
+            resources.add_deposit(ResourceType::Hydrogen, create_deposit_legacy(rng.gen_range(0.10..0.20), rng.gen_range(0.6..0.8), body_mass));
+            resources.add_deposit(ResourceType::Nitrogen, create_deposit_legacy(rng.gen_range(0.05..0.12), rng.gen_range(0.5..0.75), body_mass));
             
             // Very low metals
-            resources.add_deposit(ResourceType::Silicates, MineralDeposit::new(rng.gen_range(0.05..0.15), rng.gen_range(0.4..0.6)));
-            resources.add_deposit(ResourceType::Iron, MineralDeposit::new(rng.gen_range(0.02..0.08), rng.gen_range(0.3..0.55)));
+            resources.add_deposit(ResourceType::Silicates, create_deposit_legacy(rng.gen_range(0.05..0.15), rng.gen_range(0.4..0.6), body_mass));
+            resources.add_deposit(ResourceType::Iron, create_deposit_legacy(rng.gen_range(0.02..0.08), rng.gen_range(0.3..0.55), body_mass));
             
             info!("Applied D-Type spectral profile to {}: Primitive, extremely high volatiles", body_name);
         }
         
         // P-Type: Primitive - Similar to D-type, outer belt
-        // Low albedo, primitive
-        // Scientific basis: Similar to D-type but slightly different composition
         AsteroidClass::PType => {
             // Very high volatiles (slightly less than D-type)
-            resources.add_deposit(ResourceType::Water, MineralDeposit::new(rng.gen_range(0.30..0.48), rng.gen_range(0.65..0.88)));
-            resources.add_deposit(ResourceType::Ammonia, MineralDeposit::new(rng.gen_range(0.10..0.22), rng.gen_range(0.6..0.82)));
-            resources.add_deposit(ResourceType::Methane, MineralDeposit::new(rng.gen_range(0.12..0.25), rng.gen_range(0.55..0.8)));
-            resources.add_deposit(ResourceType::Hydrogen, MineralDeposit::new(rng.gen_range(0.08..0.18), rng.gen_range(0.55..0.78)));
-            resources.add_deposit(ResourceType::CarbonDioxide, MineralDeposit::new(rng.gen_range(0.06..0.15), rng.gen_range(0.5..0.75)));
+            resources.add_deposit(ResourceType::Water, create_deposit_legacy(rng.gen_range(0.30..0.48), rng.gen_range(0.65..0.88), body_mass));
+            resources.add_deposit(ResourceType::Ammonia, create_deposit_legacy(rng.gen_range(0.10..0.22), rng.gen_range(0.6..0.82), body_mass));
+            resources.add_deposit(ResourceType::Methane, create_deposit_legacy(rng.gen_range(0.12..0.25), rng.gen_range(0.55..0.8), body_mass));
+            resources.add_deposit(ResourceType::Hydrogen, create_deposit_legacy(rng.gen_range(0.08..0.18), rng.gen_range(0.55..0.78), body_mass));
+            resources.add_deposit(ResourceType::CarbonDioxide, create_deposit_legacy(rng.gen_range(0.06..0.15), rng.gen_range(0.5..0.75), body_mass));
             
             // Low metals
-            resources.add_deposit(ResourceType::Silicates, MineralDeposit::new(rng.gen_range(0.08..0.18), rng.gen_range(0.45..0.65)));
-            resources.add_deposit(ResourceType::Iron, MineralDeposit::new(rng.gen_range(0.03..0.10), rng.gen_range(0.35..0.6)));
+            resources.add_deposit(ResourceType::Silicates, create_deposit_legacy(rng.gen_range(0.08..0.18), rng.gen_range(0.45..0.65), body_mass));
+            resources.add_deposit(ResourceType::Iron, create_deposit_legacy(rng.gen_range(0.03..0.10), rng.gen_range(0.35..0.6), body_mass));
             
             info!("Applied P-Type spectral profile to {}: Primitive, very high volatiles", body_name);
         }
@@ -405,6 +405,29 @@ fn determine_asteroid_specialization(body_name: &str, rng: &mut impl Rng) -> Ast
     }
 }
 
+// Helpers for modifying legacy MineralDeposit assumptions
+fn scale_deposit(deposit: &mut MineralDeposit, factor: f64) {
+    deposit.reserve.proven_crustal *= factor;
+    deposit.reserve.deep_deposits *= factor;
+    deposit.reserve.planetary_bulk *= factor;
+    // Keep concentration consistent (implied relationship)
+    deposit.reserve.concentration = (deposit.reserve.concentration * factor as f32).clamp(0.0001, 1.0);
+}
+
+fn cap_deposit_conc(deposit: &mut MineralDeposit, max_conc: f32) {
+    if deposit.reserve.concentration > max_conc {
+        let factor = (max_conc / deposit.reserve.concentration) as f64;
+        scale_deposit(deposit, factor);
+    }
+}
+
+fn min_deposit_conc(deposit: &mut MineralDeposit, min_conc: f32) {
+    if deposit.reserve.concentration < min_conc {
+        let factor = (min_conc / deposit.reserve.concentration) as f64;
+        scale_deposit(deposit, factor);
+    }
+}
+
 /// Apply specialization modifiers to a resource deposit
 fn apply_asteroid_specialization(
     mut deposit: MineralDeposit, 
@@ -415,19 +438,16 @@ fn apply_asteroid_specialization(
         AsteroidSpecialization::PlatinumRich => {
             match resource {
                 ResourceType::Platinum => {
-                    // 100-500x normal abundance for platinum-rich asteroids
-                    deposit.abundance *= 250.0;
-                    deposit.abundance = deposit.abundance.min(0.05); // Cap at 5%
+                    scale_deposit(&mut deposit, 250.0);
+                    cap_deposit_conc(&mut deposit, 0.05);
                     deposit.accessibility = (deposit.accessibility * 1.5).min(0.95);
                 }
                 ResourceType::Silver | ResourceType::Gold => {
-                    // 10-50x for other precious metals
-                    deposit.abundance *= 20.0;
-                    deposit.abundance = deposit.abundance.min(0.01);
+                    scale_deposit(&mut deposit, 20.0);
+                    cap_deposit_conc(&mut deposit, 0.01);
                 }
-                // Reduce non-precious metal resources
                 _ if !resource.is_precious_metal() => {
-                    deposit.abundance *= 0.2;
+                    scale_deposit(&mut deposit, 0.2);
                 }
                 _ => {}
             }
@@ -436,23 +456,20 @@ fn apply_asteroid_specialization(
         AsteroidSpecialization::GoldRich => {
             match resource {
                 ResourceType::Gold => {
-                    // 100-500x normal abundance
-                    deposit.abundance *= 200.0;
-                    deposit.abundance = deposit.abundance.min(0.03); // Cap at 3%
+                    scale_deposit(&mut deposit, 200.0);
+                    cap_deposit_conc(&mut deposit, 0.03);
                     deposit.accessibility = (deposit.accessibility * 1.5).min(0.95);
                 }
                 ResourceType::Silver => {
-                    // 50x for silver
-                    deposit.abundance *= 50.0;
-                    deposit.abundance = deposit.abundance.min(0.015);
+                    scale_deposit(&mut deposit, 50.0);
+                    cap_deposit_conc(&mut deposit, 0.015);
                 }
                 ResourceType::Copper => {
-                    // 10x for copper
-                    deposit.abundance *= 10.0;
-                    deposit.abundance = deposit.abundance.min(0.005);
+                    scale_deposit(&mut deposit, 10.0);
+                    cap_deposit_conc(&mut deposit, 0.005);
                 }
                 _ if !resource.is_precious_metal() && !resource.is_specialty() => {
-                    deposit.abundance *= 0.2;
+                    scale_deposit(&mut deposit, 0.2);
                 }
                 _ => {}
             }
@@ -461,22 +478,18 @@ fn apply_asteroid_specialization(
         AsteroidSpecialization::IronNickel => {
             match resource {
                 ResourceType::Iron => {
-                    // Metallic asteroids are 70-90% iron
-                    deposit.abundance = deposit.abundance.max(0.70);
+                    min_deposit_conc(&mut deposit, 0.70);
                     deposit.accessibility = (deposit.accessibility * 1.3).min(0.98);
                 }
                 ResourceType::Platinum | ResourceType::Gold | ResourceType::Silver => {
-                    // 10-20x precious metals in metallic asteroids
-                    deposit.abundance *= 15.0;
-                    deposit.abundance = deposit.abundance.min(0.005);
+                    scale_deposit(&mut deposit, 15.0);
+                    cap_deposit_conc(&mut deposit, 0.005);
                 }
                 ResourceType::Copper => {
-                    // 5x copper
-                    deposit.abundance *= 5.0;
+                    scale_deposit(&mut deposit, 5.0);
                 }
-                // Very little of everything else
                 _ if resource.is_volatile() || resource.is_atmospheric_gas() => {
-                    deposit.abundance *= 0.01;
+                    scale_deposit(&mut deposit, 0.01);
                 }
                 _ => {}
             }
@@ -485,15 +498,14 @@ fn apply_asteroid_specialization(
         AsteroidSpecialization::Carbonaceous => {
             match resource {
                 ResourceType::Water | ResourceType::Ammonia | ResourceType::Methane => {
-                    // High volatiles even in inner system
-                    deposit.abundance = deposit.abundance.max(0.20);
+                    min_deposit_conc(&mut deposit, 0.20);
                     deposit.accessibility = (deposit.accessibility * 1.2).min(0.90);
                 }
                 ResourceType::Hydrogen => {
-                    deposit.abundance = deposit.abundance.max(0.15);
+                    min_deposit_conc(&mut deposit, 0.15);
                 }
                 ResourceType::CarbonDioxide | ResourceType::Nitrogen => {
-                    deposit.abundance *= 3.0;
+                    scale_deposit(&mut deposit, 3.0);
                 }
                 _ => {}
             }
@@ -511,12 +523,14 @@ fn apply_asteroid_specialization(
 /// 
 /// # Arguments
 /// * `resource` - The type of resource to generate
+/// * `body_mass` - Mass of the body in kg
 /// * `distance_au` - Distance from parent star in AU
 /// * `frost_line_au` - Frost line distance for the parent star in AU
 /// * `is_inner` - Whether the body is inside the frost line
 /// * `rng` - Random number generator
 fn generate_resource_deposit(
     resource: ResourceType,
+    body_mass: f64,
     distance_au: f64,
     frost_line_au: f64,
     is_inner: bool,
@@ -625,7 +639,7 @@ fn generate_resource_deposit(
     let final_abundance = (base_abundance * distance_factor).clamp(0.0, 1.0);
     let final_accessibility = (base_accessibility * distance_factor as f32).clamp(0.0, 1.0);
 
-    MineralDeposit::new(final_abundance, final_accessibility)
+    create_deposit_legacy(final_abundance, final_accessibility, body_mass)
 }
 
 /// Calculate a distance-based modifier for resource abundance

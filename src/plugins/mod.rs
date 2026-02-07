@@ -3,3 +3,4 @@ pub mod solar_system;
 pub mod solar_system_data;
 pub mod starmap;
 pub mod visual_effects;
+pub mod comet_vfx;
