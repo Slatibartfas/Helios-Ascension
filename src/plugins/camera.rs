@@ -2,8 +2,22 @@ use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::prelude::*;
 use bevy_egui::EguiContexts;
 
-/// Zoom threshold (in game units) at which the camera transitions from
-/// system view to starmap view. ~233 AU worth of game units (well past Kuiper Belt).
+use crate::astronomy::components::CurrentStarSystem;
+use crate::astronomy::SCALING_FACTOR;
+use crate::plugins::starmap::SystemMetadata;
+
+/// Base zoom threshold multiplier. The actual threshold is calculated as
+/// `bounding_radius_au * SCALING_FACTOR * THRESHOLD_MULTIPLIER`.
+/// This ensures the camera needs to zoom out significantly beyond the system's
+/// outermost body before transitioning to starmap view.
+pub const STARMAP_THRESHOLD_MULTIPLIER: f32 = 2.5;
+
+/// Minimum zoom threshold in game units to ensure reasonable behavior for very small systems.
+pub const MIN_STARMAP_THRESHOLD: f32 = 50_000.0;
+
+/// Legacy constant for reference. Now replaced by dynamic thresholds.
+/// ~233 AU worth of game units (well past Kuiper Belt for Sol).
+#[allow(dead_code)]
 pub const STARMAP_TRANSITION_THRESHOLD: f32 = 350_000.0;
 
 /// The active view mode, driven by camera zoom level.
@@ -147,18 +161,29 @@ fn update_camera_transform(
 }
 
 /// Updates `ViewMode` based on camera zoom radius, with hysteresis to avoid
-/// flickering at the boundary.
+/// flickering at the boundary. The threshold is dynamically calculated based on
+/// the current system's bounding radius to ensure appropriate zoom levels for
+/// systems of different sizes.
 fn update_view_mode(
     camera_query: Query<&OrbitCamera, With<GameCamera>>,
+    current_system: Res<CurrentStarSystem>,
+    system_metadata: Res<SystemMetadata>,
     mut view_mode: ResMut<ViewMode>,
 ) {
     let Ok(orbit) = camera_query.get_single() else {
         return;
     };
 
-    // Hysteresis: require crossing past the threshold by 10% in either direction
-    let enter_starmap = STARMAP_TRANSITION_THRESHOLD;
-    let exit_starmap = STARMAP_TRANSITION_THRESHOLD * 0.85;
+    // Get the current system's bounding radius from metadata
+    let bounding_radius_au = system_metadata.get_bounding_radius(current_system.0);
+
+    // Convert bounding radius to game units and apply multiplier
+    // SCALING_FACTOR = 1500.0 (1 AU = 1500 game units)
+    let base_threshold = (bounding_radius_au * SCALING_FACTOR as f64 * STARMAP_THRESHOLD_MULTIPLIER as f64) as f32;
+    let enter_starmap = base_threshold.max(MIN_STARMAP_THRESHOLD);
+    
+    // Hysteresis: require crossing past the threshold by 15% in either direction
+    let exit_starmap = enter_starmap * 0.85;
 
     let new_mode = match *view_mode {
         ViewMode::System if orbit.radius > enter_starmap => ViewMode::Starmap,
@@ -167,7 +192,10 @@ fn update_view_mode(
     };
 
     if new_mode != *view_mode {
-        info!("View mode changed: {:?} → {:?} (radius: {:.0})", *view_mode, new_mode, orbit.radius);
+        info!(
+            "View mode changed: {:?} → {:?} (radius: {:.0}, threshold: {:.0}, system size: {:.1} AU)",
+            *view_mode, new_mode, orbit.radius, enter_starmap, bounding_radius_au
+        );
         *view_mode = new_mode;
     }
 }

@@ -13,6 +13,7 @@
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy::math::DVec3;
+use std::collections::HashMap;
 
 use super::camera::{CameraAnchor, GameCamera, OrbitCamera, ViewMode};
 use super::solar_system::{CelestialBody, Star, Planet, RADIUS_SCALE};
@@ -27,6 +28,24 @@ use std::f64::consts::PI;
 const STAR_RADIUS_SCALE: f32 = 0.00015;
 const MIN_VISUAL_RADIUS: f32 = 5.0;
 
+/// Resource storing metadata about each star system, primarily their bounding radius.
+/// This is used to calculate dynamic zoom thresholds.
+#[derive(Resource, Default)]
+pub struct SystemMetadata {
+    /// Map from SystemId to bounding radius in AU
+    pub bounding_radii: HashMap<usize, f64>,
+}
+
+impl SystemMetadata {
+    pub fn set_bounding_radius(&mut self, system_id: usize, radius_au: f64) {
+        self.bounding_radii.insert(system_id, radius_au);
+    }
+    
+    pub fn get_bounding_radius(&self, system_id: usize) -> f64 {
+        self.bounding_radii.get(&system_id).copied().unwrap_or(400.0)
+    }
+}
+
 /// Plugin that manages the starmap view layer.
 pub struct StarmapPlugin;
 
@@ -34,6 +53,7 @@ impl Plugin for StarmapPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CurrentStarSystem>()
             .init_resource::<FloatingOrigin>()
+            .init_resource::<SystemMetadata>()
             .add_systems(Startup, setup_starmap)
             .add_systems(
                 Update,
@@ -62,6 +82,9 @@ pub struct StarSystemIcon {
     pub name: String,
     /// Position in Universe space (AU) from Sol
     pub position: DVec3,
+    /// Bounding radius of the system in AU (distance to outermost body)
+    /// Used to determine appropriate zoom transition threshold
+    pub bounding_radius_au: f64,
 }
 
 /// Tag for the Sol system's starmap icon (spawned once at startup).
@@ -144,7 +167,11 @@ fn setup_starmap(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut system_metadata: ResMut<SystemMetadata>,
 ) {
+    // Initialize Sol's bounding radius
+    system_metadata.set_bounding_radius(0, 400.0);
+    
     // A bright glowing sphere representing the star system
     let icon_mesh = meshes.add(Sphere::new(1.0).mesh().uv(16, 8));
     
@@ -170,6 +197,7 @@ fn setup_starmap(
             id: 0,
             name: "Sol System".to_string(),
             position: DVec3::ZERO,
+            bounding_radius_au: 400.0, // Sol system extends to ~355 AU (comets)
         },
         SolSystemIcon,
     ));
@@ -205,6 +233,12 @@ fn setup_starmap(
         // Starmap Scale: 1 Unit = 1 AU.
         let spawn_pos = Vec3::new(pos_au.x as f32, pos_au.y as f32, pos_au.z as f32);
 
+        // Estimate bounding radius for systems without detailed data
+        // Most exoplanet systems discovered so far have planets within ~10 AU
+        // Binary stars can extend much farther (hundreds to thousands of AU)
+        // Use a conservative estimate of 50 AU for unknown systems
+        let bounding_radius_au = 50.0;
+
         commands.spawn((
             PbrBundle {
                 mesh: icon_mesh.clone(),
@@ -217,6 +251,7 @@ fn setup_starmap(
                 id,
                 name: star.name.to_string(),
                 position: pos_au,
+                bounding_radius_au,
             },
         ));
     }
@@ -249,6 +284,7 @@ fn spawn_system_bodies(
     mut materials: ResMut<Assets<StandardMaterial>>,
     existing_bodies: Query<&SystemId, With<CelestialBody>>,
     nearby_stars: Res<NearbyStarsData>,
+    mut system_metadata: ResMut<SystemMetadata>,
 ) {
     if !current_system.is_changed() { return; }
     
@@ -279,13 +315,13 @@ fn spawn_system_bodies(
     // Check if we have detailed data for this system
     if let Some(detailed_data) = nearby_stars.get_by_name(star_data.name) {
         info!("Spawning detailed system: {}", star_data.name);
-        spawn_detailed_system(&mut commands, sys_id, system_offset, detailed_data, &mut meshes, &mut materials);
+        spawn_detailed_system(&mut commands, sys_id, system_offset, detailed_data, &mut meshes, &mut materials, &mut system_metadata);
         return;
     }
 
     // --- Fallback: Procedural fallback ---
     info!("Spawning fallback system: {}", star_data.name);
-    spawn_fallback_system(&mut commands, sys_id, system_offset, star_data, &mut meshes, &mut materials);
+    spawn_fallback_system(&mut commands, sys_id, system_offset, star_data, &mut meshes, &mut materials, &mut system_metadata);
 }
 
 fn spawn_detailed_system(
@@ -295,9 +331,32 @@ fn spawn_detailed_system(
     data: &crate::astronomy::nearby_stars::StarSystemData,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
+    system_metadata: &mut ResMut<SystemMetadata>,
 ) {
     let mut rng = rand::thread_rng();
     let seconds_per_year: f64 = 365.25 * SECONDS_PER_DAY;
+
+    // Calculate bounding radius: maximum of planet orbits + binary star orbits
+    let mut max_radius_au: f64 = 10.0; // Default minimum
+    
+    // Check planet orbits
+    for star_data in &data.stars {
+        for planet in &star_data.planets {
+            let aphelion = planet.semi_major_axis_au * (1.0 + planet.eccentricity);
+            max_radius_au = max_radius_au.max(aphelion as f64);
+        }
+    }
+    
+    // Check binary star orbits
+    for binary in &data.binary_orbits {
+        let binary_extent = binary.semi_major_axis_au * (1.0 + binary.eccentricity);
+        max_radius_au = max_radius_au.max(binary_extent);
+    }
+    
+    // Add 50% margin for safety
+    max_radius_au *= 1.5;
+    
+    info!("System {} bounding radius: {:.1} AU", data.system_name, max_radius_au);
 
     // --- Phase 1: Spawn a virtual barycenter entity for the system ---
     let barycenter = commands.spawn((
@@ -496,6 +555,9 @@ fn spawn_detailed_system(
             ));
         }
     }
+    
+    // Store the calculated bounding radius in system metadata
+    system_metadata.set_bounding_radius(sys_id, max_radius_au);
 }
 
 fn spawn_fallback_system(
@@ -505,6 +567,7 @@ fn spawn_fallback_system(
     star_data: &NearbyStarData,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
+    system_metadata: &mut ResMut<SystemMetadata>,
 ) {
     let spectral = star_data.spectral_type;
     let color = get_color_from_spectral_type(spectral);
@@ -550,6 +613,9 @@ fn spawn_fallback_system(
             SystemId(sys_id),
         ));
     });
+    
+    // For fallback systems without detailed data, use default bounding radius
+    system_metadata.set_bounding_radius(sys_id, 50.0);
 }
 
 fn get_color_from_spectral_type(spectral: &str) -> Color {
@@ -617,8 +683,10 @@ fn toggle_system_view_entities(
     mut body_query: Query<(&mut Visibility, Option<&SystemId>), With<CelestialBody>>,
     mut light_query: Query<(&mut Visibility, Option<&SystemId>, Option<&Parent>), (With<PointLight>, Without<CelestialBody>, Without<StarSystemIcon>)>,
     parent_sys_query: Query<&SystemId>,
+    newly_spawned_bodies: Query<Entity, Added<CelestialBody>>,
 ) {
-    if !view_mode.is_changed() && !current_system.is_changed() {
+    // Run if view mode changed, current system changed, OR new bodies were spawned
+    if !view_mode.is_changed() && !current_system.is_changed() && newly_spawned_bodies.is_empty() {
         return;
     }
 
