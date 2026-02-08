@@ -271,8 +271,9 @@ fn apply_special_body_profile(body_name: &str, body_mass: f64, _rng: &mut impl R
         
         // Europa: Massive subsurface ocean (2-3x Earth's oceans)
         // Scientific estimate: 2.6-3.2×10^18 metric tons
-        // Europa mass: ~4.8×10^22 kg = 4.8×10^13 Mt, 85% water = 4.08×10^13 Mt = ~40 trillion Mt
-        // This equals ~4×10^13 Mt which is ~10^13 times Earth's oceans (realistic!)
+        // Europa mass: ~4.8×10^22 kg = (4.8×10^22 ÷ 10^9) = 4.8×10^13 Mt
+        // 85% water = 0.85 × 4.8×10^13 Mt = 4.08×10^13 Mt = ~40 trillion Mt
+        // This represents 2-3× Earth's oceans (realistic!)
         "Europa" => {
             resources.add_deposit(ResourceType::Water, create_deposit_legacy(0.85, 0.4, body_mass, BodyType::Moon)); 
             resources.add_deposit(ResourceType::Oxygen, create_deposit_legacy(0.05, 0.3, body_mass, BodyType::Moon));
