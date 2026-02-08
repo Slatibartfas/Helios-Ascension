@@ -186,10 +186,19 @@ Apply the [performance standards](./.github/instructions/performance.instruction
 
 Apply the [documentation standards](./.github/instructions/documentation.instructions.md).
 
+### Documentation Principles (CRITICAL)
+- **NO PR Summaries**: NEVER create "SUMMARY.md", "IMPLEMENTATION_SUMMARY.md", "FIXES.md" or similar PR-specific documents. These become stale documentation clutter.
+- **Update, Don't Create**: Before creating new documentation, search for existing docs that can be updated instead.
+- **One Source of Truth**: Each topic should have ONE authoritative document. Avoid multiple documents covering the same subject.
+- **Archive Old Content**: Move historical/completed work summaries to `docs/archive/` immediately after PR merge.
+- **Lean Documentation**: Every document must serve an ongoing reference purpose. If it's just a progress report, it doesn't belong in main docs.
+
+### Documentation Guidelines
 - **Cleanliness**: Maintain a clean project root. Move detailed docs to `docs/`, `docs/design/`, or `docs/archive/`.
-- **Maintenance**: Prefer updating existing documents over creating new ones. Consolidate related information.
+- **Maintenance**: ALWAYS prefer updating existing documents over creating new ones. Consolidate related information.
 - **Synchronization**: Ensure every code change is reflected in the relevant documentation immediately.
 - **Review**: Regularly scan detailed documentation (`docs/`) to ensure it matches the current codebase state.
+- **Reference Material Only**: Documentation in `docs/` should be reference material (guides, architecture, APIs), not progress reports or PR summaries.
 - Document all public APIs with `///` doc comments
 - Include examples in doc comments
 - Keep README.md up to date

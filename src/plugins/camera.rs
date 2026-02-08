@@ -33,11 +33,14 @@ impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ViewMode>()
             .add_systems(Startup, spawn_camera)
-            .add_systems(Update, (
-                orbit_camera_controls,
-                update_camera_transform,
-                update_view_mode,
-            ));
+            .add_systems(
+                Update,
+                (
+                    orbit_camera_controls,
+                    update_camera_transform,
+                    update_view_mode,
+                ),
+            );
     }
 }
 
@@ -118,7 +121,7 @@ fn orbit_camera_controls(
         for event in motion_events.read() {
             camera.yaw -= event.delta.x * camera.rotate_sensitivity;
             camera.pitch -= event.delta.y * camera.rotate_sensitivity;
-            
+
             // Clamp pitch to avoid gimbal lock or going under
             camera.pitch = camera.pitch.clamp(-1.5, 1.5);
         }
@@ -148,7 +151,8 @@ fn update_camera_transform(
     }
 
     // Calculate camera position
-    let rot = Quat::from_axis_angle(Vec3::Y, orbit.yaw) * Quat::from_axis_angle(Vec3::X, orbit.pitch);
+    let rot =
+        Quat::from_axis_angle(Vec3::Y, orbit.yaw) * Quat::from_axis_angle(Vec3::X, orbit.pitch);
     let offset = rot * Vec3::Z * orbit.radius;
     let position = orbit.target_center + offset;
 
@@ -175,9 +179,10 @@ fn update_view_mode(
 
     // Convert bounding radius to game units and apply multiplier
     // SCALING_FACTOR = 1500.0 (1 AU = 1500 game units)
-    let base_threshold = (bounding_radius_au * SCALING_FACTOR as f64 * STARMAP_THRESHOLD_MULTIPLIER as f64) as f32;
+    let base_threshold =
+        (bounding_radius_au * SCALING_FACTOR as f64 * STARMAP_THRESHOLD_MULTIPLIER as f64) as f32;
     let enter_starmap = base_threshold.max(MIN_STARMAP_THRESHOLD);
-    
+
     // Hysteresis: require crossing past the threshold by 15% in either direction
     let exit_starmap = enter_starmap * 0.85;
 

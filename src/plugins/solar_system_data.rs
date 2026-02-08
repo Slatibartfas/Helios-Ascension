@@ -164,13 +164,11 @@ impl SolarSystemData {
     }
 
     /// Get a body by name
-    #[allow(dead_code)]
     pub fn get_body(&self, name: &str) -> Option<&CelestialBodyData> {
         self.bodies.iter().find(|b| b.name == name)
     }
 
     /// Get all bodies of a specific type
-    #[allow(dead_code)]
     pub fn get_bodies_by_type(&self, body_type: BodyType) -> Vec<&CelestialBodyData> {
         self.bodies
             .iter()
@@ -179,7 +177,6 @@ impl SolarSystemData {
     }
 
     /// Get all children of a parent body
-    #[allow(dead_code)]
     pub fn get_children(&self, parent_name: &str) -> Vec<&CelestialBodyData> {
         self.bodies
             .iter()

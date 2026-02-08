@@ -10,31 +10,31 @@ pub enum ResourceType {
     Hydrogen,
     Ammonia,
     Methane,
-    
+
     // Atmospheric gases - Essential for terraforming
     Nitrogen,
     Oxygen,
     CarbonDioxide,
     Argon,
-    
+
     // Construction materials - Common in inner solar system (<2.5 AU)
     Iron,
     Aluminum,
     Titanium,
     Silicates,
-    
+
     // Noble gases - Fusion fuel
     Helium3,
-    
+
     // Fissile materials - Rare, inner solar system
     Uranium,
     Thorium,
-    
+
     // Precious metals - High value, rare
     Gold,
     Silver,
     Platinum,
-    
+
     // Specialty materials - Advanced technology
     Copper,
     RareEarths,
@@ -45,13 +45,26 @@ impl ResourceType {
     pub fn all() -> &'static [ResourceType] {
         use ResourceType::*;
         &[
-            Water, Hydrogen, Ammonia, Methane,
-            Nitrogen, Oxygen, CarbonDioxide, Argon,
-            Iron, Aluminum, Titanium, Silicates,
+            Water,
+            Hydrogen,
+            Ammonia,
+            Methane,
+            Nitrogen,
+            Oxygen,
+            CarbonDioxide,
+            Argon,
+            Iron,
+            Aluminum,
+            Titanium,
+            Silicates,
             Helium3,
-            Uranium, Thorium,
-            Gold, Silver, Platinum,
-            Copper, RareEarths,
+            Uranium,
+            Thorium,
+            Gold,
+            Silver,
+            Platinum,
+            Copper,
+            RareEarths,
         ]
     }
 
@@ -199,40 +212,50 @@ impl ResourceType {
     /// Returns all resources by category
     pub fn by_category() -> Vec<(&'static str, Vec<ResourceType>)> {
         vec![
-            ("Volatiles", vec![
-                ResourceType::Water,
-                ResourceType::Hydrogen,
-                ResourceType::Ammonia,
-                ResourceType::Methane,
-            ]),
-            ("Atmospheric Gases", vec![
-                ResourceType::Nitrogen,
-                ResourceType::Oxygen,
-                ResourceType::CarbonDioxide,
-                ResourceType::Argon,
-            ]),
-            ("Construction", vec![
-                ResourceType::Iron,
-                ResourceType::Aluminum,
-                ResourceType::Titanium,
-                ResourceType::Silicates,
-            ]),
-            ("Fusion Fuel", vec![
-                ResourceType::Helium3,
-            ]),
-            ("Fissiles", vec![
-                ResourceType::Uranium,
-                ResourceType::Thorium,
-            ]),
-            ("Precious Metals", vec![
-                ResourceType::Gold,
-                ResourceType::Silver,
-                ResourceType::Platinum,
-            ]),
-            ("Specialty", vec![
-                ResourceType::Copper,
-                ResourceType::RareEarths,
-            ]),
+            (
+                "Volatiles",
+                vec![
+                    ResourceType::Water,
+                    ResourceType::Hydrogen,
+                    ResourceType::Ammonia,
+                    ResourceType::Methane,
+                ],
+            ),
+            (
+                "Atmospheric Gases",
+                vec![
+                    ResourceType::Nitrogen,
+                    ResourceType::Oxygen,
+                    ResourceType::CarbonDioxide,
+                    ResourceType::Argon,
+                ],
+            ),
+            (
+                "Construction",
+                vec![
+                    ResourceType::Iron,
+                    ResourceType::Aluminum,
+                    ResourceType::Titanium,
+                    ResourceType::Silicates,
+                ],
+            ),
+            ("Fusion Fuel", vec![ResourceType::Helium3]),
+            (
+                "Fissiles",
+                vec![ResourceType::Uranium, ResourceType::Thorium],
+            ),
+            (
+                "Precious Metals",
+                vec![
+                    ResourceType::Gold,
+                    ResourceType::Silver,
+                    ResourceType::Platinum,
+                ],
+            ),
+            (
+                "Specialty",
+                vec![ResourceType::Copper, ResourceType::RareEarths],
+            ),
         ]
     }
 }
@@ -271,7 +294,10 @@ mod tests {
             .iter()
             .filter(|r| r.is_critical())
             .count();
-        assert_eq!(critical_count, 5, "Should have exactly 5 critical resources");
+        assert_eq!(
+            critical_count, 5,
+            "Should have exactly 5 critical resources"
+        );
     }
 
     #[test]
@@ -305,10 +331,10 @@ mod tests {
     #[test]
     fn test_by_category() {
         let categories = ResourceType::by_category();
-        
+
         // Should have 7 categories
         assert_eq!(categories.len(), 7);
-        
+
         // Check category names
         assert_eq!(categories[0].0, "Volatiles");
         assert_eq!(categories[1].0, "Atmospheric Gases");
@@ -317,9 +343,12 @@ mod tests {
         assert_eq!(categories[4].0, "Fissiles");
         assert_eq!(categories[5].0, "Precious Metals");
         assert_eq!(categories[6].0, "Specialty");
-        
+
         // Check total resources (should be all 20)
-        let total_resources: usize = categories.iter().map(|(_, resources)| resources.len()).sum();
+        let total_resources: usize = categories
+            .iter()
+            .map(|(_, resources)| resources.len())
+            .sum();
         assert_eq!(total_resources, 20);
     }
 }

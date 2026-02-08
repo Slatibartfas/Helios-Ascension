@@ -14,14 +14,14 @@ pub mod interaction;
 
 pub use interaction::Selection;
 
-use crate::astronomy::{AtmosphereComposition, Hovered, KeplerOrbit, Selected, SpaceCoordinates};
 use crate::astronomy::components::{CurrentStarSystem, SystemId};
 use crate::astronomy::nearby_stars::NearbyStarsData;
-use crate::economy::{format_power, GlobalBudget, PlanetResources, ResourceType};
+use crate::astronomy::{AtmosphereComposition, Hovered, KeplerOrbit, Selected, SpaceCoordinates};
 use crate::economy::components::SurveyLevel;
+use crate::economy::{format_power, GlobalBudget, PlanetResources, ResourceType};
+use crate::plugins::camera::{CameraAnchor, GameCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, LogicalParent};
 use crate::plugins::solar_system_data::BodyType;
-use crate::plugins::camera::{CameraAnchor, GameCamera, ViewMode};
 use crate::plugins::starmap::{HoveredStarSystem, SelectedStarSystem, StarSystemIcon};
 
 /// Maximum time scale: 1 year per second (365.25 * 86400 ≈ 31,557,600)
@@ -86,16 +86,16 @@ pub struct SimulationTime {
 impl SimulationTime {
     /// January 1, 2026 00:00:00 UTC as Unix timestamp
     const START_TIMESTAMP: i64 = 1_767_225_600; // Jan 1, 2026 00:00:00 UTC
-    
+
     pub fn new() -> Self {
-        Self { 
+        Self {
             elapsed: 0.0,
             start_timestamp: Self::START_TIMESTAMP,
         }
     }
-    
+
     /// Create a SimulationTime with a custom start date
-    /// 
+    ///
     /// For custom game start dates, use this constructor along with
     /// `crate::astronomy::calculate_positions_at_timestamp()` to compute
     /// initial orbital positions for all celestial bodies.
@@ -110,28 +110,28 @@ impl SimulationTime {
     pub fn elapsed_seconds(&self) -> f64 {
         self.elapsed
     }
-    
+
     /// Get the current simulation date as Unix timestamp
     pub fn current_timestamp(&self) -> i64 {
         self.start_timestamp + self.elapsed as i64
     }
-    
+
     /// Format the current date/time as DD.MM.YYYY HH:MM
     pub fn format_date_time(&self) -> String {
         let timestamp = self.current_timestamp();
-        
+
         // Convert Unix timestamp to date components
         let total_days = timestamp / 86400;
         let time_of_day = timestamp % 86400;
-        
+
         let hours = (time_of_day / 3600) % 24;
         let minutes = (time_of_day % 3600) / 60;
-        
+
         // Simplified date calculation starting from Unix epoch (1970-01-01)
         // This is a simplified calculation for display purposes
         let mut days_remaining = total_days;
         let mut year = 1970;
-        
+
         loop {
             let days_in_year = if is_leap_year(year) { 366 } else { 365 };
             if days_remaining >= days_in_year {
@@ -141,10 +141,10 @@ impl SimulationTime {
                 break;
             }
         }
-        
+
         let mut month = 1;
         let days_in_months = get_days_in_months(year);
-        
+
         for &days_in_month in &days_in_months {
             if days_remaining >= days_in_month {
                 days_remaining -= days_in_month;
@@ -153,10 +153,13 @@ impl SimulationTime {
                 break;
             }
         }
-        
+
         let day = days_remaining + 1; // Days are 1-indexed
-        
-        format!("{:02}.{:02}.{} {:02}:{:02}", day, month, year, hours, minutes)
+
+        format!(
+            "{:02}.{:02}.{} {:02}:{:02}",
+            day, month, year, hours, minutes
+        )
     }
 }
 
@@ -213,14 +216,17 @@ impl Plugin for UIPlugin {
             .init_resource::<TimeScale>()
             .init_resource::<SimulationTime>()
             // Systems
-            .add_systems(Update, (
-                ui_dashboard,
-                ui_hover_tooltip,
-                ui_starmap_hover_tooltip, // New: starmap tooltips
-                ui_starmap_labels,
-                sync_selection_with_astronomy,
-                advance_simulation_time,
-            ));
+            .add_systems(
+                Update,
+                (
+                    ui_dashboard,
+                    ui_hover_tooltip,
+                    ui_starmap_hover_tooltip, // New: starmap tooltips
+                    ui_starmap_labels,
+                    sync_selection_with_astronomy,
+                    advance_simulation_time,
+                ),
+            );
     }
 }
 
@@ -258,7 +264,11 @@ fn ui_starmap_labels(
     mut contexts: EguiContexts,
     view_mode: Res<ViewMode>,
     camera_query: Query<(&Camera, &GlobalTransform), With<GameCamera>>,
-    icon_query: Query<(&GlobalTransform, &StarSystemIcon, Option<&SelectedStarSystem>)>,
+    icon_query: Query<(
+        &GlobalTransform,
+        &StarSystemIcon,
+        Option<&SelectedStarSystem>,
+    )>,
 ) {
     if *view_mode != ViewMode::Starmap {
         return;
@@ -272,12 +282,12 @@ fn ui_starmap_labels(
 
     for (icon_transform, icon, is_selected) in icon_query.iter() {
         let icon_pos = icon_transform.translation();
-        
+
         // Project 3D position to screen space
         if let Some(screen_pos) = camera.world_to_viewport(camera_transform, icon_pos) {
             // Offset label to the right of the icon
             let label_pos = egui::pos2(screen_pos.x + 30.0, screen_pos.y - 10.0);
-            
+
             egui::Area::new(egui::Id::new(format!("starmap_label_{}", icon.name)))
                 .fixed_pos(label_pos)
                 .interactable(false)
@@ -288,7 +298,7 @@ fn ui_starmap_labels(
                     } else {
                         egui::Color32::from_rgb(200, 200, 200) // Light gray for others
                     };
-                    
+
                     ui.colored_label(color, &icon.name);
                 });
         }
@@ -296,11 +306,7 @@ fn ui_starmap_labels(
 }
 
 /// Helper function to render a selectable label with highlighting for selected items
-fn render_selectable_label(
-    ui: &mut egui::Ui,
-    is_selected: bool,
-    name: &str,
-) -> egui::Response {
+fn render_selectable_label(ui: &mut egui::Ui, is_selected: bool, name: &str) -> egui::Response {
     if is_selected {
         ui.selectable_label(is_selected, name).highlight()
     } else {
@@ -320,23 +326,31 @@ fn render_body_row(
     let is_selected = selection.is_selected(entity);
     ui.horizontal(|ui| {
         ui.add_space(20.0);
-        if ui.small_button("⚓").on_hover_text("Anchor Camera").clicked() {
+        if ui
+            .small_button("⚓")
+            .on_hover_text("Anchor Camera")
+            .clicked()
+        {
             // Select the body when anchoring
-            for e in selected_query.iter() { commands.entity(e).remove::<Selected>(); }
+            for e in selected_query.iter() {
+                commands.entity(e).remove::<Selected>();
+            }
             commands.entity(entity).insert(Selected);
             selection.select(entity);
-            
+
             // Anchor the camera
             if let Ok(mut anchor) = anchor_query.get_single_mut() {
                 anchor.0 = Some(entity);
             }
         }
-        
+
         // Use a visually distinct style for selected items
         if render_selectable_label(ui, is_selected, &body.name).clicked() {
-             for e in selected_query.iter() { commands.entity(e).remove::<Selected>(); }
-             commands.entity(entity).insert(Selected);
-             selection.select(entity);
+            for e in selected_query.iter() {
+                commands.entity(e).remove::<Selected>();
+            }
+            commands.entity(entity).insert(Selected);
+            selection.select(entity);
         }
     });
 }
@@ -353,23 +367,32 @@ fn render_grouped_children(
     selected_query: &Query<Entity, With<Selected>>,
     anchor_query: &mut Query<&mut CameraAnchor, With<GameCamera>>,
 ) {
-    if children.is_empty() { return; }
-    
+    if children.is_empty() {
+        return;
+    }
+
     // Make ID unique by including parent entity to avoid UI jumping bug
     let id = ui.make_persistent_id((group_name, parent_entity));
     egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
         .show_header(ui, |ui| {
-             ui.label(format!("{} ({})", group_name, children.len()));
+            ui.label(format!("{} ({})", group_name, children.len()));
         })
         .body(|ui| {
             for &child_entity in children {
                 if let Some(body) = body_map.get(&child_entity) {
-                    render_body_row(ui, child_entity, body, selection, commands, selected_query, anchor_query);
+                    render_body_row(
+                        ui,
+                        child_entity,
+                        body,
+                        selection,
+                        commands,
+                        selected_query,
+                        anchor_query,
+                    );
                 }
             }
         });
 }
-
 
 #[allow(clippy::too_many_arguments)]
 fn render_body_tree(
@@ -385,7 +408,7 @@ fn render_body_tree(
     if let Some(body) = body_map.get(&entity) {
         let is_selected = selection.is_selected(entity);
         let id = ui.make_persistent_id(entity);
-        
+
         // Group children by type
         let mut child_planets = Vec::new();
         let mut child_moons = Vec::new(); // Usually planets have moons
@@ -397,14 +420,14 @@ fn render_body_tree(
         let has_children = if let Some(children) = hierarchy.get(&entity) {
             for &child in children {
                 if let Some(child_body) = body_map.get(&child) {
-                     match child_body.body_type {
-                         BodyType::Planet => child_planets.push(child),
-                         BodyType::Moon => child_moons.push(child),
-                         BodyType::Asteroid => child_asteroids.push(child),
-                         BodyType::Comet => child_comets.push(child),
-                         BodyType::DwarfPlanet => child_dwarf_planets.push(child),
-                         _ => child_others.push(child),
-                     }
+                    match child_body.body_type {
+                        BodyType::Planet => child_planets.push(child),
+                        BodyType::Moon => child_moons.push(child),
+                        BodyType::Asteroid => child_asteroids.push(child),
+                        BodyType::Comet => child_comets.push(child),
+                        BodyType::DwarfPlanet => child_dwarf_planets.push(child),
+                        _ => child_others.push(child),
+                    }
                 }
             }
             true
@@ -413,47 +436,125 @@ fn render_body_tree(
         };
 
         if has_children {
-             egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, body.name == "Sol")
-                .show_header(ui, |ui| {
-                    if ui.small_button("⚓").on_hover_text("Anchor Camera").clicked() {
-                        // Select the body when anchoring
-                        for e in selected_query.iter() { commands.entity(e).remove::<Selected>(); }
-                        commands.entity(entity).insert(Selected);
-                        selection.select(entity);
-                        
-                        // Anchor the camera
-                        if let Ok(mut anchor) = anchor_query.get_single_mut() {
-                            anchor.0 = Some(entity);
-                        }
+            egui::collapsing_header::CollapsingState::load_with_default_open(
+                ui.ctx(),
+                id,
+                body.name == "Sol",
+            )
+            .show_header(ui, |ui| {
+                if ui
+                    .small_button("⚓")
+                    .on_hover_text("Anchor Camera")
+                    .clicked()
+                {
+                    // Select the body when anchoring
+                    for e in selected_query.iter() {
+                        commands.entity(e).remove::<Selected>();
                     }
-                    
-                    // Use a visually distinct style for selected items
-                    if render_selectable_label(ui, is_selected, &body.name).clicked() {
-                         for e in selected_query.iter() { commands.entity(e).remove::<Selected>(); }
-                         commands.entity(entity).insert(Selected);
-                         selection.select(entity);
+                    commands.entity(entity).insert(Selected);
+                    selection.select(entity);
+
+                    // Anchor the camera
+                    if let Ok(mut anchor) = anchor_query.get_single_mut() {
+                        anchor.0 = Some(entity);
                     }
-                })
-                .body(|ui| {
-                     // 1. Planets (Recursive)
-                    for child in child_planets {
-                        render_body_tree(ui, child, body_map, hierarchy, selection, commands, selected_query, anchor_query);
+                }
+
+                // Use a visually distinct style for selected items
+                if render_selectable_label(ui, is_selected, &body.name).clicked() {
+                    for e in selected_query.iter() {
+                        commands.entity(e).remove::<Selected>();
                     }
-                    // 2. Dwarf Planets (Grouped or Recursive if important?) Grouped.
-                    render_grouped_children(ui, &child_dwarf_planets, "Dwarf Planets", entity, body_map, selection, commands, selected_query, anchor_query);
-                    // 3. Moons (Usually under planets, but if under Sol/others?)
-                    render_grouped_children(ui, &child_moons, "Moons", entity, body_map, selection, commands, selected_query, anchor_query);
-                     // 4. Asteroids
-                    render_grouped_children(ui, &child_asteroids, "Asteroids", entity, body_map, selection, commands, selected_query, anchor_query);
-                     // 5. Comets
-                    render_grouped_children(ui, &child_comets, "Comets", entity, body_map, selection, commands, selected_query, anchor_query);
-                     // 6. Others
-                    for child in child_others {
-                        render_body_tree(ui, child, body_map, hierarchy, selection, commands, selected_query, anchor_query);
-                    }
-                });
+                    commands.entity(entity).insert(Selected);
+                    selection.select(entity);
+                }
+            })
+            .body(|ui| {
+                // 1. Planets (Recursive)
+                for child in child_planets {
+                    render_body_tree(
+                        ui,
+                        child,
+                        body_map,
+                        hierarchy,
+                        selection,
+                        commands,
+                        selected_query,
+                        anchor_query,
+                    );
+                }
+                // 2. Dwarf Planets (Grouped or Recursive if important?) Grouped.
+                render_grouped_children(
+                    ui,
+                    &child_dwarf_planets,
+                    "Dwarf Planets",
+                    entity,
+                    body_map,
+                    selection,
+                    commands,
+                    selected_query,
+                    anchor_query,
+                );
+                // 3. Moons (Usually under planets, but if under Sol/others?)
+                render_grouped_children(
+                    ui,
+                    &child_moons,
+                    "Moons",
+                    entity,
+                    body_map,
+                    selection,
+                    commands,
+                    selected_query,
+                    anchor_query,
+                );
+                // 4. Asteroids
+                render_grouped_children(
+                    ui,
+                    &child_asteroids,
+                    "Asteroids",
+                    entity,
+                    body_map,
+                    selection,
+                    commands,
+                    selected_query,
+                    anchor_query,
+                );
+                // 5. Comets
+                render_grouped_children(
+                    ui,
+                    &child_comets,
+                    "Comets",
+                    entity,
+                    body_map,
+                    selection,
+                    commands,
+                    selected_query,
+                    anchor_query,
+                );
+                // 6. Others
+                for child in child_others {
+                    render_body_tree(
+                        ui,
+                        child,
+                        body_map,
+                        hierarchy,
+                        selection,
+                        commands,
+                        selected_query,
+                        anchor_query,
+                    );
+                }
+            });
         } else {
-             render_body_row(ui, entity, body, selection, commands, selected_query, anchor_query);
+            render_body_row(
+                ui,
+                entity,
+                body,
+                selection,
+                commands,
+                selected_query,
+                anchor_query,
+            );
         }
     }
 }
@@ -471,7 +572,8 @@ fn ui_hover_tooltip(
     // Display hover tooltip if a body is hovered
     if let Ok(body) = hovered_query.get_single() {
         // Anchor the tooltip near the mouse pointer so it appears over the 3D view
-        let tooltip_pos = ctx.input(|i| i.pointer.hover_pos())
+        let tooltip_pos = ctx
+            .input(|i| i.pointer.hover_pos())
             .map(|p| egui::pos2(p.x + 12.0, p.y + 12.0))
             .unwrap_or(egui::pos2(100.0, 100.0));
 
@@ -483,24 +585,27 @@ fn ui_hover_tooltip(
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                 egui::Frame::none()
                     .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 30, 240))
-                    .stroke(egui::Stroke::new(2.0, egui::Color32::from_rgb(100, 180, 255)))
+                    .stroke(egui::Stroke::new(
+                        2.0,
+                        egui::Color32::from_rgb(100, 180, 255),
+                    ))
                     .inner_margin(12.0)
                     .show(ui, |ui| {
                         // Use horizontal layout to prevent narrow wrapping
                         ui.horizontal(|ui| {
-                             ui.label(
+                            ui.label(
                                 egui::RichText::new(&body.name)
                                     .size(16.0)
                                     .color(egui::Color32::from_rgb(150, 220, 255))
-                                    .strong()
+                                    .strong(),
                             );
                         });
-                        
+
                         ui.horizontal(|ui| {
                             ui.label(
                                 egui::RichText::new(format!("Type: {:?}", body.body_type))
                                     .size(12.0)
-                                    .color(egui::Color32::from_rgb(180, 180, 180))
+                                    .color(egui::Color32::from_rgb(180, 180, 180)),
                             );
                         });
                     });
@@ -528,12 +633,14 @@ fn ui_starmap_hover_tooltip(
     // Display hover tooltip if a star system is hovered
     if let Ok(icon) = hovered_query.get_single() {
         // Anchor the tooltip near the mouse pointer
-        let tooltip_pos = ctx.input(|i| i.pointer.hover_pos())
+        let tooltip_pos = ctx
+            .input(|i| i.pointer.hover_pos())
             .map(|p| egui::pos2(p.x + 12.0, p.y + 12.0))
             .unwrap_or(egui::pos2(100.0, 100.0));
 
         // Count bodies in this system
-        let body_count = bodies_query.iter()
+        let body_count = bodies_query
+            .iter()
             .filter(|(_, sys_id)| sys_id.0 == icon.id)
             .count();
 
@@ -548,7 +655,10 @@ fn ui_starmap_hover_tooltip(
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                 egui::Frame::none()
                     .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 30, 240))
-                    .stroke(egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 180, 100)))
+                    .stroke(egui::Stroke::new(
+                        2.0,
+                        egui::Color32::from_rgb(255, 180, 100),
+                    ))
                     .inner_margin(12.0)
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
@@ -556,15 +666,15 @@ fn ui_starmap_hover_tooltip(
                                 egui::RichText::new(&icon.name)
                                     .size(16.0)
                                     .color(egui::Color32::from_rgb(255, 220, 150))
-                                    .strong()
+                                    .strong(),
                             );
                         });
-                        
+
                         ui.horizontal(|ui| {
                             ui.label(
                                 egui::RichText::new(format!("Distance: {:.2} ly", distance_ly))
                                     .size(12.0)
-                                    .color(egui::Color32::from_rgb(180, 180, 180))
+                                    .color(egui::Color32::from_rgb(180, 180, 180)),
                             );
                         });
 
@@ -573,7 +683,7 @@ fn ui_starmap_hover_tooltip(
                                 ui.label(
                                     egui::RichText::new(format!("Bodies: {}", body_count))
                                         .size(12.0)
-                                        .color(egui::Color32::from_rgb(180, 180, 180))
+                                        .color(egui::Color32::from_rgb(180, 180, 180)),
                                 );
                             });
                         }
@@ -586,7 +696,7 @@ fn ui_starmap_hover_tooltip(
 /// Supports kt, Mt, Gt, Tt, Pt, Et...
 fn format_mass(megatons: f64) -> String {
     let abs_val = megatons.abs();
-    
+
     // Handle 0
     if abs_val == 0.0 {
         return "0.0 kt".to_string();
@@ -594,27 +704,27 @@ fn format_mass(megatons: f64) -> String {
 
     // Smallest unit: kilotons (kt)
     // 1 Mt = 1000 kt
-    if abs_val < 1.0 { 
-         // For very small amounts (e.g. < 0.1 kt), maybe use tons? 
-         // But user requested "kilotons, megatons and Gigatons".
-         return format!("{:.1} kt", megatons * 1000.0);
+    if abs_val < 1.0 {
+        // For very small amounts (e.g. < 0.1 kt), maybe use tons?
+        // But user requested "kilotons, megatons and Gigatons".
+        return format!("{:.1} kt", megatons * 1000.0);
     }
-    
+
     // Megatons (Mt)
     if abs_val < 1000.0 {
         return format!("{:.1} Mt", megatons);
     }
-    
+
     // Gigatons (Gt) - 1 Gt = 1000 Mt
     if abs_val < 1_000_000.0 {
         return format!("{:.1} Gt", megatons / 1000.0);
     }
-    
+
     // Teratons (Tt) - 1 Tt = 1000 Gt = 1,000,000 Mt
     if abs_val < 1_000_000_000.0 {
-         return format!("{:.1} Tt", megatons / 1_000_000.0);
+        return format!("{:.1} Tt", megatons / 1_000_000.0);
     }
-    
+
     // Petatons (Pt) - 1 Pt = 1000 Tt = 1,000,000,000 Mt
     if abs_val < 1_000_000_000_000.0 {
         return format!("{:.1} Pt", megatons / 1_000_000_000.0);
@@ -638,11 +748,24 @@ fn ui_dashboard(
     current_system: Res<CurrentStarSystem>,
     nearby_stars: Res<NearbyStarsData>,
     // Query for selected body information
-    mut body_query: Query<(&CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>, Option<&PlanetResources>, Option<&AtmosphereComposition>, Option<&mut SurveyLevel>)>,
+    mut body_query: Query<(
+        &CelestialBody,
+        &SpaceCoordinates,
+        Option<&KeplerOrbit>,
+        Option<&PlanetResources>,
+        Option<&AtmosphereComposition>,
+        Option<&mut SurveyLevel>,
+    )>,
     // Resource query for system totals
     resource_query: Query<(&SystemId, &PlanetResources)>,
     // Ledger queries
-    all_bodies_query: Query<(Entity, &CelestialBody, Option<&LogicalParent>, Option<&KeplerOrbit>, Option<&SystemId>)>,
+    all_bodies_query: Query<(
+        Entity,
+        &CelestialBody,
+        Option<&LogicalParent>,
+        Option<&KeplerOrbit>,
+        Option<&SystemId>,
+    )>,
     selected_query: Query<Entity, With<Selected>>,
     // Starmap queries
     star_system_query: Query<(Entity, &StarSystemIcon, Option<&SelectedStarSystem>)>,
@@ -662,84 +785,109 @@ fn ui_dashboard(
                     // Starmap view: show list of star systems
                     ui.heading("Star Systems");
                     ui.separator();
-                    
-                    egui::ScrollArea::vertical().id_source("starmap_ledger_scroll").show(ui, |ui| {
-                        for (entity, icon, is_selected) in star_system_query.iter() {
-                            let response = render_selectable_label(ui, is_selected.is_some(), &icon.name);
-                            
-                            if response.double_clicked() {
-                                // Anchor camera to this system
-                                if let Ok(mut anchor) = anchor_query.get_single_mut() {
-                                    anchor.0 = Some(entity);
-                                    info!("Anchored to {}", icon.name);
+
+                    egui::ScrollArea::vertical()
+                        .id_source("starmap_ledger_scroll")
+                        .show(ui, |ui| {
+                            for (entity, icon, is_selected) in star_system_query.iter() {
+                                let response =
+                                    render_selectable_label(ui, is_selected.is_some(), &icon.name);
+
+                                if response.double_clicked() {
+                                    // Anchor camera to this system
+                                    if let Ok(mut anchor) = anchor_query.get_single_mut() {
+                                        anchor.0 = Some(entity);
+                                        info!("Anchored to {}", icon.name);
+                                    }
                                 }
                             }
-                        }
-                    });
+                        });
                 }
                 ViewMode::System => {
                     // System view: show celestial body hierarchy
                     ui.heading("Celestial Objects");
                     ui.separator();
-                    
-                    egui::ScrollArea::vertical().id_source("ledger_scroll").show(ui, |ui| {
-                        let mut hierarchy: std::collections::HashMap<Entity, Vec<Entity>> = std::collections::HashMap::new();
-                        let mut roots: Vec<Entity> = Vec::new();
-                        let mut body_map: std::collections::HashMap<Entity, &CelestialBody> = std::collections::HashMap::new();
-                        let mut orbit_map: std::collections::HashMap<Entity, f64> = std::collections::HashMap::new();
 
-                        for (entity, body, logical_parent, orbit, system_id) in all_bodies_query.iter() {
-                            // Filter by current star system
-                            let sys_id = system_id.map(|s| s.0).unwrap_or(0);
-                            if sys_id != current_system.0 {
-                                continue;
-                            }
+                    egui::ScrollArea::vertical()
+                        .id_source("ledger_scroll")
+                        .show(ui, |ui| {
+                            let mut hierarchy: std::collections::HashMap<Entity, Vec<Entity>> =
+                                std::collections::HashMap::new();
+                            let mut roots: Vec<Entity> = Vec::new();
+                            let mut body_map: std::collections::HashMap<Entity, &CelestialBody> =
+                                std::collections::HashMap::new();
+                            let mut orbit_map: std::collections::HashMap<Entity, f64> =
+                                std::collections::HashMap::new();
 
-                            body_map.insert(entity, body);
-                            if let Some(orbit) = orbit {
-                                orbit_map.insert(entity, orbit.semi_major_axis);
-                            }
-                            
-                            if let Some(logical_parent) = logical_parent {
-                                hierarchy.entry(logical_parent.0).or_default().push(entity);
-                            } else {
-                                roots.push(entity);
-                            }
-                        }
-                        
-                        // Helper closure to sort entities
-                        let sort_entities = |entities: &mut Vec<Entity>| {
-                            entities.sort_by(|a, b| {
-                                let name_a = &body_map.get(a).unwrap().name;
-                                let name_b = &body_map.get(b).unwrap().name;
-                                
-                                // Always keep Sol at the top
-                                if name_a == "Sol" { return std::cmp::Ordering::Less; }
-                                if name_b == "Sol" { return std::cmp::Ordering::Greater; }
-                                
-                                // Sort by orbit distance (semi-major axis)
-                                let dist_a = orbit_map.get(a).unwrap_or(&0.0);
-                                let dist_b = orbit_map.get(b).unwrap_or(&0.0);
-                                
-                                match dist_a.partial_cmp(dist_b) {
-                                    Some(std::cmp::Ordering::Equal) | None => name_a.cmp(name_b), // Fallback to name
-                                    Some(ord) => ord,
+                            for (entity, body, logical_parent, orbit, system_id) in
+                                all_bodies_query.iter()
+                            {
+                                // Filter by current star system
+                                let sys_id = system_id.map(|s| s.0).unwrap_or(0);
+                                if sys_id != current_system.0 {
+                                    continue;
                                 }
-                            });
-                        };
 
-                        // Sort roots
-                        sort_entities(&mut roots);
-                        
-                        // Sort all children lists in the hierarchy
-                        for children in hierarchy.values_mut() {
-                            sort_entities(children);
-                        }
+                                body_map.insert(entity, body);
+                                if let Some(orbit) = orbit {
+                                    orbit_map.insert(entity, orbit.semi_major_axis);
+                                }
 
-                        for root in roots {
-                            render_body_tree(ui, root, &body_map, &hierarchy, &mut selection, &mut commands, &selected_query, &mut anchor_query);
-                        }
-                    });
+                                if let Some(logical_parent) = logical_parent {
+                                    hierarchy.entry(logical_parent.0).or_default().push(entity);
+                                } else {
+                                    roots.push(entity);
+                                }
+                            }
+
+                            // Helper closure to sort entities
+                            let sort_entities = |entities: &mut Vec<Entity>| {
+                                entities.sort_by(|a, b| {
+                                    let name_a = &body_map.get(a).unwrap().name;
+                                    let name_b = &body_map.get(b).unwrap().name;
+
+                                    // Always keep Sol at the top
+                                    if name_a == "Sol" {
+                                        return std::cmp::Ordering::Less;
+                                    }
+                                    if name_b == "Sol" {
+                                        return std::cmp::Ordering::Greater;
+                                    }
+
+                                    // Sort by orbit distance (semi-major axis)
+                                    let dist_a = orbit_map.get(a).unwrap_or(&0.0);
+                                    let dist_b = orbit_map.get(b).unwrap_or(&0.0);
+
+                                    match dist_a.partial_cmp(dist_b) {
+                                        Some(std::cmp::Ordering::Equal) | None => {
+                                            name_a.cmp(name_b)
+                                        } // Fallback to name
+                                        Some(ord) => ord,
+                                    }
+                                });
+                            };
+
+                            // Sort roots
+                            sort_entities(&mut roots);
+
+                            // Sort all children lists in the hierarchy
+                            for children in hierarchy.values_mut() {
+                                sort_entities(children);
+                            }
+
+                            for root in roots {
+                                render_body_tree(
+                                    ui,
+                                    root,
+                                    &body_map,
+                                    &hierarchy,
+                                    &mut selection,
+                                    &mut commands,
+                                    &selected_query,
+                                    &mut anchor_query,
+                                );
+                            }
+                        });
                 }
             }
         });
@@ -755,12 +903,15 @@ fn ui_dashboard(
                 // Show resource categories with hover expansion
                 for (category_name, resources) in ResourceType::by_category() {
                     // Calculate total for category
-                    let category_total: f64 = resources.iter()
-                        .map(|r| budget.get_stockpile(r))
-                        .sum();
-                    
-                    let category_label = ui.label(format!("{}: {}", category_name, format_mass(category_total)));
-                    
+                    let category_total: f64 =
+                        resources.iter().map(|r| budget.get_stockpile(r)).sum();
+
+                    let category_label = ui.label(format!(
+                        "{}: {}",
+                        category_name,
+                        format_mass(category_total)
+                    ));
+
                     // Show detailed breakdown on hover
                     category_label.on_hover_ui(|ui| {
                         ui.vertical(|ui| {
@@ -768,7 +919,8 @@ fn ui_dashboard(
                             ui.separator();
                             for resource in &resources {
                                 let amount = budget.get_stockpile(resource);
-                                ui.label(format!("  {} ({}): {}", 
+                                ui.label(format!(
+                                    "  {} ({}): {}",
                                     resource.display_name(),
                                     resource.symbol(),
                                     format_mass(amount)
@@ -776,7 +928,7 @@ fn ui_dashboard(
                             }
                         });
                     });
-                    
+
                     ui.separator();
                 }
 
@@ -787,7 +939,7 @@ fn ui_dashboard(
                 } else {
                     egui::Color32::RED
                 };
-                
+
                 ui.colored_label(
                     power_color,
                     format!("⚡ {}", format_power(budget.energy_grid.produced)),
@@ -797,7 +949,10 @@ fn ui_dashboard(
 
             // Second row with civilization score and efficiency
             ui.horizontal(|ui| {
-                ui.label(format!("Civilization Score: {:.1}", budget.civilization_score));
+                ui.label(format!(
+                    "Civilization Score: {:.1}",
+                    budget.civilization_score
+                ));
                 ui.separator();
                 ui.label(format!(
                     "Grid Efficiency: {:.1}%",
@@ -807,12 +962,19 @@ fn ui_dashboard(
         });
 
     // Right side panel - show either selected star system or selected body
-    let selected_star_system = star_system_query.iter()
+    let selected_star_system = star_system_query
+        .iter()
         .find(|(_, _, selected)| selected.is_some());
-    
+
     if let Some((_star_entity, star_icon, _)) = selected_star_system {
         // Show star system details
-        render_star_system_panel(ctx, star_icon, &all_bodies_query, &resource_query, &nearby_stars);
+        render_star_system_panel(
+            ctx,
+            star_icon,
+            &all_bodies_query,
+            &resource_query,
+            &nearby_stars,
+        );
     } else if selection.has_selection() {
         // Show selected celestial body details
         egui::SidePanel::right("selection_panel")
@@ -1129,7 +1291,7 @@ fn ui_dashboard(
                     egui::Slider::new(&mut time_scale.scale, 1.0..=MAX_TIME_SCALE)
                         .logarithmic(true)
                         .text("")
-                        .custom_formatter(|v, _| format_time_rate(v as f32))
+                        .custom_formatter(|v, _| format_time_rate(v as f32)),
                 );
             });
 
@@ -1144,7 +1306,9 @@ fn ui_dashboard(
                 // View mode indicator
                 let (view_label, view_color) = match *view_mode {
                     ViewMode::System => ("🔭 System View", egui::Color32::from_rgb(120, 180, 255)),
-                    ViewMode::Starmap => ("🌌 Starmap View", egui::Color32::from_rgb(255, 200, 100)),
+                    ViewMode::Starmap => {
+                        ("🌌 Starmap View", egui::Color32::from_rgb(255, 200, 100))
+                    }
                 };
                 ui.colored_label(view_color, view_label);
             });
@@ -1155,7 +1319,13 @@ fn ui_dashboard(
 fn render_star_system_panel(
     ctx: &egui::Context,
     star_icon: &StarSystemIcon,
-    bodies_query: &Query<(Entity, &CelestialBody, Option<&LogicalParent>, Option<&KeplerOrbit>, Option<&SystemId>)>,
+    bodies_query: &Query<(
+        Entity,
+        &CelestialBody,
+        Option<&LogicalParent>,
+        Option<&KeplerOrbit>,
+        Option<&SystemId>,
+    )>,
     resource_query: &Query<(&SystemId, &PlanetResources)>,
     nearby_stars: &Res<NearbyStarsData>,
 ) {
@@ -1185,20 +1355,30 @@ fn render_star_system_panel(
                 // Star properties
                 ui.group(|ui| {
                     ui.label(egui::RichText::new("Star Properties").strong());
-                    
+
                     for (star_idx, star_data) in system_data.stars.iter().enumerate() {
                         if system_data.stars.len() > 1 {
-                            ui.label(egui::RichText::new(format!("Star {}: {}", star_idx + 1, &star_data.name)).color(egui::Color32::from_rgb(200, 200, 255)));
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "Star {}: {}",
+                                    star_idx + 1,
+                                    &star_data.name
+                                ))
+                                .color(egui::Color32::from_rgb(200, 200, 255)),
+                            );
                         } else {
-                            ui.label(egui::RichText::new(&star_data.name).color(egui::Color32::from_rgb(200, 200, 255)));
+                            ui.label(
+                                egui::RichText::new(&star_data.name)
+                                    .color(egui::Color32::from_rgb(200, 200, 255)),
+                            );
                         }
-                        
+
                         ui.label(format!("  Type: {}", star_data.spectral_type));
                         ui.label(format!("  Mass: {:.2} M☉", star_data.mass_sol));
                         ui.label(format!("  Radius: {:.2} R☉", star_data.radius_sol));
                         ui.label(format!("  Luminosity: {:.3} L☉", star_data.luminosity_sol));
                         ui.label(format!("  Temperature: {} K", star_data.temp_k));
-                        
+
                         if let Some(metallicity) = star_data.metallicity {
                             let metallicity_color = if metallicity > 0.0 {
                                 egui::Color32::from_rgb(255, 220, 100)
@@ -1207,13 +1387,16 @@ fn render_star_system_panel(
                             } else {
                                 egui::Color32::from_rgb(200, 200, 200)
                             };
-                            
+
                             ui.label(
-                                egui::RichText::new(format!("  Metallicity: [Fe/H] = {:.2}", metallicity))
-                                    .color(metallicity_color)
+                                egui::RichText::new(format!(
+                                    "  Metallicity: [Fe/H] = {:.2}",
+                                    metallicity
+                                ))
+                                .color(metallicity_color),
                             );
                         }
-                        
+
                         ui.add_space(5.0);
                     }
                 });
@@ -1222,28 +1405,59 @@ fn render_star_system_panel(
             }
 
             // Count bodies in this system
-            let bodies: Vec<_> = bodies_query.iter()
+            let bodies: Vec<_> = bodies_query
+                .iter()
                 .filter(|(_, _, _, _, sys_id)| sys_id.map(|s| s.0 == star_icon.id).unwrap_or(false))
                 .collect();
 
             ui.group(|ui| {
                 ui.label(egui::RichText::new("System Bodies").strong());
                 ui.label(format!("Total bodies: {}", bodies.len()));
-                
+
                 // Count by type
-                let stars = bodies.iter().filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Star)).count();
-                let planets = bodies.iter().filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Planet)).count();
-                let dwarf_planets = bodies.iter().filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::DwarfPlanet)).count();
-                let moons = bodies.iter().filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Moon)).count();
-                let asteroids = bodies.iter().filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Asteroid)).count();
-                let comets = bodies.iter().filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Comet)).count();
-                
-                if stars > 0 { ui.label(format!("  Stars: {}", stars)); }
-                if planets > 0 { ui.label(format!("  Planets: {}", planets)); }
-                if dwarf_planets > 0 { ui.label(format!("  Dwarf Planets: {}", dwarf_planets)); }
-                if moons > 0 { ui.label(format!("  Moons: {}", moons)); }
-                if asteroids > 0 { ui.label(format!("  Asteroids: {}", asteroids)); }
-                if comets > 0 { ui.label(format!("  Comets: {}", comets)); }
+                let stars = bodies
+                    .iter()
+                    .filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Star))
+                    .count();
+                let planets = bodies
+                    .iter()
+                    .filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Planet))
+                    .count();
+                let dwarf_planets = bodies
+                    .iter()
+                    .filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::DwarfPlanet))
+                    .count();
+                let moons = bodies
+                    .iter()
+                    .filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Moon))
+                    .count();
+                let asteroids = bodies
+                    .iter()
+                    .filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Asteroid))
+                    .count();
+                let comets = bodies
+                    .iter()
+                    .filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Comet))
+                    .count();
+
+                if stars > 0 {
+                    ui.label(format!("  Stars: {}", stars));
+                }
+                if planets > 0 {
+                    ui.label(format!("  Planets: {}", planets));
+                }
+                if dwarf_planets > 0 {
+                    ui.label(format!("  Dwarf Planets: {}", dwarf_planets));
+                }
+                if moons > 0 {
+                    ui.label(format!("  Moons: {}", moons));
+                }
+                if asteroids > 0 {
+                    ui.label(format!("  Asteroids: {}", asteroids));
+                }
+                if comets > 0 {
+                    ui.label(format!("  Comets: {}", comets));
+                }
             });
 
             ui.add_space(10.0);
@@ -1251,10 +1465,11 @@ fn render_star_system_panel(
             // Calculate total resources
             ui.group(|ui| {
                 ui.label(egui::RichText::new("System Resources").strong());
-                
+
                 // Sum up all resources in this system
-                let mut total_resources: std::collections::HashMap<ResourceType, f64> = std::collections::HashMap::new();
-                
+                let mut total_resources: std::collections::HashMap<ResourceType, f64> =
+                    std::collections::HashMap::new();
+
                 for (sys_id, resources) in resource_query.iter() {
                     if sys_id.0 == star_icon.id {
                         for deposit in &resources.deposits {
@@ -1263,19 +1478,27 @@ fn render_star_system_panel(
                         }
                     }
                 }
-                
+
                 if total_resources.is_empty() {
                     ui.label("No surveyed resources yet");
                 } else {
-                    ui.label(format!("Surveyed resource types: {}", total_resources.len()));
-                    
+                    ui.label(format!(
+                        "Surveyed resource types: {}",
+                        total_resources.len()
+                    ));
+
                     // Show top 5 resources by abundance
                     let mut sorted_resources: Vec<_> = total_resources.iter().collect();
-                    sorted_resources.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
-                    
+                    sorted_resources
+                        .sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
+
                     ui.label(egui::RichText::new("Top resources:").italics());
                     for (resource_type, amount) in sorted_resources.iter().take(5) {
-                        ui.label(format!("  {}: {}", resource_type.display_name(), format_mass(**amount)));
+                        ui.label(format!(
+                            "  {}: {}",
+                            resource_type.display_name(),
+                            format_mass(**amount)
+                        ));
                     }
                 }
             });
@@ -1305,7 +1528,7 @@ mod tests {
     fn test_time_scale_pause() {
         let mut time_scale = TimeScale::new();
         time_scale.pause();
-        
+
         assert!(time_scale.is_paused());
         assert_eq!(time_scale.scale, 0.0);
     }
@@ -1325,11 +1548,11 @@ mod tests {
     fn test_selection_basics() {
         let selection = Selection::new();
         assert!(!selection.has_selection());
-        
+
         let mut selection = Selection::new();
         let entity = Entity::from_raw(1);
         selection.select(entity);
-        
+
         assert!(selection.has_selection());
         assert_eq!(selection.get(), Some(entity));
     }

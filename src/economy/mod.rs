@@ -18,7 +18,7 @@ pub mod types;
 pub use budget::{format_power, update_civilization_score, EnergyGrid, GlobalBudget};
 pub use components::{MineralDeposit, OrbitsBody, PlanetResources, SpectralClass, StarSystem};
 pub use generation::generate_solar_system_resources;
-pub use mining::{MiningOperation, extract_resources};
+pub use mining::{extract_resources, MiningOperation};
 pub use types::ResourceType;
 
 /// Plugin that adds the economy system to the Bevy app
@@ -30,14 +30,14 @@ impl Plugin for EconomyPlugin {
             // Resources
             .init_resource::<GlobalBudget>()
             // Startup systems
-            .add_systems(Startup, generate_solar_system_resources.after(
-                // Run after solar system is set up
-                crate::plugins::solar_system::setup_solar_system,
-            ))
+            .add_systems(
+                Startup,
+                generate_solar_system_resources.after(
+                    // Run after solar system is set up
+                    crate::plugins::solar_system::setup_solar_system,
+                ),
+            )
             // Update systems
-            .add_systems(Update, (
-                update_civilization_score,
-                extract_resources,
-            ));
+            .add_systems(Update, (update_civilization_score, extract_resources));
     }
 }

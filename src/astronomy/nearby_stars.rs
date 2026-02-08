@@ -8,7 +8,7 @@ pub struct NearbyStarsPlugin;
 impl Plugin for NearbyStarsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<NearbyStarsData>()
-           .add_systems(Startup, load_nearby_stars_data);
+            .add_systems(Startup, load_nearby_stars_data);
     }
 }
 
@@ -21,7 +21,7 @@ impl NearbyStarsData {
     pub fn get_by_name(&self, name: &str) -> Option<&StarSystemData> {
         self.systems.iter().find(|s| s.system_name == name)
     }
-    
+
     pub fn get_by_id(&self, id: usize) -> Option<&StarSystemData> {
         // ID 0 is Sol (not in this data), IDs 1+ map to systems[0+]
         if id == 0 {
@@ -100,14 +100,12 @@ pub struct BinaryOrbitData {
 fn load_nearby_stars_data(mut stars_data: ResMut<NearbyStarsData>) {
     let path = Path::new("assets/data/nearest_stars_raw.json");
     match fs::read_to_string(path) {
-        Ok(content) => {
-            match serde_json::from_str::<Vec<StarSystemData>>(&content) {
-                Ok(data) => {
-                    info!("Loaded data for {} nearby star systems.", data.len());
-                    stars_data.systems = data;
-                },
-                Err(e) => error!("Failed to parse nearby stars data: {}", e),
+        Ok(content) => match serde_json::from_str::<Vec<StarSystemData>>(&content) {
+            Ok(data) => {
+                info!("Loaded data for {} nearby star systems.", data.len());
+                stars_data.systems = data;
             }
+            Err(e) => error!("Failed to parse nearby stars data: {}", e),
         },
         Err(e) => warn!("Could not read nearby stars data file: {}", e),
     }

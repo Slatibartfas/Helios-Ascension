@@ -12,11 +12,11 @@ pub struct StarSystem {
     /// Beyond this distance, volatiles become more common
     /// Depends on star's luminosity and temperature
     pub frost_line_au: f64,
-    
+
     /// Stellar classification (for future use: O, B, A, F, G, K, M)
     /// Can affect resource generation parameters
     pub spectral_class: SpectralClass,
-    
+
     /// Stellar metallicity [Fe/H] relative to the Sun
     /// Sun = 0.0, higher values = more metals, lower = fewer metals
     /// Affects resource abundance in planets (especially rare metals/fissiles)
@@ -32,7 +32,7 @@ impl StarSystem {
             metallicity: 0.0, // Solar metallicity
         }
     }
-    
+
     /// Create a custom star system with specified frost line
     pub fn new(frost_line_au: f64, spectral_class: SpectralClass) -> Self {
         Self {
@@ -41,26 +41,30 @@ impl StarSystem {
             metallicity: 0.0, // Default to solar metallicity
         }
     }
-    
+
     /// Create a custom star system with specified frost line and metallicity
-    pub fn with_metallicity(frost_line_au: f64, spectral_class: SpectralClass, metallicity: f32) -> Self {
+    pub fn with_metallicity(
+        frost_line_au: f64,
+        spectral_class: SpectralClass,
+        metallicity: f32,
+    ) -> Self {
         Self {
             frost_line_au,
             spectral_class,
             metallicity,
         }
     }
-    
+
     /// Calculate frost line based on star luminosity (for procedural generation)
-    /// 
+    ///
     /// Uses the simplified formula: `frost_line = 2.7 * sqrt(L/L_sun)` AU
-    /// 
+    ///
     /// This is a first-order approximation based on stellar equilibrium temperature.
     /// More accurate models would account for:
     /// - Stellar age and protoplanetary disk composition
     /// - Stellar wind effects
     /// - Specific molecular freeze-out temperatures (H2O vs CH4 vs CO2)
-    /// 
+    ///
     /// For game purposes, this provides realistic variety across stellar types.
     pub fn from_luminosity(luminosity_solar: f64, spectral_class: SpectralClass) -> Self {
         let frost_line_au = 2.7 * luminosity_solar.sqrt();
@@ -70,11 +74,11 @@ impl StarSystem {
             metallicity: 0.0, // Default to solar metallicity
         }
     }
-    
+
     /// Calculate the metallicity multiplier for resource abundance
     /// Stars with higher metallicity have more heavy elements in their protoplanetary disk
     /// This affects the abundance of rare metals and fissile materials in planets
-    /// 
+    ///
     /// Returns a multiplier in the range [0.5, 1.5]:
     /// - Metallicity -0.5: 0.7x abundance (metal-poor)
     /// - Metallicity  0.0: 1.0x abundance (solar)
@@ -154,7 +158,7 @@ impl ResourceReserve {
 pub struct MineralDeposit {
     /// tiered reserve data replacing simple abundance
     pub reserve: ResourceReserve,
-    
+
     /// Accessibility of the resource (0.0 to 1.0, where 1.0 is easily accessible)
     /// This represents how difficult it is to extract (depth, location, processing difficulty)
     pub accessibility: f32,
@@ -180,19 +184,21 @@ impl MineralDeposit {
     /// Calculate the effective resource value
     pub fn effective_value(&self) -> f64 {
         // Simplified value estimation using proven reserves
-        self.reserve.proven_crustal * (self.reserve.concentration as f64) * (self.accessibility as f64)
+        self.reserve.proven_crustal
+            * (self.reserve.concentration as f64)
+            * (self.accessibility as f64)
     }
 
     /// Returns true if this deposit is economically viable (has meaningful resources)
     pub fn is_viable(&self) -> bool {
         self.reserve.proven_crustal > 0.1 || self.reserve.deep_deposits > 1.0
     }
-    
+
     /// Get total mass in Megatons
     pub fn total_megatons(&self) -> f64 {
         self.reserve.total_mass()
     }
-    
+
     /// Calculate energy cost per ton (Energy_Cost = (Base_Cost / Concentration) * (1.0 / Accessibility))
     pub fn energy_cost_per_ton(&self, base_cost: f64) -> f64 {
         let conc = self.reserve.concentration.max(0.0001);
@@ -206,9 +212,9 @@ impl MineralDeposit {
 pub enum SurveyLevel {
     #[default]
     Unsurveyed,
-    OrbitalScan,    // Reveals proven_crustal
-    SeismicSurvey,  // Reveals deep_deposits
-    CoreSample,     // Reveals planetary_bulk
+    OrbitalScan,   // Reveals proven_crustal
+    SeismicSurvey, // Reveals deep_deposits
+    CoreSample,    // Reveals planetary_bulk
 }
 
 impl SurveyLevel {
@@ -217,7 +223,9 @@ impl SurveyLevel {
             SurveyLevel::Unsurveyed => 0.0,
             SurveyLevel::OrbitalScan => reserve.proven_crustal,
             SurveyLevel::SeismicSurvey => reserve.proven_crustal + reserve.deep_deposits,
-            SurveyLevel::CoreSample => reserve.proven_crustal + reserve.deep_deposits + reserve.planetary_bulk,
+            SurveyLevel::CoreSample => {
+                reserve.proven_crustal + reserve.deep_deposits + reserve.planetary_bulk
+            }
         }
     }
 }
@@ -252,7 +260,7 @@ impl PlanetResources {
     pub fn get_deposit(&self, resource: &ResourceType) -> Option<&MineralDeposit> {
         self.deposits.get(resource)
     }
-    
+
     /// Get a mutable reference to a deposit for a specific resource
     pub fn get_deposit_mut(&mut self, resource: ResourceType) -> Option<&mut MineralDeposit> {
         self.deposits.get_mut(&resource)
@@ -289,10 +297,7 @@ impl PlanetResources {
 
     /// Calculate total resource value of this body
     pub fn total_value(&self) -> f64 {
-        self.deposits
-            .values()
-            .map(|d| d.effective_value())
-            .sum()
+        self.deposits.values().map(|d| d.effective_value()).sum()
     }
 }
 
@@ -313,7 +318,7 @@ mod tests {
         let m_star = StarSystem::from_luminosity(0.04, SpectralClass::M);
         // frost_line ≈ 2.7 * sqrt(0.04) ≈ 0.54 AU
         assert!(m_star.frost_line_au > 0.5 && m_star.frost_line_au < 0.6);
-        
+
         // Blue giant (A-type) with 40 solar luminosity
         let a_star = StarSystem::from_luminosity(40.0, SpectralClass::A);
         // frost_line ≈ 2.7 * sqrt(40) ≈ 17 AU
@@ -371,9 +376,9 @@ mod tests {
     fn test_planet_resources_add_and_get() {
         let mut resources = PlanetResources::new();
         let deposit = MineralDeposit::new(100.0, 50.0, 0.0, 0.7, 0.8);
-        
+
         resources.add_deposit(ResourceType::Iron, deposit);
-        
+
         let retrieved = resources.get_deposit(&ResourceType::Iron).unwrap();
         assert_eq!(retrieved.reserve.proven_crustal, 100.0);
         assert_eq!(retrieved.accessibility, 0.8);
@@ -382,22 +387,34 @@ mod tests {
     #[test]
     fn test_planet_resources_viable_deposits() {
         let mut resources = PlanetResources::new();
-        
+
         // Add viable deposit
-        resources.add_deposit(ResourceType::Iron, MineralDeposit::new(100.0, 0.0, 0.0, 1.0, 1.0));
+        resources.add_deposit(
+            ResourceType::Iron,
+            MineralDeposit::new(100.0, 0.0, 0.0, 1.0, 1.0),
+        );
         // Add non-viable deposit
-        resources.add_deposit(ResourceType::Water, MineralDeposit::new(0.01, 0.0, 0.0, 1.0, 1.0));
-        
+        resources.add_deposit(
+            ResourceType::Water,
+            MineralDeposit::new(0.01, 0.0, 0.0, 1.0, 1.0),
+        );
+
         assert_eq!(resources.viable_count(), 1);
     }
 
     #[test]
     fn test_planet_resources_total_value() {
         let mut resources = PlanetResources::new();
-        
-        resources.add_deposit(ResourceType::Iron, MineralDeposit::new(100.0, 0.0, 0.0, 0.8, 0.5)); // 40
-        resources.add_deposit(ResourceType::Water, MineralDeposit::new(200.0, 0.0, 0.0, 0.6, 0.5)); // 60
-        
+
+        resources.add_deposit(
+            ResourceType::Iron,
+            MineralDeposit::new(100.0, 0.0, 0.0, 0.8, 0.5),
+        ); // 40
+        resources.add_deposit(
+            ResourceType::Water,
+            MineralDeposit::new(200.0, 0.0, 0.0, 0.6, 0.5),
+        ); // 60
+
         let total = resources.total_value();
         assert!((total - 100.0).abs() < 0.001);
     }
