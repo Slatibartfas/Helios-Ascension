@@ -100,7 +100,7 @@
             )),
             rotation_period: 0.99726968,
             axial_tilt: 23.44,
-            north_pole_ra: 0.0, // Earth defines the reference direction
+            north_pole_ra: 270.0, // Aligned with solar system angular momentum (RA ~18h)
             // Multi-layer textures for advanced rendering
             multi_layer_textures: Some((
                 base: "textures/celestial/planets/earth_daymap_8k.jpg",

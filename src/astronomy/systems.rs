@@ -8,8 +8,9 @@ use super::components::{
 };
 use crate::plugins::camera::{CameraAnchor, GameCamera, OrbitCamera, ViewMode};
 use crate::plugins::solar_system::{
-    CelestialBody, Comet, LogicalParent, Moon, Planet, Star, RADIUS_SCALE,
+    CelestialBody, Comet, LogicalParent, Moon, Planet, Star,
 };
+use crate::plugins::solar_system_data::calculate_visual_radius;
 use crate::ui::SimulationTime;
 
 /// Scaling factor for converting astronomical units to Bevy rendering units
@@ -1529,7 +1530,7 @@ pub fn zoom_camera_to_anchored_body(
                 // Approximately 40 AU should show out to Neptune
                 40.0 * SCALING_FACTOR as f32
             } else {
-                let visual_radius = (body.radius * RADIUS_SCALE).max(5.0);
+                let visual_radius = calculate_visual_radius(body.body_type, body.radius);
 
                 // Check if any moon has this body as its logical parent
                 let has_moons = moon_parent_query.iter().any(|lp| lp.0 == anchored_entity);
