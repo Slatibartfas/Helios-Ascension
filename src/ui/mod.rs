@@ -22,7 +22,9 @@ use crate::astronomy::components::{CurrentStarSystem, SystemId};
 use crate::astronomy::nearby_stars::NearbyStarsData;
 use crate::astronomy::{AtmosphereComposition, Hovered, KeplerOrbit, Selected, SpaceCoordinates};
 use crate::economy::components::{Population, SurveyLevel};
-use crate::economy::{format_power, GlobalBudget, PlanetResources, ResourceType};
+use crate::economy::{
+    format_power, GlobalBudget, PlanetResources, PowerSourceType, ResourceType,
+};
 use crate::plugins::camera::{CameraAnchor, GameCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, LogicalParent};
 use crate::plugins::solar_system_data::BodyType;
@@ -536,7 +538,7 @@ struct OpenResourcePopup {
 fn ui_resources_bar(
     mut contexts: EguiContexts,
     budget: Res<GlobalBudget>,
-    population_query: Query<&Population>,
+    population_query: Query<(&Population, Option<&crate::plugins::solar_system::CelestialBody>)>,
     mut open_popup: Local<OpenResourcePopup>,
 ) {
     let ctx = match contexts.try_ctx_mut() {
@@ -545,7 +547,7 @@ fn ui_resources_bar(
     };
 
     // Calculate total population
-    let total_population: f64 = population_query.iter().map(|p| p.count).sum();
+    let total_population: f64 = population_query.iter().map(|(p, _)| p.count).sum();
 
     egui::TopBottomPanel::top("resources_bar")
         .min_height(40.0)
@@ -614,8 +616,8 @@ fn ui_resources_bar(
 
                     ui.separator();
 
-                     // Power grid status
-                     // Color code power: Green if surplus, Red if deficit
+                    // Power grid status
+                    // Color code power: Green if surplus, Red if deficit
                     let net_power = budget.net_power();
                     let power_color = if net_power >= 0.0 {
                         egui::Color32::GREEN
@@ -623,18 +625,101 @@ fn ui_resources_bar(
                         egui::Color32::RED
                     };
 
-                    ui.add(egui::Label::new(egui::RichText::new(format!("(Net: {})", format_power(net_power))).size(14.0)).selectable(false));
-                    ui.add(egui::Label::new(
-                        egui::RichText::new(format!("⚡ {}", format_power(budget.energy_grid.produced))).size(14.0).strong().color(power_color)
-                    ).selectable(false));
-                    
+                    let is_power_open = open_popup
+                        .open
+                        .as_ref()
+                        .map_or(false, |(n, _)| n == "Power");
+
+                    // Power generation display (clickable with tooltip)
+                    let response = egui::Frame::none()
+                        .inner_margin(egui::Margin::symmetric(5.0, 2.0))
+                        .show(ui, |ui| {
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(format!(
+                                        "⚡ {}",
+                                        format_power(budget.energy_grid.produced)
+                                    ))
+                                    .size(14.0)
+                                    .strong()
+                                    .color(power_color),
+                                )
+                                .selectable(false),
+                            );
+                        })
+                        .response;
+
+                    let interact = response.interact(egui::Sense::click());
+
+                    if interact.hovered() || is_power_open {
+                        ui.painter()
+                            .rect_stroke(interact.rect, 2.0, egui::Stroke::new(1.0, power_color));
+                        interact
+                            .clone()
+                            .on_hover_cursor(egui::CursorIcon::PointingHand);
+                    }
+
+                    if interact.clicked() {
+                        if is_power_open {
+                            open_popup.open = None;
+                        } else {
+                            open_popup.open = Some(("Power".to_string(), interact.rect));
+                        }
+                    }
 
                     ui.separator();
 
                     // Population
-                    // Right-to-left layout: Add Number first, then Icon so it appears as [Icon] [Number]
-                    ui.add(egui::Label::new(egui::RichText::new(format_population(total_population)).size(14.0)).selectable(false));
-                    ui.add(egui::Label::new(egui::RichText::new("👥").size(16.0).color(egui::Color32::WHITE)).selectable(false));
+                    let is_pop_open = open_popup
+                        .open
+                        .as_ref()
+                        .map_or(false, |(n, _)| n == "Population");
+
+                    // Use a Frame for the population display
+                    let pop_response = egui::Frame::none()
+                        .inner_margin(egui::Margin::symmetric(5.0, 2.0))
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                // Right-to-left ordering within this container handled by placement
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(format_population(total_population))
+                                            .size(14.0),
+                                    )
+                                    .selectable(false),
+                                );
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new("👥")
+                                            .size(16.0)
+                                            .color(egui::Color32::WHITE),
+                                    )
+                                    .selectable(false),
+                                );
+                            });
+                        })
+                        .response;
+
+                    let pop_interact = pop_response.interact(egui::Sense::click());
+
+                    if pop_interact.hovered() || is_pop_open {
+                        ui.painter().rect_stroke(
+                            pop_interact.rect,
+                            2.0,
+                            egui::Stroke::new(1.0, egui::Color32::WHITE),
+                        );
+                        pop_interact
+                            .clone()
+                            .on_hover_cursor(egui::CursorIcon::PointingHand);
+                    }
+
+                    if pop_interact.clicked() {
+                        if is_pop_open {
+                            open_popup.open = None;
+                        } else {
+                            open_popup.open = Some(("Population".to_string(), pop_interact.rect));
+                        }
+                    }
                 });
             });
         });
@@ -642,8 +727,154 @@ fn ui_resources_bar(
     // Render the resource popup as a floating egui::Window OUTSIDE the panel
     // so it is not clipped by the TopBottomPanel's bounds.
     if let Some((ref cat_name, anchor_rect)) = open_popup.open.clone() {
-        // Find the matching category data
-        if let Some((_, resources)) = ResourceType::by_category()
+        if cat_name == "Power" {
+            let mut still_open = true;
+            // Determine color from budget - recalculate here
+            let net_power = budget.net_power();
+            let power_color = if net_power >= 0.0 {
+                egui::Color32::GREEN
+            } else {
+                egui::Color32::RED
+            };
+
+            egui::Window::new("Power Breakdown")
+                .id(egui::Id::new("power_breakdown_window"))
+                .pivot(egui::Align2::RIGHT_TOP)
+                .fixed_pos(anchor_rect.right_bottom() + egui::vec2(0.0, 2.0))
+                .collapsible(false)
+                .resizable(false)
+                .title_bar(false)
+                .open(&mut still_open)
+                .frame(egui::Frame::popup(ctx.style().as_ref()))
+                .show(ctx, |ui| {
+                     ui.set_min_width(240.0);
+                     ui.horizontal(|ui| {
+                        ui.add(egui::Label::new(egui::RichText::new("⚡").size(18.0).color(power_color)).selectable(false));
+                        ui.add(egui::Label::new(egui::RichText::new("Power Production").size(16.0).strong().color(power_color)).selectable(false));
+                    });
+                    ui.separator();
+
+                    egui::Grid::new("power_breakdown_grid")
+                        .num_columns(2)
+                        .spacing([10.0, 4.0])
+                        .show(ui, |ui| {
+                            let sources = [
+                                PowerSourceType::Planet,
+                                PowerSourceType::Station,
+                                PowerSourceType::Ship,
+                                PowerSourceType::Asteroid,
+                            ];
+
+                            let mut has_sources = false;
+                            for source in sources {
+                                let amount =
+                                    budget.power_breakdown.get(&source).copied().unwrap_or(0.0);
+                                if amount > 0.0 {
+                                    has_sources = true;
+                                    ui.label(format!("{}", source));
+                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                        ui.label(
+                                            egui::RichText::new(format_power(amount)).strong(),
+                                        );
+                                    });
+                                    ui.end_row();
+                                }
+                            }
+
+                            if !has_sources {
+                                ui.label("No active power generation");
+                                ui.end_row();
+                            }
+                            
+                            ui.separator();
+                            ui.separator();
+                            ui.label(egui::RichText::new("Total").strong());
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.label(egui::RichText::new(format_power(budget.energy_grid.produced)).strong().color(power_color));
+                            });
+                            ui.end_row();
+                        });
+                });
+
+            if !still_open {
+                open_popup.open = None;
+            }
+        } else if cat_name == "Population" {
+            let mut still_open = true;
+            egui::Window::new("Population Breakdown")
+                .id(egui::Id::new("population_breakdown_window"))
+                .pivot(egui::Align2::RIGHT_TOP)
+                .fixed_pos(anchor_rect.right_bottom() + egui::vec2(0.0, 2.0))
+                .collapsible(false)
+                .resizable(false)
+                .title_bar(false)
+                .open(&mut still_open)
+                .frame(egui::Frame::popup(ctx.style().as_ref()))
+                .show(ctx, |ui| {
+                     ui.set_min_width(240.0);
+                     ui.horizontal(|ui| {
+                        ui.add(egui::Label::new(egui::RichText::new("👥").size(18.0).color(egui::Color32::WHITE)).selectable(false));
+                        ui.add(egui::Label::new(egui::RichText::new("Population").size(16.0).strong().color(egui::Color32::WHITE)).selectable(false));
+                    });
+                    ui.separator();
+
+                    egui::Grid::new("population_breakdown_grid")
+                        .num_columns(2)
+                        .spacing([10.0, 4.0])
+                        .show(ui, |ui| {
+                            // Collect and sort populations
+                            let mut pops: Vec<(String, f64)> = population_query
+                                .iter()
+                                .filter(|(p, _)| p.count > 0.0)
+                                .map(|(p, body)| {
+                                    let name = if let Some(b) = body {
+                                        b.name.clone()
+                                    } else {
+                                        "Unknown".to_string()
+                                    };
+                                    (name, p.count)
+                                })
+                                .collect();
+
+                            // Sort descending
+                            pops.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+                            let top_10_count = pops.len().min(10);
+                            let mut displayed_total = 0.0;
+
+                            for (name, count) in pops.iter().take(top_10_count) {
+                                ui.label(name);
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    ui.label(egui::RichText::new(format_population(*count)).strong());
+                                });
+                                ui.end_row();
+                                displayed_total += count;
+                            }
+
+                            // Summarize the rest
+                            if pops.len() > 10 {
+                                let other_total: f64 = pops.iter().skip(10).map(|(_, c)| c).sum();
+                                ui.label(egui::RichText::new("Other").italics());
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    ui.label(egui::RichText::new(format_population(other_total)).italics());
+                                });
+                                ui.end_row();
+                            }
+                            
+                            ui.separator();
+                            ui.separator();
+                            ui.label(egui::RichText::new("Total").strong());
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.label(egui::RichText::new(format_population(total_population)).strong().color(egui::Color32::WHITE));
+                            });
+                            ui.end_row();
+                        });
+                });
+
+            if !still_open {
+                open_popup.open = None;
+            }
+        } else if let Some((_, resources)) = ResourceType::by_category()
             .into_iter()
             .find(|(name, _)| *name == cat_name.as_str())
         {
@@ -1346,6 +1577,7 @@ fn ui_dashboard(
         Option<&AtmosphereComposition>,
         Option<&mut SurveyLevel>,
         Option<&Population>,
+        Option<&crate::astronomy::SurfaceTemperature>,
     )>,
     // Resource query for system totals
     resource_query: Query<(&SystemId, &PlanetResources)>,
@@ -1566,7 +1798,7 @@ fn ui_dashboard(
                 ui.separator();
 
                 if let Some(entity) = selection.get() {
-                    if let Ok((body, coords, orbit, resources, atmosphere, mut survey_level, population)) = body_query.get_mut(entity) {
+                    if let Ok((body, coords, orbit, resources, atmosphere, mut survey_level, population, surface_temp)) = body_query.get_mut(entity) {
                         // Body name and basic info
                         ui.label(egui::RichText::new(&body.name).size(18.0).strong());
                         ui.add_space(10.0);
@@ -1578,6 +1810,7 @@ fn ui_dashboard(
                             ui.label(format!("Distance from Sun: {:.3} AU", distance));
                             ui.label(format!("Radius: {:.1} km", body.radius));
                             ui.label(format!("Mass: {:.2e} kg", body.mass));
+                            ui.label(format!("Gravity: {:.2} g", body.surface_gravity()));
                             if let Some(pop) = population {
                                 if pop.count > 0.0 {
                                     ui.label(format!("Population: {}", format_population(pop.count)));
@@ -1607,6 +1840,53 @@ fn ui_dashboard(
 
                             ui.add_space(10.0);
                         }
+
+                        // Show Colony Cost for all bodies
+                        ui.group(|ui| {
+                            ui.label(egui::RichText::new("Habitability").strong());
+                            
+                            let mut temp_c = -273.15;
+                            // Try to get temperature from SurfaceTemperature component, then Atmosphere
+                            if let Some(comp) = surface_temp {
+                                temp_c = comp.average_celsius;
+                            } else if let Some(atm) = atmosphere {
+                                temp_c = atm.surface_temperature_celsius;
+                            }
+
+                            // Colony Cost
+                            ui.horizontal(|ui| {
+                                ui.label("Colony Cost:");
+                                let gravity = body.surface_gravity();
+                                let cost = crate::astronomy::calculate_general_colony_cost(
+                                    gravity, 
+                                    temp_c, 
+                                    atmosphere.as_deref()
+                                );
+
+                                if cost.is_infinite() {
+                                    ui.colored_label(egui::Color32::RED, "Uninhabitable (Gravity)");
+                                } else {
+                                    let cost_color = if cost <= 0.0 {
+                                        egui::Color32::GREEN
+                                    } else if cost <= 2.0 {
+                                        egui::Color32::YELLOW
+                                    } else if cost <= 5.0 {
+                                        egui::Color32::from_rgb(255, 165, 0) // Orange
+                                    } else {
+                                        egui::Color32::RED
+                                    };
+                                    ui.colored_label(cost_color, format!("{:.2}", cost));
+                                }
+                            });
+                            
+                            // Temperature display (moved out of Atmosphere section so it shows for everyone)
+                            ui.horizontal(|ui| {
+                                ui.label("Temperature:");
+                                ui.label(format!("{:.1}°C", temp_c));
+                            });
+                        });
+                        
+                        ui.add_space(5.0);
 
                         // Atmosphere data if available
                         if let Some(atmosphere) = atmosphere {
@@ -1650,29 +1930,12 @@ fn ui_dashboard(
                                         }
                                         
                                         ui.horizontal(|ui| {
-                                            ui.label("Temperature:");
-                                            ui.label(format!("{:.1}°C", atmosphere.surface_temperature_celsius));
-                                        });
-                                        
-                                        ui.horizontal(|ui| {
                                             ui.label("Breathable:");
                                             if atmosphere.breathable {
                                                 ui.colored_label(egui::Color32::GREEN, "✓ Yes");
                                             } else {
                                                 ui.colored_label(egui::Color32::RED, "✗ No");
                                             }
-                                        });
-                                        
-                                        ui.horizontal(|ui| {
-                                            ui.label("Colony Cost:");
-                                            let cost = atmosphere.calculate_colony_cost();
-                                            let cost_color = match cost {
-                                                0 => egui::Color32::GREEN,
-                                                1..=3 => egui::Color32::YELLOW,
-                                                4..=6 => egui::Color32::from_rgb(255, 165, 0), // Orange
-                                                _ => egui::Color32::RED,
-                                            };
-                                            ui.colored_label(cost_color, format!("{}/8", cost));
                                         });
                                         
                                         ui.add_space(5.0);

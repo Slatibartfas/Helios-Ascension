@@ -15,8 +15,13 @@ pub mod generation;
 pub mod mining;
 pub mod types;
 
-pub use budget::{format_power, update_civilization_score, EnergyGrid, GlobalBudget};
-pub use components::{MineralDeposit, OrbitsBody, PlanetResources, SpectralClass, StarSystem};
+pub use budget::{
+    format_power, update_civilization_score, update_power_grid, EnergyGrid, GlobalBudget,
+};
+pub use components::{
+    MineralDeposit, OrbitsBody, PlanetResources, PowerGenerator, PowerSourceType, SpectralClass,
+    StarSystem,
+};
 pub use generation::generate_solar_system_resources;
 pub use mining::{extract_resources, MiningOperation};
 pub use types::ResourceType;
@@ -38,6 +43,13 @@ impl Plugin for EconomyPlugin {
                 ),
             )
             // Update systems
-            .add_systems(Update, (update_civilization_score, extract_resources));
+            .add_systems(
+                Update,
+                (
+                    update_power_grid,
+                    update_civilization_score.after(update_power_grid),
+                    extract_resources,
+                ),
+            );
     }
 }

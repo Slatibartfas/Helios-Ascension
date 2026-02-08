@@ -565,9 +565,11 @@ fn spawn_comet_tail_meshes(
 ) {
     // Calculate tail parameters
     let intensity = ((1.0 - distance_au / COMET_TAIL_ONSET_AU) as f32).clamp(0.0, 1.0);
-    let proximity_boost = (0.5 / distance_au.max(0.1)) as f32;
-    let brightness = (intensity * proximity_boost.min(3.0)).clamp(0.0, 1.0);
-    let tail_length = COMET_TAIL_MAX_LENGTH * intensity * proximity_boost.min(2.5);
+    // Adjusted proximity boost - less aggressive than before
+    let proximity_boost = (2.0 / distance_au.max(0.5)) as f32;
+    let brightness = (intensity * proximity_boost.min(2.0)).clamp(0.0, 1.0);
+    // Base tail length for spawning geometry - scaling will be applied dynamically
+    let tail_length = COMET_TAIL_MAX_LENGTH;
 
     // Seed for procedural variation
     let mut seed = 0u32;
@@ -680,6 +682,20 @@ pub fn update_tail_transforms(
             let surface_offset = (body.visual_radius * 0.9) * anti_sun_dir;
 
             transform.translation = comet_pos + surface_offset;
+
+            // Compute dynamic scale based on distance from sun
+            // Tail should be small/invisible near onset and grow larger near sun
+            let distance_au = coords.position.length() as f32;
+            let onset_au = COMET_TAIL_ONSET_AU as f32;
+            
+            // Normalized intensity (0.0 at onset, 1.0 at sun)
+            let intensity = ((1.0 - distance_au / onset_au)).clamp(0.0, 1.0);
+            
+            // Scale factor: start small (0.1) and grow to full size (1.0)
+            let dynamic_scale = (0.1 + intensity * 0.9).max(0.01);
+            
+            // Apply scale to length (Z) and width (X, Y)
+            transform.scale = Vec3::splat(dynamic_scale);
 
             // Orient tail to point away from sun
             // Cone extends along +Z axis, so look along anti-sunward direction

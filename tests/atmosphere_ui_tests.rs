@@ -20,7 +20,7 @@ fn test_atmosphere_ui_data_available() {
     assert_eq!(earth_atmosphere.surface_pressure_mbar, 1013.0);
     assert_eq!(earth_atmosphere.surface_temperature_celsius, 15.0);
     assert!(earth_atmosphere.breathable);
-    assert_eq!(earth_atmosphere.calculate_colony_cost(), 0);
+    assert!(earth_atmosphere.calculate_colony_cost(1.0).abs() < 0.01);
 
     // Verify gas composition can be iterated
     assert_eq!(earth_atmosphere.gases.len(), 4);
@@ -46,7 +46,7 @@ fn test_atmosphere_ui_formatting() {
 
     let pressure_bar = venus.surface_pressure_mbar / 1000.0;
     assert!(pressure_bar >= 1.0); // Should display as "bar"
-    assert_eq!(venus.calculate_colony_cost(), 8);
+    assert!(venus.calculate_colony_cost(0.904) > 20.0); // Venus should have high cost (2.0 Base + 42.5 Temp + 44 Pressure)
 
     // Mars - low pressure
     let mars = AtmosphereComposition::new(
@@ -60,7 +60,7 @@ fn test_atmosphere_ui_formatting() {
 
     let pressure_bar = mars.surface_pressure_mbar / 1000.0;
     assert!(pressure_bar < 1.0); // Should display as "mbar"
-    assert!(mars.calculate_colony_cost() >= 5);
+    assert!(mars.calculate_colony_cost(0.379) > 2.0); // Mars cost: 2.0 Base + Temp cost
 }
 
 #[test]
@@ -83,15 +83,15 @@ fn test_colony_cost_colors() {
         AtmosphereComposition::new(92000.0, 465.0, vec![AtmosphericGas::new("CO2", 96.5)]),
     ];
 
-    let costs: Vec<u8> = test_atmospheres
+    let costs: Vec<f32> = test_atmospheres
         .iter()
-        .map(|a| a.calculate_colony_cost())
+        .map(|a| a.calculate_colony_cost(1.0))
         .collect();
 
     // Verify we have a range of costs
-    assert_eq!(costs[0], 0); // Earth-like
-    assert!(costs[1] >= 4 && costs[1] <= 6); // Moderate
-    assert!(costs[2] >= 7); // Extreme
+    assert!(costs[0] <= 0.01); // Earth-like
+    assert!(costs[1] > 2.0); // Moderate
+    assert!(costs[2] > 20.0); // Extreme
 }
 
 #[test]

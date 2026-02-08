@@ -11,10 +11,10 @@ use super::solar_system_data::{
     calculate_visual_radius, AsteroidClass, BodyType, SolarSystemData, MIN_VISUAL_RADIUS,
 };
 use crate::astronomy::components::{CurrentStarSystem, SystemId};
-use crate::economy::components::Population;
+use crate::economy::components::{Population, PowerGenerator, PowerSourceType};
 use crate::astronomy::{
     orbit_position_from_mean_anomaly, KeplerOrbit, LocalOrbitAmplification, OrbitPath,
-    SpaceCoordinates, SCALING_FACTOR,
+    SpaceCoordinates, SCALING_FACTOR, SurfaceTemperature,
 };
 use crate::plugins::camera::{CameraAnchor, GameCamera};
 use crate::ui::SimulationTime;
@@ -191,6 +191,24 @@ pub struct CelestialBody {
     pub visual_radius: f32,
     /// Asteroid spectral class (if applicable)
     pub asteroid_class: Option<AsteroidClass>,
+}
+
+impl CelestialBody {
+    /// Calculate surface gravity in Earth g (9.80665 m/s²)
+    /// formula: g = GM/r²
+    pub fn surface_gravity(&self) -> f32 {
+        if self.radius <= 0.0 {
+            return 0.0;
+        }
+        
+        const G: f64 = 6.674e-11; // Gravitational constant
+        const G_EARTH: f64 = 9.80665; // Earth gravity
+        
+        let radius_m = self.radius as f64 * 1000.0;
+        let surface_gravity_m_s2 = G * self.mass / (radius_m * radius_m);
+        
+        (surface_gravity_m_s2 / G_EARTH) as f32
+    }
 }
 
 /// Logical parent for UI hierarchy, separate from spatial transform parenting
@@ -766,9 +784,13 @@ pub fn setup_solar_system(
             }
         }
 
+        let mut surface_temperature_celsius = -200.0; // Default cold vacuum
+
         // Add atmosphere component if the body has atmosphere data
         if let Some(ref atmo_data) = body_data.atmosphere {
             use crate::astronomy::{AtmosphereComposition, AtmosphericGas};
+
+            surface_temperature_celsius = atmo_data.surface_temperature_celsius;
 
             // Convert gas data from deserialized format to runtime format
             let gases: Vec<AtmosphericGas> = atmo_data
@@ -787,7 +809,22 @@ pub fn setup_solar_system(
             );
 
             entity_commands.insert(atmosphere);
+        } else if let Some(ref orbit_data) = body_data.orbit {
+             // If no atmosphere, approximate temperature based on distance from Sun
+             // Sol Effective Temp ~ 5778 K
+             // Simplified black body approximation: T = 278 K / sqrt(r_au)
+             // (Assuming typical albedo ~0.3 for rocky bodies)
+             if orbit_data.semi_major_axis > 0.0 {
+                 let temp_k = 278.0 / orbit_data.semi_major_axis.sqrt();
+                 surface_temperature_celsius = temp_k - 273.15;
+             }
         }
+
+        entity_commands.insert(SurfaceTemperature {
+            average_celsius: surface_temperature_celsius,
+            min_celsius: surface_temperature_celsius - 50.0, // Simple range
+            max_celsius: surface_temperature_celsius + 50.0,
+        });
 
         let entity = entity_commands.id();
 
@@ -842,6 +879,15 @@ pub fn setup_solar_system(
             0.0
         };
         commands.entity(entity).insert(Population { count: population_count });
+
+        // Initialize power generation
+        // Earth starts with ~20 TW (Type 0.73 civilization)
+        if body_data.name == "Earth" {
+            commands.entity(entity).insert(PowerGenerator {
+                output: 20_000_000_000_000.0, // 20 TW
+                source_type: PowerSourceType::Planet,
+            });
+        }
 
         entity_map.insert(body_data.name.clone(), entity);
     }

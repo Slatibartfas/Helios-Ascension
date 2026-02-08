@@ -4,6 +4,35 @@ use std::collections::HashMap;
 
 use super::types::ResourceType;
 
+/// Source category for power generation
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PowerSourceType {
+    Planet,
+    Station,
+    Ship,
+    Asteroid,
+}
+
+impl std::fmt::Display for PowerSourceType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Planet => write!(f, "Planets & Colonies"),
+            Self::Station => write!(f, "Space Stations"),
+            Self::Ship => write!(f, "Ships"),
+            Self::Asteroid => write!(f, "Asteroid Mining"),
+        }
+    }
+}
+
+/// Component that generates power
+#[derive(Component, Debug, Clone, Serialize, Deserialize)]
+pub struct PowerGenerator {
+    /// Power output in Watts
+    pub output: f64,
+    /// Type of source
+    pub source_type: PowerSourceType,
+}
+
 /// Component that marks a star and defines its system properties
 /// Used for multi-star system support with different frost lines
 #[derive(Component, Debug, Clone, Copy, Serialize, Deserialize)]

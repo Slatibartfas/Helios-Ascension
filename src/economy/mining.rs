@@ -1,6 +1,7 @@
 use crate::economy::budget::GlobalBudget;
 use crate::economy::components::PlanetResources;
 use crate::economy::types::ResourceType;
+use crate::plugins::solar_system::CelestialBody;
 use crate::ui::SimulationTime;
 use bevy::prelude::*;
 
@@ -24,7 +25,7 @@ impl Default for MiningOperation {
 
 pub fn extract_resources(
     mut budget: ResMut<GlobalBudget>,
-    mut query: Query<(&mut PlanetResources, &MiningOperation)>,
+    mut query: Query<(&mut PlanetResources, &MiningOperation, &mut CelestialBody)>,
     sim_time: Res<SimulationTime>,
     mut last_elapsed: Local<f64>,
 ) {
@@ -43,7 +44,7 @@ pub fn extract_resources(
         return;
     }
 
-    for (mut resources, op) in query.iter_mut() {
+    for (mut resources, op, mut body) in query.iter_mut() {
         if !op.active {
             continue;
         }
@@ -79,6 +80,8 @@ pub fn extract_resources(
             // The budget uses `f64`. Assuming units match (Mt).
             if total_extracted > 0.0 {
                 budget.add_resource(op.resource_type, total_extracted);
+                // Reduce body mass (1 Mt = 1e9 kg)
+                body.mass -= total_extracted * 1e9;
             }
         }
     }

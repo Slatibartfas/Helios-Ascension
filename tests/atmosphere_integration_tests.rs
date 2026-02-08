@@ -94,9 +94,8 @@ fn test_atmosphere_breathability_check() {
         );
 
         assert!(atmosphere.breathable, "Earth should be breathable");
-        assert_eq!(
-            atmosphere.calculate_colony_cost(),
-            0,
+        assert!(
+            atmosphere.calculate_colony_cost(1.0) < 0.01,
             "Earth should have colony cost of 0"
         );
     }
@@ -120,7 +119,7 @@ fn test_atmosphere_breathability_check() {
 
         assert!(!atmosphere.breathable, "Mars should not be breathable");
         assert!(
-            atmosphere.calculate_colony_cost() >= 5,
+            atmosphere.calculate_colony_cost(0.38) > 2.0,
             "Mars should have high colony cost"
         );
     }

@@ -20,6 +20,7 @@ pub mod systems;
 pub use components::{
     AtmosphereComposition, AtmosphericGas, CometTail, Destroyed, FloatingOrigin, Hovered,
     KeplerOrbit, LocalOrbitAmplification, OrbitCenter, OrbitPath, Selected, SpaceCoordinates,
+    SurfaceTemperature, calculate_general_colony_cost,
 };
 pub use ephemeris::{calculate_position_for_body, calculate_positions_at_timestamp};
 pub use exoplanets::{ConfirmedPlanet, RealPlanet};

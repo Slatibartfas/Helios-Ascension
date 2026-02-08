@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::types::ResourceType;
+use crate::economy::{PowerGenerator, PowerSourceType};
 
 /// Global economic budget and resource management
 /// Tracks civilization-wide stockpiles and power generation
@@ -16,6 +17,9 @@ pub struct GlobalBudget {
 
     /// Civilization score based on power generation
     pub civilization_score: f64,
+
+    /// Breakdown of power production by source
+    pub power_breakdown: HashMap<PowerSourceType, f64>,
 }
 
 impl GlobalBudget {
@@ -33,6 +37,7 @@ impl GlobalBudget {
             stockpiles,
             energy_grid: EnergyGrid::default(),
             civilization_score: 0.0,
+            power_breakdown: HashMap::new(),
         }
     }
 
@@ -328,4 +333,22 @@ mod tests {
         let mut budget = GlobalBudget::new();
         budget.consume_resource(ResourceType::Iron, -50.0);
     }
+}
+
+/// System to aggregate power from all generators and update global budget
+pub fn update_power_grid(
+    mut budget: ResMut<GlobalBudget>,
+    query: Query<&PowerGenerator>,
+) {
+    let mut total_produced = 0.0;
+    let mut breakdown = HashMap::new();
+
+    for generator in query.iter() {
+        total_produced += generator.output;
+        *breakdown.entry(generator.source_type).or_insert(0.0) += generator.output;
+    }
+
+    // Update grid production
+    budget.energy_grid.produced = total_produced;
+    budget.power_breakdown = breakdown;
 }
