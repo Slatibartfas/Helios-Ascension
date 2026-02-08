@@ -53,9 +53,9 @@ mod tests {
     fn test_selection_select() {
         let mut selection = Selection::new();
         let entity = Entity::from_raw(42);
-        
+
         selection.select(entity);
-        
+
         assert!(selection.has_selection());
         assert!(selection.is_selected(entity));
     }
@@ -64,10 +64,10 @@ mod tests {
     fn test_selection_clear() {
         let mut selection = Selection::new();
         let entity = Entity::from_raw(42);
-        
+
         selection.select(entity);
         selection.clear();
-        
+
         assert!(!selection.has_selection());
     }
 }

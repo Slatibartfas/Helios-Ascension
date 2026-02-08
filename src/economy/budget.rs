@@ -42,32 +42,40 @@ impl GlobalBudget {
     }
 
     /// Add resources to the stockpile
-    /// 
+    ///
     /// # Arguments
     /// * `resource` - The type of resource to add
     /// * `amount` - The amount to add (must be non-negative)
-    /// 
+    ///
     /// # Panics
     /// Panics if amount is negative
     pub fn add_resource(&mut self, resource: ResourceType, amount: f64) {
-        assert!(amount >= 0.0, "Cannot add negative resource amount: {}", amount);
+        assert!(
+            amount >= 0.0,
+            "Cannot add negative resource amount: {}",
+            amount
+        );
         let current = self.get_stockpile(&resource);
         self.stockpiles.insert(resource, current + amount);
     }
 
     /// Remove resources from the stockpile (returns true if successful)
-    /// 
+    ///
     /// # Arguments
     /// * `resource` - The type of resource to consume
     /// * `amount` - The amount to consume (must be non-negative)
-    /// 
+    ///
     /// # Returns
     /// `true` if the resource was successfully consumed, `false` if insufficient stockpile
-    /// 
+    ///
     /// # Panics
     /// Panics if amount is negative
     pub fn consume_resource(&mut self, resource: ResourceType, amount: f64) -> bool {
-        assert!(amount >= 0.0, "Cannot consume negative resource amount: {}", amount);
+        assert!(
+            amount >= 0.0,
+            "Cannot consume negative resource amount: {}",
+            amount
+        );
         let current = self.get_stockpile(&resource);
         if current >= amount {
             self.stockpiles.insert(resource, current - amount);
@@ -160,7 +168,7 @@ impl Default for EnergyGrid {
 
 /// System that updates the civilization score based on power generation
 /// Uses Local state to track previous energy grid values for efficient change detection
-/// 
+///
 /// Note: Uses direct equality comparison for f64 values. This is safe here because
 /// energy grid values are set directly (not computed), so no floating-point precision
 /// issues occur. If values were computed through arithmetic, an epsilon comparison
@@ -174,7 +182,7 @@ pub fn update_civilization_score(
     // Direct equality is safe here since values are assigned, not computed
     let current_produced = budget.energy_grid.produced;
     let current_consumed = budget.energy_grid.consumed;
-    
+
     if current_produced != *last_produced || current_consumed != *last_consumed {
         budget.update_civilization_score();
         *last_produced = current_produced;
@@ -212,9 +220,9 @@ mod tests {
     fn test_add_resource() {
         let mut budget = GlobalBudget::new();
         let initial = budget.get_stockpile(&ResourceType::Iron);
-        
+
         budget.add_resource(ResourceType::Iron, 100.0);
-        
+
         assert_eq!(budget.get_stockpile(&ResourceType::Iron), initial + 100.0);
     }
 
@@ -222,9 +230,9 @@ mod tests {
     fn test_consume_resource_success() {
         let mut budget = GlobalBudget::new();
         budget.add_resource(ResourceType::Iron, 100.0);
-        
+
         let success = budget.consume_resource(ResourceType::Iron, 50.0);
-        
+
         assert!(success);
     }
 
@@ -233,9 +241,9 @@ mod tests {
         let mut budget = GlobalBudget::new();
         // Set a specific amount
         budget.stockpiles.insert(ResourceType::Titanium, 10.0);
-        
+
         let success = budget.consume_resource(ResourceType::Titanium, 50.0);
-        
+
         assert!(!success);
         assert_eq!(budget.get_stockpile(&ResourceType::Titanium), 10.0); // Unchanged
     }
@@ -244,9 +252,9 @@ mod tests {
     fn test_civilization_score_calculation() {
         let mut budget = GlobalBudget::new();
         budget.energy_grid.produced = 1e9; // 1 GW
-        
+
         budget.update_civilization_score();
-        
+
         // log10(1e9) * 10 = 90
         assert!((budget.civilization_score - 90.0).abs() < 0.1);
     }
@@ -255,9 +263,9 @@ mod tests {
     fn test_civilization_score_zero_power() {
         let mut budget = GlobalBudget::new();
         budget.energy_grid.produced = 0.0;
-        
+
         budget.update_civilization_score();
-        
+
         assert_eq!(budget.civilization_score, 0.0);
     }
 
@@ -294,7 +302,7 @@ mod tests {
         let mut budget = GlobalBudget::new();
         budget.energy_grid.produced = 1000.0;
         budget.energy_grid.consumed = 600.0;
-        
+
         assert_eq!(budget.net_power(), 400.0);
     }
 
@@ -303,7 +311,7 @@ mod tests {
         let mut budget = GlobalBudget::new();
         budget.energy_grid.produced = 1000.0;
         budget.energy_grid.consumed = 800.0;
-        
+
         assert!((budget.power_efficiency() - 0.8).abs() < 0.001);
     }
 

@@ -13,11 +13,8 @@ use astronomy::AstronomyPlugin;
 use economy::EconomyPlugin;
 use game_state::GameStatePlugin;
 use plugins::{
-    camera::CameraPlugin,
-    solar_system::SolarSystemPlugin,
-    starmap::StarmapPlugin,
-    system_populator::SystemPopulatorPlugin,
-    visual_effects::VisualEffectsPlugin,
+    camera::CameraPlugin, solar_system::SolarSystemPlugin, starmap::StarmapPlugin,
+    system_populator::SystemPopulatorPlugin, visual_effects::VisualEffectsPlugin,
 };
 use render::backdrop::BackdropPlugin;
 use ui::UIPlugin;
@@ -60,7 +57,7 @@ fn setup(mut commands: Commands) {
         color: Color::srgb(0.9, 0.92, 1.0), // Neutral to slightly blue for space
         brightness: 30.0,
     });
-    
+
     // Set clear color to deep black for space
     commands.insert_resource(ClearColor(Color::srgb(0.01, 0.01, 0.02)));
 }

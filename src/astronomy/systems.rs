@@ -1,20 +1,20 @@
-use bevy::prelude::*;
 use bevy::math::DVec3;
+use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
 use super::components::{
     CometTail, Destroyed, HoverMarker, Hovered, KeplerOrbit, LocalOrbitAmplification, MarkerDot,
     MarkerOwner, OrbitCenter, OrbitPath, Selected, SelectionMarker, SpaceCoordinates,
 };
-use crate::plugins::solar_system::{CelestialBody, Comet, LogicalParent, Moon, Planet, Star, RADIUS_SCALE};
 use crate::plugins::camera::{CameraAnchor, GameCamera, OrbitCamera, ViewMode};
+use crate::plugins::solar_system::{
+    CelestialBody, Comet, LogicalParent, Moon, Planet, Star, RADIUS_SCALE,
+};
 use crate::ui::SimulationTime;
 
 /// Scaling factor for converting astronomical units to Bevy rendering units
 /// 1 AU = 1500.0 Bevy units ensures separation between planets and moons
 pub const SCALING_FACTOR: f64 = 1500.0;
-
-
 
 /// Click radius for body selection (in Bevy units)
 /// Bodies within this distance from the ray are considered clickable.
@@ -22,7 +22,7 @@ pub const SCALING_FACTOR: f64 = 1500.0;
 const SELECTION_CLICK_RADIUS: f32 = 20.0;
 
 /// Padding for the hover ring around celestial bodies (in Bevy units)
-const HOVER_RING_PADDING: f32 = 8.0;  // Creates visible gap between marker and body
+const HOVER_RING_PADDING: f32 = 8.0; // Creates visible gap between marker and body
 
 /// Maximum iterations for Kepler solver
 const MAX_KEPLER_ITERATIONS: u32 = 50;
@@ -52,10 +52,10 @@ pub fn solve_kepler(mean_anomaly: f64, eccentricity: f64) -> f64 {
     for _ in 0..MAX_KEPLER_ITERATIONS {
         // f(E) = E - e*sin(E) - M
         let f = eccentric_anomaly - eccentricity * eccentric_anomaly.sin() - mean_anomaly;
-        
+
         // f'(E) = 1 - e*cos(E)
         let f_prime = 1.0 - eccentricity * eccentric_anomaly.cos();
-        
+
         // Newton-Raphson step: E_new = E_old - f(E)/f'(E)
         let delta = f / f_prime;
         eccentric_anomaly -= delta;
@@ -424,7 +424,7 @@ fn create_tail_cone_mesh(
 ) -> Mesh {
     use bevy::render::mesh::{Indices, PrimitiveTopology};
     use bevy::render::render_asset::RenderAssetUsages;
-    
+
     let mut positions = Vec::new();
     let mut normals = Vec::new();
     let mut colors = Vec::new();
@@ -435,7 +435,7 @@ fn create_tail_cone_mesh(
         let t = length_i as f32 / TAIL_LENGTH_SEGMENTS as f32;
         let z = length * t;
         let radius = base_radius + (tip_radius - base_radius) * t;
-        
+
         // Interpolate color
         let base_rgba = base_color.to_srgba();
         let tip_rgba = tip_color.to_srgba();
@@ -450,16 +450,16 @@ fn create_tail_cone_mesh(
         for radial_i in 0..TAIL_RADIAL_SEGMENTS {
             let theta = (radial_i as f32 / TAIL_RADIAL_SEGMENTS as f32) * std::f32::consts::TAU;
             let (sin_theta, cos_theta) = theta.sin_cos();
-            
+
             let x = radius * cos_theta;
             let y = radius * sin_theta;
-            
+
             positions.push([x, y, z]);
-            
+
             // Normal points outward from cone surface
             let normal = Vec3::new(cos_theta, sin_theta, 0.0).normalize();
             normals.push(normal.to_array());
-            
+
             colors.push(color.to_linear().to_f32_array());
         }
     }
@@ -468,32 +468,35 @@ fn create_tail_cone_mesh(
     for length_i in 0..TAIL_LENGTH_SEGMENTS {
         for radial_i in 0..TAIL_RADIAL_SEGMENTS {
             let next_radial = (radial_i + 1) % TAIL_RADIAL_SEGMENTS;
-            
+
             let current_ring = length_i * TAIL_RADIAL_SEGMENTS;
             let next_ring = (length_i + 1) * TAIL_RADIAL_SEGMENTS;
-            
+
             let i0 = current_ring + radial_i;
             let i1 = current_ring + next_radial;
             let i2 = next_ring + radial_i;
             let i3 = next_ring + next_radial;
-            
+
             // Two triangles per quad
             indices.push(i0);
             indices.push(i2);
             indices.push(i1);
-            
+
             indices.push(i1);
             indices.push(i2);
             indices.push(i3);
         }
     }
 
-    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
     mesh.insert_indices(Indices::U32(indices));
-    
+
     mesh
 }
 
@@ -503,25 +506,29 @@ pub fn manage_comet_tail_meshes(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    comet_query: Query<(Entity, &CelestialBody, &KeplerOrbit, &SpaceCoordinates), (With<Comet>, Without<Destroyed>)>,
+    comet_query: Query<
+        (Entity, &CelestialBody, &KeplerOrbit, &SpaceCoordinates),
+        (With<Comet>, Without<Destroyed>),
+    >,
     tail_query: Query<(Entity, &CometTail)>,
     existing_tails: Query<&CometTail>,
 ) {
     // Track which comets should have tails
     let mut comets_needing_tails = std::collections::HashSet::new();
-    
+
     for (entity, body, _orbit, coords) in comet_query.iter() {
         let distance_au = coords.position.length();
 
         // Check if tail should be visible
-        if distance_au <= COMET_TAIL_ONSET_AU 
-            && distance_au >= COMET_TAIL_MIN_DISTANCE_AU 
-            && distance_au > 1e-6 {
+        if distance_au <= COMET_TAIL_ONSET_AU
+            && distance_au >= COMET_TAIL_MIN_DISTANCE_AU
+            && distance_au > 1e-6
+        {
             comets_needing_tails.insert(entity);
-            
+
             // Check if this comet already has tails
             let has_tails = existing_tails.iter().any(|t| t.comet_entity == entity);
-            
+
             if !has_tails {
                 // Spawn tail meshes for this comet
                 spawn_comet_tail_meshes(
@@ -536,7 +543,7 @@ pub fn manage_comet_tail_meshes(
             }
         }
     }
-    
+
     // Despawn tails for comets that no longer need them
     for (tail_entity, tail) in tail_query.iter() {
         if !comets_needing_tails.contains(&tail.comet_entity) {
@@ -569,11 +576,11 @@ fn spawn_comet_tail_meshes(
 
     // === ION TAIL (Type I): narrow, bluish-white ===
     // Use fixed small radii, slightly larger as requested
-    let ion_base_radius = 1.5; 
+    let ion_base_radius = 1.5;
     let ion_tip_radius = 0.3;
     let ion_base_color = Color::srgba(0.7, 0.85, 1.0, brightness * 0.6);
     let ion_tip_color = Color::srgba(0.5, 0.75, 1.0, 0.0);
-    
+
     let ion_mesh = meshes.add(create_tail_cone_mesh(
         tail_length,
         ion_base_radius,
@@ -581,7 +588,7 @@ fn spawn_comet_tail_meshes(
         ion_base_color,
         ion_tip_color,
     ));
-    
+
     let ion_material = materials.add(StandardMaterial {
         base_color: Color::WHITE,
         emissive: LinearRgba::new(0.5, 0.7, 1.0, 0.0) * brightness * 10.0, // Increased glare (HDR)
@@ -590,7 +597,7 @@ fn spawn_comet_tail_meshes(
         cull_mode: None, // Double-sided
         ..default()
     });
-    
+
     commands.spawn((
         PbrBundle {
             mesh: ion_mesh,
@@ -610,7 +617,7 @@ fn spawn_comet_tail_meshes(
     let dust_tip_radius = 0.6;
     let dust_base_color = Color::srgba(1.0, 0.85, 0.4, brightness * 0.5);
     let dust_tip_color = Color::srgba(1.0, 0.7, 0.2, 0.0);
-    
+
     let dust_mesh = meshes.add(create_tail_cone_mesh(
         tail_length * 0.7, // Dust tail is shorter
         dust_base_radius,
@@ -618,7 +625,7 @@ fn spawn_comet_tail_meshes(
         dust_base_color,
         dust_tip_color,
     ));
-    
+
     let dust_material = materials.add(StandardMaterial {
         base_color: Color::WHITE,
         emissive: LinearRgba::new(1.0, 0.75, 0.3, 0.0) * brightness * 8.0, // Increased glare (HDR)
@@ -627,7 +634,7 @@ fn spawn_comet_tail_meshes(
         cull_mode: None,
         ..default()
     });
-    
+
     commands.spawn((
         PbrBundle {
             mesh: dust_mesh,
@@ -670,7 +677,7 @@ pub fn update_tail_transforms(
             // Both tails start at the same point to avoid dual-cone effect
             // Move start point slightly inside the body (0.9) to avoid gaps with irregular meshes
             let surface_offset = (body.visual_radius * 0.9) * anti_sun_dir;
-            
+
             transform.translation = comet_pos + surface_offset;
 
             // Orient tail to point away from sun
@@ -687,7 +694,7 @@ pub fn update_tail_transforms(
                 );
                 let velocity_dir = anti_sun_dir.cross(orbit_normal).normalize_or_zero();
                 let curved_dir = (anti_sun_dir + velocity_dir * 0.15).normalize();
-                
+
                 transform.rotation = Quat::from_rotation_arc(Vec3::Z, curved_dir);
             }
         }
@@ -703,7 +710,10 @@ pub fn update_tail_transforms(
 pub fn draw_comet_tails(
     view_mode: Res<ViewMode>,
     mut gizmos: Gizmos,
-    query: Query<(&CelestialBody, &KeplerOrbit, &SpaceCoordinates), (With<Comet>, Without<Destroyed>)>,
+    query: Query<
+        (&CelestialBody, &KeplerOrbit, &SpaceCoordinates),
+        (With<Comet>, Without<Destroyed>),
+    >,
 ) {
     // Skip comet tails in starmap view
     if *view_mode == ViewMode::Starmap {
@@ -715,9 +725,10 @@ pub fn draw_comet_tails(
         let distance_au = coords.position.length();
 
         // Only draw tail if within the onset distance and not too close to sun
-        if distance_au > COMET_TAIL_ONSET_AU 
-            || distance_au < COMET_TAIL_MIN_DISTANCE_AU 
-            || distance_au < 1e-6 {
+        if distance_au > COMET_TAIL_ONSET_AU
+            || distance_au < COMET_TAIL_MIN_DISTANCE_AU
+            || distance_au < 1e-6
+        {
             continue;
         }
 
@@ -782,34 +793,35 @@ pub fn draw_comet_tails(
             let golden_angle = std::f32::consts::PI * (3.0 - 5.0_f32.sqrt());
             let angle = golden_angle * (strand as f32);
             let radius_factor = ((strand as f32 + 0.5) / TAIL_VOLUME_STRANDS as f32).sqrt();
-            
+
             let (sin_a, cos_a) = angle.sin_cos();
-            
+
             // Offset perpendicular to tail direction - varies by strand
             let base_offset_radius = tail_length * 0.02 * radius_factor; // 0-2% of tail length
             let base_offset = (perp * cos_a + perp2 * sin_a) * base_offset_radius;
-            
+
             // Procedural variation per strand for natural look
             let strand_seed = seed.wrapping_add(strand * 997);
             let strand_var = ((strand_seed % 1000) as f32) / 1000.0;
             let wiggle_phase = strand_var * std::f32::consts::TAU;
-            
+
             let mut prev = body_pos;
             for i in 1..=COMET_TAIL_SEGMENTS {
                 let t = i as f32 / COMET_TAIL_SEGMENTS as f32;
-                
+
                 // Gentle expansion and wiggle along the tail
                 let expanding = 1.0 + t * 0.4;
                 let wiggle = (t * 8.0 + wiggle_phase).sin() * 0.15 * t;
                 let offset = base_offset * expanding + perp2 * wiggle * base_offset_radius;
-                
+
                 let pos = body_pos + anti_sun_dir * tail_length * t + offset;
 
                 // Fade from bright near body to transparent at tip
                 // Use per-strand brightness variation for natural look
                 let strand_brightness = 0.8 + strand_var * 0.4;
-                let alpha = brightness * 0.5 * strand_brightness * (1.0 - t).powf(1.5) / (TAIL_VOLUME_STRANDS as f32 * 0.7);
-                
+                let alpha = brightness * 0.5 * strand_brightness * (1.0 - t).powf(1.5)
+                    / (TAIL_VOLUME_STRANDS as f32 * 0.7);
+
                 if alpha > 0.005 {
                     // Slight color variation per strand
                     let blue_var = 0.95 + strand_var * 0.05;
@@ -832,18 +844,18 @@ pub fn draw_comet_tails(
             let golden_angle = std::f32::consts::PI * (3.0 - 5.0_f32.sqrt());
             let angle = golden_angle * (strand as f32) + 0.5; // offset from ion tail
             let radius_factor = ((strand as f32 + 0.5) / TAIL_VOLUME_STRANDS as f32).sqrt();
-            
+
             let (sin_a, cos_a) = angle.sin_cos();
-            
+
             // Wider cone for dust tail
             let base_offset_radius = tail_length * 0.045 * radius_factor; // 0-4.5% of tail length
             let base_offset = (perp * cos_a + perp2 * sin_a) * base_offset_radius;
-            
+
             // More variation for dust particles
             let strand_seed = seed.wrapping_add(strand * 1009);
             let strand_var = ((strand_seed % 1000) as f32) / 1000.0;
             let wiggle_phase = strand_var * std::f32::consts::TAU;
-            
+
             let mut prev = body_pos;
             for i in 1..=COMET_TAIL_SEGMENTS {
                 let t = i as f32 / COMET_TAIL_SEGMENTS as f32;
@@ -851,7 +863,7 @@ pub fn draw_comet_tails(
                 // Dust tail is shorter and curves away from orbit direction
                 let dust_length = tail_length * 0.7;
                 let curve = t * t * 0.3; // quadratic curve
-                
+
                 // More expansion and wiggle for dust
                 let expanding = 1.0 + t * 1.5;
                 let wiggle = ((t * 6.0 + wiggle_phase).sin() * 0.2 + (t * 3.5).cos() * 0.15) * t;
@@ -864,8 +876,9 @@ pub fn draw_comet_tails(
 
                 // More variation in dust brightness
                 let strand_brightness = 0.7 + strand_var * 0.5;
-                let alpha = brightness * 0.4 * strand_brightness * (1.0 - t).powf(1.3) / (TAIL_VOLUME_STRANDS as f32 * 0.7);
-                
+                let alpha = brightness * 0.4 * strand_brightness * (1.0 - t).powf(1.3)
+                    / (TAIL_VOLUME_STRANDS as f32 * 0.7);
+
                 if alpha > 0.005 {
                     // Color varies more along dust tail
                     let yellow_var = 0.92 + strand_var * 0.08;
@@ -924,16 +937,19 @@ pub fn check_natural_destruction(
 ) {
     for (entity, body, coords) in query.iter() {
         let distance_au = coords.position.length();
-        
+
         // Check for ISON specifically - historically disintegrated near perihelion in Nov 2013
         if body.name == "Comet ISON" && distance_au < ISON_DESTRUCTION_DISTANCE_AU {
-            info!("Comet ISON disintegrating due to solar proximity at {:.4} AU", distance_au);
+            info!(
+                "Comet ISON disintegrating due to solar proximity at {:.4} AU",
+                distance_au
+            );
             commands.entity(entity).insert(Destroyed::new(
                 sim_time.elapsed_seconds(),
                 2.0, // 2 second fade-out
             ));
         }
-        
+
         // Additional destruction checks can be added here for other scenarios:
         // - Mining operations completing
         // - Weapon impacts
@@ -948,30 +964,25 @@ pub fn check_natural_destruction(
 pub fn fade_destroyed_bodies(
     mut commands: Commands,
     sim_time: Res<SimulationTime>,
-    mut query: Query<(
-        Entity,
-        &Destroyed,
-        Option<&mut Visibility>,
-        &Children,
-    ), With<CelestialBody>>,
+    mut query: Query<(Entity, &Destroyed, Option<&mut Visibility>, &Children), With<CelestialBody>>,
     child_query: Query<Entity>,
 ) {
     let current_time = sim_time.elapsed_seconds();
-    
+
     for (entity, destroyed, visibility, children) in query.iter_mut() {
         let elapsed = current_time - destroyed.destruction_time;
-        
+
         if destroyed.fade_duration <= 0.0 || elapsed >= destroyed.fade_duration {
             // Fade complete or instant destruction - despawn the entity and all children
             info!("Despawning destroyed celestial body (entity {:?})", entity);
-            
+
             // Despawn all children first (markers, trails, etc.)
             for child in children.iter() {
                 if let Ok(child_entity) = child_query.get(*child) {
                     commands.entity(child_entity).despawn_recursive();
                 }
             }
-            
+
             // Despawn the body itself
             commands.entity(entity).despawn_recursive();
         } else if let Some(mut vis) = visibility {
@@ -1020,7 +1031,9 @@ pub fn update_orbit_visibility(
         } else if moon.is_some() {
             // Show moon orbits only when the parent planet is the camera anchor
             orbit_path.visible = anchor.0.is_some()
-                && logical_parent.map(|lp| Some(lp.0) == anchor.0).unwrap_or(false);
+                && logical_parent
+                    .map(|lp| Some(lp.0) == anchor.0)
+                    .unwrap_or(false);
         } else {
             // Asteroids, Comets, DwarfPlanets are hidden by default
             orbit_path.visible = false;
@@ -1058,7 +1071,9 @@ pub fn update_body_lod_visibility(
         if moon.is_some() {
             // Moon visibility: only when parent planet is the camera anchor
             let parent_anchored = anchor.0.is_some()
-                && logical_parent.map(|lp| Some(lp.0) == anchor.0).unwrap_or(false);
+                && logical_parent
+                    .map(|lp| Some(lp.0) == anchor.0)
+                    .unwrap_or(false);
             *visibility = if parent_anchored {
                 Visibility::Inherited
             } else {
@@ -1126,22 +1141,22 @@ pub fn handle_body_selection(
     // Find the closest body to the ray
     // Stores: (Entity, distance from camera, body name)
     let mut closest_body: Option<(Entity, f32, String)> = None;
-    
+
     for (entity, transform, body) in body_query.iter() {
         let body_pos = transform.translation();
-        
+
         // Calculate distance from ray to body center
         let to_body = body_pos - ray.origin;
         let projection = to_body.dot(*ray.direction);
-        
+
         // Skip if body is behind camera
         if projection < 0.0 {
             continue;
         }
-        
+
         let closest_point = ray.origin + *ray.direction * projection;
         let distance = (body_pos - closest_point).length();
-        
+
         // Check if click is within visual radius + margin
         // This allows clicking on the visible surface of large bodies, and provides
         // a generous margin for small bodies
@@ -1167,15 +1182,15 @@ pub fn handle_body_selection(
     if let Some((entity, _, name)) = closest_body {
         commands.entity(entity).insert(Selected);
         info!("Selected celestial body: {} (entity {:?})", name, entity);
-        
+
         let current_time = time.elapsed_seconds_f64();
         if let Some(last_entity) = selection_state.last_clicked_entity {
-             if last_entity == entity && (current_time - selection_state.last_click_time) < 0.5 {
-                 info!("Double click on {}, setting anchor.", name);
-                 if let Ok(mut anchor) = anchor_query.get_single_mut() {
-                     anchor.0 = Some(entity);
-                 }
-             }
+            if last_entity == entity && (current_time - selection_state.last_click_time) < 0.5 {
+                info!("Double click on {}, setting anchor.", name);
+                if let Ok(mut anchor) = anchor_query.get_single_mut() {
+                    anchor.0 = Some(entity);
+                }
+            }
         }
         selection_state.last_click_time = current_time;
         selection_state.last_clicked_entity = Some(entity);
@@ -1238,22 +1253,22 @@ pub fn handle_body_hover(
 
     // Find the closest body to the ray
     let mut closest_body: Option<(Entity, f32)> = None;
-    
+
     for (entity, transform, body) in body_query.iter() {
         let body_pos = transform.translation();
-        
+
         // Calculate distance from ray to body center
         let to_body = body_pos - ray.origin;
         let projection = to_body.dot(*ray.direction);
-        
+
         // Skip if body is behind camera
         if projection < 0.0 {
             continue;
         }
-        
+
         let closest_point = ray.origin + *ray.direction * projection;
         let distance = (body_pos - closest_point).length();
-        
+
         // Check if cursor is within hover radius (visual radius + margin)
         let selection_radius = body.visual_radius + SELECTION_CLICK_RADIUS;
         if distance < selection_radius {
@@ -1414,10 +1429,7 @@ fn spawn_marker(
 
     // Create a parent entity for the reticle (no mesh, just a transform anchor)
     let marker_entity = commands
-        .spawn((
-            SpatialBundle::default(),
-            MarkerOwner(owner),
-        ))
+        .spawn((SpatialBundle::default(), MarkerOwner(owner)))
         .id();
 
     if is_selected {
@@ -1426,13 +1438,13 @@ fn spawn_marker(
         commands.entity(marker_entity).insert(HoverMarker);
     }
 
-    // IMPORTANT: Do NOT parent the marker to the owner. 
+    // IMPORTANT: Do NOT parent the marker to the owner.
     // We want the marker to be:
     // 1. "Billboarded" (always facing the camera)
     // 2. "Stationary" relative to rotation (not spinning with the planet)
-    // 
-    // Trying to billboard a child of a rotating parent is complex because standard billboarding 
-    // is overridden by parent rotation. Instead, we keep the marker detached and 
+    //
+    // Trying to billboard a child of a rotating parent is complex because standard billboarding
+    // is overridden by parent rotation. Instead, we keep the marker detached and
     // manually sync its position every frame in `scale_markers_with_zoom`.
     // commands.entity(marker_entity).set_parent(owner);
 
@@ -1457,15 +1469,15 @@ fn spawn_marker(
     for (x_sign, z_sign) in corners {
         let corner_x = bracket_offset * x_sign;
         let corner_z = bracket_offset * z_sign;
-        
+
         // Horizontal bar extending inward from corner (along X axis)
-        let h_bar_mesh = meshes.add(Cuboid::new(bracket_length, bracket_thickness, bracket_thickness));
-        let h_bar_pos = Vec3::new(
-            corner_x - x_sign * bracket_length * 0.5,
-            0.0,
-            corner_z,
-        );
-        
+        let h_bar_mesh = meshes.add(Cuboid::new(
+            bracket_length,
+            bracket_thickness,
+            bracket_thickness,
+        ));
+        let h_bar_pos = Vec3::new(corner_x - x_sign * bracket_length * 0.5, 0.0, corner_z);
+
         commands.entity(marker_entity).with_children(|parent| {
             parent.spawn(PbrBundle {
                 mesh: h_bar_mesh,
@@ -1476,13 +1488,13 @@ fn spawn_marker(
         });
 
         // Vertical bar extending inward from corner (along Z axis)
-        let v_bar_mesh = meshes.add(Cuboid::new(bracket_thickness, bracket_thickness, bracket_length));
-        let v_bar_pos = Vec3::new(
-            corner_x,
-            0.0,
-            corner_z - z_sign * bracket_length * 0.5,
-        );
-        
+        let v_bar_mesh = meshes.add(Cuboid::new(
+            bracket_thickness,
+            bracket_thickness,
+            bracket_length,
+        ));
+        let v_bar_pos = Vec3::new(corner_x, 0.0, corner_z - z_sign * bracket_length * 0.5);
+
         commands.entity(marker_entity).with_children(|parent| {
             parent.spawn(PbrBundle {
                 mesh: v_bar_mesh,
@@ -1498,13 +1510,16 @@ fn spawn_marker(
 pub fn zoom_camera_to_anchored_body(
     body_query: Query<(&CelestialBody, Option<&Star>)>,
     moon_parent_query: Query<&LogicalParent, With<Moon>>,
-    mut camera_query: Query<(&mut OrbitCamera, &CameraAnchor), (With<GameCamera>, Changed<CameraAnchor>)>,
+    mut camera_query: Query<
+        (&mut OrbitCamera, &CameraAnchor),
+        (With<GameCamera>, Changed<CameraAnchor>),
+    >,
 ) {
     // Only trigger when camera anchor changes
     let Ok((mut orbit_camera, anchor)) = camera_query.get_single_mut() else {
         return;
     };
-    
+
     // Check if we have an anchored body
     if let Some(anchored_entity) = anchor.0 {
         if let Ok((body, is_star)) = body_query.get(anchored_entity) {
@@ -1515,12 +1530,10 @@ pub fn zoom_camera_to_anchored_body(
                 40.0 * SCALING_FACTOR as f32
             } else {
                 let visual_radius = (body.radius * RADIUS_SCALE).max(5.0);
-                
+
                 // Check if any moon has this body as its logical parent
-                let has_moons = moon_parent_query
-                    .iter()
-                    .any(|lp| lp.0 == anchored_entity);
-                
+                let has_moons = moon_parent_query.iter().any(|lp| lp.0 == anchored_entity);
+
                 if has_moons {
                     // Zoom to show the entire moon system
                     // Outermost moon is at ~6× parent visual radius (OUTER_MOON_MULTIPLIER),
@@ -1533,7 +1546,7 @@ pub fn zoom_camera_to_anchored_body(
                     target_distance.clamp(50.0, 10000.0)
                 }
             };
-            
+
             orbit_camera.radius = zoom_distance;
         }
     }
@@ -1556,7 +1569,7 @@ pub fn scale_markers_with_zoom(
     let Ok(orbit_camera) = orbit_camera_query.get_single() else {
         return;
     };
-    
+
     let Ok(camera_global_transform) = camera_query.get_single() else {
         return;
     };
@@ -1577,7 +1590,7 @@ pub fn scale_markers_with_zoom(
 
             // 2. Apply zoom scaling
             transform.scale = Vec3::splat(zoom_scale);
-            
+
             // 3. Make marker face the camera (billboard effect)
             // Align local Y (plane normal) to point at camera
             let direction = (camera_position - owner_position).normalize_or_zero();
@@ -1610,7 +1623,7 @@ mod tests {
         let mean_anomaly = std::f64::consts::PI / 2.0; // 90 degrees
         let eccentricity = 0.0167;
         let eccentric_anomaly = solve_kepler(mean_anomaly, eccentricity);
-        
+
         // Verify Kepler's equation: M = E - e*sin(E)
         let calculated_mean = eccentric_anomaly - eccentricity * eccentric_anomaly.sin();
         assert!((calculated_mean - mean_anomaly).abs() < KEPLER_TOLERANCE);
@@ -1622,7 +1635,7 @@ mod tests {
         let mean_anomaly = std::f64::consts::PI;
         let eccentricity = 0.8;
         let eccentric_anomaly = solve_kepler(mean_anomaly, eccentricity);
-        
+
         // Verify Kepler's equation
         let calculated_mean = eccentric_anomaly - eccentricity * eccentric_anomaly.sin();
         assert!((calculated_mean - mean_anomaly).abs() < KEPLER_TOLERANCE);
@@ -1652,12 +1665,12 @@ mod tests {
         // Test periapsis and apoapsis distances
         let semi_major_axis = 1.0;
         let eccentricity = 0.5;
-        
+
         // At periapsis (true anomaly = 0), r = a(1-e)
         let periapsis_distance = orbital_radius(semi_major_axis, eccentricity, 0.0);
         let expected_periapsis = semi_major_axis * (1.0 - eccentricity);
         assert!((periapsis_distance - expected_periapsis).abs() < 1e-10);
-        
+
         // At apoapsis (true anomaly = π), r = a(1+e)
         let apoapsis_distance = orbital_radius(semi_major_axis, eccentricity, std::f64::consts::PI);
         let expected_apoapsis = semi_major_axis * (1.0 + eccentricity);
@@ -1706,7 +1719,7 @@ mod tests {
         // Verify transform was updated with scaled values
         let mut query = app.world_mut().query::<&Transform>();
         let transform = query.iter(app.world()).next().unwrap();
-        
+
         // Should be scaled by SCALING_FACTOR
         let expected = Vec3::new(
             (1.0 * SCALING_FACTOR) as f32,

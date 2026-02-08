@@ -3,7 +3,7 @@ use helios_ascension::astronomy::{AtmosphereComposition, AtmosphericGas};
 #[test]
 fn test_atmosphere_ui_data_available() {
     // Test that atmosphere data can be properly queried for UI display
-    
+
     // Create a test atmosphere similar to Earth
     let earth_atmosphere = AtmosphereComposition::new(
         1013.0,
@@ -15,16 +15,16 @@ fn test_atmosphere_ui_data_available() {
             AtmosphericGas::new("CO2", 0.04),
         ],
     );
-    
+
     // Verify atmosphere properties are accessible for UI
     assert_eq!(earth_atmosphere.surface_pressure_mbar, 1013.0);
     assert_eq!(earth_atmosphere.surface_temperature_celsius, 15.0);
     assert!(earth_atmosphere.breathable);
     assert_eq!(earth_atmosphere.calculate_colony_cost(), 0);
-    
+
     // Verify gas composition can be iterated
     assert_eq!(earth_atmosphere.gases.len(), 4);
-    
+
     // Verify pressure conversion for UI display
     let pressure_bar = earth_atmosphere.surface_pressure_mbar / 1000.0;
     assert!((pressure_bar - 1.013).abs() < 0.01);
@@ -33,7 +33,7 @@ fn test_atmosphere_ui_data_available() {
 #[test]
 fn test_atmosphere_ui_formatting() {
     // Test that different atmospheres format correctly for UI
-    
+
     // Venus - high pressure
     let venus = AtmosphereComposition::new(
         92000.0,
@@ -43,11 +43,11 @@ fn test_atmosphere_ui_formatting() {
             AtmosphericGas::new("N2", 3.5),
         ],
     );
-    
+
     let pressure_bar = venus.surface_pressure_mbar / 1000.0;
     assert!(pressure_bar >= 1.0); // Should display as "bar"
     assert_eq!(venus.calculate_colony_cost(), 8);
-    
+
     // Mars - low pressure
     let mars = AtmosphereComposition::new(
         6.0,
@@ -57,7 +57,7 @@ fn test_atmosphere_ui_formatting() {
             AtmosphericGas::new("N2", 2.7),
         ],
     );
-    
+
     let pressure_bar = mars.surface_pressure_mbar / 1000.0;
     assert!(pressure_bar < 1.0); // Should display as "mbar"
     assert!(mars.calculate_colony_cost() >= 5);
@@ -66,18 +66,28 @@ fn test_atmosphere_ui_formatting() {
 #[test]
 fn test_colony_cost_colors() {
     // Test that colony costs map to correct color categories
-    
+
     let test_atmospheres = vec![
         // Good (0-3)
-        AtmosphereComposition::new(1013.0, 15.0, vec![AtmosphericGas::new("N2", 78.0), AtmosphericGas::new("O2", 21.0)]),
+        AtmosphereComposition::new(
+            1013.0,
+            15.0,
+            vec![
+                AtmosphericGas::new("N2", 78.0),
+                AtmosphericGas::new("O2", 21.0),
+            ],
+        ),
         // Moderate (4-6)
         AtmosphereComposition::new(500.0, -30.0, vec![AtmosphericGas::new("N2", 95.0)]),
         // Bad (7-8)
         AtmosphereComposition::new(92000.0, 465.0, vec![AtmosphericGas::new("CO2", 96.5)]),
     ];
-    
-    let costs: Vec<u8> = test_atmospheres.iter().map(|a| a.calculate_colony_cost()).collect();
-    
+
+    let costs: Vec<u8> = test_atmospheres
+        .iter()
+        .map(|a| a.calculate_colony_cost())
+        .collect();
+
     // Verify we have a range of costs
     assert_eq!(costs[0], 0); // Earth-like
     assert!(costs[1] >= 4 && costs[1] <= 6); // Moderate
@@ -87,7 +97,7 @@ fn test_colony_cost_colors() {
 #[test]
 fn test_gas_composition_display() {
     // Test that gas composition is properly formatted for display
-    
+
     let atmosphere = AtmosphereComposition::new(
         1000.0,
         0.0,
@@ -96,14 +106,14 @@ fn test_gas_composition_display() {
             AtmosphericGas::new("He", 10.0),
         ],
     );
-    
+
     // Verify gases can be accessed for display
     assert_eq!(atmosphere.gases.len(), 2);
-    
+
     // Verify gas percentages sum to 100
     let total: f32 = atmosphere.gases.iter().map(|g| g.percentage).sum();
     assert!((total - 100.0).abs() < 0.1);
-    
+
     // Verify individual gas properties are accessible
     for gas in &atmosphere.gases {
         assert!(!gas.name.is_empty());

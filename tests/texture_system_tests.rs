@@ -7,10 +7,7 @@ fn test_texture_field_deserializes() {
 
     // Check that Sol has a texture
     let sol = data.get_body("Sol").expect("Sol should exist");
-    assert!(
-        sol.texture.is_some(),
-        "Sol should have a dedicated texture"
-    );
+    assert!(sol.texture.is_some(), "Sol should have a dedicated texture");
     assert_eq!(
         sol.texture.as_ref().unwrap(),
         "textures/celestial/stars/sun_8k.jpg"
@@ -162,7 +159,6 @@ fn test_asteroid_class_distribution() {
             // Treat other types (V, D, P, etc) as unknown for this test or just count them
             _ => unknown_count += 1,
         }
-
     }
 
     // C-type should be the most common
@@ -224,17 +220,17 @@ fn test_major_moons_have_textures() {
 
     // Major moons that should have dedicated textures
     let major_moons = [
-        "Moon",       // Earth's moon
-        "Io",         // Jupiter
-        "Europa",     // Jupiter
-        "Ganymede",   // Jupiter
-        "Callisto",   // Jupiter
-        "Titan",      // Saturn
-        "Enceladus",  // Saturn
-        "Phobos",     // Mars
-        "Deimos",     // Mars
-        "Triton",     // Neptune
-        "Miranda",    // Uranus
+        "Moon",      // Earth's moon
+        "Io",        // Jupiter
+        "Europa",    // Jupiter
+        "Ganymede",  // Jupiter
+        "Callisto",  // Jupiter
+        "Titan",     // Saturn
+        "Enceladus", // Saturn
+        "Phobos",    // Mars
+        "Deimos",    // Mars
+        "Triton",    // Neptune
+        "Miranda",   // Uranus
     ];
 
     for moon_name in &major_moons {

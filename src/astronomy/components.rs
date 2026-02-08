@@ -1,5 +1,5 @@
-use bevy::prelude::*;
 use bevy::math::DVec3;
+use bevy::prelude::*;
 
 /// High-precision spatial coordinates using double-precision floating point.
 /// This represents the "true" position of an object in the universe.
@@ -51,22 +51,22 @@ impl SpaceCoordinates {
 pub struct KeplerOrbit {
     /// Eccentricity (e) - shape of the orbit (0 = circle, 0-1 = ellipse, 1 = parabola, >1 = hyperbola)
     pub eccentricity: f64,
-    
+
     /// Semi-major axis (a) - size of the orbit in Astronomical Units (AU)
     pub semi_major_axis: f64,
-    
+
     /// Inclination (i) - tilt of the orbital plane in radians
     pub inclination: f64,
-    
+
     /// Longitude of ascending node (Ω) - where orbit crosses reference plane, in radians
     pub longitude_ascending_node: f64,
-    
+
     /// Argument of periapsis (ω) - orientation of the ellipse in the orbital plane, in radians
     pub argument_of_periapsis: f64,
-    
+
     /// Mean anomaly at epoch (M₀) - position in orbit at time t=0, in radians
     pub mean_anomaly_epoch: f64,
-    
+
     /// Mean motion (n) - radians per second
     /// Derived from orbital period: n = 2π / T
     pub mean_motion: f64,
@@ -141,10 +141,10 @@ impl Default for KeplerOrbit {
 pub struct OrbitPath {
     /// Color of the orbit line
     pub color: Color,
-    
+
     /// Whether the orbit is currently visible
     pub visible: bool,
-    
+
     /// Number of segments to use when drawing the orbit
     pub segments: u32,
 }
@@ -280,33 +280,33 @@ pub struct AtmosphereComposition {
     /// Earth's surface pressure is approximately 1013 millibars
     /// For gas giants, this represents the reference level (conventionally 1 bar)
     pub surface_pressure_mbar: f32,
-    
+
     /// Average surface temperature in Celsius
     pub surface_temperature_celsius: f32,
-    
+
     /// List of atmospheric gases and their percentages
     /// Should sum to approximately 100%
     pub gases: Vec<AtmosphericGas>,
-    
+
     /// Whether the atmosphere is breathable for humans
     /// True if oxygen is present at safe levels (0.1-0.3 atm)
     pub breathable: bool,
-    
+
     /// Whether this body can physically support an atmosphere based on escape velocity.
     /// This uses a simplified binary threshold (≥ 2.0 km/s) for gameplay purposes.
     /// Physically: ≥ 5 km/s retains most gases; 2-5 km/s retains heavy gases; < 2 km/s loses atmosphere.
     pub can_support_atmosphere: bool,
-    
+
     /// Whether this is a reference altitude pressure (true for gas giants) or actual surface pressure (false for terrestrial)
     /// Gas giants lack solid surfaces, so their pressure is measured at the conventional 1 bar reference level
     pub is_reference_pressure: bool,
-    
+
     /// Harvest altitude pressure in bars for gas scooping operations (gas giants only)
     /// This represents the atmospheric pressure level where gas harvesting stations operate.
     /// Deeper = higher pressure = better yield. Default: 10 bar for gas giants, 0 for terrestrial.
     /// Higher values require better technology.
     pub harvest_altitude_bar: f32,
-    
+
     /// Maximum harvest altitude pressure achievable with current technology (gas giants only)
     /// Technology research can increase this limit to allow deeper, more efficient harvesting.
     /// Default: 50 bar for basic tech, can be increased to 100+ bar with advanced tech.
@@ -323,11 +323,11 @@ impl AtmosphereComposition {
         let v_e_m_s = (2.0 * G * mass_kg / radius_m).sqrt();
         v_e_m_s / 1000.0 // Convert m/s to km/s
     }
-    
+
     /// Determine if a body can support an atmosphere based on escape velocity.
-    /// 
+    ///
     /// Returns true if escape velocity ≥ 2.0 km/s (simplified threshold for gameplay).
-    /// 
+    ///
     /// Physical reality (for future enhancement):
     /// - ≥ 5 km/s: Can retain most gases including light gases (H₂, He)
     /// - 2-5 km/s: Can retain heavy gases (N₂, O₂, CO₂) but lose lighter ones over geological time
@@ -336,7 +336,7 @@ impl AtmosphereComposition {
         let escape_velocity = Self::calculate_escape_velocity(mass_kg, radius_km);
         escape_velocity >= 2.0 // Simplified threshold: can retain at least heavy gases
     }
-    
+
     /// Create a new atmosphere composition with mass and radius for calculating retention
     pub fn new_with_body_data(
         surface_pressure_mbar: f32,
@@ -353,11 +353,11 @@ impl AtmosphereComposition {
             .find(|g| g.name == "O2")
             .map(|g| surface_pressure_mbar * g.percentage / 100.0)
             .unwrap_or(0.0);
-        
+
         let breathable = o2_pressure >= 100.0 && o2_pressure <= 300.0;
-        
+
         let can_support_atmosphere = Self::can_retain_atmosphere(body_mass_kg, body_radius_km);
-        
+
         // Set default harvest altitudes for gas giants
         let (harvest_altitude_bar, max_harvest_altitude_bar) = if is_reference_pressure {
             // Gas giants: default 10 bar harvest, max 50 bar with basic tech
@@ -366,7 +366,7 @@ impl AtmosphereComposition {
             // Terrestrial planets: no atmospheric harvesting
             (0.0, 0.0)
         };
-        
+
         Self {
             surface_pressure_mbar,
             surface_temperature_celsius,
@@ -378,7 +378,7 @@ impl AtmosphereComposition {
             max_harvest_altitude_bar,
         }
     }
-    
+
     /// Create a new atmosphere composition (legacy method for backwards compatibility)
     /// Assumes the body can support atmosphere (for compatibility with existing code)
     pub fn new(
@@ -393,9 +393,9 @@ impl AtmosphereComposition {
             .find(|g| g.name == "O2")
             .map(|g| surface_pressure_mbar * g.percentage / 100.0)
             .unwrap_or(0.0);
-        
+
         let breathable = o2_pressure >= 100.0 && o2_pressure <= 300.0;
-        
+
         Self {
             surface_pressure_mbar,
             surface_temperature_celsius,
@@ -407,12 +407,12 @@ impl AtmosphereComposition {
             max_harvest_altitude_bar: 0.0,
         }
     }
-    
+
     /// Check if the atmosphere has a specific gas
     pub fn has_gas(&self, gas_name: &str) -> bool {
         self.gases.iter().any(|g| g.name == gas_name)
     }
-    
+
     /// Get the percentage of a specific gas
     pub fn get_gas_percentage(&self, gas_name: &str) -> Option<f32> {
         self.gases
@@ -420,12 +420,12 @@ impl AtmosphereComposition {
             .find(|g| g.name == gas_name)
             .map(|g| g.percentage)
     }
-    
+
     /// Calculate the colony cost based on Aurora 4X model
     /// 0 = Earth-like, 8+ = extremely hostile
     pub fn calculate_colony_cost(&self) -> u8 {
         let mut cost = 0u8;
-        
+
         // Temperature factor
         let temp_diff = (self.surface_temperature_celsius - 15.0).abs();
         if temp_diff > 100.0 {
@@ -435,7 +435,7 @@ impl AtmosphereComposition {
         } else if temp_diff > 25.0 {
             cost += 1;
         }
-        
+
         // Pressure factor
         let pressure_bar = self.surface_pressure_mbar / 1000.0;
         if pressure_bar < 0.01 || pressure_bar > 10.0 {
@@ -445,19 +445,19 @@ impl AtmosphereComposition {
         } else if pressure_bar < 0.8 || pressure_bar > 1.5 {
             cost += 1;
         }
-        
+
         // Breathability factor
         if !self.breathable {
             cost += 2;
         }
-        
+
         cost.min(8)
     }
-    
+
     /// Calculate harvest yield multiplier based on harvest altitude vs reference pressure.
     /// For gas giants, deeper atmospheric harvesting yields more gas per volume.
     /// Uses simplified ideal gas law approximation: density ∝ pressure at constant temperature.
-    /// 
+    ///
     /// Returns multiplier relative to 1 bar reference level:
     /// - At 1 bar: 1.0x yield
     /// - At 10 bar: ~10x yield
@@ -467,23 +467,23 @@ impl AtmosphereComposition {
             // Terrestrial planets: no atmospheric harvesting
             return 0.0;
         }
-        
+
         // For gas giants, yield is proportional to pressure/density
         // Using harvest altitude relative to 1 bar reference
         let reference_bar = self.surface_pressure_mbar / 1000.0;
         if reference_bar <= 0.0 || self.harvest_altitude_bar <= 0.0 {
             return 0.0;
         }
-        
+
         // Yield multiplier is approximately harvest pressure / reference pressure
         self.harvest_altitude_bar / reference_bar
     }
-    
+
     /// Check if harvest altitude can be increased (not at maximum yet)
     pub fn can_increase_harvest_altitude(&self) -> bool {
         self.is_reference_pressure && self.harvest_altitude_bar < self.max_harvest_altitude_bar
     }
-    
+
     /// Get remaining harvest altitude capacity (how much deeper we can go with tech upgrades)
     pub fn remaining_harvest_capacity_bar(&self) -> f32 {
         if !self.is_reference_pressure {
