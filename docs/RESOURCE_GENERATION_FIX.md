@@ -56,7 +56,7 @@ The first fix attempt made **unit conversion errors**:
 ### 1. Mars - Fixed Unit Conversion
 ```rust
 "Mars" => {
-    // Correct: 5M km³ = 4.6×10^9 Mt (4.6 billion Mt)
+    // 4.6 billion Mt (4.6×10^9 Mt) of water ice - scientifically measured
     resources.add_deposit(ResourceType::Water, 
         create_deposit_from_absolute_mass(4.6e9, 0.5, BodyType::Planet));
     
@@ -71,7 +71,7 @@ The first fix attempt made **unit conversion errors**:
 ### 2. Moon - Fixed Unit Conversion
 ```rust
 "Moon" => {
-    // Correct: 600 million metric tons = 600 Mt (NOT 6×10^8 Mt!)
+    // 600 Mt (600 million metric tons) - scientifically measured
     resources.add_deposit(ResourceType::Water,
         create_deposit_from_absolute_mass(600.0, 0.3, BodyType::Moon));
     
@@ -168,13 +168,13 @@ The resource generation system is now truly scientifically accurate! 🚀
   - Should have NO solid water deposits
 
 ### Mars
-- **Scientific measurement**: 5 million km³ = 5×10^15 metric tons total accessible ice
+- **Scientific measurement**: 5 million km³ ≈ 4.6×10^15 metric tons ≈ 4.6×10^9 Mt total accessible ice
   - Primarily in polar ice caps and subsurface deposits
-  - This is 5×10^6 Megatons, NOT Exatons
+  - This is 4.6 billion Megatons (Mt), NOT Exatons
   - Source: NASA missions, Mars Reconnaissance Orbiter data
 
 ### Earth's Moon
-- **Scientific measurement**: 600 million metric tons (6×10^8 Mt) of water ice
+- **Scientific measurement**: 600 million metric tons (600 Mt) of water ice
   - Located in permanently shadowed craters at poles
   - Source: NASA Mini-SAR instrument on Chandrayaan-1
   - Range estimates: 100 million to 1 billion metric tons per pole

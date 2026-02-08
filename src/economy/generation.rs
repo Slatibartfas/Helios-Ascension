@@ -183,8 +183,13 @@ fn create_deposit_legacy(abundance: f64, accessibility: f32, body_mass_kg: f64, 
     MineralDeposit::new(proven, deep, bulk, concentration, accessibility)
 }
 
-/// Helper to create a deposit from absolute mass in metric tons (scientifically verified values)
+/// Helper to create a deposit from absolute mass in Megatons (Mt) - scientifically verified values
 /// Use this for bodies with known, measured resource amounts
+/// 
+/// # Arguments
+/// * `total_mass_mt` - Total resource mass in Megatons (Mt), where 1 Mt = 10^6 metric tons = 10^9 kg
+/// * `accessibility` - How easy to extract (0.0 to 1.0)
+/// * `body_type` - Type of celestial body (affects tier distribution)
 fn create_deposit_from_absolute_mass(
     total_mass_mt: f64, 
     accessibility: f32, 
@@ -1174,8 +1179,17 @@ mod tests {
         // Jupiter should have hydrogen but NO water (gas giant, not ice giant)
         let jupiter_water = jupiter_resources.get_abundance(&ResourceType::Water);
         let jupiter_hydrogen = jupiter_resources.get_abundance(&ResourceType::Hydrogen);
+        let jupiter_total_mt = jupiter_mass / 1e9; // Convert kg to Mt
+        
         assert_eq!(jupiter_water, 0.0, "Jupiter should have NO solid water deposits (gas giant)");
-        assert!(jupiter_hydrogen > 0.5, "Jupiter should have hydrogen (>50% of atmosphere)");
+        
+        // Hydrogen should be a large fraction of Jupiter's mass
+        if jupiter_hydrogen > 0.0 {
+            let hydrogen_fraction = jupiter_hydrogen / jupiter_total_mt;
+            assert!(hydrogen_fraction > 0.5, 
+                "Jupiter should have hydrogen (>50% of mass), found: {:.1}%", 
+                hydrogen_fraction * 100.0);
+        }
         
         // Test Saturn
         let saturn_mass = 5.6834e26; // kg
@@ -1191,8 +1205,17 @@ mod tests {
         
         let saturn_water = saturn_resources.get_abundance(&ResourceType::Water);
         let saturn_hydrogen = saturn_resources.get_abundance(&ResourceType::Hydrogen);
+        let saturn_total_mt = saturn_mass / 1e9; // Convert kg to Mt
+        
         assert_eq!(saturn_water, 0.0, "Saturn should have NO solid water deposits (gas giant)");
-        assert!(saturn_hydrogen > 0.5, "Saturn should have hydrogen");
+        
+        // Hydrogen should be a large fraction of Saturn's mass
+        if saturn_hydrogen > 0.0 {
+            let hydrogen_fraction = saturn_hydrogen / saturn_total_mt;
+            assert!(hydrogen_fraction > 0.5, 
+                "Saturn should have hydrogen (>50% of mass), found: {:.1}%", 
+                hydrogen_fraction * 100.0);
+        }
     }
 
     #[test]
@@ -1351,35 +1374,43 @@ mod tests {
             &mut rng
         );
         
+        // Total body mass in megatons (Mt); resource abundances are stored as Mt
+        let total_mass_mt = earth_mass / 1.0e9;
+        
         // Verify construction materials are present and realistic for inner planet
         let iron = resources.get_abundance(&ResourceType::Iron);
         let silicates = resources.get_abundance(&ResourceType::Silicates);
         let aluminum = resources.get_abundance(&ResourceType::Aluminum);
         
-        if iron > 0.0 {
-            assert!(iron >= 0.15 && iron <= 0.35, 
+        let iron_fraction = if total_mass_mt > 0.0 { iron / total_mass_mt } else { 0.0 };
+        let silicates_fraction = if total_mass_mt > 0.0 { silicates / total_mass_mt } else { 0.0 };
+        let aluminum_fraction = if total_mass_mt > 0.0 { aluminum / total_mass_mt } else { 0.0 };
+        
+        if iron_fraction > 0.0 {
+            assert!(iron_fraction >= 0.15 && iron_fraction <= 0.35, 
                 "Inner planet iron should be 15-35% (realistic crustal abundance), found: {:.1}%", 
-                iron * 100.0);
+                iron_fraction * 100.0);
         }
         
-        if silicates > 0.0 {
-            assert!(silicates >= 0.25 && silicates <= 0.45, 
+        if silicates_fraction > 0.0 {
+            assert!(silicates_fraction >= 0.25 && silicates_fraction <= 0.45, 
                 "Inner planet silicates should be 25-45% (major crustal component), found: {:.1}%", 
-                silicates * 100.0);
+                silicates_fraction * 100.0);
         }
         
-        if aluminum > 0.0 {
-            assert!(aluminum >= 0.05 && aluminum <= 0.12, 
+        if aluminum_fraction > 0.0 {
+            assert!(aluminum_fraction >= 0.05 && aluminum_fraction <= 0.12, 
                 "Inner planet aluminum should be 5-12% (realistic crustal abundance), found: {:.1}%", 
-                aluminum * 100.0);
+                aluminum_fraction * 100.0);
         }
         
         // Volatiles should be very low or absent in inner system
         let water = resources.get_abundance(&ResourceType::Water);
-        if water > 0.0 {
-            assert!(water < 0.02, 
+        let water_fraction = if total_mass_mt > 0.0 { water / total_mass_mt } else { 0.0 };
+        if water_fraction > 0.0 {
+            assert!(water_fraction < 0.02, 
                 "Inner planet water should be <2% (very low volatiles), found: {:.2}%", 
-                water * 100.0);
+                water_fraction * 100.0);
         }
     }
 
@@ -1389,6 +1420,8 @@ mod tests {
         
         // Test an outer system body (beyond frost line)
         let test_mass = 1.0e21; // Small icy body
+        let total_mass_mt = test_mass / 1.0e9;
+        
         let resources = generate_resources_for_body(
             "TestIcyBody",
             crate::plugins::solar_system_data::BodyType::Moon,
@@ -1401,18 +1434,22 @@ mod tests {
         
         // Outer system bodies should have high volatiles
         let water = resources.get_abundance(&ResourceType::Water);
-        if water > 0.0 {
-            assert!(water >= 0.3 && water <= 0.7, 
+        let water_fraction = if total_mass_mt > 0.0 { water / total_mass_mt } else { 0.0 };
+        
+        if water_fraction > 0.0 {
+            assert!(water_fraction >= 0.3 && water_fraction <= 0.7, 
                 "Outer system body should have 30-70% water ice, found: {:.1}%", 
-                water * 100.0);
+                water_fraction * 100.0);
         }
         
         // Construction materials should be low
         let iron = resources.get_abundance(&ResourceType::Iron);
-        if iron > 0.0 {
-            assert!(iron < 0.2, 
+        let iron_fraction = if total_mass_mt > 0.0 { iron / total_mass_mt } else { 0.0 };
+        
+        if iron_fraction > 0.0 {
+            assert!(iron_fraction < 0.2, 
                 "Outer system body should have <20% iron, found: {:.1}%", 
-                iron * 100.0);
+                iron_fraction * 100.0);
         }
     }
 

@@ -17,7 +17,7 @@ This document lists the scientific sources used to validate and correct the reso
 
 #### Water Ice Reserves
 - **Mars Reconnaissance Orbiter** data
-  - Total detected ice: 5 million km³ (5×10^15 metric tons)
+  - Total detected ice: 5 million km³ (≈4.6×10^15 metric tons ≈ 4.6×10^9 Mt)
   - Sufficient to cover Mars to 35m depth if melted
   - Northern polar cap: 1.6 million km³
 - **Medusae Fossae Formation** deposits

@@ -15,9 +15,9 @@ This guide lists the realistic resource estimates for major bodies in our solar 
 - **Mining difficulty**: Extreme surface pressure (92 bar) and temperature (465°C)
 
 ### Earth's Moon
-- **Water Ice**: 600 million metric tons (6×10⁸ Mt)
+- **Water Ice**: 600 million metric tons (600 Mt)
   - Located in permanently shadowed polar craters
-  - Range: 100M - 1B Mt depending on estimates
+  - Range: 100M - 1B metric tons depending on estimates
 - **Other Resources**: 
   - Silicates (45% abundance, high accessibility)
   - Iron (15% abundance)
@@ -141,8 +141,8 @@ This guide lists the realistic resource estimates for major bodies in our solar 
 1. **Enceladus** - Active geysers (easiest)
 2. **Europa** - Massive ocean (challenging access)
 3. **C-type asteroids** - Moderate amounts (4-7%)
-4. **Mars** - Polar caps (5M Mt total)
-5. **Moon** - Polar craters (600M Mt total)
+4. **Mars** - Polar caps (~4.6×10⁹ Mt total)
+5. **Moon** - Polar craters (~600 Mt total)
 
 ### For Construction Materials
 1. **S-type asteroids** - High silicates/iron, excellent accessibility

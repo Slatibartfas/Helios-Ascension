@@ -24,15 +24,15 @@ The user reported:
 
 ### 2. Mars
 - **Before**: 0.15 × 6.4171×10^23 kg = 9.6×10^13 Mt (Exatons!)
-- **After**: 5×10^6 Mt (5 million Mt)
-- **Reduction**: 19 million times less
+- **After**: 4.6×10^9 Mt (~4.6 billion Mt)
+- **Reduction**: ~21,000 times less
 - **Scientific basis**: Mars Reconnaissance Orbiter - 5 million km³ total accessible ice
 
 ### 3. Earth's Moon
 - **Before**: 0.05 × 7.342×10^22 kg = 3.67×10^12 Mt
-- **After**: 6×10^8 Mt (600 million Mt)
-- **Reduction**: 6,000 times less
-- **Scientific basis**: NASA Chandrayaan-1/Mini-SAR - 600M tons in polar craters
+- **After**: 600 Mt
+- **Reduction**: ~6 billion times less
+- **Scientific basis**: NASA Chandrayaan-1/Mini-SAR - 600M metric tons in polar craters
 
 ### 4. Asteroids
 - **C-type (75% of asteroids)**
@@ -51,9 +51,9 @@ The user reported:
   - Basis: Metallic core remnants, no water
 
 ### 5. Europa (Verified Correct)
-- **Current**: 85% water = ~3×10^18 Mt
-- **Scientific**: 2.6-3.2×10^18 Mt (2-3× Earth's oceans)
-- **Status**: Already accurate, no change needed ✅
+- **Current**: 85% water by mass ≈ 4.1×10^22 kg (≈4.1×10^13 Mt)
+- **Scientific**: Global ocean ≈ 2.6–3.2×10^21 kg (≈2.6–3.2×10^12 Mt, 2–3× Earth's oceans)
+- **Status**: Abundance-based approach acceptable for gameplay ✅
 
 ## Technical Implementation
 
