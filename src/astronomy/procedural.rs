@@ -455,7 +455,7 @@ impl ProceduralPlanet {
     pub fn body_type(&self) -> BodyType {
         match self.planet_type {
             PlanetType::Rocky => BodyType::Planet,
-            PlanetType::IceGiant | PlanetType::GasGiant => BodyType::Planet,
+            PlanetType::IceGiant | PlanetType::GasGiant => BodyType::GasGiant,
         }
     }
 

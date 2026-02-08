@@ -34,11 +34,13 @@ const MAX_TIME_SCALE: f32 = 31_557_600.0;
 /// Game menu categories
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub enum GameMenu {
-    /// Main menu (quit/load/save/options)
+    /// Survey and celestial bodies
     #[default]
-    Main,
+    Survey,
     /// Starmap view
     Starmap,
+    /// Main menu (quit/load/save/options)
+    Main,
     /// Construction management
     Construction,
     /// Research tree
@@ -49,8 +51,6 @@ pub enum GameMenu {
     Shipbuilding,
     /// Economy and private sector
     Economy,
-    /// Survey and celestial bodies
-    Survey,
     /// Officers and managers
     Personnel,
     /// Enemy intelligence
@@ -63,14 +63,14 @@ impl GameMenu {
     /// Get the pictogram/icon for this menu
     pub fn icon(&self) -> &'static str {
         match self {
-            GameMenu::Main => "⚙",
+            GameMenu::Survey => "🔭",
             GameMenu::Starmap => "🗺",
+            GameMenu::Main => "⚙",
             GameMenu::Construction => "🏗",
             GameMenu::Research => "🔬",
             GameMenu::Fleets => "🚀",
             GameMenu::Shipbuilding => "⚓",
             GameMenu::Economy => "💰",
-            GameMenu::Survey => "🔭",
             GameMenu::Personnel => "👤",
             GameMenu::Intel => "🔍",
             GameMenu::Diplomacy => "🤝",
@@ -80,14 +80,14 @@ impl GameMenu {
     /// Get the display name for this menu
     pub fn name(&self) -> &'static str {
         match self {
-            GameMenu::Main => "Menu",
+            GameMenu::Survey => "Survey",
             GameMenu::Starmap => "Starmap",
+            GameMenu::Main => "Menu",
             GameMenu::Construction => "Construction",
             GameMenu::Research => "Research",
             GameMenu::Fleets => "Fleets",
             GameMenu::Shipbuilding => "Shipbuilding",
             GameMenu::Economy => "Economy",
-            GameMenu::Survey => "Survey",
             GameMenu::Personnel => "Personnel",
             GameMenu::Intel => "Intel",
             GameMenu::Diplomacy => "Diplomacy",
@@ -97,14 +97,14 @@ impl GameMenu {
     /// Get all menu items in order
     pub fn all() -> &'static [GameMenu] {
         &[
-            GameMenu::Main,
+            GameMenu::Survey,
             GameMenu::Starmap,
+            GameMenu::Main,
             GameMenu::Construction,
             GameMenu::Research,
             GameMenu::Fleets,
             GameMenu::Shipbuilding,
             GameMenu::Economy,
-            GameMenu::Survey,
             GameMenu::Personnel,
             GameMenu::Intel,
             GameMenu::Diplomacy,
@@ -114,14 +114,14 @@ impl GameMenu {
     /// File base name (without extension) for the menu icon asset
     pub fn asset_basename(&self) -> &'static str {
         match self {
-            GameMenu::Main => "main",
+            GameMenu::Survey => "survey",
             GameMenu::Starmap => "starmap",
+            GameMenu::Main => "main",
             GameMenu::Construction => "construction",
             GameMenu::Research => "research",
             GameMenu::Fleets => "fleets",
             GameMenu::Shipbuilding => "shipbuilding",
             GameMenu::Economy => "economy",
-            GameMenu::Survey => "survey",
             GameMenu::Personnel => "personnel",
             GameMenu::Intel => "intel",
             GameMenu::Diplomacy => "diplomacy",
@@ -516,7 +516,7 @@ fn get_category_color(category: &str) -> egui::Color32 {
     match category {
         "Volatiles" => egui::Color32::from_rgb(100, 200, 255),       // Water Blue
         "Atmospheric Gases" => egui::Color32::from_rgb(200, 230, 255), // Air White/Blue
-        "Construction" => egui::Color32::from_rgb(205, 127, 50),     // Bronze/Rust propert
+        "Construction" => egui::Color32::from_rgb(205, 127, 50),     // Bronze/Rust property
         "Fusion Fuel" => egui::Color32::from_rgb(255, 100, 200),     // Plasma/Energy Pink
         "Fissiles" => egui::Color32::from_rgb(100, 255, 100),        // Radioactive Green
         "Precious Metals" => egui::Color32::from_rgb(255, 215, 0),   // Gold
@@ -719,17 +719,27 @@ fn ui_top_menu_bar(
     mut active_menu: ResMut<ActiveMenu>,
     mut view_mode: ResMut<ViewMode>,
     menu_icons: Option<Res<MenuIcons>>,
+    mut icon_textures: Local<HashMap<GameMenu, egui::TextureId>>,
 ) {
-    // Convert loaded handles to egui TextureIds before creating the UI context
-    let texture_map: Option<HashMap<GameMenu, egui::TextureId>> = if let Some(menu_icons) = menu_icons.as_ref() {
-        let mut m: HashMap<GameMenu, egui::TextureId> = HashMap::new();
-        for (mkey, handle) in menu_icons.handles.iter() {
-            m.insert(*mkey, contexts.add_image(handle.clone()));
-        }
-        Some(m)
-    } else {
-        None
-    };
+    // Convert loaded handles to egui TextureIds before creating the UI context.
+    // We cache the TextureIds in a Local<HashMap> so that `add_image` is called
+    // at most once per GameMenu, and we simply reuse the cached TextureIds on
+    // subsequent frames.
+    let texture_map: Option<HashMap<GameMenu, egui::TextureId>> =
+        if let Some(menu_icons) = menu_icons.as_ref() {
+            // Populate the cache lazily: only create a TextureId the first time
+            // we see a given GameMenu.
+            for (mkey, handle) in menu_icons.handles.iter() {
+                icon_textures
+                    .entry(*mkey)
+                    .or_insert_with(|| contexts.add_image(handle.clone()));
+            }
+            // Clone the cached map so the rest of the UI code can use an owned
+            // HashMap just like before.
+            Some(icon_textures.clone())
+        } else {
+            None
+        };
 
     let ctx = match contexts.try_ctx_mut() {
         Some(ctx) => ctx,
