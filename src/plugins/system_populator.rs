@@ -165,7 +165,7 @@ fn populate_nearby_systems(
                     star_entity,
                     system_id,
                     &system_data.system_name,
-                    seed.value(),
+                    game_seed.value,
                 );
             }
 
@@ -177,7 +177,7 @@ fn populate_nearby_systems(
                     star_entity,
                     system_id,
                     &system_data.system_name,
-                    seed.value(),
+                    game_seed.value,
                 );
             }
         }
@@ -391,11 +391,11 @@ pub fn spawn_asteroid_belt(
 
         // Determine asteroid class (M, S, V types for inner belt)
         let asteroid_class = if rng.gen_bool(0.3) {
-            AsteroidClass::M // Metal-rich
+            AsteroidClass::MType // Metal-rich
         } else if rng.gen_bool(0.6) {
-            AsteroidClass::S // Silicate-rich
+            AsteroidClass::SType // Silicate-rich
         } else {
-            AsteroidClass::V // Basaltic
+            AsteroidClass::VType // Basaltic
         };
 
         // Random size (radius 0.1 - 50 km)
@@ -480,7 +480,7 @@ pub fn spawn_cometary_cloud(
                 radius,
                 body_type: BodyType::Comet,
                 visual_radius: radius,
-                asteroid_class: Some(AsteroidClass::P), // P-type (volatile-rich)
+                asteroid_class: Some(AsteroidClass::PType), // P-type (volatile-rich)
             },
             orbit,
             OrbitPath::new(Color::srgba(0.4, 0.6, 0.8, 0.3)),

@@ -1143,7 +1143,7 @@ fn handle_starmap_hover(
     icon_query: Query<(Entity, &GlobalTransform, &StarSystemIcon)>,
     mut commands: Commands,
     hovered_query: Query<Entity, With<HoveredStarSystem>>,
-    egui_contexts: bevy_egui::EguiContexts,
+    mut egui_contexts: bevy_egui::EguiContexts,
 ) {
     // Only active in starmap view
     if *view_mode != ViewMode::Starmap {
@@ -1155,7 +1155,10 @@ fn handle_starmap_hover(
     }
 
     // Don't process if egui is using the mouse
-    let ctx = egui_contexts.ctx();
+    let ctx = match egui_contexts.try_ctx_mut() {
+        Some(ctx) => ctx,
+        None => return,
+    };
     if ctx.is_pointer_over_area() || ctx.wants_pointer_input() {
         // Clear hover when over UI
         for entity in hovered_query.iter() {
