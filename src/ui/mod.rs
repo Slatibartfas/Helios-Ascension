@@ -679,19 +679,18 @@ fn ui_resources_bar(
                     let pop_response = egui::Frame::none()
                         .inner_margin(egui::Margin::symmetric(5.0, 2.0))
                         .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                // Right-to-left ordering within this container handled by placement
+                            ui.horizontal_centered(|ui| {
                                 ui.add(
                                     egui::Label::new(
                                         egui::RichText::new(format_population(total_population))
-                                            .size(14.0),
+                                            .size(16.0),
                                     )
                                     .selectable(false),
                                 );
                                 ui.add(
                                     egui::Label::new(
                                         egui::RichText::new("👥")
-                                            .size(16.0)
+                                            .size(20.0)
                                             .color(egui::Color32::WHITE),
                                     )
                                     .selectable(false),
@@ -737,139 +736,146 @@ fn ui_resources_bar(
                 egui::Color32::RED
             };
 
-            egui::Window::new("Power Breakdown")
+            let window_response = egui::Window::new("Power Breakdown")
                 .id(egui::Id::new("power_breakdown_window"))
-                .pivot(egui::Align2::RIGHT_TOP)
-                .fixed_pos(anchor_rect.right_bottom() + egui::vec2(0.0, 2.0))
+                .fixed_pos(egui::pos2(anchor_rect.left(), anchor_rect.bottom() + 2.0))
                 .collapsible(false)
                 .resizable(false)
                 .title_bar(false)
                 .open(&mut still_open)
                 .frame(egui::Frame::popup(ctx.style().as_ref()))
                 .show(ctx, |ui| {
-                     ui.set_min_width(240.0);
-                     ui.horizontal(|ui| {
+                    ui.set_min_width(220.0);
+                    ui.horizontal(|ui| {
                         ui.add(egui::Label::new(egui::RichText::new("⚡").size(18.0).color(power_color)).selectable(false));
                         ui.add(egui::Label::new(egui::RichText::new("Power Production").size(16.0).strong().color(power_color)).selectable(false));
                     });
                     ui.separator();
 
-                    egui::Grid::new("power_breakdown_grid")
-                        .num_columns(2)
-                        .spacing([10.0, 4.0])
-                        .show(ui, |ui| {
-                            let sources = [
-                                PowerSourceType::Planet,
-                                PowerSourceType::Station,
-                                PowerSourceType::Ship,
-                                PowerSourceType::Asteroid,
-                            ];
+                    let sources = [
+                        PowerSourceType::Planet,
+                        PowerSourceType::Station,
+                        PowerSourceType::Ship,
+                        PowerSourceType::Asteroid,
+                    ];
 
-                            let mut has_sources = false;
-                            for source in sources {
-                                let amount =
-                                    budget.power_breakdown.get(&source).copied().unwrap_or(0.0);
-                                if amount > 0.0 {
-                                    has_sources = true;
-                                    ui.label(format!("{}", source));
-                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                        ui.label(
-                                            egui::RichText::new(format_power(amount)).strong(),
-                                        );
-                                    });
-                                    ui.end_row();
-                                }
-                            }
-
-                            if !has_sources {
-                                ui.label("No active power generation");
-                                ui.end_row();
-                            }
-                            
-                            ui.separator();
-                            ui.separator();
-                            ui.label(egui::RichText::new("Total").strong());
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                ui.label(egui::RichText::new(format_power(budget.energy_grid.produced)).strong().color(power_color));
+                    let mut has_sources = false;
+                    for source in sources {
+                        let amount = budget.power_breakdown.get(&source).copied().unwrap_or(0.0);
+                        if amount > 0.0 {
+                            has_sources = true;
+                            ui.horizontal(|ui| {
+                                ui.add(egui::Label::new(format!("{}", source)).selectable(false));
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    ui.add(egui::Label::new(egui::RichText::new(format_power(amount)).strong()).selectable(false));
+                                });
                             });
-                            ui.end_row();
+                        }
+                    }
+
+                    if !has_sources {
+                        ui.add(egui::Label::new("No active power generation").selectable(false));
+                    }
+
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Label::new(egui::RichText::new("Total").strong()).selectable(false));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.add(egui::Label::new(egui::RichText::new(format_power(budget.energy_grid.produced)).strong().color(power_color)).selectable(false));
                         });
+                    });
                 });
+
+            // Close if clicked outside
+            if let Some(inner_response) = window_response {
+                if ctx.input(|i| i.pointer.any_pressed()) {
+                    if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
+                        if !inner_response.response.rect.contains(pos) && !anchor_rect.contains(pos) {
+                            open_popup.open = None;
+                        }
+                    }
+                }
+            }
 
             if !still_open {
                 open_popup.open = None;
             }
         } else if cat_name == "Population" {
             let mut still_open = true;
-            egui::Window::new("Population Breakdown")
+            let window_response = egui::Window::new("Population Breakdown")
                 .id(egui::Id::new("population_breakdown_window"))
-                .pivot(egui::Align2::RIGHT_TOP)
-                .fixed_pos(anchor_rect.right_bottom() + egui::vec2(0.0, 2.0))
+                .fixed_pos(egui::pos2(anchor_rect.left(), anchor_rect.bottom() + 2.0))
                 .collapsible(false)
                 .resizable(false)
                 .title_bar(false)
                 .open(&mut still_open)
                 .frame(egui::Frame::popup(ctx.style().as_ref()))
                 .show(ctx, |ui| {
-                     ui.set_min_width(240.0);
-                     ui.horizontal(|ui| {
+                    ui.set_min_width(220.0);
+                    ui.horizontal(|ui| {
                         ui.add(egui::Label::new(egui::RichText::new("👥").size(18.0).color(egui::Color32::WHITE)).selectable(false));
                         ui.add(egui::Label::new(egui::RichText::new("Population").size(16.0).strong().color(egui::Color32::WHITE)).selectable(false));
                     });
                     ui.separator();
 
-                    egui::Grid::new("population_breakdown_grid")
-                        .num_columns(2)
-                        .spacing([10.0, 4.0])
-                        .show(ui, |ui| {
-                            // Collect and sort populations
-                            let mut pops: Vec<(String, f64)> = population_query
-                                .iter()
-                                .filter(|(p, _)| p.count > 0.0)
-                                .map(|(p, body)| {
-                                    let name = if let Some(b) = body {
-                                        b.name.clone()
-                                    } else {
-                                        "Unknown".to_string()
-                                    };
-                                    (name, p.count)
-                                })
-                                .collect();
+                    // Collect and sort populations
+                    let mut pops: Vec<(String, f64)> = population_query
+                        .iter()
+                        .filter(|(p, _)| p.count > 0.0)
+                        .map(|(p, body)| {
+                            let name = if let Some(b) = body {
+                                b.name.clone()
+                            } else {
+                                "Unknown".to_string()
+                            };
+                            (name, p.count)
+                        })
+                        .collect();
 
-                            // Sort descending
-                            pops.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                    // Sort descending
+                    pops.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-                            let top_10_count = pops.len().min(10);
-                            let mut displayed_total = 0.0;
+                    let top_10_count = pops.len().min(10);
 
-                            for (name, count) in pops.iter().take(top_10_count) {
-                                ui.label(name);
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    ui.label(egui::RichText::new(format_population(*count)).strong());
-                                });
-                                ui.end_row();
-                                displayed_total += count;
-                            }
-
-                            // Summarize the rest
-                            if pops.len() > 10 {
-                                let other_total: f64 = pops.iter().skip(10).map(|(_, c)| c).sum();
-                                ui.label(egui::RichText::new("Other").italics());
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    ui.label(egui::RichText::new(format_population(other_total)).italics());
-                                });
-                                ui.end_row();
-                            }
-                            
-                            ui.separator();
-                            ui.separator();
-                            ui.label(egui::RichText::new("Total").strong());
+                    for (name, count) in pops.iter().take(top_10_count) {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Label::new(name.as_str()).selectable(false));
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                ui.label(egui::RichText::new(format_population(total_population)).strong().color(egui::Color32::WHITE));
+                                ui.add(egui::Label::new(egui::RichText::new(format_population(*count)).strong()).selectable(false));
                             });
-                            ui.end_row();
                         });
+                    }
+
+                    // Summarize the rest
+                    if pops.len() > 10 {
+                        let other_total: f64 = pops.iter().skip(10).map(|(_, c)| c).sum();
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Label::new(egui::RichText::new("Other").italics()).selectable(false));
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.add(egui::Label::new(egui::RichText::new(format_population(other_total)).italics()).selectable(false));
+                            });
+                        });
+                    }
+
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Label::new(egui::RichText::new("Total").strong()).selectable(false));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.add(egui::Label::new(egui::RichText::new(format_population(total_population)).strong().color(egui::Color32::WHITE)).selectable(false));
+                        });
+                    });
                 });
+
+            // Close if clicked outside
+            if let Some(inner_response) = window_response {
+                if ctx.input(|i| i.pointer.any_pressed()) {
+                    if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
+                        if !inner_response.response.rect.contains(pos) && !anchor_rect.contains(pos) {
+                            open_popup.open = None;
+                        }
+                    }
+                }
+            }
 
             if !still_open {
                 open_popup.open = None;
