@@ -1,7 +1,7 @@
 use crate::economy::budget::GlobalBudget;
 use crate::economy::components::PlanetResources;
 use crate::economy::types::ResourceType;
-use crate::ui::TimeScale;
+use crate::ui::SimulationTime;
 use bevy::prelude::*;
 
 #[derive(Component, Debug, Clone)]
@@ -25,16 +25,17 @@ impl Default for MiningOperation {
 pub fn extract_resources(
     mut budget: ResMut<GlobalBudget>,
     mut query: Query<(&mut PlanetResources, &MiningOperation)>,
-    time: Res<Time<Real>>,
-    time_scale: Option<Res<TimeScale>>,
+    sim_time: Res<SimulationTime>,
+    mut last_elapsed: Local<f64>,
 ) {
-    // Time<Real> is required for Bevy 0.14
-    let scale = time_scale.map(|s| s.scale).unwrap_or(1.0);
-    if scale == 0.0 {
+    let current_elapsed = sim_time.elapsed_seconds();
+    let dt = current_elapsed - *last_elapsed;
+    *last_elapsed = current_elapsed;
+
+    if dt <= 0.0 {
         return;
     }
 
-    let dt = time.delta_seconds() as f64 * scale as f64;
     // 1 year = 365.25 days * 24 * 60 * 60
     let years_elapsed = dt / 31_557_600.0;
 
