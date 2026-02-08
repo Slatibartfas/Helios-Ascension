@@ -124,8 +124,8 @@ impl ConfirmedPlanet {
             // These are approximations based on planetary composition
             match self.planet_type.as_str() {
                 "Telluric" | "Rocky" | "Super-Earth" => {
-                    // Rocky planet: M ∝ R^3.7 (Chen & Kipping 2017)
-                    radius.powf(3.7)
+                    // Rocky planet: approximate constant-density scaling M ∝ R^3.0
+                    radius.powf(3.0)
                 }
                 "Gas Giant" | "Jupiter-like" => {
                     // Gas giant: M ∝ R^1.0 (roughly constant density for Jovian planets)

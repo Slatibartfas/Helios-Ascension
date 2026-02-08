@@ -17,13 +17,13 @@ use crate::astronomy::exoplanets::RealPlanet;
 use crate::astronomy::nearby_stars::{NearbyStarsData, PlanetData, StarData};
 use crate::astronomy::{
     calculate_frost_line, map_star_to_system_architecture, KeplerOrbit, OrbitPath,
-    ProceduralPlanet, SpaceCoordinates, SystemArchitecture,
+    ProceduralPlanet, SpaceCoordinates,
 };
-use crate::economy::components::{OrbitsBody, PlanetResources, SpectralClass, StarSystem};
+use crate::economy::components::{OrbitsBody, SpectralClass, StarSystem};
 use crate::economy::generation::generate_solar_system_resources;
 use crate::game_state::GameSeed;
 use crate::plugins::solar_system::{
-    Asteroid, CelestialBody, Comet, DwarfPlanet, Moon, Planet, Star,
+    Asteroid, CelestialBody, Comet, Planet, Star,
 };
 use crate::plugins::solar_system_data::{AsteroidClass, BodyType};
 
@@ -45,7 +45,7 @@ fn populate_nearby_systems(
     mut commands: Commands,
     stars_data: Res<NearbyStarsData>,
     game_seed: Res<GameSeed>,
-    current_system: Res<CurrentStarSystem>,
+    _current_system: Res<CurrentStarSystem>,
 ) {
     // Use game seed for deterministic generation
     let mut rng = StdRng::seed_from_u64(game_seed.value);
@@ -304,7 +304,7 @@ pub fn spawn_procedural_planet(
     planet: &ProceduralPlanet,
     parent_star: Entity,
     system_id: usize,
-    metallicity_multiplier: f32,
+    _metallicity_multiplier: f32,
 ) -> Entity {
     let orbit = planet.to_kepler_orbit();
     let mass_kg = planet.mass_kg();
@@ -389,7 +389,7 @@ pub fn spawn_asteroid_belt(
             mean_motion,
         );
 
-        // Determine asteroid class (M, S, V types for inner belt)
+        // Determine asteroid class (MType, SType, VType for inner belt)
         let asteroid_class = if rng.gen_bool(0.3) {
             AsteroidClass::MType // Metal-rich
         } else if rng.gen_bool(0.6) {

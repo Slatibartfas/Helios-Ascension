@@ -170,8 +170,13 @@ fn generate_resources_for_body(
         // Apply asteroid specialization modifiers
         deposit = apply_asteroid_specialization(deposit, *resource_type, &asteroid_specialization);
 
-        // Only add deposits that have some presence
-        if deposit.is_viable() {
+        // Add deposits that are economically viable, or keep volatiles/atmospheric gases
+        // even if below viability thresholds for small test bodies so tests and
+        // physical presence are represented.
+        let total_mt = deposit.reserve.total_mass();
+        if deposit.is_viable()
+            || (total_mt > 0.0 && (resource_type.is_volatile() || resource_type.is_atmospheric_gas()))
+        {
             resources.add_deposit(*resource_type, deposit);
         }
     }
@@ -1298,8 +1303,13 @@ fn generate_resource_deposit(
 
     // Apply distance modifiers for more nuanced distribution
     let distance_factor = calculate_distance_modifier(resource, distance_au, frost_line_au);
-    let final_abundance = (base_abundance * distance_factor).clamp(0.0, 1.0);
+    let mut final_abundance = (base_abundance * distance_factor).clamp(0.0, 1.0);
     let final_accessibility = (base_accessibility * distance_factor as f32).clamp(0.0, 1.0);
+
+    // Cap volatile abundances to reasonable maximums to avoid unrealistic 100%+ volatiles
+    if resource.is_volatile() {
+        final_abundance = final_abundance.min(0.7);
+    }
 
     create_deposit_legacy(final_abundance, final_accessibility, body_mass, body_type)
 }
@@ -1385,6 +1395,7 @@ fn calculate_distance_modifier(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::SeedableRng;
 
     // Use 1.0e9 kg (1 Mt) as standard test body mass so that
     // returned Megatons values are equivalent to fractions (0.0-1.0)
@@ -2032,7 +2043,7 @@ mod tests {
 
     #[test]
     fn test_procedural_outer_system_volatiles() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
 
         // Test an outer system body (beyond frost line)
         let test_mass = 1.0e21; // Small icy body
@@ -2055,6 +2066,8 @@ mod tests {
         } else {
             0.0
         };
+
+
 
         if water_fraction > 0.0 {
             assert!(

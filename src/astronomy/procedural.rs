@@ -8,8 +8,8 @@ use bevy::prelude::*;
 use rand::prelude::*;
 use std::f64::consts::PI;
 
-use super::components::{KeplerOrbit, SpaceCoordinates};
-use crate::plugins::solar_system_data::{AsteroidClass, BodyType};
+use super::components::KeplerOrbit;
+use crate::plugins::solar_system_data::BodyType;
 
 /// System architecture parameters for a star system
 /// Defines the structure of rocky planets, gas giants, belts, and clouds
@@ -377,23 +377,23 @@ fn generate_asteroid_belt(
     existing_orbits_au: &[f64],
     rng: &mut impl Rng,
 ) -> AsteroidBelt {
-    // Belt typically at 1.5-2.5 × frost line distance
+    // Belt typically centered near twice the frost line, but keep width modest
     let base_center = frost_line_au * 2.0;
 
-    // Find a clear zone for the belt
-    let mut inner = base_center * 0.7;
-    let mut outer = base_center * 1.3;
+    // Find a clear zone for the belt — use narrower width (±10% of center)
+    let mut inner = base_center * 0.9;
+    let mut outer = base_center * 1.1;
 
     // Adjust if too close to existing planets
     for &orbit in existing_orbits_au {
         if (orbit - base_center).abs() < 1.0 {
-            // Shift the belt
+            // Shift the belt while keeping a modest width (20% of center)
             if orbit < base_center {
                 inner = orbit + 0.3;
-                outer = inner + (base_center * 0.6);
+                outer = inner + (base_center * 0.2);
             } else {
                 outer = orbit - 0.3;
-                inner = outer - (base_center * 0.6);
+                inner = outer - (base_center * 0.2);
             }
         }
     }

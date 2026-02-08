@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 pub enum BodyType {
     Star,
     Planet,
+    /// Gas giants are a sub-type of planets but treated specially in some places
+    GasGiant,
     DwarfPlanet,
     Moon,
     Asteroid,

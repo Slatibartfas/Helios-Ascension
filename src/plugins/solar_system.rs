@@ -216,6 +216,9 @@ pub struct Asteroid;
 pub struct Comet;
 
 #[derive(Component)]
+pub struct GasGiant;
+
+#[derive(Component)]
 pub struct Ring;
 
 /// Axial tilt (obliquity) and north-pole direction of a celestial body.
@@ -740,6 +743,11 @@ pub fn setup_solar_system(
             }
             BodyType::Planet => {
                 entity_commands.insert(Planet);
+            }
+            BodyType::GasGiant => {
+                // Gas giants are planets but have a distinct marker component
+                entity_commands.insert(Planet);
+                entity_commands.insert(GasGiant);
             }
             BodyType::DwarfPlanet => {
                 entity_commands.insert(DwarfPlanet);
