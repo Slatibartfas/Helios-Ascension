@@ -16,12 +16,13 @@ pub use interaction::Selection;
 
 use crate::astronomy::{AtmosphereComposition, Hovered, KeplerOrbit, Selected, SpaceCoordinates};
 use crate::astronomy::components::{CurrentStarSystem, SystemId};
+use crate::astronomy::nearby_stars::NearbyStarsData;
 use crate::economy::{format_power, GlobalBudget, PlanetResources, ResourceType};
 use crate::economy::components::SurveyLevel;
 use crate::plugins::solar_system::{CelestialBody, LogicalParent};
 use crate::plugins::solar_system_data::BodyType;
 use crate::plugins::camera::{CameraAnchor, GameCamera, ViewMode};
-use crate::plugins::starmap::{SelectedStarSystem, StarSystemIcon};
+use crate::plugins::starmap::{HoveredStarSystem, SelectedStarSystem, StarSystemIcon};
 
 /// Maximum time scale: 1 year per second (365.25 * 86400 ≈ 31,557,600)
 const MAX_TIME_SCALE: f32 = 31_557_600.0;
@@ -215,6 +216,7 @@ impl Plugin for UIPlugin {
             .add_systems(Update, (
                 ui_dashboard,
                 ui_hover_tooltip,
+                ui_starmap_hover_tooltip, // New: starmap tooltips
                 ui_starmap_labels,
                 sync_selection_with_astronomy,
                 advance_simulation_time,
@@ -506,6 +508,80 @@ fn ui_hover_tooltip(
     }
 }
 
+/// Display hover tooltip for star systems in starmap view
+fn ui_starmap_hover_tooltip(
+    mut contexts: EguiContexts,
+    hovered_query: Query<&StarSystemIcon, With<HoveredStarSystem>>,
+    bodies_query: Query<(&CelestialBody, &SystemId)>,
+    view_mode: Res<ViewMode>,
+) {
+    // Only show tooltips in starmap view
+    if *view_mode != ViewMode::Starmap {
+        return;
+    }
+
+    let ctx = match contexts.try_ctx_mut() {
+        Some(ctx) => ctx,
+        None => return,
+    };
+
+    // Display hover tooltip if a star system is hovered
+    if let Ok(icon) = hovered_query.get_single() {
+        // Anchor the tooltip near the mouse pointer
+        let tooltip_pos = ctx.input(|i| i.pointer.hover_pos())
+            .map(|p| egui::pos2(p.x + 12.0, p.y + 12.0))
+            .unwrap_or(egui::pos2(100.0, 100.0));
+
+        // Count bodies in this system
+        let body_count = bodies_query.iter()
+            .filter(|(_, sys_id)| sys_id.0 == icon.id)
+            .count();
+
+        // Calculate distance from Sol
+        let distance_ly = icon.position.length() / 63241.077; // AU to light years
+
+        egui::Area::new(format!("starmap_hover_{}", icon.id).into())
+            .fixed_pos(tooltip_pos)
+            .interactable(false)
+            .order(egui::Order::Tooltip)
+            .show(ctx, |ui| {
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                egui::Frame::none()
+                    .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 30, 240))
+                    .stroke(egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 180, 100)))
+                    .inner_margin(12.0)
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new(&icon.name)
+                                    .size(16.0)
+                                    .color(egui::Color32::from_rgb(255, 220, 150))
+                                    .strong()
+                            );
+                        });
+                        
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new(format!("Distance: {:.2} ly", distance_ly))
+                                    .size(12.0)
+                                    .color(egui::Color32::from_rgb(180, 180, 180))
+                            );
+                        });
+
+                        if body_count > 0 {
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new(format!("Bodies: {}", body_count))
+                                        .size(12.0)
+                                        .color(egui::Color32::from_rgb(180, 180, 180))
+                                );
+                            });
+                        }
+                    });
+            });
+    }
+}
+
 /// Formats large mass values (in megatons) to user-readable strings with metric prefixes.
 /// Supports kt, Mt, Gt, Tt, Pt, Et...
 fn format_mass(megatons: f64) -> String {
@@ -560,8 +636,11 @@ fn ui_dashboard(
     mut selection: ResMut<Selection>,
     view_mode: Res<ViewMode>,
     current_system: Res<CurrentStarSystem>,
+    nearby_stars: Res<NearbyStarsData>,
     // Query for selected body information
     mut body_query: Query<(&CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>, Option<&PlanetResources>, Option<&AtmosphereComposition>, Option<&mut SurveyLevel>)>,
+    // Resource query for system totals
+    resource_query: Query<(&SystemId, &PlanetResources)>,
     // Ledger queries
     all_bodies_query: Query<(Entity, &CelestialBody, Option<&LogicalParent>, Option<&KeplerOrbit>, Option<&SystemId>)>,
     selected_query: Query<Entity, With<Selected>>,
@@ -727,8 +806,15 @@ fn ui_dashboard(
             });
         });
 
-    // Right side panel for selected body information
-    if selection.has_selection() {
+    // Right side panel - show either selected star system or selected body
+    let selected_star_system = star_system_query.iter()
+        .find(|(_, _, selected)| selected.is_some());
+    
+    if let Some((_star_entity, star_icon, _)) = selected_star_system {
+        // Show star system details
+        render_star_system_panel(ctx, star_icon, &all_bodies_query, &resource_query, &nearby_stars);
+    } else if selection.has_selection() {
+        // Show selected celestial body details
         egui::SidePanel::right("selection_panel")
             .min_width(300.0)
             .max_width(400.0)
@@ -1061,6 +1147,145 @@ fn ui_dashboard(
                     ViewMode::Starmap => ("🌌 Starmap View", egui::Color32::from_rgb(255, 200, 100)),
                 };
                 ui.colored_label(view_color, view_label);
+            });
+        });
+}
+
+/// Render detailed information panel for a selected star system
+fn render_star_system_panel(
+    ctx: &egui::Context,
+    star_icon: &StarSystemIcon,
+    bodies_query: &Query<(Entity, &CelestialBody, Option<&LogicalParent>, Option<&KeplerOrbit>, Option<&SystemId>)>,
+    resource_query: &Query<(&SystemId, &PlanetResources)>,
+    nearby_stars: &Res<NearbyStarsData>,
+) {
+    egui::SidePanel::right("star_system_panel")
+        .min_width(300.0)
+        .max_width(400.0)
+        .show(ctx, |ui| {
+            ui.heading("Selected Star System");
+            ui.separator();
+
+            // System name
+            ui.label(egui::RichText::new(&star_icon.name).size(18.0).strong());
+            ui.add_space(10.0);
+
+            // Distance from Sol
+            let distance_ly = star_icon.position.length() / 63241.077;
+            ui.group(|ui| {
+                ui.label(egui::RichText::new("System Info").strong());
+                ui.label(format!("Distance: {:.2} ly", distance_ly));
+                ui.label(format!("System ID: {}", star_icon.id));
+            });
+
+            ui.add_space(10.0);
+
+            // Try to find detailed system data
+            if let Some(system_data) = nearby_stars.get_by_id(star_icon.id) {
+                // Star properties
+                ui.group(|ui| {
+                    ui.label(egui::RichText::new("Star Properties").strong());
+                    
+                    for (star_idx, star_data) in system_data.stars.iter().enumerate() {
+                        if system_data.stars.len() > 1 {
+                            ui.label(egui::RichText::new(format!("Star {}: {}", star_idx + 1, &star_data.name)).color(egui::Color32::from_rgb(200, 200, 255)));
+                        } else {
+                            ui.label(egui::RichText::new(&star_data.name).color(egui::Color32::from_rgb(200, 200, 255)));
+                        }
+                        
+                        ui.label(format!("  Type: {}", star_data.spectral_type));
+                        ui.label(format!("  Mass: {:.2} M☉", star_data.mass_sol));
+                        ui.label(format!("  Radius: {:.2} R☉", star_data.radius_sol));
+                        ui.label(format!("  Luminosity: {:.3} L☉", star_data.luminosity_sol));
+                        ui.label(format!("  Temperature: {} K", star_data.temp_k));
+                        
+                        if let Some(metallicity) = star_data.metallicity {
+                            let metallicity_color = if metallicity > 0.0 {
+                                egui::Color32::from_rgb(255, 220, 100)
+                            } else if metallicity < 0.0 {
+                                egui::Color32::from_rgb(150, 150, 200)
+                            } else {
+                                egui::Color32::from_rgb(200, 200, 200)
+                            };
+                            
+                            ui.label(
+                                egui::RichText::new(format!("  Metallicity: [Fe/H] = {:.2}", metallicity))
+                                    .color(metallicity_color)
+                            );
+                        }
+                        
+                        ui.add_space(5.0);
+                    }
+                });
+
+                ui.add_space(10.0);
+            }
+
+            // Count bodies in this system
+            let bodies: Vec<_> = bodies_query.iter()
+                .filter(|(_, _, _, _, sys_id)| sys_id.map(|s| s.0 == star_icon.id).unwrap_or(false))
+                .collect();
+
+            ui.group(|ui| {
+                ui.label(egui::RichText::new("System Bodies").strong());
+                ui.label(format!("Total bodies: {}", bodies.len()));
+                
+                // Count by type
+                let stars = bodies.iter().filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Star)).count();
+                let planets = bodies.iter().filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Planet)).count();
+                let dwarf_planets = bodies.iter().filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::DwarfPlanet)).count();
+                let moons = bodies.iter().filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Moon)).count();
+                let asteroids = bodies.iter().filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Asteroid)).count();
+                let comets = bodies.iter().filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Comet)).count();
+                
+                if stars > 0 { ui.label(format!("  Stars: {}", stars)); }
+                if planets > 0 { ui.label(format!("  Planets: {}", planets)); }
+                if dwarf_planets > 0 { ui.label(format!("  Dwarf Planets: {}", dwarf_planets)); }
+                if moons > 0 { ui.label(format!("  Moons: {}", moons)); }
+                if asteroids > 0 { ui.label(format!("  Asteroids: {}", asteroids)); }
+                if comets > 0 { ui.label(format!("  Comets: {}", comets)); }
+            });
+
+            ui.add_space(10.0);
+
+            // Calculate total resources
+            ui.group(|ui| {
+                ui.label(egui::RichText::new("System Resources").strong());
+                
+                // Sum up all resources in this system
+                let mut total_resources: std::collections::HashMap<ResourceType, f64> = std::collections::HashMap::new();
+                
+                for (sys_id, resources) in resource_query.iter() {
+                    if sys_id.0 == star_icon.id {
+                        for deposit in &resources.deposits {
+                            let total = deposit.reserve.total();
+                            *total_resources.entry(deposit.resource_type).or_insert(0.0) += total;
+                        }
+                    }
+                }
+                
+                if total_resources.is_empty() {
+                    ui.label("No surveyed resources yet");
+                } else {
+                    ui.label(format!("Surveyed resource types: {}", total_resources.len()));
+                    
+                    // Show top 5 resources by abundance
+                    let mut sorted_resources: Vec<_> = total_resources.iter().collect();
+                    sorted_resources.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
+                    
+                    ui.label(egui::RichText::new("Top resources:").italics());
+                    for (resource_type, amount) in sorted_resources.iter().take(5) {
+                        ui.label(format!("  {}: {}", resource_type.display_name(), format_mass(**amount)));
+                    }
+                }
+            });
+
+            ui.add_space(10.0);
+
+            // Population (placeholder for future)
+            ui.group(|ui| {
+                ui.label(egui::RichText::new("Population").strong());
+                ui.label("Coming soon: Population management");
             });
         });
 }

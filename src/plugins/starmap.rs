@@ -72,6 +72,7 @@ impl Plugin for StarmapPlugin {
                     update_starmap_visibility,
                     update_starmap_icon_scale,
                     update_starmap_coordinates,
+                    handle_starmap_hover,     // New: detect hover
                     handle_starmap_selection,
                     handle_system_transition,
                 ),
@@ -98,6 +99,10 @@ pub struct StarSystemIcon {
 /// Tag for the Sol system's starmap icon (spawned once at startup).
 #[derive(Component)]
 pub struct SolSystemIcon;
+
+/// Marker for a star system that is currently hovered by the mouse
+#[derive(Component)]
+pub struct HoveredStarSystem;
 
 /// Marker for the currently selected/anchored star system in starmap view.
 #[derive(Component)]
@@ -834,6 +839,101 @@ fn update_starmap_icon_scale(
                 }
             }
         }
+    }
+}
+
+/// Detect hover over starmap icons
+fn handle_starmap_hover(
+    view_mode: Res<ViewMode>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<GameCamera>>,
+    icon_query: Query<(Entity, &GlobalTransform, &StarSystemIcon)>,
+    mut commands: Commands,
+    hovered_query: Query<Entity, With<HoveredStarSystem>>,
+    egui_contexts: bevy_egui::EguiContexts,
+) {
+    // Only active in starmap view
+    if *view_mode != ViewMode::Starmap {
+        // Clear hover markers if not in starmap
+        for entity in hovered_query.iter() {
+            commands.entity(entity).remove::<HoveredStarSystem>();
+        }
+        return;
+    }
+
+    // Don't process if egui is using the mouse
+    let ctx = egui_contexts.ctx();
+    if ctx.is_pointer_over_area() || ctx.wants_pointer_input() {
+        // Clear hover when over UI
+        for entity in hovered_query.iter() {
+            commands.entity(entity).remove::<HoveredStarSystem>();
+        }
+        return;
+    }
+
+    let Ok(window) = windows.get_single() else {
+        return;
+    };
+
+    let Ok((camera, camera_transform)) = camera_query.get_single() else {
+        return;
+    };
+
+    // Get cursor position
+    let Some(cursor_position) = window.cursor_position() else {
+        // No cursor, clear hover
+        for entity in hovered_query.iter() {
+            commands.entity(entity).remove::<HoveredStarSystem>();
+        }
+        return;
+    };
+
+    // Convert screen position to ray
+    let Some(ray) = camera.viewport_to_world(camera_transform, cursor_position) else {
+        return;
+    };
+
+    // Find the closest star system icon to the ray
+    let mut closest_icon: Option<Entity> = None;
+    let mut closest_distance = f32::MAX;
+    
+    for (entity, transform, _icon) in icon_query.iter() {
+        let icon_pos = transform.translation();
+        
+        // Calculate distance from ray to icon center
+        let to_icon = icon_pos - ray.origin;
+        let projection = to_icon.dot(*ray.direction);
+        
+        if projection < 0.0 {
+            continue; // Icon is behind camera
+        }
+        
+        let closest_point = ray.origin + *ray.direction * projection;
+        let distance_to_ray = (icon_pos - closest_point).length();
+        
+        // Icon scale determines its hoverable radius
+        let icon_scale = transform.compute_transform().scale.x;
+        let hover_radius = icon_scale * 2.0; // Larger for hover than click
+        
+        if distance_to_ray < hover_radius {
+            let distance_from_camera = (icon_pos - ray.origin).length();
+            
+            if distance_from_camera < closest_distance {
+                closest_icon = Some(entity);
+                closest_distance = distance_from_camera;
+            }
+        }
+    }
+    
+    // Update hover state
+    // Remove hover from all entities first
+    for entity in hovered_query.iter() {
+        commands.entity(entity).remove::<HoveredStarSystem>();
+    }
+    
+    // Add hover to the closest icon if found
+    if let Some(entity) = closest_icon {
+        commands.entity(entity).insert(HoveredStarSystem);
     }
 }
 

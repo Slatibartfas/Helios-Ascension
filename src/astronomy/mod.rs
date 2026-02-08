@@ -12,7 +12,9 @@ use bevy::prelude::*;
 
 pub mod components;
 pub mod ephemeris;
+pub mod exoplanets;
 pub mod nearby_stars;
+pub mod procedural;
 pub mod systems;
 
 pub use components::{
@@ -20,6 +22,11 @@ pub use components::{
     LocalOrbitAmplification, OrbitCenter, OrbitPath, Selected, SpaceCoordinates,
 };
 pub use ephemeris::{calculate_position_for_body, calculate_positions_at_timestamp};
+pub use exoplanets::{ConfirmedPlanet, RealPlanet};
+pub use procedural::{
+    calculate_frost_line, map_star_to_system_architecture, AsteroidBelt, CometaryCloud,
+    PlanetType, ProceduralPlanet, SystemArchitecture,
+};
 pub use systems::{
     animate_marker_dots, check_natural_destruction, despawn_hover_markers,
     despawn_selection_markers, draw_orbit_paths, fade_destroyed_bodies, handle_body_selection,

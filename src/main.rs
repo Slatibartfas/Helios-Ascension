@@ -4,16 +4,19 @@ use bevy_egui::EguiPlugin;
 
 pub mod astronomy;
 pub mod economy;
+pub mod game_state;
 pub mod plugins;
 pub mod render;
 pub mod ui;
 
 use astronomy::AstronomyPlugin;
 use economy::EconomyPlugin;
+use game_state::GameStatePlugin;
 use plugins::{
     camera::CameraPlugin,
     solar_system::SolarSystemPlugin,
     starmap::StarmapPlugin,
+    system_populator::SystemPopulatorPlugin,
     visual_effects::VisualEffectsPlugin,
 };
 use render::backdrop::BackdropPlugin;
@@ -33,6 +36,7 @@ fn main() {
         // Debug UI (egui)
         .add_plugins(EguiPlugin)
         // Game plugins - Order matters for dependencies
+        .add_plugins(GameStatePlugin)
         .add_plugins(AstronomyPlugin)
         .add_plugins(CameraPlugin)
         .add_plugins(BackdropPlugin)
@@ -40,6 +44,7 @@ fn main() {
         .add_plugins(SolarSystemPlugin)
         .add_plugins(StarmapPlugin)
         .add_plugins(EconomyPlugin)
+        .add_plugins(SystemPopulatorPlugin)
         .add_plugins(UIPlugin)
         // Systems
         .add_systems(Startup, setup)

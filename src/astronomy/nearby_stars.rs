@@ -21,6 +21,15 @@ impl NearbyStarsData {
     pub fn get_by_name(&self, name: &str) -> Option<&StarSystemData> {
         self.systems.iter().find(|s| s.system_name == name)
     }
+    
+    pub fn get_by_id(&self, id: usize) -> Option<&StarSystemData> {
+        // ID 0 is Sol (not in this data), IDs 1+ map to systems[0+]
+        if id == 0 {
+            None
+        } else {
+            self.systems.get(id - 1)
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -41,6 +50,11 @@ pub struct StarData {
     pub radius_sol: f32,
     pub temp_k: f32,
     pub luminosity_sol: f32,
+    /// Stellar metallicity [Fe/H] relative to the Sun
+    /// Sun = 0.0, positive = metal-rich, negative = metal-poor
+    /// Optional: will use random value if not provided
+    #[serde(default)]
+    pub metallicity: Option<f32>,
     #[serde(default)]
     pub planets: Vec<PlanetData>,
 }
