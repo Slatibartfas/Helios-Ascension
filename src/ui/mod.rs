@@ -27,6 +27,93 @@ use crate::plugins::starmap::{HoveredStarSystem, SelectedStarSystem, StarSystemI
 /// Maximum time scale: 1 year per second (365.25 * 86400 ≈ 31,557,600)
 const MAX_TIME_SCALE: f32 = 31_557_600.0;
 
+/// Game menu categories
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GameMenu {
+    /// Main menu (quit/load/save/options)
+    #[default]
+    Main,
+    /// Starmap view
+    Starmap,
+    /// Construction management
+    Construction,
+    /// Research tree
+    Research,
+    /// Fleet management
+    Fleets,
+    /// Shipbuilding
+    Shipbuilding,
+    /// Economy and private sector
+    Economy,
+    /// Survey and celestial bodies
+    Survey,
+    /// Officers and managers
+    Personnel,
+    /// Enemy intelligence
+    Intel,
+    /// Diplomacy
+    Diplomacy,
+}
+
+impl GameMenu {
+    /// Get the pictogram/icon for this menu
+    pub fn icon(&self) -> &'static str {
+        match self {
+            GameMenu::Main => "⚙",
+            GameMenu::Starmap => "🗺",
+            GameMenu::Construction => "🏗",
+            GameMenu::Research => "🔬",
+            GameMenu::Fleets => "🚀",
+            GameMenu::Shipbuilding => "⚓",
+            GameMenu::Economy => "💰",
+            GameMenu::Survey => "🔭",
+            GameMenu::Personnel => "👤",
+            GameMenu::Intel => "🔍",
+            GameMenu::Diplomacy => "🤝",
+        }
+    }
+
+    /// Get the display name for this menu
+    pub fn name(&self) -> &'static str {
+        match self {
+            GameMenu::Main => "Menu",
+            GameMenu::Starmap => "Starmap",
+            GameMenu::Construction => "Construction",
+            GameMenu::Research => "Research",
+            GameMenu::Fleets => "Fleets",
+            GameMenu::Shipbuilding => "Shipbuilding",
+            GameMenu::Economy => "Economy",
+            GameMenu::Survey => "Survey",
+            GameMenu::Personnel => "Personnel",
+            GameMenu::Intel => "Intel",
+            GameMenu::Diplomacy => "Diplomacy",
+        }
+    }
+
+    /// Get all menu items in order
+    pub fn all() -> &'static [GameMenu] {
+        &[
+            GameMenu::Main,
+            GameMenu::Starmap,
+            GameMenu::Construction,
+            GameMenu::Research,
+            GameMenu::Fleets,
+            GameMenu::Shipbuilding,
+            GameMenu::Economy,
+            GameMenu::Survey,
+            GameMenu::Personnel,
+            GameMenu::Intel,
+            GameMenu::Diplomacy,
+        ]
+    }
+}
+
+/// Current active menu state
+#[derive(Resource, Debug, Clone, Default)]
+pub struct ActiveMenu {
+    pub current: GameMenu,
+}
+
 /// Time scale resource for controlling simulation speed
 #[derive(Resource, Debug, Clone)]
 pub struct TimeScale {
@@ -215,10 +302,12 @@ impl Plugin for UIPlugin {
             .init_resource::<Selection>()
             .init_resource::<TimeScale>()
             .init_resource::<SimulationTime>()
+            .init_resource::<ActiveMenu>()
             // Systems
             .add_systems(
                 Update,
                 (
+                    ui_top_menu_bar,
                     ui_dashboard,
                     ui_hover_tooltip,
                     ui_starmap_hover_tooltip, // New: starmap tooltips
@@ -257,6 +346,67 @@ fn advance_simulation_time(
 ) {
     let real_delta = real_time.delta_seconds_f64();
     sim_time.elapsed += real_delta * time_scale.scale as f64;
+}
+
+/// Render the top menu bar with pictograms
+fn ui_top_menu_bar(
+    mut contexts: EguiContexts,
+    mut active_menu: ResMut<ActiveMenu>,
+    mut view_mode: ResMut<ViewMode>,
+) {
+    let ctx = match contexts.try_ctx_mut() {
+        Some(ctx) => ctx,
+        None => return,
+    };
+
+    egui::TopBottomPanel::top("top_menu_bar")
+        .show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.add_space(10.0);
+                
+                // Add each menu button
+                for &menu in GameMenu::all() {
+                    let is_active = active_menu.current == menu;
+                    
+                    // Create button with icon and name
+                    let button_text = format!("{} {}", menu.icon(), menu.name());
+                    let button = if is_active {
+                        egui::Button::new(
+                            egui::RichText::new(button_text)
+                                .size(14.0)
+                                .color(egui::Color32::from_rgb(100, 200, 255))
+                        )
+                        .fill(egui::Color32::from_rgb(40, 60, 80))
+                    } else {
+                        egui::Button::new(
+                            egui::RichText::new(button_text)
+                                .size(14.0)
+                        )
+                        .fill(egui::Color32::from_rgb(30, 30, 35))
+                    };
+                    
+                    if ui.add(button).clicked() {
+                        active_menu.current = menu;
+                        
+                        // Switch view mode based on menu selection
+                        match menu {
+                            GameMenu::Starmap => {
+                                *view_mode = ViewMode::Starmap;
+                            }
+                            GameMenu::Survey => {
+                                *view_mode = ViewMode::System;
+                            }
+                            _ => {
+                                // Other menus default to solar system view
+                                *view_mode = ViewMode::System;
+                            }
+                        }
+                    }
+                    
+                    ui.add_space(5.0);
+                }
+            });
+        });
 }
 
 /// Render floating labels next to star system icons in starmap view
@@ -747,6 +897,7 @@ fn ui_dashboard(
     view_mode: Res<ViewMode>,
     current_system: Res<CurrentStarSystem>,
     nearby_stars: Res<NearbyStarsData>,
+    active_menu: Res<ActiveMenu>,
     // Query for selected body information
     mut body_query: Query<(
         &CelestialBody,
@@ -780,8 +931,8 @@ fn ui_dashboard(
     egui::SidePanel::left("ledger_panel")
         .min_width(200.0)
         .show(ctx, |ui| {
-            match *view_mode {
-                ViewMode::Starmap => {
+            match active_menu.current {
+                GameMenu::Starmap => {
                     // Starmap view: show list of star systems
                     ui.heading("Star Systems");
                     ui.separator();
@@ -803,7 +954,7 @@ fn ui_dashboard(
                             }
                         });
                 }
-                ViewMode::System => {
+                GameMenu::Survey => {
                     // System view: show celestial body hierarchy
                     ui.heading("Celestial Objects");
                     ui.separator();
@@ -889,17 +1040,73 @@ fn ui_dashboard(
                             }
                         });
                 }
+                _ => {
+                    // Placeholder for other menus
+                    ui.heading(active_menu.current.name());
+                    ui.separator();
+                    
+                    ui.label(
+                        egui::RichText::new("Coming Soon")
+                            .size(16.0)
+                            .color(egui::Color32::from_rgb(180, 180, 180))
+                    );
+                    
+                    ui.add_space(10.0);
+                    
+                    match active_menu.current {
+                        GameMenu::Main => {
+                            ui.label("Main menu options:");
+                            if ui.button("🚪 Quit Game").clicked() {
+                                // TODO: Implement quit
+                                info!("Quit clicked");
+                            }
+                            if ui.button("💾 Save Game").clicked() {
+                                info!("Save clicked");
+                            }
+                            if ui.button("📂 Load Game").clicked() {
+                                info!("Load clicked");
+                            }
+                            if ui.button("⚙ Options").clicked() {
+                                info!("Options clicked");
+                            }
+                        }
+                        GameMenu::Construction => {
+                            ui.label("Construction facilities and projects will be shown here.");
+                        }
+                        GameMenu::Research => {
+                            ui.label("Research tree and active projects will be shown here.");
+                        }
+                        GameMenu::Fleets => {
+                            ui.label("Fleet management and deployment will be shown here.");
+                        }
+                        GameMenu::Shipbuilding => {
+                            ui.label("Ship design and construction queue will be shown here.");
+                        }
+                        GameMenu::Economy => {
+                            ui.label("Economic overview and private sector management will be shown here.");
+                        }
+                        GameMenu::Personnel => {
+                            ui.label("Officers, managers, and personnel assignments will be shown here.");
+                        }
+                        GameMenu::Intel => {
+                            ui.label("Intelligence reports on enemy factions will be shown here.");
+                        }
+                        GameMenu::Diplomacy => {
+                            ui.label("Diplomatic relations and treaties will be shown here.");
+                        }
+                        GameMenu::Starmap | GameMenu::Survey => {
+                            // Already handled above
+                        }
+                    }
+                }
             }
         });
 
     // Top header panel with resource categories and power
     egui::TopBottomPanel::top("header_panel")
-        .min_height(80.0)
+        .min_height(60.0)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.heading("Helios: Ascension");
-                ui.separator();
-
                 // Show resource categories with hover expansion
                 for (category_name, resources) in ResourceType::by_category() {
                     // Calculate total for category
