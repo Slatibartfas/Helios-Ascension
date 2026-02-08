@@ -9,6 +9,10 @@
 use bevy::prelude::*;
 use bevy::time::Real;
 use bevy_egui::{egui, EguiContexts};
+use bevy::asset::AssetServer;
+use bevy::asset::Handle;
+use bevy::render::texture::Image;
+use std::collections::HashMap;
 
 pub mod interaction;
 
@@ -28,7 +32,7 @@ use crate::plugins::starmap::{HoveredStarSystem, SelectedStarSystem, StarSystemI
 const MAX_TIME_SCALE: f32 = 31_557_600.0;
 
 /// Game menu categories
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub enum GameMenu {
     /// Main menu (quit/load/save/options)
     #[default]
@@ -106,13 +110,114 @@ impl GameMenu {
             GameMenu::Diplomacy,
         ]
     }
+
+    /// File base name (without extension) for the menu icon asset
+    pub fn asset_basename(&self) -> &'static str {
+        match self {
+            GameMenu::Main => "main",
+            GameMenu::Starmap => "starmap",
+            GameMenu::Construction => "construction",
+            GameMenu::Research => "research",
+            GameMenu::Fleets => "fleets",
+            GameMenu::Shipbuilding => "shipbuilding",
+            GameMenu::Economy => "economy",
+            GameMenu::Survey => "survey",
+            GameMenu::Personnel => "personnel",
+            GameMenu::Intel => "intel",
+            GameMenu::Diplomacy => "diplomacy",
+        }
+    }
 }
+
 
 /// Current active menu state
 #[derive(Resource, Debug, Clone, Default)]
 pub struct ActiveMenu {
     pub current: GameMenu,
 }
+
+/// Loaded textures for the top menu icons
+#[derive(Resource)]
+pub struct MenuIcons {
+    pub handles: HashMap<GameMenu, Handle<Image>>,
+    /// Menus that have already been post-processed (white -> transparent)
+    pub processed: std::collections::HashSet<GameMenu>,
+}
+
+impl Default for MenuIcons {
+    fn default() -> Self {
+        Self { handles: HashMap::new(), processed: Default::default() }
+    }
+}
+
+/// Startup system to load menu icon images from assets/textures/ui/menu/
+fn load_menu_icons(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let mut map = HashMap::new();
+    for &menu in GameMenu::all() {
+        // File names follow the game's convention, e.g. "main.png", "starmap.png"
+        let filename = format!("textures/ui/menu/{}.png", menu.asset_basename());
+        let handle: Handle<Image> = asset_server.load(&filename);
+        map.insert(menu, handle);
+    }
+    commands.insert_resource(MenuIcons { handles: map, processed: Default::default() });
+}
+
+/// Post-process loaded icon images:
+/// 1. Calculate alpha from luminance (inverted) to remove white background
+/// 2. Set all RGB pixels to WHITE so they can be tinted at runtime
+fn process_menu_icons(mut menu_icons: ResMut<MenuIcons>, mut images: ResMut<Assets<Image>>) {
+    // Collect handles to process to avoid mutable/immutable borrow conflicts
+    let to_process: Vec<(GameMenu, Handle<Image>)> = menu_icons
+        .handles
+        .iter()
+        .filter(|(menu, _)| !menu_icons.processed.contains(menu))
+        .map(|(m, h)| (*m, h.clone()))
+        .collect();
+
+    for (menu, handle) in to_process {
+        if let Some(image) = images.get_mut(&handle) {
+            // Only handle 4-byte-per-pixel formats (assume RGBA8)
+            let bytes_per_pixel = 4usize;
+            if image.data.len() != (image.texture_descriptor.size.width as usize)
+                .saturating_mul(image.texture_descriptor.size.height as usize)
+                .saturating_mul(bytes_per_pixel)
+            {
+                // Unsupported format, mark processed to avoid retrying
+                menu_icons.processed.insert(menu);
+                continue;
+            }
+
+            // Iterate all pixels
+            // Assumption: Input is Dark lines on White background
+            // Goal: White/Theme lines on Transparent background
+            for chunk in image.data.chunks_exact_mut(bytes_per_pixel) {
+                let r = chunk[0] as f32 / 255.0;
+                let g = chunk[1] as f32 / 255.0;
+                let b = chunk[2] as f32 / 255.0;
+
+                // Calculate luminance (perceptual)
+                // White (1.0) -> Luminance 1.0 -> Alpha 0.0
+                // Black (0.0) -> Luminance 0.0 -> Alpha 1.0
+                let luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+                
+                // Contrast stretch: make light grays fully transparent
+                // Input range 0.0 .. 1.0
+                // We want > 0.9 to be 0 alpha
+                // We want < 0.5 to be 1 alpha (or close)
+                let alpha = (1.0 - luminance).powf(3.0); // Power curve to steepen the falloff
+                
+                // Set pixel colour to pure white so it can be tinted by the UI
+                chunk[0] = 255;
+                chunk[1] = 255;
+                chunk[2] = 255;
+                chunk[3] = (alpha.clamp(0.0, 1.0) * 255.0) as u8;
+            }
+
+            // Mark as processed so we only do this once per asset
+            menu_icons.processed.insert(menu);
+        }
+    }
+} 
 
 /// Time scale resource for controlling simulation speed
 #[derive(Resource, Debug, Clone)]
@@ -303,6 +408,8 @@ impl Plugin for UIPlugin {
             .init_resource::<TimeScale>()
             .init_resource::<SimulationTime>()
             .init_resource::<ActiveMenu>()
+            // Load menu icons at startup
+            .add_systems(Startup, load_menu_icons)
             // Systems
             .add_systems(
                 Update,
@@ -314,10 +421,11 @@ impl Plugin for UIPlugin {
                     ui_starmap_labels,
                     sync_selection_with_astronomy,
                     advance_simulation_time,
+                    process_menu_icons, // Convert white->transparent on loaded icons
                 ),
             );
     }
-}
+} 
 
 /// System that syncs the UI selection with the astronomy Selected component
 fn sync_selection_with_astronomy(
@@ -353,7 +461,19 @@ fn ui_top_menu_bar(
     mut contexts: EguiContexts,
     mut active_menu: ResMut<ActiveMenu>,
     mut view_mode: ResMut<ViewMode>,
+    menu_icons: Option<Res<MenuIcons>>,
 ) {
+    // Convert loaded handles to egui TextureIds before creating the UI context
+    let texture_map: Option<HashMap<GameMenu, egui::TextureId>> = if let Some(menu_icons) = menu_icons.as_ref() {
+        let mut m: HashMap<GameMenu, egui::TextureId> = HashMap::new();
+        for (mkey, handle) in menu_icons.handles.iter() {
+            m.insert(*mkey, contexts.add_image(handle.clone()));
+        }
+        Some(m)
+    } else {
+        None
+    };
+
     let ctx = match contexts.try_ctx_mut() {
         Some(ctx) => ctx,
         None => return,
@@ -368,37 +488,89 @@ fn ui_top_menu_bar(
                 for &menu in GameMenu::all() {
                     let is_active = active_menu.current == menu;
                     
-                    // Create button with icon and name
-                    let button_text = format!("{} {}", menu.icon(), menu.name());
-                    let button = if is_active {
-                        egui::Button::new(
-                            egui::RichText::new(button_text)
-                                .size(14.0)
-                                .color(egui::Color32::from_rgb(100, 200, 255))
-                        )
-                        .fill(egui::Color32::from_rgb(40, 60, 80))
+                    if let Some(map) = texture_map.as_ref() {
+                        if let Some(texture_id) = map.get(&menu) {
+                            let size = egui::vec2(80.0, 80.0);
+                            
+                            // Tint the icon:
+                            // Blue/Cyan for active, White/Gray for inactive
+                            let tint = if is_active {
+                                egui::Color32::from_rgb(100, 200, 255)
+                            } else {
+                                egui::Color32::from_rgb(200, 200, 200)
+                            };
+
+                            let mut img = egui::Image::new((*texture_id, size));
+                            img = img.tint(tint);
+                            
+                            let resp = ui.add(egui::ImageButton::new(img));
+
+                            // Highlight active menu by drawing a subtle stroke around the widget
+                            if is_active {
+                                let rect = resp.rect;
+                                ui.painter().rect_stroke(rect, 4.0, egui::Stroke::new(2.0, egui::Color32::from_rgb(100, 200, 255)));
+                            }
+
+                            let resp = resp.on_hover_text(menu.name());
+                            if resp.clicked() {
+                                active_menu.current = menu;
+                                match menu {
+                                    GameMenu::Starmap => *view_mode = ViewMode::Starmap,
+                                    GameMenu::Survey => *view_mode = ViewMode::System,
+                                    _ => *view_mode = ViewMode::System,
+                                }
+                            }
+                        } else {
+                            // Fallback to text button when the texture is not available
+                            let button_text = format!("{} {}", menu.icon(), menu.name());
+                            let button = if is_active {
+                                egui::Button::new(
+                                    egui::RichText::new(button_text)
+                                        .size(14.0)
+                                        .color(egui::Color32::from_rgb(100, 200, 255))
+                                )
+                                .fill(egui::Color32::from_rgb(40, 60, 80))
+                            } else {
+                                egui::Button::new(
+                                    egui::RichText::new(button_text)
+                                        .size(14.0)
+                                )
+                                .fill(egui::Color32::from_rgb(30, 30, 35))
+                            };
+
+                            if ui.add(button).clicked() {
+                                active_menu.current = menu;
+                                match menu {
+                                    GameMenu::Starmap => *view_mode = ViewMode::Starmap,
+                                    GameMenu::Survey => *view_mode = ViewMode::System,
+                                    _ => *view_mode = ViewMode::System,
+                                }
+                            }
+                        }
                     } else {
-                        egui::Button::new(
-                            egui::RichText::new(button_text)
-                                .size(14.0)
-                        )
-                        .fill(egui::Color32::from_rgb(30, 30, 35))
-                    };
-                    
-                    if ui.add(button).clicked() {
-                        active_menu.current = menu;
-                        
-                        // Switch view mode based on menu selection
-                        match menu {
-                            GameMenu::Starmap => {
-                                *view_mode = ViewMode::Starmap;
-                            }
-                            GameMenu::Survey => {
-                                *view_mode = ViewMode::System;
-                            }
-                            _ => {
-                                // Other menus default to solar system view
-                                *view_mode = ViewMode::System;
+                        // No icons loaded yet - use existing emoji+text button
+                        let button_text = format!("{} {}", menu.icon(), menu.name());
+                        let button = if is_active {
+                            egui::Button::new(
+                                egui::RichText::new(button_text)
+                                    .size(14.0)
+                                    .color(egui::Color32::from_rgb(100, 200, 255))
+                            )
+                            .fill(egui::Color32::from_rgb(40, 60, 80))
+                        } else {
+                            egui::Button::new(
+                                egui::RichText::new(button_text)
+                                    .size(14.0)
+                            )
+                            .fill(egui::Color32::from_rgb(30, 30, 35))
+                        };
+
+                        if ui.add(button).clicked() {
+                            active_menu.current = menu;
+                            match menu {
+                                GameMenu::Starmap => *view_mode = ViewMode::Starmap,
+                                GameMenu::Survey => *view_mode = ViewMode::System,
+                                _ => *view_mode = ViewMode::System,
                             }
                         }
                     }
