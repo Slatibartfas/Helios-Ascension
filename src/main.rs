@@ -14,6 +14,7 @@ use plugins::{
     camera::CameraPlugin,
     solar_system::SolarSystemPlugin,
     starmap::StarmapPlugin,
+    system_populator::SystemPopulatorPlugin,
     visual_effects::VisualEffectsPlugin,
 };
 use render::backdrop::BackdropPlugin;
@@ -40,6 +41,7 @@ fn main() {
         .add_plugins(SolarSystemPlugin)
         .add_plugins(StarmapPlugin)
         .add_plugins(EconomyPlugin)
+        .add_plugins(SystemPopulatorPlugin)
         .add_plugins(UIPlugin)
         // Systems
         .add_systems(Startup, setup)

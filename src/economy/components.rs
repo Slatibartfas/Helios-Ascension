@@ -16,6 +16,11 @@ pub struct StarSystem {
     /// Stellar classification (for future use: O, B, A, F, G, K, M)
     /// Can affect resource generation parameters
     pub spectral_class: SpectralClass,
+    
+    /// Stellar metallicity [Fe/H] relative to the Sun
+    /// Sun = 0.0, higher values = more metals, lower = fewer metals
+    /// Affects resource abundance in planets (especially rare metals/fissiles)
+    pub metallicity: f32,
 }
 
 impl StarSystem {
@@ -24,6 +29,7 @@ impl StarSystem {
         Self {
             frost_line_au: 2.5,
             spectral_class: SpectralClass::G,
+            metallicity: 0.0, // Solar metallicity
         }
     }
     
@@ -32,6 +38,16 @@ impl StarSystem {
         Self {
             frost_line_au,
             spectral_class,
+            metallicity: 0.0, // Default to solar metallicity
+        }
+    }
+    
+    /// Create a custom star system with specified frost line and metallicity
+    pub fn with_metallicity(frost_line_au: f64, spectral_class: SpectralClass, metallicity: f32) -> Self {
+        Self {
+            frost_line_au,
+            spectral_class,
+            metallicity,
         }
     }
     
@@ -51,7 +67,23 @@ impl StarSystem {
         Self {
             frost_line_au,
             spectral_class,
+            metallicity: 0.0, // Default to solar metallicity
         }
+    }
+    
+    /// Calculate the metallicity multiplier for resource abundance
+    /// Stars with higher metallicity have more heavy elements in their protoplanetary disk
+    /// This affects the abundance of rare metals and fissile materials in planets
+    /// 
+    /// Returns a multiplier in the range [0.5, 1.5]:
+    /// - Metallicity -0.5: 0.7x abundance (metal-poor)
+    /// - Metallicity  0.0: 1.0x abundance (solar)
+    /// - Metallicity +0.5: 1.3x abundance (metal-rich)
+    pub fn metallicity_multiplier(&self) -> f32 {
+        // Base multiplier: 1.0 + (metallicity * 0.6)
+        // This gives approximately ±30% variation for ±0.5 [Fe/H]
+        // Clamped to reasonable bounds [0.5, 1.5]
+        (1.0 + self.metallicity * 0.6).clamp(0.5, 1.5)
     }
 }
 
@@ -219,6 +251,11 @@ impl PlanetResources {
     /// Get a deposit for a specific resource
     pub fn get_deposit(&self, resource: &ResourceType) -> Option<&MineralDeposit> {
         self.deposits.get(resource)
+    }
+    
+    /// Get a mutable reference to a deposit for a specific resource
+    pub fn get_deposit_mut(&mut self, resource: ResourceType) -> Option<&mut MineralDeposit> {
+        self.deposits.get_mut(&resource)
     }
 
     /// Get the abundance of a specific resource (returns 0.0 if not present)

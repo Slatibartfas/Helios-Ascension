@@ -15,6 +15,7 @@ const DEFAULT_FROST_LINE_AU: f64 = 2.5;
 /// System that generates resources for all celestial bodies on startup
 /// Uses realistic accretion chemistry based on distance from parent star
 /// Supports multiple star systems with different frost lines
+/// Applies metallicity bonuses from stellar composition
 pub fn generate_solar_system_resources(
     mut commands: Commands,
     // Query planets, dwarf planets, moons, asteroids, and comets without resources
@@ -25,39 +26,40 @@ pub fn generate_solar_system_resources(
             Without<PlanetResources>,
         ),
     >,
-    // Query for star systems to get frost line information
+    // Query for star systems to get frost line and metallicity information
     star_query: Query<(&StarSystem, &SpaceCoordinates)>,
 ) {
     let mut rng = rand::thread_rng();
 
     for (entity, body, coords, orbits_body) in body_query.iter() {
-        // Determine parent star and frost line
-        let (distance_from_star, frost_line) = if let Some(orbits) = orbits_body {
+        // Determine parent star, frost line, and metallicity multiplier
+        let (distance_from_star, frost_line, metallicity_multiplier) = if let Some(orbits) = orbits_body {
             // Body orbits a specific parent - calculate distance from that parent
             if let Ok((star_system, star_coords)) = star_query.get(orbits.parent) {
                 let distance = (coords.position - star_coords.position).length();
-                (distance, star_system.frost_line_au)
+                let metallicity_mult = star_system.metallicity_multiplier();
+                (distance, star_system.frost_line_au, metallicity_mult)
             } else {
                 // Parent entity exists but is not a star or doesn't have required components
                 warn!(
                     "Parent star not found or invalid for {}, using origin distance and default frost line",
                     body.name
                 );
-                (coords.position.length(), DEFAULT_FROST_LINE_AU)
+                (coords.position.length(), DEFAULT_FROST_LINE_AU, 1.0)
             }
         } else {
             // No parent specified - assume orbiting origin with default frost line
             // This maintains backwards compatibility with single-star systems
-            (coords.position.length(), DEFAULT_FROST_LINE_AU)
+            (coords.position.length(), DEFAULT_FROST_LINE_AU, 1.0)
         };
 
         info!(
-            "Generating resources for {} at {:.2} AU (frost line: {:.2} AU)",
-            body.name, distance_from_star, frost_line
+            "Generating resources for {} at {:.2} AU (frost line: {:.2} AU, metallicity mult: {:.2}x)",
+            body.name, distance_from_star, frost_line, metallicity_multiplier
         );
 
         // Generate resources based on distance from star, body characteristics, and frost line
-        let resources = generate_resources_for_body(
+        let mut resources = generate_resources_for_body(
             &body.name, 
             body.body_type,
             body.mass,
@@ -66,6 +68,9 @@ pub fn generate_solar_system_resources(
             frost_line, 
             &mut rng
         );
+        
+        // Apply metallicity bonus to rare metals and fissile materials
+        apply_metallicity_bonus(&mut resources, metallicity_multiplier);
 
         // Add resources component to entity
         commands.entity(entity).insert(resources);
@@ -146,6 +151,34 @@ fn generate_resources_for_body(
     }
 
     resources
+}
+
+/// Apply metallicity bonus to rare metals and fissile materials
+/// Stars with higher metallicity ([Fe/H] > 0) have more heavy elements in their protoplanetary disk
+/// This affects the abundance of rare metals and fissiles by +20% per +0.1 [Fe/H]
+/// 
+/// # Arguments
+/// * `resources` - Mutable reference to PlanetResources to modify
+/// * `metallicity_multiplier` - Multiplier from star's metallicity_multiplier() method
+fn apply_metallicity_bonus(resources: &mut PlanetResources, metallicity_multiplier: f32) {
+    // Only apply to rare metals and fissile materials
+    let affected_resources = [
+        ResourceType::Gold,
+        ResourceType::Silver,
+        ResourceType::Platinum,
+        ResourceType::RareEarths,
+        ResourceType::Uranium,
+        ResourceType::Thorium,
+    ];
+    
+    for resource_type in &affected_resources {
+        if let Some(deposit) = resources.get_deposit_mut(*resource_type) {
+            // Apply multiplier to all tiers of reserves
+            deposit.reserve.proven_crustal *= metallicity_multiplier as f64;
+            deposit.reserve.deep_deposits *= metallicity_multiplier as f64;
+            deposit.reserve.planetary_bulk *= metallicity_multiplier as f64;
+        }
+    }
 }
 
 /// Helper to create a tiered deposit from legacy parameters
