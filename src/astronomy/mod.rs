@@ -68,9 +68,6 @@ impl Plugin for AstronomyPlugin {
                 update_body_lod_visibility,
                 // Rendering
                 draw_orbit_paths.after(update_orbit_visibility),
-                // Comet tail meshes - Disabled in favor of particle-based CometVfxPlugin
-                // manage_comet_tail_meshes.after(propagate_orbits),
-                // update_tail_transforms.after(manage_comet_tail_meshes),
             ),
         );
     }

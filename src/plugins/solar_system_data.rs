@@ -162,28 +162,4 @@ impl SolarSystemData {
         let data: SolarSystemData = ron::from_str(&contents)?;
         Ok(data)
     }
-
-    /// Get a body by name
-    #[allow(dead_code)]
-    pub fn get_body(&self, name: &str) -> Option<&CelestialBodyData> {
-        self.bodies.iter().find(|b| b.name == name)
-    }
-
-    /// Get all bodies of a specific type
-    #[allow(dead_code)]
-    pub fn get_bodies_by_type(&self, body_type: BodyType) -> Vec<&CelestialBodyData> {
-        self.bodies
-            .iter()
-            .filter(|b| b.body_type == body_type)
-            .collect()
-    }
-
-    /// Get all children of a parent body
-    #[allow(dead_code)]
-    pub fn get_children(&self, parent_name: &str) -> Vec<&CelestialBodyData> {
-        self.bodies
-            .iter()
-            .filter(|b| b.parent.as_deref() == Some(parent_name))
-            .collect()
-    }
 }
