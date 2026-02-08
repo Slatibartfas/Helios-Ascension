@@ -41,6 +41,11 @@ pub struct StarData {
     pub radius_sol: f32,
     pub temp_k: f32,
     pub luminosity_sol: f32,
+    /// Stellar metallicity [Fe/H] relative to the Sun
+    /// Sun = 0.0, positive = metal-rich, negative = metal-poor
+    /// Optional: will use random value if not provided
+    #[serde(default)]
+    pub metallicity: Option<f32>,
     #[serde(default)]
     pub planets: Vec<PlanetData>,
 }

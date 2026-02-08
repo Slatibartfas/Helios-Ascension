@@ -96,6 +96,11 @@ Stars have a metallicity value `[Fe/H]` that represents their heavy element abun
 - `[Fe/H] > 0.0`: Metal-rich (more heavy elements)
 - `[Fe/H] < 0.0`: Metal-poor (fewer heavy elements)
 
+**Metallicity Data Sources:**
+- **Real data when available**: 40+ stars have measured metallicity from astronomical databases (SIMBAD, Hypatia Catalog, Geneva-Copenhagen Survey)
+- **Random when unavailable**: Stars without measurements get random values (-0.5 to +0.5)
+- See `docs/METALLICITY_DATA.md` for complete data sources and references
+
 **Metallicity Multiplier:**
 ```rust
 multiplier = (1.0 + [Fe/H] × 0.6).clamp(0.5, 1.5)
@@ -103,10 +108,10 @@ multiplier = (1.0 + [Fe/H] × 0.6).clamp(0.5, 1.5)
 
 **Examples:**
 - `[Fe/H] = 0.0`: 1.0× abundance (Solar)
-- `[Fe/H] = +0.3`: 1.18× abundance (Metal-rich)
-- `[Fe/H] = -0.3`: 0.82× abundance (Metal-poor)
-- `[Fe/H] = +0.5`: 1.3× abundance (Very metal-rich)
-- `[Fe/H] = -0.5`: 0.7× abundance (Very metal-poor)
+- `[Fe/H] = +0.2`: 1.12× abundance (Alpha Centauri A - real data)
+- `[Fe/H] = -0.5`: 0.7× abundance (Barnard's Star - real data)
+- `[Fe/H] = +0.5`: 1.3× abundance (Sirius A - real data)
+- `[Fe/H] = -0.86`: 0.48× abundance (Kapteyn's Star - very metal-poor)
 
 **Affected Resources:**
 The metallicity bonus applies to all tiers (proven, deep, bulk) of:

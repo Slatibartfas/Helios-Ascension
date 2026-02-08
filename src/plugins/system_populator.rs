@@ -73,8 +73,16 @@ fn populate_nearby_systems(
         if let Some(primary_star) = system_data.stars.first() {
             let star_position = DVec3::new(distance_au, 0.0, 0.0);
             
-            // Generate a random metallicity for variety (-0.5 to +0.5)
-            let metallicity = rng.gen_range(-0.5..0.5);
+            // Use real metallicity if available, otherwise generate random
+            let metallicity = primary_star.metallicity.unwrap_or_else(|| {
+                let random_value = rng.gen_range(-0.5..0.5);
+                info!("  No metallicity data for '{}', using random: {:.2}", primary_star.name, random_value);
+                random_value
+            });
+            
+            if primary_star.metallicity.is_some() {
+                info!("  Using real metallicity data for '{}': [Fe/H]={:.2}", primary_star.name, metallicity);
+            }
             
             let star_entity = spawn_star_entity_with_metallicity(
                 &mut commands,

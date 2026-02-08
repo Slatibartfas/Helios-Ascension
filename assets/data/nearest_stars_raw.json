@@ -10,7 +10,8 @@
         "radius_sol": 1.223,
         "temp_k": 5790,
         "luminosity_sol": 1.519,
-        "planets": []
+        "planets": [],
+        "metallicity": 0.2
       },
       {
         "name": "Alpha Centauri B",
@@ -18,8 +19,9 @@
         "mass_sol": 0.907,
         "radius_sol": 0.863,
         "temp_k": 5260,
-        "luminosity_sol": 0.500,
-        "planets": []
+        "luminosity_sol": 0.5,
+        "planets": [],
+        "metallicity": 0.23
       },
       {
         "name": "Proxima Centauri",
@@ -47,7 +49,8 @@
             "eccentricity": 0.04,
             "type": "Telluric"
           }
-        ]
+        ],
+        "metallicity": 0.1
       }
     ],
     "binary_orbits": [
@@ -84,7 +87,8 @@
             "eccentricity": 0.32,
             "type": "Super-Earth"
           }
-        ]
+        ],
+        "metallicity": -0.5
       }
     ]
   },
@@ -98,8 +102,9 @@
         "mass_sol": 0.032,
         "radius_sol": 0.09,
         "temp_k": 1350,
-        "luminosity_sol": 0.00003,
-        "planets": []
+        "luminosity_sol": 3e-05,
+        "planets": [],
+        "metallicity": -0.3
       },
       {
         "name": "Luhman 16 B",
@@ -107,8 +112,9 @@
         "mass_sol": 0.027,
         "radius_sol": 0.09,
         "temp_k": 1210,
-        "luminosity_sol": 0.00002,
-        "planets": []
+        "luminosity_sol": 2e-05,
+        "planets": [],
+        "metallicity": -0.3
       }
     ],
     "binary_orbits": [
@@ -131,11 +137,12 @@
       {
         "name": "WISE 0855-0714",
         "spectral_type": "Y2",
-        "mass_sol": 0.00001,
+        "mass_sol": 1e-05,
         "radius_sol": 0.09,
         "temp_k": 250,
-        "luminosity_sol": 0.000001,
-        "planets": []
+        "luminosity_sol": 1e-06,
+        "planets": [],
+        "metallicity": -0.2
       }
     ]
   },
@@ -150,7 +157,8 @@
         "radius_sol": 0.16,
         "temp_k": 2800,
         "luminosity_sol": 0.001,
-        "planets": []
+        "planets": [],
+        "metallicity": -0.2
       }
     ]
   },
@@ -167,24 +175,25 @@
         "luminosity_sol": 0.025,
         "planets": [
           {
-             "name": "Lalande 21185 b",
-             "mass_earth": 2.69,
-             "radius_earth": 1.3,
-             "period_days": 12.36,
-             "semi_major_axis_au": 0.078,
-             "eccentricity": 0.12,
-             "type": "Super-Earth"
+            "name": "Lalande 21185 b",
+            "mass_earth": 2.69,
+            "radius_earth": 1.3,
+            "period_days": 12.36,
+            "semi_major_axis_au": 0.078,
+            "eccentricity": 0.12,
+            "type": "Super-Earth"
           },
           {
-             "name": "Lalande 21185 c",
-             "mass_earth": 18.0,
-             "radius_earth": 3.5,
-             "period_days": 2800,
-             "semi_major_axis_au": 3.1,
-             "eccentricity": 0.1,
-             "type": "Neptunian"
+            "name": "Lalande 21185 c",
+            "mass_earth": 18.0,
+            "radius_earth": 3.5,
+            "period_days": 2800,
+            "semi_major_axis_au": 3.1,
+            "eccentricity": 0.1,
+            "type": "Neptunian"
           }
-        ]
+        ],
+        "metallicity": -0.3
       }
     ]
   },
@@ -199,7 +208,8 @@
         "radius_sol": 1.711,
         "temp_k": 9940,
         "luminosity_sol": 25.4,
-        "planets": []
+        "planets": [],
+        "metallicity": 0.5
       },
       {
         "name": "Sirius B",
@@ -208,7 +218,8 @@
         "radius_sol": 0.0084,
         "temp_k": 25200,
         "luminosity_sol": 0.056,
-        "planets": []
+        "planets": [],
+        "metallicity": 0.5
       }
     ],
     "binary_orbits": [
@@ -240,7 +251,7 @@
       {
         "name": "Luyten 726-8 B (UV Ceti)",
         "spectral_type": "M6.0Ve",
-        "mass_sol": 0.10,
+        "mass_sol": 0.1,
         "radius_sol": 0.14,
         "temp_k": 2650,
         "luminosity_sol": 0.0004,
@@ -271,7 +282,8 @@
         "radius_sol": 0.24,
         "temp_k": 3340,
         "luminosity_sol": 0.0038,
-        "planets": []
+        "planets": [],
+        "metallicity": -0.4
       }
     ]
   },
@@ -286,7 +298,8 @@
         "radius_sol": 0.16,
         "temp_k": 3050,
         "luminosity_sol": 0.0018,
-        "planets": []
+        "planets": [],
+        "metallicity": -0.25
       }
     ]
   },
@@ -311,7 +324,8 @@
             "eccentricity": 0.07,
             "type": "Jovian"
           }
-        ]
+        ],
+        "metallicity": -0.09
       }
     ]
   },
@@ -345,7 +359,8 @@
             "eccentricity": 0.1,
             "type": "Super-Earth"
           }
-        ]
+        ],
+        "metallicity": 0.0
       }
     ]
   },
@@ -361,7 +376,7 @@
         "temp_k": 3192,
         "luminosity_sol": 0.0036,
         "planets": [
-           {
+          {
             "name": "Ross 128 b",
             "mass_earth": 1.4,
             "radius_earth": 1.1,
@@ -369,8 +384,9 @@
             "semi_major_axis_au": 0.0496,
             "eccentricity": 0.12,
             "type": "Telluric"
-           }
-        ]
+          }
+        ],
+        "metallicity": -0.02
       }
     ]
   },
@@ -385,7 +401,8 @@
         "radius_sol": 0.13,
         "temp_k": 3000,
         "luminosity_sol": 0.001,
-        "planets": []
+        "planets": [],
+        "metallicity": -0.1
       },
       {
         "name": "EZ Aquarii B",
@@ -396,10 +413,10 @@
         "luminosity_sol": 0.001,
         "planets": []
       },
-        {
+      {
         "name": "EZ Aquarii C",
         "spectral_type": "M",
-        "mass_sol": 0.10,
+        "mass_sol": 0.1,
         "radius_sol": 0.12,
         "temp_k": 2900,
         "luminosity_sol": 0.0008,
@@ -440,7 +457,8 @@
         "radius_sol": 2.048,
         "temp_k": 6530,
         "luminosity_sol": 6.93,
-        "planets": []
+        "planets": [],
+        "metallicity": 0.0
       },
       {
         "name": "Procyon B",
@@ -472,11 +490,12 @@
       {
         "name": "61 Cygni A",
         "spectral_type": "K5.0V",
-        "mass_sol": 0.70,
+        "mass_sol": 0.7,
         "radius_sol": 0.665,
         "temp_k": 4526,
         "luminosity_sol": 0.153,
-        "planets": []
+        "planets": [],
+        "metallicity": -0.4
       },
       {
         "name": "61 Cygni B",
@@ -485,7 +504,8 @@
         "radius_sol": 0.595,
         "temp_k": 4077,
         "luminosity_sol": 0.085,
-        "planets": []
+        "planets": [],
+        "metallicity": -0.4
       }
     ],
     "binary_orbits": [
@@ -522,9 +542,10 @@
             "eccentricity": 0.0,
             "type": "Super-Earth"
           }
-        ]
+        ],
+        "metallicity": -0.15
       },
-       {
+      {
         "name": "Struve 2398 B",
         "spectral_type": "M3.5V",
         "mass_sol": 0.248,
@@ -542,7 +563,8 @@
             "type": "Super-Earth",
             "orbits_star": 1
           }
-        ]
+        ],
+        "metallicity": -0.15
       }
     ],
     "binary_orbits": [
@@ -570,7 +592,7 @@
         "temp_k": 3600,
         "luminosity_sol": 0.021,
         "planets": [
-           {
+          {
             "name": "Groombridge 34 Ab",
             "mass_earth": 3.0,
             "radius_earth": 1.4,
@@ -578,8 +600,8 @@
             "semi_major_axis_au": 0.07,
             "eccentricity": 0.0,
             "type": "Super-Earth"
-           },
-           {
+          },
+          {
             "name": "Groombridge 34 Ac",
             "mass_earth": 36.0,
             "radius_earth": 3.8,
@@ -587,17 +609,19 @@
             "semi_major_axis_au": 5.4,
             "eccentricity": 0.27,
             "type": "Neptunian"
-           }
-        ]
+          }
+        ],
+        "metallicity": -0.2
       },
-       {
+      {
         "name": "Groombridge 34 B",
         "spectral_type": "M3.5V",
         "mass_sol": 0.15,
         "radius_sol": 0.18,
         "temp_k": 3200,
         "luminosity_sol": 0.004,
-        "planets": []
+        "planets": [],
+        "metallicity": -0.2
       }
     ],
     "binary_orbits": [
@@ -624,7 +648,8 @@
         "radius_sol": 0.11,
         "temp_k": 2840,
         "luminosity_sol": 0.00132,
-        "planets": []
+        "planets": [],
+        "metallicity": -0.3
       }
     ]
   },
@@ -640,16 +665,17 @@
         "temp_k": 4630,
         "luminosity_sol": 0.22,
         "planets": [
-           {
-             "name": "Epsilon Indi Ab",
-             "mass_earth": 3.25,
-             "radius_earth": 1.0,
-             "period_days": 45.2,
-             "semi_major_axis_au": 11.55,
-             "eccentricity": 0.26,
-             "type": "Super-Earth"
-           }
-        ]
+          {
+            "name": "Epsilon Indi Ab",
+            "mass_earth": 3.25,
+            "radius_earth": 1.0,
+            "period_days": 45.2,
+            "semi_major_axis_au": 11.55,
+            "eccentricity": 0.26,
+            "type": "Super-Earth"
+          }
+        ],
+        "metallicity": 0.05
       },
       {
         "name": "Epsilon Indi Ba",
@@ -657,7 +683,7 @@
         "mass_sol": 0.045,
         "radius_sol": 0.09,
         "temp_k": 1280,
-        "luminosity_sol": 0.00002,
+        "luminosity_sol": 2e-05,
         "planets": []
       },
       {
@@ -666,7 +692,7 @@
         "mass_sol": 0.028,
         "radius_sol": 0.09,
         "temp_k": 850,
-        "luminosity_sol": 0.000005,
+        "luminosity_sol": 5e-06,
         "planets": []
       }
     ],
@@ -731,7 +757,8 @@
             "eccentricity": 0.23,
             "type": "Super-Earth"
           }
-        ]
+        ],
+        "metallicity": -0.5
       }
     ]
   },
@@ -747,7 +774,7 @@
         "temp_k": 2953,
         "luminosity_sol": 0.0017,
         "planets": [
-           {
+          {
             "name": "GJ 1061 b",
             "mass_earth": 1.38,
             "radius_earth": 1.1,
@@ -755,8 +782,8 @@
             "semi_major_axis_au": 0.021,
             "eccentricity": 0.31,
             "type": "Telluric"
-           },
-           {
+          },
+          {
             "name": "GJ 1061 c",
             "mass_earth": 1.75,
             "radius_earth": 1.2,
@@ -764,8 +791,8 @@
             "semi_major_axis_au": 0.035,
             "eccentricity": 0.29,
             "type": "Telluric"
-           },
-           {
+          },
+          {
             "name": "GJ 1061 d",
             "mass_earth": 1.68,
             "radius_earth": 1.2,
@@ -773,7 +800,7 @@
             "semi_major_axis_au": 0.054,
             "eccentricity": 0.53,
             "type": "Telluric"
-           }
+          }
         ]
       }
     ]
@@ -799,7 +826,7 @@
             "eccentricity": 0.06,
             "type": "Telluric"
           },
-            {
+          {
             "name": "YZ Ceti c",
             "mass_earth": 1.14,
             "radius_earth": 1.05,
@@ -808,7 +835,7 @@
             "eccentricity": 0.0,
             "type": "Telluric"
           },
-            {
+          {
             "name": "YZ Ceti d",
             "mass_earth": 1.09,
             "radius_earth": 1.04,
@@ -817,7 +844,8 @@
             "eccentricity": 0.07,
             "type": "Telluric"
           }
-        ]
+        ],
+        "metallicity": -0.15
       }
     ]
   },
@@ -833,25 +861,26 @@
         "temp_k": 3350,
         "luminosity_sol": 0.0088,
         "planets": [
-           {
+          {
             "name": "Luyten's Star b",
             "mass_earth": 2.89,
             "radius_earth": 1.35,
             "period_days": 18.65,
             "semi_major_axis_au": 0.091,
-            "eccentricity": 0.10,
+            "eccentricity": 0.1,
             "type": "Super-Earth"
-           },
-           {
+          },
+          {
             "name": "Luyten's Star c",
             "mass_earth": 1.18,
             "radius_earth": 1.1,
             "period_days": 4.72,
             "semi_major_axis_au": 0.036,
-            "eccentricity": 0.10,
+            "eccentricity": 0.1,
             "type": "Telluric"
-           }
-        ]
+          }
+        ],
+        "metallicity": -0.25
       }
     ]
   },
@@ -867,7 +896,7 @@
         "temp_k": 2904,
         "luminosity_sol": 0.00073,
         "planets": [
-           {
+          {
             "name": "Teegarden's Star b",
             "mass_earth": 1.05,
             "radius_earth": 1.02,
@@ -875,8 +904,8 @@
             "semi_major_axis_au": 0.025,
             "eccentricity": 0.0,
             "type": "Telluric"
-           },
-           {
+          },
+          {
             "name": "Teegarden's Star c",
             "mass_earth": 1.11,
             "radius_earth": 1.04,
@@ -884,8 +913,9 @@
             "semi_major_axis_au": 0.044,
             "eccentricity": 0.0,
             "type": "Telluric"
-           }
-        ]
+          }
+        ],
+        "metallicity": -0.3
       }
     ]
   },
@@ -901,7 +931,7 @@
         "temp_k": 3570,
         "luminosity_sol": 0.004,
         "planets": [
-           {
+          {
             "name": "Kapteyn's Star b",
             "mass_earth": 4.8,
             "radius_earth": 1.6,
@@ -909,8 +939,9 @@
             "semi_major_axis_au": 0.17,
             "eccentricity": 0.21,
             "type": "Super-Earth"
-           }
-        ]
+          }
+        ],
+        "metallicity": -0.86
       }
     ]
   },
@@ -921,11 +952,12 @@
       {
         "name": "Lacaille 8760",
         "spectral_type": "M0.0V",
-        "mass_sol": 0.60,
+        "mass_sol": 0.6,
         "radius_sol": 0.51,
         "temp_k": 3800,
         "luminosity_sol": 0.072,
-        "planets": []
+        "planets": [],
+        "metallicity": 0.0
       }
     ]
   },
@@ -940,7 +972,8 @@
         "radius_sol": 0.35,
         "temp_k": 3380,
         "luminosity_sol": 0.01,
-        "planets": []
+        "planets": [],
+        "metallicity": -0.25
       },
       {
         "name": "Kruger 60 B",
@@ -949,7 +982,8 @@
         "radius_sol": 0.24,
         "temp_k": 3150,
         "luminosity_sol": 0.003,
-        "planets": []
+        "planets": [],
+        "metallicity": -0.25
       }
     ],
     "binary_orbits": [
@@ -977,7 +1011,7 @@
         "temp_k": 3304,
         "luminosity_sol": 0.0079,
         "planets": [
-           {
+          {
             "name": "Wolf 1061 b",
             "mass_earth": 1.36,
             "radius_earth": 1.15,
@@ -985,8 +1019,8 @@
             "semi_major_axis_au": 0.035,
             "eccentricity": 0.15,
             "type": "Telluric"
-           },
-           {
+          },
+          {
             "name": "Wolf 1061 c",
             "mass_earth": 3.41,
             "radius_earth": 1.5,
@@ -994,17 +1028,18 @@
             "semi_major_axis_au": 0.084,
             "eccentricity": 0.11,
             "type": "Super-Earth"
-           },
-           {
+          },
+          {
             "name": "Wolf 1061 d",
             "mass_earth": 5.21,
             "radius_earth": 1.9,
             "period_days": 67.27,
-            "semi_major_axis_au": 0.20,
+            "semi_major_axis_au": 0.2,
             "eccentricity": 0.55,
             "type": "Super-Earth"
-           }
-        ]
+          }
+        ],
+        "metallicity": -0.09
       }
     ]
   },
@@ -1020,7 +1055,7 @@
         "temp_k": 3413,
         "luminosity_sol": 0.02,
         "planets": [
-           {
+          {
             "name": "Gliese 687 b",
             "mass_earth": 18.0,
             "radius_earth": 3.5,
@@ -1028,14 +1063,14 @@
             "semi_major_axis_au": 0.16,
             "eccentricity": 0.04,
             "type": "Neptunian"
-           }
+          }
         ]
       }
     ]
   },
   {
     "system_name": "Gliese 674",
-    "distance_ly": 14.80,
+    "distance_ly": 14.8,
     "stars": [
       {
         "name": "Gliese 674",
@@ -1045,7 +1080,7 @@
         "temp_k": 3400,
         "luminosity_sol": 0.011,
         "planets": [
-           {
+          {
             "name": "Gliese 674 b",
             "mass_earth": 11.0,
             "radius_earth": 3.0,
@@ -1053,7 +1088,7 @@
             "semi_major_axis_au": 0.039,
             "eccentricity": 0.2,
             "type": "Neptunian"
-           }
+          }
         ]
       }
     ]
@@ -1144,7 +1179,7 @@
       }
     ]
   },
-    {
+  {
     "system_name": "Groombridge 1618",
     "distance_ly": 15.89,
     "stars": [
@@ -1175,7 +1210,7 @@
       {
         "name": "Gliese 412 B",
         "spectral_type": "M5.5V",
-        "mass_sol": 0.10,
+        "mass_sol": 0.1,
         "radius_sol": 0.13,
         "temp_k": 2900,
         "luminosity_sol": 0.0009,
@@ -1197,12 +1232,12 @@
   },
   {
     "system_name": "AD Leonis",
-    "distance_ly": 16.20,
+    "distance_ly": 16.2,
     "stars": [
       {
         "name": "AD Leonis",
         "spectral_type": "M3.0V",
-        "mass_sol": 0.40,
+        "mass_sol": 0.4,
         "radius_sol": 0.39,
         "temp_k": 3390,
         "luminosity_sol": 0.024,
@@ -1222,7 +1257,7 @@
         "temp_k": 3150,
         "luminosity_sol": 0.003,
         "planets": [
-            {
+          {
             "name": "GJ 3323 b",
             "mass_earth": 2.0,
             "radius_earth": 1.25,
@@ -1230,8 +1265,8 @@
             "semi_major_axis_au": 0.032,
             "eccentricity": 0.23,
             "type": "Super-Earth"
-           },
-           {
+          },
+          {
             "name": "GJ 3323 c",
             "mass_earth": 2.3,
             "radius_earth": 1.3,
@@ -1239,7 +1274,7 @@
             "semi_major_axis_au": 0.126,
             "eccentricity": 0.17,
             "type": "Super-Earth"
-           }
+          }
         ]
       }
     ]
@@ -1259,7 +1294,7 @@
       }
     ]
   },
-    {
+  {
     "system_name": "Stein 2051",
     "distance_ly": 17.99,
     "stars": [
@@ -1307,7 +1342,7 @@
         "temp_k": 3440,
         "luminosity_sol": 0.012,
         "planets": [
-            {
+          {
             "name": "Gliese 251 b",
             "mass_earth": 4.0,
             "radius_earth": 1.5,
@@ -1315,7 +1350,7 @@
             "semi_major_axis_au": 0.08,
             "eccentricity": 0.1,
             "type": "Super-Earth"
-           }
+          }
         ]
       }
     ]
@@ -1352,7 +1387,7 @@
         "name": "Gliese 752 B (VB 10)",
         "spectral_type": "M8.0V",
         "mass_sol": 0.075,
-        "radius_sol": 0.10,
+        "radius_sol": 0.1,
         "temp_k": 2600,
         "luminosity_sol": 0.0004,
         "planets": []
@@ -1378,12 +1413,12 @@
       {
         "name": "82 G. Eridani",
         "spectral_type": "G8V",
-        "mass_sol": 0.70,
+        "mass_sol": 0.7,
         "radius_sol": 0.92,
         "temp_k": 5401,
         "luminosity_sol": 0.61,
         "planets": [
-            {
+          {
             "name": "82 G. Eridani b",
             "mass_earth": 2.26,
             "radius_earth": 1.3,
@@ -1391,17 +1426,17 @@
             "semi_major_axis_au": 0.12,
             "eccentricity": 0.0,
             "type": "Super-Earth"
-           },
-            {
+          },
+          {
             "name": "82 G. Eridani c",
             "mass_earth": 2.4,
             "radius_earth": 1.3,
             "period_days": 40.1,
-            "semi_major_axis_au": 0.20,
+            "semi_major_axis_au": 0.2,
             "eccentricity": 0.0,
             "type": "Super-Earth"
-           },
-            {
+          },
+          {
             "name": "82 G. Eridani d",
             "mass_earth": 4.8,
             "radius_earth": 1.6,
@@ -1409,68 +1444,68 @@
             "semi_major_axis_au": 0.35,
             "eccentricity": 0.1,
             "type": "Super-Earth"
-           }
+          }
         ]
       }
     ]
   },
   {
-      "system_name": "Delta Pavonis",
-      "distance_ly": 19.9,
-      "stars": [
-          {
-              "name": "Delta Pavonis",
-              "spectral_type": "G8IV",
-              "mass_sol": 0.99,
-              "radius_sol": 1.2,
-              "temp_k": 5600,
-              "luminosity_sol": 1.2,
-              "planets": []
-          }
-      ]
+    "system_name": "Delta Pavonis",
+    "distance_ly": 19.9,
+    "stars": [
+      {
+        "name": "Delta Pavonis",
+        "spectral_type": "G8IV",
+        "mass_sol": 0.99,
+        "radius_sol": 1.2,
+        "temp_k": 5600,
+        "luminosity_sol": 1.2,
+        "planets": []
+      }
+    ]
   },
   {
-      "system_name": "Gliese 581",
-      "distance_ly": 20.5,
-      "stars": [
+    "system_name": "Gliese 581",
+    "distance_ly": 20.5,
+    "stars": [
+      {
+        "name": "Gliese 581",
+        "spectral_type": "M3V",
+        "mass_sol": 0.31,
+        "radius_sol": 0.29,
+        "temp_k": 3480,
+        "luminosity_sol": 0.013,
+        "planets": [
           {
-              "name": "Gliese 581",
-              "spectral_type": "M3V",
-              "mass_sol": 0.31,
-              "radius_sol": 0.29,
-              "temp_k": 3480,
-              "luminosity_sol": 0.013,
-              "planets": [
-                  {
-                      "name": "Gliese 581 e",
-                      "mass_earth": 1.7,
-                      "radius_earth": 1.2,
-                      "period_days": 3.15,
-                      "semi_major_axis_au": 0.03,
-                      "eccentricity": 0.0,
-                      "type": "Super-Earth"
-                  },
-                  {
-                      "name": "Gliese 581 b",
-                      "mass_earth": 15.6,
-                      "radius_earth": 3.4,
-                      "period_days": 5.37,
-                      "semi_major_axis_au": 0.04,
-                      "eccentricity": 0.0,
-                      "type": "Neptunian"
-                  },
-                  {
-                      "name": "Gliese 581 c",
-                      "mass_earth": 5.6,
-                      "radius_earth": 1.8,
-                      "period_days": 12.9,
-                      "semi_major_axis_au": 0.07,
-                      "eccentricity": 0.17,
-                      "type": "Super-Earth"
-                  }
-              ]
+            "name": "Gliese 581 e",
+            "mass_earth": 1.7,
+            "radius_earth": 1.2,
+            "period_days": 3.15,
+            "semi_major_axis_au": 0.03,
+            "eccentricity": 0.0,
+            "type": "Super-Earth"
+          },
+          {
+            "name": "Gliese 581 b",
+            "mass_earth": 15.6,
+            "radius_earth": 3.4,
+            "period_days": 5.37,
+            "semi_major_axis_au": 0.04,
+            "eccentricity": 0.0,
+            "type": "Neptunian"
+          },
+          {
+            "name": "Gliese 581 c",
+            "mass_earth": 5.6,
+            "radius_earth": 1.8,
+            "period_days": 12.9,
+            "semi_major_axis_au": 0.07,
+            "eccentricity": 0.17,
+            "type": "Super-Earth"
           }
-      ]
+        ]
+      }
+    ]
   },
   {
     "system_name": "SCR 1845-6357",
@@ -1480,7 +1515,7 @@
         "name": "SCR 1845-6357 A",
         "spectral_type": "M8.5V",
         "mass_sol": 0.07,
-        "radius_sol": 0.10,
+        "radius_sol": 0.1,
         "temp_k": 2600,
         "luminosity_sol": 0.0001,
         "planets": []
@@ -1491,7 +1526,7 @@
         "mass_sol": 0.04,
         "radius_sol": 0.09,
         "temp_k": 950,
-        "luminosity_sol": 0.000005,
+        "luminosity_sol": 5e-06,
         "planets": []
       }
     ],
@@ -1519,16 +1554,18 @@
         "radius_sol": 0.23,
         "temp_k": 3100,
         "luminosity_sol": 0.005,
-        "planets": []
+        "planets": [],
+        "metallicity": -0.35
       },
       {
         "name": "Ross 614 B",
         "spectral_type": "M8.0V",
         "mass_sol": 0.0906,
-        "radius_sol": 0.10,
+        "radius_sol": 0.1,
         "temp_k": 2500,
         "luminosity_sol": 0.0001,
-        "planets": []
+        "planets": [],
+        "metallicity": -0.35
       }
     ],
     "binary_orbits": [
@@ -1555,7 +1592,8 @@
         "radius_sol": 0.14,
         "temp_k": 2800,
         "luminosity_sol": 0.0007,
-        "planets": []
+        "planets": [],
+        "metallicity": -0.3
       },
       {
         "name": "Wolf 424 B",
@@ -1564,7 +1602,8 @@
         "radius_sol": 0.13,
         "temp_k": 2750,
         "luminosity_sol": 0.0005,
-        "planets": []
+        "planets": [],
+        "metallicity": -0.3
       }
     ],
     "binary_orbits": [
@@ -1666,7 +1705,8 @@
         "radius_sol": 0.17,
         "temp_k": 3100,
         "luminosity_sol": 0.0015,
-        "planets": []
+        "planets": [],
+        "metallicity": -0.25
       }
     ]
   },
@@ -1678,7 +1718,7 @@
         "name": "LHS 292",
         "spectral_type": "M6.5V",
         "mass_sol": 0.08,
-        "radius_sol": 0.10,
+        "radius_sol": 0.1,
         "temp_k": 2700,
         "luminosity_sol": 0.0003,
         "planets": []
@@ -1723,9 +1763,9 @@
         "name": "DENIS J1048-3956",
         "spectral_type": "M8.5V",
         "mass_sol": 0.07,
-        "radius_sol": 0.10,
+        "radius_sol": 0.1,
         "temp_k": 2500,
-        "luminosity_sol": 0.00008,
+        "luminosity_sol": 8e-05,
         "planets": []
       }
     ]
@@ -1740,7 +1780,7 @@
         "mass_sol": 0.01,
         "radius_sol": 0.09,
         "temp_k": 510,
-        "luminosity_sol": 0.000001,
+        "luminosity_sol": 1e-06,
         "planets": []
       }
     ]
@@ -1755,7 +1795,7 @@
         "mass_sol": 0.015,
         "radius_sol": 0.09,
         "temp_k": 450,
-        "luminosity_sol": 0.000001,
+        "luminosity_sol": 1e-06,
         "planets": []
       }
     ]
@@ -1770,7 +1810,7 @@
         "mass_sol": 0.01,
         "radius_sol": 0.09,
         "temp_k": 350,
-        "luminosity_sol": 0.0000005,
+        "luminosity_sol": 5e-07,
         "planets": []
       }
     ]
@@ -1785,7 +1825,7 @@
         "mass_sol": 0.06,
         "radius_sol": 0.09,
         "temp_k": 1350,
-        "luminosity_sol": 0.00001,
+        "luminosity_sol": 1e-05,
         "planets": []
       }
     ]
