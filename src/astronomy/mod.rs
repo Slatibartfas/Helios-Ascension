@@ -68,6 +68,10 @@ impl Plugin for AstronomyPlugin {
                     update_body_lod_visibility,
                     // Rendering
                     draw_orbit_paths.after(update_orbit_visibility),
+                    
+                    // Comet Visuals
+                    manage_comet_tail_meshes,
+                    update_tail_transforms.after(propagate_orbits),
                 ),
             );
     }
