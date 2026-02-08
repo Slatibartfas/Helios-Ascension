@@ -6,6 +6,23 @@ This document describes the procedural generation system for populating star sys
 
 The procedural generation system fills in missing planets, asteroid belts, and cometary clouds for star systems that have incomplete real data. It uses scientifically-based rules to create realistic systems while maintaining gameplay variety.
 
+**The system actively generates at game start**, creating a unique universe for each playthrough using a random seed. This seed can be saved to recreate the same universe.
+
+## Active Generation at Game Start
+
+When you start a new game, the system:
+1. Generates a `GameSeed` from the current system time (or a specified value)
+2. Loads nearby star data from `assets/data/nearest_stars_raw.json`
+3. For each star system (except Sol, which is pre-defined):
+   - Spawns the star with random metallicity (-0.5 to +0.5 [Fe/H])
+   - Spawns any confirmed exoplanets from the data
+   - Generates procedural planets to fill gaps (targeting 5 planets per system)
+   - Spawns asteroid belts (80% chance)
+   - Spawns cometary clouds (70% chance)
+   - Applies resource generation with metallicity bonuses
+
+**Every game is unique** because the seed is based on system time, but **every game is reproducible** because the seed determines all generation.
+
 ## Key Components
 
 ### 1. Exoplanet Data Integration (`src/astronomy/exoplanets.rs`)
@@ -104,25 +121,60 @@ This means metal-rich systems are more valuable for mining operations, while met
 
 ### 4. System Populator Plugin (`src/plugins/system_populator.rs`)
 
-The `SystemPopulatorPlugin` orchestrates the entire procedural generation process:
+The `SystemPopulatorPlugin` orchestrates the entire procedural generation process at game start:
 
-1. **Load nearby star data** from `assets/data/nearest_stars_raw.json`
-2. **For each star system:**
-   - Spawn star entity with `StarSystem` component (includes metallicity)
+1. **Initialize GameSeed** (`src/game_state.rs`)
+   - Creates seed from system time (unique each game)
+   - Or uses specified seed for testing/reproducibility
+   - Serializable for save/load functionality
+
+2. **Load nearby star data** from `assets/data/nearest_stars_raw.json`
+
+3. **For each star system:**
+   - Spawn star entity with `StarSystem` component
+   - Assign random metallicity (-0.5 to +0.5 [Fe/H])
    - Spawn confirmed planets from real data (marked with `RealPlanet`)
    - Generate procedural architecture to fill gaps
    - Spawn procedural planets, asteroids, and comets
    - Apply resource generation with metallicity bonuses
 
+4. **Resource generation runs automatically** for all spawned bodies via the existing `generate_solar_system_resources` system
+
 ## Usage
 
-The system automatically runs at startup via the `SystemPopulatorPlugin`:
+The system automatically runs at game startup via the `SystemPopulatorPlugin`:
 
 ```rust
 App::new()
-    .add_plugins(SystemPopulatorPlugin)
+    .add_plugins(GameStatePlugin)      // Initialize seed first
+    // ... other plugins ...
+    .add_plugins(SystemPopulatorPlugin) // Generate systems
     // ...
 ```
+
+### Controlling the Seed
+
+For testing or specific scenarios, you can override the default seed:
+
+```rust
+// In your app setup, before plugins:
+app.insert_resource(GameSeed::new(12345));  // Fixed seed
+// Or:
+app.insert_resource(GameSeed::from_string("my_universe")); // Named seed
+```
+
+### Save/Load Support
+
+The `GameSeed` is serializable and will be included in save files:
+
+```rust
+#[derive(Resource, Serialize, Deserialize)]
+pub struct GameSeed {
+    pub value: u64,
+}
+```
+
+When loading a saved game, restore the seed to ensure consistent universe generation.
 
 ## Scientific Basis
 

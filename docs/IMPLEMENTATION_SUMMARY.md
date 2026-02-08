@@ -2,7 +2,16 @@
 
 ## Completed Work
 
-This implementation provides a complete procedural generation system for populating star systems in Helios: Ascension. All requirements from the problem statement have been addressed.
+This implementation provides a complete procedural generation system for populating star systems in Helios: Ascension. All requirements from the problem statement have been addressed, and **the system is now actively generating at game start**.
+
+## Active Generation Status ✅
+
+**The system NOW generates procedurally at every game start:**
+- Uses `GameSeed` resource for deterministic generation
+- Each game gets a unique seed from system time
+- Spawns ~60 nearby star systems with planets, asteroids, and comets
+- Sol (System 0) remains pre-defined, all others are procedural
+- Every playthrough is unique but reproducible with the same seed
 
 ## 1. Data Ingestion ✅
 
@@ -92,26 +101,59 @@ The bonus applies to proven_crustal, deep_deposits, and planetary_bulk:
 
 **Implementation:** `apply_metallicity_bonus()` function in resource generation system.
 
-## 4. System Populator Plugin ✅
+## 4. System Populator Plugin ✅ (ACTIVE)
 
 **File:** `src/plugins/system_populator.rs`
 
+**Status: ACTIVELY GENERATING AT GAME START**
+
 Created `SystemPopulatorPlugin` that:
-1. Reads nearby star data from `NearbyStarsData` resource
-2. For each incomplete system:
-   - Spawns star entity with `StarSystem` component
+1. Uses `GameSeed` resource for deterministic generation
+2. Reads nearby star data from `NearbyStarsData` resource
+3. **For each system in the data:**
+   - Spawns star entity with random metallicity (-0.5 to +0.5 [Fe/H])
    - Spawns confirmed planets (marked with `RealPlanet`)
    - Generates procedural architecture to fill gaps
    - Spawns procedural planets with `KeplerOrbit` (f64 precision)
-   - Spawns asteroids in belts
-   - Spawns comets in clouds
-   - Applies resource generation with metallicity bonuses
+   - Spawns asteroids in belts (M/S/V types)
+   - Spawns comets in clouds (P/D types)
+   - Resource generation happens automatically via existing system
 
 ### Key Functions
-- `spawn_star_entity()` - Creates star with system properties
+- `populate_nearby_systems()` - **Main generation system (runs at Startup)**
+- `spawn_star_entity_with_metallicity()` - Creates star with custom metallicity
+- `spawn_confirmed_planet()` - Spawns real exoplanet data
 - `spawn_procedural_planet()` - Spawns a generated planet
 - `spawn_asteroid_belt()` - Populates belt with M/S/V asteroids
 - `spawn_cometary_cloud()` - Populates cloud with P/D comets
+
+### GameSeed System
+
+**File:** `src/game_state.rs`
+
+New `GameSeed` resource for deterministic generation:
+```rust
+#[derive(Resource, Serialize, Deserialize)]
+pub struct GameSeed {
+    pub value: u64,
+}
+```
+
+**Features:**
+- `GameSeed::from_system_time()` - Unique seed each game (default)
+- `GameSeed::new(value)` - Specific seed for testing
+- `GameSeed::from_string("name")` - Named universe generation
+- Serializable for save/load functionality
+
+**Plugin Order:**
+```rust
+.add_plugins(GameStatePlugin)        // 1. Initialize seed
+.add_plugins(AstronomyPlugin)        // 2. Setup mechanics
+// ...
+.add_plugins(SolarSystemPlugin)      // Setup Sol
+.add_plugins(EconomyPlugin)          // Setup resources
+.add_plugins(SystemPopulatorPlugin)  // 3. Generate all other systems
+```
 
 ### High-Precision Orbits
 All spawned bodies use `KeplerOrbit` with f64 precision:
