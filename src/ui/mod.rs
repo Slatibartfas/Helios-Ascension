@@ -423,6 +423,7 @@ impl Plugin for UIPlugin {
                     ui_starmap_hover_tooltip,
                     ui_starmap_labels,
                     sync_selection_with_astronomy,
+                    sync_active_menu_with_view_mode,
                     advance_simulation_time,
                     process_menu_icons,
                 )
@@ -444,6 +445,35 @@ fn sync_selection_with_astronomy(
     } else if selection.has_selection() {
         // If nothing is selected in astronomy, clear UI selection
         selection.clear();
+    }
+}
+
+/// Keeps `ActiveMenu` in sync when `ViewMode` changes via camera zoom
+/// (as opposed to clicking a menu button which handles its own sync).
+///
+/// - `ViewMode::Starmap` → `GameMenu::Starmap`
+/// - `ViewMode::System` → `GameMenu::Survey` (unless already on a system-compatible menu)
+fn sync_active_menu_with_view_mode(
+    view_mode: Res<ViewMode>,
+    mut active_menu: ResMut<ActiveMenu>,
+) {
+    if !view_mode.is_changed() {
+        return;
+    }
+
+    match *view_mode {
+        ViewMode::Starmap => {
+            if active_menu.current != GameMenu::Starmap {
+                active_menu.current = GameMenu::Starmap;
+            }
+        }
+        ViewMode::System => {
+            // When entering System view and the menu is still showing
+            // the Starmap ledger, switch to Survey for the body list.
+            if active_menu.current == GameMenu::Starmap {
+                active_menu.current = GameMenu::Survey;
+            }
+        }
     }
 }
 

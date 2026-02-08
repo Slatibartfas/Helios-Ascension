@@ -498,7 +498,7 @@ fn spawn_system_bodies(
     current_system: Res<CurrentStarSystem>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    existing_bodies: Query<&SystemId, With<CelestialBody>>,
+    existing_visual_bodies: Query<&SystemId, (With<CelestialBody>, With<Handle<Mesh>>)>,
     nearby_stars: Res<NearbyStarsData>,
     mut system_metadata: ResMut<SystemMetadata>,
 ) {
@@ -511,8 +511,10 @@ fn spawn_system_bodies(
         return;
     } // Sol is handled by solar_system.rs
 
-    // Check if bodies for this system already exist
-    if existing_bodies.iter().any(|id| id.0 == sys_id) {
+    // Check if VISIBLE (meshed) bodies for this system already exist.
+    // Data-only entities from SystemPopulatorPlugin (no mesh) should NOT
+    // block spawning of visual representations.
+    if existing_visual_bodies.iter().any(|id| id.0 == sys_id) {
         return;
     }
 
@@ -1349,6 +1351,7 @@ fn handle_starmap_selection(
 
 /// Handle transition from Starmap to System view.
 /// This updates the floating origin and current system if we were anchored to a star.
+/// Also clears any celestial body selections from the previous system.
 fn handle_system_transition(
     view_mode: Res<ViewMode>,
     mut current_system: ResMut<CurrentStarSystem>,
@@ -1356,6 +1359,7 @@ fn handle_system_transition(
     mut anchor_query: Query<&mut CameraAnchor, With<GameCamera>>,
     icon_query: Query<&StarSystemIcon>,
     selected_query: Query<Entity, With<SelectedStarSystem>>,
+    body_selected_query: Query<Entity, With<crate::astronomy::components::Selected>>,
     mut commands: Commands,
 ) {
     if !view_mode.is_changed() || *view_mode != ViewMode::System {
@@ -1389,6 +1393,15 @@ fn handle_system_transition(
                 anchor.0 = None;
             }
         }
+    }
+
+    // Clear all celestial body selections from the previous system
+    // so bodies from the old system don't get forced visible by
+    // update_body_lod_visibility
+    for entity in body_selected_query.iter() {
+        commands
+            .entity(entity)
+            .remove::<crate::astronomy::components::Selected>();
     }
 
     // Clear all starmap selections (visual rings etc)

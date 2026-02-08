@@ -3,8 +3,9 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
 use super::components::{
-    CometTail, Destroyed, HoverMarker, Hovered, KeplerOrbit, LocalOrbitAmplification, MarkerDot,
-    MarkerOwner, OrbitCenter, OrbitPath, Selected, SelectionMarker, SpaceCoordinates,
+    CometTail, CurrentStarSystem, Destroyed, HoverMarker, Hovered, KeplerOrbit,
+    LocalOrbitAmplification, MarkerDot, MarkerOwner, OrbitCenter, OrbitPath, Selected,
+    SelectionMarker, SpaceCoordinates, SystemId,
 };
 use crate::plugins::camera::{CameraAnchor, GameCamera, OrbitCamera, ViewMode};
 use crate::plugins::solar_system::{
@@ -295,12 +296,14 @@ pub fn update_render_transform(
 pub fn draw_orbit_paths(
     mut gizmos: Gizmos,
     sim_time: Res<SimulationTime>,
+    current_system: Res<CurrentStarSystem>,
     query: Query<(
         &KeplerOrbit,
         &OrbitPath,
         Option<&LogicalParent>,
         Option<&LocalOrbitAmplification>,
         Option<&Visibility>,
+        Option<&SystemId>,
     )>,
     parent_coords: Query<&SpaceCoordinates>,
     floating_origin: Option<Res<crate::astronomy::components::FloatingOrigin>>,
@@ -308,12 +311,18 @@ pub fn draw_orbit_paths(
     let elapsed_time = sim_time.elapsed_seconds();
     let origin_offset = floating_origin.map(|fo| fo.position).unwrap_or(DVec3::ZERO);
 
-    for (orbit, path, logical_parent, amplification, visibility) in query.iter() {
+    for (orbit, path, logical_parent, amplification, visibility, system_id) in query.iter() {
         if !path.visible {
             continue;
         }
 
-        // If the entity is hidden (e.g. because it's in another star system), don't draw the orbit
+        // Only draw orbits for bodies in the current star system
+        let body_system = system_id.map(|s| s.0).unwrap_or(0);
+        if body_system != current_system.0 {
+            continue;
+        }
+
+        // If the entity is hidden (e.g. because it's a moon whose parent is not anchored), don't draw the orbit
         if let Some(vis) = visibility {
             if *vis == Visibility::Hidden {
                 continue;
@@ -507,8 +516,9 @@ pub fn manage_comet_tail_meshes(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    current_system: Res<CurrentStarSystem>,
     comet_query: Query<
-        (Entity, &CelestialBody, &KeplerOrbit, &SpaceCoordinates),
+        (Entity, &CelestialBody, &KeplerOrbit, &SpaceCoordinates, Option<&SystemId>),
         (With<Comet>, Without<Destroyed>),
     >,
     tail_query: Query<(Entity, &CometTail)>,
@@ -517,7 +527,13 @@ pub fn manage_comet_tail_meshes(
     // Track which comets should have tails
     let mut comets_needing_tails = std::collections::HashSet::new();
 
-    for (entity, body, _orbit, coords) in comet_query.iter() {
+    for (entity, body, _orbit, coords, system_id) in comet_query.iter() {
+        // Only manage tails for comets in the current star system
+        let body_system = system_id.map(|s| s.0).unwrap_or(0);
+        if body_system != current_system.0 {
+            continue;
+        }
+
         let distance_au = coords.position.length();
 
         // Check if tail should be visible
@@ -727,8 +743,9 @@ pub fn update_tail_transforms(
 pub fn draw_comet_tails(
     view_mode: Res<ViewMode>,
     mut gizmos: Gizmos,
+    current_system: Res<CurrentStarSystem>,
     query: Query<
-        (&CelestialBody, &KeplerOrbit, &SpaceCoordinates),
+        (&CelestialBody, &KeplerOrbit, &SpaceCoordinates, Option<&SystemId>),
         (With<Comet>, Without<Destroyed>),
     >,
 ) {
@@ -737,7 +754,13 @@ pub fn draw_comet_tails(
         return;
     }
 
-    for (body, orbit, coords) in query.iter() {
+    for (body, orbit, coords, system_id) in query.iter() {
+        // Only draw tails for comets in the current star system
+        let body_system = system_id.map(|s| s.0).unwrap_or(0);
+        if body_system != current_system.0 {
+            continue;
+        }
+
         // Current heliocentric distance in AU
         let distance_au = coords.position.length();
 
@@ -1062,14 +1085,19 @@ pub fn update_orbit_visibility(
 ///
 /// Moons are only visible when their parent planet is the camera's anchor.
 /// This prevents overlapping moon systems from different planets.
+///
+/// Also respects the current star system — bodies from other systems are
+/// left hidden even if selected or anchored.
 pub fn update_body_lod_visibility(
     camera_query: Query<&CameraAnchor, With<GameCamera>>,
+    current_system: Res<CurrentStarSystem>,
     mut body_query: Query<
         (
             &mut Visibility,
             Option<&LogicalParent>,
             Option<&Moon>,
             Option<&Selected>,
+            Option<&SystemId>,
         ),
         With<CelestialBody>,
     >,
@@ -1078,8 +1106,16 @@ pub fn update_body_lod_visibility(
         return;
     };
 
-    for (mut visibility, logical_parent, moon, selected) in body_query.iter_mut() {
-        // Selected bodies are always visible
+    for (mut visibility, logical_parent, moon, selected, system_id) in body_query.iter_mut() {
+        // Bodies from other star systems must stay hidden, regardless of
+        // selection or anchor state.
+        let body_system = system_id.map(|s| s.0).unwrap_or(0);
+        if body_system != current_system.0 {
+            *visibility = Visibility::Hidden;
+            continue;
+        }
+
+        // Selected bodies in the current system are always visible
         if selected.is_some() {
             *visibility = Visibility::Inherited;
             continue;
@@ -1114,7 +1150,8 @@ pub fn handle_body_selection(
     mouse_button: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     camera_query: Query<(&Camera, &GlobalTransform), With<GameCamera>>,
-    body_query: Query<(Entity, &GlobalTransform, &CelestialBody)>,
+    body_query: Query<(Entity, &GlobalTransform, &CelestialBody, Option<&SystemId>)>,
+    current_system: Res<CurrentStarSystem>,
     mut commands: Commands,
     selected_query: Query<Entity, With<Selected>>,
     mut anchor_query: Query<&mut CameraAnchor, With<GameCamera>>,
@@ -1159,7 +1196,13 @@ pub fn handle_body_selection(
     // Stores: (Entity, distance from camera, body name)
     let mut closest_body: Option<(Entity, f32, String)> = None;
 
-    for (entity, transform, body) in body_query.iter() {
+    for (entity, transform, body, system_id) in body_query.iter() {
+        // Only interact with bodies in the current star system
+        let body_system = system_id.map(|s| s.0).unwrap_or(0);
+        if body_system != current_system.0 {
+            continue;
+        }
+
         let body_pos = transform.translation();
 
         // Calculate distance from ray to body center
@@ -1221,7 +1264,8 @@ pub fn handle_body_hover(
     view_mode: Res<ViewMode>,
     windows: Query<&Window, With<PrimaryWindow>>,
     camera_query: Query<(&Camera, &GlobalTransform), With<GameCamera>>,
-    body_query: Query<(Entity, &GlobalTransform, &CelestialBody)>,
+    body_query: Query<(Entity, &GlobalTransform, &CelestialBody, Option<&SystemId>)>,
+    current_system: Res<CurrentStarSystem>,
     mut commands: Commands,
     hovered_query: Query<Entity, With<Hovered>>,
     mut egui_contexts: bevy_egui::EguiContexts,
@@ -1271,7 +1315,13 @@ pub fn handle_body_hover(
     // Find the closest body to the ray
     let mut closest_body: Option<(Entity, f32)> = None;
 
-    for (entity, transform, body) in body_query.iter() {
+    for (entity, transform, body, system_id) in body_query.iter() {
+        // Only interact with bodies in the current star system
+        let body_system = system_id.map(|s| s.0).unwrap_or(0);
+        if body_system != current_system.0 {
+            continue;
+        }
+
         let body_pos = transform.translation();
 
         // Calculate distance from ray to body center

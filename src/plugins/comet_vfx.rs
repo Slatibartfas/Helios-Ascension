@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy_hanabi::prelude::*;
+use crate::astronomy::components::{CurrentStarSystem, SystemId};
 use crate::plugins::solar_system::{Comet, Star};
 use crate::astronomy::components::CometTail; // Reuse existing marker if possible, or define our own for particles
 
@@ -208,10 +209,17 @@ fn setup_comet_effects(
 /// Spawns particle effects for new comets
 fn attach_comet_tails(
     mut commands: Commands,
-    query: Query<(Entity, &Transform), (With<Comet>, Without<CometVfxController>)>,
+    query: Query<(Entity, &Transform, Option<&SystemId>), (With<Comet>, Without<CometVfxController>)>,
     resources: Res<CometTailResources>,
+    current_system: Res<CurrentStarSystem>,
 ) {
-    for (entity, transform) in query.iter() {
+    for (entity, transform, system_id) in query.iter() {
+        // Only attach tails to comets in the current star system
+        let body_system = system_id.map(|s| s.0).unwrap_or(0);
+        if body_system != current_system.0 {
+            continue;
+        }
+
         // Skip comets that are still likely at the world origin (uninitialized position)
         // This prevents tails from spawning at (0,0,0) and shooting out when the orbital position updates
         if transform.translation.length_squared() < 0.1 {
@@ -247,21 +255,28 @@ fn attach_comet_tails(
 /// Updates the physics vectors for the tails based on Sun position
 fn update_comet_vectors(
     time: Res<Time>,
-    mut comet_query: Query<(&GlobalTransform, &Children, &mut CometVfxController), With<Comet>>,
+    current_system: Res<CurrentStarSystem>,
+    mut comet_query: Query<(&GlobalTransform, &Children, &mut CometVfxController, Option<&SystemId>), With<Comet>>,
     mut effect_query: Query<(&mut EffectProperties, &Name)>,
-    star_query: Query<&GlobalTransform, With<Star>>,
+    star_query: Query<(&GlobalTransform, Option<&SystemId>), With<Star>>,
 ) {
-    // Assume primary star (Sun) is the first/only star for now
-    let sun_pos = if let Ok(star_transform) = star_query.get_single() {
-        star_transform.translation()
-    } else {
-        return; // No sun found
-    };
+    // Find the star in the current system for solar wind direction
+    let sun_pos = star_query
+        .iter()
+        .find(|(_, sys_id)| sys_id.map(|s| s.0).unwrap_or(0) == current_system.0)
+        .map(|(t, _)| t.translation())
+        .unwrap_or(Vec3::ZERO);
 
     let dt = time.delta_seconds();
     if dt == 0.0 { return; }
 
-    for (comet_transform, children, mut controller) in comet_query.iter_mut() {
+    for (comet_transform, children, mut controller, system_id) in comet_query.iter_mut() {
+        // Only update comets in the current star system
+        let body_system = system_id.map(|s| s.0).unwrap_or(0);
+        if body_system != current_system.0 {
+            continue;
+        }
+
         let comet_pos = comet_transform.translation();
         
         // Handle potential teleportation from origin (if the check in attach_comet_tails wasn't enough)
