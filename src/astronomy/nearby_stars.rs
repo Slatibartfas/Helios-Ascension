@@ -21,6 +21,15 @@ impl NearbyStarsData {
     pub fn get_by_name(&self, name: &str) -> Option<&StarSystemData> {
         self.systems.iter().find(|s| s.system_name == name)
     }
+    
+    pub fn get_by_id(&self, id: usize) -> Option<&StarSystemData> {
+        // ID 0 is Sol (not in this data), IDs 1+ map to systems[0+]
+        if id == 0 {
+            None
+        } else {
+            self.systems.get(id - 1)
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
