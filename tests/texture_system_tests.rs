@@ -13,16 +13,15 @@ fn test_texture_field_deserializes() {
         "textures/celestial/stars/sun_8k.jpg"
     );
 
-    // Check that Earth has a texture
+    // Check that Earth has a texture (single or multi-layer)
     let earth = data.get_body("Earth").expect("Earth should exist");
-    assert!(
-        earth.texture.is_some(),
-        "Earth should have a dedicated texture"
-    );
-    assert_eq!(
-        earth.texture.as_ref().unwrap(),
-        "textures/celestial/planets/earth_8k.jpg"
-    );
+    if let Some(tex) = &earth.texture {
+        assert_eq!(tex, "textures/celestial/planets/earth_8k.jpg");
+    } else if let Some(ml) = &earth.multi_layer_textures {
+        assert_eq!(ml.base, "textures/celestial/planets/earth_daymap_8k.jpg");
+    } else {
+        panic!("Earth should have a dedicated texture or multi-layer textures");
+    }
 
     // Check that Moon has a texture
     let moon = data.get_body("Moon").expect("Moon should exist");
@@ -35,17 +34,15 @@ fn test_texture_field_deserializes() {
         "textures/celestial/moons/moon_8k.jpg"
     );
 
-    // Check Venus uses surface texture
+    // Check Venus uses surface texture (single or multi-layer)
     let venus = data.get_body("Venus").expect("Venus should exist");
-    assert!(
-        venus.texture.is_some(),
-        "Venus should have a dedicated texture"
-    );
-    assert_eq!(
-        venus.texture.as_ref().unwrap(),
-        "textures/celestial/planets/venus_surface_8k.jpg",
-        "Venus should use surface texture"
-    );
+    if let Some(tex) = &venus.texture {
+        assert_eq!(tex, "textures/celestial/planets/venus_surface_8k.jpg");
+    } else if let Some(ml) = &venus.multi_layer_textures {
+        assert_eq!(ml.base, "textures/celestial/planets/venus_surface_8k.jpg");
+    } else {
+        panic!("Venus should have a dedicated texture or multi-layer textures");
+    }
 }
 
 #[test]
@@ -62,7 +59,7 @@ fn test_asteroid_classification_deserializes() {
     );
     assert_eq!(
         vesta.texture.as_ref().unwrap(),
-        "textures/celestial/asteroids/vesta_2k.jpg"
+        "textures/celestial/asteroids/vesta_4k.png"
     );
 
     // Ceres should have asteroid classification
@@ -202,8 +199,8 @@ fn test_no_bodies_missing_required_fields() {
             );
         }
 
-        // All non-star bodies should have orbital parameters
-        if body.body_type != BodyType::Star {
+        // All non-star, non-ring bodies should have orbital parameters
+        if body.body_type != BodyType::Star && body.body_type != BodyType::Ring {
             assert!(
                 body.orbit.is_some(),
                 "Non-star body {} should have orbital parameters",
