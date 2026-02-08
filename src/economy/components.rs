@@ -97,6 +97,20 @@ impl Default for StarSystem {
     }
 }
 
+/// Population component for celestial bodies, ships, and stations
+#[derive(Component, Debug, Clone, Serialize, Deserialize)]
+pub struct Population {
+    /// Total population count
+    pub count: f64,
+}
+
+impl Default for Population {
+    fn default() -> Self {
+        Self { count: 0.0 }
+    }
+}
+
+
 /// Stellar spectral classification
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SpectralClass {

@@ -16,8 +16,8 @@ use bevy::window::PrimaryWindow;
 use std::collections::HashMap;
 
 use super::camera::{CameraAnchor, GameCamera, OrbitCamera, ViewMode};
-use super::solar_system::{CelestialBody, Planet, Star, RADIUS_SCALE};
-use super::solar_system_data::BodyType;
+use super::solar_system::{CelestialBody, Planet, Star};
+use super::solar_system_data::{BodyType, calculate_visual_radius};
 use crate::astronomy::components::{
     CurrentStarSystem, FloatingOrigin, KeplerOrbit, OrbitCenter, OrbitPath, SpaceCoordinates,
     SystemId,
@@ -27,9 +27,7 @@ use crate::astronomy::SCALING_FACTOR;
 use rand::prelude::*;
 use std::f64::consts::PI;
 
-// Local constant for star scaling (matches solar_system.rs)
-const STAR_RADIUS_SCALE: f32 = 0.00015;
-const MIN_VISUAL_RADIUS: f32 = 5.0;
+// Constants replaced by solar_system_data import
 
 /// Default bounding radius for systems without calculated data (in AU).
 /// Used for Sol system and as fallback. Sol extends to ~355 AU (Comet NEOWISE).
@@ -623,8 +621,7 @@ fn spawn_detailed_system(
 
     for (_star_idx, star_data) in data.stars.iter().enumerate() {
         let color = get_color_from_spectral_type(&star_data.spectral_type);
-        let visual_radius =
-            (696340.0 * star_data.radius_sol * STAR_RADIUS_SCALE).max(MIN_VISUAL_RADIUS);
+        let visual_radius = calculate_visual_radius(BodyType::Star, 696340.0 * star_data.radius_sol);
 
         let star_entity = commands
             .spawn((
@@ -782,7 +779,7 @@ fn spawn_detailed_system(
             let orbit_dist_bu = planet.semi_major_axis_au as f32 * SCALING_FACTOR as f32;
             let max_visual_radius = orbit_dist_bu * 0.3; // Max 30% of orbit distance
 
-            let nominal_visual_radius = (planet_radius_km * RADIUS_SCALE).max(MIN_VISUAL_RADIUS);
+            let nominal_visual_radius = calculate_visual_radius(BodyType::Planet, planet_radius_km);
             let planet_visual_radius = nominal_visual_radius.min(max_visual_radius);
 
             let p_color = planet_type_to_color(&planet.planet_type);
@@ -842,7 +839,7 @@ fn spawn_fallback_system(
     let spectral = star_data.spectral_type;
     let color = get_color_from_spectral_type(spectral);
     let radius_mult = estimate_radius_from_spectral(spectral);
-    let visual_radius = (696340.0 * radius_mult * STAR_RADIUS_SCALE).max(MIN_VISUAL_RADIUS);
+    let visual_radius = calculate_visual_radius(BodyType::Star, 696340.0 * radius_mult);
 
     commands
         .spawn((

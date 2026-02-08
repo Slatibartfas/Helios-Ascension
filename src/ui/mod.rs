@@ -21,7 +21,7 @@ pub use interaction::Selection;
 use crate::astronomy::components::{CurrentStarSystem, SystemId};
 use crate::astronomy::nearby_stars::NearbyStarsData;
 use crate::astronomy::{AtmosphereComposition, Hovered, KeplerOrbit, Selected, SpaceCoordinates};
-use crate::economy::components::SurveyLevel;
+use crate::economy::components::{Population, SurveyLevel};
 use crate::economy::{format_power, GlobalBudget, PlanetResources, ResourceType};
 use crate::plugins::camera::{CameraAnchor, GameCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, LogicalParent};
@@ -414,15 +414,17 @@ impl Plugin for UIPlugin {
             .add_systems(
                 Update,
                 (
-                    ui_top_menu_bar,
+                    ui_resources_bar, // Resources bar at the very top
+                    ui_top_menu_bar,  // Menu bar below resources
                     ui_dashboard,
                     ui_hover_tooltip,
-                    ui_starmap_hover_tooltip, // New: starmap tooltips
+                    ui_starmap_hover_tooltip,
                     ui_starmap_labels,
                     sync_selection_with_astronomy,
                     advance_simulation_time,
-                    process_menu_icons, // Convert white->transparent on loaded icons
-                ),
+                    process_menu_icons,
+                )
+                .chain(), // Chain all UI systems to ensure consistent panel ordering (Resources -> Menu -> Dashboard)
             );
     }
 } 
@@ -454,6 +456,261 @@ fn advance_simulation_time(
 ) {
     let real_delta = real_time.delta_seconds_f64();
     sim_time.elapsed += real_delta * time_scale.scale as f64;
+}
+
+/// Get the icon for a resource category
+fn get_resource_category_icon(category: &str) -> &'static str {
+    match category {
+        "Volatiles" => "💧",
+        "Atmospheric Gases" => "☁",
+        "Construction" => "🧱",  // Brick instead of crane to differentiate from Construction menu
+        "Fusion Fuel" => "🔋",   // Battery/Energy
+        "Fissiles" => "☢",
+        "Precious Metals" => "💎",
+        "Specialty" => "✨",
+        _ => "📦",
+    }
+}
+
+/// Get the icon for a specific resource type
+fn get_resource_icon(resource: &ResourceType) -> &'static str {
+    match resource {
+        // Volatiles
+        ResourceType::Water => "💧",
+        ResourceType::Hydrogen => "🎈", // Or ⛽
+        ResourceType::Ammonia => "🧼",  // Cleaning/Chemical
+        ResourceType::Methane => "🔥",
+        
+        // Atmospheric
+        ResourceType::Nitrogen => "🌬", // Wind/Air
+        ResourceType::Oxygen => "💨",   // Air
+        ResourceType::CarbonDioxide => "🌫", // Gray fog
+        ResourceType::Argon => "🟣",    // Noble gas color
+        
+        // Construction
+        ResourceType::Iron => "🔩",     // Metal part
+        ResourceType::Aluminum => "✈",  // Lightweight
+        ResourceType::Titanium => "🛡", // Shield/Durability
+        ResourceType::Silicates => "🪨", // Rock
+        
+        // Energy
+        ResourceType::Helium3 => "☀",   // Fusion/Star
+        
+        // Fissiles
+        ResourceType::Uranium => "☢",
+        ResourceType::Thorium => "⚡",
+
+        // Precious
+        ResourceType::Gold => "👑",
+        ResourceType::Silver => "🥈",
+        ResourceType::Platinum => "💍",
+
+        // Specialty
+        ResourceType::Copper => "🔌",
+        ResourceType::RareEarths => "📱",
+    }
+}
+
+/// Get color for resource category
+fn get_category_color(category: &str) -> egui::Color32 {
+    match category {
+        "Volatiles" => egui::Color32::from_rgb(100, 200, 255),       // Water Blue
+        "Atmospheric Gases" => egui::Color32::from_rgb(200, 230, 255), // Air White/Blue
+        "Construction" => egui::Color32::from_rgb(205, 127, 50),     // Bronze/Rust propert
+        "Fusion Fuel" => egui::Color32::from_rgb(255, 100, 200),     // Plasma/Energy Pink
+        "Fissiles" => egui::Color32::from_rgb(100, 255, 100),        // Radioactive Green
+        "Precious Metals" => egui::Color32::from_rgb(255, 215, 0),   // Gold
+        "Specialty" => egui::Color32::from_rgb(200, 100, 255),       // Exotic Purple
+        _ => egui::Color32::LIGHT_GRAY,
+    }
+}
+
+/// Resource popup that is currently open (if any)
+#[derive(Resource, Default)]
+struct OpenResourcePopup {
+    /// Which category is open, and where to anchor the popup
+    open: Option<(String, egui::Rect)>,
+}
+
+/// Render the resources bar at the top of the screen (above the menu)
+fn ui_resources_bar(
+    mut contexts: EguiContexts,
+    budget: Res<GlobalBudget>,
+    population_query: Query<&Population>,
+    mut open_popup: Local<OpenResourcePopup>,
+) {
+    let ctx = match contexts.try_ctx_mut() {
+        Some(ctx) => ctx,
+        None => return,
+    };
+
+    // Calculate total population
+    let total_population: f64 = population_query.iter().map(|p| p.count).sum();
+
+    egui::TopBottomPanel::top("resources_bar")
+        .min_height(40.0)
+        .show(ctx, |ui| {
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.add_space(10.0);
+                
+                // Show resource categories
+                for (category_name, resources) in ResourceType::by_category() {
+                    // Calculate total for category
+                    let category_total: f64 =
+                        resources.iter().map(|r| budget.get_stockpile(r)).sum();
+
+                    let icon = get_resource_category_icon(category_name);
+                    let color = get_category_color(category_name);
+                    let text_color = egui::Color32::from_rgb(220, 220, 220);
+
+                    let is_this_open = open_popup.open.as_ref().map_or(false, |(n, _)| n == category_name);
+
+                    // Use a Frame for the category display
+                    let response = egui::Frame::none()
+                        .inner_margin(egui::Margin::symmetric(5.0, 2.0))
+                        .show(ui, |ui| {
+                            ui.horizontal_centered(|ui| {
+                                ui.add(egui::Label::new(egui::RichText::new(icon).size(20.0).color(color)).selectable(false));
+                                ui.add(egui::Label::new(egui::RichText::new(format_mass(category_total)).size(16.0).color(text_color)).selectable(false));
+                            });
+                        }).response;
+
+                    let interact = response.interact(egui::Sense::click());
+
+                    // Hover and open-state border effect
+                    if interact.hovered() || is_this_open {
+                        ui.painter().rect_stroke(interact.rect, 2.0, egui::Stroke::new(1.0, color));
+                        interact.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
+                    }
+
+                    // Toggle popup on click
+                    if interact.clicked() {
+                        if is_this_open {
+                            open_popup.open = None;
+                        } else {
+                            open_popup.open = Some((category_name.to_string(), interact.rect));
+                        }
+                    }
+
+                    ui.add_space(15.0);
+                }
+
+                // Push to the right side
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(10.0);
+
+                    // Kardashev scale calculation (based on total power)
+                    // type I: 10^16 W, Type II: 10^26 W. Scale is logarithmic.
+                    // K = (log10(Power_in_Watts) - 6) / 10 is the Carl Sagan formula.
+                    let produced_watts = budget.energy_grid.produced.max(1.0); // avoid log(0) or negative
+                    let kardashev = (produced_watts.log10() - 6.0) / 10.0;
+                    
+                    ui.add(egui::Label::new(egui::RichText::new(format!(
+                        "Type {:.3}",
+                        kardashev.max(0.0)
+                    )).size(14.0).color(egui::Color32::from_rgb(200, 100, 255))).selectable(false));
+                    
+                    ui.add(egui::Label::new(egui::RichText::new("Kardashev:").size(14.0).color(egui::Color32::LIGHT_GRAY)).selectable(false));
+
+                    ui.separator();
+
+                     // Power grid status
+                     // Color code power: Green if surplus, Red if deficit
+                    let net_power = budget.net_power();
+                    let power_color = if net_power >= 0.0 {
+                        egui::Color32::GREEN
+                    } else {
+                        egui::Color32::RED
+                    };
+
+                    ui.add(egui::Label::new(egui::RichText::new(format!("(Net: {})", format_power(net_power))).size(14.0)).selectable(false));
+                    ui.add(egui::Label::new(
+                        egui::RichText::new(format!("⚡ {}", format_power(budget.energy_grid.produced))).size(14.0).strong().color(power_color)
+                    ).selectable(false));
+                    
+
+                    ui.separator();
+
+                    // Population
+                    // Right-to-left layout: Add Number first, then Icon so it appears as [Icon] [Number]
+                    ui.add(egui::Label::new(egui::RichText::new(format_population(total_population)).size(14.0)).selectable(false));
+                    ui.add(egui::Label::new(egui::RichText::new("👥").size(16.0).color(egui::Color32::WHITE)).selectable(false));
+                });
+            });
+        });
+
+    // Render the resource popup as a floating egui::Window OUTSIDE the panel
+    // so it is not clipped by the TopBottomPanel's bounds.
+    if let Some((ref cat_name, anchor_rect)) = open_popup.open.clone() {
+        // Find the matching category data
+        if let Some((_, resources)) = ResourceType::by_category()
+            .into_iter()
+            .find(|(name, _)| *name == cat_name.as_str())
+        {
+            let icon = get_resource_category_icon(&cat_name);
+            let color = get_category_color(&cat_name);
+
+            let mut still_open = true;
+            let window_response = egui::Window::new(cat_name.as_str())
+                .id(egui::Id::new(format!("res_window_{}", cat_name)))
+                .fixed_pos(egui::pos2(anchor_rect.left(), anchor_rect.bottom() + 2.0))
+                .collapsible(false)
+                .resizable(false)
+                .title_bar(false)
+                .open(&mut still_open)
+                .frame(egui::Frame::popup(ctx.style().as_ref()))
+                .show(ctx, |ui| {
+                    ui.set_min_width(220.0);
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Label::new(egui::RichText::new(icon).size(18.0).color(color)).selectable(false));
+                        ui.add(egui::Label::new(egui::RichText::new(cat_name.as_str()).size(16.0).strong().color(color)).selectable(false));
+                    });
+                    ui.separator();
+
+                    for resource in &resources {
+                        let amount = budget.get_stockpile(resource);
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Label::new(egui::RichText::new(get_resource_icon(resource)).size(16.0)).selectable(false));
+                            ui.add(egui::Label::new(resource.display_name()).selectable(false));
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.add(egui::Label::new(egui::RichText::new(format_mass(amount)).strong()).selectable(false));
+                            });
+                        });
+                    }
+                });
+
+            // Close if clicked outside
+            if let Some(inner_response) = window_response {
+                if ctx.input(|i| i.pointer.any_pressed()) {
+                    if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
+                        if !inner_response.response.rect.contains(pos) && !anchor_rect.contains(pos) {
+                            open_popup.open = None;
+                        }
+                    }
+                }
+            }
+
+            if !still_open {
+                open_popup.open = None;
+            }
+        } else {
+            // Category not found (shouldn't happen), close
+            open_popup.open = None;
+        }
+    }
+}
+
+fn format_population(count: f64) -> String {
+    if count < 1_000.0 {
+        return format!("{:.0}", count);
+    }
+    if count < 1_000_000.0 {
+        return format!("{:.1} k", count / 1_000.0);
+    }
+    if count < 1_000_000_000.0 {
+        return format!("{:.1} M", count / 1_000_000.0);
+    }
+    format!("{:.2} B", count / 1_000_000_000.0)
 }
 
 /// Render the top menu bar with pictograms
@@ -1062,7 +1319,7 @@ fn format_mass(megatons: f64) -> String {
 fn ui_dashboard(
     mut commands: Commands,
     mut contexts: EguiContexts,
-    budget: Res<GlobalBudget>,
+    // budget: Res<GlobalBudget>, // Moved to ui_resources_bar
     mut time_scale: ResMut<TimeScale>,
     sim_time: Res<SimulationTime>,
     mut selection: ResMut<Selection>,
@@ -1078,6 +1335,7 @@ fn ui_dashboard(
         Option<&PlanetResources>,
         Option<&AtmosphereComposition>,
         Option<&mut SurveyLevel>,
+        Option<&Population>,
     )>,
     // Resource query for system totals
     resource_query: Query<(&SystemId, &PlanetResources)>,
@@ -1274,72 +1532,6 @@ fn ui_dashboard(
             }
         });
 
-    // Top header panel with resource categories and power
-    egui::TopBottomPanel::top("header_panel")
-        .min_height(60.0)
-        .show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                // Show resource categories with hover expansion
-                for (category_name, resources) in ResourceType::by_category() {
-                    // Calculate total for category
-                    let category_total: f64 =
-                        resources.iter().map(|r| budget.get_stockpile(r)).sum();
-
-                    let category_label = ui.label(format!(
-                        "{}: {}",
-                        category_name,
-                        format_mass(category_total)
-                    ));
-
-                    // Show detailed breakdown on hover
-                    category_label.on_hover_ui(|ui| {
-                        ui.vertical(|ui| {
-                            ui.label(egui::RichText::new(category_name).strong());
-                            ui.separator();
-                            for resource in &resources {
-                                let amount = budget.get_stockpile(resource);
-                                ui.label(format!(
-                                    "  {} ({}): {}",
-                                    resource.display_name(),
-                                    resource.symbol(),
-                                    format_mass(amount)
-                                ));
-                            }
-                        });
-                    });
-
-                    ui.separator();
-                }
-
-                // Power grid status
-                let net_power = budget.net_power();
-                let power_color = if net_power >= 0.0 {
-                    egui::Color32::GREEN
-                } else {
-                    egui::Color32::RED
-                };
-
-                ui.colored_label(
-                    power_color,
-                    format!("⚡ {}", format_power(budget.energy_grid.produced)),
-                );
-                ui.label(format!("(Net: {})", format_power(net_power)));
-            });
-
-            // Second row with civilization score and efficiency
-            ui.horizontal(|ui| {
-                ui.label(format!(
-                    "Civilization Score: {:.1}",
-                    budget.civilization_score
-                ));
-                ui.separator();
-                ui.label(format!(
-                    "Grid Efficiency: {:.1}%",
-                    budget.power_efficiency() * 100.0
-                ));
-            });
-        });
-
     // Right side panel - show either selected star system or selected body
     let selected_star_system = star_system_query
         .iter()
@@ -1364,7 +1556,7 @@ fn ui_dashboard(
                 ui.separator();
 
                 if let Some(entity) = selection.get() {
-                    if let Ok((body, coords, orbit, resources, atmosphere, mut survey_level)) = body_query.get_mut(entity) {
+                    if let Ok((body, coords, orbit, resources, atmosphere, mut survey_level, population)) = body_query.get_mut(entity) {
                         // Body name and basic info
                         ui.label(egui::RichText::new(&body.name).size(18.0).strong());
                         ui.add_space(10.0);
@@ -1376,6 +1568,11 @@ fn ui_dashboard(
                             ui.label(format!("Distance from Sun: {:.3} AU", distance));
                             ui.label(format!("Radius: {:.1} km", body.radius));
                             ui.label(format!("Mass: {:.2e} kg", body.mass));
+                            if let Some(pop) = population {
+                                if pop.count > 0.0 {
+                                    ui.label(format!("Population: {}", format_population(pop.count)));
+                                }
+                            }
                         });
 
                         ui.add_space(10.0);

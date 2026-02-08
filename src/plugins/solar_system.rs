@@ -7,8 +7,11 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
-use super::solar_system_data::{AsteroidClass, BodyType, SolarSystemData};
+use super::solar_system_data::{
+    calculate_visual_radius, AsteroidClass, BodyType, SolarSystemData, MIN_VISUAL_RADIUS,
+};
 use crate::astronomy::components::{CurrentStarSystem, SystemId};
+use crate::economy::components::Population;
 use crate::astronomy::{
     orbit_position_from_mean_anomaly, KeplerOrbit, LocalOrbitAmplification, OrbitPath,
     SpaceCoordinates, SCALING_FACTOR,
@@ -227,13 +230,7 @@ pub struct AxialTilt {
 #[derive(Component)]
 pub struct RotationSpeed(pub f32);
 
-// Visualization scale factors
-// Increased scale for planets to be easily visible and clickable
-pub const RADIUS_SCALE: f32 = 0.01; // Increased for better visibility
-                                    // Minimum size to ensure small moons are visible and clickable
-const MIN_VISUAL_RADIUS: f32 = 5.0; // Increased from 3.0 for easier clicking
-                                    // Sun needs a separate, smaller scale to not engulf the inner system when planets are oversized
-const STAR_RADIUS_SCALE: f32 = 0.00015; // Slightly increased from 0.0001, kept safe for Mercury orbit
+// Constants moved to solar_system_data.rs
 
 // Time conversion constants
 const SECONDS_PER_DAY: f64 = 86400.0; // Number of seconds in one Earth day
@@ -549,17 +546,8 @@ pub fn setup_solar_system(
 
     // First pass: Create all bodies
     for body_data in &data.bodies {
-        // Determine if this is the star (to add light)
-        let is_star = body_data.body_type == BodyType::Star;
-
         // Calculate visual radius (with minimum for visibility)
-        // Use different scale for stars to avoid them being too huge compared to orbits
-        let scale_factor = if is_star {
-            STAR_RADIUS_SCALE
-        } else {
-            RADIUS_SCALE
-        };
-        let visual_radius = (body_data.radius * scale_factor).max(MIN_VISUAL_RADIUS);
+        let visual_radius = calculate_visual_radius(body_data.body_type, body_data.radius);
 
         // Calculate rotation speed (convert from days to radians per second)
         let rotation_speed = if body_data.rotation_period != 0.0 {
@@ -838,6 +826,15 @@ pub fn setup_solar_system(
             });
         }
 
+        // Initialize population
+        // Earth starts with ~8.2 Billion people. Others empty.
+        let population_count = if body_data.name == "Earth" {
+            8_200_000_000.0
+        } else {
+            0.0
+        };
+        commands.entity(entity).insert(Population { count: population_count });
+
         entity_map.insert(body_data.name.clone(), entity);
     }
 
@@ -872,7 +869,7 @@ pub fn setup_solar_system(
         if body_data.body_type == BodyType::Star {
             if let Some(entity) = entity_map.get(&body_data.name) {
                 // Recalculate radius for visual effects
-                let visual_radius = (body_data.radius * STAR_RADIUS_SCALE).max(MIN_VISUAL_RADIUS);
+                let visual_radius = calculate_visual_radius(body_data.body_type, body_data.radius);
 
                 // Spawn light as a child of the star entity so it follows the star
                 commands.entity(*entity).with_children(|parent| {
@@ -936,9 +933,9 @@ pub fn setup_solar_system(
     // distribution, and works well regardless of how many moons a planet has.
 
     /// Innermost moon orbits at this multiple of parent visual radius
-    const INNER_MOON_MULTIPLIER: f64 = 1.5;
+    const INNER_MOON_MULTIPLIER: f64 = 2.0;
     /// Outermost moon orbits at this multiple of parent visual radius
-    const OUTER_MOON_MULTIPLIER: f64 = 6.0;
+    const OUTER_MOON_MULTIPLIER: f64 = 10.0;
 
     // Per-moon amplification factor: moon_name → amplification
     let mut moon_amplification: HashMap<String, f32> = HashMap::new();
@@ -962,15 +959,7 @@ pub fn setup_solar_system(
                 .bodies
                 .iter()
                 .find(|b| &b.name == parent_name)
-                .map(|b| {
-                    let is_star = b.body_type == BodyType::Star;
-                    let sf = if is_star {
-                        STAR_RADIUS_SCALE
-                    } else {
-                        RADIUS_SCALE
-                    };
-                    (b.radius * sf).max(MIN_VISUAL_RADIUS)
-                })
+                .map(|b| calculate_visual_radius(b.body_type, b.radius))
                 .unwrap_or(MIN_VISUAL_RADIUS) as f64;
 
             let inner_display = parent_visual_radius * INNER_MOON_MULTIPLIER;
