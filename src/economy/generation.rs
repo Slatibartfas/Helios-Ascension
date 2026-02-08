@@ -270,10 +270,10 @@ fn apply_special_body_profile(body_name: &str, body_mass: f64, _rng: &mut impl R
         }
         
         // Europa: Massive subsurface ocean (2-3x Earth's oceans)
-        // Scientific estimate: 2.6-3.2×10¹⁸ metric tons
+        // Scientific estimate: 2.6-3.2×10^18 metric tons
+        // Europa mass: ~4.8×10^22 kg = 4.8×10^13 Mt, 85% water = 4.08×10^13 Mt = ~40 trillion Mt
+        // This equals ~4×10^13 Mt which is ~10^13 times Earth's oceans (realistic!)
         "Europa" => {
-            // Europa mass: ~4.8×10²² kg, 85% water = 4.08×10²² kg = 4.08×10¹³ Mt
-            // This is about 3×10¹⁸ metric tons, which matches scientific estimates
             resources.add_deposit(ResourceType::Water, create_deposit_legacy(0.85, 0.4, body_mass, BodyType::Moon)); 
             resources.add_deposit(ResourceType::Oxygen, create_deposit_legacy(0.05, 0.3, body_mass, BodyType::Moon));
             resources.add_deposit(ResourceType::Silicates, create_deposit_legacy(0.08, 0.2, body_mass, BodyType::Moon));
@@ -283,33 +283,43 @@ fn apply_special_body_profile(body_name: &str, body_mass: f64, _rng: &mut impl R
         }
         
         // Mars: Polar ice caps and subsurface ice
-        // Scientific estimate: 5×10¹⁵ metric tons = 5×10⁶ Mt total accessible ice
-        // Mars mass: 6.4171×10²³ kg
+        // Scientific estimate: 5 million km³ = 5×10^6 km³ × 920 kg/m³ × 10^9 m³/km³
+        //                     = 4.6×10^18 kg = 4.6×10^15 metric tons = 4.6×10^9 Mt
+        // Mars mass: 6.4171×10²³ kg = 6.4171×10^14 Mt
         "Mars" => {
-            // Using absolute mass: 5 million Mt (5×10⁶ Mt) of water ice
-            resources.add_deposit(ResourceType::Water, create_deposit_from_absolute_mass(5.0e6, 0.5, BodyType::Planet));
+            // Water: 5M km³ ice = 4.6×10^9 Mt (4.6 billion Mt)
+            resources.add_deposit(ResourceType::Water, create_deposit_from_absolute_mass(4.6e9, 0.5, BodyType::Planet));
+            
+            // Mars regolith composition (from rover data):
+            // SiO2: 44-46%, FeO: 16-22%, Al2O3: 9-10%
+            // Using crustal abundance approach for realistic extraction
+            resources.add_deposit(ResourceType::Iron, create_deposit_legacy(0.18, 0.7, body_mass, BodyType::Planet)); // ~18% iron oxide
+            resources.add_deposit(ResourceType::Silicates, create_deposit_legacy(0.45, 0.8, body_mass, BodyType::Planet)); // ~45% silicates
+            resources.add_deposit(ResourceType::Aluminum, create_deposit_legacy(0.095, 0.6, body_mass, BodyType::Planet)); // ~9.5% aluminum oxide
             resources.add_deposit(ResourceType::CarbonDioxide, create_deposit_legacy(0.08, 0.7, body_mass, BodyType::Planet)); // CO2 ice caps
-            resources.add_deposit(ResourceType::Iron, create_deposit_legacy(0.25, 0.7, body_mass, BodyType::Planet)); // Oxidized iron
-            resources.add_deposit(ResourceType::Silicates, create_deposit_legacy(0.35, 0.8, body_mass, BodyType::Planet));
-            resources.add_deposit(ResourceType::Aluminum, create_deposit_legacy(0.08, 0.6, body_mass, BodyType::Planet));
-            resources.add_deposit(ResourceType::Nitrogen, create_deposit_legacy(0.02, 0.4, body_mass, BodyType::Planet));
-            info!("Applied Mars special profile: 5 million Mt water ice in polar caps");
+            resources.add_deposit(ResourceType::Nitrogen, create_deposit_legacy(0.02, 0.4, body_mass, BodyType::Planet)); // Thin atmosphere
+            info!("Applied Mars special profile: 4.6 billion Mt water ice, basaltic regolith");
             Some(resources)
         }
         
         // Moon (Earth's): Water ice in permanently shadowed craters
-        // Scientific estimate: 600 million metric tons = 6×10⁸ Mt
-        // Moon mass: 7.342×10²² kg
+        // Scientific estimate: 600 million metric tons = 6×10^8 metric tons = 600 Mt
+        // Moon mass: 7.342×10²² kg = 7.342×10^13 Mt
         "Moon" => {
-            // Using absolute mass: 600 million metric tons (6×10⁸ Mt)
-            resources.add_deposit(ResourceType::Water, create_deposit_from_absolute_mass(6.0e8, 0.3, BodyType::Moon));
-            resources.add_deposit(ResourceType::Oxygen, create_deposit_legacy(0.02, 0.4, body_mass, BodyType::Moon));
-            resources.add_deposit(ResourceType::Silicates, create_deposit_legacy(0.45, 0.8, body_mass, BodyType::Moon));
-            resources.add_deposit(ResourceType::Iron, create_deposit_legacy(0.15, 0.6, body_mass, BodyType::Moon));
-            resources.add_deposit(ResourceType::Aluminum, create_deposit_legacy(0.10, 0.7, body_mass, BodyType::Moon));
-            resources.add_deposit(ResourceType::Titanium, create_deposit_legacy(0.008, 0.5, body_mass, BodyType::Moon));
-            resources.add_deposit(ResourceType::Helium3, create_deposit_legacy(0.00000001, 0.8, body_mass, BodyType::Moon));
-            info!("Applied Moon special profile: 600 million Mt water ice in polar craters");
+            // Water: 600 million metric tons = 600 Mt (NOT 6×10^8 Mt!)
+            resources.add_deposit(ResourceType::Water, create_deposit_from_absolute_mass(600.0, 0.3, BodyType::Moon));
+            
+            // Moon regolith composition (Apollo samples):
+            // Highlands: SiO2 ~45%, Al2O3 ~24%, FeO ~6%, TiO2 ~0.6%
+            // Maria: SiO2 ~45%, Al2O3 ~15%, FeO ~14%, TiO2 ~7.5%
+            // Using average composition
+            resources.add_deposit(ResourceType::Oxygen, create_deposit_legacy(0.43, 0.4, body_mass, BodyType::Moon)); // ~43% oxygen in oxides
+            resources.add_deposit(ResourceType::Silicates, create_deposit_legacy(0.45, 0.8, body_mass, BodyType::Moon)); // ~45% silicates
+            resources.add_deposit(ResourceType::Iron, create_deposit_legacy(0.10, 0.6, body_mass, BodyType::Moon)); // ~10% iron (average)
+            resources.add_deposit(ResourceType::Aluminum, create_deposit_legacy(0.08, 0.7, body_mass, BodyType::Moon)); // ~8% aluminum
+            resources.add_deposit(ResourceType::Titanium, create_deposit_legacy(0.04, 0.5, body_mass, BodyType::Moon)); // ~4% titanium (generous)
+            resources.add_deposit(ResourceType::Helium3, create_deposit_legacy(0.00000001, 0.8, body_mass, BodyType::Moon)); // Solar wind implanted
+            info!("Applied Moon special profile: 600 Mt water ice in polar craters");
             Some(resources)
         }
         
@@ -1188,8 +1198,8 @@ mod tests {
     fn test_mars_realistic_water() {
         let mut rng = rand::thread_rng();
         
-        // Mars mass: 6.4171×10²³ kg
-        // Scientific estimate: 5×10¹⁵ metric tons = 5×10⁶ Mt of water ice
+        // Mars mass: 6.4171×10²³ kg = 6.4171×10^14 Mt
+        // Scientific estimate: 5M km³ × 920 kg/m³ × 10^9 m³/km³ = 4.6×10^18 kg = 4.6×10^9 Mt
         let mars_mass = 6.4171e23;
         let mars_resources = generate_resources_for_body(
             "Mars",
@@ -1209,14 +1219,13 @@ mod tests {
                                + deposit.reserve.deep_deposits 
                                + deposit.reserve.planetary_bulk;
             
-            // Should be around 5 million Mt (5×10⁶), allow some variance
-            // But definitely not Exatons (which would be 1e12+ Mt)
-            assert!(total_water_mt > 1e5, "Mars should have at least 100,000 Mt of water");
-            assert!(total_water_mt < 1e9, "Mars should NOT have Exatons (> 1 billion Mt) of water");
+            // Should be around 4.6 billion Mt (4.6×10^9 Mt), allow some variance
+            assert!(total_water_mt > 1e9, "Mars should have at least 1 billion Mt of water");
+            assert!(total_water_mt < 1e11, "Mars should NOT have excessive water (> 100 billion Mt)");
             
-            // More specific: should be in the millions of Mt range
-            assert!(total_water_mt > 1e6 && total_water_mt < 5e7, 
-                "Mars water should be in the millions of Mt range (scientific: 5×10⁶ Mt), found: {:.2e} Mt", 
+            // More specific: should be in the billions of Mt range
+            assert!(total_water_mt > 1e9 && total_water_mt < 1e10, 
+                "Mars water should be in billions of Mt range (scientific: 4.6×10^9 Mt), found: {:.2e} Mt", 
                 total_water_mt);
         }
     }
@@ -1225,8 +1234,8 @@ mod tests {
     fn test_moon_realistic_water() {
         let mut rng = rand::thread_rng();
         
-        // Moon mass: 7.342×10²² kg
-        // Scientific estimate: 600 million metric tons = 6×10⁸ Mt in polar craters
+        // Moon mass: 7.342×10²² kg = 7.342×10^13 Mt
+        // Scientific estimate: 600 million metric tons = 6×10^8 metric tons = 600 Mt (NOT 6×10^8 Mt!)
         let moon_mass = 7.342e22;
         let moon_resources = generate_resources_for_body(
             "Moon",
@@ -1246,13 +1255,13 @@ mod tests {
                                + deposit.reserve.deep_deposits 
                                + deposit.reserve.planetary_bulk;
             
-            // Should be around 600 million Mt (6×10⁸), allow some variance
-            assert!(total_water_mt > 1e7, "Moon should have at least 10 million Mt of water");
-            assert!(total_water_mt < 1e11, "Moon should NOT have excessive water (> 100 billion Mt)");
+            // Should be around 600 Mt, allow some variance
+            assert!(total_water_mt > 100.0, "Moon should have at least 100 Mt of water");
+            assert!(total_water_mt < 10000.0, "Moon should NOT have excessive water (> 10,000 Mt)");
             
-            // More specific: should be in the hundreds of millions Mt range
-            assert!(total_water_mt > 1e8 && total_water_mt < 1e10, 
-                "Moon water should be in hundreds of millions Mt range (scientific: 6×10⁸ Mt), found: {:.2e} Mt", 
+            // More specific: should be in the hundreds of Mt range
+            assert!(total_water_mt > 200.0 && total_water_mt < 2000.0, 
+                "Moon water should be in hundreds of Mt range (scientific: 600 Mt), found: {:.2e} Mt", 
                 total_water_mt);
         }
     }
@@ -1322,5 +1331,172 @@ mod tests {
         assert_eq!(water_abundance, 0.0, 
             "M-type asteroids should have negligible water (anhydrous), found: {:.3}%", 
             water_abundance * 100.0);
+    }
+
+    #[test]
+    fn test_procedural_generation_realistic_all_resources() {
+        let mut rng = rand::thread_rng();
+        
+        // Test an Earth-like planet (inner system, rocky)
+        // Earth mass: 5.972×10^24 kg
+        let earth_mass = 5.972e24;
+        let resources = generate_resources_for_body(
+            "TestEarthLike",
+            crate::plugins::solar_system_data::BodyType::Planet,
+            earth_mass,
+            None,
+            1.0, // 1 AU
+            2.5, // Sun-like frost line
+            &mut rng
+        );
+        
+        // Verify construction materials are present and realistic for inner planet
+        let iron = resources.get_abundance(&ResourceType::Iron);
+        let silicates = resources.get_abundance(&ResourceType::Silicates);
+        let aluminum = resources.get_abundance(&ResourceType::Aluminum);
+        
+        if iron > 0.0 {
+            assert!(iron >= 0.15 && iron <= 0.35, 
+                "Inner planet iron should be 15-35% (realistic crustal abundance), found: {:.1}%", 
+                iron * 100.0);
+        }
+        
+        if silicates > 0.0 {
+            assert!(silicates >= 0.25 && silicates <= 0.45, 
+                "Inner planet silicates should be 25-45% (major crustal component), found: {:.1}%", 
+                silicates * 100.0);
+        }
+        
+        if aluminum > 0.0 {
+            assert!(aluminum >= 0.05 && aluminum <= 0.12, 
+                "Inner planet aluminum should be 5-12% (realistic crustal abundance), found: {:.1}%", 
+                aluminum * 100.0);
+        }
+        
+        // Volatiles should be very low or absent in inner system
+        let water = resources.get_abundance(&ResourceType::Water);
+        if water > 0.0 {
+            assert!(water < 0.02, 
+                "Inner planet water should be <2% (very low volatiles), found: {:.2}%", 
+                water * 100.0);
+        }
+    }
+
+    #[test]
+    fn test_procedural_outer_system_volatiles() {
+        let mut rng = rand::thread_rng();
+        
+        // Test an outer system body (beyond frost line)
+        let test_mass = 1.0e21; // Small icy body
+        let resources = generate_resources_for_body(
+            "TestIcyBody",
+            crate::plugins::solar_system_data::BodyType::Moon,
+            test_mass,
+            None,
+            10.0, // 10 AU (well beyond frost line)
+            2.5,  // Sun-like frost line
+            &mut rng
+        );
+        
+        // Outer system bodies should have high volatiles
+        let water = resources.get_abundance(&ResourceType::Water);
+        if water > 0.0 {
+            assert!(water >= 0.3 && water <= 0.7, 
+                "Outer system body should have 30-70% water ice, found: {:.1}%", 
+                water * 100.0);
+        }
+        
+        // Construction materials should be low
+        let iron = resources.get_abundance(&ResourceType::Iron);
+        if iron > 0.0 {
+            assert!(iron < 0.2, 
+                "Outer system body should have <20% iron, found: {:.1}%", 
+                iron * 100.0);
+        }
+    }
+
+    #[test]
+    fn test_tier_calculations_realistic() {
+        let mut rng = rand::thread_rng();
+        
+        // Test that tier calculations (proven/deep/bulk) are realistic
+        // Earth mass for reference
+        let earth_mass = 5.972e24;
+        let resources = generate_resources_for_body(
+            "TestTierCalc",
+            crate::plugins::solar_system_data::BodyType::Planet,
+            earth_mass,
+            None,
+            1.0,
+            2.5,
+            &mut rng
+        );
+        
+        // Check iron deposits if present
+        if let Some(iron_deposit) = resources.get_deposit(&ResourceType::Iron) {
+            let proven = iron_deposit.reserve.proven_crustal;
+            let deep = iron_deposit.reserve.deep_deposits;
+            let bulk = iron_deposit.reserve.planetary_bulk;
+            let total = proven + deep + bulk;
+            
+            // For planets, proven should be tiny fraction of total (crustal accessibility)
+            if total > 0.0 {
+                let proven_fraction = proven / total;
+                let deep_fraction = deep / total;
+                
+                // Proven should be << 1% for planets (Earth's proven iron ~200 Gt out of millions of Gt total)
+                assert!(proven_fraction < 0.01, 
+                    "Planetary proven reserves should be <1% of total (realistic crustal access), found: {:.4}%", 
+                    proven_fraction * 100.0);
+                
+                // Deep should be larger than proven but still small
+                assert!(deep_fraction > proven_fraction, 
+                    "Deep reserves should be larger than proven");
+                assert!(deep_fraction < 0.1, 
+                    "Deep reserves should still be <10% of total for planets");
+                
+                // Bulk should be the vast majority
+                let bulk_fraction = bulk / total;
+                assert!(bulk_fraction > 0.89, 
+                    "Bulk reserves should be >89% of total for planets (most inaccessible), found: {:.1}%", 
+                    bulk_fraction * 100.0);
+            }
+        }
+    }
+
+    #[test]
+    fn test_asteroid_tier_calculations() {
+        let mut rng = rand::thread_rng();
+        
+        // Asteroids should have much higher proven/deep fractions (fully accessible)
+        let asteroid_mass = 1.0e15; // ~1 km asteroid
+        let resources = generate_resources_for_body(
+            "TestAsteroidTier",
+            crate::plugins::solar_system_data::BodyType::Asteroid,
+            asteroid_mass,
+            Some(AsteroidClass::MType), // Metallic asteroid
+            2.8,
+            2.5,
+            &mut rng
+        );
+        
+        if let Some(iron_deposit) = resources.get_deposit(&ResourceType::Iron) {
+            let proven = iron_deposit.reserve.proven_crustal;
+            let deep = iron_deposit.reserve.deep_deposits;
+            let bulk = iron_deposit.reserve.planetary_bulk;
+            let total = proven + deep + bulk;
+            
+            if total > 0.0 {
+                let proven_fraction = proven / total;
+                
+                // Asteroids should have much higher proven fraction (30-70%)
+                assert!(proven_fraction > 0.25, 
+                    "Asteroid proven reserves should be >25% of total (fully accessible), found: {:.1}%", 
+                    proven_fraction * 100.0);
+                assert!(proven_fraction < 0.75, 
+                    "Asteroid proven reserves should be <75% of total, found: {:.1}%", 
+                    proven_fraction * 100.0);
+            }
+        }
     }
 }
