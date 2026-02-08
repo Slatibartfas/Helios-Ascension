@@ -1055,9 +1055,11 @@ mod tests {
             &mut rng
         );
 
-        // C-Type should have high volatiles
+        // C-Type should have 4-7% water (scientifically validated)
         let water = resources.get_abundance(&ResourceType::Water);
-        assert!(water > 0.10, "C-Type should have >10% water");
+        assert!(water >= 0.04 && water <= 0.08, 
+            "C-Type should have 4-7% water (scientific range), found: {:.1}%", 
+            water * 100.0);
     }
 
     #[test]
@@ -1140,5 +1142,185 @@ mod tests {
         let methane = resources.get_abundance(&ResourceType::Methane);
         assert!(water > 0.20, "D-Type should have >20% water");
         assert!(methane > 0.05, "D-Type should have >5% methane");
+    }
+
+    #[test]
+    fn test_gas_giants_no_solid_ice() {
+        let mut rng = rand::thread_rng();
+        
+        // Test Jupiter - should NOT have water deposits (only atmospheric hydrogen/helium)
+        let jupiter_mass = 1.8982e27; // kg
+        let jupiter_resources = generate_resources_for_body(
+            "Jupiter",
+            crate::plugins::solar_system_data::BodyType::Planet,
+            jupiter_mass,
+            None,
+            5.2,
+            2.5,
+            &mut rng
+        );
+        
+        // Jupiter should have hydrogen but NO water (gas giant, not ice giant)
+        let jupiter_water = jupiter_resources.get_abundance(&ResourceType::Water);
+        let jupiter_hydrogen = jupiter_resources.get_abundance(&ResourceType::Hydrogen);
+        assert_eq!(jupiter_water, 0.0, "Jupiter should have NO solid water deposits (gas giant)");
+        assert!(jupiter_hydrogen > 0.5, "Jupiter should have hydrogen (>50% of atmosphere)");
+        
+        // Test Saturn
+        let saturn_mass = 5.6834e26; // kg
+        let saturn_resources = generate_resources_for_body(
+            "Saturn",
+            crate::plugins::solar_system_data::BodyType::Planet,
+            saturn_mass,
+            None,
+            9.5,
+            2.5,
+            &mut rng
+        );
+        
+        let saturn_water = saturn_resources.get_abundance(&ResourceType::Water);
+        let saturn_hydrogen = saturn_resources.get_abundance(&ResourceType::Hydrogen);
+        assert_eq!(saturn_water, 0.0, "Saturn should have NO solid water deposits (gas giant)");
+        assert!(saturn_hydrogen > 0.5, "Saturn should have hydrogen");
+    }
+
+    #[test]
+    fn test_mars_realistic_water() {
+        let mut rng = rand::thread_rng();
+        
+        // Mars mass: 6.4171×10²³ kg
+        // Scientific estimate: 5×10¹⁵ metric tons = 5×10⁶ Mt of water ice
+        let mars_mass = 6.4171e23;
+        let mars_resources = generate_resources_for_body(
+            "Mars",
+            crate::plugins::solar_system_data::BodyType::Planet,
+            mars_mass,
+            None,
+            1.52,
+            2.5,
+            &mut rng
+        );
+        
+        let water_deposits = mars_resources.get_deposit(&ResourceType::Water);
+        assert!(water_deposits.is_some(), "Mars should have water deposits");
+        
+        if let Some(deposit) = water_deposits {
+            let total_water_mt = deposit.reserve.proven_crustal 
+                               + deposit.reserve.deep_deposits 
+                               + deposit.reserve.planetary_bulk;
+            
+            // Should be around 5 million Mt (5×10⁶), allow some variance
+            // But definitely not Exatons (which would be 1e12+ Mt)
+            assert!(total_water_mt > 1e5, "Mars should have at least 100,000 Mt of water");
+            assert!(total_water_mt < 1e9, "Mars should NOT have Exatons (> 1 billion Mt) of water");
+            
+            // More specific: should be in the millions of Mt range
+            assert!(total_water_mt > 1e6 && total_water_mt < 5e7, 
+                "Mars water should be in the millions of Mt range (scientific: 5×10⁶ Mt), found: {:.2e} Mt", 
+                total_water_mt);
+        }
+    }
+
+    #[test]
+    fn test_moon_realistic_water() {
+        let mut rng = rand::thread_rng();
+        
+        // Moon mass: 7.342×10²² kg
+        // Scientific estimate: 600 million metric tons = 6×10⁸ Mt in polar craters
+        let moon_mass = 7.342e22;
+        let moon_resources = generate_resources_for_body(
+            "Moon",
+            crate::plugins::solar_system_data::BodyType::Moon,
+            moon_mass,
+            None,
+            1.0,
+            2.5,
+            &mut rng
+        );
+        
+        let water_deposits = moon_resources.get_deposit(&ResourceType::Water);
+        assert!(water_deposits.is_some(), "Moon should have water deposits in polar craters");
+        
+        if let Some(deposit) = water_deposits {
+            let total_water_mt = deposit.reserve.proven_crustal 
+                               + deposit.reserve.deep_deposits 
+                               + deposit.reserve.planetary_bulk;
+            
+            // Should be around 600 million Mt (6×10⁸), allow some variance
+            assert!(total_water_mt > 1e7, "Moon should have at least 10 million Mt of water");
+            assert!(total_water_mt < 1e11, "Moon should NOT have excessive water (> 100 billion Mt)");
+            
+            // More specific: should be in the hundreds of millions Mt range
+            assert!(total_water_mt > 1e8 && total_water_mt < 1e10, 
+                "Moon water should be in hundreds of millions Mt range (scientific: 6×10⁸ Mt), found: {:.2e} Mt", 
+                total_water_mt);
+        }
+    }
+
+    #[test]
+    fn test_c_type_asteroid_water_realistic() {
+        let mut rng = rand::thread_rng();
+        
+        // C-type asteroids should have 4-7% water by weight (scientifically validated)
+        let resources = generate_resources_for_body(
+            "TestCTypeAsteroid",
+            crate::plugins::solar_system_data::BodyType::Asteroid,
+            TEST_BODY_MASS,
+            Some(AsteroidClass::CType),
+            2.8,
+            2.5,
+            &mut rng
+        );
+        
+        let water_abundance = resources.get_abundance(&ResourceType::Water);
+        assert!(water_abundance >= 0.04 && water_abundance <= 0.08, 
+            "C-type asteroids should have 4-7% water by weight (scientific range), found: {:.1}%", 
+            water_abundance * 100.0);
+    }
+
+    #[test]
+    fn test_s_type_asteroid_low_water() {
+        let mut rng = rand::thread_rng();
+        
+        // S-type asteroids should have <1% water (mostly as hydroxyl in minerals)
+        let resources = generate_resources_for_body(
+            "TestSTypeAsteroid",
+            crate::plugins::solar_system_data::BodyType::Asteroid,
+            TEST_BODY_MASS,
+            Some(AsteroidClass::SType),
+            2.8,
+            2.5,
+            &mut rng
+        );
+        
+        let water_abundance = resources.get_abundance(&ResourceType::Water);
+        // Should be less than 1%, likely in the 0.2-0.7% range
+        if water_abundance > 0.0 {
+            assert!(water_abundance < 0.01, 
+                "S-type asteroids should have <1% water (scientific), found: {:.2}%", 
+                water_abundance * 100.0);
+        }
+    }
+
+    #[test]
+    fn test_m_type_asteroid_negligible_water() {
+        let mut rng = rand::thread_rng();
+        
+        // M-type asteroids should have negligible/no water (anhydrous metallic cores)
+        let resources = generate_resources_for_body(
+            "TestMTypeAsteroid",
+            crate::plugins::solar_system_data::BodyType::Asteroid,
+            TEST_BODY_MASS,
+            Some(AsteroidClass::MType),
+            2.8,
+            2.5,
+            &mut rng
+        );
+        
+        let water_abundance = resources.get_abundance(&ResourceType::Water);
+        // M-types are anhydrous - should have essentially no water
+        assert_eq!(water_abundance, 0.0, 
+            "M-type asteroids should have negligible water (anhydrous), found: {:.3}%", 
+            water_abundance * 100.0);
     }
 }
