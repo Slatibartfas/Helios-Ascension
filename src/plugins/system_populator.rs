@@ -7,16 +7,21 @@
 //! 4. Applying resource generation with metallicity bonuses
 
 use bevy::prelude::*;
+use bevy::math::DVec3;
 use rand::prelude::*;
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 
 use crate::astronomy::{
     calculate_frost_line, map_star_to_system_architecture, KeplerOrbit, OrbitPath,
     ProceduralPlanet, SpaceCoordinates, SystemArchitecture,
 };
 use crate::astronomy::components::{SystemId, CurrentStarSystem};
-use crate::astronomy::nearby_stars::{NearbyStarsData, StarData};
+use crate::astronomy::nearby_stars::{NearbyStarsData, StarData, PlanetData};
+use crate::astronomy::exoplanets::RealPlanet;
 use crate::economy::components::{OrbitsBody, PlanetResources, SpectralClass, StarSystem};
 use crate::economy::generation::generate_solar_system_resources;
+use crate::game_state::GameSeed;
 use crate::plugins::solar_system::{
     Asteroid, CelestialBody, Comet, DwarfPlanet, Moon, Planet, Star,
 };
@@ -31,21 +36,21 @@ impl Plugin for SystemPopulatorPlugin {
 }
 
 /// Main system that populates nearby star systems with procedural bodies
-/// This runs after the initial solar system is set up
+/// This runs after the initial solar system is set up and uses the GameSeed
+/// for deterministic generation
 fn populate_nearby_systems(
     mut commands: Commands,
     stars_data: Res<NearbyStarsData>,
+    game_seed: Res<GameSeed>,
     current_system: Res<CurrentStarSystem>,
-    // Query existing stars to find ones that need population
-    star_query: Query<(Entity, &Star, &CelestialBody, &SpaceCoordinates, Option<&StarSystem>), Without<Planet>>,
 ) {
-    let mut rng = rand::thread_rng();
+    // Use game seed for deterministic generation
+    let mut rng = StdRng::seed_from_u64(game_seed.value);
     
-    info!("Starting procedural population of nearby star systems");
+    info!("Starting procedural population of nearby star systems with seed {}", game_seed.value);
     
-    // For now, we'll just log which systems are available for population
-    // In a full implementation, this would iterate through nearby_stars_data
-    // and spawn procedurally generated systems
+    // Start at system ID 1 (Sol is 0)
+    let mut system_id = 1;
     
     for system_data in &stars_data.systems {
         // Skip if this is the Sol system (already populated)
@@ -54,36 +59,130 @@ fn populate_nearby_systems(
         }
         
         info!(
-            "System '{}' at {:.2} ly has {} stars",
+            "Populating system '{}' at {:.2} ly with {} stars",
             system_data.system_name,
             system_data.distance_ly,
             system_data.stars.len()
         );
         
-        // TODO: In a full implementation, we would:
-        // 1. Spawn star entities for this system
-        // 2. Spawn confirmed planets from the data
-        // 3. Generate procedural planets to fill gaps
-        // 4. Spawn asteroid belts and cometary clouds
-        // 5. Apply resource generation with metallicity bonuses
+        // For simplicity, generate systems in a line along the X-axis in "galactic coordinates"
+        // Each light year = 63,241 AU, place systems at their actual distances
+        let distance_au = (system_data.distance_ly as f64) * 63241.0;
+        
+        // Spawn the primary star (first star in the list)
+        if let Some(primary_star) = system_data.stars.first() {
+            let star_position = DVec3::new(distance_au, 0.0, 0.0);
+            
+            // Generate a random metallicity for variety (-0.5 to +0.5)
+            let metallicity = rng.gen_range(-0.5..0.5);
+            
+            let star_entity = spawn_star_entity_with_metallicity(
+                &mut commands,
+                primary_star,
+                system_id,
+                star_position,
+                metallicity,
+            );
+            
+            // Get the star's frost line and metallicity multiplier
+            let frost_line = calculate_frost_line(primary_star.luminosity_sol as f64);
+            let star_system = StarSystem::with_metallicity(
+                frost_line,
+                spectral_type_to_class(&primary_star.spectral_type),
+                metallicity,
+            );
+            let metallicity_mult = star_system.metallicity_multiplier();
+            
+            // Spawn confirmed planets first
+            let mut existing_orbits = Vec::new();
+            for planet_data in &primary_star.planets {
+                spawn_confirmed_planet(
+                    &mut commands,
+                    planet_data,
+                    star_entity,
+                    system_id,
+                );
+                existing_orbits.push(planet_data.semi_major_axis_au as f64);
+            }
+            
+            // Generate procedural architecture to fill gaps
+            let architecture = map_star_to_system_architecture(
+                &system_data.system_name,
+                primary_star.luminosity_sol as f64,
+                primary_star.planets.len(),
+                &existing_orbits,
+                &mut rng,
+            );
+            
+            info!(
+                "  Generated {} rocky planets, {} gas giants for '{}'",
+                architecture.rocky_planets.len(),
+                architecture.gas_giants.len(),
+                system_data.system_name
+            );
+            
+            // Spawn procedural planets
+            for planet in &architecture.rocky_planets {
+                spawn_procedural_planet(
+                    &mut commands,
+                    planet,
+                    star_entity,
+                    system_id,
+                    metallicity_mult,
+                );
+            }
+            
+            for planet in &architecture.gas_giants {
+                spawn_procedural_planet(
+                    &mut commands,
+                    planet,
+                    star_entity,
+                    system_id,
+                    metallicity_mult,
+                );
+            }
+            
+            // Spawn asteroid belt if present
+            if let Some(belt) = &architecture.asteroid_belt {
+                spawn_asteroid_belt(
+                    &mut commands,
+                    belt,
+                    star_entity,
+                    system_id,
+                    &system_data.system_name,
+                );
+            }
+            
+            // Spawn cometary cloud if present
+            if let Some(cloud) = &architecture.cometary_cloud {
+                spawn_cometary_cloud(
+                    &mut commands,
+                    cloud,
+                    star_entity,
+                    system_id,
+                    &system_data.system_name,
+                );
+            }
+        }
+        
+        system_id += 1;
     }
+    
+    info!("Completed procedural population of {} star systems", system_id - 1);
 }
 
-/// Spawn a star entity with its system properties
-pub fn spawn_star_entity(
+/// Spawn a star entity with its system properties and custom metallicity
+pub fn spawn_star_entity_with_metallicity(
     commands: &mut Commands,
     star_data: &StarData,
     system_id: usize,
     position: DVec3,
+    metallicity: f32,
 ) -> Entity {
     let spectral_class = spectral_type_to_class(&star_data.spectral_type);
     
     // Calculate frost line from luminosity
     let frost_line_au = calculate_frost_line(star_data.luminosity_sol as f64);
-    
-    // TODO: Get real metallicity from star catalog data
-    // For now, use a default or random value
-    let metallicity = 0.0; // Solar metallicity default
     
     let star_system = StarSystem::with_metallicity(
         frost_line_au,
@@ -116,6 +215,70 @@ pub fn spawn_star_entity(
             SpaceCoordinates::new(position),
             SystemId(system_id),
             star_system,
+        ))
+        .id();
+    
+    entity
+}
+
+/// Spawn a confirmed planet from real exoplanet data
+pub fn spawn_confirmed_planet(
+    commands: &mut Commands,
+    planet_data: &PlanetData,
+    parent_star: Entity,
+    system_id: usize,
+) -> Entity {
+    // Calculate orbital parameters
+    let period_seconds = (planet_data.period_days as f64) * 86400.0;
+    let mean_motion = std::f64::consts::TAU / period_seconds;
+    
+    let orbit = KeplerOrbit::new(
+        planet_data.eccentricity as f64,
+        planet_data.semi_major_axis_au as f64,
+        0.0, // Inclination not provided, assume coplanar
+        0.0, // Random longitude of ascending node
+        0.0, // Random argument of periapsis
+        0.0, // Random mean anomaly
+        mean_motion,
+    );
+    
+    // Estimate radius and mass
+    let radius_earth = planet_data.radius_earth.unwrap_or(1.0);
+    let mass_earth = planet_data.mass_earth;
+    
+    // Convert to SI units
+    const EARTH_MASS_KG: f64 = 5.972e24;
+    const EARTH_RADIUS_KM: f32 = 6371.0;
+    let mass_kg = (mass_earth as f64) * EARTH_MASS_KG;
+    let radius_km = radius_earth * EARTH_RADIUS_KM;
+    
+    info!(
+        "Spawning confirmed planet '{}': a={:.2}AU, M={:.1}M⊕, type={}",
+        planet_data.name,
+        planet_data.semi_major_axis_au,
+        planet_data.mass_earth,
+        planet_data.planet_type
+    );
+    
+    let entity = commands
+        .spawn((
+            Planet,
+            RealPlanet, // Mark as confirmed planet
+            CelestialBody {
+                name: planet_data.name.clone(),
+                mass: mass_kg,
+                radius: radius_km,
+                body_type: BodyType::Planet,
+                albedo: 0.3,
+                rotation_period: 24.0, // Default rotation
+                initial_angle: 0.0,
+                asteroid_class: None,
+            },
+            orbit,
+            OrbitPath::new(Color::srgba(0.3, 0.8, 0.3, 0.5)), // Green for confirmed planets
+            SpaceCoordinates::default(),
+            OrbitsBody::new(parent_star),
+            SystemId(system_id),
         ))
         .id();
     
