@@ -16,7 +16,7 @@ use crate::astronomy::{
     calculate_frost_line, map_star_to_system_architecture, KeplerOrbit, OrbitPath,
     ProceduralPlanet, SpaceCoordinates, SystemArchitecture,
 };
-use crate::astronomy::components::{SystemId, CurrentStarSystem};
+use crate::astronomy::components::{SystemId, CurrentStarSystem, OrbitCenter};
 use crate::astronomy::nearby_stars::{NearbyStarsData, StarData, PlanetData};
 use crate::astronomy::exoplanets::RealPlanet;
 use crate::economy::components::{OrbitsBody, PlanetResources, SpectralClass, StarSystem};
@@ -31,7 +31,7 @@ pub struct SystemPopulatorPlugin;
 
 impl Plugin for SystemPopulatorPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, populate_nearby_systems.after(generate_solar_system_resources));
+        app.add_systems(Startup, populate_nearby_systems.before(generate_solar_system_resources));
     }
 }
 
@@ -158,6 +158,7 @@ fn populate_nearby_systems(
                     star_entity,
                     system_id,
                     &system_data.system_name,
+                    seed.value(),
                 );
             }
             
@@ -169,6 +170,7 @@ fn populate_nearby_systems(
                     star_entity,
                     system_id,
                     &system_data.system_name,
+                    seed.value(),
                 );
             }
         }
@@ -215,9 +217,7 @@ pub fn spawn_star_entity_with_metallicity(
                 mass: (star_data.mass_sol * 1.989e30) as f64, // Convert to kg
                 radius: star_data.radius_sol * 695700.0, // Convert to km
                 body_type: BodyType::Star,
-                albedo: 0.0,
-                rotation_period: 25.0, // Default stellar rotation
-                initial_angle: 0.0,
+                visual_radius: star_data.radius_sol * 695700.0,
                 asteroid_class: None,
             },
             SpaceCoordinates::new(position),
@@ -277,14 +277,13 @@ pub fn spawn_confirmed_planet(
                 mass: mass_kg,
                 radius: radius_km,
                 body_type: BodyType::Planet,
-                albedo: 0.3,
-                rotation_period: 24.0, // Default rotation
-                initial_angle: 0.0,
+                visual_radius: radius_km,
                 asteroid_class: None,
             },
             orbit,
             OrbitPath::new(Color::srgba(0.3, 0.8, 0.3, 0.5)), // Green for confirmed planets
-            SpaceCoordinates::default(),
+            SpaceCoordinates::default(), // Will be updated by propagate_orbits
+            OrbitCenter(parent_star), // Link to parent star for orbital hierarchy
             OrbitsBody::new(parent_star),
             SystemId(system_id),
         ))
@@ -322,14 +321,13 @@ pub fn spawn_procedural_planet(
                 mass: mass_kg,
                 radius: radius_km,
                 body_type: planet.body_type(),
-                albedo: 0.3,
-                rotation_period: 24.0, // Default rotation
-                initial_angle: 0.0,
+                visual_radius: radius_km,
                 asteroid_class: None,
             },
             orbit,
             OrbitPath::new(Color::srgba(0.5, 0.7, 1.0, 0.4)),
-            SpaceCoordinates::default(),
+            SpaceCoordinates::default(), // Will be updated by propagate_orbits
+            OrbitCenter(parent_star), // Link to parent star for orbital hierarchy
             OrbitsBody::new(parent_star),
             SystemId(system_id),
         ))
@@ -348,8 +346,16 @@ pub fn spawn_asteroid_belt(
     parent_star: Entity,
     system_id: usize,
     star_name: &str,
+    game_seed: u64,
 ) {
-    let mut rng = rand::thread_rng();
+    // Deterministic RNG seeded from system_id and belt properties to ensure reproducible generation
+    let seed = game_seed
+        .wrapping_mul(system_id as u64)
+        .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        ^ (belt.count as u64)
+        ^ belt.inner_au.to_bits()
+        ^ belt.outer_au.to_bits();
+    let mut rng = StdRng::seed_from_u64(seed);
     
     info!(
         "Spawning asteroid belt: {:.2}-{:.2} AU, {} asteroids",
@@ -398,14 +404,13 @@ pub fn spawn_asteroid_belt(
                 mass,
                 radius,
                 body_type: BodyType::Asteroid,
-                albedo: 0.15,
-                rotation_period: rng.gen_range(2.0..24.0),
-                initial_angle: 0.0,
+                visual_radius: radius,
                 asteroid_class: Some(asteroid_class),
             },
             orbit,
             OrbitPath::new(Color::srgba(0.6, 0.6, 0.5, 0.2)),
-            SpaceCoordinates::default(),
+            SpaceCoordinates::default(), // Will be updated by propagate_orbits
+            OrbitCenter(parent_star), // Link to parent star for orbital hierarchy
             OrbitsBody::new(parent_star),
             SystemId(system_id),
         ));
@@ -419,8 +424,16 @@ pub fn spawn_cometary_cloud(
     parent_star: Entity,
     system_id: usize,
     star_name: &str,
+    game_seed: u64,
 ) {
-    let mut rng = rand::thread_rng();
+    // Deterministic RNG seeded from system_id and cloud properties to ensure reproducible generation
+    let seed = game_seed
+        .wrapping_mul(system_id as u64)
+        .wrapping_mul(0x517C_C1B7_2722_0A95)
+        ^ (cloud.count as u64)
+        ^ cloud.inner_au.to_bits()
+        ^ cloud.outer_au.to_bits();
+    let mut rng = StdRng::seed_from_u64(seed);
     
     info!(
         "Spawning cometary cloud: {:.2}-{:.2} AU, {} comets",
@@ -460,14 +473,13 @@ pub fn spawn_cometary_cloud(
                 mass,
                 radius,
                 body_type: BodyType::Comet,
-                albedo: 0.04,
-                rotation_period: rng.gen_range(6.0..72.0),
-                initial_angle: 0.0,
+                visual_radius: radius,
                 asteroid_class: Some(AsteroidClass::P), // P-type (volatile-rich)
             },
             orbit,
             OrbitPath::new(Color::srgba(0.4, 0.6, 0.8, 0.3)),
-            SpaceCoordinates::default(),
+            SpaceCoordinates::default(), // Will be updated by propagate_orbits
+            OrbitCenter(parent_star), // Link to parent star for orbital hierarchy
             OrbitsBody::new(parent_star),
             SystemId(system_id),
         ));

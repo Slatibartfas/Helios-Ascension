@@ -14,7 +14,7 @@ When you start a new game, the system:
 1. Generates a `GameSeed` from the current system time (or a specified value)
 2. Loads nearby star data from `assets/data/nearest_stars_raw.json`
 3. For each star system (except Sol, which is pre-defined):
-   - Spawns the star with random metallicity (-0.5 to +0.5 [Fe/H])
+   - Spawns the star with real metallicity data when available (40+ stars), or random fallback (-0.5 to +0.5 [Fe/H])
    - Spawns any confirmed exoplanets from the data
    - Generates procedural planets to fill gaps (targeting 5 planets per system)
    - Spawns asteroid belts (80% chance)

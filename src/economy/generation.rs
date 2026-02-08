@@ -153,13 +153,16 @@ fn generate_resources_for_body(
     resources
 }
 
-/// Apply metallicity bonus to rare metals and fissile materials
-/// Stars with higher metallicity ([Fe/H] > 0) have more heavy elements in their protoplanetary disk
-/// This affects the abundance of rare metals and fissiles by +20% per +0.1 [Fe/H]
+/// Apply metallicity bonus to rare metals and fissile materials.
+/// Stars with higher metallicity ([Fe/H] > 0) have more heavy elements in their protoplanetary disk.
+/// This affects the abundance of rare metals and fissiles according to the provided
+/// `metallicity_multiplier` (currently derived in `StarSystem::metallicity_multiplier()` as
+/// `1.0 + metallicity * 0.6`, with clamping applied there, resulting in approximately
+/// +6% per +0.1 [Fe/H]).
 /// 
 /// # Arguments
 /// * `resources` - Mutable reference to PlanetResources to modify
-/// * `metallicity_multiplier` - Multiplier from star's metallicity_multiplier() method
+/// * `metallicity_multiplier` - Precomputed multiplier from the star's `metallicity_multiplier()` method
 fn apply_metallicity_bonus(resources: &mut PlanetResources, metallicity_multiplier: f32) {
     // Only apply to rare metals and fissile materials
     let affected_resources = [

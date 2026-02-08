@@ -164,10 +164,13 @@ pub fn map_star_to_system_architecture(
     // Generate planets if needed
     if planets_needed > 0 {
         // Determine distribution: inner vs outer
-        // Inner system: 2-4 rocky planets
+        // Inner system: 2-4 rocky planets (when adding 2+ planets)
         // Outer system: 1-3 gas/ice giants
         
-        let inner_count = rng.gen_range(2..=4.min(planets_needed));
+        let inner_count = match planets_needed {
+            1 => rng.gen_range(0..=1),
+            _ => rng.gen_range(2..=4.min(planets_needed)),
+        };
         let outer_count = (planets_needed - inner_count).min(3);
         
         // Generate inner system rocky planets
@@ -224,9 +227,15 @@ fn generate_rocky_planets(
 ) -> Vec<ProceduralPlanet> {
     let mut planets = Vec::new();
     
-    // Inner system range: 0.3 AU to frost line
-    let inner_min = 0.3;
+    // Inner system range: scaled with frost line to avoid invalid ranges for dim stars
+    // For very dim stars (frost_line < 0.32 AU), scale down the minimum
+    let inner_min = 0.3_f64.min(frost_line_au * 0.5);
     let inner_max = frost_line_au * 0.95; // Stay just inside frost line
+    
+    // If frost line is too close, we can't fit rocky planets
+    if inner_max <= inner_min {
+        return planets;
+    }
     
     for i in 0..count {
         // Space planets roughly evenly, with some randomness
@@ -237,6 +246,27 @@ fn generate_rocky_planets(
         // Avoid collisions with existing planets (need at least 0.1 AU separation)
         while is_too_close_to_existing(semi_major_axis, existing_orbits_au, 0.1) {
             semi_major_axis += rng.gen_range(0.05..0.15);
+        }
+        
+        // Ensure rocky planets remain inside the inner system (just inside the frost line)
+        if semi_major_axis > inner_max {
+            semi_major_axis = inner_max;
+        }
+        
+        // After clamping, re-check separation. If we're now too close to an existing orbit,
+        // nudge the planet slightly inward while staying within the inner system bounds.
+        let mut safeguard_iterations = 0;
+        while is_too_close_to_existing(semi_major_axis, existing_orbits_au, 0.1)
+            && safeguard_iterations < 8
+        {
+            let delta = rng.gen_range(0.05..0.15);
+            if semi_major_axis - delta < inner_min {
+                semi_major_axis = inner_min;
+                break;
+            } else {
+                semi_major_axis -= delta;
+            }
+            safeguard_iterations += 1;
         }
         
         // Calculate orbital period using Kepler's third law
