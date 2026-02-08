@@ -1472,9 +1472,9 @@ fn render_star_system_panel(
 
                 for (sys_id, resources) in resource_query.iter() {
                     if sys_id.0 == star_icon.id {
-                        for deposit in &resources.deposits {
-                            let total = deposit.reserve.total();
-                            *total_resources.entry(deposit.resource_type).or_insert(0.0) += total;
+                        for (resource_type, deposit) in &resources.deposits {
+                            let total = deposit.total_megatons();
+                            *total_resources.entry(*resource_type).or_insert(0.0) += total;
                         }
                     }
                 }

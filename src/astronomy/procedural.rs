@@ -8,8 +8,8 @@ use bevy::prelude::*;
 use rand::prelude::*;
 use std::f64::consts::PI;
 
-use super::components::{KeplerOrbit, SpaceCoordinates};
-use crate::plugins::solar_system_data::{AsteroidClass, BodyType};
+use super::components::KeplerOrbit;
+use crate::plugins::solar_system_data::BodyType;
 
 /// System architecture parameters for a star system
 /// Defines the structure of rocky planets, gas giants, belts, and clouds
