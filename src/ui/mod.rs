@@ -416,17 +416,25 @@ impl Plugin for UIPlugin {
             .init_resource::<ActiveMenu>()
             // Load menu icons at startup
             .add_systems(Startup, load_menu_icons)
-            // UI rendering systems - resource and menu bars
-            .add_systems(Update, (ui_resources_bar, ui_top_menu_bar))
-            // UI rendering systems - main dashboard
-            .add_systems(Update, ui_dashboard)
-            // UI rendering systems - tooltips and labels
+            // UI rendering systems
+            // Ordered sequence to ensure correct layout stacking:
+            // 1. Top bars (Resources -> Menu)
+            // 2. Main content panels (Dashboard / Research)
+            // 3. Floating overlays (Tooltips)
             .add_systems(
                 Update,
-                (ui_hover_tooltip, ui_starmap_hover_tooltip, ui_starmap_labels),
+                (
+                    ui_resources_bar,
+                    ui_top_menu_bar,
+                    (ui_dashboard, ui_research_panels),
+                    (
+                        ui_hover_tooltip,
+                        ui_starmap_hover_tooltip,
+                        ui_starmap_labels,
+                    ),
+                )
+                    .chain(),
             )
-            // UI research panels (separate system to avoid parameter limit)
-            .add_systems(Update, ui_research_panels)
             // UI utility systems
             .add_systems(
                 Update,
@@ -1642,6 +1650,10 @@ fn ui_dashboard(
         Some(ctx) => ctx,
         None => return,
     };
+
+    if active_menu.current == GameMenu::Research {
+        return;
+    }
 
     // Ledger Panel (Left)
     egui::SidePanel::left("ledger_panel")
