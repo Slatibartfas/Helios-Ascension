@@ -2512,7 +2512,208 @@ fn ui_research_panels(
         ui.heading("Technology Tree");
         ui.separator();
         
-        ui.label("Select a category from the left panel to view technologies.");
+        egui::ScrollArea::vertical()
+            .id_source("tech_tree_scroll")
+            .show(ui, |ui| {
+                for category in TechCategory::all() {
+                    let category_techs = tech_data.get_by_category(*category);
+                    if category_techs.is_empty() {
+                        continue;
+                    }
+
+                    ui.group(|ui| {
+                        ui.heading(format!(
+                            "{} {}",
+                            category.icon(),
+                            category.display_name()
+                        ));
+                        ui.separator();
+
+                        // Organize by tier
+                        let mut techs_by_tier: std::collections::HashMap<u32, Vec<_>> =
+                            std::collections::HashMap::new();
+                        for tech in &category_techs {
+                            techs_by_tier.entry(tech.tier).or_default().push(*tech);
+                        }
+
+                        let mut tiers: Vec<_> = techs_by_tier.keys().copied().collect();
+                        tiers.sort();
+
+                        for tier in tiers {
+                            if let Some(techs) = techs_by_tier.get(&tier) {
+                                ui.label(
+                                    egui::RichText::new(format!("Tier {}", tier))
+                                        .strong()
+                                        .color(egui::Color32::from_rgb(150, 150, 255)),
+                                );
+
+                                for tech in techs {
+                                    let is_unlocked = research_state.is_unlocked(&tech.id);
+                                    let can_research = tech_data.check_prerequisites(
+                                        &tech.id,
+                                        &research_state
+                                            .unlocked_technologies
+                                            .iter()
+                                            .cloned()
+                                            .collect::<Vec<_>>(),
+                                    );
+
+                                    // Tech name with status icon
+                                    let name_color = if is_unlocked {
+                                        egui::Color32::from_rgb(100, 255, 100) // Green
+                                    } else if can_research {
+                                        egui::Color32::from_rgb(255, 255, 100) // Yellow
+                                    } else {
+                                        egui::Color32::from_rgb(150, 150, 150) // Gray
+                                    };
+
+                                    let status_icon = if is_unlocked {
+                                        "✔"
+                                    } else if can_research {
+                                        "⏳"
+                                    } else {
+                                        "🔒"
+                                    };
+
+                                    // Main technology row
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            egui::RichText::new(status_icon)
+                                                .color(name_color),
+                                        );
+                                        ui.label(
+                                            egui::RichText::new(&tech.name)
+                                                .color(name_color)
+                                                .strong(),
+                                        );
+                                        if tech.research_cost > 0.0 && !is_unlocked {
+                                            ui.label(
+                                                egui::RichText::new(format!("({:.0} RP)", tech.research_cost))
+                                                    .size(11.0)
+                                                    .color(egui::Color32::from_rgb(180, 180, 200)),
+                                            );
+                                        }
+                                    });
+
+                                    // Technology description
+                                    ui.horizontal(|ui| {
+                                        ui.add_space(20.0);
+                                        ui.label(
+                                            egui::RichText::new(&tech.description)
+                                                .size(11.0)
+                                                .color(egui::Color32::from_rgb(180, 180, 180)),
+                                        );
+                                    });
+
+                                    // Show prerequisites with tree structure
+                                    if !tech.prerequisites.is_empty() {
+                                        ui.horizontal(|ui| {
+                                            ui.add_space(20.0);
+                                            ui.label(
+                                                egui::RichText::new("Requires:")
+                                                    .size(10.0)
+                                                    .italics()
+                                                    .color(egui::Color32::from_rgb(150, 150, 150)),
+                                            );
+                                        });
+                                        
+                                        for prereq in &tech.prerequisites {
+                                            let prereq_unlocked = research_state.is_unlocked(prereq);
+                                            let prereq_color = if prereq_unlocked {
+                                                egui::Color32::from_rgb(100, 255, 100)
+                                            } else {
+                                                egui::Color32::from_rgb(255, 100, 100)
+                                            };
+                                            
+                                            // Show prerequisite with tree connector
+                                            ui.horizontal(|ui| {
+                                                ui.add_space(30.0);
+                                                ui.label(
+                                                    egui::RichText::new("└─")
+                                                        .color(egui::Color32::from_rgb(100, 100, 100)),
+                                                );
+                                                
+                                                // Find and display prerequisite name
+                                                if let Some(prereq_tech) = tech_data.get_tech(prereq) {
+                                                    ui.label(
+                                                        egui::RichText::new(&prereq_tech.name)
+                                                            .size(10.0)
+                                                            .color(prereq_color),
+                                                    );
+                                                } else {
+                                                    ui.label(
+                                                        egui::RichText::new(prereq)
+                                                            .size(10.0)
+                                                            .color(prereq_color),
+                                                    );
+                                                }
+                                            });
+                                        }
+                                    }
+
+                                    // Show unlocked components (engineering projects)
+                                    if !tech.unlocks_components.is_empty() {
+                                        ui.horizontal(|ui| {
+                                            ui.add_space(20.0);
+                                            ui.label(
+                                                egui::RichText::new("Unlocks Components:")
+                                                    .size(10.0)
+                                                    .italics()
+                                                    .color(egui::Color32::from_rgb(150, 200, 150)),
+                                            );
+                                        });
+                                        
+                                        for component_id in &tech.unlocks_components {
+                                            let component_completed = research_state.is_component_completed(component_id);
+                                            let component_color = if component_completed {
+                                                egui::Color32::from_rgb(100, 255, 100)
+                                            } else if is_unlocked {
+                                                egui::Color32::from_rgb(200, 200, 100)
+                                            } else {
+                                                egui::Color32::from_rgb(120, 120, 120)
+                                            };
+                                            
+                                            ui.horizontal(|ui| {
+                                                ui.add_space(30.0);
+                                                ui.label(
+                                                    egui::RichText::new("⚙")
+                                                        .color(component_color),
+                                                );
+                                                
+                                                // Find and display component name and cost
+                                                if let Some(component) = tech_data.get_component(component_id) {
+                                                    ui.label(
+                                                        egui::RichText::new(&component.name)
+                                                            .size(10.0)
+                                                            .color(component_color),
+                                                    );
+                                                    if !component_completed {
+                                                        ui.label(
+                                                            egui::RichText::new(format!("({:.0} EP)", component.engineering_cost))
+                                                                .size(9.0)
+                                                                .color(egui::Color32::from_rgb(150, 150, 180)),
+                                                        );
+                                                    }
+                                                } else {
+                                                    ui.label(
+                                                        egui::RichText::new(component_id)
+                                                            .size(10.0)
+                                                            .color(component_color),
+                                                    );
+                                                }
+                                            });
+                                        }
+                                    }
+
+                                    ui.add_space(12.0);
+                                }
+                            }
+                        }
+                    });
+
+                    ui.add_space(15.0);
+                }
+            });
     });
 }
 
