@@ -422,6 +422,8 @@ impl Plugin for UIPlugin {
                 Update,
                 (ui_hover_tooltip, ui_starmap_hover_tooltip, ui_starmap_labels),
             )
+            // UI research panels (separate system to avoid parameter limit)
+            .add_systems(Update, ui_research_panels)
             // UI utility systems
             .add_systems(
                 Update,
@@ -1607,9 +1609,6 @@ fn ui_dashboard(
     current_system: Res<CurrentStarSystem>,
     nearby_stars: Res<NearbyStarsData>,
     active_menu: Res<ActiveMenu>,
-    // Research resources (optional if not yet initialized)
-    research_state: Option<Res<ResearchState>>,
-    tech_data: Option<Res<TechnologiesData>>,
     // Query for selected body information
     mut body_query: Query<(
         &CelestialBody,
@@ -1788,125 +1787,8 @@ fn ui_dashboard(
                             ui.label("Construction facilities and projects will be shown here.");
                         }
                         GameMenu::Research => {
-                            // Research menu: show tech tree organized by category
-                            ui.heading("Research");
-                            ui.separator();
-
-                            // Check if research system is loaded
-                            let (Some(research_state), Some(tech_data)) = (research_state.as_ref(), tech_data.as_ref()) else {
-                                ui.label("Research system loading...");
-                                return;
-                            };
-
-                            // Display research and engineering points
-                            ui.group(|ui| {
-                                ui.label(egui::RichText::new("Resources").strong());
-                                ui.label(format!(
-                                    "Research Points: {:.0}",
-                                    research_state.research_points_available
-                                ));
-                                ui.label(format!(
-                                    "Engineering Points: {:.0}",
-                                    research_state.engineering_points_available
-                                ));
-                                ui.add_space(5.0);
-                                
-                                // Show modifiers
-                                let research_mult = research_state.research_speed_multiplier();
-                                if research_mult != 1.0 {
-                                    ui.label(format!(
-                                        "Research Speed: {:.0}%",
-                                        research_mult * 100.0
-                                    ));
-                                }
-                                let eng_mult = research_state.engineering_speed_multiplier();
-                                if eng_mult != 1.0 {
-                                    ui.label(format!(
-                                        "Engineering Speed: {:.0}%",
-                                        eng_mult * 100.0
-                                    ));
-                                }
-                            });
-
-                            ui.add_space(10.0);
-
-                            // Summary stats
-                            ui.group(|ui| {
-                                ui.label(egui::RichText::new("Progress").strong());
-                                let total_techs = tech_data.technologies.len();
-                                let unlocked_techs = research_state.unlocked_technologies.len();
-                                let total_components = tech_data.components.len();
-                                let completed_components = research_state.completed_components.len();
-                                
-                                ui.label(format!(
-                                    "Technologies: {}/{} ({:.0}%)",
-                                    unlocked_techs,
-                                    total_techs,
-                                    if total_techs > 0 {
-                                        (unlocked_techs as f32 / total_techs as f32) * 100.0
-                                    } else {
-                                        0.0
-                                    }
-                                ));
-                                ui.label(format!(
-                                    "Components: {}/{} ({:.0}%)",
-                                    completed_components,
-                                    total_components,
-                                    if total_components > 0 {
-                                        (completed_components as f32 / total_components as f32) * 100.0
-                                    } else {
-                                        0.0
-                                    }
-                                ));
-                            });
-
-                            ui.add_space(10.0);
-
-                            // Category selection and tech list
-                            ui.label(egui::RichText::new("Technology Categories").strong());
-                            ui.separator();
-                            
-                            egui::ScrollArea::vertical()
-                                .id_source("research_category_scroll")
-                                .show(ui, |ui| {
-                                    for category in TechCategory::all() {
-                                        let category_techs = tech_data.get_by_category(*category);
-                                        if category_techs.is_empty() {
-                                            continue;
-                                        }
-
-                                        // Count unlocked vs total in category
-                                        let unlocked_count = category_techs
-                                            .iter()
-                                            .filter(|t| research_state.is_unlocked(&t.id))
-                                            .count();
-                                        let total_count = category_techs.len();
-
-                                        let header_text = format!(
-                                            "{} {} ({}/{})",
-                                            category.icon(),
-                                            category.display_name(),
-                                            unlocked_count,
-                                            total_count
-                                        );
-
-                                        ui.collapsing(header_text, |ui| {
-                                            // Show category progress bar
-                                            let progress = if total_count > 0 {
-                                                unlocked_count as f32 / total_count as f32
-                                            } else {
-                                                0.0
-                                            };
-                                            
-                                            ui.add(egui::ProgressBar::new(progress).text(format!(
-                                                "{:.0}%",
-                                                progress * 100.0
-                                            )));
-                                            
-                                            ui.add_space(5.0);
-                                        });
-                                    }
-                                });
+                            ui.label("Research UI requires loading...");
+                            ui.label("Switch to Research view to see tech tree.");
                         }
                         GameMenu::Fleets => {
                             ui.label("Fleet management and deployment will be shown here.");
@@ -1933,153 +1815,6 @@ fn ui_dashboard(
                 }
             }
         });
-
-    // Center panel for Research mode - show detailed tech tree
-    if active_menu.current == GameMenu::Research {
-        if let (Some(research_state), Some(tech_data)) = (research_state.as_ref(), tech_data.as_ref()) {
-            egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Technology Tree");
-            ui.separator();
-            
-            egui::ScrollArea::vertical()
-                .id_source("tech_tree_scroll")
-                .show(ui, |ui| {
-                    for category in TechCategory::all() {
-                        let category_techs = tech_data.get_by_category(*category);
-                        if category_techs.is_empty() {
-                            continue;
-                        }
-
-                        ui.group(|ui| {
-                            ui.heading(format!(
-                                "{} {}",
-                                category.icon(),
-                                category.display_name()
-                            ));
-                            ui.separator();
-
-                            // Organize by tier
-                            let mut techs_by_tier: std::collections::HashMap<u32, Vec<_>> =
-                                std::collections::HashMap::new();
-                            for tech in &category_techs {
-                                techs_by_tier.entry(tech.tier).or_default().push(*tech);
-                            }
-
-                            let mut tiers: Vec<_> = techs_by_tier.keys().copied().collect();
-                            tiers.sort();
-
-                            for tier in tiers {
-                                if let Some(techs) = techs_by_tier.get(&tier) {
-                                    ui.label(
-                                        egui::RichText::new(format!("Tier {}", tier))
-                                            .strong()
-                                            .color(egui::Color32::from_rgb(150, 150, 255)),
-                                    );
-
-                                    for tech in techs {
-                                        let is_unlocked = research_state.is_unlocked(&tech.id);
-                                        let can_research = tech_data.check_prerequisites(
-                                            &tech.id,
-                                            &research_state
-                                                .unlocked_technologies
-                                                .iter()
-                                                .cloned()
-                                                .collect::<Vec<_>>(),
-                                        );
-
-                                        // Tech name with status
-                                        let name_color = if is_unlocked {
-                                            egui::Color32::from_rgb(100, 255, 100) // Green
-                                        } else if can_research {
-                                            egui::Color32::from_rgb(255, 255, 100) // Yellow
-                                        } else {
-                                            egui::Color32::from_rgb(150, 150, 150) // Gray
-                                        };
-
-                                        let status_icon = if is_unlocked {
-                                            "✔"
-                                        } else if can_research {
-                                            "⏳"
-                                        } else {
-                                            "🔒"
-                                        };
-
-                                        ui.horizontal(|ui| {
-                                            ui.label(
-                                                egui::RichText::new(status_icon)
-                                                    .color(name_color),
-                                            );
-                                            if ui
-                                                .selectable_label(
-                                                    false,
-                                                    egui::RichText::new(&tech.name)
-                                                        .color(name_color),
-                                                )
-                                                .clicked()
-                                            {
-                                                // Could expand to show tech details
-                                            }
-                                        });
-
-                                        // Show description and cost on hover
-                                        if ui
-                                            .add(
-                                                egui::Label::new(
-                                                    egui::RichText::new(&tech.description)
-                                                        .size(11.0)
-                                                        .color(egui::Color32::from_rgb(
-                                                            180, 180, 180,
-                                                        )),
-                                                )
-                                                .wrap(),
-                                            )
-                                            .on_hover_text(format!(
-                                                "Research Cost: {:.0}",
-                                                tech.research_cost
-                                            ))
-                                            .clicked()
-                                        {
-                                            // Placeholder for future start research action
-                                        }
-
-                                        // Show prerequisites if not met
-                                        if !tech.prerequisites.is_empty() && !is_unlocked {
-                                            ui.horizontal(|ui| {
-                                                ui.label(
-                                                    egui::RichText::new("Requires:")
-                                                        .size(10.0)
-                                                        .italics()
-                                                        .color(egui::Color32::from_rgb(150, 150, 150)),
-                                                );
-                                                for prereq in &tech.prerequisites {
-                                                    let prereq_unlocked =
-                                                        research_state.is_unlocked(prereq);
-                                                    let prereq_color = if prereq_unlocked {
-                                                        egui::Color32::from_rgb(100, 255, 100)
-                                                    } else {
-                                                        egui::Color32::from_rgb(255, 100, 100)
-                                                    };
-                                                    ui.label(
-                                                        egui::RichText::new(prereq)
-                                                            .size(10.0)
-                                                            .color(prereq_color),
-                                                    );
-                                                }
-                                            });
-                                        }
-
-                                        ui.add_space(8.0);
-                                    }
-                                }
-                            }
-                        });
-
-                        ui.add_space(15.0);
-                    }
-                });
-            });
-        }
-    }
 
     // Right side panel - show either selected star system or selected body
     let selected_star_system = star_system_query
@@ -2667,6 +2402,118 @@ fn render_star_system_panel(
                 ui.label("Coming soon: Population management");
             });
         });
+}
+
+/// System to render research panels and tech tree
+/// Separated from ui_dashboard to avoid parameter count limit
+fn ui_research_panels(
+    mut contexts: EguiContexts,
+    active_menu: Res<ActiveMenu>,
+    research_state: Res<ResearchState>,
+    tech_data: Res<TechnologiesData>,
+) {
+    if active_menu.current != GameMenu::Research {
+        return;
+    }
+
+    let ctx = match contexts.try_ctx_mut() {
+        Some(ctx) => ctx,
+        None => return,
+    };
+
+    // Left panel - Research summary and categories
+    egui::SidePanel::left("research_panel")
+        .min_width(250.0)
+        .max_width(350.0)
+        .show(ctx, |ui| {
+            ui.heading("Research");
+            ui.separator();
+
+            // Display research and engineering points
+            ui.group(|ui| {
+                ui.label(egui::RichText::new("Resources").strong());
+                ui.label(format!(
+                    "Research Points: {:.0}",
+                    research_state.research_points_available
+                ));
+                ui.label(format!(
+                    "Engineering Points: {:.0}",
+                    research_state.engineering_points_available
+                ));
+            });
+
+            ui.add_space(10.0);
+
+            // Summary stats
+            ui.group(|ui| {
+                ui.label(egui::RichText::new("Progress").strong());
+                let total_techs = tech_data.technologies.len();
+                let unlocked_techs = research_state.unlocked_technologies.len();
+                
+                ui.label(format!(
+                    "Technologies: {}/{} ({:.0}%)",
+                    unlocked_techs,
+                    total_techs,
+                    if total_techs > 0 {
+                        (unlocked_techs as f32 / total_techs as f32) * 100.0
+                    } else {
+                        0.0
+                    }
+                ));
+            });
+
+            ui.add_space(10.0);
+
+            // Category list
+            ui.label(egui::RichText::new("Technology Categories").strong());
+            ui.separator();
+            
+            egui::ScrollArea::vertical()
+                .id_source("research_category_scroll")
+                .show(ui, |ui| {
+                    for category in TechCategory::all() {
+                        let category_techs = tech_data.get_by_category(*category);
+                        if category_techs.is_empty() {
+                            continue;
+                        }
+
+                        let unlocked_count = category_techs
+                            .iter()
+                            .filter(|t| research_state.is_unlocked(&t.id))
+                            .count();
+                        let total_count = category_techs.len();
+
+                        let header_text = format!(
+                            "{} {} ({}/{})",
+                            category.icon(),
+                            category.display_name(),
+                            unlocked_count,
+                            total_count
+                        );
+
+                        ui.collapsing(header_text, |ui| {
+                            let progress = if total_count > 0 {
+                                unlocked_count as f32 / total_count as f32
+                            } else {
+                                0.0
+                            };
+                            
+                            ui.add(egui::ProgressBar::new(progress).text(format!(
+                                "{:.0}%",
+                                progress * 100.0
+                            )));
+                        });
+                    }
+                });
+        });
+
+    // Center panel - Detailed tech tree
+    egui::CentralPanel::default().show(ctx, |ui| {
+        ui.heading("Technology Tree");
+        ui.separator();
+        
+        ui.label("Select a category from the left panel to view technologies.");
+    });
 }
 
 #[cfg(test)]
