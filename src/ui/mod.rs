@@ -2426,6 +2426,8 @@ fn ui_research_panels(
     active_menu: Res<ActiveMenu>,
     research_state: Res<ResearchState>,
     tech_data: Res<TechnologiesData>,
+    mut debug_settings: ResMut<crate::research::ResearchDebugSettings>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
     // Query for active research projects
     research_projects: Query<(&ResearchProject, &ResearchTeam)>,
     // Query for active engineering projects
@@ -2437,6 +2439,11 @@ fn ui_research_panels(
 ) {
     if active_menu.current != GameMenu::Research {
         return;
+    }
+    
+    // Toggle debug mode with F12
+    if keyboard_input.just_pressed(KeyCode::F12) {
+        debug_settings.enabled = !debug_settings.enabled;
     }
 
     let ctx = match contexts.try_ctx_mut() {
@@ -2532,6 +2539,35 @@ fn ui_research_panels(
 
     // Center panel - Tabbed interface
     egui::CentralPanel::default().show(ctx, |ui| {
+        // Debug mode panel (if enabled)
+        if debug_settings.enabled {
+            ui.group(|ui| {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("🐛 DEBUG MODE").strong().color(egui::Color32::RED));
+                    ui.label(egui::RichText::new("(Press F12 to toggle)").italics().small());
+                });
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut debug_settings.show_all_techs, "Show All Technologies (ignore prerequisites)");
+                    ui.checkbox(&mut debug_settings.instant_research, "Instant Research");
+                    ui.checkbox(&mut debug_settings.instant_engineering, "Instant Engineering");
+                });
+                ui.label(egui::RichText::new("⚠ Debug features are for development only and will be removed in release builds")
+                    .small()
+                    .italics()
+                    .color(egui::Color32::YELLOW));
+            });
+            ui.add_space(5.0);
+        } else {
+            // Show subtle hint about debug mode
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Press F12 to toggle debug mode")
+                    .small()
+                    .italics()
+                    .color(egui::Color32::GRAY));
+            });
+        }
+        
         // Tab bar
         ui.horizontal(|ui| {
             ui.selectable_value(&mut *selected_tab, 0, "📊 Overview");
@@ -2697,12 +2733,13 @@ fn render_tech_tree_tab(
     tech_data: &TechnologiesData,
 ) {
     ui.heading("Technology Tree - Graph View");
-    ui.label("Pan: Middle mouse drag | Zoom: Mouse wheel");
+    ui.label("Pan: Middle/Right mouse drag | Zoom: Mouse wheel | Click: Select tech & highlight path");
     ui.separator();
     
-    // Local state for pan and zoom (using unique ID for persistence)
+    // Local state for pan, zoom, and selected tech (using unique ID for persistence)
     let pan_id = ui.id().with("tech_tree_pan");
     let zoom_id = ui.id().with("tech_tree_zoom");
+    let selected_id = ui.id().with("tech_tree_selected");
     
     let mut pan_offset: egui::Vec2 = ui.data_mut(|data| {
         data.get_persisted(pan_id)
@@ -2711,6 +2748,10 @@ fn render_tech_tree_tab(
     
     let mut zoom: f32 = ui.data_mut(|data| {
         data.get_persisted(zoom_id).unwrap_or(1.0)
+    });
+    
+    let mut selected_tech: Option<String> = ui.data_mut(|data| {
+        data.get_persisted(selected_id)
     });
     
     // Handle mouse input for pan and zoom
@@ -2785,23 +2826,48 @@ fn render_tech_tree_tab(
         }
     }
     
+    // Build prerequisite path set for highlighting
+    let mut path_techs = std::collections::HashSet::new();
+    if let Some(ref selected_id) = selected_tech {
+        // Recursively add all prerequisites
+        let mut to_process = vec![selected_id.clone()];
+        path_techs.insert(selected_id.clone());
+        
+        while let Some(current_id) = to_process.pop() {
+            if let Some(tech) = tech_data.technologies.get(&current_id) {
+                for prereq_id in &tech.prerequisites {
+                    if path_techs.insert(prereq_id.clone()) {
+                        to_process.push(prereq_id.clone());
+                    }
+                }
+            }
+        }
+    }
+    
     // Draw connection lines first (so they appear behind nodes)
     for (_, tech) in &tech_data.technologies {
         if let Some(tech_pos) = node_positions.get(&tech.id) {
             for prereq_id in &tech.prerequisites {
                 if let Some(prereq_pos) = node_positions.get(prereq_id) {
+                    // Highlight path if selected
+                    let is_in_path = path_techs.contains(&tech.id) && path_techs.contains(prereq_id);
+                    
                     // Check if prerequisite is unlocked to determine line color
                     let is_prereq_unlocked = research_state.is_unlocked(prereq_id);
-                    let line_color = if is_prereq_unlocked {
+                    let line_color = if is_in_path {
+                        egui::Color32::from_rgba_premultiplied(255, 200, 0, 255) // Bright yellow/orange for path
+                    } else if is_prereq_unlocked {
                         egui::Color32::from_rgba_premultiplied(100, 255, 100, 100) // Green with transparency
                     } else {
                         egui::Color32::from_rgba_premultiplied(150, 150, 150, 80) // Gray with transparency
                     };
                     
+                    let stroke_width = if is_in_path { 3.0 * zoom } else { 1.5 * zoom };
+                    
                     // Draw line from prereq to tech
                     painter.line_segment(
                         [*prereq_pos, *tech_pos],
-                        egui::Stroke::new(1.5 * zoom, line_color),
+                        egui::Stroke::new(stroke_width, line_color),
                     );
                 }
             }
@@ -2815,8 +2881,20 @@ fn render_tech_tree_tab(
             let unlocked_ids: Vec<_> = research_state.unlocked_technologies.iter().cloned().collect();
             let can_research = !is_unlocked && tech_data.check_prerequisites(&tech.id, &unlocked_ids);
             
+            // Determine if this tech is in the path
+            let is_in_path = path_techs.contains(&tech.id);
+            
             // Determine node color based on status
-            let node_color = if is_unlocked {
+            let node_color = if is_in_path {
+                // Highlighted path color
+                if is_unlocked {
+                    egui::Color32::from_rgb(100, 255, 100) // Brighter green
+                } else if can_research {
+                    egui::Color32::from_rgb(255, 220, 100) // Brighter yellow
+                } else {
+                    egui::Color32::from_rgb(180, 180, 180) // Lighter gray
+                }
+            } else if is_unlocked {
                 egui::Color32::from_rgb(50, 200, 50) // Green
             } else if can_research {
                 egui::Color32::from_rgb(255, 200, 50) // Yellow
@@ -2843,28 +2921,61 @@ fn render_tech_tree_tab(
                 crate::research::types::TechCategory::Industry => egui::Color32::from_rgb(180, 180, 50),
             };
             
-            let node_size = egui::Vec2::new(30.0 * zoom, 30.0 * zoom);
+            // Calculate text size to make node fit the label
+            let text_size = 11.0 * zoom;
+            let galley = painter.layout_no_wrap(
+                tech.name.clone(),
+                egui::FontId::proportional(text_size),
+                egui::Color32::WHITE,
+            );
+            
+            let text_width = galley.size().x;
+            let text_height = galley.size().y;
+            let padding = egui::Vec2::new(10.0 * zoom, 8.0 * zoom);
+            let node_size = egui::Vec2::new(
+                text_width + padding.x * 2.0,
+                text_height + padding.y * 2.0,
+            ).max(egui::Vec2::new(80.0 * zoom, 30.0 * zoom));
+            
             let node_rect = egui::Rect::from_center_size(*pos, node_size);
             
             // Draw node background
-            painter.rect_filled(node_rect, 3.0 * zoom, node_color);
+            painter.rect_filled(node_rect, 5.0 * zoom, node_color);
             
             // Draw category-colored border
             painter.rect_stroke(
                 node_rect,
-                3.0 * zoom,
-                egui::Stroke::new(2.0 * zoom, category_color),
+                5.0 * zoom,
+                egui::Stroke::new(2.5 * zoom, category_color),
             );
             
-            // Show tooltip on hover
-            let node_response = ui.interact(
-                node_rect,
-                ui.id().with(&tech.id),
-                egui::Sense::hover(),
+            // Draw text label
+            let text_color = if is_unlocked || can_research {
+                egui::Color32::BLACK
+            } else {
+                egui::Color32::from_rgb(200, 200, 200)
+            };
+            
+            painter.text(
+                node_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                &tech.name,
+                egui::FontId::proportional(text_size),
+                text_color,
             );
             
+            // Handle click to select/deselect technology
+            if node_response.clicked() {
+                if selected_tech.as_ref() == Some(&tech.id) {
+                    selected_tech = None; // Deselect if already selected
+                } else {
+                    selected_tech = Some(tech.id.clone()); // Select this tech
+                }
+            }
+            
+            // Show tooltip on hover with detailed info + start research button
             node_response.on_hover_ui(|ui| {
-                    ui.set_max_width(300.0);
+                    ui.set_max_width(350.0);
                     ui.label(egui::RichText::new(&tech.name).strong().size(14.0));
                     ui.label(format!("{} {}", tech.category.icon(), tech.category.display_name()));
                     ui.separator();
@@ -2891,7 +3002,11 @@ fn render_tech_tree_tab(
                     if !tech.unlocks_components.is_empty() {
                         ui.add_space(5.0);
                         ui.label(egui::RichText::new("Unlocks Components:").strong());
-                        ui.label(format!("  {} component(s)", tech.unlocks_components.len()));
+                        for comp_id in &tech.unlocks_components {
+                            if let Some(comp) = tech_data.get_component(comp_id) {
+                                ui.label(format!("  ⚙ {} ({:.0} EP)", comp.name, comp.engineering_cost));
+                            }
+                        }
                     }
                     
                     if !tech.modifiers.is_empty() {
@@ -2901,11 +3016,30 @@ fn render_tech_tree_tab(
                             ui.label(format!("  • {:?}: {:+.0}%", modifier.modifier_type, modifier.value));
                         }
                     }
+                    
+                    // Show start research button if available
+                    if can_research {
+                        ui.add_space(5.0);
+                        ui.separator();
+                        if ui.button("🔬 Start Research (Not Implemented)").clicked() {
+                            // Placeholder for future research start logic
+                        }
+                    }
+                });
                 });
             }
     }
     
-    // Draw legend
+    // Store selected tech state
+    ui.data_mut(|data| {
+        if let Some(ref sel) = selected_tech {
+            data.insert_persisted(selected_id, sel.clone());
+        } else {
+            data.remove::<String>(selected_id);
+        }
+    });
+    
+    // Draw legend and info
     ui.separator();
     ui.horizontal(|ui| {
         ui.label("Status:");
@@ -2914,6 +3048,18 @@ fn render_tech_tree_tab(
         ui.colored_label(egui::Color32::from_rgb(100, 100, 100), "● Locked");
         ui.label(format!("| Zoom: {:.1}x", zoom));
     });
+    
+    if let Some(ref sel_id) = selected_tech {
+        if let Some(sel_tech) = tech_data.technologies.get(sel_id) {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Selected:").strong());
+                ui.label(&sel_tech.name);
+                ui.label(format!("({} prerequisites highlighted)", path_techs.len() - 1));
+            });
+        }
+    } else {
+        ui.label(egui::RichText::new("Click a technology to select and highlight its prerequisite path").italics());
+    }
 }
 
 /// Render the Available Research tab

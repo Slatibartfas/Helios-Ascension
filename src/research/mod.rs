@@ -26,6 +26,30 @@ pub use systems::{
 };
 pub use types::{TechCategory, Technology, TechnologyId};
 
+/// Debug settings for research system
+#[derive(Resource, Debug, Clone)]
+pub struct ResearchDebugSettings {
+    /// Whether debug mode is enabled
+    pub enabled: bool,
+    /// Whether to show all technologies (ignore prerequisites)
+    pub show_all_techs: bool,
+    /// Instant research (0 cost)
+    pub instant_research: bool,
+    /// Instant engineering (0 cost)
+    pub instant_engineering: bool,
+}
+
+impl Default for ResearchDebugSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            show_all_techs: false,
+            instant_research: false,
+            instant_engineering: false,
+        }
+    }
+}
+
 /// Plugin that adds the research system to the Bevy app
 pub struct ResearchPlugin;
 
@@ -34,6 +58,7 @@ impl Plugin for ResearchPlugin {
         app
             // Resources
             .init_resource::<ResearchState>()
+            .init_resource::<ResearchDebugSettings>()
             // Startup systems
             .add_systems(Startup, load_technologies)
             // Update systems
