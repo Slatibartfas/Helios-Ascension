@@ -29,7 +29,10 @@ use crate::plugins::camera::{CameraAnchor, GameCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, LogicalParent};
 use crate::plugins::solar_system_data::BodyType;
 use crate::plugins::starmap::{HoveredStarSystem, SelectedStarSystem, StarSystemIcon};
-use crate::research::{ResearchState, TechnologiesData, TechCategory};
+use crate::research::{
+    EngineeringProject, ResearchProject, ResearchState, ResearchTeam, TechnologiesData,
+    TechCategory,
+};
 
 /// Maximum time scale: 1 year per second (365.25 * 86400 ≈ 31,557,600)
 const MAX_TIME_SCALE: f32 = 31_557_600.0;
@@ -2411,6 +2414,14 @@ fn ui_research_panels(
     active_menu: Res<ActiveMenu>,
     research_state: Res<ResearchState>,
     tech_data: Res<TechnologiesData>,
+    // Query for active research projects
+    research_projects: Query<(&ResearchProject, &ResearchTeam)>,
+    // Query for active engineering projects
+    engineering_projects: Query<(&EngineeringProject, &ResearchTeam)>,
+    // Query for all research teams
+    all_teams: Query<(Entity, &ResearchTeam)>,
+    // Local state for tab selection
+    mut selected_tab: Local<usize>,
 ) {
     if active_menu.current != GameMenu::Research {
         return;
@@ -2507,9 +2518,173 @@ fn ui_research_panels(
                 });
         });
 
-    // Center panel - Detailed tech tree
+    // Center panel - Tabbed interface
     egui::CentralPanel::default().show(ctx, |ui| {
-        ui.heading("Technology Tree");
+        // Tab bar
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut *selected_tab, 0, "📊 Overview");
+            ui.selectable_value(&mut *selected_tab, 1, "🌳 Tech Tree");
+            ui.selectable_value(&mut *selected_tab, 2, "🔬 Available Research");
+            ui.selectable_value(&mut *selected_tab, 3, "⚙ Available Engineering");
+            ui.selectable_value(&mut *selected_tab, 4, "📚 Archive");
+        });
+        
+        ui.separator();
+        
+        // Tab content
+        match *selected_tab {
+            0 => render_overview_tab(ui, &research_state, &tech_data, &research_projects, &engineering_projects, &all_teams),
+            1 => render_tech_tree_tab(ui, &research_state, &tech_data),
+            2 => render_available_research_tab(ui, &research_state, &tech_data),
+            3 => render_available_engineering_tab(ui, &research_state, &tech_data),
+            4 => render_archive_tab(ui, &research_state, &tech_data),
+            _ => {},
+        }
+    });
+}
+
+/// Render the Overview tab - shows active projects and team assignments
+fn render_overview_tab(
+    ui: &mut egui::Ui,
+    research_state: &ResearchState,
+    tech_data: &TechnologiesData,
+    research_projects: &Query<(&ResearchProject, &ResearchTeam)>,
+    engineering_projects: &Query<(&EngineeringProject, &ResearchTeam)>,
+    all_teams: &Query<(Entity, &ResearchTeam)>,
+) {
+    ui.heading("Research & Engineering Overview");
+    
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        // Point Generation
+        ui.group(|ui| {
+            ui.label(egui::RichText::new("Point Generation").strong().size(16.0));
+            ui.separator();
+            
+            ui.horizontal(|ui| {
+                ui.label("Research Points:");
+                ui.label(egui::RichText::new(format!("{:.0}/sec", 0.0))
+                    .color(egui::Color32::from_rgb(100, 200, 255)));
+                ui.label(format!("(Available: {:.0})", research_state.research_points_available));
+            });
+            
+            ui.horizontal(|ui| {
+                ui.label("Engineering Points:");
+                ui.label(egui::RichText::new(format!("{:.0}/sec", 0.0))
+                    .color(egui::Color32::from_rgb(100, 255, 200)));
+                ui.label(format!("(Available: {:.0})", research_state.engineering_points_available));
+            });
+        });
+        
+        ui.add_space(10.0);
+        
+        // Active Research Projects
+        ui.group(|ui| {
+            ui.label(egui::RichText::new("Active Research Projects").strong().size(16.0));
+            ui.separator();
+            
+            let project_count = research_projects.iter().count();
+            if project_count == 0 {
+                ui.label(egui::RichText::new("No active research projects")
+                    .italics()
+                    .color(egui::Color32::GRAY));
+            } else {
+                for (project, team) in research_projects.iter() {
+                    if let Some(tech) = tech_data.get_tech(&project.tech_id) {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(&tech.name).strong());
+                            ui.label(format!("(Team: {})", team.name));
+                        });
+                        
+                        let progress = project.progress_percent();
+                        ui.add(egui::ProgressBar::new(progress)
+                            .text(format!("{:.0}%", progress * 100.0)));
+                        
+                        ui.horizontal(|ui| {
+                            ui.label(format!("Progress: {:.0}/{:.0} RP", 
+                                project.progress, project.required_points));
+                        });
+                        
+                        ui.add_space(5.0);
+                    }
+                }
+            }
+        });
+        
+        ui.add_space(10.0);
+        
+        // Active Engineering Projects
+        ui.group(|ui| {
+            ui.label(egui::RichText::new("Active Engineering Projects").strong().size(16.0));
+            ui.separator();
+            
+            let project_count = engineering_projects.iter().count();
+            if project_count == 0 {
+                ui.label(egui::RichText::new("No active engineering projects")
+                    .italics()
+                    .color(egui::Color32::GRAY));
+            } else {
+                for (project, team) in engineering_projects.iter() {
+                    if let Some(component) = tech_data.get_component(&project.component_id) {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(&component.name).strong());
+                            ui.label(format!("(Team: {})", team.name));
+                        });
+                        
+                        let progress = project.progress_percent();
+                        ui.add(egui::ProgressBar::new(progress)
+                            .text(format!("{:.0}%", progress * 100.0)));
+                        
+                        ui.horizontal(|ui| {
+                            ui.label(format!("Progress: {:.0}/{:.0} EP", 
+                                project.progress, project.required_points));
+                        });
+                        
+                        ui.add_space(5.0);
+                    }
+                }
+            }
+        });
+        
+        ui.add_space(10.0);
+        
+        // Research Teams
+        ui.group(|ui| {
+            ui.label(egui::RichText::new("Research & Engineering Teams").strong().size(16.0));
+            ui.separator();
+            
+            let team_count = all_teams.iter().count();
+            if team_count == 0 {
+                ui.label(egui::RichText::new("No teams available - teams will be added in future updates")
+                    .italics()
+                    .color(egui::Color32::GRAY));
+            } else {
+                for (_entity, team) in all_teams.iter() {
+                    ui.horizontal(|ui| {
+                        let icon = if team.is_research { "🔬" } else { "⚙" };
+                        ui.label(egui::RichText::new(format!("{} {}", icon, team.name)).strong());
+                        ui.label(format!("Lead: {}", team.lead_character));
+                    });
+                    
+                    if let Some(specialty) = team.specialty {
+                        ui.label(format!("  Specialty: {} ({})", 
+                            specialty.display_name(), 
+                            specialty.icon()));
+                    }
+                    ui.label(format!("  Efficiency: {:.0}%", team.efficiency * 100.0));
+                    ui.add_space(5.0);
+                }
+            }
+        });
+    });
+}
+
+/// Render the Tech Tree tab
+fn render_tech_tree_tab(
+    ui: &mut egui::Ui,
+    research_state: &ResearchState,
+    tech_data: &TechnologiesData,
+) {
+    ui.heading("Technology Tree");
         ui.separator();
         
         egui::ScrollArea::vertical()
@@ -2714,6 +2889,241 @@ fn ui_research_panels(
                     ui.add_space(15.0);
                 }
             });
+}
+
+/// Render the Available Research tab
+fn render_available_research_tab(
+    ui: &mut egui::Ui,
+    research_state: &ResearchState,
+    tech_data: &TechnologiesData,
+) {
+    ui.heading("Available Research Projects");
+    ui.label("Technologies with all prerequisites met");
+    ui.separator();
+    
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        let unlocked_ids: Vec<_> = research_state.unlocked_technologies.iter().cloned().collect();
+        
+        let mut available_techs = Vec::new();
+        for (tech_id, tech) in &tech_data.technologies {
+            if !research_state.is_unlocked(tech_id) 
+                && tech_data.check_prerequisites(tech_id, &unlocked_ids) {
+                available_techs.push(tech);
+            }
+        }
+        
+        if available_techs.is_empty() {
+            ui.label(egui::RichText::new("No technologies available for research")
+                .italics()
+                .color(egui::Color32::GRAY));
+            ui.label("Complete more research to unlock new technologies.");
+        } else {
+            // Sort by category and then by cost
+            available_techs.sort_by(|a, b| {
+                a.category.display_name()
+                    .cmp(b.category.display_name())
+                    .then(a.research_cost.partial_cmp(&b.research_cost).unwrap())
+            });
+            
+            for tech in available_techs {
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("⏳").color(egui::Color32::from_rgb(255, 255, 100)));
+                        ui.label(egui::RichText::new(&tech.name).strong().size(14.0));
+                        ui.label(egui::RichText::new(format!("{} {}", tech.category.icon(), tech.category.display_name()))
+                            .size(12.0)
+                            .color(egui::Color32::GRAY));
+                    });
+                    
+                    ui.label(&tech.description);
+                    
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(format!("Cost: {:.0} RP", tech.research_cost))
+                            .color(egui::Color32::from_rgb(150, 200, 255)));
+                        ui.label(format!("Tier: {}", tech.tier));
+                    });
+                    
+                    if !tech.unlocks_components.is_empty() {
+                        ui.label(egui::RichText::new(format!(
+                            "Unlocks {} component(s)",
+                            tech.unlocks_components.len()
+                        )).size(11.0).italics());
+                    }
+                    
+                    if !tech.modifiers.is_empty() {
+                        ui.label(egui::RichText::new(format!(
+                            "Provides {} bonus(es)",
+                            tech.modifiers.len()
+                        )).size(11.0).italics().color(egui::Color32::from_rgb(100, 255, 100)));
+                    }
+                    
+                    // Placeholder button for future implementation
+                    if ui.button("🚀 Start Research (Not Yet Implemented)").clicked() {
+                        // Future: Create research project entity
+                    }
+                });
+                
+                ui.add_space(10.0);
+            }
+        }
+    });
+}
+
+/// Render the Available Engineering tab
+fn render_available_engineering_tab(
+    ui: &mut egui::Ui,
+    research_state: &ResearchState,
+    tech_data: &TechnologiesData,
+) {
+    ui.heading("Available Engineering Projects");
+    ui.label("Component designs ready for engineering");
+    ui.separator();
+    
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        let mut available_components = Vec::new();
+        
+        for (comp_id, component) in &tech_data.components {
+            if research_state.is_unlocked(&component.required_tech) 
+                && !research_state.is_component_completed(comp_id) {
+                available_components.push(component);
+            }
+        }
+        
+        if available_components.is_empty() {
+            ui.label(egui::RichText::new("No components available for engineering")
+                .italics()
+                .color(egui::Color32::GRAY));
+            ui.label("Research new technologies to unlock component designs.");
+        } else {
+            // Sort by cost
+            available_components.sort_by(|a, b| {
+                a.engineering_cost.partial_cmp(&b.engineering_cost).unwrap()
+            });
+            
+            for component in available_components {
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("⚙").color(egui::Color32::from_rgb(200, 200, 100)));
+                        ui.label(egui::RichText::new(&component.name).strong().size(14.0));
+                    });
+                    
+                    ui.label(&component.description);
+                    
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(format!("Cost: {:.0} EP", component.engineering_cost))
+                            .color(egui::Color32::from_rgb(150, 255, 200)));
+                        
+                        if let Some(tech) = tech_data.get_tech(&component.required_tech) {
+                            ui.label(egui::RichText::new(format!("From: {}", tech.name))
+                                .size(11.0)
+                                .italics()
+                                .color(egui::Color32::GRAY));
+                        }
+                    });
+                    
+                    // Placeholder button for future implementation
+                    if ui.button("🔧 Start Engineering (Not Yet Implemented)").clicked() {
+                        // Future: Create engineering project entity
+                    }
+                });
+                
+                ui.add_space(10.0);
+            }
+        }
+    });
+}
+
+/// Render the Archive tab
+fn render_archive_tab(
+    ui: &mut egui::Ui,
+    research_state: &ResearchState,
+    tech_data: &TechnologiesData,
+) {
+    ui.heading("Research Archive");
+    ui.label("Completed technologies and components");
+    ui.separator();
+    
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        // Completed Technologies
+        ui.group(|ui| {
+            ui.label(egui::RichText::new("Completed Technologies").strong().size(16.0));
+            ui.separator();
+            
+            let unlocked_count = research_state.unlocked_technologies.len();
+            ui.label(format!("Total: {} technologies", unlocked_count));
+            ui.add_space(5.0);
+            
+            if unlocked_count == 0 {
+                ui.label(egui::RichText::new("No technologies researched yet")
+                    .italics()
+                    .color(egui::Color32::GRAY));
+            } else {
+                // Organize by category
+                for category in TechCategory::all() {
+                    let category_techs = tech_data.get_by_category(*category);
+                    let category_completed: Vec<_> = category_techs
+                        .iter()
+                        .filter(|t| research_state.is_unlocked(&t.id))
+                        .copied()
+                        .collect();
+                    
+                    if !category_completed.is_empty() {
+                        ui.label(egui::RichText::new(format!(
+                            "{} {} ({} completed)",
+                            category.icon(),
+                            category.display_name(),
+                            category_completed.len()
+                        )).strong());
+                        
+                        ui.indent(format!("archive_cat_{}", category.display_name()), |ui| {
+                            for tech in category_completed {
+                                ui.horizontal(|ui| {
+                                    ui.label("✔");
+                                    ui.label(&tech.name);
+                                    if tech.research_cost > 0.0 {
+                                        ui.label(egui::RichText::new(format!("({:.0} RP)", tech.research_cost))
+                                            .size(11.0)
+                                            .color(egui::Color32::GRAY));
+                                    }
+                                });
+                            }
+                        });
+                        
+                        ui.add_space(5.0);
+                    }
+                }
+            }
+        });
+        
+        ui.add_space(15.0);
+        
+        // Completed Components
+        ui.group(|ui| {
+            ui.label(egui::RichText::new("Completed Components").strong().size(16.0));
+            ui.separator();
+            
+            let completed_count = research_state.completed_components.len();
+            ui.label(format!("Total: {} components", completed_count));
+            ui.add_space(5.0);
+            
+            if completed_count == 0 {
+                ui.label(egui::RichText::new("No components engineered yet")
+                    .italics()
+                    .color(egui::Color32::GRAY));
+            } else {
+                for comp_id in &research_state.completed_components {
+                    if let Some(component) = tech_data.get_component(comp_id) {
+                        ui.horizontal(|ui| {
+                            ui.label("⚙");
+                            ui.label(&component.name);
+                            ui.label(egui::RichText::new(format!("({:.0} EP)", component.engineering_cost))
+                                .size(11.0)
+                                .color(egui::Color32::GRAY));
+                        });
+                    }
+                }
+            }
+        });
     });
 }
 
