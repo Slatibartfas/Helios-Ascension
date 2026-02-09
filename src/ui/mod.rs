@@ -2696,211 +2696,224 @@ fn render_tech_tree_tab(
     research_state: &ResearchState,
     tech_data: &TechnologiesData,
 ) {
-    ui.heading("Technology Tree");
-        ui.separator();
+    ui.heading("Technology Tree - Graph View");
+    ui.label("Pan: Middle mouse drag | Zoom: Mouse wheel");
+    ui.separator();
+    
+    // Local state for pan and zoom (using unique ID for persistence)
+    let pan_id = ui.id().with("tech_tree_pan");
+    let zoom_id = ui.id().with("tech_tree_zoom");
+    
+    let mut pan_offset: egui::Vec2 = ui.data_mut(|data| {
+        data.get_persisted(pan_id)
+            .unwrap_or(egui::Vec2::new(400.0, 50.0))
+    });
+    
+    let mut zoom: f32 = ui.data_mut(|data| {
+        data.get_persisted(zoom_id).unwrap_or(1.0)
+    });
+    
+    // Handle mouse input for pan and zoom
+    let response = ui.allocate_rect(
+        ui.available_rect_before_wrap(),
+        egui::Sense::click_and_drag(),
+    );
+    
+    // Handle zoom with mouse wheel
+    if response.hovered() {
+        let scroll_delta = ui.input(|i| i.smooth_scroll_delta.y);
+        if scroll_delta != 0.0 {
+            let zoom_delta = scroll_delta * 0.001;
+            zoom = (zoom + zoom_delta).clamp(0.3, 3.0);
+        }
+    }
+    
+    // Handle pan with middle mouse or right mouse drag
+    if response.dragged_by(egui::PointerButton::Middle) 
+        || response.dragged_by(egui::PointerButton::Secondary) {
+        pan_offset += response.drag_delta();
+    }
+    
+    // Store state
+    ui.data_mut(|data| {
+        data.insert_persisted(pan_id, pan_offset);
+        data.insert_persisted(zoom_id, zoom);
+    });
+    
+    // Draw the graph
+    let painter = ui.painter();
+    let rect = response.rect;
+    
+    // Calculate node positions using a simple tier-based layout
+    let mut node_positions: std::collections::HashMap<String, egui::Pos2> = 
+        std::collections::HashMap::new();
+    
+    // Group technologies by tier and category for layout
+    let mut techs_by_tier: std::collections::BTreeMap<u32, Vec<&crate::research::types::Technology>> =
+        std::collections::BTreeMap::new();
+    
+    for (_, tech) in &tech_data.technologies {
+        techs_by_tier.entry(tech.tier).or_default().push(tech);
+    }
+    
+    // Layout nodes in tiers (left to right) and categories (top to bottom within tier)
+    let tier_spacing = 200.0 * zoom;
+    let node_spacing_y = 60.0 * zoom;
+    let category_spacing = 15.0 * zoom;
+    
+    for (tier_idx, (tier, techs)) in techs_by_tier.iter().enumerate() {
+        // Sort by category for consistent positioning
+        let mut sorted_techs = techs.clone();
+        sorted_techs.sort_by_key(|t| (t.category as u8, &t.name));
         
-        egui::ScrollArea::vertical()
-            .id_source("tech_tree_scroll")
-            .show(ui, |ui| {
-                for category in TechCategory::all() {
-                    let category_techs = tech_data.get_by_category(*category);
-                    if category_techs.is_empty() {
-                        continue;
-                    }
-
-                    ui.group(|ui| {
-                        ui.heading(format!(
-                            "{} {}",
-                            category.icon(),
-                            category.display_name()
-                        ));
-                        ui.separator();
-
-                        // Organize by tier
-                        let mut techs_by_tier: std::collections::HashMap<u32, Vec<_>> =
-                            std::collections::HashMap::new();
-                        for tech in &category_techs {
-                            techs_by_tier.entry(tech.tier).or_default().push(*tech);
-                        }
-
-                        let mut tiers: Vec<_> = techs_by_tier.keys().copied().collect();
-                        tiers.sort();
-
-                        for tier in tiers {
-                            if let Some(techs) = techs_by_tier.get(&tier) {
-                                ui.label(
-                                    egui::RichText::new(format!("Tier {}", tier))
-                                        .strong()
-                                        .color(egui::Color32::from_rgb(150, 150, 255)),
-                                );
-
-                                for tech in techs {
-                                    let is_unlocked = research_state.is_unlocked(&tech.id);
-                                    let can_research = tech_data.check_prerequisites(
-                                        &tech.id,
-                                        &research_state
-                                            .unlocked_technologies
-                                            .iter()
-                                            .cloned()
-                                            .collect::<Vec<_>>(),
-                                    );
-
-                                    // Tech name with status icon
-                                    let name_color = if is_unlocked {
-                                        egui::Color32::from_rgb(100, 255, 100) // Green
-                                    } else if can_research {
-                                        egui::Color32::from_rgb(255, 255, 100) // Yellow
-                                    } else {
-                                        egui::Color32::from_rgb(150, 150, 150) // Gray
-                                    };
-
-                                    let status_icon = if is_unlocked {
-                                        "✔"
-                                    } else if can_research {
-                                        "⏳"
-                                    } else {
-                                        "🔒"
-                                    };
-
-                                    // Main technology row
-                                    ui.horizontal(|ui| {
-                                        ui.label(
-                                            egui::RichText::new(status_icon)
-                                                .color(name_color),
-                                        );
-                                        ui.label(
-                                            egui::RichText::new(&tech.name)
-                                                .color(name_color)
-                                                .strong(),
-                                        );
-                                        if tech.research_cost > 0.0 && !is_unlocked {
-                                            ui.label(
-                                                egui::RichText::new(format!("({:.0} RP)", tech.research_cost))
-                                                    .size(11.0)
-                                                    .color(egui::Color32::from_rgb(180, 180, 200)),
-                                            );
-                                        }
-                                    });
-
-                                    // Technology description
-                                    ui.horizontal(|ui| {
-                                        ui.add_space(20.0);
-                                        ui.label(
-                                            egui::RichText::new(&tech.description)
-                                                .size(11.0)
-                                                .color(egui::Color32::from_rgb(180, 180, 180)),
-                                        );
-                                    });
-
-                                    // Show prerequisites with tree structure
-                                    if !tech.prerequisites.is_empty() {
-                                        ui.horizontal(|ui| {
-                                            ui.add_space(20.0);
-                                            ui.label(
-                                                egui::RichText::new("Requires:")
-                                                    .size(10.0)
-                                                    .italics()
-                                                    .color(egui::Color32::from_rgb(150, 150, 150)),
-                                            );
-                                        });
-                                        
-                                        for prereq in &tech.prerequisites {
-                                            let prereq_unlocked = research_state.is_unlocked(prereq);
-                                            let prereq_color = if prereq_unlocked {
-                                                egui::Color32::from_rgb(100, 255, 100)
-                                            } else {
-                                                egui::Color32::from_rgb(255, 100, 100)
-                                            };
-                                            
-                                            // Show prerequisite with tree connector
-                                            ui.horizontal(|ui| {
-                                                ui.add_space(30.0);
-                                                ui.label(
-                                                    egui::RichText::new("└─")
-                                                        .color(egui::Color32::from_rgb(100, 100, 100)),
-                                                );
-                                                
-                                                // Find and display prerequisite name
-                                                if let Some(prereq_tech) = tech_data.get_tech(prereq) {
-                                                    ui.label(
-                                                        egui::RichText::new(&prereq_tech.name)
-                                                            .size(10.0)
-                                                            .color(prereq_color),
-                                                    );
-                                                } else {
-                                                    ui.label(
-                                                        egui::RichText::new(prereq)
-                                                            .size(10.0)
-                                                            .color(prereq_color),
-                                                    );
-                                                }
-                                            });
-                                        }
-                                    }
-
-                                    // Show unlocked components (engineering projects)
-                                    if !tech.unlocks_components.is_empty() {
-                                        ui.horizontal(|ui| {
-                                            ui.add_space(20.0);
-                                            ui.label(
-                                                egui::RichText::new("Unlocks Components:")
-                                                    .size(10.0)
-                                                    .italics()
-                                                    .color(egui::Color32::from_rgb(150, 200, 150)),
-                                            );
-                                        });
-                                        
-                                        for component_id in &tech.unlocks_components {
-                                            let component_completed = research_state.is_component_completed(component_id);
-                                            let component_color = if component_completed {
-                                                egui::Color32::from_rgb(100, 255, 100)
-                                            } else if is_unlocked {
-                                                egui::Color32::from_rgb(200, 200, 100)
-                                            } else {
-                                                egui::Color32::from_rgb(120, 120, 120)
-                                            };
-                                            
-                                            ui.horizontal(|ui| {
-                                                ui.add_space(30.0);
-                                                ui.label(
-                                                    egui::RichText::new("⚙")
-                                                        .color(component_color),
-                                                );
-                                                
-                                                // Find and display component name and cost
-                                                if let Some(component) = tech_data.get_component(component_id) {
-                                                    ui.label(
-                                                        egui::RichText::new(&component.name)
-                                                            .size(10.0)
-                                                            .color(component_color),
-                                                    );
-                                                    if !component_completed {
-                                                        ui.label(
-                                                            egui::RichText::new(format!("({:.0} EP)", component.engineering_cost))
-                                                                .size(9.0)
-                                                                .color(egui::Color32::from_rgb(150, 150, 180)),
-                                                        );
-                                                    }
-                                                } else {
-                                                    ui.label(
-                                                        egui::RichText::new(component_id)
-                                                            .size(10.0)
-                                                            .color(component_color),
-                                                    );
-                                                }
-                                            });
-                                        }
-                                    }
-
-                                    ui.add_space(12.0);
-                                }
+        let base_x = rect.left() + pan_offset.x + (tier_idx as f32) * tier_spacing;
+        let mut current_y = rect.top() + pan_offset.y;
+        let mut last_category: Option<crate::research::types::TechCategory> = None;
+        
+        for tech in sorted_techs {
+            // Add extra spacing between categories
+            if let Some(last_cat) = last_category {
+                if last_cat != tech.category {
+                    current_y += category_spacing;
+                }
+            }
+            last_category = Some(tech.category);
+            
+            let pos = egui::Pos2::new(base_x, current_y);
+            node_positions.insert(tech.id.clone(), pos);
+            current_y += node_spacing_y;
+        }
+    }
+    
+    // Draw connection lines first (so they appear behind nodes)
+    for (_, tech) in &tech_data.technologies {
+        if let Some(tech_pos) = node_positions.get(&tech.id) {
+            for prereq_id in &tech.prerequisites {
+                if let Some(prereq_pos) = node_positions.get(prereq_id) {
+                    // Check if prerequisite is unlocked to determine line color
+                    let is_prereq_unlocked = research_state.is_unlocked(prereq_id);
+                    let line_color = if is_prereq_unlocked {
+                        egui::Color32::from_rgba_premultiplied(100, 255, 100, 100) // Green with transparency
+                    } else {
+                        egui::Color32::from_rgba_premultiplied(150, 150, 150, 80) // Gray with transparency
+                    };
+                    
+                    // Draw line from prereq to tech
+                    painter.line_segment(
+                        [*prereq_pos, *tech_pos],
+                        egui::Stroke::new(1.5 * zoom, line_color),
+                    );
+                }
+            }
+        }
+    }
+    
+    // Draw nodes
+    for (tech_id, pos) in &node_positions {
+        if let Some(tech) = tech_data.technologies.get(tech_id) {
+            let is_unlocked = research_state.is_unlocked(&tech.id);
+            let unlocked_ids: Vec<_> = research_state.unlocked_technologies.iter().cloned().collect();
+            let can_research = !is_unlocked && tech_data.check_prerequisites(&tech.id, &unlocked_ids);
+            
+            // Determine node color based on status
+            let node_color = if is_unlocked {
+                egui::Color32::from_rgb(50, 200, 50) // Green
+            } else if can_research {
+                egui::Color32::from_rgb(255, 200, 50) // Yellow
+            } else {
+                egui::Color32::from_rgb(100, 100, 100) // Gray
+            };
+            
+            // Get category color for border
+            let category_color = match tech.category {
+                crate::research::types::TechCategory::Electronics => egui::Color32::from_rgb(100, 150, 255),
+                crate::research::types::TechCategory::Propulsion => egui::Color32::from_rgb(255, 150, 50),
+                crate::research::types::TechCategory::Energy => egui::Color32::from_rgb(255, 255, 50),
+                crate::research::types::TechCategory::Physics => egui::Color32::from_rgb(150, 100, 255),
+                crate::research::types::TechCategory::Military => egui::Color32::from_rgb(255, 50, 50),
+                crate::research::types::TechCategory::Weapons => egui::Color32::from_rgb(200, 50, 50),
+                crate::research::types::TechCategory::DefensiveSystems => egui::Color32::from_rgb(50, 150, 255),
+                crate::research::types::TechCategory::Materials => egui::Color32::from_rgb(150, 150, 50),
+                crate::research::types::TechCategory::Construction => egui::Color32::from_rgb(200, 150, 100),
+                crate::research::types::TechCategory::Biology => egui::Color32::from_rgb(50, 255, 150),
+                crate::research::types::TechCategory::Sensors => egui::Color32::from_rgb(100, 255, 255),
+                crate::research::types::TechCategory::SpaceTechnology => egui::Color32::from_rgb(150, 200, 255),
+                crate::research::types::TechCategory::Sociology => egui::Color32::from_rgb(255, 150, 200),
+                crate::research::types::TechCategory::LifeSupport => egui::Color32::from_rgb(100, 255, 100),
+                crate::research::types::TechCategory::Industry => egui::Color32::from_rgb(180, 180, 50),
+            };
+            
+            let node_size = egui::Vec2::new(30.0 * zoom, 30.0 * zoom);
+            let node_rect = egui::Rect::from_center_size(*pos, node_size);
+            
+            // Draw node background
+            painter.rect_filled(node_rect, 3.0 * zoom, node_color);
+            
+            // Draw category-colored border
+            painter.rect_stroke(
+                node_rect,
+                3.0 * zoom,
+                egui::Stroke::new(2.0 * zoom, category_color),
+            );
+            
+            // Show tooltip on hover
+            let node_response = ui.interact(
+                node_rect,
+                ui.id().with(&tech.id),
+                egui::Sense::hover(),
+            );
+            
+            node_response.on_hover_ui(|ui| {
+                    ui.set_max_width(300.0);
+                    ui.label(egui::RichText::new(&tech.name).strong().size(14.0));
+                    ui.label(format!("{} {}", tech.category.icon(), tech.category.display_name()));
+                    ui.separator();
+                    ui.label(&tech.description);
+                    ui.add_space(5.0);
+                    ui.label(format!("Tier: {} | Cost: {:.0} RP", tech.tier, tech.research_cost));
+                    
+                    if !tech.prerequisites.is_empty() {
+                        ui.add_space(5.0);
+                        ui.label(egui::RichText::new("Prerequisites:").strong());
+                        for prereq_id in &tech.prerequisites {
+                            if let Some(prereq) = tech_data.get_tech(prereq_id) {
+                                let prereq_unlocked = research_state.is_unlocked(prereq_id);
+                                let color = if prereq_unlocked {
+                                    egui::Color32::from_rgb(100, 255, 100)
+                                } else {
+                                    egui::Color32::from_rgb(255, 100, 100)
+                                };
+                                ui.label(egui::RichText::new(format!("  • {}", prereq.name)).color(color));
                             }
                         }
-                    });
-
-                    ui.add_space(15.0);
-                }
-            });
+                    }
+                    
+                    if !tech.unlocks_components.is_empty() {
+                        ui.add_space(5.0);
+                        ui.label(egui::RichText::new("Unlocks Components:").strong());
+                        ui.label(format!("  {} component(s)", tech.unlocks_components.len()));
+                    }
+                    
+                    if !tech.modifiers.is_empty() {
+                        ui.add_space(5.0);
+                        ui.label(egui::RichText::new("Provides Bonuses:").strong());
+                        for modifier in &tech.modifiers {
+                            ui.label(format!("  • {:?}: {:+.0}%", modifier.modifier_type, modifier.value));
+                        }
+                    }
+                });
+            }
+    }
+    
+    // Draw legend
+    ui.separator();
+    ui.horizontal(|ui| {
+        ui.label("Status:");
+        ui.colored_label(egui::Color32::from_rgb(50, 200, 50), "● Unlocked");
+        ui.colored_label(egui::Color32::from_rgb(255, 200, 50), "● Available");
+        ui.colored_label(egui::Color32::from_rgb(100, 100, 100), "● Locked");
+        ui.label(format!("| Zoom: {:.1}x", zoom));
+    });
 }
 
 /// Render the Available Research tab
