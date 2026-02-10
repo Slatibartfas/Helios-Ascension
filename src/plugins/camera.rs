@@ -106,8 +106,8 @@ fn orbit_camera_controls(
 ) {
     let mut camera = query.single_mut();
 
-    // Block camera control when in full-screen UI modes (Research)
-    if active_menu.current == GameMenu::Research {
+    // Block camera control when in full-screen UI modes (i.e. menus that block world interaction)
+    if active_menu.current.blocks_world_interaction() {
         motion_events.clear();
         scroll_events.clear();
         return;
