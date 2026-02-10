@@ -12,6 +12,7 @@ use crate::plugins::solar_system::{
     CelestialBody, Comet, LogicalParent, Moon, Planet, Star,
 };
 use crate::plugins::solar_system_data::calculate_visual_radius;
+use crate::game_state::ActiveMenu;
 use crate::ui::SimulationTime;
 
 /// Scaling factor for converting astronomical units to Bevy rendering units
@@ -1158,7 +1159,13 @@ pub fn handle_body_selection(
     time: Res<Time>,
     mut selection_state: Local<SelectionState>,
     mut egui_contexts: bevy_egui::EguiContexts,
+    active_menu: Res<ActiveMenu>,
 ) {
+    // Disable body selection when a full-screen overlay menu is active
+    if active_menu.current.blocks_world_interaction() {
+        return;
+    }
+
     // Disable body selection in starmap view
     if *view_mode == ViewMode::Starmap {
         return;
@@ -1269,7 +1276,16 @@ pub fn handle_body_hover(
     mut commands: Commands,
     hovered_query: Query<Entity, With<Hovered>>,
     mut egui_contexts: bevy_egui::EguiContexts,
+    active_menu: Res<ActiveMenu>,
 ) {
+    // Disable hover when a full-screen menu overlay is active (Research, etc.)
+    if active_menu.current.blocks_world_interaction() {
+        for entity in hovered_query.iter() {
+            commands.entity(entity).remove::<Hovered>();
+        }
+        return;
+    }
+
     // Disable hover in starmap view
     if *view_mode == ViewMode::Starmap {
         for entity in hovered_query.iter() {

@@ -1415,7 +1415,13 @@ fn render_body_tree(
 fn ui_hover_tooltip(
     mut contexts: EguiContexts,
     hovered_query: Query<&CelestialBody, With<Hovered>>,
+    active_menu: Res<ActiveMenu>,
 ) {
+    // Don't show world tooltips when a full-screen overlay is active
+    if active_menu.current.blocks_world_interaction() {
+        return;
+    }
+
     let ctx = match contexts.try_ctx_mut() {
         Some(ctx) => ctx,
         None => return,
@@ -1471,7 +1477,13 @@ fn ui_starmap_hover_tooltip(
     hovered_query: Query<&StarSystemIcon, With<HoveredStarSystem>>,
     bodies_query: Query<(&CelestialBody, &SystemId)>,
     view_mode: Res<ViewMode>,
+    active_menu: Res<ActiveMenu>,
 ) {
+    // Don't show world tooltips when a full-screen overlay is active
+    if active_menu.current.blocks_world_interaction() {
+        return;
+    }
+
     // Only show tooltips in starmap view
     if *view_mode != ViewMode::Starmap {
         return;

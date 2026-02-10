@@ -88,6 +88,12 @@ impl GameMenu {
         ]
     }
 
+    /// Whether this menu displays a full-screen overlay panel that should
+    /// block all 3D world interaction (hover, selection, tooltips).
+    pub fn blocks_world_interaction(&self) -> bool {
+        !matches!(self, GameMenu::Survey | GameMenu::Starmap)
+    }
+
     /// File base name (without extension) for the menu icon asset
     pub fn asset_basename(&self) -> &'static str {
         match self {
