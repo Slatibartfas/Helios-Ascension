@@ -17,13 +17,14 @@ pub mod types;
 
 pub use budget::{
     format_power, update_civilization_score, update_power_grid, EnergyGrid, GlobalBudget,
+    ResourceRateTracker, SECONDS_PER_MONTH, SECONDS_PER_YEAR,
 };
 pub use components::{
     MineralDeposit, OrbitsBody, PlanetResources, PowerGenerator, PowerSourceType, SpectralClass,
     StarSystem,
 };
 pub use generation::generate_solar_system_resources;
-pub use mining::{extract_resources, MiningOperation};
+pub use mining::{extract_resources, update_resource_rates, MiningOperation};
 pub use types::ResourceType;
 
 /// Plugin that adds the economy system to the Bevy app
@@ -34,6 +35,7 @@ impl Plugin for EconomyPlugin {
         app
             // Resources
             .init_resource::<GlobalBudget>()
+            .init_resource::<ResourceRateTracker>()
             // Startup systems
             .add_systems(
                 Startup,
@@ -49,6 +51,7 @@ impl Plugin for EconomyPlugin {
                     update_power_grid,
                     update_civilization_score.after(update_power_grid),
                     extract_resources,
+                    update_resource_rates,
                 ),
             );
     }

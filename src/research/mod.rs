@@ -17,7 +17,7 @@ pub mod types;
 
 pub use components::{
     ComponentDesign, EngineeringFacility, EngineeringProject, ResearchBuilding, ResearchProject,
-    ResearchTeam,
+    ResearchTeam, ResearchTeamCapacity,
 };
 pub use data::{load_technologies, TechnologiesData};
 pub use systems::{
@@ -137,6 +137,21 @@ impl TechEditData {
     }
 }
 
+/// Collects research start requests from the UI to be processed by a Bevy system.
+#[derive(Resource, Debug, Clone, Default)]
+pub struct PendingResearchActions {
+    /// Tech IDs that the user wants to begin researching.
+    pub start_research: Vec<TechnologyId>,
+    /// Tech IDs that the user wants to stop/pause researching.
+    pub stop_research: Vec<TechnologyId>,
+    /// Tech IDs that the user wants to resume researching.
+    pub resume_research: Vec<TechnologyId>,
+    /// Whether to navigate to the Available Research tab.
+    pub navigate_to_available_tab: bool,
+    /// Updated allocation percentages: (tech_id, new_percent)
+    pub update_allocations: Vec<(TechnologyId, f64)>,
+}
+
 /// Plugin that adds the research system to the Bevy app
 pub struct ResearchPlugin;
 
@@ -147,6 +162,8 @@ impl Plugin for ResearchPlugin {
             .init_resource::<ResearchState>()
             .init_resource::<ResearchDebugSettings>()
             .init_resource::<TechTreeEditState>()
+            .init_resource::<PendingResearchActions>()
+            .init_resource::<ResearchTeamCapacity>()
             // Startup systems
             .add_systems(Startup, load_technologies)
             // Update systems
@@ -154,10 +171,13 @@ impl Plugin for ResearchPlugin {
                 Update,
                 (
                     update_research_points,
+                    systems::process_pending_research,
+                    systems::process_stop_research,
+                    systems::process_allocation_updates,
                     advance_research_projects,
                     advance_engineering_projects,
                     check_unlocked_technologies,
-                ),
+                ).chain(),
             );
     }
 }

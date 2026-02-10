@@ -17,6 +17,24 @@ pub struct EngineeringFacility {
     pub points_per_second: f64,
 }
 
+/// Resource tracking research team capacity (placeholder for full team system)
+#[derive(Resource, Debug, Clone)]
+pub struct ResearchTeamCapacity {
+    /// Maximum number of concurrent research projects
+    pub max_research_teams: usize,
+    /// Maximum number of concurrent engineering projects
+    pub max_engineering_teams: usize,
+}
+
+impl Default for ResearchTeamCapacity {
+    fn default() -> Self {
+        Self {
+            max_research_teams: 3,
+            max_engineering_teams: 2,
+        }
+    }
+}
+
 /// Component for an active research project
 #[derive(Component, Debug, Clone)]
 pub struct ResearchProject {
@@ -28,6 +46,10 @@ pub struct ResearchProject {
     pub required_points: f64,
     /// The research team working on this project
     pub team_id: Entity,
+    /// Fraction of total RP income allocated to this project (0.0 to 1.0)
+    pub rp_allocation_percent: f64,
+    /// Whether this project is actively receiving RP (false = paused/stopped)
+    pub active: bool,
 }
 
 impl ResearchProject {
@@ -38,11 +60,16 @@ impl ResearchProject {
             progress: 0.0,
             required_points,
             team_id,
+            rp_allocation_percent: 1.0,
+            active: true,
         }
     }
 
     /// Get progress percentage (0.0 to 1.0)
     pub fn progress_percent(&self) -> f32 {
+        if self.required_points <= 0.0 {
+            return 1.0;
+        }
         (self.progress / self.required_points).min(1.0) as f32
     }
 
@@ -78,6 +105,9 @@ impl EngineeringProject {
 
     /// Get progress percentage (0.0 to 1.0)
     pub fn progress_percent(&self) -> f32 {
+        if self.required_points <= 0.0 {
+            return 1.0;
+        }
         (self.progress / self.required_points).min(1.0) as f32
     }
 
@@ -182,11 +212,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_research_team_capacity_default() {
+        let cap = ResearchTeamCapacity::default();
+        assert_eq!(cap.max_research_teams, 3);
+        assert_eq!(cap.max_engineering_teams, 2);
+    }
+
+    #[test]
     fn test_research_project_progress() {
         let team = Entity::from_raw(1);
         let mut project = ResearchProject::new("test_tech".to_string(), 1000.0, team);
         assert_eq!(project.progress_percent(), 0.0);
         assert!(!project.is_complete());
+        assert!(project.active);
+        assert_eq!(project.rp_allocation_percent, 1.0);
 
         project.progress = 500.0;
         assert_eq!(project.progress_percent(), 0.5);
