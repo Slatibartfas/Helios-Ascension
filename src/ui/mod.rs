@@ -2579,7 +2579,7 @@ fn ui_research_panels(
             0 => render_overview_tab(ui, &research_state, &tech_data, &research_projects, &engineering_projects, &all_teams),
             1 => render_tech_tree_tab(ui, &research_state, &tech_data, icon_textures),
             2 => render_available_research_tab(ui, &research_state, &tech_data, icon_textures),
-            3 => render_available_engineering_tab(ui, &research_state, &tech_data),
+            3 => render_available_engineering_tab(ui, &research_state, &tech_data, icon_textures),
             4 => render_archive_tab(ui, &research_state, &tech_data, icon_textures),
             _ => {},
         }
@@ -2735,11 +2735,11 @@ fn render_tech_tree_tab(
     // Local state for pan, zoom, and selected tech (using unique ID for persistence)
     let pan_id = ui.id().with("tech_tree_pan");
     let zoom_id = ui.id().with("tech_tree_zoom");
-    let selected_id = ui.id().with("tech_tree_selected");
+    let sel_persist_id = ui.id().with("tech_tree_selected");
     
     let mut pan_offset: egui::Vec2 = ui.data_mut(|data| {
         data.get_persisted(pan_id)
-            .unwrap_or(egui::Vec2::new(400.0, 50.0))
+            .unwrap_or(egui::Vec2::new(50.0, 50.0))
     });
     
     let mut zoom: f32 = ui.data_mut(|data| {
@@ -2747,143 +2747,124 @@ fn render_tech_tree_tab(
     });
     
     let mut selected_tech: Option<String> = ui.data_mut(|data| {
-        data.get_persisted(selected_id)
+        data.get_persisted(sel_persist_id)
     });
     
-    // Handle mouse input for pan and zoom
-    let response = ui.allocate_rect(
-        ui.available_rect_before_wrap(),
-        egui::Sense::click_and_drag(),
+    // ---------- layout constants ----------
+    let tier_spacing = 250.0 * zoom;
+    let node_spacing_y = 80.0 * zoom;
+    let category_spacing = 20.0 * zoom;
+    
+    // ---------- status line (fixed height, drawn FIRST so it reserves space at the bottom) ----------
+    // We draw it at the end but must reserve its height now.
+    let status_height = 26.0;
+    
+    // ---------- canvas: allocate ALL remaining space minus status ----------
+    let avail = ui.available_rect_before_wrap();
+    if avail.height() <= status_height + 10.0 {
+        ui.label("Window too small to display tech tree");
+        return;
+    }
+    let canvas_rect = egui::Rect::from_min_max(
+        avail.min,
+        egui::Pos2::new(avail.max.x, avail.max.y - status_height),
     );
     
-    // Handle zoom with mouse wheel
+    // Single response for the whole canvas – handles pan / zoom / click
+    let response = ui.allocate_rect(canvas_rect, egui::Sense::click_and_drag());
+    
+    // Zoom
     if response.hovered() {
         let scroll_delta = ui.input(|i| i.smooth_scroll_delta.y);
         if scroll_delta != 0.0 {
-            let zoom_delta = scroll_delta * 0.001;
-            zoom = (zoom + zoom_delta).clamp(0.3, 3.0);
+            zoom = (zoom + scroll_delta * 0.001).clamp(0.3, 3.0);
         }
     }
-    
-    // Handle pan with middle mouse or right mouse drag
-    if response.dragged_by(egui::PointerButton::Middle) 
-        || response.dragged_by(egui::PointerButton::Secondary) {
+    // Pan
+    if response.dragged_by(egui::PointerButton::Middle)
+        || response.dragged_by(egui::PointerButton::Secondary)
+    {
         pan_offset += response.drag_delta();
     }
     
-    // Store state
+    // Persist pan / zoom immediately
     ui.data_mut(|data| {
         data.insert_persisted(pan_id, pan_offset);
         data.insert_persisted(zoom_id, zoom);
     });
     
-    // Draw the graph
-    let rect = response.rect;
+    // Clipped painter so nothing bleeds outside the canvas
+    let clip = ui.clip_rect().intersect(canvas_rect);
+    let painter = ui.painter().with_clip_rect(clip);
     
-    // Calculate node positions using a simple tier-based layout
-    let mut node_positions: std::collections::HashMap<String, egui::Pos2> = 
-        std::collections::HashMap::new();
+    // ---------- compute uniform node size ----------
+    // Use a fixed node size based on zoom so all boxes are identical.
+    // Two rows: row 1 = icon + name, row 2 = research cost
+    let font_name = egui::FontId::proportional((12.0 * zoom).round());
+    let font_cost = egui::FontId::proportional((10.0 * zoom).round());
+    let icon_sz = (16.0 * zoom).round();
+    let icon_pad = (4.0 * zoom).round();
+    let h_pad = (8.0 * zoom).round();
+    let v_pad = (6.0 * zoom).round();
+    let row_gap = (3.0 * zoom).round();
+
+    // Measure the widest tech name to determine uniform width
+    let mut max_name_w: f32 = 0.0;
+    let mut max_cost_w: f32 = 0.0;
+    for (_, tech) in &tech_data.technologies {
+        let g = painter.layout_no_wrap(tech.name.clone(), font_name.clone(), egui::Color32::WHITE);
+        max_name_w = max_name_w.max(g.size().x);
+        let cost_text = format!("{:.0} RP", tech.research_cost);
+        let g2 = painter.layout_no_wrap(cost_text, font_cost.clone(), egui::Color32::WHITE);
+        max_cost_w = max_cost_w.max(g2.size().x);
+    }
+    // Row heights (approximate from font size)
+    let name_row_h = font_name.size * 1.3;
+    let cost_row_h = font_cost.size * 1.3;
+
+    let node_w = (icon_sz + icon_pad + max_name_w.max(max_cost_w) + h_pad * 2.0).round();
+    let node_h = (v_pad + name_row_h + row_gap + cost_row_h + v_pad).round();
+
+    // ---------- compute node positions (top-left corner) ----------
+    let mut node_positions: HashMap<String, egui::Pos2> = HashMap::new();
     
-    // Group technologies by tier and category for layout
     let mut techs_by_tier: std::collections::BTreeMap<u32, Vec<&crate::research::types::Technology>> =
         std::collections::BTreeMap::new();
-    
     for (_, tech) in &tech_data.technologies {
         techs_by_tier.entry(tech.tier).or_default().push(tech);
     }
     
-    // Layout nodes in tiers (left to right) and categories (top to bottom within tier)
-    let tier_spacing = 200.0 * zoom;
-    let node_spacing_y = 60.0 * zoom;
-    let category_spacing = 15.0 * zoom;
-    
-    // Reserve space for the footer to avoid flickering/jumping
-    let footer_height = 30.0;
-    let available_rect = ui.available_rect_before_wrap();
-    
-    // Ensure we have positive space
-    if available_rect.height() <= footer_height {
-        ui.label("Window too small to display tech tree");
-        return;
-    }
-
-    let graph_rect = egui::Rect::from_min_max(
-        available_rect.min,
-        egui::Pos2::new(available_rect.max.x, available_rect.max.y - footer_height),
-    );
-    let footer_rect = egui::Rect::from_min_max(
-        egui::Pos2::new(available_rect.min.x, available_rect.max.y - footer_height),
-        available_rect.max,
-    );
-
-    // Handle mouse input for pan and zoom using the graph rect
-    let response = ui.allocate_rect(
-        graph_rect,
-        egui::Sense::click_and_drag(),
-    );
-    
-    // Handle zoom with mouse wheel
-    if response.hovered() {
-        let scroll_delta = ui.input(|i| i.smooth_scroll_delta.y);
-        if scroll_delta != 0.0 {
-            let zoom_delta = scroll_delta * 0.001;
-            zoom = (zoom + zoom_delta).clamp(0.3, 3.0);
-        }
-    }
-    
-    // Handle pan with middle mouse or right mouse drag
-    if response.dragged_by(egui::PointerButton::Middle) 
-        || response.dragged_by(egui::PointerButton::Secondary) {
-        pan_offset += response.drag_delta();
-    }
-    
-    // Store state
-    ui.data_mut(|data| {
-        data.insert_persisted(pan_id, pan_offset);
-        data.insert_persisted(zoom_id, zoom);
-    });
-    
-    // Draw the graph
-    let rect = response.rect;
-    
-    // Clip to the graph area so nodes don't spill into the footer or header
-    // IMPORTANT: Intersect with existing clip rect to ensure we don't draw outside window
-    let clip_rect = ui.clip_rect().intersect(rect);
-    let painter = ui.painter().with_clip_rect(clip_rect);
-
-    for (tier_idx, (tier, techs)) in techs_by_tier.iter().enumerate() {
-        // Sort by category for consistent positioning
+    for (tier_idx, (_tier, techs)) in techs_by_tier.iter().enumerate() {
         let mut sorted_techs = techs.clone();
-        sorted_techs.sort_by_key(|t| (t.category as u8, &t.name));
+        sorted_techs.sort_by_key(|t| (t.category as u8, t.name.as_str()));
         
-        let base_x = rect.left() + pan_offset.x + (tier_idx as f32) * tier_spacing;
-        let mut current_y = rect.top() + pan_offset.y;
-        let mut last_category: Option<crate::research::types::TechCategory> = None;
+        let base_x = (canvas_rect.left() + pan_offset.x + (tier_idx as f32) * tier_spacing).round();
+        let mut current_y = (canvas_rect.top() + pan_offset.y).round();
+        let mut last_category: Option<TechCategory> = None;
         
         for tech in sorted_techs {
-            // Add extra spacing between categories
             if let Some(last_cat) = last_category {
                 if last_cat != tech.category {
                     current_y += category_spacing;
                 }
             }
             last_category = Some(tech.category);
-            
-            let pos = egui::Pos2::new(base_x, current_y);
-            node_positions.insert(tech.id.clone(), pos);
-            current_y += node_spacing_y;
+            // Store the CENTER of the node for line connections
+            node_positions.insert(
+                tech.id.clone(),
+                egui::Pos2::new(base_x + node_w / 2.0, current_y + node_h / 2.0),
+            );
+            current_y += node_h + node_spacing_y;
         }
     }
     
-    // Build prerequisite path set for highlighting
+    // ---------- prerequisite highlight path ----------
     let mut path_techs = std::collections::HashSet::new();
-    if let Some(ref selected_id) = selected_tech {
-        // Recursively add all prerequisites
-        let mut to_process = vec![selected_id.clone()];
-        path_techs.insert(selected_id.clone());
-        
-        while let Some(current_id) = to_process.pop() {
-            if let Some(tech) = tech_data.technologies.get(&current_id) {
+    if let Some(ref sel_id) = selected_tech {
+        let mut to_process = vec![sel_id.clone()];
+        path_techs.insert(sel_id.clone());
+        while let Some(cur) = to_process.pop() {
+            if let Some(tech) = tech_data.technologies.get(&cur) {
                 for prereq_id in &tech.prerequisites {
                     if path_techs.insert(prereq_id.clone()) {
                         to_process.push(prereq_id.clone());
@@ -2893,278 +2874,311 @@ fn render_tech_tree_tab(
         }
     }
     
-    // Draw connection lines first (so they appear behind nodes)
+    // ---------- draw connection lines ----------
+    // Connect right edge of prerequisite to left edge of dependent
     for (_, tech) in &tech_data.technologies {
-        if let Some(tech_pos) = node_positions.get(&tech.id) {
+        if let Some(tech_center) = node_positions.get(&tech.id) {
             for prereq_id in &tech.prerequisites {
-                if let Some(prereq_pos) = node_positions.get(prereq_id) {
-                    // Highlight path if selected
-                    let is_in_path = path_techs.contains(&tech.id) && path_techs.contains(prereq_id);
-                    
-                    // Check if prerequisite is unlocked to determine line color
+                if let Some(prereq_center) = node_positions.get(prereq_id) {
+                    let is_in_path =
+                        path_techs.contains(&tech.id) && path_techs.contains(prereq_id);
                     let is_prereq_unlocked = research_state.is_unlocked(prereq_id);
                     let line_color = if is_in_path {
-                        egui::Color32::from_rgba_premultiplied(255, 200, 0, 255) // Bright yellow/orange for path
+                        egui::Color32::from_rgba_premultiplied(255, 200, 0, 255)
                     } else if is_prereq_unlocked {
-                        egui::Color32::from_rgba_premultiplied(100, 255, 100, 100) // Green with transparency
+                        egui::Color32::from_rgba_premultiplied(100, 255, 100, 80)
                     } else {
-                        egui::Color32::from_rgba_premultiplied(150, 150, 150, 80) // Gray with transparency
+                        egui::Color32::from_rgba_premultiplied(120, 120, 120, 60)
                     };
-                    
-                    let stroke_width = if is_in_path { 3.0 * zoom } else { 1.5 * zoom };
-                    
-                    // Draw line from prereq to tech
+                    let w = if is_in_path { 2.5 * zoom } else { 1.0 * zoom };
+                    // From right edge of prereq to left edge of tech
+                    let from = egui::Pos2::new(prereq_center.x + node_w / 2.0, prereq_center.y);
+                    let to = egui::Pos2::new(tech_center.x - node_w / 2.0, tech_center.y);
                     painter.line_segment(
-                        [*prereq_pos, *tech_pos],
-                        egui::Stroke::new(stroke_width, line_color),
+                        [from, to],
+                        egui::Stroke::new(w, line_color),
                     );
                 }
             }
         }
     }
     
-    // Draw nodes
-    for (tech_id, pos) in &node_positions {
+    // ---------- draw nodes & collect hit-test rects ----------
+    // We do NOT call ui.allocate_rect for each node (that was the bug).
+    // Instead we paint directly and do manual hit-testing against the pointer.
+    let pointer_pos = ui.input(|i| i.pointer.interact_pos());
+    let pointer_clicked = response.clicked();
+    let mut hovered_tech_id: Option<String> = None;
+    let mut clicked_tech_id: Option<String> = None;
+    // We need to collect hovered rect for tooltip
+    let mut hovered_rect: Option<egui::Rect> = None;
+    
+    let unlocked_ids: Vec<_> = research_state.unlocked_technologies.iter().cloned().collect();
+    
+    for (tech_id, center) in &node_positions {
         if let Some(tech) = tech_data.technologies.get(tech_id) {
             let is_unlocked = research_state.is_unlocked(&tech.id);
-            let unlocked_ids: Vec<_> = research_state.unlocked_technologies.iter().cloned().collect();
-            let can_research = !is_unlocked && tech_data.check_prerequisites(&tech.id, &unlocked_ids);
-            
-            // Determine if this tech is in the path
+            let can_research =
+                !is_unlocked && tech_data.check_prerequisites(&tech.id, &unlocked_ids);
             let is_in_path = path_techs.contains(&tech.id);
+            let is_selected = selected_tech.as_ref() == Some(&tech.id);
             
-            // Determine node color based on status
+            // Node fill color — use darker/muted tones so white text is always readable
             let node_color = if is_in_path {
-                // Highlighted path color
                 if is_unlocked {
-                    egui::Color32::from_rgb(100, 255, 100) // Brighter green
+                    egui::Color32::from_rgb(30, 90, 30)
                 } else if can_research {
-                    egui::Color32::from_rgb(255, 220, 100) // Brighter yellow
+                    egui::Color32::from_rgb(90, 75, 15)
                 } else {
-                    egui::Color32::from_rgb(180, 180, 180) // Lighter gray
+                    egui::Color32::from_rgb(60, 60, 60)
                 }
             } else if is_unlocked {
-                egui::Color32::from_rgb(50, 200, 50) // Green
+                egui::Color32::from_rgb(25, 70, 25)
             } else if can_research {
-                egui::Color32::from_rgb(255, 200, 50) // Yellow
+                egui::Color32::from_rgb(70, 60, 15)
             } else {
-                egui::Color32::from_rgb(100, 100, 100) // Gray
+                egui::Color32::from_rgb(45, 45, 50)
             };
             
-            // Get category color for border
-            let category_color = match tech.category {
-                crate::research::types::TechCategory::Electronics => egui::Color32::from_rgb(100, 150, 255),
-                crate::research::types::TechCategory::Propulsion => egui::Color32::from_rgb(255, 150, 50),
-                crate::research::types::TechCategory::Energy => egui::Color32::from_rgb(255, 255, 50),
-                crate::research::types::TechCategory::Physics => egui::Color32::from_rgb(150, 100, 255),
-                crate::research::types::TechCategory::Military => egui::Color32::from_rgb(255, 50, 50),
-                crate::research::types::TechCategory::Weapons => egui::Color32::from_rgb(200, 50, 50),
-                crate::research::types::TechCategory::DefensiveSystems => egui::Color32::from_rgb(50, 150, 255),
-                crate::research::types::TechCategory::Materials => egui::Color32::from_rgb(150, 150, 50),
-                crate::research::types::TechCategory::Construction => egui::Color32::from_rgb(200, 150, 100),
-                crate::research::types::TechCategory::Biology => egui::Color32::from_rgb(50, 255, 150),
-                crate::research::types::TechCategory::Sensors => egui::Color32::from_rgb(100, 255, 255),
-                crate::research::types::TechCategory::SpaceTechnology => egui::Color32::from_rgb(150, 200, 255),
-                crate::research::types::TechCategory::Sociology => egui::Color32::from_rgb(255, 150, 200),
-                crate::research::types::TechCategory::LifeSupport => egui::Color32::from_rgb(100, 255, 100),
-                crate::research::types::TechCategory::Industry => egui::Color32::from_rgb(180, 180, 50),
-            };
+            let category_color = tech_category_color(tech.category);
             
-            // Calculate text size to make node fit the label
-            let text_size = 11.0 * zoom;
-            
-            // Calculate sizes for icon
-            let icon_available = icon_textures.contains_key(&tech.category);
-            let icon_size = if icon_available { 16.0 * zoom } else { 0.0 };
-            let icon_padding = if icon_available { 4.0 * zoom } else { 0.0 };
-
-            let galley = painter.layout_no_wrap(
-                tech.name.clone(),
-                egui::FontId::proportional(text_size),
-                egui::Color32::WHITE,
+            // Build node rect from center
+            let node_rect = egui::Rect::from_center_size(
+                egui::Pos2::new(center.x.round(), center.y.round()),
+                egui::Vec2::new(node_w, node_h),
             );
             
-            let text_width = galley.size().x;
-            let text_height = galley.size().y;
-            let padding = egui::Vec2::new(10.0 * zoom, 8.0 * zoom);
+            // --- paint background ---
+            let rounding = 4.0 * zoom;
+            painter.rect_filled(node_rect, rounding, node_color);
             
-            // Adjust node width to include icon
-            let mut node_width = text_width + padding.x * 2.0;
-            if icon_available {
-                node_width += icon_size + icon_padding;
-            }
-
-            let node_size = egui::Vec2::new(
-                node_width,
-                text_height + padding.y * 2.0,
-            ).max(egui::Vec2::new(80.0 * zoom, 30.0 * zoom));
-            
-            let node_rect = egui::Rect::from_center_size(*pos, node_size);
-            
-            // Use allocate_rect for interaction, but we must manually check if it's within the visible graph area 
-            // if we want to avoid interactions outside the clip rect, though allocate_rect usually handles this if nested.
-            // However, we are allocating "over" the background response. 
-            // The crucial fix for "clicking selects wrong path" might be here:
-            // If the node is outside the visible area, we shouldn't interact?
-            // Egui handles this, but let's make sure we are allocating in the right Ui.
-            // We use `ui.allocate_rect`.
-            
-            let node_response = ui.allocate_rect(node_rect, egui::Sense::click());
-            
-            // Draw node background
-            painter.rect_filled(node_rect, 5.0 * zoom, node_color);
-            
-            // Draw category-colored border
+            // Border — thicker if selected or in path
+            let border_w = if is_selected {
+                3.5 * zoom
+            } else if is_in_path {
+                2.5 * zoom
+            } else {
+                1.5 * zoom
+            };
             painter.rect_stroke(
                 node_rect,
-                5.0 * zoom,
-                egui::Stroke::new(2.5 * zoom, category_color),
+                rounding,
+                egui::Stroke::new(border_w, category_color),
             );
             
-            // Calculate content position (centered)
-            let content_width = text_width + if icon_available { icon_size + icon_padding } else { 0.0 };
-            let start_x = node_rect.center().x - content_width / 2.0;
-            
-            // Draw Icon
-            if icon_available {
-                if let Some(tex) = icon_textures.get(&tech.category) {
-                     let icon_rect = egui::Rect::from_min_size(
-                         egui::Pos2::new(start_x, node_rect.center().y - icon_size / 2.0),
-                         egui::Vec2::splat(icon_size)
-                     );
-                     
-                     // Helper to tint icon if needed (white on colored bg might be ok, or use black)
-                     // Using white tint for now.
-                     painter.image(
-                         *tex,
-                         icon_rect,
-                         egui::Rect::from_min_max(egui::Pos2::ZERO, egui::Pos2::new(1.0, 1.0)),
-                         egui::Color32::WHITE
-                     );
-                }
-            }
-            
-            // Draw text label
-            let text_color = if is_unlocked || can_research {
-                egui::Color32::BLACK
+            // --- row 1: icon + name (left-aligned) ---
+            let text_color = if is_in_path {
+                egui::Color32::WHITE
+            } else if is_unlocked {
+                egui::Color32::from_rgb(180, 255, 180)
+            } else if can_research {
+                egui::Color32::from_rgb(255, 240, 180)
             } else {
-                egui::Color32::from_rgb(200, 200, 200)
+                egui::Color32::from_rgb(170, 170, 175)
             };
             
-            let text_x = if icon_available { start_x + icon_size + icon_padding } else { start_x };
+            let row1_y = (node_rect.top() + v_pad + name_row_h / 2.0).round();
+            let content_x = (node_rect.left() + h_pad).round();
             
+            // Icon
+            if let Some(tex) = icon_textures.get(&tech.category) {
+                let ir = egui::Rect::from_min_size(
+                    egui::Pos2::new(content_x, (row1_y - icon_sz / 2.0).round()),
+                    egui::Vec2::splat(icon_sz),
+                );
+                painter.image(
+                    *tex,
+                    ir,
+                    egui::Rect::from_min_max(egui::Pos2::ZERO, egui::Pos2::new(1.0, 1.0)),
+                    category_color,
+                );
+            }
+            
+            // Name text
+            let name_x = (content_x + icon_sz + icon_pad).round();
             painter.text(
-                egui::Pos2::new(text_x + text_width / 2.0, node_rect.center().y),
-                egui::Align2::CENTER_CENTER,
+                egui::Pos2::new(name_x, row1_y),
+                egui::Align2::LEFT_CENTER,
                 &tech.name,
-                egui::FontId::proportional(text_size),
+                font_name.clone(),
                 text_color,
             );
             
-            // Handle click to select/deselect technology
-            if node_response.clicked() {
-                if selected_tech.as_ref() == Some(&tech.id) {
-                    selected_tech = None; // Deselect if already selected
-                } else {
-                    selected_tech = Some(tech.id.clone()); // Select this tech
+            // --- row 2: research cost (left-aligned, dimmer) ---
+            let row2_y = (node_rect.top() + v_pad + name_row_h + row_gap + cost_row_h / 2.0).round();
+            let cost_text = format!("{:.0} RP", tech.research_cost);
+            let cost_color = if is_unlocked {
+                egui::Color32::from_rgb(120, 200, 120)
+            } else {
+                egui::Color32::from_rgb(150, 180, 220)
+            };
+            painter.text(
+                egui::Pos2::new(name_x, row2_y),
+                egui::Align2::LEFT_CENTER,
+                &cost_text,
+                font_cost.clone(),
+                cost_color,
+            );
+            
+            // --- hit-test ---
+            if let Some(pp) = pointer_pos {
+                if node_rect.contains(pp) && canvas_rect.contains(pp) {
+                    hovered_tech_id = Some(tech.id.clone());
+                    hovered_rect = Some(node_rect);
+                    if pointer_clicked {
+                        clicked_tech_id = Some(tech.id.clone());
+                    }
                 }
             }
-            
-            // Show tooltip on hover with detailed info + start research button
-            node_response.on_hover_ui(|ui| {
-                    ui.set_max_width(350.0);
-                    ui.label(egui::RichText::new(&tech.name).strong().size(14.0));
-                    ui.horizontal(|ui| {
-                        if let Some(tex) = icon_textures.get(&tech.category) {
-                             ui.add(egui::Image::new(egui::load::SizedTexture::new(*tex, [16.0, 16.0])));
-                        } else {
-                             ui.label(tech.category.icon());
-                        }
-                        ui.label(tech.category.display_name());
-                    });
-                    ui.separator();
-                    ui.label(&tech.description);
-                    ui.add_space(5.0);
-                    ui.label(format!("Tier: {} | Cost: {:.0} RP", tech.tier, tech.research_cost));
-                    
-                    if !tech.prerequisites.is_empty() {
-                        ui.add_space(5.0);
-                        ui.label(egui::RichText::new("Prerequisites:").strong());
-                        for prereq_id in &tech.prerequisites {
-                            if let Some(prereq) = tech_data.get_tech(prereq_id) {
-                                let prereq_unlocked = research_state.is_unlocked(prereq_id);
-                                let color = if prereq_unlocked {
-                                    egui::Color32::from_rgb(100, 255, 100)
-                                } else {
-                                    egui::Color32::from_rgb(255, 100, 100)
-                                };
-                                ui.label(egui::RichText::new(format!("  • {}", prereq.name)).color(color));
-                            }
-                        }
-                    }
-                    
-                    if !tech.unlocks_components.is_empty() {
-                        ui.add_space(5.0);
-                        ui.label(egui::RichText::new("Unlocks Components:").strong());
-                        for comp_id in &tech.unlocks_components {
-                            if let Some(comp) = tech_data.get_component(comp_id) {
-                                ui.label(format!("  ⚙ {} ({:.0} EP)", comp.name, comp.engineering_cost));
-                            }
-                        }
-                    }
-                    
-                    if !tech.modifiers.is_empty() {
-                        ui.add_space(5.0);
-                        ui.label(egui::RichText::new("Provides Bonuses:").strong());
-                        for modifier in &tech.modifiers {
-                            ui.label(format!("  • {:?}: {:+.0}%", modifier.modifier_type, modifier.value));
-                        }
-                    }
-                    
-                    // Show start research button if available
-                    if can_research {
-                        ui.add_space(5.0);
-                        ui.separator();
-                        if ui.button("🔬 Start Research (Not Implemented)").clicked() {
-                            // Placeholder for future research start logic
-                        }
-                    }
-                });
-            }
+        }
     }
     
-    // Store selected tech state
+    // Handle click – toggle selection
+    if let Some(cid) = clicked_tech_id {
+        if selected_tech.as_ref() == Some(&cid) {
+            selected_tech = None;
+        } else {
+            selected_tech = Some(cid);
+        }
+    }
+    
+    // Show tooltip for hovered node
+    if let (Some(ref hid), Some(hr)) = (&hovered_tech_id, hovered_rect) {
+        if let Some(tech) = tech_data.technologies.get(hid) {
+            let is_unlocked = research_state.is_unlocked(&tech.id);
+            let can_research =
+                !is_unlocked && tech_data.check_prerequisites(&tech.id, &unlocked_ids);
+            egui::show_tooltip_at(ui.ctx(), ui.layer_id(), ui.id().with("tt_node"), hr.right_top(), |ui: &mut egui::Ui| {
+                ui.set_max_width(350.0);
+                ui.label(egui::RichText::new(&tech.name).strong().size(14.0));
+                ui.horizontal(|ui| {
+                    if let Some(tex) = icon_textures.get(&tech.category) {
+                        ui.add(egui::Image::new(egui::load::SizedTexture::new(
+                            *tex,
+                            [16.0, 16.0],
+                        )));
+                    } else {
+                        ui.label(tech.category.icon());
+                    }
+                    ui.label(
+                        egui::RichText::new(tech.category.display_name())
+                            .color(tech_category_color(tech.category)),
+                    );
+                });
+                ui.separator();
+                ui.label(&tech.description);
+                ui.add_space(5.0);
+                ui.label(format!(
+                    "Tier: {} | Cost: {:.0} RP",
+                    tech.tier, tech.research_cost
+                ));
+                if !tech.prerequisites.is_empty() {
+                    ui.add_space(5.0);
+                    ui.label(egui::RichText::new("Prerequisites:").strong());
+                    for prereq_id in &tech.prerequisites {
+                        if let Some(prereq) = tech_data.get_tech(prereq_id) {
+                            let c = if research_state.is_unlocked(prereq_id) {
+                                egui::Color32::from_rgb(100, 255, 100)
+                            } else {
+                                egui::Color32::from_rgb(255, 100, 100)
+                            };
+                            ui.label(
+                                egui::RichText::new(format!("  • {}", prereq.name)).color(c),
+                            );
+                        }
+                    }
+                }
+                if !tech.unlocks_components.is_empty() {
+                    ui.add_space(5.0);
+                    ui.label(egui::RichText::new("Unlocks Components:").strong());
+                    for comp_id in &tech.unlocks_components {
+                        if let Some(comp) = tech_data.get_component(comp_id) {
+                            ui.label(format!(
+                                "  ⚙ {} ({:.0} EP)",
+                                comp.name, comp.engineering_cost
+                            ));
+                        }
+                    }
+                }
+                if !tech.modifiers.is_empty() {
+                    ui.add_space(5.0);
+                    ui.label(egui::RichText::new("Provides Bonuses:").strong());
+                    for modifier in &tech.modifiers {
+                        ui.label(format!(
+                            "  • {:?}: {:+.0}%",
+                            modifier.modifier_type, modifier.value
+                        ));
+                    }
+                }
+                if can_research {
+                    ui.add_space(5.0);
+                    ui.separator();
+                    if ui.button("🔬 Start Research (Not Implemented)").clicked() {}
+                }
+            });
+        }
+    }
+    
+    // Persist selection
     ui.data_mut(|data| {
         if let Some(ref sel) = selected_tech {
-            data.insert_persisted(selected_id, sel.clone());
+            data.insert_persisted(sel_persist_id, sel.clone());
         } else {
-            data.remove::<String>(selected_id);
+            data.remove::<String>(sel_persist_id);
         }
     });
     
-    // Draw legend and info in the reserved footer area
-    ui.allocate_ui_at_rect(footer_rect, |ui| {
-        ui.separator();
+    // ---------- status bar ----------
+    let status_rect = egui::Rect::from_min_max(
+        egui::Pos2::new(avail.min.x, avail.max.y - status_height),
+        avail.max,
+    );
+    ui.allocate_ui_at_rect(status_rect, |ui| {
         ui.horizontal(|ui| {
             ui.label("Status:");
             ui.colored_label(egui::Color32::from_rgb(50, 200, 50), "● Unlocked");
             ui.colored_label(egui::Color32::from_rgb(255, 200, 50), "● Available");
             ui.colored_label(egui::Color32::from_rgb(100, 100, 100), "● Locked");
             ui.label(format!("| Zoom: {:.1}x", zoom));
-            
             ui.separator();
-            
             if let Some(ref sel_id) = selected_tech {
                 if let Some(sel_tech) = tech_data.technologies.get(sel_id) {
                     ui.label(egui::RichText::new("Selected:").strong());
                     ui.label(&sel_tech.name);
-                    ui.label(format!("({} prerequisites highlighted)", path_techs.len().saturating_sub(1)));
+                    ui.label(format!(
+                        "({} prerequisites highlighted)",
+                        path_techs.len().saturating_sub(1)
+                    ));
                 }
             } else {
-                ui.label(egui::RichText::new("Click a technology to select and highlight its prerequisite path").italics());
+                ui.label(
+                    egui::RichText::new("Click a technology to highlight its prerequisite path")
+                        .italics(),
+                );
             }
         });
     });
+}
+
+/// Get the unique category color for a TechCategory
+fn tech_category_color(cat: TechCategory) -> egui::Color32 {
+    match cat {
+        TechCategory::Electronics => egui::Color32::from_rgb(100, 150, 255),
+        TechCategory::Propulsion => egui::Color32::from_rgb(255, 150, 50),
+        TechCategory::Energy => egui::Color32::from_rgb(255, 255, 50),
+        TechCategory::Physics => egui::Color32::from_rgb(150, 100, 255),
+        TechCategory::Military => egui::Color32::from_rgb(255, 50, 50),
+        TechCategory::Weapons => egui::Color32::from_rgb(200, 50, 50),
+        TechCategory::DefensiveSystems => egui::Color32::from_rgb(50, 150, 255),
+        TechCategory::Materials => egui::Color32::from_rgb(150, 150, 50),
+        TechCategory::Construction => egui::Color32::from_rgb(200, 150, 100),
+        TechCategory::Biology => egui::Color32::from_rgb(50, 255, 150),
+        TechCategory::Sensors => egui::Color32::from_rgb(100, 255, 255),
+        TechCategory::SpaceTechnology => egui::Color32::from_rgb(150, 200, 255),
+        TechCategory::Sociology => egui::Color32::from_rgb(255, 150, 200),
+        TechCategory::LifeSupport => egui::Color32::from_rgb(100, 255, 100),
+        TechCategory::Industry => egui::Color32::from_rgb(180, 180, 50),
+    }
 }
 
 /// Render the Available Research tab
@@ -3205,16 +3219,17 @@ fn render_available_research_tab(
             for tech in available_techs {
                 ui.group(|ui| {
                     ui.horizontal(|ui| {
+                        let cat_color = tech_category_color(tech.category);
                         ui.label(egui::RichText::new("⏳").color(egui::Color32::from_rgb(255, 255, 100)));
                         ui.label(egui::RichText::new(&tech.name).strong().size(14.0));
                         if let Some(tex) = icon_textures.get(&tech.category) {
-                             // Larger icon for better visibility (24x24)
-                             ui.add(egui::Image::new(egui::load::SizedTexture::new(*tex, [24.0, 24.0])));
-                             ui.label(egui::RichText::new(tech.category.display_name()).size(14.0).color(egui::Color32::GRAY));
+                             ui.add(egui::Image::new(egui::load::SizedTexture::new(*tex, [24.0, 24.0]))
+                                 .tint(cat_color));
+                             ui.label(egui::RichText::new(tech.category.display_name()).size(14.0).color(cat_color));
                         } else {
                             ui.label(egui::RichText::new(format!("{} {}", tech.category.icon(), tech.category.display_name()))
                                 .size(14.0)
-                                .color(egui::Color32::GRAY));
+                                .color(cat_color));
                         }
                     });
                     
@@ -3257,6 +3272,7 @@ fn render_available_engineering_tab(
     ui: &mut egui::Ui,
     research_state: &ResearchState,
     tech_data: &TechnologiesData,
+    icon_textures: &HashMap<TechCategory, egui::TextureId>,
 ) {
     ui.heading("Available Engineering Projects");
     ui.label("Component designs ready for engineering");
@@ -3285,9 +3301,22 @@ fn render_available_engineering_tab(
             
             for component in available_components {
                 ui.group(|ui| {
+                    // Look up parent tech to get category info
+                    let parent_tech = tech_data.get_tech(&component.required_tech);
+                    let cat_color = parent_tech
+                        .map(|t| tech_category_color(t.category))
+                        .unwrap_or(egui::Color32::from_rgb(200, 200, 100));
+
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("⚙").color(egui::Color32::from_rgb(200, 200, 100)));
+                        ui.label(egui::RichText::new("⚙").color(cat_color));
                         ui.label(egui::RichText::new(&component.name).strong().size(14.0));
+                        if let Some(tech) = parent_tech {
+                            if let Some(tex) = icon_textures.get(&tech.category) {
+                                ui.add(egui::Image::new(egui::load::SizedTexture::new(*tex, [20.0, 20.0]))
+                                    .tint(cat_color));
+                            }
+                            ui.label(egui::RichText::new(tech.category.display_name()).size(12.0).color(cat_color));
+                        }
                     });
                     
                     ui.label(&component.description);
