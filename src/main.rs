@@ -7,11 +7,13 @@ pub mod economy;
 pub mod game_state;
 pub mod plugins;
 pub mod render;
+pub mod research;
 pub mod ui;
 
 use astronomy::AstronomyPlugin;
 use economy::EconomyPlugin;
 use game_state::GameStatePlugin;
+use research::ResearchPlugin;
 use plugins::{
     camera::CameraPlugin, solar_system::SolarSystemPlugin, starmap::StarmapPlugin,
     system_populator::SystemPopulatorPlugin, visual_effects::VisualEffectsPlugin,
@@ -41,6 +43,7 @@ fn main() {
         .add_plugins(SolarSystemPlugin)
         .add_plugins(StarmapPlugin)
         .add_plugins(EconomyPlugin)
+        .add_plugins(ResearchPlugin)
         .add_plugins(SystemPopulatorPlugin)
         .add_plugins(UIPlugin)
         // Systems

@@ -5,6 +5,37 @@ use std::collections::HashMap;
 use super::types::ResourceType;
 use crate::economy::{PowerGenerator, PowerSourceType};
 
+/// Tracks per-month income/production rates for all resources
+/// and research/engineering points for display in the resource bar.
+///
+/// Rates are stored as "amount per 30-day month" (2,592,000 seconds).
+#[derive(Resource, Debug, Clone, Default)]
+pub struct ResourceRateTracker {
+    /// Monthly production rate per resource type (Mt/month)
+    pub resource_rates: HashMap<ResourceType, f64>,
+    /// Monthly research point generation
+    pub research_rate_per_month: f64,
+    /// Monthly engineering point generation
+    pub engineering_rate_per_month: f64,
+}
+
+/// Seconds in one 30-day month (30 × 86400)
+pub const SECONDS_PER_MONTH: f64 = 2_592_000.0;
+/// Seconds in one year (365.25 × 86400)
+pub const SECONDS_PER_YEAR: f64 = 31_557_600.0;
+
+impl ResourceRateTracker {
+    /// Get the monthly rate for a resource type
+    pub fn get_resource_rate(&self, resource: &ResourceType) -> f64 {
+        self.resource_rates.get(resource).copied().unwrap_or(0.0)
+    }
+
+    /// Get the total monthly rate for a category of resources
+    pub fn get_category_rate(&self, resources: &[ResourceType]) -> f64 {
+        resources.iter().map(|r| self.get_resource_rate(r)).sum()
+    }
+}
+
 /// Global economic budget and resource management
 /// Tracks civilization-wide stockpiles and power generation
 #[derive(Resource, Debug, Clone, Serialize, Deserialize)]

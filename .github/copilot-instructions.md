@@ -129,6 +129,22 @@ cargo clippy             # Linting
 - Define custom event types as needed
 - Use `EventReader<T>` and `EventWriter<T>` in systems
 
+## UI & Asset Guidelines
+
+### Icon Processing
+When adding new UI icons (menus, research categories, etc.), applying the following post-processing ensures consistent styling and themeability:
+
+1.  **Format**: Load icons as standard images (e.g. PNG).
+2.  **Processing Logic**:
+    - Treat input as **dark lines on a white background**.
+    - **Alpha Channel**: Calculate alpha from inverted luminance (`alpha = (1.0 - luminance).powf(3.0)`). This makes white backgrounds transparent and dark lines opaque.
+    - **Color Channels**: Set all RGB pixels to **pure white** (`255, 255, 255`).
+3.  **Runtime Tinting**: Since icons are pure white, they can be tinted to any color using `egui` (e.g., `ui.add(egui::Image::new(...).tint(color))`).
+
+### Egui Integration
+- Use `egui::load::SizedTexture` when adding images to `ui.add()` to ensure explicit control over size.
+- Example: `ui.add(egui::Image::new(egui::load::SizedTexture::new(texture_id, [width, height])))`.
+
 ## Domain-Specific Knowledge
 
 ### Celestial Bodies

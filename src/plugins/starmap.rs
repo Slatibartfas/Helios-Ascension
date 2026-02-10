@@ -24,6 +24,7 @@ use crate::astronomy::components::{
 };
 use crate::astronomy::nearby_stars::NearbyStarsData;
 use crate::astronomy::SCALING_FACTOR;
+use crate::game_state::{ActiveMenu, GameMenu};
 use rand::prelude::*;
 use std::f64::consts::PI;
 
@@ -1072,9 +1073,18 @@ fn update_starmap_coordinates(
 fn update_starmap_visibility(
     view_mode: Res<ViewMode>,
     current_system: Res<CurrentStarSystem>,
+    active_menu: Res<ActiveMenu>,
     mut icon_query: Query<(&mut Visibility, &StarSystemIcon)>,
 ) {
-    if !view_mode.is_changed() && !current_system.is_changed() {
+    if !view_mode.is_changed() && !current_system.is_changed() && !active_menu.is_changed() {
+        return;
+    }
+
+    // Hide everything when in Research view
+    if active_menu.current == GameMenu::Research {
+        for (mut vis, _) in icon_query.iter_mut() {
+            *vis = Visibility::Hidden;
+        }
         return;
     }
 

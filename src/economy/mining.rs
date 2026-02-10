@@ -1,4 +1,4 @@
-use crate::economy::budget::GlobalBudget;
+use crate::economy::budget::{GlobalBudget, ResourceRateTracker, SECONDS_PER_MONTH, SECONDS_PER_YEAR};
 use crate::economy::components::PlanetResources;
 use crate::economy::types::ResourceType;
 use crate::plugins::solar_system::CelestialBody;
@@ -85,4 +85,45 @@ pub fn extract_resources(
             }
         }
     }
+}
+
+/// System that computes monthly production rates for all resources and
+/// research/engineering points, writing them into [`ResourceRateTracker`].
+///
+/// This is purely informational – it does not move any resources.
+pub fn update_resource_rates(
+    mut tracker: ResMut<ResourceRateTracker>,
+    mining_ops: Query<&MiningOperation>,
+    research_buildings: Query<&crate::research::components::ResearchBuilding>,
+    engineering_facilities: Query<&crate::research::components::EngineeringFacility>,
+    research_state: Res<crate::research::ResearchState>,
+) {
+    // --- Resource rates from mining ---
+    let mut rates = std::collections::HashMap::new();
+    for op in mining_ops.iter() {
+        if !op.active {
+            continue;
+        }
+        // base_rate_mt_per_year → per month = rate * (month / year)
+        let monthly = op.base_rate_mt_per_year * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
+        *rates.entry(op.resource_type).or_insert(0.0) += monthly;
+    }
+    tracker.resource_rates = rates;
+
+    // --- Research point rate ---
+    let research_per_second: f64 = research_buildings
+        .iter()
+        .map(|b| b.points_per_second)
+        .sum();
+    let research_multiplier = research_state.research_speed_multiplier();
+    tracker.research_rate_per_month = research_per_second * SECONDS_PER_MONTH * research_multiplier;
+
+    // --- Engineering point rate ---
+    let engineering_per_second: f64 = engineering_facilities
+        .iter()
+        .map(|f| f.points_per_second)
+        .sum();
+    let engineering_multiplier = research_state.engineering_speed_multiplier();
+    tracker.engineering_rate_per_month =
+        engineering_per_second * SECONDS_PER_MONTH * engineering_multiplier;
 }
