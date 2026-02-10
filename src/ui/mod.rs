@@ -32,7 +32,7 @@ use crate::plugins::solar_system_data::BodyType;
 use crate::plugins::starmap::{HoveredStarSystem, SelectedStarSystem, StarSystemIcon};
 use crate::research::{
     EngineeringProject, ResearchProject, ResearchState, ResearchTeam, TechnologiesData,
-    TechCategory,
+    TechCategory, TechTreeEditState, TechEditData, ContextMenuState,
 };
 
 /// Maximum time scale: 1 year per second (365.25 * 86400 ≈ 31,557,600)
@@ -2417,8 +2417,9 @@ fn ui_research_panels(
     mut contexts: EguiContexts,
     active_menu: Res<ActiveMenu>,
     research_state: Res<ResearchState>,
-    tech_data: Res<TechnologiesData>,
+    mut tech_data: ResMut<TechnologiesData>,
     mut debug_settings: ResMut<crate::research::ResearchDebugSettings>,
+    mut edit_state: ResMut<TechTreeEditState>,
     research_icons: Option<Res<ResearchIcons>>,
     mut icon_textures: Local<HashMap<TechCategory, egui::TextureId>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
@@ -2589,7 +2590,7 @@ fn ui_research_panels(
         // Tab content
         match *selected_tab {
             0 => render_overview_tab(ui, &research_state, &tech_data, &research_projects, &engineering_projects, &all_teams),
-            1 => render_tech_tree_tab(ui, &research_state, &tech_data, icon_textures),
+            1 => render_tech_tree_tab(ui, &research_state, &mut tech_data, icon_textures, debug_settings.enabled, &mut edit_state),
             2 => render_available_research_tab(ui, &research_state, &tech_data, icon_textures),
             3 => render_available_engineering_tab(ui, &research_state, &tech_data, icon_textures),
             4 => render_archive_tab(ui, &research_state, &tech_data, icon_textures),
@@ -2737,8 +2738,10 @@ fn render_overview_tab(
 fn render_tech_tree_tab(
     ui: &mut egui::Ui,
     research_state: &ResearchState,
-    tech_data: &TechnologiesData,
+    tech_data: &mut TechnologiesData,
     icon_textures: &HashMap<TechCategory, egui::TextureId>,
+    debug_enabled: bool,
+    edit_state: &mut TechTreeEditState,
 ) {
     ui.heading("Technology Tree - Graph View");
     ui.label("Pan: Middle/Right mouse drag | Zoom: Mouse wheel | Click: Select tech & highlight path");
