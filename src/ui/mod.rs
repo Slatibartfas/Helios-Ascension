@@ -2744,7 +2744,14 @@ fn render_tech_tree_tab(
     edit_state: &mut TechTreeEditState,
 ) {
     ui.heading("Technology Tree - Graph View");
-    ui.label("Pan: Middle/Right mouse drag | Zoom: Mouse wheel | Click: Select tech & highlight path");
+    ui.label("Pan: Middle mouse drag | Zoom: Mouse wheel | Click: Select tech & highlight path");
+    if debug_enabled {
+        ui.label(
+            egui::RichText::new("Right-click: Edit/delete node | Right-click empty space: Add new tech")
+                .small()
+                .color(egui::Color32::from_rgb(255, 200, 100)),
+        );
+    }
     ui.separator();
     
     // Local state for pan, zoom, and selected tech (using unique ID for persistence)
@@ -2795,10 +2802,8 @@ fn render_tech_tree_tab(
             zoom = (zoom + scroll_delta * 0.001).clamp(0.3, 3.0);
         }
     }
-    // Pan
-    if response.dragged_by(egui::PointerButton::Middle)
-        || response.dragged_by(egui::PointerButton::Secondary)
-    {
+    // Pan (only middle-click now; right-click is for context menu)
+    if response.dragged_by(egui::PointerButton::Middle) {
         pan_offset += response.drag_delta();
     }
     
@@ -2923,8 +2928,10 @@ fn render_tech_tree_tab(
     // Instead we paint directly and do manual hit-testing against the pointer.
     let pointer_pos = ui.input(|i| i.pointer.interact_pos());
     let pointer_clicked = response.clicked();
+    let pointer_right_clicked = response.clicked_by(egui::PointerButton::Secondary);
     let mut hovered_tech_id: Option<String> = None;
     let mut clicked_tech_id: Option<String> = None;
+    let mut right_clicked_tech_id: Option<String> = None;
     // We need to collect hovered rect for tooltip
     let mut hovered_rect: Option<egui::Rect> = None;
     
@@ -3043,6 +3050,9 @@ fn render_tech_tree_tab(
                     if pointer_clicked {
                         clicked_tech_id = Some(tech.id.clone());
                     }
+                    if pointer_right_clicked {
+                        right_clicked_tech_id = Some(tech.id.clone());
+                    }
                 }
             }
         }
@@ -3055,6 +3065,134 @@ fn render_tech_tree_tab(
         } else {
             selected_tech = Some(cid);
         }
+    }
+
+    // Handle right-click – open context menu (debug mode only)
+    if debug_enabled && pointer_right_clicked {
+        if let Some(pp) = pointer_pos {
+            if canvas_rect.contains(pp) {
+                edit_state.context_menu = Some(ContextMenuState {
+                    pos: (pp.x, pp.y),
+                    tech_id: right_clicked_tech_id.clone(),
+                });
+            }
+        }
+    }
+
+    // ---------- Debug context menu ----------
+    if debug_enabled {
+        let mut close_menu = false;
+        if let Some(ref ctx_menu) = edit_state.context_menu.clone() {
+            let menu_pos = egui::Pos2::new(ctx_menu.pos.0, ctx_menu.pos.1);
+            egui::Area::new(ui.id().with("tech_ctx_menu"))
+                .fixed_pos(menu_pos)
+                .order(egui::Order::Foreground)
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::menu(ui.style())
+                        .inner_margin(4.0)
+                        .show(ui, |ui| {
+                            ui.set_min_width(160.0);
+                            if let Some(ref tid) = ctx_menu.tech_id {
+                                // Right-clicked on a node
+                                ui.label(egui::RichText::new(format!("Tech: {}", tid)).strong().small());
+                                ui.separator();
+                                if ui.button("✏ Edit Technology").clicked() {
+                                    if let Some(tech) = tech_data.technologies.get(tid) {
+                                        edit_state.editing = Some(TechEditData::from_tech(tech));
+                                    }
+                                    close_menu = true;
+                                }
+                                if ui.button("🗑 Delete Technology").clicked() {
+                                    edit_state.delete_confirm = Some(tid.clone());
+                                    close_menu = true;
+                                }
+                            } else {
+                                // Right-clicked on empty space
+                                ui.label(egui::RichText::new("Tech Tree").strong().small());
+                                ui.separator();
+                                if ui.button("➕ Add New Technology").clicked() {
+                                    edit_state.adding = Some(TechEditData::new_blank());
+                                    close_menu = true;
+                                }
+                            }
+                            if ui.button("✖ Close").clicked() {
+                                close_menu = true;
+                            }
+                        });
+                });
+
+            // Close menu if clicked elsewhere
+            let any_click = ui.input(|i| {
+                i.pointer.any_pressed()
+            });
+            if any_click && !close_menu {
+                // Check if the click was outside the menu area (approximate)
+                if let Some(pp) = pointer_pos {
+                    let menu_rect = egui::Rect::from_min_size(menu_pos, egui::Vec2::new(170.0, 100.0));
+                    if !menu_rect.contains(pp) {
+                        close_menu = true;
+                    }
+                }
+            }
+        }
+        if close_menu {
+            edit_state.context_menu = None;
+        }
+
+        // ---------- Delete confirmation dialog ----------
+        let mut do_delete: Option<String> = None;
+        let mut cancel_delete = false;
+        if let Some(ref del_id) = edit_state.delete_confirm.clone() {
+            let tech_name = tech_data
+                .technologies
+                .get(del_id)
+                .map(|t| t.name.clone())
+                .unwrap_or_else(|| del_id.clone());
+            egui::Window::new("Confirm Delete")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ui.ctx(), |ui| {
+                    ui.label(format!("Delete technology \"{}\" ({})?", tech_name, del_id));
+                    ui.label(
+                        egui::RichText::new("This will also remove it from all prerequisite lists.")
+                            .small()
+                            .color(egui::Color32::YELLOW),
+                    );
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("🗑 Delete").clicked() {
+                            do_delete = Some(del_id.clone());
+                        }
+                        if ui.button("Cancel").clicked() {
+                            cancel_delete = true;
+                        }
+                    });
+                });
+        }
+        if cancel_delete {
+            edit_state.delete_confirm = None;
+        }
+        if let Some(del_id) = do_delete {
+            // Remove the technology
+            tech_data.technologies.remove(&del_id);
+            // Remove from all prerequisite lists
+            for (_, tech) in tech_data.technologies.iter_mut() {
+                tech.prerequisites.retain(|p| p != &del_id);
+            }
+            // Clear selection if it was the deleted tech
+            if selected_tech.as_ref() == Some(&del_id) {
+                selected_tech = None;
+            }
+            edit_state.delete_confirm = None;
+            save_technologies_to_file(tech_data);
+        }
+
+        // ---------- Edit Technology dialog ----------
+        render_tech_edit_dialog(ui, tech_data, edit_state, false);
+
+        // ---------- Add Technology dialog ----------
+        render_tech_edit_dialog(ui, tech_data, edit_state, true);
     }
     
     // Show tooltip for hovered node
@@ -3155,6 +3293,13 @@ fn render_tech_tree_tab(
             ui.colored_label(egui::Color32::from_rgb(255, 200, 50), "● Available");
             ui.colored_label(egui::Color32::from_rgb(100, 100, 100), "● Locked");
             ui.label(format!("| Zoom: {:.1}x", zoom));
+            if debug_enabled {
+                ui.separator();
+                ui.colored_label(
+                    egui::Color32::from_rgb(255, 100, 100),
+                    "Right-click: edit/add techs",
+                );
+            }
             ui.separator();
             if let Some(ref sel_id) = selected_tech {
                 if let Some(sel_tech) = tech_data.technologies.get(sel_id) {
@@ -3173,6 +3318,303 @@ fn render_tech_tree_tab(
             }
         });
     });
+}
+
+/// Render the edit/add technology dialog window
+fn render_tech_edit_dialog(
+    ui: &mut egui::Ui,
+    tech_data: &mut TechnologiesData,
+    edit_state: &mut TechTreeEditState,
+    is_add: bool,
+) {
+    let data_opt = if is_add {
+        &mut edit_state.adding
+    } else {
+        &mut edit_state.editing
+    };
+
+    let title = if is_add {
+        "Add New Technology"
+    } else {
+        "Edit Technology"
+    };
+
+    let mut should_save = false;
+    let mut should_close = false;
+
+    if let Some(ref mut edit_data) = data_opt {
+        let mut open = true;
+        egui::Window::new(title)
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(true)
+            .default_width(450.0)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ui.ctx(), |ui| {
+                egui::ScrollArea::vertical()
+                    .max_height(500.0)
+                    .show(ui, |ui| {
+                        egui::Grid::new("tech_edit_grid")
+                            .num_columns(2)
+                            .spacing([10.0, 6.0])
+                            .striped(true)
+                            .show(ui, |ui| {
+                                // ID
+                                ui.label("ID:");
+                                if is_add {
+                                    ui.text_edit_singleline(&mut edit_data.id);
+                                } else {
+                                    ui.label(
+                                        egui::RichText::new(&edit_data.id)
+                                            .monospace()
+                                            .color(egui::Color32::GRAY),
+                                    );
+                                }
+                                ui.end_row();
+
+                                // Name
+                                ui.label("Name:");
+                                ui.text_edit_singleline(&mut edit_data.name);
+                                ui.end_row();
+
+                                // Category
+                                ui.label("Category:");
+                                let categories = TechCategory::all();
+                                egui::ComboBox::from_id_source("tech_edit_cat")
+                                    .selected_text(
+                                        categories
+                                            .get(edit_data.category_index)
+                                            .map(|c| c.display_name())
+                                            .unwrap_or("Unknown"),
+                                    )
+                                    .show_ui(ui, |ui| {
+                                        for (i, cat) in categories.iter().enumerate() {
+                                            ui.selectable_value(
+                                                &mut edit_data.category_index,
+                                                i,
+                                                cat.display_name(),
+                                            );
+                                        }
+                                    });
+                                ui.end_row();
+
+                                // Description
+                                ui.label("Description:");
+                                ui.text_edit_multiline(&mut edit_data.description);
+                                ui.end_row();
+
+                                // Research Cost
+                                ui.label("Research Cost:");
+                                ui.text_edit_singleline(&mut edit_data.research_cost);
+                                ui.end_row();
+
+                                // Tier
+                                ui.label("Tier:");
+                                ui.text_edit_singleline(&mut edit_data.tier);
+                                ui.end_row();
+                            });
+
+                        ui.add_space(10.0);
+
+                        // Prerequisites section
+                        ui.label(egui::RichText::new("Prerequisites:").strong());
+                        ui.group(|ui| {
+                            let mut remove_idx: Option<usize> = None;
+                            for (i, prereq) in edit_data.prerequisites.iter().enumerate() {
+                                ui.horizontal(|ui| {
+                                    let exists = tech_data.technologies.contains_key(prereq);
+                                    let color = if exists {
+                                        egui::Color32::from_rgb(100, 255, 100)
+                                    } else {
+                                        egui::Color32::from_rgb(255, 100, 100)
+                                    };
+                                    ui.colored_label(color, prereq);
+                                    if ui.small_button("✖").clicked() {
+                                        remove_idx = Some(i);
+                                    }
+                                });
+                            }
+                            if let Some(idx) = remove_idx {
+                                edit_data.prerequisites.remove(idx);
+                            }
+
+                            // Add prerequisite
+                            ui.horizontal(|ui| {
+                                egui::ComboBox::from_id_source("add_prereq_combo")
+                                    .selected_text(if edit_data.new_prereq.is_empty() {
+                                        "Select prerequisite..."
+                                    } else {
+                                        &edit_data.new_prereq
+                                    })
+                                    .show_ui(ui, |ui| {
+                                        let mut sorted_ids: Vec<_> = tech_data
+                                            .technologies
+                                            .keys()
+                                            .filter(|id| {
+                                                !edit_data.prerequisites.contains(id)
+                                                    && **id != edit_data.id
+                                            })
+                                            .cloned()
+                                            .collect();
+                                        sorted_ids.sort();
+                                        for tid in sorted_ids {
+                                            let label = tech_data
+                                                .technologies
+                                                .get(&tid)
+                                                .map(|t| format!("{} ({})", t.name, tid))
+                                                .unwrap_or_else(|| tid.clone());
+                                            ui.selectable_value(
+                                                &mut edit_data.new_prereq,
+                                                tid,
+                                                label,
+                                            );
+                                        }
+                                    });
+                                if ui.button("➕ Add").clicked()
+                                    && !edit_data.new_prereq.is_empty()
+                                {
+                                    edit_data.prerequisites.push(edit_data.new_prereq.clone());
+                                    edit_data.new_prereq.clear();
+                                }
+                            });
+                        });
+
+                        ui.add_space(10.0);
+
+                        // Validation
+                        let mut errors: Vec<String> = Vec::new();
+                        if edit_data.id.is_empty() {
+                            errors.push("ID is required".to_string());
+                        }
+                        if edit_data.name.is_empty() {
+                            errors.push("Name is required".to_string());
+                        }
+                        if edit_data.research_cost.parse::<f64>().is_err() {
+                            errors.push("Research cost must be a number".to_string());
+                        }
+                        if edit_data.tier.parse::<u32>().is_err() {
+                            errors.push("Tier must be a positive integer".to_string());
+                        }
+                        if is_add && tech_data.technologies.contains_key(&edit_data.id) {
+                            errors.push(format!("ID '{}' already exists", edit_data.id));
+                        }
+
+                        if !errors.is_empty() {
+                            for err in &errors {
+                                ui.colored_label(egui::Color32::from_rgb(255, 100, 100), err);
+                            }
+                        }
+
+                        ui.add_space(5.0);
+                        ui.horizontal(|ui| {
+                            let can_save = errors.is_empty();
+                            if ui
+                                .add_enabled(can_save, egui::Button::new("💾 Save"))
+                                .clicked()
+                            {
+                                should_save = true;
+                            }
+                            if ui.button("Cancel").clicked() {
+                                should_close = true;
+                            }
+                        });
+                    });
+            });
+        if !open {
+            should_close = true;
+        }
+    }
+
+    // Apply save outside borrow scope
+    if should_save {
+        let data_opt = if is_add {
+            &mut edit_state.adding
+        } else {
+            &mut edit_state.editing
+        };
+
+        if let Some(edit_data) = data_opt.take() {
+            let categories = TechCategory::all();
+            let category = categories
+                .get(edit_data.category_index)
+                .copied()
+                .unwrap_or(TechCategory::Physics);
+            let research_cost = edit_data.research_cost.parse::<f64>().unwrap_or(1000.0);
+            let tier = edit_data.tier.parse::<u32>().unwrap_or(1);
+
+            if !is_add {
+                // Editing existing tech — update in place, preserving unlocks/modifiers
+                if let Some(tech) = tech_data.technologies.get_mut(&edit_data.original_id) {
+                    tech.name = edit_data.name;
+                    tech.category = category;
+                    tech.description = edit_data.description;
+                    tech.research_cost = research_cost;
+                    tech.tier = tier;
+                    tech.prerequisites = edit_data.prerequisites;
+                }
+            } else {
+                // Adding new tech
+                let new_tech = crate::research::types::Technology {
+                    id: edit_data.id.clone(),
+                    name: edit_data.name,
+                    category,
+                    description: edit_data.description,
+                    research_cost,
+                    prerequisites: edit_data.prerequisites,
+                    unlocks_components: Vec::new(),
+                    unlocks_engineering: Vec::new(),
+                    modifiers: Vec::new(),
+                    tier,
+                };
+                tech_data.technologies.insert(edit_data.id, new_tech);
+            }
+            save_technologies_to_file(tech_data);
+        }
+    } else if should_close {
+        if is_add {
+            edit_state.adding = None;
+        } else {
+            edit_state.editing = None;
+        }
+    }
+}
+
+/// Save the current technologies data back to the RON file
+fn save_technologies_to_file(tech_data: &TechnologiesData) {
+    use serde::Serialize;
+
+    #[derive(Serialize)]
+    struct TechnologiesFile {
+        technologies: Vec<crate::research::types::Technology>,
+        components: Vec<crate::research::types::ComponentDefinition>,
+    }
+
+    let mut techs: Vec<_> = tech_data.technologies.values().cloned().collect();
+    techs.sort_by(|a, b| a.tier.cmp(&b.tier).then_with(|| a.category.cmp(&b.category).then_with(|| a.name.cmp(&b.name))));
+
+    let mut comps: Vec<_> = tech_data.components.values().cloned().collect();
+    comps.sort_by(|a, b| a.id.cmp(&b.id));
+
+    let file_data = TechnologiesFile {
+        technologies: techs,
+        components: comps,
+    };
+
+    let pretty_config = ron::ser::PrettyConfig::new()
+        .depth_limit(4)
+        .struct_names(false)
+        .enumerate_arrays(false);
+
+    match ron::ser::to_string_pretty(&file_data, pretty_config) {
+        Ok(contents) => {
+            let path = "assets/data/technologies.ron";
+            match std::fs::write(path, &contents) {
+                Ok(()) => info!("Saved technologies to {}", path),
+                Err(e) => error!("Failed to write technologies file: {}", e),
+            }
+        }
+        Err(e) => error!("Failed to serialize technologies: {}", e),
+    }
 }
 
 /// Get the unique category color for a TechCategory
