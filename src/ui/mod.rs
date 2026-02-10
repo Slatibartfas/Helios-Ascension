@@ -25,6 +25,7 @@ use crate::economy::components::{Population, SurveyLevel};
 use crate::economy::{
     format_power, GlobalBudget, PlanetResources, PowerSourceType, ResourceType,
 };
+use crate::game_state::{ActiveMenu, GameMenu};
 use crate::plugins::camera::{CameraAnchor, GameCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, LogicalParent};
 use crate::plugins::solar_system_data::BodyType;
@@ -36,111 +37,6 @@ use crate::research::{
 
 /// Maximum time scale: 1 year per second (365.25 * 86400 ≈ 31,557,600)
 const MAX_TIME_SCALE: f32 = 31_557_600.0;
-
-/// Game menu categories
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
-pub enum GameMenu {
-    /// Survey and celestial bodies
-    #[default]
-    Survey,
-    /// Starmap view
-    Starmap,
-    /// Main menu (quit/load/save/options)
-    Main,
-    /// Construction management
-    Construction,
-    /// Research tree
-    Research,
-    /// Fleet management
-    Fleets,
-    /// Shipbuilding
-    Shipbuilding,
-    /// Economy and private sector
-    Economy,
-    /// Officers and managers
-    Personnel,
-    /// Enemy intelligence
-    Intel,
-    /// Diplomacy
-    Diplomacy,
-}
-
-impl GameMenu {
-    /// Get the pictogram/icon for this menu
-    pub fn icon(&self) -> &'static str {
-        match self {
-            GameMenu::Survey => "🔭",
-            GameMenu::Starmap => "🗺",
-            GameMenu::Main => "⚙",
-            GameMenu::Construction => "🏗",
-            GameMenu::Research => "🔬",
-            GameMenu::Fleets => "🚀",
-            GameMenu::Shipbuilding => "⚓",
-            GameMenu::Economy => "💰",
-            GameMenu::Personnel => "👤",
-            GameMenu::Intel => "🔍",
-            GameMenu::Diplomacy => "🤝",
-        }
-    }
-
-    /// Get the display name for this menu
-    pub fn name(&self) -> &'static str {
-        match self {
-            GameMenu::Survey => "Survey",
-            GameMenu::Starmap => "Starmap",
-            GameMenu::Main => "Menu",
-            GameMenu::Construction => "Construction",
-            GameMenu::Research => "Research",
-            GameMenu::Fleets => "Fleets",
-            GameMenu::Shipbuilding => "Shipbuilding",
-            GameMenu::Economy => "Economy",
-            GameMenu::Personnel => "Personnel",
-            GameMenu::Intel => "Intel",
-            GameMenu::Diplomacy => "Diplomacy",
-        }
-    }
-
-    /// Get all menu items in order
-    pub fn all() -> &'static [GameMenu] {
-        &[
-            GameMenu::Survey,
-            GameMenu::Starmap,
-            GameMenu::Main,
-            GameMenu::Construction,
-            GameMenu::Research,
-            GameMenu::Fleets,
-            GameMenu::Shipbuilding,
-            GameMenu::Economy,
-            GameMenu::Personnel,
-            GameMenu::Intel,
-            GameMenu::Diplomacy,
-        ]
-    }
-
-    /// File base name (without extension) for the menu icon asset
-    pub fn asset_basename(&self) -> &'static str {
-        match self {
-            GameMenu::Survey => "survey",
-            GameMenu::Starmap => "starmap",
-            GameMenu::Main => "main",
-            GameMenu::Construction => "construction",
-            GameMenu::Research => "research",
-            GameMenu::Fleets => "fleets",
-            GameMenu::Shipbuilding => "shipbuilding",
-            GameMenu::Economy => "economy",
-            GameMenu::Personnel => "personnel",
-            GameMenu::Intel => "intel",
-            GameMenu::Diplomacy => "diplomacy",
-        }
-    }
-}
-
-
-/// Current active menu state
-#[derive(Resource, Debug, Clone, Default)]
-pub struct ActiveMenu {
-    pub current: GameMenu,
-}
 
 /// Loaded textures for the top menu icons
 #[derive(Resource)]
@@ -223,7 +119,89 @@ fn process_menu_icons(mut menu_icons: ResMut<MenuIcons>, mut images: ResMut<Asse
             menu_icons.processed.insert(menu);
         }
     }
-} 
+}
+
+/// Loaded textures for research category icons
+#[derive(Resource)]
+pub struct ResearchIcons {
+    pub handles: HashMap<TechCategory, Handle<Image>>,
+    /// Icons that have already been post-processed
+    pub processed: std::collections::HashSet<TechCategory>,
+}
+
+impl Default for ResearchIcons {
+    fn default() -> Self {
+        Self { handles: HashMap::new(), processed: Default::default() }
+    }
+}
+
+/// Startup system to load research icons from assets/textures/ui/research/
+fn load_research_icons(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let mut map = HashMap::new();
+    for &category in TechCategory::all() {
+        let name = match category {
+            TechCategory::Electronics => "electronics",
+            TechCategory::Military => "military",
+            TechCategory::SpaceTechnology => "space_technology",
+            TechCategory::Biology => "biology",
+            TechCategory::Physics => "physics",
+            TechCategory::Energy => "energy",
+            TechCategory::Sociology => "sociology",
+            TechCategory::Construction => "construction",
+            TechCategory::Propulsion => "propulsion",
+            TechCategory::Materials => "materials",
+            TechCategory::Sensors => "sensors",
+            TechCategory::Weapons => "weapons",
+            TechCategory::DefensiveSystems => "defensive_systems",
+            TechCategory::LifeSupport => "life_support",
+            TechCategory::Industry => "industry",
+        };
+        // Expected path: assets/textures/ui/research/{category}.png
+        let filename = format!("textures/ui/research/{}.png", name);
+        let handle: Handle<Image> = asset_server.load(&filename);
+        map.insert(category, handle);
+    }
+    commands.insert_resource(ResearchIcons { handles: map, processed: Default::default() });
+}
+
+/// Post-process loaded research icon images (same as menu icons)
+fn process_research_icons(mut icons: ResMut<ResearchIcons>, mut images: ResMut<Assets<Image>>) {
+    // Collect handles to process
+    let to_process: Vec<(TechCategory, Handle<Image>)> = icons
+        .handles
+        .iter()
+        .filter(|(cat, _)| !icons.processed.contains(cat))
+        .map(|(c, h)| (*c, h.clone()))
+        .collect();
+
+    for (category, handle) in to_process {
+        if let Some(image) = images.get_mut(&handle) {
+            let bytes_per_pixel = 4usize;
+            if image.data.len() != (image.texture_descriptor.size.width as usize)
+                .saturating_mul(image.texture_descriptor.size.height as usize)
+                .saturating_mul(bytes_per_pixel)
+            {
+                icons.processed.insert(category);
+                continue;
+            }
+
+            for chunk in image.data.chunks_exact_mut(bytes_per_pixel) {
+                let r = chunk[0] as f32 / 255.0;
+                let g = chunk[1] as f32 / 255.0;
+                let b = chunk[2] as f32 / 255.0;
+                let luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+                let alpha = (1.0 - luminance).powf(3.0);
+                
+                chunk[0] = 255;
+                chunk[1] = 255;
+                chunk[2] = 255;
+                chunk[3] = (alpha.clamp(0.0, 1.0) * 255.0) as u8;
+            }
+
+            icons.processed.insert(category);
+        }
+    }
+}
 
 /// Time scale resource for controlling simulation speed
 #[derive(Resource, Debug, Clone)]
@@ -413,9 +391,10 @@ impl Plugin for UIPlugin {
             .init_resource::<Selection>()
             .init_resource::<TimeScale>()
             .init_resource::<SimulationTime>()
-            .init_resource::<ActiveMenu>()
+            // ActiveMenu is now initialized in GameStatePlugin
+            // to allow access in camera/starmap plugins
             // Load menu icons at startup
-            .add_systems(Startup, load_menu_icons)
+            .add_systems(Startup, (load_menu_icons, load_research_icons))
             // UI rendering systems
             // Ordered sequence to ensure correct layout stacking:
             // 1. Top bars (Resources -> Menu)
@@ -443,6 +422,7 @@ impl Plugin for UIPlugin {
                     sync_active_menu_with_view_mode,
                     advance_simulation_time,
                     process_menu_icons,
+                    process_research_icons,
                 ),
             );
     }
@@ -2427,6 +2407,8 @@ fn ui_research_panels(
     research_state: Res<ResearchState>,
     tech_data: Res<TechnologiesData>,
     mut debug_settings: ResMut<crate::research::ResearchDebugSettings>,
+    research_icons: Option<Res<ResearchIcons>>,
+    mut icon_textures: Local<HashMap<TechCategory, egui::TextureId>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     // Query for active research projects
     research_projects: Query<(&ResearchProject, &ResearchTeam)>,
@@ -2440,6 +2422,14 @@ fn ui_research_panels(
     if active_menu.current != GameMenu::Research {
         return;
     }
+
+    // Convert loaded handles to egui TextureIds
+    if let Some(icons) = &research_icons {
+        for (cat, handle) in &icons.handles {
+             icon_textures.entry(*cat).or_insert_with(|| contexts.add_image(handle.clone()));
+        }
+    }
+    let icon_textures = &*icon_textures;
     
     // Toggle debug mode with F12
     if keyboard_input.just_pressed(KeyCode::F12) {
@@ -2513,26 +2503,31 @@ fn ui_research_panels(
                             .count();
                         let total_count = category_techs.len();
 
-                        let header_text = format!(
-                            "{} {} ({}/{})",
-                            category.icon(),
-                            category.display_name(),
-                            unlocked_count,
-                            total_count
-                        );
+                        let id = ui.make_persistent_id(format!("cat_header_{}", category.display_name()));
+                        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
+                            .show_header(ui, |ui| {
+                                if let Some(tex) = icon_textures.get(category) {
+                                    // Use processed icon if available
+                                    ui.add(egui::Image::new(egui::load::SizedTexture::new(*tex, [16.0, 16.0])));
+                                } else {
+                                    // Fallback to emoji
+                                    ui.label(category.icon());
+                                }
+                                ui.label(format!("{} ({}/{})", category.display_name(), unlocked_count, total_count));
+                            })
+                            .body(|ui| {
+                                let progress = if total_count > 0 {
+                                    unlocked_count as f32 / total_count as f32
+                                } else {
+                                    0.0
+                                };
+                                
+                                ui.add(egui::ProgressBar::new(progress).text(format!(
+                                    "{:.0}%",
+                                    progress * 100.0
+                                )));
+                            });
 
-                        ui.collapsing(header_text, |ui| {
-                            let progress = if total_count > 0 {
-                                unlocked_count as f32 / total_count as f32
-                            } else {
-                                0.0
-                            };
-                            
-                            ui.add(egui::ProgressBar::new(progress).text(format!(
-                                "{:.0}%",
-                                progress * 100.0
-                            )));
-                        });
                     }
                 });
         });
@@ -2582,10 +2577,10 @@ fn ui_research_panels(
         // Tab content
         match *selected_tab {
             0 => render_overview_tab(ui, &research_state, &tech_data, &research_projects, &engineering_projects, &all_teams),
-            1 => render_tech_tree_tab(ui, &research_state, &tech_data),
-            2 => render_available_research_tab(ui, &research_state, &tech_data),
+            1 => render_tech_tree_tab(ui, &research_state, &tech_data, icon_textures),
+            2 => render_available_research_tab(ui, &research_state, &tech_data, icon_textures),
             3 => render_available_engineering_tab(ui, &research_state, &tech_data),
-            4 => render_archive_tab(ui, &research_state, &tech_data),
+            4 => render_archive_tab(ui, &research_state, &tech_data, icon_textures),
             _ => {},
         }
     });
@@ -2731,6 +2726,7 @@ fn render_tech_tree_tab(
     ui: &mut egui::Ui,
     research_state: &ResearchState,
     tech_data: &TechnologiesData,
+    icon_textures: &HashMap<TechCategory, egui::TextureId>,
 ) {
     ui.heading("Technology Tree - Graph View");
     ui.label("Pan: Middle/Right mouse drag | Zoom: Mouse wheel | Click: Select tech & highlight path");
@@ -2782,7 +2778,6 @@ fn render_tech_tree_tab(
     });
     
     // Draw the graph
-    let painter = ui.painter();
     let rect = response.rect;
     
     // Calculate node positions using a simple tier-based layout
@@ -2802,6 +2797,60 @@ fn render_tech_tree_tab(
     let node_spacing_y = 60.0 * zoom;
     let category_spacing = 15.0 * zoom;
     
+    // Reserve space for the footer to avoid flickering/jumping
+    let footer_height = 30.0;
+    let available_rect = ui.available_rect_before_wrap();
+    
+    // Ensure we have positive space
+    if available_rect.height() <= footer_height {
+        ui.label("Window too small to display tech tree");
+        return;
+    }
+
+    let graph_rect = egui::Rect::from_min_max(
+        available_rect.min,
+        egui::Pos2::new(available_rect.max.x, available_rect.max.y - footer_height),
+    );
+    let footer_rect = egui::Rect::from_min_max(
+        egui::Pos2::new(available_rect.min.x, available_rect.max.y - footer_height),
+        available_rect.max,
+    );
+
+    // Handle mouse input for pan and zoom using the graph rect
+    let response = ui.allocate_rect(
+        graph_rect,
+        egui::Sense::click_and_drag(),
+    );
+    
+    // Handle zoom with mouse wheel
+    if response.hovered() {
+        let scroll_delta = ui.input(|i| i.smooth_scroll_delta.y);
+        if scroll_delta != 0.0 {
+            let zoom_delta = scroll_delta * 0.001;
+            zoom = (zoom + zoom_delta).clamp(0.3, 3.0);
+        }
+    }
+    
+    // Handle pan with middle mouse or right mouse drag
+    if response.dragged_by(egui::PointerButton::Middle) 
+        || response.dragged_by(egui::PointerButton::Secondary) {
+        pan_offset += response.drag_delta();
+    }
+    
+    // Store state
+    ui.data_mut(|data| {
+        data.insert_persisted(pan_id, pan_offset);
+        data.insert_persisted(zoom_id, zoom);
+    });
+    
+    // Draw the graph
+    let rect = response.rect;
+    
+    // Clip to the graph area so nodes don't spill into the footer or header
+    // IMPORTANT: Intersect with existing clip rect to ensure we don't draw outside window
+    let clip_rect = ui.clip_rect().intersect(rect);
+    let painter = ui.painter().with_clip_rect(clip_rect);
+
     for (tier_idx, (tier, techs)) in techs_by_tier.iter().enumerate() {
         // Sort by category for consistent positioning
         let mut sorted_techs = techs.clone();
@@ -2923,6 +2972,12 @@ fn render_tech_tree_tab(
             
             // Calculate text size to make node fit the label
             let text_size = 11.0 * zoom;
+            
+            // Calculate sizes for icon
+            let icon_available = icon_textures.contains_key(&tech.category);
+            let icon_size = if icon_available { 16.0 * zoom } else { 0.0 };
+            let icon_padding = if icon_available { 4.0 * zoom } else { 0.0 };
+
             let galley = painter.layout_no_wrap(
                 tech.name.clone(),
                 egui::FontId::proportional(text_size),
@@ -2932,12 +2987,29 @@ fn render_tech_tree_tab(
             let text_width = galley.size().x;
             let text_height = galley.size().y;
             let padding = egui::Vec2::new(10.0 * zoom, 8.0 * zoom);
+            
+            // Adjust node width to include icon
+            let mut node_width = text_width + padding.x * 2.0;
+            if icon_available {
+                node_width += icon_size + icon_padding;
+            }
+
             let node_size = egui::Vec2::new(
-                text_width + padding.x * 2.0,
+                node_width,
                 text_height + padding.y * 2.0,
             ).max(egui::Vec2::new(80.0 * zoom, 30.0 * zoom));
             
             let node_rect = egui::Rect::from_center_size(*pos, node_size);
+            
+            // Use allocate_rect for interaction, but we must manually check if it's within the visible graph area 
+            // if we want to avoid interactions outside the clip rect, though allocate_rect usually handles this if nested.
+            // However, we are allocating "over" the background response. 
+            // The crucial fix for "clicking selects wrong path" might be here:
+            // If the node is outside the visible area, we shouldn't interact?
+            // Egui handles this, but let's make sure we are allocating in the right Ui.
+            // We use `ui.allocate_rect`.
+            
+            let node_response = ui.allocate_rect(node_rect, egui::Sense::click());
             
             // Draw node background
             painter.rect_filled(node_rect, 5.0 * zoom, node_color);
@@ -2949,6 +3021,29 @@ fn render_tech_tree_tab(
                 egui::Stroke::new(2.5 * zoom, category_color),
             );
             
+            // Calculate content position (centered)
+            let content_width = text_width + if icon_available { icon_size + icon_padding } else { 0.0 };
+            let start_x = node_rect.center().x - content_width / 2.0;
+            
+            // Draw Icon
+            if icon_available {
+                if let Some(tex) = icon_textures.get(&tech.category) {
+                     let icon_rect = egui::Rect::from_min_size(
+                         egui::Pos2::new(start_x, node_rect.center().y - icon_size / 2.0),
+                         egui::Vec2::splat(icon_size)
+                     );
+                     
+                     // Helper to tint icon if needed (white on colored bg might be ok, or use black)
+                     // Using white tint for now.
+                     painter.image(
+                         *tex,
+                         icon_rect,
+                         egui::Rect::from_min_max(egui::Pos2::ZERO, egui::Pos2::new(1.0, 1.0)),
+                         egui::Color32::WHITE
+                     );
+                }
+            }
+            
             // Draw text label
             let text_color = if is_unlocked || can_research {
                 egui::Color32::BLACK
@@ -2956,8 +3051,10 @@ fn render_tech_tree_tab(
                 egui::Color32::from_rgb(200, 200, 200)
             };
             
+            let text_x = if icon_available { start_x + icon_size + icon_padding } else { start_x };
+            
             painter.text(
-                node_rect.center(),
+                egui::Pos2::new(text_x + text_width / 2.0, node_rect.center().y),
                 egui::Align2::CENTER_CENTER,
                 &tech.name,
                 egui::FontId::proportional(text_size),
@@ -2977,7 +3074,14 @@ fn render_tech_tree_tab(
             node_response.on_hover_ui(|ui| {
                     ui.set_max_width(350.0);
                     ui.label(egui::RichText::new(&tech.name).strong().size(14.0));
-                    ui.label(format!("{} {}", tech.category.icon(), tech.category.display_name()));
+                    ui.horizontal(|ui| {
+                        if let Some(tex) = icon_textures.get(&tech.category) {
+                             ui.add(egui::Image::new(egui::load::SizedTexture::new(*tex, [16.0, 16.0])));
+                        } else {
+                             ui.label(tech.category.icon());
+                        }
+                        ui.label(tech.category.display_name());
+                    });
                     ui.separator();
                     ui.label(&tech.description);
                     ui.add_space(5.0);
@@ -3026,7 +3130,6 @@ fn render_tech_tree_tab(
                         }
                     }
                 });
-                });
             }
     }
     
@@ -3039,27 +3142,29 @@ fn render_tech_tree_tab(
         }
     });
     
-    // Draw legend and info
-    ui.separator();
-    ui.horizontal(|ui| {
-        ui.label("Status:");
-        ui.colored_label(egui::Color32::from_rgb(50, 200, 50), "● Unlocked");
-        ui.colored_label(egui::Color32::from_rgb(255, 200, 50), "● Available");
-        ui.colored_label(egui::Color32::from_rgb(100, 100, 100), "● Locked");
-        ui.label(format!("| Zoom: {:.1}x", zoom));
+    // Draw legend and info in the reserved footer area
+    ui.allocate_ui_at_rect(footer_rect, |ui| {
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.label("Status:");
+            ui.colored_label(egui::Color32::from_rgb(50, 200, 50), "● Unlocked");
+            ui.colored_label(egui::Color32::from_rgb(255, 200, 50), "● Available");
+            ui.colored_label(egui::Color32::from_rgb(100, 100, 100), "● Locked");
+            ui.label(format!("| Zoom: {:.1}x", zoom));
+            
+            ui.separator();
+            
+            if let Some(ref sel_id) = selected_tech {
+                if let Some(sel_tech) = tech_data.technologies.get(sel_id) {
+                    ui.label(egui::RichText::new("Selected:").strong());
+                    ui.label(&sel_tech.name);
+                    ui.label(format!("({} prerequisites highlighted)", path_techs.len().saturating_sub(1)));
+                }
+            } else {
+                ui.label(egui::RichText::new("Click a technology to select and highlight its prerequisite path").italics());
+            }
+        });
     });
-    
-    if let Some(ref sel_id) = selected_tech {
-        if let Some(sel_tech) = tech_data.technologies.get(sel_id) {
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("Selected:").strong());
-                ui.label(&sel_tech.name);
-                ui.label(format!("({} prerequisites highlighted)", path_techs.len() - 1));
-            });
-        }
-    } else {
-        ui.label(egui::RichText::new("Click a technology to select and highlight its prerequisite path").italics());
-    }
 }
 
 /// Render the Available Research tab
@@ -3067,6 +3172,7 @@ fn render_available_research_tab(
     ui: &mut egui::Ui,
     research_state: &ResearchState,
     tech_data: &TechnologiesData,
+    icon_textures: &HashMap<TechCategory, egui::TextureId>,
 ) {
     ui.heading("Available Research Projects");
     ui.label("Technologies with all prerequisites met");
@@ -3101,9 +3207,15 @@ fn render_available_research_tab(
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new("⏳").color(egui::Color32::from_rgb(255, 255, 100)));
                         ui.label(egui::RichText::new(&tech.name).strong().size(14.0));
-                        ui.label(egui::RichText::new(format!("{} {}", tech.category.icon(), tech.category.display_name()))
-                            .size(12.0)
-                            .color(egui::Color32::GRAY));
+                        if let Some(tex) = icon_textures.get(&tech.category) {
+                             // Larger icon for better visibility (24x24)
+                             ui.add(egui::Image::new(egui::load::SizedTexture::new(*tex, [24.0, 24.0])));
+                             ui.label(egui::RichText::new(tech.category.display_name()).size(14.0).color(egui::Color32::GRAY));
+                        } else {
+                            ui.label(egui::RichText::new(format!("{} {}", tech.category.icon(), tech.category.display_name()))
+                                .size(14.0)
+                                .color(egui::Color32::GRAY));
+                        }
                     });
                     
                     ui.label(&tech.description);
@@ -3209,6 +3321,7 @@ fn render_archive_tab(
     ui: &mut egui::Ui,
     research_state: &ResearchState,
     tech_data: &TechnologiesData,
+    icon_textures: &HashMap<TechCategory, egui::TextureId>,
 ) {
     ui.heading("Research Archive");
     ui.label("Completed technologies and components");
@@ -3239,13 +3352,19 @@ fn render_archive_tab(
                         .collect();
                     
                     if !category_completed.is_empty() {
-                        ui.label(egui::RichText::new(format!(
-                            "{} {} ({} completed)",
-                            category.icon(),
-                            category.display_name(),
-                            category_completed.len()
-                        )).strong());
-                        
+                        ui.horizontal(|ui| {
+                            if let Some(tex) = icon_textures.get(category) {
+                                ui.add(egui::Image::new(egui::load::SizedTexture::new(*tex, [16.0, 16.0])));
+                            } else {
+                                ui.label(category.icon());
+                            }
+                            ui.label(egui::RichText::new(format!(
+                                "{} ({} completed)",
+                                category.display_name(),
+                                category_completed.len()
+                            )).strong());
+                        });
+                         
                         ui.indent(format!("archive_cat_{}", category.display_name()), |ui| {
                             for tech in category_completed {
                                 ui.horizontal(|ui| {

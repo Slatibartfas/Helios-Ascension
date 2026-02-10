@@ -4,6 +4,7 @@ use bevy_egui::EguiContexts;
 
 use crate::astronomy::components::CurrentStarSystem;
 use crate::astronomy::SCALING_FACTOR;
+use crate::game_state::{ActiveMenu, GameMenu};
 use crate::plugins::starmap::SystemMetadata;
 
 /// Base zoom threshold multiplier. The actual threshold is calculated as
@@ -97,12 +98,20 @@ fn spawn_camera(mut commands: Commands) {
 
 fn orbit_camera_controls(
     mut contexts: EguiContexts,
+    active_menu: Res<ActiveMenu>,
     mouse: Res<ButtonInput<MouseButton>>,
     mut motion_events: EventReader<MouseMotion>,
     mut scroll_events: EventReader<MouseWheel>,
     mut query: Query<&mut OrbitCamera>,
 ) {
     let mut camera = query.single_mut();
+
+    // Block camera control when in full-screen UI modes (Research)
+    if active_menu.current == GameMenu::Research {
+        motion_events.clear();
+        scroll_events.clear();
+        return;
+    }
 
     // Check if Egui wants the input (e.g. mouse over a window)
     // Use try_ctx_mut() to avoid panicking if the window is closed/uninitialized
