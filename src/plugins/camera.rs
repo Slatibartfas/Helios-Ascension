@@ -36,7 +36,9 @@ impl Plugin for CameraPlugin {
             .add_systems(
                 Update,
                 (
-                    orbit_camera_controls,
+                    orbit_camera_controls
+                        // Run AFTER egui has processed input to respect UI interaction
+                        .after(bevy_egui::EguiSet::ProcessInput),
                     update_camera_transform,
                     update_view_mode,
                 ),
