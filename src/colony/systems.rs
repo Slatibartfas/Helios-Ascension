@@ -245,7 +245,7 @@ pub fn deduct_maintenance_resources(
         for (building_type, count) in &colony.buildings {
             let maintenance = data.maintenance_resources(building_type);
             for (resource_name, annual_amount) in maintenance {
-                let amount = annual_amount * (*count as f64) * years_elapsed;
+                let amount = annual_amount * f64::from(*count) * years_elapsed;
                 if let Some(rt) = super::data::parse_resource_type(resource_name) {
                     // Deduct what we can; don't prevent operation if stockpile is empty
                     let available = budget.get_stockpile(&rt);

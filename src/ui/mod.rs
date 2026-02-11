@@ -4709,7 +4709,7 @@ fn render_construction_panel(
                                         if !maint.is_empty() {
                                             let maint_str: Vec<_> = maint
                                                 .iter()
-                                                .map(|(r, a)| format!("{} {:.1}/yr", r, a * count as f64))
+                                                .map(|(r, a)| format!("{:.1} {}/yr", a * count as f64, r))
                                                 .collect();
                                             label_text += &format!(" [maint: {}]", maint_str.join(", "));
                                         }

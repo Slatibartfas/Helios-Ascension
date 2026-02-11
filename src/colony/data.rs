@@ -98,7 +98,7 @@ impl BuildingsData {
     }
 }
 
-/// Parse a BuildingType from its variant name string
+/// Parse a BuildingType from its variant name string (as used in buildings.ron)
 fn parse_building_type(id: &str) -> Option<BuildingType> {
     match id {
         "LifeSupport" => Some(BuildingType::LifeSupport),
@@ -174,7 +174,9 @@ pub fn load_buildings(mut commands: Commands) {
     }
 }
 
-/// Parse a ResourceType from its display name string
+/// Parse a ResourceType from its variant name string (as used in buildings.ron data file).
+///
+/// Returns `None` for unrecognised names.
 pub fn parse_resource_type(name: &str) -> Option<crate::economy::ResourceType> {
     use crate::economy::ResourceType;
     match name {
