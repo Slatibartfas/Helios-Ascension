@@ -3,6 +3,7 @@ use bevy::window::WindowResolution;
 use bevy_egui::EguiPlugin;
 
 pub mod astronomy;
+pub mod colony;
 pub mod economy;
 pub mod game_state;
 pub mod plugins;
@@ -11,6 +12,7 @@ pub mod research;
 pub mod ui;
 
 use astronomy::AstronomyPlugin;
+use colony::ColonyPlugin;
 use economy::EconomyPlugin;
 use game_state::GameStatePlugin;
 use research::ResearchPlugin;
@@ -43,6 +45,7 @@ fn main() {
         .add_plugins(SolarSystemPlugin)
         .add_plugins(StarmapPlugin)
         .add_plugins(EconomyPlugin)
+        .add_plugins(ColonyPlugin)
         .add_plugins(ResearchPlugin)
         .add_plugins(SystemPopulatorPlugin)
         .add_plugins(UIPlugin)

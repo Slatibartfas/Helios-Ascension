@@ -21,6 +21,9 @@ pub use interaction::Selection;
 use crate::astronomy::components::{CurrentStarSystem, SystemId};
 use crate::astronomy::nearby_stars::NearbyStarsData;
 use crate::astronomy::{AtmosphereComposition, Hovered, KeplerOrbit, Selected, SpaceCoordinates};
+use crate::colony::{
+    BuildingCategory, Colony, ConstructionProject, PendingConstructionActions,
+};
 use crate::economy::components::{Population, SurveyLevel};
 use crate::economy::{
     format_power, GlobalBudget, PlanetResources, PowerSourceType, ResourceRateTracker, ResourceType,
@@ -405,7 +408,7 @@ impl Plugin for UIPlugin {
                 (
                     ui_resources_bar,
                     ui_top_menu_bar,
-                    (ui_dashboard, ui_research_panels),
+                    (ui_dashboard, ui_research_panels, ui_construction_panels),
                     (
                         ui_hover_tooltip,
                         ui_starmap_hover_tooltip,
@@ -1998,7 +2001,8 @@ fn ui_dashboard(
                             }
                         }
                         GameMenu::Construction => {
-                            ui.label("Construction facilities and projects will be shown here.");
+                            // Handled by ui_construction_panels system
+                            ui.label("Switch to full Construction view for details.");
                         }
                         GameMenu::Research => {
                             ui.label("Research UI requires loading...");
@@ -4277,6 +4281,244 @@ fn render_archive_tab(
             }
         });
     });
+}
+
+/// System that renders the construction UI when the Construction menu is active.
+///
+/// Similar to `ui_research_panels`, this is a standalone system that only activates
+/// when `GameMenu::Construction` is selected.
+fn ui_construction_panels(
+    mut contexts: EguiContexts,
+    active_menu: Res<ActiveMenu>,
+    colony_query: Query<(Entity, &Colony, &CelestialBody)>,
+    construction_query: Query<(Entity, &ConstructionProject)>,
+    mut construction_actions: ResMut<PendingConstructionActions>,
+) {
+    if active_menu.current != GameMenu::Construction {
+        return;
+    }
+
+    let ctx = match contexts.try_ctx_mut() {
+        Some(ctx) => ctx,
+        None => return,
+    };
+
+    egui::CentralPanel::default().show(ctx, |ui| {
+        render_construction_panel(
+            ui,
+            &colony_query,
+            &construction_query,
+            &mut construction_actions,
+        );
+    });
+}
+
+/// Render the construction panel showing colonies, buildings, and construction queues.
+fn render_construction_panel(
+    ui: &mut egui::Ui,
+    colony_query: &Query<(Entity, &Colony, &CelestialBody)>,
+    construction_query: &Query<(Entity, &ConstructionProject)>,
+    construction_actions: &mut ResMut<PendingConstructionActions>,
+) {
+    ui.heading("Construction");
+    ui.separator();
+
+    let colonies: Vec<_> = colony_query.iter().collect();
+
+    if colonies.is_empty() {
+        ui.add_space(20.0);
+        ui.label(
+            egui::RichText::new("No colonies established yet.")
+                .size(14.0)
+                .color(egui::Color32::from_rgb(180, 180, 180)),
+        );
+        ui.add_space(10.0);
+        ui.label("Send a colony ship to a celestial body to establish a colony.");
+        return;
+    }
+
+    // Show each colony
+    for (colony_entity, colony, body) in &colonies {
+        let header = format!(
+            "🏠 {} ({})",
+            colony.name,
+            Colony::format_population(colony.population)
+        );
+
+        egui::CollapsingHeader::new(
+            egui::RichText::new(&header).size(14.0).strong(),
+        )
+        .default_open(true)
+        .show(ui, |ui| {
+            // Colony overview
+            ui.horizontal(|ui| {
+                ui.label(format!("Body: {}", body.name));
+                ui.separator();
+                ui.label(format!("Buildings: {}", colony.total_buildings()));
+            });
+
+            // Logistics status
+            let efficiency = colony.logistics_efficiency();
+            let eff_color = if efficiency >= 1.0 {
+                egui::Color32::from_rgb(100, 200, 100) // green
+            } else if efficiency >= 0.5 {
+                egui::Color32::from_rgb(200, 200, 100) // yellow
+            } else {
+                egui::Color32::from_rgb(200, 100, 100) // red
+            };
+            ui.horizontal(|ui| {
+                ui.label("Logistics:");
+                ui.label(
+                    egui::RichText::new(format!("{:.0}%", efficiency * 100.0))
+                        .color(eff_color),
+                );
+                if efficiency < 1.0 {
+                    ui.label(
+                        egui::RichText::new("(build Mass Drivers / Orbital Lifts)")
+                            .size(11.0)
+                            .color(egui::Color32::GRAY),
+                    );
+                }
+            });
+
+            // Housing
+            let housing = colony.housing_capacity();
+            let housing_util = if housing > 0.0 {
+                (colony.population / housing * 100.0).min(100.0)
+            } else {
+                0.0
+            };
+            ui.horizontal(|ui| {
+                ui.label(format!(
+                    "Housing: {} / {} ({:.0}%)",
+                    Colony::format_population(colony.population),
+                    Colony::format_population(housing),
+                    housing_util
+                ));
+            });
+
+            // Growth
+            let growth = colony.population_growth_per_year();
+            if growth.abs() > 0.1 {
+                ui.horizontal(|ui| {
+                    ui.label(format!(
+                        "Growth: +{}/year",
+                        Colony::format_population(growth)
+                    ));
+                });
+            }
+
+            ui.add_space(5.0);
+
+            // Existing buildings by category
+            let has_buildings = colony.total_buildings() > 0;
+            if has_buildings {
+                egui::CollapsingHeader::new("📋 Buildings")
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        for category in BuildingCategory::all() {
+                            let buildings_in_cat: Vec<_> = category
+                                .buildings()
+                                .iter()
+                                .filter(|b| colony.building_count(**b) > 0)
+                                .map(|b| (*b, colony.building_count(*b)))
+                                .collect();
+
+                            if !buildings_in_cat.is_empty() {
+                                ui.label(
+                                    egui::RichText::new(category.display_name())
+                                        .size(12.0)
+                                        .strong(),
+                                );
+                                for (building, count) in buildings_in_cat {
+                                    ui.horizontal(|ui| {
+                                        ui.label(format!(
+                                            "  {} {} × {}",
+                                            building.icon(),
+                                            building.display_name(),
+                                            count
+                                        ));
+                                    });
+                                }
+                            }
+                        }
+                    });
+            }
+
+            // Construction queue
+            let queue: Vec<_> = construction_query
+                .iter()
+                .filter(|(_, p)| p.colony_entity == *colony_entity)
+                .collect();
+
+            if !queue.is_empty() {
+                egui::CollapsingHeader::new(format!("🔨 Queue ({})", queue.len()))
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        for (proj_entity, project) in &queue {
+                            ui.horizontal(|ui| {
+                                let pct = project.progress_percent() * 100.0;
+                                ui.label(format!(
+                                    "{} {} - {:.0}%",
+                                    project.building_type.icon(),
+                                    project.building_type.display_name(),
+                                    pct
+                                ));
+                                if ui
+                                    .small_button("✖")
+                                    .on_hover_text("Cancel construction")
+                                    .clicked()
+                                {
+                                    construction_actions
+                                        .cancel_construction
+                                        .push(*proj_entity);
+                                }
+                            });
+
+                            // Progress bar
+                            let bar = egui::ProgressBar::new(project.progress_percent())
+                                .show_percentage();
+                            ui.add(bar);
+                        }
+                    });
+            }
+
+            // Build new buildings
+            egui::CollapsingHeader::new("➕ Build")
+                .default_open(queue.is_empty() && !has_buildings)
+                .show(ui, |ui| {
+                    for category in BuildingCategory::all() {
+                        ui.label(
+                            egui::RichText::new(category.display_name())
+                                .size(12.0)
+                                .strong(),
+                        );
+                        for building in category.buildings() {
+                            ui.horizontal(|ui| {
+                                let label = format!(
+                                    "{} {} ({:.0} BP)",
+                                    building.icon(),
+                                    building.display_name(),
+                                    building.build_cost()
+                                );
+                                if ui
+                                    .small_button(&label)
+                                    .on_hover_text(building.description())
+                                    .clicked()
+                                {
+                                    construction_actions
+                                        .start_construction
+                                        .push((*colony_entity, building));
+                                }
+                            });
+                        }
+                        ui.add_space(3.0);
+                    }
+                });
+
+            ui.separator();
+        });
+    }
 }
 
 #[cfg(test)]
