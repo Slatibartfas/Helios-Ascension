@@ -22,11 +22,12 @@ use crate::astronomy::components::{CurrentStarSystem, SystemId};
 use crate::astronomy::nearby_stars::NearbyStarsData;
 use crate::astronomy::{AtmosphereComposition, Hovered, KeplerOrbit, Selected, SpaceCoordinates};
 use crate::colony::{
-    BuildingCategory, Colony, ConstructionProject, PendingConstructionActions,
+    BuildingCategory, BuildingType, Colony, ConstructionProject, PendingConstructionActions,
 };
 use crate::economy::components::{Population, SurveyLevel};
 use crate::economy::{
-    format_power, GlobalBudget, PlanetResources, PowerSourceType, ResourceRateTracker, ResourceType,
+    format_currency, format_power, GlobalBudget, PlanetResources, PowerSourceType,
+    ResourceRateTracker, ResourceType,
 };
 use crate::game_state::{ActiveMenu, GameMenu};
 use crate::plugins::camera::{CameraAnchor, GameCamera, ViewMode};
@@ -773,6 +774,85 @@ fn ui_resources_bar(
 
                     ui.separator();
 
+                    // Treasury / Financial status
+                    let balance = budget.balance_per_year();
+                    let treasury_color = if balance >= 0.0 {
+                        egui::Color32::from_rgb(255, 215, 0) // Gold
+                    } else {
+                        egui::Color32::RED
+                    };
+
+                    let is_treasury_open = open_popup
+                        .open
+                        .as_ref()
+                        .map_or(false, |(n, _)| n == "Treasury");
+
+                    let treasury_response = egui::Frame::none()
+                        .inner_margin(egui::Margin::symmetric(5.0, 2.0))
+                        .show(ui, |ui| {
+                            ui.horizontal_centered(|ui| {
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new("💰")
+                                            .size(20.0)
+                                            .color(treasury_color),
+                                    )
+                                    .selectable(false),
+                                );
+                                ui.vertical(|ui| {
+                                    ui.add(
+                                        egui::Label::new(
+                                            egui::RichText::new(format_currency(budget.treasury))
+                                                .size(14.0)
+                                                .strong()
+                                                .color(treasury_color),
+                                        )
+                                        .selectable(false),
+                                    );
+                                    let balance_sign = if balance >= 0.0 { "+" } else { "" };
+                                    let balance_text = format!("{}{}/yr", balance_sign, format_currency(balance));
+                                    let balance_color = if balance >= 0.0 {
+                                        egui::Color32::GREEN
+                                    } else {
+                                        egui::Color32::RED
+                                    };
+                                    ui.add(
+                                        egui::Label::new(
+                                            egui::RichText::new(balance_text)
+                                                .size(10.0)
+                                                .color(balance_color),
+                                        )
+                                        .selectable(false),
+                                    );
+                                });
+                            });
+                        })
+                        .response;
+
+                    let treasury_interact = treasury_response.interact(egui::Sense::click());
+
+                    if treasury_interact.hovered() || is_treasury_open {
+                        ui.painter().rect_stroke(
+                            treasury_interact.rect,
+                            2.0,
+                            egui::Stroke::new(1.0, treasury_color),
+                        );
+                        treasury_interact
+                            .clone()
+                            .on_hover_cursor(egui::CursorIcon::PointingHand);
+                    }
+
+                    if treasury_interact.clicked() {
+                        if is_treasury_open {
+                            open_popup.open = None;
+                        } else {
+                            open_popup.open =
+                                Some(("Treasury".to_string(), treasury_interact.rect));
+                        }
+                    }
+
+                    ui.separator();
+
                     // Population
                     let is_pop_open = open_popup
                         .open
@@ -891,6 +971,74 @@ fn ui_resources_bar(
                 });
 
             // Close if clicked outside
+            if let Some(inner_response) = window_response {
+                if ctx.input(|i| i.pointer.any_pressed()) {
+                    if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
+                        if !inner_response.response.rect.contains(pos) && !anchor_rect.contains(pos) {
+                            open_popup.open = None;
+                        }
+                    }
+                }
+            }
+
+            if !still_open {
+                open_popup.open = None;
+            }
+        } else if cat_name == "Treasury" {
+            let mut still_open = true;
+            let balance = budget.balance_per_year();
+            let balance_color = if balance >= 0.0 {
+                egui::Color32::GREEN
+            } else {
+                egui::Color32::RED
+            };
+
+            let window_response = egui::Window::new("Treasury Breakdown")
+                .id(egui::Id::new("treasury_breakdown_window"))
+                .fixed_pos(egui::pos2(anchor_rect.left(), anchor_rect.bottom() + 2.0))
+                .collapsible(false)
+                .resizable(false)
+                .title_bar(false)
+                .open(&mut still_open)
+                .frame(egui::Frame::popup(ctx.style().as_ref()))
+                .show(ctx, |ui| {
+                    ui.set_min_width(220.0);
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Label::new(egui::RichText::new("💰").size(18.0).color(egui::Color32::from_rgb(255, 215, 0))).selectable(false));
+                        ui.add(egui::Label::new(egui::RichText::new("Financial Overview").size(16.0).strong()).selectable(false));
+                    });
+                    ui.separator();
+
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Label::new("Treasury:").selectable(false));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.add(egui::Label::new(egui::RichText::new(format_currency(budget.treasury)).strong()).selectable(false));
+                        });
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Label::new("Income/yr:").selectable(false));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.add(egui::Label::new(egui::RichText::new(format_currency(budget.income_per_year)).color(egui::Color32::GREEN)).selectable(false));
+                        });
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Label::new("Expenses/yr:").selectable(false));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.add(egui::Label::new(egui::RichText::new(format_currency(budget.expenses_per_year)).color(egui::Color32::RED)).selectable(false));
+                        });
+                    });
+
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Label::new(egui::RichText::new("Balance/yr:").strong()).selectable(false));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.add(egui::Label::new(egui::RichText::new(format_currency(balance)).strong().color(balance_color)).selectable(false));
+                        });
+                    });
+                });
+
             if let Some(inner_response) = window_response {
                 if ctx.input(|i| i.pointer.any_pressed()) {
                     if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
@@ -4293,6 +4441,8 @@ fn ui_construction_panels(
     colony_query: Query<(Entity, &Colony, &CelestialBody)>,
     construction_query: Query<(Entity, &ConstructionProject)>,
     mut construction_actions: ResMut<PendingConstructionActions>,
+    research_state: Res<crate::research::ResearchState>,
+    budget: Res<GlobalBudget>,
 ) {
     if active_menu.current != GameMenu::Construction {
         return;
@@ -4309,6 +4459,8 @@ fn ui_construction_panels(
             &colony_query,
             &construction_query,
             &mut construction_actions,
+            &research_state,
+            &budget,
         );
     });
 }
@@ -4319,8 +4471,33 @@ fn render_construction_panel(
     colony_query: &Query<(Entity, &Colony, &CelestialBody)>,
     construction_query: &Query<(Entity, &ConstructionProject)>,
     construction_actions: &mut ResMut<PendingConstructionActions>,
+    research_state: &crate::research::ResearchState,
+    budget: &GlobalBudget,
 ) {
     ui.heading("Construction");
+    ui.separator();
+
+    // Global financial summary
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new(format!("💰 Treasury: {}", format_currency(budget.treasury)))
+                .size(13.0)
+                .color(egui::Color32::from_rgb(255, 215, 0)),
+        );
+        ui.separator();
+        let balance = budget.balance_per_year();
+        let balance_color = if balance >= 0.0 {
+            egui::Color32::GREEN
+        } else {
+            egui::Color32::RED
+        };
+        let sign = if balance >= 0.0 { "+" } else { "" };
+        ui.label(
+            egui::RichText::new(format!("Balance: {}{}/yr", sign, format_currency(balance)))
+                .size(13.0)
+                .color(balance_color),
+        );
+    });
     ui.separator();
 
     let colonies: Vec<_> = colony_query.iter().collect();
@@ -4357,14 +4534,42 @@ fn render_construction_panel(
                 ui.label(format!("Buildings: {}", colony.total_buildings()));
             });
 
+            // Workforce status
+            let workforce_eff = colony.workforce_efficiency();
+            let wf_color = if workforce_eff >= 1.0 {
+                egui::Color32::from_rgb(100, 200, 100)
+            } else if workforce_eff >= 0.5 {
+                egui::Color32::from_rgb(200, 200, 100)
+            } else {
+                egui::Color32::from_rgb(200, 100, 100)
+            };
+            ui.horizontal(|ui| {
+                ui.label(format!(
+                    "👷 Workforce: {} / {}",
+                    colony.available_workforce(),
+                    colony.total_workforce_demand()
+                ));
+                ui.label(
+                    egui::RichText::new(format!("({:.0}%)", workforce_eff * 100.0))
+                        .color(wf_color),
+                );
+                if workforce_eff < 1.0 {
+                    ui.label(
+                        egui::RichText::new("understaffed")
+                            .size(11.0)
+                            .color(egui::Color32::from_rgb(200, 100, 100)),
+                    );
+                }
+            });
+
             // Logistics status
             let efficiency = colony.logistics_efficiency();
             let eff_color = if efficiency >= 1.0 {
-                egui::Color32::from_rgb(100, 200, 100) // green
+                egui::Color32::from_rgb(100, 200, 100)
             } else if efficiency >= 0.5 {
-                egui::Color32::from_rgb(200, 200, 100) // yellow
+                egui::Color32::from_rgb(200, 200, 100)
             } else {
-                egui::Color32::from_rgb(200, 100, 100) // red
+                egui::Color32::from_rgb(200, 100, 100)
             };
             ui.horizontal(|ui| {
                 ui.label("Logistics:");
@@ -4408,6 +4613,27 @@ fn render_construction_panel(
                 });
             }
 
+            // Colony financials
+            let income = colony.wealth_generation_per_year();
+            let cost = colony.operating_cost_per_year();
+            if income > 0.0 || cost > 0.0 {
+                let colony_balance = income - cost;
+                let cb_color = if colony_balance >= 0.0 {
+                    egui::Color32::GREEN
+                } else {
+                    egui::Color32::RED
+                };
+                ui.horizontal(|ui| {
+                    ui.label(format!("💰 Income: {}/yr", format_currency(income)));
+                    ui.label(format!("| Cost: {}/yr", format_currency(cost)));
+                    let sign = if colony_balance >= 0.0 { "+" } else { "" };
+                    ui.label(
+                        egui::RichText::new(format!("| Net: {}{}/yr", sign, format_currency(colony_balance)))
+                            .color(cb_color),
+                    );
+                });
+            }
+
             ui.add_space(5.0);
 
             // Existing buildings by category
@@ -4431,12 +4657,14 @@ fn render_construction_panel(
                                         .strong(),
                                 );
                                 for (building, count) in buildings_in_cat {
+                                    let workers = building.workforce_required() * count;
                                     ui.horizontal(|ui| {
                                         ui.label(format!(
-                                            "  {} {} × {}",
+                                            "  {} {} × {} (👷 {})",
                                             building.icon(),
                                             building.display_name(),
-                                            count
+                                            count,
+                                            workers
                                         ));
                                     });
                                 }
@@ -4488,18 +4716,35 @@ fn render_construction_panel(
                 .default_open(queue.is_empty() && !has_buildings)
                 .show(ui, |ui| {
                     for category in BuildingCategory::all() {
+                        let available: Vec<_> = category
+                            .buildings()
+                            .into_iter()
+                            .filter(|b| {
+                                // Filter out tech-gated buildings the player hasn't unlocked
+                                match b.required_tech() {
+                                    Some(tech_id) => research_state.is_unlocked(tech_id),
+                                    None => true,
+                                }
+                            })
+                            .collect();
+
+                        if available.is_empty() {
+                            continue;
+                        }
+
                         ui.label(
                             egui::RichText::new(category.display_name())
                                 .size(12.0)
                                 .strong(),
                         );
-                        for building in category.buildings() {
+                        for building in available {
                             ui.horizontal(|ui| {
                                 let label = format!(
-                                    "{} {} ({:.0} BP)",
+                                    "{} {} ({:.0} BP, 👷 {})",
                                     building.icon(),
                                     building.display_name(),
-                                    building.build_cost()
+                                    building.build_cost(),
+                                    building.workforce_required()
                                 );
                                 if ui
                                     .small_button(&label)
@@ -4513,6 +4758,40 @@ fn render_construction_panel(
                             });
                         }
                         ui.add_space(3.0);
+                    }
+
+                    // Show locked buildings
+                    let locked: Vec<_> = BuildingType::all()
+                        .iter()
+                        .filter(|b| {
+                            if let Some(tech_id) = b.required_tech() {
+                                !research_state.is_unlocked(tech_id)
+                            } else {
+                                false
+                            }
+                        })
+                        .collect();
+
+                    if !locked.is_empty() {
+                        ui.add_space(5.0);
+                        ui.label(
+                            egui::RichText::new("🔒 Locked (requires research)")
+                                .size(12.0)
+                                .color(egui::Color32::GRAY),
+                        );
+                        for building in locked {
+                            let tech_name = building.required_tech().unwrap_or("unknown");
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "  {} {} — requires: {}",
+                                    building.icon(),
+                                    building.display_name(),
+                                    tech_name
+                                ))
+                                .size(11.0)
+                                .color(egui::Color32::from_rgb(120, 120, 120)),
+                            );
+                        }
                     }
                 });
 

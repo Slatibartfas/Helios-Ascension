@@ -14,7 +14,7 @@ pub mod systems;
 pub mod types;
 
 pub use components::{Colony, ConstructionProject, PendingConstructionActions};
-pub use systems::{advance_construction, process_construction_actions, update_colony_growth};
+pub use systems::{advance_construction, process_construction_actions, update_colony_growth, update_treasury};
 pub use types::{BuildingCategory, BuildingType};
 
 /// Plugin that adds the colony and construction system to the Bevy app
@@ -32,6 +32,7 @@ impl Plugin for ColonyPlugin {
                     process_construction_actions,
                     advance_construction,
                     update_colony_growth,
+                    update_treasury,
                 )
                     .chain(),
             );

@@ -20,6 +20,14 @@ pub enum BuildingType {
     /// Manufactures goods and components
     Factory,
 
+    // Advanced Mining (tech-gated)
+    /// Deep drilling into planetary crust (requires deep_drilling tech)
+    DeepDrill,
+    /// Laser-based deep mining (requires laser_drilling tech)
+    LaserDrill,
+    /// Strip mining entire surface layers (requires strip_mining tech)
+    StripMine,
+
     // Logistics - Reduce logistics penalty
     /// Electromagnetic launcher for bulk cargo between bodies
     MassDriver,
@@ -47,6 +55,24 @@ pub enum BuildingType {
     ResearchLab,
     /// Engineering workshop for component development
     EngineeringBay,
+    /// AI computation cluster (requires neural_networks tech)
+    AiCluster,
+
+    // Financial & Commerce
+    /// Commercial hub generating wealth from trade
+    CommercialHub,
+    /// Financial centre for banking and investment
+    FinancialCenter,
+    /// Interplanetary trade port
+    TradePort,
+
+    // Military & Shipbuilding
+    /// Orbital shipyard for constructing vessels (requires orbital_construction tech)
+    Shipyard,
+    /// Ground-based missile silo (requires missile_systems tech)
+    MissileSilo,
+    /// Rocket launch site for orbital access
+    LaunchSite,
 }
 
 impl BuildingType {
@@ -60,6 +86,9 @@ impl BuildingType {
             Mine,
             Refinery,
             Factory,
+            DeepDrill,
+            LaserDrill,
+            StripMine,
             MassDriver,
             OrbitalLift,
             CargoTerminal,
@@ -70,6 +99,13 @@ impl BuildingType {
             MedicalCenter,
             ResearchLab,
             EngineeringBay,
+            AiCluster,
+            CommercialHub,
+            FinancialCenter,
+            TradePort,
+            Shipyard,
+            MissileSilo,
+            LaunchSite,
         ]
     }
 
@@ -82,6 +118,9 @@ impl BuildingType {
             BuildingType::Mine => "Mine",
             BuildingType::Refinery => "Refinery",
             BuildingType::Factory => "Factory",
+            BuildingType::DeepDrill => "Deep Drill",
+            BuildingType::LaserDrill => "Laser Drill",
+            BuildingType::StripMine => "Strip Mine",
             BuildingType::MassDriver => "Mass Driver",
             BuildingType::OrbitalLift => "Orbital Lift",
             BuildingType::CargoTerminal => "Cargo Terminal",
@@ -92,6 +131,13 @@ impl BuildingType {
             BuildingType::MedicalCenter => "Medical Center",
             BuildingType::ResearchLab => "Research Lab",
             BuildingType::EngineeringBay => "Engineering Bay",
+            BuildingType::AiCluster => "AI Cluster",
+            BuildingType::CommercialHub => "Commercial Hub",
+            BuildingType::FinancialCenter => "Financial Center",
+            BuildingType::TradePort => "Trade Port",
+            BuildingType::Shipyard => "Shipyard",
+            BuildingType::MissileSilo => "Missile Silo",
+            BuildingType::LaunchSite => "Launch Site",
         }
     }
 
@@ -104,6 +150,9 @@ impl BuildingType {
             BuildingType::Mine => "Extracts minerals from the body surface",
             BuildingType::Refinery => "Refines raw ores into usable materials",
             BuildingType::Factory => "Manufactures goods and components",
+            BuildingType::DeepDrill => "Deep drilling into planetary crust for hidden deposits",
+            BuildingType::LaserDrill => "Laser-based deep mining for maximum extraction",
+            BuildingType::StripMine => "Strip mining entire surface layers at massive scale",
             BuildingType::MassDriver => "Electromagnetic launcher for bulk cargo between bodies",
             BuildingType::OrbitalLift => "Space elevator for efficient surface-to-orbit transport",
             BuildingType::CargoTerminal => "Ground-based cargo distribution hub",
@@ -114,6 +163,13 @@ impl BuildingType {
             BuildingType::MedicalCenter => "Medical facilities to boost population growth",
             BuildingType::ResearchLab => "Scientific research laboratory",
             BuildingType::EngineeringBay => "Engineering workshop for component development",
+            BuildingType::AiCluster => "AI computation cluster boosting research and engineering",
+            BuildingType::CommercialHub => "Commercial centre generating wealth from trade",
+            BuildingType::FinancialCenter => "Banking and investment for wealth generation",
+            BuildingType::TradePort => "Interplanetary trade port for import/export revenue",
+            BuildingType::Shipyard => "Orbital shipyard for constructing vessels",
+            BuildingType::MissileSilo => "Ground-based missile silo for planetary defence",
+            BuildingType::LaunchSite => "Rocket launch site for orbital access",
         }
     }
 
@@ -126,6 +182,9 @@ impl BuildingType {
             BuildingType::Mine => "⚒",
             BuildingType::Refinery => "🏭",
             BuildingType::Factory => "🔧",
+            BuildingType::DeepDrill => "🕳",
+            BuildingType::LaserDrill => "🔦",
+            BuildingType::StripMine => "🗻",
             BuildingType::MassDriver => "🧲",
             BuildingType::OrbitalLift => "🚡",
             BuildingType::CargoTerminal => "📦",
@@ -136,6 +195,13 @@ impl BuildingType {
             BuildingType::MedicalCenter => "🏥",
             BuildingType::ResearchLab => "🔬",
             BuildingType::EngineeringBay => "🔩",
+            BuildingType::AiCluster => "🤖",
+            BuildingType::CommercialHub => "🏪",
+            BuildingType::FinancialCenter => "🏦",
+            BuildingType::TradePort => "🚢",
+            BuildingType::Shipyard => "⚓",
+            BuildingType::MissileSilo => "🚀",
+            BuildingType::LaunchSite => "🛫",
         }
     }
 
@@ -145,9 +211,12 @@ impl BuildingType {
             BuildingType::LifeSupport
             | BuildingType::HabitatDome
             | BuildingType::UndergroundHabitat => BuildingCategory::Infrastructure,
-            BuildingType::Mine | BuildingType::Refinery | BuildingType::Factory => {
-                BuildingCategory::Industry
-            }
+            BuildingType::Mine
+            | BuildingType::Refinery
+            | BuildingType::Factory
+            | BuildingType::DeepDrill
+            | BuildingType::LaserDrill
+            | BuildingType::StripMine => BuildingCategory::Industry,
             BuildingType::MassDriver | BuildingType::OrbitalLift | BuildingType::CargoTerminal => {
                 BuildingCategory::Logistics
             }
@@ -155,7 +224,15 @@ impl BuildingType {
             | BuildingType::FissionReactor
             | BuildingType::FusionReactor => BuildingCategory::Power,
             BuildingType::AgriDome | BuildingType::MedicalCenter => BuildingCategory::Population,
-            BuildingType::ResearchLab | BuildingType::EngineeringBay => BuildingCategory::Research,
+            BuildingType::ResearchLab
+            | BuildingType::EngineeringBay
+            | BuildingType::AiCluster => BuildingCategory::Research,
+            BuildingType::CommercialHub
+            | BuildingType::FinancialCenter
+            | BuildingType::TradePort => BuildingCategory::Financial,
+            BuildingType::Shipyard
+            | BuildingType::MissileSilo
+            | BuildingType::LaunchSite => BuildingCategory::Military,
         }
     }
 
@@ -168,6 +245,9 @@ impl BuildingType {
             BuildingType::Mine => 400.0,
             BuildingType::Refinery => 600.0,
             BuildingType::Factory => 1000.0,
+            BuildingType::DeepDrill => 2000.0,
+            BuildingType::LaserDrill => 5000.0,
+            BuildingType::StripMine => 10000.0,
             BuildingType::MassDriver => 2000.0,
             BuildingType::OrbitalLift => 5000.0,
             BuildingType::CargoTerminal => 300.0,
@@ -178,6 +258,61 @@ impl BuildingType {
             BuildingType::MedicalCenter => 800.0,
             BuildingType::ResearchLab => 1000.0,
             BuildingType::EngineeringBay => 1200.0,
+            BuildingType::AiCluster => 3000.0,
+            BuildingType::CommercialHub => 500.0,
+            BuildingType::FinancialCenter => 1500.0,
+            BuildingType::TradePort => 2500.0,
+            BuildingType::Shipyard => 8000.0,
+            BuildingType::MissileSilo => 3000.0,
+            BuildingType::LaunchSite => 2000.0,
+        }
+    }
+
+    /// Workforce required to operate this building (number of workers)
+    pub fn workforce_required(&self) -> u32 {
+        match self {
+            BuildingType::LifeSupport => 50,
+            BuildingType::HabitatDome => 20,
+            BuildingType::UndergroundHabitat => 30,
+            BuildingType::Mine => 200,
+            BuildingType::Refinery => 150,
+            BuildingType::Factory => 500,
+            BuildingType::DeepDrill => 300,
+            BuildingType::LaserDrill => 100,
+            BuildingType::StripMine => 1000,
+            BuildingType::MassDriver => 50,
+            BuildingType::OrbitalLift => 100,
+            BuildingType::CargoTerminal => 80,
+            BuildingType::SolarPower => 10,
+            BuildingType::FissionReactor => 100,
+            BuildingType::FusionReactor => 200,
+            BuildingType::AgriDome => 100,
+            BuildingType::MedicalCenter => 150,
+            BuildingType::ResearchLab => 200,
+            BuildingType::EngineeringBay => 250,
+            BuildingType::AiCluster => 50,
+            BuildingType::CommercialHub => 300,
+            BuildingType::FinancialCenter => 200,
+            BuildingType::TradePort => 400,
+            BuildingType::Shipyard => 2000,
+            BuildingType::MissileSilo => 100,
+            BuildingType::LaunchSite => 300,
+        }
+    }
+
+    /// Technology ID required to unlock this building, if any.
+    ///
+    /// Returns `None` for base-game buildings available from the start.
+    pub fn required_tech(&self) -> Option<&'static str> {
+        match self {
+            BuildingType::DeepDrill => Some("deep_drilling"),
+            BuildingType::LaserDrill => Some("laser_drilling"),
+            BuildingType::StripMine => Some("strip_mining"),
+            BuildingType::FusionReactor => Some("fusion_power"),
+            BuildingType::AiCluster => Some("neural_networks"),
+            BuildingType::Shipyard => Some("orbital_construction"),
+            BuildingType::MissileSilo => Some("missile_systems"),
+            _ => None,
         }
     }
 
@@ -205,6 +340,8 @@ pub enum BuildingCategory {
     Power,
     Population,
     Research,
+    Financial,
+    Military,
 }
 
 impl BuildingCategory {
@@ -217,6 +354,8 @@ impl BuildingCategory {
             BuildingCategory::Power,
             BuildingCategory::Population,
             BuildingCategory::Research,
+            BuildingCategory::Financial,
+            BuildingCategory::Military,
         ]
     }
 
@@ -229,6 +368,8 @@ impl BuildingCategory {
             BuildingCategory::Power => "Power Generation",
             BuildingCategory::Population => "Population & Growth",
             BuildingCategory::Research => "Research & Engineering",
+            BuildingCategory::Financial => "Financial & Commerce",
+            BuildingCategory::Military => "Military & Shipbuilding",
         }
     }
 
@@ -255,13 +396,13 @@ mod tests {
     #[test]
     fn test_building_type_all() {
         let all = BuildingType::all();
-        assert_eq!(all.len(), 16, "Should have exactly 16 building types");
+        assert_eq!(all.len(), 26, "Should have exactly 26 building types");
     }
 
     #[test]
     fn test_building_categories() {
         let categories = BuildingCategory::all();
-        assert_eq!(categories.len(), 6, "Should have exactly 6 categories");
+        assert_eq!(categories.len(), 8, "Should have exactly 8 categories");
 
         // Every building should belong to a category
         for building in BuildingType::all() {
@@ -287,6 +428,8 @@ mod tests {
         assert_eq!(BuildingType::Mine.display_name(), "Mine");
         assert_eq!(BuildingType::MassDriver.display_name(), "Mass Driver");
         assert_eq!(BuildingType::FusionReactor.display_name(), "Fusion Reactor");
+        assert_eq!(BuildingType::DeepDrill.display_name(), "Deep Drill");
+        assert_eq!(BuildingType::Shipyard.display_name(), "Shipyard");
     }
 
     #[test]
@@ -307,5 +450,45 @@ mod tests {
         assert!(BuildingType::CargoTerminal.is_logistics());
         assert!(!BuildingType::Mine.is_logistics());
         assert!(!BuildingType::Factory.is_logistics());
+    }
+
+    #[test]
+    fn test_workforce_positive() {
+        for building in BuildingType::all() {
+            assert!(
+                building.workforce_required() > 0,
+                "{} should require workforce",
+                building.display_name()
+            );
+        }
+    }
+
+    #[test]
+    fn test_tech_gated_buildings() {
+        // Base buildings have no tech requirement
+        assert!(BuildingType::Mine.required_tech().is_none());
+        assert!(BuildingType::Factory.required_tech().is_none());
+
+        // Advanced buildings require tech
+        assert_eq!(BuildingType::DeepDrill.required_tech(), Some("deep_drilling"));
+        assert_eq!(BuildingType::LaserDrill.required_tech(), Some("laser_drilling"));
+        assert_eq!(BuildingType::StripMine.required_tech(), Some("strip_mining"));
+        assert_eq!(BuildingType::AiCluster.required_tech(), Some("neural_networks"));
+        assert_eq!(BuildingType::Shipyard.required_tech(), Some("orbital_construction"));
+        assert_eq!(BuildingType::MissileSilo.required_tech(), Some("missile_systems"));
+    }
+
+    #[test]
+    fn test_financial_category() {
+        assert_eq!(BuildingType::CommercialHub.category(), BuildingCategory::Financial);
+        assert_eq!(BuildingType::FinancialCenter.category(), BuildingCategory::Financial);
+        assert_eq!(BuildingType::TradePort.category(), BuildingCategory::Financial);
+    }
+
+    #[test]
+    fn test_military_category() {
+        assert_eq!(BuildingType::Shipyard.category(), BuildingCategory::Military);
+        assert_eq!(BuildingType::MissileSilo.category(), BuildingCategory::Military);
+        assert_eq!(BuildingType::LaunchSite.category(), BuildingCategory::Military);
     }
 }

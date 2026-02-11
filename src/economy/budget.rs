@@ -51,6 +51,15 @@ pub struct GlobalBudget {
 
     /// Breakdown of power production by source
     pub power_breakdown: HashMap<PowerSourceType, f64>,
+
+    /// Treasury: total accumulated wealth (Mega-Credits, MC)
+    pub treasury: f64,
+
+    /// Income per year from all colonies (MC/year)
+    pub income_per_year: f64,
+
+    /// Expenses per year from all colonies (MC/year)
+    pub expenses_per_year: f64,
 }
 
 impl GlobalBudget {
@@ -69,6 +78,9 @@ impl GlobalBudget {
             energy_grid: EnergyGrid::default(),
             civilization_score: 0.0,
             power_breakdown: HashMap::new(),
+            treasury: 1000.0, // Starting treasury: 1000 MC
+            income_per_year: 0.0,
+            expenses_per_year: 0.0,
         }
     }
 
@@ -148,6 +160,11 @@ impl GlobalBudget {
         } else {
             0.0
         }
+    }
+
+    /// Get the yearly financial balance (income - expenses)
+    pub fn balance_per_year(&self) -> f64 {
+        self.income_per_year - self.expenses_per_year
     }
 }
 
@@ -238,6 +255,19 @@ pub fn format_power(watts: f64) -> String {
         format!("{:.2} kW", watts / 1e3)
     } else {
         format!("{:.2} W", watts)
+    }
+}
+
+/// Format currency value in human-readable units (MC)
+pub fn format_currency(mc: f64) -> String {
+    let abs = mc.abs();
+    let sign = if mc < 0.0 { "-" } else { "" };
+    if abs >= 1_000_000.0 {
+        format!("{}{}T MC", sign, abs / 1_000_000.0)
+    } else if abs >= 1_000.0 {
+        format!("{}{:.1}K MC", sign, abs / 1_000.0)
+    } else {
+        format!("{}{:.0} MC", sign, abs)
     }
 }
 
@@ -363,6 +393,28 @@ mod tests {
     fn test_consume_resource_negative_panics() {
         let mut budget = GlobalBudget::new();
         budget.consume_resource(ResourceType::Iron, -50.0);
+    }
+
+    #[test]
+    fn test_treasury_initial() {
+        let budget = GlobalBudget::new();
+        assert_eq!(budget.treasury, 1000.0);
+    }
+
+    #[test]
+    fn test_balance_calculation() {
+        let mut budget = GlobalBudget::new();
+        budget.income_per_year = 500.0;
+        budget.expenses_per_year = 200.0;
+        assert_eq!(budget.balance_per_year(), 300.0);
+    }
+
+    #[test]
+    fn test_format_currency() {
+        assert_eq!(format_currency(500.0), "500 MC");
+        assert_eq!(format_currency(1500.0), "1.5K MC");
+        assert_eq!(format_currency(2_500_000.0), "2.5T MC");
+        assert_eq!(format_currency(-500.0), "-500 MC");
     }
 }
 

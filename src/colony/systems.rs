@@ -135,6 +135,44 @@ pub fn update_colony_growth(
     }
 }
 
+/// System that updates the global treasury from colony income and expenses.
+///
+/// Aggregates wealth generation and operating costs from all colonies,
+/// updates income/expenses on the global budget, and adjusts the treasury.
+pub fn update_treasury(
+    mut budget: ResMut<crate::economy::GlobalBudget>,
+    colonies: Query<&Colony>,
+    sim_time: Res<SimulationTime>,
+    mut last_elapsed: Local<f64>,
+) {
+    let current_elapsed = sim_time.elapsed_seconds();
+    let dt = current_elapsed - *last_elapsed;
+    *last_elapsed = current_elapsed;
+
+    if dt <= 0.0 {
+        return;
+    }
+
+    let years_elapsed = dt / SECONDS_PER_YEAR;
+    if years_elapsed <= 0.0 {
+        return;
+    }
+
+    let mut total_income = 0.0;
+    let mut total_expenses = 0.0;
+
+    for colony in colonies.iter() {
+        total_income += colony.wealth_generation_per_year();
+        total_expenses += colony.operating_cost_per_year();
+    }
+
+    budget.income_per_year = total_income;
+    budget.expenses_per_year = total_expenses;
+
+    let balance = total_income - total_expenses;
+    budget.treasury += balance * years_elapsed;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

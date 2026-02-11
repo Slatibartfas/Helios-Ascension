@@ -59,12 +59,16 @@ impl Colony {
 
     /// Calculate the logistics demand based on colony industry.
     ///
-    /// Demand scales with total industrial buildings (mines, refineries, factories).
+    /// Demand scales with total industrial buildings (mines, refineries, factories,
+    /// deep drills, laser drills, strip mines).
     /// A colony with no industry has zero logistics demand and thus no penalty.
     pub fn logistics_demand(&self) -> f64 {
         let industrial_buildings = (self.building_count(BuildingType::Mine)
             + self.building_count(BuildingType::Refinery)
-            + self.building_count(BuildingType::Factory)) as f64;
+            + self.building_count(BuildingType::Factory)
+            + self.building_count(BuildingType::DeepDrill)
+            + self.building_count(BuildingType::LaserDrill)
+            + self.building_count(BuildingType::StripMine)) as f64;
 
         // 10 units of logistics demand per industrial building
         industrial_buildings * 10.0
@@ -147,6 +151,63 @@ impl Colony {
         // Research is less affected by logistics than mining (minimum 50%)
         let efficiency = self.logistics_efficiency();
         0.5 + 0.5 * efficiency
+    }
+
+    /// Total workforce demand across all buildings
+    pub fn total_workforce_demand(&self) -> u32 {
+        self.buildings
+            .iter()
+            .map(|(bt, count)| bt.workforce_required() * count)
+            .sum()
+    }
+
+    /// Available workforce from population.
+    ///
+    /// Roughly 40% of the population is of working age and willing to work.
+    pub fn available_workforce(&self) -> u32 {
+        (self.population * 0.4) as u32
+    }
+
+    /// Workforce efficiency factor (0.0 to 1.0).
+    ///
+    /// When available workers >= demand, all buildings operate at full efficiency.
+    /// When understaffed, output scales proportionally.
+    /// A colony with zero demand has 1.0 efficiency.
+    pub fn workforce_efficiency(&self) -> f64 {
+        let demand = self.total_workforce_demand() as f64;
+        if demand <= 0.0 {
+            return 1.0;
+        }
+        let available = self.available_workforce() as f64;
+        (available / demand).min(1.0)
+    }
+
+    /// Wealth generated per year by financial/commercial buildings.
+    ///
+    /// - CommercialHub: 100 MC/year per building
+    /// - FinancialCenter: 500 MC/year per building
+    /// - TradePort: 1000 MC/year per building
+    /// - Factories also generate 50 MC/year each (industrial output)
+    ///
+    /// Scaled by workforce efficiency (understaffed buildings produce less).
+    pub fn wealth_generation_per_year(&self) -> f64 {
+        let commercial = self.building_count(BuildingType::CommercialHub) as f64 * 100.0;
+        let financial = self.building_count(BuildingType::FinancialCenter) as f64 * 500.0;
+        let trade = self.building_count(BuildingType::TradePort) as f64 * 1000.0;
+        let factories = self.building_count(BuildingType::Factory) as f64 * 50.0;
+
+        (commercial + financial + trade + factories) * self.workforce_efficiency()
+    }
+
+    /// Operating cost per year for all buildings.
+    ///
+    /// Each building has a maintenance cost proportional to its build cost.
+    /// Base rate: 5% of build cost per year.
+    pub fn operating_cost_per_year(&self) -> f64 {
+        self.buildings
+            .iter()
+            .map(|(bt, count)| bt.build_cost() * 0.05 * (*count as f64))
+            .sum()
     }
 
     /// Format population for display
@@ -364,5 +425,58 @@ mod tests {
         project.progress = project.required;
         assert!(project.is_complete());
         assert_eq!(project.progress_percent(), 1.0);
+    }
+
+    #[test]
+    fn test_workforce_demand() {
+        let mut colony = Colony::new("Test".to_string(), 10_000.0);
+        assert_eq!(colony.total_workforce_demand(), 0);
+
+        colony.add_building(BuildingType::Mine); // 200 workers
+        assert_eq!(colony.total_workforce_demand(), 200);
+
+        colony.add_building(BuildingType::Factory); // 500 workers
+        assert_eq!(colony.total_workforce_demand(), 700);
+    }
+
+    #[test]
+    fn test_workforce_efficiency() {
+        // Large population, few buildings → full efficiency
+        let mut colony = Colony::new("Test".to_string(), 100_000.0);
+        colony.add_building(BuildingType::Mine);
+        assert_eq!(colony.workforce_efficiency(), 1.0);
+
+        // Small population, many buildings → understaffed
+        let mut colony2 = Colony::new("Test".to_string(), 100.0);
+        colony2.add_building(BuildingType::Factory); // needs 500
+        assert!(colony2.workforce_efficiency() < 1.0);
+    }
+
+    #[test]
+    fn test_workforce_efficiency_no_buildings() {
+        let colony = Colony::new("Test".to_string(), 1000.0);
+        assert_eq!(colony.workforce_efficiency(), 1.0);
+    }
+
+    #[test]
+    fn test_wealth_generation() {
+        let mut colony = Colony::new("Test".to_string(), 100_000.0);
+        assert_eq!(colony.wealth_generation_per_year(), 0.0);
+
+        colony.add_building(BuildingType::CommercialHub); // 100 MC/year
+        assert!(colony.wealth_generation_per_year() > 0.0);
+
+        colony.add_building(BuildingType::FinancialCenter); // 500 MC/year
+        let wealth = colony.wealth_generation_per_year();
+        assert!(wealth > 100.0, "Should have substantial wealth: {}", wealth);
+    }
+
+    #[test]
+    fn test_operating_cost() {
+        let mut colony = Colony::new("Test".to_string(), 10_000.0);
+        assert_eq!(colony.operating_cost_per_year(), 0.0);
+
+        colony.add_building(BuildingType::Mine); // cost 400, maint = 400*0.05 = 20
+        assert!((colony.operating_cost_per_year() - 20.0).abs() < 0.001);
     }
 }

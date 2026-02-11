@@ -16,8 +16,8 @@ pub mod mining;
 pub mod types;
 
 pub use budget::{
-    format_power, update_civilization_score, update_power_grid, EnergyGrid, GlobalBudget,
-    ResourceRateTracker, SECONDS_PER_MONTH, SECONDS_PER_YEAR,
+    format_currency, format_power, update_civilization_score, update_power_grid, EnergyGrid,
+    GlobalBudget, ResourceRateTracker, SECONDS_PER_MONTH, SECONDS_PER_YEAR,
 };
 pub use components::{
     MineralDeposit, OrbitsBody, PlanetResources, PowerGenerator, PowerSourceType, SpectralClass,
