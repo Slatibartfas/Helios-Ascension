@@ -247,6 +247,18 @@
             ],
             tier: 3,
         ),
+        (
+            id: "orbital_construction",
+            name: "Orbital Construction Yards",
+            category: Construction,
+            description: "Large-scale orbital construction facilities for building vessels and stations. Unlocks Shipyard buildings.",
+            research_cost: 15000.0,
+            prerequisites: ["automated_construction"],
+            unlocks_components: [],
+            unlocks_engineering: [],
+            modifiers: [],
+            tier: 3,
+        ),
 
         // ========================================
         // MATERIALS - Tier 1-3
@@ -366,6 +378,18 @@
             unlocks_engineering: [],
             modifiers: [],
             tier: 2,
+        ),
+        (
+            id: "missile_systems",
+            name: "Planetary Missile Systems",
+            category: Military,
+            description: "Ground-based missile systems for planetary defence. Unlocks Missile Silo buildings.",
+            research_cost: 10000.0,
+            prerequisites: ["missile_technology"],
+            unlocks_components: [],
+            unlocks_engineering: [],
+            modifiers: [],
+            tier: 3,
         ),
 
         // ========================================
@@ -515,6 +539,48 @@
                 (modifier_type: ConstructionCost, value: -20.0),
             ],
             tier: 2,
+        ),
+        (
+            id: "deep_drilling",
+            name: "Deep Drilling Technology",
+            category: Industry,
+            description: "Advanced drilling technology to reach deep mineral deposits in planetary crusts. Unlocks Deep Drill buildings.",
+            research_cost: 12000.0,
+            prerequisites: ["mass_production"],
+            unlocks_components: [],
+            unlocks_engineering: [],
+            modifiers: [
+                (modifier_type: MiningEfficiency, value: 20.0),
+            ],
+            tier: 3,
+        ),
+        (
+            id: "laser_drilling",
+            name: "Laser Drilling Systems",
+            category: Industry,
+            description: "High-powered laser systems for precision deep mining. Unlocks Laser Drill buildings with minimal workforce requirements.",
+            research_cost: 25000.0,
+            prerequisites: ["deep_drilling"],
+            unlocks_components: [],
+            unlocks_engineering: [],
+            modifiers: [
+                (modifier_type: MiningEfficiency, value: 40.0),
+            ],
+            tier: 5,
+        ),
+        (
+            id: "strip_mining",
+            name: "Planetary Strip Mining",
+            category: Industry,
+            description: "Massive-scale surface mining operations that can process entire planetary layers. Unlocks Strip Mine buildings.",
+            research_cost: 50000.0,
+            prerequisites: ["laser_drilling"],
+            unlocks_components: [],
+            unlocks_engineering: [],
+            modifiers: [
+                (modifier_type: MiningEfficiency, value: 100.0),
+            ],
+            tier: 7,
         ),
 
         // ========================================

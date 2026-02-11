@@ -4780,17 +4780,18 @@ fn render_construction_panel(
                                 .color(egui::Color32::GRAY),
                         );
                         for building in locked {
-                            let tech_name = building.required_tech().unwrap_or("unknown");
-                            ui.label(
-                                egui::RichText::new(format!(
-                                    "  {} {} — requires: {}",
-                                    building.icon(),
-                                    building.display_name(),
-                                    tech_name
-                                ))
-                                .size(11.0)
-                                .color(egui::Color32::from_rgb(120, 120, 120)),
-                            );
+                            if let Some(tech_name) = building.required_tech() {
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "  {} {} — requires: {}",
+                                        building.icon(),
+                                        building.display_name(),
+                                        tech_name
+                                    ))
+                                    .size(11.0)
+                                    .color(egui::Color32::from_rgb(120, 120, 120)),
+                                );
+                            }
                         }
                     }
                 });

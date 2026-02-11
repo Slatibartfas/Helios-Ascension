@@ -263,7 +263,7 @@ pub fn format_currency(mc: f64) -> String {
     let abs = mc.abs();
     let sign = if mc < 0.0 { "-" } else { "" };
     if abs >= 1_000_000.0 {
-        format!("{}{}T MC", sign, abs / 1_000_000.0)
+        format!("{}{:.1}M MC", sign, abs / 1_000_000.0)
     } else if abs >= 1_000.0 {
         format!("{}{:.1}K MC", sign, abs / 1_000.0)
     } else {
@@ -413,7 +413,7 @@ mod tests {
     fn test_format_currency() {
         assert_eq!(format_currency(500.0), "500 MC");
         assert_eq!(format_currency(1500.0), "1.5K MC");
-        assert_eq!(format_currency(2_500_000.0), "2.5T MC");
+        assert_eq!(format_currency(2_500_000.0), "2.5M MC");
         assert_eq!(format_currency(-500.0), "-500 MC");
     }
 }
