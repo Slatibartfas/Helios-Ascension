@@ -1,0 +1,582 @@
+// Building definitions for Helios Ascension
+//
+// This file defines all building types, their costs, prerequisites, and effects.
+// Modding Guide:
+// - Add new buildings by copying an existing entry and changing the fields.
+// - `id` must match a BuildingType enum variant name (e.g. "Mine", "DeepDrill").
+// - `resource_costs` lists resources consumed from the global stockpile on construction.
+// - `maintenance_resources` lists resources consumed per year to keep the building running.
+// - `required_tech` is the tech ID that must be researched to unlock the building (empty = always available).
+// - `modifiers` apply global bonuses when the building is operational.
+// - `build_points`, `workforce`, `category`, `icon`, `description` control display and simulation.
+
+(
+    buildings: [
+        // ========================================
+        // INFRASTRUCTURE
+        // ========================================
+        (
+            id: "LifeSupport",
+            display_name: "Life Support",
+            description: "Converts local volatiles into breathable atmosphere",
+            icon: "🌬",
+            category: "Infrastructure",
+            build_points: 500.0,
+            workforce: 50,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 5.0),
+                ("Copper", 2.0),
+            ],
+            maintenance_resources: [
+                ("Water", 0.5),
+                ("Oxygen", 0.2),
+            ],
+            modifiers: [],
+        ),
+        (
+            id: "HabitatDome",
+            display_name: "Habitat Dome",
+            description: "Provides living and working space for colonists",
+            icon: "🏠",
+            category: "Infrastructure",
+            build_points: 800.0,
+            workforce: 20,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 10.0),
+                ("Silicates", 8.0),
+                ("Aluminum", 3.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.2),
+            ],
+            modifiers: [],
+        ),
+        (
+            id: "UndergroundHabitat",
+            display_name: "Underground Habitat",
+            description: "Shelter on airless or hostile bodies",
+            icon: "⛏",
+            category: "Infrastructure",
+            build_points: 1200.0,
+            workforce: 30,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 15.0),
+                ("Silicates", 10.0),
+                ("Titanium", 5.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.3),
+            ],
+            modifiers: [],
+        ),
+
+        // ========================================
+        // MINING & INDUSTRY
+        // ========================================
+        (
+            id: "Mine",
+            display_name: "Mine",
+            description: "Extracts minerals from the body surface",
+            icon: "⚒",
+            category: "Industry",
+            build_points: 400.0,
+            workforce: 200,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 5.0),
+                ("Copper", 1.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.1),
+            ],
+            modifiers: [
+                (modifier_type: "MiningEfficiency", value: 5.0),
+            ],
+        ),
+        (
+            id: "Refinery",
+            display_name: "Refinery",
+            description: "Refines raw ores into usable materials",
+            icon: "🏭",
+            category: "Industry",
+            build_points: 600.0,
+            workforce: 150,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 8.0),
+                ("Copper", 3.0),
+                ("Silicates", 2.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.2),
+                ("Water", 0.3),
+            ],
+            modifiers: [
+                (modifier_type: "MiningEfficiency", value: 3.0),
+            ],
+        ),
+        (
+            id: "Factory",
+            display_name: "Factory",
+            description: "Manufactures goods and components",
+            icon: "🔧",
+            category: "Industry",
+            build_points: 1000.0,
+            workforce: 500,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 15.0),
+                ("Copper", 5.0),
+                ("Aluminum", 5.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.5),
+                ("Copper", 0.2),
+            ],
+            modifiers: [
+                (modifier_type: "ConstructionCost", value: -5.0),
+            ],
+        ),
+        (
+            id: "DeepDrill",
+            display_name: "Deep Drill",
+            description: "Deep drilling into planetary crust for hidden deposits",
+            icon: "🕳",
+            category: "Industry",
+            build_points: 2000.0,
+            workforce: 300,
+            required_tech: "deep_drilling",
+            resource_costs: [
+                ("Iron", 20.0),
+                ("Titanium", 10.0),
+                ("Copper", 5.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.5),
+                ("Titanium", 0.1),
+            ],
+            modifiers: [
+                (modifier_type: "MiningEfficiency", value: 15.0),
+            ],
+        ),
+        (
+            id: "LaserDrill",
+            display_name: "Laser Drill",
+            description: "Laser-based deep mining for maximum extraction",
+            icon: "🔦",
+            category: "Industry",
+            build_points: 5000.0,
+            workforce: 100,
+            required_tech: "laser_drilling",
+            resource_costs: [
+                ("Titanium", 20.0),
+                ("RareEarths", 10.0),
+                ("Copper", 8.0),
+            ],
+            maintenance_resources: [
+                ("RareEarths", 0.3),
+                ("Copper", 0.2),
+            ],
+            modifiers: [
+                (modifier_type: "MiningEfficiency", value: 30.0),
+            ],
+        ),
+        (
+            id: "StripMine",
+            display_name: "Strip Mine",
+            description: "Strip mining entire surface layers at massive scale",
+            icon: "🗻",
+            category: "Industry",
+            build_points: 10000.0,
+            workforce: 1000,
+            required_tech: "strip_mining",
+            resource_costs: [
+                ("Iron", 50.0),
+                ("Titanium", 30.0),
+                ("Aluminum", 20.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 2.0),
+                ("Titanium", 0.5),
+            ],
+            modifiers: [
+                (modifier_type: "MiningEfficiency", value: 50.0),
+            ],
+        ),
+
+        // ========================================
+        // LOGISTICS
+        // ========================================
+        (
+            id: "MassDriver",
+            display_name: "Mass Driver",
+            description: "Electromagnetic launcher for bulk cargo between bodies",
+            icon: "🧲",
+            category: "Logistics",
+            build_points: 2000.0,
+            workforce: 50,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 20.0),
+                ("Copper", 10.0),
+                ("RareEarths", 3.0),
+            ],
+            maintenance_resources: [
+                ("Copper", 0.3),
+            ],
+            modifiers: [],
+        ),
+        (
+            id: "OrbitalLift",
+            display_name: "Orbital Lift",
+            description: "Space elevator for efficient surface-to-orbit transport",
+            icon: "🚡",
+            category: "Logistics",
+            build_points: 5000.0,
+            workforce: 100,
+            required_tech: "",
+            resource_costs: [
+                ("Titanium", 30.0),
+                ("Iron", 20.0),
+                ("RareEarths", 5.0),
+            ],
+            maintenance_resources: [
+                ("Titanium", 0.2),
+                ("Iron", 0.3),
+            ],
+            modifiers: [],
+        ),
+        (
+            id: "CargoTerminal",
+            display_name: "Cargo Terminal",
+            description: "Ground-based cargo distribution hub",
+            icon: "📦",
+            category: "Logistics",
+            build_points: 300.0,
+            workforce: 80,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 3.0),
+                ("Silicates", 2.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.05),
+            ],
+            modifiers: [],
+        ),
+
+        // ========================================
+        // POWER
+        // ========================================
+        (
+            id: "SolarPower",
+            display_name: "Solar Power Plant",
+            description: "Solar panel arrays for power generation",
+            icon: "☀",
+            category: "Power",
+            build_points: 200.0,
+            workforce: 10,
+            required_tech: "",
+            resource_costs: [
+                ("Silicates", 5.0),
+                ("Copper", 2.0),
+            ],
+            maintenance_resources: [
+                ("Silicates", 0.1),
+            ],
+            modifiers: [
+                (modifier_type: "PowerGeneration", value: 5.0),
+            ],
+        ),
+        (
+            id: "FissionReactor",
+            display_name: "Fission Reactor",
+            description: "Nuclear fission reactor for reliable power",
+            icon: "☢",
+            category: "Power",
+            build_points: 1500.0,
+            workforce: 100,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 10.0),
+                ("Uranium", 5.0),
+                ("Copper", 5.0),
+            ],
+            maintenance_resources: [
+                ("Uranium", 0.5),
+            ],
+            modifiers: [
+                (modifier_type: "PowerGeneration", value: 15.0),
+            ],
+        ),
+        (
+            id: "FusionReactor",
+            display_name: "Fusion Reactor",
+            description: "Advanced fusion power plant",
+            icon: "⚡",
+            category: "Power",
+            build_points: 4000.0,
+            workforce: 200,
+            required_tech: "fusion_power",
+            resource_costs: [
+                ("Titanium", 20.0),
+                ("RareEarths", 10.0),
+                ("Helium3", 5.0),
+            ],
+            maintenance_resources: [
+                ("Helium3", 1.0),
+            ],
+            modifiers: [
+                (modifier_type: "PowerGeneration", value: 40.0),
+            ],
+        ),
+
+        // ========================================
+        // POPULATION & GROWTH
+        // ========================================
+        (
+            id: "AgriDome",
+            display_name: "Agricultural Dome",
+            description: "Agricultural facilities for food production",
+            icon: "🌾",
+            category: "Population",
+            build_points: 600.0,
+            workforce: 100,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 5.0),
+                ("Silicates", 5.0),
+                ("Water", 5.0),
+            ],
+            maintenance_resources: [
+                ("Water", 1.0),
+            ],
+            modifiers: [
+                (modifier_type: "PopulationGrowth", value: 2.0),
+            ],
+        ),
+        (
+            id: "MedicalCenter",
+            display_name: "Medical Center",
+            description: "Medical facilities to boost population growth",
+            icon: "🏥",
+            category: "Population",
+            build_points: 800.0,
+            workforce: 150,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 8.0),
+                ("Copper", 3.0),
+                ("RareEarths", 2.0),
+            ],
+            maintenance_resources: [
+                ("Water", 0.3),
+                ("Copper", 0.1),
+            ],
+            modifiers: [
+                (modifier_type: "PopulationGrowth", value: 5.0),
+            ],
+        ),
+
+        // ========================================
+        // RESEARCH
+        // ========================================
+        (
+            id: "ResearchLab",
+            display_name: "Research Lab",
+            description: "Scientific research laboratory",
+            icon: "🔬",
+            category: "Research",
+            build_points: 1000.0,
+            workforce: 200,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 10.0),
+                ("Copper", 5.0),
+                ("RareEarths", 3.0),
+            ],
+            maintenance_resources: [
+                ("Copper", 0.2),
+                ("RareEarths", 0.1),
+            ],
+            modifiers: [
+                (modifier_type: "ResearchSpeed", value: 5.0),
+            ],
+        ),
+        (
+            id: "EngineeringBay",
+            display_name: "Engineering Bay",
+            description: "Engineering workshop for component development",
+            icon: "🔩",
+            category: "Research",
+            build_points: 1200.0,
+            workforce: 250,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 12.0),
+                ("Titanium", 5.0),
+                ("Copper", 5.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.3),
+                ("Copper", 0.2),
+            ],
+            modifiers: [
+                (modifier_type: "EngineeringSpeed", value: 5.0),
+            ],
+        ),
+        (
+            id: "AiCluster",
+            display_name: "AI Cluster",
+            description: "AI computation cluster boosting research and engineering",
+            icon: "🤖",
+            category: "Research",
+            build_points: 3000.0,
+            workforce: 50,
+            required_tech: "neural_networks",
+            resource_costs: [
+                ("RareEarths", 15.0),
+                ("Copper", 10.0),
+                ("Titanium", 5.0),
+            ],
+            maintenance_resources: [
+                ("RareEarths", 0.5),
+                ("Copper", 0.3),
+            ],
+            modifiers: [
+                (modifier_type: "ResearchSpeed", value: 15.0),
+                (modifier_type: "EngineeringSpeed", value: 10.0),
+            ],
+        ),
+
+        // ========================================
+        // FINANCIAL & COMMERCE
+        // ========================================
+        (
+            id: "CommercialHub",
+            display_name: "Commercial Hub",
+            description: "Commercial centre generating wealth from trade",
+            icon: "🏪",
+            category: "Financial",
+            build_points: 500.0,
+            workforce: 300,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 5.0),
+                ("Silicates", 5.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.1),
+            ],
+            modifiers: [],
+        ),
+        (
+            id: "FinancialCenter",
+            display_name: "Financial Center",
+            description: "Banking and investment for wealth generation",
+            icon: "🏦",
+            category: "Financial",
+            build_points: 1500.0,
+            workforce: 200,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 10.0),
+                ("Copper", 5.0),
+                ("RareEarths", 3.0),
+            ],
+            maintenance_resources: [
+                ("Copper", 0.2),
+            ],
+            modifiers: [],
+        ),
+        (
+            id: "TradePort",
+            display_name: "Trade Port",
+            description: "Interplanetary trade port for import/export revenue",
+            icon: "🚢",
+            category: "Financial",
+            build_points: 2500.0,
+            workforce: 400,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 20.0),
+                ("Titanium", 10.0),
+                ("Copper", 5.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.5),
+                ("Copper", 0.2),
+            ],
+            modifiers: [],
+        ),
+
+        // ========================================
+        // MILITARY & SHIPBUILDING
+        // ========================================
+        (
+            id: "Shipyard",
+            display_name: "Shipyard",
+            description: "Orbital shipyard for constructing vessels",
+            icon: "⚓",
+            category: "Military",
+            build_points: 8000.0,
+            workforce: 2000,
+            required_tech: "orbital_construction",
+            resource_costs: [
+                ("Iron", 50.0),
+                ("Titanium", 30.0),
+                ("Aluminum", 20.0),
+                ("Copper", 10.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 1.0),
+                ("Titanium", 0.5),
+            ],
+            modifiers: [
+                (modifier_type: "ConstructionCost", value: -10.0),
+            ],
+        ),
+        (
+            id: "MissileSilo",
+            display_name: "Missile Silo",
+            description: "Ground-based missile silo for planetary defence",
+            icon: "🚀",
+            category: "Military",
+            build_points: 3000.0,
+            workforce: 100,
+            required_tech: "missile_systems",
+            resource_costs: [
+                ("Iron", 15.0),
+                ("Titanium", 10.0),
+                ("Copper", 5.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.3),
+            ],
+            modifiers: [],
+        ),
+        (
+            id: "LaunchSite",
+            display_name: "Launch Site",
+            description: "Rocket launch site for orbital access",
+            icon: "🛫",
+            category: "Military",
+            build_points: 2000.0,
+            workforce: 300,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 15.0),
+                ("Aluminum", 10.0),
+                ("Copper", 5.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.3),
+                ("Aluminum", 0.1),
+            ],
+            modifiers: [],
+        ),
+    ],
+)

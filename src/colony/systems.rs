@@ -1,7 +1,9 @@
 use bevy::prelude::*;
 
 use super::components::{Colony, ConstructionProject, PendingConstructionActions};
+use super::data::{BuildingsData, deduct_resources};
 use super::types::BuildingType;
+use super::ConstructionDebugSettings;
 use crate::economy::budget::SECONDS_PER_YEAR;
 use crate::ui::SimulationTime;
 
@@ -85,14 +87,49 @@ pub fn advance_construction(
 /// System that processes pending construction actions from the UI.
 ///
 /// Creates new `ConstructionProject` entities and handles cancellations.
+/// Deducts resource costs from the global stockpile when starting construction.
+/// In debug mode with `free_construction`, resource costs are bypassed.
+/// In debug mode with `instant_build`, buildings are added immediately.
 pub fn process_construction_actions(
     mut commands: Commands,
     mut actions: ResMut<PendingConstructionActions>,
-    colonies: Query<&Colony>,
+    mut colonies: Query<&mut Colony>,
+    mut budget: ResMut<crate::economy::GlobalBudget>,
+    buildings_data: Option<Res<BuildingsData>>,
+    debug_settings: Res<ConstructionDebugSettings>,
 ) {
     // Start new projects
     for (colony_entity, building_type) in actions.start_construction.drain(..) {
-        if colonies.get(colony_entity).is_ok() {
+        if colonies.get(colony_entity).is_err() {
+            continue;
+        }
+
+        // Check and deduct resource costs (unless debug free_construction)
+        let free = debug_settings.enabled && debug_settings.free_construction;
+        if !free {
+            if let Some(ref data) = buildings_data {
+                let costs = data.resource_costs(&building_type);
+                if !costs.is_empty() && !deduct_resources(&mut budget, costs) {
+                    warn!(
+                        "Cannot build {}: insufficient resources",
+                        building_type.display_name()
+                    );
+                    continue;
+                }
+            }
+        }
+
+        // Instant build in debug mode
+        if debug_settings.enabled && debug_settings.instant_build {
+            if let Ok(mut colony) = colonies.get_mut(colony_entity) {
+                colony.add_building(building_type);
+                info!(
+                    "Instant build: {} at {}",
+                    building_type.display_name(),
+                    colony.name
+                );
+            }
+        } else {
             commands.spawn(ConstructionProject::new(building_type, colony_entity));
             info!(
                 "Started construction: {}",
@@ -171,6 +208,55 @@ pub fn update_treasury(
 
     let balance = total_income - total_expenses;
     budget.treasury += balance * years_elapsed;
+}
+
+/// System that deducts maintenance resources from the global stockpile.
+///
+/// Each building consumes a small amount of resources per year for upkeep.
+/// Resources are deducted proportionally based on elapsed simulation time.
+/// If resources run out, buildings still operate but the stockpile goes to zero.
+pub fn deduct_maintenance_resources(
+    mut budget: ResMut<crate::economy::GlobalBudget>,
+    colonies: Query<&Colony>,
+    buildings_data: Option<Res<BuildingsData>>,
+    sim_time: Res<SimulationTime>,
+    mut last_elapsed: Local<f64>,
+) {
+    let data = match buildings_data {
+        Some(ref d) if !d.definitions.is_empty() => d,
+        _ => return,
+    };
+
+    let current_elapsed = sim_time.elapsed_seconds();
+    let dt = current_elapsed - *last_elapsed;
+    *last_elapsed = current_elapsed;
+
+    if dt <= 0.0 {
+        return;
+    }
+
+    let years_elapsed = dt / SECONDS_PER_YEAR;
+    if years_elapsed <= 0.0 {
+        return;
+    }
+
+    // Aggregate maintenance costs across all colonies
+    for colony in colonies.iter() {
+        for (building_type, count) in &colony.buildings {
+            let maintenance = data.maintenance_resources(building_type);
+            for (resource_name, annual_amount) in maintenance {
+                let amount = annual_amount * (*count as f64) * years_elapsed;
+                if let Some(rt) = super::data::parse_resource_type(resource_name) {
+                    // Deduct what we can; don't prevent operation if stockpile is empty
+                    let available = budget.get_stockpile(&rt);
+                    let to_deduct = amount.min(available);
+                    if to_deduct > 0.0 {
+                        budget.consume_resource(rt, to_deduct);
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
