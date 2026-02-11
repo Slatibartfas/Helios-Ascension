@@ -270,9 +270,9 @@ mod tests {
     #[test]
     fn test_logistics_efficiency_sufficient() {
         let mut colony = Colony::new("Test".to_string(), 1000.0);
-        colony.add_building(BuildingType::Mine); // demand: 10 + 0.1 = 10.1
+        colony.add_building(BuildingType::Mine); // demand: 10
         colony.add_building(BuildingType::MassDriver); // capacity: 50
-        // 50 / 10.1 > 1.0 → clamped to 1.0
+        // 50 / 10 > 1.0 → clamped to 1.0
         assert_eq!(colony.logistics_efficiency(), 1.0);
     }
 
@@ -283,7 +283,7 @@ mod tests {
         for _ in 0..10 {
             colony.add_building(BuildingType::Mine);
         }
-        // demand: 10*10 + 0.1 = 100.1, capacity: 0
+        // demand: 10*10 = 100, capacity: 0
         assert_eq!(colony.logistics_efficiency(), 0.0);
     }
 
