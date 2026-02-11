@@ -22,8 +22,10 @@ use crate::astronomy::components::{CurrentStarSystem, SystemId};
 use crate::astronomy::nearby_stars::NearbyStarsData;
 use crate::astronomy::{AtmosphereComposition, Hovered, KeplerOrbit, Selected, SpaceCoordinates};
 use crate::colony::{
-    BuildingCategory, BuildingType, Colony, ConstructionProject, PendingConstructionActions,
+    BuildingCategory, BuildingType, BuildingsData, Colony, ConstructionDebugSettings,
+    ConstructionProject, PendingConstructionActions,
 };
+use crate::colony::data::can_afford_resources;
 use crate::economy::components::{Population, SurveyLevel};
 use crate::economy::{
     format_currency, format_power, GlobalBudget, PlanetResources, PowerSourceType,
@@ -4443,9 +4445,17 @@ fn ui_construction_panels(
     mut construction_actions: ResMut<PendingConstructionActions>,
     research_state: Res<crate::research::ResearchState>,
     budget: Res<GlobalBudget>,
+    mut debug_settings: ResMut<ConstructionDebugSettings>,
+    buildings_data: Option<Res<BuildingsData>>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
 ) {
     if active_menu.current != GameMenu::Construction {
         return;
+    }
+
+    // Toggle debug mode with F12
+    if keyboard_input.just_pressed(KeyCode::F12) {
+        debug_settings.enabled = !debug_settings.enabled;
     }
 
     let ctx = match contexts.try_ctx_mut() {
@@ -4461,6 +4471,8 @@ fn ui_construction_panels(
             &mut construction_actions,
             &research_state,
             &budget,
+            &mut debug_settings,
+            buildings_data.as_deref(),
         );
     });
 }
@@ -4473,9 +4485,32 @@ fn render_construction_panel(
     construction_actions: &mut ResMut<PendingConstructionActions>,
     research_state: &crate::research::ResearchState,
     budget: &GlobalBudget,
+    debug_settings: &mut ConstructionDebugSettings,
+    buildings_data: Option<&BuildingsData>,
 ) {
     ui.heading("Construction");
     ui.separator();
+
+    // Debug mode panel (if enabled)
+    if debug_settings.enabled {
+        ui.group(|ui| {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("🐛 DEBUG MODE").strong().color(egui::Color32::RED));
+                ui.label(egui::RichText::new("(Press F12 to toggle)").italics().small());
+            });
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut debug_settings.free_construction, "Free Construction (no resource costs)");
+                ui.checkbox(&mut debug_settings.instant_build, "Instant Build");
+                ui.checkbox(&mut debug_settings.bypass_tech_requirements, "Bypass Tech Prerequisites");
+            });
+            ui.label(egui::RichText::new("⚠ Debug features are for development only")
+                .small()
+                .italics()
+                .color(egui::Color32::YELLOW));
+        });
+        ui.separator();
+    }
 
     // Global financial summary
     ui.horizontal(|ui| {
@@ -4513,6 +4548,9 @@ fn render_construction_panel(
         ui.label("Send a colony ship to a celestial body to establish a colony.");
         return;
     }
+
+    let bypass_tech = debug_settings.enabled && debug_settings.bypass_tech_requirements;
+    let free_build = debug_settings.enabled && debug_settings.free_construction;
 
     // Show each colony
     for (colony_entity, colony, body) in &colonies {
@@ -4658,14 +4696,26 @@ fn render_construction_panel(
                                 );
                                 for (building, count) in buildings_in_cat {
                                     let workers = building.workforce_required() * count;
+                                    let mut label_text = format!(
+                                        "  {} {} × {} (👷 {})",
+                                        building.icon(),
+                                        building.display_name(),
+                                        count,
+                                        workers
+                                    );
+                                    // Show maintenance in tooltip
+                                    if let Some(data) = buildings_data {
+                                        let maint = data.maintenance_resources(&building);
+                                        if !maint.is_empty() {
+                                            let maint_str: Vec<_> = maint
+                                                .iter()
+                                                .map(|(r, a)| format!("{} {:.1}/yr", r, a * count as f64))
+                                                .collect();
+                                            label_text += &format!(" [maint: {}]", maint_str.join(", "));
+                                        }
+                                    }
                                     ui.horizontal(|ui| {
-                                        ui.label(format!(
-                                            "  {} {} × {} (👷 {})",
-                                            building.icon(),
-                                            building.display_name(),
-                                            count,
-                                            workers
-                                        ));
+                                        ui.label(&label_text);
                                     });
                                 }
                             }
@@ -4720,8 +4770,14 @@ fn render_construction_panel(
                             .buildings()
                             .into_iter()
                             .filter(|b| {
-                                // Filter out tech-gated buildings the player hasn't unlocked
-                                match b.required_tech() {
+                                if bypass_tech {
+                                    return true;
+                                }
+                                // Check tech prerequisite from data file first, fall back to code
+                                let tech_req = buildings_data
+                                    .and_then(|d| d.required_tech(b))
+                                    .or_else(|| b.required_tech());
+                                match tech_req {
                                     Some(tech_id) => research_state.is_unlocked(tech_id),
                                     None => true,
                                 }
@@ -4738,19 +4794,80 @@ fn render_construction_panel(
                                 .strong(),
                         );
                         for building in available {
+                            let costs = buildings_data
+                                .map(|d| d.resource_costs(&building))
+                                .unwrap_or(&[]);
+                            let can_afford = free_build || costs.is_empty()
+                                || can_afford_resources(budget, costs);
+
                             ui.horizontal(|ui| {
+                                // Build resource cost summary
+                                let mut cost_parts = Vec::new();
+                                cost_parts.push(format!("{:.0} BP", building.build_cost()));
+                                cost_parts.push(format!("👷 {}", building.workforce_required()));
+                                if !costs.is_empty() {
+                                    let res_str: Vec<_> = costs
+                                        .iter()
+                                        .map(|(r, a)| format!("{:.0} {}", a, r))
+                                        .collect();
+                                    cost_parts.push(res_str.join(", "));
+                                }
                                 let label = format!(
-                                    "{} {} ({:.0} BP, 👷 {})",
+                                    "{} {} ({})",
                                     building.icon(),
                                     building.display_name(),
-                                    building.build_cost(),
-                                    building.workforce_required()
+                                    cost_parts.join(" | ")
                                 );
-                                if ui
-                                    .small_button(&label)
-                                    .on_hover_text(building.description())
-                                    .clicked()
-                                {
+
+                                let button = ui.add_enabled(
+                                    can_afford,
+                                    egui::Button::new(
+                                        egui::RichText::new(&label).size(11.0),
+                                    ).small(),
+                                );
+
+                                // Build rich tooltip
+                                let mut tooltip_text = building.description().to_string();
+                                if !costs.is_empty() {
+                                    tooltip_text += "\n\n📦 Construction costs:";
+                                    for (r, a) in costs {
+                                        let available = crate::colony::data::parse_resource_type(r)
+                                            .map(|rt| budget.get_stockpile(&rt))
+                                            .unwrap_or(0.0);
+                                        let status = if available >= *a { "✔" } else { "✘" };
+                                        tooltip_text += &format!("\n  {} {:.1} {} (have {:.1})", status, a, r, available);
+                                    }
+                                }
+                                if let Some(data) = buildings_data {
+                                    let maint = data.maintenance_resources(&building);
+                                    if !maint.is_empty() {
+                                        tooltip_text += "\n\n🔧 Maintenance (per year):";
+                                        for (r, a) in maint {
+                                            tooltip_text += &format!("\n  {:.2} {}", a, r);
+                                        }
+                                    }
+                                    if let Some(def) = data.get(&building) {
+                                        if !def.modifiers.is_empty() {
+                                            tooltip_text += "\n\n⚡ Effects:";
+                                            for m in &def.modifiers {
+                                                let sign = if m.value >= 0.0 { "+" } else { "" };
+                                                tooltip_text += &format!("\n  {}{:.0}% {}", sign, m.value, m.modifier_type);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                let response = button.on_hover_text(&tooltip_text);
+
+                                if !can_afford {
+                                    ui.label(
+                                        egui::RichText::new("⚠ insufficient resources")
+                                            .size(10.0)
+                                            .color(egui::Color32::from_rgb(200, 100, 100)),
+                                    );
+                                }
+
+                                if response.clicked() {
                                     construction_actions
                                         .start_construction
                                         .push((*colony_entity, building));
@@ -4760,37 +4877,45 @@ fn render_construction_panel(
                         ui.add_space(3.0);
                     }
 
-                    // Show locked buildings
-                    let locked: Vec<_> = BuildingType::all()
-                        .iter()
-                        .filter(|b| {
-                            if let Some(tech_id) = b.required_tech() {
-                                !research_state.is_unlocked(tech_id)
-                            } else {
-                                false
-                            }
-                        })
-                        .collect();
+                    // Show locked buildings (unless bypassing)
+                    if !bypass_tech {
+                        let locked: Vec<_> = BuildingType::all()
+                            .iter()
+                            .filter(|b| {
+                                let tech_req = buildings_data
+                                    .and_then(|d| d.required_tech(b))
+                                    .or_else(|| b.required_tech());
+                                if let Some(tech_id) = tech_req {
+                                    !research_state.is_unlocked(tech_id)
+                                } else {
+                                    false
+                                }
+                            })
+                            .collect();
 
-                    if !locked.is_empty() {
-                        ui.add_space(5.0);
-                        ui.label(
-                            egui::RichText::new("🔒 Locked (requires research)")
-                                .size(12.0)
-                                .color(egui::Color32::GRAY),
-                        );
-                        for building in locked {
-                            if let Some(tech_name) = building.required_tech() {
-                                ui.label(
-                                    egui::RichText::new(format!(
-                                        "  {} {} — requires: {}",
-                                        building.icon(),
-                                        building.display_name(),
-                                        tech_name
-                                    ))
-                                    .size(11.0)
-                                    .color(egui::Color32::from_rgb(120, 120, 120)),
-                                );
+                        if !locked.is_empty() {
+                            ui.add_space(5.0);
+                            ui.label(
+                                egui::RichText::new("🔒 Locked (requires research)")
+                                    .size(12.0)
+                                    .color(egui::Color32::GRAY),
+                            );
+                            for building in locked {
+                                let tech_id = buildings_data
+                                    .and_then(|d| d.required_tech(building))
+                                    .or_else(|| building.required_tech());
+                                if let Some(tech_name) = tech_id {
+                                    ui.label(
+                                        egui::RichText::new(format!(
+                                            "  {} {} — requires: {}",
+                                            building.icon(),
+                                            building.display_name(),
+                                            tech_name
+                                        ))
+                                        .size(11.0)
+                                        .color(egui::Color32::from_rgb(120, 120, 120)),
+                                    );
+                                }
                             }
                         }
                     }
