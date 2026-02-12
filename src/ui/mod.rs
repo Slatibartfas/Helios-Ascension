@@ -801,31 +801,35 @@ fn ui_resources_bar(
                                     )
                                     .selectable(false),
                                 );
-                                ui.vertical(|ui| {
-                                    ui.add(
-                                        egui::Label::new(
-                                            egui::RichText::new(format_currency(budget.treasury))
-                                                .size(14.0)
-                                                .strong()
-                                                .color(treasury_color),
-                                        )
-                                        .selectable(false),
-                                    );
-                                    let balance_sign = if balance >= 0.0 { "+" } else { "" };
-                                    let balance_text = format!("{}{}/yr", balance_sign, format_currency(balance));
-                                    let balance_color = if balance >= 0.0 {
-                                        egui::Color32::GREEN
-                                    } else {
-                                        egui::Color32::RED
-                                    };
-                                    ui.add(
-                                        egui::Label::new(
-                                            egui::RichText::new(balance_text)
-                                                .size(10.0)
-                                                .color(balance_color),
-                                        )
-                                        .selectable(false),
-                                    );
+                                ui.scope(|ui| {
+                                    // Constrain width to prevent layout issues in right-to-left container
+                                    ui.set_max_width(150.0);
+                                    ui.vertical(|ui| {
+                                        ui.add(
+                                            egui::Label::new(
+                                                egui::RichText::new(format_currency(budget.treasury))
+                                                    .size(14.0)
+                                                    .strong()
+                                                    .color(treasury_color),
+                                            )
+                                            .selectable(false),
+                                        );
+                                        let balance_sign = if balance >= 0.0 { "+" } else { "" };
+                                        let balance_text = format!("{}{}/yr", balance_sign, format_currency(balance));
+                                        let balance_color = if balance >= 0.0 {
+                                            egui::Color32::GREEN
+                                        } else {
+                                            egui::Color32::RED
+                                        };
+                                        ui.add(
+                                            egui::Label::new(
+                                                egui::RichText::new(balance_text)
+                                                    .size(10.0)
+                                                    .color(balance_color),
+                                            )
+                                            .selectable(false),
+                                        );
+                                    });
                                 });
                             });
                         })
