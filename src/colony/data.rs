@@ -283,11 +283,11 @@ mod tests {
     #[test]
     fn test_can_afford_resources() {
         let budget = crate::economy::GlobalBudget::new();
-        // Budget starts with Iron=50
+        // Budget starts with Iron=15000
         let costs = vec![("Iron".to_string(), 10.0)];
         assert!(can_afford_resources(&budget, &costs));
 
-        let too_expensive = vec![("Iron".to_string(), 1000.0)];
+        let too_expensive = vec![("Iron".to_string(), 100_000.0)];
         assert!(!can_afford_resources(&budget, &too_expensive));
     }
 
@@ -309,7 +309,7 @@ mod tests {
     #[test]
     fn test_deduct_resources_insufficient() {
         let mut budget = crate::economy::GlobalBudget::new();
-        let costs = vec![("Iron".to_string(), 9999.0)];
+        let costs = vec![("Iron".to_string(), 999_999.0)];
 
         assert!(!deduct_resources(&mut budget, &costs));
         // Stockpile unchanged

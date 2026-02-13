@@ -46,15 +46,15 @@ impl Colony {
     /// Calculate the logistics capacity of this colony.
     ///
     /// Each logistics building contributes a set amount of capacity:
-    /// - Mass Driver: 50 units
-    /// - Orbital Lift: 200 units
-    /// - Cargo Terminal: 20 units
+    /// - Mass Driver: 5,000 units
+    /// - Orbital Lift: 20,000 units
+    /// - Cargo Terminal: 2,000 units
     pub fn logistics_capacity(&self) -> f64 {
         let mass_drivers = self.building_count(BuildingType::MassDriver) as f64;
         let orbital_lifts = self.building_count(BuildingType::OrbitalLift) as f64;
         let cargo_terminals = self.building_count(BuildingType::CargoTerminal) as f64;
 
-        mass_drivers * 50.0 + orbital_lifts * 200.0 + cargo_terminals * 20.0
+        mass_drivers * 5_000.0 + orbital_lifts * 20_000.0 + cargo_terminals * 2_000.0
     }
 
     /// Calculate the logistics demand based on colony industry.
@@ -70,8 +70,8 @@ impl Colony {
             + self.building_count(BuildingType::LaserDrill)
             + self.building_count(BuildingType::StripMine)) as f64;
 
-        // 10 units of logistics demand per industrial building
-        industrial_buildings * 10.0
+        // 1,000 units of logistics demand per industrial building
+        industrial_buildings * 1_000.0
     }
 
     /// Calculate the logistics efficiency factor (0.0 to 1.0).
@@ -92,22 +92,22 @@ impl Colony {
 
     /// Calculate housing capacity from habitat buildings.
     ///
-    /// Habitat Dome houses 100,000 colonists, Underground Habitat houses 60,000.
-    /// Values are scaled so 1 dome supports a mid-game colony and multiple
-    /// domes/habitats are needed for large populations.
+    /// Habitat Dome houses 1,000,000 colonists, Underground Habitat houses 600,000.
+    /// Values are scaled for civilization-level populations (millions to billions).
+    /// Multiple domes/habitats are needed for large colony populations.
     pub fn housing_capacity(&self) -> f64 {
         let domes = self.building_count(BuildingType::HabitatDome) as f64;
         let underground = self.building_count(BuildingType::UndergroundHabitat) as f64;
 
-        domes * 100_000.0 + underground * 60_000.0
+        domes * 1_000_000.0 + underground * 600_000.0
     }
 
     /// Calculate base population growth rate per year.
     ///
-    /// Base growth: 5% per year (doubled from 2% for viable gameplay pacing).
-    /// At 1wk/s game speed, a 1000-pop colony reaches ~10,000 in ~3 real minutes.
+    /// Base growth: 5% per year (viable gameplay pacing at 1wk/s).
+    /// At 1wk/s game speed, a 100K-pop colony reaches ~1M in ~5 real minutes.
     /// Medical centres add 1% each (up to meaningful bonus).
-    /// AgriDome supports 50,000 population each (food).
+    /// AgriDome supports 500,000 population each (food).
     /// Growth slows as housing fills. Logistics also applies.
     pub fn population_growth_per_year(&self) -> f64 {
         if self.population <= 0.0 {
@@ -129,7 +129,7 @@ impl Colony {
         // Agri domes contribute to food – without them growth is halved
         let agri_count = self.building_count(BuildingType::AgriDome) as f64;
         let food_factor = if agri_count > 0.0 {
-            (agri_count * 50_000.0 / self.population).min(1.0)
+            (agri_count * 500_000.0 / self.population).min(1.0)
         } else {
             0.5 // Ship-based supply can sustain half rate
         };
@@ -190,17 +190,17 @@ impl Colony {
 
     /// Wealth generated per year by financial/commercial buildings.
     ///
-    /// - CommercialHub: 200 MC/year per building (local economy)
-    /// - FinancialCenter: 800 MC/year per building (investment returns)
-    /// - TradePort: 2000 MC/year per building (interplanetary trade)
-    /// - Factories also generate 100 MC/year each (manufactured goods)
+    /// - CommercialHub: 2,000 MC/year per building (local economy)
+    /// - FinancialCenter: 8,000 MC/year per building (investment returns)
+    /// - TradePort: 20,000 MC/year per building (interplanetary trade)
+    /// - Factories also generate 1,000 MC/year each (manufactured goods)
     ///
     /// Scaled by workforce efficiency (understaffed buildings produce less).
     pub fn wealth_generation_per_year(&self) -> f64 {
-        let commercial = self.building_count(BuildingType::CommercialHub) as f64 * 200.0;
-        let financial = self.building_count(BuildingType::FinancialCenter) as f64 * 800.0;
-        let trade = self.building_count(BuildingType::TradePort) as f64 * 2000.0;
-        let factories = self.building_count(BuildingType::Factory) as f64 * 100.0;
+        let commercial = self.building_count(BuildingType::CommercialHub) as f64 * 2_000.0;
+        let financial = self.building_count(BuildingType::FinancialCenter) as f64 * 8_000.0;
+        let trade = self.building_count(BuildingType::TradePort) as f64 * 20_000.0;
+        let factories = self.building_count(BuildingType::Factory) as f64 * 1_000.0;
 
         (commercial + financial + trade + factories) * self.workforce_efficiency()
     }
@@ -308,13 +308,13 @@ mod tests {
         assert_eq!(colony.logistics_capacity(), 0.0);
 
         colony.add_building(BuildingType::MassDriver);
-        assert_eq!(colony.logistics_capacity(), 50.0);
+        assert_eq!(colony.logistics_capacity(), 5_000.0);
 
         colony.add_building(BuildingType::OrbitalLift);
-        assert_eq!(colony.logistics_capacity(), 250.0);
+        assert_eq!(colony.logistics_capacity(), 25_000.0);
 
         colony.add_building(BuildingType::CargoTerminal);
-        assert_eq!(colony.logistics_capacity(), 270.0);
+        assert_eq!(colony.logistics_capacity(), 27_000.0);
     }
 
     #[test]
@@ -324,8 +324,8 @@ mod tests {
         assert_eq!(colony.logistics_demand(), 0.0);
 
         colony.add_building(BuildingType::Mine);
-        // 1 mine × 10 = 10
-        assert!((colony.logistics_demand() - 10.0).abs() < 0.001);
+        // 1 mine × 1000 = 1000
+        assert!((colony.logistics_demand() - 1_000.0).abs() < 0.001);
     }
 
     #[test]
@@ -336,21 +336,21 @@ mod tests {
 
     #[test]
     fn test_logistics_efficiency_sufficient() {
-        let mut colony = Colony::new("Test".to_string(), 1000.0);
-        colony.add_building(BuildingType::Mine); // demand: 10
-        colony.add_building(BuildingType::MassDriver); // capacity: 50
-        // 50 / 10 > 1.0 → clamped to 1.0
+        let mut colony = Colony::new("Test".to_string(), 1_000_000.0);
+        colony.add_building(BuildingType::Mine); // demand: 1000
+        colony.add_building(BuildingType::MassDriver); // capacity: 5000
+        // 5000 / 1000 > 1.0 → clamped to 1.0
         assert_eq!(colony.logistics_efficiency(), 1.0);
     }
 
     #[test]
     fn test_logistics_efficiency_insufficient() {
-        let mut colony = Colony::new("Test".to_string(), 1000.0);
+        let mut colony = Colony::new("Test".to_string(), 10_000_000.0);
         // Add many mines without logistics
         for _ in 0..10 {
             colony.add_building(BuildingType::Mine);
         }
-        // demand: 10*10 = 100, capacity: 0
+        // demand: 10*1000 = 10000, capacity: 0
         assert_eq!(colony.logistics_efficiency(), 0.0);
     }
 
@@ -360,10 +360,10 @@ mod tests {
         assert_eq!(colony.housing_capacity(), 0.0);
 
         colony.add_building(BuildingType::HabitatDome);
-        assert_eq!(colony.housing_capacity(), 100_000.0);
+        assert_eq!(colony.housing_capacity(), 1_000_000.0);
 
         colony.add_building(BuildingType::UndergroundHabitat);
-        assert_eq!(colony.housing_capacity(), 160_000.0);
+        assert_eq!(colony.housing_capacity(), 1_600_000.0);
     }
 
     #[test]
@@ -374,9 +374,9 @@ mod tests {
 
     #[test]
     fn test_population_growth_with_housing() {
-        let mut colony = Colony::new("Test".to_string(), 10_000.0);
-        colony.add_building(BuildingType::HabitatDome); // 50,000 capacity
-        colony.add_building(BuildingType::AgriDome); // food for 25,000
+        let mut colony = Colony::new("Test".to_string(), 100_000.0);
+        colony.add_building(BuildingType::HabitatDome); // 1,000,000 capacity
+        colony.add_building(BuildingType::AgriDome); // food for 500,000
 
         let growth = colony.population_growth_per_year();
         // Should be positive with housing and food
@@ -385,7 +385,7 @@ mod tests {
 
     #[test]
     fn test_mining_output_multiplier() {
-        let mut colony = Colony::new("Test".to_string(), 1000.0);
+        let mut colony = Colony::new("Test".to_string(), 1_000_000.0);
         colony.add_building(BuildingType::Mine);
         colony.add_building(BuildingType::MassDriver);
 
@@ -395,7 +395,7 @@ mod tests {
 
     #[test]
     fn test_research_output_multiplier_minimum() {
-        let mut colony = Colony::new("Test".to_string(), 1000.0);
+        let mut colony = Colony::new("Test".to_string(), 10_000_000.0);
         for _ in 0..10 {
             colony.add_building(BuildingType::Mine);
         }
@@ -435,26 +435,26 @@ mod tests {
 
     #[test]
     fn test_workforce_demand() {
-        let mut colony = Colony::new("Test".to_string(), 10_000.0);
+        let mut colony = Colony::new("Test".to_string(), 10_000_000.0);
         assert_eq!(colony.total_workforce_demand(), 0);
 
-        colony.add_building(BuildingType::Mine); // 50 workers
-        assert_eq!(colony.total_workforce_demand(), 50);
+        colony.add_building(BuildingType::Mine); // 5,000 workers
+        assert_eq!(colony.total_workforce_demand(), 5_000);
 
-        colony.add_building(BuildingType::Factory); // 120 workers
-        assert_eq!(colony.total_workforce_demand(), 170);
+        colony.add_building(BuildingType::Factory); // 12,000 workers
+        assert_eq!(colony.total_workforce_demand(), 17_000);
     }
 
     #[test]
     fn test_workforce_efficiency() {
         // Large population, few buildings → full efficiency
-        let mut colony = Colony::new("Test".to_string(), 100_000.0);
+        let mut colony = Colony::new("Test".to_string(), 10_000_000.0);
         colony.add_building(BuildingType::Mine);
         assert_eq!(colony.workforce_efficiency(), 1.0);
 
         // Small population, many buildings → understaffed
-        let mut colony2 = Colony::new("Test".to_string(), 100.0);
-        colony2.add_building(BuildingType::Factory); // needs 120
+        let mut colony2 = Colony::new("Test".to_string(), 10_000.0);
+        colony2.add_building(BuildingType::Factory); // needs 12,000 workers, has 4,000
         assert!(colony2.workforce_efficiency() < 1.0);
     }
 
@@ -466,20 +466,20 @@ mod tests {
 
     #[test]
     fn test_wealth_generation() {
-        let mut colony = Colony::new("Test".to_string(), 100_000.0);
+        let mut colony = Colony::new("Test".to_string(), 10_000_000.0);
         assert_eq!(colony.wealth_generation_per_year(), 0.0);
 
-        colony.add_building(BuildingType::CommercialHub); // 200 MC/year
+        colony.add_building(BuildingType::CommercialHub); // 2,000 MC/year
         assert!(colony.wealth_generation_per_year() > 0.0);
 
-        colony.add_building(BuildingType::FinancialCenter); // 800 MC/year
+        colony.add_building(BuildingType::FinancialCenter); // 8,000 MC/year
         let wealth = colony.wealth_generation_per_year();
-        assert!(wealth > 200.0, "Should have substantial wealth: {}", wealth);
+        assert!(wealth > 2_000.0, "Should have substantial wealth: {}", wealth);
     }
 
     #[test]
     fn test_operating_cost() {
-        let mut colony = Colony::new("Test".to_string(), 10_000.0);
+        let mut colony = Colony::new("Test".to_string(), 1_000_000.0);
         assert_eq!(colony.operating_cost_per_year(), 0.0);
 
         colony.add_building(BuildingType::Mine); // cost 400, maint = 400*0.05 = 20

@@ -270,46 +270,48 @@ impl BuildingType {
 
     /// Workforce required to operate this building (number of workers).
     ///
-    /// Values are balanced so a starting colony (1000 pop, 400 workers) can
-    /// operate several basic buildings. Advanced/large buildings need more
-    /// workforce, encouraging population growth before scaling up.
+    /// Values are scaled to match civilization-level operations: deposits are
+    /// measured in Megatons, populations in millions to billions.  A starting
+    /// colony of 100,000 people (40,000 workers) can operate several basic
+    /// buildings.  Advanced/large installations need tens of thousands of
+    /// workers, encouraging population growth before scaling up.
     pub fn workforce_required(&self) -> u32 {
         match self {
-            // Infrastructure – low workforce, essential services
-            BuildingType::LifeSupport => 20,
-            BuildingType::HabitatDome => 10,
-            BuildingType::UndergroundHabitat => 15,
-            // Basic industry – affordable for early colonies
-            BuildingType::Mine => 50,
-            BuildingType::Refinery => 60,
-            BuildingType::Factory => 120,
+            // Infrastructure – essential services
+            BuildingType::LifeSupport => 2_000,
+            BuildingType::HabitatDome => 1_000,
+            BuildingType::UndergroundHabitat => 1_500,
+            // Basic industry
+            BuildingType::Mine => 5_000,
+            BuildingType::Refinery => 6_000,
+            BuildingType::Factory => 12_000,
             // Advanced mining – mid/late game scale
-            BuildingType::DeepDrill => 100,
-            BuildingType::LaserDrill => 40,
-            BuildingType::StripMine => 500,
+            BuildingType::DeepDrill => 10_000,
+            BuildingType::LaserDrill => 4_000,
+            BuildingType::StripMine => 50_000,
             // Logistics
-            BuildingType::MassDriver => 25,
-            BuildingType::OrbitalLift => 60,
-            BuildingType::CargoTerminal => 30,
+            BuildingType::MassDriver => 2_500,
+            BuildingType::OrbitalLift => 6_000,
+            BuildingType::CargoTerminal => 3_000,
             // Power – largely automated
-            BuildingType::SolarPower => 5,
-            BuildingType::FissionReactor => 40,
-            BuildingType::FusionReactor => 80,
+            BuildingType::SolarPower => 500,
+            BuildingType::FissionReactor => 4_000,
+            BuildingType::FusionReactor => 8_000,
             // Population support
-            BuildingType::AgriDome => 40,
-            BuildingType::MedicalCenter => 60,
+            BuildingType::AgriDome => 4_000,
+            BuildingType::MedicalCenter => 6_000,
             // Research
-            BuildingType::ResearchLab => 80,
-            BuildingType::EngineeringBay => 100,
-            BuildingType::AiCluster => 20,
+            BuildingType::ResearchLab => 8_000,
+            BuildingType::EngineeringBay => 10_000,
+            BuildingType::AiCluster => 2_000,
             // Financial
-            BuildingType::CommercialHub => 80,
-            BuildingType::FinancialCenter => 100,
-            BuildingType::TradePort => 150,
+            BuildingType::CommercialHub => 8_000,
+            BuildingType::FinancialCenter => 10_000,
+            BuildingType::TradePort => 15_000,
             // Military – large installations
-            BuildingType::Shipyard => 800,
-            BuildingType::MissileSilo => 50,
-            BuildingType::LaunchSite => 120,
+            BuildingType::Shipyard => 80_000,
+            BuildingType::MissileSilo => 5_000,
+            BuildingType::LaunchSite => 12_000,
         }
     }
 
@@ -478,18 +480,18 @@ mod tests {
 
     #[test]
     fn test_early_colony_workforce_feasible() {
-        // A starting colony (1000 pop, 400 workers) should be able to run
+        // A starting colony (100K pop, 40K workers) should be able to run
         // several basic buildings without hitting workforce limits immediately.
         let early_buildings = [
-            BuildingType::LifeSupport,  // 20
-            BuildingType::HabitatDome,  // 10
-            BuildingType::SolarPower,   // 5
-            BuildingType::Mine,         // 50
-            BuildingType::Mine,         // 50
-            BuildingType::AgriDome,     // 40
+            BuildingType::LifeSupport,  // 2,000
+            BuildingType::HabitatDome,  // 1,000
+            BuildingType::SolarPower,   // 500
+            BuildingType::Mine,         // 5,000
+            BuildingType::Mine,         // 5,000
+            BuildingType::AgriDome,     // 4,000
         ];
         let total: u32 = early_buildings.iter().map(|b| b.workforce_required()).sum();
-        assert!(total <= 400, "Early colony buildings should fit in 400 workers, got {}", total);
+        assert!(total <= 40_000, "Early colony buildings should fit in 40,000 workers, got {}", total);
     }
 
     #[test]
