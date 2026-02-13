@@ -268,35 +268,48 @@ impl BuildingType {
         }
     }
 
-    /// Workforce required to operate this building (number of workers)
+    /// Workforce required to operate this building (number of workers).
+    ///
+    /// Values are balanced so a starting colony (1000 pop, 400 workers) can
+    /// operate several basic buildings. Advanced/large buildings need more
+    /// workforce, encouraging population growth before scaling up.
     pub fn workforce_required(&self) -> u32 {
         match self {
-            BuildingType::LifeSupport => 50,
-            BuildingType::HabitatDome => 20,
-            BuildingType::UndergroundHabitat => 30,
-            BuildingType::Mine => 200,
-            BuildingType::Refinery => 150,
-            BuildingType::Factory => 500,
-            BuildingType::DeepDrill => 300,
-            BuildingType::LaserDrill => 100,
-            BuildingType::StripMine => 1000,
-            BuildingType::MassDriver => 50,
-            BuildingType::OrbitalLift => 100,
-            BuildingType::CargoTerminal => 80,
-            BuildingType::SolarPower => 10,
-            BuildingType::FissionReactor => 100,
-            BuildingType::FusionReactor => 200,
-            BuildingType::AgriDome => 100,
-            BuildingType::MedicalCenter => 150,
-            BuildingType::ResearchLab => 200,
-            BuildingType::EngineeringBay => 250,
-            BuildingType::AiCluster => 50,
-            BuildingType::CommercialHub => 300,
-            BuildingType::FinancialCenter => 200,
-            BuildingType::TradePort => 400,
-            BuildingType::Shipyard => 2000,
-            BuildingType::MissileSilo => 100,
-            BuildingType::LaunchSite => 300,
+            // Infrastructure – low workforce, essential services
+            BuildingType::LifeSupport => 20,
+            BuildingType::HabitatDome => 10,
+            BuildingType::UndergroundHabitat => 15,
+            // Basic industry – affordable for early colonies
+            BuildingType::Mine => 50,
+            BuildingType::Refinery => 60,
+            BuildingType::Factory => 120,
+            // Advanced mining – mid/late game scale
+            BuildingType::DeepDrill => 100,
+            BuildingType::LaserDrill => 40,
+            BuildingType::StripMine => 500,
+            // Logistics
+            BuildingType::MassDriver => 25,
+            BuildingType::OrbitalLift => 60,
+            BuildingType::CargoTerminal => 30,
+            // Power – largely automated
+            BuildingType::SolarPower => 5,
+            BuildingType::FissionReactor => 40,
+            BuildingType::FusionReactor => 80,
+            // Population support
+            BuildingType::AgriDome => 40,
+            BuildingType::MedicalCenter => 60,
+            // Research
+            BuildingType::ResearchLab => 80,
+            BuildingType::EngineeringBay => 100,
+            BuildingType::AiCluster => 20,
+            // Financial
+            BuildingType::CommercialHub => 80,
+            BuildingType::FinancialCenter => 100,
+            BuildingType::TradePort => 150,
+            // Military – large installations
+            BuildingType::Shipyard => 800,
+            BuildingType::MissileSilo => 50,
+            BuildingType::LaunchSite => 120,
         }
     }
 
@@ -461,6 +474,22 @@ mod tests {
                 building.display_name()
             );
         }
+    }
+
+    #[test]
+    fn test_early_colony_workforce_feasible() {
+        // A starting colony (1000 pop, 400 workers) should be able to run
+        // several basic buildings without hitting workforce limits immediately.
+        let early_buildings = [
+            BuildingType::LifeSupport,  // 20
+            BuildingType::HabitatDome,  // 10
+            BuildingType::SolarPower,   // 5
+            BuildingType::Mine,         // 50
+            BuildingType::Mine,         // 50
+            BuildingType::AgriDome,     // 40
+        ];
+        let total: u32 = early_buildings.iter().map(|b| b.workforce_required()).sum();
+        assert!(total <= 400, "Early colony buildings should fit in 400 workers, got {}", total);
     }
 
     #[test]

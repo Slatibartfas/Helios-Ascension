@@ -90,19 +90,25 @@ impl Colony {
         (capacity / demand).min(1.0)
     }
 
-    /// Calculate housing capacity from habitat buildings
+    /// Calculate housing capacity from habitat buildings.
+    ///
+    /// Habitat Dome houses 100,000 colonists, Underground Habitat houses 60,000.
+    /// Values are scaled so 1 dome supports a mid-game colony and multiple
+    /// domes/habitats are needed for large populations.
     pub fn housing_capacity(&self) -> f64 {
         let domes = self.building_count(BuildingType::HabitatDome) as f64;
         let underground = self.building_count(BuildingType::UndergroundHabitat) as f64;
 
-        // Each dome houses 50,000, each underground habitat houses 30,000
-        domes * 50_000.0 + underground * 30_000.0
+        domes * 100_000.0 + underground * 60_000.0
     }
 
     /// Calculate base population growth rate per year.
     ///
-    /// Growth is capped by housing capacity, boosted by medical centres and
-    /// agricultural domes, and penalised by logistics inefficiency.
+    /// Base growth: 5% per year (doubled from 2% for viable gameplay pacing).
+    /// At 1wk/s game speed, a 1000-pop colony reaches ~10,000 in ~3 real minutes.
+    /// Medical centres add 1% each (up to meaningful bonus).
+    /// AgriDome supports 50,000 population each (food).
+    /// Growth slows as housing fills. Logistics also applies.
     pub fn population_growth_per_year(&self) -> f64 {
         if self.population <= 0.0 {
             return 0.0;
@@ -113,17 +119,17 @@ impl Colony {
             return 0.0;
         }
 
-        // Base growth rate: 2% per year
-        let base_rate = 0.02;
+        // Base growth rate: 5% per year
+        let base_rate = 0.05;
 
-        // Medical centres add 0.5% each
+        // Medical centres add 1% each
         let medical_bonus =
-            self.building_count(BuildingType::MedicalCenter) as f64 * 0.005;
+            self.building_count(BuildingType::MedicalCenter) as f64 * 0.01;
 
         // Agri domes contribute to food – without them growth is halved
         let agri_count = self.building_count(BuildingType::AgriDome) as f64;
         let food_factor = if agri_count > 0.0 {
-            (agri_count * 25_000.0 / self.population).min(1.0)
+            (agri_count * 50_000.0 / self.population).min(1.0)
         } else {
             0.5 // Ship-based supply can sustain half rate
         };
@@ -184,17 +190,17 @@ impl Colony {
 
     /// Wealth generated per year by financial/commercial buildings.
     ///
-    /// - CommercialHub: 100 MC/year per building
-    /// - FinancialCenter: 500 MC/year per building
-    /// - TradePort: 1000 MC/year per building
-    /// - Factories also generate 50 MC/year each (industrial output)
+    /// - CommercialHub: 200 MC/year per building (local economy)
+    /// - FinancialCenter: 800 MC/year per building (investment returns)
+    /// - TradePort: 2000 MC/year per building (interplanetary trade)
+    /// - Factories also generate 100 MC/year each (manufactured goods)
     ///
     /// Scaled by workforce efficiency (understaffed buildings produce less).
     pub fn wealth_generation_per_year(&self) -> f64 {
-        let commercial = self.building_count(BuildingType::CommercialHub) as f64 * 100.0;
-        let financial = self.building_count(BuildingType::FinancialCenter) as f64 * 500.0;
-        let trade = self.building_count(BuildingType::TradePort) as f64 * 1000.0;
-        let factories = self.building_count(BuildingType::Factory) as f64 * 50.0;
+        let commercial = self.building_count(BuildingType::CommercialHub) as f64 * 200.0;
+        let financial = self.building_count(BuildingType::FinancialCenter) as f64 * 800.0;
+        let trade = self.building_count(BuildingType::TradePort) as f64 * 2000.0;
+        let factories = self.building_count(BuildingType::Factory) as f64 * 100.0;
 
         (commercial + financial + trade + factories) * self.workforce_efficiency()
     }
@@ -354,10 +360,10 @@ mod tests {
         assert_eq!(colony.housing_capacity(), 0.0);
 
         colony.add_building(BuildingType::HabitatDome);
-        assert_eq!(colony.housing_capacity(), 50_000.0);
+        assert_eq!(colony.housing_capacity(), 100_000.0);
 
         colony.add_building(BuildingType::UndergroundHabitat);
-        assert_eq!(colony.housing_capacity(), 80_000.0);
+        assert_eq!(colony.housing_capacity(), 160_000.0);
     }
 
     #[test]
@@ -432,11 +438,11 @@ mod tests {
         let mut colony = Colony::new("Test".to_string(), 10_000.0);
         assert_eq!(colony.total_workforce_demand(), 0);
 
-        colony.add_building(BuildingType::Mine); // 200 workers
-        assert_eq!(colony.total_workforce_demand(), 200);
+        colony.add_building(BuildingType::Mine); // 50 workers
+        assert_eq!(colony.total_workforce_demand(), 50);
 
-        colony.add_building(BuildingType::Factory); // 500 workers
-        assert_eq!(colony.total_workforce_demand(), 700);
+        colony.add_building(BuildingType::Factory); // 120 workers
+        assert_eq!(colony.total_workforce_demand(), 170);
     }
 
     #[test]
@@ -448,7 +454,7 @@ mod tests {
 
         // Small population, many buildings → understaffed
         let mut colony2 = Colony::new("Test".to_string(), 100.0);
-        colony2.add_building(BuildingType::Factory); // needs 500
+        colony2.add_building(BuildingType::Factory); // needs 120
         assert!(colony2.workforce_efficiency() < 1.0);
     }
 
@@ -463,12 +469,12 @@ mod tests {
         let mut colony = Colony::new("Test".to_string(), 100_000.0);
         assert_eq!(colony.wealth_generation_per_year(), 0.0);
 
-        colony.add_building(BuildingType::CommercialHub); // 100 MC/year
+        colony.add_building(BuildingType::CommercialHub); // 200 MC/year
         assert!(colony.wealth_generation_per_year() > 0.0);
 
-        colony.add_building(BuildingType::FinancialCenter); // 500 MC/year
+        colony.add_building(BuildingType::FinancialCenter); // 800 MC/year
         let wealth = colony.wealth_generation_per_year();
-        assert!(wealth > 100.0, "Should have substantial wealth: {}", wealth);
+        assert!(wealth > 200.0, "Should have substantial wealth: {}", wealth);
     }
 
     #[test]

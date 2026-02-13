@@ -67,18 +67,22 @@ impl GlobalBudget {
     pub fn new() -> Self {
         let mut stockpiles = HashMap::new();
 
-        // Initialize with some starting resources for gameplay
-        stockpiles.insert(ResourceType::Water, 100.0);
-        stockpiles.insert(ResourceType::Oxygen, 50.0);
-        stockpiles.insert(ResourceType::Iron, 50.0);
-        stockpiles.insert(ResourceType::Copper, 20.0);
+        // Initialize with starting resources for gameplay.
+        // A new civilization starts with enough material for ~10 basic buildings
+        // and a financial reserve to sustain early expansion for ~5 game years.
+        stockpiles.insert(ResourceType::Water, 200.0);
+        stockpiles.insert(ResourceType::Oxygen, 100.0);
+        stockpiles.insert(ResourceType::Iron, 150.0);
+        stockpiles.insert(ResourceType::Copper, 60.0);
+        stockpiles.insert(ResourceType::Silicates, 80.0);
+        stockpiles.insert(ResourceType::Aluminum, 40.0);
 
         Self {
             stockpiles,
             energy_grid: EnergyGrid::default(),
             civilization_score: 0.0,
             power_breakdown: HashMap::new(),
-            treasury: 1000.0, // Starting treasury: 1000 MC
+            treasury: 5000.0, // Starting treasury: 5000 MC (enough for ~5 years of early operations)
             income_per_year: 0.0,
             expenses_per_year: 0.0,
         }
@@ -398,7 +402,7 @@ mod tests {
     #[test]
     fn test_treasury_initial() {
         let budget = GlobalBudget::new();
-        assert_eq!(budget.treasury, 1000.0);
+        assert_eq!(budget.treasury, 5000.0);
     }
 
     #[test]
