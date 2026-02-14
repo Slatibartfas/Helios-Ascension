@@ -149,10 +149,17 @@ pub fn extract_resources(
     }
 }
 
-/// System that computes monthly production rates for all resources and
+/// System that computes **net** monthly rates for all resources and
 /// research/engineering points, writing them into [`ResourceRateTracker`].
 ///
-/// This is purely informational – it does not move any resources.
+/// Production comes from `MiningOperation` components and colony mining
+/// buildings. Consumption comes from building maintenance costs (the same
+/// costs deducted by `deduct_maintenance_resources`). The displayed rate
+/// is production − maintenance so the UI shows the true net balance.
+///
+/// RP/EP rates include the base generation rates defined in
+/// `research::systems` (`BASE_RP_PER_YEAR`, `BASE_EP_PER_YEAR`) so the
+/// bar always reflects actual accumulation.
 pub fn update_resource_rates(
     mut tracker: ResMut<ResourceRateTracker>,
     mining_ops: Query<&MiningOperation>,
@@ -162,7 +169,7 @@ pub fn update_resource_rates(
     buildings_data: Option<Res<BuildingsData>>,
     research_state: Res<crate::research::ResearchState>,
 ) {
-    // --- Resource rates from mining ---
+    // --- Resource rates from mining (production) ---
     let mut rates = std::collections::HashMap::new();
     
     // 1. MiningOperation components
@@ -213,19 +220,41 @@ pub fn update_resource_rates(
     } else {
         warn!("BuildingsData missing in update_resource_rates");
     }
+
+    // 3. Subtract maintenance consumption so rates show NET balance
+    if let Some(data) = &buildings_data {
+        for (colony, _) in colony_query.iter() {
+            for (building_type, &count) in &colony.buildings {
+                if count == 0 { continue; }
+                let maintenance = data.maintenance_resources(building_type);
+                for (resource_name, annual_amount) in maintenance {
+                    if let Some(rt) = crate::colony::data::parse_resource_type(resource_name) {
+                        // annual → monthly
+                        let monthly_cost = annual_amount * (count as f64)
+                            * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
+                        *rates.entry(rt).or_insert(0.0) -= monthly_cost;
+                    }
+                }
+            }
+        }
+    }
     
     tracker.resource_rates = rates;
 
-    // --- Research point rate ---
-    // From components (per second)
+    // --- Research point rate (include base rate) ---
+    // Base RP per month (same constant used in research::systems)
+    const BASE_RP_PER_YEAR: f64 = 2000.0;
+    let base_rp_monthly = BASE_RP_PER_YEAR * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
+
+    // From ResearchBuilding components (per second → per month)
     let research_per_second: f64 = research_buildings
         .iter()
         .map(|b| b.points_per_second)
         .sum();
     let research_multiplier = research_state.research_speed_multiplier();
-    let mut total_research_monthly = research_per_second * SECONDS_PER_MONTH;
+    let mut total_research_monthly = base_rp_monthly + research_per_second * SECONDS_PER_MONTH;
     
-    // From colonies (per month assumption)
+    // From colony buildings
     if let Some(data) = &buildings_data {
         for (colony, _) in colony_query.iter() {
              for (building_type, &count) in &colony.buildings {
@@ -243,16 +272,19 @@ pub fn update_resource_rates(
     
     tracker.research_rate_per_month = total_research_monthly * research_multiplier;
 
-    // --- Engineering point rate ---
-    // From components
+    // --- Engineering point rate (include base rate) ---
+    const BASE_EP_PER_YEAR: f64 = 1000.0;
+    let base_ep_monthly = BASE_EP_PER_YEAR * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
+
+    // From EngineeringFacility components
     let engineering_per_second: f64 = engineering_facilities
         .iter()
         .map(|f| f.points_per_second)
         .sum();
     let engineering_multiplier = research_state.engineering_speed_multiplier();
-    let mut total_engineering_monthly = engineering_per_second * SECONDS_PER_MONTH;
+    let mut total_engineering_monthly = base_ep_monthly + engineering_per_second * SECONDS_PER_MONTH;
     
-    // From colonies
+    // From colony buildings
     if let Some(data) = &buildings_data {
         for (colony, _) in colony_query.iter() {
              for (building_type, &count) in &colony.buildings {
