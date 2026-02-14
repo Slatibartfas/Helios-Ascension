@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
 
 use crate::ui::SimulationTime;
+use crate::colony::{Colony, BuildingsData};
 
 use super::components::{
     ComponentDesign, EngineeringFacility, EngineeringProject, ResearchBuilding, ResearchProject,
@@ -94,6 +95,8 @@ pub fn update_research_points(
     mut research_state: ResMut<ResearchState>,
     research_buildings: Query<&ResearchBuilding>,
     engineering_facilities: Query<&EngineeringFacility>,
+    colony_query: Query<&Colony>,
+    buildings_data: Option<Res<BuildingsData>>,
     mut last_time: Local<f64>,
 ) {
     let current_time = sim_time.elapsed_seconds();
@@ -103,16 +106,54 @@ pub fn update_research_points(
     if delta_time <= 0.0 {
         return;
     }
+    
+    let seconds_per_month = SECONDS_PER_YEAR / 12.0;
 
     // Compute RP rate (for display; actual distribution is in advance_research_projects)
     let base_rp_rate = BASE_RP_PER_YEAR / SECONDS_PER_YEAR;
-    let building_rp: f64 = research_buildings.iter().map(|b| b.points_per_second).sum();
+    let mut building_rp: f64 = research_buildings.iter().map(|b| b.points_per_second).sum();
+    
+    // Add colony RP
+    if let Some(data) = &buildings_data {
+        for colony in colony_query.iter() {
+             for (building_type, &count) in &colony.buildings {
+                if count == 0 { continue; }
+                if let Some(def) = data.get(building_type) {
+                    for modifier in &def.modifiers {
+                        if modifier.modifier_type == "ResearchSpeed" {
+                             // Value is RP/month -> RP/sec
+                            building_rp += (modifier.value * count as f64) / seconds_per_month;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let rp_multiplier = research_state.research_speed_multiplier();
     research_state.rp_rate_per_second = (base_rp_rate + building_rp) * rp_multiplier;
 
     // Compute and accumulate engineering points
     let base_ep_rate = BASE_EP_PER_YEAR / SECONDS_PER_YEAR;
-    let building_ep: f64 = engineering_facilities.iter().map(|f| f.points_per_second).sum();
+    let mut building_ep: f64 = engineering_facilities.iter().map(|f| f.points_per_second).sum();
+    
+    // Add colony EP
+    if let Some(data) = &buildings_data {
+        for colony in colony_query.iter() {
+             for (building_type, &count) in &colony.buildings {
+                if count == 0 { continue; }
+                if let Some(def) = data.get(building_type) {
+                    for modifier in &def.modifiers {
+                        if modifier.modifier_type == "EngineeringSpeed" {
+                            // Value is EP/month -> EP/sec
+                            building_ep += (modifier.value * count as f64) / seconds_per_month;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let ep_multiplier = research_state.engineering_speed_multiplier();
     research_state.ep_rate_per_second = (base_ep_rate + building_ep) * ep_multiplier;
     research_state.engineering_points_available +=

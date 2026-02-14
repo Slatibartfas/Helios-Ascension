@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use super::types::ResourceType;
 use crate::economy::{PowerGenerator, PowerSourceType};
+use crate::colony::{Colony, BuildingsData};
 
 /// Tracks per-month income/production rates for all resources
 /// and research/engineering points for display in the resource bar.
@@ -427,13 +428,40 @@ mod tests {
 pub fn update_power_grid(
     mut budget: ResMut<GlobalBudget>,
     query: Query<&PowerGenerator>,
+    colonies: Query<&Colony>,
+    buildings_data: Option<Res<BuildingsData>>,
 ) {
     let mut total_produced = 0.0;
     let mut breakdown = HashMap::new();
 
+    // 1. Existing PowerGenerator entities
     for generator in query.iter() {
         total_produced += generator.output;
         *breakdown.entry(generator.source_type).or_insert(0.0) += generator.output;
+    }
+
+    // 2. Colony buildings
+    // Assume building modifiers "PowerGeneration" is in GW (1e9 W)
+    if let Some(data) = buildings_data {
+        for colony in colonies.iter() {
+            for (building_type, &count) in &colony.buildings {
+                if count == 0 { continue; }
+                
+                if let Some(def) = data.get(building_type) {
+                    for modifier in &def.modifiers {
+                        if modifier.modifier_type == "PowerGeneration" {
+                            // Scale: 5.0 -> 5 GW
+                            let power_gw = modifier.value * count as f64;
+                            let power_watts = power_gw * 1_000_000_000.0;
+                            total_produced += power_watts;
+                            
+                            // Categorize based on PowerSourceType
+                            *breakdown.entry(PowerSourceType::Planet).or_insert(0.0) += power_watts;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // Update grid production
