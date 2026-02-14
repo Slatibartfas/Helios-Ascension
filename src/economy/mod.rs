@@ -38,11 +38,8 @@ impl Plugin for EconomyPlugin {
             .init_resource::<ResourceRateTracker>()
             // Startup systems
             .add_systems(
-                Startup,
-                generate_solar_system_resources.after(
-                    // Run after solar system is set up
-                    crate::plugins::solar_system::setup_solar_system,
-                ),
+                PostStartup,
+                generate_solar_system_resources,
             )
             // Update systems
             .add_systems(

@@ -122,12 +122,16 @@ pub fn update_research_points(
                     for modifier in &def.modifiers {
                         if modifier.modifier_type == "ResearchSpeed" {
                              // Value is RP/month -> RP/sec
-                            building_rp += (modifier.value * count as f64) / seconds_per_month;
+                            let val = (modifier.value * count as f64) / seconds_per_month;
+                            building_rp += val;
+                            // info!("Added RP from {}: {} * {} = {}", def.display_name, count, modifier.value, val * seconds_per_month);
                         }
                     }
                 }
             }
         }
+    } else {
+        warn!("BuildingsData not available in update_research_points");
     }
 
     let rp_multiplier = research_state.research_speed_multiplier();

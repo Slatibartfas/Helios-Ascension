@@ -202,8 +202,12 @@ pub fn update_resource_rates(
                         }
                     }
                 }
+            } else {
+                warn!("Colony {} has no PlanetResources!", colony.name);
             }
         }
+    } else {
+        warn!("BuildingsData missing in update_resource_rates");
     }
     
     tracker.resource_rates = rates;
