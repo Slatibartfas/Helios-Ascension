@@ -49,7 +49,15 @@ impl Colony {
     /// - Mass Driver: 5,000 units
     /// - Orbital Lift: 20,000 units
     /// - Cargo Terminal: 2,000 units
+    ///
+    /// The starting colony (Earth) has effectively infinite logistics capacity
+    /// as it represents a fully developed planetary economy that doesn't 
+    /// primarily rely on space-based logistics for surface operations.
     pub fn logistics_capacity(&self) -> f64 {
+        if self.name == "Earth" {
+            return 1_000_000_000.0;
+        }
+
         let mass_drivers = self.building_count(BuildingType::MassDriver) as f64;
         let orbital_lifts = self.building_count(BuildingType::OrbitalLift) as f64;
         let cargo_terminals = self.building_count(BuildingType::CargoTerminal) as f64;
@@ -194,17 +202,17 @@ impl Colony {
 
     /// Wealth generated per year by financial/commercial buildings.
     ///
-    /// - CommercialHub: 2,000 MC/year per building (local economy)
-    /// - FinancialCenter: 8,000 MC/year per building (investment returns)
-    /// - TradePort: 20,000 MC/year per building (interplanetary trade)
-    /// - Factories also generate 1,000 MC/year each (manufactured goods)
+    /// - CommercialHub: 500 MC/year per building (local economy)
+    /// - FinancialCenter: 2,000 MC/year per building (investment returns)
+    /// - TradePort: 5,000 MC/year per building (interplanetary trade)
+    /// - Factories also generate 100 MC/year each (manufactured goods)
     ///
     /// Scaled by workforce efficiency (understaffed buildings produce less).
     pub fn wealth_generation_per_year(&self) -> f64 {
-        let commercial = self.building_count(BuildingType::CommercialHub) as f64 * 2_000.0;
-        let financial = self.building_count(BuildingType::FinancialCenter) as f64 * 8_000.0;
-        let trade = self.building_count(BuildingType::TradePort) as f64 * 20_000.0;
-        let factories = self.building_count(BuildingType::Factory) as f64 * 1_000.0;
+        let commercial = self.building_count(BuildingType::CommercialHub) as f64 * 500.0;
+        let financial = self.building_count(BuildingType::FinancialCenter) as f64 * 2_000.0;
+        let trade = self.building_count(BuildingType::TradePort) as f64 * 5_000.0;
+        let factories = self.building_count(BuildingType::Factory) as f64 * 100.0;
 
         (commercial + financial + trade + factories) * self.workforce_efficiency()
     }
@@ -473,12 +481,12 @@ mod tests {
         let mut colony = Colony::new("Test".to_string(), 10_000_000.0);
         assert_eq!(colony.wealth_generation_per_year(), 0.0);
 
-        colony.add_building(BuildingType::CommercialHub); // 2,000 MC/year
+        colony.add_building(BuildingType::CommercialHub); // 500 MC/year
         assert!(colony.wealth_generation_per_year() > 0.0);
 
-        colony.add_building(BuildingType::FinancialCenter); // 8,000 MC/year
+        colony.add_building(BuildingType::FinancialCenter); // 2,000 MC/year
         let wealth = colony.wealth_generation_per_year();
-        assert!(wealth > 2_000.0, "Should have substantial wealth: {}", wealth);
+        assert!(wealth > 500.0, "Should have substantial wealth: {}", wealth);
     }
 
     #[test]
