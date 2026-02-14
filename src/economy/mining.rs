@@ -3,6 +3,7 @@ use crate::economy::components::PlanetResources;
 use crate::economy::types::ResourceType;
 use crate::plugins::solar_system::CelestialBody;
 use crate::ui::SimulationTime;
+use crate::colony::{Colony, BuildingsData};
 use bevy::prelude::*;
 
 #[derive(Component, Debug, Clone)]
@@ -26,8 +27,10 @@ impl Default for MiningOperation {
 pub fn extract_resources(
     mut budget: ResMut<GlobalBudget>,
     mut query: Query<(&mut PlanetResources, &MiningOperation, &mut CelestialBody)>,
+    mut colony_query: Query<(&Colony, &mut PlanetResources, &mut CelestialBody), Without<MiningOperation>>,
     sim_time: Res<SimulationTime>,
     mut last_elapsed: Local<f64>,
+    buildings_data: Option<Res<BuildingsData>>,
 ) {
     let current_elapsed = sim_time.elapsed_seconds();
     let dt = current_elapsed - *last_elapsed;
@@ -44,6 +47,7 @@ pub fn extract_resources(
         return;
     }
 
+    // 1. Process specific MiningOperations (legacy/scenario)
     for (mut resources, op, mut body) in query.iter_mut() {
         if !op.active {
             continue;
@@ -76,12 +80,66 @@ pub fn extract_resources(
             }
 
             // Add to global budget
-            // Note: GlobalBudget stockpiles are likely in relevant units (unknown if Mt or tons)
-            // The budget uses `f64`. Assuming units match (Mt).
             if total_extracted > 0.0 {
                 budget.add_resource(op.resource_type, total_extracted);
                 // Reduce body mass (1 Mt = 1e9 kg)
                 body.mass -= total_extracted * 1e9;
+            }
+        }
+    }
+    
+    // 2. Process Colony Mining
+    if let Some(data) = buildings_data {
+        for (colony, mut resources, mut body) in colony_query.iter_mut() {
+            // Calculate total mining capacity (Mt/year)
+            let mut total_mining_rate = 0.0;
+            for (building_type, &count) in &colony.buildings {
+                if count == 0 { continue; }
+                if let Some(def) = data.get(building_type) {
+                    for modifier in &def.modifiers {
+                        if modifier.modifier_type == "MiningEfficiency" {
+                            total_mining_rate += modifier.value * count as f64;
+                        }
+                    }
+                }
+            }
+            
+            if total_mining_rate <= 0.0 { continue; }
+            
+            // Distribute across available deposits
+            // Find accessible resources
+            let accessible_resources: Vec<ResourceType> = resources.deposits.iter()
+                .filter(|(_, d)| d.reserve.proven_crustal > 0.0 || d.reserve.deep_deposits > 0.0)
+                .map(|(t, _)| *t)
+                .collect();
+                
+            if accessible_resources.is_empty() { continue; }
+            
+            let rate_per_resource = total_mining_rate / accessible_resources.len() as f64;
+            
+            for r_type in accessible_resources {
+                if let Some(deposit) = resources.deposits.get_mut(&r_type) {
+                     let mut demand = rate_per_resource * years_elapsed;
+                     let mut extracted = 0.0;
+                     
+                     // Proven
+                     let taking_proven = demand.min(deposit.reserve.proven_crustal);
+                     deposit.reserve.proven_crustal -= taking_proven;
+                     extracted += taking_proven;
+                     demand -= taking_proven;
+                     
+                     // Deep
+                     if demand > 0.0 {
+                         let taking_deep = demand.min(deposit.reserve.deep_deposits);
+                         deposit.reserve.deep_deposits -= taking_deep;
+                         extracted += taking_deep;
+                     }
+                     
+                     if extracted > 0.0 {
+                         budget.add_resource(r_type, extracted);
+                         body.mass -= extracted * 1e9;
+                     }
+                }
             }
         }
     }
@@ -96,10 +154,14 @@ pub fn update_resource_rates(
     mining_ops: Query<&MiningOperation>,
     research_buildings: Query<&crate::research::components::ResearchBuilding>,
     engineering_facilities: Query<&crate::research::components::EngineeringFacility>,
+    colony_query: Query<(&Colony, Option<&PlanetResources>)>,
+    buildings_data: Option<Res<BuildingsData>>,
     research_state: Res<crate::research::ResearchState>,
 ) {
     // --- Resource rates from mining ---
     let mut rates = std::collections::HashMap::new();
+    
+    // 1. MiningOperation components
     for op in mining_ops.iter() {
         if !op.active {
             continue;
@@ -108,22 +170,99 @@ pub fn update_resource_rates(
         let monthly = op.base_rate_mt_per_year * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
         *rates.entry(op.resource_type).or_insert(0.0) += monthly;
     }
+    
+    // 2. Colony mining
+    if let Some(data) = &buildings_data {
+        for (colony, resources_opt) in colony_query.iter() {
+            if let Some(resources) = resources_opt {
+                 let mut total_mining_rate = 0.0;
+                 for (building_type, &count) in &colony.buildings {
+                    if count == 0 { continue; }
+                    if let Some(def) = data.get(building_type) {
+                        for modifier in &def.modifiers {
+                            if modifier.modifier_type == "MiningEfficiency" {
+                                total_mining_rate += modifier.value * count as f64;
+                            }
+                        }
+                    }
+                }
+                
+                if total_mining_rate > 0.0 {
+                    let monthly_total = total_mining_rate * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
+                    
+                    let accessible_resources: Vec<ResourceType> = resources.deposits.iter()
+                        .filter(|(_, d)| d.reserve.proven_crustal > 0.0 || d.reserve.deep_deposits > 0.0)
+                        .map(|(t, _)| *t)
+                        .collect();
+                        
+                    if !accessible_resources.is_empty() {
+                        let rate_per_resource = monthly_total / accessible_resources.len() as f64;
+                        for r_type in accessible_resources {
+                            *rates.entry(r_type).or_insert(0.0) += rate_per_resource;
+                        }
+                    }
+                }
+            } else {
+                warn!("Colony {} has no PlanetResources!", colony.name);
+            }
+        }
+    } else {
+        warn!("BuildingsData missing in update_resource_rates");
+    }
+    
     tracker.resource_rates = rates;
 
     // --- Research point rate ---
+    // From components (per second)
     let research_per_second: f64 = research_buildings
         .iter()
         .map(|b| b.points_per_second)
         .sum();
     let research_multiplier = research_state.research_speed_multiplier();
-    tracker.research_rate_per_month = research_per_second * SECONDS_PER_MONTH * research_multiplier;
+    let mut total_research_monthly = research_per_second * SECONDS_PER_MONTH;
+    
+    // From colonies (per month assumption)
+    if let Some(data) = &buildings_data {
+        for (colony, _) in colony_query.iter() {
+             for (building_type, &count) in &colony.buildings {
+                if count == 0 { continue; }
+                if let Some(def) = data.get(building_type) {
+                    for modifier in &def.modifiers {
+                        if modifier.modifier_type == "ResearchSpeed" {
+                            total_research_monthly += modifier.value * count as f64;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    tracker.research_rate_per_month = total_research_monthly * research_multiplier;
 
     // --- Engineering point rate ---
+    // From components
     let engineering_per_second: f64 = engineering_facilities
         .iter()
         .map(|f| f.points_per_second)
         .sum();
     let engineering_multiplier = research_state.engineering_speed_multiplier();
-    tracker.engineering_rate_per_month =
-        engineering_per_second * SECONDS_PER_MONTH * engineering_multiplier;
+    let mut total_engineering_monthly = engineering_per_second * SECONDS_PER_MONTH;
+    
+    // From colonies
+    if let Some(data) = &buildings_data {
+        for (colony, _) in colony_query.iter() {
+             for (building_type, &count) in &colony.buildings {
+                if count == 0 { continue; }
+                if let Some(def) = data.get(building_type) {
+                    for modifier in &def.modifiers {
+                         if modifier.modifier_type == "EngineeringSpeed" {
+                            total_engineering_monthly += modifier.value * count as f64;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    tracker.engineering_rate_per_month = total_engineering_monthly * engineering_multiplier;
 }

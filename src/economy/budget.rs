@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use super::types::ResourceType;
 use crate::economy::{PowerGenerator, PowerSourceType};
+use crate::colony::{Colony, BuildingsData};
 
 /// Tracks per-month income/production rates for all resources
 /// and research/engineering points for display in the resource bar.
@@ -51,6 +52,15 @@ pub struct GlobalBudget {
 
     /// Breakdown of power production by source
     pub power_breakdown: HashMap<PowerSourceType, f64>,
+
+    /// Treasury: total accumulated wealth (Mega-Credits, MC)
+    pub treasury: f64,
+
+    /// Income per year from all colonies (MC/year)
+    pub income_per_year: f64,
+
+    /// Expenses per year from all colonies (MC/year)
+    pub expenses_per_year: f64,
 }
 
 impl GlobalBudget {
@@ -58,17 +68,25 @@ impl GlobalBudget {
     pub fn new() -> Self {
         let mut stockpiles = HashMap::new();
 
-        // Initialize with some starting resources for gameplay
-        stockpiles.insert(ResourceType::Water, 100.0);
-        stockpiles.insert(ResourceType::Oxygen, 50.0);
-        stockpiles.insert(ResourceType::Iron, 50.0);
-        stockpiles.insert(ResourceType::Copper, 20.0);
+        // Initialize with starting resources for gameplay.
+        // A new civilization starts with enough material for ~10 basic buildings
+        // and a financial reserve to sustain early expansion for ~5 game years.
+        // Scales: resources in Megatons, populations in millions/billions.
+        stockpiles.insert(ResourceType::Water, 20_000.0);
+        stockpiles.insert(ResourceType::Oxygen, 10_000.0);
+        stockpiles.insert(ResourceType::Iron, 15_000.0);
+        stockpiles.insert(ResourceType::Copper, 6_000.0);
+        stockpiles.insert(ResourceType::Silicates, 8_000.0);
+        stockpiles.insert(ResourceType::Aluminum, 4_000.0);
 
         Self {
             stockpiles,
             energy_grid: EnergyGrid::default(),
             civilization_score: 0.0,
             power_breakdown: HashMap::new(),
+            treasury: 100_000.0, // Starting treasury: 100K MC (enough for early expansion)
+            income_per_year: 0.0,
+            expenses_per_year: 0.0,
         }
     }
 
@@ -148,6 +166,11 @@ impl GlobalBudget {
         } else {
             0.0
         }
+    }
+
+    /// Get the yearly financial balance (income - expenses)
+    pub fn balance_per_year(&self) -> f64 {
+        self.income_per_year - self.expenses_per_year
     }
 }
 
@@ -238,6 +261,19 @@ pub fn format_power(watts: f64) -> String {
         format!("{:.2} kW", watts / 1e3)
     } else {
         format!("{:.2} W", watts)
+    }
+}
+
+/// Format currency value in human-readable units (MC)
+pub fn format_currency(mc: f64) -> String {
+    let abs = mc.abs();
+    let sign = if mc < 0.0 { "-" } else { "" };
+    if abs >= 1_000_000.0 {
+        format!("{}{:.1}M MC", sign, abs / 1_000_000.0)
+    } else if abs >= 1_000.0 {
+        format!("{}{:.1}K MC", sign, abs / 1_000.0)
+    } else {
+        format!("{}{:.0} MC", sign, abs)
     }
 }
 
@@ -364,19 +400,68 @@ mod tests {
         let mut budget = GlobalBudget::new();
         budget.consume_resource(ResourceType::Iron, -50.0);
     }
+
+    #[test]
+    fn test_treasury_initial() {
+        let budget = GlobalBudget::new();
+        assert_eq!(budget.treasury, 100_000.0);
+    }
+
+    #[test]
+    fn test_balance_calculation() {
+        let mut budget = GlobalBudget::new();
+        budget.income_per_year = 500.0;
+        budget.expenses_per_year = 200.0;
+        assert_eq!(budget.balance_per_year(), 300.0);
+    }
+
+    #[test]
+    fn test_format_currency() {
+        assert_eq!(format_currency(500.0), "500 MC");
+        assert_eq!(format_currency(1500.0), "1.5K MC");
+        assert_eq!(format_currency(2_500_000.0), "2.5M MC");
+        assert_eq!(format_currency(-500.0), "-500 MC");
+    }
 }
 
 /// System to aggregate power from all generators and update global budget
 pub fn update_power_grid(
     mut budget: ResMut<GlobalBudget>,
     query: Query<&PowerGenerator>,
+    colonies: Query<&Colony>,
+    buildings_data: Option<Res<BuildingsData>>,
 ) {
     let mut total_produced = 0.0;
     let mut breakdown = HashMap::new();
 
+    // 1. Existing PowerGenerator entities
     for generator in query.iter() {
         total_produced += generator.output;
         *breakdown.entry(generator.source_type).or_insert(0.0) += generator.output;
+    }
+
+    // 2. Colony buildings
+    // Assume building modifiers "PowerGeneration" is in GW (1e9 W)
+    if let Some(data) = buildings_data {
+        for colony in colonies.iter() {
+            for (building_type, &count) in &colony.buildings {
+                if count == 0 { continue; }
+                
+                if let Some(def) = data.get(building_type) {
+                    for modifier in &def.modifiers {
+                        if modifier.modifier_type == "PowerGeneration" {
+                            // Scale: 5.0 -> 5 GW
+                            let power_gw = modifier.value * count as f64;
+                            let power_watts = power_gw * 1_000_000_000.0;
+                            total_produced += power_watts;
+                            
+                            // Categorize based on PowerSourceType
+                            *breakdown.entry(PowerSourceType::Planet).or_insert(0.0) += power_watts;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // Update grid production
