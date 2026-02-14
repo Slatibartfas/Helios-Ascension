@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
 
 use crate::ui::SimulationTime;
+use crate::colony::{Colony, BuildingsData};
 
 use super::components::{
     ComponentDesign, EngineeringFacility, EngineeringProject, ResearchBuilding, ResearchProject,
@@ -94,6 +95,8 @@ pub fn update_research_points(
     mut research_state: ResMut<ResearchState>,
     research_buildings: Query<&ResearchBuilding>,
     engineering_facilities: Query<&EngineeringFacility>,
+    colony_query: Query<&Colony>,
+    buildings_data: Option<Res<BuildingsData>>,
     mut last_time: Local<f64>,
 ) {
     let current_time = sim_time.elapsed_seconds();
@@ -103,16 +106,58 @@ pub fn update_research_points(
     if delta_time <= 0.0 {
         return;
     }
+    
+    let seconds_per_month = SECONDS_PER_YEAR / 12.0;
 
     // Compute RP rate (for display; actual distribution is in advance_research_projects)
     let base_rp_rate = BASE_RP_PER_YEAR / SECONDS_PER_YEAR;
-    let building_rp: f64 = research_buildings.iter().map(|b| b.points_per_second).sum();
+    let mut building_rp: f64 = research_buildings.iter().map(|b| b.points_per_second).sum();
+    
+    // Add colony RP
+    if let Some(data) = &buildings_data {
+        for colony in colony_query.iter() {
+             for (building_type, &count) in &colony.buildings {
+                if count == 0 { continue; }
+                if let Some(def) = data.get(building_type) {
+                    for modifier in &def.modifiers {
+                        if modifier.modifier_type == "ResearchSpeed" {
+                             // Value is RP/month -> RP/sec
+                            let val = (modifier.value * count as f64) / seconds_per_month;
+                            building_rp += val;
+                            // info!("Added RP from {}: {} * {} = {}", def.display_name, count, modifier.value, val * seconds_per_month);
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        warn!("BuildingsData not available in update_research_points");
+    }
+
     let rp_multiplier = research_state.research_speed_multiplier();
     research_state.rp_rate_per_second = (base_rp_rate + building_rp) * rp_multiplier;
 
     // Compute and accumulate engineering points
     let base_ep_rate = BASE_EP_PER_YEAR / SECONDS_PER_YEAR;
-    let building_ep: f64 = engineering_facilities.iter().map(|f| f.points_per_second).sum();
+    let mut building_ep: f64 = engineering_facilities.iter().map(|f| f.points_per_second).sum();
+    
+    // Add colony EP
+    if let Some(data) = &buildings_data {
+        for colony in colony_query.iter() {
+             for (building_type, &count) in &colony.buildings {
+                if count == 0 { continue; }
+                if let Some(def) = data.get(building_type) {
+                    for modifier in &def.modifiers {
+                        if modifier.modifier_type == "EngineeringSpeed" {
+                            // Value is EP/month -> EP/sec
+                            building_ep += (modifier.value * count as f64) / seconds_per_month;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let ep_multiplier = research_state.engineering_speed_multiplier();
     research_state.ep_rate_per_second = (base_ep_rate + building_ep) * ep_multiplier;
     research_state.engineering_points_available +=
@@ -154,11 +199,23 @@ pub fn advance_research_projects(
 
     // Second pass: distribute RP and advance projects
     for (entity, mut project, team) in projects.iter_mut() {
-        if project.is_complete() || !project.active {
+        // If already complete (e.g. 0-cost projects), finish immediately
+        if project.is_complete() {
+            if let Some(t) = tech_data.get_tech(&project.tech_id) {
+                info!(
+                    "Research project completed immediately: {} by team '{}'",
+                    t.name, team.name
+                );
+            }
+            completed_projects.push((entity, project.tech_id.clone()));
             continue;
         }
 
-        // Skip zero-allocation projects
+        if !project.active {
+            continue;
+        }
+
+        // Skip zero-allocation projects or if no allocation possible
         if project.rp_allocation_percent <= 0.0 || total_allocation <= 0.0 {
             continue;
         }
@@ -478,6 +535,36 @@ pub fn process_allocation_updates(
                 project.rp_allocation_percent *= scale;
             }
         }
+    }
+}
+
+/// Initialize baseline technologies (0.0 cost) as unlocked at start
+pub fn initialize_baseline_technology(
+    mut research_state: ResMut<ResearchState>,
+    tech_data: Res<TechnologiesData>,
+) {
+    let mut unlocked_count = 0;
+    
+    for tech in tech_data.technologies.values() {
+        // Skip if already unlocked (though this runs once at start)
+        if research_state.is_unlocked(&tech.id) {
+            continue;
+        }
+        
+        if tech.research_cost <= 0.0 && tech.prerequisites.is_empty() {
+            research_state.unlock_tech(tech.id.clone());
+            
+            // Apply modifiers
+            for modifier in &tech.modifiers {
+                research_state.add_modifier(modifier.modifier_type.clone(), modifier.value);
+            }
+            
+            unlocked_count += 1;
+        }
+    }
+    
+    if unlocked_count > 0 {
+        info!("Initialized {} baseline technologies", unlocked_count);
     }
 }
 

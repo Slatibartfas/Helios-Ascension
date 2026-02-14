@@ -18,6 +18,7 @@ use crate::astronomy::{
 };
 use crate::plugins::camera::{CameraAnchor, GameCamera};
 use crate::ui::SimulationTime;
+use crate::colony::{Colony, BuildingType};
 
 pub struct SolarSystemPlugin;
 
@@ -752,6 +753,33 @@ pub fn setup_solar_system(
                 obliquity: body_data.axial_tilt.to_radians(),
                 north_pole_ra: body_data.north_pole_ra.to_radians(),
             });
+        }
+
+        // Initialize Earth as a colony
+        if body_data.name == "Earth" {
+            let mut colony = Colony::new("Earth".to_string(), 8.2e9); // 8.2 Billion
+            
+            // Add initial infrastructure
+            let base_buildings = [
+                 (BuildingType::Housing, 33000),    // Housing (250k each -> 8.25B)
+                 (BuildingType::Farm, 8500),        // Food (1M each -> 8.5B)
+                 (BuildingType::Factory, 2000),     // Production (Increased for Earth)
+                 (BuildingType::Mine, 1000),        // Mining
+                 (BuildingType::Refinery, 800),     // Refining
+                 (BuildingType::ResearchLab, 500),  // Research
+                 (BuildingType::LaunchSite, 50),    // Space Access
+                 (BuildingType::FinancialCenter, 100), // Economy
+                 (BuildingType::CommercialHub, 500),   // Economy
+            ];
+            
+            for (b_type, count) in base_buildings {
+                for _ in 0..count {
+                    colony.add_building(b_type);
+                }
+            }
+            
+            entity_commands.insert(colony);
+            info!("Established Earth colony with 8.2B population");
         }
 
         // Add type-specific component

@@ -22,7 +22,7 @@ pub use components::{
 pub use data::{load_technologies, TechnologiesData};
 pub use systems::{
     advance_engineering_projects, advance_research_projects, check_unlocked_technologies,
-    update_research_points, ResearchState,
+    initialize_baseline_technology, update_research_points, ResearchState,
 };
 pub use types::{TechCategory, Technology, TechnologyId};
 
@@ -166,6 +166,7 @@ impl Plugin for ResearchPlugin {
             .init_resource::<ResearchTeamCapacity>()
             // Startup systems
             .add_systems(Startup, load_technologies)
+            .add_systems(PostStartup, initialize_baseline_technology)
             // Update systems
             .add_systems(
                 Update,

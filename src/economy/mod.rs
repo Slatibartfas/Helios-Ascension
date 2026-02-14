@@ -16,8 +16,8 @@ pub mod mining;
 pub mod types;
 
 pub use budget::{
-    format_power, update_civilization_score, update_power_grid, EnergyGrid, GlobalBudget,
-    ResourceRateTracker, SECONDS_PER_MONTH, SECONDS_PER_YEAR,
+    format_currency, format_power, update_civilization_score, update_power_grid, EnergyGrid,
+    GlobalBudget, ResourceRateTracker, SECONDS_PER_MONTH, SECONDS_PER_YEAR,
 };
 pub use components::{
     MineralDeposit, OrbitsBody, PlanetResources, PowerGenerator, PowerSourceType, SpectralClass,
@@ -38,11 +38,8 @@ impl Plugin for EconomyPlugin {
             .init_resource::<ResourceRateTracker>()
             // Startup systems
             .add_systems(
-                Startup,
-                generate_solar_system_resources.after(
-                    // Run after solar system is set up
-                    crate::plugins::solar_system::setup_solar_system,
-                ),
+                PostStartup,
+                generate_solar_system_resources,
             )
             // Update systems
             .add_systems(
