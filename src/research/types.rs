@@ -176,6 +176,7 @@ pub struct ComponentDefinition {
     /// Engineering points required
     pub engineering_cost: f64,
     /// Technology that unlocks this component
+    #[serde(default)]
     pub required_tech: TechnologyId,
 }
 

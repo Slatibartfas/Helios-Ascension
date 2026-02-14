@@ -66,14 +66,25 @@ pub fn load_technologies(mut commands: Commands) {
                     let component_count = data.components.len();
 
                     let mut tech_data = TechnologiesData::default();
+                    let mut component_to_tech = std::collections::HashMap::new();
 
-                    // Index technologies by ID
+                    // Index technologies by ID and build component mapping
                     for tech in data.technologies {
+                        for comp_id in &tech.unlocks_components {
+                            component_to_tech.insert(comp_id.clone(), tech.id.clone());
+                        }
                         tech_data.technologies.insert(tech.id.clone(), tech);
                     }
 
-                    // Index components by ID
-                    for component in data.components {
+                    // Index components by ID and backfill required_tech
+                    for mut component in data.components {
+                        if component.required_tech.is_empty() {
+                            if let Some(tech_id) = component_to_tech.get(&component.id) {
+                                component.required_tech = tech_id.clone();
+                            } else {
+                                warn!("Component {} has no required_tech and is not unlocked by any technology", component.id);
+                            }
+                        }
                         tech_data.components.insert(component.id.clone(), component);
                     }
 

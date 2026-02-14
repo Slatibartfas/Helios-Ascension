@@ -26,8 +26,12 @@ impl Default for MiningOperation {
 
 pub fn extract_resources(
     mut budget: ResMut<GlobalBudget>,
-    mut query: Query<(&mut PlanetResources, &MiningOperation, &mut CelestialBody)>,
-    mut colony_query: Query<(&Colony, &mut PlanetResources, &mut CelestialBody), Without<MiningOperation>>,
+    mut all_query: Query<(
+        &mut PlanetResources,
+        &mut CelestialBody,
+        Option<&MiningOperation>,
+        Option<&Colony>,
+    )>,
     sim_time: Res<SimulationTime>,
     mut last_elapsed: Local<f64>,
     buildings_data: Option<Res<BuildingsData>>,
@@ -47,98 +51,98 @@ pub fn extract_resources(
         return;
     }
 
-    // 1. Process specific MiningOperations (legacy/scenario)
-    for (mut resources, op, mut body) in query.iter_mut() {
-        if !op.active {
-            continue;
-        }
+    for (mut resources, mut body, op_opt, colony_opt) in all_query.iter_mut() {
+        // 1. Process specific MiningOperations (legacy/scenario)
+        if let Some(op) = op_opt {
+            if op.active {
+                let mut total_extracted = 0.0;
 
-        let mut total_extracted = 0.0;
+                if let Some(deposit) = resources.deposits.get_mut(&op.resource_type) {
+                    let mut demand = op.base_rate_mt_per_year * years_elapsed;
 
-        if let Some(deposit) = resources.deposits.get_mut(&op.resource_type) {
-            let mut demand = op.base_rate_mt_per_year * years_elapsed;
+                    // 1. Proven Crustal (Cheapest)
+                    let taking_proven = demand.min(deposit.reserve.proven_crustal);
+                    deposit.reserve.proven_crustal -= taking_proven;
+                    total_extracted += taking_proven;
+                    demand -= taking_proven;
 
-            // 1. Proven Crustal (Cheapest)
-            let taking_proven = demand.min(deposit.reserve.proven_crustal);
-            deposit.reserve.proven_crustal -= taking_proven;
-            total_extracted += taking_proven;
-            demand -= taking_proven;
+                    // 2. Deep Deposits (Expensive)
+                    if demand > 0.0 {
+                        let taking_deep = demand.min(deposit.reserve.deep_deposits);
+                        deposit.reserve.deep_deposits -= taking_deep;
+                        total_extracted += taking_deep;
+                        demand -= taking_deep;
+                    }
 
-            // 2. Deep Deposits (Expensive)
-            if demand > 0.0 {
-                let taking_deep = demand.min(deposit.reserve.deep_deposits);
-                deposit.reserve.deep_deposits -= taking_deep;
-                total_extracted += taking_deep;
-                demand -= taking_deep;
-            }
+                    // 3. Planetary Bulk (Exorbitant)
+                    if demand > 0.0 {
+                        let taking_bulk = demand.min(deposit.reserve.planetary_bulk);
+                        deposit.reserve.planetary_bulk -= taking_bulk;
+                        total_extracted += taking_bulk;
+                    }
 
-            // 3. Planetary Bulk (Exorbitant)
-            if demand > 0.0 {
-                let taking_bulk = demand.min(deposit.reserve.planetary_bulk);
-                deposit.reserve.planetary_bulk -= taking_bulk;
-                total_extracted += taking_bulk;
-            }
-
-            // Add to global budget
-            if total_extracted > 0.0 {
-                budget.add_resource(op.resource_type, total_extracted);
-                // Reduce body mass (1 Mt = 1e9 kg)
-                body.mass -= total_extracted * 1e9;
-            }
-        }
-    }
-    
-    // 2. Process Colony Mining
-    if let Some(data) = buildings_data {
-        for (colony, mut resources, mut body) in colony_query.iter_mut() {
-            // Calculate total mining capacity (Mt/year)
-            let mut total_mining_rate = 0.0;
-            for (building_type, &count) in &colony.buildings {
-                if count == 0 { continue; }
-                if let Some(def) = data.get(building_type) {
-                    for modifier in &def.modifiers {
-                        if modifier.modifier_type == "MiningEfficiency" {
-                            total_mining_rate += modifier.value * count as f64;
-                        }
+                    // Add to global budget
+                    if total_extracted > 0.0 {
+                        budget.add_resource(op.resource_type, total_extracted);
+                        // Reduce body mass (1 Mt = 1e9 kg)
+                        body.mass -= total_extracted * 1e9;
                     }
                 }
             }
-            
-            if total_mining_rate <= 0.0 { continue; }
-            
-            // Distribute across available deposits
-            // Find accessible resources
-            let accessible_resources: Vec<ResourceType> = resources.deposits.iter()
-                .filter(|(_, d)| d.reserve.proven_crustal > 0.0 || d.reserve.deep_deposits > 0.0)
-                .map(|(t, _)| *t)
-                .collect();
+        }
+    
+        // 2. Process Colony Mining
+        if let Some(colony) = colony_opt {
+            if let Some(data) = &buildings_data {
+                // Calculate total mining capacity (Mt/year)
+                let mut total_mining_rate = 0.0;
+                for (building_type, &count) in &colony.buildings {
+                    if count == 0 { continue; }
+                    if let Some(def) = data.get(building_type) {
+                        for modifier in &def.modifiers {
+                            if modifier.modifier_type == "MiningEfficiency" {
+                                total_mining_rate += modifier.value * count as f64;
+                            }
+                        }
+                    }
+                }
                 
-            if accessible_resources.is_empty() { continue; }
-            
-            let rate_per_resource = total_mining_rate / accessible_resources.len() as f64;
-            
-            for r_type in accessible_resources {
-                if let Some(deposit) = resources.deposits.get_mut(&r_type) {
-                     let mut demand = rate_per_resource * years_elapsed;
-                     let mut extracted = 0.0;
-                     
-                     // Proven
-                     let taking_proven = demand.min(deposit.reserve.proven_crustal);
-                     deposit.reserve.proven_crustal -= taking_proven;
-                     extracted += taking_proven;
-                     demand -= taking_proven;
-                     
-                     // Deep
-                     if demand > 0.0 {
-                         let taking_deep = demand.min(deposit.reserve.deep_deposits);
-                         deposit.reserve.deep_deposits -= taking_deep;
-                         extracted += taking_deep;
-                     }
-                     
-                     if extracted > 0.0 {
-                         budget.add_resource(r_type, extracted);
-                         body.mass -= extracted * 1e9;
-                     }
+                if total_mining_rate > 0.0 {
+                    // Distribute across available deposits
+                    // Find accessible resources
+                    let accessible_resources: Vec<ResourceType> = resources.deposits.iter()
+                        .filter(|(_, d)| d.reserve.proven_crustal > 0.0 || d.reserve.deep_deposits > 0.0)
+                        .map(|(t, _)| *t)
+                        .collect();
+                        
+                    if !accessible_resources.is_empty() {
+                        let rate_per_resource = total_mining_rate / accessible_resources.len() as f64;
+                        
+                        for r_type in accessible_resources {
+                            if let Some(deposit) = resources.deposits.get_mut(&r_type) {
+                                 let mut demand = rate_per_resource * years_elapsed;
+                                 let mut extracted = 0.0;
+                                 
+                                 // Proven
+                                 let taking_proven = demand.min(deposit.reserve.proven_crustal);
+                                 deposit.reserve.proven_crustal -= taking_proven;
+                                 extracted += taking_proven;
+                                 demand -= taking_proven;
+                                 
+                                 // Deep
+                                 if demand > 0.0 {
+                                     let taking_deep = demand.min(deposit.reserve.deep_deposits);
+                                     deposit.reserve.deep_deposits -= taking_deep;
+                                     extracted += taking_deep;
+                                 }
+                                 
+                                 if extracted > 0.0 {
+                                     budget.add_resource(r_type, extracted);
+                                     body.mass -= extracted * 1e9;
+                                 }
+                            }
+                        }
+                    }
                 }
             }
         }

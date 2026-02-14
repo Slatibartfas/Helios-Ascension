@@ -66,7 +66,8 @@ impl Plugin for ColonyPlugin {
                     update_treasury,
                     systems::deduct_maintenance_resources,
                 )
-                    .chain(),
+                    .chain()
+                    .after(crate::economy::extract_resources),
             );
     }
 }
