@@ -54,6 +54,24 @@
             modifiers: [],
         ),
         (
+            id: "Housing",
+            display_name: "Housing Complex",
+            description: "Standard residential buildings for habitable worlds",
+            icon: "🏙",
+            category: "Infrastructure",
+            build_points: 200.0,
+            workforce: 500,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 200.0),
+                ("Silicates", 500.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 5.0),
+            ],
+            modifiers: [],
+        ),
+        (
             id: "UndergroundHabitat",
             display_name: "Underground Habitat",
             description: "Shelter on airless or hostile bodies",
@@ -340,6 +358,44 @@
         (
             id: "AgriDome",
             display_name: "Agricultural Dome",
+            description: "Food production for hostile environments",
+            icon: "🥬",
+            category: "Population",
+            build_points: 600.0,
+            workforce: 3000,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 600.0),
+                ("Silicates", 400.0),
+                ("Water", 200.0),
+            ],
+            maintenance_resources: [
+                ("Water", 100.0),
+            ],
+            modifiers: [
+                (modifier_type: "FoodProduction", value: 4000.0), // Feeds 4000 people
+            ],
+        ),
+        (
+            id: "Farm",
+            display_name: "Farm",
+            description: "Open-air food production",
+            icon: "🌾",
+            category: "Population",
+            build_points: 100.0,
+            workforce: 1000,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 50.0),
+                ("Water", 50.0),
+            ],
+            maintenance_resources: [
+                ("Water", 20.0),
+            ],
+            modifiers: [
+                (modifier_type: "FoodProduction", value: 5000.0), // Feeds 5000 people efficiently
+            ],
+        ),
             description: "Agricultural facilities for food production",
             icon: "🌾",
             category: "Population",

@@ -2007,7 +2007,7 @@ fn ui_dashboard(
         None => return,
     };
 
-    if active_menu.current == GameMenu::Research {
+    if active_menu.current == GameMenu::Research || active_menu.current == GameMenu::Construction {
         return;
     }
 

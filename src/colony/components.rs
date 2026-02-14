@@ -97,9 +97,10 @@ impl Colony {
     /// Multiple domes/habitats are needed for large colony populations.
     pub fn housing_capacity(&self) -> f64 {
         let domes = self.building_count(BuildingType::HabitatDome) as f64;
+        let housing_complexes = self.building_count(BuildingType::Housing) as f64;
         let underground = self.building_count(BuildingType::UndergroundHabitat) as f64;
 
-        domes * 1_000_000.0 + underground * 600_000.0
+        domes * 1_000_000.0 + housing_complexes * 250_000.0 + underground * 600_000.0
     }
 
     /// Calculate base population growth rate per year.
@@ -126,10 +127,13 @@ impl Colony {
         let medical_bonus =
             self.building_count(BuildingType::MedicalCenter) as f64 * 0.01;
 
-        // Agri domes contribute to food – without them growth is halved
+        // Agri domes/Farms contribute to food – without them growth is halved
         let agri_count = self.building_count(BuildingType::AgriDome) as f64;
-        let food_factor = if agri_count > 0.0 {
-            (agri_count * 500_000.0 / self.population).min(1.0)
+        let farm_count = self.building_count(BuildingType::Farm) as f64;
+        let food_capacity = agri_count * 500_000.0 + farm_count * 1_000_000.0;
+        
+        let food_factor = if food_capacity > 0.0 {
+            (food_capacity / self.population).min(1.0)
         } else {
             0.5 // Ship-based supply can sustain half rate
         };

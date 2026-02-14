@@ -9,6 +9,8 @@ pub enum BuildingType {
     LifeSupport,
     /// Provides living and working space
     HabitatDome,
+    /// Standard housing for habitable worlds
+    Housing,
     /// Provides shelter on airless/hostile bodies
     UndergroundHabitat,
 
@@ -47,6 +49,8 @@ pub enum BuildingType {
     // Population & Growth
     /// Agricultural facilities for food production
     AgriDome,
+    /// Standard farming for habitable worlds
+    Farm,
     /// Medical and cloning facilities to boost population growth
     MedicalCenter,
 
@@ -80,6 +84,7 @@ impl BuildingType {
     pub fn all() -> &'static [BuildingType] {
         use BuildingType::*;
         &[
+            Housing,
             LifeSupport,
             HabitatDome,
             UndergroundHabitat,
@@ -93,6 +98,7 @@ impl BuildingType {
             OrbitalLift,
             CargoTerminal,
             SolarPower,
+            Farm,
             FissionReactor,
             FusionReactor,
             AgriDome,
@@ -114,6 +120,7 @@ impl BuildingType {
         match self {
             BuildingType::LifeSupport => "Life Support",
             BuildingType::HabitatDome => "Habitat Dome",
+            BuildingType::Housing => "Housing Complex",
             BuildingType::UndergroundHabitat => "Underground Habitat",
             BuildingType::Mine => "Mine",
             BuildingType::Refinery => "Refinery",
@@ -128,6 +135,7 @@ impl BuildingType {
             BuildingType::FissionReactor => "Fission Reactor",
             BuildingType::FusionReactor => "Fusion Reactor",
             BuildingType::AgriDome => "Agricultural Dome",
+            BuildingType::Farm => "Farm",
             BuildingType::MedicalCenter => "Medical Center",
             BuildingType::ResearchLab => "Research Lab",
             BuildingType::EngineeringBay => "Engineering Bay",
@@ -145,6 +153,7 @@ impl BuildingType {
     pub fn description(&self) -> &'static str {
         match self {
             BuildingType::LifeSupport => "Converts local volatiles into breathable atmosphere",
+            BuildingType::Housing => "Standard residential buildings for habitable worlds",
             BuildingType::HabitatDome => "Provides living and working space for colonists",
             BuildingType::UndergroundHabitat => "Shelter on airless or hostile bodies",
             BuildingType::Mine => "Extracts minerals from the body surface",
@@ -158,6 +167,7 @@ impl BuildingType {
             BuildingType::CargoTerminal => "Ground-based cargo distribution hub",
             BuildingType::SolarPower => "Solar panel arrays for power generation",
             BuildingType::FissionReactor => "Nuclear fission reactor for reliable power",
+            BuildingType::Farm => "Open-air food production",
             BuildingType::FusionReactor => "Advanced fusion power plant",
             BuildingType::AgriDome => "Agricultural facilities for food production",
             BuildingType::MedicalCenter => "Medical facilities to boost population growth",
@@ -176,6 +186,7 @@ impl BuildingType {
     /// Icon/emoji for UI display
     pub fn icon(&self) -> &'static str {
         match self {
+            BuildingType::Housing => "🏙",
             BuildingType::LifeSupport => "🌬",
             BuildingType::HabitatDome => "🏠",
             BuildingType::UndergroundHabitat => "⛏",
@@ -189,6 +200,7 @@ impl BuildingType {
             BuildingType::OrbitalLift => "🚡",
             BuildingType::CargoTerminal => "📦",
             BuildingType::SolarPower => "☀",
+            BuildingType::Farm => "🐄",
             BuildingType::FissionReactor => "☢",
             BuildingType::FusionReactor => "⚡",
             BuildingType::AgriDome => "🌾",
@@ -210,6 +222,7 @@ impl BuildingType {
         match self {
             BuildingType::LifeSupport
             | BuildingType::HabitatDome
+            | BuildingType::Housing
             | BuildingType::UndergroundHabitat => BuildingCategory::Infrastructure,
             BuildingType::Mine
             | BuildingType::Refinery
@@ -223,7 +236,7 @@ impl BuildingType {
             BuildingType::SolarPower
             | BuildingType::FissionReactor
             | BuildingType::FusionReactor => BuildingCategory::Power,
-            BuildingType::AgriDome | BuildingType::MedicalCenter => BuildingCategory::Population,
+            BuildingType::AgriDome | BuildingType::Farm | BuildingType::MedicalCenter => BuildingCategory::Population,
             BuildingType::ResearchLab
             | BuildingType::EngineeringBay
             | BuildingType::AiCluster => BuildingCategory::Research,
@@ -241,6 +254,7 @@ impl BuildingType {
         match self {
             BuildingType::LifeSupport => 500.0,
             BuildingType::HabitatDome => 800.0,
+            BuildingType::Housing => 200.0,
             BuildingType::UndergroundHabitat => 1200.0,
             BuildingType::Mine => 400.0,
             BuildingType::Refinery => 600.0,
@@ -250,6 +264,7 @@ impl BuildingType {
             BuildingType::StripMine => 12000.0,
             BuildingType::MassDriver => 2000.0,
             BuildingType::OrbitalLift => 5000.0,
+            BuildingType::Farm => 100.0,
             BuildingType::CargoTerminal => 300.0,
             BuildingType::SolarPower => 200.0,
             BuildingType::FissionReactor => 1500.0,
@@ -280,6 +295,7 @@ impl BuildingType {
             // Infrastructure – essential services
             BuildingType::LifeSupport => 2_000,
             BuildingType::HabitatDome => 1_000,
+            BuildingType::Housing => 500,
             BuildingType::UndergroundHabitat => 1_500,
             // Basic industry
             BuildingType::Mine => 5_000,
@@ -299,6 +315,7 @@ impl BuildingType {
             BuildingType::FusionReactor => 8_000,
             // Population support
             BuildingType::AgriDome => 4_000,
+            BuildingType::Farm => 1_000,
             BuildingType::MedicalCenter => 6_000,
             // Research
             BuildingType::ResearchLab => 8_000,
