@@ -3078,7 +3078,7 @@
             id: "advanced_chemical_rocket",
             name: "Advanced Chemical Rocket",
             category: Propulsion,
-            description: "Full-flow methalox engine. ISP 380s, reusable.",
+            description: "Full-flow methalox engine. ISP 380s, high TWR, reusable.",
             engineering_cost: 1500.0,
             tier: 1,
         ),
