@@ -4556,6 +4556,7 @@ fn render_construction_panel(
     let bypass_tech = debug_settings.enabled && debug_settings.bypass_tech_requirements;
     let free_build = debug_settings.enabled && debug_settings.free_construction;
 
+    egui::ScrollArea::vertical().show(ui, |ui| {
     // Show each colony
     for (colony_entity, colony, body) in &colonies {
         let header = format!(
@@ -4769,6 +4770,19 @@ fn render_construction_panel(
             egui::CollapsingHeader::new("➕ Build")
                 .default_open(queue.is_empty() && !has_buildings)
                 .show(ui, |ui| {
+                    let factories = colony.building_count(BuildingType::Factory) as f64;
+                    let bp_rate = 1.0 + factories * 10.0;
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(format!("Construction Output: {:.1} BP/year", bp_rate))
+                                .color(egui::Color32::from_rgb(100, 200, 100))
+                                .strong(),
+                        );
+                        ui.label(egui::RichText::new("ℹ").small())
+                            .on_hover_text("Base: 1 BP/yr + 10 BP/yr per Factory");
+                    });
+                    ui.separator();
+
                     for category in BuildingCategory::all() {
                         let available: Vec<_> = category
                             .buildings()
@@ -4928,6 +4942,7 @@ fn render_construction_panel(
             ui.separator();
         });
     }
+    });
 }
 
 #[cfg(test)]
