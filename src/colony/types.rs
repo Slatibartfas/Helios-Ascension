@@ -428,7 +428,7 @@ mod tests {
     #[test]
     fn test_building_type_all() {
         let all = BuildingType::all();
-        assert_eq!(all.len(), 26, "Should have exactly 26 building types");
+        assert_eq!(all.len(), 28, "Should have exactly 28 building types");
     }
 
     #[test]

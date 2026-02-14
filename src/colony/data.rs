@@ -127,6 +127,8 @@ fn parse_building_type(id: &str) -> Option<BuildingType> {
         "Shipyard" => Some(BuildingType::Shipyard),
         "MissileSilo" => Some(BuildingType::MissileSilo),
         "LaunchSite" => Some(BuildingType::LaunchSite),
+        "Housing" => Some(BuildingType::Housing),
+        "Farm" => Some(BuildingType::Farm),
         _ => None,
     }
 }
