@@ -471,6 +471,13 @@ fn apply_special_body_profile(
         // Earth: Biosphere-rich and technologically active world
         // Mass: ~5.97e24 kg = 5.97e15 Mt
         //
+        // Deposit tiers follow a consistent model based on geological surveys:
+        //   Proven  = USGS "Reserves" — economically extractable at current prices/tech
+        //   Deep    = USGS "Resources" — identified but sub-economic, or undiscovered
+        //             Typically 3-10× reserves for most minerals
+        //   Bulk    = Total crustal/mantle abundance — planet-scale, essentially infinite
+        //             Only accessible with far-future technology
+        //
         // Concentrations are set proportional to 2026 real-world annual production
         // so that the mining system distributes output realistically:
         //   Solid: Silicates ~50,000  Methane ~2,900  Iron ~2,500  Water ~5,000
@@ -483,89 +490,118 @@ fn apply_special_body_profile(
             // normalised so Silicates (most-mined material) = 1.0.
 
             // Silicates: Sand, Gravel, Crushed Stone — ~50,000 Mt/yr
-            // ~45% of crust by mass. Ubiquitous surface resource.
+            // Proven: Practically unlimited surface material (~200 yr supply at current rate)
+            // Deep: Upper crustal silicates accessible with effort
+            // Bulk: ~45% of crust by mass
             resources.add_deposit(
                 ResourceType::Silicates,
-                MineralDeposit::new(1_600.0, 1_600_000_000.0, 2.69e15, 1.0, 1.0),
+                MineralDeposit::new(10_000_000.0, 1_600_000_000.0, 2.69e15, 1.0, 1.0),
             );
 
             // Water: Oceans + Freshwater — industrial use ~5,000 Mt/yr
-            // Total reserves: 1.35 billion Mt (oceans) + 50M Mt (ice/groundwater)
+            // Proven: 1.35 billion Gt oceans (effectively inexhaustible)
+            // Deep: 50M Mt ice caps + groundwater
             resources.add_deposit(
                 ResourceType::Water,
                 MineralDeposit::new(1_350_000_000.0, 50_000_000.0, 0.0, 0.10, 1.0),
             );
 
-            // Methane: Natural Gas — ~2,900 Mt/yr (~4,000 bcm)
-            // Proven: ~140,000 Mt commercially recoverable
-            // Deep:   ~500,000 Mt (hydrates, clathrates)
+            // Methane (Natural Gas) — ~2,900 Mt/yr (~4,000 bcm)
+            // Proven: ~188,000 Mt (USGS+EIA 2024: ~188 Tcm proven reserves)
+            // Deep: ~800,000 Mt (unconventional: shale, tight gas, hydrates)
             resources.add_deposit(
                 ResourceType::Methane,
-                MineralDeposit::new(140_000.0, 500_000.0, 0.0, 0.058, 0.3),
+                MineralDeposit::new(188_000.0, 800_000.0, 0.0, 0.058, 0.3),
             );
 
-            // Iron: Core/mantle rich — ~2,500 Mt/yr (ore + steel)
-            // Proven: ~200 Mt high-grade accessible ore
-            // Deep:   ~200M Mt lower-grade crustal deposits
+            // Iron — ~2,500 Mt/yr (crude ore + DRI + steel)
+            // Proven: ~180,000 Mt (USGS 2024: 180 Gt iron content in ore reserves)
+            // Deep: ~800,000 Mt (USGS identified resources, lower-grade deposits)
+            // Bulk: Core+mantle iron (~32% of Earth by mass)
             resources.add_deposit(
                 ResourceType::Iron,
-                MineralDeposit::new(200.0, 200_000_000.0, 3.58e14, 0.05, 0.9),
+                MineralDeposit::new(180_000.0, 800_000.0, 1.91e15, 0.05, 0.9),
             );
 
-            // Aluminum: ~8% of crust — ~76 Mt/yr primary production
-            // Proven: ~240 Mt of bauxite-equivalent
-            // Deep:   ~240M Mt in crustal deposits
+            // Aluminum — ~76 Mt/yr primary production
+            // Proven: ~5,500 Mt (USGS 2024: ~32 Gt bauxite ≈ 5.5 Gt aluminum metal)
+            // Deep: ~40,000 Mt (USGS identified resources, non-bauxite alumina sources)
+            // Bulk: ~8% of crust by mass
             resources.add_deposit(
                 ResourceType::Aluminum,
-                MineralDeposit::new(240.0, 240_000_000.0, 4.78e14, 0.00152, 0.8),
+                MineralDeposit::new(5_500.0, 40_000.0, 4.78e14, 0.00152, 0.8),
             );
 
-            // Copper: Critical industrial metal — ~22.5 Mt/yr
+            // Copper — ~22.5 Mt/yr
+            // Proven: ~890 Mt (USGS 2024 reserves)
+            // Deep: ~3,500 Mt (USGS 2024 identified + undiscovered resources ~5.6 Gt)
+            // Bulk: Crustal average ~60 ppm
             resources.add_deposit(
                 ResourceType::Copper,
-                MineralDeposit::new(5_000.0, 20_000.0, 500_000.0, 0.00045, 0.5),
+                MineralDeposit::new(890.0, 3_500.0, 1.43e12, 0.00045, 0.5),
             );
 
             // Rare Earths — ~0.35 Mt/yr (350,000 tonnes REO)
+            // Proven: ~110 Mt REO (USGS 2024 reserves)
+            // Deep: ~500 Mt (USGS total resources estimate)
+            // Bulk: Crustal average ~150-200 ppm
             resources.add_deposit(
                 ResourceType::RareEarths,
-                MineralDeposit::new(2_000.0, 10_000.0, 100_000.0, 0.000007, 0.4),
+                MineralDeposit::new(110.0, 500.0, 1.19e12, 0.000007, 0.4),
             );
 
             // Uranium — ~0.058 Mt/yr (58,000 tonnes)
+            // Proven: ~6.1 Mt (IAEA 2024: RAR <$130/kg U)
+            // Deep: ~22 Mt (IAEA total identified + speculative resources)
+            // Bulk: Crustal average ~2.7 ppm
             resources.add_deposit(
                 ResourceType::Uranium,
-                MineralDeposit::new(500.0, 2_000.0, 20_000.0, 0.0000012, 0.3),
+                MineralDeposit::new(6.1, 22.0, 1.61e10, 0.0000012, 0.3),
             );
 
             // Thorium — ~0.01 Mt/yr (byproduct of rare earth mining)
+            // Proven: ~6.3 Mt (USGS/IAEA 2024 identified resources)
+            // Deep: ~25 Mt (speculative; thorium largely unexplored)
+            // Bulk: Crustal average ~8.1 ppm — 3× more abundant than uranium
             resources.add_deposit(
                 ResourceType::Thorium,
-                MineralDeposit::new(6.3, 1_000.0, 2.4e10, 0.0000002, 0.35),
+                MineralDeposit::new(6.3, 25.0, 4.84e10, 0.0000002, 0.35),
             );
 
-            // Titanium — ~0.26 Mt/yr (sponge metal; mineral concentrates ~9 Mt/yr)
+            // Titanium — ~0.26 Mt/yr sponge metal (~9 Mt/yr mineral concentrates)
+            // Proven: ~700 Mt (USGS 2024: ilmenite + rutile reserves)
+            // Deep: ~2,000 Mt (USGS total resources)
+            // Bulk: Crustal average ~0.57% — 9th most abundant element
             resources.add_deposit(
                 ResourceType::Titanium,
-                MineralDeposit::new(700.0, 50_000.0, 2.99e13, 0.0000052, 0.6),
+                MineralDeposit::new(700.0, 2_000.0, 3.40e13, 0.0000052, 0.6),
             );
 
-            // Gold — ~0.0031 Mt/yr (3,100 tonnes, USGS reserves ~0.054 Mt)
+            // Gold — ~0.0031 Mt/yr (3,100 tonnes)
+            // Proven: ~0.059 Mt (USGS 2024: 59,000 tonnes reserves)
+            // Deep: ~0.20 Mt (USGS identified resources + ocean dissolved)
+            // Bulk: Crustal average ~0.004 ppm (most in core, inaccessible)
             resources.add_deposit(
                 ResourceType::Gold,
-                MineralDeposit::new(0.054, 1_000.0, 2.99e6, 0.000000062, 0.3),
+                MineralDeposit::new(0.059, 0.20, 2.39e4, 0.000000062, 0.3),
             );
 
-            // Silver — ~0.026 Mt/yr (26,000 tonnes, USGS reserves ~0.53 Mt)
+            // Silver — ~0.026 Mt/yr (26,000 tonnes)
+            // Proven: ~0.53 Mt (USGS 2024: 530,000 tonnes reserves)
+            // Deep: ~1.7 Mt (USGS identified resources)
+            // Bulk: Crustal average ~0.075 ppm
             resources.add_deposit(
                 ResourceType::Silver,
-                MineralDeposit::new(0.53, 5_000.0, 5.97e7, 0.00000052, 0.3),
+                MineralDeposit::new(0.53, 1.7, 4.48e5, 0.00000052, 0.3),
             );
 
-            // Platinum — ~0.00019 Mt/yr (190 tonnes, USGS reserves ~0.069 Mt)
+            // Platinum — ~0.00019 Mt/yr (190 tonnes)
+            // Proven: ~0.069 Mt (USGS 2024: 69,000 tonnes reserves)
+            // Deep: ~0.10 Mt (USGS total resources, mainly Bushveld Complex)
+            // Bulk: Crustal average ~0.005 ppm
             resources.add_deposit(
                 ResourceType::Platinum,
-                MineralDeposit::new(0.069, 500.0, 5.97e6, 0.0000000038, 0.2),
+                MineralDeposit::new(0.069, 0.10, 2.99e4, 0.0000000038, 0.2),
             );
 
             // === ATMOSPHERIC GASES ===
