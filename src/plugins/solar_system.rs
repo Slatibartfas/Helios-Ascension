@@ -563,6 +563,33 @@ pub fn setup_solar_system(
 
     info!("Loaded {} celestial bodies", data.bodies.len());
 
+    // Pre-calculate distance to sun for all bodies to ensure correct temperature calculation for moons
+    let mut distance_to_sun: HashMap<&String, f32> = HashMap::new();
+    
+    // Pass 1: Add Sol and direct children (planets)
+    for body in &data.bodies {
+        if body.name == "Sol" {
+            distance_to_sun.insert(&body.name, 0.0);
+        } else if let Some(orbit) = &body.orbit {
+             if let Some(parent) = &body.parent {
+                 if parent == "Sol" {
+                     distance_to_sun.insert(&body.name, orbit.semi_major_axis);
+                 }
+             }
+        }
+    }
+
+    // Pass 2: Add moons (children of planets around Sol)
+    for body in &data.bodies {
+        if !distance_to_sun.contains_key(&body.name) {
+             if let Some(parent) = &body.parent {
+                 if let Some(parent_dist) = distance_to_sun.get(parent) {
+                     distance_to_sun.insert(&body.name, *parent_dist);
+                 }
+             }
+        }
+    }
+
     // Map to track entities by name for parent-child relationships
     let mut entity_map: HashMap<String, Entity> = HashMap::new();
 
@@ -813,12 +840,26 @@ pub fn setup_solar_system(
         }
 
         let mut surface_temperature_celsius = -200.0; // Default cold vacuum
+        let mut min_temp_c = -200.0;
+        let mut max_temp_c = -200.0;
 
         // Add atmosphere component if the body has atmosphere data
         if let Some(ref atmo_data) = body_data.atmosphere {
             use crate::astronomy::{AtmosphereComposition, AtmosphericGas};
 
             surface_temperature_celsius = atmo_data.surface_temperature_celsius;
+            
+            // Atmosphere moderates temperature swings.
+            // Thick atmospheres (pressure > 0.5 bar) have smaller diurnal variations.
+            let swing = if atmo_data.surface_pressure_mbar > 500.0 {
+                // Earth/Venus like (Venus varies very little, <1C, but Earth ~10-20C)
+                15.0 
+            } else {
+                // Thin atmosphere (Mars) - Large swings (-125C to +20C)
+                80.0 
+            };
+            min_temp_c = surface_temperature_celsius - swing;
+            max_temp_c = surface_temperature_celsius + swing;
 
             // Convert gas data from deserialized format to runtime format
             let gases: Vec<AtmosphericGas> = atmo_data
@@ -838,20 +879,39 @@ pub fn setup_solar_system(
 
             entity_commands.insert(atmosphere);
         } else if let Some(ref orbit_data) = body_data.orbit {
-             // If no atmosphere, approximate temperature based on distance from Sun
+             // If no atmosphere, approximate temperature based on distance from Sun.
+             // For moons, we must use the parent planet's distance to the Sun, NOT the moon's distance to the planet.
+             let effective_distance = *distance_to_sun.get(&body_data.name).unwrap_or(&orbit_data.semi_major_axis);
+
              // Sol Effective Temp ~ 5778 K
-             // Simplified black body approximation: T = 278 K / sqrt(r_au)
-             // (Assuming typical albedo ~0.3 for rocky bodies)
-             if orbit_data.semi_major_axis > 0.0 {
-                 let temp_k = 278.0 / orbit_data.semi_major_axis.sqrt();
+             // Simplified black body approximation: T = 255 K / sqrt(r_au)
+             // Using 255 K (Earth equilibrium temp) instead of 278 K (Earth surface temp with greenhouse)
+             // to better represent airless bodies like the Moon (Mean -20C to -50C)
+             if effective_distance > 0.0 {
+                 let temp_k = 255.0 / effective_distance.sqrt();
                  surface_temperature_celsius = temp_k - 273.15;
+                 
+                 // Airless bodies have extreme day/night differentials
+                 // Moon: Avg ~250K (-23C), Max ~390K (117C), Min ~100K (-173C)
+                 let max_k = temp_k * 1.55; 
+                 let min_k = temp_k * 0.40; 
+                 
+                 min_temp_c = min_k - 273.15;
+                 max_temp_c = max_k - 273.15;
              }
+        }
+        
+        // Override for Stars
+        if body_data.body_type == BodyType::Star {
+            surface_temperature_celsius = 5500.0;
+            min_temp_c = 5500.0;
+            max_temp_c = 5500.0;
         }
 
         entity_commands.insert(SurfaceTemperature {
             average_celsius: surface_temperature_celsius,
-            min_celsius: surface_temperature_celsius - 50.0, // Simple range
-            max_celsius: surface_temperature_celsius + 50.0,
+            min_celsius: min_temp_c,
+            max_celsius: max_temp_c,
         });
 
         let entity = entity_commands.id();

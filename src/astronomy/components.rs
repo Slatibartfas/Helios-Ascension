@@ -433,8 +433,8 @@ impl AtmosphereComposition {
     /// Calculate the colony cost based on Aurora 4X model
     /// Returns the colony cost factor (0.0 = Earth-like/Ideal).
     /// Returns f32::INFINITY if the body is uninhabitable for standard humans (e.g. extreme gravity).
-    pub fn calculate_colony_cost(&self, gravity_g: f32) -> f32 {
-        calculate_general_colony_cost(gravity_g, self.surface_temperature_celsius, Some(self))
+    pub fn calculate_colony_cost(&self, gravity_g: f32, min_temp_c: f32, max_temp_c: f32) -> f32 {
+        calculate_general_colony_cost(gravity_g, min_temp_c, max_temp_c, Some(self))
     }
 
     /// Calculate harvest yield multiplier based on harvest altitude vs reference pressure.
@@ -476,43 +476,59 @@ impl AtmosphereComposition {
     }
 }
 
-/// Calculate colony cost for any body, even without atmosphere.
-///
-/// Returns the colony cost factor (0.0 = Earth-like/Ideal).
-/// Returns f32::INFINITY if the body is uninhabitable for standard humans (e.g. extreme gravity).
-pub fn calculate_general_colony_cost(gravity_g: f32, temperature_celsius: f32, atmosphere: Option<&AtmosphereComposition>) -> f32 {
+/// Detailed breakdown of colony cost factors
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ColonyCostDetails {
+    pub total_cost: f32,
+    pub base_cost: f32,
+    pub heavy_gravity_limit_exceeded: bool,
+    pub heat_cost: f32,
+    pub cold_cost: f32,
+    pub pressure_cost: f32,
+    pub low_gravity_penalty: f32,
+}
+
+/// Calculate detailed colony cost breakdown
+pub fn calculate_colony_cost_details(
+    gravity_g: f32,
+    min_temp_c: f32,
+    max_temp_c: f32,
+    atmosphere: Option<&AtmosphereComposition>,
+) -> ColonyCostDetails {
     // Standard Human Tolerances (Aurora 4X C# Defaults)
     const MIN_GRAVITY: f32 = 0.1;
     const MAX_GRAVITY: f32 = 1.7;
     const MIN_BREATHABLE_TEMP: f32 = 0.0;
     const MAX_BREATHABLE_TEMP: f32 = 40.0;
 
+    let mut details = ColonyCostDetails::default();
+
     // 1. Gravity Check (Hard Limit)
     if gravity_g > MAX_GRAVITY {
-        return f32::INFINITY;
+        details.heavy_gravity_limit_exceeded = true;
+        details.total_cost = f32::INFINITY;
+        return details;
     }
-
-    let mut cost = 0.0;
 
     // 2. Base Infrastructure Cost
     // If no atmosphere or not breathable, base cost is 2.0 (Closed Cycle/Pressurized)
     let breathable = atmosphere.map_or(false, |a| a.breathable);
     if !breathable {
-        cost = 2.0;
+        details.base_cost = 2.0;
+        details.total_cost += 2.0;
     }
 
     // 3. Temperature Cost
-    // In Aurora, cost increases as temperature deviates further from habitable range
-    let temp_cost = if temperature_celsius < MIN_BREATHABLE_TEMP {
-        (MIN_BREATHABLE_TEMP - temperature_celsius) / 10.0
-    } else if temperature_celsius > MAX_BREATHABLE_TEMP {
-        (temperature_celsius - MAX_BREATHABLE_TEMP) / 10.0
-    } else {
-        0.0
-    };
-    
-    if temp_cost > 0.0 {
-        cost += temp_cost;
+    // Deviation below minimum (Heating required)
+    if min_temp_c < MIN_BREATHABLE_TEMP {
+        details.cold_cost = (MIN_BREATHABLE_TEMP - min_temp_c).abs() / 10.0;
+        details.total_cost += details.cold_cost;
+    }
+
+    // Deviation above maximum (Cooling required)
+    if max_temp_c > MAX_BREATHABLE_TEMP {
+        details.heat_cost = (max_temp_c - MAX_BREATHABLE_TEMP).abs() / 10.0;
+        details.total_cost += details.heat_cost;
     }
 
     // 4. Pressure Cost (only if atmosphere exists)
@@ -520,15 +536,25 @@ pub fn calculate_general_colony_cost(gravity_g: f32, temperature_celsius: f32, a
         let pressure_bar = atm.surface_pressure_mbar / 1000.0;
         if pressure_bar > 4.0 {
              // High pressure penalty
-             cost += (pressure_bar - 4.0) * 0.5;
+             details.pressure_cost = (pressure_bar - 4.0) * 0.5;
+             details.total_cost += details.pressure_cost;
         }
-        // Low pressure handled by !breathable check
     }
 
     // 5. Low Gravity Penalty
     if gravity_g < MIN_GRAVITY {
-        cost += 1.0;
+        details.low_gravity_penalty = 1.0;
+        details.total_cost += 1.0;
     }
 
-    cost
+    details
+}
+
+/// Calculate colony cost for any body, even without atmosphere.
+///
+/// Returns the colony cost factor (0.0 = Earth-like/Ideal).
+/// Returns f32::INFINITY if the body is uninhabitable for standard humans (e.g. extreme gravity).
+pub fn calculate_general_colony_cost(gravity_g: f32, min_temp_c: f32, max_temp_c: f32, atmosphere: Option<&AtmosphereComposition>) -> f32 {
+    let details = calculate_colony_cost_details(gravity_g, min_temp_c, max_temp_c, atmosphere);
+    details.total_cost
 }

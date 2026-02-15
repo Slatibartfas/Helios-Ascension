@@ -117,7 +117,7 @@ fn test_colony_cost_calculation_earth() {
         ],
     );
 
-    let cost = earth_atmosphere.calculate_colony_cost(1.0);
+    let cost = earth_atmosphere.calculate_colony_cost(1.0, 15.0, 15.0);
     assert!(cost < 0.01, "Earth should have colony cost of 0");
 }
 
@@ -132,7 +132,7 @@ fn test_colony_cost_calculation_mars() {
         ],
     );
 
-    let cost = mars_atmosphere.calculate_colony_cost(0.379);
+    let cost = mars_atmosphere.calculate_colony_cost(0.379, -63.0, -63.0);
     // Mars should have colony cost > 2.0 (Base 2.0 + Temp)
     assert!(
         cost > 2.0,
@@ -152,7 +152,7 @@ fn test_colony_cost_calculation_venus() {
         ],
     );
 
-    let cost = venus_atmosphere.calculate_colony_cost(0.904);
+    let cost = venus_atmosphere.calculate_colony_cost(0.904, 465.0, 465.0);
     // Venus should have high colony cost > 20.0
     assert!(cost > 20.0, "Venus should have very high colony cost");
 }
