@@ -5879,7 +5879,7 @@ fn render_econ_resources(
                                     if total_mining_rate > 0.0 {
                                         let minable: Vec<(ResourceType, f64)> = body_entry.deposits.iter()
                                             .filter(|(_, d)| !d.is_atmospheric && (d.reserve.proven_crustal > 0.001 || d.reserve.deep_deposits > 0.001))
-                                            .map(|(rt, d)| (*rt, (d.reserve.concentration as f64).max(0.001)))
+                                            .map(|(rt, d)| (*rt, (d.reserve.concentration as f64).max(1e-10)))
                                             .collect();
                                         let total_weight: f64 = minable.iter().map(|(_, w)| w).sum();
                                         if total_weight > 0.0 {
@@ -5895,7 +5895,7 @@ fn render_econ_resources(
                                     if total_atmo_rate > 0.0 {
                                         let harvestable: Vec<(ResourceType, f64)> = body_entry.deposits.iter()
                                             .filter(|(_, d)| d.is_atmospheric && (d.reserve.proven_crustal > 0.001 || d.reserve.deep_deposits > 0.001))
-                                            .map(|(rt, d)| (*rt, (d.reserve.concentration as f64).max(0.001)))
+                                            .map(|(rt, d)| (*rt, (d.reserve.concentration as f64).max(1e-10)))
                                             .collect();
                                         let total_weight: f64 = harvestable.iter().map(|(_, w)| w).sum();
                                         if total_weight > 0.0 {

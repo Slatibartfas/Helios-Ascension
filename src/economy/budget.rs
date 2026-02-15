@@ -69,19 +69,18 @@ impl GlobalBudget {
         let mut stockpiles = HashMap::new();
 
         // Initialize with starting resources for gameplay.
-        // A new civilization starts with enough material for ~10 basic buildings
-        // and a financial reserve to sustain early expansion for ~5 game years.
-        // Scales: resources in Megatons. Stockpiles represent accessible strategic reserves.
-        // EDITED: Reduced to realistic strategic reserve levels (1-5 years of global production)
-        stockpiles.insert(ResourceType::Water, 100_000.0);   // Reservoirs (not oceans)
-        stockpiles.insert(ResourceType::Oxygen, 50_000.0);   // Compressed industrial stock
-        stockpiles.insert(ResourceType::Iron, 50_000.0);     // Strategic steel reserves
-        stockpiles.insert(ResourceType::Copper, 2_000.0);    // Refined copper
-        stockpiles.insert(ResourceType::Silicates, 20_000.0);// Concrete/Glass aggregates
-        stockpiles.insert(ResourceType::Aluminum, 5_000.0);  // Bauxite/refined Al
-        stockpiles.insert(ResourceType::RareEarths, 500.0);  // Strategic rare earth reserve
-        stockpiles.insert(ResourceType::Uranium, 100.0);     // Fissile material
-        stockpiles.insert(ResourceType::Thorium, 100.0);     // Fissile material
+        // Stockpiles represent refined strategic reserves, roughly 1-3 years
+        // of current global production in each category.
+        // All values in Megatons (Mt).
+        stockpiles.insert(ResourceType::Water, 10_000.0);    // ~2 yr industrial use (excl. agriculture)
+        stockpiles.insert(ResourceType::Oxygen, 300.0);      // ~2 yr industrial gas production
+        stockpiles.insert(ResourceType::Iron, 5_000.0);      // ~2 yr steel production
+        stockpiles.insert(ResourceType::Copper, 50.0);       // ~2 yr refined copper
+        stockpiles.insert(ResourceType::Silicates, 100_000.0);// ~2 yr aggregate production
+        stockpiles.insert(ResourceType::Aluminum, 150.0);    // ~2 yr primary aluminum
+        stockpiles.insert(ResourceType::RareEarths, 0.7);    // ~2 yr REO production
+        stockpiles.insert(ResourceType::Uranium, 0.12);      // ~2 yr mine output
+        stockpiles.insert(ResourceType::Thorium, 0.02);      // ~2 yr (byproduct)
 
         Self {
             stockpiles,
