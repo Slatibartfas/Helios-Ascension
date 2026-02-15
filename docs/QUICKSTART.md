@@ -71,9 +71,16 @@ cargo run --profile fast
 
 When you launch the game, you'll see:
 
-1. **The Solar System**: A 3D view of Sol and the inner planets
-2. **Inspector Panel**: Debug UI on the right side (in debug builds)
-3. **3D Scene**: Planets orbiting the sun with proper lighting
+1. **The Solar System**: A 3D view with 377+ celestial bodies including all planets, moons, asteroids, and comets
+2. **Dashboard UI**: Top menu bar with navigation tabs (Survey, Construction, Research, Economy, Fleet, Shipbuilding)
+3. **Time Controls**: Date display and speed controls (pause/play, speed selection)
+4. **3D Scene**: Celestial bodies orbiting with realistic orbital mechanics and time acceleration
+
+### Initial Game State
+- You start with a colony on Earth
+- Starting resources and stockpiles are available
+- Basic technologies are unlocked
+- Time is paused initially - press play to begin simulation
 
 ## Controls
 
@@ -90,35 +97,80 @@ When you launch the game, you'll see:
 
 ### Camera Zoom
 - **Mouse Wheel**: Zoom in/out
+  - Zoom out far enough (~100 AU) to switch to starmap view
+  - Zoom back in to return to system view
 
-## Using the Inspector
+### Game Interactions
+- **Left Click**: Select celestial bodies or UI elements
+- **Double Click**: Select star systems in starmap view
+- **Hover**: Show tooltips for bodies and stars
+- **Space**: Pause/resume simulation
+- **F12**: Toggle debug settings (in Construction/Research panels)
 
-The inspector (visible in debug builds) allows you to:
+## Exploring the UI
 
-1. **View Entities**: See all entities in the scene
-2. **Inspect Components**: Click on an entity to see its components
-3. **Edit Values**: Modify component values in real-time
-4. **Monitor Performance**: Check frame times and system performance
+### Survey Panel
+- Browse celestial bodies in the current system
+- View detailed information about selected bodies
+- See mineral deposits, resources, and colony data
+- Switch to starmap view to explore nearby star systems
 
-### Example: Changing Planet Color
+### Construction Panel
+- Select a colony to manage
+- View 29 building types across 8 categories
+- Queue construction projects
+- Monitor build progress
 
-1. Click on a planet entity in the inspector
-2. Find the `StandardMaterial` component
-3. Modify the `base_color` values
-4. See the changes immediately in the 3D view
+### Research Panel
+- Browse technology tree with 15 categories
+- Select technologies to research
+- View prerequisites and unlocks
+- Track research progress with Research Points (RP)
+
+### Economy Panel
+- Monitor 20 resource types
+- Track production and consumption rates
+- View treasury and budget
+- Check energy grid status
 
 ## Understanding the Solar System
 
-The initial scene includes:
+The game includes a complete solar system simulation:
 
-- **Sol (The Sun)**: Central star with emissive material and point light
-- **Mercury**: Smallest, gray planet, closest to the sun
-- **Venus**: Yellow-tinted, second planet
-- **Earth**: Blue planet, third from the sun
-- **Mars**: Red planet, fourth position
-- **Jupiter**: Large gas giant, fifth planet
+- **Sol (The Sun)**: Central star with realistic properties
+- **8 Planets**: Mercury through Neptune with accurate masses, radii, and orbital parameters
+- **148 Moons**: Including all major and many minor moons
+- **145 Asteroids**: Main belt, Trojans, and Near-Earth Objects
+- **55 Kuiper Belt Objects**: Including Pluto, Eris, and scattered disc objects
+- **20 Comets**: Including famous comets like Halley
 
-All planets orbit the sun with different speeds and distances.
+All bodies have:
+- Realistic orbital mechanics (Keplerian orbits)
+- Accurate physical properties (mass, radius, density)
+- Time-accelerated motion (up to 1 year per second)
+- Procedural mineral deposits
+- Full colonization support
+
+## Starting Your Civilization
+
+### Early Goals
+1. **Explore**: Survey celestial bodies to discover mineral deposits
+2. **Build**: Construct essential buildings (Life Support, Habitat Domes, Power Plants)
+3. **Research**: Progress through the technology tree
+4. **Expand**: Establish colonies on other bodies
+5. **Grow**: Increase population and production capacity
+
+### Resource Management
+- Monitor your stockpiles in the Economy panel
+- Build mines to extract resources
+- Ensure adequate power generation
+- Maintain logistics efficiency with cargo terminals and mass drivers
+
+### Time Control
+- Start with 1 day/second for learning
+- Increase to 1 week/second for construction
+- Use 1 month/second or 1 year/second for research progression
+- Pause when needed to review and plan
 
 ## Performance Tips
 
@@ -161,10 +213,30 @@ The inspector is only enabled in debug builds. Run without `--release` flag.
 
 ## Next Steps
 
-- Explore the codebase in `src/plugins/`
-- Read `ARCHITECTURE.md` for design details
-- Check `CONTRIBUTING.md` to add features
-- Experiment with the inspector to understand ECS
+Once you're comfortable with the basics:
+
+1. **Learn the Systems**: 
+   - Read `docs/UI.md` for comprehensive UI guide
+   - Check `docs/RESOURCES.md` for resource details
+   - Review `docs/MODDING.md` for customization options
+
+2. **Expand Your Empire**:
+   - Establish colonies on the Moon, Mars, or other bodies
+   - Build advanced research facilities for faster tech progression
+   - Develop mining operations on asteroids
+   - Explore nearby star systems in starmap view
+
+3. **Master the Game**:
+   - Balance resource production and consumption
+   - Optimize construction queues
+   - Plan long-term research strategy
+   - Manage population growth and housing
+
+4. **Contribute**:
+   - Explore the codebase in `src/`
+   - Read `ARCHITECTURE.md` for design details
+   - Check `CONTRIBUTING.md` to add features
+   - Report bugs or suggest features on GitHub
 
 ## Getting Help
 
