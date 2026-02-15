@@ -80,7 +80,7 @@ When you launch the game, you'll see:
 - You start with a colony on Earth
 - Starting resources and stockpiles are available
 - Basic technologies are unlocked
-- Time is paused initially - press play to begin simulation
+- Time starts at normal speed (1×) - use the time controls to pause or change simulation speed
 
 ## Controls
 

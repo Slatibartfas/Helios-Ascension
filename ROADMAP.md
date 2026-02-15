@@ -67,7 +67,7 @@ The game has progressed beyond the foundation phase with fully implemented colon
 ## Phase 4: Expansion & Exploration (Partially Complete)
 
 ### 4.1 Star Systems ✅
-- [x] Multiple star system generation (~1000 nearest stars)
+- [x] Multiple star system generation (60 nearest star systems)
 - [x] Procedural planet generation for nearby systems
 - [x] System discovery mechanics (starmap view)
 - [ ] Interstellar travel (planned)
@@ -220,7 +220,7 @@ The game has progressed beyond the foundation phase with fully implemented colon
   - Economy and budget tracking
   - Time management with variable speeds
   - Comprehensive UI panels
-  - Starmap with ~1000 nearby stars
+  - Starmap with 60 nearby star systems
 
 - **v0.3.0** - Expansion & Ships (In Progress)
   - Interstellar travel

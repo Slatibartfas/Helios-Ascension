@@ -86,14 +86,13 @@ Manages colonies, buildings, and construction.
 
 **Buildings (29 types in 8 categories):**
 - Infrastructure: LifeSupport, HabitatDome, Housing, UndergroundHabitat
-- Industry: Mine, Refinery, Factory, AtmosphericProcessor
+- Industry: Mine, Refinery, Factory, AtmosphericProcessor, DeepDrill, LaserDrill, StripMine
 - Logistics: MassDriver, OrbitalLift, CargoTerminal
 - Power: SolarPower, FissionReactor, FusionReactor
 - Population: AgriDome, Farm, MedicalCenter
 - Research: ResearchLab, EngineeringBay, AiCluster
 - Financial: CommercialHub, FinancialCenter, TradePort
 - Military: Shipyard, MissileSilo, LaunchSite
-- Advanced: DeepDrill, LaserDrill, StripMine, NeuralNetwork, OrbitalConstruction
 
 #### 5. EconomyPlugin (`src/economy/`)
 Handles resources, budgets, and energy systems.
@@ -105,7 +104,7 @@ Handles resources, budgets, and energy systems.
 - `EnergyGrid`: Power generation and consumption
 
 **Resources:**
-- `ResourceTypes`: Defines 20 resource types (Iron, Copper, Water, Volatiles, Oxygen, Hydrogen, etc.)
+- `ResourceType`: Enum defining 20 resource types (Water, Hydrogen, Ammonia, Methane, Nitrogen, Oxygen, CarbonDioxide, Argon, Iron, Aluminum, Titanium, Silicates, Helium3, Uranium, Thorium, Gold, Silver, Platinum, Copper, RareEarths)
 
 **Systems:**
 - `generate_mineral_deposits`: Creates procedural deposits on bodies at startup
@@ -113,13 +112,14 @@ Handles resources, budgets, and energy systems.
 - `update_budget`: Tracks financial flows
 - `energy_management`: Balances power generation and consumption
 
-**Resource Types (20):**
-- Construction: Iron, Copper, Aluminum, Titanium, Silicates
-- Volatiles: Water, Volatiles (general)
-- Gases: Oxygen, Hydrogen, Nitrogen, CarbonDioxide, Helium, Methane
-- Precious: Gold, Platinum
+**Resource Types (20, defined in `economy::types::ResourceType`):**
+- Volatiles: Water, Hydrogen, Ammonia, Methane
+- Atmospheric Gases: Nitrogen, Oxygen, CarbonDioxide, Argon
+- Construction Materials: Iron, Aluminum, Titanium, Silicates
+- Fusion Fuel: Helium3
 - Fissiles: Uranium, Thorium
-- Specialty: RareEarths, Deuterium, Antimatter
+- Precious Metals: Gold, Silver, Platinum
+- Specialty Materials: Copper, RareEarths
 
 #### 6. ResearchPlugin (`src/research/`)
 Technology progression and engineering projects.
@@ -150,7 +150,7 @@ Interstellar navigation and star system visualization.
 - `HoveredStarSystem`: Marks hovered star for tooltips
 
 **Resources:**
-- `NearbyStarsData`: ~1000 nearest stars with real astronomical data
+- `NearbyStarsData`: 60 nearest star systems with real astronomical data
 
 **Systems:**
 - `spawn_star_icons`: Creates icons for nearby star systems

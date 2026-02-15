@@ -49,7 +49,7 @@ The game now has fully functional colony management, economy, research, and inte
   - Complete coverage from Mercury to the outer solar system
 
 - **Interstellar Navigation**: Explore nearby star systems
-  - **~1000 nearest stars** from real astronomical catalogs
+  - **60 nearest star systems** from real astronomical catalogs
   - Starmap view for interstellar navigation
   - Real star data including spectral types, masses, luminosities, and metallicities
   - Procedural system generation for visited stars

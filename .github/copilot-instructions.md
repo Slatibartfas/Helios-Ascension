@@ -31,7 +31,7 @@ helios_ascension/
 │   │   ├── components.rs    # SpaceCoordinates, KeplerOrbit, OrbitPath
 │   │   ├── systems.rs       # Orbit propagation, rendering, selection
 │   │   ├── ephemeris.rs     # Ephemeris calculations for custom start dates
-│   │   ├── nearby_stars.rs  # Star catalog (~1000 nearest stars)
+│   │   ├── nearby_stars.rs  # Star catalog (60 nearest star systems)
 │   │   └── mod.rs           # AstronomyPlugin
 │   ├── colony/              # Colony management system
 │   │   ├── components.rs    # Colony, BuildingInventory, ConstructionQueue
@@ -192,7 +192,7 @@ When adding new UI icons (menus, research categories, etc.), applying the follow
 - Debug menu (F12) for free construction, instant build, and tech bypass
 
 #### Economy & Resources
-- **20 resource types**: Construction materials (Iron, Copper, Aluminum, Titanium, Silicates), Volatiles (Water, Volatiles), Gases (Oxygen, Hydrogen, Nitrogen, CO2, Helium, Methane), Precious metals (Gold, Platinum), Fissiles (Uranium, Thorium), Specialty (RareEarths, Deuterium, Antimatter)
+- **20 resource types** (defined in `src/economy/types.rs` as `ResourceType` enum): Volatiles (Water, Hydrogen, Ammonia, Methane), Atmospheric Gases (Nitrogen, Oxygen, CarbonDioxide, Argon), Construction Materials (Iron, Aluminum, Titanium, Silicates), Fusion Fuel (Helium3), Fissiles (Uranium, Thorium), Precious Metals (Gold, Silver, Platinum), Specialty Materials (Copper, RareEarths)
 - Resource stockpiles with capacity limits
 - Mining operations extract resources from mineral deposits
 - Refining and processing buildings convert raw materials

@@ -13,7 +13,7 @@ The dashboard is visible at the top of the screen and provides access to all maj
 - **Construction** - Build and manage colony infrastructure
 - **Research** - Navigate the technology tree
 - **Economy** - Track resources and budget
-- **Fleet** - Manage spacecraft (coming soon)
+- **Fleets** - Manage spacecraft (coming soon)
 - **Shipbuilding** - Design and construct vessels (coming soon)
 
 ### Time Controls
@@ -22,10 +22,11 @@ Located in the dashboard header:
 
 - **Pause/Play Button**: Pause or resume simulation
 - **Speed Selection**: Choose simulation speed
-  - 1 day/second (86,400× real-time)
-  - 1 week/second (604,800× real-time)
-  - 1 month/second (~2.6M× real-time)
-  - 1 year/second (31.5M× real-time)
+  - 1 hr/s (3,600× real-time)
+  - 1 day/s (86,400× real-time)
+  - 1 week/s (604,800× real-time)
+  - 1 month/s (~2.6M× real-time)
+  - 1 year/s (31.5M× real-time)
 - **Date Display**: Current in-game date and time
 
 ## Survey Panel
@@ -102,7 +103,7 @@ Each building shows:
 Browse and select technologies to research.
 
 ### Technology Tree
-- **15 Categories**: Electronics, Military, SpaceTechnology, Biology, Physics, Energy, Sociology, Construction, Propulsion, Materials, Sensors, Weapons, DefensiveSystems, LifeSupport, Industry
+- **15 Categories**: Electronics, Military, Space Technology, Biology, Physics, Energy, Sociology, Construction, Propulsion, Materials, Sensors, Weapons, Defensive Systems, Life Support, Industry
 - **Tech Cards**: Show technology name, description, cost (RP), and prerequisites
 - **Progress Tracking**: View research progress on active projects
 - **Tech Status**: Visual indicators for:
@@ -132,12 +133,13 @@ Track resources, production, and budget.
 - **Net Rate**: Net production/consumption (green/red)
 
 ### Resource Types (20 Total)
-- **Construction Materials**: Iron, Copper, Aluminum, Titanium, Silicates
-- **Volatiles**: Water, Volatiles (general)
-- **Gases**: Oxygen, Hydrogen, Nitrogen, Carbon Dioxide, Helium, Methane
-- **Precious Metals**: Gold, Platinum
+- **Volatiles**: Water, Hydrogen, Ammonia, Methane
+- **Atmospheric Gases**: Nitrogen, Oxygen, Carbon Dioxide, Argon
+- **Construction Materials**: Iron, Aluminum, Titanium, Silicates
+- **Fusion Fuel**: Helium-3
 - **Fissiles**: Uranium, Thorium
-- **Specialty Materials**: Rare Earths, Deuterium, Antimatter
+- **Precious Metals**: Gold, Silver, Platinum
+- **Specialty Materials**: Copper, Rare Earths
 
 ### Budget Information
 - **Treasury**: Current monetary credits (MC)
