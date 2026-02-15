@@ -684,7 +684,7 @@ fn ui_resources_bar(
                         .stroke(egui::Stroke::new(if flash > 0.0 { 2.0 } else { 0.0 }, border_color))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
-                                ui.add(egui::Label::new(egui::RichText::new("🔬").size(20.0).color(rp_color)).selectable(false));
+                                ui.add(egui::Label::new(egui::RichText::new("🔬").size(28.0).color(rp_color)).selectable(false));
                                 ui.vertical(|ui| {
                                     // Rate per month (Primary)
                                     let (rp_rate_text, rp_rate_color) = format_points_rate_monthly(rate_tracker.research_rate_per_month);
@@ -719,27 +719,6 @@ fn ui_resources_bar(
                         ui.painter().rect_stroke(interact.rect, 2.0, egui::Stroke::new(1.0, rp_color));
                         interact.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
                     }
-                    
-                    // Tooltip: Show all active projects
-                    interact.clone().on_hover_ui(|ui| {
-                        ui.heading("Active Research Projects");
-                        if active_rps.is_empty() {
-                            ui.label("No active research projects.");
-                        } else {
-                            for project in &active_rps {
-                                if let Some(tech) = technologies.technologies.get(&project.tech_id) {
-                                    ui.horizontal(|ui| {
-                                        ui.label(&tech.name);
-                                        let progress = (project.progress / project.required_points * 100.0) as u32;
-                                        ui.label(format!("{}%", progress));
-                                    });
-                                }
-                            }
-                        }
-                        // Available points detail
-                        ui.separator();
-                        ui.label(format!("Available: {:.0} RP", research_state.research_points_available));
-                    });
 
                     if interact.clicked() {
                         if is_rp_open {
@@ -779,7 +758,7 @@ fn ui_resources_bar(
                         .stroke(egui::Stroke::new(if flash > 0.0 { 2.0 } else { 0.0 }, border_color))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
-                                ui.add(egui::Label::new(egui::RichText::new("⚙").size(20.0).color(ep_color)).selectable(false));
+                                ui.add(egui::Label::new(egui::RichText::new("⚙").size(28.0).color(ep_color)).selectable(false));
                                 ui.vertical(|ui| {
                                     // Rate per month (Primary)
                                     // Calculate rate manually or use tracker? Tracker has it.
@@ -814,25 +793,7 @@ fn ui_resources_bar(
                         interact.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
                     }
                     
-                    // Tooltip: Show all active engineering projects
-                     interact.clone().on_hover_ui(|ui| {
-                        ui.heading("Active Engineering Projects");
-                        if active_eps.is_empty() {
-                            ui.label("No active engineering projects.");
-                        } else {
-                            for project in &active_eps {
-                                let name = technologies.components.get(&project.component_id).map(|c| c.name.as_str()).unwrap_or("Unknown Component");
-                                ui.horizontal(|ui| {
-                                    ui.label(name);
-                                    let progress = (project.progress / project.required_points * 100.0) as u32;
-                                    ui.label(format!("{}%", progress));
-                                });
-                            }
-                        }
-                        // Available points detail
-                        ui.separator();
-                        ui.label(format!("Available: {:.0} EP", research_state.engineering_points_available));
-                    });
+
 
                     if interact.clicked() {
                         if is_ep_open {
@@ -1188,6 +1149,107 @@ fn ui_resources_bar(
                 if ctx.input(|i| i.pointer.any_pressed()) {
                     if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
                         if !inner_response.response.rect.contains(pos) && !anchor_rect.contains(pos) {
+                            open_popup.open = None;
+                        }
+                    }
+                }
+            }
+
+            if !still_open {
+                open_popup.open = None;
+            }
+        } else if cat_name == "ResearchPoints" {
+             let mut still_open = true;
+             let window_response = egui::Window::new("Research Breakdown")
+                .id(egui::Id::new("research_breakdown_window"))
+                .fixed_pos(egui::pos2(anchor_rect.left(), anchor_rect.bottom() + 2.0))
+                .collapsible(false)
+                .resizable(false)
+                .title_bar(false)
+                .open(&mut still_open)
+                .frame(egui::Frame::popup(ctx.style().as_ref()))
+                .show(ctx, |ui| {
+                    ui.set_min_width(250.0);
+                    ui.horizontal(|ui| {
+                         ui.add(egui::Label::new(egui::RichText::new("🔬").size(18.0).color(egui::Color32::from_rgb(100, 200, 255))).selectable(false));
+                         ui.add(egui::Label::new(egui::RichText::new("Active Research Projects").size(16.0).strong()).selectable(false));
+                    });
+                    ui.separator();
+                    
+                    let active_rps: Vec<_> = research_projects.iter().filter(|p| p.active).collect();
+                    if active_rps.is_empty() {
+                         ui.label("No active research projects.");
+                    } else {
+                        for project in &active_rps {
+                            if let Some(tech) = technologies.technologies.get(&project.tech_id) {
+                                ui.horizontal(|ui| {
+                                    ui.label(&tech.name);
+                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                        let progress = (project.progress / project.required_points * 100.0) as u32;
+                                        ui.label(format!("{}%", progress));
+                                    });
+                                });
+                            }
+                        }
+                    }
+                    ui.separator();
+                    ui.label(format!("Available: {:.0} RP", research_state.research_points_available));
+                });
+
+            if let Some(inner_response) = window_response {
+                if ctx.input(|i| i.pointer.any_pressed()) {
+                    if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
+                         if !inner_response.response.rect.contains(pos) && !anchor_rect.contains(pos) {
+                            open_popup.open = None;
+                        }
+                    }
+                }
+            }
+
+            if !still_open {
+                open_popup.open = None;
+            }
+        } else if cat_name == "EngineeringPoints" {
+             let mut still_open = true;
+             let window_response = egui::Window::new("Engineering Breakdown")
+                .id(egui::Id::new("engineering_breakdown_window"))
+                .fixed_pos(egui::pos2(anchor_rect.left(), anchor_rect.bottom() + 2.0))
+                .collapsible(false)
+                .resizable(false)
+                .title_bar(false)
+                .open(&mut still_open)
+                .frame(egui::Frame::popup(ctx.style().as_ref()))
+                .show(ctx, |ui| {
+                    ui.set_min_width(250.0);
+                    ui.horizontal(|ui| {
+                         ui.add(egui::Label::new(egui::RichText::new("⚙").size(18.0).color(egui::Color32::from_rgb(100, 255, 200))).selectable(false));
+                         ui.add(egui::Label::new(egui::RichText::new("Active Engineering Projects").size(16.0).strong()).selectable(false));
+                    });
+                    ui.separator();
+                    
+                    let active_eps: Vec<_> = engineering_projects.iter().collect();
+                    if active_eps.is_empty() {
+                         ui.label("No active engineering projects.");
+                    } else {
+                        for project in &active_eps {
+                            let name = technologies.components.get(&project.component_id).map(|c| c.name.as_str()).unwrap_or("Unknown Component");
+                            ui.horizontal(|ui| {
+                                ui.label(name);
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    let progress = (project.progress / project.required_points * 100.0) as u32;
+                                    ui.label(format!("{}%", progress));
+                                });
+                            });
+                        }
+                    }
+                    ui.separator();
+                    ui.label(format!("Available: {:.0} EP", research_state.engineering_points_available));
+                });
+
+            if let Some(inner_response) = window_response {
+                if ctx.input(|i| i.pointer.any_pressed()) {
+                    if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
+                         if !inner_response.response.rect.contains(pos) && !anchor_rect.contains(pos) {
                             open_popup.open = None;
                         }
                     }
