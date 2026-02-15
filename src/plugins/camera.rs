@@ -4,7 +4,7 @@ use bevy_egui::EguiContexts;
 
 use crate::astronomy::components::CurrentStarSystem;
 use crate::astronomy::SCALING_FACTOR;
-use crate::game_state::{ActiveMenu, GameMenu};
+use crate::game_state::ActiveMenu;
 use crate::plugins::starmap::SystemMetadata;
 
 /// Base zoom threshold multiplier. The actual threshold is calculated as
