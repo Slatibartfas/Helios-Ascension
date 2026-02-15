@@ -107,6 +107,7 @@ fn parse_building_type(id: &str) -> Option<BuildingType> {
         "Mine" => Some(BuildingType::Mine),
         "Refinery" => Some(BuildingType::Refinery),
         "Factory" => Some(BuildingType::Factory),
+        "AtmosphericProcessor" => Some(BuildingType::AtmosphericProcessor),
         "DeepDrill" => Some(BuildingType::DeepDrill),
         "LaserDrill" => Some(BuildingType::LaserDrill),
         "StripMine" => Some(BuildingType::StripMine),

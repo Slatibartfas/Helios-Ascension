@@ -224,6 +224,28 @@
                 (modifier_type: "MiningEfficiency", value: 50.0),
             ],
         ),
+        (
+            id: "AtmosphericProcessor",
+            display_name: "Atmospheric Processor",
+            description: "Harvests gases from the body's atmosphere using intake compressors and separation columns",
+            icon: "☁",
+            category: "Industry",
+            build_points: 500.0,
+            workforce: 3000,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 400.0),
+                ("Copper", 200.0),
+                ("Aluminum", 200.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 10.0),
+                ("Copper", 5.0),
+            ],
+            modifiers: [
+                (modifier_type: "AtmosphericHarvesting", value: 5.0),
+            ],
+        ),
 
         // ========================================
         // LOGISTICS

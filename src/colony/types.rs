@@ -22,6 +22,10 @@ pub enum BuildingType {
     /// Manufactures goods and components
     Factory,
 
+    // Atmospheric Harvesting
+    /// Collects gases from a body's atmosphere
+    AtmosphericProcessor,
+
     // Advanced Mining (tech-gated)
     /// Deep drilling into planetary crust (requires deep_drilling tech)
     DeepDrill,
@@ -91,6 +95,7 @@ impl BuildingType {
             Mine,
             Refinery,
             Factory,
+            AtmosphericProcessor,
             DeepDrill,
             LaserDrill,
             StripMine,
@@ -125,6 +130,7 @@ impl BuildingType {
             BuildingType::Mine => "Mine",
             BuildingType::Refinery => "Refinery",
             BuildingType::Factory => "Factory",
+            BuildingType::AtmosphericProcessor => "Atmospheric Processor",
             BuildingType::DeepDrill => "Deep Drill",
             BuildingType::LaserDrill => "Laser Drill",
             BuildingType::StripMine => "Strip Mine",
@@ -159,6 +165,7 @@ impl BuildingType {
             BuildingType::Mine => "Extracts minerals from the body surface",
             BuildingType::Refinery => "Refines raw ores into usable materials",
             BuildingType::Factory => "Manufactures goods and components",
+            BuildingType::AtmosphericProcessor => "Harvests gases from the atmosphere",
             BuildingType::DeepDrill => "Deep drilling into planetary crust for hidden deposits",
             BuildingType::LaserDrill => "Laser-based deep mining for maximum extraction",
             BuildingType::StripMine => "Strip mining entire surface layers at massive scale",
@@ -193,6 +200,7 @@ impl BuildingType {
             BuildingType::Mine => "⚒",
             BuildingType::Refinery => "🏭",
             BuildingType::Factory => "🔧",
+            BuildingType::AtmosphericProcessor => "☁",
             BuildingType::DeepDrill => "🕳",
             BuildingType::LaserDrill => "🔦",
             BuildingType::StripMine => "🗻",
@@ -227,6 +235,7 @@ impl BuildingType {
             BuildingType::Mine
             | BuildingType::Refinery
             | BuildingType::Factory
+            | BuildingType::AtmosphericProcessor
             | BuildingType::DeepDrill
             | BuildingType::LaserDrill
             | BuildingType::StripMine => BuildingCategory::Industry,
@@ -259,6 +268,7 @@ impl BuildingType {
             BuildingType::Mine => 400.0,
             BuildingType::Refinery => 600.0,
             BuildingType::Factory => 1000.0,
+            BuildingType::AtmosphericProcessor => 600.0,
             BuildingType::DeepDrill => 2000.0,
             BuildingType::LaserDrill => 6000.0,
             BuildingType::StripMine => 12000.0,
@@ -300,8 +310,7 @@ impl BuildingType {
             // Basic industry
             BuildingType::Mine => 5_000,
             BuildingType::Refinery => 6_000,
-            BuildingType::Factory => 12_000,
-            // Advanced mining – mid/late game scale
+            BuildingType::Factory => 12_000,            BuildingType::AtmosphericProcessor => 3_000,            // Advanced mining – mid/late game scale
             BuildingType::DeepDrill => 10_000,
             BuildingType::LaserDrill => 4_000,
             BuildingType::StripMine => 50_000,
@@ -340,6 +349,7 @@ impl BuildingType {
             BuildingType::DeepDrill => Some("deep_drilling"),
             BuildingType::LaserDrill => Some("laser_drilling"),
             BuildingType::StripMine => Some("strip_mining"),
+            BuildingType::AtmosphericProcessor => None,
             BuildingType::FusionReactor => Some("fusion_power"),
             BuildingType::AiCluster => Some("neural_networks"),
             BuildingType::Shipyard => Some("orbital_construction"),
@@ -428,7 +438,7 @@ mod tests {
     #[test]
     fn test_building_type_all() {
         let all = BuildingType::all();
-        assert_eq!(all.len(), 28, "Should have exactly 28 building types");
+        assert_eq!(all.len(), 29, "Should have exactly 29 building types");
     }
 
     #[test]
