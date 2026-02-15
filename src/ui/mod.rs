@@ -2105,20 +2105,22 @@ fn ui_starmap_hover_tooltip(
 fn format_mass(megatons: f64) -> String {
     let abs_val = megatons.abs();
 
-    // Handle 0
-    if abs_val == 0.0 {
-        return "0.0 kt".to_string();
+    // Near-zero
+    if abs_val < 1e-9 {
+        return "0 t".to_string();
     }
 
-    // Smallest unit: kilotons (kt)
-    // 1 Mt = 1000 kt
+    // Tons: 1 Mt = 1,000,000 t  (for values < 1 kt = 0.001 Mt)
+    if abs_val < 0.001 {
+        return format!("{:.1} t", megatons * 1_000_000.0);
+    }
+
+    // Kilotons: 1 Mt = 1000 kt  (for values < 1 Mt)
     if abs_val < 1.0 {
-        // For very small amounts (e.g. < 0.1 kt), maybe use tons?
-        // But user requested "kilotons, megatons and Gigatons".
         return format!("{:.1} kt", megatons * 1000.0);
     }
 
-    // Megatons (Mt)
+    // Megatons (for values < 1 Gt = 1000 Mt)
     if abs_val < 1000.0 {
         return format!("{:.1} Mt", megatons);
     }
@@ -2139,19 +2141,19 @@ fn format_mass(megatons: f64) -> String {
     }
 
     // Exatons (Et) and beyond
-    // 1 Et = 1000 Pt = 1,000,000,000,000 Mt
     format!("{:.1} Et", megatons / 1_000_000_000_000.0)
 }
 
 /// Format a monthly rate value with sign and appropriate color.
 /// Returns (formatted_string, color).
 fn format_rate_monthly(value: f64) -> (String, egui::Color32) {
+    if value.abs() < 1e-9 {
+        return ("+0/mo".to_string(), egui::Color32::GRAY);
+    }
     if value > 0.0 {
         (format!("+{}/mo", format_mass(value)), egui::Color32::from_rgb(100, 255, 100))
-    } else if value < 0.0 {
-        (format!("{}/mo", format_mass(value)), egui::Color32::from_rgb(255, 100, 100))
     } else {
-        ("+0/mo".to_string(), egui::Color32::GRAY)
+        (format!("{}/mo", format_mass(value)), egui::Color32::from_rgb(255, 100, 100))
     }
 }
 
@@ -2732,8 +2734,18 @@ fn ui_dashboard(
                                                         if !is_atm {
                                                             ui.horizontal(|ui| {
                                                                 ui.label("    Concentration:");
-                                                                ui.add(egui::ProgressBar::new(deposit.reserve.concentration)
-                                                                    .text(format!("{:.1}%", deposit.reserve.concentration * 100.0)));
+                                                                let conc = deposit.reserve.concentration;
+                                                                let conc_text = if conc >= 0.01 {
+                                                                    format!("{:.1}%", conc * 100.0)
+                                                                } else if conc >= 0.000_01 {
+                                                                    format!("{:.1} ppm", conc * 1_000_000.0)
+                                                                } else if conc >= 0.000_000_01 {
+                                                                    format!("{:.2} ppb", conc * 1_000_000_000.0)
+                                                                } else {
+                                                                    format!("{:.2e}", conc)
+                                                                };
+                                                                ui.add(egui::ProgressBar::new(conc.min(1.0))
+                                                                    .text(conc_text));
                                                             });
                                                         }
                                                         
@@ -5432,13 +5444,17 @@ fn build_economy_hierarchy(
 
 /// Format a rate value with sign and color helper.
 fn rate_text(rate: f64, suffix: &str) -> (String, egui::Color32) {
-    if rate > 0.01 {
-        (format!("+{:.2}{}", rate, suffix), egui::Color32::from_rgb(100, 255, 100))
-    } else if rate < -0.01 {
-        (format!("{:.2}{}", rate, suffix), egui::Color32::from_rgb(255, 100, 100))
-    } else {
-        (format!("{:.2}{}", rate, suffix), egui::Color32::from_rgb(150, 150, 150))
+    if rate.abs() < 1e-9 {
+        return (format!("0{}", suffix), egui::Color32::from_rgb(150, 150, 150));
     }
+    let sign = if rate > 0.0 { "+" } else { "" };
+    let text = format!("{}{}{}", sign, format_mass(rate), suffix);
+    let color = if rate > 0.0 {
+        egui::Color32::from_rgb(100, 255, 100)
+    } else {
+        egui::Color32::from_rgb(255, 100, 100)
+    };
+    (text, color)
 }
 
 /// System that renders the Economy UI when the Economy menu is active.
@@ -5667,8 +5683,8 @@ fn render_econ_overview(
                         let icon = if is_critical_rate { "🔻" } else { "⚠" };
                         ui.label(icon);
                         ui.label(egui::RichText::new(resource.display_name()).strong());
-                        ui.label(format!("Stock: {:.1} Mt", stockpile));
-                        let (txt, col) = rate_text(rate, " Mt/mo");
+                        ui.label(format!("Stock: {}", format_mass(stockpile)));
+                        let (txt, col) = rate_text(rate, "/mo");
                         ui.label(egui::RichText::new(txt).color(col));
                     });
                 }
@@ -5718,7 +5734,7 @@ fn render_econ_resources(
     hierarchy: &[StarSystemGroup],
     buildings_data: Option<&BuildingsData>,
 ) {
-    ui.label(egui::RichText::new("All quantities in Megatons (Mt). Rates are net monthly.").size(11.0).color(egui::Color32::GRAY));
+    ui.label(egui::RichText::new("Rates are net monthly. Units scale automatically (t, kt, Mt, Gt).").size(11.0).color(egui::Color32::GRAY));
     ui.separator();
 
     egui::ScrollArea::vertical().show(ui, |ui| {
@@ -5737,8 +5753,8 @@ fn render_econ_resources(
                     .show(ui, |ui| {
                         ui.label(egui::RichText::new("Resource").strong());
                         ui.label(egui::RichText::new("Symbol").strong());
-                        ui.label(egui::RichText::new("Stockpile (Mt)").strong());
-                        ui.label(egui::RichText::new("Net Rate (Mt/mo)").strong());
+                        ui.label(egui::RichText::new("Stockpile").strong());
+                        ui.label(egui::RichText::new("Net Rate (/mo)").strong());
                         ui.end_row();
 
                         for resource in resources {
@@ -5755,9 +5771,9 @@ fn render_econ_resources(
                             } else {
                                 egui::Color32::from_rgb(200, 200, 200)
                             };
-                            ui.label(egui::RichText::new(format!("{:.1}", stockpile)).monospace().color(stock_color));
+                            ui.label(egui::RichText::new(format_mass(stockpile)).monospace().color(stock_color));
 
-                            let (txt, col) = rate_text(rate, "");
+                            let (txt, col) = rate_text(rate, "/mo");
                             ui.label(egui::RichText::new(txt).monospace().color(col));
                             ui.end_row();
                         }
@@ -5892,7 +5908,7 @@ fn render_econ_resources(
                                     }
 
                                     if !production_rows.is_empty() {
-                                        ui.label(egui::RichText::new("Production (Mt/mo):").strong().size(11.0).color(egui::Color32::from_rgb(100, 255, 100)));
+                                        ui.label(egui::RichText::new("Production (/mo):").strong().size(11.0).color(egui::Color32::from_rgb(100, 255, 100)));
                                         egui::Grid::new(format!("econ_prod_{}", body_entry.body_name))
                                             .num_columns(3)
                                             .spacing([10.0, 2.0])
@@ -5901,14 +5917,14 @@ fn render_econ_resources(
                                                 for (source, rt, monthly) in &production_rows {
                                                     ui.label(egui::RichText::new(source).size(11.0));
                                                     ui.label(egui::RichText::new(rt.display_name()).size(11.0));
-                                                    ui.label(egui::RichText::new(format!("+{:.3}", monthly)).monospace().size(11.0).color(egui::Color32::from_rgb(100, 255, 100)));
+                                                    ui.label(egui::RichText::new(format!("+{}", format_mass(*monthly))).monospace().size(11.0).color(egui::Color32::from_rgb(100, 255, 100)));
                                                     ui.end_row();
                                                 }
                                             });
                                     }
 
                                     if !consumption_rows.is_empty() {
-                                        ui.label(egui::RichText::new("Consumption (Mt/mo):").strong().size(11.0).color(egui::Color32::from_rgb(255, 140, 140)));
+                                        ui.label(egui::RichText::new("Consumption (/mo):").strong().size(11.0).color(egui::Color32::from_rgb(255, 140, 140)));
                                         egui::Grid::new(format!("econ_cons_{}", body_entry.body_name))
                                             .num_columns(3)
                                             .spacing([10.0, 2.0])
@@ -5917,7 +5933,7 @@ fn render_econ_resources(
                                                 for (source, rt, monthly) in &consumption_rows {
                                                     ui.label(egui::RichText::new(source).size(11.0));
                                                     ui.label(egui::RichText::new(rt.display_name()).size(11.0));
-                                                    ui.label(egui::RichText::new(format!("-{:.3}", monthly)).monospace().size(11.0).color(egui::Color32::from_rgb(255, 140, 140)));
+                                                    ui.label(egui::RichText::new(format!("-{}", format_mass(*monthly))).monospace().size(11.0).color(egui::Color32::from_rgb(255, 140, 140)));
                                                     ui.end_row();
                                                 }
                                             });
@@ -5936,7 +5952,7 @@ fn render_econ_resources(
                                 let status = if op.active { "Active" } else { "Idle" };
                                 let monthly = op.rate_mt_per_year / 12.0;
                                 ui.horizontal(|ui| {
-                                    ui.label(egui::RichText::new(format!("⛏ {} — {:.3} Mt/mo [{}]", op.resource_type.display_name(), monthly, status)).size(11.0));
+                                    ui.label(egui::RichText::new(format!("⛏ {} — {}/mo [{}]", op.resource_type.display_name(), format_mass(monthly), status)).size(11.0));
                                 });
                             }
                         });

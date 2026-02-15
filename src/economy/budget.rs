@@ -289,7 +289,7 @@ mod tests {
     fn test_global_budget_creation() {
         let budget = GlobalBudget::new();
         assert!(budget.get_stockpile(&ResourceType::Water) > 0.0);
-        assert_eq!(budget.get_stockpile(&ResourceType::Uranium), 0.0);
+        assert!(budget.get_stockpile(&ResourceType::Uranium) > 0.0, "Uranium should have starting stockpile");
     }
 
     #[test]

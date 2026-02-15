@@ -128,11 +128,11 @@ pub fn extract_resources(
                     if !minable.is_empty() {
                         // Weight distribution by concentration — richer deposits yield more
                         let total_weight: f64 = minable.iter()
-                            .map(|(_, c)| (*c as f64).max(0.001))
+                            .map(|(_, c)| (*c as f64).max(1e-10))
                             .sum();
 
                         for (r_type, concentration) in &minable {
-                            let weight = (*concentration as f64).max(0.001);
+                            let weight = (*concentration as f64).max(1e-10);
                             let share = weight / total_weight;
                             let effective_rate = total_mining_rate * share;
 
@@ -172,11 +172,11 @@ pub fn extract_resources(
 
                     if !harvestable.is_empty() {
                         let total_weight: f64 = harvestable.iter()
-                            .map(|(_, c)| (*c as f64).max(0.001))
+                            .map(|(_, c)| (*c as f64).max(1e-10))
                             .sum();
 
                         for (r_type, concentration) in &harvestable {
-                            let weight = (*concentration as f64).max(0.001);
+                            let weight = (*concentration as f64).max(1e-10);
                             let share = weight / total_weight;
                             let effective_rate = total_atmo_rate * share;
 
@@ -274,7 +274,7 @@ pub fn update_resource_rates(
                     let minable: Vec<(ResourceType, f64)> = resources.deposits.iter()
                         .filter(|(_, d)| !d.is_atmospheric
                             && (d.reserve.proven_crustal > 0.001 || d.reserve.deep_deposits > 0.001))
-                        .map(|(t, d)| (*t, (d.reserve.concentration as f64).max(0.001)))
+                        .map(|(t, d)| (*t, (d.reserve.concentration as f64).max(1e-10)))
                         .collect();
 
                     let total_weight: f64 = minable.iter().map(|(_, w)| w).sum();
@@ -293,7 +293,7 @@ pub fn update_resource_rates(
                     let harvestable: Vec<(ResourceType, f64)> = resources.deposits.iter()
                         .filter(|(_, d)| d.is_atmospheric
                             && (d.reserve.proven_crustal > 0.001 || d.reserve.deep_deposits > 0.001))
-                        .map(|(t, d)| (*t, (d.reserve.concentration as f64).max(0.001)))
+                        .map(|(t, d)| (*t, (d.reserve.concentration as f64).max(1e-10)))
                         .collect();
 
                     let total_weight: f64 = harvestable.iter().map(|(_, w)| w).sum();
@@ -450,7 +450,7 @@ mod tests {
 
         let minable: Vec<(ResourceType, f64)> = resources.deposits.iter()
             .filter(|(_, d)| !d.is_atmospheric && d.reserve.proven_crustal > 0.001)
-            .map(|(t, d)| (*t, (d.reserve.concentration as f64).max(0.001)))
+            .map(|(t, d)| (*t, (d.reserve.concentration as f64).max(1e-10)))
             .collect();
 
         let total_weight: f64 = minable.iter().map(|(_, w)| w).sum();

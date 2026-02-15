@@ -185,7 +185,7 @@ impl ResourceReserve {
             proven_crustal: proven,
             deep_deposits: deep,
             planetary_bulk: bulk,
-            concentration: concentration.clamp(0.0001, 1.0),
+            concentration: concentration.clamp(1e-12, 1.0),
         }
     }
 
@@ -253,7 +253,7 @@ impl MineralDeposit {
 
     /// Calculate energy cost per ton (Energy_Cost = (Base_Cost / Concentration) * (1.0 / Accessibility))
     pub fn energy_cost_per_ton(&self, base_cost: f64) -> f64 {
-        let conc = self.reserve.concentration.max(0.0001);
+        let conc = self.reserve.concentration.max(1e-12);
         let access = self.accessibility.max(0.0001);
         (base_cost / conc as f64) * (1.0 / access as f64)
     }
