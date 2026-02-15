@@ -66,13 +66,114 @@ High-precision Keplerian orbital mechanics with f64 coordinates.
 - `draw_orbit_paths`: Trail rendering with true-anomaly sampling
 - `handle_body_selection`, `handle_body_hover`: Click/hover detection
 
-#### 4. UIPlugin (`src/ui/`)
+#### 4. ColonyPlugin (`src/colony/`)
+Manages colonies, buildings, and construction.
+
+**Components:**
+- `Colony`: Colony data (name, population, stockpiles)
+- `BuildingInventory`: List of constructed buildings per colony
+- `ConstructionQueue`: Queue of buildings under construction
+
+**Resources:**
+- `BuildingsData`: Building definitions loaded from assets/data/buildings.ron
+- `ConstructionDebugSettings`: Debug toggles (free construction, instant build, bypass tech)
+
+**Systems:**
+- `load_buildings`: Loads building definitions at startup
+- `process_construction_actions`: Handles construction progress and completion
+- `update_colony_resources`: Updates resource production/consumption
+- `population_growth`: Simulates population changes
+
+**Buildings (29 types in 8 categories):**
+- Infrastructure: LifeSupport, HabitatDome, Housing, UndergroundHabitat
+- Industry: Mine, Refinery, Factory, AtmosphericProcessor
+- Logistics: MassDriver, OrbitalLift, CargoTerminal
+- Power: SolarPower, FissionReactor, FusionReactor
+- Population: AgriDome, Farm, MedicalCenter
+- Research: ResearchLab, EngineeringBay, AiCluster
+- Financial: CommercialHub, FinancialCenter, TradePort
+- Military: Shipyard, MissileSilo, LaunchSite
+- Advanced: DeepDrill, LaserDrill, StripMine, NeuralNetwork, OrbitalConstruction
+
+#### 5. EconomyPlugin (`src/economy/`)
+Handles resources, budgets, and energy systems.
+
+**Components:**
+- `PlanetResources`: Resource stockpiles and production rates per body
+- `MineralDeposit`: Mineral deposits with accessibility and quantity
+- `GlobalBudget`: Treasury, income, expenses
+- `EnergyGrid`: Power generation and consumption
+
+**Resources:**
+- `ResourceTypes`: Defines 20 resource types (Iron, Copper, Water, Volatiles, Oxygen, Hydrogen, etc.)
+
+**Systems:**
+- `generate_mineral_deposits`: Creates procedural deposits on bodies at startup
+- `mining_production`: Calculates resource extraction from mining buildings
+- `update_budget`: Tracks financial flows
+- `energy_management`: Balances power generation and consumption
+
+**Resource Types (20):**
+- Construction: Iron, Copper, Aluminum, Titanium, Silicates
+- Volatiles: Water, Volatiles (general)
+- Gases: Oxygen, Hydrogen, Nitrogen, CarbonDioxide, Helium, Methane
+- Precious: Gold, Platinum
+- Fissiles: Uranium, Thorium
+- Specialty: RareEarths, Deuterium, Antimatter
+
+#### 6. ResearchPlugin (`src/research/`)
+Technology progression and engineering projects.
+
+**Components:**
+- `TechnologyProgress`: Tracks research progress per technology
+- `EngineeringProject`: Component design projects
+
+**Resources:**
+- `TechTree`: Complete technology tree loaded from assets/data/technologies.ron
+- `ResearchDebugSettings`: Debug toggles for instant research
+
+**Systems:**
+- `load_tech_tree`: Loads technology definitions at startup
+- `advance_research`: Progresses active research projects with RP
+- `unlock_technologies`: Applies tech unlocks (buildings, modifiers)
+- `apply_tech_modifiers`: Applies bonuses from completed techs
+
+**Technology Categories (15):**
+Electronics, Military, SpaceTechnology, Biology, Physics, Energy, Sociology, Construction, Propulsion, Materials, Sensors, Weapons, DefensiveSystems, LifeSupport, Industry
+
+#### 7. StarmapPlugin (`src/plugins/starmap.rs`)
+Interstellar navigation and star system visualization.
+
+**Components:**
+- `StarIcon`: Visual representation of star systems in starmap view
+- `SelectedStarSystem`: Marks selected star for detailed view
+- `HoveredStarSystem`: Marks hovered star for tooltips
+
+**Resources:**
+- `NearbyStarsData`: ~1000 nearest stars with real astronomical data
+
+**Systems:**
+- `spawn_star_icons`: Creates icons for nearby star systems
+- `update_star_icon_visibility`: Toggles visibility based on view mode
+- `handle_starmap_selection`: Handles star system selection
+- `handle_starmap_hover`: Detects mouse hover over stars
+
+#### 8. UIPlugin (`src/ui/`)
 Egui-based dashboard with time controls, body info, and resource display.
 
 **Resources:**
 - `SimulationTime`: Custom game clock (elapsed f64 seconds, no delta cap)
 - `TimeScale`: Speed multiplier (1 day/s, 1 wk/s, 1 mo/s, 1 yr/s)
 - `Selection`: Currently selected entity
+
+**Panels:**
+- Survey Panel: Body details, resources, population
+- Construction Panel: Building management with queue
+- Research Panel: Technology tree browser
+- Economy Panel: Budget and resource tracking
+- Starmap Panel: System selection and navigation
+- Fleet Panel: Ship management (placeholder)
+- Shipbuilding Panel: Vessel construction (placeholder)
 
 **Key Design Decision — SimulationTime:**
 - Bevy's `Time<Virtual>` caps delta at 250ms, limiting effective speed to ~15×.
@@ -133,11 +234,12 @@ Functions that operate on entities with specific components:
 
 ## Future Architecture Plans
 
-### Upcoming Plugins
-1. **ResearchPlugin**: Technology tree
-2. **ShipPlugin**: Spacecraft management
-3. **ColonyPlugin**: Planetary colonies
-4. **DiplomacyPlugin**: Faction interactions
+### Upcoming Features
+1. **Interstellar Travel**: Ship movement between star systems
+2. **Combat System**: Space battles and defense
+3. **Diplomacy**: AI factions and relations
+4. **Terraforming**: Long-term planetary modification
+5. **Advanced Ship Design**: Modular spacecraft construction
 
 ### Data-Driven Design
 Future systems will use data files (RON/JSON) for configuration:
