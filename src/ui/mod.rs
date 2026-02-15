@@ -2260,25 +2260,60 @@ fn ui_dashboard(
                             ui.label(egui::RichText::new("Habitability").strong());
                             
                             let mut temp_c = -273.15;
+                            let mut min_temp_c = -273.15;
+                            let mut max_temp_c = -273.15;
+
                             // Try to get temperature from SurfaceTemperature component, then Atmosphere
                             if let Some(comp) = surface_temp {
                                 temp_c = comp.average_celsius;
+                                min_temp_c = comp.min_celsius;
+                                max_temp_c = comp.max_celsius;
                             } else if let Some(atm) = atmosphere {
                                 temp_c = atm.surface_temperature_celsius;
+                                min_temp_c = temp_c;
+                                max_temp_c = temp_c;
                             }
 
                             // Colony Cost
                             ui.horizontal(|ui| {
                                 ui.label("Colony Cost:");
                                 let gravity = body.surface_gravity();
-                                let cost = crate::astronomy::calculate_general_colony_cost(
+                                let cost_details = crate::astronomy::components::calculate_colony_cost_details(
                                     gravity, 
-                                    temp_c, 
+                                    min_temp_c, 
+                                    max_temp_c,
                                     atmosphere.as_deref()
                                 );
+                                let cost = cost_details.total_cost;
+                                
+                                let cost_tooltip = |ui: &mut egui::Ui| {
+                                    if cost_details.heavy_gravity_limit_exceeded {
+                                        ui.colored_label(egui::Color32::RED, "Uninhabitable: Gravity > 1.7g");
+                                    } else {
+                                        ui.label(egui::RichText::new("Colony Cost Factors").strong());
+                                        ui.separator();
+                                        
+                                        if cost_details.base_cost > 0.0 {
+                                            ui.label(format!("Base Cost (Unbreathable): +{:.2}", cost_details.base_cost));
+                                        }
+                                        if cost_details.cold_cost > 0.0 {
+                                            ui.label(format!("Cold Penalty (Heating): +{:.2}", cost_details.cold_cost));
+                                        }
+                                        if cost_details.heat_cost > 0.0 {
+                                            ui.label(format!("Heat Penalty (Cooling): +{:.2}", cost_details.heat_cost));
+                                        }
+                                        if cost_details.pressure_cost > 0.0 {
+                                            ui.label(format!("High Pressure Penalty: +{:.2}", cost_details.pressure_cost));
+                                        }
+                                        if cost_details.low_gravity_penalty > 0.0 {
+                                            ui.label(format!("Low Gravity Penalty: +{:.2}", cost_details.low_gravity_penalty));
+                                        }
+                                    }
+                                };
 
                                 if cost.is_infinite() {
-                                    ui.colored_label(egui::Color32::RED, "Uninhabitable (Gravity)");
+                                    ui.colored_label(egui::Color32::RED, "Uninhabitable (Gravity)")
+                                        .on_hover_ui(cost_tooltip);
                                 } else {
                                     let cost_color = if cost <= 0.0 {
                                         egui::Color32::GREEN
@@ -2289,7 +2324,8 @@ fn ui_dashboard(
                                     } else {
                                         egui::Color32::RED
                                     };
-                                    ui.colored_label(cost_color, format!("{:.2}", cost));
+                                    ui.colored_label(cost_color, format!("{:.2}", cost))
+                                        .on_hover_ui(cost_tooltip);
                                 }
                             });
                             
@@ -2429,8 +2465,9 @@ fn ui_dashboard(
                                                         // Calculate discovered amount
                                                         let discovered_mt = current_level.discovered_amount(&deposit.reserve);
                                                         
-                                                        // Skip if nothing discovered yet (or if very trace)
-                                                        if discovered_mt <= 0.0 && !deposit.is_viable() {
+                                                        // Skip resources with negligible amounts
+                                                        // Threshold of 0.001 Mt (= 1 kt) prevents showing "0.0 kt" entries
+                                                        if discovered_mt < 0.001 && !deposit.is_viable() {
                                                              continue;
                                                         }
 
@@ -2447,40 +2484,52 @@ fn ui_dashboard(
                                                             ui.label(egui::RichText::new(format_mass(discovered_mt)).strong());
                                                         });
                                                         
-                                                        // Proven (Always visible if Orbital+)
+                                                        // Use the deposit's is_atmospheric flag to decide labels
+                                                        // Atmospheric gases show: Atmospheric / Trapped-Dissolved / Chemically Bound
+                                                        // Mineral deposits show: Proven Reserves / Deep Deposits / Planetary Bulk
+                                                        let is_atm = deposit.is_atmospheric;
+                                                        let proven_label = if is_atm { "    Atmospheric:" } else { "    Proven Reserves:" };
+                                                        let deep_label = if is_atm { "    Trapped/Dissolved:" } else { "    Deep Deposits:" };
+                                                        let bulk_label = if is_atm { "    Chemically Bound:" } else { "    Planetary Bulk:" };
+                                                        
+                                                        // Proven / Atmospheric (Always visible if Orbital+)
                                                         ui.horizontal(|ui| {
-                                                            ui.label("    Proven Reserves:");
-                                                            ui.add(egui::ProgressBar::new(1.0) // Just a full bar or use ratio?
+                                                            ui.label(proven_label);
+                                                            ui.add(egui::ProgressBar::new(1.0)
                                                                 .text(format_mass(deposit.reserve.proven_crustal)));
                                                         });
                                                         
-                                                        // Deep
+                                                        // Deep / Trapped
                                                         if matches!(current_level, SurveyLevel::SeismicSurvey | SurveyLevel::CoreSample) {
                                                             ui.horizontal(|ui| {
-                                                                ui.label("    Deep Deposits:");
+                                                                ui.label(deep_label);
                                                                 ui.add(egui::ProgressBar::new(1.0)
                                                                     .text(format_mass(deposit.reserve.deep_deposits)));
                                                             });
                                                         } else {
-                                                             ui.label("    Deep Deposits: ???");
+                                                             ui.label(format!("    {}: ???", if is_atm { "Trapped/Dissolved" } else { "Deep Deposits" }));
                                                         }
                                                         
-                                                        // Bulk
+                                                        // Bulk / Chemically Bound
                                                         if current_level == SurveyLevel::CoreSample {
                                                             ui.horizontal(|ui| {
-                                                                ui.label("    Planetary Bulk:");
+                                                                ui.label(bulk_label);
                                                                  ui.add(egui::ProgressBar::new(1.0)
                                                                     .text(format_mass(deposit.reserve.planetary_bulk)));
                                                             });
                                                         } else {
-                                                            ui.label("    Planetary Bulk: ???");
+                                                            ui.label(format!("    {}: ???", if is_atm { "Chemically Bound" } else { "Planetary Bulk" }));
                                                         }
                                                         
-                                                        ui.horizontal(|ui| {
-                                                            ui.label("    Concentration:");
-                                                            ui.add(egui::ProgressBar::new(deposit.reserve.concentration)
-                                                                .text(format!("{:.1}%", deposit.reserve.concentration * 100.0)));
-                                                        });
+                                                        // Only show concentration for non-atmospheric deposits
+                                                        // Concentration is meaningless for gas in an atmosphere
+                                                        if !is_atm {
+                                                            ui.horizontal(|ui| {
+                                                                ui.label("    Concentration:");
+                                                                ui.add(egui::ProgressBar::new(deposit.reserve.concentration)
+                                                                    .text(format!("{:.1}%", deposit.reserve.concentration * 100.0)));
+                                                            });
+                                                        }
                                                         
                                                         ui.add_space(3.0);
                                                     }
