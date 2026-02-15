@@ -468,6 +468,86 @@ fn apply_special_body_profile(
             Some(resources)
         }
 
+        // Earth: Biosphere-rich and technologically active world
+        // Mass: ~5.97e24 kg = 5.97e15 Mt
+        "Earth" => {
+            // Water: Massive oceans (1.35e18 kg = 1.35 billion Mt)
+            // Proven: Surface water (oceans, lakes)
+            resources.add_deposit(
+                ResourceType::Water,
+                MineralDeposit::new(1_350_000_000.0, 50_000_000.0, 0.0, 1.0, 1.0),
+            );
+
+            // Atmosphere: Nitrogen (78%), Oxygen (21%), Argon (0.9%), CO2 (0.04%)
+            // Total atmosphere mass: 5.15e18 kg = 5.15 billion Mt
+            resources.add_deposit(
+                ResourceType::Nitrogen,
+                create_atmospheric_deposit(4_000_000_000.0, 1.0, 0.0, 0.78),
+            );
+            resources.add_deposit(
+                ResourceType::Oxygen,
+                create_atmospheric_deposit(1_100_000_000.0, 1.0, 0.0, 0.21),
+            );
+            resources.add_deposit(
+                ResourceType::Argon,
+                create_atmospheric_deposit(50_000_000.0, 1.0, 0.0, 0.009),
+            );
+            resources.add_deposit(
+                ResourceType::CarbonDioxide,
+                create_atmospheric_deposit(2_200_000.0, 1.0, 0.0, 0.0004),
+            );
+
+            // Methane: Natural Gas & Biosphere production
+            // Proven: ~140,000 Mt (Global commercially recoverable reserves)
+            // Deep: ~500,000 Mt (Hydrates, clathrates)
+            resources.add_deposit(
+                ResourceType::Methane,
+                MineralDeposit::new(140_000.0, 500_000.0, 0.0, 0.8, 0.3),
+            );
+
+            // Iron: Core/Mantle rich, crustal average ~5%
+            // Proven: ~85,000 Mt (High grade ore)
+            // Deep: ~800,000 Mt (Lower grade)
+            resources.add_deposit(
+                ResourceType::Iron,
+                create_deposit_legacy(0.06, 0.9, body_mass, BodyType::Planet),
+            );
+
+            // Aluminum: ~8% of crust
+            resources.add_deposit(
+                ResourceType::Aluminum,
+                create_deposit_legacy(0.08, 0.8, body_mass, BodyType::Planet),
+            );
+
+            // Silicates: ~45% of crust (Sand, Granite, etc.)
+            resources.add_deposit(
+                ResourceType::Silicates,
+                create_deposit_legacy(0.45, 1.0, body_mass, BodyType::Planet),
+            );
+
+            // Copper: Critical industrial metal
+            // Increased concentration and availability for gameplay balance
+            resources.add_deposit(
+                ResourceType::Copper,
+                MineralDeposit::new(5_000.0, 20_000.0, 500_000.0, 0.5, 0.1),
+            );
+
+            // Rare Earths
+            resources.add_deposit(
+                ResourceType::RareEarths,
+                MineralDeposit::new(2_000.0, 10_000.0, 100_000.0, 0.4, 0.05),
+            );
+            
+            // Fissiles
+            resources.add_deposit(
+                ResourceType::Uranium,
+                MineralDeposit::new(500.0, 2_000.0, 20_000.0, 0.3, 0.02),
+            );
+
+            info!("Applied Earth special profile: biosystem rich, high resource variety");
+            Some(resources)
+        }
+
         // Europa: Massive subsurface ocean (2-3x Earth's oceans)
         // Scientific estimate: 2.6-3.2×10^18 metric tons
         // Europa mass: ~4.8×10^22 kg = (4.8×10^22 ÷ 10^9) = 4.8×10^13 Mt
@@ -659,151 +739,7 @@ fn apply_special_body_profile(
             Some(resources)
         }
 
-        // Earth: Rocky planet with oceans, thick N2/O2 atmosphere, and diverse mineralogy
-        // Earth mass: 5.972×10^24 kg
-        // Atmosphere mass: 5.15×10^18 kg (0.000087% of total mass)
-        "Earth" => {
-            // === WATER ===
-            // Total surface/near-surface: 1.386×10^21 kg = 1.386×10^12 Mt
-            // Distribution: Oceans 96.5%, Ice caps 1.74%, Groundwater 0.76%
-            // Proven = oceans + ice (surface accessible): 1.361×10^12 Mt
-            // Deep = groundwater (requires wells): 1.05×10^10 Mt
-            // Bulk = remaining + speculative deep mantle water
-            resources.add_deposit(
-                ResourceType::Water,
-                MineralDeposit::new(1.361e12, 1.05e10, 1.5e10, 0.95, 0.9),
-            );
 
-            // === ATMOSPHERIC GASES ===
-            // Earth's atmosphere: 78% N2, 21% O2, 0.93% Ar, 0.04% CO2
-            // Total atmosphere mass: 5.15×10^18 kg = 5.15×10^9 Mt
-
-            // Nitrogen: 78.08% of atmosphere = 4.02×10^18 kg = 4.02×10^9 Mt
-            // Also ~4×10^15 kg dissolved in oceans (0.1% of atmospheric)
-            resources.add_deposit(
-                ResourceType::Nitrogen,
-                create_atmospheric_deposit(4.02e9, 0.001, 0.0, 0.9),
-            );
-
-            // Oxygen: 20.95% of atmosphere = 1.08×10^18 kg = 1.08×10^9 Mt
-            // Also dissolved in oceans (~8×10^15 kg = 0.7% of atmospheric)
-            // Note: O2 in oxide minerals (SiO2, FeO etc.) is counted under those resources
-            resources.add_deposit(
-                ResourceType::Oxygen,
-                create_atmospheric_deposit(1.08e9, 0.007, 0.0, 0.9),
-            );
-
-            // Carbon Dioxide: 0.04% of atmosphere = 3.16×10^15 kg = 3160 Mt
-            // Massive amounts dissolved in oceans (~1.4×10^17 kg CO2 equivalent)
-            // ~44× atmospheric amount dissolved/bound in ocean carbonates
-            resources.add_deposit(
-                ResourceType::CarbonDioxide,
-                create_atmospheric_deposit(3160.0, 44.0, 0.0, 0.7),
-            );
-
-            // Argon: 1.288% by mass of atmosphere = 6.6×10^16 kg = 6.6×10^7 Mt
-            resources.add_deposit(
-                ResourceType::Argon,
-                create_atmospheric_deposit(6.6e7, 0.0, 0.0, 0.85),
-            );
-
-            // === VOLATILES (trace/absent on Earth) ===
-            // Methane: ~1800 ppb by volume in atmosphere = ~4.85×10^12 kg = ~4850 Mt
-            resources.add_deposit(
-                ResourceType::Methane,
-                create_trace_atmospheric_deposit(4850.0, 0.3),
-            );
-
-            // Hydrogen: negligible atmospheric (0.55 ppm) - not economically meaningful
-            // Ammonia: essentially ZERO on Earth (trace ppb, rapidly destroyed by UV)
-            // Neither is a meaningful resource on Earth
-
-            // === CONSTRUCTION MATERIALS ===
-            // Iron: ~32% of Earth by mass (core 85% iron, mantle ~6%, crust ~5%)
-            resources.add_deposit(
-                ResourceType::Iron,
-                create_deposit_legacy(0.32, 0.5, body_mass, BodyType::Planet),
-            );
-
-            // Silicates: ~30% of Earth (dominant mantle/crust mineral)
-            resources.add_deposit(
-                ResourceType::Silicates,
-                create_deposit_legacy(0.30, 0.6, body_mass, BodyType::Planet),
-            );
-
-            // Aluminum: ~1.6% total, ~8% of crust (third most abundant crustal element)
-            resources.add_deposit(
-                ResourceType::Aluminum,
-                create_deposit_legacy(0.016, 0.7, body_mass, BodyType::Planet),
-            );
-
-            // Titanium: ~0.05% total, ~0.44% of crust (9th most abundant crustal element)
-            resources.add_deposit(
-                ResourceType::Titanium,
-                create_deposit_legacy(0.0005, 0.6, body_mass, BodyType::Planet),
-            );
-
-            // === FISSILE MATERIALS ===
-            // Uranium: ~3 ppm in crust, ~0.01 ppm body average
-            // Known reserves: ~7.6 Mt of uranium ore
-            resources.add_deposit(
-                ResourceType::Uranium,
-                create_deposit_legacy(0.000001, 0.4, body_mass, BodyType::Planet),
-            );
-
-            // Thorium: ~12 ppm in crust, ~0.04 ppm body average
-            resources.add_deposit(
-                ResourceType::Thorium,
-                create_deposit_legacy(0.000004, 0.35, body_mass, BodyType::Planet),
-            );
-
-            // === PRECIOUS METALS ===
-            // For precious metals, use explicit USGS reserve data for proven tier
-            // to avoid the generic planet formula rounding proven to zero.
-            // Total body composition determines deep + bulk tiers.
-
-            // Gold: USGS reserves ~54,000 tonnes = 0.054 Mt
-            // Crustal total: ~1,000 Mt, Core/mantle: ~3×10^6 Mt
-            resources.add_deposit(
-                ResourceType::Gold,
-                MineralDeposit::new(0.054, 1000.0, 2.99e6, 0.001, 0.3),
-            );
-
-            // Silver: USGS reserves ~530,000 tonnes = 0.53 Mt
-            // Crustal total: ~5,000 Mt, Core/mantle: ~5.97×10^7 Mt
-            resources.add_deposit(
-                ResourceType::Silver,
-                MineralDeposit::new(0.53, 5000.0, 5.97e7, 0.001, 0.3),
-            );
-
-            // Platinum: USGS reserves ~69,000 tonnes = 0.069 Mt
-            // Crustal total: ~500 Mt, Core/mantle: ~5.97×10^6 Mt
-            resources.add_deposit(
-                ResourceType::Platinum,
-                MineralDeposit::new(0.069, 500.0, 5.97e6, 0.001, 0.2),
-            );
-
-            // === SPECIALTY MATERIALS ===
-            // Copper: USGS reserves ~870 Mt, crustal total: ~1.56×10^9 Mt
-            resources.add_deposit(
-                ResourceType::Copper,
-                MineralDeposit::new(0.87, 1.56e9, 1.79e11, 0.005, 0.5),
-            );
-
-            // Rare Earths: USGS reserves ~120 Mt, crustal total: ~5.2×10^9 Mt
-            resources.add_deposit(
-                ResourceType::RareEarths,
-                MineralDeposit::new(0.12, 5.2e9, 5.97e10, 0.002, 0.4),
-            );
-
-            // === FUSION FUEL ===
-            // He-3: extremely rare on Earth (~0.000137% of helium, which itself is ~5 ppm atmosphere)
-            // Total atmospheric He ≈ 5.2×10^9 kg, He-3 fraction ≈ 7100 kg = negligible
-            // Not adding - effectively zero on Earth
-
-            info!("Applied Earth special profile: N2/O2 atmosphere, oceans, diverse mineralogy including precious metals");
-            Some(resources)
-        }
 
         // Venus: Dense CO2 atmosphere, volcanic surface, no water
         // Venus mass: 4.867×10^24 kg

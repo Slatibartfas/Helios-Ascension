@@ -81,6 +81,12 @@ pub enum BuildingType {
     MissileSilo,
     /// Rocket launch site for orbital access
     LaunchSite,
+    
+    // Advanced Industry
+    /// Chemical plant for synthesizing volatiles and polymers
+    ChemicalPlant,
+    /// Extraction facility for hydrocarbons (oil/gas)
+    HydrocarbonExtractor,
 }
 
 impl BuildingType {
@@ -96,6 +102,8 @@ impl BuildingType {
             Refinery,
             Factory,
             AtmosphericProcessor,
+            ChemicalPlant,
+            HydrocarbonExtractor,
             DeepDrill,
             LaserDrill,
             StripMine,
@@ -130,6 +138,8 @@ impl BuildingType {
             BuildingType::Mine => "Mine",
             BuildingType::Refinery => "Refinery",
             BuildingType::Factory => "Factory",
+            BuildingType::ChemicalPlant => "Chemical Plant",
+            BuildingType::HydrocarbonExtractor => "Hydrocarbon Extractor",
             BuildingType::AtmosphericProcessor => "Atmospheric Processor",
             BuildingType::DeepDrill => "Deep Drill",
             BuildingType::LaserDrill => "Laser Drill",
@@ -154,8 +164,6 @@ impl BuildingType {
             BuildingType::LaunchSite => "Launch Site",
         }
     }
-
-    /// Short description for tooltips
     pub fn description(&self) -> &'static str {
         match self {
             BuildingType::LifeSupport => "Converts local volatiles into breathable atmosphere",
@@ -165,6 +173,8 @@ impl BuildingType {
             BuildingType::Mine => "Extracts minerals from the body surface",
             BuildingType::Refinery => "Refines raw ores into usable materials",
             BuildingType::Factory => "Manufactures goods and components",
+            BuildingType::ChemicalPlant => "Processes volatiles into useful chemical products",
+            BuildingType::HydrocarbonExtractor => "Extracts hydrocarbons (oil/gas) from crustal deposits",
             BuildingType::AtmosphericProcessor => "Harvests gases from the atmosphere",
             BuildingType::DeepDrill => "Deep drilling into planetary crust for hidden deposits",
             BuildingType::LaserDrill => "Laser-based deep mining for maximum extraction",
@@ -199,8 +209,10 @@ impl BuildingType {
             BuildingType::UndergroundHabitat => "⛏",
             BuildingType::Mine => "⚒",
             BuildingType::Refinery => "🏭",
-            BuildingType::Factory => "🔧",
-            BuildingType::AtmosphericProcessor => "☁",
+            BuildingType::ChemicalPlant => "⚗️",
+            BuildingType::HydrocarbonExtractor => "🛢️",
+            BuildingType::Factory => "🏭",
+            BuildingType::AtmosphericProcessor => "☁️",
             BuildingType::DeepDrill => "🕳",
             BuildingType::LaserDrill => "🔦",
             BuildingType::StripMine => "🗻",
@@ -236,6 +248,8 @@ impl BuildingType {
             | BuildingType::Refinery
             | BuildingType::Factory
             | BuildingType::AtmosphericProcessor
+            | BuildingType::ChemicalPlant
+            | BuildingType::HydrocarbonExtractor
             | BuildingType::DeepDrill
             | BuildingType::LaserDrill
             | BuildingType::StripMine => BuildingCategory::Industry,
@@ -269,6 +283,8 @@ impl BuildingType {
             BuildingType::Refinery => 600.0,
             BuildingType::Factory => 1000.0,
             BuildingType::AtmosphericProcessor => 600.0,
+            BuildingType::ChemicalPlant => 800.0,
+            BuildingType::HydrocarbonExtractor => 1200.0,
             BuildingType::DeepDrill => 2000.0,
             BuildingType::LaserDrill => 6000.0,
             BuildingType::StripMine => 12000.0,
@@ -310,7 +326,10 @@ impl BuildingType {
             // Basic industry
             BuildingType::Mine => 5_000,
             BuildingType::Refinery => 6_000,
-            BuildingType::Factory => 12_000,            BuildingType::AtmosphericProcessor => 3_000,            // Advanced mining – mid/late game scale
+            BuildingType::Factory => 12_000,
+            BuildingType::ChemicalPlant => 4_000,
+            BuildingType::HydrocarbonExtractor => 2_500,
+            BuildingType::AtmosphericProcessor => 3_000,            // Advanced mining – mid/late game scale
             BuildingType::DeepDrill => 10_000,
             BuildingType::LaserDrill => 4_000,
             BuildingType::StripMine => 50_000,

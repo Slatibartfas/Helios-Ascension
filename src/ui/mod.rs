@@ -6374,7 +6374,8 @@ fn render_econ_power_grid(
 
                             // Colony estimated consumption
                             if let Some(colony) = &body_entry.colony {
-                                let est_load = colony.total_buildings as f64 * 10_000_000.0;
+                                // Assume ~400MW per mega-structure building to match ~18TW total consumption
+                                let est_load = colony.total_buildings as f64 * 400_000_000.0;
                                 ui.label(egui::RichText::new(format!("| Load ~{}", format_power(est_load))).size(11.0).color(egui::Color32::from_rgb(255, 180, 100)));
                             }
                         });

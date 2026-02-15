@@ -791,8 +791,11 @@ pub fn setup_solar_system(
                  (BuildingType::Housing, 33000),    // Housing (250k each -> 8.25B)
                  (BuildingType::Farm, 8500),        // Food (1M each -> 8.5B)
                  (BuildingType::Factory, 2000),     // Production (Increased for Earth)
-                 (BuildingType::Mine, 1000),        // Mining
+                 (BuildingType::Mine, 3000),        // Mining (Increased for realism)
                  (BuildingType::Refinery, 800),     // Refining
+                 (BuildingType::ChemicalPlant, 1000), // Chemicals & Volatiles
+                 (BuildingType::HydrocarbonExtractor, 500), // Oil & Gas
+                 (BuildingType::AtmosphericProcessor, 500), // Gas harvesting
                  (BuildingType::ResearchLab, 500),  // Research
                  (BuildingType::LaunchSite, 50),    // Space Access
                  (BuildingType::FinancialCenter, 100), // Economy

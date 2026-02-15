@@ -67,7 +67,7 @@
                 ("Silicates", 500.0),
             ],
             maintenance_resources: [
-                ("Iron", 5.0),
+                ("Iron", 0.1),
             ],
             modifiers: [],
         ),
@@ -108,10 +108,10 @@
                 ("Copper", 100.0),
             ],
             maintenance_resources: [
-                ("Iron", 10.0),
+                ("Iron", 0.5),
             ],
             modifiers: [
-                (modifier_type: "MiningEfficiency", value: 5.0),
+                (modifier_type: "MiningEfficiency", value: 50.0),
             ],
         ),
         (
@@ -129,11 +129,11 @@
                 ("Silicates", 200.0),
             ],
             maintenance_resources: [
-                ("Iron", 20.0),
-                ("Water", 30.0),
+                ("Iron", 1.0),
+                ("Water", 2.0),
             ],
             modifiers: [
-                (modifier_type: "MiningEfficiency", value: 3.0),
+                (modifier_type: "MiningEfficiency", value: 30.0),
             ],
         ),
         (
@@ -151,8 +151,8 @@
                 ("Aluminum", 500.0),
             ],
             maintenance_resources: [
-                ("Iron", 50.0),
-                ("Copper", 20.0),
+                ("Iron", 5.0),
+                ("Copper", 0.5),
             ],
             modifiers: [
                 (modifier_type: "ConstructionCost", value: -5.0),
@@ -239,11 +239,54 @@
                 ("Aluminum", 200.0),
             ],
             maintenance_resources: [
-                ("Iron", 10.0),
-                ("Copper", 5.0),
+                ("Iron", 2.0),
+                ("Copper", 1.0),
             ],
             modifiers: [
-                (modifier_type: "AtmosphericHarvesting", value: 5.0),
+                (modifier_type: "AtmosphericHarvesting", value: 50.0), // Increased from 5.0 for realism
+            ],
+        ),
+        (
+            id: "ChemicalPlant",
+            display_name: "Chemical Plant",
+            description: "Processes volatiles into useful chemical products (ammonia, methane, etc.)",
+            icon: "⚗",
+            category: "Industry",
+            build_points: 800.0,
+            workforce: 4000,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 800.0),
+                ("Copper", 300.0),
+                ("Silicates", 200.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 2.0),
+                ("Water", 10.0),
+            ],
+            modifiers: [
+                // Acts as a specialized refinery for volatiles
+                (modifier_type: "MiningEfficiency", value: 20.0),
+            ],
+        ),
+        (
+            id: "HydrocarbonExtractor",
+            display_name: "Hydrocarbon Extractor",
+            description: "Drills for fossil fuels and natural gas (methane)",
+            icon: "⛽",
+            category: "Industry",
+            build_points: 1200.0,
+            workforce: 2000,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 1000.0),
+                ("Copper", 200.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 5.0),
+            ],
+            modifiers: [
+                (modifier_type: "MiningEfficiency", value: 40.0),
             ],
         ),
 
@@ -325,7 +368,7 @@
                 ("Copper", 200.0),
             ],
             maintenance_resources: [
-                ("Silicates", 10.0),
+                ("Silicates", 1.0),
             ],
             modifiers: [
                 (modifier_type: "PowerGeneration", value: 5.0),
@@ -346,7 +389,7 @@
                 ("Copper", 500.0),
             ],
             maintenance_resources: [
-                ("Uranium", 50.0),
+                ("Uranium", 5.0),
             ],
             modifiers: [
                 (modifier_type: "PowerGeneration", value: 15.0),
@@ -412,10 +455,10 @@
                 ("Water", 50.0),
             ],
             maintenance_resources: [
-                ("Water", 20.0),
+                ("Water", 0.0),
             ],
             modifiers: [
-                (modifier_type: "FoodProduction", value: 5000.0), // Feeds 5000 people efficiently
+                (modifier_type: "FoodProduction", value: 1000000.0), // Feeds 1M people (Mega-Farm)
             ],
         ),
         (
@@ -433,8 +476,8 @@
                 ("RareEarths", 200.0),
             ],
             maintenance_resources: [
-                ("Water", 30.0),
-                ("Copper", 10.0),
+                ("Water", 1.0),
+                ("Copper", 0.5),
             ],
             modifiers: [
                 (modifier_type: "PopulationGrowth", value: 5.0),
@@ -459,8 +502,8 @@
                 ("RareEarths", 300.0),
             ],
             maintenance_resources: [
-                ("Copper", 20.0),
-                ("RareEarths", 10.0),
+                ("Copper", 0.5),
+                ("RareEarths", 0.1),
             ],
             modifiers: [
                 (modifier_type: "ResearchSpeed", value: 5.0),
@@ -481,8 +524,8 @@
                 ("Copper", 500.0),
             ],
             maintenance_resources: [
-                ("Iron", 30.0),
-                ("Copper", 20.0),
+                ("Iron", 1.0),
+                ("Copper", 0.5),
             ],
             modifiers: [
                 (modifier_type: "EngineeringSpeed", value: 5.0),
@@ -503,8 +546,8 @@
                 ("Titanium", 800.0),
             ],
             maintenance_resources: [
-                ("RareEarths", 50.0),
-                ("Copper", 30.0),
+                ("RareEarths", 1.0),
+                ("Copper", 1.0),
             ],
             modifiers: [
                 (modifier_type: "ResearchSpeed", value: 15.0),
@@ -529,7 +572,7 @@
                 ("Silicates", 500.0),
             ],
             maintenance_resources: [
-                ("Iron", 10.0),
+                ("Iron", 1.0),
             ],
             modifiers: [],
         ),
@@ -548,7 +591,7 @@
                 ("RareEarths", 300.0),
             ],
             maintenance_resources: [
-                ("Copper", 20.0),
+                ("Copper", 2.0),
             ],
             modifiers: [],
         ),
@@ -567,8 +610,8 @@
                 ("Copper", 500.0),
             ],
             maintenance_resources: [
-                ("Iron", 50.0),
-                ("Copper", 20.0),
+                ("Iron", 5.0),
+                ("Copper", 2.0),
             ],
             modifiers: [],
         ),

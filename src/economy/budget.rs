@@ -71,13 +71,17 @@ impl GlobalBudget {
         // Initialize with starting resources for gameplay.
         // A new civilization starts with enough material for ~10 basic buildings
         // and a financial reserve to sustain early expansion for ~5 game years.
-        // Scales: resources in Megatons, populations in millions/billions.
-        stockpiles.insert(ResourceType::Water, 20_000.0);
-        stockpiles.insert(ResourceType::Oxygen, 10_000.0);
-        stockpiles.insert(ResourceType::Iron, 15_000.0);
-        stockpiles.insert(ResourceType::Copper, 6_000.0);
-        stockpiles.insert(ResourceType::Silicates, 8_000.0);
-        stockpiles.insert(ResourceType::Aluminum, 4_000.0);
+        // Scales: resources in Megatons. Stockpiles represent accessible strategic reserves.
+        // EDITED: Reduced to realistic strategic reserve levels (1-5 years of global production)
+        stockpiles.insert(ResourceType::Water, 100_000.0);   // Reservoirs (not oceans)
+        stockpiles.insert(ResourceType::Oxygen, 50_000.0);   // Compressed industrial stock
+        stockpiles.insert(ResourceType::Iron, 50_000.0);     // Strategic steel reserves
+        stockpiles.insert(ResourceType::Copper, 2_000.0);    // Refined copper
+        stockpiles.insert(ResourceType::Silicates, 20_000.0);// Concrete/Glass aggregates
+        stockpiles.insert(ResourceType::Aluminum, 5_000.0);  // Bauxite/refined Al
+        stockpiles.insert(ResourceType::RareEarths, 500.0);  // Strategic rare earth reserve
+        stockpiles.insert(ResourceType::Uranium, 100.0);     // Fissile material
+        stockpiles.insert(ResourceType::Thorium, 100.0);     // Fissile material
 
         Self {
             stockpiles,
@@ -464,7 +468,16 @@ pub fn update_power_grid(
         }
     }
 
-    // Update grid production
+    // 3. Calculate consumption (Temporary: 400 MW per building)
+    // TODO: Add power_consumption to building data
+    let mut total_consumed = 0.0;
+    for colony in colonies.iter() {
+        let building_count: u32 = colony.buildings.values().sum();
+        total_consumed += building_count as f64 * 400_000_000.0;
+    }
+
+    // Update grid
     budget.energy_grid.produced = total_produced;
+    budget.energy_grid.consumed = total_consumed;
     budget.power_breakdown = breakdown;
 }
