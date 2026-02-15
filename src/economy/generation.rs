@@ -295,6 +295,69 @@ fn create_deposit_from_absolute_mass(
     MineralDeposit::new(proven, deep, bulk, concentration, accessibility)
 }
 
+/// Helper to create a deposit for atmospheric gases
+/// Gases in an atmosphere are directly harvestable - they don't require deep drilling.
+/// The tier model for gases is:
+/// - Proven ("Atmospheric"): Gas in the atmosphere, directly harvestable
+/// - Deep ("Trapped/Dissolved"): Gas dissolved in oceans or trapped in rock pores
+/// - Bulk ("Chemically Bound"): Gas locked in mineral bonds (e.g. carbonates for CO2)
+///
+/// # Arguments
+/// * `atmospheric_mass_mt` - Mass of gas in the atmosphere in Megatons (Mt)
+/// * `dissolved_fraction` - Additional fraction trapped/dissolved relative to atmospheric amount (e.g., 0.1 = 10% extra)
+/// * `bound_fraction` - Additional fraction chemically bound in minerals (e.g., 0.05 = 5% extra)
+/// * `accessibility` - How easy to harvest from atmosphere (0.0 to 1.0)
+fn create_atmospheric_deposit(
+    atmospheric_mass_mt: f64,
+    dissolved_fraction: f64,
+    bound_fraction: f64,
+    accessibility: f32,
+) -> MineralDeposit {
+    let proven = atmospheric_mass_mt;
+    let deep = atmospheric_mass_mt * dissolved_fraction;
+    let bulk = atmospheric_mass_mt * bound_fraction;
+
+    // High concentration for atmospheric gases (they're right there in the air)
+    let concentration = (accessibility * 0.7 + 0.2).clamp(0.01, 1.0);
+
+    let mut deposit = MineralDeposit::new(proven, deep, bulk, concentration, accessibility);
+    deposit.is_atmospheric = true;
+    deposit
+}
+
+/// Helper to create a deposit for trace atmospheric gases (very small amounts)
+/// Used for gases present at ppb/ppm levels in an atmosphere
+fn create_trace_atmospheric_deposit(
+    mass_mt: f64,
+    accessibility: f32,
+) -> MineralDeposit {
+    // Trace gases are entirely atmospheric, no significant trapped/bound amounts
+    let concentration = (accessibility * 0.3).clamp(0.001, 0.1);
+    let mut deposit = MineralDeposit::new(mass_mt, 0.0, 0.0, concentration, accessibility);
+    deposit.is_atmospheric = true;
+    deposit
+}
+
+/// Helper to create a deposit for solar-wind implanted resources (e.g. He-3)
+/// These exist only in the top few meters of regolith on airless bodies.
+/// No deep deposits or planetary bulk — it's purely a surface phenomenon.
+///
+/// # Arguments
+/// * `total_mass_mt` - Total implanted mass in Megatons
+/// * `accessibility` - How easy to harvest (0.0 to 1.0)
+fn create_solar_wind_deposit(
+    total_mass_mt: f64,
+    accessibility: f32,
+) -> MineralDeposit {
+    // 90% in proven (surface regolith, directly harvestable)
+    // 10% in deep (slightly deeper regolith layers)
+    // 0% bulk (solar wind doesn't penetrate deep)
+    let proven = total_mass_mt * 0.9;
+    let deep = total_mass_mt * 0.1;
+    let concentration = (accessibility * 0.5).clamp(0.001, 1.0);
+    MineralDeposit::new(proven, deep, 0.0, concentration, accessibility)
+}
+
 /// Asteroid specialization types for concentrated resource deposits
 #[derive(Debug, Clone, Copy)]
 enum AsteroidSpecialization {
@@ -326,8 +389,13 @@ fn apply_special_body_profile(
             ); // 90% H2, but very low accessibility
             resources.add_deposit(
                 ResourceType::Helium3,
-                create_deposit_legacy(0.00002, 0.05, body_mass, BodyType::Planet),
-            ); // Trace He3 in atmosphere
+                create_atmospheric_deposit(
+                    (body_mass * 0.00002) / 1e9, // Trace He3 in atmosphere
+                    0.1,  // small dissolved fraction
+                    0.0,  // no bound fraction
+                    0.05, // very low accessibility (deep atmosphere)
+                ),
+            );
                // Note: Water exists as atmospheric vapor (~0.25%), not as mineable solid ice
             info!("Applied Jupiter special profile: gas giant atmosphere (no solid resources)");
             Some(resources)
@@ -341,8 +409,13 @@ fn apply_special_body_profile(
             ); // 96% H2
             resources.add_deposit(
                 ResourceType::Helium3,
-                create_deposit_legacy(0.00001, 0.05, body_mass, BodyType::Planet),
-            ); // Trace He3
+                create_atmospheric_deposit(
+                    (body_mass * 0.00001) / 1e9, // Trace He3
+                    0.1,
+                    0.0,
+                    0.05,
+                ),
+            );
             info!("Applied Saturn special profile: gas giant atmosphere (no solid resources)");
             Some(resources)
         }
@@ -355,7 +428,12 @@ fn apply_special_body_profile(
             );
             resources.add_deposit(
                 ResourceType::Helium3,
-                create_deposit_legacy(0.000015, 0.05, body_mass, BodyType::Planet),
+                create_atmospheric_deposit(
+                    (body_mass * 0.000015) / 1e9,
+                    0.1,
+                    0.0,
+                    0.05,
+                ),
             );
             resources.add_deposit(
                 ResourceType::Methane,
@@ -373,7 +451,12 @@ fn apply_special_body_profile(
             );
             resources.add_deposit(
                 ResourceType::Helium3,
-                create_deposit_legacy(0.000019, 0.05, body_mass, BodyType::Planet),
+                create_atmospheric_deposit(
+                    (body_mass * 0.000019) / 1e9,
+                    0.1,
+                    0.0,
+                    0.05,
+                ),
             );
             resources.add_deposit(
                 ResourceType::Methane,
@@ -453,10 +536,14 @@ fn apply_special_body_profile(
         // Scientific estimate: 600 million metric tons = 6×10^8 metric tons = 600 Mt
         // Moon mass: 7.342×10²² kg = 7.342×10^13 Mt
         "Moon" => {
-            // Water: 600 million metric tons = 600 Mt (NOT 6×10^8 Mt!)
+            // Water: 600 Mt in permanently shadowed polar craters
+            // Mostly surface/near-surface ice, not underground aquifers
+            // Proven = surface ice in craters (directly accessible): ~540 Mt
+            // Deep = subsurface permafrost: ~60 Mt
+            // Bulk = 0 (no hidden deep water on Moon)
             resources.add_deposit(
                 ResourceType::Water,
-                create_deposit_from_absolute_mass(600.0, 0.3, BodyType::Moon),
+                MineralDeposit::new(540.0, 60.0, 0.0, 0.3, 0.3),
             );
 
             // Moon regolith composition (Apollo samples):
@@ -483,10 +570,13 @@ fn apply_special_body_profile(
                 ResourceType::Titanium,
                 create_deposit_legacy(0.04, 0.5, body_mass, BodyType::Moon),
             ); // ~4% titanium (generous)
+            // He-3: Solar wind implanted into surface regolith only (top 2-3 meters)
+            // Estimated ~1 million metric tons total (Wittenberg et al. 1986)
+            // 1 Mt in game units. Entirely surface — no deep deposits.
             resources.add_deposit(
                 ResourceType::Helium3,
-                create_deposit_legacy(0.00000001, 0.8, body_mass, BodyType::Moon),
-            ); // Solar wind implanted
+                MineralDeposit::new(0.9, 0.1, 0.0, 0.8, 0.8),
+            );
             info!("Applied Moon special profile: 600 Mt water ice in polar craters");
             Some(resources)
         }
@@ -566,6 +656,293 @@ fn apply_special_body_profile(
                 create_deposit_legacy(0.0001, 0.4, body_mass, BodyType::DwarfPlanet),
             );
             info!("Applied Ceres special profile: water-rich dwarf planet");
+            Some(resources)
+        }
+
+        // Earth: Rocky planet with oceans, thick N2/O2 atmosphere, and diverse mineralogy
+        // Earth mass: 5.972×10^24 kg
+        // Atmosphere mass: 5.15×10^18 kg (0.000087% of total mass)
+        "Earth" => {
+            // === WATER ===
+            // Total surface/near-surface: 1.386×10^21 kg = 1.386×10^12 Mt
+            // Distribution: Oceans 96.5%, Ice caps 1.74%, Groundwater 0.76%
+            // Proven = oceans + ice (surface accessible): 1.361×10^12 Mt
+            // Deep = groundwater (requires wells): 1.05×10^10 Mt
+            // Bulk = remaining + speculative deep mantle water
+            resources.add_deposit(
+                ResourceType::Water,
+                MineralDeposit::new(1.361e12, 1.05e10, 1.5e10, 0.95, 0.9),
+            );
+
+            // === ATMOSPHERIC GASES ===
+            // Earth's atmosphere: 78% N2, 21% O2, 0.93% Ar, 0.04% CO2
+            // Total atmosphere mass: 5.15×10^18 kg = 5.15×10^9 Mt
+
+            // Nitrogen: 78.08% of atmosphere = 4.02×10^18 kg = 4.02×10^9 Mt
+            // Also ~4×10^15 kg dissolved in oceans (0.1% of atmospheric)
+            resources.add_deposit(
+                ResourceType::Nitrogen,
+                create_atmospheric_deposit(4.02e9, 0.001, 0.0, 0.9),
+            );
+
+            // Oxygen: 20.95% of atmosphere = 1.08×10^18 kg = 1.08×10^9 Mt
+            // Also dissolved in oceans (~8×10^15 kg = 0.7% of atmospheric)
+            // Note: O2 in oxide minerals (SiO2, FeO etc.) is counted under those resources
+            resources.add_deposit(
+                ResourceType::Oxygen,
+                create_atmospheric_deposit(1.08e9, 0.007, 0.0, 0.9),
+            );
+
+            // Carbon Dioxide: 0.04% of atmosphere = 3.16×10^15 kg = 3160 Mt
+            // Massive amounts dissolved in oceans (~1.4×10^17 kg CO2 equivalent)
+            // ~44× atmospheric amount dissolved/bound in ocean carbonates
+            resources.add_deposit(
+                ResourceType::CarbonDioxide,
+                create_atmospheric_deposit(3160.0, 44.0, 0.0, 0.7),
+            );
+
+            // Argon: 1.288% by mass of atmosphere = 6.6×10^16 kg = 6.6×10^7 Mt
+            resources.add_deposit(
+                ResourceType::Argon,
+                create_atmospheric_deposit(6.6e7, 0.0, 0.0, 0.85),
+            );
+
+            // === VOLATILES (trace/absent on Earth) ===
+            // Methane: ~1800 ppb by volume in atmosphere = ~4.85×10^12 kg = ~4850 Mt
+            resources.add_deposit(
+                ResourceType::Methane,
+                create_trace_atmospheric_deposit(4850.0, 0.3),
+            );
+
+            // Hydrogen: negligible atmospheric (0.55 ppm) - not economically meaningful
+            // Ammonia: essentially ZERO on Earth (trace ppb, rapidly destroyed by UV)
+            // Neither is a meaningful resource on Earth
+
+            // === CONSTRUCTION MATERIALS ===
+            // Iron: ~32% of Earth by mass (core 85% iron, mantle ~6%, crust ~5%)
+            resources.add_deposit(
+                ResourceType::Iron,
+                create_deposit_legacy(0.32, 0.5, body_mass, BodyType::Planet),
+            );
+
+            // Silicates: ~30% of Earth (dominant mantle/crust mineral)
+            resources.add_deposit(
+                ResourceType::Silicates,
+                create_deposit_legacy(0.30, 0.6, body_mass, BodyType::Planet),
+            );
+
+            // Aluminum: ~1.6% total, ~8% of crust (third most abundant crustal element)
+            resources.add_deposit(
+                ResourceType::Aluminum,
+                create_deposit_legacy(0.016, 0.7, body_mass, BodyType::Planet),
+            );
+
+            // Titanium: ~0.05% total, ~0.44% of crust (9th most abundant crustal element)
+            resources.add_deposit(
+                ResourceType::Titanium,
+                create_deposit_legacy(0.0005, 0.6, body_mass, BodyType::Planet),
+            );
+
+            // === FISSILE MATERIALS ===
+            // Uranium: ~3 ppm in crust, ~0.01 ppm body average
+            // Known reserves: ~7.6 Mt of uranium ore
+            resources.add_deposit(
+                ResourceType::Uranium,
+                create_deposit_legacy(0.000001, 0.4, body_mass, BodyType::Planet),
+            );
+
+            // Thorium: ~12 ppm in crust, ~0.04 ppm body average
+            resources.add_deposit(
+                ResourceType::Thorium,
+                create_deposit_legacy(0.000004, 0.35, body_mass, BodyType::Planet),
+            );
+
+            // === PRECIOUS METALS ===
+            // For precious metals, use explicit USGS reserve data for proven tier
+            // to avoid the generic planet formula rounding proven to zero.
+            // Total body composition determines deep + bulk tiers.
+
+            // Gold: USGS reserves ~54,000 tonnes = 0.054 Mt
+            // Crustal total: ~1,000 Mt, Core/mantle: ~3×10^6 Mt
+            resources.add_deposit(
+                ResourceType::Gold,
+                MineralDeposit::new(0.054, 1000.0, 2.99e6, 0.001, 0.3),
+            );
+
+            // Silver: USGS reserves ~530,000 tonnes = 0.53 Mt
+            // Crustal total: ~5,000 Mt, Core/mantle: ~5.97×10^7 Mt
+            resources.add_deposit(
+                ResourceType::Silver,
+                MineralDeposit::new(0.53, 5000.0, 5.97e7, 0.001, 0.3),
+            );
+
+            // Platinum: USGS reserves ~69,000 tonnes = 0.069 Mt
+            // Crustal total: ~500 Mt, Core/mantle: ~5.97×10^6 Mt
+            resources.add_deposit(
+                ResourceType::Platinum,
+                MineralDeposit::new(0.069, 500.0, 5.97e6, 0.001, 0.2),
+            );
+
+            // === SPECIALTY MATERIALS ===
+            // Copper: USGS reserves ~870 Mt, crustal total: ~1.56×10^9 Mt
+            resources.add_deposit(
+                ResourceType::Copper,
+                MineralDeposit::new(0.87, 1.56e9, 1.79e11, 0.005, 0.5),
+            );
+
+            // Rare Earths: USGS reserves ~120 Mt, crustal total: ~5.2×10^9 Mt
+            resources.add_deposit(
+                ResourceType::RareEarths,
+                MineralDeposit::new(0.12, 5.2e9, 5.97e10, 0.002, 0.4),
+            );
+
+            // === FUSION FUEL ===
+            // He-3: extremely rare on Earth (~0.000137% of helium, which itself is ~5 ppm atmosphere)
+            // Total atmospheric He ≈ 5.2×10^9 kg, He-3 fraction ≈ 7100 kg = negligible
+            // Not adding - effectively zero on Earth
+
+            info!("Applied Earth special profile: N2/O2 atmosphere, oceans, diverse mineralogy including precious metals");
+            Some(resources)
+        }
+
+        // Venus: Dense CO2 atmosphere, volcanic surface, no water
+        // Venus mass: 4.867×10^24 kg
+        // Atmosphere mass: 4.8×10^20 kg (100× Earth's, 96.5% CO2, 3.5% N2)
+        // Surface pressure: 92 bar
+        "Venus" => {
+            // === ATMOSPHERIC GASES ===
+            // CO2: 96.5% of atmosphere = 4.63×10^20 kg = 4.63×10^11 Mt
+            resources.add_deposit(
+                ResourceType::CarbonDioxide,
+                create_atmospheric_deposit(4.63e11, 0.0, 0.0, 0.6),
+            );
+
+            // Nitrogen: 3.5% of atmosphere = 1.68×10^19 kg = 1.68×10^10 Mt
+            resources.add_deposit(
+                ResourceType::Nitrogen,
+                create_atmospheric_deposit(1.68e10, 0.0, 0.0, 0.6),
+            );
+
+            // Argon: 70 ppm = 3.36×10^16 kg = 3.36×10^7 Mt
+            resources.add_deposit(
+                ResourceType::Argon,
+                create_atmospheric_deposit(3.36e7, 0.0, 0.0, 0.5),
+            );
+
+            // SO2: ~150 ppm - we don't model sulfur compounds, but it's notable
+
+            // === NO WATER ===
+            // Venus has essentially no water (lost to space via hydrogen escape)
+
+            // === CONSTRUCTION MATERIALS ===
+            // Similar rocky composition to Earth but low accessibility (extreme surface conditions)
+            resources.add_deposit(
+                ResourceType::Iron,
+                create_deposit_legacy(0.31, 0.2, body_mass, BodyType::Planet),
+            ); // Similar to Earth, very low accessibility (462°C, 92 bar)
+            resources.add_deposit(
+                ResourceType::Silicates,
+                create_deposit_legacy(0.30, 0.25, body_mass, BodyType::Planet),
+            );
+            resources.add_deposit(
+                ResourceType::Aluminum,
+                create_deposit_legacy(0.015, 0.2, body_mass, BodyType::Planet),
+            );
+            resources.add_deposit(
+                ResourceType::Titanium,
+                create_deposit_legacy(0.0004, 0.15, body_mass, BodyType::Planet),
+            );
+
+            // === FISSILE ===
+            resources.add_deposit(
+                ResourceType::Uranium,
+                create_deposit_legacy(0.000001, 0.15, body_mass, BodyType::Planet),
+            );
+            resources.add_deposit(
+                ResourceType::Thorium,
+                create_deposit_legacy(0.000004, 0.12, body_mass, BodyType::Planet),
+            );
+
+            // === PRECIOUS/SPECIALTY ===
+            resources.add_deposit(
+                ResourceType::Gold,
+                create_deposit_legacy(0.0000000005, 0.1, body_mass, BodyType::Planet),
+            );
+            resources.add_deposit(
+                ResourceType::Copper,
+                create_deposit_legacy(0.00003, 0.15, body_mass, BodyType::Planet),
+            );
+
+            info!("Applied Venus special profile: massive CO2 atmosphere, no water, extreme surface");
+            Some(resources)
+        }
+
+        // Mercury: Dense metallic core, no atmosphere, extreme temperature
+        // Mercury mass: 3.301×10^23 kg, ~70% metallic core
+        "Mercury" => {
+            // No atmosphere, no volatiles
+
+            // === CONSTRUCTION MATERIALS ===
+            // Mercury has an oversized iron core (~70% of radius, ~60% by mass)
+            resources.add_deposit(
+                ResourceType::Iron,
+                create_deposit_legacy(0.60, 0.7, body_mass, BodyType::Planet),
+            ); // Much higher iron fraction than other rocky planets
+            resources.add_deposit(
+                ResourceType::Silicates,
+                create_deposit_legacy(0.25, 0.8, body_mass, BodyType::Planet),
+            );
+            resources.add_deposit(
+                ResourceType::Aluminum,
+                create_deposit_legacy(0.007, 0.7, body_mass, BodyType::Planet),
+            );
+            resources.add_deposit(
+                ResourceType::Titanium,
+                create_deposit_legacy(0.0003, 0.6, body_mass, BodyType::Planet),
+            );
+
+            // Water: tiny amounts of ice in permanently shadowed polar craters
+            // MESSENGER data: ~100 billion to 1 trillion kg = 100-1000 Mt
+            resources.add_deposit(
+                ResourceType::Water,
+                create_deposit_from_absolute_mass(500.0, 0.3, BodyType::Planet),
+            );
+
+            // === PRECIOUS METALS ===
+            // Large metallic core means elevated precious and siderophile metals
+            resources.add_deposit(
+                ResourceType::Gold,
+                create_deposit_legacy(0.000000002, 0.4, body_mass, BodyType::Planet),
+            );
+            resources.add_deposit(
+                ResourceType::Platinum,
+                create_deposit_legacy(0.000000005, 0.4, body_mass, BodyType::Planet),
+            );
+            resources.add_deposit(
+                ResourceType::Silver,
+                create_deposit_legacy(0.00000005, 0.35, body_mass, BodyType::Planet),
+            );
+
+            // === SPECIALTY ===
+            resources.add_deposit(
+                ResourceType::Copper,
+                create_deposit_legacy(0.00005, 0.5, body_mass, BodyType::Planet),
+            );
+
+            // === FISSILE ===
+            resources.add_deposit(
+                ResourceType::Uranium,
+                create_deposit_legacy(0.0000005, 0.3, body_mass, BodyType::Planet),
+            );
+
+            // === FUSION FUEL ===
+            // Solar wind implanted He-3 (no atmosphere to shield surface)
+            resources.add_deposit(
+                ResourceType::Helium3,
+                create_solar_wind_deposit((body_mass * 0.000000001) / 1e9, 0.6),
+            );
+
+            info!("Applied Mercury special profile: massive iron core, polar ice, solar wind He-3");
             Some(resources)
         }
 
@@ -1218,13 +1595,17 @@ fn generate_resource_deposit(
         ),
 
         // Atmospheric gases - Present in atmospheres and trapped in ice
+        // Outer system: gases trapped as ices in body composition (significant fraction)
         (r, false) if r.is_atmospheric_gas() => (
             rng.gen_range(0.1..0.4), // Moderate in outer system (trapped in ice)
             rng.gen_range(0.4..0.8), // Moderate-good accessibility
         ),
+        // Inner system: atmospheres are a TINY fraction of planetary mass
+        // Earth's entire atmosphere is only 0.000087% of its mass
+        // Rocky planets can have 0% (Mercury) to ~0.01% (Venus is an outlier at ~0.008%)
         (r, true) if r.is_atmospheric_gas() => (
-            rng.gen_range(0.0..0.15), // Trace to moderate in atmospheres
-            rng.gen_range(0.2..0.6),  // Variable accessibility (atmospheric mining)
+            rng.gen_range(0.0..0.0001), // Realistic: atmosphere is <0.01% of planet mass
+            rng.gen_range(0.5..0.9),    // Gas is easy to collect from atmosphere
         ),
 
         // Construction materials - HIGH in inner system, present in outer
@@ -1309,6 +1690,33 @@ fn generate_resource_deposit(
     // Cap volatile abundances to reasonable maximums to avoid unrealistic 100%+ volatiles
     if resource.is_volatile() {
         final_abundance = final_abundance.min(0.7);
+    }
+
+    // For atmospheric gases on planets/moons, use atmospheric deposit model
+    // instead of the mineral deep-drilling model.
+    // Only for bodies massive enough to gravitationally retain an atmosphere.
+    // Bodies below ~10²¹ kg (smaller than Ceres) cannot hold gases — any O2/CO2/Ar
+    // would be chemically bound in minerals, not atmospheric.
+    if resource.is_atmospheric_gas()
+        && matches!(body_type, BodyType::Planet | BodyType::Moon | BodyType::DwarfPlanet)
+        && body_mass > 1.0e21
+    {
+        let atmospheric_mass_mt = (body_mass * final_abundance) / 1e9;
+        // Inner system: gas is mostly atmospheric; small dissolved fraction
+        // Outer system: gas is mostly trapped in ice ("dissolved" fraction is higher)
+        let dissolved_frac = if is_inner { 0.1 } else { 0.5 };
+        let bound_frac = if is_inner { 0.0 } else { 0.2 };
+        return create_atmospheric_deposit(atmospheric_mass_mt, dissolved_frac, bound_frac, final_accessibility);
+    }
+
+    // Noble gases (He-3) on solid bodies: solar wind implantation model.
+    // He-3 is deposited by solar wind into the top few meters of regolith.
+    // On airless bodies (asteroids, small moons) this is the primary source.
+    // On larger bodies with atmospheres, the atmosphere shields the surface,
+    // so He-3 is negligible (handled by special profiles or skipped).
+    if resource.is_noble_gas() {
+        let total_mass_mt = (body_mass * final_abundance) / 1e9;
+        return create_solar_wind_deposit(total_mass_mt, final_accessibility);
     }
 
     create_deposit_legacy(final_abundance, final_accessibility, body_mass, body_type)
@@ -1889,6 +2297,62 @@ mod tests {
     }
 
     #[test]
+    fn test_moon_he3_surface_only() {
+        let mut rng = rand::thread_rng();
+        let moon_mass = 7.342e22;
+        let moon_resources = generate_resources_for_body(
+            "Moon",
+            crate::plugins::solar_system_data::BodyType::Moon,
+            moon_mass,
+            None,
+            1.0,
+            2.5,
+            &mut rng,
+        );
+
+        let he3 = moon_resources.get_deposit(&ResourceType::Helium3);
+        assert!(he3.is_some(), "Moon should have He-3");
+        let he3 = he3.unwrap();
+
+        // He-3 is solar-wind implanted in surface regolith only (~1 Mt total)
+        let total = he3.reserve.proven_crustal + he3.reserve.deep_deposits + he3.reserve.planetary_bulk;
+        assert!(total < 10.0, "Moon He-3 should be ~1 Mt, not {:.1} Mt", total);
+        assert!(total > 0.1, "Moon He-3 should exist");
+
+        // Almost all should be in proven (surface regolith), no bulk
+        assert!(he3.reserve.proven_crustal > 0.5, "He-3 should be mostly surface");
+        assert!(he3.reserve.planetary_bulk < 0.01, "He-3 should have no deep bulk deposits");
+        assert!(!he3.is_atmospheric, "He-3 on Moon is not atmospheric");
+    }
+
+    #[test]
+    fn test_small_moon_no_atmospheric_gases() {
+        let mut rng = rand::thread_rng();
+        // Phobos-like small moon (mass < 1e21 kg) should NOT get atmospheric gas model
+        let phobos_mass = 1.07e16;
+        let resources = generate_resources_for_body(
+            "TestSmallMoon",
+            crate::plugins::solar_system_data::BodyType::Moon,
+            phobos_mass,
+            None,
+            1.5, // Inner system
+            2.5,
+            &mut rng,
+        );
+
+        // Any gases that exist should NOT be marked as atmospheric
+        for resource_type in ResourceType::all() {
+            if resource_type.is_atmospheric_gas() {
+                if let Some(deposit) = resources.get_deposit(resource_type) {
+                    assert!(!deposit.is_atmospheric,
+                        "Small moon should not have atmospheric {} - too small to hold atmosphere",
+                        resource_type.display_name());
+                }
+            }
+        }
+    }
+
+    #[test]
     fn test_c_type_asteroid_water_realistic() {
         let mut rng = rand::thread_rng();
 
@@ -2183,5 +2647,172 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_earth_special_profile() {
+        let mut rng = rand::thread_rng();
+
+        let earth_mass = 5.972e24; // kg
+        let resources = generate_resources_for_body(
+            "Earth",
+            crate::plugins::solar_system_data::BodyType::Planet,
+            earth_mass,
+            None,
+            1.0,
+            2.5,
+            &mut rng,
+        );
+
+        // Earth should NOT have ammonia (essentially zero in nature)
+        let ammonia = resources.get_deposit(&ResourceType::Ammonia);
+        assert!(
+            ammonia.is_none(),
+            "Earth should NOT have ammonia deposits"
+        );
+
+        // Earth should have water (oceans) - mostly surface accessible
+        let water = resources.get_deposit(&ResourceType::Water);
+        assert!(water.is_some(), "Earth should have water");
+        if let Some(w) = water {
+            let total_water = w.total_megatons();
+            // ~1.386×10^12 Mt
+            assert!(total_water > 1e12 && total_water < 2e12,
+                "Earth water should be ~1.4 trillion Mt, found: {:.2e}", total_water);
+            // Water should be overwhelmingly in proven (oceans), not deep/bulk
+            let proven_fraction = w.reserve.proven_crustal / total_water;
+            assert!(proven_fraction > 0.95,
+                "Earth water should be >95% proven (oceans), found: {:.1}%", proven_fraction * 100.0);
+            // Water is NOT atmospheric
+            assert!(!w.is_atmospheric, "Earth water should not be flagged as atmospheric");
+        }
+
+        // Earth should have nitrogen (atmospheric)
+        let n2 = resources.get_deposit(&ResourceType::Nitrogen);
+        assert!(n2.is_some(), "Earth should have nitrogen");
+        if let Some(n) = n2 {
+            let total_n2 = n.total_megatons();
+            // ~4.02×10^9 Mt atmospheric + small dissolved
+            assert!(total_n2 > 3e9 && total_n2 < 5e9,
+                "Earth N2 should be ~4 billion Mt, found: {:.2e}", total_n2);
+            // For atmospheric gases, proven (atmospheric) should be the dominant tier
+            let atm_fraction = n.reserve.proven_crustal / total_n2;
+            assert!(atm_fraction > 0.9,
+                "Earth N2 should be >90% atmospheric, found: {:.1}%", atm_fraction * 100.0);
+            // N2 IS atmospheric
+            assert!(n.is_atmospheric, "Earth N2 should be flagged as atmospheric");
+        }
+
+        // Earth should have all major metals
+        assert!(resources.get_deposit(&ResourceType::Iron).is_some(), "Earth should have iron");
+        assert!(resources.get_deposit(&ResourceType::Aluminum).is_some(), "Earth should have aluminum");
+        assert!(resources.get_deposit(&ResourceType::Titanium).is_some(), "Earth should have titanium");
+
+        // Precious metals should have visible proven reserves (USGS data)
+        let gold = resources.get_deposit(&ResourceType::Gold);
+        assert!(gold.is_some(), "Earth should have gold");
+        if let Some(g) = gold {
+            assert!(g.reserve.proven_crustal > 0.01,
+                "Earth gold proven should be >0.01 Mt (~54kt USGS), found: {:.4}", g.reserve.proven_crustal);
+            assert!(!g.is_atmospheric, "Gold should not be atmospheric");
+        }
+
+        let platinum = resources.get_deposit(&ResourceType::Platinum);
+        assert!(platinum.is_some(), "Earth should have platinum");
+        if let Some(p) = platinum {
+            assert!(p.reserve.proven_crustal > 0.01,
+                "Earth platinum proven should be >0.01 Mt (~69kt USGS), found: {:.4}", p.reserve.proven_crustal);
+        }
+
+        assert!(resources.get_deposit(&ResourceType::Silver).is_some(), "Earth should have silver");
+        assert!(resources.get_deposit(&ResourceType::Copper).is_some(), "Earth should have copper");
+        assert!(resources.get_deposit(&ResourceType::RareEarths).is_some(), "Earth should have rare earths");
+        assert!(resources.get_deposit(&ResourceType::Uranium).is_some(), "Earth should have uranium");
+    }
+
+    #[test]
+    fn test_venus_special_profile() {
+        let mut rng = rand::thread_rng();
+
+        let venus_mass = 4.867e24;
+        let resources = generate_resources_for_body(
+            "Venus",
+            crate::plugins::solar_system_data::BodyType::Planet,
+            venus_mass,
+            None,
+            0.72,
+            2.5,
+            &mut rng,
+        );
+
+        // Venus should have massive CO2 atmosphere
+        let co2 = resources.get_deposit(&ResourceType::CarbonDioxide);
+        assert!(co2.is_some(), "Venus should have CO2");
+        if let Some(c) = co2 {
+            let total_co2 = c.total_megatons();
+            assert!(total_co2 > 4e11,
+                "Venus CO2 should be >400 billion Mt, found: {:.2e}", total_co2);
+        }
+
+        // Venus should NOT have water
+        let water = resources.get_deposit(&ResourceType::Water);
+        assert!(water.is_none(), "Venus should NOT have water");
+    }
+
+    #[test]
+    fn test_mercury_special_profile() {
+        let mut rng = rand::thread_rng();
+
+        let mercury_mass = 3.301e23;
+        let resources = generate_resources_for_body(
+            "Mercury",
+            crate::plugins::solar_system_data::BodyType::Planet,
+            mercury_mass,
+            None,
+            0.39,
+            2.5,
+            &mut rng,
+        );
+
+        // Mercury should have high iron (60% by mass)
+        let iron = resources.get_deposit(&ResourceType::Iron);
+        assert!(iron.is_some(), "Mercury should have iron");
+
+        // Mercury should have polar ice (small amount)
+        let water = resources.get_deposit(&ResourceType::Water);
+        assert!(water.is_some(), "Mercury should have polar ice");
+        if let Some(w) = water {
+            assert!(w.total_megatons() < 2000.0,
+                "Mercury water should be <2000 Mt (polar craters only)");
+        }
+
+        // Mercury should have He-3 (solar wind implanted)
+        assert!(resources.get_deposit(&ResourceType::Helium3).is_some(), "Mercury should have He-3");
+    }
+
+    #[test]
+    fn test_atmospheric_gas_tier_distribution() {
+        // Verify that atmospheric deposits use the atmospheric model
+        // (proven tier is dominant, not deep/bulk)
+        let deposit = create_atmospheric_deposit(1000.0, 0.1, 0.0, 0.9);
+
+        assert_eq!(deposit.reserve.proven_crustal, 1000.0,
+            "Atmospheric tier should equal input atmospheric mass");
+        assert!((deposit.reserve.deep_deposits - 100.0).abs() < 0.01,
+            "Trapped/dissolved should be 10% of atmospheric");
+        assert_eq!(deposit.reserve.planetary_bulk, 0.0,
+            "No chemically bound tier when bound_fraction is 0");
+        assert!(deposit.is_atmospheric, "Atmospheric deposit should have is_atmospheric = true");
+
+        // Verify trace deposit
+        let trace = create_trace_atmospheric_deposit(50.0, 0.3);
+        assert_eq!(trace.reserve.proven_crustal, 50.0);
+        assert_eq!(trace.reserve.deep_deposits, 0.0);
+        assert_eq!(trace.reserve.planetary_bulk, 0.0);
+        assert!(trace.is_atmospheric, "Trace atmospheric deposit should have is_atmospheric = true");
+
+        // Verify mineral deposit does NOT have is_atmospheric
+        let mineral = create_deposit_legacy(0.1, 0.5, 1e20, BodyType::Planet);
+        assert!(!mineral.is_atmospheric, "Mineral deposit should have is_atmospheric = false");
     }
 }

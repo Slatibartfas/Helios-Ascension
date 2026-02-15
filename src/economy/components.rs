@@ -205,6 +205,13 @@ pub struct MineralDeposit {
     /// Accessibility of the resource (0.0 to 1.0, where 1.0 is easily accessible)
     /// This represents how difficult it is to extract (depth, location, processing difficulty)
     pub accessibility: f32,
+
+    /// Whether this is an atmospheric gas deposit (vs mineral/geological)
+    /// When true, UI shows tiers as Atmospheric/Trapped-Dissolved/Chemically-Bound
+    /// instead of Proven Reserves/Deep Deposits/Planetary Bulk,
+    /// and hides the concentration bar (meaningless for gases in air).
+    #[serde(default)]
+    pub is_atmospheric: bool,
 }
 
 impl MineralDeposit {
@@ -213,6 +220,7 @@ impl MineralDeposit {
         Self {
             reserve: ResourceReserve::new(proven, deep, bulk, concentration),
             accessibility: accessibility.clamp(0.0, 1.0),
+            is_atmospheric: false,
         }
     }
 
@@ -221,6 +229,7 @@ impl MineralDeposit {
         Self {
             reserve: ResourceReserve::default(),
             accessibility: 0.0,
+            is_atmospheric: false,
         }
     }
 
