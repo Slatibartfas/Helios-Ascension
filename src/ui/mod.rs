@@ -684,8 +684,9 @@ fn ui_resources_bar(
                         .stroke(egui::Stroke::new(if flash > 0.0 { 2.0 } else { 0.0 }, border_color))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
-                                ui.add(egui::Label::new(egui::RichText::new("🔬").size(28.0).color(rp_color)).selectable(false));
+                                ui.add(egui::Label::new(egui::RichText::new("🔬").size(20.0).color(rp_color)).selectable(false));
                                 ui.vertical(|ui| {
+                                    ui.set_min_width(90.0);
                                     // Rate per month (Primary)
                                     let (rp_rate_text, rp_rate_color) = format_points_rate_monthly(rate_tracker.research_rate_per_month);
                                     ui.add(egui::Label::new(egui::RichText::new(rp_rate_text).size(14.0).color(rp_rate_color)).selectable(false));
@@ -698,7 +699,7 @@ fn ui_resources_bar(
                                             // Blue Progress Bar
                                             let progress_fraction = (project.progress / project.required_points).clamp(0.0, 1.0) as f32;
                                             ui.add(egui::ProgressBar::new(progress_fraction)
-                                                .desired_width(60.0)
+                                                .desired_width(80.0)
                                                 .desired_height(4.0)
                                                 .fill(egui::Color32::from_rgb(50, 150, 255))
                                                 .show_percentage());
@@ -758,8 +759,9 @@ fn ui_resources_bar(
                         .stroke(egui::Stroke::new(if flash > 0.0 { 2.0 } else { 0.0 }, border_color))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
-                                ui.add(egui::Label::new(egui::RichText::new("⚙").size(28.0).color(ep_color)).selectable(false));
+                                ui.add(egui::Label::new(egui::RichText::new("⚙").size(20.0).color(ep_color)).selectable(false));
                                 ui.vertical(|ui| {
+                                    ui.set_min_width(90.0);
                                     // Rate per month (Primary)
                                     // Calculate rate manually or use tracker? Tracker has it.
                                     let (ep_rate_text, ep_rate_color) = format_points_rate_monthly(rate_tracker.engineering_rate_per_month);
@@ -773,7 +775,7 @@ fn ui_resources_bar(
                                         // Blue Progress Bar
                                         let progress_fraction = (project.progress / project.required_points).clamp(0.0, 1.0) as f32;
                                         ui.add(egui::ProgressBar::new(progress_fraction)
-                                            .desired_width(60.0)
+                                            .desired_width(80.0)
                                             .desired_height(4.0)
                                             .fill(egui::Color32::from_rgb(50, 150, 255))
                                             .show_percentage());
