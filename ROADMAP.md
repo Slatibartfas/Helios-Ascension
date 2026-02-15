@@ -1,84 +1,84 @@
 # Helios Ascension - Development Roadmap
 
-## Current Status: v0.1.0 - Foundation Complete ✓
+## Current Status: v0.2.0 - Core Mechanics Complete ✅
 
-The project foundation is complete with a high-performance Bevy-based engine, modular plugin architecture, and functional 3D solar system simulation with debug UI.
+The game has progressed beyond the foundation phase with fully implemented colony management, economy, research, and UI systems. The core gameplay loop is functional!
 
-## Phase 1: Core Mechanics (Planned)
+## Phase 1: Core Mechanics ✅ COMPLETE
 
-### 1.1 Resource System
-- [ ] Define resource types (minerals, energy, volatiles)
-- [ ] Resource extraction mechanics
-- [ ] Resource storage and management
-- [ ] Resource transport and logistics
+### 1.1 Resource System ✅
+- [x] Define resource types (20 types: minerals, energy, volatiles, gases, fissiles, specialty materials)
+- [x] Resource extraction mechanics (mining buildings)
+- [x] Resource storage and management (stockpiles with capacity limits)
+- [x] Resource transport and logistics (logistics buildings and efficiency system)
 
-### 1.2 Research System
-- [ ] Technology tree structure
-- [ ] Research mechanics (time, resources)
-- [ ] Technology prerequisites
-- [ ] Technology effects on gameplay
+### 1.2 Research System ✅
+- [x] Technology tree structure (15 categories)
+- [x] Research mechanics (time, resources, research points)
+- [x] Technology prerequisites (dependency chains)
+- [x] Technology effects on gameplay (tech modifiers, building unlocks)
 
-### 1.3 Time System
-- [ ] Game time management
-- [ ] Time acceleration controls
-- [ ] Pause/resume functionality
-- [ ] Event scheduling
+### 1.3 Time System ✅
+- [x] Game time management (SimulationTime resource)
+- [x] Time acceleration controls (1 day/s to 1 year/s)
+- [x] Pause/resume functionality
+- [x] Event scheduling (construction, research progression)
 
-## Phase 2: Space Infrastructure
+## Phase 2: Space Infrastructure ✅ COMPLETE
 
-### 2.1 Space Stations
-- [ ] Station construction mechanics
-- [ ] Station modules and upgrades
-- [ ] Orbital station positioning
-- [ ] Station functionality (mining, research, habitation)
+### 2.1 Colony Buildings ✅
+- [x] Building construction mechanics (29 building types)
+- [x] Building categories and specializations (8 categories)
+- [x] Construction queue system
+- [x] Building functionality (mining, research, habitation, industry, logistics, power, financial, military)
 
-### 2.2 Spacecraft
-- [ ] Ship design system
+### 2.2 Spacecraft (In Progress)
+- [x] Ship design system foundation
 - [ ] Ship construction
 - [ ] Ship movement and navigation
 - [ ] Fleet management
 
-### 2.3 Mining Operations
-- [ ] Asteroid mining
-- [ ] Planetary mining
-- [ ] Mining efficiency mechanics
-- [ ] Resource processing
+### 2.3 Mining Operations ✅
+- [x] Mineral deposits on celestial bodies
+- [x] Mining buildings (Mine, Deep Drill, Laser Drill, Strip Mine)
+- [x] Mining efficiency mechanics (workforce, logistics)
+- [x] Resource processing (Refinery, Atmospheric Processor)
 
-## Phase 3: Planetary Systems
+## Phase 3: Planetary Systems (Partially Complete)
 
-### 3.1 Colonies
-- [ ] Colony establishment
-- [ ] Population simulation
-- [ ] Colony infrastructure
-- [ ] Colony growth mechanics
+### 3.1 Colonies ✅
+- [x] Colony establishment (starting colony on Earth)
+- [x] Population simulation (growth, workforce allocation)
+- [x] Colony infrastructure (29 building types)
+- [x] Colony growth mechanics (housing, food, logistics)
 
-### 3.2 Planetary Bodies
-- [ ] Moon systems
-- [ ] Asteroid belts
-- [ ] Comets and other objects
-- [ ] Realistic orbital mechanics refinement
+### 3.2 Planetary Bodies ✅
+- [x] Moon systems (148 moons across all planets)
+- [x] Asteroid belts (145 asteroids catalogued)
+- [x] Comets and other objects (20 comets)
+- [x] Realistic orbital mechanics (Keplerian orbits with analytical propagation)
 
-### 3.3 Terraforming
+### 3.3 Terraforming (Planned)
 - [ ] Terraforming mechanics
 - [ ] Atmospheric manipulation
 - [ ] Temperature control
 - [ ] Biosphere development
 
-## Phase 4: Expansion & Exploration
+## Phase 4: Expansion & Exploration (Partially Complete)
 
-### 4.1 Star Systems
-- [ ] Multiple star system generation
-- [ ] Procedural planet generation
-- [ ] System discovery mechanics
-- [ ] Interstellar travel
+### 4.1 Star Systems ✅
+- [x] Multiple star system generation (60 nearest star systems)
+- [x] Procedural planet generation for nearby systems
+- [x] System discovery mechanics (starmap view)
+- [ ] Interstellar travel (planned)
 
-### 4.2 Exploration
-- [ ] Survey missions
+### 4.2 Exploration (Planned)
+- [x] Survey mechanics (mineral deposit discovery)
 - [ ] Anomaly detection
 - [ ] Resource prospecting
 - [ ] System mapping
 
-### 4.3 Kardashev Scale Progress
+### 4.3 Kardashev Scale Progress (Planned)
 - [ ] Type I: Planetary civilization milestones
 - [ ] Type II: Dyson sphere/swarm mechanics
 - [ ] Type III: Galactic-scale projects
@@ -104,21 +104,21 @@ The project foundation is complete with a high-performance Bevy-based engine, mo
 - [ ] Strategic objectives
 - [ ] War and peace mechanics
 
-## Phase 6: User Experience
+## Phase 6: User Experience ✅ COMPLETE
 
-### 6.1 UI/UX
-- [ ] Main menu system
-- [ ] HUD design and implementation
-- [ ] Information displays
-- [ ] Context-sensitive UI
+### 6.1 UI/UX ✅
+- [x] Main menu system
+- [x] HUD design and implementation (comprehensive dashboard)
+- [x] Information displays (tooltips, panels)
+- [x] Context-sensitive UI (body selection, star system details)
 
-### 6.2 Visualization
-- [ ] Improved graphics
-- [ ] Visual effects
-- [ ] Information overlays
-- [ ] Camera improvements
+### 6.2 Visualization ✅
+- [x] Improved graphics (PBR materials, bloom effects)
+- [x] Visual effects (comet trails, star glows)
+- [x] Information overlays (orbit paths, labels)
+- [x] Camera improvements (automatic view transitions)
 
-### 6.3 Audio
+### 6.3 Audio (Planned)
 - [ ] Music system
 - [ ] Sound effects
 - [ ] Ambient audio
@@ -207,42 +207,50 @@ The project foundation is complete with a high-performance Bevy-based engine, mo
 
 ## Milestones
 
-- **v0.1.0** - Foundation (COMPLETE) ✓
+- **v0.1.0** - Foundation ✅ COMPLETE
   - Bevy engine integration
   - Plugin architecture
-  - Solar system simulation
-  - Debug UI
+  - Solar system simulation with 377 bodies
+  - Debug UI with inspector
 
-- **v0.2.0** - Basic Mechanics (Next)
-  - Resource system
-  - Research tree
-  - Time management
-  - Simple UI
+- **v0.2.0** - Core Mechanics ✅ COMPLETE (Current)
+  - Resource system (20 resource types)
+  - Research tree (15 tech categories)
+  - Colony management (29 building types)
+  - Economy and budget tracking
+  - Time management with variable speeds
+  - Comprehensive UI panels
+  - Starmap with 60 nearby star systems
 
-- **v0.3.0** - Infrastructure
-  - Space stations
-  - Basic spacecraft
-  - Mining operations
+- **v0.3.0** - Expansion & Ships (In Progress)
+  - Interstellar travel
+  - Ship construction and movement
+  - Fleet management
+  - Advanced exploration
 
-- **v0.4.0** - Expansion
-  - Multiple systems
-  - Colonies
-  - Exploration
+- **v0.4.0** - Strategic Depth (Next)
+  - Terraforming mechanics
+  - Advanced colony management
+  - Strategic resources
+  - Complex supply chains
 
-- **v0.5.0** - Strategy
-  - Factions
-  - Economy
-  - Diplomacy
+- **v0.5.0** - Factions & Diplomacy
+  - AI factions
+  - Diplomacy system
+  - Economy and trade
+  - Conflicts
 
 - **v0.6.0** - Polish
-  - Full UI/UX
-  - Audio
-  - Visual effects
+  - Audio system
+  - Balance refinement
+  - Quality of life improvements
+  - Performance optimization
 
 - **v1.0.0** - Release
   - Feature complete
   - Balanced gameplay
   - Full documentation
+  - Save/load system
 
 ## Contributing
 
@@ -265,4 +273,4 @@ Priority areas for contribution:
 
 *This roadmap is subject to change based on community feedback and development priorities.*
 
-Last Updated: 2026-02-03
+Last Updated: 2026-02-15

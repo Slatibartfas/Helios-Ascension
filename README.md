@@ -1,10 +1,35 @@
 # Helios-Ascension
-A 4X game inspired by Aurora 4X and Terra Invicta with realistic orbital mechanics and a big focus on resource management, logistics and research. Climb the Kardashev scale starting at 0.7 and expand!
+A 4X grand strategy game inspired by Aurora 4X and Terra Invicta with realistic orbital mechanics and a big focus on resource management, logistics and research. Climb the Kardashev scale starting at 0.7 and expand your civilization across the stars!
+
+## Current Status: v0.2.0 - Core Mechanics Implemented ✨
+
+The game now has fully functional colony management, economy, research, and interstellar navigation systems!
 
 ## Features
 
-- **High-Performance Foundation**: Built with Bevy 0.14 engine with optimized compilation profiles
-- **Modular Plugin Architecture**: Extensible plugin system for game systems
+### Core Game Systems
+
+- **Colony Management**: Establish and manage colonies across the solar system
+  - **29 distinct building types** across 8 categories (Infrastructure, Industry, Logistics, Power, Population, Research, Financial, Military)
+  - Construction queue system with resource costs and build times
+  - Workforce allocation and efficiency management
+  - Population growth and housing systems
+  - Building maintenance and operating costs
+
+- **Economy & Resources**: Deep resource management with real scarcity
+  - **20 resource types**: Volatiles, gases, construction materials, precious metals, fissiles, and specialty materials
+  - Mining operations to extract resources from celestial bodies
+  - Resource stockpiles, production rates, and consumption tracking
+  - Global budget management with income and expenses
+  - Energy grid with power generation (solar, fission, fusion) and distribution
+
+- **Research & Technology**: Unlock new capabilities through scientific advancement
+  - **15 technology categories**: Electronics, Military, SpaceTechnology, Biology, Physics, Energy, Sociology, Construction, Propulsion, Materials, Sensors, Weapons, DefensiveSystems, LifeSupport, Industry
+  - Technology tree with prerequisites and unlocks
+  - Research projects progressing with research points (RP)
+  - Engineering projects for component design
+  - Tech modifiers affecting construction costs and productivity
+
 - **Comprehensive Solar System Simulation**: 
   - **377 celestial bodies** with realistic astronomical data from NASA/IAU sources
   - Complete planetary systems:
@@ -20,14 +45,39 @@ A 4X game inspired by Aurora 4X and Terra Invicta with realistic orbital mechani
   - **55 Kuiper Belt Objects** including Pluto, Eris, and scattered disc
   - **20 comets** including Halley, Hale-Bopp, and other famous visitors
   - Accurate masses, radii, and orbital parameters for all bodies
-  - Real orbital mechanics with time-accelerated simulation
+  - Real orbital mechanics with time-accelerated simulation (up to 1 year/second)
   - Complete coverage from Mercury to the outer solar system
-- **Debug UI**: Integrated inspector using bevy_inspector_egui for runtime entity inspection
+
+- **Interstellar Navigation**: Explore nearby star systems
+  - **60 nearest star systems** from real astronomical catalogs
+  - Starmap view for interstellar navigation
+  - Real star data including spectral types, masses, luminosities, and metallicities
+  - Procedural system generation for visited stars
+
+### User Interface
+
+- **Comprehensive UI Panels**:
+  - Survey Panel: Body selection, resources, population, mineral deposits
+  - Construction Panel: Building management and construction queues
+  - Research Panel: Technology tree browser and project selection
+  - Economy Panel: Financial overview and resource tracking
+  - Starmap Panel: Interstellar navigation and system selection
+  - Fleet Panel: Fleet management (coming soon)
+  - Shipbuilding Panel: Vessel construction (coming soon)
+  
+- **Time Control**: Variable simulation speed (1 day/s to 1 year/s)
+- **Debug Inspector**: Integrated inspector using bevy_inspector_egui for runtime entity inspection
+
+### Technical Features
+
+- **High-Performance Foundation**: Built with Bevy 0.14 engine with optimized compilation profiles
+- **Modular Plugin Architecture**: Extensible plugin system for game systems
 - **Advanced Camera Controls**: 
   - WASD for movement
   - Q/E for vertical movement
-  - Right mouse button + drag for camera rotation
+  - Right-click drag for camera rotation
   - Mouse wheel for zoom
+  - Automatic system ↔ starmap view transitions
 
 ## System Requirements
 
@@ -90,28 +140,56 @@ cargo nextest run
 ```
 helios_ascension/
 ├── src/
-│   ├── main.rs                    # Application entry point
-│   └── plugins/
-│       ├── mod.rs                 # Plugin module exports
-│       ├── camera.rs              # Camera control system
-│       └── solar_system.rs        # Solar system simulation
-├── Cargo.toml                     # Project configuration
-└── README.md                      # This file
+│   ├── main.rs              # Application entry point
+│   ├── lib.rs               # Library root
+│   ├── astronomy/           # Orbital mechanics & coordinate systems
+│   ├── colony/              # Colony management & buildings
+│   ├── economy/             # Resources, budget & energy grid
+│   ├── research/            # Technology tree & engineering
+│   ├── plugins/             # Bevy plugin modules
+│   │   ├── camera.rs        # Camera control system
+│   │   ├── solar_system.rs  # Celestial body simulation
+│   │   ├── starmap.rs       # Interstellar navigation
+│   │   └── ...
+│   └── ui/                  # User interface panels
+├── assets/
+│   ├── data/                # Game data (buildings, tech tree, etc.)
+│   └── textures/            # Textures and visual assets
+├── tests/                   # Integration tests
+├── Cargo.toml               # Project configuration
+└── README.md                # This file
 ```
 
 ## Architecture
 
 The game uses a modular plugin architecture built on Bevy's ECS (Entity Component System):
 
-- **CameraPlugin**: Handles 3D camera movement and controls
+- **CameraPlugin**: 3D camera movement and automatic view transitions
 - **SolarSystemPlugin**: Manages celestial bodies and orbital mechanics
+- **AstronomyPlugin**: High-precision Keplerian orbital mechanics
+- **ColonyPlugin**: Colony management with 29 building types
+- **EconomyPlugin**: Resource production, consumption, and budget tracking
+- **ResearchPlugin**: Technology tree and research progression
+- **UIPlugin**: Dashboard with time controls and interactive panels
+- **StarmapPlugin**: Interstellar navigation and system selection
 
 ## Controls
 
+### Camera Movement
 - **W/A/S/D**: Move camera forward/left/backward/right
 - **Q/E**: Move camera down/up
 - **Right Mouse Button + Drag**: Rotate camera
 - **Mouse Wheel**: Zoom in/out
+
+### Game Controls
+- **Left Click**: Select celestial bodies or UI elements
+- **Double Click**: Select star systems in starmap view
+- **Hover**: Show tooltips for bodies and stars
+- **F12**: Toggle debug settings when applicable
+
+### Time Control
+- **Pause/Resume**: Control simulation time
+- **Speed Selection**: 1 day/s, 1 week/s, 1 month/s, or 1 year/s
 
 ## Modding Support
 

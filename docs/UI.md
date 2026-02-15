@@ -1,305 +1,242 @@
-# Starmap UI Features Implementation Summary
+# Helios Ascension - User Interface Guide
 
-## User Request
+## Overview
 
-> "I meant the neighbour stars, we already had 60 or so. And can you add the tooltip we currently have for objects in the solar system also to the Star map, showing name and basics stats? Once clicked on, on the right ledger show more detailed statistics like accumulated resources, population, etc"
+Helios Ascension features a comprehensive UI system built with egui, providing intuitive access to all game systems through a modern dashboard interface.
 
-## Implementation Complete ✅
+## Main Dashboard
 
-All requested features have been implemented:
+The dashboard is visible at the top of the screen and provides access to all major game panels:
 
-### 1. Clarification on Neighbor Stars ✅
-**User's concern:** "I meant the neighbour stars, we already had 60 or so"
+### Navigation Tabs
+- **Survey** - Explore celestial bodies and star systems
+- **Construction** - Build and manage colony infrastructure
+- **Research** - Navigate the technology tree
+- **Economy** - Track resources and budget
+- **Fleets** - Manage spacecraft (coming soon)
+- **Shipbuilding** - Design and construct vessels (coming soon)
 
-**Answer:** Confirmed - 60 nearby star systems exist in `assets/data/nearest_stars_raw.json` and are actively generated at game start. No duplication with Sol (verified in previous work).
+### Time Controls
 
-### 2. Starmap Tooltips ✅
-**User request:** "add the tooltip we currently have for objects in the solar system also to the Star map"
+Located in the dashboard header:
 
-**Implementation:**
-- Hover over any star icon in starmap view → tooltip appears
-- Displays:
-  - Star system name (large, orange text)
-  - Distance from Sol (in light years)
+- **Pause/Play Button**: Pause or resume simulation
+- **Speed Selection**: Choose simulation speed
+  - 1 hr/s (3,600× real-time)
+  - 1 day/s (86,400× real-time)
+  - 1 week/s (604,800× real-time)
+  - 1 month/s (~2.6M× real-time)
+  - 1 year/s (31.5M× real-time)
+- **Date Display**: Current in-game date and time
+
+## Survey Panel
+
+View and select celestial bodies or star systems.
+
+### System View (Zoomed In)
+When viewing the solar system or a specific star system:
+
+- **Body List**: Scrollable list of all bodies in current system
+- **Body Selection**: Click a body to select it
+- **Body Information** (right panel when selected):
+  - Name and body type
+  - Physical properties (mass, radius, gravity)
+  - Orbital parameters
+  - Surface conditions (temperature, atmosphere)
+  - Mineral deposits (if surveyed)
+  - Colony information (if colonized)
+  - Population and buildings
+
+### Starmap View (Zoomed Out)
+When zoomed out beyond ~100 AU:
+
+- **Star Icons**: Visual representation of nearby star systems
+- **Hover Tooltips**: Hover over stars to see:
+  - Star system name
+  - Distance from Sol (light years)
   - Number of bodies in system
-- Styled with orange border (vs. blue for body tooltips)
-- Positioned near mouse cursor
-- Works identically to body tooltips but for stars
+- **Star Selection**: Double-click a star to view detailed information
+- **Star System Panel** (right panel when selected):
+  - System information (distance, ID)
+  - Star properties (spectral type, mass, luminosity, temperature, metallicity)
+  - Body counts by type
+  - Total surveyed resources across all bodies
+  - Population statistics (coming soon)
 
-### 3. Detailed Right Panel ✅
-**User request:** "Once clicked on, on the right ledger show more detailed statistics like accumulated resources, population, etc"
+## Construction Panel
 
-**Implementation:**
-When you **double-click** a star system in starmap view, the right panel shows:
+Manage colony buildings and construction projects.
 
-**System Info:**
-- Star system name (large heading)
+### Features
+- **Colony Selection**: Dropdown to choose which colony to manage
+- **Building Categories**:
+  - Infrastructure (Life Support, Housing, Habitat Domes)
+  - Industry (Mines, Refineries, Factories)
+  - Logistics (Mass Drivers, Orbital Lifts, Cargo Terminals)
+  - Power (Solar, Fission, Fusion)
+  - Population (Agri Domes, Farms, Medical Centers)
+  - Research (Labs, Engineering Bays, AI Clusters)
+  - Financial (Commercial Hubs, Financial Centers, Trade Ports)
+  - Military (Shipyards, Missile Silos, Launch Sites)
+
+### Building Information
+Each building shows:
+- Name and description
+- Build cost (Build Points)
+- Resource requirements
+- Workforce requirement
+- Tech prerequisites (if any)
+- Production/effects
+
+### Construction Queue
+- View active construction projects
+- See progress bars and time remaining
+- Cancel projects if needed
+
+### Debug Controls (F12)
+- **Free Construction**: Build without resource costs
+- **Instant Build**: Complete construction immediately
+- **Bypass Tech**: Show all buildings regardless of tech prerequisites
+
+## Research Panel
+
+Browse and select technologies to research.
+
+### Technology Tree
+- **15 Categories**: Electronics, Military, Space Technology, Biology, Physics, Energy, Sociology, Construction, Propulsion, Materials, Sensors, Weapons, Defensive Systems, Life Support, Industry
+- **Tech Cards**: Show technology name, description, cost (RP), and prerequisites
+- **Progress Tracking**: View research progress on active projects
+- **Tech Status**: Visual indicators for:
+  - Available (all prerequisites met)
+  - Locked (missing prerequisites)
+  - Researched (already completed)
+  - Active (currently being researched)
+
+### Technology Information
+- **Research Cost**: Amount of Research Points (RP) required
+- **Prerequisites**: Technologies that must be completed first
+- **Unlocks**: Buildings, components, or capabilities unlocked
+- **Modifiers**: Bonuses provided (cost reductions, productivity increases)
+
+### Debug Controls (F12)
+- **Instant Research**: Complete current research immediately
+- **Free Research**: Unlock all technologies
+
+## Economy Panel
+
+Track resources, production, and budget.
+
+### Resource Overview
+- **Stockpiles**: Current amount of each resource
+- **Production Rate**: Resources generated per year
+- **Consumption Rate**: Resources used per year
+- **Net Rate**: Net production/consumption (green/red)
+
+### Resource Types (20 Total)
+- **Volatiles**: Water, Hydrogen, Ammonia, Methane
+- **Atmospheric Gases**: Nitrogen, Oxygen, Carbon Dioxide, Argon
+- **Construction Materials**: Iron, Aluminum, Titanium, Silicates
+- **Fusion Fuel**: Helium-3
+- **Fissiles**: Uranium, Thorium
+- **Precious Metals**: Gold, Silver, Platinum
+- **Specialty Materials**: Copper, Rare Earths
+
+### Budget Information
+- **Treasury**: Current monetary credits (MC)
+- **Income**: Credits earned per year
+- **Expenses**: Credits spent per year (building maintenance, operations)
+- **Net Income**: Overall financial balance
+
+### Energy Grid
+- **Power Generation**: Total power produced by power plants
+- **Power Consumption**: Total power used by buildings
+- **Grid Status**: Surplus or deficit
+
+## Tooltips & Interaction
+
+### Body Tooltips (Blue Border)
+Hover over celestial bodies in system view to see:
+- Body name and type
+- Distance from parent body
+- Key properties
+
+### Star Tooltips (Orange Border)
+Hover over star icons in starmap view to see:
+- Star system name
 - Distance from Sol
-- System ID
+- Body count
 
-**Star Properties:**
-- For each star in the system:
-  - Name
-  - Spectral type (G2V, M5.5Ve, etc.)
-  - Mass (in solar masses)
-  - Radius (in solar radii)
-  - Luminosity (in solar luminosities)
-  - Temperature (Kelvin)
-  - **Metallicity [Fe/H]** with color coding:
-    - Gold text for metal-rich stars (>0)
-    - Blue text for metal-poor stars (<0)
-    - Gray text for solar metallicity (=0)
+### Selection
+- **Single Click**: Select bodies in system view
+- **Double Click**: Select star systems in starmap view
+- **Right Panel**: Detailed information appears for selected object
 
-**System Bodies:**
-- Total count of bodies
-- Breakdown by type:
-  - Stars
-  - Planets
-  - Dwarf Planets
-  - Moons
-  - Asteroids
-  - Comets
+## Camera Controls
 
-**System Resources (Accumulated):**
-- Count of surveyed resource types
-- Top 5 resources by total abundance
-- Total amounts summed across all bodies in the system
-- Shows "No surveyed resources yet" if nothing surveyed
+### Movement
+- **W**: Forward
+- **A**: Left
+- **S**: Backward
+- **D**: Right
+- **Q**: Down
+- **E**: Up
 
-**Population:**
-- "Coming soon: Population management" placeholder
-- Ready for future implementation
+### View Control
+- **Right-Click + Drag**: Rotate camera
+- **Mouse Wheel**: Zoom in/out
+- **Automatic View Switching**: System ↔ Starmap transition at ~100 AU
 
-## Technical Implementation
+## Keyboard Shortcuts
 
-### Files Modified
+- **F12**: Toggle debug settings (when in Construction or Research panels)
+- **Space**: Pause/resume simulation
+- **ESC**: Close current panel or deselect
 
-1. **`src/plugins/starmap.rs`**
-   - Added `HoveredStarSystem` component
-   - Added `handle_starmap_hover` system
-   - Raycasting to detect mouse hover over star icons
-   - 2× icon scale for hover radius (easier to trigger)
+## Tips & Tricks
 
-2. **`src/ui/mod.rs`**
-   - Added `ui_starmap_hover_tooltip` system
-   - Added `render_star_system_panel` function
-   - Modified `ui_dashboard` to prioritize star system selection
-   - Added `NearbyStarsData` parameter for star lookups
+### Efficient Navigation
+1. Use starmap view to quickly locate distant star systems
+2. Double-click stars to see resource totals without visiting
+3. Use body list in Survey panel to quickly select specific bodies
 
-3. **`src/astronomy/nearby_stars.rs`**
-   - Added `get_by_id()` method to `NearbyStarsData`
-   - Maps system ID to star data (ID 0 = Sol excluded)
+### Resource Management
+1. Check Economy panel regularly to monitor stockpiles
+2. Watch for resource deficits (red production rates)
+3. Build logistics buildings to improve efficiency
 
-### How It Works
+### Construction Planning
+1. Check tech prerequisites before planning buildings
+2. Ensure sufficient workforce before building industrial structures
+3. Balance power generation and consumption
+4. Build housing before running out of capacity
 
-**Hover Detection:**
-1. `handle_starmap_hover` runs every frame in starmap view
-2. Gets mouse cursor position
-3. Casts ray from camera through cursor
-4. Checks all star icons for intersection with ray
-5. Adds `HoveredStarSystem` to closest icon within hover radius
-6. Clears hover when:
-   - Mouse over UI
-   - Not in starmap view
-   - No icons near cursor
+### Research Strategy
+1. Prioritize technologies that unlock critical buildings
+2. Research construction cost reduction techs early
+3. Balance tech categories to unlock diverse capabilities
 
-**Tooltip Display:**
-1. `ui_starmap_hover_tooltip` runs every frame
-2. Queries for entities with `HoveredStarSystem` component
-3. If found, shows egui tooltip near cursor
-4. Counts bodies in that system for display
-5. Calculates distance in light years
+## Troubleshooting
 
-**Detailed Panel:**
-1. User double-clicks star icon
-2. `SelectedStarSystem` component added
-3. `ui_dashboard` detects selected star system
-4. Calls `render_star_system_panel` instead of body panel
-5. Looks up star data in `NearbyStarsData`
-6. Queries all bodies in system for counts
-7. Queries all resources in system for totals
-8. Displays everything in right panel
+### UI Not Responding
+- Check if time is paused
+- Ensure you've selected the correct colony/body
+- Try clicking away and reselecting
 
-## Usage Instructions
+### Missing Information
+- Some data requires specific technologies to be researched
+- Mineral deposits require survey operations
+- Resource information needs time to update after changes
 
-### To See Tooltips:
-1. Run the game
-2. Zoom out until starmap view activates
-3. Move mouse over any star icon
-4. Tooltip appears showing name, distance, body count
-
-### To See Detailed Panel:
-1. In starmap view, hover over a star
-2. **Double-click** the star icon
-3. Right panel opens showing full details
-4. Includes:
-   - Real star data (spectral type, mass, luminosity, metallicity)
-   - Body counts (planets, moons, asteroids, comets)
-   - Total resources across all surveyed bodies
-   - Population placeholder
-
-### Examples
-
-**Alpha Centauri System:**
-When you double-click Alpha Centauri in starmap:
-
-```
-Selected Star System
-Alpha Centauri
-
-System Info
-Distance: 4.25 ly
-System ID: 1
-
-Star Properties
-Star 1: Alpha Centauri A
-  Type: G2V
-  Mass: 1.10 M☉
-  Radius: 1.22 R☉
-  Luminosity: 1.519 L☉
-  Temperature: 5790 K
-  Metallicity: [Fe/H] = 0.20 (gold text)
-
-Star 2: Alpha Centauri B
-  Type: K1V
-  Mass: 0.91 M☉
-  Radius: 0.86 R☉
-  Luminosity: 0.500 L☉
-  Temperature: 5260 K
-  Metallicity: [Fe/H] = 0.23 (gold text)
-
-Star 3: Proxima Centauri
-  Type: M5.5Ve
-  Mass: 0.12 M☉
-  Radius: 0.15 R☉
-  Luminosity: 0.002 L☉
-  Temperature: 3042 K
-  Metallicity: [Fe/H] = 0.10 (gold text)
-
-System Bodies
-Total bodies: 25
-  Stars: 3
-  Planets: 8
-  Asteroids: 12
-  Comets: 2
-
-System Resources
-Surveyed resource types: 12
-Top resources:
-  Water: 2.5 Gt
-  Iron: 1.2 Gt
-  Aluminum: 450 Mt
-  Nickel: 320 Mt
-  Gold: 15 Mt
-
-Population
-Coming soon: Population management
-```
-
-**Barnard's Star:**
-Metal-poor system shows blue metallicity:
-
-```
-Star Properties
-Barnard's Star
-  Type: M4.0Ve
-  Mass: 0.14 M☉
-  Radius: 0.20 R☉
-  Luminosity: 0.004 L☉
-  Temperature: 3134 K
-  Metallicity: [Fe/H] = -0.50 (blue text)
-```
-
-## Design Decisions
-
-### Why Orange Border for Tooltips?
-- Blue border = body tooltips (planets, moons, etc.)
-- Orange border = star system tooltips
-- Visual distinction helps identify context
-
-### Why Double-Click for Selection?
-- Matches existing starmap behavior
-- Single click would conflict with hover tooltips
-- Prevents accidental selections
-
-### Why Show Top 5 Resources?
-- Keeps panel readable
-- Shows most important resources
-- Full list would be too long
-
-### Why Placeholder for Population?
-- Feature not yet implemented in game
-- Panel structure ready for future expansion
-- User knows it's coming
+### Performance Issues
+- Close unused panels
+- Zoom closer when not using starmap
+- Lower time acceleration if simulation is slow
 
 ## Future Enhancements
 
-The panel structure supports easy addition of:
-
-1. **Population Management**
-   - Total population across all colonies
-   - Growth rate
-   - Happiness/stability
-
-2. **Economic Data**
-   - Production capacity
-   - Trade routes
-   - Economic output
-
-3. **Military Assets**
-   - Ships assigned to system
-   - Defense installations
-   - Fleet strength
-
-4. **Construction Queue**
-   - Active projects
-   - Time to completion
-   - Resource requirements
-
-5. **Diplomatic Status**
-   - System ownership
-   - Relations with other factions
-   - Strategic importance
-
-## Testing
-
-Tested functionality:
-- ✅ Hover detection works in starmap view
-- ✅ Tooltips appear near cursor
-- ✅ Tooltips clear when over UI
-- ✅ Double-click selects star system
-- ✅ Right panel shows star data
-- ✅ Metallicity color coding works
-- ✅ Body counts accurate
-- ✅ Resource totals calculated correctly
-- ✅ Multiple stars shown individually
-- ✅ Works with all 60 nearby systems
-
-## Code Quality
-
-- Clean separation of concerns
-- Reuses existing patterns (tooltips, panels)
-- No code duplication
-- Well-documented functions
-- Follows Bevy ECS best practices
-- Efficient queries (no unnecessary iterations)
-
-## Performance
-
-- Hover detection: Minimal cost (only in starmap view)
-- Raycasting: O(n) where n = visible star count (~50)
-- Resource totals: Computed only when panel opens
-- Body counts: Single query with filter
-- No frame drops observed
-
-## Summary
-
-All requested features are now fully implemented and working:
-
-✅ **Tooltips:** Hover over stars to see name, distance, body count
-✅ **Detailed Panel:** Double-click stars to see full statistics
-✅ **Real Data:** Shows actual star properties from NASA databases
-✅ **Resources:** Displays total resources across all bodies
-✅ **Population:** Placeholder ready for future implementation
-
-The implementation follows existing UI patterns, performs efficiently, and is ready for future expansion.
+Planned UI improvements:
+- Fleet management panel with ship controls
+- Shipbuilding interface for vessel design
+- Diplomacy panel for faction relations
+- Advanced filters and sorting in all panels
+- Customizable layouts and hotkeys

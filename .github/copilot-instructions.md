@@ -27,13 +27,47 @@ helios_ascension/
 ├── src/
 │   ├── main.rs              # Application entry point
 │   ├── lib.rs               # Library root
-│   └── plugins/             # Bevy plugin modules
-│       ├── mod.rs           # Plugin exports
-│       ├── camera.rs        # Camera control system
-│       └── solar_system.rs  # Celestial body simulation
-├── tests/                   # Integration tests
-├── assets/                  # Game assets (textures, models, etc.)
-└── docs/                    # Documentation
+│   ├── astronomy/           # Orbital mechanics & coordinate systems
+│   │   ├── components.rs    # SpaceCoordinates, KeplerOrbit, OrbitPath
+│   │   ├── systems.rs       # Orbit propagation, rendering, selection
+│   │   ├── ephemeris.rs     # Ephemeris calculations for custom start dates
+│   │   ├── nearby_stars.rs  # Star catalog (60 nearest star systems)
+│   │   └── mod.rs           # AstronomyPlugin
+│   ├── colony/              # Colony management system
+│   │   ├── components.rs    # Colony, BuildingInventory, ConstructionQueue
+│   │   ├── types.rs         # BuildingType enum (29 types)
+│   │   ├── data.rs          # Building data loading from RON
+│   │   ├── systems.rs       # Construction processing, population growth
+│   │   └── mod.rs           # ColonyPlugin
+│   ├── economy/             # Resource & budget systems
+│   │   ├── components.rs    # PlanetResources, MineralDeposit
+│   │   ├── budget.rs        # GlobalBudget, EnergyGrid
+│   │   ├── generation.rs    # Procedural resource generation
+│   │   └── types.rs         # ResourceType definitions (20 types)
+│   ├── research/            # Technology tree system
+│   │   ├── components.rs    # TechnologyProgress, EngineeringProject
+│   │   ├── types.rs         # TechCategory enum (15 categories)
+│   │   ├── systems.rs       # Research progression, tech unlocks
+│   │   └── mod.rs           # ResearchPlugin
+│   ├── plugins/             # Game systems
+│   │   ├── camera.rs        # Camera movement, anchoring & ViewMode
+│   │   ├── solar_system.rs  # Body spawning, rotation, billboards
+│   │   ├── solar_system_data.rs # RON data loader
+│   │   ├── starmap.rs       # Starmap view (system icons, visibility toggle)
+│   │   └── visual_effects.rs    # Bloom, starfield, night materials
+│   ├── render/              # Rendering utilities
+│   │   └── backdrop.rs      # Skybox background
+│   └── ui/                  # User interface
+│       ├── mod.rs           # UIPlugin, SimulationTime, TimeScale, all panels
+│       └── interaction.rs   # Selection management
+├── assets/
+│   ├── data/
+│   │   ├── buildings.ron    # 29 building definitions
+│   │   ├── technologies.ron # Technology tree data
+│   │   ├── solar_system.ron # Solar system configuration
+│   │   └── nearest_stars_raw.json # Star catalog
+│   └── textures/            # Visual assets
+└── tests/                   # Integration tests
 ```
 
 ## Architecture Principles
@@ -146,6 +180,33 @@ When adding new UI icons (menus, research categories, etc.), applying the follow
 - Example: `ui.add(egui::Image::new(egui::load::SizedTexture::new(texture_id, [width, height])))`.
 
 ## Domain-Specific Knowledge
+
+### Game Systems Overview
+
+#### Colony Management
+- **29 building types** across 8 categories (Infrastructure, Industry, Logistics, Power, Population, Research, Financial, Military)
+- Construction queue system with resource costs and workforce requirements
+- Population growth mechanics with housing capacity and food requirements
+- Buildings require maintenance resources and generate various effects
+- Tech-gated buildings unlock through research progression
+- Debug menu (F12) for free construction, instant build, and tech bypass
+
+#### Economy & Resources
+- **20 resource types** (defined in `src/economy/types.rs` as `ResourceType` enum): Volatiles (Water, Hydrogen, Ammonia, Methane), Atmospheric Gases (Nitrogen, Oxygen, CarbonDioxide, Argon), Construction Materials (Iron, Aluminum, Titanium, Silicates), Fusion Fuel (Helium3), Fissiles (Uranium, Thorium), Precious Metals (Gold, Silver, Platinum), Specialty Materials (Copper, RareEarths)
+- Resource stockpiles with capacity limits
+- Mining operations extract resources from mineral deposits
+- Refining and processing buildings convert raw materials
+- Energy grid with power generation (solar, fission, fusion) and consumption
+- Logistics system affects mining and research efficiency (demand vs capacity)
+- Global budget tracks treasury, income, and expenses
+
+#### Research & Technology
+- **15 technology categories**: Electronics, Military, SpaceTechnology, Biology, Physics, Energy, Sociology, Construction, Propulsion, Materials, Sensors, Weapons, DefensiveSystems, LifeSupport, Industry
+- Technology tree with prerequisite chains
+- Research points (RP) and engineering points (EP) progression
+- Technologies unlock buildings, components, and modifiers
+- Tech modifiers affect construction costs, productivity, and capabilities
+- Debug menu (F12) for instant research
 
 ### Celestial Bodies
 - All astronomical data is based on real NASA/IAU sources
