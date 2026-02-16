@@ -22,7 +22,6 @@ use crate::astronomy::components::{
     CurrentStarSystem, FloatingOrigin, KeplerOrbit, OrbitCenter, OrbitPath, SpaceCoordinates,
     SystemId,
 };
-use crate::astronomy::nearby_stars::NearbyStarsData;
 use crate::astronomy::SCALING_FACTOR;
 use crate::game_state::{ActiveMenu, GameMenu};
 use rand::prelude::*;
@@ -493,15 +492,20 @@ fn tag_sol_bodies(
 
 const SECONDS_PER_DAY: f64 = 86400.0;
 
-/// Spawns minimal celestial bodies (Star) for non-Sol systems when visited.
+/// Adds visual components (meshes, materials, lights) to existing data-only entities
+/// when visiting a non-Sol system for the first time.
 fn spawn_system_bodies(
     mut commands: Commands,
     current_system: Res<CurrentStarSystem>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    existing_visual_bodies: Query<&SystemId, (With<CelestialBody>, With<Handle<Mesh>>)>,
-    nearby_stars: Res<NearbyStarsData>,
-    mut system_metadata: ResMut<SystemMetadata>,
+    // Query for bodies that need visual components added
+    bodies_without_visuals: Query<
+        (Entity, &CelestialBody, &SystemId),
+        (Without<Handle<Mesh>>, Without<Handle<StandardMaterial>>),
+    >,
+    // Query to check if system already has visual entities
+    bodies_with_visuals: Query<&SystemId, (With<CelestialBody>, With<Handle<Mesh>>)>,
 ) {
     if !current_system.is_changed() {
         return;
@@ -512,59 +516,113 @@ fn spawn_system_bodies(
         return;
     } // Sol is handled by solar_system.rs
 
-    // Check if VISIBLE (meshed) bodies for this system already exist.
-    // Data-only entities from SystemPopulatorPlugin (no mesh) should NOT
-    // block spawning of visual representations.
-    if existing_visual_bodies.iter().any(|id| id.0 == sys_id) {
+    // Check if this system already has visual entities
+    if bodies_with_visuals.iter().any(|id| id.0 == sys_id) {
+        // Visuals already added, nothing to do
         return;
     }
 
-    // Determine star data index
-    // SystemId is 1-based index into NEARBY_STARS + Sol (0)
-    let star_idx = sys_id - 1;
-    if star_idx >= NEARBY_STARS.len() {
-        warn!("System ID {} is out of range for nearby stars", sys_id);
-        return;
+    info!("Adding visual components to system {}", sys_id);
+
+    // Find all data-only entities for this system and add visual components
+    for (entity, body, _system_id) in bodies_without_visuals.iter() {
+        if _system_id.0 != sys_id {
+            continue;
+        }
+
+        // Determine visual properties based on body type
+        let (color, visual_radius) = match body.body_type {
+            BodyType::Star => {
+                let color = Color::srgb(1.0, 0.95, 0.8); // Default yellow star
+                let visual_radius = calculate_visual_radius(body.body_type, body.radius);
+                (color, visual_radius)
+            }
+            BodyType::Planet | BodyType::DwarfPlanet => {
+                let color = Color::srgb(0.5, 0.5, 0.7); // Default blue-grey planet
+                let visual_radius = calculate_visual_radius(body.body_type, body.radius);
+                (color, visual_radius)
+            }
+            BodyType::GasGiant => {
+                let color = Color::srgb(0.9, 0.8, 0.6); // Tan/beige for gas giant
+                let visual_radius = calculate_visual_radius(body.body_type, body.radius);
+                (color, visual_radius)
+            }
+            BodyType::Moon => {
+                let color = Color::srgb(0.6, 0.6, 0.6); // Grey moon
+                let visual_radius = calculate_visual_radius(body.body_type, body.radius);
+                (color, visual_radius)
+            }
+            BodyType::Asteroid => {
+                let color = Color::srgb(0.4, 0.4, 0.3); // Brown-grey asteroid
+                let visual_radius = body.radius.max(1.0); // Minimum visual size
+                (color, visual_radius)
+            }
+            BodyType::Comet => {
+                let color = Color::srgb(0.7, 0.8, 0.9); // Icy blue-white
+                let visual_radius = body.radius.max(1.0); // Minimum visual size
+                (color, visual_radius)
+            }
+            BodyType::Ring => {
+                // Rings should have been created as separate entities, skip for now
+                continue;
+            }
+        };
+
+        // Create mesh
+        let mesh = meshes.add(Sphere::new(visual_radius).mesh().uv(32, 16));
+
+        // Create material
+        let material = if matches!(body.body_type, BodyType::Star) {
+            materials.add(StandardMaterial {
+                base_color: color,
+                emissive: LinearRgba::from(color).into(),
+                unlit: true,
+                ..default()
+            })
+        } else {
+            materials.add(StandardMaterial {
+                base_color: color,
+                perceptual_roughness: 0.8,
+                reflectance: 0.1,
+                ..default()
+            })
+        };
+
+        // Add visual components to existing entity
+        commands.entity(entity).insert((
+            mesh,
+            material,
+            Transform::default(),
+            GlobalTransform::default(),
+            Visibility::default(),
+            InheritedVisibility::default(),
+            ViewVisibility::default(),
+        ));
+
+        // Add light for stars
+        if matches!(body.body_type, BodyType::Star) {
+            let intensity = 2.8e11; // Default star intensity
+            commands.entity(entity).with_children(|parent| {
+                parent.spawn((
+                    PointLightBundle {
+                        point_light: PointLight {
+                            intensity,
+                            range: 2.0e9,
+                            shadows_enabled: false,
+                            color,
+                            ..default()
+                        },
+                        ..default()
+                    },
+                    SystemId(sys_id),
+                ));
+            });
+        }
+
+        info!("Added visuals to {} ({:?})", body.name, body.body_type);
     }
 
-    let star_data = &NEARBY_STARS[star_idx];
-    let position_ly = Vec3::from_array([
-        star_data.pos_ly[0] as f32,
-        star_data.pos_ly[1] as f32,
-        star_data.pos_ly[2] as f32,
-    ]);
-    let system_offset = DVec3::new(
-        position_ly.x as f64 * LY_TO_AU,
-        position_ly.y as f64 * LY_TO_AU,
-        position_ly.z as f64 * LY_TO_AU,
-    );
-
-    // Check if we have detailed data for this system
-    if let Some(detailed_data) = nearby_stars.get_by_name(star_data.name) {
-        info!("Spawning detailed system: {}", star_data.name);
-        spawn_detailed_system(
-            &mut commands,
-            sys_id,
-            system_offset,
-            detailed_data,
-            &mut meshes,
-            &mut materials,
-            &mut system_metadata,
-        );
-        return;
-    }
-
-    // --- Fallback: Procedural fallback ---
-    info!("Spawning fallback system: {}", star_data.name);
-    spawn_fallback_system(
-        &mut commands,
-        sys_id,
-        system_offset,
-        star_data,
-        &mut meshes,
-        &mut materials,
-        &mut system_metadata,
-    );
+    info!("Finished adding visual components to system {}", sys_id);
 }
 
 fn spawn_detailed_system(
