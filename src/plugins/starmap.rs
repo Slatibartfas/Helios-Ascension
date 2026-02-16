@@ -16,16 +16,14 @@ use bevy::window::PrimaryWindow;
 use std::collections::HashMap;
 
 use super::camera::{CameraAnchor, GameCamera, OrbitCamera, ViewMode};
-use super::solar_system::{CelestialBody, Planet, Star};
+use super::solar_system::CelestialBody;
 use super::solar_system_data::{BodyType, calculate_visual_radius};
 use crate::astronomy::components::{
-    CurrentStarSystem, FloatingOrigin, KeplerOrbit, OrbitCenter, OrbitPath, SpaceCoordinates,
-    SystemId,
+    CurrentStarSystem, FloatingOrigin, SpaceCoordinates, SystemId,
 };
 use crate::astronomy::SCALING_FACTOR;
 use crate::game_state::{ActiveMenu, GameMenu};
-use rand::prelude::*;
-use std::f64::consts::PI;
+
 
 // Constants replaced by solar_system_data import
 
@@ -71,14 +69,16 @@ impl Plugin for StarmapPlugin {
                 Update,
                 (
                     tag_sol_bodies,
-                    spawn_system_bodies, // Handle spawning for non-Sol systems
-                    toggle_system_view_entities,
-                    update_starmap_visibility,
+                    handle_system_transition,
+                    spawn_system_bodies.after(handle_system_transition),
+                    toggle_system_view_entities
+                        .after(handle_system_transition)
+                        .after(spawn_system_bodies),
+                    update_starmap_visibility.after(handle_system_transition),
                     update_starmap_icon_scale,
                     update_starmap_coordinates,
-                    handle_starmap_hover, // New: detect hover
+                    handle_starmap_hover,
                     handle_starmap_selection,
-                    handle_system_transition,
                 ),
             );
     }
@@ -117,266 +117,10 @@ pub struct SelectedStarSystem;
 // 1 Light Year in Astronomical Units
 const LY_TO_AU: f64 = 63241.077;
 
-struct NearbyStarData {
-    name: &'static str,
-    pos_ly: [f64; 3],            // x, y, z in Light Years
-    spectral_type: &'static str, // For color
-}
-
+// (Moved to src/astronomy/nearby_stars.rs)
 // 50 Closest Star Systems to Sol (excluding Sol)
 // Coordinates in Light Years (Equatorial J2000 Cartesian)
-const NEARBY_STARS: &[NearbyStarData] = &[
-    NearbyStarData {
-        name: "Alpha Centauri",
-        pos_ly: [-1.5477, -1.1846, -3.7728],
-        spectral_type: "G2V",
-    },
-    NearbyStarData {
-        name: "Barnard's Star",
-        pos_ly: [-0.0568, -5.9426, 0.4879],
-        spectral_type: "M4.0Ve",
-    },
-    NearbyStarData {
-        name: "Luhman 16",
-        pos_ly: [-3.7012, 1.1792, -5.2152],
-        spectral_type: "L8",
-    },
-    NearbyStarData {
-        name: "WISE 0855-0714",
-        pos_ly: [-5.1011, 5.3203, -0.9371],
-        spectral_type: "Y4",
-    },
-    NearbyStarData {
-        name: "Wolf 359",
-        pos_ly: [-7.4995, 2.1332, 0.9594],
-        spectral_type: "M6.0V",
-    },
-    NearbyStarData {
-        name: "Lalande 21185",
-        pos_ly: [-6.5166, 1.6448, 4.8777],
-        spectral_type: "M2.0V",
-    },
-    NearbyStarData {
-        name: "Sirius",
-        pos_ly: [-1.6326, 8.18, -2.5051],
-        spectral_type: "A1V",
-    },
-    NearbyStarData {
-        name: "Luyten 726-8",
-        pos_ly: [7.5367, 3.4753, -2.6887],
-        spectral_type: "M5.5Ve",
-    },
-    NearbyStarData {
-        name: "Ross 154",
-        pos_ly: [1.915, -8.6694, -3.9225],
-        spectral_type: "M3.5Ve",
-    },
-    NearbyStarData {
-        name: "Ross 248",
-        pos_ly: [7.3684, -0.5828, 7.1815],
-        spectral_type: "M5.5Ve",
-    },
-    NearbyStarData {
-        name: "Epsilon Eridani",
-        pos_ly: [6.1847, 8.2771, -1.7213],
-        spectral_type: "K2V",
-    },
-    NearbyStarData {
-        name: "Lacaille 9352",
-        pos_ly: [8.4508, -2.0341, -6.2812],
-        spectral_type: "M0.5V",
-    },
-    NearbyStarData {
-        name: "Ross 128",
-        pos_ly: [-10.9906, 0.5885, 0.1545],
-        spectral_type: "M4.0Vn",
-    },
-    NearbyStarData {
-        name: "EZ Aquarii",
-        pos_ly: [10.0458, -3.7282, -2.9312],
-        spectral_type: "M5.0Ve",
-    },
-    NearbyStarData {
-        name: "61 Cygni",
-        pos_ly: [6.4753, -6.0967, 7.1379],
-        spectral_type: "K5.0V",
-    },
-    NearbyStarData {
-        name: "Procyon",
-        pos_ly: [-4.7928, 10.3605, 1.0439],
-        spectral_type: "F5IV-V",
-    },
-    NearbyStarData {
-        name: "Struve 2398",
-        pos_ly: [1.0781, -5.7086, 9.914],
-        spectral_type: "M3.0V",
-    },
-    NearbyStarData {
-        name: "Groombridge 34",
-        pos_ly: [8.328, 0.6694, 8.0747],
-        spectral_type: "M1.5V",
-    },
-    NearbyStarData {
-        name: "DX Cancri",
-        pos_ly: [-6.3414, 8.2773, 5.2619],
-        spectral_type: "M6.5Ve",
-    },
-    NearbyStarData {
-        name: "Epsilon Indi",
-        pos_ly: [5.6765, -3.1673, -9.9283],
-        spectral_type: "K5Ve",
-    },
-    NearbyStarData {
-        name: "Tau Ceti",
-        pos_ly: [10.2932, 5.0241, -3.2708],
-        spectral_type: "G8.5V",
-    },
-    NearbyStarData {
-        name: "GJ 1061",
-        pos_ly: [5.0232, 6.9135, -8.4015],
-        spectral_type: "M5.5V",
-    },
-    NearbyStarData {
-        name: "YZ Ceti",
-        pos_ly: [11.0172, 3.6068, -3.544],
-        spectral_type: "M4.5V",
-    },
-    NearbyStarData {
-        name: "Luyten's Star",
-        pos_ly: [-4.5772, 11.4136, 1.1247],
-        spectral_type: "M3.5V",
-    },
-    NearbyStarData {
-        name: "Teegarden's Star",
-        pos_ly: [8.7097, 8.1943, 3.629],
-        spectral_type: "M6.5V",
-    },
-    NearbyStarData {
-        name: "Kapteyn's Star",
-        pos_ly: [1.8982, 8.869, -9.0756],
-        spectral_type: "M1.5V",
-    },
-    NearbyStarData {
-        name: "Lacaille 8760",
-        pos_ly: [7.6441, -6.5718, -8.1246],
-        spectral_type: "M0.0V",
-    },
-    NearbyStarData {
-        name: "SCR 1845-6357",
-        pos_ly: [1.1209, -5.6237, -11.738],
-        spectral_type: "M8.5V",
-    },
-    NearbyStarData {
-        name: "Kruger 60",
-        pos_ly: [6.4306, -2.7299, 11.0491],
-        spectral_type: "M3.0V",
-    },
-    NearbyStarData {
-        name: "DENIS J1048-3956",
-        pos_ly: [-9.6244, 3.1158, -8.469],
-        spectral_type: "M8.5V",
-    },
-    NearbyStarData {
-        name: "Ross 614",
-        pos_ly: [-1.7069, 13.2373, -0.656],
-        spectral_type: "M4.5V",
-    },
-    NearbyStarData {
-        name: "UGPS J0722-0540",
-        pos_ly: [-4.7051, 12.5085, -1.328],
-        spectral_type: "T9",
-    },
-    NearbyStarData {
-        name: "Wolf 1061",
-        pos_ly: [-5.2293, -12.6717, -3.0799],
-        spectral_type: "M3.0V",
-    },
-    NearbyStarData {
-        name: "Van Maanen's Star",
-        pos_ly: [13.6885, 2.9824, 1.3215],
-        spectral_type: "DZ7",
-    },
-    NearbyStarData {
-        name: "Gliese 1",
-        pos_ly: [11.2638, 0.2658, -8.601],
-        spectral_type: "M1.5V",
-    },
-    NearbyStarData {
-        name: "TZ Arietis",
-        pos_ly: [12.2919, 7.1125, 3.2923],
-        spectral_type: "M4.5V",
-    },
-    NearbyStarData {
-        name: "Wolf 424",
-        pos_ly: [-14.2627, -2.0862, 2.2884],
-        spectral_type: "M5.5V",
-    },
-    NearbyStarData {
-        name: "Gliese 687",
-        pos_ly: [-0.5623, -5.4485, 13.7916],
-        spectral_type: "M3.0V",
-    },
-    NearbyStarData {
-        name: "Gliese 674",
-        pos_ly: [-1.383, -10.0523, -10.8415],
-        spectral_type: "M3.0V",
-    },
-    NearbyStarData {
-        name: "LHS 292",
-        pos_ly: [-13.8709, 4.4929, -2.9233],
-        spectral_type: "M6.5V",
-    },
-    NearbyStarData {
-        name: "Gliese 440",
-        pos_ly: [-6.4165, 0.4005, -13.688],
-        spectral_type: "DQ6",
-    },
-    NearbyStarData {
-        name: "GJ 1245",
-        pos_ly: [5.1766, -9.5437, 10.6378],
-        spectral_type: "M5.5V",
-    },
-    NearbyStarData {
-        name: "WISE 1741+2553",
-        pos_ly: [-1.1098, -13.6475, 6.6454],
-        spectral_type: "T9",
-    },
-    NearbyStarData {
-        name: "Gliese 876",
-        pos_ly: [14.147, -4.239, -3.7544],
-        spectral_type: "M3.5V",
-    },
-    NearbyStarData {
-        name: "WISE 1639-6847",
-        pos_ly: [-1.9044, -5.2097, -14.2977],
-        spectral_type: "Y0.5",
-    },
-    NearbyStarData {
-        name: "LHS 288",
-        pos_ly: [-7.1797, 2.4598, -13.8107],
-        spectral_type: "M5.5V",
-    },
-    NearbyStarData {
-        name: "GJ 1002",
-        pos_ly: [15.6626, 0.4601, -2.0739],
-        spectral_type: "M5.5V",
-    },
-    NearbyStarData {
-        name: "DENIS 0255-4700",
-        pos_ly: [7.8177, 7.4878, -11.6144],
-        spectral_type: "L7.5V",
-    },
-    NearbyStarData {
-        name: "Groombridge 1618",
-        pos_ly: [-9.1881, 4.7135, 12.0713],
-        spectral_type: "K7.0V",
-    },
-    NearbyStarData {
-        name: "Gliese 412",
-        pos_ly: [-11.2719, 2.7334, 11.0169],
-        spectral_type: "M1.0V",
-    },
-];
+// NEARBY_STARS definition moved to src/astronomy/nearby_stars.rs
 
 /// Spawn the starmap icon for the Sol system.
 /// It starts hidden and becomes visible when `ViewMode::Starmap` is active.
@@ -420,7 +164,8 @@ fn setup_starmap(
     ));
 
     // --- Nearby Stars (ID: 1..50) ---
-    for (i, star) in NEARBY_STARS.iter().enumerate() {
+    use crate::astronomy::nearby_stars::NEARBY_STARS_POSITIONS;
+    for (i, star) in NEARBY_STARS_POSITIONS.iter().enumerate() {
         let id = i + 1; // 0 is Sol
 
         // Determine color from spectral type
@@ -438,7 +183,7 @@ fn setup_starmap(
 
         let material = materials.add(StandardMaterial {
             base_color: Color::srgb(r, g, b),
-            emissive: Color::srgb(r * 4.0, g * 4.0, b * 4.0).into(),
+            emissive: Color::srgb(r * 8.0, g * 8.0, b * 8.0).into(),
             unlit: true,
             ..default()
         });
@@ -490,18 +235,17 @@ fn tag_sol_bodies(
     }
 }
 
-const SECONDS_PER_DAY: f64 = 86400.0;
-
 /// Adds visual components (meshes, materials, lights) to existing data-only entities
 /// when visiting a non-Sol system for the first time.
 fn spawn_system_bodies(
     mut commands: Commands,
     current_system: Res<CurrentStarSystem>,
+    floating_origin: Res<FloatingOrigin>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     // Query for bodies that need visual components added
     bodies_without_visuals: Query<
-        (Entity, &CelestialBody, &SystemId),
+        (Entity, &CelestialBody, &SpaceCoordinates, &SystemId),
         (Without<Handle<Mesh>>, Without<Handle<StandardMaterial>>),
     >,
     // Query to check if system already has visual entities
@@ -524,8 +268,10 @@ fn spawn_system_bodies(
 
     info!("Adding visual components to system {}", sys_id);
 
+    let origin_offset = floating_origin.position;
+
     // Find all data-only entities for this system and add visual components
-    for (entity, body, _system_id) in bodies_without_visuals.iter() {
+    for (entity, body, space_coords, _system_id) in bodies_without_visuals.iter() {
         if _system_id.0 != sys_id {
             continue;
         }
@@ -588,11 +334,20 @@ fn spawn_system_bodies(
             })
         };
 
+        // Compute the correct initial transform position using floating origin
+        let scaled_position =
+            (space_coords.position - origin_offset) * SCALING_FACTOR;
+        let initial_transform = Transform::from_translation(Vec3::new(
+            scaled_position.x as f32,
+            scaled_position.y as f32,
+            scaled_position.z as f32,
+        ));
+
         // Add visual components to existing entity
         commands.entity(entity).insert((
             mesh,
             material,
-            Transform::default(),
+            initial_transform,
             GlobalTransform::default(),
             Visibility::default(),
             InheritedVisibility::default(),
@@ -625,413 +380,6 @@ fn spawn_system_bodies(
     info!("Finished adding visual components to system {}", sys_id);
 }
 
-fn spawn_detailed_system(
-    commands: &mut Commands,
-    sys_id: usize,
-    system_offset: DVec3,
-    data: &crate::astronomy::nearby_stars::StarSystemData,
-    meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<StandardMaterial>>,
-    system_metadata: &mut ResMut<SystemMetadata>,
-) {
-    let mut rng = rand::thread_rng();
-    let seconds_per_year: f64 = 365.25 * SECONDS_PER_DAY;
-
-    // Calculate bounding radius: maximum of planet orbits + binary star orbits
-    let mut max_radius_au: f64 = 10.0; // Default minimum
-
-    // Check planet orbits
-    for star_data in &data.stars {
-        for planet in &star_data.planets {
-            let aphelion = (planet.semi_major_axis_au * (1.0 + planet.eccentricity)) as f64;
-            max_radius_au = max_radius_au.max(aphelion);
-        }
-    }
-
-    // Check binary star orbits
-    for binary in &data.binary_orbits {
-        let binary_extent = binary.semi_major_axis_au * (1.0 + binary.eccentricity);
-        max_radius_au = max_radius_au.max(binary_extent);
-    }
-
-    // Add 50% margin for safety
-    max_radius_au *= 1.5;
-
-    info!(
-        "System {} bounding radius: {:.1} AU",
-        data.system_name, max_radius_au
-    );
-
-    // --- Phase 1: Spawn a virtual barycenter entity for the system ---
-    let barycenter = commands
-        .spawn((
-            TransformBundle::from_transform(Transform::IDENTITY),
-            VisibilityBundle {
-                visibility: Visibility::Hidden,
-                ..default()
-            },
-            SpaceCoordinates {
-                position: system_offset,
-            },
-            SystemId(sys_id),
-        ))
-        .id();
-
-    // --- Phase 2: Spawn all stars ---
-    let mut star_entities: Vec<Entity> = Vec::new();
-
-    for (_star_idx, star_data) in data.stars.iter().enumerate() {
-        let color = get_color_from_spectral_type(&star_data.spectral_type);
-        let visual_radius = calculate_visual_radius(BodyType::Star, 696340.0 * star_data.radius_sol);
-
-        let star_entity = commands
-            .spawn((
-                PbrBundle {
-                    mesh: meshes.add(Sphere::new(visual_radius).mesh().uv(64, 32)),
-                    material: materials.add(StandardMaterial {
-                        base_color: color,
-                        emissive: LinearRgba::from(color).into(),
-                        unlit: true,
-                        ..default()
-                    }),
-                    transform: Transform::IDENTITY, // Will be set by propagate_orbits + update_render_transform
-                    ..default()
-                },
-                CelestialBody {
-                    name: star_data.name.clone(),
-                    radius: 696340.0 * star_data.radius_sol,
-                    mass: 1.989e30 * star_data.mass_sol as f64,
-                    body_type: BodyType::Star,
-                    visual_radius,
-                    asteroid_class: None,
-                },
-                SystemId(sys_id),
-                Star,
-                // Initial position at barycenter; will be updated if it has a binary orbit
-                SpaceCoordinates {
-                    position: system_offset,
-                },
-            ))
-            .with_children(|parent| {
-                let intensity = 2.8e11 * star_data.luminosity_sol.sqrt();
-                parent.spawn((
-                    PointLightBundle {
-                        point_light: PointLight {
-                            intensity,
-                            range: 2.0e9,
-                            shadows_enabled: false,
-                            color,
-                            ..default()
-                        },
-                        ..default()
-                    },
-                    SystemId(sys_id),
-                ));
-            })
-            .id();
-
-        star_entities.push(star_entity);
-    }
-
-    // --- Phase 3: Set up binary/multiple star orbits ---
-    for binary in &data.binary_orbits {
-        if binary.primary_idx >= star_entities.len() || binary.secondary_idx >= star_entities.len()
-        {
-            warn!(
-                "Binary orbit indices out of range for system {}",
-                data.system_name
-            );
-            continue;
-        }
-
-        let primary_mass = data.stars[binary.primary_idx].mass_sol as f64;
-        let secondary_mass = data.stars[binary.secondary_idx].mass_sol as f64;
-        let total_mass = primary_mass + secondary_mass;
-
-        // For a binary, both stars orbit the barycenter.
-        // The secondary orbits at distance: a * M_primary / (M_primary + M_secondary)
-        // The primary orbits at distance: a * M_secondary / (M_primary + M_secondary)
-        let period_seconds = binary.period_years * seconds_per_year;
-        let mean_motion = 2.0 * PI / period_seconds;
-        let incl_rad = binary.inclination_deg.to_radians();
-        let arg_peri_rad = binary.arg_periastron_deg.to_radians();
-        let initial_anomaly: f64 = rng.gen_range(0.0..2.0 * PI);
-
-        // Secondary star orbit around barycenter
-        let secondary_sma = binary.semi_major_axis_au * primary_mass / total_mass;
-        let secondary_orbit = KeplerOrbit {
-            eccentricity: binary.eccentricity,
-            semi_major_axis: secondary_sma,
-            inclination: incl_rad,
-            longitude_ascending_node: rng.gen_range(0.0..2.0 * PI),
-            argument_of_periapsis: arg_peri_rad,
-            mean_anomaly_epoch: initial_anomaly,
-            mean_motion,
-        };
-        commands
-            .entity(star_entities[binary.secondary_idx])
-            .insert((secondary_orbit, OrbitCenter(barycenter)));
-
-        // Primary star orbit around barycenter (opposite phase)
-        let primary_sma = binary.semi_major_axis_au * secondary_mass / total_mass;
-        let primary_orbit = KeplerOrbit {
-            eccentricity: binary.eccentricity,
-            semi_major_axis: primary_sma,
-            inclination: incl_rad,
-            longitude_ascending_node: rng.gen_range(0.0..2.0 * PI),
-            argument_of_periapsis: arg_peri_rad + PI, // Opposite side
-            mean_anomaly_epoch: initial_anomaly,
-            mean_motion,
-        };
-        commands
-            .entity(star_entities[binary.primary_idx])
-            .insert((primary_orbit, OrbitCenter(barycenter)));
-    }
-
-    // For single stars with no binary orbit defined, they stay at barycenter
-    // (their SpaceCoordinates = system_offset, no KeplerOrbit)
-    // If only 1 star, no binary orbits → star sits at center. Perfect.
-    // If multiple stars but some have no binary_orbit entry (e.g. Proxima),
-    // place them statically far out with an OrbitCenter:
-    if data.stars.len() > 1 {
-        let has_binary: Vec<bool> = (0..data.stars.len())
-            .map(|i| {
-                data.binary_orbits
-                    .iter()
-                    .any(|b| b.primary_idx == i || b.secondary_idx == i)
-            })
-            .collect();
-
-        for (i, &has_orbit) in has_binary.iter().enumerate() {
-            if !has_orbit && i > 0 {
-                // This is a wide companion (like Proxima) with no defined binary orbit
-                // Place it at a static offset
-                let offset = DVec3::new(100.0 * i as f64, 0.0, 50.0 * i as f64);
-                commands.entity(star_entities[i]).insert(SpaceCoordinates {
-                    position: system_offset + offset,
-                });
-            }
-        }
-    }
-
-    // --- Phase 4: Spawn planets for each star ---
-    for (star_idx, star_data) in data.stars.iter().enumerate() {
-        let parent_star = star_entities[star_idx];
-
-        for planet in &star_data.planets {
-            let orbit = KeplerOrbit {
-                eccentricity: planet.eccentricity as f64,
-                semi_major_axis: planet.semi_major_axis_au as f64,
-                inclination: rng.gen_range(0.0..0.15),
-                longitude_ascending_node: rng.gen_range(0.0..2.0 * PI),
-                argument_of_periapsis: rng.gen_range(0.0..2.0 * PI),
-                mean_anomaly_epoch: rng.gen_range(0.0..2.0 * PI),
-                mean_motion: 2.0 * PI / (planet.period_days as f64 * SECONDS_PER_DAY),
-            };
-
-            let planet_radius_km = if let Some(r) = planet.radius_earth {
-                r * 6371.0
-            } else {
-                estimate_planet_radius_km(planet.mass_earth)
-            };
-
-            // Adjust visual radius for very close orbits (like Proxima b)
-            // Prevent the planet from visually engulfing the star
-            let orbit_dist_bu = planet.semi_major_axis_au as f32 * SCALING_FACTOR as f32;
-            let max_visual_radius = orbit_dist_bu * 0.3; // Max 30% of orbit distance
-
-            let nominal_visual_radius = calculate_visual_radius(BodyType::Planet, planet_radius_km);
-            let planet_visual_radius = nominal_visual_radius.min(max_visual_radius);
-
-            let p_color = planet_type_to_color(&planet.planet_type);
-
-            commands.spawn((
-                PbrBundle {
-                    mesh: meshes.add(Sphere::new(planet_visual_radius).mesh().uv(32, 16)),
-                    material: materials.add(StandardMaterial {
-                        base_color: p_color,
-                        perceptual_roughness: 0.8,
-                        reflectance: 0.1,
-                        // Add slight emissive so it's visible against dark space
-                        emissive: LinearRgba::from(p_color) * 0.05,
-                        ..default()
-                    }),
-                    transform: Transform::IDENTITY,
-                    ..default()
-                },
-                CelestialBody {
-                    name: planet.name.clone(),
-                    radius: planet_radius_km,
-                    mass: 5.972e24 * planet.mass_earth as f64,
-                    body_type: BodyType::Planet,
-                    visual_radius: planet_visual_radius,
-                    asteroid_class: None,
-                },
-                SystemId(sys_id),
-                Planet,
-                orbit,
-                OrbitPath {
-                    color: Color::srgba(0.4, 0.75, 1.0, 0.85),
-                    visible: true,
-                    segments: 128,
-                },
-                OrbitCenter(parent_star),
-                // Initial position will be computed by propagate_orbits
-                SpaceCoordinates {
-                    position: system_offset,
-                },
-            ));
-        }
-    }
-
-    // Store the calculated bounding radius in system metadata
-    system_metadata.set_bounding_radius(sys_id, max_radius_au);
-}
-
-fn spawn_fallback_system(
-    commands: &mut Commands,
-    sys_id: usize,
-    system_offset: DVec3,
-    star_data: &NearbyStarData,
-    meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<StandardMaterial>>,
-    system_metadata: &mut ResMut<SystemMetadata>,
-) {
-    let spectral = star_data.spectral_type;
-    let color = get_color_from_spectral_type(spectral);
-    let radius_mult = estimate_radius_from_spectral(spectral);
-    let visual_radius = calculate_visual_radius(BodyType::Star, 696340.0 * radius_mult);
-
-    commands
-        .spawn((
-            PbrBundle {
-                mesh: meshes.add(Sphere::new(visual_radius).mesh().uv(64, 32)),
-                material: materials.add(StandardMaterial {
-                    base_color: color,
-                    emissive: LinearRgba::from(color).into(),
-                    unlit: true,
-                    ..default()
-                }),
-                transform: Transform::IDENTITY,
-                ..default()
-            },
-            CelestialBody {
-                name: star_data.name.to_string(),
-                radius: 696340.0 * radius_mult,
-                mass: 1.989e30 * radius_mult as f64,
-                body_type: BodyType::Star,
-                visual_radius,
-                asteroid_class: None,
-            },
-            SystemId(sys_id),
-            Star,
-            SpaceCoordinates {
-                position: system_offset,
-            },
-        ))
-        .with_children(|parent| {
-            let intensity = 2.8e11 * radius_mult;
-            parent.spawn((
-                PointLightBundle {
-                    point_light: PointLight {
-                        intensity,
-                        range: 2.0e9,
-                        shadows_enabled: false,
-                        color: color,
-                        ..default()
-                    },
-                    ..default()
-                },
-                SystemId(sys_id),
-            ));
-        });
-
-    // For fallback systems without detailed data, use default bounding radius
-    system_metadata.set_bounding_radius(sys_id, FALLBACK_BOUNDING_RADIUS_AU);
-}
-
-fn get_color_from_spectral_type(spectral: &str) -> Color {
-    if spectral.starts_with('O') {
-        Color::srgb(0.6, 0.8, 1.0)
-    } else if spectral.starts_with('B') {
-        Color::srgb(0.7, 0.85, 1.0)
-    } else if spectral.starts_with('A') {
-        Color::WHITE
-    } else if spectral.starts_with('F') {
-        Color::srgb(1.0, 1.0, 0.9)
-    } else if spectral.starts_with('G') {
-        Color::srgb(1.0, 0.95, 0.8)
-    } else if spectral.starts_with('K') {
-        Color::srgb(1.0, 0.7, 0.4)
-    } else if spectral.starts_with('M') {
-        Color::srgb(1.0, 0.4, 0.2)
-    } else if spectral.starts_with('L') || spectral.starts_with('T') || spectral.starts_with('Y') {
-        Color::srgb(0.8, 0.2, 0.1)
-    } else {
-        Color::WHITE
-    }
-}
-
-fn estimate_radius_from_spectral(spectral: &str) -> f32 {
-    let spectral = spectral.trim(); // Just in case
-    if spectral.starts_with('M') {
-        0.3
-    } else if spectral.starts_with('K') {
-        0.7
-    } else if spectral.starts_with('G') {
-        1.0
-    } else if spectral.starts_with('F') {
-        1.3
-    } else if spectral.starts_with('A') {
-        1.8
-    } else if spectral.starts_with('B') {
-        3.0
-    } else if spectral.starts_with('O') {
-        10.0
-    } else {
-        0.1
-    }
-}
-
-fn planet_type_to_color(ptype: &str) -> Color {
-    let lower = ptype.to_lowercase();
-    if lower.contains("gas") || lower.contains("jupiter") {
-        Color::srgb(0.9, 0.8, 0.6)
-    } else if lower.contains("telluric") || lower.contains("terrestrial") || lower.contains("earth")
-    {
-        Color::srgb(0.2, 0.5, 0.8)
-    } else if lower.contains("super-earth") || lower.contains("super_earth") {
-        Color::srgb(0.4, 0.6, 0.7)
-    } else if lower.contains("neptun") {
-        Color::srgb(0.3, 0.3, 0.9)
-    } else if lower.contains("sub-earth") || lower.contains("sub_earth") {
-        Color::srgb(0.6, 0.55, 0.5)
-    } else if lower.contains("rocky") {
-        Color::srgb(0.5, 0.45, 0.4)
-    } else if lower.contains("mars") {
-        Color::srgb(0.8, 0.3, 0.1)
-    } else {
-        Color::srgb(0.5, 0.5, 0.5)
-    }
-}
-
-/// Estimate planet radius in km from mass in Earth masses
-fn estimate_planet_radius_km(mass_earth: f32) -> f32 {
-    if mass_earth > 100.0 {
-        // Gas giant territory
-        71492.0 * (mass_earth / 318.0).powf(0.06) // Jupiter-like, weak mass-radius
-    } else if mass_earth > 10.0 {
-        // Neptune-like
-        24764.0 * (mass_earth / 17.0).powf(0.3)
-    } else if mass_earth > 1.0 {
-        // Super-Earth
-        6371.0 * mass_earth.powf(0.28) // Rocky scaling
-    } else {
-        // Sub-Earth
-        6371.0 * mass_earth.powf(0.33)
-    }
-}
-
 /// Hide all celestial bodies and their orbit gizmos when in Starmap mode.
 /// Also handles hiding bodies from other systems when in System mode.
 fn toggle_system_view_entities(
@@ -1048,9 +396,15 @@ fn toggle_system_view_entities(
     >,
     parent_sys_query: Query<&SystemId>,
     newly_spawned_bodies: Query<Entity, Added<CelestialBody>>,
+    newly_added_meshes: Query<Entity, (With<CelestialBody>, Added<Handle<Mesh>>)>,
 ) {
-    // Run if view mode changed, current system changed, OR new bodies were spawned
-    if !view_mode.is_changed() && !current_system.is_changed() && newly_spawned_bodies.is_empty() {
+    // Run if view mode changed, current system changed, new bodies were spawned,
+    // or existing bodies just received visual components (meshes)
+    if !view_mode.is_changed()
+        && !current_system.is_changed()
+        && newly_spawned_bodies.is_empty()
+        && newly_added_meshes.is_empty()
+    {
         return;
     }
 
@@ -1425,6 +779,7 @@ fn handle_system_transition(
     mut current_system: ResMut<CurrentStarSystem>,
     mut floating_origin: ResMut<FloatingOrigin>,
     mut anchor_query: Query<&mut CameraAnchor, With<GameCamera>>,
+    mut camera_query: Query<&mut OrbitCamera, With<GameCamera>>,
     icon_query: Query<&StarSystemIcon>,
     selected_query: Query<Entity, With<SelectedStarSystem>>,
     body_selected_query: Query<Entity, With<crate::astronomy::components::Selected>>,
@@ -1457,8 +812,14 @@ fn handle_system_transition(
                 // Since the Floating Origin shifted, the Icon moved to (0,0,0).
                 // So target_center should be (0,0,0).
                 // And OrbitCamera will naturally look at (0,0,0).
-                // So this is correct.
                 anchor.0 = None;
+                
+                // Reset OrbitCamera target center to (0,0,0) explicitly
+                // This ensures we are looking at the star (which is at local 0,0,0)
+                // disregarding any previous starmap-space offset
+                if let Ok(mut orbit_camera) = camera_query.get_single_mut() {
+                    orbit_camera.target_center = Vec3::ZERO;
+                }
             }
         }
     }

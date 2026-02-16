@@ -191,12 +191,17 @@ impl SolarSystemData {
 // Increased scale for planets to be easily visible and clickable
 pub const RADIUS_SCALE: f32 = 0.01; 
 // Minimum size to ensure small moons are visible and clickable
-pub const MIN_VISUAL_RADIUS: f32 = 5.0; 
+pub const MIN_VISUAL_RADIUS: f32 = 5.0;
+// Smaller minimum for asteroids/comets so belts don't look like dense clumps
+pub const MIN_VISUAL_RADIUS_ASTEROID: f32 = 0.5;
 // Sun needs a separate, smaller scale to not engulf the inner system when planets are oversized
 pub const STAR_RADIUS_SCALE: f32 = 0.00015; 
 
 /// Calculates the visual radius of a celestial body based on its type and physical radius (km).
 /// Applies non-linear scaling to ensure visibility of smaller bodies without making large ones overwhelming.
+///
+/// Asteroids and comets use a much smaller minimum visual radius so that dense
+/// belts don't turn into overlapping blobs.
 pub fn calculate_visual_radius(body_type: BodyType, radius_km: f32) -> f32 {
     if body_type == BodyType::Star {
         (radius_km * STAR_RADIUS_SCALE).max(MIN_VISUAL_RADIUS)
@@ -217,6 +222,12 @@ pub fn calculate_visual_radius(body_type: BodyType, radius_km: f32) -> f32 {
         // - Jupiter (ratio ~11) -> 11^0.65 = ~4.75 (Previously ~11x, now ~4.75x)
         // - Moon (ratio ~0.27) -> 0.27^0.65 = ~0.43 (Previously ~0.27x, now ~0.43x - bigger!)
         let relative_size = (radius_km / earth_radius).powf(0.65);
-        (base_size * relative_size).max(MIN_VISUAL_RADIUS)
+
+        // Asteroids and comets use a smaller minimum to avoid visual clumping in belts
+        let min_radius = match body_type {
+            BodyType::Asteroid | BodyType::Comet => MIN_VISUAL_RADIUS_ASTEROID,
+            _ => MIN_VISUAL_RADIUS,
+        };
+        (base_size * relative_size).max(min_radius)
     }
 }

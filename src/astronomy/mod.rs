@@ -20,13 +20,13 @@ pub mod systems;
 pub use components::{
     AtmosphereComposition, AtmosphericGas, CometTail, Destroyed, FloatingOrigin, Hovered,
     KeplerOrbit, LocalOrbitAmplification, OrbitCenter, OrbitPath, Selected, SpaceCoordinates,
-    SurfaceTemperature, calculate_general_colony_cost,
+    StellarProperties, SurfaceTemperature, calculate_general_colony_cost,
 };
 pub use ephemeris::{calculate_position_for_body, calculate_positions_at_timestamp};
 pub use exoplanets::{ConfirmedPlanet, RealPlanet};
 pub use procedural::{
-    calculate_frost_line, map_star_to_system_architecture, AsteroidBelt, CometaryCloud, PlanetType,
-    ProceduralPlanet, SystemArchitecture,
+    calculate_frost_line, generate_procedural_atmosphere, map_star_to_system_architecture,
+    AsteroidBelt, CometaryCloud, PlanetType, ProceduralPlanet, SystemArchitecture,
 };
 pub use systems::{
     animate_marker_dots, check_natural_destruction, despawn_hover_markers,

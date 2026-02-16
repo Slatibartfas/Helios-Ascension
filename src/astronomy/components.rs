@@ -262,6 +262,35 @@ pub struct SurfaceTemperature {
     pub max_celsius: f32,
 }
 
+/// Component storing stellar properties for stars.
+/// Used for calculating illumination, temperature, and habitability of orbiting bodies.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct StellarProperties {
+    /// Luminosity relative to Sol (L☉)
+    /// Sol = 1.0
+    pub luminosity_sol: f32,
+    /// Effective surface temperature in Kelvin
+    pub temperature_kelvin: f32,
+}
+
+impl StellarProperties {
+    /// Create new stellar properties
+    pub fn new(luminosity_sol: f32, temperature_kelvin: f32) -> Self {
+        Self {
+            luminosity_sol,
+            temperature_kelvin,
+        }
+    }
+
+    /// Create stellar properties for Sol
+    pub fn sol() -> Self {
+        Self {
+            luminosity_sol: 1.0,
+            temperature_kelvin: 5778.0,
+        }
+    }
+}
+
 /// Represents a gas component in an atmosphere
 #[derive(Debug, Clone, PartialEq)]
 pub struct AtmosphericGas {

@@ -249,7 +249,6 @@ pub fn update_render_transform(
             Option<&LocalOrbitAmplification>,
             Option<&LogicalParent>,
         ),
-        Changed<SpaceCoordinates>,
     >,
     parent_coords: Query<&SpaceCoordinates>,
     floating_origin: Option<Res<crate::astronomy::components::FloatingOrigin>>,
