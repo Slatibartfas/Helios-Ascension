@@ -572,8 +572,8 @@ pub fn spawn_asteroid_belt(
             AsteroidClass::VType // Basaltic
         };
 
-        // Random size (radius 0.1 - 50 km)
-        let radius = rng.gen_range(0.1..50.0);
+        // Random size (radius 0.1 - 15 km); most belt asteroids are small
+        let radius = rng.gen_range(0.1..15.0);
         // Rough mass estimate (density ~2500 kg/m³)
         let mass = (4.0 / 3.0) * std::f64::consts::PI * (radius as f64 * 1000.0).powi(3) * 2500.0;
 

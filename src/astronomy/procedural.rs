@@ -231,10 +231,11 @@ fn generate_rocky_planets(
 ) -> Vec<ProceduralPlanet> {
     let mut planets = Vec::new();
 
-    // Inner system range: scaled with frost line to avoid invalid ranges for dim stars
-    // For very dim stars (frost_line < 0.32 AU), scale down the minimum
-    let inner_min = 0.3_f64.min(frost_line_au * 0.5);
-    let inner_max = frost_line_au * 0.95; // Stay just inside frost line
+    // Inner system range: scaled with frost line but with minimum extents
+    // so that very dim stars (brown dwarfs) still have well-separated rocky planets.
+    // Brown dwarfs can host tidally-locked rocky planets in close orbits.
+    let inner_min = (frost_line_au * 0.5).max(0.08); // At least 0.08 AU
+    let inner_max = (frost_line_au * 0.95).max(inner_min + 0.25); // At least 0.25 AU range
 
     // If frost line is too close, we can't fit rocky planets
     if inner_max <= inner_min {

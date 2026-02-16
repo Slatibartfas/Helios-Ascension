@@ -193,7 +193,7 @@ pub const RADIUS_SCALE: f32 = 0.01;
 // Minimum size to ensure small moons are visible and clickable
 pub const MIN_VISUAL_RADIUS: f32 = 5.0;
 // Smaller minimum for asteroids/comets so belts don't look like dense clumps
-pub const MIN_VISUAL_RADIUS_ASTEROID: f32 = 0.5;
+pub const MIN_VISUAL_RADIUS_ASTEROID: f32 = 0.12;
 // Sun needs a separate, smaller scale to not engulf the inner system when planets are oversized
 pub const STAR_RADIUS_SCALE: f32 = 0.00015; 
 
@@ -213,21 +213,18 @@ pub fn calculate_visual_radius(body_type: BodyType, radius_km: f32) -> f32 {
         // 2. Small bodies are boosted in size (better visibility)
         // 3. Large bodies (Jupiter/Saturn) are dampened (don't look overwhelmingly huge)
         let earth_radius = 6371.0;
-        // Calculate what Earth's size would be with linear scaling keeping Earth roughly the same relative size
         let base_size = earth_radius * RADIUS_SCALE;
-        
-        // Relative size factor compared to Earth, raised to power < 1.0 to compress dynamic range
-        // Power 0.65 means:
-        // - Earth (ratio 1.0) -> 1.0^0.65 = 1.0 (Same size)
-        // - Jupiter (ratio ~11) -> 11^0.65 = ~4.75 (Previously ~11x, now ~4.75x)
-        // - Moon (ratio ~0.27) -> 0.27^0.65 = ~0.43 (Previously ~0.27x, now ~0.43x - bigger!)
-        let relative_size = (radius_km / earth_radius).powf(0.65);
 
-        // Asteroids and comets use a smaller minimum to avoid visual clumping in belts
-        let min_radius = match body_type {
-            BodyType::Asteroid | BodyType::Comet => MIN_VISUAL_RADIUS_ASTEROID,
-            _ => MIN_VISUAL_RADIUS,
+        // Asteroids and comets use a much smaller scale and minimum to avoid
+        // visual clumping in belts; a steeper power (0.45) compresses their range
+        // further and a 0.25× multiplier keeps them appropriately tiny.
+        // Planets/moons use 0.65 power to compress dynamic range while keeping
+        // relative sizes meaningful.
+        let (scale_mult, power, min_radius) = match body_type {
+            BodyType::Asteroid | BodyType::Comet => (0.25, 0.45_f32, MIN_VISUAL_RADIUS_ASTEROID),
+            _ => (1.0, 0.65, MIN_VISUAL_RADIUS),
         };
-        (base_size * relative_size).max(min_radius)
+        let relative_size = (radius_km / earth_radius).powf(power);
+        (base_size * relative_size * scale_mult).max(min_radius)
     }
 }
