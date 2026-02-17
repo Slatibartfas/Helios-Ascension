@@ -177,10 +177,15 @@ fn advance_playlist(
 fn show_music_controls(mut contexts: EguiContexts, mut playlist: ResMut<MusicPlaylist>) {
     let track_title = playlist.tracks[playlist.current_index].title;
 
+    let ctx = match contexts.try_ctx_mut() {
+        Some(ctx) => ctx,
+        None => return,
+    };
+
     egui::Area::new("music_controls".into())
         .anchor(egui::Align2::RIGHT_BOTTOM, [-12.0, -12.0])
         .order(egui::Order::Foreground)
-        .show(contexts.ctx_mut(), |ui| {
+        .show(ctx, |ui| {
             egui::Frame::none()
                 .inner_margin(egui::Margin::symmetric(6.0, 3.0))
                 .show(ui, |ui| {

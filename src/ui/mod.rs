@@ -7769,7 +7769,10 @@ fn ui_resolution_warning(
         return;
     }
 
-    let ctx = contexts.ctx_mut();
+    let ctx = match contexts.try_ctx_mut() {
+        Some(ctx) => ctx,
+        None => return,
+    };
     
     // Get current window size for display
     let (current_width, current_height) = if let Ok(window) = windows.get_single() {
