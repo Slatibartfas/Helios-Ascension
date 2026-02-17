@@ -259,6 +259,20 @@ Helios Ascension is designed to be data-driven and moddable without touching Rus
 
 The project uses Bevy's development profile optimizations to provide fast compile times while maintaining good runtime performance. The inspector UI is enabled by default for debugging purposes.
 
+## Music Attribution
+
+In-game background music is provided by **Scott Buckley** and licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
+| Track | Attribution |
+|-------|-------------|
+| Starfire | 'Starfire' by Scott Buckley — released under CC-BY 4.0. www.scottbuckley.com.au |
+| Adrift Among Infinite Stars | 'Adrift Among Infinite Stars' by Scott Buckley — released under CC-BY 4.0. www.scottbuckley.com.au |
+| Passage Of Time | 'Passage Of Time' by Scott Buckley — released under CC-BY 4.0. www.scottbuckley.com.au |
+
+Music files are stored in `assets/audio/music/`. Attribution is also displayed in-game via a small overlay in the bottom-right corner during gameplay.
+
+To add more tracks, push a new `TrackInfo` entry into `MusicPlaylist::default()` in `src/plugins/music.rs`.
+
 ## Planetary Textures Attribution
 
 This game uses high-resolution (8K) planetary textures provided by Solar System Scope:

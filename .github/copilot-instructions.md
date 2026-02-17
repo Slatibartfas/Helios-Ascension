@@ -56,6 +56,7 @@ helios_ascension/
 │   │   └── mod.rs           # ResearchPlugin
 │   ├── plugins/             # Game systems
 │   │   ├── camera.rs        # Camera movement, anchoring & ViewMode
+│   │   ├── music.rs         # Background music playlist & CC-BY attribution overlay
 │   │   ├── solar_system.rs  # Body spawning, rotation, billboards
 │   │   ├── solar_system_data.rs # RON data loader
 │   │   ├── starmap.rs       # Starmap view (system icons, visibility toggle)
@@ -68,6 +69,8 @@ helios_ascension/
 │       ├── mod.rs           # UIPlugin, SimulationTime, TimeScale, all panels
 │       └── interaction.rs   # Selection management
 ├── assets/
+│   ├── audio/
+│   │   └── music/           # Background music (CC-BY 4.0, Scott Buckley)
 │   ├── data/
 │   │   ├── buildings.ron    # 29 building definitions
 │   │   ├── technologies.ron # Technology tree data
@@ -220,6 +223,17 @@ When adding new UI icons (menus, research categories, etc.), applying the follow
 - **Data-driven**: All technologies defined in `assets/data/technologies.ron` — add techs without touching Rust code
 - Debug menu (F12) for instant research
 - See [docs/RESEARCH_MODDING.md](docs/RESEARCH_MODDING.md) for the full modding guide (modifier types, component definitions, balancing)
+
+#### Background Music (`src/plugins/music.rs`)
+- `MusicPlugin` plays a sequential looping playlist of ambient tracks during gameplay
+- Tracks use `PlaybackMode::Despawn` — Bevy auto-despawns the entity when a track ends; the `advance_playlist` system detects this and starts the next track
+- A non-interactive egui overlay in the bottom-right corner shows the current track title and CC-BY attribution (required by the Scott Buckley license)
+- **Current playlist** (all CC-BY 4.0, Scott Buckley — www.scottbuckley.com.au):
+  - `audio/music/starfire.mp3` — 'Starfire'
+  - `audio/music/adrift-among-infinite-stars.mp3` — 'Adrift Among Infinite Stars'
+  - `audio/music/passage-of-time.mp3` — 'Passage Of Time'
+- **Adding a track**: push a new `TrackInfo { path, title }` into the `Vec` in `MusicPlaylist::default()`. No other code changes needed.
+- **License requirement**: every track MUST include a `title` string matching the official Scott Buckley attribution so the overlay stays correct.
 
 #### Celestial Body & Texture Modding
 - All solar system data defined in `assets/data/solar_system.ron`
