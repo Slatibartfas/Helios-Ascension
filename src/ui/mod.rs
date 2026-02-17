@@ -48,8 +48,9 @@ use crate::research::{
 const MAX_TIME_SCALE: f32 = 31_557_600.0;
 
 /// Minimum supported window dimensions to prevent UI overlap
-const MIN_WINDOW_WIDTH: f32 = 1280.0;
-const MIN_WINDOW_HEIGHT: f32 = 720.0;
+/// Full HD (1920×1080) is required for the complex strategy game UI
+const MIN_WINDOW_WIDTH: f32 = 1920.0;
+const MIN_WINDOW_HEIGHT: f32 = 1080.0;
 
 /// Resource to track if we should display the low resolution warning
 #[derive(Resource, Default)]
@@ -853,11 +854,14 @@ fn ui_resources_bar(
 
                     // Use a Frame for the category display
                     let response = egui::Frame::none()
-                        .inner_margin(egui::Margin::symmetric(5.0, 2.0))
+                        .inner_margin(egui::Margin::symmetric(6.0, 2.0))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
                                 ui.add(egui::Label::new(egui::RichText::new(icon).size(20.0).color(color)).selectable(false));
+                                ui.add_space(2.0);
                                 ui.vertical(|ui| {
+                                    ui.set_min_width(80.0);  // Fixed width to prevent wiggling
+                                    ui.set_max_width(80.0);
                                     ui.add(egui::Label::new(egui::RichText::new(format_mass(category_total)).size(14.0).color(text_color)).selectable(false));
                                     let (rate_text, rate_color) = format_rate_monthly(category_rate);
                                     ui.add(egui::Label::new(egui::RichText::new(rate_text).size(10.0).color(rate_color)).selectable(false));
@@ -909,13 +913,15 @@ fn ui_resources_bar(
                     let border_color = if flash > 0.5 { warning_color } else { egui::Color32::TRANSPARENT };
 
                     let response = egui::Frame::none()
-                        .inner_margin(egui::Margin::symmetric(5.0, 2.0))
+                        .inner_margin(egui::Margin::symmetric(6.0, 2.0))
                         .stroke(egui::Stroke::new(if flash > 0.0 { 2.0 } else { 0.0 }, border_color))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
                                 ui.add(egui::Label::new(egui::RichText::new("🔬").size(20.0).color(rp_color)).selectable(false));
+                                ui.add_space(2.0);
                                 ui.vertical(|ui| {
-                                    ui.set_min_width(120.0);
+                                    ui.set_min_width(125.0);  // Fixed width to prevent wiggling
+                                    ui.set_max_width(125.0);
                                     
                                     if let Some(project) = furthest_rp {
                                         if let Some(tech) = technologies.technologies.get(&project.tech_id) {
@@ -981,13 +987,15 @@ fn ui_resources_bar(
                     let border_color = if flash > 0.5 { warning_color } else { egui::Color32::TRANSPARENT };
 
                     let response = egui::Frame::none()
-                        .inner_margin(egui::Margin::symmetric(5.0, 2.0))
+                        .inner_margin(egui::Margin::symmetric(6.0, 2.0))
                         .stroke(egui::Stroke::new(if flash > 0.0 { 2.0 } else { 0.0 }, border_color))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
                                 ui.add(egui::Label::new(egui::RichText::new("⚙").size(20.0).color(ep_color)).selectable(false));
+                                ui.add_space(2.0);
                                 ui.vertical(|ui| {
-                                    ui.set_min_width(120.0);
+                                    ui.set_min_width(125.0);  // Fixed width to prevent wiggling
+                                    ui.set_max_width(125.0);
                                     
                                     if let Some(project) = furthest_ep {
                                         let name = technologies.components.get(&project.component_id).map(|c| c.name.as_str()).unwrap_or("Unknown Component");
@@ -1061,20 +1069,24 @@ fn ui_resources_bar(
 
                     // Power generation display (clickable with tooltip)
                     let response = egui::Frame::none()
-                        .inner_margin(egui::Margin::symmetric(5.0, 2.0))
+                        .inner_margin(egui::Margin::symmetric(6.0, 2.0))
                         .show(ui, |ui| {
-                            ui.add(
-                                egui::Label::new(
-                                    egui::RichText::new(format!(
-                                        "⚡ {}",
-                                        format_power(budget.energy_grid.produced)
-                                    ))
-                                    .size(14.0)
-                                    .strong()
-                                    .color(power_color),
-                                )
-                                .selectable(false),
-                            );
+                            ui.horizontal_centered(|ui| {
+                                ui.set_min_width(90.0);  // Fixed width to prevent wiggling
+                                ui.set_max_width(90.0);
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(format!(
+                                            "⚡ {}",
+                                            format_power(budget.energy_grid.produced)
+                                        ))
+                                        .size(14.0)
+                                        .strong()
+                                        .color(power_color),
+                                    )
+                                    .selectable(false),
+                                );
+                            });
                         })
                         .response;
 
@@ -1112,7 +1124,7 @@ fn ui_resources_bar(
                         .map_or(false, |(n, _)| n == "Treasury");
 
                     let treasury_response = egui::Frame::none()
-                        .inner_margin(egui::Margin::symmetric(5.0, 2.0))
+                        .inner_margin(egui::Margin::symmetric(6.0, 2.0))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
                                 ui.add(
@@ -1123,9 +1135,11 @@ fn ui_resources_bar(
                                     )
                                     .selectable(false),
                                 );
+                                ui.add_space(2.0);
                                 ui.scope(|ui| {
-                                    // Constrain width to prevent layout issues in right-to-left container
-                                    ui.set_max_width(150.0);
+                                    // Fixed width to prevent layout issues in right-to-left container
+                                    ui.set_min_width(100.0);
+                                    ui.set_max_width(100.0);
                                     ui.vertical(|ui| {
                                         ui.add(
                                             egui::Label::new(
@@ -1189,9 +1203,11 @@ fn ui_resources_bar(
 
                     // Use a Frame for the population display
                     let pop_response = egui::Frame::none()
-                        .inner_margin(egui::Margin::symmetric(5.0, 2.0))
+                        .inner_margin(egui::Margin::symmetric(6.0, 2.0))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
+                                ui.set_min_width(75.0);  // Fixed width to prevent wiggling
+                                ui.set_max_width(75.0);
                                 ui.add(
                                     egui::Label::new(
                                         egui::RichText::new(format_population(total_population))
@@ -1199,6 +1215,7 @@ fn ui_resources_bar(
                                     )
                                     .selectable(false),
                                 );
+                                ui.add_space(2.0);
                                 ui.add(
                                     egui::Label::new(
                                         egui::RichText::new("👥")
@@ -4897,14 +4914,24 @@ fn render_research_tech_tooltip_content(
                         modifier.modifier_type.display_name(),
                         egui::Color32::from_rgb(120, 220, 255),
                     ),
-                    _ => (
-                        format!("{}: {:+.0}%", modifier.modifier_type.display_name(), modifier.value),
-                        if modifier.value >= 0.0 {
+                    _ => {
+                        let is_positive = modifier.value >= 0.0;
+                        // For cost-type modifiers, negative is beneficial
+                        let is_beneficial = match &modifier.modifier_type {
+                            crate::research::types::ModifierType::ConstructionCost
+                            | crate::research::types::ModifierType::ShipMaintenance => !is_positive,
+                            _ => is_positive,
+                        };
+                        let value_color = if is_beneficial {
                             egui::Color32::from_rgb(120, 255, 140)
                         } else {
                             egui::Color32::from_rgb(255, 120, 120)
-                        },
-                    ),
+                        };
+                        (
+                            format!("{}: {:+.0}%", modifier.modifier_type.display_name(), modifier.value),
+                            value_color,
+                        )
+                    },
                 };
                 ui.label(egui::RichText::new(format!("  • {}", value_text)).color(value_color));
             }
@@ -5268,6 +5295,11 @@ fn render_bonuses_tab(
             .into_iter()
             .partition(|(m, _)| matches!(m, ModifierType::UnlockMechanic(_)));
 
+        // Track hovered modifier for stable tooltip
+        let hover_id = ui.id().with("bonuses_hover");
+        let now = ui.input(|i| i.time);
+        let mut hovered_modifier: Option<String> = None;
+
         if !bonuses.is_empty() {
             ui.label(egui::RichText::new("Numeric Bonuses").strong().size(16.0));
             ui.add_space(4.0);
@@ -5301,9 +5333,9 @@ fn render_bonuses_tab(
                             .color(egui::Color32::GRAY));
                     }
                 });
-                row.response.on_hover_ui(|ui| {
-                    render_bonus_tooltip(ui, modifier_type, **total_value, &modifier_sources, icon_textures);
-                });
+                if row.response.hovered() {
+                    hovered_modifier = Some(modifier_type.display_name());
+                }
             }
             ui.add_space(10.0);
         }
@@ -5319,8 +5351,39 @@ fn render_bonuses_tab(
                         .strong()
                         .color(egui::Color32::from_rgb(120, 220, 255)));
                 });
-                row.response.on_hover_ui(|ui| {
-                    render_bonus_tooltip(ui, modifier_type, 0.0, &modifier_sources, icon_textures);
+                if row.response.hovered() {
+                    hovered_modifier = Some(modifier_type.display_name());
+                }
+            }
+        }
+
+        // Stable tooltip with hold time
+        if let Some(new_hover) = hovered_modifier {
+            ui.data_mut(|data| {
+                data.insert_temp(hover_id, (new_hover.clone(), now + 0.5));
+            });
+        }
+
+        // Show tooltip for stable hovered modifier
+        if let Some((held_modifier_name, hold_until)) = ui.data_mut(|data| data.get_temp::<(String, f64)>(hover_id)) {
+            if now <= hold_until {
+                // Find the modifier by name
+                let all_modifiers: Vec<_> = bonuses.iter().chain(unlocks.iter()).collect();
+                if let Some((modifier_type, total_value)) = all_modifiers.iter()
+                    .find(|(m, _)| m.display_name() == held_modifier_name) 
+                {
+                    egui::show_tooltip_at_pointer(
+                        ui.ctx(), 
+                        egui::LayerId::new(egui::Order::Tooltip, ui.id().with("bonus_tooltip")),
+                        ui.id().with("bonus_tooltip"), 
+                        |ui| {
+                            render_bonus_tooltip(ui, modifier_type, **total_value, &modifier_sources, icon_textures);
+                        }
+                    );
+                }
+            } else {
+                ui.data_mut(|data| {
+                    data.remove::<(String, f64)>(hover_id);
                 });
             }
         }
@@ -7227,65 +7290,104 @@ fn ui_resolution_warning(
         return;
     };
 
-    let window_response = egui::Window::new("⚠ Low Resolution Warning")
+    let window_response = egui::Window::new("⚠ Display Resolution Notice")
         .id(egui::Id::new("resolution_warning_dialog"))
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
-            ui.set_min_width(400.0);
+            ui.set_min_width(520.0);
+            ui.set_max_width(520.0);
             
             ui.vertical_centered(|ui| {
                 ui.add_space(10.0);
                 ui.label(
                     egui::RichText::new("⚠")
-                        .size(48.0)
+                        .size(56.0)
                         .color(egui::Color32::from_rgb(255, 200, 0))
                 );
                 ui.add_space(10.0);
+                ui.label(
+                    egui::RichText::new("Low Resolution Detected")
+                        .size(18.0)
+                        .strong()
+                        .color(egui::Color32::from_rgb(255, 220, 100))
+                );
             });
 
             ui.separator();
-            ui.add_space(8.0);
+            ui.add_space(12.0);
 
-            ui.label(
-                egui::RichText::new("Your screen resolution may be too low for optimal gameplay.")
-                    .size(14.0)
-            );
-            ui.add_space(8.0);
-
-            ui.horizontal(|ui| {
-                ui.label("Current resolution:");
-                ui.label(
-                    egui::RichText::new(format!("{}×{}", current_width as u32, current_height as u32))
-                        .strong()
-                        .color(egui::Color32::from_rgb(255, 100, 100))
-                );
+            // Current vs Required
+            ui.group(|ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Your resolution:");
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(
+                            egui::RichText::new(format!("{}×{}", current_width as u32, current_height as u32))
+                                .strong()
+                                .size(15.0)
+                                .color(egui::Color32::from_rgb(255, 100, 100))
+                        );
+                    });
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Required minimum:");
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(
+                            egui::RichText::new(format!("{}×{} (Full HD)", MIN_WINDOW_WIDTH as u32, MIN_WINDOW_HEIGHT as u32))
+                                .strong()
+                                .size(15.0)
+                                .color(egui::Color32::from_rgb(100, 255, 100))
+                        );
+                    });
+                });
             });
 
-            ui.horizontal(|ui| {
-                ui.label("Recommended minimum:");
-                ui.label(
-                    egui::RichText::new(format!("{}×{}", MIN_WINDOW_WIDTH as u32, MIN_WINDOW_HEIGHT as u32))
-                        .strong()
-                        .color(egui::Color32::from_rgb(100, 255, 100))
-                );
-            });
+            ui.add_space(12.0);
 
-            ui.add_space(8.0);
+            // Explanation
             ui.label(
-                egui::RichText::new("UI elements may overlap or be difficult to use at lower resolutions.")
-                    .size(12.0)
-                    .color(egui::Color32::from_rgb(200, 200, 200))
+                egui::RichText::new("Why Full HD is Required:")
+                    .strong()
+                    .size(13.0)
             );
-            ui.add_space(8.0);
-
-            ui.label("Please consider:");
             ui.add_space(4.0);
-            ui.indent("resolution_tips", |ui| {
-                ui.label("• Increasing your screen resolution");
-                ui.label("• Maximizing the game window");
-                ui.label("• Adjusting your display scaling settings");
+            ui.label(
+                "Helios Ascension is a complex 4X grand strategy game with extensive UI elements including:"
+            );
+            ui.add_space(4.0);
+            ui.indent("ui_elements", |ui| {
+                ui.label("• Resource & economy tracking panels");
+                ui.label("• Research & engineering progress displays");
+                ui.label("• Colony management interfaces");
+                ui.label("• Star system navigation controls");
+                ui.label("• Detailed celestial body information");
+                ui.label("• Technology tree visualization");
+            });
+            ui.add_space(8.0);
+            ui.label(
+                egui::RichText::new("At lower resolutions, these elements will overlap and become difficult or impossible to use.")
+                    .size(12.0)
+                    .color(egui::Color32::from_rgb(220, 220, 220))
+            );
+
+            ui.add_space(12.0);
+            ui.separator();
+            ui.add_space(8.0);
+
+            // Solutions
+            ui.label(
+                egui::RichText::new("Recommended Solutions:")
+                    .strong()
+                    .size(13.0)
+            );
+            ui.add_space(4.0);
+            ui.indent("solutions", |ui| {
+                ui.label("1. Switch to Full HD (1920×1080) or higher resolution");
+                ui.label("2. Maximize the game window");
+                ui.label("3. Reduce display scaling in Windows settings");
+                ui.label("4. Use an external monitor if on a laptop");
             });
 
             ui.add_space(16.0);
@@ -7294,10 +7396,17 @@ fn ui_resolution_warning(
 
             let mut dismiss = false;
             ui.horizontal(|ui| {
-                ui.add_space(ui.available_width() - 80.0);
-                if ui.button(egui::RichText::new("I Understand").size(14.0)).clicked() {
-                    dismiss = true;
-                }
+                ui.label(
+                    egui::RichText::new("You may continue, but expect UI issues.")
+                        .size(11.0)
+                        .italics()
+                        .color(egui::Color32::from_rgb(180, 180, 180))
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button(egui::RichText::new("I Understand").size(14.0)).clicked() {
+                        dismiss = true;
+                    }
+                });
             });
 
             ui.add_space(4.0);

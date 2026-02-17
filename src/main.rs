@@ -24,8 +24,9 @@ use render::backdrop::BackdropPlugin;
 use ui::UIPlugin;
 
 /// Minimum supported window dimensions to prevent UI overlap
-const MIN_WINDOW_WIDTH: f32 = 1280.0;
-const MIN_WINDOW_HEIGHT: f32 = 720.0;
+/// Full HD (1920×1080) is required for the complex strategy game UI
+const MIN_WINDOW_WIDTH: f32 = 1920.0;
+const MIN_WINDOW_HEIGHT: f32 = 1080.0;
 
 fn main() {
     App::new()
