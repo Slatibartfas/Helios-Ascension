@@ -3483,9 +3483,9 @@ fn render_tech_tree_tab(
     });
     
     // ---------- layout constants ----------
-    let tier_spacing = 350.0 * zoom;
-    let node_spacing_y = 80.0 * zoom;
-    let category_spacing = 20.0 * zoom;
+    let tier_spacing = 450.0 * zoom;
+    let node_spacing_y = 100.0 * zoom;
+    let category_spacing = 40.0 * zoom;
     
     // ---------- status line (fixed height, drawn FIRST so it reserves space at the bottom) ----------
     // We draw it at the end but must reserve its height now.
@@ -3560,6 +3560,8 @@ fn render_tech_tree_tab(
     // subsequent tiers sort by the average Y of their prerequisites so that
     // connected nodes stay close together and lines are shorter.
     let mut node_positions: HashMap<String, egui::Pos2> = HashMap::new();
+    // Track category bounding boxes per tier: (tier_idx, category) -> (min_y, max_y, x)
+    let mut category_bounds: HashMap<(usize, TechCategory), (f32, f32, f32)> = HashMap::new();
     
     let mut techs_by_tier: std::collections::BTreeMap<u32, Vec<&crate::research::types::Technology>> =
         std::collections::BTreeMap::new();
@@ -3607,12 +3609,47 @@ fn render_tech_tree_tab(
             }
             last_category = Some(tech.category);
             // Store the CENTER of the node for line connections
+            let center_x = base_x + node_w / 2.0;
+            let center_y = current_y + node_h / 2.0;
             node_positions.insert(
                 tech.id.clone(),
-                egui::Pos2::new(base_x + node_w / 2.0, current_y + node_h / 2.0),
+                egui::Pos2::new(center_x, center_y),
             );
+            // Update category bounding box for this tier
+            let node_top = current_y;
+            let node_bottom = current_y + node_h;
+            let bounds = category_bounds.entry((tier_idx, tech.category)).or_insert((node_top, node_bottom, base_x));
+            bounds.0 = bounds.0.min(node_top);
+            bounds.1 = bounds.1.max(node_bottom);
+            
             current_y += node_h + node_spacing_y;
         }
+    }
+    
+    // ---------- draw category background panes ----------
+    let pane_pad = (6.0 * zoom).round();
+    let pane_rounding = 6.0 * zoom;
+    for ((_, category), (min_y, max_y, base_x)) in &category_bounds {
+        let cat_color = tech_category_color(*category);
+        // Semi-transparent background tinted with category color
+        let bg_color = egui::Color32::from_rgba_unmultiplied(
+            cat_color.r(),
+            cat_color.g(),
+            cat_color.b(),
+            18,
+        );
+        let border_color = egui::Color32::from_rgba_unmultiplied(
+            cat_color.r(),
+            cat_color.g(),
+            cat_color.b(),
+            40,
+        );
+        let pane_rect = egui::Rect::from_min_max(
+            egui::Pos2::new(base_x - pane_pad, min_y - pane_pad),
+            egui::Pos2::new(base_x + node_w + pane_pad, max_y + pane_pad),
+        );
+        painter.rect_filled(pane_rect, pane_rounding, bg_color);
+        painter.rect_stroke(pane_rect, pane_rounding, egui::Stroke::new(1.0 * zoom, border_color));
     }
     
     // ---------- prerequisite highlight path ----------
