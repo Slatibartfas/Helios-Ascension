@@ -286,7 +286,7 @@ pub fn update_render_transform(
     }
 }
 
-/// System that draws orbit paths as fading trails (Terra Invicta style).
+/// System that draws orbit paths as fading trails.
 /// The trail is brightest at the body's current position and fades out
 /// behind it, creating a comet-tail effect along the orbit.
 ///
@@ -1530,7 +1530,7 @@ fn spawn_marker(
     // manually sync its position every frame in `scale_markers_with_zoom`.
     // commands.entity(marker_entity).set_parent(owner);
 
-    // Create Terra Invicta-style corner brackets using boxes
+    // Create corner brackets using boxes
     // Each corner has two bars forming an L-shape
     let bracket_thickness = (radius * 0.08).max(2.0); // Scale with body size, minimum 2.0
     let bracket_length = radius * 0.25; // Length of each bracket arm

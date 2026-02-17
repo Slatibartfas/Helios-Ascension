@@ -1193,7 +1193,7 @@ pub fn setup_solar_system(
             }
 
             // Determine orbit color and visibility based on body type
-            // Terra Invicta-inspired colors with higher alpha for bright trail heads
+            // Orbit trail colors with higher alpha for bright trail heads
             let (orbit_color, should_show) = match body_data.body_type {
                 BodyType::Planet => {
                     // Planets: bright cyan/blue, high alpha — trail head glows

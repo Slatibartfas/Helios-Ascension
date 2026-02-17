@@ -459,7 +459,7 @@ impl AtmosphereComposition {
             .map(|g| g.percentage)
     }
 
-    /// Calculate the colony cost based on Aurora 4X model
+    /// Calculate the colony cost.
     /// Returns the colony cost factor (0.0 = Earth-like/Ideal).
     /// Returns f32::INFINITY if the body is uninhabitable for standard humans (e.g. extreme gravity).
     pub fn calculate_colony_cost(&self, gravity_g: f32, min_temp_c: f32, max_temp_c: f32) -> f32 {
@@ -524,7 +524,7 @@ pub fn calculate_colony_cost_details(
     max_temp_c: f32,
     atmosphere: Option<&AtmosphereComposition>,
 ) -> ColonyCostDetails {
-    // Standard Human Tolerances (Aurora 4X C# Defaults)
+    // Standard Human Tolerances
     const MIN_GRAVITY: f32 = 0.1;
     const MAX_GRAVITY: f32 = 1.7;
     const MIN_BREATHABLE_TEMP: f32 = 0.0;

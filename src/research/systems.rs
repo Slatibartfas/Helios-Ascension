@@ -82,9 +82,9 @@ impl ResearchState {
 }
 
 /// Base RP generated per year of game time (without buildings)
-const BASE_RP_PER_YEAR: f64 = 2000.0;
+const BASE_RP_PER_YEAR: f64 = 500.0;
 /// Base EP generated per year of game time (without buildings)
-const BASE_EP_PER_YEAR: f64 = 1000.0;
+const BASE_EP_PER_YEAR: f64 = 250.0;
 /// Seconds in a Julian year
 const SECONDS_PER_YEAR: f64 = 31_557_600.0;
 

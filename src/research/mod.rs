@@ -3,7 +3,7 @@
 //! Provides a comprehensive research system including:
 //! - Tech tree with 1000+ technologies across multiple categories
 //! - Separation of Research (discovery) and Engineering (application)
-//! - Research teams with limited slots (Aurora 4X style)
+//! - Research teams with limited slots
 //! - Component designs that require engineering
 //! - Technology modifiers that affect civilization stats
 //! - Data-driven technology definitions for easy modding

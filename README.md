@@ -1,5 +1,5 @@
 # Helios-Ascension
-A 4X grand strategy game inspired by Aurora 4X and Terra Invicta with realistic orbital mechanics and a big focus on resource management, logistics and research. Climb the Kardashev scale starting at 0.7 and expand your civilization across the stars!
+A 4X grand strategy game with realistic orbital mechanics and a big focus on resource management, logistics and research. Climb the Kardashev scale starting at 0.7 and expand your civilization across the stars!
 
 ## Current Status: v0.2.0 - Core Mechanics Implemented ✨
 
