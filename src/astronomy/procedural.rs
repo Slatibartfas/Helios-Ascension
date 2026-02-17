@@ -710,7 +710,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(789);
         let frost_line = 4.85;
 
-        let planets = generate_gas_giants("Test", 2, frost_line, &[], &mut rng);
+        let planets = generate_gas_giants("Test", 2, frost_line, &[], 0, &mut rng);
 
         assert_eq!(planets.len(), 2);
         for planet in &planets {

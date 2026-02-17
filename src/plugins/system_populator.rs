@@ -193,6 +193,8 @@ fn populate_nearby_systems(
                 let radius_earth = planet_data.radius_earth.unwrap_or(1.0);
                 let radius_km = radius_earth * 6371.0;
                 let vis_r = calculate_visual_radius(BodyType::Planet, radius_km) * vis_scale;
+                let orbit_bevy = (planet_data.semi_major_axis_au as f32) * (SCALING_FACTOR as f32);
+                let vis_r = vis_r.min(orbit_bevy * 0.10).max(2.0);
                 all_planet_entities.push((planet_entity, planet_data.semi_major_axis_au as f64, planet_data.mass_earth, vis_r));
             }
 
@@ -225,6 +227,8 @@ fn populate_nearby_systems(
                     &mut rng,
                 );
                 let vis_r = calculate_visual_radius(planet.body_type(), planet.radius_km()) * vis_scale;
+                let orbit_bevy = (planet.semi_major_axis_au as f32) * (SCALING_FACTOR as f32);
+                let vis_r = vis_r.min(orbit_bevy * 0.10).max(2.0);
                 all_planet_entities.push((planet_entity, planet.semi_major_axis_au, planet.mass_earth as f32, vis_r));
             }
 
@@ -240,6 +244,8 @@ fn populate_nearby_systems(
                     &mut rng,
                 );
                 let vis_r = calculate_visual_radius(planet.body_type(), planet.radius_km()) * vis_scale;
+                let orbit_bevy = (planet.semi_major_axis_au as f32) * (SCALING_FACTOR as f32);
+                let vis_r = vis_r.min(orbit_bevy * 0.10).max(2.0);
                 all_planet_entities.push((planet_entity, planet.semi_major_axis_au, planet.mass_earth as f32, vis_r));
             }
 

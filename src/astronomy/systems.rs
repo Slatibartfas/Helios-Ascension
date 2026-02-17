@@ -1202,7 +1202,7 @@ pub fn handle_body_selection(
     // Using ray-distance (not camera-distance) prevents large bodies like
     // stars from stealing clicks away from smaller planets orbiting nearby.
     // Stores: (Entity, ray_distance, body name)
-    let mut closest_body: Option<(Entity, f32, String)> = None;
+    let mut closest_body: Option<(Entity, f32, f32, String)> = None;
 
     for (entity, transform, body, system_id) in body_query.iter() {
         // Only interact with bodies in the current star system
@@ -1232,9 +1232,12 @@ pub fn handle_body_selection(
 
         if distance < selection_radius {
             match closest_body {
-                None => closest_body = Some((entity, distance, body.name.clone())),
-                Some((_, prev_ray_dist, _)) if distance < prev_ray_dist => {
-                    closest_body = Some((entity, distance, body.name.clone()));
+                None => closest_body = Some((entity, distance, projection, body.name.clone())),
+                Some((_, prev_ray_dist, prev_proj, _))
+                    if distance < prev_ray_dist
+                        || (distance == prev_ray_dist && projection < prev_proj) =>
+                {
+                    closest_body = Some((entity, distance, projection, body.name.clone()));
                 }
                 _ => {}
             }
@@ -1247,7 +1250,7 @@ pub fn handle_body_selection(
     }
 
     // Select the clicked body if any
-    if let Some((entity, _, name)) = closest_body {
+    if let Some((entity, _, _, name)) = closest_body {
         commands.entity(entity).insert(Selected);
         info!("Selected celestial body: {} (entity {:?})", name, entity);
 
@@ -1332,7 +1335,7 @@ pub fn handle_body_hover(
     // Find the body whose center is closest to the mouse ray.
     // Using ray-distance (not camera-distance) prevents large bodies like
     // stars from stealing hovers away from smaller planets orbiting nearby.
-    let mut closest_body: Option<(Entity, f32)> = None;
+    let mut closest_body: Option<(Entity, f32, f32)> = None;
 
     for (entity, transform, body, system_id) in body_query.iter() {
         // Only interact with bodies in the current star system
@@ -1359,9 +1362,12 @@ pub fn handle_body_hover(
         let selection_radius = body.visual_radius + SELECTION_CLICK_RADIUS;
         if distance < selection_radius {
             match closest_body {
-                None => closest_body = Some((entity, distance)),
-                Some((_, prev_ray_dist)) if distance < prev_ray_dist => {
-                    closest_body = Some((entity, distance));
+                None => closest_body = Some((entity, distance, projection)),
+                Some((_, prev_ray_dist, prev_proj))
+                    if distance < prev_ray_dist
+                        || (distance == prev_ray_dist && projection < prev_proj) =>
+                {
+                    closest_body = Some((entity, distance, projection));
                 }
                 _ => {}
             }
@@ -1374,7 +1380,7 @@ pub fn handle_body_hover(
     }
 
     // Set the hovered body if any
-    if let Some((entity, _)) = closest_body {
+    if let Some((entity, _, _)) = closest_body {
         commands.entity(entity).insert(Hovered);
     }
 }

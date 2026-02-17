@@ -2332,7 +2332,7 @@ fn ui_dashboard(
         Option<&LogicalParent>,
     )>,
     // Read-only lookup for parent body coordinates
-    parent_coords_query: Query<&SpaceCoordinates>,
+    _parent_coords_query: Query<&SpaceCoordinates>,
     // Resource query for system totals
     resource_query: Query<(&SystemId, &PlanetResources)>,
     // Ledger queries
@@ -2570,7 +2570,7 @@ fn ui_dashboard(
                 ui.separator();
 
                 if let Some(entity) = selection.get() {
-                    if let Ok((body, coords, orbit, resources, atmosphere, mut survey_level, population, surface_temp, logical_parent)) = body_query.get_mut(entity) {
+                    if let Ok((body, coords, orbit, resources, atmosphere, mut survey_level, population, surface_temp, _logical_parent)) = body_query.get_mut(entity) {
                         // Body name and basic info
                         ui.label(egui::RichText::new(&body.name).size(18.0).strong());
                         ui.add_space(10.0);
@@ -2578,20 +2578,10 @@ fn ui_dashboard(
                         // Position information
                         ui.group(|ui| {
                             ui.label(egui::RichText::new("Position").strong());
-                            // Stars don't orbit another body in the same system,
-                            // so showing "Distance from Star" is meaningless.
                             // For non-star bodies, compute distance relative to
-                            // the parent body (star).
+                            // the system primary (star) using the absolute position.
                             if !matches!(body.body_type, crate::plugins::solar_system_data::BodyType::Star) {
-                                let distance = if let Some(parent) = logical_parent {
-                                    if let Ok(parent_coords) = parent_coords_query.get(parent.0) {
-                                        (coords.position - parent_coords.position).length()
-                                    } else {
-                                        coords.position.length()
-                                    }
-                                } else {
-                                    coords.position.length()
-                                };
+                                let distance = coords.position.length();
                                 ui.label(format!("Distance from Star: {:.3} AU", distance));
                             }
                             ui.label(format!("Radius: {:.1} km", body.radius));
@@ -3530,7 +3520,7 @@ fn render_tech_tree_tab(
     let category_gap = 24.0 * zoom;
     let pane_pad = (10.0 * zoom).round();
     let pane_rounding = 6.0 * zoom;
-    let label_width = (100.0 * zoom).round();
+    let label_width = (140.0 * zoom).round();
     
     // ---------- status line (fixed height, drawn FIRST so it reserves space at the bottom) ----------
     // We draw it at the end but must reserve its height now.
@@ -3713,8 +3703,8 @@ fn render_tech_tree_tab(
         let cat_icon = band.category.icon();
         let cat_name = band.category.display_name().to_uppercase();
         
-        // Fixed icon size for consistency
-        let icon_font_size = (22.0 * zoom).round();
+        // Icon sized to fill ~55% of the band height for high visibility
+        let icon_font_size = (band.height * 0.55).round().max(20.0 * zoom);
         let font_icon_large = egui::FontId::proportional(icon_font_size);
         let font_cat_word = egui::FontId::proportional((11.0 * zoom).round());
         
