@@ -1198,8 +1198,10 @@ pub fn handle_body_selection(
         return;
     };
 
-    // Find the closest body to the ray
-    // Stores: (Entity, distance from camera, body name)
+    // Find the body whose center is closest to the mouse ray.
+    // Using ray-distance (not camera-distance) prevents large bodies like
+    // stars from stealing clicks away from smaller planets orbiting nearby.
+    // Stores: (Entity, ray_distance, body name)
     let mut closest_body: Option<(Entity, f32, String)> = None;
 
     for (entity, transform, body, system_id) in body_query.iter() {
@@ -1230,9 +1232,9 @@ pub fn handle_body_selection(
 
         if distance < selection_radius {
             match closest_body {
-                None => closest_body = Some((entity, projection, body.name.clone())),
-                Some((_, prev_dist, _)) if projection < prev_dist => {
-                    closest_body = Some((entity, projection, body.name.clone()));
+                None => closest_body = Some((entity, distance, body.name.clone())),
+                Some((_, prev_ray_dist, _)) if distance < prev_ray_dist => {
+                    closest_body = Some((entity, distance, body.name.clone()));
                 }
                 _ => {}
             }
@@ -1327,7 +1329,9 @@ pub fn handle_body_hover(
         return;
     };
 
-    // Find the closest body to the ray
+    // Find the body whose center is closest to the mouse ray.
+    // Using ray-distance (not camera-distance) prevents large bodies like
+    // stars from stealing hovers away from smaller planets orbiting nearby.
     let mut closest_body: Option<(Entity, f32)> = None;
 
     for (entity, transform, body, system_id) in body_query.iter() {
@@ -1355,9 +1359,9 @@ pub fn handle_body_hover(
         let selection_radius = body.visual_radius + SELECTION_CLICK_RADIUS;
         if distance < selection_radius {
             match closest_body {
-                None => closest_body = Some((entity, projection)),
-                Some((_, prev_dist)) if projection < prev_dist => {
-                    closest_body = Some((entity, projection));
+                None => closest_body = Some((entity, distance)),
+                Some((_, prev_ray_dist)) if distance < prev_ray_dist => {
+                    closest_body = Some((entity, distance));
                 }
                 _ => {}
             }

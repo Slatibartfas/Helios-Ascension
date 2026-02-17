@@ -183,11 +183,14 @@ pub fn map_star_to_system_architecture(
         );
 
         // Generate outer system gas/ice giants
+        // Offset the name index past confirmed + rocky-procedural planets
+        let gas_name_offset = existing_orbits_au.len() + rocky_planets.len();
         gas_giants = generate_gas_giants(
             star_name,
             outer_count,
             frost_line_au,
             existing_orbits_au,
+            gas_name_offset,
             rng,
         );
     }
@@ -283,7 +286,8 @@ fn generate_rocky_planets(
             name: format!(
                 "{} {}",
                 star_name,
-                char::from_u32('b' as u32 + i as u32).unwrap_or('?')
+                char::from_u32('b' as u32 + existing_orbits_au.len() as u32 + i as u32)
+                    .unwrap_or('?')
             ),
             semi_major_axis_au: semi_major_axis,
             eccentricity: rng.gen_range(0.0..0.15), // Rocky planets tend to have low eccentricity
@@ -309,6 +313,7 @@ fn generate_gas_giants(
     count: usize,
     frost_line_au: f64,
     existing_orbits_au: &[f64],
+    name_offset: usize,
     rng: &mut impl Rng,
 ) -> Vec<ProceduralPlanet> {
     let mut planets = Vec::new();
@@ -352,7 +357,7 @@ fn generate_gas_giants(
             name: format!(
                 "{} {}",
                 star_name,
-                char::from_u32('b' as u32 + existing_orbits_au.len() as u32 + i as u32)
+                char::from_u32('b' as u32 + name_offset as u32 + i as u32)
                     .unwrap_or('?')
             ),
             semi_major_axis_au: semi_major_axis,

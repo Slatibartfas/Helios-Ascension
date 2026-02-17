@@ -148,6 +148,33 @@ fn populate_nearby_systems(
                 metallicity,
             );
 
+            // Cap stellar visual radius so the star mesh doesn't swallow
+            // the innermost planets in compact systems.
+            if let Some(inner_sma) = primary_star.planets.iter()
+                .map(|p| p.semi_major_axis_au)
+                .reduce(f32::min)
+            {
+                let max_star_vis = (inner_sma as f32) * (SCALING_FACTOR as f32) * 0.25;
+                if let Some(mut body) = commands.get_entity(star_entity) {
+                    // We can't query components during command building, so
+                    // read back the visual_radius we just set and clamp it.
+                    let current = calculate_visual_radius(
+                        BodyType::Star,
+                        (primary_star.radius_sol * 695700.0) as f32,
+                    );
+                    if current > max_star_vis && max_star_vis > 2.0 {
+                        body.insert(CelestialBody {
+                            name: primary_star.name.clone(),
+                            mass: (primary_star.mass_sol * 1.989e30) as f64,
+                            radius: primary_star.radius_sol * 695700.0,
+                            body_type: BodyType::Star,
+                            visual_radius: max_star_vis,
+                            asteroid_class: None,
+                        });
+                    }
+                }
+            }
+
             // Get the star's frost line and metallicity multiplier
             let frost_line = calculate_frost_line(primary_star.luminosity_sol as f64);
             let star_system = StarSystem::with_metallicity(
