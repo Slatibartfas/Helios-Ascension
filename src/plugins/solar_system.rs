@@ -25,6 +25,8 @@ pub struct SolarSystemPlugin;
 impl Plugin for SolarSystemPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(MaterialPlugin::<StarGlowMaterial>::default())
+            .add_plugins(MaterialPlugin::<StarSurfaceMaterial>::default())
+            .add_plugins(MaterialPlugin::<StarDiffractionMaterial>::default())
             .add_systems(Startup, setup_solar_system)
             .add_systems(PostStartup, initial_camera_focus)
             .add_systems(
@@ -34,6 +36,7 @@ impl Plugin for SolarSystemPlugin {
                     update_billboards,
                     update_body_visibility,
                     update_star_glare_lod,
+                    update_star_diffraction_lod,
                 ),
             )
             // System to convert loaded normal/specular textures to linear formats
@@ -41,7 +44,7 @@ impl Plugin for SolarSystemPlugin {
     }
 }
 
-/// Material for the star glow/corona effect
+/// Material for the star glow/corona effect (billboard)
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
 pub struct StarGlowMaterial {
     #[uniform(0)]
@@ -54,15 +57,58 @@ impl Material for StarGlowMaterial {
     fn fragment_shader() -> ShaderRef {
         "shaders/star_glow.wgsl".into()
     }
-
-    // Set transparency mode to additive blending
     fn alpha_mode(&self) -> AlphaMode {
         AlphaMode::Add
     }
-
-    // Force rendering on top of the star mesh to prevent clipping/z-fighting
     fn depth_bias(&self) -> f32 {
         100.0
+    }
+}
+
+/// Limb-darkening material applied directly to the star sphere mesh.
+/// Replaces StandardMaterial for star bodies so the disk darkens at the edges
+/// (Eddington limb-darkening law) and shows a cool-to-hot temperature gradient.
+#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
+pub struct StarSurfaceMaterial {
+    /// Centre colour (hot white core, HDR > 1.0)
+    #[uniform(0)]
+    pub color_center: Vec4,
+    /// Limb colour (cooler orange-red at disk edge)
+    #[uniform(1)]
+    pub color_limb: Vec4,
+    /// Optional surface texture (solar granulation etc.)
+    #[texture(2)]
+    #[sampler(3)]
+    pub star_texture: Option<Handle<Image>>,
+}
+
+impl Material for StarSurfaceMaterial {
+    fn fragment_shader() -> ShaderRef {
+        "shaders/star_surface.wgsl".into()
+    }
+    // Stars are self-illuminating
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::Opaque
+    }
+}
+
+/// Large billboard for diffraction spikes / lens flare, rendered behind the corona.
+#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
+pub struct StarDiffractionMaterial {
+    /// Spike colour (usually warm white, HDR > 1.0)
+    #[uniform(0)]
+    pub color: Vec4,
+}
+
+impl Material for StarDiffractionMaterial {
+    fn fragment_shader() -> ShaderRef {
+        "shaders/star_diffraction.wgsl".into()
+    }
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::Add
+    }
+    fn depth_bias(&self) -> f32 {
+        90.0   // behind the corona (100.0) but in front of star mesh
     }
 }
 
@@ -75,6 +121,12 @@ pub struct Billboard;
 pub struct StarGlare {
     pub base_core_color: Vec4,
     pub base_halo_color: Vec4,
+}
+
+/// Component to tag the diffraction spike billboard for LOD updates
+#[derive(Component)]
+pub struct StarDiffraction {
+    pub base_color: Vec4,
 }
 
 fn update_billboards(
@@ -175,6 +227,34 @@ fn update_star_glare_lod(
 
                 // Ensure alpha doesn't drop below 0 (vector mul handles this)
                 // When t -> 0, colors -> 0 (black/transparent with Additive blending)
+            }
+        }
+    }
+}
+
+/// Fades the diffraction spike billboard in when far from the star and out when close.
+/// The spikes are a long-range effect; at close range the surface limb-darkening takes over.
+fn update_star_diffraction_lod(
+    camera_query: Query<&GlobalTransform, With<Camera3d>>,
+    mut diffraction_query: Query<(&GlobalTransform, &Handle<StarDiffractionMaterial>, &StarDiffraction)>,
+    mut materials: ResMut<Assets<StarDiffractionMaterial>>,
+) {
+    if let Ok(cam_transform) = camera_query.get_single() {
+        let cam_pos = cam_transform.translation();
+
+        for (diff_transform, mat_handle, diff_data) in diffraction_query.iter_mut() {
+            let diff_pos = diff_transform.translation();
+            let dist = (cam_pos - diff_pos).length();
+
+            // Diffraction spikes are subtle at medium range, invisible up close.
+            let min_dist = 400.0;
+            let max_dist = 2000.0;
+            let t = ((dist - min_dist) / (max_dist - min_dist)).clamp(0.0, 1.0);
+            // Ease-in so spikes only appear well outside the near-field
+            let t_eased = t * t;
+
+            if let Some(mat) = materials.get_mut(mat_handle) {
+                mat.color = diff_data.base_color * t_eased;
             }
         }
     }
@@ -547,6 +627,8 @@ pub fn setup_solar_system(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut materials_night: ResMut<Assets<crate::plugins::visual_effects::NightMaterial>>,
     mut materials_glow: ResMut<Assets<StarGlowMaterial>>,
+    mut materials_surface: ResMut<Assets<StarSurfaceMaterial>>,
+    mut materials_diffraction: ResMut<Assets<StarDiffractionMaterial>>,
     asset_server: Res<AssetServer>,
 ) {
     // Queue to collect normal/specular handles that must be treated as linear textures
@@ -688,20 +770,28 @@ pub fn setup_solar_system(
             apply_procedural_variation(body_data, base_color, has_texture)
         };
 
-        // Create material with improved visual properties
-        let material = if is_star {
-            materials.add(StandardMaterial {
-                base_color: material_color,
-                base_color_texture,
-                // Emissive above bloom threshold (50.0) – white-yellow like the real Sun
-                emissive: LinearRgba::from(Color::srgb(80.0, 76.0, 68.0)),
-                unlit: true,               // Stars self-illuminate, show texture directly
-                perceptual_roughness: 1.0, // Stars are rough/diffuse
-                metallic: 0.0,
-                ..default()
-            })
+        // Star surface material — uses limb darkening shader instead of StandardMaterial.
+        // For non-star bodies, build the StandardMaterial as before (wrapped in Option
+        // so we can choose which bundle to spawn below).
+        let star_surface_mat: Option<Handle<StarSurfaceMaterial>> = if is_star {
+            // Centre colour: hot white, HDR (triggers bloom on the highlighted face)
+            let center_col = Vec4::new(90.0, 85.0, 75.0, 1.0);
+            // Limb colour: cooler orange-red at disk edge
+            let limb_col = Vec4::new(55.0, 28.0, 8.0, 1.0);
+            Some(materials_surface.add(StarSurfaceMaterial {
+                color_center: center_col,
+                color_limb:   limb_col,
+                star_texture:  base_color_texture.clone(),
+            }))
+        } else {
+            None
+        };
+
+        // Non-star standard material
+        let material: Option<Handle<StandardMaterial>> = if is_star {
+            None
         } else if body_data.body_type == BodyType::Ring {
-            materials.add(StandardMaterial {
+            Some(materials.add(StandardMaterial {
                 base_color: material_color,
                 base_color_texture: base_color_texture.clone(),
                 perceptual_roughness: roughness,
@@ -709,28 +799,24 @@ pub fn setup_solar_system(
                 reflectance: 0.2,
                 alpha_mode: AlphaMode::Blend,
                 cull_mode: None, // Double-sided
-                unlit: true, // Rings often look better unlit or carefully lit, but for now transparent unlit or lit?
-                // Real rings are lit by sun. But avoiding shadows casting weirdly.
-                // Let's stick to lit but standard.
+                unlit: true,
                 ..default()
-            })
+            }))
         } else {
-            materials.add(StandardMaterial {
+            Some(materials.add(StandardMaterial {
                 base_color: material_color,
                 base_color_texture: base_color_texture.clone(),
                 // Note: normal_map_texture is loaded but not applied yet
                 // TODO: Enable once multi-layer rendering is fully implemented
                 // normal_map_texture,
                 // Subtle emissive so the dark side isn't pitch-black.
-                // Use the base-color texture as emissive_texture so the glow
-                // preserves surface detail instead of washing it out with a flat color.
                 emissive: LinearRgba::WHITE * 0.02,
                 emissive_texture: base_color_texture,
                 perceptual_roughness: roughness,
                 metallic,
-                reflectance: 0.5, // Higher reflectance for better lighting response
+                reflectance: 0.5,
                 ..default()
-            })
+            }))
         };
 
         // Initial transform will be updated after precise orbital data is inserted
@@ -759,23 +845,44 @@ pub fn setup_solar_system(
             meshes.add(Sphere::new(visual_radius).mesh().uv(64, 32))
         };
 
-        let mut entity_commands = commands.spawn((
-            PbrBundle {
-                mesh,
-                material,
-                transform: Transform::from_translation(initial_pos),
-                ..default()
-            },
-            CelestialBody {
-                name: body_data.name.clone(),
-                radius: body_data.radius,
-                mass: body_data.mass,
-                body_type: body_data.body_type,
-                visual_radius,
-                asteroid_class: body_data.asteroid_class,
-            },
-            RotationSpeed(rotation_speed),
-        ));
+        // Stars use the limb-darkening StarSurfaceMaterial; all other bodies use PbrBundle.
+        let mut entity_commands = if let Some(star_mat) = star_surface_mat {
+            commands.spawn((
+                MaterialMeshBundle {
+                    mesh,
+                    material: star_mat,
+                    transform: Transform::from_translation(initial_pos),
+                    ..default()
+                },
+                CelestialBody {
+                    name: body_data.name.clone(),
+                    radius: body_data.radius,
+                    mass: body_data.mass,
+                    body_type: body_data.body_type,
+                    visual_radius,
+                    asteroid_class: body_data.asteroid_class,
+                },
+                RotationSpeed(rotation_speed),
+            ))
+        } else {
+            commands.spawn((
+                PbrBundle {
+                    mesh,
+                    material: material.expect("non-star body must have StandardMaterial"),
+                    transform: Transform::from_translation(initial_pos),
+                    ..default()
+                },
+                CelestialBody {
+                    name: body_data.name.clone(),
+                    radius: body_data.radius,
+                    mass: body_data.mass,
+                    body_type: body_data.body_type,
+                    visual_radius,
+                    asteroid_class: body_data.asteroid_class,
+                },
+                RotationSpeed(rotation_speed),
+            ))
+        };
 
         // Add axial tilt if present (convert degrees to radians)
         if body_data.axial_tilt != 0.0 || body_data.north_pole_ra != 0.0 {
@@ -1038,21 +1145,45 @@ pub fn setup_solar_system(
                         ..default()
                     });
 
-                    // Add Soft Glow visual (Billboard)
-                    // 使用 custom shader for a high-quality procedural corona/glare
-                    // Size is large because the shader fades out significantly towards the edges
+                    // ── Diffraction spike billboard (large, behind corona) ──────────────
+                    // Rendered at depth_bias 90 (behind corona at 100).
+                    // Spikes are a long-range effect; the LOD system fades them in with
+                    // distance. Billboard size = visual_radius × 30 so spikes extend well
+                    // beyond the corona and trigger bloom at the streaks' HDR brightness.
+                    let diff_col = Vec4::new(4.5, 4.2, 3.5, 1.0); // warm white
+                    parent.spawn((
+                        MaterialMeshBundle {
+                            mesh: meshes.add(Rectangle::new(
+                                visual_radius * 30.0,
+                                visual_radius * 30.0,
+                            )),
+                            material: materials_diffraction.add(StarDiffractionMaterial {
+                                color: Vec4::ZERO, // starts hidden; LOD system drives it
+                            }),
+                            transform: Transform::from_translation(Vec3::Z * 0.05),
+                            ..default()
+                        },
+                        Billboard,
+                        StarDiffraction { base_color: diff_col },
+                    ));
+
+                    // ── Corona / halo billboard ────────────────────────────────────────
+                    // Billboard size = visual_radius × 16 (half-size × 8) so the star
+                    // disk sits at UV r = 0.125, matching the shader's DISK_UV constant.
                     let core_col = Vec4::new(5.0, 5.0, 5.0, 1.0); // Blinding white core
                     let halo_col = Vec4::new(4.0, 2.5, 0.5, 1.0); // Golden/Orange halo
 
                     parent.spawn((
                         MaterialMeshBundle {
-                            mesh: meshes
-                                .add(Rectangle::new(visual_radius * 12.0, visual_radius * 12.0)),
+                            mesh: meshes.add(Rectangle::new(
+                                visual_radius * 16.0,
+                                visual_radius * 16.0,
+                            )),
                             material: materials_glow.add(StarGlowMaterial {
                                 color_core: core_col,
                                 color_halo: halo_col,
                             }),
-                            transform: Transform::from_translation(Vec3::Z * 0.1), // Slight offset to avoid z-fighting with star
+                            transform: Transform::from_translation(Vec3::Z * 0.1),
                             ..default()
                         },
                         Billboard,

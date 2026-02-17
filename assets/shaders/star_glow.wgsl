@@ -1,3 +1,13 @@
+// star_glow.wgsl — Billboard corona & halo shader for stellar bodies
+//
+// Three-layer model:
+//   1. Inverse-square halo   — r⁻² glow starting from the stellar disk edge
+//   2. Inner corona ring     — FBM-textured band just outside the disk
+//   3. Ray spikes            — high-frequency FBM angular structure with radial fall-off
+//
+// Billboard size = visual_radius × 16; half-size = visual_radius × 8.
+// Star disk occupies UV r ≈ 0.125  (visual_radius / (visual_radius × 8)).
+
 @group(2) @binding(0) var<uniform> color_core: vec4<f32>;
 @group(2) @binding(1) var<uniform> color_halo: vec4<f32>;
 
@@ -8,59 +18,92 @@ struct FragmentInput {
     @location(2) uv: vec2<f32>,
 };
 
-// Simple pseudo-random hash
-fn hash(p: vec2<f32>) -> f32 {
-    return fract(sin(dot(p, vec2<f32>(12.9898, 78.233))) * 43758.5453);
+// ── Noise Primitives ──────────────────────────────────────────────────────────
+
+fn hash21(p: vec2<f32>) -> f32 {
+    var q = fract(p * vec2<f32>(127.1, 311.7));
+    q += dot(q, q.yx + 33.33);
+    return fract(q.x * q.y);
 }
 
-// 2D Noise
-fn noise(p: vec2<f32>) -> f32 {
+fn noise2(p: vec2<f32>) -> f32 {
     let i = floor(p);
     let f = fract(p);
     let u = f * f * (3.0 - 2.0 * f);
-    return mix(mix(hash(i + vec2<f32>(0.0, 0.0)), hash(i + vec2<f32>(1.0, 0.0)), u.x),
-               mix(hash(i + vec2<f32>(0.0, 1.0)), hash(i + vec2<f32>(1.0, 1.0)), u.x), u.y);
+    return mix(
+        mix(hash21(i),                       hash21(i + vec2<f32>(1.0, 0.0)), u.x),
+        mix(hash21(i + vec2<f32>(0.0, 1.0)), hash21(i + vec2<f32>(1.0, 1.0)), u.x),
+        u.y
+    );
 }
+
+// 4-octave FBM for rich, multi-scale corona texture
+fn fbm4(p: vec2<f32>) -> f32 {
+    var val = 0.0;
+    var amp = 0.5;
+    var pos = p;
+    for (var i = 0; i < 4; i++) {
+        val += amp * noise2(pos);
+        pos   = pos * 2.17 + vec2<f32>(3.1, 7.4);
+        amp  *= 0.48;
+    }
+    return val;   // ~ 0 .. 1
+}
+
+// ── Main Fragment ─────────────────────────────────────────────────────────────
 
 @fragment
 fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
-    // UV coordinates usually 0.0 to 1.0. Center is 0.5.
-    let center = vec2<f32>(0.5, 0.5);
-    let uv = in.uv;
-    
-    // Distance from center
-    let dist = distance(uv, center) * 2.0; // 0.0 at center, 1.0 at edge
-    
-    // Radial Falloff: High intensity at center, rapid drop-off
-    // Power function gives a sharp core and long tail
-    let intensity = pow(max(0.0, 1.0 - dist), 3.0);
-    
-    // Noise for texture/corona rays
-    // We sample noise based on angle (atan2) and distance
-    let angle = atan2(uv.y - 0.5, uv.x - 0.5);
-    
-    // Add "rays" by varying intensity with angle
-    // Frequency 20.0 gives ~20 spikes
-    let rays = noise(vec2<f32>(angle * 12.0, 0.0)) * 0.2;
-    // Add time-based or position-based noise for detail? For now, static is stable.
-    
-    // Combine core glow + noise
-    var glow = intensity + (intensity * rays);
-    
-    // Soften the center to avoid a hard point
-    glow = clamp(glow, 0.0, 1.0);
+    let dx    = in.uv.x - 0.5;
+    let dy    = in.uv.y - 0.5;
+    let r     = sqrt(dx * dx + dy * dy);   // 0 at centre, ~0.5 at billboard edge
+    let angle = atan2(dy, dx);             // −π .. π
 
-    // Color gradient
-    // Mix between core (white/hot) and halo (red/orange)
-    let final_color = mix(color_halo, color_core, glow);
-    
-    // Apply exponential falloff to alpha/brightness to ensure edge is transparent
-    // smoothstep(edge1, edge0, x) - reverse smoothstep for fade out
-    let alpha = smoothstep(1.0, 0.2, dist) * glow;
-    
-    // Boost brightness for HDR bloom
-    // Ensure the core is VERY bright (bloom trigger)
-    let brightness = max(alpha * 4.0, 0.0);
-    
-    return vec4<f32>(final_color.rgb * brightness, alpha);
+    // Clip billboard corners → circular effect
+    if r > 0.5 {
+        return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    }
+
+    // Star disk UV radius (disk_r / billboard_half_size = 1/8 = 0.125)
+    let DISK_UV:  f32 = 0.125;
+    // Reference distance from disk edge where halo normalises to 1.0
+    let REF_DIST: f32 = 0.07;
+
+    // ── Layer 1: Inverse-square halo (I ∝ r⁻²) ──────────────────────────────
+    let r_from_disk = max(r - DISK_UV + REF_DIST, REF_DIST * 0.1);
+    let halo_raw    = (REF_DIST * REF_DIST) / (r_from_disk * r_from_disk);
+    let halo        = clamp(halo_raw, 0.0, 1.0) * smoothstep(0.5, 0.18, r);
+
+    // ── Layer 2: Inner corona ring with FBM structure ─────────────────────────
+    // Narrow band immediately outside the stellar disk
+    let corona_band = smoothstep(DISK_UV * 0.85, DISK_UV * 1.1, r)
+                    * smoothstep(DISK_UV * 2.3,  DISK_UV * 1.1, r);
+    // FBM on (angle × freq, r) → ~28 angular features per 2π
+    let fbm_in  = fbm4(vec2<f32>(angle * 4.5, r * 6.0));
+    let corona  = corona_band * (0.2 + 0.8 * fbm_in) * 2.0;
+
+    // ── Layer 3: Ray spikes — FBM angular noise, radial extent ───────────────
+    // High angular frequency gives many thin, uneven rays
+    let angle_01  = angle * 0.15915494;              // 0 .. 1 wrap
+    let ray_fbm   = fbm4(vec2<f32>(angle_01 * 34.0, 0.9));  // ~34 angular periods
+    // Threshold + power-sharpen: only peaks form visible rays
+    let ray_shape  = pow(max(0.0, ray_fbm - 0.32), 2.5) * 4.5;
+    // Rays extend from disk edge outward, fading beyond 60 % of billboard radius
+    let ray_radial = smoothstep(DISK_UV * 0.9, DISK_UV * 1.4, r)
+                   * smoothstep(0.5, DISK_UV * 1.6, r);
+    let rays = ray_shape * ray_radial;
+
+    // ── Combine ───────────────────────────────────────────────────────────────
+    let combined = halo * 0.55 + corona * 0.45 + rays * 0.65;
+
+    // Color: bright parts are hot-white, dim parts are golden-orange
+    let t   = clamp(combined / 1.1, 0.0, 1.0);
+    let col = mix(color_halo, color_core, t * t);
+
+    // HDR multipliers trigger bloom on bright regions
+    let hdr        = halo * 6.0 + corona * 4.5 + rays * 3.5 + 0.4;
+    let brightness = combined * hdr;
+
+    let alpha = clamp(combined, 0.0, 1.0) * smoothstep(0.5, 0.44, r);
+    return vec4<f32>(col.rgb * brightness * col.a, alpha);
 }
