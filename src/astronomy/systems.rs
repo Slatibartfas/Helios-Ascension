@@ -1469,8 +1469,14 @@ pub fn despawn_hover_markers(
     mut commands: Commands,
     mut removed_hovered: RemovedComponents<Hovered>,
     marker_query: Query<(Entity, &MarkerOwner), With<HoverMarker>>,
+    selected_query: Query<(), With<Selected>>,
 ) {
     for entity in removed_hovered.read() {
+        // Skip if the entity is now selected - spawn_selection_markers already handles it
+        if selected_query.get(entity).is_ok() {
+            continue;
+        }
+        
         for (marker_entity, owner) in marker_query.iter() {
             if owner.0 == entity {
                 commands.entity(marker_entity).despawn_recursive();

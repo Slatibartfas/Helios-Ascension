@@ -148,6 +148,8 @@ pub struct PendingResearchActions {
     pub resume_research: Vec<TechnologyId>,
     /// Whether to navigate to the Available Research tab.
     pub navigate_to_available_tab: bool,
+    /// Whether to navigate to the Available Engineering tab.
+    pub navigate_to_available_engineering_tab: bool,
     /// Updated allocation percentages: (tech_id, new_percent)
     pub update_allocations: Vec<(TechnologyId, f64)>,
 }

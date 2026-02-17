@@ -386,9 +386,9 @@ pub fn process_pending_research(
     }
 
     // Collect tech IDs already being researched so we don't duplicate.
-    let active_tech_ids: HashSet<&str> = existing_projects
+    let mut active_tech_ids: HashSet<String> = existing_projects
         .iter()
-        .map(|(_, p, _)| p.tech_id.as_str())
+        .map(|(_, p, _)| p.tech_id.clone())
         .collect();
 
     // Count currently active research projects (for team capacity)
@@ -397,16 +397,16 @@ pub fn process_pending_research(
         .filter(|(_, p, _)| p.active)
         .count();
 
-    let mut spawned = 0usize;
+    let mut startable_tech_ids: Vec<String> = Vec::new();
 
     for tech_id in pending.start_research.drain(..) {
         // Guard: skip if already unlocked or already in progress.
-        if research_state.is_unlocked(&tech_id) || active_tech_ids.contains(tech_id.as_str()) {
+        if research_state.is_unlocked(&tech_id) || active_tech_ids.contains(&tech_id) {
             continue;
         }
 
         // Check team capacity
-        if active_count + spawned >= team_capacity.max_research_teams {
+        if active_count + startable_tech_ids.len() >= team_capacity.max_research_teams {
             warn!(
                 "Cannot start research: all {} team slots are in use",
                 team_capacity.max_research_teams
@@ -432,42 +432,50 @@ pub fn process_pending_research(
             continue;
         }
 
-        info!("Starting research on: {}", tech.name);
-
-        // Spawn a combined entity with project + default team.
-        commands.spawn((
-            ResearchProject {
-                tech_id: tech_id.clone(),
-                progress: 0.0,
-                required_points: tech.research_cost,
-                team_id: Entity::PLACEHOLDER,
-                rp_allocation_percent: 1.0, // Will be redistributed below
-                active: true,
-            },
-            ResearchTeam::new_research(
-                format!("Research: {}", tech.name),
-                "Default Scientist".to_string(),
-                Some(tech.category),
-            ),
-        ));
-
-        spawned += 1;
+        active_tech_ids.insert(tech_id.clone());
+        startable_tech_ids.push(tech_id);
     }
 
-    // Redistribute allocation evenly after spawning new projects
-    if spawned > 0 {
-        let new_active_count = existing_projects
+    if startable_tech_ids.is_empty() {
+        return;
+    }
+
+    let new_active_count = existing_projects
             .iter()
             .filter(|(_, p, _)| p.active && !p.is_complete())
             .count()
-            + spawned;
-        if new_active_count > 0 {
-            let equal_share = 1.0 / new_active_count as f64;
-            for (_, mut project, _) in existing_projects.iter_mut() {
-                if project.active && !project.is_complete() {
-                    project.rp_allocation_percent = equal_share;
-                }
-            }
+            + startable_tech_ids.len();
+
+    let equal_share = if new_active_count > 0 {
+        1.0 / new_active_count as f64
+    } else {
+        1.0
+    };
+
+    for tech_id in startable_tech_ids {
+        if let Some(tech) = tech_data.get_tech(&tech_id) {
+            info!("Starting research on: {}", tech.name);
+            commands.spawn((
+                ResearchProject {
+                    tech_id: tech_id.clone(),
+                    progress: 0.0,
+                    required_points: tech.research_cost,
+                    team_id: Entity::PLACEHOLDER,
+                    rp_allocation_percent: equal_share,
+                    active: true,
+                },
+                ResearchTeam::new_research(
+                    format!("Research: {}", tech.name),
+                    "Default Scientist".to_string(),
+                    Some(tech.category),
+                ),
+            ));
+        }
+    }
+
+    for (_, mut project, _) in existing_projects.iter_mut() {
+        if project.active && !project.is_complete() {
+            project.rp_allocation_percent = equal_share;
         }
     }
 }
