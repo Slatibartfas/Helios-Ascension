@@ -327,6 +327,7 @@ fn create_atmospheric_deposit(
 
 /// Helper to create a deposit for trace atmospheric gases (very small amounts)
 /// Used for gases present at ppb/ppm levels in an atmosphere
+#[cfg(test)]
 fn create_trace_atmospheric_deposit(
     mass_mt: f64,
     accessibility: f32,
@@ -481,7 +482,7 @@ fn apply_special_body_profile(
         // Concentrations are set proportional to 2026 real-world annual production
         // so that the mining system distributes output realistically:
         //   Solid: Silicates ~50,000  Methane ~2,900  Iron ~2,500  Water ~5,000
-        //          Aluminum ~76  Copper ~22.5  RareEarths ~0.35  Uranium ~0.058 Mt/yr
+        //          Aluminum ~76  Copper ~26.0  RareEarths ~0.24  Uranium ~0.058 Mt/yr
         //   Atmo:  N₂ ~175  O₂ ~150  CO₂ ~35  Ar ~4.5 Mt/yr
         "Earth" => {
             // === NON-ATMOSPHERIC (SOLID/LIQUID MINING) ===
@@ -532,22 +533,22 @@ fn apply_special_body_profile(
                 MineralDeposit::new(5_500.0, 40_000.0, 4.78e14, 0.00152, 0.8),
             );
 
-            // Copper — ~22.5 Mt/yr
+            // Copper — ~26.0 Mt/yr (updated to match 2026 demand)
             // Proven: ~890 Mt (USGS 2024 reserves)
             // Deep: ~3,500 Mt (USGS 2024 identified + undiscovered resources ~5.6 Gt)
             // Bulk: Crustal average ~60 ppm
             resources.add_deposit(
                 ResourceType::Copper,
-                MineralDeposit::new(890.0, 3_500.0, 1.43e12, 0.00045, 0.5),
+                MineralDeposit::new(890.0, 3_500.0, 1.43e12, 0.00184, 0.5),
             );
 
-            // Rare Earths — ~0.35 Mt/yr (350,000 tonnes REO)
+            // Rare Earths — ~0.24 Mt/yr (240,000 tonnes REO)
             // Proven: ~110 Mt REO (USGS 2024 reserves)
             // Deep: ~500 Mt (USGS total resources estimate)
             // Bulk: Crustal average ~150-200 ppm
             resources.add_deposit(
                 ResourceType::RareEarths,
-                MineralDeposit::new(110.0, 500.0, 1.19e12, 0.000007, 0.4),
+                MineralDeposit::new(110.0, 500.0, 1.19e12, 0.000017, 0.4),
             );
 
             // Uranium — ~0.058 Mt/yr (58,000 tonnes)

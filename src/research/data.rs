@@ -73,6 +73,9 @@ pub fn load_technologies(mut commands: Commands) {
                         for comp_id in &tech.unlocks_components {
                             component_to_tech.insert(comp_id.clone(), tech.id.clone());
                         }
+                        for comp_id in &tech.unlocks_engineering {
+                            component_to_tech.insert(comp_id.clone(), tech.id.clone());
+                        }
                         tech_data.technologies.insert(tech.id.clone(), tech);
                     }
 

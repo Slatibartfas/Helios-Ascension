@@ -97,7 +97,7 @@ pub struct BinaryOrbitData {
     pub arg_periastron_deg: f64,
 }
 
-fn load_nearby_stars_data(mut stars_data: ResMut<NearbyStarsData>) {
+pub fn load_nearby_stars_data(mut stars_data: ResMut<NearbyStarsData>) {
     let path = Path::new("assets/data/nearest_stars_raw.json");
     match fs::read_to_string(path) {
         Ok(content) => match serde_json::from_str::<Vec<StarSystemData>>(&content) {
@@ -108,5 +108,275 @@ fn load_nearby_stars_data(mut stars_data: ResMut<NearbyStarsData>) {
             Err(e) => error!("Failed to parse nearby stars data: {}", e),
         },
         Err(e) => warn!("Could not read nearby stars data file: {}", e),
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct StarPositionData {
+    pub name: &'static str,
+    pub pos_ly: [f64; 3],            // x, y, z in Light Years
+    pub spectral_type: &'static str, // For color
+}
+
+// 50 Closest Star Systems to Sol (excluding Sol)
+// Coordinates in Light Years (Equatorial J2000 Cartesian)
+pub const NEARBY_STARS_POSITIONS: &[StarPositionData] = &[
+    StarPositionData {
+        name: "Alpha Centauri",
+        pos_ly: [-1.5477, -1.1846, -3.7728],
+        spectral_type: "G2V",
+    },
+    StarPositionData {
+        name: "Barnard's Star",
+        pos_ly: [-0.0568, -5.9426, 0.4879],
+        spectral_type: "M4.0Ve",
+    },
+    StarPositionData {
+        name: "Luhman 16",
+        pos_ly: [-3.7012, 1.1792, -5.2152],
+        spectral_type: "L8",
+    },
+    StarPositionData {
+        name: "WISE 0855-0714",
+        pos_ly: [-5.1011, 5.3203, -0.9371],
+        spectral_type: "Y4",
+    },
+    StarPositionData {
+        name: "Wolf 359",
+        pos_ly: [-7.4995, 2.1332, 0.9594],
+        spectral_type: "M6.0V",
+    },
+    StarPositionData {
+        name: "Lalande 21185",
+        pos_ly: [-6.5166, 1.6448, 4.8777],
+        spectral_type: "M2.0V",
+    },
+    StarPositionData {
+        name: "Sirius",
+        pos_ly: [-1.6326, 8.18, -2.5051],
+        spectral_type: "A1V",
+    },
+    StarPositionData {
+        name: "Luyten 726-8",
+        pos_ly: [7.5367, 3.4753, -2.6887],
+        spectral_type: "M5.5Ve",
+    },
+    StarPositionData {
+        name: "Ross 154",
+        pos_ly: [1.915, -8.6694, -3.9225],
+        spectral_type: "M3.5Ve",
+    },
+    StarPositionData {
+        name: "Ross 248",
+        pos_ly: [7.3684, -0.5828, 7.1815],
+        spectral_type: "M5.5Ve",
+    },
+    StarPositionData {
+        name: "Epsilon Eridani",
+        pos_ly: [6.1847, 8.2771, -1.7213],
+        spectral_type: "K2V",
+    },
+    StarPositionData {
+        name: "Lacaille 9352",
+        pos_ly: [8.4508, -2.0341, -6.2812],
+        spectral_type: "M0.5V",
+    },
+    StarPositionData {
+        name: "Ross 128",
+        pos_ly: [-10.9906, 0.5885, 0.1545],
+        spectral_type: "M4.0Vn",
+    },
+    StarPositionData {
+        name: "EZ Aquarii",
+        pos_ly: [10.0458, -3.7282, -2.9312],
+        spectral_type: "M5.0Ve",
+    },
+    StarPositionData {
+        name: "61 Cygni",
+        pos_ly: [6.4753, -6.0967, 7.1379],
+        spectral_type: "K5.0V",
+    },
+    StarPositionData {
+        name: "Procyon",
+        pos_ly: [-4.7928, 10.3605, 1.0439],
+        spectral_type: "F5IV-V",
+    },
+    StarPositionData {
+        name: "Struve 2398",
+        pos_ly: [1.0781, -5.7086, 9.914],
+        spectral_type: "M3.0V",
+    },
+    StarPositionData {
+        name: "Groombridge 34",
+        pos_ly: [8.328, 0.6694, 8.0747],
+        spectral_type: "M1.5V",
+    },
+    StarPositionData {
+        name: "DX Cancri",
+        pos_ly: [-6.3414, 8.2773, 5.2619],
+        spectral_type: "M6.5Ve",
+    },
+    StarPositionData {
+        name: "Epsilon Indi",
+        pos_ly: [5.6765, -3.1673, -9.9283],
+        spectral_type: "K5Ve",
+    },
+    StarPositionData {
+        name: "Tau Ceti",
+        pos_ly: [10.2932, 5.0241, -3.2708],
+        spectral_type: "G8.5V",
+    },
+    StarPositionData {
+        name: "GJ 1061",
+        pos_ly: [5.0232, 6.9135, -8.4015],
+        spectral_type: "M5.5V",
+    },
+    StarPositionData {
+        name: "YZ Ceti",
+        pos_ly: [11.0172, 3.6068, -3.544],
+        spectral_type: "M4.5V",
+    },
+    StarPositionData {
+        name: "Luyten's Star",
+        pos_ly: [-4.5772, 11.4136, 1.1247],
+        spectral_type: "M3.5V",
+    },
+    StarPositionData {
+        name: "Teegarden's Star",
+        pos_ly: [8.7097, 8.1943, 3.629],
+        spectral_type: "M6.5V",
+    },
+    StarPositionData {
+        name: "Kapteyn's Star",
+        pos_ly: [1.8982, 8.869, -9.0756],
+        spectral_type: "M1.5V",
+    },
+    StarPositionData {
+        name: "Lacaille 8760",
+        pos_ly: [7.6441, -6.5718, -8.1246],
+        spectral_type: "M0.0V",
+    },
+    StarPositionData {
+        name: "SCR 1845-6357",
+        pos_ly: [1.1209, -5.6237, -11.738],
+        spectral_type: "M8.5V",
+    },
+    StarPositionData {
+        name: "Kruger 60",
+        pos_ly: [6.4306, -2.7299, 11.0491],
+        spectral_type: "M3.0V",
+    },
+    StarPositionData {
+        name: "DENIS J1048-3956",
+        pos_ly: [-9.6244, 3.1158, -8.469],
+        spectral_type: "M8.5V",
+    },
+    StarPositionData {
+        name: "Ross 614",
+        pos_ly: [-1.7069, 13.2373, -0.656],
+        spectral_type: "M4.5V",
+    },
+    StarPositionData {
+        name: "UGPS J0722-0540",
+        pos_ly: [-4.7051, 12.5085, -1.328],
+        spectral_type: "T9",
+    },
+    StarPositionData {
+        name: "Wolf 1061",
+        pos_ly: [-5.2293, -12.6717, -3.0799],
+        spectral_type: "M3.0V",
+    },
+    StarPositionData {
+        name: "Van Maanen's Star",
+        pos_ly: [13.6885, 2.9824, 1.3215],
+        spectral_type: "DZ7",
+    },
+    StarPositionData {
+        name: "Gliese 1",
+        pos_ly: [11.2638, 0.2658, -8.601],
+        spectral_type: "M1.5V",
+    },
+    StarPositionData {
+        name: "TZ Arietis",
+        pos_ly: [12.2919, 7.1125, 3.2923],
+        spectral_type: "M4.5V",
+    },
+    StarPositionData {
+        name: "Wolf 424",
+        pos_ly: [-14.2627, -2.0862, 2.2884],
+        spectral_type: "M5.5V",
+    },
+    StarPositionData {
+        name: "Gliese 687",
+        pos_ly: [-0.5623, -5.4485, 13.7916],
+        spectral_type: "M3.0V",
+    },
+    StarPositionData {
+        name: "Gliese 674",
+        pos_ly: [-1.383, -10.0523, -10.8415],
+        spectral_type: "M3.0V",
+    },
+    StarPositionData {
+        name: "LHS 292",
+        pos_ly: [-13.8709, 4.4929, -2.9233],
+        spectral_type: "M6.5V",
+    },
+    StarPositionData {
+        name: "Gliese 440",
+        pos_ly: [-6.4165, 0.4005, -13.688],
+        spectral_type: "DQ6",
+    },
+    StarPositionData {
+        name: "GJ 1245",
+        pos_ly: [5.1766, -9.5437, 10.6378],
+        spectral_type: "M5.5V",
+    },
+    StarPositionData {
+        name: "WISE 1741+2553",
+        pos_ly: [-1.1098, -13.6475, 6.6454],
+        spectral_type: "T9",
+    },
+    StarPositionData {
+        name: "Gliese 876",
+        pos_ly: [14.147, -4.239, -3.7544],
+        spectral_type: "M3.5V",
+    },
+    StarPositionData {
+        name: "WISE 1639-6847",
+        pos_ly: [-1.9044, -5.2097, -14.2977],
+        spectral_type: "Y0.5",
+    },
+    StarPositionData {
+        name: "LHS 288",
+        pos_ly: [-7.1797, 2.4598, -13.8107],
+        spectral_type: "M5.5V",
+    },
+    StarPositionData {
+        name: "GJ 1002",
+        pos_ly: [15.6626, 0.4601, -2.0739],
+        spectral_type: "M5.5V",
+    },
+    StarPositionData {
+        name: "DENIS 0255-4700",
+        pos_ly: [7.8177, 7.4878, -11.6144],
+        spectral_type: "L7.5V",
+    },
+    StarPositionData {
+        name: "Groombridge 1618",
+        pos_ly: [-9.1881, 4.7135, 12.0713],
+        spectral_type: "K7.0V",
+    },
+    StarPositionData {
+        name: "Gliese 412",
+        pos_ly: [-11.2719, 2.7334, 11.0169],
+        spectral_type: "M1.0V",
+    },
+];
+
+impl NearbyStarsData {
+    pub fn get_position_by_name(name: &str) -> Option<[f64; 3]> {
+        NEARBY_STARS_POSITIONS.iter()
+            .find(|star| star.name == name)
+            .map(|star| star.pos_ly)
     }
 }

@@ -13,19 +13,22 @@ use rand::rngs::StdRng;
 use rand::SeedableRng;
 
 use crate::astronomy::components::{CurrentStarSystem, OrbitCenter, SystemId};
+use crate::astronomy::nearby_stars::load_nearby_stars_data;
 use crate::astronomy::exoplanets::RealPlanet;
 use crate::astronomy::nearby_stars::{NearbyStarsData, PlanetData, StarData};
 use crate::astronomy::{
-    calculate_frost_line, map_star_to_system_architecture, KeplerOrbit, OrbitPath,
-    ProceduralPlanet, SpaceCoordinates,
+    calculate_frost_line, generate_procedural_atmosphere, map_star_to_system_architecture,
+    KeplerOrbit, LocalOrbitAmplification, OrbitPath, ProceduralPlanet, SpaceCoordinates,
+    StellarProperties, SurfaceTemperature, SCALING_FACTOR,
 };
 use crate::economy::components::{OrbitsBody, SpectralClass, StarSystem};
 use crate::economy::generation::generate_solar_system_resources;
 use crate::game_state::GameSeed;
 use crate::plugins::solar_system::{
-    Asteroid, CelestialBody, Comet, Planet, Star,
+    Asteroid, CelestialBody, Comet, LogicalParent, Moon, Planet, Star,
 };
-use crate::plugins::solar_system_data::{AsteroidClass, BodyType};
+use crate::plugins::solar_system_data::{calculate_visual_radius, AsteroidClass, BodyType};
+use crate::plugins::starmap::SystemMetadata;
 
 pub struct SystemPopulatorPlugin;
 
@@ -33,7 +36,9 @@ impl Plugin for SystemPopulatorPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Startup,
-            populate_nearby_systems.before(generate_solar_system_resources),
+            populate_nearby_systems
+                .after(load_nearby_stars_data)
+                .before(generate_solar_system_resources),
         );
     }
 }
@@ -46,6 +51,7 @@ fn populate_nearby_systems(
     stars_data: Res<NearbyStarsData>,
     game_seed: Res<GameSeed>,
     _current_system: Res<CurrentStarSystem>,
+    mut system_metadata: ResMut<SystemMetadata>,
 ) {
     // Use game seed for deterministic generation
     let mut rng = StdRng::seed_from_u64(game_seed.value);
@@ -71,13 +77,24 @@ fn populate_nearby_systems(
             system_data.stars.len()
         );
 
-        // For simplicity, generate systems in a line along the X-axis in "galactic coordinates"
-        // Each light year = 63,241 AU, place systems at their actual distances
-        let distance_au = (system_data.distance_ly as f64) * 63241.0;
+        // Use 3D coordinates from the static data if available
+        // Each light year = 63,241.077 AU
+        let distance_au = (system_data.distance_ly as f64) * 63241.077;
+        
+        let mut star_position = DVec3::new(distance_au, 0.0, 0.0);
+
+        if let Some(pos_ly) = NearbyStarsData::get_position_by_name(&system_data.system_name) {
+             star_position = DVec3::new(pos_ly[0], pos_ly[1], pos_ly[2]) * 63241.077;
+             info!("  Using 3D coordinates for '{}': {:?}", system_data.system_name, star_position);
+        } else {
+             warn!("  No 3D coordinates found for '{}', using fallback X-axis placement", system_data.system_name);
+        }
 
         // Spawn the primary star (first star in the list)
         if let Some(primary_star) = system_data.stars.first() {
-            let star_position = DVec3::new(distance_au, 0.0, 0.0);
+            // Use calculated position
+            // let star_position is already defined above
+
 
             // Use real metallicity if available, otherwise generate random
             let metallicity = primary_star.metallicity.unwrap_or_else(|| {
@@ -115,9 +132,14 @@ fn populate_nearby_systems(
 
             // Spawn confirmed planets first
             let mut existing_orbits = Vec::new();
+            let mut all_planet_entities: Vec<(Entity, f64, f32, f32)> = Vec::new(); // (entity, sma_au, mass_earth, visual_radius)
             for planet_data in &primary_star.planets {
-                spawn_confirmed_planet(&mut commands, planet_data, star_entity, system_id);
+                let planet_entity = spawn_confirmed_planet(&mut commands, planet_data, star_entity, system_id, primary_star.luminosity_sol, &mut rng);
                 existing_orbits.push(planet_data.semi_major_axis_au as f64);
+                let radius_earth = planet_data.radius_earth.unwrap_or(1.0);
+                let radius_km = radius_earth * 6371.0;
+                let vis_r = calculate_visual_radius(BodyType::Planet, radius_km);
+                all_planet_entities.push((planet_entity, planet_data.semi_major_axis_au as f64, planet_data.mass_earth, vis_r));
             }
 
             // Generate procedural architecture to fill gaps
@@ -138,22 +160,45 @@ fn populate_nearby_systems(
 
             // Spawn procedural planets
             for planet in &architecture.rocky_planets {
-                spawn_procedural_planet(
+                let planet_entity = spawn_procedural_planet(
                     &mut commands,
                     planet,
                     star_entity,
                     system_id,
                     metallicity_mult,
+                    primary_star.luminosity_sol,
+                    &mut rng,
                 );
+                let vis_r = calculate_visual_radius(planet.body_type(), planet.radius_km());
+                all_planet_entities.push((planet_entity, planet.semi_major_axis_au, planet.mass_earth as f32, vis_r));
             }
 
             for planet in &architecture.gas_giants {
-                spawn_procedural_planet(
+                let planet_entity = spawn_procedural_planet(
                     &mut commands,
                     planet,
                     star_entity,
                     system_id,
                     metallicity_mult,
+                    primary_star.luminosity_sol,
+                    &mut rng,
+                );
+                let vis_r = calculate_visual_radius(planet.body_type(), planet.radius_km());
+                all_planet_entities.push((planet_entity, planet.semi_major_axis_au, planet.mass_earth as f32, vis_r));
+            }
+
+            // Generate moons for planets massive enough to retain them
+            for &(planet_entity, sma_au, mass_earth, vis_r) in &all_planet_entities {
+                spawn_procedural_moons(
+                    &mut commands,
+                    planet_entity,
+                    &system_data.system_name,
+                    sma_au,
+                    mass_earth as f32,
+                    vis_r,
+                    system_id,
+                    primary_star.luminosity_sol,
+                    &mut rng,
                 );
             }
 
@@ -165,6 +210,7 @@ fn populate_nearby_systems(
                     star_entity,
                     system_id,
                     &system_data.system_name,
+                    primary_star.luminosity_sol,
                     game_seed.value,
                 );
             }
@@ -177,9 +223,23 @@ fn populate_nearby_systems(
                     star_entity,
                     system_id,
                     &system_data.system_name,
+                    primary_star.luminosity_sol,
                     game_seed.value,
                 );
             }
+
+            // Compute and store bounding radius for this system
+            let mut max_radius_au: f64 = 10.0;
+            for &(_, sma_au, _, _) in &all_planet_entities {
+                max_radius_au = max_radius_au.max(sma_au * 1.5);
+            }
+            if let Some(belt) = &architecture.asteroid_belt {
+                max_radius_au = max_radius_au.max(belt.outer_au * 1.2);
+            }
+            if let Some(cloud) = &architecture.cometary_cloud {
+                max_radius_au = max_radius_au.max(cloud.outer_au * 1.1);
+            }
+            system_metadata.set_bounding_radius(system_id, max_radius_au);
         }
 
         system_id += 1;
@@ -189,6 +249,41 @@ fn populate_nearby_systems(
         "Completed procedural population of {} star systems",
         system_id - 1
     );
+}
+
+/// Calculate surface temperature for a planet based on its distance from a star
+/// and the star's luminosity.
+///
+/// Uses the equilibrium temperature formula: T = (L / (16πσd²))^0.25 * T_star
+/// Simplified as: T = T_eq * sqrt(sqrt(L_sol))
+/// where T_eq is the equilibrium temperature at 1 AU from a Sol-like star.
+///
+/// # Arguments
+/// * `distance_au` - Distance from the star in AU
+/// * `luminosity_sol` - Star's luminosity relative to Sol (1.0 = Sol)
+///
+/// # Returns
+/// A tuple of (average, min, max) temperatures in Celsius
+fn calculate_temperature_from_star(distance_au: f64, luminosity_sol: f32) -> (f32, f32, f32) {
+    if distance_au <= 0.0 {
+        return (-200.0, -200.0, -200.0);
+    }
+
+    // Equilibrium temperature formula: T_eq = 278.5 K * sqrt(L/d²)^0.25
+    // Where 278.5 K is Earth's equilibrium temperature (without greenhouse effect)
+    // Actually using 255 K for better representation of airless bodies
+    let temp_k = 255.0 * ((luminosity_sol as f64) / (distance_au * distance_au)).sqrt().sqrt();
+    let avg_temp_c = (temp_k - 273.15) as f32;
+
+    // Airless bodies have extreme day/night differentials
+    // Max temp ~1.55x equilibrium, Min temp ~0.40x equilibrium
+    let max_k = temp_k * 1.55;
+    let min_k = temp_k * 0.40;
+
+    let min_temp_c = (min_k - 273.15) as f32;
+    let max_temp_c = (max_k - 273.15) as f32;
+
+    (avg_temp_c, min_temp_c, max_temp_c)
 }
 
 /// Spawn a star entity with its system properties and custom metallicity
@@ -223,9 +318,13 @@ pub fn spawn_star_entity_with_metallicity(
                 mass: (star_data.mass_sol * 1.989e30) as f64, // Convert to kg
                 radius: star_data.radius_sol * 695700.0,      // Convert to km
                 body_type: BodyType::Star,
-                visual_radius: star_data.radius_sol * 695700.0,
+                visual_radius: calculate_visual_radius(
+                    BodyType::Star,
+                    (star_data.radius_sol * 695700.0) as f32,
+                ),
                 asteroid_class: None,
             },
+            StellarProperties::new(star_data.luminosity_sol, star_data.temp_k),
             SpaceCoordinates::new(position),
             SystemId(system_id),
             star_system,
@@ -241,6 +340,8 @@ pub fn spawn_confirmed_planet(
     planet_data: &PlanetData,
     parent_star: Entity,
     system_id: usize,
+    star_luminosity_sol: f32,
+    rng: &mut impl rand::Rng,
 ) -> Entity {
     // Calculate orbital parameters
     let period_seconds = (planet_data.period_days as f64) * 86400.0;
@@ -266,36 +367,70 @@ pub fn spawn_confirmed_planet(
     let mass_kg = (mass_earth as f64) * EARTH_MASS_KG;
     let radius_km = radius_earth * EARTH_RADIUS_KM;
 
+    // Calculate equilibrium temperature based on stellar luminosity
+    let (equilibrium_temp_c, min_temp, max_temp) = calculate_temperature_from_star(
+        planet_data.semi_major_axis_au as f64,
+        star_luminosity_sol,
+    );
+    let equilibrium_temp_k = (equilibrium_temp_c as f64) + 273.15;
+
+    // Try to generate procedural atmosphere
+    let atmosphere_result = generate_procedural_atmosphere(
+        planet_data.mass_earth,
+        planet_data.radius_earth.unwrap_or(1.0),
+        planet_data.semi_major_axis_au as f64,
+        star_luminosity_sol,
+        equilibrium_temp_k,
+        rng,
+    );
+
+    let (avg_temp, has_atmosphere) = if let Some((_atmosphere, surface_temp)) = &atmosphere_result {
+        (surface_temp, true)
+    } else {
+        (&equilibrium_temp_c, false)
+    };
+
     info!(
-        "Spawning confirmed planet '{}': a={:.2}AU, M={:.1}M⊕, type={}",
+        "Spawning confirmed planet '{}': a={:.2}AU, M={:.1}M⊕, type={}, T={:.1}°C{}",
         planet_data.name,
         planet_data.semi_major_axis_au,
         planet_data.mass_earth,
-        planet_data.planet_type
+        planet_data.planet_type,
+        avg_temp,
+        if has_atmosphere { " (atmosphere)" } else { "" }
     );
 
-    let entity = commands
-        .spawn((
-            Planet,
-            RealPlanet, // Mark as confirmed planet
-            CelestialBody {
-                name: planet_data.name.clone(),
-                mass: mass_kg,
-                radius: radius_km,
-                body_type: BodyType::Planet,
-                visual_radius: radius_km,
-                asteroid_class: None,
-            },
-            orbit,
-            OrbitPath::new(Color::srgba(0.3, 0.8, 0.3, 0.5)), // Green for confirmed planets
-            SpaceCoordinates::default(),                      // Will be updated by propagate_orbits
-            OrbitCenter(parent_star), // Link to parent star for orbital hierarchy
-            OrbitsBody::new(parent_star),
-            SystemId(system_id),
-        ))
-        .id();
+    let mut entity_commands = commands.spawn((
+        Planet,
+        RealPlanet, // Mark as confirmed planet
+        CelestialBody {
+            name: planet_data.name.clone(),
+            mass: mass_kg,
+            radius: radius_km,
+            body_type: BodyType::Planet,
+            visual_radius: calculate_visual_radius(BodyType::Planet, radius_km),
+            asteroid_class: None,
+        },
+        SurfaceTemperature {
+            average_celsius: *avg_temp,
+            min_celsius: min_temp,
+            max_celsius: max_temp,
+        },
+        orbit,
+        OrbitPath::new(Color::srgba(0.3, 0.8, 0.3, 0.5)), // Green for confirmed planets
+        SpaceCoordinates::default(),                      // Will be updated by propagate_orbits
+        OrbitCenter(parent_star), // Link to parent star for orbital hierarchy
+        OrbitsBody::new(parent_star),
+        LogicalParent(parent_star),
+        SystemId(system_id),
+    ));
 
-    entity
+    // Add atmosphere if generated
+    if let Some((atmosphere, _)) = atmosphere_result {
+        entity_commands.insert(atmosphere);
+    }
+
+    entity_commands.id()
 }
 
 /// Spawn a procedurally generated planet
@@ -305,39 +440,77 @@ pub fn spawn_procedural_planet(
     parent_star: Entity,
     system_id: usize,
     _metallicity_multiplier: f32,
+    star_luminosity_sol: f32,
+    rng: &mut impl rand::Rng,
 ) -> Entity {
     let orbit = planet.to_kepler_orbit();
     let mass_kg = planet.mass_kg();
     let radius_km = planet.radius_km();
 
+    // Calculate equilibrium temperature based on stellar luminosity
+    let (equilibrium_temp_c, min_temp, max_temp) = calculate_temperature_from_star(
+        planet.semi_major_axis_au,
+        star_luminosity_sol,
+    );
+    let equilibrium_temp_k = (equilibrium_temp_c as f64) + 273.15;
+
+    // Try to generate procedural atmosphere for terrestrial planets
+    let atmosphere_result = generate_procedural_atmosphere(
+        planet.mass_earth,
+        planet.radius_earth,
+        planet.semi_major_axis_au,
+        star_luminosity_sol,
+        equilibrium_temp_k,
+        rng,
+    );
+
+    let (avg_temp, has_atmosphere) = if let Some((_, surface_temp)) = &atmosphere_result {
+        (surface_temp, true)
+    } else {
+        (&equilibrium_temp_c, false)
+    };
+
     info!(
-        "Spawning procedural planet '{}': a={:.2}AU, M={:.1}M⊕, R={:.1}R⊕, type={:?}",
+        "Spawning procedural planet '{}': a={:.2}AU, M={:.1}M⊕, R={:.1}R⊕, type={:?}, T={:.1}°C{}",
         planet.name,
         planet.semi_major_axis_au,
         planet.mass_earth,
         planet.radius_earth,
-        planet.planet_type
+        planet.planet_type,
+        avg_temp,
+        if has_atmosphere { " (atmosphere)" } else { "" }
     );
 
-    let entity = commands
-        .spawn((
-            Planet,
-            CelestialBody {
-                name: planet.name.clone(),
-                mass: mass_kg,
-                radius: radius_km,
-                body_type: planet.body_type(),
-                visual_radius: radius_km,
-                asteroid_class: None,
-            },
-            orbit,
-            OrbitPath::new(Color::srgba(0.5, 0.7, 1.0, 0.4)),
-            SpaceCoordinates::default(), // Will be updated by propagate_orbits
-            OrbitCenter(parent_star),    // Link to parent star for orbital hierarchy
-            OrbitsBody::new(parent_star),
-            SystemId(system_id),
-        ))
-        .id();
+    let mut entity_commands = commands.spawn((
+        Planet,
+        CelestialBody {
+            name: planet.name.clone(),
+            mass: mass_kg,
+            radius: radius_km,
+            body_type: planet.body_type(),
+            visual_radius: calculate_visual_radius(planet.body_type(), radius_km),
+            asteroid_class: None,
+        },
+        SurfaceTemperature {
+            average_celsius: *avg_temp,
+            min_celsius: min_temp,
+            max_celsius: max_temp,
+        },
+        orbit,
+        OrbitPath::new(Color::srgba(0.5, 0.7, 1.0, 0.4)),
+        SpaceCoordinates::default(), // Will be updated by propagate_orbits
+        OrbitCenter(parent_star),    // Link to parent star for orbital hierarchy
+        OrbitsBody::new(parent_star),
+        LogicalParent(parent_star),
+        SystemId(system_id),
+    ));
+
+    // Add atmosphere if generated
+    if let Some((atmosphere, _)) = atmosphere_result {
+        entity_commands.insert(atmosphere);
+    }
+
+    let entity = entity_commands.id();
 
     // Resource generation will be handled by the existing system
     // The metallicity_multiplier will be applied in the resource generation
@@ -352,6 +525,7 @@ pub fn spawn_asteroid_belt(
     parent_star: Entity,
     system_id: usize,
     star_name: &str,
+    star_luminosity_sol: f32,
     game_seed: u64,
 ) {
     // Deterministic RNG seeded from system_id and belt properties to ensure reproducible generation
@@ -398,10 +572,13 @@ pub fn spawn_asteroid_belt(
             AsteroidClass::VType // Basaltic
         };
 
-        // Random size (radius 0.1 - 50 km)
-        let radius = rng.gen_range(0.1..50.0);
+        // Random size (radius 0.1 - 15 km); most belt asteroids are small
+        let radius = rng.gen_range(0.1..15.0);
         // Rough mass estimate (density ~2500 kg/m³)
         let mass = (4.0 / 3.0) * std::f64::consts::PI * (radius as f64 * 1000.0).powi(3) * 2500.0;
+
+        // Calculate asteroid temperature based on its distance from the star
+        let (avg_temp, min_temp, max_temp) = calculate_temperature_from_star(semi_major_axis, star_luminosity_sol);
 
         commands.spawn((
             Asteroid,
@@ -410,14 +587,20 @@ pub fn spawn_asteroid_belt(
                 mass,
                 radius,
                 body_type: BodyType::Asteroid,
-                visual_radius: radius,
+                visual_radius: calculate_visual_radius(BodyType::Asteroid, radius as f32),
                 asteroid_class: Some(asteroid_class),
+            },
+            SurfaceTemperature {
+                average_celsius: avg_temp,
+                min_celsius: min_temp,
+                max_celsius: max_temp,
             },
             orbit,
             OrbitPath::new(Color::srgba(0.6, 0.6, 0.5, 0.2)),
             SpaceCoordinates::default(), // Will be updated by propagate_orbits
             OrbitCenter(parent_star),    // Link to parent star for orbital hierarchy
             OrbitsBody::new(parent_star),
+            LogicalParent(parent_star),
             SystemId(system_id),
         ));
     }
@@ -430,6 +613,7 @@ pub fn spawn_cometary_cloud(
     parent_star: Entity,
     system_id: usize,
     star_name: &str,
+    star_luminosity_sol: f32,
     game_seed: u64,
 ) {
     // Deterministic RNG seeded from system_id and cloud properties to ensure reproducible generation
@@ -472,6 +656,9 @@ pub fn spawn_cometary_cloud(
         // Low density ice/rock (density ~500 kg/m³)
         let mass = (4.0 / 3.0) * std::f64::consts::PI * (radius as f64 * 1000.0).powi(3) * 500.0;
 
+        // Calculate comet temperature based on its distance from the star
+        let (avg_temp, min_temp, max_temp) = calculate_temperature_from_star(semi_major_axis, star_luminosity_sol);
+
         commands.spawn((
             Comet,
             CelestialBody {
@@ -479,16 +666,163 @@ pub fn spawn_cometary_cloud(
                 mass,
                 radius,
                 body_type: BodyType::Comet,
-                visual_radius: radius,
+                visual_radius: calculate_visual_radius(BodyType::Comet, radius as f32),
                 asteroid_class: Some(AsteroidClass::PType), // P-type (volatile-rich)
+            },
+            SurfaceTemperature {
+                average_celsius: avg_temp,
+                min_celsius: min_temp,
+                max_celsius: max_temp,
             },
             orbit,
             OrbitPath::new(Color::srgba(0.4, 0.6, 0.8, 0.3)),
             SpaceCoordinates::default(), // Will be updated by propagate_orbits
             OrbitCenter(parent_star),    // Link to parent star for orbital hierarchy
             OrbitsBody::new(parent_star),
+            LogicalParent(parent_star),
             SystemId(system_id),
         ));
+    }
+}
+
+/// Spawn procedural moons for a planet based on its mass
+///
+/// Gas giants (>10 M⊕) get 2-6 moons, rocky planets (>0.5 M⊕) get 0-2.
+/// Smaller bodies get no moons.
+///
+/// Each moon receives a [`LocalOrbitAmplification`] component so that its
+/// orbit renders outside the parent planet's visual mesh, matching the
+/// Universe Sandbox-style approach used for Sol-system moons.
+fn spawn_procedural_moons(
+    commands: &mut Commands,
+    planet_entity: Entity,
+    system_name: &str,
+    planet_sma_au: f64,
+    planet_mass_earth: f32,
+    parent_visual_radius: f32,
+    system_id: usize,
+    star_luminosity_sol: f32,
+    rng: &mut StdRng,
+) {
+    /// Innermost moon orbits at this multiple of parent visual radius
+    const INNER_MOON_MULTIPLIER: f64 = 2.0;
+    /// Outermost moon orbits at this multiple of parent visual radius
+    const OUTER_MOON_MULTIPLIER: f64 = 10.0;
+
+    // Determine moon count based on planet mass
+    let moon_count = if planet_mass_earth > 50.0 {
+        // Gas giants get many moons
+        rng.gen_range(3..=6)
+    } else if planet_mass_earth > 10.0 {
+        // Sub-giants / ice giants
+        rng.gen_range(1..=4)
+    } else if planet_mass_earth > 0.5 {
+        // Rocky planets may get 0-2 moons
+        rng.gen_range(0..=2_u32)
+    } else {
+        // Too small to retain moons
+        return;
+    };
+
+    if moon_count == 0 {
+        return;
+    }
+
+    // Visual bounds for moon orbits (in Bevy units)
+    let inner_display = parent_visual_radius as f64 * INNER_MOON_MULTIPLIER;
+    let outer_display = parent_visual_radius as f64 * OUTER_MOON_MULTIPLIER;
+
+    for i in 0..moon_count {
+        // Moon orbital distance scales with planet mass (Hill sphere proxy)
+        // Typical range: 0.001 - 0.01 AU from planet
+        let base_distance = 0.001 + (i as f64) * 0.002;
+        let orbital_distance_au = base_distance * (1.0 + rng.gen_range(-0.3..0.3_f64));
+
+        // Moon mass: tiny fraction of planet mass, scaled by planet type
+        // Real examples: Ganymede ~0.025% of Jupiter, Titan ~0.024% of Saturn,
+        //                Earth's Moon ~1.2% of Earth
+        let mass_fraction = if planet_mass_earth > 10.0 {
+            // Gas/ice giants: moons are a much smaller fraction (0.001% - 0.05%)
+            rng.gen_range(0.00001..0.0005_f64)
+        } else {
+            // Rocky planets: moons can be a larger fraction (0.01% - 1.5%)
+            rng.gen_range(0.0001..0.015_f64)
+        };
+        let moon_mass_earth = (planet_mass_earth as f64) * mass_fraction;
+        let moon_mass_kg = moon_mass_earth * 5.972e24;
+
+        // Estimate radius from mass (assume rocky density ~3500 kg/m³)
+        let volume_m3 = moon_mass_kg / 3500.0;
+        let radius_m = (volume_m3 * 3.0 / (4.0 * std::f64::consts::PI)).powf(1.0 / 3.0);
+        let radius_km = (radius_m / 1000.0) as f32;
+
+        // Orbital period from parent planet's mass
+        let parent_mass_kg = (planet_mass_earth as f64) * 5.972e24;
+        let g = 6.674e-11;
+        let sma_m = orbital_distance_au * 1.496e11;
+        let period_s = std::f64::consts::TAU * (sma_m.powi(3) / (g * parent_mass_kg)).sqrt();
+        let mean_motion = std::f64::consts::TAU / period_s;
+
+        let orbit = KeplerOrbit::new(
+            rng.gen_range(0.0..0.05_f64),       // Low eccentricity
+            orbital_distance_au,                 // SMA in AU
+            rng.gen_range(-0.05..0.05_f64),     // Near-coplanar
+            rng.gen_range(0.0..std::f64::consts::TAU),
+            rng.gen_range(0.0..std::f64::consts::TAU),
+            rng.gen_range(0.0..std::f64::consts::TAU),
+            mean_motion,
+        );
+
+        // Compute orbit amplification so moons render outside the parent mesh
+        let orbit_bevy = orbital_distance_au * SCALING_FACTOR;
+        let amp = if moon_count == 1 {
+            let mid_display = (inner_display + outer_display) * 0.5;
+            (mid_display / orbit_bevy).max(1.0) as f32
+        } else {
+            let t = i as f64 / (moon_count - 1) as f64;
+            let display_distance = inner_display + t * (outer_display - inner_display);
+            (display_distance / orbit_bevy).max(1.0) as f32
+        };
+
+        let moon_name = format!("{} Planet at {:.2}AU Moon {}", system_name, planet_sma_au, i + 1);
+
+        // Calculate moon temperature using parent planet's distance from star
+        // (moons orbit the planet, but their temperature depends on their distance from the star)
+        let (avg_temp, min_temp, max_temp) = calculate_temperature_from_star(planet_sma_au, star_luminosity_sol);
+
+        commands.spawn((
+            Moon,
+            CelestialBody {
+                name: moon_name,
+                mass: moon_mass_kg,
+                radius: radius_km,
+                body_type: BodyType::Moon,
+                visual_radius: calculate_visual_radius(BodyType::Moon, radius_km),
+                asteroid_class: None,
+            },
+            SurfaceTemperature {
+                average_celsius: avg_temp,
+                min_celsius: min_temp,
+                max_celsius: max_temp,
+            },
+            orbit,
+            OrbitPath::new(Color::srgba(0.7, 0.7, 0.7, 0.3)),
+            SpaceCoordinates::default(),
+            OrbitCenter(planet_entity),
+            OrbitsBody::new(planet_entity),
+            LogicalParent(planet_entity),
+            LocalOrbitAmplification(amp),
+            SystemId(system_id),
+        ));
+    }
+
+    if moon_count > 0 {
+        info!(
+            "  Spawned {} moons for planet at {:.2} AU in {} (orbit amp: {:.1}x-{:.1}x)",
+            moon_count, planet_sma_au, system_name,
+            (inner_display / (0.001 * SCALING_FACTOR)).max(1.0),
+            (outer_display / ((0.001 + (moon_count as f64 - 1.0) * 0.002) * SCALING_FACTOR)).max(1.0),
+        );
     }
 }
 

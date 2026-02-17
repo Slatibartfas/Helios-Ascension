@@ -402,6 +402,110 @@ fn format_time_rate(scale: f32) -> String {
 /// Plugin that adds the UI system to the Bevy app
 pub struct UIPlugin;
 
+/// Setup custom fonts for better Unicode and emoji/icon support
+/// 
+/// Font Stack:
+/// - **Inter** (Regular/SemiBold/Bold): Primary UI font with excellent Unicode coverage
+/// - **GeistMono** (Medium): Monospace font for numbers, code, and resource rates
+/// - **Hack Nerd Font**: Fallback for developer icons and special symbols
+/// - **Noto Emoji**: Broad monochrome emoji coverage (Unicode 15+)
+/// - **Noto Sans Symbols 2**: Astronomical, geometric, and miscellaneous symbols
+fn setup_egui_fonts(mut contexts: EguiContexts) {
+    let mut fonts = egui::FontDefinitions::default();
+    
+    // Load primary fonts
+    fonts.font_data.insert(
+        "Inter-Regular".to_owned(),
+        egui::FontData::from_static(include_bytes!("../../assets/fonts/Inter-Regular.otf")),
+    );
+    fonts.font_data.insert(
+        "Inter-SemiBold".to_owned(),
+        egui::FontData::from_static(include_bytes!("../../assets/fonts/Inter-SemiBold.otf")),
+    );
+    fonts.font_data.insert(
+        "Inter-Bold".to_owned(),
+        egui::FontData::from_static(include_bytes!("../../assets/fonts/Inter-Bold.otf")),
+    );
+    fonts.font_data.insert(
+        "GeistMono-Medium".to_owned(),
+        egui::FontData::from_static(include_bytes!("../../assets/fonts/GeistMono-Medium.ttf")),
+    );
+    fonts.font_data.insert(
+        "HackNerdFont".to_owned(),
+        egui::FontData::from_static(include_bytes!("../../assets/fonts/HackNerdFont-Regular.ttf")),
+    );
+    // Hubot Sans for Headers
+    fonts.font_data.insert(
+        "Hubot-Sans-ExtraBoldExpanded".to_owned(),
+        egui::FontData::from_static(include_bytes!("../../assets/fonts/Hubot-Sans-ExtraBoldExpanded.ttf")),
+    );
+    fonts.font_data.insert(
+        "Hubot-Sans-SemiBoldCondensed".to_owned(),
+        egui::FontData::from_static(include_bytes!("../../assets/fonts/Hubot-Sans-SemiBoldCondensed.ttf")),
+    );
+    // Noto Emoji for broad monochrome emoji coverage (Unicode 15+)
+    fonts.font_data.insert(
+        "NotoEmoji".to_owned(),
+        egui::FontData::from_static(include_bytes!("../../assets/fonts/NotoEmoji-Regular.ttf")),
+    );
+    // Noto Sans Symbols 2 for astronomical (☉), geometric, and misc symbols
+    fonts.font_data.insert(
+        "NotoSansSymbols2".to_owned(),
+        egui::FontData::from_static(include_bytes!("../../assets/fonts/NotoSansSymbols2-Regular.ttf")),
+    );
+
+    // Setup font families with Inter as primary, HackNerdFont as fallback for icons
+    // Added "emoji-icon-font" (default egui emoji font) to fix broken emojis
+    fonts.families.insert(
+        egui::FontFamily::Proportional,
+        vec![
+            "Inter-Regular".to_owned(),
+            "HackNerdFont".to_owned(), // Fallback for developer icons
+            "NotoEmoji".to_owned(),    // Broad emoji coverage
+            "NotoSansSymbols2".to_owned(), // Astronomical & geometric symbols
+            "emoji-icon-font".to_owned(), // egui built-in (last resort)
+        ],
+    );
+
+    fonts.families.insert(
+        egui::FontFamily::Monospace,
+        vec![
+            "GeistMono-Medium".to_owned(),
+            "HackNerdFont".to_owned(), // Fallback for developer icons
+            "NotoEmoji".to_owned(),
+            "NotoSansSymbols2".to_owned(),
+            "emoji-icon-font".to_owned(),
+        ],
+    );
+
+    // Define custom font families for headers
+    // "heading" -> Game Title (Hubot Sans Extra Bold Expanded)
+    fonts.families.insert(
+        egui::FontFamily::Name("heading".into()),
+        vec![
+            "Hubot-Sans-ExtraBoldExpanded".to_owned(),
+            "HackNerdFont".to_owned(),
+            "NotoEmoji".to_owned(),
+            "NotoSansSymbols2".to_owned(),
+            "emoji-icon-font".to_owned(),
+        ],
+    );
+
+    // "semibold" -> Window/Menu Headers (Hubot Sans SemiBold Condensed)
+    fonts.families.insert(
+        egui::FontFamily::Name("semibold".into()),
+        vec![
+            "Hubot-Sans-SemiBoldCondensed".to_owned(),
+            "HackNerdFont".to_owned(),
+            "NotoEmoji".to_owned(),
+            "NotoSansSymbols2".to_owned(),
+            "emoji-icon-font".to_owned(),
+        ],
+    );
+        
+    contexts.ctx_mut().set_fonts(fonts);
+}
+
 impl Plugin for UIPlugin {
     fn build(&self, app: &mut App) {
         app
@@ -414,7 +518,7 @@ impl Plugin for UIPlugin {
             // ActiveMenu is now initialized in GameStatePlugin
             // to allow access in camera/starmap plugins
             // Load menu icons at startup
-            .add_systems(Startup, (load_menu_icons, load_research_icons))
+            .add_systems(Startup, (load_menu_icons, load_research_icons, setup_egui_fonts))
             // UI rendering systems
             // Ordered sequence to ensure correct layout stacking:
             // 1. Top bars (Resources -> Menu)
@@ -509,14 +613,14 @@ fn advance_simulation_time(
 /// Get the icon for a resource category
 fn get_resource_category_icon(category: &str) -> &'static str {
     match category {
-        "Volatiles" => "💧",
-        "Atmospheric Gases" => "☁",
-        "Construction" => "🧱",  // Brick instead of crane to differentiate from Construction menu
-        "Fusion Fuel" => "🔋",   // Battery/Energy
-        "Fissiles" => "☢",
-        "Precious Metals" => "💎",
-        "Specialty" => "✨",
-        _ => "📦",
+        "Volatiles" => "\u{1F4A7}",          // 💧
+        "Atmospheric Gases" => "\u{2601}",   // ☁
+        "Construction" => "\u{1F9F1}",       // 🧱
+        "Fusion Fuel" => "\u{1F50B}",        // 🔋
+        "Fissiles" => "\u{2622}",            // ☢
+        "Precious Metals" => "\u{1F48E}",    // 💎
+        "Specialty" => "\u{2728}",           // ✨
+        _ => "\u{1F4E6}",                    // 📦
     }
 }
 
@@ -524,38 +628,38 @@ fn get_resource_category_icon(category: &str) -> &'static str {
 fn get_resource_icon(resource: &ResourceType) -> &'static str {
     match resource {
         // Volatiles
-        ResourceType::Water => "💧",
-        ResourceType::Hydrogen => "🎈", // Or ⛽
-        ResourceType::Ammonia => "🧼",  // Cleaning/Chemical
-        ResourceType::Methane => "🔥",
+        ResourceType::Water => "\u{1F4A7}",          // 💧
+        ResourceType::Hydrogen => "\u{1F388}",       // 🎈
+        ResourceType::Ammonia => "\u{1F9FC}",        // 🧼
+        ResourceType::Methane => "\u{1F525}",        // 🔥
         
         // Atmospheric
-        ResourceType::Nitrogen => "🌬", // Wind/Air
-        ResourceType::Oxygen => "💨",   // Air
-        ResourceType::CarbonDioxide => "🌫", // Gray fog
-        ResourceType::Argon => "🟣",    // Noble gas color
+        ResourceType::Nitrogen => "\u{1F32C}",       // 🌬
+        ResourceType::Oxygen => "\u{1F4A8}",         // 💨
+        ResourceType::CarbonDioxide => "\u{1F32B}",  // 🌫
+        ResourceType::Argon => "\u{1F7E3}",          // 🟣
         
         // Construction
-        ResourceType::Iron => "🔩",     // Metal part
-        ResourceType::Aluminum => "✈",  // Lightweight
-        ResourceType::Titanium => "🛡", // Shield/Durability
-        ResourceType::Silicates => "🪨", // Rock
+        ResourceType::Iron => "\u{1F529}",           // 🔩
+        ResourceType::Aluminum => "\u{2708}",        // ✈
+        ResourceType::Titanium => "\u{1F6E1}",       // 🛡
+        ResourceType::Silicates => "\u{1FAA8}",      // 🪨
         
         // Energy
-        ResourceType::Helium3 => "☀",   // Fusion/Star
+        ResourceType::Helium3 => "\u{2600}",         // ☀
         
         // Fissiles
-        ResourceType::Uranium => "☢",
-        ResourceType::Thorium => "⚡",
+        ResourceType::Uranium => "\u{2622}",         // ☢
+        ResourceType::Thorium => "\u{26A1}",         // ⚡
 
         // Precious
-        ResourceType::Gold => "👑",
-        ResourceType::Silver => "🥈",
-        ResourceType::Platinum => "💍",
+        ResourceType::Gold => "\u{1F451}",           // 👑
+        ResourceType::Silver => "\u{1F948}",         // 🥈
+        ResourceType::Platinum => "\u{1F48D}",       // 💍
 
         // Specialty
-        ResourceType::Copper => "🔌",
-        ResourceType::RareEarths => "📱",
+        ResourceType::Copper => "\u{1F50C}",         // 🔌
+        ResourceType::RareEarths => "\u{1F4F1}",     // 📱
     }
 }
 
@@ -1710,6 +1814,20 @@ fn render_selectable_label(ui: &mut egui::Ui, is_selected: bool, name: &str) -> 
     }
 }
 
+/// Returns a Unicode icon for each body type to distinguish entries in the ledger
+fn body_type_icon(body_type: &BodyType) -> &'static str {
+    match body_type {
+        BodyType::Star => "\u{2605}",       // ★
+        BodyType::Planet => "\u{25CF}",     // ●
+        BodyType::Moon => "\u{25D1}",       // ◑
+        BodyType::DwarfPlanet => "\u{25CC}", // ◌
+        BodyType::Asteroid => "\u{25C6}",   // ◆
+        BodyType::Comet => "\u{2604}",      // ☄
+        BodyType::GasGiant => "\u{25C9}",   // ◉
+        BodyType::Ring => "\u{25CB}",       // ○
+    }
+}
+
 fn render_body_row(
     ui: &mut egui::Ui,
     entity: Entity,
@@ -1720,6 +1838,7 @@ fn render_body_row(
     anchor_query: &mut Query<&mut CameraAnchor, With<GameCamera>>,
 ) {
     let is_selected = selection.is_selected(entity);
+    let type_icon = body_type_icon(&body.body_type);
     ui.horizontal(|ui| {
         ui.add_space(20.0);
         if ui
@@ -1741,7 +1860,8 @@ fn render_body_row(
         }
 
         // Use a visually distinct style for selected items
-        if render_selectable_label(ui, is_selected, &body.name).clicked() {
+        let display_name = format!("{} {}", type_icon, body.name);
+        if render_selectable_label(ui, is_selected, &display_name).clicked() {
             for e in selected_query.iter() {
                 commands.entity(e).remove::<Selected>();
             }
@@ -1857,7 +1977,9 @@ fn render_body_tree(
                 }
 
                 // Use a visually distinct style for selected items
-                if render_selectable_label(ui, is_selected, &body.name).clicked() {
+                let type_icon = body_type_icon(&body.body_type);
+                let display_name = format!("{} {}", type_icon, body.name);
+                if render_selectable_label(ui, is_selected, &display_name).clicked() {
                     for e in selected_query.iter() {
                         commands.entity(e).remove::<Selected>();
                     }

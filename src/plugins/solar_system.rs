@@ -14,7 +14,7 @@ use crate::astronomy::components::{CurrentStarSystem, SystemId};
 use crate::economy::components::{Population, PowerGenerator, PowerSourceType};
 use crate::astronomy::{
     orbit_position_from_mean_anomaly, KeplerOrbit, LocalOrbitAmplification, OrbitPath,
-    SpaceCoordinates, SCALING_FACTOR, SurfaceTemperature,
+    SpaceCoordinates, SCALING_FACTOR, StellarProperties, SurfaceTemperature,
 };
 use crate::plugins::camera::{CameraAnchor, GameCamera};
 use crate::ui::SimulationTime;
@@ -816,6 +816,8 @@ pub fn setup_solar_system(
         match body_data.body_type {
             BodyType::Star => {
                 entity_commands.insert(Star);
+                // Add stellar properties for all stars (default to Sol values if not specified)
+                entity_commands.insert(StellarProperties::sol());
             }
             BodyType::Planet => {
                 entity_commands.insert(Planet);
