@@ -1,5 +1,5 @@
-#import bevy_pbr::mesh_view_bindings
-#import bevy_pbr::mesh_bindings
+#import bevy_pbr::mesh_view_bindings::view
+#import bevy_pbr::mesh_view_bindings::globals
 
 @group(2) @binding(0) var<uniform> camera_rotation: mat3x3<f32>;
 @group(2) @binding(1) var<uniform> camera_distance: f32;
