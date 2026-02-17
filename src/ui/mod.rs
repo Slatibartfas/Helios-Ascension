@@ -854,14 +854,14 @@ fn ui_resources_bar(
 
                     // Use a Frame for the category display
                     let response = egui::Frame::none()
-                        .inner_margin(egui::Margin::symmetric(6.0, 2.0))
+                        .inner_margin(egui::Margin::symmetric(3.0, 2.0))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
                                 ui.add(egui::Label::new(egui::RichText::new(icon).size(20.0).color(color)).selectable(false));
-                                ui.add_space(2.0);
+                                ui.add_space(1.0);
                                 ui.vertical(|ui| {
-                                    ui.set_min_width(80.0);  // Fixed width to prevent wiggling
-                                    ui.set_max_width(80.0);
+                                    ui.set_min_width(72.0);  // Fixed width to prevent wiggling
+                                    ui.set_max_width(72.0);
                                     ui.add(egui::Label::new(egui::RichText::new(format_mass(category_total)).size(14.0).color(text_color)).selectable(false));
                                     let (rate_text, rate_color) = format_rate_monthly(category_rate);
                                     ui.add(egui::Label::new(egui::RichText::new(rate_text).size(10.0).color(rate_color)).selectable(false));
@@ -886,7 +886,7 @@ fn ui_resources_bar(
                         }
                     }
 
-                    ui.add_space(15.0);
+                    ui.add_space(8.0);
                 }
 
                 // Research Points display
@@ -913,15 +913,15 @@ fn ui_resources_bar(
                     let border_color = if flash > 0.5 { warning_color } else { egui::Color32::TRANSPARENT };
 
                     let response = egui::Frame::none()
-                        .inner_margin(egui::Margin::symmetric(6.0, 2.0))
+                        .inner_margin(egui::Margin::symmetric(3.0, 2.0))
                         .stroke(egui::Stroke::new(if flash > 0.0 { 2.0 } else { 0.0 }, border_color))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
                                 ui.add(egui::Label::new(egui::RichText::new("🔬").size(20.0).color(rp_color)).selectable(false));
-                                ui.add_space(2.0);
+                                ui.add_space(1.0);
                                 ui.vertical(|ui| {
-                                    ui.set_min_width(125.0);  // Fixed width to prevent wiggling
-                                    ui.set_max_width(125.0);
+                                    ui.set_min_width(115.0);  // Fixed width to prevent wiggling
+                                    ui.set_max_width(115.0);
                                     
                                     if let Some(project) = furthest_rp {
                                         if let Some(tech) = technologies.technologies.get(&project.tech_id) {
@@ -960,7 +960,7 @@ fn ui_resources_bar(
                             open_popup.open = Some(("ResearchPoints".to_string(), interact.rect));
                         }
                     }
-                    ui.add_space(8.0);
+                    ui.add_space(4.0);
                 }
 
                 // Engineering Points display
@@ -987,15 +987,15 @@ fn ui_resources_bar(
                     let border_color = if flash > 0.5 { warning_color } else { egui::Color32::TRANSPARENT };
 
                     let response = egui::Frame::none()
-                        .inner_margin(egui::Margin::symmetric(6.0, 2.0))
+                        .inner_margin(egui::Margin::symmetric(3.0, 2.0))
                         .stroke(egui::Stroke::new(if flash > 0.0 { 2.0 } else { 0.0 }, border_color))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
                                 ui.add(egui::Label::new(egui::RichText::new("⚙").size(20.0).color(ep_color)).selectable(false));
-                                ui.add_space(2.0);
+                                ui.add_space(1.0);
                                 ui.vertical(|ui| {
-                                    ui.set_min_width(125.0);  // Fixed width to prevent wiggling
-                                    ui.set_max_width(125.0);
+                                    ui.set_min_width(115.0);  // Fixed width to prevent wiggling
+                                    ui.set_max_width(115.0);
                                     
                                     if let Some(project) = furthest_ep {
                                         let name = technologies.components.get(&project.component_id).map(|c| c.name.as_str()).unwrap_or("Unknown Component");
@@ -1069,11 +1069,11 @@ fn ui_resources_bar(
 
                     // Power generation display (clickable with tooltip)
                     let response = egui::Frame::none()
-                        .inner_margin(egui::Margin::symmetric(6.0, 2.0))
+                        .inner_margin(egui::Margin::symmetric(3.0, 2.0))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
-                                ui.set_min_width(90.0);  // Fixed width to prevent wiggling
-                                ui.set_max_width(90.0);
+                                ui.set_min_width(82.0);  // Fixed width to prevent wiggling
+                                ui.set_max_width(82.0);
                                 ui.add(
                                     egui::Label::new(
                                         egui::RichText::new(format!(
@@ -1124,7 +1124,7 @@ fn ui_resources_bar(
                         .map_or(false, |(n, _)| n == "Treasury");
 
                     let treasury_response = egui::Frame::none()
-                        .inner_margin(egui::Margin::symmetric(6.0, 2.0))
+                        .inner_margin(egui::Margin::symmetric(3.0, 2.0))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
                                 ui.add(
@@ -1135,11 +1135,11 @@ fn ui_resources_bar(
                                     )
                                     .selectable(false),
                                 );
-                                ui.add_space(2.0);
+                                ui.add_space(1.0);
                                 ui.scope(|ui| {
                                     // Fixed width to prevent layout issues in right-to-left container
-                                    ui.set_min_width(100.0);
-                                    ui.set_max_width(100.0);
+                                    ui.set_min_width(90.0);
+                                    ui.set_max_width(90.0);
                                     ui.vertical(|ui| {
                                         ui.add(
                                             egui::Label::new(
@@ -1203,11 +1203,11 @@ fn ui_resources_bar(
 
                     // Use a Frame for the population display
                     let pop_response = egui::Frame::none()
-                        .inner_margin(egui::Margin::symmetric(6.0, 2.0))
+                        .inner_margin(egui::Margin::symmetric(3.0, 2.0))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
-                                ui.set_min_width(75.0);  // Fixed width to prevent wiggling
-                                ui.set_max_width(75.0);
+                                ui.set_min_width(68.0);  // Fixed width to prevent wiggling
+                                ui.set_max_width(68.0);
                                 ui.add(
                                     egui::Label::new(
                                         egui::RichText::new(format_population(total_population))
@@ -1215,7 +1215,7 @@ fn ui_resources_bar(
                                     )
                                     .selectable(false),
                                 );
-                                ui.add_space(2.0);
+                                ui.add_space(1.0);
                                 ui.add(
                                     egui::Label::new(
                                         egui::RichText::new("👥")
