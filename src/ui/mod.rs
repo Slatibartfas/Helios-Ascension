@@ -2088,40 +2088,46 @@ fn ui_starmap_labels(
         return;
     };
 
-    // Get the available screen rect minus any side panels so labels don't bleed through UI
+    // Get the available screen rect (excludes all anchored side/top/bottom panels).
+    // Using a Painter with this as the clip rect guarantees labels never bleed
+    // through panels, regardless of text width or floating area render order.
     let available_rect = ctx.available_rect();
+
+    // Create a painter clipped strictly to the panel-free area.
+    // Order::Background keeps labels beneath floating windows/tooltips.
+    let mut painter = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Background,
+        egui::Id::new("starmap_labels"),
+    ));
+    painter.set_clip_rect(available_rect);
+
+    let font_id = egui::FontId::proportional(14.0);
 
     for (icon_transform, icon, is_selected) in icon_query.iter() {
         let icon_pos = icon_transform.translation();
 
         // Project 3D position to screen space
         if let Some(screen_pos) = camera.world_to_viewport(camera_transform, icon_pos) {
-            // Skip labels that would overlap with UI panels
-            let label_x = screen_pos.x + 20.0;
-            let label_y = screen_pos.y - 10.0;
-            if label_x < available_rect.min.x
-                || label_x > available_rect.max.x
-                || label_y < available_rect.min.y
-                || label_y > available_rect.max.y
-            {
+            let label_pos = egui::pos2(screen_pos.x + 20.0, screen_pos.y - 10.0);
+
+            // Skip if the anchor is clearly off-screen (painter clip handles edge overflow)
+            if !available_rect.expand(200.0).contains(label_pos) {
                 continue;
             }
 
-            let label_pos = egui::pos2(label_x, label_y);
+            let color = if is_selected.is_some() {
+                egui::Color32::from_rgb(100, 200, 255) // Bright blue for selected
+            } else {
+                egui::Color32::from_rgb(200, 200, 200) // Light gray for others
+            };
 
-            egui::Area::new(egui::Id::new(format!("starmap_label_{}", icon.name)))
-                .fixed_pos(label_pos)
-                .interactable(false)
-                .order(egui::Order::Tooltip)
-                .show(ctx, |ui| {
-                    let color = if is_selected.is_some() {
-                        egui::Color32::from_rgb(100, 200, 255) // Bright blue for selected
-                    } else {
-                        egui::Color32::from_rgb(200, 200, 200) // Light gray for others
-                    };
-
-                    ui.colored_label(color, &icon.name);
-                });
+            painter.text(
+                label_pos,
+                egui::Align2::LEFT_TOP,
+                &icon.name,
+                font_id.clone(),
+                color,
+            );
         }
     }
 }
@@ -2417,6 +2423,7 @@ fn ui_hover_tooltip(
     // Display hover tooltip if a body is hovered
     if let Ok(body) = hovered_query.get_single() {
         // Anchor the tooltip near the mouse pointer so it appears over the 3D view
+        let available_rect = ctx.available_rect();
         let tooltip_pos = ctx
             .input(|i| i.pointer.hover_pos())
             .map(|p| egui::pos2(p.x + 12.0, p.y + 12.0))
@@ -2426,6 +2433,7 @@ fn ui_hover_tooltip(
             .fixed_pos(tooltip_pos)
             .interactable(false)
             .order(egui::Order::Tooltip)
+            .constrain_to(available_rect)
             .show(ctx, |ui| {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                 egui::Frame::none()
@@ -2484,6 +2492,7 @@ fn ui_starmap_hover_tooltip(
     // Display hover tooltip if a star system is hovered
     if let Ok(icon) = hovered_query.get_single() {
         // Anchor the tooltip near the mouse pointer
+        let available_rect = ctx.available_rect();
         let tooltip_pos = ctx
             .input(|i| i.pointer.hover_pos())
             .map(|p| egui::pos2(p.x + 12.0, p.y + 12.0))
@@ -2502,6 +2511,7 @@ fn ui_starmap_hover_tooltip(
             .fixed_pos(tooltip_pos)
             .interactable(false)
             .order(egui::Order::Tooltip)
+            .constrain_to(available_rect)
             .show(ctx, |ui| {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                 egui::Frame::none()
