@@ -61,14 +61,30 @@ fn populate_nearby_systems(
         game_seed.value
     );
 
-    // Start at system ID 1 (Sol is 0)
-    let mut system_id = 1;
+    // Fallback counter for systems that are NOT in NEARBY_STARS_POSITIONS.
+    // These systems will not appear on the starmap, but we still give them
+    // unique IDs so their entities are harmless rather than conflicting.
+    use crate::astronomy::nearby_stars::NEARBY_STARS_POSITIONS;
+    let mut next_fallback_id = NEARBY_STARS_POSITIONS.len() + 1;
 
     for system_data in &stars_data.systems {
         // Skip if this is the Sol system (already populated)
         if system_data.system_name == "Sol" {
             continue;
         }
+
+        // Look up the starmap-compatible system ID for this system.
+        // This MUST match the ID the starmap icon was spawned with
+        // (index in NEARBY_STARS_POSITIONS + 1) so that the floating
+        // origin is set to the correct position on system transition.
+        let system_id = if let Some(id) = NearbyStarsData::get_system_id_by_name(&system_data.system_name) {
+            id
+        } else {
+            // System is not on the starmap — assign a unique high ID
+            let id = next_fallback_id;
+            next_fallback_id += 1;
+            id
+        };
 
         info!(
             "Populating system '{}' at {:.2} ly with {} stars",
@@ -257,13 +273,11 @@ fn populate_nearby_systems(
             }
             system_metadata.set_bounding_radius(system_id, max_radius_au);
         }
-
-        system_id += 1;
     }
 
     info!(
         "Completed procedural population of {} star systems",
-        system_id - 1
+        stars_data.systems.iter().filter(|s| s.system_name != "Sol").count()
     );
 }
 

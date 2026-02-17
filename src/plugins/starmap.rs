@@ -310,7 +310,7 @@ fn spawn_system_bodies(
 
         // Create mesh - Higher resolution for stars to avoid boxy look
         let mesh = if matches!(body.body_type, BodyType::Star) {
-            meshes.add(Sphere::new(visual_radius).mesh().uv(64, 32))
+            meshes.add(Sphere::new(visual_radius).mesh().uv(128, 64))
         } else {
             meshes.add(Sphere::new(visual_radius).mesh().uv(32, 16))
         };
@@ -379,8 +379,10 @@ fn spawn_system_bodies(
                 // Use L^0.3 (stronger than the body scale L^0.15) because the
                 // glow quad is already 12× the star mesh and dominates in
                 // compact systems where close-in orbits are only ~100 Bevy units.
+                // Clamp to 0.33 minimum so even very dim stars get a visible glow
+                // (4× their mesh radius instead of barely visible 1.2×).
                 let glow_scale = stellar_props
-                    .map(|p| p.luminosity_sol.max(1e-7).powf(0.3).clamp(0.1, 1.0))
+                    .map(|p| p.luminosity_sol.max(1e-7).powf(0.3).clamp(0.33, 1.0))
                     .unwrap_or(1.0);
                 let glow_size = visual_radius * 12.0 * glow_scale;
                 let core_col = Vec4::new(5.0, 5.0, 5.0, 1.0); // Bright core

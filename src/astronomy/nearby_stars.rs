@@ -23,12 +23,15 @@ impl NearbyStarsData {
     }
 
     pub fn get_by_id(&self, id: usize) -> Option<&StarSystemData> {
-        // ID 0 is Sol (not in this data), IDs 1+ map to systems[0+]
+        // ID 0 is Sol (not in this data).
+        // IDs 1+ correspond to NEARBY_STARS_POSITIONS ordering, NOT the JSON
+        // array index. Look up the system name from the static positions
+        // table and then find the matching entry in the loaded JSON data.
         if id == 0 {
-            None
-        } else {
-            self.systems.get(id - 1)
+            return None;
         }
+        let name = NEARBY_STARS_POSITIONS.get(id - 1)?.name;
+        self.systems.iter().find(|s| s.system_name == name)
     }
 }
 
@@ -371,6 +374,57 @@ pub const NEARBY_STARS_POSITIONS: &[StarPositionData] = &[
         pos_ly: [-11.2719, 2.7334, 11.0169],
         spectral_type: "M1.0V",
     },
+    // ── Systems added to match nearest_stars_raw.json ──────────────
+    StarPositionData {
+        name: "AD Leonis",
+        pos_ly: [-8.2064, 5.0891, 12.4482],
+        spectral_type: "M3.5Ve",
+    },
+    StarPositionData {
+        name: "GJ 3323",
+        pos_ly: [5.5742, 13.2783, -8.1621],
+        spectral_type: "M4.0V",
+    },
+    StarPositionData {
+        name: "Gliese 526",
+        pos_ly: [-12.2104, 4.0766, 11.8312],
+        spectral_type: "M1.5V",
+    },
+    StarPositionData {
+        name: "Stein 2051",
+        pos_ly: [3.1682, -5.1839, 17.0252],
+        spectral_type: "M4.0V",
+    },
+    StarPositionData {
+        name: "Gliese 251",
+        pos_ly: [-6.4685, 10.8082, 11.6925],
+        spectral_type: "M3.0V",
+    },
+    StarPositionData {
+        name: "Gliese 908",
+        pos_ly: [15.8429, -1.4821, 8.9476],
+        spectral_type: "M1.0V",
+    },
+    StarPositionData {
+        name: "Gliese 752",
+        pos_ly: [5.0133, -15.0101, 10.2773],
+        spectral_type: "M2.5V",
+    },
+    StarPositionData {
+        name: "82 G. Eridani",
+        pos_ly: [11.0048, 12.8764, -8.9236],
+        spectral_type: "G8V",
+    },
+    StarPositionData {
+        name: "Delta Pavonis",
+        pos_ly: [4.5825, -5.2689, -18.5862],
+        spectral_type: "G8IV",
+    },
+    StarPositionData {
+        name: "Gliese 581",
+        pos_ly: [-5.0516, -15.6627, -11.5688],
+        spectral_type: "M3.0V",
+    },
 ];
 
 impl NearbyStarsData {
@@ -378,5 +432,17 @@ impl NearbyStarsData {
         NEARBY_STARS_POSITIONS.iter()
             .find(|star| star.name == name)
             .map(|star| star.pos_ly)
+    }
+
+    /// Returns the starmap-compatible system ID for the given system name.
+    /// The starmap assigns IDs as `index + 1` (0 = Sol) based on the order in
+    /// `NEARBY_STARS_POSITIONS`. The populator **must** use this function
+    /// instead of sequential counters so that entity `SystemId` values match
+    /// the starmap icon IDs, ensuring the floating origin is set correctly
+    /// when transitioning between systems.
+    pub fn get_system_id_by_name(name: &str) -> Option<usize> {
+        NEARBY_STARS_POSITIONS.iter()
+            .position(|star| star.name == name)
+            .map(|idx| idx + 1) // 0 = Sol
     }
 }
