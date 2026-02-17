@@ -33,10 +33,10 @@ use crate::economy::{
     PowerSourceType, ResourceRateTracker, ResourceType,
 };
 use crate::game_state::{ActiveMenu, GameMenu};
-use crate::plugins::camera::{CameraAnchor, GameCamera, ViewMode};
+use crate::plugins::camera::{CameraAnchor, GameCamera, OrbitCamera, ViewMode, STARMAP_THRESHOLD_MULTIPLIER, MIN_STARMAP_THRESHOLD};
 use crate::plugins::solar_system::{CelestialBody, LogicalParent};
 use crate::plugins::solar_system_data::BodyType;
-use crate::plugins::starmap::{HoveredStarSystem, SelectedStarSystem, StarSystemIcon};
+use crate::plugins::starmap::{HoveredStarSystem, SelectedStarSystem, StarSystemIcon, SystemMetadata};
 use crate::research::{
     EngineeringProject, PendingResearchActions, ResearchProject, ResearchState, ResearchTeam, ResearchTeamCapacity,
     TechnologiesData, TechCategory, TechTreeEditState, TechEditData, ContextMenuState,
@@ -1854,6 +1854,9 @@ fn ui_top_menu_bar(
     pending_research: Res<PendingResearchActions>,
     menu_icons: Option<Res<MenuIcons>>,
     mut icon_textures: Local<HashMap<GameMenu, egui::TextureId>>,
+    current_system: Res<CurrentStarSystem>,
+    system_metadata: Res<SystemMetadata>,
+    mut camera_query: Query<(&mut OrbitCamera, &mut CameraAnchor), With<GameCamera>>,
 ) {
     // Convert loaded handles to egui TextureIds before creating the UI context.
     // We cache the TextureIds in a Local<HashMap> so that `add_image` is called
@@ -1874,6 +1877,17 @@ fn ui_top_menu_bar(
         } else {
             None
         };
+
+    // Pre-compute the camera radius needed to be comfortably in starmap view.
+    // This is 1.5× the entry threshold so the camera is clearly above it and
+    // `update_view_mode` won't immediately revert back to System.
+    let starmap_radius = {
+        let bounding_radius_au = system_metadata.get_bounding_radius(current_system.0);
+        let base_threshold = (bounding_radius_au
+            * crate::astronomy::SCALING_FACTOR as f64
+            * STARMAP_THRESHOLD_MULTIPLIER as f64) as f32;
+        base_threshold.max(MIN_STARMAP_THRESHOLD) * 1.5
+    };
 
     let ctx = match contexts.try_ctx_mut() {
         Some(ctx) => ctx,
@@ -1923,7 +1937,14 @@ fn ui_top_menu_bar(
                             if resp.clicked() {
                                 active_menu.current = menu;
                                 match menu {
-                                    GameMenu::Starmap => *view_mode = ViewMode::Starmap,
+                                    GameMenu::Starmap => {
+                                        *view_mode = ViewMode::Starmap;
+                                        if let Ok((mut orbit, mut anchor)) = camera_query.get_single_mut() {
+                                            orbit.radius = starmap_radius;
+                                            orbit.target_center = Vec3::ZERO;
+                                            anchor.0 = None;
+                                        }
+                                    }
                                     GameMenu::Survey => *view_mode = ViewMode::System,
                                     _ => *view_mode = ViewMode::System,
                                 }
@@ -1949,7 +1970,14 @@ fn ui_top_menu_bar(
                             if ui.add(button).clicked() {
                                 active_menu.current = menu;
                                 match menu {
-                                    GameMenu::Starmap => *view_mode = ViewMode::Starmap,
+                                    GameMenu::Starmap => {
+                                        *view_mode = ViewMode::Starmap;
+                                        if let Ok((mut orbit, mut anchor)) = camera_query.get_single_mut() {
+                                            orbit.radius = starmap_radius;
+                                            orbit.target_center = Vec3::ZERO;
+                                            anchor.0 = None;
+                                        }
+                                    }
                                     GameMenu::Survey => *view_mode = ViewMode::System,
                                     _ => *view_mode = ViewMode::System,
                                 }
@@ -1976,7 +2004,14 @@ fn ui_top_menu_bar(
                         if ui.add(button).clicked() {
                             active_menu.current = menu;
                             match menu {
-                                GameMenu::Starmap => *view_mode = ViewMode::Starmap,
+                                GameMenu::Starmap => {
+                                    *view_mode = ViewMode::Starmap;
+                                    if let Ok((mut orbit, mut anchor)) = camera_query.get_single_mut() {
+                                        orbit.radius = starmap_radius;
+                                        orbit.target_center = Vec3::ZERO;
+                                        anchor.0 = None;
+                                    }
+                                }
                                 GameMenu::Survey => *view_mode = ViewMode::System,
                                 _ => *view_mode = ViewMode::System,
                             }
