@@ -6,18 +6,20 @@
 //!
 //!  - Individual celestial bodies and orbit paths are hidden.
 //!  - Each star system is represented by a single glowing icon/billboard.
-//!  - Double-clicking a system icon anchors the camera and allows zoom-in.
+//!  - Single-clicking a system icon selects/highlights it.
+//!  - Double-clicking a system icon anchors the camera and zooms into the system.
 //!
 //! Currently only the Sol system exists; more systems will be added later.
 
 use bevy::math::DVec3;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
+use bevy_egui::egui;
 use std::collections::HashMap;
 
 use super::camera::{CameraAnchor, GameCamera, OrbitCamera, ViewMode};
-use super::solar_system::CelestialBody;
-use super::solar_system_data::{BodyType, calculate_visual_radius};
+use super::solar_system::{Billboard, CelestialBody, StarGlare, StarGlowMaterial};
+use super::solar_system_data::BodyType;
 use crate::astronomy::components::{
     CurrentStarSystem, FloatingOrigin, SpaceCoordinates, SystemId,
 };
@@ -243,9 +245,16 @@ fn spawn_system_bodies(
     floating_origin: Res<FloatingOrigin>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials_glow: ResMut<Assets<StarGlowMaterial>>,
     // Query for bodies that need visual components added
     bodies_without_visuals: Query<
-        (Entity, &CelestialBody, &SpaceCoordinates, &SystemId),
+        (
+            Entity,
+            &CelestialBody,
+            &SpaceCoordinates,
+            &SystemId,
+            Option<&crate::astronomy::StellarProperties>,
+        ),
         (Without<Handle<Mesh>>, Without<Handle<StandardMaterial>>),
     >,
     // Query to check if system already has visual entities
@@ -271,56 +280,48 @@ fn spawn_system_bodies(
     let origin_offset = floating_origin.position;
 
     // Find all data-only entities for this system and add visual components
-    for (entity, body, space_coords, _system_id) in bodies_without_visuals.iter() {
+    for (entity, body, space_coords, _system_id, stellar_props) in bodies_without_visuals.iter() {
         if _system_id.0 != sys_id {
             continue;
         }
 
-        // Determine visual properties based on body type
-        let (color, visual_radius) = match body.body_type {
+        // Use the pre-computed visual_radius from CelestialBody (already scaled
+        // for system compactness by system_populator) instead of recalculating.
+        let visual_radius = body.visual_radius;
+
+        // Determine color based on body type
+        let color = match body.body_type {
             BodyType::Star => {
-                let color = Color::srgb(1.0, 0.95, 0.8); // Default yellow star
-                let visual_radius = calculate_visual_radius(body.body_type, body.radius);
-                (color, visual_radius)
+                // Calculate color from temperature if available
+                if let Some(props) = stellar_props {
+                    super::solar_system_data::kelvin_to_color(props.temperature_kelvin)
+                } else {
+                    Color::srgb(1.0, 0.95, 0.8) // Default yellow star
+                }
             }
-            BodyType::Planet | BodyType::DwarfPlanet => {
-                let color = Color::srgb(0.5, 0.5, 0.7); // Default blue-grey planet
-                let visual_radius = calculate_visual_radius(body.body_type, body.radius);
-                (color, visual_radius)
-            }
-            BodyType::GasGiant => {
-                let color = Color::srgb(0.9, 0.8, 0.6); // Tan/beige for gas giant
-                let visual_radius = calculate_visual_radius(body.body_type, body.radius);
-                (color, visual_radius)
-            }
-            BodyType::Moon => {
-                let color = Color::srgb(0.6, 0.6, 0.6); // Grey moon
-                let visual_radius = calculate_visual_radius(body.body_type, body.radius);
-                (color, visual_radius)
-            }
-            BodyType::Asteroid => {
-                let color = Color::srgb(0.4, 0.4, 0.3); // Brown-grey asteroid
-                let visual_radius = calculate_visual_radius(body.body_type, body.radius);
-                (color, visual_radius)
-            }
-            BodyType::Comet => {
-                let color = Color::srgb(0.7, 0.8, 0.9); // Icy blue-white
-                let visual_radius = calculate_visual_radius(body.body_type, body.radius);
-                (color, visual_radius)
-            }
+            BodyType::Planet | BodyType::DwarfPlanet => Color::srgb(0.5, 0.5, 0.7),
+            BodyType::GasGiant => Color::srgb(0.9, 0.8, 0.6),
+            BodyType::Moon => Color::srgb(0.6, 0.6, 0.6),
+            BodyType::Asteroid => Color::srgb(0.4, 0.4, 0.3),
+            BodyType::Comet => Color::srgb(0.7, 0.8, 0.9),
             BodyType::Ring => {
                 // Rings should have been created as separate entities, skip for now
                 continue;
             }
         };
 
-        // Create mesh
-        let mesh = meshes.add(Sphere::new(visual_radius).mesh().uv(32, 16));
+        // Create mesh - Higher resolution for stars to avoid boxy look
+        let mesh = if matches!(body.body_type, BodyType::Star) {
+            meshes.add(Sphere::new(visual_radius).mesh().uv(128, 64))
+        } else {
+            meshes.add(Sphere::new(visual_radius).mesh().uv(32, 16))
+        };
 
         // Create material
         let material = if matches!(body.body_type, BodyType::Star) {
             materials.add(StandardMaterial {
                 base_color: color,
+                // High emissive for bloom
                 emissive: LinearRgba::from(color).into(),
                 unlit: true,
                 ..default()
@@ -337,26 +338,28 @@ fn spawn_system_bodies(
         // Compute the correct initial transform position using floating origin
         let scaled_position =
             (space_coords.position - origin_offset) * SCALING_FACTOR;
-        let initial_transform = Transform::from_translation(Vec3::new(
+        let p_vec = Vec3::new(
             scaled_position.x as f32,
             scaled_position.y as f32,
             scaled_position.z as f32,
-        ));
+        );
+        let initial_transform = Transform::from_translation(p_vec);
 
         // Add visual components to existing entity
         commands.entity(entity).insert((
-            mesh,
-            material,
-            initial_transform,
-            GlobalTransform::default(),
-            Visibility::default(),
-            InheritedVisibility::default(),
-            ViewVisibility::default(),
+            PbrBundle {
+                mesh,
+                material,
+                transform: initial_transform,
+                ..default()
+            },
         ));
 
-        // Add light for stars
+        // Add light and glow for stars
         if matches!(body.body_type, BodyType::Star) {
             let intensity = 2.8e11; // Default star intensity
+            
+            // Add point light and glow as children
             commands.entity(entity).with_children(|parent| {
                 parent.spawn((
                     PointLightBundle {
@@ -371,10 +374,42 @@ fn spawn_system_bodies(
                     },
                     SystemId(sys_id),
                 ));
+                
+                // ADD GLOW EFFECT to make it look like a star
+                // Scale glow proportional to system compactness so it doesn't
+                // swallow close-in planets in compact systems.
+                // Use L^0.3 (stronger than the body scale L^0.15) because the
+                // glow quad is already 12× the star mesh and dominates in
+                // compact systems where close-in orbits are only ~100 Bevy units.
+                // Clamp to 0.33 minimum so even very dim stars get a visible glow
+                // (4× their mesh radius instead of barely visible 1.2×).
+                let glow_scale = stellar_props
+                    .map(|p| p.luminosity_sol.max(1e-7).powf(0.3).clamp(0.33, 1.0))
+                    .unwrap_or(1.0);
+                let glow_size = visual_radius * 12.0 * glow_scale;
+                let core_col = Vec4::new(5.0, 5.0, 5.0, 1.0); // Bright core
+                let linear = color.to_linear();
+                let halo_col = Vec4::new(linear.red, linear.green, linear.blue, 1.0) * 4.0; // Colored halo
+                
+                parent.spawn((
+                    MaterialMeshBundle {
+                        mesh: meshes.add(Rectangle::new(glow_size, glow_size)),
+                        material: materials_glow.add(StarGlowMaterial {
+                            color_core: core_col,
+                            color_halo: halo_col,
+                        }),
+                        transform: Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+                        ..default()
+                    },
+                    StarGlare {
+                        base_core_color: core_col,
+                        base_halo_color: halo_col,
+                    },
+                    Billboard,
+                    SystemId(sys_id), 
+                ));
             });
         }
-
-        info!("Added visuals to {} ({:?})", body.name, body.body_type);
     }
 
     info!("Finished adding visual components to system {}", sys_id);
@@ -482,11 +517,16 @@ fn update_starmap_coordinates(
 }
 
 /// Show/hide starmap icons based on current `ViewMode`.
+///
+/// When inside a non-Sol system that already has high-resolution visual
+/// entities (spawned by `spawn_system_bodies`), the low-poly starmap icon is
+/// hidden so the proper star mesh is the only one rendered.
 fn update_starmap_visibility(
     view_mode: Res<ViewMode>,
     current_system: Res<CurrentStarSystem>,
     active_menu: Res<ActiveMenu>,
     mut icon_query: Query<(&mut Visibility, &StarSystemIcon)>,
+    bodies_with_visuals: Query<&SystemId, (With<CelestialBody>, With<Handle<Mesh>>)>,
 ) {
     if !view_mode.is_changed() && !current_system.is_changed() && !active_menu.is_changed() {
         return;
@@ -502,10 +542,14 @@ fn update_starmap_visibility(
 
     match *view_mode {
         ViewMode::System => {
+            // Check whether the current system has proper visual entities
+            let system_has_visuals = bodies_with_visuals
+                .iter()
+                .any(|id| id.0 == current_system.0);
+
             for (mut vis, icon) in icon_query.iter_mut() {
-                // For Sol (0), we have a real model, so hide the icon.
-                // For others, show the icon as a placeholder star until we implement real loading.
-                if icon.id == current_system.0 && icon.id != 0 {
+                if icon.id == current_system.0 && icon.id != 0 && !system_has_visuals {
+                    // No real visuals yet — show icon as a placeholder
                     *vis = Visibility::Inherited;
                 } else {
                     *vis = Visibility::Hidden;
@@ -532,8 +576,12 @@ fn update_starmap_icon_scale(
         return;
     };
 
-    // Calculate desired radius
-    let icon_radius = (orbit.radius * 0.012).max(50.0);
+    // Scale icons with sub-linear (square root) growth to maintain good proportions
+    // at all zoom levels. Icons grow more slowly as you zoom out, preventing overlap.
+    // At 100k units: ~707 radius, at 1M units: ~2236 radius, at 2M units: ~3162 radius
+    let base_size = 800.0;
+    let reference_zoom = 100_000.0;
+    let icon_radius = base_size * (orbit.radius / reference_zoom).sqrt();
     let scale = Vec3::splat(icon_radius);
 
     match *view_mode {
@@ -660,8 +708,9 @@ struct StarmapSelectionState {
     last_clicked_entity: Option<Entity>,
 }
 
-/// Handle double-click selection of star system icons in starmap view.
-/// Double-clicking anchors the camera to the system's position.
+/// Handle single-click selection and double-click zoom of star system icons.
+/// Single-clicking selects/highlights the system.
+/// Double-clicking anchors the camera and zooms into the system.
 fn handle_starmap_selection(
     view_mode: Res<ViewMode>,
     mouse_button: Res<ButtonInput<MouseButton>>,
@@ -671,6 +720,7 @@ fn handle_starmap_selection(
     mut commands: Commands,
     selected_query: Query<Entity, With<SelectedStarSystem>>,
     mut anchor_query: Query<&mut CameraAnchor, With<GameCamera>>,
+    mut orbit_camera_query: Query<&mut OrbitCamera, With<GameCamera>>,
     time: Res<Time>,
     mut selection_state: Local<StarmapSelectionState>,
     mut egui_contexts: bevy_egui::EguiContexts,
@@ -680,13 +730,22 @@ fn handle_starmap_selection(
         return;
     }
 
+    // Set cursor to default arrow to prevent text selection cursor
+    if let Some(ctx) = egui_contexts.try_ctx_mut() {
+        if !ctx.is_pointer_over_area() {
+            ctx.output_mut(|o| o.cursor_icon = egui::CursorIcon::Default);
+        }
+    }
+
     // Only process on mouse click
     if !mouse_button.just_pressed(MouseButton::Left) {
         return;
     }
 
     // Don't process if egui is using the mouse
-    let ctx = egui_contexts.ctx_mut();
+    let Some(ctx) = egui_contexts.try_ctx_mut() else {
+        return;
+    };
     if ctx.is_pointer_over_area() || ctx.wants_pointer_input() || ctx.is_using_pointer() {
         return;
     }
@@ -739,7 +798,7 @@ fn handle_starmap_selection(
         }
     }
 
-    // If we found an icon, check for double-click
+    // If we found an icon, handle selection and double-click
     if let Some((entity, _, name)) = closest_icon {
         let current_time = time.elapsed_seconds_f64();
         let is_double_click = selection_state.last_clicked_entity == Some(entity)
@@ -749,7 +808,22 @@ fn handle_starmap_selection(
         selection_state.last_click_time = current_time;
 
         if is_double_click {
-            info!("Double-clicked star system: {}", name);
+            // Double-click: Zoom into the system
+            info!("Double-clicked star system: {} - zooming in", name);
+
+            // Anchor camera to this system icon's position
+            if let Ok(mut anchor) = anchor_query.get_single_mut() {
+                anchor.0 = Some(entity);
+                info!("Camera anchored to {}", name);
+            }
+
+            // Set zoom to medium level (150k units for comfortable view)
+            if let Ok(mut orbit_camera) = orbit_camera_query.get_single_mut() {
+                orbit_camera.radius = 150_000.0;
+            }
+        } else {
+            // Single-click: Just select/highlight the system
+            info!("Selected star system: {}", name);
 
             // Clear previous selection
             for selected_entity in selected_query.iter() {
@@ -758,15 +832,8 @@ fn handle_starmap_selection(
                     .remove::<SelectedStarSystem>();
             }
 
-            // Mark this system as selected/anchored
+            // Mark this system as selected
             commands.entity(entity).insert(SelectedStarSystem);
-
-            // Anchor camera to this system icon's position
-            // Note: We anchor to the entity itself so the camera follows it
-            if let Ok(mut anchor) = anchor_query.get_single_mut() {
-                anchor.0 = Some(entity);
-                info!("Camera anchored to {}", name);
-            }
         }
     }
 }

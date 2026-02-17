@@ -2,7 +2,7 @@
 
 ## Overview
 
-Helios Ascension now includes a comprehensive atmosphere model for celestial bodies, based on real NASA data for solar system bodies. This system is inspired by Aurora 4X and will play a crucial role in future terraforming and colonization mechanics.
+Helios Ascension now includes a comprehensive atmosphere model for celestial bodies, based on real NASA data for solar system bodies. This system will play a crucial role in future terraforming and colonization mechanics.
 
 ## Features
 
@@ -43,7 +43,7 @@ The system automatically determines if an atmosphere is breathable for humans ba
 - Earth's atmosphere meets this requirement (21% O₂ at 1013 mbar ≈ 213 mbar O₂)
 
 ### Colony Cost Calculation
-Following Aurora 4X's model, each atmosphere has a calculated colony cost (0-8):
+Each atmosphere has a calculated colony cost (0-8):
 - **0**: Earth-like conditions (perfect for colonization)
 - **1-3**: Challenging but manageable
 - **4-6**: Difficult conditions requiring significant infrastructure
@@ -248,5 +248,4 @@ All atmosphere data is based on:
 
 - [NASA Planetary Fact Sheets](https://nssdc.gsfc.nasa.gov/planetary/factsheet/)
 - [Planetary Data System](https://pds.nasa.gov/)
-- [Aurora 4X Wiki - Terraforming](https://aurorawiki2.pentarch.org/index.php?title=Terraforming)
 - [Leiden University - Planetary Atmospheres](https://home.strw.leidenuniv.nl/~keller/Teaching/Planets_2010/atmospheres_2010.PDF)

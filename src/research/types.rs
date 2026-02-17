@@ -162,6 +162,27 @@ impl ModifierType {
             ModifierType::UnlockMechanic(name) => format!("Unlock: {}", name),
         }
     }
+
+    /// Get all available modifier types (for UI selection)
+    /// Returns modifier types suitable for percentage bonuses
+    pub fn all_for_debug() -> Vec<ModifierType> {
+        let mut types = vec![
+            ModifierType::ResearchSpeed,
+            ModifierType::EngineeringSpeed,
+            ModifierType::ConstructionCost,
+            ModifierType::MiningEfficiency,
+            ModifierType::PowerGeneration,
+            ModifierType::ShipMaintenance,
+            ModifierType::PopulationGrowth,
+        ];
+        
+        // Add category-specific research bonuses
+        for category in TechCategory::all() {
+            types.push(ModifierType::CategoryResearchBonus(*category));
+        }
+        
+        types
+    }
 }
 
 /// Component design that requires engineering after research

@@ -22,7 +22,7 @@ pub const SCALING_FACTOR: f64 = 1500.0;
 /// Click radius for body selection (in Bevy units)
 /// Bodies within this distance from the ray are considered clickable.
 /// Increased so selection is easier to hit with the mouse.
-const SELECTION_CLICK_RADIUS: f32 = 20.0;
+const SELECTION_CLICK_RADIUS: f32 = 45.0;
 
 /// Padding for the hover ring around celestial bodies (in Bevy units)
 const HOVER_RING_PADDING: f32 = 8.0; // Creates visible gap between marker and body
@@ -286,7 +286,7 @@ pub fn update_render_transform(
     }
 }
 
-/// System that draws orbit paths as fading trails (Terra Invicta style).
+/// System that draws orbit paths as fading trails.
 /// The trail is brightest at the body's current position and fades out
 /// behind it, creating a comet-tail effect along the orbit.
 ///
@@ -1198,9 +1198,11 @@ pub fn handle_body_selection(
         return;
     };
 
-    // Find the closest body to the ray
-    // Stores: (Entity, distance from camera, body name)
-    let mut closest_body: Option<(Entity, f32, String)> = None;
+    // Find the body whose center is closest to the mouse ray.
+    // Using ray-distance (not camera-distance) prevents large bodies like
+    // stars from stealing clicks away from smaller planets orbiting nearby.
+    // Stores: (Entity, ray_distance, body name)
+    let mut closest_body: Option<(Entity, f32, f32, String)> = None;
 
     for (entity, transform, body, system_id) in body_query.iter() {
         // Only interact with bodies in the current star system
@@ -1230,9 +1232,12 @@ pub fn handle_body_selection(
 
         if distance < selection_radius {
             match closest_body {
-                None => closest_body = Some((entity, projection, body.name.clone())),
-                Some((_, prev_dist, _)) if projection < prev_dist => {
-                    closest_body = Some((entity, projection, body.name.clone()));
+                None => closest_body = Some((entity, distance, projection, body.name.clone())),
+                Some((_, prev_ray_dist, prev_proj, _))
+                    if distance < prev_ray_dist
+                        || (distance == prev_ray_dist && projection < prev_proj) =>
+                {
+                    closest_body = Some((entity, distance, projection, body.name.clone()));
                 }
                 _ => {}
             }
@@ -1245,7 +1250,7 @@ pub fn handle_body_selection(
     }
 
     // Select the clicked body if any
-    if let Some((entity, _, name)) = closest_body {
+    if let Some((entity, _, _, name)) = closest_body {
         commands.entity(entity).insert(Selected);
         info!("Selected celestial body: {} (entity {:?})", name, entity);
 
@@ -1327,8 +1332,10 @@ pub fn handle_body_hover(
         return;
     };
 
-    // Find the closest body to the ray
-    let mut closest_body: Option<(Entity, f32)> = None;
+    // Find the body whose center is closest to the mouse ray.
+    // Using ray-distance (not camera-distance) prevents large bodies like
+    // stars from stealing hovers away from smaller planets orbiting nearby.
+    let mut closest_body: Option<(Entity, f32, f32)> = None;
 
     for (entity, transform, body, system_id) in body_query.iter() {
         // Only interact with bodies in the current star system
@@ -1355,9 +1362,12 @@ pub fn handle_body_hover(
         let selection_radius = body.visual_radius + SELECTION_CLICK_RADIUS;
         if distance < selection_radius {
             match closest_body {
-                None => closest_body = Some((entity, projection)),
-                Some((_, prev_dist)) if projection < prev_dist => {
-                    closest_body = Some((entity, projection));
+                None => closest_body = Some((entity, distance, projection)),
+                Some((_, prev_ray_dist, prev_proj))
+                    if distance < prev_ray_dist
+                        || (distance == prev_ray_dist && projection < prev_proj) =>
+                {
+                    closest_body = Some((entity, distance, projection));
                 }
                 _ => {}
             }
@@ -1370,7 +1380,7 @@ pub fn handle_body_hover(
     }
 
     // Set the hovered body if any
-    if let Some((entity, _)) = closest_body {
+    if let Some((entity, _, _)) = closest_body {
         commands.entity(entity).insert(Hovered);
     }
 }
@@ -1459,8 +1469,14 @@ pub fn despawn_hover_markers(
     mut commands: Commands,
     mut removed_hovered: RemovedComponents<Hovered>,
     marker_query: Query<(Entity, &MarkerOwner), With<HoverMarker>>,
+    selected_query: Query<(), With<Selected>>,
 ) {
     for entity in removed_hovered.read() {
+        // Skip if the entity is now selected - spawn_selection_markers already handles it
+        if selected_query.get(entity).is_ok() {
+            continue;
+        }
+        
         for (marker_entity, owner) in marker_query.iter() {
             if owner.0 == entity {
                 commands.entity(marker_entity).despawn_recursive();
@@ -1530,7 +1546,7 @@ fn spawn_marker(
     // manually sync its position every frame in `scale_markers_with_zoom`.
     // commands.entity(marker_entity).set_parent(owner);
 
-    // Create Terra Invicta-style corner brackets using boxes
+    // Create corner brackets using boxes
     // Each corner has two bars forming an L-shape
     let bracket_thickness = (radius * 0.08).max(2.0); // Scale with body size, minimum 2.0
     let bracket_length = radius * 0.25; // Length of each bracket arm

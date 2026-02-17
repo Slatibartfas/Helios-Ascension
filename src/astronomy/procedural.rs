@@ -183,11 +183,19 @@ pub fn map_star_to_system_architecture(
         );
 
         // Generate outer system gas/ice giants
+        // Offset the name index past confirmed + rocky-procedural planets
+        let gas_name_offset = existing_orbits_au.len() + rocky_planets.len();
+        
+        // Combine existing orbits with newly generated rocky planets so gas giants avoid them
+        let mut all_orbits = existing_orbits_au.to_vec();
+        all_orbits.extend(rocky_planets.iter().map(|p| p.semi_major_axis_au));
+        
         gas_giants = generate_gas_giants(
             star_name,
             outer_count,
             frost_line_au,
-            existing_orbits_au,
+            &all_orbits,
+            gas_name_offset,
             rng,
         );
     }
@@ -242,14 +250,17 @@ fn generate_rocky_planets(
         return planets;
     }
 
+    // Track all occupied orbits (existing + newly generated)
+    let mut all_orbits = existing_orbits_au.to_vec();
+
     for i in 0..count {
         // Space planets roughly evenly, with some randomness
         let base_orbit = inner_min + (inner_max - inner_min) * (i as f64 + 0.5) / (count as f64);
         let variation = rng.gen_range(-0.15..0.15);
         let mut semi_major_axis = base_orbit * (1.0 + variation);
 
-        // Avoid collisions with existing planets (need at least 0.1 AU separation)
-        while is_too_close_to_existing(semi_major_axis, existing_orbits_au, 0.1) {
+        // Avoid collisions with all occupied orbits (need at least 0.1 AU separation)
+        while is_too_close_to_existing(semi_major_axis, &all_orbits, 0.1) {
             semi_major_axis += rng.gen_range(0.05..0.15);
         }
 
@@ -261,7 +272,7 @@ fn generate_rocky_planets(
         // After clamping, re-check separation. If we're now too close to an existing orbit,
         // nudge the planet slightly inward while staying within the inner system bounds.
         let mut safeguard_iterations = 0;
-        while is_too_close_to_existing(semi_major_axis, existing_orbits_au, 0.1)
+        while is_too_close_to_existing(semi_major_axis, &all_orbits, 0.1)
             && safeguard_iterations < 8
         {
             let delta = rng.gen_range(0.05..0.15);
@@ -283,7 +294,8 @@ fn generate_rocky_planets(
             name: format!(
                 "{} {}",
                 star_name,
-                char::from_u32('b' as u32 + i as u32).unwrap_or('?')
+                char::from_u32('b' as u32 + existing_orbits_au.len() as u32 + i as u32)
+                    .unwrap_or('?')
             ),
             semi_major_axis_au: semi_major_axis,
             eccentricity: rng.gen_range(0.0..0.15), // Rocky planets tend to have low eccentricity
@@ -297,6 +309,8 @@ fn generate_rocky_planets(
             planet_type: PlanetType::Rocky,
         };
 
+        // Add this orbit to the tracking list so subsequent planets avoid it
+        all_orbits.push(semi_major_axis);
         planets.push(planet);
     }
 
@@ -309,6 +323,7 @@ fn generate_gas_giants(
     count: usize,
     frost_line_au: f64,
     existing_orbits_au: &[f64],
+    name_offset: usize,
     rng: &mut impl Rng,
 ) -> Vec<ProceduralPlanet> {
     let mut planets = Vec::new();
@@ -318,6 +333,9 @@ fn generate_gas_giants(
     let outer_min = (frost_line_au * 1.2).max(0.5);
     let outer_max = 30.0;
 
+    // Track all occupied orbits (existing + newly generated)
+    let mut all_orbits = existing_orbits_au.to_vec();
+
     for i in 0..count {
         // Space planets with increasing separation (logarithmic spacing)
         let t = (i as f64 + 0.5) / (count as f64);
@@ -325,8 +343,8 @@ fn generate_gas_giants(
         let variation = rng.gen_range(-0.15..0.15);
         let mut semi_major_axis = base_orbit * (1.0 + variation);
 
-        // Avoid collisions with existing planets (need at least 0.5 AU separation for giants)
-        while is_too_close_to_existing(semi_major_axis, existing_orbits_au, 0.5) {
+        // Avoid collisions with all occupied orbits (need at least 0.5 AU separation for giants)
+        while is_too_close_to_existing(semi_major_axis, &all_orbits, 0.5) {
             semi_major_axis += rng.gen_range(0.3..0.8);
         }
 
@@ -352,7 +370,7 @@ fn generate_gas_giants(
             name: format!(
                 "{} {}",
                 star_name,
-                char::from_u32('b' as u32 + existing_orbits_au.len() as u32 + i as u32)
+                char::from_u32('b' as u32 + name_offset as u32 + i as u32)
                     .unwrap_or('?')
             ),
             semi_major_axis_au: semi_major_axis,
@@ -367,6 +385,8 @@ fn generate_gas_giants(
             planet_type,
         };
 
+        // Add this orbit to the tracking list so subsequent planets avoid it
+        all_orbits.push(semi_major_axis);
         planets.push(planet);
     }
 
@@ -705,7 +725,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(789);
         let frost_line = 4.85;
 
-        let planets = generate_gas_giants("Test", 2, frost_line, &[], &mut rng);
+        let planets = generate_gas_giants("Test", 2, frost_line, &[], 0, &mut rng);
 
         assert_eq!(planets.len(), 2);
         for planet in &planets {

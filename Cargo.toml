@@ -3,7 +3,7 @@ name = "helios_ascension"
 version = "0.1.0"
 edition = "2021"
 authors = ["Helios Development Team"]
-description = "A 4X Grand Strategy game inspired by Aurora 4X and Terra Invicta"
+description = "A 4X Grand Strategy game with realistic orbital mechanics"
 license = "MIT"
 
 [lib]

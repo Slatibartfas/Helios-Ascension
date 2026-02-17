@@ -1,5 +1,5 @@
-#import bevy_pbr::mesh_view_bindings
-#import bevy_pbr::mesh_bindings
+#import bevy_pbr::mesh_view_bindings::view
+#import bevy_pbr::mesh_view_bindings::globals
 
 @group(2) @binding(0) var<uniform> camera_rotation: mat3x3<f32>;
 @group(2) @binding(1) var<uniform> camera_distance: f32;
@@ -7,8 +7,8 @@
 // --- Cinematic Constants ---
 const STAR_DENSITY: f32 = 120.0;     // Higher = smaller, more numerous stars
 const STAR_BRIGHTNESS: f32 = 5.0;    // Over 1.0 triggers HDR Bloom
-const NEBULA_STRENGTH: f32 = 0.15;
-const MILKY_WAY_STRENGTH: f32 = 0.4;
+const NEBULA_STRENGTH: f32 = 0.06;   // Reduced to minimize smearing
+const MILKY_WAY_STRENGTH: f32 = 0.12; // Reduced to minimize brownish haze
 
 // --- Core Math ---
 fn hash33(p: vec3<f32>) -> vec3<f32> {
@@ -88,7 +88,7 @@ fn get_milky_way(dir: vec3<f32>) -> vec3<f32> {
     let n = 1.0 - abs(fbm(tilted_dir * 3.0 + 0.5));
     let dust = smoothstep(0.2, 0.7, n);
     
-    let core_col = vec3<f32>(0.5, 0.3, 0.2); // Golden core
+    let core_col = vec3<f32>(0.4, 0.5, 0.6); // Bluish-white core (no brown)
     return core_col * band * dust * MILKY_WAY_STRENGTH;
 }
 

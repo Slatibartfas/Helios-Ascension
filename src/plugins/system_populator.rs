@@ -27,7 +27,7 @@ use crate::game_state::GameSeed;
 use crate::plugins::solar_system::{
     Asteroid, CelestialBody, Comet, LogicalParent, Moon, Planet, Star,
 };
-use crate::plugins::solar_system_data::{calculate_visual_radius, AsteroidClass, BodyType};
+use crate::plugins::solar_system_data::{calculate_visual_radius, system_visual_scale, AsteroidClass, BodyType};
 use crate::plugins::starmap::SystemMetadata;
 
 pub struct SystemPopulatorPlugin;
@@ -61,14 +61,30 @@ fn populate_nearby_systems(
         game_seed.value
     );
 
-    // Start at system ID 1 (Sol is 0)
-    let mut system_id = 1;
+    // Fallback counter for systems that are NOT in NEARBY_STARS_POSITIONS.
+    // These systems will not appear on the starmap, but we still give them
+    // unique IDs so their entities are harmless rather than conflicting.
+    use crate::astronomy::nearby_stars::NEARBY_STARS_POSITIONS;
+    let mut next_fallback_id = NEARBY_STARS_POSITIONS.len() + 1;
 
     for system_data in &stars_data.systems {
         // Skip if this is the Sol system (already populated)
         if system_data.system_name == "Sol" {
             continue;
         }
+
+        // Look up the starmap-compatible system ID for this system.
+        // This MUST match the ID the starmap icon was spawned with
+        // (index in NEARBY_STARS_POSITIONS + 1) so that the floating
+        // origin is set to the correct position on system transition.
+        let system_id = if let Some(id) = NearbyStarsData::get_system_id_by_name(&system_data.system_name) {
+            id
+        } else {
+            // System is not on the starmap — assign a unique high ID
+            let id = next_fallback_id;
+            next_fallback_id += 1;
+            id
+        };
 
         info!(
             "Populating system '{}' at {:.2} ly with {} stars",
@@ -113,6 +129,17 @@ fn populate_nearby_systems(
                 );
             }
 
+            // Compute visual size scale for this system.
+            // Compact systems (brown dwarfs, late-M dwarfs) get smaller body
+            // meshes so they don't overwhelm their tiny orbits.
+            let vis_scale = system_visual_scale(primary_star.luminosity_sol);
+            if vis_scale < 1.0 {
+                info!(
+                    "  Visual scale for '{}': {:.2}x (L={:.2e})",
+                    system_data.system_name, vis_scale, primary_star.luminosity_sol
+                );
+            }
+
             let star_entity = spawn_star_entity_with_metallicity(
                 &mut commands,
                 primary_star,
@@ -120,6 +147,33 @@ fn populate_nearby_systems(
                 star_position,
                 metallicity,
             );
+
+            // Cap stellar visual radius so the star mesh doesn't swallow
+            // the innermost planets in compact systems.
+            if let Some(inner_sma) = primary_star.planets.iter()
+                .map(|p| p.semi_major_axis_au)
+                .reduce(f32::min)
+            {
+                let max_star_vis = (inner_sma as f32) * (SCALING_FACTOR as f32) * 0.25;
+                if let Some(mut body) = commands.get_entity(star_entity) {
+                    // We can't query components during command building, so
+                    // read back the visual_radius we just set and clamp it.
+                    let current = calculate_visual_radius(
+                        BodyType::Star,
+                        (primary_star.radius_sol * 695700.0) as f32,
+                    );
+                    if current > max_star_vis && max_star_vis > 2.0 {
+                        body.insert(CelestialBody {
+                            name: primary_star.name.clone(),
+                            mass: (primary_star.mass_sol * 1.989e30) as f64,
+                            radius: primary_star.radius_sol * 695700.0,
+                            body_type: BodyType::Star,
+                            visual_radius: max_star_vis,
+                            asteroid_class: None,
+                        });
+                    }
+                }
+            }
 
             // Get the star's frost line and metallicity multiplier
             let frost_line = calculate_frost_line(primary_star.luminosity_sol as f64);
@@ -134,11 +188,11 @@ fn populate_nearby_systems(
             let mut existing_orbits = Vec::new();
             let mut all_planet_entities: Vec<(Entity, f64, f32, f32)> = Vec::new(); // (entity, sma_au, mass_earth, visual_radius)
             for planet_data in &primary_star.planets {
-                let planet_entity = spawn_confirmed_planet(&mut commands, planet_data, star_entity, system_id, primary_star.luminosity_sol, &mut rng);
+                let planet_entity = spawn_confirmed_planet(&mut commands, planet_data, star_entity, system_id, primary_star.luminosity_sol, vis_scale, &mut rng);
                 existing_orbits.push(planet_data.semi_major_axis_au as f64);
                 let radius_earth = planet_data.radius_earth.unwrap_or(1.0);
                 let radius_km = radius_earth * 6371.0;
-                let vis_r = calculate_visual_radius(BodyType::Planet, radius_km);
+                let vis_r = capped_visual_radius(BodyType::Planet, radius_km, planet_data.semi_major_axis_au as f64, vis_scale);
                 all_planet_entities.push((planet_entity, planet_data.semi_major_axis_au as f64, planet_data.mass_earth, vis_r));
             }
 
@@ -167,9 +221,10 @@ fn populate_nearby_systems(
                     system_id,
                     metallicity_mult,
                     primary_star.luminosity_sol,
+                    vis_scale,
                     &mut rng,
                 );
-                let vis_r = calculate_visual_radius(planet.body_type(), planet.radius_km());
+                let vis_r = capped_visual_radius(planet.body_type(), planet.radius_km(), planet.semi_major_axis_au, vis_scale);
                 all_planet_entities.push((planet_entity, planet.semi_major_axis_au, planet.mass_earth as f32, vis_r));
             }
 
@@ -181,9 +236,10 @@ fn populate_nearby_systems(
                     system_id,
                     metallicity_mult,
                     primary_star.luminosity_sol,
+                    vis_scale,
                     &mut rng,
                 );
-                let vis_r = calculate_visual_radius(planet.body_type(), planet.radius_km());
+                let vis_r = capped_visual_radius(planet.body_type(), planet.radius_km(), planet.semi_major_axis_au, vis_scale);
                 all_planet_entities.push((planet_entity, planet.semi_major_axis_au, planet.mass_earth as f32, vis_r));
             }
 
@@ -198,6 +254,7 @@ fn populate_nearby_systems(
                     vis_r,
                     system_id,
                     primary_star.luminosity_sol,
+                    vis_scale,
                     &mut rng,
                 );
             }
@@ -211,6 +268,7 @@ fn populate_nearby_systems(
                     system_id,
                     &system_data.system_name,
                     primary_star.luminosity_sol,
+                    vis_scale,
                     game_seed.value,
                 );
             }
@@ -224,6 +282,7 @@ fn populate_nearby_systems(
                     system_id,
                     &system_data.system_name,
                     primary_star.luminosity_sol,
+                    vis_scale,
                     game_seed.value,
                 );
             }
@@ -241,13 +300,11 @@ fn populate_nearby_systems(
             }
             system_metadata.set_bounding_radius(system_id, max_radius_au);
         }
-
-        system_id += 1;
     }
 
     info!(
         "Completed procedural population of {} star systems",
-        system_id - 1
+        stars_data.systems.iter().filter(|s| s.system_name != "Sol").count()
     );
 }
 
@@ -334,6 +391,14 @@ pub fn spawn_star_entity_with_metallicity(
     entity
 }
 
+/// Compute the visual radius of a planet, capped at 10% of orbital distance
+/// to prevent overlap with neighbors, with a minimum of 2.0.
+fn capped_visual_radius(body_type: BodyType, radius_km: f32, sma_au: f64, vis_scale: f32) -> f32 {
+    let base = calculate_visual_radius(body_type, radius_km) * vis_scale;
+    let orbit_bevy = (sma_au as f32) * (SCALING_FACTOR as f32);
+    base.min(orbit_bevy * 0.10).max(2.0)
+}
+
 /// Spawn a confirmed planet from real exoplanet data
 pub fn spawn_confirmed_planet(
     commands: &mut Commands,
@@ -341,6 +406,7 @@ pub fn spawn_confirmed_planet(
     parent_star: Entity,
     system_id: usize,
     star_luminosity_sol: f32,
+    vis_scale: f32,
     rng: &mut impl rand::Rng,
 ) -> Entity {
     // Calculate orbital parameters
@@ -400,6 +466,13 @@ pub fn spawn_confirmed_planet(
         if has_atmosphere { " (atmosphere)" } else { "" }
     );
 
+    // Cap visual radius to 10% of orbital distance (in Bevy units) so
+    // close-in planets don't visually overlap the star or each other.
+    let base_visual_radius = calculate_visual_radius(BodyType::Planet, radius_km) * vis_scale;
+    let orbit_distance_bevy = (planet_data.semi_major_axis_au as f32) * (SCALING_FACTOR as f32);
+    let max_orbit_fraction = orbit_distance_bevy * 0.10;
+    let visual_radius = base_visual_radius.min(max_orbit_fraction).max(2.0);
+
     let mut entity_commands = commands.spawn((
         Planet,
         RealPlanet, // Mark as confirmed planet
@@ -408,7 +481,7 @@ pub fn spawn_confirmed_planet(
             mass: mass_kg,
             radius: radius_km,
             body_type: BodyType::Planet,
-            visual_radius: calculate_visual_radius(BodyType::Planet, radius_km),
+            visual_radius,
             asteroid_class: None,
         },
         SurfaceTemperature {
@@ -417,7 +490,7 @@ pub fn spawn_confirmed_planet(
             max_celsius: max_temp,
         },
         orbit,
-        OrbitPath::new(Color::srgba(0.3, 0.8, 0.3, 0.5)), // Green for confirmed planets
+        OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.7)), // Cyan/blue — matches Sol palette
         SpaceCoordinates::default(),                      // Will be updated by propagate_orbits
         OrbitCenter(parent_star), // Link to parent star for orbital hierarchy
         OrbitsBody::new(parent_star),
@@ -441,6 +514,7 @@ pub fn spawn_procedural_planet(
     system_id: usize,
     _metallicity_multiplier: f32,
     star_luminosity_sol: f32,
+    vis_scale: f32,
     rng: &mut impl rand::Rng,
 ) -> Entity {
     let orbit = planet.to_kepler_orbit();
@@ -481,6 +555,13 @@ pub fn spawn_procedural_planet(
         if has_atmosphere { " (atmosphere)" } else { "" }
     );
 
+    // Cap visual radius to 10% of orbital distance (in Bevy units) so
+    // close-in planets don't visually overlap the star or each other.
+    let base_visual_radius = calculate_visual_radius(planet.body_type(), radius_km) * vis_scale;
+    let orbit_distance_bevy = (planet.semi_major_axis_au as f32) * (SCALING_FACTOR as f32);
+    let max_orbit_fraction = orbit_distance_bevy * 0.10;
+    let visual_radius = base_visual_radius.min(max_orbit_fraction).max(2.0);
+
     let mut entity_commands = commands.spawn((
         Planet,
         CelestialBody {
@@ -488,7 +569,7 @@ pub fn spawn_procedural_planet(
             mass: mass_kg,
             radius: radius_km,
             body_type: planet.body_type(),
-            visual_radius: calculate_visual_radius(planet.body_type(), radius_km),
+            visual_radius,
             asteroid_class: None,
         },
         SurfaceTemperature {
@@ -497,7 +578,7 @@ pub fn spawn_procedural_planet(
             max_celsius: max_temp,
         },
         orbit,
-        OrbitPath::new(Color::srgba(0.5, 0.7, 1.0, 0.4)),
+        OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.6)), // Cyan/blue — procedural planets
         SpaceCoordinates::default(), // Will be updated by propagate_orbits
         OrbitCenter(parent_star),    // Link to parent star for orbital hierarchy
         OrbitsBody::new(parent_star),
@@ -526,6 +607,7 @@ pub fn spawn_asteroid_belt(
     system_id: usize,
     star_name: &str,
     star_luminosity_sol: f32,
+    vis_scale: f32,
     game_seed: u64,
 ) {
     // Deterministic RNG seeded from system_id and belt properties to ensure reproducible generation
@@ -587,7 +669,7 @@ pub fn spawn_asteroid_belt(
                 mass,
                 radius,
                 body_type: BodyType::Asteroid,
-                visual_radius: calculate_visual_radius(BodyType::Asteroid, radius as f32),
+                visual_radius: calculate_visual_radius(BodyType::Asteroid, radius as f32) * vis_scale,
                 asteroid_class: Some(asteroid_class),
             },
             SurfaceTemperature {
@@ -614,6 +696,7 @@ pub fn spawn_cometary_cloud(
     system_id: usize,
     star_name: &str,
     star_luminosity_sol: f32,
+    vis_scale: f32,
     game_seed: u64,
 ) {
     // Deterministic RNG seeded from system_id and cloud properties to ensure reproducible generation
@@ -666,7 +749,7 @@ pub fn spawn_cometary_cloud(
                 mass,
                 radius,
                 body_type: BodyType::Comet,
-                visual_radius: calculate_visual_radius(BodyType::Comet, radius as f32),
+                visual_radius: calculate_visual_radius(BodyType::Comet, radius as f32) * vis_scale,
                 asteroid_class: Some(AsteroidClass::PType), // P-type (volatile-rich)
             },
             SurfaceTemperature {
@@ -702,6 +785,7 @@ fn spawn_procedural_moons(
     parent_visual_radius: f32,
     system_id: usize,
     star_luminosity_sol: f32,
+    vis_scale: f32,
     rng: &mut StdRng,
 ) {
     /// Innermost moon orbits at this multiple of parent visual radius
@@ -797,7 +881,7 @@ fn spawn_procedural_moons(
                 mass: moon_mass_kg,
                 radius: radius_km,
                 body_type: BodyType::Moon,
-                visual_radius: calculate_visual_radius(BodyType::Moon, radius_km),
+                visual_radius: calculate_visual_radius(BodyType::Moon, radius_km) * vis_scale,
                 asteroid_class: None,
             },
             SurfaceTemperature {

@@ -752,6 +752,9 @@ pub fn setup_solar_system(
         {
             let seed = calculate_hash(&body_data.name);
             meshes.add(create_asteroid_mesh(visual_radius, body_data.radius, seed))
+        } else if body_data.body_type == BodyType::Star {
+            // Higher resolution for stars to appear smooth and round
+            meshes.add(Sphere::new(visual_radius).mesh().uv(128, 64))
         } else {
             meshes.add(Sphere::new(visual_radius).mesh().uv(64, 32))
         };
@@ -1193,7 +1196,7 @@ pub fn setup_solar_system(
             }
 
             // Determine orbit color and visibility based on body type
-            // Terra Invicta-inspired colors with higher alpha for bright trail heads
+            // Orbit trail colors with higher alpha for bright trail heads
             let (orbit_color, should_show) = match body_data.body_type {
                 BodyType::Planet => {
                     // Planets: bright cyan/blue, high alpha — trail head glows

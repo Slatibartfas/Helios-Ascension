@@ -3,7 +3,7 @@
 //! Provides a comprehensive research system including:
 //! - Tech tree with 1000+ technologies across multiple categories
 //! - Separation of Research (discovery) and Engineering (application)
-//! - Research teams with limited slots (Aurora 4X style)
+//! - Research teams with limited slots
 //! - Component designs that require engineering
 //! - Technology modifiers that affect civilization stats
 //! - Data-driven technology definitions for easy modding
@@ -22,9 +22,9 @@ pub use components::{
 pub use data::{load_technologies, TechnologiesData};
 pub use systems::{
     advance_engineering_projects, advance_research_projects, check_unlocked_technologies,
-    initialize_baseline_technology, update_research_points, ResearchState,
+    initialize_baseline_technology, update_research_points, ResearchState, apply_debug_modifiers,
 };
-pub use types::{TechCategory, Technology, TechnologyId};
+pub use types::{ModifierType, TechCategory, TechModifierDef, Technology, TechnologyId};
 
 /// Debug settings for research system
 #[derive(Resource, Debug, Clone)]
@@ -37,6 +37,14 @@ pub struct ResearchDebugSettings {
     pub instant_research: bool,
     /// Instant engineering (0 cost)
     pub instant_engineering: bool,
+    /// Debug modifiers to apply (type, value)
+    pub debug_modifiers: std::collections::HashMap<types::ModifierType, f64>,
+    /// Whether the "Add Debug Modifier" dialog is open
+    pub modifier_dialog_show: bool,
+    /// Currently selected modifier type index in the dialog
+    pub modifier_dialog_type_index: usize,
+    /// Text input value for the modifier percentage
+    pub modifier_dialog_value_input: String,
 }
 
 impl Default for ResearchDebugSettings {
@@ -46,6 +54,10 @@ impl Default for ResearchDebugSettings {
             show_all_techs: false,
             instant_research: false,
             instant_engineering: false,
+            debug_modifiers: std::collections::HashMap::new(),
+            modifier_dialog_show: false,
+            modifier_dialog_type_index: 0,
+            modifier_dialog_value_input: String::new(),
         }
     }
 }
@@ -100,6 +112,12 @@ pub struct TechEditData {
     pub prerequisites: Vec<String>,
     /// Text field for adding a new prerequisite
     pub new_prereq: String,
+    /// Modifiers granted when this tech is researched
+    pub modifiers: Vec<types::TechModifierDef>,
+    /// Index into ModifierType::all_for_debug() for the "add modifier" row
+    pub new_modifier_type_index: usize,
+    /// Value text field for the "add modifier" row
+    pub new_modifier_value: String,
 }
 
 impl TechEditData {
@@ -118,6 +136,9 @@ impl TechEditData {
             tier: format!("{}", tech.tier),
             prerequisites: tech.prerequisites.clone(),
             new_prereq: String::new(),
+            modifiers: tech.modifiers.clone(),
+            new_modifier_type_index: 0,
+            new_modifier_value: String::new(),
         }
     }
 
@@ -133,6 +154,9 @@ impl TechEditData {
             tier: "1".to_string(),
             prerequisites: Vec::new(),
             new_prereq: String::new(),
+            modifiers: Vec::new(),
+            new_modifier_type_index: 0,
+            new_modifier_value: String::new(),
         }
     }
 }
@@ -142,12 +166,16 @@ impl TechEditData {
 pub struct PendingResearchActions {
     /// Tech IDs that the user wants to begin researching.
     pub start_research: Vec<TechnologyId>,
-    /// Tech IDs that the user wants to stop/pause researching.
+    /// Tech IDs that the user wants to pause researching (preserves progress, frees team slot).
     pub stop_research: Vec<TechnologyId>,
     /// Tech IDs that the user wants to resume researching.
     pub resume_research: Vec<TechnologyId>,
+    /// Tech IDs that the user wants to cancel/remove entirely (despawn entity, progress lost).
+    pub cancel_research: Vec<TechnologyId>,
     /// Whether to navigate to the Available Research tab.
     pub navigate_to_available_tab: bool,
+    /// Whether to navigate to the Available Engineering tab.
+    pub navigate_to_available_engineering_tab: bool,
     /// Updated allocation percentages: (tech_id, new_percent)
     pub update_allocations: Vec<(TechnologyId, f64)>,
 }
@@ -178,6 +206,7 @@ impl Plugin for ResearchPlugin {
                     advance_research_projects,
                     advance_engineering_projects,
                     check_unlocked_technologies,
+                    systems::apply_debug_modifiers, // Apply debug modifiers after other systems
                 ).chain(),
             );
     }

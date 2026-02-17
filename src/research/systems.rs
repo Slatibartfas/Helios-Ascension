@@ -82,9 +82,9 @@ impl ResearchState {
 }
 
 /// Base RP generated per year of game time (without buildings)
-const BASE_RP_PER_YEAR: f64 = 2000.0;
+const BASE_RP_PER_YEAR: f64 = 500.0;
 /// Base EP generated per year of game time (without buildings)
-const BASE_EP_PER_YEAR: f64 = 1000.0;
+const BASE_EP_PER_YEAR: f64 = 250.0;
 /// Seconds in a Julian year
 const SECONDS_PER_YEAR: f64 = 31_557_600.0;
 
@@ -386,9 +386,9 @@ pub fn process_pending_research(
     }
 
     // Collect tech IDs already being researched so we don't duplicate.
-    let active_tech_ids: HashSet<&str> = existing_projects
+    let mut active_tech_ids: HashSet<String> = existing_projects
         .iter()
-        .map(|(_, p, _)| p.tech_id.as_str())
+        .map(|(_, p, _)| p.tech_id.clone())
         .collect();
 
     // Count currently active research projects (for team capacity)
@@ -397,16 +397,16 @@ pub fn process_pending_research(
         .filter(|(_, p, _)| p.active)
         .count();
 
-    let mut spawned = 0usize;
+    let mut startable_tech_ids: Vec<String> = Vec::new();
 
     for tech_id in pending.start_research.drain(..) {
         // Guard: skip if already unlocked or already in progress.
-        if research_state.is_unlocked(&tech_id) || active_tech_ids.contains(tech_id.as_str()) {
+        if research_state.is_unlocked(&tech_id) || active_tech_ids.contains(&tech_id) {
             continue;
         }
 
         // Check team capacity
-        if active_count + spawned >= team_capacity.max_research_teams {
+        if active_count + startable_tech_ids.len() >= team_capacity.max_research_teams {
             warn!(
                 "Cannot start research: all {} team slots are in use",
                 team_capacity.max_research_teams
@@ -432,52 +432,74 @@ pub fn process_pending_research(
             continue;
         }
 
-        info!("Starting research on: {}", tech.name);
-
-        // Spawn a combined entity with project + default team.
-        commands.spawn((
-            ResearchProject {
-                tech_id: tech_id.clone(),
-                progress: 0.0,
-                required_points: tech.research_cost,
-                team_id: Entity::PLACEHOLDER,
-                rp_allocation_percent: 1.0, // Will be redistributed below
-                active: true,
-            },
-            ResearchTeam::new_research(
-                format!("Research: {}", tech.name),
-                "Default Scientist".to_string(),
-                Some(tech.category),
-            ),
-        ));
-
-        spawned += 1;
+        active_tech_ids.insert(tech_id.clone());
+        startable_tech_ids.push(tech_id);
     }
 
-    // Redistribute allocation evenly after spawning new projects
-    if spawned > 0 {
-        let new_active_count = existing_projects
+    if startable_tech_ids.is_empty() {
+        return;
+    }
+
+    let new_active_count = existing_projects
             .iter()
             .filter(|(_, p, _)| p.active && !p.is_complete())
             .count()
-            + spawned;
-        if new_active_count > 0 {
-            let equal_share = 1.0 / new_active_count as f64;
-            for (_, mut project, _) in existing_projects.iter_mut() {
-                if project.active && !project.is_complete() {
-                    project.rp_allocation_percent = equal_share;
-                }
-            }
+            + startable_tech_ids.len();
+
+    let equal_share = if new_active_count > 0 {
+        1.0 / new_active_count as f64
+    } else {
+        1.0
+    };
+
+    for tech_id in startable_tech_ids {
+        if let Some(tech) = tech_data.get_tech(&tech_id) {
+            info!("Starting research on: {}", tech.name);
+            commands.spawn((
+                ResearchProject {
+                    tech_id: tech_id.clone(),
+                    progress: 0.0,
+                    required_points: tech.research_cost,
+                    team_id: Entity::PLACEHOLDER,
+                    rp_allocation_percent: equal_share,
+                    active: true,
+                },
+                ResearchTeam::new_research(
+                    format!("Research: {}", tech.name),
+                    "Default Scientist".to_string(),
+                    Some(tech.category),
+                ),
+            ));
+        }
+    }
+
+    for (_, mut project, _) in existing_projects.iter_mut() {
+        if project.active && !project.is_complete() {
+            project.rp_allocation_percent = equal_share;
         }
     }
 }
 
-/// System to process stop/resume research actions.
+/// System to process stop/resume/cancel research actions.
 pub fn process_stop_research(
+    mut commands: Commands,
     mut pending: ResMut<PendingResearchActions>,
     mut projects: Query<(Entity, &mut ResearchProject, &ResearchTeam)>,
 ) {
-    // Process stops
+    // Process cancellations (despawn entity entirely)
+    if !pending.cancel_research.is_empty() {
+        let cancel_ids: HashSet<String> = pending.cancel_research.drain(..).collect();
+        for (entity, project, _) in projects.iter() {
+            if cancel_ids.contains(&project.tech_id) {
+                info!("Cancelled research on: {} (entity despawned)", project.tech_id);
+                commands.entity(entity).despawn();
+            }
+        }
+        // Redistribute among remaining active projects
+        redistribute_allocations(&mut projects);
+    }
+
+    // Process pauses
     if !pending.stop_research.is_empty() {
         let stop_ids: HashSet<String> = pending.stop_research.drain(..).collect();
         for (_, mut project, _) in projects.iter_mut() {
@@ -608,5 +630,31 @@ mod tests {
 
         state.complete_component("test_component".to_string());
         assert!(state.is_component_completed("test_component"));
+    }
+}
+
+/// Apply debug modifiers to the research state each frame.
+/// Uses a Local snapshot to subtract the previously injected values before
+/// re-adding the current ones, so changes take effect immediately without
+/// accumulating across frames.
+pub fn apply_debug_modifiers(
+    mut research_state: ResMut<ResearchState>,
+    debug_settings: Res<super::ResearchDebugSettings>,
+    mut prev_applied: Local<HashMap<ModifierType, f64>>,
+) {
+    // Remove whatever we injected last frame
+    for (modifier_type, value) in prev_applied.iter() {
+        *research_state.active_modifiers.entry(modifier_type.clone()).or_insert(0.0) -= value;
+    }
+    prev_applied.clear();
+
+    if !debug_settings.enabled || debug_settings.debug_modifiers.is_empty() {
+        return;
+    }
+
+    // Inject this frame's debug modifiers and record what we added
+    for (modifier_type, value) in debug_settings.debug_modifiers.iter() {
+        research_state.add_modifier(modifier_type.clone(), *value);
+        prev_applied.insert(modifier_type.clone(), *value);
     }
 }

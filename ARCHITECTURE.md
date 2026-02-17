@@ -1,7 +1,7 @@
 # Helios Ascension - Architecture Documentation
 
 ## Overview
-Helios Ascension is a Grand Strategy 4X game built with the Bevy Engine, featuring realistic orbital mechanics inspired by Aurora 4X and Terra Invicta. The project emphasizes high performance, modularity, and extensibility.
+Helios Ascension is a Grand Strategy 4X game built with the Bevy Engine, featuring realistic orbital mechanics. The project emphasizes high performance, modularity, and extensibility.
 
 ## Core Technologies
 - **Game Engine**: Bevy 0.14 (ECS-based game engine)
