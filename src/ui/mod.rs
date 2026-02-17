@@ -3483,9 +3483,12 @@ fn render_tech_tree_tab(
     });
     
     // ---------- layout constants ----------
-    let tier_spacing = 450.0 * zoom;
-    let node_spacing_y = 100.0 * zoom;
-    let category_spacing = 40.0 * zoom;
+    let tier_spacing = 260.0 * zoom;
+    let node_gap_y = 8.0 * zoom;
+    let category_gap = 12.0 * zoom;
+    let pane_pad = (8.0 * zoom).round();
+    let pane_rounding = 6.0 * zoom;
+    let label_width = (110.0 * zoom).round();
     
     // ---------- status line (fixed height, drawn FIRST so it reserves space at the bottom) ----------
     // We draw it at the end but must reserve its height now.
@@ -3532,6 +3535,7 @@ fn render_tech_tree_tab(
     // Two rows: row 1 = icon + name, row 2 = research cost
     let font_name = egui::FontId::proportional((12.0 * zoom).round());
     let font_cost = egui::FontId::proportional((10.0 * zoom).round());
+    let font_label = egui::FontId::proportional((11.0 * zoom).round());
     let icon_sz = (16.0 * zoom).round();
     let icon_pad = (4.0 * zoom).round();
     let h_pad = (8.0 * zoom).round();
@@ -3555,101 +3559,150 @@ fn render_tech_tree_tab(
     let node_w = (icon_sz + icon_pad + max_name_w.max(max_cost_w) + h_pad * 2.0).round();
     let node_h = (v_pad + name_row_h + row_gap + cost_row_h + v_pad).round();
 
-    // ---------- compute node positions (top-left corner) ----------
-    // Uses a barycenter heuristic: tier-0 techs are sorted by category,
-    // subsequent tiers sort by the average Y of their prerequisites so that
-    // connected nodes stay close together and lines are shorter.
+    // ---------- compute node positions: horizontal category bands ----------
+    // Layout: each category is a horizontal band (row).  Within each band,
+    // tiers run left-to-right as columns.  Multiple techs in the same
+    // (category, tier) cell are stacked vertically within that band.
     let mut node_positions: HashMap<String, egui::Pos2> = HashMap::new();
-    // Track category bounding boxes per tier: (tier_idx, category) -> (min_y, max_y, x)
-    let mut category_bounds: HashMap<(usize, TechCategory), (f32, f32, f32)> = HashMap::new();
     
-    let mut techs_by_tier: std::collections::BTreeMap<u32, Vec<&crate::research::types::Technology>> =
+    // Collect unique tiers (sorted)
+    let mut tier_set: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+    for (_, tech) in &tech_data.technologies {
+        tier_set.insert(tech.tier);
+    }
+    let tiers: Vec<u32> = tier_set.into_iter().collect();
+    let tier_index_map: HashMap<u32, usize> = tiers.iter().enumerate().map(|(i, &t)| (t, i)).collect();
+    
+    // Group techs: category -> tier -> Vec<tech>
+    let mut techs_by_cat_tier: std::collections::BTreeMap<u8, std::collections::BTreeMap<u32, Vec<&crate::research::types::Technology>>> =
         std::collections::BTreeMap::new();
     for (_, tech) in &tech_data.technologies {
-        techs_by_tier.entry(tech.tier).or_default().push(tech);
+        techs_by_cat_tier
+            .entry(tech.category as u8)
+            .or_default()
+            .entry(tech.tier)
+            .or_default()
+            .push(tech);
+    }
+    // Sort techs within each cell alphabetically for deterministic layout
+    for cat_tiers in techs_by_cat_tier.values_mut() {
+        for cell_techs in cat_tiers.values_mut() {
+            cell_techs.sort_by_key(|t| &t.name);
+        }
     }
     
-    for (tier_idx, (_tier, techs)) in techs_by_tier.iter().enumerate() {
-        let mut sorted_techs = techs.clone();
-        if tier_idx == 0 {
-            // Root tier: deterministic category + name sort
-            sorted_techs.sort_by_key(|t| (t.category as u8, t.name.as_str()));
+    // Compute height of each category band (max stacked techs across all tiers)
+    // and record category row Y start positions
+    struct CategoryBand {
+        category: TechCategory,
+        y_start: f32,
+        height: f32,
+    }
+    let mut category_bands: Vec<CategoryBand> = Vec::new();
+    let origin_x = canvas_rect.left() + pan_offset.x + label_width;
+    let mut current_y = canvas_rect.top() + pan_offset.y;
+    
+    let categories = TechCategory::all();
+    for &cat in categories {
+        let cat_key = cat as u8;
+        let max_stack = if let Some(cat_tiers) = techs_by_cat_tier.get(&cat_key) {
+            cat_tiers.values().map(|v| v.len()).max().unwrap_or(0)
         } else {
-            // Barycenter: sort by the average Y position of prerequisites.
-            // Techs with no positioned prerequisites fall back to category sort.
-            sorted_techs.sort_by(|a, b| {
-                let avg_y = |tech: &&crate::research::types::Technology| -> f64 {
-                    let ys: Vec<f32> = tech
-                        .prerequisites
-                        .iter()
-                        .filter_map(|pid| node_positions.get(pid).map(|p| p.y))
-                        .collect();
-                    if ys.is_empty() {
-                        // Fallback: use category ordinal so it groups nicely
-                        tech.category as u8 as f64 * 1000.0
-                    } else {
-                        ys.iter().map(|y| *y as f64).sum::<f64>() / ys.len() as f64
-                    }
-                };
-                avg_y(&a)
-                    .partial_cmp(&avg_y(&b))
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
+            0
+        };
+        if max_stack == 0 {
+            continue; // skip empty categories
         }
+        let band_content_h = max_stack as f32 * node_h + (max_stack as f32 - 1.0).max(0.0) * node_gap_y;
+        let band_h = band_content_h + pane_pad * 2.0;
         
-        let base_x = (canvas_rect.left() + pan_offset.x + (tier_idx as f32) * tier_spacing).round();
-        let mut current_y = (canvas_rect.top() + pan_offset.y).round();
-        let mut last_category: Option<TechCategory> = None;
-        
-        for tech in sorted_techs {
-            if let Some(last_cat) = last_category {
-                if last_cat != tech.category {
-                    current_y += category_spacing;
+        category_bands.push(CategoryBand {
+            category: cat,
+            y_start: current_y,
+            height: band_h,
+        });
+        current_y += band_h + category_gap;
+    }
+    
+    // Place nodes within each category band
+    for band in &category_bands {
+        let cat_key = band.category as u8;
+        if let Some(cat_tiers) = techs_by_cat_tier.get(&cat_key) {
+            for (&tier, cell_techs) in cat_tiers {
+                let tier_idx = tier_index_map.get(&tier).copied().unwrap_or(0);
+                let col_x = origin_x + (tier_idx as f32) * tier_spacing;
+                // Center the stack vertically within the band
+                let stack_h = cell_techs.len() as f32 * node_h + (cell_techs.len() as f32 - 1.0).max(0.0) * node_gap_y;
+                let stack_y_start = band.y_start + pane_pad + (band.height - pane_pad * 2.0 - stack_h) / 2.0;
+                
+                for (i, tech) in cell_techs.iter().enumerate() {
+                    let node_top = stack_y_start + i as f32 * (node_h + node_gap_y);
+                    let center_x = col_x + node_w / 2.0;
+                    let center_y = node_top + node_h / 2.0;
+                    node_positions.insert(tech.id.clone(), egui::Pos2::new(center_x, center_y));
                 }
             }
-            last_category = Some(tech.category);
-            // Store the CENTER of the node for line connections
-            let center_x = base_x + node_w / 2.0;
-            let center_y = current_y + node_h / 2.0;
-            node_positions.insert(
-                tech.id.clone(),
-                egui::Pos2::new(center_x, center_y),
-            );
-            // Update category bounding box for this tier
-            let node_top = current_y;
-            let node_bottom = current_y + node_h;
-            let bounds = category_bounds.entry((tier_idx, tech.category)).or_insert((node_top, node_bottom, base_x));
-            bounds.0 = bounds.0.min(node_top);
-            bounds.1 = bounds.1.max(node_bottom);
-            
-            current_y += node_h + node_spacing_y;
         }
     }
     
-    // ---------- draw category background panes ----------
-    let pane_pad = (6.0 * zoom).round();
-    let pane_rounding = 6.0 * zoom;
-    for ((_, category), (min_y, max_y, base_x)) in &category_bounds {
-        let cat_color = tech_category_color(*category);
-        // Semi-transparent background tinted with category color
+    // Compute total width spanned by tier columns for pane drawing
+    let total_tier_width = if tiers.is_empty() {
+        node_w
+    } else {
+        (tiers.len() as f32 - 1.0) * tier_spacing + node_w
+    };
+    
+    // ---------- draw category background panes (horizontal bands) ----------
+    for band in &category_bands {
+        let cat_color = tech_category_color(band.category);
         let bg_color = egui::Color32::from_rgba_unmultiplied(
-            cat_color.r(),
-            cat_color.g(),
-            cat_color.b(),
-            18,
+            cat_color.r(), cat_color.g(), cat_color.b(), 18,
         );
         let border_color = egui::Color32::from_rgba_unmultiplied(
-            cat_color.r(),
-            cat_color.g(),
-            cat_color.b(),
-            40,
+            cat_color.r(), cat_color.g(), cat_color.b(), 40,
         );
-        let pane_rect = egui::Rect::from_min_max(
-            egui::Pos2::new(base_x - pane_pad, min_y - pane_pad),
-            egui::Pos2::new(base_x + node_w + pane_pad, max_y + pane_pad),
+        let pane_rect = egui::Rect::from_min_size(
+            egui::Pos2::new(origin_x - pane_pad, band.y_start),
+            egui::Vec2::new(total_tier_width + pane_pad * 2.0, band.height),
         );
         painter.rect_filled(pane_rect, pane_rounding, bg_color);
         painter.rect_stroke(pane_rect, pane_rounding, egui::Stroke::new(1.0 * zoom, border_color));
+        
+        // Category label on the left
+        let label_x = origin_x - pane_pad - (4.0 * zoom);
+        let label_y = band.y_start + band.height / 2.0;
+        let cat_icon = band.category.icon();
+        let cat_name = band.category.display_name();
+        painter.text(
+            egui::Pos2::new(label_x, label_y - (8.0 * zoom)),
+            egui::Align2::RIGHT_CENTER,
+            cat_icon,
+            font_label.clone(),
+            cat_color,
+        );
+        painter.text(
+            egui::Pos2::new(label_x, label_y + (8.0 * zoom)),
+            egui::Align2::RIGHT_CENTER,
+            cat_name,
+            font_label.clone(),
+            egui::Color32::from_rgba_unmultiplied(
+                cat_color.r(), cat_color.g(), cat_color.b(), 180,
+            ),
+        );
+    }
+    
+    // ---------- draw tier column headers ----------
+    let header_y = canvas_rect.top() + pan_offset.y - (18.0 * zoom);
+    let font_header = egui::FontId::proportional((11.0 * zoom).round());
+    for (i, tier) in tiers.iter().enumerate() {
+        let col_x = origin_x + (i as f32) * tier_spacing + node_w / 2.0;
+        painter.text(
+            egui::Pos2::new(col_x, header_y),
+            egui::Align2::CENTER_BOTTOM,
+            format!("Tier {}", tier),
+            font_header.clone(),
+            egui::Color32::from_rgb(160, 160, 170),
+        );
     }
     
     // ---------- prerequisite highlight path ----------
