@@ -192,9 +192,7 @@ fn populate_nearby_systems(
                 existing_orbits.push(planet_data.semi_major_axis_au as f64);
                 let radius_earth = planet_data.radius_earth.unwrap_or(1.0);
                 let radius_km = radius_earth * 6371.0;
-                let vis_r = calculate_visual_radius(BodyType::Planet, radius_km) * vis_scale;
-                let orbit_bevy = (planet_data.semi_major_axis_au as f32) * (SCALING_FACTOR as f32);
-                let vis_r = vis_r.min(orbit_bevy * 0.10).max(2.0);
+                let vis_r = capped_visual_radius(BodyType::Planet, radius_km, planet_data.semi_major_axis_au as f64, vis_scale);
                 all_planet_entities.push((planet_entity, planet_data.semi_major_axis_au as f64, planet_data.mass_earth, vis_r));
             }
 
@@ -226,9 +224,7 @@ fn populate_nearby_systems(
                     vis_scale,
                     &mut rng,
                 );
-                let vis_r = calculate_visual_radius(planet.body_type(), planet.radius_km()) * vis_scale;
-                let orbit_bevy = (planet.semi_major_axis_au as f32) * (SCALING_FACTOR as f32);
-                let vis_r = vis_r.min(orbit_bevy * 0.10).max(2.0);
+                let vis_r = capped_visual_radius(planet.body_type(), planet.radius_km(), planet.semi_major_axis_au, vis_scale);
                 all_planet_entities.push((planet_entity, planet.semi_major_axis_au, planet.mass_earth as f32, vis_r));
             }
 
@@ -243,9 +239,7 @@ fn populate_nearby_systems(
                     vis_scale,
                     &mut rng,
                 );
-                let vis_r = calculate_visual_radius(planet.body_type(), planet.radius_km()) * vis_scale;
-                let orbit_bevy = (planet.semi_major_axis_au as f32) * (SCALING_FACTOR as f32);
-                let vis_r = vis_r.min(orbit_bevy * 0.10).max(2.0);
+                let vis_r = capped_visual_radius(planet.body_type(), planet.radius_km(), planet.semi_major_axis_au, vis_scale);
                 all_planet_entities.push((planet_entity, planet.semi_major_axis_au, planet.mass_earth as f32, vis_r));
             }
 
@@ -395,6 +389,14 @@ pub fn spawn_star_entity_with_metallicity(
         .id();
 
     entity
+}
+
+/// Compute the visual radius of a planet, capped at 10% of orbital distance
+/// to prevent overlap with neighbors, with a minimum of 2.0.
+fn capped_visual_radius(body_type: BodyType, radius_km: f32, sma_au: f64, vis_scale: f32) -> f32 {
+    let base = calculate_visual_radius(body_type, radius_km) * vis_scale;
+    let orbit_bevy = (sma_au as f32) * (SCALING_FACTOR as f32);
+    base.min(orbit_bevy * 0.10).max(2.0)
 }
 
 /// Spawn a confirmed planet from real exoplanet data
