@@ -300,12 +300,12 @@ fn spawn_system_bodies(
             }
             BodyType::Asteroid => {
                 let color = Color::srgb(0.4, 0.4, 0.3); // Brown-grey asteroid
-                let visual_radius = body.radius.max(1.0); // Minimum visual size
+                let visual_radius = calculate_visual_radius(body.body_type, body.radius);
                 (color, visual_radius)
             }
             BodyType::Comet => {
                 let color = Color::srgb(0.7, 0.8, 0.9); // Icy blue-white
-                let visual_radius = body.radius.max(1.0); // Minimum visual size
+                let visual_radius = calculate_visual_radius(body.body_type, body.radius);
                 (color, visual_radius)
             }
             BodyType::Ring => {

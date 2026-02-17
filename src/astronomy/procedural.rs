@@ -756,4 +756,120 @@ mod tests {
             width_sun
         );
     }
+
+    #[test]
+    fn test_atmosphere_retention_failure() {
+        let mut rng = StdRng::seed_from_u64(42);
+        
+        // Small planet that cannot retain atmosphere (< 2.0 km/s escape velocity)
+        // Mars-like: 0.107 M⊕, 0.53 R⊕ → escape velocity ~5 km/s (can retain)
+        // Mercury-like: 0.055 M⊕, 0.38 R⊕ → escape velocity ~4.3 km/s (can retain)
+        // Moon-like: 0.012 M⊕, 0.27 R⊕ → escape velocity ~2.4 km/s (borderline)
+        // Very small: 0.01 M⊕, 0.25 R⊕ → escape velocity ~2.3 km/s (borderline)
+        let result = generate_procedural_atmosphere(
+            0.01,  // 0.01 Earth masses
+            0.25,  // 0.25 Earth radii
+            1.0,   // 1 AU
+            1.0,   // Solar luminosity
+            300.0, // Equilibrium temp
+            &mut rng,
+        );
+        
+        // Should return None for bodies too small to retain atmosphere
+        assert!(result.is_none(), "Small body should not retain atmosphere");
+    }
+
+    #[test]
+    fn test_atmosphere_outside_mass_range() {
+        let mut rng = StdRng::seed_from_u64(123);
+        
+        // Too small: below 0.3 M⊕
+        let result_small = generate_procedural_atmosphere(
+            0.2,   // Below 0.3 M⊕ threshold
+            0.6,   // Earth-like radius
+            1.0,   // 1 AU
+            1.0,   // Solar luminosity
+            300.0, // Equilibrium temp
+            &mut rng,
+        );
+        assert!(result_small.is_none(), "Planet below 0.3 M⊕ should not get atmosphere");
+        
+        // Too large: above 3.0 M⊕
+        let result_large = generate_procedural_atmosphere(
+            3.5,   // Above 3.0 M⊕ threshold
+            1.5,   // Larger radius
+            1.0,   // 1 AU
+            1.0,   // Solar luminosity
+            300.0, // Equilibrium temp
+            &mut rng,
+        );
+        assert!(result_large.is_none(), "Planet above 3.0 M⊕ should not get atmosphere");
+    }
+
+    #[test]
+    fn test_atmosphere_deterministic_with_seed() {
+        // Test that same seed produces same result
+        let mut rng1 = StdRng::seed_from_u64(999);
+        let mut rng2 = StdRng::seed_from_u64(999);
+        
+        let result1 = generate_procedural_atmosphere(
+            1.0,   // Earth-like mass
+            1.0,   // Earth-like radius
+            1.0,   // 1 AU
+            1.0,   // Solar luminosity
+            288.0, // Earth-like temp
+            &mut rng1,
+        );
+        
+        let result2 = generate_procedural_atmosphere(
+            1.0,   // Earth-like mass
+            1.0,   // Earth-like radius
+            1.0,   // 1 AU
+            1.0,   // Solar luminosity
+            288.0, // Earth-like temp
+            &mut rng2,
+        );
+        
+        // Both should produce the same result (either both Some or both None)
+        assert_eq!(result1.is_some(), result2.is_some(), "RNG should be deterministic");
+        
+        if let (Some((atm1, temp1)), Some((atm2, temp2))) = (result1, result2) {
+            assert_eq!(atm1.surface_pressure_mbar, atm2.surface_pressure_mbar);
+            assert_eq!(temp1, temp2);
+            assert_eq!(atm1.gases.len(), atm2.gases.len());
+        }
+    }
+
+    #[test]
+    fn test_atmosphere_has_valid_composition() {
+        let mut rng = StdRng::seed_from_u64(456);
+        
+        // Earth-like planet in habitable zone
+        let result = generate_procedural_atmosphere(
+            1.0,   // Earth mass
+            1.0,   // Earth radius
+            1.0,   // 1 AU (habitable zone)
+            1.0,   // Solar luminosity
+            288.0, // Earth-like equilibrium temp
+            &mut rng,
+        );
+        
+        // May or may not have atmosphere due to probability, but if it does:
+        if let Some((atmosphere, _temp)) = result {
+            // Check that gases sum to approximately 100%
+            let total_percentage: f32 = atmosphere.gases.iter().map(|g| g.percentage).sum();
+            assert!(
+                (total_percentage - 100.0).abs() < 1.0,
+                "Gas percentages should sum to ~100%, got {}",
+                total_percentage
+            );
+            
+            // Check that at least one gas is present
+            assert!(!atmosphere.gases.is_empty(), "Atmosphere should have at least one gas");
+            
+            // Pressure should be reasonable (not negative or absurdly high)
+            assert!(atmosphere.surface_pressure_mbar > 0.0);
+            assert!(atmosphere.surface_pressure_mbar < 100000.0); // Less than 100 bar
+        }
+    }
 }
