@@ -94,8 +94,13 @@ pub fn extract_resources(
         // 2. Process Colony Mining & Atmospheric Harvesting
         if let Some(colony) = colony_opt {
             if let Some(data) = &buildings_data {
-                // Calculate total mining capacity (Mt/year) — solid deposits only
-                let mut total_mining_rate = 0.0;
+                // Three independent extraction tiers — no overflow between them.
+                // MiningEfficiency    → Proven Crustal  (Mine, Refinery, etc.)
+                // DeepMiningEfficiency→ Deep Deposits   (DeepDrill, LaserDrill)
+                // BulkMiningEfficiency→ Planetary Bulk  (StripMine, BulkExcavator)
+                let mut surface_rate = 0.0_f64;
+                let mut deep_rate    = 0.0_f64;
+                let mut bulk_rate    = 0.0_f64;
                 // Calculate total atmospheric harvesting capacity (Mt/year)
                 let mut total_atmo_rate = 0.0;
 
@@ -104,58 +109,86 @@ pub fn extract_resources(
                     if let Some(def) = data.get(building_type) {
                         for modifier in &def.modifiers {
                             match modifier.modifier_type.as_str() {
-                                "MiningEfficiency" => {
-                                    total_mining_rate += modifier.value * count as f64;
-                                }
-                                "AtmosphericHarvesting" => {
-                                    total_atmo_rate += modifier.value * count as f64;
-                                }
+                                "MiningEfficiency"     => { surface_rate  += modifier.value * count as f64; }
+                                "DeepMiningEfficiency" => { deep_rate     += modifier.value * count as f64; }
+                                "BulkMiningEfficiency" => { bulk_rate     += modifier.value * count as f64; }
+                                "AtmosphericHarvesting"=> { total_atmo_rate += modifier.value * count as f64; }
                                 _ => {}
                             }
                         }
                     }
                 }
 
-                // --- Solid mineral extraction (Mines, DeepDrills, etc.) ---
-                if total_mining_rate > 0.0 {
-                    // Find non-atmospheric deposits with meaningful amounts
-                    let minable: Vec<(ResourceType, f32)> = resources.deposits.iter()
-                        .filter(|(_, d)| !d.is_atmospheric
-                            && (d.reserve.proven_crustal > 0.001 || d.reserve.deep_deposits > 0.001))
+                // Helper: extract from a single tier across all eligible deposits,
+                // weighted by concentration. Returns nothing — mutates resources & budget in place.
+                // We call this three times, once per tier.
+
+                // --- Tier 1: Proven Crustal ---
+                if surface_rate > 0.0 {
+                    let eligible: Vec<(ResourceType, f32)> = resources.deposits.iter()
+                        .filter(|(_, d)| !d.is_atmospheric && d.reserve.proven_crustal > 0.001)
                         .map(|(t, d)| (*t, d.reserve.concentration))
                         .collect();
 
-                    if !minable.is_empty() {
-                        // Weight distribution by concentration — richer deposits yield more
-                        let total_weight: f64 = minable.iter()
-                            .map(|(_, c)| (*c as f64).max(1e-10))
-                            .sum();
-
-                        for (r_type, concentration) in &minable {
-                            let weight = (*concentration as f64).max(1e-10);
-                            let share = weight / total_weight;
-                            let effective_rate = total_mining_rate * share;
-
-                            if let Some(deposit) = resources.deposits.get_mut(&r_type) {
-                                let mut demand = effective_rate * years_elapsed;
-                                let mut extracted = 0.0;
-
-                                // Proven
-                                let taking_proven = demand.min(deposit.reserve.proven_crustal);
-                                deposit.reserve.proven_crustal -= taking_proven;
-                                extracted += taking_proven;
-                                demand -= taking_proven;
-
-                                // Deep
-                                if demand > 0.0 {
-                                    let taking_deep = demand.min(deposit.reserve.deep_deposits);
-                                    deposit.reserve.deep_deposits -= taking_deep;
-                                    extracted += taking_deep;
+                    if !eligible.is_empty() {
+                        let total_weight: f64 = eligible.iter().map(|(_, c)| (*c as f64).max(1e-10)).sum();
+                        for (r_type, concentration) in &eligible {
+                            let share = (*concentration as f64).max(1e-10) / total_weight;
+                            let demand = surface_rate * share * years_elapsed;
+                            if let Some(deposit) = resources.deposits.get_mut(r_type) {
+                                let taking = demand.min(deposit.reserve.proven_crustal);
+                                deposit.reserve.proven_crustal -= taking;
+                                if taking > 0.0 {
+                                    budget.add_resource(*r_type, taking);
+                                    body.mass -= taking * 1e9;
                                 }
+                            }
+                        }
+                    }
+                }
 
-                                if extracted > 0.0 {
-                                    budget.add_resource(*r_type, extracted);
-                                    body.mass -= extracted * 1e9;
+                // --- Tier 2: Deep Deposits ---
+                if deep_rate > 0.0 {
+                    let eligible: Vec<(ResourceType, f32)> = resources.deposits.iter()
+                        .filter(|(_, d)| !d.is_atmospheric && d.reserve.deep_deposits > 0.001)
+                        .map(|(t, d)| (*t, d.reserve.concentration))
+                        .collect();
+
+                    if !eligible.is_empty() {
+                        let total_weight: f64 = eligible.iter().map(|(_, c)| (*c as f64).max(1e-10)).sum();
+                        for (r_type, concentration) in &eligible {
+                            let share = (*concentration as f64).max(1e-10) / total_weight;
+                            let demand = deep_rate * share * years_elapsed;
+                            if let Some(deposit) = resources.deposits.get_mut(r_type) {
+                                let taking = demand.min(deposit.reserve.deep_deposits);
+                                deposit.reserve.deep_deposits -= taking;
+                                if taking > 0.0 {
+                                    budget.add_resource(*r_type, taking);
+                                    body.mass -= taking * 1e9;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // --- Tier 3: Planetary Bulk ---
+                if bulk_rate > 0.0 {
+                    let eligible: Vec<(ResourceType, f32)> = resources.deposits.iter()
+                        .filter(|(_, d)| !d.is_atmospheric && d.reserve.planetary_bulk > 0.001)
+                        .map(|(t, d)| (*t, d.reserve.concentration))
+                        .collect();
+
+                    if !eligible.is_empty() {
+                        let total_weight: f64 = eligible.iter().map(|(_, c)| (*c as f64).max(1e-10)).sum();
+                        for (r_type, concentration) in &eligible {
+                            let share = (*concentration as f64).max(1e-10) / total_weight;
+                            let demand = bulk_rate * share * years_elapsed;
+                            if let Some(deposit) = resources.deposits.get_mut(r_type) {
+                                let taking = demand.min(deposit.reserve.planetary_bulk);
+                                deposit.reserve.planetary_bulk -= taking;
+                                if taking > 0.0 {
+                                    budget.add_resource(*r_type, taking);
+                                    body.mass -= taking * 1e9;
                                 }
                             }
                         }
@@ -223,7 +256,7 @@ pub fn extract_resources(
 /// bar always reflects actual accumulation.
 pub fn update_resource_rates(
     mut tracker: ResMut<ResourceRateTracker>,
-    mining_ops: Query<&MiningOperation>,
+    mining_ops: Query<(&MiningOperation, Option<&PlanetResources>)>,
     research_buildings: Query<&crate::research::components::ResearchBuilding>,
     engineering_facilities: Query<&crate::research::components::EngineeringFacility>,
     colony_query: Query<(&Colony, Option<&PlanetResources>)>,
@@ -234,8 +267,19 @@ pub fn update_resource_rates(
     let mut rates = std::collections::HashMap::new();
     
     // 1. MiningOperation components
-    for op in mining_ops.iter() {
+    for (op, resources_opt) in mining_ops.iter() {
         if !op.active {
+            continue;
+        }
+        // Skip if the targeted deposit is fully depleted
+        let depleted = resources_opt.map_or(false, |res| {
+            res.deposits.get(&op.resource_type).map_or(true, |d| {
+                d.reserve.proven_crustal < 0.001
+                    && d.reserve.deep_deposits < 0.001
+                    && d.reserve.planetary_bulk < 0.001
+            })
+        });
+        if depleted {
             continue;
         }
         // base_rate_mt_per_year → per month = rate * (month / year)
@@ -247,41 +291,77 @@ pub fn update_resource_rates(
     if let Some(data) = &buildings_data {
         for (colony, resources_opt) in colony_query.iter() {
             if let Some(resources) = resources_opt {
-                let mut total_mining_rate = 0.0;
-                let mut total_atmo_rate = 0.0;
+                let mut surface_rate    = 0.0_f64;
+                let mut deep_rate       = 0.0_f64;
+                let mut bulk_rate       = 0.0_f64;
+                let mut total_atmo_rate = 0.0_f64;
 
                 for (building_type, &count) in &colony.buildings {
                     if count == 0 { continue; }
                     if let Some(def) = data.get(building_type) {
                         for modifier in &def.modifiers {
                             match modifier.modifier_type.as_str() {
-                                "MiningEfficiency" => {
-                                    total_mining_rate += modifier.value * count as f64;
-                                }
-                                "AtmosphericHarvesting" => {
-                                    total_atmo_rate += modifier.value * count as f64;
-                                }
+                                "MiningEfficiency"      => { surface_rate    += modifier.value * count as f64; }
+                                "DeepMiningEfficiency"  => { deep_rate       += modifier.value * count as f64; }
+                                "BulkMiningEfficiency"  => { bulk_rate       += modifier.value * count as f64; }
+                                "AtmosphericHarvesting" => { total_atmo_rate += modifier.value * count as f64; }
                                 _ => {}
                             }
                         }
                     }
                 }
 
-                // Solid mining rates (weighted by concentration)
-                if total_mining_rate > 0.0 {
-                    let monthly_total = total_mining_rate * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
+                // Solid mining rates (weighted by concentration) — one pool per tier
+                // Tier 1: Surface / Proven Crustal (MiningEfficiency buildings)
+                if surface_rate > 0.0 {
+                    let monthly_surface = surface_rate * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
 
-                    let minable: Vec<(ResourceType, f64)> = resources.deposits.iter()
-                        .filter(|(_, d)| !d.is_atmospheric
-                            && (d.reserve.proven_crustal > 0.001 || d.reserve.deep_deposits > 0.001))
+                    let eligible: Vec<(ResourceType, f64)> = resources.deposits.iter()
+                        .filter(|(_, d)| !d.is_atmospheric && d.reserve.proven_crustal > 0.001)
                         .map(|(t, d)| (*t, (d.reserve.concentration as f64).max(1e-10)))
                         .collect();
 
-                    let total_weight: f64 = minable.iter().map(|(_, w)| w).sum();
+                    let total_weight: f64 = eligible.iter().map(|(_, w)| w).sum();
                     if total_weight > 0.0 {
-                        for (r_type, weight) in &minable {
+                        for (r_type, weight) in &eligible {
                             let share = weight / total_weight;
-                            *rates.entry(*r_type).or_insert(0.0) += monthly_total * share;
+                            *rates.entry(*r_type).or_insert(0.0) += monthly_surface * share;
+                        }
+                    }
+                }
+
+                // Tier 2: Deep Deposits (DeepMiningEfficiency buildings)
+                if deep_rate > 0.0 {
+                    let monthly_deep = deep_rate * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
+
+                    let eligible: Vec<(ResourceType, f64)> = resources.deposits.iter()
+                        .filter(|(_, d)| !d.is_atmospheric && d.reserve.deep_deposits > 0.001)
+                        .map(|(t, d)| (*t, (d.reserve.concentration as f64).max(1e-10)))
+                        .collect();
+
+                    let total_weight: f64 = eligible.iter().map(|(_, w)| w).sum();
+                    if total_weight > 0.0 {
+                        for (r_type, weight) in &eligible {
+                            let share = weight / total_weight;
+                            *rates.entry(*r_type).or_insert(0.0) += monthly_deep * share;
+                        }
+                    }
+                }
+
+                // Tier 3: Planetary Bulk (BulkMiningEfficiency buildings)
+                if bulk_rate > 0.0 {
+                    let monthly_bulk = bulk_rate * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
+
+                    let eligible: Vec<(ResourceType, f64)> = resources.deposits.iter()
+                        .filter(|(_, d)| !d.is_atmospheric && d.reserve.planetary_bulk > 0.001)
+                        .map(|(t, d)| (*t, (d.reserve.concentration as f64).max(1e-10)))
+                        .collect();
+
+                    let total_weight: f64 = eligible.iter().map(|(_, w)| w).sum();
+                    if total_weight > 0.0 {
+                        for (r_type, weight) in &eligible {
+                            let share = weight / total_weight;
+                            *rates.entry(*r_type).or_insert(0.0) += monthly_bulk * share;
                         }
                     }
                 }

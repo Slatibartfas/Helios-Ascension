@@ -3172,16 +3172,24 @@ fn ui_dashboard(
                                                         // Proven / Atmospheric (Always visible if Orbital+)
                                                         ui.horizontal(|ui| {
                                                             ui.label(proven_label);
-                                                            ui.add(egui::ProgressBar::new(1.0)
-                                                                .text(format_mass(deposit.reserve.proven_crustal)));
+                                                            if deposit.reserve.proven_crustal < 0.001 {
+                                                                ui.label(egui::RichText::new("Depleted").color(egui::Color32::RED).strong());
+                                                            } else {
+                                                                ui.add(egui::ProgressBar::new(1.0)
+                                                                    .text(format_mass(deposit.reserve.proven_crustal)));
+                                                            }
                                                         });
                                                         
                                                         // Deep / Trapped
                                                         if matches!(current_level, SurveyLevel::SeismicSurvey | SurveyLevel::CoreSample) {
                                                             ui.horizontal(|ui| {
                                                                 ui.label(deep_label);
-                                                                ui.add(egui::ProgressBar::new(1.0)
-                                                                    .text(format_mass(deposit.reserve.deep_deposits)));
+                                                                if deposit.reserve.deep_deposits < 0.001 {
+                                                                    ui.label(egui::RichText::new("Depleted").color(egui::Color32::RED).strong());
+                                                                } else {
+                                                                    ui.add(egui::ProgressBar::new(1.0)
+                                                                        .text(format_mass(deposit.reserve.deep_deposits)));
+                                                                }
                                                             });
                                                         } else {
                                                              ui.label(format!("    {}: ???", if is_atm { "Trapped/Dissolved" } else { "Deep Deposits" }));
@@ -3191,8 +3199,12 @@ fn ui_dashboard(
                                                         if current_level == SurveyLevel::CoreSample {
                                                             ui.horizontal(|ui| {
                                                                 ui.label(bulk_label);
-                                                                 ui.add(egui::ProgressBar::new(1.0)
-                                                                    .text(format_mass(deposit.reserve.planetary_bulk)));
+                                                                if deposit.reserve.planetary_bulk < 0.001 {
+                                                                    ui.label(egui::RichText::new("Depleted").color(egui::Color32::RED).strong());
+                                                                } else {
+                                                                    ui.add(egui::ProgressBar::new(1.0)
+                                                                        .text(format_mass(deposit.reserve.planetary_bulk)));
+                                                                }
                                                             });
                                                         } else {
                                                             ui.label(format!("    {}: ???", if is_atm { "Chemically Bound" } else { "Planetary Bulk" }));
@@ -7156,14 +7168,18 @@ fn render_econ_resources(
 
                                     // Mining production (estimate from colony's deposits)
                                     // Show which resources the colony's mines/atmo processors extract
-                                    let mut total_mining_rate = 0.0_f64;
+                                    let mut ui_surface_rate = 0.0_f64;
+                                    let mut ui_deep_rate    = 0.0_f64;
+                                    let mut ui_bulk_rate    = 0.0_f64;
                                     let mut total_atmo_rate = 0.0_f64;
                                     for (bt, count) in &colony.buildings {
                                         if *count == 0 { continue; }
                                         if let Some(def) = data.get(bt) {
                                             for modifier in &def.modifiers {
                                                 match modifier.modifier_type.as_str() {
-                                                    "MiningEfficiency" => total_mining_rate += modifier.value * *count as f64,
+                                                    "MiningEfficiency"      => ui_surface_rate += modifier.value * *count as f64,
+                                                    "DeepMiningEfficiency"  => ui_deep_rate    += modifier.value * *count as f64,
+                                                    "BulkMiningEfficiency"  => ui_bulk_rate    += modifier.value * *count as f64,
                                                     "AtmosphericHarvesting" => total_atmo_rate += modifier.value * *count as f64,
                                                     _ => {}
                                                 }
@@ -7171,18 +7187,43 @@ fn render_econ_resources(
                                         }
                                     }
 
-                                    // Solid mining production breakdown
-                                    if total_mining_rate > 0.0 {
-                                        let minable: Vec<(ResourceType, f64)> = body_entry.deposits.iter()
-                                            .filter(|(_, d)| !d.is_atmospheric && (d.reserve.proven_crustal > 0.001 || d.reserve.deep_deposits > 0.001))
+                                    // Solid mining production breakdown — three tiers, no overflow
+                                    if ui_surface_rate > 0.0 {
+                                        let eligible: Vec<(ResourceType, f64)> = body_entry.deposits.iter()
+                                            .filter(|(_, d)| !d.is_atmospheric && d.reserve.proven_crustal > 0.001)
                                             .map(|(rt, d)| (*rt, (d.reserve.concentration as f64).max(1e-10)))
                                             .collect();
-                                        let total_weight: f64 = minable.iter().map(|(_, w)| w).sum();
+                                        let total_weight: f64 = eligible.iter().map(|(_, w)| w).sum();
                                         if total_weight > 0.0 {
-                                            let monthly_total = total_mining_rate / 12.0;
-                                            for (rt, weight) in &minable {
-                                                let share = weight / total_weight;
-                                                production_rows.push(("Mining".to_string(), *rt, monthly_total * share));
+                                            let monthly = ui_surface_rate / 12.0;
+                                            for (rt, weight) in &eligible {
+                                                production_rows.push(("Mining".to_string(), *rt, monthly * weight / total_weight));
+                                            }
+                                        }
+                                    }
+                                    if ui_deep_rate > 0.0 {
+                                        let eligible: Vec<(ResourceType, f64)> = body_entry.deposits.iter()
+                                            .filter(|(_, d)| !d.is_atmospheric && d.reserve.deep_deposits > 0.001)
+                                            .map(|(rt, d)| (*rt, (d.reserve.concentration as f64).max(1e-10)))
+                                            .collect();
+                                        let total_weight: f64 = eligible.iter().map(|(_, w)| w).sum();
+                                        if total_weight > 0.0 {
+                                            let monthly = ui_deep_rate / 12.0;
+                                            for (rt, weight) in &eligible {
+                                                production_rows.push(("Deep Mining".to_string(), *rt, monthly * weight / total_weight));
+                                            }
+                                        }
+                                    }
+                                    if ui_bulk_rate > 0.0 {
+                                        let eligible: Vec<(ResourceType, f64)> = body_entry.deposits.iter()
+                                            .filter(|(_, d)| !d.is_atmospheric && d.reserve.planetary_bulk > 0.001)
+                                            .map(|(rt, d)| (*rt, (d.reserve.concentration as f64).max(1e-10)))
+                                            .collect();
+                                        let total_weight: f64 = eligible.iter().map(|(_, w)| w).sum();
+                                        if total_weight > 0.0 {
+                                            let monthly = ui_bulk_rate / 12.0;
+                                            for (rt, weight) in &eligible {
+                                                production_rows.push(("Bulk Mining".to_string(), *rt, monthly * weight / total_weight));
                                             }
                                         }
                                     }

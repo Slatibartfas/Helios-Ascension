@@ -177,7 +177,7 @@
                 ("Titanium", 0.1),
             ],
             modifiers: [
-                (modifier_type: "MiningEfficiency", value: 25.0),
+                (modifier_type: "DeepMiningEfficiency", value: 25.0),
             ],
         ),
         (
@@ -199,7 +199,7 @@
                 ("Copper", 0.002),
             ],
             modifiers: [
-                (modifier_type: "MiningEfficiency", value: 50.0),
+                (modifier_type: "DeepMiningEfficiency", value: 50.0),
             ],
         ),
         (
@@ -221,7 +221,7 @@
                 ("Titanium", 0.5),
             ],
             modifiers: [
-                (modifier_type: "MiningEfficiency", value: 100.0),
+                (modifier_type: "BulkMiningEfficiency", value: 100.0),
             ],
         ),
         (
