@@ -17,7 +17,7 @@ use bevy::window::PrimaryWindow;
 use bevy_egui::egui;
 use std::collections::HashMap;
 
-use super::camera::{CameraAnchor, GameCamera, OrbitCamera, ViewMode};
+use super::camera::{CameraAnchor, EguiPanelBounds, GameCamera, OrbitCamera, ViewMode};
 use super::solar_system::{Billboard, CelestialBody, StarGlare, StarGlowMaterial};
 use super::solar_system_data::BodyType;
 use crate::astronomy::components::{
@@ -613,6 +613,7 @@ fn handle_starmap_hover(
     mut commands: Commands,
     hovered_query: Query<Entity, With<HoveredStarSystem>>,
     mut egui_contexts: bevy_egui::EguiContexts,
+    panel_bounds: Res<EguiPanelBounds>,
 ) {
     // Only active in starmap view
     if *view_mode != ViewMode::Starmap {
@@ -623,17 +624,25 @@ fn handle_starmap_hover(
         return;
     }
 
-    // Don't process if egui is using the mouse
+    // Don't process if egui is using the mouse / pointer is over a UI panel
     let ctx = match egui_contexts.try_ctx_mut() {
         Some(ctx) => ctx,
         None => return,
     };
-    if ctx.is_pointer_over_area() || ctx.wants_pointer_input() {
-        // Clear hover when over UI
-        for entity in hovered_query.iter() {
-            commands.entity(entity).remove::<HoveredStarSystem>();
+    {
+        let hover_pos = ctx.input(|i| i.pointer.hover_pos());
+        let over_panel = if let Some(available) = panel_bounds.available_rect {
+            hover_pos.map_or(false, |p| !available.contains(p))
+        } else {
+            false
+        };
+        if ctx.is_pointer_over_area() || ctx.is_using_pointer() || over_panel {
+            // Clear hover when over UI
+            for entity in hovered_query.iter() {
+                commands.entity(entity).remove::<HoveredStarSystem>();
+            }
+            return;
         }
-        return;
     }
 
     let Ok(window) = windows.get_single() else {
@@ -724,6 +733,7 @@ fn handle_starmap_selection(
     time: Res<Time>,
     mut selection_state: Local<StarmapSelectionState>,
     mut egui_contexts: bevy_egui::EguiContexts,
+    panel_bounds: Res<EguiPanelBounds>,
 ) {
     // Only active in starmap view
     if *view_mode != ViewMode::Starmap {
@@ -732,7 +742,13 @@ fn handle_starmap_selection(
 
     // Set cursor to default arrow to prevent text selection cursor
     if let Some(ctx) = egui_contexts.try_ctx_mut() {
-        if !ctx.is_pointer_over_area() {
+        let hover_pos = ctx.input(|i| i.pointer.hover_pos());
+        let over_panel = if let Some(available) = panel_bounds.available_rect {
+            hover_pos.map_or(false, |p| !available.contains(p))
+        } else {
+            false
+        };
+        if !ctx.is_pointer_over_area() && !over_panel {
             ctx.output_mut(|o| o.cursor_icon = egui::CursorIcon::Default);
         }
     }
@@ -742,12 +758,20 @@ fn handle_starmap_selection(
         return;
     }
 
-    // Don't process if egui is using the mouse
+    // Don't process if egui is using the mouse / pointer is over a UI panel
     let Some(ctx) = egui_contexts.try_ctx_mut() else {
         return;
     };
-    if ctx.is_pointer_over_area() || ctx.wants_pointer_input() || ctx.is_using_pointer() {
-        return;
+    {
+        let hover_pos = ctx.input(|i| i.pointer.hover_pos());
+        let over_panel = if let Some(available) = panel_bounds.available_rect {
+            hover_pos.map_or(false, |p| !available.contains(p))
+        } else {
+            false
+        };
+        if ctx.is_pointer_over_area() || ctx.is_using_pointer() || over_panel {
+            return;
+        }
     }
 
     let Ok(window) = windows.get_single() else {

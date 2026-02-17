@@ -1,6 +1,6 @@
 use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::prelude::*;
-use bevy_egui::EguiContexts;
+use bevy_egui::{egui, EguiContexts};
 
 use crate::astronomy::components::CurrentStarSystem;
 use crate::astronomy::SCALING_FACTOR;
@@ -28,11 +28,23 @@ pub enum ViewMode {
     Starmap,
 }
 
+/// Stores the egui `available_rect` captured at the end of the previous frame
+/// (in `PostUpdate`, after all UI panels have been drawn).
+///
+/// Used by `orbit_camera_controls` to detect when the pointer is over an anchored
+/// panel (SidePanel, TopBottomPanel) — these panels don't show up in
+/// `ctx.is_pointer_over_area()`, which only detects floating windows.
+#[derive(Resource, Default)]
+pub struct EguiPanelBounds {
+    pub available_rect: Option<egui::Rect>,
+}
+
 pub struct CameraPlugin;
 
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ViewMode>()
+            .init_resource::<EguiPanelBounds>()
             .add_systems(Startup, spawn_camera)
             .add_systems(
                 Update,
@@ -43,7 +55,10 @@ impl Plugin for CameraPlugin {
                     update_camera_transform,
                     update_view_mode,
                 ),
-            );
+            )
+            // Capture the egui available_rect AFTER all UI panels have rendered this
+            // frame so that the camera system can use it next frame to detect panels.
+            .add_systems(PostUpdate, capture_egui_panel_bounds);
     }
 }
 
@@ -96,6 +111,18 @@ fn spawn_camera(mut commands: Commands) {
     ));
 }
 
+/// Captures `available_rect` from egui after all UI panels have been rendered.
+/// Runs in `PostUpdate` so the value is correct (panel-aware) for next frame's
+/// camera system which needs to know which screen area is occupied by UI.
+fn capture_egui_panel_bounds(
+    mut contexts: EguiContexts,
+    mut bounds: ResMut<EguiPanelBounds>,
+) {
+    if let Some(ctx) = contexts.try_ctx_mut() {
+        bounds.available_rect = Some(ctx.available_rect());
+    }
+}
+
 fn orbit_camera_controls(
     mut contexts: EguiContexts,
     active_menu: Res<ActiveMenu>,
@@ -103,6 +130,7 @@ fn orbit_camera_controls(
     mut motion_events: EventReader<MouseMotion>,
     mut scroll_events: EventReader<MouseWheel>,
     mut query: Query<&mut OrbitCamera>,
+    panel_bounds: Res<EguiPanelBounds>,
 ) {
     let mut camera = query.single_mut();
 
@@ -113,14 +141,21 @@ fn orbit_camera_controls(
         return;
     }
 
-    // Check if Egui wants the input (e.g. mouse over a window)
-    // Use try_ctx_mut() to avoid panicking if the window is closed/uninitialized
+    // Check if Egui wants the input (e.g. mouse over a floating window or an anchored panel)
     if let Some(ctx) = contexts.try_ctx_mut() {
-        // Robust check for Egui interaction:
-        // 1. is_pointer_over_area() - covers windows/panels
-        // 2. wants_pointer_input() - covers active interaction (scrolling, clicking)
-        // 3. is_using_pointer() - covers dragging
-        if ctx.is_pointer_over_area() || ctx.wants_pointer_input() || ctx.is_using_pointer() {
+        let hover_pos = ctx.input(|i| i.pointer.hover_pos());
+
+        // is_pointer_over_area() catches floating windows/popups.
+        // panel_bounds.available_rect (captured last frame in PostUpdate, after all panels
+        // rendered) catches anchored panels (SidePanel, TopBottomPanel) that don't show up
+        // in is_pointer_over_area().
+        let over_panel = if let Some(available) = panel_bounds.available_rect {
+            hover_pos.map_or(false, |pos| !available.contains(pos))
+        } else {
+            false
+        };
+
+        if ctx.is_pointer_over_area() || ctx.is_using_pointer() || over_panel {
             motion_events.clear();
             scroll_events.clear();
             return;

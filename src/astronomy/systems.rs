@@ -7,7 +7,7 @@ use super::components::{
     LocalOrbitAmplification, MarkerDot, MarkerOwner, OrbitCenter, OrbitPath, Selected,
     SelectionMarker, SpaceCoordinates, SystemId,
 };
-use crate::plugins::camera::{CameraAnchor, GameCamera, OrbitCamera, ViewMode};
+use crate::plugins::camera::{CameraAnchor, EguiPanelBounds, GameCamera, OrbitCamera, ViewMode};
 use crate::plugins::solar_system::{
     CelestialBody, Comet, LogicalParent, Moon, Planet, Star,
 };
@@ -1159,6 +1159,7 @@ pub fn handle_body_selection(
     mut selection_state: Local<SelectionState>,
     mut egui_contexts: bevy_egui::EguiContexts,
     active_menu: Res<ActiveMenu>,
+    panel_bounds: Res<EguiPanelBounds>,
 ) {
     // Disable body selection when a full-screen overlay menu is active
     if active_menu.current.blocks_world_interaction() {
@@ -1176,8 +1177,16 @@ pub fn handle_body_selection(
     }
 
     // Don't process if egui is using the mouse (e.g., clicking on UI)
-    if egui_contexts.ctx_mut().wants_pointer_input() {
-        return;
+    if let Some(ctx) = egui_contexts.try_ctx_mut() {
+        let hover_pos = ctx.input(|i| i.pointer.hover_pos());
+        let over_panel = if let Some(available) = panel_bounds.available_rect {
+            hover_pos.map_or(false, |p| !available.contains(p))
+        } else {
+            false
+        };
+        if ctx.is_pointer_over_area() || ctx.is_using_pointer() || ctx.wants_pointer_input() || over_panel {
+            return;
+        }
     }
 
     let Ok(window) = windows.get_single() else {
@@ -1281,6 +1290,7 @@ pub fn handle_body_hover(
     hovered_query: Query<Entity, With<Hovered>>,
     mut egui_contexts: bevy_egui::EguiContexts,
     active_menu: Res<ActiveMenu>,
+    panel_bounds: Res<EguiPanelBounds>,
 ) {
     // Disable hover when a full-screen menu overlay is active (Research, etc.)
     if active_menu.current.blocks_world_interaction() {
@@ -1301,7 +1311,13 @@ pub fn handle_body_hover(
     // Safety check: ensure we have access to egui context
     // If the cursor is over a UI element, don't perform world picking
     if let Some(ctx) = egui_contexts.try_ctx_mut() {
-        if ctx.is_pointer_over_area() || ctx.wants_pointer_input() {
+        let hover_pos = ctx.input(|i| i.pointer.hover_pos());
+        let over_panel = if let Some(available) = panel_bounds.available_rect {
+            hover_pos.map_or(false, |p| !available.contains(p))
+        } else {
+            false
+        };
+        if ctx.is_pointer_over_area() || ctx.is_using_pointer() || over_panel {
             // Clear all hovers if we are over UI
             for entity in hovered_query.iter() {
                 commands.entity(entity).remove::<Hovered>();

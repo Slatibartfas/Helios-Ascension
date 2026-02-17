@@ -1857,6 +1857,7 @@ fn ui_top_menu_bar(
     current_system: Res<CurrentStarSystem>,
     system_metadata: Res<SystemMetadata>,
     mut camera_query: Query<(&mut OrbitCamera, &mut CameraAnchor), With<GameCamera>>,
+    star_icon_query: Query<(Entity, Option<&SelectedStarSystem>), With<StarSystemIcon>>,
 ) {
     // Convert loaded handles to egui TextureIds before creating the UI context.
     // We cache the TextureIds in a Local<HashMap> so that `add_image` is called
@@ -1945,7 +1946,19 @@ fn ui_top_menu_bar(
                                             anchor.0 = None;
                                         }
                                     }
-                                    GameMenu::Survey => *view_mode = ViewMode::System,
+                                    GameMenu::Survey => {
+                                        *view_mode = ViewMode::System;
+                                        if let Ok((mut orbit, mut anchor)) = camera_query.get_single_mut() {
+                                            // If not anchored, try anchoring to the selected star system
+                                            if anchor.0.is_none() {
+                                                if let Some((sel_entity, _)) = star_icon_query.iter().find(|(_, sel)| sel.is_some()) {
+                                                    anchor.0 = Some(sel_entity);
+                                                }
+                                            }
+                                            // Zoom into system-view range (mirrors double-click behaviour)
+                                            orbit.radius = 150_000.0;
+                                        }
+                                    }
                                     _ => *view_mode = ViewMode::System,
                                 }
                             }
@@ -1978,7 +1991,17 @@ fn ui_top_menu_bar(
                                             anchor.0 = None;
                                         }
                                     }
-                                    GameMenu::Survey => *view_mode = ViewMode::System,
+                                    GameMenu::Survey => {
+                                        *view_mode = ViewMode::System;
+                                        if let Ok((mut orbit, mut anchor)) = camera_query.get_single_mut() {
+                                            if anchor.0.is_none() {
+                                                if let Some((sel_entity, _)) = star_icon_query.iter().find(|(_, sel)| sel.is_some()) {
+                                                    anchor.0 = Some(sel_entity);
+                                                }
+                                            }
+                                            orbit.radius = 150_000.0;
+                                        }
+                                    }
                                     _ => *view_mode = ViewMode::System,
                                 }
                             }
@@ -2012,7 +2035,17 @@ fn ui_top_menu_bar(
                                         anchor.0 = None;
                                     }
                                 }
-                                GameMenu::Survey => *view_mode = ViewMode::System,
+                                GameMenu::Survey => {
+                                    *view_mode = ViewMode::System;
+                                    if let Ok((mut orbit, mut anchor)) = camera_query.get_single_mut() {
+                                        if anchor.0.is_none() {
+                                            if let Some((sel_entity, _)) = star_icon_query.iter().find(|(_, sel)| sel.is_some()) {
+                                                anchor.0 = Some(sel_entity);
+                                            }
+                                        }
+                                        orbit.radius = 150_000.0;
+                                    }
+                                }
                                 _ => *view_mode = ViewMode::System,
                             }
                         }
