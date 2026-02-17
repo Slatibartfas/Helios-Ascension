@@ -33,7 +33,7 @@ use crate::economy::{
     PowerSourceType, ResourceRateTracker, ResourceType,
 };
 use crate::game_state::{ActiveMenu, GameMenu};
-use crate::plugins::camera::{CameraAnchor, GameCamera, OrbitCamera, ViewMode, STARMAP_THRESHOLD_MULTIPLIER, MIN_STARMAP_THRESHOLD};
+use crate::plugins::camera::{capture_egui_panel_bounds, CameraAnchor, GameCamera, OrbitCamera, ViewMode, STARMAP_THRESHOLD_MULTIPLIER, MIN_STARMAP_THRESHOLD};
 use crate::plugins::solar_system::{CelestialBody, LogicalParent};
 use crate::plugins::solar_system_data::BodyType;
 use crate::plugins::starmap::{HoveredStarSystem, SelectedStarSystem, StarSystemIcon, SystemMetadata};
@@ -700,6 +700,13 @@ impl Plugin for UIPlugin {
                     process_menu_icons,
                     process_research_icons,
                 ),
+            )
+            // Capture egui's available_rect AFTER all panels have registered themselves
+            // this frame. The camera system reads this next frame to detect panel bounds.
+            // Must run in Update (inside egui's frame), not PostUpdate (context is closed).
+            .add_systems(
+                Update,
+                capture_egui_panel_bounds.after(UiSystemSet::Overlays),
             );
     }
 } 

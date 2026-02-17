@@ -55,10 +55,7 @@ impl Plugin for CameraPlugin {
                     update_camera_transform,
                     update_view_mode,
                 ),
-            )
-            // Capture the egui available_rect AFTER all UI panels have rendered this
-            // frame so that the camera system can use it next frame to detect panels.
-            .add_systems(PostUpdate, capture_egui_panel_bounds);
+            );
     }
 }
 
@@ -112,9 +109,10 @@ fn spawn_camera(mut commands: Commands) {
 }
 
 /// Captures `available_rect` from egui after all UI panels have been rendered.
-/// Runs in `PostUpdate` so the value is correct (panel-aware) for next frame's
-/// camera system which needs to know which screen area is occupied by UI.
-fn capture_egui_panel_bounds(
+/// Must be registered AFTER all egui panel systems so the rect is panel-aware.
+/// Registered by UIPlugin (not CameraPlugin) to ensure correct ordering within
+/// the Update schedule where egui context is valid.
+pub fn capture_egui_panel_bounds(
     mut contexts: EguiContexts,
     mut bounds: ResMut<EguiPanelBounds>,
 ) {
