@@ -2329,7 +2329,10 @@ fn ui_dashboard(
         Option<&mut SurveyLevel>,
         Option<&Population>,
         Option<&crate::astronomy::SurfaceTemperature>,
+        Option<&LogicalParent>,
     )>,
+    // Read-only lookup for parent body coordinates
+    parent_coords_query: Query<&SpaceCoordinates>,
     // Resource query for system totals
     resource_query: Query<(&SystemId, &PlanetResources)>,
     // Ledger queries
@@ -2567,7 +2570,7 @@ fn ui_dashboard(
                 ui.separator();
 
                 if let Some(entity) = selection.get() {
-                    if let Ok((body, coords, orbit, resources, atmosphere, mut survey_level, population, surface_temp)) = body_query.get_mut(entity) {
+                    if let Ok((body, coords, orbit, resources, atmosphere, mut survey_level, population, surface_temp, logical_parent)) = body_query.get_mut(entity) {
                         // Body name and basic info
                         ui.label(egui::RichText::new(&body.name).size(18.0).strong());
                         ui.add_space(10.0);
@@ -2575,8 +2578,20 @@ fn ui_dashboard(
                         // Position information
                         ui.group(|ui| {
                             ui.label(egui::RichText::new("Position").strong());
-                            let distance = coords.position.length();
-                            ui.label(format!("Distance from Sun: {:.3} AU", distance));
+                            // Compute distance relative to parent body (star) instead of Sol.
+                            // For Sol system bodies the parent is at the origin so this
+                            // is equivalent to the old "distance from Sun".
+                            let (distance, label) = if let Some(parent) = logical_parent {
+                                if let Ok(parent_coords) = parent_coords_query.get(parent.0) {
+                                    let d = (coords.position - parent_coords.position).length();
+                                    (d, "Distance from Star")
+                                } else {
+                                    (coords.position.length(), "Distance from Star")
+                                }
+                            } else {
+                                (coords.position.length(), "Distance from Star")
+                            };
+                            ui.label(format!("{}: {:.3} AU", label, distance));
                             ui.label(format!("Radius: {:.1} km", body.radius));
                             ui.label(format!("Mass: {:.2e} kg", body.mass));
                             ui.label(format!("Gravity: {:.2} g", body.surface_gravity()));
@@ -3513,7 +3528,7 @@ fn render_tech_tree_tab(
     let category_gap = 24.0 * zoom;
     let pane_pad = (10.0 * zoom).round();
     let pane_rounding = 6.0 * zoom;
-    let label_width = (140.0 * zoom).round();
+    let label_width = (100.0 * zoom).round();
     
     // ---------- status line (fixed height, drawn FIRST so it reserves space at the bottom) ----------
     // We draw it at the end but must reserve its height now.
@@ -3560,7 +3575,6 @@ fn render_tech_tree_tab(
     // Two rows: row 1 = icon + name, row 2 = research cost
     let font_name = egui::FontId::proportional((12.0 * zoom).round());
     let font_cost = egui::FontId::proportional((10.0 * zoom).round());
-    let font_label = egui::FontId::proportional((14.0 * zoom).round());
     let icon_sz = (16.0 * zoom).round();
     let icon_pad = (4.0 * zoom).round();
     let h_pad = (8.0 * zoom).round();
@@ -3693,69 +3707,48 @@ fn render_tech_tree_tab(
         painter.rect_filled(pane_rect, pane_rounding, bg_color);
         painter.rect_stroke(pane_rect, pane_rounding, egui::Stroke::new(1.0 * zoom, border_color));
         
-        // Category label on the left: fixed-size icon + vertical caps name in two columns
+        // Category label on the left: icon + stacked word lines
         let cat_icon = band.category.icon();
         let cat_name = band.category.display_name().to_uppercase();
         
-        // Fixed icon size for consistency across all categories
-        let icon_font_size = (24.0 * zoom).round();
+        // Fixed icon size for consistency
+        let icon_font_size = (22.0 * zoom).round();
         let font_icon_large = egui::FontId::proportional(icon_font_size);
+        let font_cat_word = egui::FontId::proportional((11.0 * zoom).round());
         
-        // Text layout: split into two columns if name is long
-        let char_spacing = font_label.size * 0.85;
-        let col_spacing = font_label.size * 1.4; // horizontal spacing between columns
-        let gap_between = (6.0 * zoom).round(); // gap between icon and text
+        // Split name into words, one per line
+        let words: Vec<&str> = cat_name.split_whitespace().collect();
+        let line_spacing = font_cat_word.size * 1.25;
+        let text_block_h = words.len() as f32 * line_spacing;
+        let gap_between = (4.0 * zoom).round();
         
-        let chars: Vec<char> = cat_name.chars().collect();
-        let chars_per_col = ((chars.len() + 1) / 2).max(1); // split roughly in half, round up
+        // Total height of the content block
+        let total_h = icon_font_size + gap_between + text_block_h;
         
-        // Calculate dimensions
-        let text_height = chars_per_col as f32 * char_spacing;
-        let text_width = if chars.len() > chars_per_col {
-            col_spacing // two columns
-        } else {
-            0.0 // one column
-        };
-        
-        // Total height and width of content block
-        let total_content_height = icon_font_size + gap_between + text_height;
-        
-        // Center the entire content block within the band (vertically and horizontally in label area)
-        let label_center_y = band.y_start + band.height / 2.0;
-        let content_start_y = label_center_y - total_content_height / 2.0;
+        // Center within the band
+        let band_center_y = band.y_start + band.height / 2.0;
+        let block_top = band_center_y - total_h / 2.0;
         let label_center_x = origin_x - pane_pad - label_width / 2.0;
         
-        // Draw icon centered at top
+        // Icon
         painter.text(
-            egui::Pos2::new(label_center_x, content_start_y + icon_font_size / 2.0),
+            egui::Pos2::new(label_center_x, block_top + icon_font_size / 2.0),
             egui::Align2::CENTER_CENTER,
             cat_icon,
             font_icon_large,
             cat_color,
         );
         
-        // Draw vertical text below icon in two columns
-        let text_start_y = content_start_y + icon_font_size + gap_between;
-        
-        for (i, ch) in chars.iter().enumerate() {
-            let col = i / chars_per_col;
-            let row = i % chars_per_col;
-            let x_offset = if col == 0 {
-                -text_width / 2.0
-            } else {
-                text_width / 2.0
-            };
-            
+        // Word-per-line text
+        let text_top = block_top + icon_font_size + gap_between;
+        for (i, word) in words.iter().enumerate() {
             painter.text(
-                egui::Pos2::new(
-                    label_center_x + x_offset, 
-                    text_start_y + row as f32 * char_spacing
-                ),
+                egui::Pos2::new(label_center_x, text_top + i as f32 * line_spacing + line_spacing / 2.0),
                 egui::Align2::CENTER_CENTER,
-                ch.to_string(),
-                font_label.clone(),
+                *word,
+                font_cat_word.clone(),
                 egui::Color32::from_rgba_unmultiplied(
-                    cat_color.r(), cat_color.g(), cat_color.b(), 220,
+                    cat_color.r(), cat_color.g(), cat_color.b(), 200,
                 ),
             );
         }
@@ -3998,6 +3991,9 @@ fn render_tech_tree_tab(
         } else {
             selected_tech = Some(cid);
         }
+    } else if pointer_clicked {
+        // Clicked on empty space (not on any node) – clear selection
+        selected_tech = None;
     }
 
     // Handle right-click – open context menu (debug mode only)

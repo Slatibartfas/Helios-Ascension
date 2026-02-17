@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use bevy::prelude::*;
 
 /// Type of celestial body
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -227,4 +228,67 @@ pub fn calculate_visual_radius(body_type: BodyType, radius_km: f32) -> f32 {
         let relative_size = (radius_km / earth_radius).powf(power);
         (base_size * relative_size * scale_mult).max(min_radius)
     }
+}
+
+/// Computes a visual-size scale factor for non-Sol star systems.
+///
+/// In compact systems around dim stars (brown dwarfs, late-M dwarfs),
+/// planetary orbits can be 10–100× smaller than in the Sol system.
+/// Without scaling, planet meshes appear disproportionately large
+/// compared to their orbits.  This function returns a multiplier
+/// (0.15 … 1.0) based on the host star's luminosity — a convenient
+/// proxy for system extent — and should be applied to
+/// `calculate_visual_radius` results for non-star bodies.
+///
+/// ```text
+/// L = 1.0  (Sol)        →  1.0
+/// L = 0.5  (α Cen B)    →  ~0.90
+/// L = 0.001 (Wolf 359)  →  ~0.35
+/// L = 3e-5 (Luhman 16)  →  ~0.21
+/// ```
+pub fn system_visual_scale(star_luminosity_sol: f32) -> f32 {
+    // Habitable-zone distance scales as √L, so orbit sizes (in AU)
+    // shrink rapidly for low-luminosity stars.  We use L^0.15 as a
+    // dampened proxy so that very faint systems still get meaningful
+    // reduction without becoming invisible.
+    star_luminosity_sol.max(1e-7).powf(0.15).clamp(0.15, 1.0)
+}
+
+/// Convert temperature (Kelvin) to approximate sRGB color.
+/// Based on Tanner Helland's algorithm.
+pub fn kelvin_to_color(temperature: f32) -> Color {
+    let t = temperature.clamp(1000.0, 40000.0) / 100.0;
+    
+    let r;
+    let g;
+    let b;
+    
+    // Red
+    if t <= 66.0 {
+        r = 255.0;
+    } else {
+        r = 329.698727446 * (t - 60.0).powf(-0.1332047592);
+    }
+    
+    // Green
+    if t <= 66.0 {
+        g = 99.4708025861 * t.ln() - 161.1195681661;
+    } else {
+        g = 288.1221695283 * (t - 60.0).powf(-0.0755148492);
+    }
+    
+    // Blue
+    if t >= 66.0 {
+        b = 255.0;
+    } else if t <= 19.0 {
+        b = 0.0;
+    } else {
+        b = 138.5177312231 * (t - 10.0).ln() - 305.0447927307;
+    }
+    
+    Color::srgb(
+        (r / 255.0).clamp(0.0, 1.0),
+        (g / 255.0).clamp(0.0, 1.0),
+        (b / 255.0).clamp(0.0, 1.0),
+    )
 }

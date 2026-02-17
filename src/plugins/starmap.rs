@@ -16,8 +16,8 @@ use bevy::window::PrimaryWindow;
 use std::collections::HashMap;
 
 use super::camera::{CameraAnchor, GameCamera, OrbitCamera, ViewMode};
-use super::solar_system::CelestialBody;
-use super::solar_system_data::{BodyType, calculate_visual_radius};
+use super::solar_system::{Billboard, CelestialBody, StarGlare, StarGlowMaterial};
+use super::solar_system_data::BodyType;
 use crate::astronomy::components::{
     CurrentStarSystem, FloatingOrigin, SpaceCoordinates, SystemId,
 };
@@ -243,9 +243,16 @@ fn spawn_system_bodies(
     floating_origin: Res<FloatingOrigin>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials_glow: ResMut<Assets<StarGlowMaterial>>,
     // Query for bodies that need visual components added
     bodies_without_visuals: Query<
-        (Entity, &CelestialBody, &SpaceCoordinates, &SystemId),
+        (
+            Entity,
+            &CelestialBody,
+            &SpaceCoordinates,
+            &SystemId,
+            Option<&crate::astronomy::StellarProperties>,
+        ),
         (Without<Handle<Mesh>>, Without<Handle<StandardMaterial>>),
     >,
     // Query to check if system already has visual entities
@@ -271,56 +278,48 @@ fn spawn_system_bodies(
     let origin_offset = floating_origin.position;
 
     // Find all data-only entities for this system and add visual components
-    for (entity, body, space_coords, _system_id) in bodies_without_visuals.iter() {
+    for (entity, body, space_coords, _system_id, stellar_props) in bodies_without_visuals.iter() {
         if _system_id.0 != sys_id {
             continue;
         }
 
-        // Determine visual properties based on body type
-        let (color, visual_radius) = match body.body_type {
+        // Use the pre-computed visual_radius from CelestialBody (already scaled
+        // for system compactness by system_populator) instead of recalculating.
+        let visual_radius = body.visual_radius;
+
+        // Determine color based on body type
+        let color = match body.body_type {
             BodyType::Star => {
-                let color = Color::srgb(1.0, 0.95, 0.8); // Default yellow star
-                let visual_radius = calculate_visual_radius(body.body_type, body.radius);
-                (color, visual_radius)
+                // Calculate color from temperature if available
+                if let Some(props) = stellar_props {
+                    super::solar_system_data::kelvin_to_color(props.temperature_kelvin)
+                } else {
+                    Color::srgb(1.0, 0.95, 0.8) // Default yellow star
+                }
             }
-            BodyType::Planet | BodyType::DwarfPlanet => {
-                let color = Color::srgb(0.5, 0.5, 0.7); // Default blue-grey planet
-                let visual_radius = calculate_visual_radius(body.body_type, body.radius);
-                (color, visual_radius)
-            }
-            BodyType::GasGiant => {
-                let color = Color::srgb(0.9, 0.8, 0.6); // Tan/beige for gas giant
-                let visual_radius = calculate_visual_radius(body.body_type, body.radius);
-                (color, visual_radius)
-            }
-            BodyType::Moon => {
-                let color = Color::srgb(0.6, 0.6, 0.6); // Grey moon
-                let visual_radius = calculate_visual_radius(body.body_type, body.radius);
-                (color, visual_radius)
-            }
-            BodyType::Asteroid => {
-                let color = Color::srgb(0.4, 0.4, 0.3); // Brown-grey asteroid
-                let visual_radius = calculate_visual_radius(body.body_type, body.radius);
-                (color, visual_radius)
-            }
-            BodyType::Comet => {
-                let color = Color::srgb(0.7, 0.8, 0.9); // Icy blue-white
-                let visual_radius = calculate_visual_radius(body.body_type, body.radius);
-                (color, visual_radius)
-            }
+            BodyType::Planet | BodyType::DwarfPlanet => Color::srgb(0.5, 0.5, 0.7),
+            BodyType::GasGiant => Color::srgb(0.9, 0.8, 0.6),
+            BodyType::Moon => Color::srgb(0.6, 0.6, 0.6),
+            BodyType::Asteroid => Color::srgb(0.4, 0.4, 0.3),
+            BodyType::Comet => Color::srgb(0.7, 0.8, 0.9),
             BodyType::Ring => {
                 // Rings should have been created as separate entities, skip for now
                 continue;
             }
         };
 
-        // Create mesh
-        let mesh = meshes.add(Sphere::new(visual_radius).mesh().uv(32, 16));
+        // Create mesh - Higher resolution for stars to avoid boxy look
+        let mesh = if matches!(body.body_type, BodyType::Star) {
+            meshes.add(Sphere::new(visual_radius).mesh().uv(64, 32))
+        } else {
+            meshes.add(Sphere::new(visual_radius).mesh().uv(32, 16))
+        };
 
         // Create material
         let material = if matches!(body.body_type, BodyType::Star) {
             materials.add(StandardMaterial {
                 base_color: color,
+                // High emissive for bloom
                 emissive: LinearRgba::from(color).into(),
                 unlit: true,
                 ..default()
@@ -337,26 +336,28 @@ fn spawn_system_bodies(
         // Compute the correct initial transform position using floating origin
         let scaled_position =
             (space_coords.position - origin_offset) * SCALING_FACTOR;
-        let initial_transform = Transform::from_translation(Vec3::new(
+        let p_vec = Vec3::new(
             scaled_position.x as f32,
             scaled_position.y as f32,
             scaled_position.z as f32,
-        ));
+        );
+        let initial_transform = Transform::from_translation(p_vec);
 
         // Add visual components to existing entity
         commands.entity(entity).insert((
-            mesh,
-            material,
-            initial_transform,
-            GlobalTransform::default(),
-            Visibility::default(),
-            InheritedVisibility::default(),
-            ViewVisibility::default(),
+            PbrBundle {
+                mesh,
+                material,
+                transform: initial_transform,
+                ..default()
+            },
         ));
 
-        // Add light for stars
+        // Add light and glow for stars
         if matches!(body.body_type, BodyType::Star) {
             let intensity = 2.8e11; // Default star intensity
+            
+            // Add point light and glow as children
             commands.entity(entity).with_children(|parent| {
                 parent.spawn((
                     PointLightBundle {
@@ -371,10 +372,40 @@ fn spawn_system_bodies(
                     },
                     SystemId(sys_id),
                 ));
+                
+                // ADD GLOW EFFECT to make it look like a star
+                // Scale glow proportional to system compactness so it doesn't
+                // swallow close-in planets in compact systems.
+                // Use L^0.3 (stronger than the body scale L^0.15) because the
+                // glow quad is already 12× the star mesh and dominates in
+                // compact systems where close-in orbits are only ~100 Bevy units.
+                let glow_scale = stellar_props
+                    .map(|p| p.luminosity_sol.max(1e-7).powf(0.3).clamp(0.1, 1.0))
+                    .unwrap_or(1.0);
+                let glow_size = visual_radius * 12.0 * glow_scale;
+                let core_col = Vec4::new(5.0, 5.0, 5.0, 1.0); // Bright core
+                let linear = color.to_linear();
+                let halo_col = Vec4::new(linear.red, linear.green, linear.blue, 1.0) * 4.0; // Colored halo
+                
+                parent.spawn((
+                    MaterialMeshBundle {
+                        mesh: meshes.add(Rectangle::new(glow_size, glow_size)),
+                        material: materials_glow.add(StarGlowMaterial {
+                            color_core: core_col,
+                            color_halo: halo_col,
+                        }),
+                        transform: Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+                        ..default()
+                    },
+                    StarGlare {
+                        base_core_color: core_col,
+                        base_halo_color: halo_col,
+                    },
+                    Billboard,
+                    SystemId(sys_id), 
+                ));
             });
         }
-
-        info!("Added visuals to {} ({:?})", body.name, body.body_type);
     }
 
     info!("Finished adding visual components to system {}", sys_id);
@@ -532,10 +563,12 @@ fn update_starmap_icon_scale(
         return;
     };
 
-    // Scale icons with linear growth plus substantial base size to ensure visibility
-    // at all zoom levels. Base size prevents icons from becoming too small.
-    let base_size = 500.0;
-    let icon_radius = base_size + (orbit.radius * 0.012);
+    // Scale icons with sub-linear (square root) growth to maintain good proportions
+    // at all zoom levels. Icons grow more slowly as you zoom out, preventing overlap.
+    // At 100k units: ~707 radius, at 1M units: ~2236 radius, at 2M units: ~3162 radius
+    let base_size = 800.0;
+    let reference_zoom = 100_000.0;
+    let icon_radius = base_size * (orbit.radius / reference_zoom).sqrt();
     let scale = Vec3::splat(icon_radius);
 
     match *view_mode {
