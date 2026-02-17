@@ -3483,12 +3483,12 @@ fn render_tech_tree_tab(
     });
     
     // ---------- layout constants ----------
-    let tier_spacing = 260.0 * zoom;
-    let node_gap_y = 8.0 * zoom;
-    let category_gap = 12.0 * zoom;
-    let pane_pad = (8.0 * zoom).round();
+    let tier_spacing = 310.0 * zoom;
+    let node_gap_y = 14.0 * zoom;
+    let category_gap = 24.0 * zoom;
+    let pane_pad = (10.0 * zoom).round();
     let pane_rounding = 6.0 * zoom;
-    let label_width = (110.0 * zoom).round();
+    let label_width = (140.0 * zoom).round();
     
     // ---------- status line (fixed height, drawn FIRST so it reserves space at the bottom) ----------
     // We draw it at the end but must reserve its height now.
@@ -3535,7 +3535,7 @@ fn render_tech_tree_tab(
     // Two rows: row 1 = icon + name, row 2 = research cost
     let font_name = egui::FontId::proportional((12.0 * zoom).round());
     let font_cost = egui::FontId::proportional((10.0 * zoom).round());
-    let font_label = egui::FontId::proportional((11.0 * zoom).round());
+    let font_label = egui::FontId::proportional((14.0 * zoom).round());
     let icon_sz = (16.0 * zoom).round();
     let icon_pad = (4.0 * zoom).round();
     let h_pad = (8.0 * zoom).round();
@@ -3668,32 +3668,35 @@ fn render_tech_tree_tab(
         painter.rect_filled(pane_rect, pane_rounding, bg_color);
         painter.rect_stroke(pane_rect, pane_rounding, egui::Stroke::new(1.0 * zoom, border_color));
         
-        // Category label on the left
-        let label_x = origin_x - pane_pad - (4.0 * zoom);
+        // Category label on the left: large icon + name below
+        let label_x = origin_x - pane_pad - (6.0 * zoom);
         let label_y = band.y_start + band.height / 2.0;
         let cat_icon = band.category.icon();
         let cat_name = band.category.display_name();
+        // Icon sized to fill most of the band height
+        let icon_font_size = (band.height * 0.55).round().max(20.0 * zoom);
+        let font_icon_large = egui::FontId::proportional(icon_font_size);
         painter.text(
-            egui::Pos2::new(label_x, label_y - (8.0 * zoom)),
+            egui::Pos2::new(label_x, label_y - (10.0 * zoom)),
             egui::Align2::RIGHT_CENTER,
             cat_icon,
-            font_label.clone(),
+            font_icon_large,
             cat_color,
         );
         painter.text(
-            egui::Pos2::new(label_x, label_y + (8.0 * zoom)),
+            egui::Pos2::new(label_x, label_y + icon_font_size * 0.4),
             egui::Align2::RIGHT_CENTER,
             cat_name,
             font_label.clone(),
             egui::Color32::from_rgba_unmultiplied(
-                cat_color.r(), cat_color.g(), cat_color.b(), 180,
+                cat_color.r(), cat_color.g(), cat_color.b(), 200,
             ),
         );
     }
     
     // ---------- draw tier column headers ----------
-    let header_y = canvas_rect.top() + pan_offset.y - (18.0 * zoom);
-    let font_header = egui::FontId::proportional((11.0 * zoom).round());
+    let header_y = canvas_rect.top() + pan_offset.y - (22.0 * zoom);
+    let font_header = egui::FontId::proportional((15.0 * zoom).round());
     for (i, tier) in tiers.iter().enumerate() {
         let col_x = origin_x + (i as f32) * tier_spacing + node_w / 2.0;
         painter.text(
@@ -3701,7 +3704,7 @@ fn render_tech_tree_tab(
             egui::Align2::CENTER_BOTTOM,
             format!("Tier {}", tier),
             font_header.clone(),
-            egui::Color32::from_rgb(160, 160, 170),
+            egui::Color32::from_rgb(180, 180, 190),
         );
     }
     
