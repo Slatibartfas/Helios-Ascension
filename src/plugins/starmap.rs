@@ -515,11 +515,16 @@ fn update_starmap_coordinates(
 }
 
 /// Show/hide starmap icons based on current `ViewMode`.
+///
+/// When inside a non-Sol system that already has high-resolution visual
+/// entities (spawned by `spawn_system_bodies`), the low-poly starmap icon is
+/// hidden so the proper star mesh is the only one rendered.
 fn update_starmap_visibility(
     view_mode: Res<ViewMode>,
     current_system: Res<CurrentStarSystem>,
     active_menu: Res<ActiveMenu>,
     mut icon_query: Query<(&mut Visibility, &StarSystemIcon)>,
+    bodies_with_visuals: Query<&SystemId, (With<CelestialBody>, With<Handle<Mesh>>)>,
 ) {
     if !view_mode.is_changed() && !current_system.is_changed() && !active_menu.is_changed() {
         return;
@@ -535,10 +540,14 @@ fn update_starmap_visibility(
 
     match *view_mode {
         ViewMode::System => {
+            // Check whether the current system has proper visual entities
+            let system_has_visuals = bodies_with_visuals
+                .iter()
+                .any(|id| id.0 == current_system.0);
+
             for (mut vis, icon) in icon_query.iter_mut() {
-                // For Sol (0), we have a real model, so hide the icon.
-                // For others, show the icon as a placeholder star until we implement real loading.
-                if icon.id == current_system.0 && icon.id != 0 {
+                if icon.id == current_system.0 && icon.id != 0 && !system_has_visuals {
+                    // No real visuals yet — show icon as a placeholder
                     *vis = Visibility::Inherited;
                 } else {
                     *vis = Visibility::Hidden;

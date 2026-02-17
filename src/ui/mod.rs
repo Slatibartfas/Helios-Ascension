@@ -2578,20 +2578,22 @@ fn ui_dashboard(
                         // Position information
                         ui.group(|ui| {
                             ui.label(egui::RichText::new("Position").strong());
-                            // Compute distance relative to parent body (star) instead of Sol.
-                            // For Sol system bodies the parent is at the origin so this
-                            // is equivalent to the old "distance from Sun".
-                            let (distance, label) = if let Some(parent) = logical_parent {
-                                if let Ok(parent_coords) = parent_coords_query.get(parent.0) {
-                                    let d = (coords.position - parent_coords.position).length();
-                                    (d, "Distance from Star")
+                            // Stars don't orbit another body in the same system,
+                            // so showing "Distance from Star" is meaningless.
+                            // For non-star bodies, compute distance relative to
+                            // the parent body (star).
+                            if !matches!(body.body_type, crate::plugins::solar_system_data::BodyType::Star) {
+                                let distance = if let Some(parent) = logical_parent {
+                                    if let Ok(parent_coords) = parent_coords_query.get(parent.0) {
+                                        (coords.position - parent_coords.position).length()
+                                    } else {
+                                        coords.position.length()
+                                    }
                                 } else {
-                                    (coords.position.length(), "Distance from Star")
-                                }
-                            } else {
-                                (coords.position.length(), "Distance from Star")
-                            };
-                            ui.label(format!("{}: {:.3} AU", label, distance));
+                                    coords.position.length()
+                                };
+                                ui.label(format!("Distance from Star: {:.3} AU", distance));
+                            }
                             ui.label(format!("Radius: {:.1} km", body.radius));
                             ui.label(format!("Mass: {:.2e} kg", body.mass));
                             ui.label(format!("Gravity: {:.2} g", body.surface_gravity()));

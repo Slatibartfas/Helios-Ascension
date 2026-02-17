@@ -22,7 +22,7 @@ pub const SCALING_FACTOR: f64 = 1500.0;
 /// Click radius for body selection (in Bevy units)
 /// Bodies within this distance from the ray are considered clickable.
 /// Increased so selection is easier to hit with the mouse.
-const SELECTION_CLICK_RADIUS: f32 = 20.0;
+const SELECTION_CLICK_RADIUS: f32 = 45.0;
 
 /// Padding for the hover ring around celestial bodies (in Bevy units)
 const HOVER_RING_PADDING: f32 = 8.0; // Creates visible gap between marker and body

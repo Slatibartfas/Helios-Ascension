@@ -431,6 +431,13 @@ pub fn spawn_confirmed_planet(
         if has_atmosphere { " (atmosphere)" } else { "" }
     );
 
+    // Cap visual radius to 10% of orbital distance (in Bevy units) so
+    // close-in planets don't visually overlap the star or each other.
+    let base_visual_radius = calculate_visual_radius(BodyType::Planet, radius_km) * vis_scale;
+    let orbit_distance_bevy = (planet_data.semi_major_axis_au as f32) * (SCALING_FACTOR as f32);
+    let max_orbit_fraction = orbit_distance_bevy * 0.10;
+    let visual_radius = base_visual_radius.min(max_orbit_fraction).max(2.0);
+
     let mut entity_commands = commands.spawn((
         Planet,
         RealPlanet, // Mark as confirmed planet
@@ -439,7 +446,7 @@ pub fn spawn_confirmed_planet(
             mass: mass_kg,
             radius: radius_km,
             body_type: BodyType::Planet,
-            visual_radius: calculate_visual_radius(BodyType::Planet, radius_km) * vis_scale,
+            visual_radius,
             asteroid_class: None,
         },
         SurfaceTemperature {
@@ -448,7 +455,7 @@ pub fn spawn_confirmed_planet(
             max_celsius: max_temp,
         },
         orbit,
-        OrbitPath::new(Color::srgba(0.3, 0.8, 0.3, 0.5)), // Green for confirmed planets
+        OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.7)), // Cyan/blue — matches Sol palette
         SpaceCoordinates::default(),                      // Will be updated by propagate_orbits
         OrbitCenter(parent_star), // Link to parent star for orbital hierarchy
         OrbitsBody::new(parent_star),
@@ -513,6 +520,13 @@ pub fn spawn_procedural_planet(
         if has_atmosphere { " (atmosphere)" } else { "" }
     );
 
+    // Cap visual radius to 10% of orbital distance (in Bevy units) so
+    // close-in planets don't visually overlap the star or each other.
+    let base_visual_radius = calculate_visual_radius(planet.body_type(), radius_km) * vis_scale;
+    let orbit_distance_bevy = (planet.semi_major_axis_au as f32) * (SCALING_FACTOR as f32);
+    let max_orbit_fraction = orbit_distance_bevy * 0.10;
+    let visual_radius = base_visual_radius.min(max_orbit_fraction).max(2.0);
+
     let mut entity_commands = commands.spawn((
         Planet,
         CelestialBody {
@@ -520,7 +534,7 @@ pub fn spawn_procedural_planet(
             mass: mass_kg,
             radius: radius_km,
             body_type: planet.body_type(),
-            visual_radius: calculate_visual_radius(planet.body_type(), radius_km) * vis_scale,
+            visual_radius,
             asteroid_class: None,
         },
         SurfaceTemperature {
@@ -529,7 +543,7 @@ pub fn spawn_procedural_planet(
             max_celsius: max_temp,
         },
         orbit,
-        OrbitPath::new(Color::srgba(0.5, 0.7, 1.0, 0.4)),
+        OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.6)), // Cyan/blue — procedural planets
         SpaceCoordinates::default(), // Will be updated by propagate_orbits
         OrbitCenter(parent_star),    // Link to parent star for orbital hierarchy
         OrbitsBody::new(parent_star),
