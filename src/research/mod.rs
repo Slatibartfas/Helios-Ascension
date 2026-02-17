@@ -22,9 +22,9 @@ pub use components::{
 pub use data::{load_technologies, TechnologiesData};
 pub use systems::{
     advance_engineering_projects, advance_research_projects, check_unlocked_technologies,
-    initialize_baseline_technology, update_research_points, ResearchState,
+    initialize_baseline_technology, update_research_points, ResearchState, apply_debug_modifiers,
 };
-pub use types::{TechCategory, Technology, TechnologyId};
+pub use types::{ModifierType, TechCategory, TechModifierDef, Technology, TechnologyId};
 
 /// Debug settings for research system
 #[derive(Resource, Debug, Clone)]
@@ -37,6 +37,14 @@ pub struct ResearchDebugSettings {
     pub instant_research: bool,
     /// Instant engineering (0 cost)
     pub instant_engineering: bool,
+    /// Debug modifiers to apply (type, value)
+    pub debug_modifiers: std::collections::HashMap<types::ModifierType, f64>,
+    /// Whether the "Add Debug Modifier" dialog is open
+    pub modifier_dialog_show: bool,
+    /// Currently selected modifier type index in the dialog
+    pub modifier_dialog_type_index: usize,
+    /// Text input value for the modifier percentage
+    pub modifier_dialog_value_input: String,
 }
 
 impl Default for ResearchDebugSettings {
@@ -46,6 +54,10 @@ impl Default for ResearchDebugSettings {
             show_all_techs: false,
             instant_research: false,
             instant_engineering: false,
+            debug_modifiers: std::collections::HashMap::new(),
+            modifier_dialog_show: false,
+            modifier_dialog_type_index: 0,
+            modifier_dialog_value_input: String::new(),
         }
     }
 }
@@ -100,6 +112,12 @@ pub struct TechEditData {
     pub prerequisites: Vec<String>,
     /// Text field for adding a new prerequisite
     pub new_prereq: String,
+    /// Modifiers granted when this tech is researched
+    pub modifiers: Vec<types::TechModifierDef>,
+    /// Index into ModifierType::all_for_debug() for the "add modifier" row
+    pub new_modifier_type_index: usize,
+    /// Value text field for the "add modifier" row
+    pub new_modifier_value: String,
 }
 
 impl TechEditData {
@@ -118,6 +136,9 @@ impl TechEditData {
             tier: format!("{}", tech.tier),
             prerequisites: tech.prerequisites.clone(),
             new_prereq: String::new(),
+            modifiers: tech.modifiers.clone(),
+            new_modifier_type_index: 0,
+            new_modifier_value: String::new(),
         }
     }
 
@@ -133,6 +154,9 @@ impl TechEditData {
             tier: "1".to_string(),
             prerequisites: Vec::new(),
             new_prereq: String::new(),
+            modifiers: Vec::new(),
+            new_modifier_type_index: 0,
+            new_modifier_value: String::new(),
         }
     }
 }
@@ -182,6 +206,7 @@ impl Plugin for ResearchPlugin {
                     advance_research_projects,
                     advance_engineering_projects,
                     check_unlocked_technologies,
+                    systems::apply_debug_modifiers, // Apply debug modifiers after other systems
                 ).chain(),
             );
     }

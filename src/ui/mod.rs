@@ -40,8 +40,7 @@ use crate::plugins::starmap::{HoveredStarSystem, SelectedStarSystem, StarSystemI
 use crate::research::{
     EngineeringProject, PendingResearchActions, ResearchProject, ResearchState, ResearchTeam, ResearchTeamCapacity,
     TechnologiesData, TechCategory, TechTreeEditState, TechEditData, ContextMenuState,
-    Technology,
-    types::ModifierType,
+    Technology, ModifierType, TechModifierDef,
 };
 
 /// Maximum time scale: 1 year per second (365.25 * 86400 ≈ 31,557,600)
@@ -70,6 +69,19 @@ impl Default for ResearchUiPreferences {
             show_inactive_warning: true,
         }
     }
+}
+
+/// System sets for UI ordering. Avoids Bevy's tuple-complexity limit
+/// by grouping systems into named sets instead of using `.chain()` on
+/// large heterogeneous tuples.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+enum UiSystemSet {
+    /// Resource bar & top menu (rendered first)
+    TopBar,
+    /// Dashboard, research, construction, economy panels
+    MainPanels,
+    /// Tooltips and floating overlays (rendered last)
+    Overlays,
 }
 
 /// Loaded textures for the top menu icons
@@ -636,6 +648,7 @@ impl Plugin for UIPlugin {
             .init_resource::<TimeScale>()
             .init_resource::<SimulationTime>()
             .init_resource::<ResearchUiPreferences>()
+
             .init_resource::<ResolutionWarning>()
             // ActiveMenu is now initialized in GameStatePlugin
             // to allow access in camera/starmap plugins
@@ -646,20 +659,36 @@ impl Plugin for UIPlugin {
             // 1. Top bars (Resources -> Menu)
             // 2. Main content panels (Dashboard / Research)
             // 3. Floating overlays (Tooltips)
+            //
+            // Uses UiSystemSet to avoid Bevy's tuple type-complexity limit.
+            .configure_sets(
+                Update,
+                (
+                    UiSystemSet::TopBar,
+                    UiSystemSet::MainPanels,
+                    UiSystemSet::Overlays,
+                )
+                    .chain(),
+            )
+            .add_systems(
+                Update,
+                (ui_resources_bar, ui_top_menu_bar)
+                    .chain()
+                    .in_set(UiSystemSet::TopBar),
+            )
+            .add_systems(Update, ui_dashboard.in_set(UiSystemSet::MainPanels))
+            .add_systems(Update, ui_research_panels.in_set(UiSystemSet::MainPanels))
+            .add_systems(Update, ui_construction_panels.in_set(UiSystemSet::MainPanels))
+            .add_systems(Update, ui_economy_panels.in_set(UiSystemSet::MainPanels))
             .add_systems(
                 Update,
                 (
-                    ui_resources_bar,
-                    ui_top_menu_bar,
-                    (ui_dashboard, ui_research_panels, ui_construction_panels, ui_economy_panels),
-                    (
-                        ui_hover_tooltip,
-                        ui_starmap_hover_tooltip,
-                        ui_starmap_labels,
-                        ui_resolution_warning,
-                    ),
+                    ui_hover_tooltip,
+                    ui_starmap_hover_tooltip,
+                    ui_starmap_labels,
+                    ui_resolution_warning,
                 )
-                    .chain(),
+                    .in_set(UiSystemSet::Overlays),
             )
             // UI utility systems
             .add_systems(
@@ -3463,6 +3492,60 @@ fn ui_research_panels(
         None => return,
     };
 
+    // Add Modifier Dialog (separate window)
+    if debug_settings.modifier_dialog_show {
+        let mut dialog_type_index = debug_settings.modifier_dialog_type_index;
+        let mut dialog_value = debug_settings.modifier_dialog_value_input.clone();
+        let mut new_modifier: Option<(ModifierType, f64)> = None;
+        let mut close_dialog = false;
+
+        egui::Window::new("Add Debug Modifier")
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.label("Select modifier type:");
+                
+                let available_modifiers = ModifierType::all_for_debug();
+                let modifier_names: Vec<String> = available_modifiers.iter().map(|m| m.display_name()).collect();
+                
+                egui::ComboBox::from_label("Modifier Type")
+                    .selected_text(&modifier_names[dialog_type_index])
+                    .show_ui(ui, |ui| {
+                        for (i, name) in modifier_names.iter().enumerate() {
+                            ui.selectable_value(&mut dialog_type_index, i, name);
+                        }
+                    });
+                
+                ui.add_space(5.0);
+                ui.label("Value (percentage, e.g. 50 for +50%, -25 for -25%):");
+                ui.text_edit_singleline(&mut dialog_value);
+                
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Add").clicked() {
+                        if let Ok(value) = dialog_value.parse::<f64>() {
+                            let modifier_type = available_modifiers[dialog_type_index].clone();
+                            new_modifier = Some((modifier_type, value));
+                            close_dialog = true;
+                        }
+                    }
+                    if ui.button("Cancel").clicked() {
+                        close_dialog = true;
+                    }
+                });
+            });
+
+        debug_settings.modifier_dialog_type_index = dialog_type_index;
+        debug_settings.modifier_dialog_value_input = dialog_value;
+        if close_dialog {
+            debug_settings.modifier_dialog_show = false;
+            debug_settings.modifier_dialog_value_input.clear();
+        }
+        if let Some((mt, val)) = new_modifier {
+            debug_settings.debug_modifiers.insert(mt, val);
+        }
+    }
+
     // Main panel - Tabbed interface (no left sidebar)
     egui::CentralPanel::default().show(ctx, |ui| {
         // Disable text selection cursor everywhere in the research menu
@@ -3481,6 +3564,31 @@ fn ui_research_panels(
                     ui.checkbox(&mut debug_settings.instant_research, "Instant Research");
                     ui.checkbox(&mut debug_settings.instant_engineering, "Instant Engineering");
                 });
+                
+                // Debug modifiers section
+                ui.add_space(5.0);
+                ui.label(egui::RichText::new("Debug Modifiers:").strong());
+                
+                // Display active debug modifiers
+                let mut to_remove: Option<ModifierType> = None;
+                for (modifier_type, value) in debug_settings.debug_modifiers.iter() {
+                    ui.horizontal(|ui| {
+                        ui.label(modifier_type.display_name());
+                        ui.label(format!("{:+.1}%", value));
+                        if ui.button("❌").on_hover_text("Remove modifier").clicked() {
+                            to_remove = Some(modifier_type.clone());
+                        }
+                    });
+                }
+                if let Some(modifier) = to_remove {
+                    debug_settings.debug_modifiers.remove(&modifier);
+                }
+                
+                // Add new modifier button
+                if ui.button("➕ Add Debug Modifier").clicked() {
+                    debug_settings.modifier_dialog_show = true;
+                }
+                
                 ui.label(egui::RichText::new("⚠ Debug features are for development only and will be removed in release builds")
                     .small()
                     .italics()
@@ -3525,7 +3633,7 @@ fn ui_research_panels(
         // Tab content
         match *selected_tab {
             0 => render_overview_tab(ui, &research_state, &tech_data, icon_textures, &research_projects, &engineering_projects, &all_teams, &team_capacity, &mut *ui_prefs),
-            1 => render_tech_tree_tab(ui, &research_state, &mut tech_data, icon_textures, debug_settings.enabled, &mut edit_state, &active_research, &mut pending_research),
+            1 => render_tech_tree_tab(ui, &research_state, &mut tech_data, icon_textures, debug_settings.enabled, &mut edit_state, &active_research, &mut pending_research, &mut debug_settings),
             2 => render_available_research_tab(ui, &research_state, &tech_data, icon_textures, &active_research, &mut pending_research, &team_capacity),
             3 => render_available_engineering_tab(ui, &research_state, &tech_data, icon_textures),
             4 => render_bonuses_tab(ui, &research_state, &tech_data, icon_textures),
@@ -3534,8 +3642,6 @@ fn ui_research_panels(
         }
     });
 }
-
-/// Render the Overview tab - shows active projects and team assignments
 fn render_overview_tab(
     ui: &mut egui::Ui,
     research_state: &ResearchState,
@@ -3714,6 +3820,7 @@ fn render_tech_tree_tab(
     edit_state: &mut TechTreeEditState,
     active_research: &HashMap<String, ActiveProjectInfo>,
     pending_research: &mut crate::research::PendingResearchActions,
+    debug_settings: &mut crate::research::ResearchDebugSettings,
 ) {
     ui.heading("Technology Tree - Graph View");
     ui.label("Pan: Middle mouse drag | Zoom: Mouse wheel | Click: Select tech & highlight path");
@@ -4458,6 +4565,62 @@ fn render_tech_tree_tab(
                             pending_research.navigate_to_available_tab = true;
                         }
                     }
+                    if debug_enabled {
+                        ui.add_space(5.0);
+                        ui.separator();
+                        ui.label(egui::RichText::new("🐛 Debug").small().color(egui::Color32::RED));
+                        if tech.modifiers.is_empty() {
+                            ui.label(
+                                egui::RichText::new("This tech grants no modifiers.")
+                                    .small()
+                                    .italics()
+                                    .color(egui::Color32::GRAY),
+                            );
+                        } else {
+                            ui.label(
+                                egui::RichText::new("Modifiers this tech grants:")
+                                    .small()
+                                    .color(egui::Color32::from_rgb(200, 200, 200)),
+                            );
+                            for m in &tech.modifiers {
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "  • {}: {:+.1}%",
+                                        m.modifier_type.display_name(),
+                                        m.value
+                                    ))
+                                    .small()
+                                    .color(if m.value >= 0.0 {
+                                        egui::Color32::from_rgb(100, 220, 100)
+                                    } else {
+                                        egui::Color32::from_rgb(220, 100, 100)
+                                    }),
+                                );
+                            }
+                            if ui
+                                .button("⚡ Grant Tech Bonuses")
+                                .on_hover_text(
+                                    "Instantly apply all modifiers from this technology as debug overrides",
+                                )
+                                .clicked()
+                            {
+                                for m in &tech.modifiers {
+                                    *debug_settings
+                                        .debug_modifiers
+                                        .entry(m.modifier_type.clone())
+                                        .or_insert(0.0) += m.value;
+                                }
+                            }
+                        }
+                        ui.add_space(3.0);
+                        if ui
+                            .button("➕ Custom Modifier…")
+                            .on_hover_text("Open the Add Debug Modifier dialog")
+                            .clicked()
+                        {
+                            debug_settings.modifier_dialog_show = true;
+                        }
+                    }
                 });
         }
     }
@@ -4672,6 +4835,74 @@ fn render_tech_edit_dialog(
 
                         ui.add_space(10.0);
 
+                        // Modifiers section
+                        ui.label(egui::RichText::new("Modifiers (granted when researched):").strong());
+                        ui.group(|ui| {
+                            let mut remove_idx: Option<usize> = None;
+                            if edit_data.modifiers.is_empty() {
+                                ui.label(
+                                    egui::RichText::new("No modifiers")
+                                        .italics()
+                                        .color(egui::Color32::GRAY),
+                                );
+                            }
+                            for (i, m) in edit_data.modifiers.iter().enumerate() {
+                                ui.horizontal(|ui| {
+                                    ui.colored_label(
+                                        if m.value >= 0.0 {
+                                            egui::Color32::from_rgb(100, 220, 100)
+                                        } else {
+                                            egui::Color32::from_rgb(220, 100, 100)
+                                        },
+                                        format!("{}: {:+.1}%", m.modifier_type.display_name(), m.value),
+                                    );
+                                    if ui.small_button("✖").clicked() {
+                                        remove_idx = Some(i);
+                                    }
+                                });
+                            }
+                            if let Some(idx) = remove_idx {
+                                edit_data.modifiers.remove(idx);
+                            }
+
+                            // Add modifier row
+                            ui.horizontal(|ui| {
+                                let all_mods = ModifierType::all_for_debug();
+                                let selected_name = all_mods
+                                    .get(edit_data.new_modifier_type_index)
+                                    .map(|m| m.display_name())
+                                    .unwrap_or_default();
+                                egui::ComboBox::from_id_source("add_modifier_combo")
+                                    .selected_text(selected_name)
+                                    .show_ui(ui, |ui| {
+                                        for (i, m) in all_mods.iter().enumerate() {
+                                            ui.selectable_value(
+                                                &mut edit_data.new_modifier_type_index,
+                                                i,
+                                                m.display_name(),
+                                            );
+                                        }
+                                    });
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut edit_data.new_modifier_value)
+                                        .hint_text("value %")
+                                        .desired_width(70.0),
+                                );
+                                if ui.button("➕ Add").clicked() {
+                                    if let Ok(val) = edit_data.new_modifier_value.trim().parse::<f64>() {
+                                        let mtype = all_mods[edit_data.new_modifier_type_index].clone();
+                                        edit_data.modifiers.push(TechModifierDef {
+                                            modifier_type: mtype,
+                                            value: val,
+                                        });
+                                        edit_data.new_modifier_value.clear();
+                                    }
+                                }
+                            });
+                        });
+
+                        ui.add_space(10.0);
+
                         // Validation
                         let mut errors: Vec<String> = Vec::new();
                         if edit_data.id.is_empty() {
@@ -4742,6 +4973,7 @@ fn render_tech_edit_dialog(
                     tech.research_cost = research_cost;
                     tech.tier = tier;
                     tech.prerequisites = edit_data.prerequisites;
+                    tech.modifiers = edit_data.modifiers;
                 }
             } else {
                 // Adding new tech
@@ -4754,7 +4986,7 @@ fn render_tech_edit_dialog(
                     prerequisites: edit_data.prerequisites,
                     unlocks_components: Vec::new(),
                     unlocks_engineering: Vec::new(),
-                    modifiers: Vec::new(),
+                    modifiers: edit_data.modifiers,
                     tier,
                 };
                 tech_data.technologies.insert(edit_data.id, new_tech);
@@ -5260,6 +5492,39 @@ fn render_bonuses_tab(
     ui.label("Active modifiers from researched technologies");
     ui.separator();
 
+    // Build a lookup: for each modifier type, which techs contribute and how much.
+    // Done outside the scroll area so the detail Area can reference it unconditionally.
+    let mut modifier_sources: HashMap<&ModifierType, Vec<(&crate::research::types::Technology, f64)>> = HashMap::new();
+    for (_tech_id, tech) in &tech_data.technologies {
+        if research_state.is_unlocked(&tech.id) {
+            for modifier_def in &tech.modifiers {
+                modifier_sources
+                    .entry(&modifier_def.modifier_type)
+                    .or_default()
+                    .push((tech, modifier_def.value));
+            }
+        }
+    }
+
+    // Persistent state keys
+    let pinned_id   = ui.id().with("bonuses_pinned");   // (name, row_rect): pinned on click
+    let hover_id    = ui.id().with("bonuses_hover");    // (name, hold_until, row_rect): hover with hold time
+
+    let now = ui.input(|i| i.time);
+    let pinned_data:   Option<(String, egui::Rect)> = ui.data(|d| d.get_temp(pinned_id));
+    let hover_data:    Option<(String, f64, egui::Rect)> = ui.data(|d| d.get_temp(hover_id));
+
+    // Sort and partition modifiers
+    let mut sorted_modifiers: Vec<_> = research_state.active_modifiers.iter().collect();
+    sorted_modifiers.sort_by(|(a, _), (b, _)| {
+        let a_is_unlock = matches!(a, ModifierType::UnlockMechanic(_));
+        let b_is_unlock = matches!(b, ModifierType::UnlockMechanic(_));
+        b_is_unlock.cmp(&a_is_unlock).then_with(|| a.display_name().cmp(&b.display_name()))
+    });
+    let (unlocks, bonuses): (Vec<_>, Vec<_>) = sorted_modifiers
+        .into_iter()
+        .partition(|(m, _)| matches!(m, ModifierType::UnlockMechanic(_)));
+
     egui::ScrollArea::vertical().show(ui, |ui| {
         if research_state.active_modifiers.is_empty() {
             ui.label(egui::RichText::new("No bonuses active yet")
@@ -5269,36 +5534,9 @@ fn render_bonuses_tab(
             return;
         }
 
-        // Build a lookup: for each modifier type, which techs contribute and how much
-        let mut modifier_sources: HashMap<&ModifierType, Vec<(&crate::research::types::Technology, f64)>> = HashMap::new();
-        for (_tech_id, tech) in &tech_data.technologies {
-            if research_state.is_unlocked(&tech.id) {
-                for modifier_def in &tech.modifiers {
-                    modifier_sources
-                        .entry(&modifier_def.modifier_type)
-                        .or_default()
-                        .push((tech, modifier_def.value));
-                }
-            }
-        }
-
-        // Sort modifiers: unlocks first, then by display name
-        let mut sorted_modifiers: Vec<_> = research_state.active_modifiers.iter().collect();
-        sorted_modifiers.sort_by(|(a, _), (b, _)| {
-            let a_is_unlock = matches!(a, ModifierType::UnlockMechanic(_));
-            let b_is_unlock = matches!(b, ModifierType::UnlockMechanic(_));
-            b_is_unlock.cmp(&a_is_unlock).then_with(|| a.display_name().cmp(&b.display_name()))
-        });
-
-        // Separate into numeric bonuses and unlocks
-        let (unlocks, bonuses): (Vec<_>, Vec<_>) = sorted_modifiers
-            .into_iter()
-            .partition(|(m, _)| matches!(m, ModifierType::UnlockMechanic(_)));
-
-        // Track hovered modifier for stable tooltip
-        let hover_id = ui.id().with("bonuses_hover");
-        let now = ui.input(|i| i.time);
-        let mut hovered_modifier: Option<String> = None;
+        // Helper: render a single bonus row, returning the row response.
+        // No detail box is rendered here — the caller handles that after all rows.
+        let pinned_name = pinned_data.as_ref().map(|(n, _)| n.as_str());
 
         if !bonuses.is_empty() {
             ui.label(egui::RichText::new("Numeric Bonuses").strong().size(16.0));
@@ -5306,7 +5544,6 @@ fn render_bonuses_tab(
 
             for (modifier_type, total_value) in &bonuses {
                 let is_positive = **total_value >= 0.0;
-                // For cost-type modifiers, negative is good
                 let is_beneficial = match modifier_type {
                     ModifierType::ConstructionCost | ModifierType::ShipMaintenance => !is_positive,
                     _ => is_positive,
@@ -5317,25 +5554,58 @@ fn render_bonuses_tab(
                     egui::Color32::from_rgb(255, 100, 100)
                 };
 
-                let row = ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(if is_beneficial { "▲" } else { "▼" })
-                        .color(value_color));
-                    ui.label(egui::RichText::new(modifier_type.display_name()).strong());
-                    ui.label(egui::RichText::new(format!("{:+.0}%", total_value))
-                        .color(value_color)
-                        .strong());
+                let modifier_name = modifier_type.display_name();
+                let is_pinned = pinned_name.map_or(false, |p| p == modifier_name);
 
-                    // Show source count
-                    let source_count = modifier_sources.get(modifier_type).map_or(0, |v| v.len());
-                    if source_count > 0 {
-                        ui.label(egui::RichText::new(format!("({} source{})", source_count, if source_count > 1 { "s" } else { "" }))
-                            .size(11.0)
-                            .color(egui::Color32::GRAY));
-                    }
-                });
-                if row.response.hovered() {
-                    hovered_modifier = Some(modifier_type.display_name());
+                let row_rect = {
+                    let row = ui.horizontal(|ui| {
+                        // Highlight pinned row
+                        if is_pinned {
+                            let row_rect = ui.max_rect();
+                            ui.painter().rect_filled(
+                                row_rect,
+                                2.0,
+                                egui::Color32::from_rgba_unmultiplied(40, 40, 40, 120),
+                            );
+                        }
+                        ui.label(egui::RichText::new(if is_beneficial { "▲" } else { "▼" })
+                            .color(value_color));
+                        ui.label(egui::RichText::new(&modifier_name).strong());
+                        ui.label(egui::RichText::new(format!("{:+.0}%", total_value))
+                            .color(value_color)
+                            .strong());
+                        let source_count = modifier_sources.get(modifier_type).map_or(0, |v| v.len());
+                        if source_count > 0 {
+                            ui.label(egui::RichText::new(format!(
+                                "({} source{})", source_count, if source_count > 1 { "s" } else { "" }
+                            )).size(11.0).color(egui::Color32::GRAY));
+                        }
+                        if is_pinned {
+                            ui.label(egui::RichText::new("📌").size(10.0));
+                        }
+                    });
+                    row.response.rect
+                };
+
+                // Use explicit interact so both hover and click work for any row
+                let interact = ui.interact(
+                    row_rect,
+                    ui.id().with("bonus_row").with(&modifier_name),
+                    egui::Sense::click(),
+                );
+                if interact.hovered() {
+                    interact.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
+                    ui.data_mut(|d| d.insert_temp(hover_id, (modifier_name.clone(), now + 0.25, row_rect)));
                 }
+                if interact.clicked() {
+                    if is_pinned {
+                        ui.data_mut(|d| d.remove::<(String, egui::Rect)>(pinned_id));
+                    } else {
+                        ui.data_mut(|d| d.insert_temp(pinned_id, (modifier_name.clone(), row_rect)));
+                    }
+                }
+
+                ui.add_space(2.0);
             }
             ui.add_space(10.0);
         }
@@ -5345,63 +5615,133 @@ fn render_bonuses_tab(
             ui.add_space(4.0);
 
             for (modifier_type, _value) in &unlocks {
-                let row = ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("✔").color(egui::Color32::from_rgb(100, 255, 200)));
-                    ui.label(egui::RichText::new(modifier_type.display_name())
-                        .strong()
-                        .color(egui::Color32::from_rgb(120, 220, 255)));
-                });
-                if row.response.hovered() {
-                    hovered_modifier = Some(modifier_type.display_name());
-                }
-            }
-        }
+                let modifier_name = modifier_type.display_name();
+                let is_pinned = pinned_name.map_or(false, |p| p == modifier_name);
 
-        // Stable tooltip with hold time
-        if let Some(new_hover) = hovered_modifier {
-            ui.data_mut(|data| {
-                data.insert_temp(hover_id, (new_hover.clone(), now + 0.5));
-            });
-        }
-
-        // Show tooltip for stable hovered modifier
-        if let Some((held_modifier_name, hold_until)) = ui.data_mut(|data| data.get_temp::<(String, f64)>(hover_id)) {
-            if now <= hold_until {
-                // Find the modifier by name
-                let all_modifiers: Vec<_> = bonuses.iter().chain(unlocks.iter()).collect();
-                if let Some((modifier_type, total_value)) = all_modifiers.iter()
-                    .find(|(m, _)| m.display_name() == held_modifier_name) 
-                {
-                    egui::show_tooltip_at_pointer(
-                        ui.ctx(), 
-                        egui::LayerId::new(egui::Order::Tooltip, ui.id().with("bonus_tooltip")),
-                        ui.id().with("bonus_tooltip"), 
-                        |ui| {
-                            render_bonus_tooltip(ui, modifier_type, **total_value, &modifier_sources, icon_textures);
+                let row_rect = {
+                    let row = ui.horizontal(|ui| {
+                        if is_pinned {
+                            let row_rect = ui.max_rect();
+                            ui.painter().rect_filled(
+                                row_rect,
+                                2.0,
+                                egui::Color32::from_rgba_unmultiplied(40, 40, 40, 120),
+                            );
                         }
-                    );
+                        ui.label(egui::RichText::new("✔").color(egui::Color32::from_rgb(100, 255, 200)));
+                        ui.label(egui::RichText::new(&modifier_name)
+                            .strong()
+                            .color(egui::Color32::from_rgb(120, 220, 255)));
+                        if is_pinned {
+                            ui.label(egui::RichText::new("📌").size(10.0));
+                        }
+                    });
+                    row.response.rect
+                };
+
+                let interact = ui.interact(
+                    row_rect,
+                    ui.id().with("unlock_row").with(&modifier_name),
+                    egui::Sense::click(),
+                );
+                if interact.hovered() {
+                    interact.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
+                    ui.data_mut(|d| d.insert_temp(hover_id, (modifier_name.clone(), now + 0.25, row_rect)));
                 }
-            } else {
-                ui.data_mut(|data| {
-                    data.remove::<(String, f64)>(hover_id);
-                });
+                if interact.clicked() {
+                    if is_pinned {
+                        ui.data_mut(|d| d.remove::<(String, egui::Rect)>(pinned_id));
+                    } else {
+                        ui.data_mut(|d| d.insert_temp(pinned_id, (modifier_name.clone(), row_rect)));
+                    }
+                }
+
+                ui.add_space(2.0);
             }
         }
+
+        ui.add_space(4.0);
+        ui.label(egui::RichText::new("Click a row to pin its detail box. Click again to unpin.")
+            .size(10.0)
+            .italics()
+            .color(egui::Color32::DARK_GRAY));
     });
+
+    // Determine which detail box to show and at what position.
+    // Pinned takes priority over hovered. Both are rendered as a floating Area outside the
+    // scroll area so they never cause layout reflow (which was the cause of flickering).
+    let detail_show: Option<(String, egui::Rect, bool)> = {
+        if let Some((name, rect)) = &pinned_data {
+            Some((name.clone(), *rect, true))
+        } else if let Some((name, hold_until, rect)) = &hover_data {
+            if now <= *hold_until {
+                Some((name.clone(), *rect, false))
+            } else {
+                ui.data_mut(|d| d.remove::<(String, f64, egui::Rect)>(hover_id));
+                None
+            }
+        } else {
+            None
+        }
+    };
+
+    if let Some((detail_name, row_rect, is_pinned)) = detail_show {
+        let mut all_modifiers = bonuses.iter().chain(unlocks.iter());
+        if let Some((modifier_type, total_value)) = all_modifiers.find(|(m, _)| m.display_name() == detail_name) {
+            let is_positive = **total_value >= 0.0;
+            let is_beneficial = match modifier_type {
+                ModifierType::ConstructionCost | ModifierType::ShipMaintenance => !is_positive,
+                _ => is_positive,
+            };
+            let value_color = if is_beneficial {
+                egui::Color32::from_rgb(100, 255, 100)
+            } else {
+                egui::Color32::from_rgb(255, 100, 100)
+            };
+            let border_color = if is_pinned {
+                value_color
+            } else {
+                egui::Color32::from_rgb(100, 100, 100)
+            };
+            let border_width = if is_pinned { 2.0 } else { 1.0 };
+
+            let pos = egui::pos2(row_rect.right() + 24.0, row_rect.top());
+
+            let area_resp = egui::Area::new(ui.id().with("bonus_detail_float"))
+                .fixed_pos(pos)
+                .order(egui::Order::Tooltip)
+                .interactable(true)
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::none()
+                        .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 35, 245))
+                        .stroke(egui::Stroke::new(border_width, border_color))
+                        .inner_margin(10.0)
+                        .rounding(4.0)
+                        .show(ui, |ui| {
+                            ui.set_max_width(280.0);
+                            render_bonus_detail_content(
+                                ui, modifier_type, **total_value, &modifier_sources, icon_textures,
+                            );
+                        });
+                });
+
+            // If the pointer is over the floating Area, refresh the hover hold time
+            // so the box stays open while the user reads it.
+            if area_resp.response.hovered() || area_resp.response.contains_pointer() {
+                ui.data_mut(|d| d.insert_temp(hover_id, (detail_name.clone(), now + 0.25, row_rect)));
+            }
+        }
+    }
 }
 
-/// Render tooltip for a bonus showing all contributing technologies
-fn render_bonus_tooltip(
+/// Render detail content for a bonus showing all contributing technologies
+fn render_bonus_detail_content(
     ui: &mut egui::Ui,
     modifier_type: &ModifierType,
     total_value: f64,
     modifier_sources: &HashMap<&ModifierType, Vec<(&crate::research::types::Technology, f64)>>,
     icon_textures: &HashMap<TechCategory, egui::TextureId>,
 ) {
-    ui.set_max_width(340.0);
-    ui.label(egui::RichText::new(modifier_type.display_name()).strong().size(14.0));
-    ui.separator();
-
     let is_unlock = matches!(modifier_type, ModifierType::UnlockMechanic(_));
 
     if !is_unlock {
@@ -5411,22 +5751,26 @@ fn render_bonus_tooltip(
             } else {
                 egui::Color32::from_rgb(255, 100, 100)
             })
-            .strong());
-        ui.add_space(4.0);
+            .strong()
+            .size(13.0));
+        ui.add_space(3.0);
     }
 
-    ui.label(egui::RichText::new("Contributing Technologies:").strong());
+    ui.label(egui::RichText::new("Contributing Technologies:").strong().size(12.0));
+    ui.add_space(2.0);
+    
     if let Some(sources) = modifier_sources.get(modifier_type) {
         for (tech, value) in sources {
             let cat_color = tech_category_color(tech.category);
             ui.horizontal(|ui| {
                 if let Some(tex) = icon_textures.get(&tech.category) {
-                    ui.add(egui::Image::new(egui::load::SizedTexture::new(*tex, [14.0, 14.0]))
+                    ui.add(egui::Image::new(egui::load::SizedTexture::new(*tex, [12.0, 12.0]))
                         .tint(cat_color));
                 }
-                ui.label(egui::RichText::new(&tech.name).color(cat_color));
+                ui.label(egui::RichText::new(&tech.name).color(cat_color).size(11.0));
                 if !is_unlock {
                     ui.label(egui::RichText::new(format!("{:+.0}%", value))
+                        .size(11.0)
                         .color(if *value >= 0.0 {
                             egui::Color32::from_rgb(100, 255, 100)
                         } else {
@@ -5436,8 +5780,9 @@ fn render_bonus_tooltip(
             });
         }
     } else {
-        ui.label(egui::RichText::new("No tech sources found (may be from other factors)")
+        ui.label(egui::RichText::new("No tech sources found")
             .italics()
+            .size(10.0)
             .color(egui::Color32::GRAY));
     }
 }
