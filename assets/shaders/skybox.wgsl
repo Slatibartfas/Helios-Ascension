@@ -7,8 +7,8 @@
 // --- Cinematic Constants ---
 const STAR_DENSITY: f32 = 120.0;     // Higher = smaller, more numerous stars
 const STAR_BRIGHTNESS: f32 = 5.0;    // Over 1.0 triggers HDR Bloom
-const NEBULA_STRENGTH: f32 = 0.15;
-const MILKY_WAY_STRENGTH: f32 = 0.4;
+const NEBULA_STRENGTH: f32 = 0.06;   // Reduced to minimize smearing
+const MILKY_WAY_STRENGTH: f32 = 0.12; // Reduced to minimize brownish haze
 
 // --- Core Math ---
 fn hash33(p: vec3<f32>) -> vec3<f32> {

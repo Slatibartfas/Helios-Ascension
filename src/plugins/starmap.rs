@@ -532,8 +532,11 @@ fn update_starmap_icon_scale(
         return;
     };
 
-    // Calculate desired radius
-    let icon_radius = (orbit.radius * 0.012).max(50.0);
+    // Calculate desired radius using logarithmic scale to prevent excessive growth
+    // This ensures icons remain visible but don't overlap excessively at extreme zoom
+    let base_radius = 50.0;
+    let log_scale = (1.0 + orbit.radius / 10000.0).ln();
+    let icon_radius = (base_radius * log_scale).clamp(50.0, 5000.0);
     let scale = Vec3::splat(icon_radius);
 
     match *view_mode {
