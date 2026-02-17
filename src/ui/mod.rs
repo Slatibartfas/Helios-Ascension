@@ -1778,20 +1778,36 @@ fn ui_starmap_labels(
         return;
     };
 
-    let ctx = contexts.ctx_mut();
+    // Use try_ctx_mut to safely handle context access
+    let Some(ctx) = contexts.try_ctx_mut() else {
+        return;
+    };
+
+    // Get the available screen rect minus any side panels so labels don't bleed through UI
+    let available_rect = ctx.available_rect();
 
     for (icon_transform, icon, is_selected) in icon_query.iter() {
         let icon_pos = icon_transform.translation();
 
         // Project 3D position to screen space
         if let Some(screen_pos) = camera.world_to_viewport(camera_transform, icon_pos) {
-            // Offset label to the right of the icon
-            let label_pos = egui::pos2(screen_pos.x + 30.0, screen_pos.y - 10.0);
+            // Skip labels that would overlap with UI panels
+            let label_x = screen_pos.x + 20.0;
+            let label_y = screen_pos.y - 10.0;
+            if label_x < available_rect.min.x
+                || label_x > available_rect.max.x
+                || label_y < available_rect.min.y
+                || label_y > available_rect.max.y
+            {
+                continue;
+            }
+
+            let label_pos = egui::pos2(label_x, label_y);
 
             egui::Area::new(egui::Id::new(format!("starmap_label_{}", icon.name)))
                 .fixed_pos(label_pos)
                 .interactable(false)
-                .order(egui::Order::Background)
+                .order(egui::Order::Tooltip)
                 .show(ctx, |ui| {
                     let color = if is_selected.is_some() {
                         egui::Color32::from_rgb(100, 200, 255) // Bright blue for selected
@@ -2358,11 +2374,20 @@ fn ui_dashboard(
                                 let response =
                                     render_selectable_label(ui, is_selected.is_some(), &icon.name);
 
-                                if response.double_clicked() {
+                                if response.clicked() {
+                                    // Single click: select the star system and anchor camera
+                                    // Clear previous selections first
+                                    for (e, _, sel) in star_system_query.iter() {
+                                        if sel.is_some() {
+                                            commands.entity(e).remove::<SelectedStarSystem>();
+                                        }
+                                    }
+                                    commands.entity(entity).insert(SelectedStarSystem);
+
                                     // Anchor camera to this system
                                     if let Ok(mut anchor) = anchor_query.get_single_mut() {
                                         anchor.0 = Some(entity);
-                                        info!("Anchored to {}", icon.name);
+                                        info!("Selected and anchored to {}", icon.name);
                                     }
                                 }
                             }
@@ -3668,30 +3693,72 @@ fn render_tech_tree_tab(
         painter.rect_filled(pane_rect, pane_rounding, bg_color);
         painter.rect_stroke(pane_rect, pane_rounding, egui::Stroke::new(1.0 * zoom, border_color));
         
-        // Category label on the left: large icon + name below
-        let label_x = origin_x - pane_pad - (6.0 * zoom);
-        let label_y = band.y_start + band.height / 2.0;
+        // Category label on the left: fixed-size icon + vertical caps name in two columns
         let cat_icon = band.category.icon();
-        let cat_name = band.category.display_name();
-        // Icon sized to fill most of the band height
-        let icon_font_size = (band.height * 0.55).round().max(20.0 * zoom);
+        let cat_name = band.category.display_name().to_uppercase();
+        
+        // Fixed icon size for consistency across all categories
+        let icon_font_size = (24.0 * zoom).round();
         let font_icon_large = egui::FontId::proportional(icon_font_size);
+        
+        // Text layout: split into two columns if name is long
+        let char_spacing = font_label.size * 0.85;
+        let col_spacing = font_label.size * 1.4; // horizontal spacing between columns
+        let gap_between = (6.0 * zoom).round(); // gap between icon and text
+        
+        let chars: Vec<char> = cat_name.chars().collect();
+        let chars_per_col = ((chars.len() + 1) / 2).max(1); // split roughly in half, round up
+        
+        // Calculate dimensions
+        let text_height = chars_per_col as f32 * char_spacing;
+        let text_width = if chars.len() > chars_per_col {
+            col_spacing // two columns
+        } else {
+            0.0 // one column
+        };
+        
+        // Total height and width of content block
+        let total_content_height = icon_font_size + gap_between + text_height;
+        
+        // Center the entire content block within the band (vertically and horizontally in label area)
+        let label_center_y = band.y_start + band.height / 2.0;
+        let content_start_y = label_center_y - total_content_height / 2.0;
+        let label_center_x = origin_x - pane_pad - label_width / 2.0;
+        
+        // Draw icon centered at top
         painter.text(
-            egui::Pos2::new(label_x, label_y - (10.0 * zoom)),
-            egui::Align2::RIGHT_CENTER,
+            egui::Pos2::new(label_center_x, content_start_y + icon_font_size / 2.0),
+            egui::Align2::CENTER_CENTER,
             cat_icon,
             font_icon_large,
             cat_color,
         );
-        painter.text(
-            egui::Pos2::new(label_x, label_y + icon_font_size * 0.4),
-            egui::Align2::RIGHT_CENTER,
-            cat_name,
-            font_label.clone(),
-            egui::Color32::from_rgba_unmultiplied(
-                cat_color.r(), cat_color.g(), cat_color.b(), 200,
-            ),
-        );
+        
+        // Draw vertical text below icon in two columns
+        let text_start_y = content_start_y + icon_font_size + gap_between;
+        
+        for (i, ch) in chars.iter().enumerate() {
+            let col = i / chars_per_col;
+            let row = i % chars_per_col;
+            let x_offset = if col == 0 {
+                -text_width / 2.0
+            } else {
+                text_width / 2.0
+            };
+            
+            painter.text(
+                egui::Pos2::new(
+                    label_center_x + x_offset, 
+                    text_start_y + row as f32 * char_spacing
+                ),
+                egui::Align2::CENTER_CENTER,
+                ch.to_string(),
+                font_label.clone(),
+                egui::Color32::from_rgba_unmultiplied(
+                    cat_color.r(), cat_color.g(), cat_color.b(), 220,
+                ),
+            );
+        }
     }
     
     // ---------- draw tier column headers ----------

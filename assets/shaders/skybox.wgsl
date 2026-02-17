@@ -88,7 +88,7 @@ fn get_milky_way(dir: vec3<f32>) -> vec3<f32> {
     let n = 1.0 - abs(fbm(tilted_dir * 3.0 + 0.5));
     let dust = smoothstep(0.2, 0.7, n);
     
-    let core_col = vec3<f32>(0.5, 0.3, 0.2); // Golden core
+    let core_col = vec3<f32>(0.4, 0.5, 0.6); // Bluish-white core (no brown)
     return core_col * band * dust * MILKY_WAY_STRENGTH;
 }
 

@@ -532,11 +532,10 @@ fn update_starmap_icon_scale(
         return;
     };
 
-    // Calculate desired radius using logarithmic scale to prevent excessive growth
-    // This ensures icons remain visible but don't overlap excessively at extreme zoom
-    let base_radius = 50.0;
-    let log_scale = (1.0 + orbit.radius / 10000.0).ln();
-    let icon_radius = (base_radius * log_scale).clamp(50.0, 5000.0);
+    // Scale icons with linear growth plus substantial base size to ensure visibility
+    // at all zoom levels. Base size prevents icons from becoming too small.
+    let base_size = 500.0;
+    let icon_radius = base_size + (orbit.radius * 0.012);
     let scale = Vec3::splat(icon_radius);
 
     match *view_mode {
@@ -689,7 +688,9 @@ fn handle_starmap_selection(
     }
 
     // Don't process if egui is using the mouse
-    let ctx = egui_contexts.ctx_mut();
+    let Some(ctx) = egui_contexts.try_ctx_mut() else {
+        return;
+    };
     if ctx.is_pointer_over_area() || ctx.wants_pointer_input() || ctx.is_using_pointer() {
         return;
     }
