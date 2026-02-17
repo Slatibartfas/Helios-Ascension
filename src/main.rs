@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy::window::WindowResolution;
+use bevy::window::{WindowResolution, WindowResizeConstraints};
 use bevy_egui::EguiPlugin;
 
 pub mod astronomy;
@@ -23,6 +23,10 @@ use plugins::{
 use render::backdrop::BackdropPlugin;
 use ui::UIPlugin;
 
+/// Minimum supported window dimensions to prevent UI overlap
+const MIN_WINDOW_WIDTH: f32 = 1280.0;
+const MIN_WINDOW_HEIGHT: f32 = 720.0;
+
 fn main() {
     App::new()
         // Bevy default plugins with custom window configuration
@@ -30,6 +34,11 @@ fn main() {
             primary_window: Some(Window {
                 title: "Helios Ascension".to_string(),
                 resolution: WindowResolution::new(1920.0, 1080.0),
+                resize_constraints: WindowResizeConstraints {
+                    min_width: MIN_WINDOW_WIDTH,
+                    min_height: MIN_WINDOW_HEIGHT,
+                    ..default()
+                },
                 ..default()
             }),
             ..default()

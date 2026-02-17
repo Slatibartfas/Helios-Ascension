@@ -480,12 +480,26 @@ pub fn process_pending_research(
     }
 }
 
-/// System to process stop/resume research actions.
+/// System to process stop/resume/cancel research actions.
 pub fn process_stop_research(
+    mut commands: Commands,
     mut pending: ResMut<PendingResearchActions>,
     mut projects: Query<(Entity, &mut ResearchProject, &ResearchTeam)>,
 ) {
-    // Process stops
+    // Process cancellations (despawn entity entirely)
+    if !pending.cancel_research.is_empty() {
+        let cancel_ids: HashSet<String> = pending.cancel_research.drain(..).collect();
+        for (entity, project, _) in projects.iter() {
+            if cancel_ids.contains(&project.tech_id) {
+                info!("Cancelled research on: {} (entity despawned)", project.tech_id);
+                commands.entity(entity).despawn();
+            }
+        }
+        // Redistribute among remaining active projects
+        redistribute_allocations(&mut projects);
+    }
+
+    // Process pauses
     if !pending.stop_research.is_empty() {
         let stop_ids: HashSet<String> = pending.stop_research.drain(..).collect();
         for (_, mut project, _) in projects.iter_mut() {

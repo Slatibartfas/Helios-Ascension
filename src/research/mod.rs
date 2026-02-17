@@ -142,10 +142,12 @@ impl TechEditData {
 pub struct PendingResearchActions {
     /// Tech IDs that the user wants to begin researching.
     pub start_research: Vec<TechnologyId>,
-    /// Tech IDs that the user wants to stop/pause researching.
+    /// Tech IDs that the user wants to pause researching (preserves progress, frees team slot).
     pub stop_research: Vec<TechnologyId>,
     /// Tech IDs that the user wants to resume researching.
     pub resume_research: Vec<TechnologyId>,
+    /// Tech IDs that the user wants to cancel/remove entirely (despawn entity, progress lost).
+    pub cancel_research: Vec<TechnologyId>,
     /// Whether to navigate to the Available Research tab.
     pub navigate_to_available_tab: bool,
     /// Whether to navigate to the Available Engineering tab.
