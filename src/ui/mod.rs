@@ -3437,6 +3437,9 @@ fn ui_research_panels(
 
     // Main panel - Tabbed interface (no left sidebar)
     egui::CentralPanel::default().show(ctx, |ui| {
+        // Disable text selection cursor everywhere in the research menu
+        ui.style_mut().interaction.selectable_labels = false;
+
         // Debug mode panel (if enabled)
         if debug_settings.enabled {
             ui.group(|ui| {
@@ -3559,69 +3562,51 @@ fn render_overview_tab(
                     .italics()
                     .color(egui::Color32::GRAY));
             } else {
-                let (columns, card_width) = research_card_columns_and_width(ui);
-                let mut index = 0usize;
-                egui::Grid::new("overview_active_research_grid")
-                    .num_columns(columns)
-                    .spacing(egui::vec2(8.0, 8.0))
-                    .show(ui, |ui| {
-                        for (entity, project, team) in research_projects.iter() {
-                            if let Some(tech) = tech_data.get_tech(&project.tech_id) {
-                                let active_info = ActiveProjectInfo {
-                                    entity,
-                                    progress_percent: project.progress_percent(),
-                                    progress: project.progress,
-                                    required_points: project.required_points,
-                                    allocation_percent: project.rp_allocation_percent,
-                                    active: project.active,
-                                };
-                                let card = egui::Frame::group(ui.style()).show(ui, |ui| {
-                                    ui.set_min_width(card_width);
-                                    ui.set_max_width(card_width);
-                                    ui.set_min_height(108.0);
-                                    ui.horizontal(|ui| {
-                                        ui.label(egui::RichText::new(if project.active { "🔬" } else { "⏸" }).size(16.0));
-                                        ui.label(egui::RichText::new(&tech.name).strong().size(14.0));
-                                        if !project.active {
-                                            ui.label(egui::RichText::new("PAUSED").color(egui::Color32::YELLOW));
-                                        }
-                                    });
-                                    ui.label(egui::RichText::new(format!("Team: {}", team.name)).size(12.0).color(egui::Color32::GRAY));
-                                    let progress = project.progress_percent();
-                                    ui.add(
-                                        egui::ProgressBar::new(progress)
-                                            .text(format!(
-                                                "{:.1}% ({:.0}/{:.0} RP)",
-                                                progress * 100.0,
-                                                project.progress,
-                                                project.required_points
-                                            ))
-                                            .desired_width(ui.available_width() - 6.0),
-                                    );
-                                    ui.label(format!("Allocation: {:.0}%", project.rp_allocation_percent * 100.0));
-                                    pad_card_to_min_height(ui, 108.0);
-                                });
-                                card.response.on_hover_ui(|ui| {
-                                    render_research_tech_tooltip_content(
-                                        ui,
-                                        tech,
-                                        tech_data,
-                                        research_state,
-                                        Some(icon_textures),
-                                        Some(&active_info),
-                                    );
-                                });
-
-                                index += 1;
-                                if index % columns == 0 {
-                                    ui.end_row();
+                for (entity, project, team) in research_projects.iter() {
+                    if let Some(tech) = tech_data.get_tech(&project.tech_id) {
+                        let active_info = ActiveProjectInfo {
+                            entity,
+                            progress_percent: project.progress_percent(),
+                            progress: project.progress,
+                            required_points: project.required_points,
+                            allocation_percent: project.rp_allocation_percent,
+                            active: project.active,
+                        };
+                        ui.horizontal(|ui| {
+                            // Info labels in a scope so tooltip hover isn't stolen by progress bar
+                            let info_scope = ui.scope(|ui| {
+                                ui.label(egui::RichText::new(if project.active { "🔬" } else { "⏸" }).size(14.0));
+                                ui.label(egui::RichText::new(&tech.name).strong());
+                                if !project.active {
+                                    ui.label(egui::RichText::new("PAUSED").color(egui::Color32::YELLOW));
                                 }
-                            }
-                        }
-                        if index % columns != 0 {
-                            ui.end_row();
-                        }
-                    });
+                                ui.label(egui::RichText::new(format!("({})", team.name)).size(11.0).color(egui::Color32::GRAY));
+                            });
+                            info_scope.response.on_hover_ui(|ui| {
+                                render_research_tech_tooltip_content(
+                                    ui,
+                                    tech,
+                                    tech_data,
+                                    research_state,
+                                    Some(icon_textures),
+                                    Some(&active_info),
+                                );
+                            });
+                            // Interactive controls outside the tooltip scope
+                            ui.add(
+                                egui::ProgressBar::new(project.progress_percent())
+                                    .text(format!(
+                                        "{:.1}% ({:.0}/{:.0} RP)",
+                                        project.progress_percent() * 100.0,
+                                        project.progress,
+                                        project.required_points
+                                    ))
+                                    .desired_width(180.0),
+                            );
+                            ui.label(format!("Alloc: {:.0}%", project.rp_allocation_percent * 100.0));
+                        });
+                    }
+                }
             }
         });
         
@@ -3638,43 +3623,21 @@ fn render_overview_tab(
                     .italics()
                     .color(egui::Color32::GRAY));
             } else {
-                let (columns, card_width) = research_card_columns_and_width(ui);
-                let mut index = 0usize;
-                egui::Grid::new("overview_active_engineering_grid")
-                    .num_columns(columns)
-                    .spacing(egui::vec2(8.0, 8.0))
-                    .show(ui, |ui| {
-                        for (project, team) in engineering_projects.iter() {
-                            if let Some(component) = tech_data.get_component(&project.component_id) {
-                                egui::Frame::group(ui.style()).show(ui, |ui| {
-                                    ui.set_min_width(card_width);
-                                    ui.set_max_width(card_width);
-                                    ui.set_min_height(98.0);
-                                    ui.horizontal(|ui| {
-                                        ui.label(egui::RichText::new("⚙").size(16.0));
-                                        ui.label(egui::RichText::new(&component.name).strong().size(14.0));
-                                    });
-                                    ui.label(egui::RichText::new(format!("Team: {}", team.name)).size(12.0).color(egui::Color32::GRAY));
-                                    let progress = project.progress_percent();
-                                    ui.add(
-                                        egui::ProgressBar::new(progress)
-                                            .text(format!("{:.0}%", progress * 100.0))
-                                            .desired_width(ui.available_width() - 6.0),
-                                    );
-                                    ui.label(format!("Progress: {:.0}/{:.0} EP", project.progress, project.required_points));
-                                    pad_card_to_min_height(ui, 98.0);
-                                });
-
-                                index += 1;
-                                if index % columns == 0 {
-                                    ui.end_row();
-                                }
-                            }
-                        }
-                        if index % columns != 0 {
-                            ui.end_row();
-                        }
-                    });
+                for (project, team) in engineering_projects.iter() {
+                    if let Some(component) = tech_data.get_component(&project.component_id) {
+                        let progress = project.progress_percent();
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("⚙").size(14.0));
+                            ui.label(egui::RichText::new(&component.name).strong());
+                            ui.label(egui::RichText::new(format!("({})", team.name)).size(11.0).color(egui::Color32::GRAY));
+                            ui.add(
+                                egui::ProgressBar::new(progress)
+                                    .text(format!("{:.0}% ({:.0}/{:.0} EP)", progress * 100.0, project.progress, project.required_points))
+                                    .desired_width(200.0),
+                            );
+                        });
+                    }
+                }
             }
         });
         
@@ -4836,27 +4799,6 @@ fn tech_category_color(cat: TechCategory) -> egui::Color32 {
     }
 }
 
-fn research_card_columns_and_width(ui: &egui::Ui) -> (usize, f32) {
-    let spacing = 8.0;
-    let max_columns = 4usize;
-    let target_min_card_width = 300.0;
-
-    let mut columns = ((ui.available_width() + spacing) / (target_min_card_width + spacing)).floor() as usize;
-    columns = columns.clamp(1, max_columns);
-
-    let card_width = ((ui.available_width() - spacing * (columns.saturating_sub(1) as f32)) / columns as f32)
-        .clamp(260.0, 400.0);
-
-    (columns, card_width)
-}
-
-fn pad_card_to_min_height(ui: &mut egui::Ui, min_height: f32) {
-    let current_height = ui.min_rect().height();
-    if current_height < min_height {
-        ui.add_space(min_height - current_height);
-    }
-}
-
 fn render_research_tech_tooltip_content(
     ui: &mut egui::Ui,
     tech: &Technology,
@@ -5013,95 +4955,76 @@ fn render_available_research_tab(
         
         if !active_projects.is_empty() {
             ui.label(egui::RichText::new("Current Research").strong().size(16.0));
-            ui.add_space(5.0);
-            let (columns, card_width) = research_card_columns_and_width(ui);
-            let mut index = 0usize;
-            egui::Grid::new("available_current_research_grid")
-                .num_columns(columns)
-                .spacing(egui::vec2(8.0, 8.0))
-                .show(ui, |ui| {
-                    for (tech_id, info) in &active_projects {
-                        if let Some(tech) = tech_data.get_tech(tech_id) {
-                            let cat_color = tech_category_color(tech.category);
-                            let card = egui::Frame::group(ui.style()).show(ui, |ui| {
-                                ui.set_min_width(card_width);
-                                ui.set_max_width(card_width);
-                                ui.set_min_height(128.0);
-                                ui.horizontal_wrapped(|ui| {
-                                    let status_icon = if info.active { "🔬" } else { "⏸" };
-                                    ui.label(egui::RichText::new(status_icon).size(16.0));
-                                    ui.label(egui::RichText::new(&tech.name).strong().size(14.0));
-                                    if let Some(tex) = icon_textures.get(&tech.category) {
-                                        ui.add(egui::Image::new(egui::load::SizedTexture::new(*tex, [20.0, 20.0]))
-                                            .tint(cat_color));
-                                    }
-                                    ui.label(egui::RichText::new(tech.category.display_name()).size(12.0).color(cat_color));
-                                    if !info.active {
-                                        ui.label(egui::RichText::new("PAUSED").color(egui::Color32::YELLOW));
-                                    }
-                                });
-                                ui.add(
-                                    egui::ProgressBar::new(info.progress_percent)
-                                        .text(format!(
-                                            "{:.1}% ({:.0}/{:.0} RP)",
-                                            info.progress_percent * 100.0,
-                                            info.progress,
-                                            info.required_points
-                                        ))
-                                        .desired_width(ui.available_width() - 6.0),
-                                );
-                                ui.horizontal(|ui| {
-                                    ui.label("Allocation:");
-                                    let mut alloc_pct = (info.allocation_percent * 100.0) as f32;
-                                    let slider_resp = ui.add(
-                                        egui::Slider::new(&mut alloc_pct, 0.0..=100.0)
-                                            .suffix("%")
-                                            .fixed_decimals(0),
-                                    );
-                                    if slider_resp.changed() {
-                                        pending_research.update_allocations.push(
-                                            (tech_id.to_string(), alloc_pct as f64 / 100.0),
-                                        );
-                                    }
-                                });
-                                ui.horizontal(|ui| {
-                                    if info.active {
-                                        if ui.button("⏸ Stop").on_hover_text("Pause research (preserves progress)").clicked() {
-                                            pending_research.stop_research.push(tech_id.to_string());
-                                        }
-                                    } else {
-                                        let can_resume = teams_available > 0;
-                                        let btn = ui.add_enabled(can_resume, egui::Button::new("▶ Resume"));
-                                        if !can_resume {
-                                            btn.on_hover_text("No team slots available");
-                                        } else if btn.clicked() {
-                                            pending_research.resume_research.push(tech_id.to_string());
-                                        }
-                                    }
-                                });
-                                pad_card_to_min_height(ui, 128.0);
-                            });
-                            card.response.on_hover_ui(|ui| {
-                                render_research_tech_tooltip_content(
-                                    ui,
-                                    tech,
-                                    tech_data,
-                                    research_state,
-                                    Some(icon_textures),
-                                    Some(info),
-                                );
-                            });
-
-                            index += 1;
-                            if index % columns == 0 {
-                                ui.end_row();
+            ui.add_space(4.0);
+            
+            for (tech_id, info) in &active_projects {
+                if let Some(tech) = tech_data.get_tech(tech_id) {
+                    let cat_color = tech_category_color(tech.category);
+                    ui.horizontal(|ui| {
+                        // Info labels in a scope so tooltip hover isn't stolen by interactive widgets
+                        let info_scope = ui.scope(|ui| {
+                            let status_icon = if info.active { "🔬" } else { "⏸" };
+                            ui.label(egui::RichText::new(status_icon).size(14.0));
+                            if let Some(tex) = icon_textures.get(&tech.category) {
+                                ui.add(egui::Image::new(egui::load::SizedTexture::new(*tex, [16.0, 16.0]))
+                                    .tint(cat_color));
+                            }
+                            ui.label(egui::RichText::new(&tech.name).strong());
+                            ui.label(egui::RichText::new(tech.category.display_name()).size(12.0).color(cat_color));
+                            if !info.active {
+                                ui.label(egui::RichText::new("PAUSED").color(egui::Color32::YELLOW));
+                            }
+                        });
+                        info_scope.response.on_hover_ui(|ui| {
+                            render_research_tech_tooltip_content(
+                                ui,
+                                tech,
+                                tech_data,
+                                research_state,
+                                Some(icon_textures),
+                                Some(info),
+                            );
+                        });
+                        ui.add_space(8.0);
+                        // Interactive controls outside the tooltip scope
+                        ui.add(
+                            egui::ProgressBar::new(info.progress_percent)
+                                .text(format!(
+                                    "{:.1}% ({:.0}/{:.0} RP)",
+                                    info.progress_percent * 100.0,
+                                    info.progress,
+                                    info.required_points
+                                ))
+                                .desired_width(180.0),
+                        );
+                        ui.label("Alloc:");
+                        let mut alloc_pct = (info.allocation_percent * 100.0) as f32;
+                        let slider_resp = ui.add(
+                            egui::Slider::new(&mut alloc_pct, 0.0..=100.0)
+                                .suffix("%")
+                                .fixed_decimals(0),
+                        );
+                        if slider_resp.changed() {
+                            pending_research.update_allocations.push(
+                                (tech_id.to_string(), alloc_pct as f64 / 100.0),
+                            );
+                        }
+                        if info.active {
+                            if ui.button("⏸ Stop").on_hover_text("Pause research (preserves progress)").clicked() {
+                                pending_research.stop_research.push(tech_id.to_string());
+                            }
+                        } else {
+                            let can_resume = teams_available > 0;
+                            let btn = ui.add_enabled(can_resume, egui::Button::new("▶ Resume"));
+                            if !can_resume {
+                                btn.on_hover_text("No team slots available");
+                            } else if btn.clicked() {
+                                pending_research.resume_research.push(tech_id.to_string());
                             }
                         }
-                    }
-                    if index % columns != 0 {
-                        ui.end_row();
-                    }
-                });
+                    });
+                }
+            }
             
             ui.add_space(10.0);
             ui.separator();
@@ -5125,7 +5048,7 @@ fn render_available_research_tab(
             ui.label("Complete more research to unlock new technologies.");
         } else if !available_techs.is_empty() {
             ui.label(egui::RichText::new("Available to Start").strong().size(16.0));
-            ui.add_space(5.0);
+            ui.add_space(4.0);
             
             available_techs.sort_by(|a, b| {
                 a.category.display_name()
@@ -5133,104 +5056,53 @@ fn render_available_research_tab(
                     .then(a.research_cost.partial_cmp(&b.research_cost).unwrap())
             });
             
-            let (columns, card_width) = research_card_columns_and_width(ui);
-            let mut index = 0usize;
-            egui::Grid::new("available_start_research_grid")
-                .num_columns(columns)
-                .spacing(egui::vec2(8.0, 8.0))
-                .show(ui, |ui| {
-                    for tech in available_techs {
-                        let card = egui::Frame::group(ui.style()).show(ui, |ui| {
-                            ui.set_min_width(card_width);
-                            ui.set_max_width(card_width);
-                            ui.set_min_height(132.0);
-                            ui.horizontal_wrapped(|ui| {
-                                let cat_color = tech_category_color(tech.category);
-                                ui.label(egui::RichText::new("⏳").color(egui::Color32::from_rgb(255, 255, 100)));
-                                ui.label(egui::RichText::new(&tech.name).strong().size(14.0));
-                                if let Some(tex) = icon_textures.get(&tech.category) {
-                                     ui.add(egui::Image::new(egui::load::SizedTexture::new(*tex, [24.0, 24.0]))
-                                         .tint(cat_color));
-                                     ui.label(egui::RichText::new(tech.category.display_name()).size(14.0).color(cat_color));
-                                } else {
-                                    ui.label(egui::RichText::new(format!("{} {}", tech.category.icon(), tech.category.display_name()))
-                                        .size(14.0)
-                                        .color(cat_color));
-                                }
-                            });
-
-                            let summary = if tech.description.chars().count() > 110 {
-                                format!("{}...", tech.description.chars().take(110).collect::<String>())
-                            } else {
-                                tech.description.clone()
-                            };
-                                ui.add_sized(
-                                    [ui.available_width(), 0.0],
-                                    egui::Label::new(
-                                        egui::RichText::new(summary)
-                                            .size(12.0)
-                                            .color(egui::Color32::GRAY),
-                                    )
-                                    .wrap(),
-                                );
-
-                                ui.horizontal_wrapped(|ui| {
-                                ui.label(egui::RichText::new(format!("Cost: {:.0} RP", tech.research_cost))
-                                    .color(egui::Color32::from_rgb(150, 200, 255)));
-                                ui.label(format!("Tier: {}", tech.tier));
-                            });
-
-                            if !tech.unlocks_components.is_empty() {
-                                ui.label(egui::RichText::new(format!(
-                                    "Unlocks {} component(s)",
-                                    tech.unlocks_components.len()
-                                )).size(11.0).italics());
-                            } else {
-                                ui.label(egui::RichText::new(" ").size(11.0));
-                            }
-
-                            if !tech.modifiers.is_empty() {
-                                ui.label(egui::RichText::new(format!(
-                                    "Provides {} bonus(es)",
-                                    tech.modifiers.len()
-                                )).size(11.0).italics().color(egui::Color32::from_rgb(100, 255, 100)));
-                            } else {
-                                ui.label(egui::RichText::new(" ").size(11.0));
-                            }
-
-                            let can_start = teams_available > 0;
-                            ui.horizontal(|ui| {
-                                let btn = ui.add_enabled(can_start, egui::Button::new("🚀 Start Research"));
-                                if can_start && btn.clicked() {
-                                    pending_research.start_research.push(tech.id.clone());
-                                }
-                                if !can_start {
-                                    btn.on_hover_text("No team slots available. Stop another project first.");
-                                }
-                            });
-                            pad_card_to_min_height(ui, 132.0);
-                        });
-
-                        card.response.on_hover_ui(|ui| {
-                            render_research_tech_tooltip_content(
-                                ui,
-                                tech,
-                                tech_data,
-                                research_state,
-                                Some(icon_textures),
-                                None,
-                            );
-                        });
-
-                        index += 1;
-                        if index % columns == 0 {
-                            ui.end_row();
+            for tech in available_techs {
+                let cat_color = tech_category_color(tech.category);
+                let can_start = teams_available > 0;
+                ui.horizontal(|ui| {
+                    // Info labels in a scope so tooltip hover isn't stolen by the button
+                    let info_scope = ui.scope(|ui| {
+                        ui.label(egui::RichText::new("⏳").color(egui::Color32::from_rgb(255, 255, 100)));
+                        if let Some(tex) = icon_textures.get(&tech.category) {
+                            ui.add(egui::Image::new(egui::load::SizedTexture::new(*tex, [16.0, 16.0]))
+                                .tint(cat_color));
                         }
+                        ui.label(egui::RichText::new(&tech.name).strong());
+                        ui.label(egui::RichText::new(tech.category.display_name()).size(12.0).color(cat_color));
+                        ui.add_space(8.0);
+                        ui.label(egui::RichText::new(format!("{:.0} RP", tech.research_cost))
+                            .color(egui::Color32::from_rgb(150, 200, 255)));
+                        ui.label(egui::RichText::new(format!("T{}", tech.tier))
+                            .size(11.0).color(egui::Color32::GRAY));
+                        if !tech.unlocks_components.is_empty() {
+                            ui.label(egui::RichText::new(format!("⚙{}", tech.unlocks_components.len()))
+                                .size(11.0).color(egui::Color32::from_rgb(140, 230, 200)));
+                        }
+                        if !tech.modifiers.is_empty() {
+                            ui.label(egui::RichText::new(format!("✦{}", tech.modifiers.len()))
+                                .size(11.0).color(egui::Color32::from_rgb(100, 255, 100)));
+                        }
+                    });
+                    info_scope.response.on_hover_ui(|ui| {
+                        render_research_tech_tooltip_content(
+                            ui,
+                            tech,
+                            tech_data,
+                            research_state,
+                            Some(icon_textures),
+                            None,
+                        );
+                    });
+                    // Button outside the tooltip scope
+                    let btn = ui.add_enabled(can_start, egui::Button::new("🚀 Start"));
+                    if can_start && btn.clicked() {
+                        pending_research.start_research.push(tech.id.clone());
                     }
-                    if index % columns != 0 {
-                        ui.end_row();
+                    if !can_start {
+                        btn.on_hover_text("No team slots available. Stop another project first.");
                     }
                 });
+            }
         }
     });
 }
@@ -5267,70 +5139,66 @@ fn render_available_engineering_tab(
                 a.engineering_cost.partial_cmp(&b.engineering_cost).unwrap()
             });
 
-            let (columns, card_width) = research_card_columns_and_width(ui);
-            let mut index = 0usize;
-            egui::Grid::new("available_engineering_grid")
-                .num_columns(columns)
-                .spacing(egui::vec2(8.0, 8.0))
-                .show(ui, |ui| {
-                    for component in available_components {
-                        let parent_tech = tech_data.get_tech(&component.required_tech);
-                        let cat_color = parent_tech
-                            .map(|t| tech_category_color(t.category))
-                            .unwrap_or(egui::Color32::from_rgb(200, 200, 100));
+            for component in available_components {
+                let parent_tech = tech_data.get_tech(&component.required_tech);
+                let cat_color = parent_tech
+                    .map(|t| tech_category_color(t.category))
+                    .unwrap_or(egui::Color32::from_rgb(200, 200, 100));
 
-                        egui::Frame::group(ui.style()).show(ui, |ui| {
-                            ui.set_min_width(card_width);
-                            ui.set_max_width(card_width);
-                            ui.set_min_height(122.0);
-
-                            ui.horizontal_wrapped(|ui| {
-                                ui.label(egui::RichText::new("⚙").color(cat_color));
-                                ui.label(egui::RichText::new(&component.name).strong().size(14.0));
-                                if let Some(tech) = parent_tech {
-                                    if let Some(tex) = icon_textures.get(&tech.category) {
-                                        ui.add(egui::Image::new(egui::load::SizedTexture::new(*tex, [20.0, 20.0]))
-                                            .tint(cat_color));
-                                    }
-                                    ui.label(egui::RichText::new(tech.category.display_name()).size(12.0).color(cat_color));
-                                }
-                            });
-
-                            ui.add_sized(
-                                [ui.available_width(), 0.0],
-                                egui::Label::new(
-                                    egui::RichText::new(&component.description)
-                                        .size(12.0)
-                                        .color(egui::Color32::GRAY),
-                                )
-                                .wrap(),
-                            );
-
-                            ui.horizontal_wrapped(|ui| {
-                                ui.label(egui::RichText::new(format!("Cost: {:.0} EP", component.engineering_cost))
-                                    .color(egui::Color32::from_rgb(150, 255, 200)));
-
-                                if let Some(tech) = parent_tech {
-                                    ui.label(egui::RichText::new(format!("From: {}", tech.name))
-                                        .size(11.0)
-                                        .italics()
-                                        .color(egui::Color32::GRAY));
-                                }
-                            });
-
-                            let _ = ui.button("🔧 Start Engineering (Not Yet Implemented)");
-                            pad_card_to_min_height(ui, 122.0);
-                        });
-
-                        index += 1;
-                        if index % columns == 0 {
-                            ui.end_row();
+                let row = ui.horizontal(|ui| {
+                    // Component icon
+                    ui.label(egui::RichText::new("⚙").color(cat_color));
+                    // Category icon
+                    if let Some(tech) = parent_tech {
+                        if let Some(tex) = icon_textures.get(&tech.category) {
+                            ui.add(egui::Image::new(egui::load::SizedTexture::new(*tex, [16.0, 16.0]))
+                                .tint(cat_color));
                         }
                     }
-                    if index % columns != 0 {
-                        ui.end_row();
+                    // Component name
+                    ui.label(egui::RichText::new(&component.name).strong());
+                    // Category
+                    if let Some(tech) = parent_tech {
+                        ui.label(egui::RichText::new(tech.category.display_name()).size(12.0).color(cat_color));
+                    }
+                    ui.add_space(8.0);
+                    // Cost
+                    ui.label(egui::RichText::new(format!("{:.0} EP", component.engineering_cost))
+                        .color(egui::Color32::from_rgb(150, 255, 200)));
+                    // From tech
+                    if let Some(tech) = parent_tech {
+                        ui.label(egui::RichText::new(format!("(from: {})", tech.name))
+                            .size(11.0)
+                            .italics()
+                            .color(egui::Color32::GRAY));
+                    }
+                    // Start button
+                    let _ = ui.button("🔧 Start Engineering (NYI)");
+                });
+                // Tooltip with component details
+                row.response.on_hover_ui(|ui| {
+                    ui.set_max_width(320.0);
+                    ui.label(egui::RichText::new(&component.name).strong().size(14.0));
+                    if let Some(tech) = parent_tech {
+                        ui.horizontal(|ui| {
+                            if let Some(tex) = icon_textures.get(&tech.category) {
+                                ui.add(egui::Image::new(egui::load::SizedTexture::new(*tex, [16.0, 16.0]))
+                                    .tint(cat_color));
+                            }
+                            ui.label(egui::RichText::new(tech.category.display_name()).color(cat_color));
+                        });
+                    }
+                    ui.separator();
+                    ui.label(&component.description);
+                    ui.add_space(4.0);
+                    ui.label(egui::RichText::new(format!("Engineering Cost: {:.0} EP", component.engineering_cost))
+                        .color(egui::Color32::from_rgb(150, 255, 200)).strong());
+                    if let Some(tech) = parent_tech {
+                        ui.label(egui::RichText::new(format!("Required Tech: {}", tech.name))
+                            .size(12.0).color(egui::Color32::GRAY));
                     }
                 });
+            }
         }
     });
 }

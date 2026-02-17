@@ -6,13 +6,15 @@
 //!
 //!  - Individual celestial bodies and orbit paths are hidden.
 //!  - Each star system is represented by a single glowing icon/billboard.
-//!  - Double-clicking a system icon anchors the camera and allows zoom-in.
+//!  - Single-clicking a system icon selects/highlights it.
+//!  - Double-clicking a system icon anchors the camera and zooms into the system.
 //!
 //! Currently only the Sol system exists; more systems will be added later.
 
 use bevy::math::DVec3;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
+use bevy_egui::egui;
 use std::collections::HashMap;
 
 use super::camera::{CameraAnchor, GameCamera, OrbitCamera, ViewMode};
@@ -706,8 +708,9 @@ struct StarmapSelectionState {
     last_clicked_entity: Option<Entity>,
 }
 
-/// Handle double-click selection of star system icons in starmap view.
-/// Double-clicking anchors the camera to the system's position.
+/// Handle single-click selection and double-click zoom of star system icons.
+/// Single-clicking selects/highlights the system.
+/// Double-clicking anchors the camera and zooms into the system.
 fn handle_starmap_selection(
     view_mode: Res<ViewMode>,
     mouse_button: Res<ButtonInput<MouseButton>>,
@@ -717,6 +720,7 @@ fn handle_starmap_selection(
     mut commands: Commands,
     selected_query: Query<Entity, With<SelectedStarSystem>>,
     mut anchor_query: Query<&mut CameraAnchor, With<GameCamera>>,
+    mut orbit_camera_query: Query<&mut OrbitCamera, With<GameCamera>>,
     time: Res<Time>,
     mut selection_state: Local<StarmapSelectionState>,
     mut egui_contexts: bevy_egui::EguiContexts,
@@ -724,6 +728,13 @@ fn handle_starmap_selection(
     // Only active in starmap view
     if *view_mode != ViewMode::Starmap {
         return;
+    }
+
+    // Set cursor to default arrow to prevent text selection cursor
+    if let Some(ctx) = egui_contexts.try_ctx_mut() {
+        if !ctx.is_pointer_over_area() {
+            ctx.output_mut(|o| o.cursor_icon = egui::CursorIcon::Default);
+        }
     }
 
     // Only process on mouse click
@@ -787,7 +798,7 @@ fn handle_starmap_selection(
         }
     }
 
-    // If we found an icon, check for double-click
+    // If we found an icon, handle selection and double-click
     if let Some((entity, _, name)) = closest_icon {
         let current_time = time.elapsed_seconds_f64();
         let is_double_click = selection_state.last_clicked_entity == Some(entity)
@@ -797,7 +808,22 @@ fn handle_starmap_selection(
         selection_state.last_click_time = current_time;
 
         if is_double_click {
-            info!("Double-clicked star system: {}", name);
+            // Double-click: Zoom into the system
+            info!("Double-clicked star system: {} - zooming in", name);
+
+            // Anchor camera to this system icon's position
+            if let Ok(mut anchor) = anchor_query.get_single_mut() {
+                anchor.0 = Some(entity);
+                info!("Camera anchored to {}", name);
+            }
+
+            // Set zoom to medium level (150k units for comfortable view)
+            if let Ok(mut orbit_camera) = orbit_camera_query.get_single_mut() {
+                orbit_camera.radius = 150_000.0;
+            }
+        } else {
+            // Single-click: Just select/highlight the system
+            info!("Selected star system: {}", name);
 
             // Clear previous selection
             for selected_entity in selected_query.iter() {
@@ -806,15 +832,8 @@ fn handle_starmap_selection(
                     .remove::<SelectedStarSystem>();
             }
 
-            // Mark this system as selected/anchored
+            // Mark this system as selected
             commands.entity(entity).insert(SelectedStarSystem);
-
-            // Anchor camera to this system icon's position
-            // Note: We anchor to the entity itself so the camera follows it
-            if let Ok(mut anchor) = anchor_query.get_single_mut() {
-                anchor.0 = Some(entity);
-                info!("Camera anchored to {}", name);
-            }
         }
     }
 }
