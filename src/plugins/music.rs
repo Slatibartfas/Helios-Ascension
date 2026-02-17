@@ -188,15 +188,21 @@ fn show_music_controls(mut contexts: EguiContexts, mut playlist: ResMut<MusicPla
                     ui.with_layout(egui::Layout::top_down(egui::Align::Max), |ui| {
                         // Row 1: playback controls
                         ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 2.0;
+                            ui.spacing_mut().button_padding = egui::vec2(3.0, 1.0);
                             let play_label = if playlist.paused { "▶" } else { "⏸" };
-                            if ui.small_button(play_label).clicked() {
+                            if ui.add(egui::Button::new(
+                                egui::RichText::new(play_label).small()
+                            )).clicked() {
                                 playlist.paused = !playlist.paused;
                             }
-                            if ui.small_button("⏭").clicked() {
+                            if ui.add(egui::Button::new(
+                                egui::RichText::new("⏭").small()
+                            )).clicked() {
                                 playlist.skip_requested = true;
                             }
                             ui.add_sized(
-                                [60.0, 14.0],
+                                [50.0, 10.0],
                                 egui::Slider::new(&mut playlist.volume, 0.0..=1.0)
                                     .show_value(false),
                             );

@@ -672,7 +672,7 @@ impl Plugin for UIPlugin {
             )
             .add_systems(
                 Update,
-                (ui_resources_bar, ui_top_menu_bar)
+                (ui_resources_bar, ui_top_menu_bar, ui_time_controls)
                     .chain()
                     .in_set(UiSystemSet::TopBar),
             )
@@ -3245,8 +3245,25 @@ fn ui_dashboard(
                 }
             });
     }
+}
 
-    // Bottom panel for time controls
+/// Always-visible bottom panel for time controls.
+///
+/// Registered in `UiSystemSet::TopBar` so egui reserves the bottom strip
+/// **before** any side panel (Research, Construction, Economy, etc.) is
+/// rendered. This ensures the panel is never occluded regardless of the
+/// active menu.
+fn ui_time_controls(
+    mut contexts: EguiContexts,
+    mut time_scale: ResMut<TimeScale>,
+    sim_time: Res<SimulationTime>,
+    view_mode: Res<ViewMode>,
+) {
+    let ctx = match contexts.try_ctx_mut() {
+        Some(ctx) => ctx,
+        None => return,
+    };
+
     egui::TopBottomPanel::bottom("time_controls")
         .min_height(80.0)
         .show(ctx, |ui| {
@@ -3302,7 +3319,6 @@ fn ui_dashboard(
                 ui.separator();
                 ui.label(format!("Date: {}", sim_time.format_date_time()));
                 ui.separator();
-                // View mode indicator
                 let (view_label, view_color) = match *view_mode {
                     ViewMode::System => ("🔭 System View", egui::Color32::from_rgb(120, 180, 255)),
                     ViewMode::Starmap => {
