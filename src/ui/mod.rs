@@ -3912,16 +3912,17 @@ fn render_tech_tree_tab(
     // Single response for the whole canvas – handles pan / zoom / click
     let response = ui.allocate_rect(canvas_rect, egui::Sense::click_and_drag());
     
-    // Zoom
-    if response.hovered() {
+    // Zoom – use pointer position directly so zooming works even when a tooltip is shown
+    if ui.input(|i| i.pointer.hover_pos().map_or(false, |pos| canvas_rect.contains(pos))) {
         let scroll_delta = ui.input(|i| i.smooth_scroll_delta.y);
         if scroll_delta != 0.0 {
             zoom = (zoom + scroll_delta * 0.001).clamp(0.3, 3.0);
         }
     }
-    // Pan (only middle-click now; right-click is for context menu)
-    if response.dragged_by(egui::PointerButton::Middle) {
-        pan_offset += response.drag_delta();
+    // Pan (middle-click drag) – read raw pointer delta so pan works even when a tooltip is shown
+    let pointer_in_canvas = ui.input(|i| i.pointer.hover_pos().map_or(false, |pos| canvas_rect.contains(pos)));
+    if pointer_in_canvas && ui.input(|i| i.pointer.button_down(egui::PointerButton::Middle)) {
+        pan_offset += ui.input(|i| i.pointer.delta());
     }
     
     // Persist pan / zoom immediately

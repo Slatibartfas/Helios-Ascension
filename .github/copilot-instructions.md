@@ -27,11 +27,14 @@ helios_ascension/
 ├── src/
 │   ├── main.rs              # Application entry point
 │   ├── lib.rs               # Library root
+│   ├── game_state.rs        # Top-level game state management
 │   ├── astronomy/           # Orbital mechanics & coordinate systems
 │   │   ├── components.rs    # SpaceCoordinates, KeplerOrbit, OrbitPath
 │   │   ├── systems.rs       # Orbit propagation, rendering, selection
 │   │   ├── ephemeris.rs     # Ephemeris calculations for custom start dates
 │   │   ├── nearby_stars.rs  # Star catalog (60 nearest star systems)
+│   │   ├── exoplanets.rs    # Exoplanet data
+│   │   ├── procedural.rs    # Procedural system generation
 │   │   └── mod.rs           # AstronomyPlugin
 │   ├── colony/              # Colony management system
 │   │   ├── components.rs    # Colony, BuildingInventory, ConstructionQueue
@@ -43,10 +46,12 @@ helios_ascension/
 │   │   ├── components.rs    # PlanetResources, MineralDeposit
 │   │   ├── budget.rs        # GlobalBudget, EnergyGrid
 │   │   ├── generation.rs    # Procedural resource generation
+│   │   ├── mining.rs        # Mining operations and efficiency
 │   │   └── types.rs         # ResourceType definitions (20 types)
 │   ├── research/            # Technology tree system
 │   │   ├── components.rs    # TechnologyProgress, EngineeringProject
 │   │   ├── types.rs         # TechCategory enum (15 categories)
+│   │   ├── data.rs          # Technology data loading from RON
 │   │   ├── systems.rs       # Research progression, tech unlocks
 │   │   └── mod.rs           # ResearchPlugin
 │   ├── plugins/             # Game systems
@@ -54,6 +59,8 @@ helios_ascension/
 │   │   ├── solar_system.rs  # Body spawning, rotation, billboards
 │   │   ├── solar_system_data.rs # RON data loader
 │   │   ├── starmap.rs       # Starmap view (system icons, visibility toggle)
+│   │   ├── system_populator.rs  # Populates visited star systems procedurally
+│   │   ├── comet_vfx.rs     # Comet visual effects (tail, glow)
 │   │   └── visual_effects.rs    # Bloom, starfield, night materials
 │   ├── render/              # Rendering utilities
 │   │   └── backdrop.rs      # Skybox background
@@ -67,6 +74,10 @@ helios_ascension/
 │   │   ├── solar_system.ron # Solar system configuration
 │   │   └── nearest_stars_raw.json # Star catalog
 │   └── textures/            # Visual assets
+├── docs/
+│   ├── MODDING.md           # Texture & celestial body modding guide
+│   ├── RESEARCH_MODDING.md  # Technology tree modding guide
+│   └── ...                  # Other reference docs
 └── tests/                   # Integration tests
 ```
 
@@ -206,9 +217,16 @@ When adding new UI icons (menus, research categories, etc.), applying the follow
 - Research points (RP) and engineering points (EP) progression
 - Technologies unlock buildings, components, and modifiers
 - Tech modifiers affect construction costs, productivity, and capabilities
+- **Data-driven**: All technologies defined in `assets/data/technologies.ron` — add techs without touching Rust code
 - Debug menu (F12) for instant research
+- See [docs/RESEARCH_MODDING.md](docs/RESEARCH_MODDING.md) for the full modding guide (modifier types, component definitions, balancing)
 
-### Celestial Bodies
+#### Celestial Body & Texture Modding
+- All solar system data defined in `assets/data/solar_system.ron`
+- Add custom textures by setting the `texture` field in the RON file — no code changes needed
+- See [docs/MODDING.md](docs/MODDING.md) for the full texture and body modding guide
+
+#### Celestial Bodies & Astronomy
 - All astronomical data is based on real NASA/IAU sources
 - Orbital mechanics use simplified Keplerian elements
 - Time acceleration is supported for simulation speed (up to 1 year/second)

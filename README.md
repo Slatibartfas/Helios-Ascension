@@ -185,7 +185,12 @@ The game uses a modular plugin architecture built on Bevy's ECS (Entity Componen
 - **Left Click**: Select celestial bodies or UI elements
 - **Double Click**: Select star systems in starmap view
 - **Hover**: Show tooltips for bodies and stars
-- **F12**: Toggle debug settings when applicable
+
+### Debug Menu (F12)
+Press **F12** in-game to open the debug settings panel:
+- **Colony**: Toggle free construction (no resource costs) and instant build completion
+- **Research**: Instantly complete the selected research project; bypass tech prerequisites
+- **Inspector**: Runtime entity/component inspector via `bevy_inspector_egui`
 
 ### Time Control
 - **Pause/Resume**: Control simulation time
@@ -193,8 +198,9 @@ The game uses a modular plugin architecture built on Bevy's ECS (Entity Componen
 
 ## Modding Support
 
-Helios Ascension supports **easy texture and body modding**:
+Helios Ascension is designed to be data-driven and moddable without touching Rust code:
 
+### Textures & Celestial Bodies
 - ✅ **Replace any texture**: Add custom textures that automatically override defaults
 - ✅ **Add new bodies**: Create custom moons, planets, asteroids, or entire solar systems
 - ✅ **Texture packs**: Create complete texture replacement packs
@@ -202,9 +208,9 @@ Helios Ascension supports **easy texture and body modding**:
 
 **The system prioritizes dedicated textures** - just add your texture path to the RON file and it works!
 
-📖 **See [docs/MODDING_GUIDE.md](docs/MODDING_GUIDE.md)** for complete modding documentation and examples.
+📖 **See [docs/MODDING.md](docs/MODDING.md)** for complete modding documentation and examples.
 
-### Quick Example: Replace Mars Texture
+#### Quick Example: Replace a Texture
 
 1. Add your texture: `assets/textures/celestial/planets/mars_custom_8k.jpg`
 2. Edit `assets/data/solar_system.ron`:
@@ -212,10 +218,42 @@ Helios Ascension supports **easy texture and body modding**:
 (
     name: "Mars",
     // ... other fields ...
-    texture: Some("textures/celestial/planets/mars_custom_8k.jpg"),  // Your texture!
+    texture: Some("textures/celestial/planets/mars_custom_8k.jpg"),
 )
 ```
 3. Restart the game - done!
+
+### Research & Technology Tree
+- ✅ **Data-driven tech tree**: All technologies defined in `assets/data/technologies.ron`
+- ✅ **Add new technologies**: Define custom techs with costs, prerequisites, and modifiers
+- ✅ **15 tech categories**: Electronics, Physics, Propulsion, Materials, and more
+- ✅ **Modifier system**: Technologies grant percentage bonuses to research, mining, construction, and more
+- ✅ **Component & engineering projects**: Technologies can unlock designs requiring engineering points
+
+#### Quick Example: Add a Technology
+
+1. Edit `assets/data/technologies.ron` and add an entry:
+```ron
+(
+    id: "quantum_comms",
+    name: "Quantum Communications",
+    category: Electronics,
+    description: "Instantaneous FTL communication using quantum entanglement.",
+    research_cost: 15000.0,
+    prerequisites: ["neural_networks"],
+    unlocks_components: [],
+    unlocks_engineering: [],
+    modifiers: [],
+    tier: 4,
+)
+```
+2. Run the game and open the Research panel (🔬 icon) - your tech appears immediately.
+
+📖 **See [docs/RESEARCH_MODDING.md](docs/RESEARCH_MODDING.md)** for the full technology modding guide, including all modifier types, component definitions, and balancing guidelines.
+
+### Buildings
+- ✅ **Data-driven buildings**: All 29 building types defined in `assets/data/buildings.ron`
+- ✅ **Custom buildings**: Add new construction options with resource costs and effects
 
 ## Development
 
