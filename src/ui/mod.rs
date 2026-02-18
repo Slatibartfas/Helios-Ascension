@@ -2627,10 +2627,7 @@ fn ui_dashboard(
     mut commands: Commands,
     mut contexts: EguiContexts,
     // budget: Res<GlobalBudget>, // Moved to ui_resources_bar
-    mut time_scale: ResMut<TimeScale>,
-    sim_time: Res<SimulationTime>,
     mut selection: ResMut<Selection>,
-    view_mode: Res<ViewMode>,
     current_system: Res<CurrentStarSystem>,
     nearby_stars: Res<NearbyStarsData>,
     active_menu: Res<ActiveMenu>,
