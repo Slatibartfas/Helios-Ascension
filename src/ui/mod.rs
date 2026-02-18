@@ -1881,7 +1881,7 @@ fn ui_top_menu_bar(
             for (mkey, handle) in menu_icons.handles.iter() {
                 icon_textures
                     .entry(*mkey)
-                    .or_insert_with(|| contexts.add_image(handle.clone()));
+                    .or_insert_with(|| contexts.add_image(bevy_egui::EguiTextureHandle::Strong(handle.clone())));
             }
             // Clone the cached map so the rest of the UI code can use an owned
             // HashMap just like before.
@@ -3612,7 +3612,7 @@ fn ui_research_panels(
     // Convert loaded handles to egui TextureIds
     if let Some(icons) = &research_icons {
         for (cat, handle) in &icons.handles {
-             icon_textures.entry(*cat).or_insert_with(|| contexts.add_image(handle.clone()));
+             icon_textures.entry(*cat).or_insert_with(|| contexts.add_image(bevy_egui::EguiTextureHandle::Strong(handle.clone())));
         }
     }
     let icon_textures = &*icon_textures;
@@ -7973,7 +7973,7 @@ mod tests {
         assert!(!selection.has_selection());
 
         let mut selection = Selection::new();
-        let entity = Entity::from_raw(1);
+        let entity = Entity::from_raw_u32(1).unwrap();
         selection.select(entity);
 
         assert!(selection.has_selection());

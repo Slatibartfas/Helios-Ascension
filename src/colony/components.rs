@@ -425,7 +425,7 @@ mod tests {
 
     #[test]
     fn test_construction_project() {
-        let entity = Entity::from_raw(1);
+        let entity = Entity::from_raw_u32(1).unwrap();
         let project = ConstructionProject::new(BuildingType::Mine, entity);
 
         assert_eq!(project.building_type, BuildingType::Mine);
@@ -437,7 +437,7 @@ mod tests {
 
     #[test]
     fn test_construction_project_completion() {
-        let entity = Entity::from_raw(1);
+        let entity = Entity::from_raw_u32(1).unwrap();
         let mut project = ConstructionProject::new(BuildingType::Mine, entity);
 
         project.progress = project.required;

@@ -2,9 +2,9 @@
 #import bevy_pbr::mesh_bindings
 #import bevy_pbr::mesh_functions
 
-@group(2) @binding(0) var night_texture: texture_2d<f32>;
-@group(2) @binding(1) var night_sampler: sampler;
-@group(2) @binding(2) var<uniform> sun_position: vec4<f32>; // .xyz is position, .w is unused
+@group(3) @binding(0) var night_texture: texture_2d<f32>;
+@group(3) @binding(1) var night_sampler: sampler;
+@group(3) @binding(2) var<uniform> sun_position: vec4<f32>; // .xyz is position, .w is unused
 
 struct FragmentInput {
     @builtin(position) frag_coord: vec4<f32>,

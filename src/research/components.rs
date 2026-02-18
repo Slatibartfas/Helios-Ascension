@@ -220,7 +220,7 @@ mod tests {
 
     #[test]
     fn test_research_project_progress() {
-        let team = Entity::from_raw(1);
+        let team = Entity::from_raw_u32(1).unwrap();
         let mut project = ResearchProject::new("test_tech".to_string(), 1000.0, team);
         assert_eq!(project.progress_percent(), 0.0);
         assert!(!project.is_complete());
@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn test_engineering_project_progress() {
-        let team = Entity::from_raw(1);
+        let team = Entity::from_raw_u32(1).unwrap();
         let mut project = EngineeringProject::new("test_component".to_string(), 500.0, team);
         assert_eq!(project.progress_percent(), 0.0);
 

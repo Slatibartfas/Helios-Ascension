@@ -379,7 +379,7 @@ mod tests {
 
     #[test]
     fn test_orbits_body() {
-        let parent_entity = Entity::from_raw(42);
+        let parent_entity = Entity::from_raw_u32(42).unwrap();
         let orbits = OrbitsBody::new(parent_entity);
         assert_eq!(orbits.parent, parent_entity);
     }

@@ -35,7 +35,7 @@ fn main() {
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Helios Ascension".to_string(),
-                resolution: WindowResolution::new(1920.0, 1080.0),
+                resolution: WindowResolution::new(1920, 1080),
                 resize_constraints: WindowResizeConstraints {
                     min_width: MIN_WINDOW_WIDTH,
                     min_height: MIN_WINDOW_HEIGHT,

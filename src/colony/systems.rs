@@ -310,7 +310,7 @@ mod tests {
 
     #[test]
     fn test_construction_project_progress_percent() {
-        let entity = Entity::from_raw(1);
+        let entity = Entity::from_raw_u32(1).unwrap();
         let mut project = ConstructionProject::new(BuildingType::Factory, entity);
 
         assert_eq!(project.progress_percent(), 0.0);

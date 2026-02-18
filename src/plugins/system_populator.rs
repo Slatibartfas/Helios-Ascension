@@ -114,7 +114,7 @@ fn populate_nearby_systems(
 
             // Use real metallicity if available, otherwise generate random
             let metallicity = primary_star.metallicity.unwrap_or_else(|| {
-                let random_value = rng.gen_range(-0.5..0.5);
+                let random_value = rng.random_range(-0.5..0.5);
                 info!(
                     "  No metallicity data for '{}', using random: {:.2}",
                     primary_star.name, random_value
@@ -626,9 +626,9 @@ pub fn spawn_asteroid_belt(
 
     for i in 0..belt.count {
         // Random orbital parameters within the belt
-        let semi_major_axis = rng.gen_range(belt.inner_au..belt.outer_au);
-        let eccentricity = rng.gen_range(0.0..0.2);
-        let inclination = belt.inclination + rng.gen_range(-0.05..0.05);
+        let semi_major_axis = rng.random_range(belt.inner_au..belt.outer_au);
+        let eccentricity = rng.random_range(0.0..0.2);
+        let inclination = belt.inclination + rng.random_range(-0.05..0.05);
 
         // Calculate orbital period using Kepler's third law
         let period_years = semi_major_axis.powf(1.5);
@@ -639,23 +639,23 @@ pub fn spawn_asteroid_belt(
             eccentricity,
             semi_major_axis,
             inclination,
-            rng.gen_range(0.0..std::f64::consts::TAU),
-            rng.gen_range(0.0..std::f64::consts::TAU),
-            rng.gen_range(0.0..std::f64::consts::TAU),
+            rng.random_range(0.0..std::f64::consts::TAU),
+            rng.random_range(0.0..std::f64::consts::TAU),
+            rng.random_range(0.0..std::f64::consts::TAU),
             mean_motion,
         );
 
         // Determine asteroid class (MType, SType, VType for inner belt)
-        let asteroid_class = if rng.gen_bool(0.3) {
+        let asteroid_class = if rng.random_bool(0.3) {
             AsteroidClass::MType // Metal-rich
-        } else if rng.gen_bool(0.6) {
+        } else if rng.random_bool(0.6) {
             AsteroidClass::SType // Silicate-rich
         } else {
             AsteroidClass::VType // Basaltic
         };
 
         // Random size (radius 0.1 - 15 km); most belt asteroids are small
-        let radius = rng.gen_range(0.1..15.0);
+        let radius = rng.random_range(0.1..15.0);
         // Rough mass estimate (density ~2500 kg/m³)
         let mass = (4.0 / 3.0) * std::f64::consts::PI * (radius as f64 * 1000.0).powi(3) * 2500.0;
 
@@ -715,9 +715,9 @@ pub fn spawn_cometary_cloud(
 
     for i in 0..cloud.count {
         // Random orbital parameters within the cloud (spherical distribution)
-        let semi_major_axis = rng.gen_range(cloud.inner_au..cloud.outer_au);
-        let eccentricity = rng.gen_range(0.3..0.9); // Highly eccentric
-        let inclination = rng.gen_range(0.0..std::f64::consts::PI); // Any inclination
+        let semi_major_axis = rng.random_range(cloud.inner_au..cloud.outer_au);
+        let eccentricity = rng.random_range(0.3..0.9); // Highly eccentric
+        let inclination = rng.random_range(0.0..std::f64::consts::PI); // Any inclination
 
         // Calculate orbital period using Kepler's third law
         let period_years = semi_major_axis.powf(1.5);
@@ -728,14 +728,14 @@ pub fn spawn_cometary_cloud(
             eccentricity,
             semi_major_axis,
             inclination,
-            rng.gen_range(0.0..std::f64::consts::TAU),
-            rng.gen_range(0.0..std::f64::consts::TAU),
-            rng.gen_range(0.0..std::f64::consts::TAU),
+            rng.random_range(0.0..std::f64::consts::TAU),
+            rng.random_range(0.0..std::f64::consts::TAU),
+            rng.random_range(0.0..std::f64::consts::TAU),
             mean_motion,
         );
 
         // Comets are small (0.5-10 km radius)
-        let radius = rng.gen_range(0.5..10.0);
+        let radius = rng.random_range(0.5..10.0);
         // Low density ice/rock (density ~500 kg/m³)
         let mass = (4.0 / 3.0) * std::f64::consts::PI * (radius as f64 * 1000.0).powi(3) * 500.0;
 
@@ -796,13 +796,13 @@ fn spawn_procedural_moons(
     // Determine moon count based on planet mass
     let moon_count = if planet_mass_earth > 50.0 {
         // Gas giants get many moons
-        rng.gen_range(3..=6)
+        rng.random_range(3..=6)
     } else if planet_mass_earth > 10.0 {
         // Sub-giants / ice giants
-        rng.gen_range(1..=4)
+        rng.random_range(1..=4)
     } else if planet_mass_earth > 0.5 {
         // Rocky planets may get 0-2 moons
-        rng.gen_range(0..=2_u32)
+        rng.random_range(0..=2_u32)
     } else {
         // Too small to retain moons
         return;
@@ -820,17 +820,17 @@ fn spawn_procedural_moons(
         // Moon orbital distance scales with planet mass (Hill sphere proxy)
         // Typical range: 0.001 - 0.01 AU from planet
         let base_distance = 0.001 + (i as f64) * 0.002;
-        let orbital_distance_au = base_distance * (1.0 + rng.gen_range(-0.3..0.3_f64));
+        let orbital_distance_au = base_distance * (1.0 + rng.random_range(-0.3..0.3_f64));
 
         // Moon mass: tiny fraction of planet mass, scaled by planet type
         // Real examples: Ganymede ~0.025% of Jupiter, Titan ~0.024% of Saturn,
         //                Earth's Moon ~1.2% of Earth
         let mass_fraction = if planet_mass_earth > 10.0 {
             // Gas/ice giants: moons are a much smaller fraction (0.001% - 0.05%)
-            rng.gen_range(0.00001..0.0005_f64)
+            rng.random_range(0.00001..0.0005_f64)
         } else {
             // Rocky planets: moons can be a larger fraction (0.01% - 1.5%)
-            rng.gen_range(0.0001..0.015_f64)
+            rng.random_range(0.0001..0.015_f64)
         };
         let moon_mass_earth = (planet_mass_earth as f64) * mass_fraction;
         let moon_mass_kg = moon_mass_earth * 5.972e24;
@@ -848,12 +848,12 @@ fn spawn_procedural_moons(
         let mean_motion = std::f64::consts::TAU / period_s;
 
         let orbit = KeplerOrbit::new(
-            rng.gen_range(0.0..0.05_f64),       // Low eccentricity
+            rng.random_range(0.0..0.05_f64),       // Low eccentricity
             orbital_distance_au,                 // SMA in AU
-            rng.gen_range(-0.05..0.05_f64),     // Near-coplanar
-            rng.gen_range(0.0..std::f64::consts::TAU),
-            rng.gen_range(0.0..std::f64::consts::TAU),
-            rng.gen_range(0.0..std::f64::consts::TAU),
+            rng.random_range(-0.05..0.05_f64),     // Near-coplanar
+            rng.random_range(0.0..std::f64::consts::TAU),
+            rng.random_range(0.0..std::f64::consts::TAU),
+            rng.random_range(0.0..std::f64::consts::TAU),
             mean_motion,
         );
 

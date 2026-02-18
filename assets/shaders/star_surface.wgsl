@@ -15,10 +15,10 @@
 
 #import bevy_pbr::mesh_view_bindings::view
 
-@group(2) @binding(0) var<uniform> color_center: vec4<f32>;
-@group(2) @binding(1) var<uniform> color_limb: vec4<f32>;
-@group(2) @binding(2) var star_texture: texture_2d<f32>;
-@group(2) @binding(3) var star_sampler: sampler;
+@group(3) @binding(0) var<uniform> color_center: vec4<f32>;
+@group(3) @binding(1) var<uniform> color_limb: vec4<f32>;
+@group(3) @binding(2) var star_texture: texture_2d<f32>;
+@group(3) @binding(3) var star_sampler: sampler;
 
 struct FragmentInput {
     @builtin(position) frag_coord: vec4<f32>,

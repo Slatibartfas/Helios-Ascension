@@ -1,7 +1,8 @@
 use bevy::prelude::*;
-use bevy::render::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
-use bevy::render::render_asset::RenderAssetUsages;
-use bevy::render::render_resource::{AsBindGroup, ShaderRef};
+use bevy::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
+use bevy::asset::RenderAssetUsages;
+use bevy::render::render_resource::AsBindGroup;
+use bevy::shader::ShaderRef;
 use rand::prelude::*;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
@@ -1516,13 +1517,13 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
         for _ in 0..num_layers {
             axes.push(
                 Vec3::new(
-                    rng.gen::<f32>() * 2.0 - 1.0,
-                    rng.gen::<f32>() * 2.0 - 1.0,
-                    rng.gen::<f32>() * 2.0 - 1.0,
+                    rng.random::<f32>() * 2.0 - 1.0,
+                    rng.random::<f32>() * 2.0 - 1.0,
+                    rng.random::<f32>() * 2.0 - 1.0,
                 )
                 .normalize_or_zero(),
             );
-            phases.push(rng.gen::<f32>() * std::f32::consts::TAU);
+            phases.push(rng.random::<f32>() * std::f32::consts::TAU);
         }
 
         // Determine roughness based on physical size

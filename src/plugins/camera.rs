@@ -1,5 +1,6 @@
 use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::prelude::*;
+use bevy::render::view::Hdr;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use crate::astronomy::components::CurrentStarSystem;
@@ -101,10 +102,7 @@ fn spawn_camera(mut commands: Commands) {
             far: 3_000_000.0, // Increased to comfortably render at max camera distance
             ..default()
         }),
-        Camera {
-            hdr: true,
-            ..default()
-        },
+        Hdr,
         GameCamera,
         CameraAnchor(None),
         OrbitCamera::default(),
@@ -128,8 +126,8 @@ fn orbit_camera_controls(
     mut contexts: EguiContexts,
     active_menu: Res<ActiveMenu>,
     mouse: Res<ButtonInput<MouseButton>>,
-    mut motion_events: EventReader<MouseMotion>,
-    mut scroll_events: EventReader<MouseWheel>,
+    mut motion_events: MessageReader<MouseMotion>,
+    mut scroll_events: MessageReader<MouseWheel>,
     mut query: Query<&mut OrbitCamera>,
     panel_bounds: Res<EguiPanelBounds>,
 ) {

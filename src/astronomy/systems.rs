@@ -432,8 +432,8 @@ fn create_tail_cone_mesh(
     base_color: Color,
     tip_color: Color,
 ) -> Mesh {
-    use bevy::render::mesh::{Indices, PrimitiveTopology};
-    use bevy::render::render_asset::RenderAssetUsages;
+    use bevy::mesh::{Indices, PrimitiveTopology};
+    use bevy::asset::RenderAssetUsages;
 
     let mut positions = Vec::new();
     let mut normals = Vec::new();

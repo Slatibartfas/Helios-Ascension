@@ -11,7 +11,7 @@
 // Applied to a larger billboard (visual_radius × 30) so the spikes extend well
 // beyond the corona.  LOD is handled by the Rust side.
 
-@group(2) @binding(0) var<uniform> color: vec4<f32>;
+@group(3) @binding(0) var<uniform> color: vec4<f32>;
 
 struct FragmentInput {
     @builtin(position) frag_coord: vec4<f32>,

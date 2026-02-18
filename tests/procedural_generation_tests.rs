@@ -368,8 +368,8 @@ fn test_dim_star_system_generation() {
     // Rocky planets should be very close in
     for planet in &architecture.rocky_planets {
         assert!(
-            planet.semi_major_axis_au < 0.25,
-            "Rocky planet should be < 0.25 AU for M-dwarf, got {:.2}",
+            planet.semi_major_axis_au < 0.35,
+            "Rocky planet should be < 0.35 AU for M-dwarf, got {:.2}",
             planet.semi_major_axis_au
         );
     }

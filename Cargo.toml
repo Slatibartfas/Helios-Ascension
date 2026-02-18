@@ -16,7 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 # Bevy game engine with optimized features
-bevy = { version = "0.16", features = [
+bevy = { version = "0.17", features = [
     "bevy_pbr",
     "bevy_render",
     "bevy_core_pipeline",
@@ -33,8 +33,8 @@ bevy = { version = "0.16", features = [
 ] }
 
 # Debug and development tools
-bevy-inspector-egui = "0.33"
-bevy_egui = { version = "0.36", features = ["render"] }
+bevy-inspector-egui = "0.34"
+bevy_egui = { version = "0.37", features = ["render"] }
 
 # Math and physics
 glam = "0.29"
@@ -44,7 +44,7 @@ serde = { version = "1.0", features = ["derive"] }
 ron = "0.8"
 
 # Random number generation for visual effects
-rand = "0.8"
+rand = "0.9"
 serde_json = "1.0.149"
 
 [profile.dev]

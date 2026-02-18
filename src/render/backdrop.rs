@@ -1,9 +1,10 @@
 use bevy::prelude::*;
-use bevy::render::mesh::MeshVertexBufferLayoutRef;
+use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::render::render_resource::{
-    AsBindGroup, Face, RenderPipelineDescriptor, ShaderRef, SpecializedMeshPipelineError,
+    AsBindGroup, Face, RenderPipelineDescriptor, SpecializedMeshPipelineError,
 };
-use bevy::render::view::RenderLayers;
+use bevy::shader::ShaderRef;
+use bevy::camera::visibility::RenderLayers;
 
 // Backdrop configuration constants
 // Keep backdrop radius below camera far plane (1_500_000.0) to avoid clipping
@@ -50,7 +51,7 @@ impl Material for SkyboxMaterial {
 
     // Override specialize to disable depth write and enable back-face rendering
     fn specialize(
-        _pipeline: &bevy::pbr::MaterialPipeline<Self>,
+        _pipeline: &bevy::pbr::MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
         _key: bevy::pbr::MaterialPipelineKey<Self>,
