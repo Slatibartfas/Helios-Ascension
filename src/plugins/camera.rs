@@ -1,6 +1,6 @@
 use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use crate::astronomy::components::CurrentStarSystem;
 use crate::astronomy::SCALING_FACTOR;
@@ -47,9 +47,12 @@ impl Plugin for CameraPlugin {
             .init_resource::<EguiPanelBounds>()
             .add_systems(Startup, spawn_camera)
             .add_systems(
+                EguiPrimaryContextPass,
+                orbit_camera_controls,
+            )
+            .add_systems(
                 Update,
                 (
-                    orbit_camera_controls,
                     update_camera_transform,
                     update_view_mode,
                 ),
@@ -116,7 +119,7 @@ pub fn capture_egui_panel_bounds(
     mut contexts: EguiContexts,
     mut bounds: ResMut<EguiPanelBounds>,
 ) {
-    if let Some(ctx) = contexts.try_ctx_mut() {
+    if let Ok(ctx) = contexts.ctx_mut() {
         bounds.available_rect = Some(ctx.available_rect());
     }
 }
@@ -130,7 +133,7 @@ fn orbit_camera_controls(
     mut query: Query<&mut OrbitCamera>,
     panel_bounds: Res<EguiPanelBounds>,
 ) {
-    let mut camera = query.single_mut();
+    let mut camera = query.single_mut().unwrap();
 
     // Block camera control when in full-screen UI modes (i.e. menus that block world interaction)
     if active_menu.current.blocks_world_interaction() {
@@ -140,7 +143,7 @@ fn orbit_camera_controls(
     }
 
     // Check if Egui wants the input (e.g. mouse over a floating window or an anchored panel)
-    if let Some(ctx) = contexts.try_ctx_mut() {
+    if let Ok(ctx) = contexts.ctx_mut() {
         let hover_pos = ctx.input(|i| i.pointer.hover_pos());
 
         // is_pointer_over_area() catches floating windows/popups.
@@ -185,7 +188,7 @@ fn update_camera_transform(
     mut camera_query: Query<(&mut Transform, &mut OrbitCamera, &CameraAnchor)>,
     target_query: Query<&GlobalTransform, Without<GameCamera>>,
 ) {
-    let (mut transform, mut orbit, anchor) = camera_query.single_mut();
+    let (mut transform, mut orbit, anchor) = camera_query.single_mut().unwrap();
 
     // Update target center if anchored
     if let Some(entity) = anchor.0 {
@@ -214,7 +217,7 @@ fn update_view_mode(
     system_metadata: Res<SystemMetadata>,
     mut view_mode: ResMut<ViewMode>,
 ) {
-    let Ok(orbit) = camera_query.get_single() else {
+    let Ok(orbit) = camera_query.single() else {
         return;
     };
 

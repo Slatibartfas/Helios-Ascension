@@ -115,7 +115,7 @@ fn update_backdrop_position(
     mut materials: ResMut<Assets<SkyboxMaterial>>,
 ) {
     if let (Ok((mut backdrop_transform, material_handle)), Ok((camera_transform, orbit_camera))) =
-        (backdrop_query.get_single_mut(), camera_query.get_single())
+        (backdrop_query.single_mut(), camera_query.single())
     {
         // Center backdrop on camera position
         backdrop_transform.translation = camera_transform.translation;

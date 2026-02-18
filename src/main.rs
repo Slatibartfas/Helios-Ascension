@@ -46,7 +46,7 @@ fn main() {
             ..default()
         }))
         // Debug UI (egui)
-        .add_plugins(EguiPlugin)
+        .add_plugins(EguiPlugin::default())
         // Game plugins - Order matters for dependencies
         .add_plugins(GameStatePlugin)
         .add_plugins(AstronomyPlugin)
@@ -74,6 +74,7 @@ fn setup(mut commands: Commands) {
     commands.insert_resource(AmbientLight {
         color: Color::srgb(0.9, 0.92, 1.0), // Neutral to slightly blue for space
         brightness: 30.0,
+        ..default()
     });
 
     // Set clear color to deep black for space

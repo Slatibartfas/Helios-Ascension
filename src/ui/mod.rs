@@ -9,7 +9,7 @@
 use bevy::prelude::*;
 use bevy::time::Real;
 use bevy::window::PrimaryWindow;
-use bevy_egui::{egui, EguiContexts};
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use bevy::asset::AssetServer;
 use bevy::asset::Handle;
 use bevy::image::Image;
@@ -126,7 +126,7 @@ fn process_menu_icons(mut menu_icons: ResMut<MenuIcons>, mut images: ResMut<Asse
         if let Some(image) = images.get_mut(&handle) {
             // Only handle 4-byte-per-pixel formats (assume RGBA8)
             let bytes_per_pixel = 4usize;
-            if image.data.len() != (image.texture_descriptor.size.width as usize)
+            if image.data.as_ref().unwrap().len() != (image.texture_descriptor.size.width as usize)
                 .saturating_mul(image.texture_descriptor.size.height as usize)
                 .saturating_mul(bytes_per_pixel)
             {
@@ -138,7 +138,7 @@ fn process_menu_icons(mut menu_icons: ResMut<MenuIcons>, mut images: ResMut<Asse
             // Iterate all pixels
             // Assumption: Input is Dark lines on White background
             // Goal: White/Theme lines on Transparent background
-            for chunk in image.data.chunks_exact_mut(bytes_per_pixel) {
+            for chunk in image.data.as_mut().unwrap().chunks_exact_mut(bytes_per_pixel) {
                 let r = chunk[0] as f32 / 255.0;
                 let g = chunk[1] as f32 / 255.0;
                 let b = chunk[2] as f32 / 255.0;
@@ -152,7 +152,7 @@ fn process_menu_icons(mut menu_icons: ResMut<MenuIcons>, mut images: ResMut<Asse
                 // Input range 0.0 .. 1.0
                 // We want > 0.9 to be 0 alpha
                 // We want < 0.5 to be 1 alpha (or close)
-                let alpha = (1.0 - luminance).powf(3.0); // Power curve to steepen the falloff
+                let alpha = (1.0_f32 - luminance).powf(3.0); // Power curve to steepen the falloff
                 
                 // Set pixel colour to pure white so it can be tinted by the UI
                 chunk[0] = 255;
@@ -223,7 +223,7 @@ fn process_research_icons(mut icons: ResMut<ResearchIcons>, mut images: ResMut<A
     for (category, handle) in to_process {
         if let Some(image) = images.get_mut(&handle) {
             let bytes_per_pixel = 4usize;
-            if image.data.len() != (image.texture_descriptor.size.width as usize)
+            if image.data.as_ref().unwrap().len() != (image.texture_descriptor.size.width as usize)
                 .saturating_mul(image.texture_descriptor.size.height as usize)
                 .saturating_mul(bytes_per_pixel)
             {
@@ -231,12 +231,12 @@ fn process_research_icons(mut icons: ResMut<ResearchIcons>, mut images: ResMut<A
                 continue;
             }
 
-            for chunk in image.data.chunks_exact_mut(bytes_per_pixel) {
+            for chunk in image.data.as_mut().unwrap().chunks_exact_mut(bytes_per_pixel) {
                 let r = chunk[0] as f32 / 255.0;
                 let g = chunk[1] as f32 / 255.0;
                 let b = chunk[2] as f32 / 255.0;
                 let luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-                let alpha = (1.0 - luminance).powf(3.0);
+                let alpha = (1.0_f32 - luminance).powf(3.0);
                 
                 chunk[0] = 255;
                 chunk[1] = 255;
@@ -636,7 +636,9 @@ fn setup_egui_fonts(mut contexts: EguiContexts) {
         ],
     );
         
-    contexts.ctx_mut().set_fonts(fonts);
+    if let Ok(ctx) = contexts.ctx_mut() {
+        ctx.set_fonts(fonts);
+    }
 }
 
 impl Plugin for UIPlugin {
@@ -662,7 +664,7 @@ impl Plugin for UIPlugin {
             //
             // Uses UiSystemSet to avoid Bevy's tuple type-complexity limit.
             .configure_sets(
-                Update,
+                EguiPrimaryContextPass,
                 (
                     UiSystemSet::TopBar,
                     UiSystemSet::MainPanels,
@@ -671,17 +673,17 @@ impl Plugin for UIPlugin {
                     .chain(),
             )
             .add_systems(
-                Update,
+                EguiPrimaryContextPass,
                 (ui_resources_bar, ui_top_menu_bar, ui_time_controls)
                     .chain()
                     .in_set(UiSystemSet::TopBar),
             )
-            .add_systems(Update, ui_dashboard.in_set(UiSystemSet::MainPanels))
-            .add_systems(Update, ui_research_panels.in_set(UiSystemSet::MainPanels))
-            .add_systems(Update, ui_construction_panels.in_set(UiSystemSet::MainPanels))
-            .add_systems(Update, ui_economy_panels.in_set(UiSystemSet::MainPanels))
+            .add_systems(EguiPrimaryContextPass, ui_dashboard.in_set(UiSystemSet::MainPanels))
+            .add_systems(EguiPrimaryContextPass, ui_research_panels.in_set(UiSystemSet::MainPanels))
+            .add_systems(EguiPrimaryContextPass, ui_construction_panels.in_set(UiSystemSet::MainPanels))
+            .add_systems(EguiPrimaryContextPass, ui_economy_panels.in_set(UiSystemSet::MainPanels))
             .add_systems(
-                Update,
+                EguiPrimaryContextPass,
                 (
                     ui_hover_tooltip,
                     ui_starmap_hover_tooltip,
@@ -705,7 +707,7 @@ impl Plugin for UIPlugin {
             // this frame. The camera system reads this next frame to detect panel bounds.
             // Must run in Update (inside egui's frame), not PostUpdate (context is closed).
             .add_systems(
-                Update,
+                EguiPrimaryContextPass,
                 capture_egui_panel_bounds.after(UiSystemSet::Overlays),
             );
     }
@@ -717,7 +719,7 @@ fn sync_selection_with_astronomy(
     selected_query: Query<Entity, (With<Selected>, With<CelestialBody>)>,
 ) {
     // If something is selected in astronomy, update UI selection
-    if let Ok(entity) = selected_query.get_single() {
+    if let Ok(entity) = selected_query.single() {
         if !selection.is_selected(entity) {
             selection.select(entity);
         }
@@ -860,9 +862,9 @@ fn ui_resources_bar(
     time: Res<Time<Real>>,
     ui_prefs: Res<ResearchUiPreferences>,
 ) {
-    let ctx = match contexts.try_ctx_mut() {
-        Some(ctx) => ctx,
-        None => return,
+    let ctx = match contexts.ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
     };
 
     // Calculate total population
@@ -889,8 +891,8 @@ fn ui_resources_bar(
                     let is_this_open = open_popup.open.as_ref().map_or(false, |(n, _)| n == category_name);
 
                     // Use a Frame for the category display
-                    let response = egui::Frame::none()
-                        .inner_margin(egui::Margin::symmetric(3.0, 2.0))
+                    let response = egui::Frame::NONE
+                        .inner_margin(egui::Margin::symmetric(3, 2))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
                                 ui.add(egui::Label::new(egui::RichText::new(icon).size(20.0).color(color)).selectable(false));
@@ -909,7 +911,7 @@ fn ui_resources_bar(
 
                     // Hover and open-state border effect
                     if interact.hovered() || is_this_open {
-                        ui.painter().rect_stroke(interact.rect, 2.0, egui::Stroke::new(1.0, color));
+                        ui.painter().rect_stroke(interact.rect, 2.0, egui::Stroke::new(1.0, color), egui::StrokeKind::Outside);
                         interact.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
                     }
 
@@ -948,8 +950,8 @@ fn ui_resources_bar(
                     
                     let border_color = if flash > 0.5 { warning_color } else { egui::Color32::TRANSPARENT };
 
-                    let response = egui::Frame::none()
-                        .inner_margin(egui::Margin::symmetric(3.0, 2.0))
+                    let response = egui::Frame::NONE
+                        .inner_margin(egui::Margin::symmetric(3, 2))
                         .stroke(egui::Stroke::new(if flash > 0.0 { 2.0 } else { 0.0 }, border_color))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
@@ -982,7 +984,7 @@ fn ui_resources_bar(
 
                     let interact = response.interact(egui::Sense::click());
                     if interact.hovered() || is_rp_open {
-                        ui.painter().rect_stroke(interact.rect, 2.0, egui::Stroke::new(1.0, rp_color));
+                        ui.painter().rect_stroke(interact.rect, 2.0, egui::Stroke::new(1.0, rp_color), egui::StrokeKind::Outside);
                         interact.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
                     }
 
@@ -1022,8 +1024,8 @@ fn ui_resources_bar(
                     
                     let border_color = if flash > 0.5 { warning_color } else { egui::Color32::TRANSPARENT };
 
-                    let response = egui::Frame::none()
-                        .inner_margin(egui::Margin::symmetric(3.0, 2.0))
+                    let response = egui::Frame::NONE
+                        .inner_margin(egui::Margin::symmetric(3, 2))
                         .stroke(egui::Stroke::new(if flash > 0.0 { 2.0 } else { 0.0 }, border_color))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
@@ -1054,7 +1056,7 @@ fn ui_resources_bar(
 
                     let interact = response.interact(egui::Sense::click());
                     if interact.hovered() || is_ep_open {
-                        ui.painter().rect_stroke(interact.rect, 2.0, egui::Stroke::new(1.0, ep_color));
+                        ui.painter().rect_stroke(interact.rect, 2.0, egui::Stroke::new(1.0, ep_color), egui::StrokeKind::Outside);
                         interact.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
                     }
                     
@@ -1104,8 +1106,8 @@ fn ui_resources_bar(
                         .map_or(false, |(n, _)| n == "Power");
 
                     // Power generation display (clickable with tooltip)
-                    let response = egui::Frame::none()
-                        .inner_margin(egui::Margin::symmetric(3.0, 2.0))
+                    let response = egui::Frame::NONE
+                        .inner_margin(egui::Margin::symmetric(3, 2))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
                                 ui.set_min_width(82.0);  // Fixed width to prevent wiggling
@@ -1130,7 +1132,7 @@ fn ui_resources_bar(
 
                     if interact.hovered() || is_power_open {
                         ui.painter()
-                            .rect_stroke(interact.rect, 2.0, egui::Stroke::new(1.0, power_color));
+                            .rect_stroke(interact.rect, 2.0, egui::Stroke::new(1.0, power_color), egui::StrokeKind::Outside);
                         interact
                             .clone()
                             .on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -1159,8 +1161,8 @@ fn ui_resources_bar(
                         .as_ref()
                         .map_or(false, |(n, _)| n == "Treasury");
 
-                    let treasury_response = egui::Frame::none()
-                        .inner_margin(egui::Margin::symmetric(3.0, 2.0))
+                    let treasury_response = egui::Frame::NONE
+                        .inner_margin(egui::Margin::symmetric(3, 2))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
                                 ui.add(
@@ -1214,6 +1216,7 @@ fn ui_resources_bar(
                             treasury_interact.rect,
                             2.0,
                             egui::Stroke::new(1.0, treasury_color),
+                            egui::StrokeKind::Outside,
                         );
                         treasury_interact
                             .clone()
@@ -1238,8 +1241,8 @@ fn ui_resources_bar(
                         .map_or(false, |(n, _)| n == "Population");
 
                     // Use a Frame for the population display
-                    let pop_response = egui::Frame::none()
-                        .inner_margin(egui::Margin::symmetric(3.0, 2.0))
+                    let pop_response = egui::Frame::NONE
+                        .inner_margin(egui::Margin::symmetric(3, 2))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
                                 ui.set_min_width(68.0);  // Fixed width to prevent wiggling
@@ -1271,6 +1274,7 @@ fn ui_resources_bar(
                             pop_interact.rect,
                             2.0,
                             egui::Stroke::new(1.0, egui::Color32::WHITE),
+                            egui::StrokeKind::Outside,
                         );
                         pop_interact
                             .clone()
@@ -1897,9 +1901,9 @@ fn ui_top_menu_bar(
         base_threshold.max(MIN_STARMAP_THRESHOLD) * 1.5
     };
 
-    let ctx = match contexts.try_ctx_mut() {
-        Some(ctx) => ctx,
-        None => return,
+    let ctx = match contexts.ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
     };
 
     if pending_research.navigate_to_available_tab
@@ -1938,7 +1942,7 @@ fn ui_top_menu_bar(
                             // Highlight active menu by drawing a subtle stroke around the widget
                             if is_active {
                                 let rect = resp.rect;
-                                ui.painter().rect_stroke(rect, 4.0, egui::Stroke::new(2.0, egui::Color32::from_rgb(100, 200, 255)));
+                                ui.painter().rect_stroke(rect, 4.0, egui::Stroke::new(2.0, egui::Color32::from_rgb(100, 200, 255)), egui::StrokeKind::Outside);
                             }
 
                             let resp = resp.on_hover_text(menu.name());
@@ -1947,7 +1951,7 @@ fn ui_top_menu_bar(
                                 match menu {
                                     GameMenu::Starmap => {
                                         *view_mode = ViewMode::Starmap;
-                                        if let Ok((mut orbit, mut anchor)) = camera_query.get_single_mut() {
+                                        if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
                                             orbit.radius = starmap_radius;
                                             orbit.target_center = Vec3::ZERO;
                                             anchor.0 = None;
@@ -1955,7 +1959,7 @@ fn ui_top_menu_bar(
                                     }
                                     GameMenu::Survey => {
                                         *view_mode = ViewMode::System;
-                                        if let Ok((mut orbit, mut anchor)) = camera_query.get_single_mut() {
+                                        if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
                                             // If not anchored, try anchoring to the selected star system
                                             if anchor.0.is_none() {
                                                 if let Some((sel_entity, _)) = star_icon_query.iter().find(|(_, sel)| sel.is_some()) {
@@ -1992,7 +1996,7 @@ fn ui_top_menu_bar(
                                 match menu {
                                     GameMenu::Starmap => {
                                         *view_mode = ViewMode::Starmap;
-                                        if let Ok((mut orbit, mut anchor)) = camera_query.get_single_mut() {
+                                        if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
                                             orbit.radius = starmap_radius;
                                             orbit.target_center = Vec3::ZERO;
                                             anchor.0 = None;
@@ -2000,7 +2004,7 @@ fn ui_top_menu_bar(
                                     }
                                     GameMenu::Survey => {
                                         *view_mode = ViewMode::System;
-                                        if let Ok((mut orbit, mut anchor)) = camera_query.get_single_mut() {
+                                        if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
                                             if anchor.0.is_none() {
                                                 if let Some((sel_entity, _)) = star_icon_query.iter().find(|(_, sel)| sel.is_some()) {
                                                     anchor.0 = Some(sel_entity);
@@ -2036,7 +2040,7 @@ fn ui_top_menu_bar(
                             match menu {
                                 GameMenu::Starmap => {
                                     *view_mode = ViewMode::Starmap;
-                                    if let Ok((mut orbit, mut anchor)) = camera_query.get_single_mut() {
+                                    if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
                                         orbit.radius = starmap_radius;
                                         orbit.target_center = Vec3::ZERO;
                                         anchor.0 = None;
@@ -2044,7 +2048,7 @@ fn ui_top_menu_bar(
                                 }
                                 GameMenu::Survey => {
                                     *view_mode = ViewMode::System;
-                                    if let Ok((mut orbit, mut anchor)) = camera_query.get_single_mut() {
+                                    if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
                                         if anchor.0.is_none() {
                                             if let Some((sel_entity, _)) = star_icon_query.iter().find(|(_, sel)| sel.is_some()) {
                                                 anchor.0 = Some(sel_entity);
@@ -2079,12 +2083,12 @@ fn ui_starmap_labels(
         return;
     }
 
-    let Ok((camera, camera_transform)) = camera_query.get_single() else {
+    let Ok((camera, camera_transform)) = camera_query.single() else {
         return;
     };
 
-    // Use try_ctx_mut to safely handle context access
-    let Some(ctx) = contexts.try_ctx_mut() else {
+    // Use ctx_mut to safely handle context access
+    let Ok(ctx) = contexts.ctx_mut() else {
         return;
     };
 
@@ -2181,7 +2185,7 @@ fn render_body_row(
             selection.select(entity);
 
             // Anchor the camera
-            if let Ok(mut anchor) = anchor_query.get_single_mut() {
+            if let Ok(mut anchor) = anchor_query.single_mut() {
                 anchor.0 = Some(entity);
             }
         }
@@ -2298,7 +2302,7 @@ fn render_body_tree(
                     selection.select(entity);
 
                     // Anchor the camera
-                    if let Ok(mut anchor) = anchor_query.get_single_mut() {
+                    if let Ok(mut anchor) = anchor_query.single_mut() {
                         anchor.0 = Some(entity);
                     }
                 }
@@ -2415,13 +2419,13 @@ fn ui_hover_tooltip(
         return;
     }
 
-    let ctx = match contexts.try_ctx_mut() {
-        Some(ctx) => ctx,
-        None => return,
+    let ctx = match contexts.ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
     };
 
     // Display hover tooltip if a body is hovered
-    if let Ok(body) = hovered_query.get_single() {
+    if let Ok(body) = hovered_query.single() {
         // Anchor the tooltip near the mouse pointer so it appears over the 3D view
         let available_rect = ctx.available_rect();
         let tooltip_pos = ctx
@@ -2436,7 +2440,7 @@ fn ui_hover_tooltip(
             .constrain_to(available_rect)
             .show(ctx, |ui| {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-                egui::Frame::none()
+                egui::Frame::NONE
                     .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 30, 240))
                     .stroke(egui::Stroke::new(
                         2.0,
@@ -2484,13 +2488,13 @@ fn ui_starmap_hover_tooltip(
         return;
     }
 
-    let ctx = match contexts.try_ctx_mut() {
-        Some(ctx) => ctx,
-        None => return,
+    let ctx = match contexts.ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
     };
 
     // Display hover tooltip if a star system is hovered
-    if let Ok(icon) = hovered_query.get_single() {
+    if let Ok(icon) = hovered_query.single() {
         // Anchor the tooltip near the mouse pointer
         let available_rect = ctx.available_rect();
         let tooltip_pos = ctx
@@ -2514,7 +2518,7 @@ fn ui_starmap_hover_tooltip(
             .constrain_to(available_rect)
             .show(ctx, |ui| {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-                egui::Frame::none()
+                egui::Frame::NONE
                     .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 30, 240))
                     .stroke(egui::Stroke::new(
                         2.0,
@@ -2660,9 +2664,9 @@ fn ui_dashboard(
     star_system_query: Query<(Entity, &StarSystemIcon, Option<&SelectedStarSystem>)>,
     mut anchor_query: Query<&mut CameraAnchor, With<GameCamera>>,
 ) {
-    let ctx = match contexts.try_ctx_mut() {
-        Some(ctx) => ctx,
-        None => return,
+    let ctx = match contexts.ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
     };
 
     if active_menu.current == GameMenu::Research
@@ -2700,7 +2704,7 @@ fn ui_dashboard(
                                     commands.entity(entity).insert(SelectedStarSystem);
 
                                     // Anchor camera to this system
-                                    if let Ok(mut anchor) = anchor_query.get_single_mut() {
+                                    if let Ok(mut anchor) = anchor_query.single_mut() {
                                         anchor.0 = Some(entity);
                                         info!("Selected and anchored to {}", icon.name);
                                     }
@@ -3289,9 +3293,9 @@ fn ui_time_controls(
     sim_time: Res<SimulationTime>,
     view_mode: Res<ViewMode>,
 ) {
-    let ctx = match contexts.try_ctx_mut() {
-        Some(ctx) => ctx,
-        None => return,
+    let ctx = match contexts.ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
     };
 
     egui::TopBottomPanel::bottom("time_controls")
@@ -3618,9 +3622,9 @@ fn ui_research_panels(
         debug_settings.enabled = !debug_settings.enabled;
     }
 
-    let ctx = match contexts.try_ctx_mut() {
-        Some(ctx) => ctx,
-        None => return,
+    let ctx = match contexts.ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
     };
 
     // Add Modifier Dialog (separate window)
@@ -4166,7 +4170,7 @@ fn render_tech_tree_tab(
             egui::Vec2::new(total_tier_width + pane_pad * 2.0, band.height),
         );
         painter.rect_filled(pane_rect, pane_rounding, bg_color);
-        painter.rect_stroke(pane_rect, pane_rounding, egui::Stroke::new(1.0 * zoom, border_color));
+        painter.rect_stroke(pane_rect, pane_rounding, egui::Stroke::new(1.0 * zoom, border_color), egui::StrokeKind::Outside);
         
         // Category label on the left: icon + stacked word lines
         let cat_icon = band.category.icon();
@@ -4353,6 +4357,7 @@ fn render_tech_tree_tab(
                 node_rect,
                 rounding,
                 egui::Stroke::new(border_w, category_color),
+                egui::StrokeKind::Outside,
             );
             
             // --- row 1: icon + name (left-aligned) ---
@@ -4771,7 +4776,7 @@ fn render_tech_tree_tab(
         egui::Pos2::new(avail.min.x, avail.max.y - status_height),
         avail.max,
     );
-    ui.allocate_new_ui(egui::UiBuilder::new().max_rect(status_rect), |ui| {
+    ui.scope_builder(egui::UiBuilder::new().max_rect(status_rect), |ui| {
         ui.horizontal(|ui| {
             ui.label("Status:");
             ui.colored_label(egui::Color32::from_rgb(50, 200, 50), "● Unlocked");
@@ -5844,11 +5849,11 @@ fn render_bonuses_tab(
                 .order(egui::Order::Tooltip)
                 .interactable(true)
                 .show(ui.ctx(), |ui| {
-                    egui::Frame::none()
+                    egui::Frame::NONE
                         .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 35, 245))
                         .stroke(egui::Stroke::new(border_width, border_color))
                         .inner_margin(10.0)
-                        .rounding(4.0)
+                        .corner_radius(4.0)
                         .show(ui, |ui| {
                             ui.set_max_width(280.0);
                             render_bonus_detail_content(
@@ -6059,9 +6064,9 @@ fn ui_construction_panels(
         debug_settings.enabled = !debug_settings.enabled;
     }
 
-    let ctx = match contexts.try_ctx_mut() {
-        Some(ctx) => ctx,
-        None => return,
+    let ctx = match contexts.ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
     };
 
     egui::CentralPanel::default().show(ctx, |ui| {
@@ -6810,9 +6815,9 @@ fn ui_economy_panels(
         return;
     }
 
-    let ctx = match contexts.try_ctx_mut() {
-        Some(ctx) => ctx,
-        None => return,
+    let ctx = match contexts.ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
     };
 
     let hierarchy = build_economy_hierarchy(&body_query, &star_query);
@@ -7769,7 +7774,7 @@ fn check_window_resolution(
     windows: Query<&Window, With<PrimaryWindow>>,
     mut warning: ResMut<ResolutionWarning>,
 ) {
-    if let Ok(window) = windows.get_single() {
+    if let Ok(window) = windows.single() {
         if window.width() < MIN_WINDOW_WIDTH || window.height() < MIN_WINDOW_HEIGHT {
             warning.should_show = true;
         }
@@ -7787,13 +7792,13 @@ fn ui_resolution_warning(
         return;
     }
 
-    let ctx = match contexts.try_ctx_mut() {
-        Some(ctx) => ctx,
-        None => return,
+    let ctx = match contexts.ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
     };
     
     // Get current window size for display
-    let (current_width, current_height) = if let Ok(window) = windows.get_single() {
+    let (current_width, current_height) = if let Ok(window) = windows.single() {
         (window.width(), window.height())
     } else {
         return;

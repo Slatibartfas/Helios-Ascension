@@ -111,7 +111,7 @@ fn setup_starfield(
 
 /// Setup camera effects for better space atmosphere
 fn setup_camera_effects(mut commands: Commands, camera_query: Query<Entity, With<Camera3d>>) {
-    if let Ok(camera_entity) = camera_query.get_single() {
+    if let Ok(camera_entity) = camera_query.single() {
         // Add bloom effect for bright objects (stars, sun) — tuned for subtle, realistic corona
         commands.entity(camera_entity).insert((
             Bloom {

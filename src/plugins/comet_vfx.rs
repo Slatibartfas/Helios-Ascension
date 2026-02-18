@@ -29,7 +29,7 @@ fn cleanup_legacy_tails(
     query: Query<Entity, With<CometTail>>,
 ) {
     for entity in query.iter() {
-        commands.entity(entity).despawn_recursive();
+        commands.entity(entity).despawn();
     }
 }
 

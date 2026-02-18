@@ -13,6 +13,7 @@
 
 use bevy::math::DVec3;
 use bevy::prelude::*;
+use bevy_egui::EguiPrimaryContextPass;
 use bevy::window::PrimaryWindow;
 use bevy_egui::egui;
 use std::collections::HashMap;
@@ -82,6 +83,12 @@ impl Plugin for StarmapPlugin {
                     update_starmap_visibility.after(handle_system_transition),
                     update_starmap_icon_scale,
                     update_starmap_coordinates,
+                ),
+            )
+            // Starmap hover/selection systems use EguiContexts — must run in EguiPrimaryContextPass
+            .add_systems(
+                EguiPrimaryContextPass,
+                (
                     handle_starmap_hover,
                     handle_starmap_selection,
                 ),
@@ -500,7 +507,7 @@ fn toggle_system_view_entities(
     current_system: Res<CurrentStarSystem>,
     mut body_query: Query<(&mut Visibility, Option<&SystemId>), With<CelestialBody>>,
     mut light_query: Query<
-        (&mut Visibility, Option<&SystemId>, Option<&Parent>),
+        (&mut Visibility, Option<&SystemId>, Option<&ChildOf>),
         (
             With<PointLight>,
             Without<CelestialBody>,
@@ -540,7 +547,7 @@ fn toggle_system_view_entities(
                 let id = if let Some(s) = sys_id {
                     s.0
                 } else if let Some(parent) = parent {
-                    parent_sys_query.get(parent.get()).map(|s| s.0).unwrap_or(0)
+                    parent_sys_query.get(parent.parent()).map(|s| s.0).unwrap_or(0)
                 } else {
                     0
                 };
@@ -650,7 +657,7 @@ fn update_starmap_icon_scale(
     camera_query: Query<&OrbitCamera, With<GameCamera>>,
     mut icon_query: Query<(&mut Transform, &StarSystemIcon)>,
 ) {
-    let Ok(orbit) = camera_query.get_single() else {
+    let Ok(orbit) = camera_query.single() else {
         return;
     };
 
@@ -703,9 +710,9 @@ fn handle_starmap_hover(
     }
 
     // Don't process if egui is using the mouse / pointer is over a UI panel
-    let ctx = match egui_contexts.try_ctx_mut() {
-        Some(ctx) => ctx,
-        None => return,
+    let ctx = match egui_contexts.ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
     };
     {
         let hover_pos = ctx.input(|i| i.pointer.hover_pos());
@@ -723,11 +730,11 @@ fn handle_starmap_hover(
         }
     }
 
-    let Ok(window) = windows.get_single() else {
+    let Ok(window) = windows.single() else {
         return;
     };
 
-    let Ok((camera, camera_transform)) = camera_query.get_single() else {
+    let Ok((camera, camera_transform)) = camera_query.single() else {
         return;
     };
 
@@ -819,7 +826,7 @@ fn handle_starmap_selection(
     }
 
     // Set cursor to default arrow to prevent text selection cursor
-    if let Some(ctx) = egui_contexts.try_ctx_mut() {
+    if let Ok(ctx) = egui_contexts.ctx_mut() {
         let hover_pos = ctx.input(|i| i.pointer.hover_pos());
         let over_panel = if let Some(available) = panel_bounds.available_rect {
             hover_pos.map_or(false, |p| !available.contains(p))
@@ -837,7 +844,7 @@ fn handle_starmap_selection(
     }
 
     // Don't process if egui is using the mouse / pointer is over a UI panel
-    let Some(ctx) = egui_contexts.try_ctx_mut() else {
+    let Ok(ctx) = egui_contexts.ctx_mut() else {
         return;
     };
     {
@@ -852,11 +859,11 @@ fn handle_starmap_selection(
         }
     }
 
-    let Ok(window) = windows.get_single() else {
+    let Ok(window) = windows.single() else {
         return;
     };
 
-    let Ok((camera, camera_transform)) = camera_query.get_single() else {
+    let Ok((camera, camera_transform)) = camera_query.single() else {
         return;
     };
 
@@ -914,13 +921,13 @@ fn handle_starmap_selection(
             info!("Double-clicked star system: {} - zooming in", name);
 
             // Anchor camera to this system icon's position
-            if let Ok(mut anchor) = anchor_query.get_single_mut() {
+            if let Ok(mut anchor) = anchor_query.single_mut() {
                 anchor.0 = Some(entity);
                 info!("Camera anchored to {}", name);
             }
 
             // Set zoom to medium level (150k units for comfortable view)
-            if let Ok(mut orbit_camera) = orbit_camera_query.get_single_mut() {
+            if let Ok(mut orbit_camera) = orbit_camera_query.single_mut() {
                 orbit_camera.radius = 150_000.0;
             }
         } else {
@@ -959,7 +966,7 @@ fn handle_system_transition(
     }
 
     // Identify which star we are anchored to
-    if let Ok(mut anchor) = anchor_query.get_single_mut() {
+    if let Ok(mut anchor) = anchor_query.single_mut() {
         if let Some(anchored_entity) = anchor.0 {
             // Check if the anchored entity is a star system icon
             if let Ok(icon) = icon_query.get(anchored_entity) {
@@ -986,7 +993,7 @@ fn handle_system_transition(
                 // Reset OrbitCamera target center to (0,0,0) explicitly
                 // This ensures we are looking at the star (which is at local 0,0,0)
                 // disregarding any previous starmap-space offset
-                if let Ok(mut orbit_camera) = camera_query.get_single_mut() {
+                if let Ok(mut orbit_camera) = camera_query.single_mut() {
                     orbit_camera.target_center = Vec3::ZERO;
                 }
             }

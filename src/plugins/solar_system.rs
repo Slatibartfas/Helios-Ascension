@@ -134,16 +134,16 @@ pub struct StarDiffraction {
 }
 
 fn update_billboards(
-    mut query: Query<(&mut Transform, &GlobalTransform, &Parent), With<Billboard>>,
+    mut query: Query<(&mut Transform, &GlobalTransform, &ChildOf), With<Billboard>>,
     parent_query: Query<&GlobalTransform, Without<Billboard>>,
     camera_query: Query<&GlobalTransform, With<Camera3d>>,
 ) {
-    if let Ok(camera_global_transform) = camera_query.get_single() {
+    if let Ok(camera_global_transform) = camera_query.single() {
         let camera_pos = camera_global_transform.translation();
         for (mut transform, _global, parent) in query.iter_mut() {
             // Compute the billboard's world position from its parent
             let parent_global = parent_query
-                .get(parent.get())
+                .get(parent.parent())
                 .map(|g| g.compute_transform())
                 .unwrap_or_default();
 
@@ -198,7 +198,7 @@ fn update_star_glare_lod(
     mut glare_query: Query<(&GlobalTransform, &MeshMaterial3d<StarGlowMaterial>, &StarGlare)>,
     mut materials: ResMut<Assets<StarGlowMaterial>>,
 ) {
-    if let Ok(cam_transform) = camera_query.get_single() {
+    if let Ok(cam_transform) = camera_query.single() {
         let cam_pos = cam_transform.translation();
 
         for (glare_transform, mat_handle, glare_data) in glare_query.iter_mut() {
@@ -243,7 +243,7 @@ fn update_star_diffraction_lod(
     mut diffraction_query: Query<(&GlobalTransform, &MeshMaterial3d<StarDiffractionMaterial>, &StarDiffraction)>,
     mut materials: ResMut<Assets<StarDiffractionMaterial>>,
 ) {
-    if let Ok(cam_transform) = camera_query.get_single() {
+    if let Ok(cam_transform) = camera_query.single() {
         let cam_pos = cam_transform.translation();
 
         for (diff_transform, mat_handle, diff_data) in diffraction_query.iter_mut() {
@@ -1108,7 +1108,7 @@ pub fn setup_solar_system(
                     // Moons and planets use world-space coordinates so that the
                     // parent planet's spin rotation does NOT drag moon positions
                     if body_data.body_type == BodyType::Ring {
-                        commands.entity(*entity).set_parent(*parent_entity);
+                        commands.entity(*entity).insert(ChildOf(*parent_entity));
                     }
                 } else {
                     warn!(
@@ -1425,7 +1425,7 @@ fn initial_camera_focus(
         .map(|(e, _)| e);
 
     if let Some(sol) = sol_entity {
-        if let Ok(mut anchor) = query_camera.get_single_mut() {
+        if let Ok(mut anchor) = query_camera.single_mut() {
             if anchor.0.is_none() {
                 info!("Setting initial camera focus to Sol");
                 anchor.0 = Some(sol);
