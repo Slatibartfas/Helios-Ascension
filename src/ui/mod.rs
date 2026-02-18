@@ -12,7 +12,7 @@ use bevy::window::PrimaryWindow;
 use bevy_egui::{egui, EguiContexts};
 use bevy::asset::AssetServer;
 use bevy::asset::Handle;
-use bevy::render::texture::Image;
+use bevy::image::Image;
 use std::collections::HashMap;
 
 pub mod interaction;
@@ -549,42 +549,42 @@ fn setup_egui_fonts(mut contexts: EguiContexts) {
     // Load primary fonts
     fonts.font_data.insert(
         "Inter-Regular".to_owned(),
-        egui::FontData::from_static(include_bytes!("../../assets/fonts/Inter-Regular.otf")),
+        egui::FontData::from_static(include_bytes!("../../assets/fonts/Inter-Regular.otf")).into(),
     );
     fonts.font_data.insert(
         "Inter-SemiBold".to_owned(),
-        egui::FontData::from_static(include_bytes!("../../assets/fonts/Inter-SemiBold.otf")),
+        egui::FontData::from_static(include_bytes!("../../assets/fonts/Inter-SemiBold.otf")).into(),
     );
     fonts.font_data.insert(
         "Inter-Bold".to_owned(),
-        egui::FontData::from_static(include_bytes!("../../assets/fonts/Inter-Bold.otf")),
+        egui::FontData::from_static(include_bytes!("../../assets/fonts/Inter-Bold.otf")).into(),
     );
     fonts.font_data.insert(
         "GeistMono-Medium".to_owned(),
-        egui::FontData::from_static(include_bytes!("../../assets/fonts/GeistMono-Medium.ttf")),
+        egui::FontData::from_static(include_bytes!("../../assets/fonts/GeistMono-Medium.ttf")).into(),
     );
     fonts.font_data.insert(
         "HackNerdFont".to_owned(),
-        egui::FontData::from_static(include_bytes!("../../assets/fonts/HackNerdFont-Regular.ttf")),
+        egui::FontData::from_static(include_bytes!("../../assets/fonts/HackNerdFont-Regular.ttf")).into(),
     );
     // Hubot Sans for Headers
     fonts.font_data.insert(
         "Hubot-Sans-ExtraBoldExpanded".to_owned(),
-        egui::FontData::from_static(include_bytes!("../../assets/fonts/Hubot-Sans-ExtraBoldExpanded.ttf")),
+        egui::FontData::from_static(include_bytes!("../../assets/fonts/Hubot-Sans-ExtraBoldExpanded.ttf")).into(),
     );
     fonts.font_data.insert(
         "Hubot-Sans-SemiBoldCondensed".to_owned(),
-        egui::FontData::from_static(include_bytes!("../../assets/fonts/Hubot-Sans-SemiBoldCondensed.ttf")),
+        egui::FontData::from_static(include_bytes!("../../assets/fonts/Hubot-Sans-SemiBoldCondensed.ttf")).into(),
     );
     // Noto Emoji for broad monochrome emoji coverage (Unicode 15+)
     fonts.font_data.insert(
         "NotoEmoji".to_owned(),
-        egui::FontData::from_static(include_bytes!("../../assets/fonts/NotoEmoji-Regular.ttf")),
+        egui::FontData::from_static(include_bytes!("../../assets/fonts/NotoEmoji-Regular.ttf")).into(),
     );
     // Noto Sans Symbols 2 for astronomical (☉), geometric, and misc symbols
     fonts.font_data.insert(
         "NotoSansSymbols2".to_owned(),
-        egui::FontData::from_static(include_bytes!("../../assets/fonts/NotoSansSymbols2-Regular.ttf")),
+        egui::FontData::from_static(include_bytes!("../../assets/fonts/NotoSansSymbols2-Regular.ttf")).into(),
     );
 
     // Setup font families with Inter as primary, HackNerdFont as fallback for icons
@@ -765,7 +765,7 @@ fn advance_simulation_time(
     time_scale: Res<TimeScale>,
     mut sim_time: ResMut<SimulationTime>,
 ) {
-    let real_delta = real_time.delta_seconds_f64();
+    let real_delta = real_time.delta_secs_f64();
     sim_time.elapsed += real_delta * time_scale.scale as f64;
 }
 
@@ -941,7 +941,7 @@ fn ui_resources_bar(
                     
                     // Warning flash
                     let flash = if !has_active_rp && ui_prefs.show_inactive_warning {
-                        (time.elapsed_seconds() * 5.0).sin().abs() as f32
+                        (time.elapsed_secs() * 5.0).sin().abs() as f32
                     } else {
                         0.0
                     };
@@ -1015,7 +1015,7 @@ fn ui_resources_bar(
 
                     // Warning flash
                     let flash = if !has_active_ep && ui_prefs.show_inactive_warning {
-                        (time.elapsed_seconds() * 5.0).sin().abs() as f32
+                        (time.elapsed_secs() * 5.0).sin().abs() as f32
                     } else {
                         0.0
                     };
@@ -2107,7 +2107,7 @@ fn ui_starmap_labels(
         let icon_pos = icon_transform.translation();
 
         // Project 3D position to screen space
-        if let Some(screen_pos) = camera.world_to_viewport(camera_transform, icon_pos) {
+        if let Ok(screen_pos) = camera.world_to_viewport(camera_transform, icon_pos) {
             let label_pos = egui::pos2(screen_pos.x + 20.0, screen_pos.y - 10.0);
 
             // Skip if the anchor is clearly off-screen (painter clip handles edge overflow)
@@ -2683,7 +2683,7 @@ fn ui_dashboard(
                     ui.separator();
 
                     egui::ScrollArea::vertical()
-                        .id_source("starmap_ledger_scroll")
+                        .id_salt("starmap_ledger_scroll")
                         .show(ui, |ui| {
                             for (entity, icon, is_selected) in star_system_query.iter() {
                                 let response =
@@ -2714,7 +2714,7 @@ fn ui_dashboard(
                     ui.separator();
 
                     egui::ScrollArea::vertical()
-                        .id_source("ledger_scroll")
+                        .id_salt("ledger_scroll")
                         .show(ui, |ui| {
                             let mut hierarchy: std::collections::HashMap<Entity, Vec<Entity>> =
                                 std::collections::HashMap::new();
@@ -4771,7 +4771,7 @@ fn render_tech_tree_tab(
         egui::Pos2::new(avail.min.x, avail.max.y - status_height),
         avail.max,
     );
-    ui.allocate_ui_at_rect(status_rect, |ui| {
+    ui.allocate_new_ui(egui::UiBuilder::new().max_rect(status_rect), |ui| {
         ui.horizontal(|ui| {
             ui.label("Status:");
             ui.colored_label(egui::Color32::from_rgb(50, 200, 50), "● Unlocked");
@@ -4866,7 +4866,7 @@ fn render_tech_edit_dialog(
                                 // Category
                                 ui.label("Category:");
                                 let categories = TechCategory::all();
-                                egui::ComboBox::from_id_source("tech_edit_cat")
+                                egui::ComboBox::from_id_salt("tech_edit_cat")
                                     .selected_text(
                                         categories
                                             .get(edit_data.category_index)
@@ -4926,7 +4926,7 @@ fn render_tech_edit_dialog(
 
                             // Add prerequisite
                             ui.horizontal(|ui| {
-                                egui::ComboBox::from_id_source("add_prereq_combo")
+                                egui::ComboBox::from_id_salt("add_prereq_combo")
                                     .selected_text(if edit_data.new_prereq.is_empty() {
                                         "Select prerequisite..."
                                     } else {
@@ -5004,7 +5004,7 @@ fn render_tech_edit_dialog(
                                     .get(edit_data.new_modifier_type_index)
                                     .map(|m| m.display_name())
                                     .unwrap_or_default();
-                                egui::ComboBox::from_id_source("add_modifier_combo")
+                                egui::ComboBox::from_id_salt("add_modifier_combo")
                                     .selected_text(selected_name)
                                     .show_ui(ui, |ui| {
                                         for (i, m) in all_mods.iter().enumerate() {

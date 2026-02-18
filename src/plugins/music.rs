@@ -97,15 +97,15 @@ impl Default for MusicPlaylist {
 fn spawn_track(commands: &mut Commands, asset_server: &AssetServer, playlist: &mut MusicPlaylist) {
     let track = &playlist.tracks[playlist.current_index];
     let entity = commands
-        .spawn(AudioBundle {
-            source: asset_server.load(track.path),
-            settings: PlaybackSettings {
+        .spawn((
+            AudioPlayer::new(asset_server.load(track.path)),
+            PlaybackSettings {
                 mode: PlaybackMode::Despawn,
                 volume: bevy::audio::Volume::new(playlist.volume),
                 paused: playlist.paused,
                 ..default()
             },
-        })
+        ))
         .id();
     playlist.current_entity = Some(entity);
 }

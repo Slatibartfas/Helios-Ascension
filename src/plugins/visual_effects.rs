@@ -1,4 +1,4 @@
-use bevy::core_pipeline::bloom::BloomSettings;
+use bevy::core_pipeline::bloom::Bloom;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, ShaderRef};
@@ -100,12 +100,9 @@ fn setup_starfield(
             });
 
             commands.spawn((
-                PbrBundle {
-                    mesh: star_mesh,
-                    material: star_material,
-                    transform: Transform::from_xyz(x, y, z),
-                    ..default()
-                },
+                Mesh3d(star_mesh),
+                MeshMaterial3d(star_material),
+                Transform::from_xyz(x, y, z),
                 StarParticle { brightness, size },
             ));
         }
@@ -117,16 +114,17 @@ fn setup_camera_effects(mut commands: Commands, camera_query: Query<Entity, With
     if let Ok(camera_entity) = camera_query.get_single() {
         // Add bloom effect for bright objects (stars, sun) — tuned for subtle, realistic corona
         commands.entity(camera_entity).insert((
-            BloomSettings {
+            Bloom {
                 intensity: 0.25,          // Slightly increased intensity for better visible glow
                 low_frequency_boost: 0.6, // Broader soft glow
                 low_frequency_boost_curvature: 0.4,
                 high_pass_frequency: 0.1, // Allow lower frequencies to bloom (more large glow)
-                prefilter_settings: bevy::core_pipeline::bloom::BloomPrefilterSettings {
+                prefilter: bevy::core_pipeline::bloom::BloomPrefilter {
                     threshold: 2.0, // Lower threshold so our glow materials (brightness ~5-10) trigger bloom
                     threshold_softness: 0.3,
                 },
                 composite_mode: bevy::core_pipeline::bloom::BloomCompositeMode::Additive,
+                ..default()
             },
             Tonemapping::ReinhardLuminance, // Better for handling extreme dynamic range
         ));

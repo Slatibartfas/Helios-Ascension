@@ -8,8 +8,8 @@ use bevy::render::view::RenderLayers;
 // Backdrop configuration constants
 // Keep backdrop radius below camera far plane (1_500_000.0) to avoid clipping
 const BACKDROP_SPHERE_RADIUS: f32 = 1_400_000.0;
-const BACKDROP_SPHERE_UV_SEGMENTS: usize = 32;
-const BACKDROP_SPHERE_UV_RINGS: usize = 18;
+const BACKDROP_SPHERE_UV_SEGMENTS: u32 = 32;
+const BACKDROP_SPHERE_UV_RINGS: u32 = 18;
 
 /// Plugin that manages the procedural space backdrop
 pub struct BackdropPlugin;
@@ -97,12 +97,9 @@ fn spawn_backdrop_sphere(
     );
 
     commands.spawn((
-        MaterialMeshBundle {
-            mesh: backdrop_mesh,
-            material: backdrop_material,
-            transform: Transform::from_xyz(0.0, 0.0, 0.0),
-            ..default()
-        },
+        Mesh3d(backdrop_mesh),
+        MeshMaterial3d(backdrop_material),
+        Transform::from_xyz(0.0, 0.0, 0.0),
         BackdropSphere,
         RenderLayers::layer(0), // Backdrop is on default render layer (layer 0)
     ));
@@ -110,7 +107,7 @@ fn spawn_backdrop_sphere(
 
 /// Update backdrop sphere to always center on the camera
 fn update_backdrop_position(
-    mut backdrop_query: Query<(&mut Transform, &Handle<SkyboxMaterial>), With<BackdropSphere>>,
+    mut backdrop_query: Query<(&mut Transform, &MeshMaterial3d<SkyboxMaterial>), With<BackdropSphere>>,
     camera_query: Query<
         (&Transform, &crate::plugins::camera::OrbitCamera),
         (With<Camera3d>, Without<BackdropSphere>),
@@ -124,7 +121,7 @@ fn update_backdrop_position(
         backdrop_transform.translation = camera_transform.translation;
 
         // Update material uniforms for parallax and distance fading
-        if let Some(material) = materials.get_mut(material_handle) {
+        if let Some(material) = materials.get_mut(&material_handle.0) {
             // Extract rotation from camera transform
             material.camera_rotation = Mat3::from_quat(camera_transform.rotation);
 

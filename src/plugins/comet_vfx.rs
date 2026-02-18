@@ -267,7 +267,7 @@ fn update_comet_vectors(
         .map(|(t, _)| t.translation())
         .unwrap_or(Vec3::ZERO);
 
-    let dt = time.delta_seconds();
+    let dt = time.delta_secs();
     if dt == 0.0 { return; }
 
     for (comet_transform, children, mut controller, system_id) in comet_query.iter_mut() {

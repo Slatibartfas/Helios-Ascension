@@ -618,12 +618,9 @@ fn spawn_comet_tail_meshes(
     });
 
     commands.spawn((
-        PbrBundle {
-            mesh: ion_mesh,
-            material: ion_material,
-            transform: Transform::default(), // Will be updated by update_tail_transforms
-            ..default()
-        },
+        Mesh3d(ion_mesh),
+        MeshMaterial3d(ion_material),
+        Transform::default(), // Will be updated by update_tail_transforms
         CometTail {
             comet_entity,
             is_ion_tail: true,
@@ -655,12 +652,9 @@ fn spawn_comet_tail_meshes(
     });
 
     commands.spawn((
-        PbrBundle {
-            mesh: dust_mesh,
-            material: dust_material,
-            transform: Transform::default(),
-            ..default()
-        },
+        Mesh3d(dust_mesh),
+        MeshMaterial3d(dust_material),
+        Transform::default(),
         CometTail {
             comet_entity,
             is_ion_tail: false,
@@ -1203,7 +1197,7 @@ pub fn handle_body_selection(
     };
 
     // Convert screen position to ray
-    let Some(ray) = camera.viewport_to_world(camera_transform, cursor_position) else {
+    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_position) else {
         return;
     };
 
@@ -1263,7 +1257,7 @@ pub fn handle_body_selection(
         commands.entity(entity).insert(Selected);
         info!("Selected celestial body: {} (entity {:?})", name, entity);
 
-        let current_time = time.elapsed_seconds_f64();
+        let current_time = time.elapsed_secs_f64();
         if let Some(last_entity) = selection_state.last_clicked_entity {
             if last_entity == entity && (current_time - selection_state.last_click_time) < 0.5 {
                 info!("Double click on {}, setting anchor.", name);
@@ -1344,7 +1338,7 @@ pub fn handle_body_hover(
     };
 
     // Convert screen position to ray
-    let Some(ray) = camera.viewport_to_world(camera_transform, cursor_position) else {
+    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_position) else {
         return;
     };
 
@@ -1504,7 +1498,7 @@ pub fn despawn_hover_markers(
 /// System that animates marker dots around selection/hover rings.
 pub fn animate_marker_dots(time: Res<Time>, mut query: Query<(&mut Transform, &mut MarkerDot)>) {
     for (mut transform, mut dot) in query.iter_mut() {
-        dot.angle = (dot.angle + dot.angular_speed * time.delta_seconds())
+        dot.angle = (dot.angle + dot.angular_speed * time.delta_secs())
             .rem_euclid(std::f32::consts::TAU);
         transform.translation = Vec3::new(
             dot.radius * dot.angle.cos(),
@@ -1543,7 +1537,7 @@ fn spawn_marker(
 
     // Create a parent entity for the reticle (no mesh, just a transform anchor)
     let marker_entity = commands
-        .spawn((SpatialBundle::default(), MarkerOwner(owner)))
+        .spawn((Transform::default(), Visibility::default(), MarkerOwner(owner)))
         .id();
 
     if is_selected {
@@ -1593,12 +1587,11 @@ fn spawn_marker(
         let h_bar_pos = Vec3::new(corner_x - x_sign * bracket_length * 0.5, 0.0, corner_z);
 
         commands.entity(marker_entity).with_children(|parent| {
-            parent.spawn(PbrBundle {
-                mesh: h_bar_mesh,
-                material: bracket_material.clone(),
-                transform: Transform::from_translation(h_bar_pos),
-                ..default()
-            });
+            parent.spawn((
+                Mesh3d(h_bar_mesh),
+                MeshMaterial3d(bracket_material.clone()),
+                Transform::from_translation(h_bar_pos),
+            ));
         });
 
         // Vertical bar extending inward from corner (along Z axis)
@@ -1610,12 +1603,11 @@ fn spawn_marker(
         let v_bar_pos = Vec3::new(corner_x, 0.0, corner_z - z_sign * bracket_length * 0.5);
 
         commands.entity(marker_entity).with_children(|parent| {
-            parent.spawn(PbrBundle {
-                mesh: v_bar_mesh,
-                material: bracket_material.clone(),
-                transform: Transform::from_translation(v_bar_pos),
-                ..default()
-            });
+            parent.spawn((
+                Mesh3d(v_bar_mesh),
+                MeshMaterial3d(bracket_material.clone()),
+                Transform::from_translation(v_bar_pos),
+            ));
         });
     }
 }

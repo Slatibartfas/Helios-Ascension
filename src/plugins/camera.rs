@@ -49,9 +49,7 @@ impl Plugin for CameraPlugin {
             .add_systems(
                 Update,
                 (
-                    orbit_camera_controls
-                        // Run AFTER egui has processed input to respect UI interaction
-                        .after(bevy_egui::EguiSet::ProcessInput),
+                    orbit_camera_controls,
                     update_camera_transform,
                     update_view_mode,
                 ),
@@ -94,12 +92,14 @@ impl Default for OrbitCamera {
 
 fn spawn_camera(mut commands: Commands) {
     commands.spawn((
-        Camera3dBundle {
-            transform: Transform::from_xyz(0.0, 1000.0, 2000.0).looking_at(Vec3::ZERO, Vec3::Y),
-            projection: Projection::Perspective(PerspectiveProjection {
-                far: 3_000_000.0, // Increased to comfortably render at max camera distance
-                ..default()
-            }),
+        Camera3d::default(),
+        Transform::from_xyz(0.0, 1000.0, 2000.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Projection::Perspective(PerspectiveProjection {
+            far: 3_000_000.0, // Increased to comfortably render at max camera distance
+            ..default()
+        }),
+        Camera {
+            hdr: true,
             ..default()
         },
         GameCamera,
