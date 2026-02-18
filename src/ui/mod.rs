@@ -2647,7 +2647,7 @@ fn ui_dashboard(
         Option<&LogicalParent>,
     )>,
     // Read-only lookup for parent body coordinates
-    _parent_coords_query: Query<&SpaceCoordinates>,
+    parent_coords_query: Query<&SpaceCoordinates>,
     // Resource query for system totals
     resource_query: Query<(&SystemId, &PlanetResources)>,
     // Ledger queries
@@ -2885,7 +2885,7 @@ fn ui_dashboard(
                 ui.separator();
 
                 if let Some(entity) = selection.get() {
-                    if let Ok((body, coords, orbit, resources, atmosphere, mut survey_level, population, surface_temp, _logical_parent)) = body_query.get_mut(entity) {
+                    if let Ok((body, coords, orbit, resources, atmosphere, mut survey_level, population, surface_temp, logical_parent)) = body_query.get_mut(entity) {
                         // Body name and basic info
                         ui.label(egui::RichText::new(&body.name).size(18.0).strong());
                         ui.add_space(10.0);
@@ -2896,7 +2896,28 @@ fn ui_dashboard(
                             // For non-star bodies, compute distance relative to
                             // the system primary (star) using the absolute position.
                             if !matches!(body.body_type, crate::plugins::solar_system_data::BodyType::Star) {
-                                let distance = coords.position.length();
+                                // Walk up the LogicalParent chain to find the system star,
+                                // then subtract its absolute universe position so we get the
+                                // true orbital distance regardless of the star's distance from Sol.
+                                let star_pos = {
+                                    let mut current = logical_parent.map(|lp| lp.0);
+                                    let mut found = bevy::math::DVec3::ZERO;
+                                    while let Some(parent_entity) = current {
+                                        if let Ok((_, parent_body, grandparent, _, _)) = all_bodies_query.get(parent_entity) {
+                                            if matches!(parent_body.body_type, crate::plugins::solar_system_data::BodyType::Star) {
+                                                if let Ok(star_coords) = parent_coords_query.get(parent_entity) {
+                                                    found = star_coords.position;
+                                                }
+                                                break;
+                                            }
+                                            current = grandparent.map(|gp| gp.0);
+                                        } else {
+                                            break;
+                                        }
+                                    }
+                                    found
+                                };
+                                let distance = (coords.position - star_pos).length();
                                 ui.label(format!("Distance from Star: {:.3} AU", distance));
                             }
                             ui.label(format!("Radius: {:.1} km", body.radius));

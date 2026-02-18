@@ -61,7 +61,9 @@ impl Material for StarGlowMaterial {
         AlphaMode::Add
     }
     fn depth_bias(&self) -> f32 {
-        100.0
+        // Negative keeps this billboard in front of the star sphere so the
+        // additive glow actually renders ON the disk, not behind it.
+        -1.0
     }
 }
 
@@ -108,7 +110,9 @@ impl Material for StarDiffractionMaterial {
         AlphaMode::Add
     }
     fn depth_bias(&self) -> f32 {
-        90.0   // behind the corona (100.0) but in front of star mesh
+        // Slightly more negative than corona (-1.0) so diffraction renders
+        // behind the corona but still in front of the star sphere.
+        -2.0
     }
 }
 
@@ -774,10 +778,13 @@ pub fn setup_solar_system(
         // For non-star bodies, build the StandardMaterial as before (wrapped in Option
         // so we can choose which bundle to spawn below).
         let star_surface_mat: Option<Handle<StarSurfaceMaterial>> = if is_star {
-            // Centre colour: hot white, HDR (triggers bloom on the highlighted face)
-            let center_col = Vec4::new(90.0, 85.0, 75.0, 1.0);
-            // Limb colour: cooler orange-red at disk edge
-            let limb_col = Vec4::new(55.0, 28.0, 8.0, 1.0);
+            // Derive HDR center/limb colours from the body's emissive data.
+            // body_data.emissive encodes the star's spectral colour at (0…10+) scale.
+            // ×9 gives a blinding-white HDR centre that drives bloom;
+            // the limb shifts cooler by strongly attenuating green and blue.
+            let (er, eg, eb) = body_data.emissive;
+            let center_col = Vec4::new(er * 9.0, eg * 9.0, eb * 9.0, 1.0);
+            let limb_col   = Vec4::new(er * 5.5, eg * 2.8, eb * 0.8, 1.0);
             Some(materials_surface.add(StarSurfaceMaterial {
                 color_center: center_col,
                 color_limb:   limb_col,
@@ -1146,16 +1153,16 @@ pub fn setup_solar_system(
                     });
 
                     // ── Diffraction spike billboard (large, behind corona) ──────────────
-                    // Rendered at depth_bias 90 (behind corona at 100).
+                    // Rendered at depth_bias -2.0 (just behind corona at -1.0).
                     // Spikes are a long-range effect; the LOD system fades them in with
-                    // distance. Billboard size = visual_radius × 30 so spikes extend well
+                    // distance. Billboard size = visual_radius × 18 so spikes extend well
                     // beyond the corona and trigger bloom at the streaks' HDR brightness.
                     let diff_col = Vec4::new(4.5, 4.2, 3.5, 1.0); // warm white
                     parent.spawn((
                         MaterialMeshBundle {
                             mesh: meshes.add(Rectangle::new(
-                                visual_radius * 30.0,
-                                visual_radius * 30.0,
+                                visual_radius * 18.0,
+                                visual_radius * 18.0,
                             )),
                             material: materials_diffraction.add(StarDiffractionMaterial {
                                 color: Vec4::ZERO, // starts hidden; LOD system drives it
@@ -1168,16 +1175,17 @@ pub fn setup_solar_system(
                     ));
 
                     // ── Corona / halo billboard ────────────────────────────────────────
-                    // Billboard size = visual_radius × 16 (half-size × 8) so the star
-                    // disk sits at UV r = 0.125, matching the shader's DISK_UV constant.
+                    // Billboard size = visual_radius × 8 (half-size × 4) so the star
+                    // disk sits at UV r = 0.25, matching the shader's DISK_UV constant.
+                    // Reduced from ×16 to keep the glow inside Mercury's orbit (~580 units).
                     let core_col = Vec4::new(5.0, 5.0, 5.0, 1.0); // Blinding white core
                     let halo_col = Vec4::new(4.0, 2.5, 0.5, 1.0); // Golden/Orange halo
 
                     parent.spawn((
                         MaterialMeshBundle {
                             mesh: meshes.add(Rectangle::new(
-                                visual_radius * 16.0,
-                                visual_radius * 16.0,
+                                visual_radius * 8.0,
+                                visual_radius * 8.0,
                             )),
                             material: materials_glow.add(StarGlowMaterial {
                                 color_core: core_col,

@@ -18,7 +18,10 @@ use bevy_egui::egui;
 use std::collections::HashMap;
 
 use super::camera::{CameraAnchor, EguiPanelBounds, GameCamera, OrbitCamera, ViewMode};
-use super::solar_system::{Billboard, CelestialBody, StarGlare, StarGlowMaterial};
+use super::solar_system::{
+    Billboard, CelestialBody, StarDiffraction, StarDiffractionMaterial, StarGlare,
+    StarGlowMaterial, StarSurfaceMaterial,
+};
 use super::solar_system_data::BodyType;
 use crate::astronomy::components::{
     CurrentStarSystem, FloatingOrigin, SpaceCoordinates, SystemId,
@@ -124,12 +127,47 @@ const LY_TO_AU: f64 = 63241.077;
 // Coordinates in Light Years (Equatorial J2000 Cartesian)
 // NEARBY_STARS definition moved to src/astronomy/nearby_stars.rs
 
+/// Returns `(core_col, halo_col, billboard_size)` for a starmap glow billboard,
+/// scaled by spectral class so hot giants show a blinding wide corona and
+/// dim brown dwarfs show a small, faint ember.
+///
+/// `billboard_size` is the Rectangle side length in local space (icon sphere = 1.0).
+/// Core brightness and halo extent both scale with temperature.
+fn star_icon_glow_params(spectral_class: char, r: f32, g: f32, b: f32) -> (Vec4, Vec4, f32) {
+    // (core_brightness, halo_brightness, billboard_size)
+    // Hot stars: blinding white/blue, large corona.
+    // Cool dwarfs: dim ember, tight corona barely hiding the disk.
+    let (cb, hb, gs) = match spectral_class {
+        'O' => (30.0, 15.0, 14.0), // Blue giants: blinding, huge corona
+        'B' => (20.0, 10.0, 12.0), // Blue-white
+        'A' => (12.0,  7.0, 10.0), // White
+        'F' => ( 8.0,  5.0,  9.0), // Yellow-white
+        'G' => ( 6.0,  4.0,  8.0), // Sol-like
+        'K' => ( 5.0,  3.5,  7.5), // Orange
+        'M' => ( 4.0,  3.0,  7.0), // Red
+        'L' => ( 2.5,  1.8,  6.0), // Brown dwarf
+        _   => ( 1.8,  1.2,  5.0), // T, Y, unknown — cold brown dwarfs
+    };
+    // Core: blend 60 % spectral + 40 % white so hot blue stars trend to
+    // white-blue and cool red stars stay warm-orange rather than pure white.
+    let core_col = Vec4::new(
+        cb * (r * 0.6 + 0.4),
+        cb * (g * 0.6 + 0.4),
+        cb * (b * 0.6 + 0.4),
+        1.0,
+    );
+    // Halo keeps the full spectral tint.
+    let halo_col = Vec4::new(r * hb, g * hb, b * hb, 1.0);
+    (core_col, halo_col, gs)
+}
+
 /// Spawn the starmap icon for the Sol system.
 /// It starts hidden and becomes visible when `ViewMode::Starmap` is active.
 fn setup_starmap(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials_glow: ResMut<Assets<StarGlowMaterial>>,
     mut system_metadata: ResMut<SystemMetadata>,
 ) {
     // Initialize Sol's bounding radius
@@ -148,22 +186,40 @@ fn setup_starmap(
 
     // The icon is placed at the origin (same as the Sun) and scaled
     // dynamically based on camera distance.
-    commands.spawn((
-        PbrBundle {
-            mesh: icon_mesh.clone(),
-            material: sol_material,
-            transform: Transform::from_translation(Vec3::ZERO),
-            visibility: Visibility::Hidden, // starts hidden; shown in Starmap mode
-            ..default()
-        },
-        StarSystemIcon {
-            id: 0,
-            name: "Sol System".to_string(),
-            position: DVec3::ZERO,
-            bounding_radius_au: DEFAULT_BOUNDING_RADIUS_AU,
-        },
-        SolSystemIcon,
-    ));
+    // Sol: G2V, yellow-white
+    let (sol_core, sol_halo, sol_gs) = star_icon_glow_params('G', 1.0, 0.95, 0.7);
+
+    commands
+        .spawn((
+            PbrBundle {
+                mesh: icon_mesh.clone(),
+                material: sol_material,
+                transform: Transform::from_translation(Vec3::ZERO),
+                visibility: Visibility::Hidden, // starts hidden; shown in Starmap mode
+                ..default()
+            },
+            StarSystemIcon {
+                id: 0,
+                name: "Sol System".to_string(),
+                position: DVec3::ZERO,
+                bounding_radius_au: DEFAULT_BOUNDING_RADIUS_AU,
+            },
+            SolSystemIcon,
+        ))
+        .with_children(|parent| {
+            parent.spawn((
+                MaterialMeshBundle {
+                    mesh: meshes.add(Rectangle::new(sol_gs, sol_gs)),
+                    material: materials_glow.add(StarGlowMaterial {
+                        color_core: sol_core,
+                        color_halo: sol_halo,
+                    }),
+                    transform: Transform::from_translation(Vec3::Z * 0.1),
+                    ..default()
+                },
+                Billboard,
+            ));
+        });
 
     // --- Nearby Stars (ID: 1..50) ---
     use crate::astronomy::nearby_stars::NEARBY_STARS_POSITIONS;
@@ -185,10 +241,16 @@ fn setup_starmap(
 
         let material = materials.add(StandardMaterial {
             base_color: Color::srgb(r, g, b),
+            // Scale emissive brightness by spectral class so hot stars glow
+            // visibly even at maximum starmap zoom-out.
             emissive: Color::srgb(r * 8.0, g * 8.0, b * 8.0).into(),
             unlit: true,
             ..default()
         });
+
+        // Corona size, core brightness, and halo tint all vary with spectral type.
+        let spec_char = star.spectral_type.chars().next().unwrap_or('G');
+        let (core_col, halo_col, glow_size) = star_icon_glow_params(spec_char, r, g, b);
 
         // Convert LY to AU
         let pos_au = DVec3::new(star.pos_ly[0], star.pos_ly[1], star.pos_ly[2]) * LY_TO_AU;
@@ -203,21 +265,36 @@ fn setup_starmap(
         // Use a conservative estimate for unknown systems
         let bounding_radius_au = FALLBACK_BOUNDING_RADIUS_AU;
 
-        commands.spawn((
-            PbrBundle {
-                mesh: icon_mesh.clone(),
-                material,
-                transform: Transform::from_translation(spawn_pos),
-                visibility: Visibility::Hidden,
-                ..default()
-            },
-            StarSystemIcon {
-                id,
-                name: star.name.to_string(),
-                position: pos_au,
-                bounding_radius_au,
-            },
-        ));
+        commands
+            .spawn((
+                PbrBundle {
+                    mesh: icon_mesh.clone(),
+                    material,
+                    transform: Transform::from_translation(spawn_pos),
+                    visibility: Visibility::Hidden,
+                    ..default()
+                },
+                StarSystemIcon {
+                    id,
+                    name: star.name.to_string(),
+                    position: pos_au,
+                    bounding_radius_au,
+                },
+            ))
+            .with_children(|parent| {
+                parent.spawn((
+                    MaterialMeshBundle {
+                        mesh: meshes.add(Rectangle::new(glow_size, glow_size)),
+                        material: materials_glow.add(StarGlowMaterial {
+                            color_core: core_col,
+                            color_halo: halo_col,
+                        }),
+                        transform: Transform::from_translation(Vec3::Z * 0.1),
+                        ..default()
+                    },
+                    Billboard,
+                ));
+            });
     }
 }
 
@@ -246,6 +323,8 @@ fn spawn_system_bodies(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut materials_glow: ResMut<Assets<StarGlowMaterial>>,
+    mut materials_surface: ResMut<Assets<StarSurfaceMaterial>>,
+    mut materials_diffraction: ResMut<Assets<StarDiffractionMaterial>>,
     // Query for bodies that need visual components added
     bodies_without_visuals: Query<
         (
@@ -317,24 +396,6 @@ fn spawn_system_bodies(
             meshes.add(Sphere::new(visual_radius).mesh().uv(32, 16))
         };
 
-        // Create material
-        let material = if matches!(body.body_type, BodyType::Star) {
-            materials.add(StandardMaterial {
-                base_color: color,
-                // High emissive for bloom
-                emissive: LinearRgba::from(color).into(),
-                unlit: true,
-                ..default()
-            })
-        } else {
-            materials.add(StandardMaterial {
-                base_color: color,
-                perceptual_roughness: 0.8,
-                reflectance: 0.1,
-                ..default()
-            })
-        };
-
         // Compute the correct initial transform position using floating origin
         let scaled_position =
             (space_coords.position - origin_offset) * SCALING_FACTOR;
@@ -345,21 +406,43 @@ fn spawn_system_bodies(
         );
         let initial_transform = Transform::from_translation(p_vec);
 
-        // Add visual components to existing entity
-        commands.entity(entity).insert((
-            PbrBundle {
+        if matches!(body.body_type, BodyType::Star) {
+            // Stars use StarSurfaceMaterial (limb darkening) + corona + diffraction billboards,
+            // matching how the Sol star is rendered in setup_solar_system.
+            let linear = color.to_linear();
+            let (cr, cg, cb) = (linear.red, linear.green, linear.blue);
+
+            // Center colour: hot HDR white derived from spectral colour (triggers bloom)
+            let center_col = Vec4::new(cr * 90.0, cg * 90.0, cb * 90.0, 1.0);
+            // Limb colour: cooler shift — red is retained, green/blue sharply attenuated
+            let limb_col   = Vec4::new(cr * 55.0, cg * 28.0, cb * 8.0, 1.0);
+
+            commands.entity(entity).insert(MaterialMeshBundle::<StarSurfaceMaterial> {
                 mesh,
-                material,
+                material: materials_surface.add(StarSurfaceMaterial {
+                    color_center: center_col,
+                    color_limb:   limb_col,
+                    star_texture:  None, // No texture for procedural stars
+                }),
                 transform: initial_transform,
                 ..default()
-            },
-        ));
+            });
 
-        // Add light and glow for stars
-        if matches!(body.body_type, BodyType::Star) {
-            let intensity = 2.8e11; // Default star intensity
-            
-            // Add point light and glow as children
+            // Add light and glow as children
+            let intensity = 2.8e11;
+
+            // Corona size is always visual_radius × 8 regardless of luminosity.
+            // The star mesh radius is already capped by the system_populator, so
+            // there is no risk of the corona engulfing inner planets.
+            // Removing the luminosity scale-down was the key fix for dim stars
+            // (e.g. brown dwarfs) where a 0.33× multiplier shrunk the corona to
+            // 2.6× the mesh — barely enough to hide the flat sphere edge.
+            let corona_size = visual_radius * 8.0;
+            let core_col    = Vec4::new(5.0, 5.0, 5.0, 1.0);
+            let halo_col    = Vec4::new(cr, cg, cb, 1.0) * 4.0;
+            // Diffraction: warm white derived from spectral color
+            let diff_col    = Vec4::new(cr * 4.5, cg * 4.2, cb * 3.5, 1.0);
+
             commands.entity(entity).with_children(|parent| {
                 parent.spawn((
                     PointLightBundle {
@@ -374,31 +457,34 @@ fn spawn_system_bodies(
                     },
                     SystemId(sys_id),
                 ));
-                
-                // ADD GLOW EFFECT to make it look like a star
-                // Scale glow proportional to system compactness so it doesn't
-                // swallow close-in planets in compact systems.
-                // Use L^0.3 (stronger than the body scale L^0.15) because the
-                // glow quad is already 12× the star mesh and dominates in
-                // compact systems where close-in orbits are only ~100 Bevy units.
-                // Clamp to 0.33 minimum so even very dim stars get a visible glow
-                // (4× their mesh radius instead of barely visible 1.2×).
-                let glow_scale = stellar_props
-                    .map(|p| p.luminosity_sol.max(1e-7).powf(0.3).clamp(0.33, 1.0))
-                    .unwrap_or(1.0);
-                let glow_size = visual_radius * 12.0 * glow_scale;
-                let core_col = Vec4::new(5.0, 5.0, 5.0, 1.0); // Bright core
-                let linear = color.to_linear();
-                let halo_col = Vec4::new(linear.red, linear.green, linear.blue, 1.0) * 4.0; // Colored halo
-                
+
+                // Diffraction spike billboard (behind corona in depth order)
                 parent.spawn((
                     MaterialMeshBundle {
-                        mesh: meshes.add(Rectangle::new(glow_size, glow_size)),
+                        mesh: meshes.add(Rectangle::new(
+                            visual_radius * 18.0,
+                            visual_radius * 18.0,
+                        )),
+                        material: materials_diffraction.add(StarDiffractionMaterial {
+                            color: Vec4::ZERO, // LOD system drives it in
+                        }),
+                        transform: Transform::from_translation(Vec3::Z * 0.05),
+                        ..default()
+                    },
+                    Billboard,
+                    StarDiffraction { base_color: diff_col },
+                    SystemId(sys_id),
+                ));
+
+                // Corona / halo billboard
+                parent.spawn((
+                    MaterialMeshBundle {
+                        mesh: meshes.add(Rectangle::new(corona_size, corona_size)),
                         material: materials_glow.add(StarGlowMaterial {
                             color_core: core_col,
                             color_halo: halo_col,
                         }),
-                        transform: Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+                        transform: Transform::from_translation(Vec3::Z * 0.1),
                         ..default()
                     },
                     StarGlare {
@@ -406,8 +492,22 @@ fn spawn_system_bodies(
                         base_halo_color: halo_col,
                     },
                     Billboard,
-                    SystemId(sys_id), 
+                    SystemId(sys_id),
                 ));
+            });
+        } else {
+            let material = materials.add(StandardMaterial {
+                base_color: color,
+                perceptual_roughness: 0.8,
+                reflectance: 0.1,
+                ..default()
+            });
+
+            commands.entity(entity).insert(PbrBundle {
+                mesh,
+                material,
+                transform: initial_transform,
+                ..default()
             });
         }
     }

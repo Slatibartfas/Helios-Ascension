@@ -5,8 +5,8 @@
 //   2. Inner corona ring     — FBM-textured band just outside the disk
 //   3. Ray spikes            — high-frequency FBM angular structure with radial fall-off
 //
-// Billboard size = visual_radius × 16; half-size = visual_radius × 8.
-// Star disk occupies UV r ≈ 0.125  (visual_radius / (visual_radius × 8)).
+// Billboard size = visual_radius × 8; half-size = visual_radius × 4.
+// Star disk occupies UV r ≈ 0.25  (visual_radius / (visual_radius × 4)).
 
 @group(2) @binding(0) var<uniform> color_core: vec4<f32>;
 @group(2) @binding(1) var<uniform> color_halo: vec4<f32>;
@@ -64,10 +64,11 @@ fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
         return vec4<f32>(0.0, 0.0, 0.0, 0.0);
     }
 
-    // Star disk UV radius (disk_r / billboard_half_size = 1/8 = 0.125)
-    let DISK_UV:  f32 = 0.125;
+    // Star disk UV radius (disk_r / billboard_half_size = 1/4 = 0.25)
+    let DISK_UV:  f32 = 0.25;
     // Reference distance from disk edge where halo normalises to 1.0
-    let REF_DIST: f32 = 0.07;
+    // Scaled proportionally with DISK_UV (ratio ~0.56 kept from the original).
+    let REF_DIST: f32 = 0.14;
 
     // ── Layer 1: Inverse-square halo (I ∝ r⁻²) ──────────────────────────────
     let r_from_disk = max(r - DISK_UV + REF_DIST, REF_DIST * 0.1);
@@ -77,7 +78,7 @@ fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
     // ── Layer 2: Inner corona ring with FBM structure ─────────────────────────
     // Narrow band immediately outside the stellar disk
     let corona_band = smoothstep(DISK_UV * 0.85, DISK_UV * 1.1, r)
-                    * smoothstep(DISK_UV * 2.3,  DISK_UV * 1.1, r);
+                    * smoothstep(DISK_UV * 1.8,  DISK_UV * 1.1, r);
     // FBM on (angle × freq, r) → ~28 angular features per 2π
     let fbm_in  = fbm4(vec2<f32>(angle * 4.5, r * 6.0));
     let corona  = corona_band * (0.2 + 0.8 * fbm_in) * 2.0;
