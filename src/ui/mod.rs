@@ -154,11 +154,15 @@ fn process_menu_icons(mut menu_icons: ResMut<MenuIcons>, mut images: ResMut<Asse
                 // We want < 0.5 to be 1 alpha (or close)
                 let alpha = (1.0_f32 - luminance).powf(3.0); // Power curve to steepen the falloff
                 
-                // Set pixel colour to pure white so it can be tinted by the UI
-                chunk[0] = 255;
-                chunk[1] = 255;
-                chunk[2] = 255;
-                chunk[3] = (alpha.clamp(0.0, 1.0) * 255.0) as u8;
+                // Premultiply alpha: bevy_egui 0.39.1+ no longer premultiplies
+                // in the shader, so textures must store premultiplied values.
+                // Since base colour is pure white (1.0), premultiplied RGB = alpha.
+                let a = alpha.clamp(0.0, 1.0);
+                let pa = (a * 255.0) as u8;
+                chunk[0] = pa;
+                chunk[1] = pa;
+                chunk[2] = pa;
+                chunk[3] = pa;
             }
 
             // Mark as processed so we only do this once per asset
@@ -237,11 +241,15 @@ fn process_research_icons(mut icons: ResMut<ResearchIcons>, mut images: ResMut<A
                 let b = chunk[2] as f32 / 255.0;
                 let luminance = 0.299 * r + 0.587 * g + 0.114 * b;
                 let alpha = (1.0_f32 - luminance).powf(3.0);
-                
-                chunk[0] = 255;
-                chunk[1] = 255;
-                chunk[2] = 255;
-                chunk[3] = (alpha.clamp(0.0, 1.0) * 255.0) as u8;
+
+                // Premultiply alpha: bevy_egui 0.39.1+ no longer premultiplies
+                // in the shader, so textures must store premultiplied values.
+                let a = alpha.clamp(0.0, 1.0);
+                let pa = (a * 255.0) as u8;
+                chunk[0] = pa;
+                chunk[1] = pa;
+                chunk[2] = pa;
+                chunk[3] = pa;
             }
 
             icons.processed.insert(category);
@@ -1937,7 +1945,7 @@ fn ui_top_menu_bar(
                             let mut img = egui::Image::new((*texture_id, size));
                             img = img.tint(tint);
                             
-                            let resp = ui.add(egui::ImageButton::new(img));
+                            let resp = ui.add(egui::Button::image(img));
 
                             // Highlight active menu by drawing a subtle stroke around the widget
                             if is_active {

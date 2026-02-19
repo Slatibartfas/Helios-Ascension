@@ -71,7 +71,7 @@ fn setup(mut commands: Commands) {
     // In Bevy 0.14, brightness is measured in lux (default: 80.0).
     // 30 lux provides enough fill light so textures are visible on all bodies,
     // while still allowing the Sun's point-light to create clear day/night contrast.
-    commands.insert_resource(AmbientLight {
+    commands.insert_resource(GlobalAmbientLight {
         color: Color::srgb(0.9, 0.92, 1.0), // Neutral to slightly blue for space
         brightness: 30.0,
         ..default()

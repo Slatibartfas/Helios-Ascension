@@ -1,7 +1,7 @@
 use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::prelude::*;
 use bevy::render::view::Hdr;
-use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass, EguiStartupSet};
 
 use crate::astronomy::components::CurrentStarSystem;
 use crate::astronomy::SCALING_FACTOR;
@@ -46,7 +46,11 @@ impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ViewMode>()
             .init_resource::<EguiPanelBounds>()
-            .add_systems(Startup, spawn_camera)
+            // Spawn camera in PreStartup before EguiStartupSet::InitContexts so
+            // bevy_egui attaches its context to this camera entity. Without this,
+            // EguiContexts::ctx_mut() returns Err during Startup and custom fonts
+            // (including emoji fonts) are silently never applied.
+            .add_systems(PreStartup, spawn_camera.before(EguiStartupSet::InitContexts))
             .add_systems(
                 EguiPrimaryContextPass,
                 orbit_camera_controls,
