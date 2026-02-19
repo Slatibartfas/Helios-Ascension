@@ -1,3 +1,4 @@
+pub mod atmosphere;
 pub mod camera;
 pub mod music;
 pub mod solar_system;

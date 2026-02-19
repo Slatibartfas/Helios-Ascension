@@ -376,6 +376,85 @@ fn test_dim_star_system_generation() {
 }
 
 #[test]
+fn test_moon_uses_parent_star_frost_line() {
+    use bevy::math::DVec3;
+    use helios_ascension::economy::generation::generate_solar_system_resources;
+    use helios_ascension::economy::components::{OrbitsBody, StarSystem, SpectralClass};
+    use helios_ascension::economy::types::ResourceType;
+    use helios_ascension::plugins::solar_system::{CelestialBody, Moon, Planet, Star};
+    use helios_ascension::plugins::solar_system_data::BodyType;
+    use helios_ascension::astronomy::SpaceCoordinates;
+
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+
+    // Spawn star with a non-default frost line (10 AU)
+    let star_entity = app.world.spawn((
+        Star,
+        CelestialBody {
+            name: "TS".into(),
+            mass: 1.989e30,
+            radius: 695700.0,
+            body_type: BodyType::Star,
+            visual_radius: 10.0,
+            asteroid_class: None,
+        },
+        SpaceCoordinates::new(DVec3::ZERO),
+        StarSystem::with_metallicity(10.0, SpectralClass::G, 0.0),
+    )).id();
+
+    // Planet at 5.0 AU (inside star frost line)
+    let planet_entity = app.world.spawn((
+        Planet,
+        CelestialBody {
+            name: "TS Planet at 5.00AU".into(),
+            mass: 5.972e24,
+            radius: 6371.0,
+            body_type: BodyType::Planet,
+            visual_radius: 2.0,
+            asteroid_class: None,
+        },
+        SpaceCoordinates::new(DVec3::new(5.0, 0.0, 0.0)),
+        OrbitsBody::new(star_entity),
+    )).id();
+
+    // Moon at 5.1 AU (should be inside same star frost line)
+    let moon_entity = app.world.spawn((
+        Moon,
+        CelestialBody {
+            name: "TS Planet at 5.00AU Moon 1".into(),
+            mass: 1.0e20,
+            radius: 100.0,
+            body_type: BodyType::Moon,
+            visual_radius: 1.0,
+            asteroid_class: None,
+        },
+        SpaceCoordinates::new(DVec3::new(5.1, 0.0, 0.0)),
+        OrbitsBody::new(planet_entity),
+    )).id();
+
+    app.add_systems(Update, generate_solar_system_resources);
+
+    // Run one update to generate resources
+    app.update();
+
+    let res = app.world.get::<helios_ascension::economy::components::PlanetResources>(moon_entity)
+        .expect("moon should have resources after generation");
+
+    let water = res.get_abundance(&ResourceType::Water);
+    let total: f64 = res.deposits.values().map(|d| d.reserve.total_mass()).sum();
+    let water_fraction = if total > 0.0 { water / total } else { 0.0 };
+
+    // Since parent star frost_line is 10 AU and moon distance (5.1 AU) < frost_line,
+    // moon must be treated as 'inner' and therefore have very low volatiles (water < 2%)
+    assert!(
+        water_fraction < 0.02,
+        "Moon incorrectly treated as outer system; water fraction = {:.3}",
+        water_fraction
+    );
+}
+
+#[test]
 fn test_bright_star_system_generation() {
     // Test generation for a bright A-type star (like Sirius A)
     let mut rng = StdRng::seed_from_u64(77777);

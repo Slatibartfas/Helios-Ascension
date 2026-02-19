@@ -64,6 +64,40 @@ pub struct AtmosphereData {
     /// Gas giants lack solid surfaces, so their pressure is measured at the conventional 1 bar reference level
     #[serde(default)]
     pub is_reference_pressure: bool,
+
+    // --- Atmospheric scattering parameters (all optional, derived from composition if absent) ---
+
+    /// Scale height in km (how quickly density drops with altitude).
+    /// If absent, derived from temperature, gravity, and mean molecular weight.
+    #[serde(default)]
+    pub scale_height_km: Option<f32>,
+
+    /// Rayleigh scattering colour tint (RGB, normalised).
+    /// Controls the "sky colour" produced by molecular scattering.
+    /// If absent, defaults to blue-ish tint scaled by surface pressure.
+    #[serde(default)]
+    pub rayleigh_rgb: Option<(f32, f32, f32)>,
+
+    /// Rayleigh scattering strength multiplier (overrides pressure-derived default).
+    #[serde(default)]
+    pub rayleigh_strength: Option<f32>,
+
+    /// Mie (aerosol/haze) scattering strength multiplier.
+    /// Higher values produce a brighter, hazier atmosphere (e.g. Titan).
+    #[serde(default)]
+    pub mie_strength: Option<f32>,
+
+    /// Mie asymmetry parameter g (0.0 = isotropic, ~0.76 = forward-scattering typical).
+    #[serde(default)]
+    pub mie_g: Option<f32>,
+
+    /// Haze / aerosol colour (RGB, normalised). Defaults to warm orange for dusty/hazy worlds.
+    #[serde(default)]
+    pub haze_color: Option<(f32, f32, f32)>,
+
+    /// Overall intensity multiplier for the atmosphere visual (artistic override).
+    #[serde(default)]
+    pub atmosphere_intensity: Option<f32>,
 }
 
 /// Orbital parameters for a celestial body

@@ -39,6 +39,8 @@ pub fn generate_solar_system_resources(
     >,
     // Query for star systems to get frost line and metallicity information
     star_query: Query<(&StarSystem, &SpaceCoordinates)>,
+    // Query to follow orbit parent chain (used to find the star entity for moons)
+    parent_orbits_query: Query<&OrbitsBody>,
 ) {
     let mut rng = rand::rng();
 
@@ -47,19 +49,41 @@ pub fn generate_solar_system_resources(
         let (distance_from_star, frost_line, metallicity_multiplier) = if let Some(orbits) =
             orbits_body
         {
-            // Body orbits a specific parent - calculate distance from that parent
-            if let Ok((star_system, star_coords)) = star_query.get(orbits.parent) {
-                let distance = (coords.position - star_coords.position).length();
-                let metallicity_mult = star_system.metallicity_multiplier();
-                (distance, star_system.frost_line_au, metallicity_mult)
-            } else {
-                // Parent entity exists but is not a star or doesn't have required components
+            // Follow the parent chain until we find an entity with a StarSystem
+            let mut current_parent = orbits.parent;
+            let mut found = false;
+            let mut distance = coords.position.length();
+            let mut frost = DEFAULT_FROST_LINE_AU;
+            let mut metallicity_mult = 1.0_f32;
+
+            loop {
+                if let Ok((star_system, star_coords)) = star_query.get(current_parent) {
+                    // Found the host star for this body (may be the immediate parent or higher up)
+                    distance = (coords.position - star_coords.position).length();
+                    frost = star_system.frost_line_au;
+                    metallicity_mult = star_system.metallicity_multiplier();
+                    found = true;
+                    break;
+                }
+
+                // Step up one level in the orbit chain (parent might itself orbit another body)
+                if let Ok(parent_orbits) = parent_orbits_query.get(current_parent) {
+                    current_parent = parent_orbits.parent;
+                } else {
+                    // Reached an entity that doesn't orbit anything; stop searching
+                    break;
+                }
+            }
+
+            if !found {
+                // Only warn when the orbit chain truly does not include a star
                 warn!(
-                    "Parent star not found or invalid for {}, using origin distance and default frost line",
+                    "Parent star lookup failed for {} (orbit chain did not include a star); using origin distance and default frost line",
                     body.name
                 );
-                (coords.position.length(), DEFAULT_FROST_LINE_AU, 1.0)
             }
+
+            (distance, frost, metallicity_mult)
         } else {
             // No parent specified - assume orbiting origin with default frost line
             // This maintains backwards compatibility with single-star systems

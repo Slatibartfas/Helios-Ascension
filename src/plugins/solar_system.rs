@@ -634,6 +634,8 @@ pub fn setup_solar_system(
     mut materials_glow: ResMut<Assets<StarGlowMaterial>>,
     mut materials_surface: ResMut<Assets<StarSurfaceMaterial>>,
     mut materials_diffraction: ResMut<Assets<StarDiffractionMaterial>>,
+    mut materials_atmosphere: ResMut<Assets<crate::plugins::atmosphere::AtmosphereMaterial>>,
+    atmosphere_settings: Res<crate::plugins::atmosphere::AtmosphereSettings>,
     asset_server: Res<AssetServer>,
 ) {
     // Queue to collect normal/specular handles that must be treated as linear textures
@@ -985,7 +987,7 @@ pub fn setup_solar_system(
                 .map(|g| AtmosphericGas::new(&g.name, g.percentage))
                 .collect();
 
-            let atmosphere = AtmosphereComposition::new_with_body_data(
+            let mut atmosphere = AtmosphereComposition::new_with_body_data(
                 atmo_data.surface_pressure_mbar,
                 atmo_data.surface_temperature_celsius,
                 gases,
@@ -994,7 +996,34 @@ pub fn setup_solar_system(
                 atmo_data.is_reference_pressure,
             );
 
-            entity_commands.insert(atmosphere);
+            // Compute surface gravity for scattering derivation
+            let surface_gravity_g = {
+                const G_CONST: f64 = 6.674e-11;
+                const G_EARTH: f64 = 9.80665;
+                let radius_m = body_data.radius as f64 * 1000.0;
+                if radius_m > 0.0 {
+                    (G_CONST * body_data.mass / (radius_m * radius_m) / G_EARTH) as f32
+                } else {
+                    1.0
+                }
+            };
+
+            // Derive scattering parameters from physical properties + optional RON overrides
+            atmosphere.derive_scattering_params(
+                surface_gravity_g,
+                atmo_data.scale_height_km,
+                atmo_data.rayleigh_rgb,
+                atmo_data.rayleigh_strength,
+                atmo_data.mie_strength,
+                atmo_data.mie_g,
+                atmo_data.haze_color,
+                atmo_data.atmosphere_intensity,
+            );
+
+            entity_commands.insert(atmosphere.clone());
+
+            // Spawn atmospheric scattering shell (translucent child sphere)
+            // Deferred to after entity_commands scope — collect data for second pass
         } else if let Some(ref orbit_data) = body_data.orbit {
              // If no atmosphere, approximate temperature based on distance from Sun.
              // For moons, we must use the parent planet's distance to the Sun, NOT the moon's distance to the planet.
@@ -1072,6 +1101,70 @@ pub fn setup_solar_system(
                     Transform::default(),
                 ));
             });
+        }
+
+        // Add atmospheric scattering shell if atmosphere data exists and scattering is enabled
+        if atmosphere_settings.enabled && body_data.body_type != BodyType::Star {
+            if let Some(ref atmo_data) = body_data.atmosphere {
+                use crate::astronomy::{AtmosphereComposition, AtmosphericGas};
+                use crate::plugins::atmosphere::{AtmosphereMaterial, AtmosphereShell};
+
+                // Rebuild atmosphere for scattering (already inserted as component above)
+                let gases: Vec<AtmosphericGas> = atmo_data
+                    .gases
+                    .iter()
+                    .map(|g| AtmosphericGas::new(&g.name, g.percentage))
+                    .collect();
+
+                let mut atmo_comp = AtmosphereComposition::new_with_body_data(
+                    atmo_data.surface_pressure_mbar,
+                    atmo_data.surface_temperature_celsius,
+                    gases,
+                    body_data.mass,
+                    body_data.radius,
+                    atmo_data.is_reference_pressure,
+                );
+
+                let surface_gravity_g = {
+                    const G_CONST: f64 = 6.674e-11;
+                    const G_EARTH: f64 = 9.80665;
+                    let radius_m = body_data.radius as f64 * 1000.0;
+                    if radius_m > 0.0 {
+                        (G_CONST * body_data.mass / (radius_m * radius_m) / G_EARTH) as f32
+                    } else {
+                        1.0
+                    }
+                };
+
+                atmo_comp.derive_scattering_params(
+                    surface_gravity_g,
+                    atmo_data.scale_height_km,
+                    atmo_data.rayleigh_rgb,
+                    atmo_data.rayleigh_strength,
+                    atmo_data.mie_strength,
+                    atmo_data.mie_g,
+                    atmo_data.haze_color,
+                    atmo_data.atmosphere_intensity,
+                );
+
+                let atmo_mat = AtmosphereMaterial::from_composition(
+                    visual_radius,
+                    &atmo_comp,
+                    initial_pos,
+                    Vec3::ZERO, // Sun at origin
+                    atmosphere_settings.quality,
+                );
+
+                let atmo_shell_radius = visual_radius * 1.05;
+                commands.entity(entity).with_children(|parent| {
+                    parent.spawn((
+                        Mesh3d(meshes.add(Sphere::new(atmo_shell_radius).mesh().uv(64, 32))),
+                        MeshMaterial3d(materials_atmosphere.add(atmo_mat)),
+                        Transform::default(),
+                        AtmosphereShell { body_entity: entity },
+                    ));
+                });
+            }
         }
 
         // Initialize population

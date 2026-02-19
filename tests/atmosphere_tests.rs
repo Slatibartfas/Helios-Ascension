@@ -456,3 +456,216 @@ fn test_harvest_yield_scaling() {
     atmosphere.harvest_altitude_bar = 100.0;
     assert!((atmosphere.harvest_yield_multiplier() - 100.0).abs() < 0.01);
 }
+
+// ── Atmospheric Scattering Tests ───────────────────────────────────────────
+
+#[test]
+fn test_mean_molecular_weight_earth() {
+    let earth = AtmosphereComposition::new(
+        1013.0,
+        15.0,
+        vec![
+            AtmosphericGas::new("N2", 78.0),
+            AtmosphericGas::new("O2", 21.0),
+            AtmosphericGas::new("Ar", 0.93),
+            AtmosphericGas::new("CO2", 0.04),
+        ],
+    );
+    let mmw = earth.mean_molecular_weight();
+    // Earth's mean molecular weight is ~28.97 g/mol
+    assert!(
+        (mmw - 28.97).abs() < 1.0,
+        "Earth mmw should be ~28.97, got {mmw}"
+    );
+}
+
+#[test]
+fn test_mean_molecular_weight_hydrogen() {
+    let h2_atmo = AtmosphereComposition::new(
+        1000.0,
+        -145.0,
+        vec![
+            AtmosphericGas::new("H2", 90.0),
+            AtmosphericGas::new("He", 10.0),
+        ],
+    );
+    let mmw = h2_atmo.mean_molecular_weight();
+    // 90% H2 (2.016) + 10% He (4.003) = ~2.21
+    assert!(
+        mmw < 3.0 && mmw > 1.5,
+        "H2/He mmw should be ~2.2, got {mmw}"
+    );
+}
+
+#[test]
+fn test_derive_scattering_earth() {
+    let mut earth = AtmosphereComposition::new_with_body_data(
+        1013.0,
+        15.0,
+        vec![
+            AtmosphericGas::new("N2", 78.0),
+            AtmosphericGas::new("O2", 21.0),
+            AtmosphericGas::new("Ar", 0.93),
+            AtmosphericGas::new("CO2", 0.04),
+        ],
+        5.97237e24,
+        6371.0,
+        false,
+    );
+
+    earth.derive_scattering_params(1.0, None, None, None, None, None, None, None);
+
+    // Scale height should be close to 8.5 km for Earth
+    assert!(
+        (earth.scale_height_km - 8.5).abs() < 2.0,
+        "Earth scale height should be ~8.5 km, got {}",
+        earth.scale_height_km
+    );
+
+    // Rayleigh strength should be ~1.0 (Earth reference)
+    assert!(
+        earth.rayleigh_strength > 0.5 && earth.rayleigh_strength < 2.0,
+        "Earth rayleigh_strength should be ~1.0, got {}",
+        earth.rayleigh_strength
+    );
+
+    // Should have blue-ish Rayleigh tint (blue > red)
+    assert!(
+        earth.rayleigh_rgb[2] > earth.rayleigh_rgb[0],
+        "Earth rayleigh should be blue-dominant"
+    );
+
+    // Intensity defaults to 1.0
+    assert!(
+        (earth.atmosphere_intensity - 1.0).abs() < 0.01,
+        "Default intensity should be 1.0"
+    );
+}
+
+#[test]
+fn test_derive_scattering_mars() {
+    let mut mars = AtmosphereComposition::new_with_body_data(
+        6.0,
+        -63.0,
+        vec![
+            AtmosphericGas::new("CO2", 95.0),
+            AtmosphericGas::new("N2", 2.7),
+            AtmosphericGas::new("Ar", 1.6),
+            AtmosphericGas::new("O2", 0.13),
+        ],
+        6.4171e23,
+        3389.5,
+        false,
+    );
+
+    // Mars gravity ~0.38 g
+    mars.derive_scattering_params(0.38, None, None, None, None, None, None, None);
+
+    // Mars has very thin atmosphere, so rayleigh_strength should be << 1.0
+    assert!(
+        mars.rayleigh_strength < 0.2,
+        "Mars rayleigh_strength should be very low, got {}",
+        mars.rayleigh_strength
+    );
+
+    // CO2 dominant → warm red-orange tint
+    assert!(
+        mars.rayleigh_rgb[0] > mars.rayleigh_rgb[2],
+        "Mars rayleigh should be red-dominant for CO2 atmosphere"
+    );
+}
+
+#[test]
+fn test_derive_scattering_overrides() {
+    let mut earth = AtmosphereComposition::new_with_body_data(
+        1013.0,
+        15.0,
+        vec![
+            AtmosphericGas::new("N2", 78.0),
+            AtmosphericGas::new("O2", 21.0),
+        ],
+        5.97237e24,
+        6371.0,
+        false,
+    );
+
+    // Override all parameters
+    earth.derive_scattering_params(
+        1.0,
+        Some(10.0),              // scale height override
+        Some((1.0, 0.0, 0.0)),   // pure red rayleigh
+        Some(5.0),               // strong rayleigh
+        Some(0.1),               // mie override
+        Some(0.9),               // mie_g override
+        Some((0.5, 0.5, 0.5)),   // grey haze
+        Some(2.0),               // double intensity
+    );
+
+    assert!((earth.scale_height_km - 10.0).abs() < 0.01);
+    assert!((earth.rayleigh_rgb[0] - 1.0).abs() < 0.01);
+    assert!((earth.rayleigh_rgb[1]).abs() < 0.01);
+    assert!((earth.rayleigh_strength - 5.0).abs() < 0.01);
+    assert!((earth.mie_strength - 0.1).abs() < 0.01);
+    assert!((earth.mie_g - 0.9).abs() < 0.01);
+    assert!((earth.haze_color[0] - 0.5).abs() < 0.01);
+    assert!((earth.atmosphere_intensity - 2.0).abs() < 0.01);
+}
+
+#[test]
+fn test_derive_scattering_titan_haze() {
+    let mut titan = AtmosphereComposition::new_with_body_data(
+        1500.0,
+        -179.0,
+        vec![
+            AtmosphericGas::new("N2", 98.4),
+            AtmosphericGas::new("CH4", 1.4),
+        ],
+        1.3452e23,
+        2574.73,
+        false,
+    );
+
+    // Titan gravity ~0.14 g
+    titan.derive_scattering_params(0.14, None, None, None, None, None, None, None);
+
+    // Titan has CH4 → higher mie_strength (haze factor = 0.08)
+    assert!(
+        titan.mie_strength > 0.01,
+        "Titan mie_strength should be elevated due to CH4, got {}",
+        titan.mie_strength
+    );
+
+    // Haze colour should be orange/amber
+    assert!(
+        titan.haze_color[0] > titan.haze_color[2],
+        "Titan haze should be warm-coloured"
+    );
+}
+
+#[test]
+fn test_ron_optional_scattering_fields_deserialize() {
+    // Verify that the RON file still loads with the new optional fields
+    use helios_ascension::plugins::solar_system_data::SolarSystemData;
+    let data = SolarSystemData::load_from_file("assets/data/solar_system.ron")
+        .expect("solar_system.ron should load with new optional scattering fields");
+
+    // Earth should have scattering overrides
+    let earth = data.get_body("Earth").expect("Earth should exist");
+    let atmo = earth.atmosphere.as_ref().expect("Earth should have atmosphere");
+    assert!(atmo.scale_height_km.is_some(), "Earth should have scale_height_km override");
+    assert!(atmo.rayleigh_rgb.is_some(), "Earth should have rayleigh_rgb override");
+
+    // Mars should have scattering overrides
+    let mars = data.get_body("Mars").expect("Mars should exist");
+    let mars_atmo = mars.atmosphere.as_ref().expect("Mars should have atmosphere");
+    assert!(mars_atmo.atmosphere_intensity.is_some(), "Mars should have atmosphere_intensity override");
+
+    // Moon should have no atmosphere
+    let moon = data.get_body("Moon").expect("Moon should exist");
+    assert!(moon.atmosphere.is_none(), "Moon should not have atmosphere");
+
+    // Jupiter — atmosphere without overrides should still work
+    let jupiter = data.get_body("Jupiter").expect("Jupiter should exist");
+    let jup_atmo = jupiter.atmosphere.as_ref().expect("Jupiter should have atmosphere");
+    assert!(jup_atmo.scale_height_km.is_none(), "Jupiter should have no scale_height override (uses defaults)");
+}

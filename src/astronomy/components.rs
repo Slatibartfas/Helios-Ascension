@@ -349,6 +349,29 @@ pub struct AtmosphereComposition {
     /// Technology research can increase this limit to allow deeper, more efficient harvesting.
     /// Default: 50 bar for basic tech, can be increased to 100+ bar with advanced tech.
     pub max_harvest_altitude_bar: f32,
+
+    // --- Derived / cached scattering parameters ---
+
+    /// Scale height in km (how quickly density drops with altitude).
+    pub scale_height_km: f32,
+
+    /// Rayleigh scattering colour tint (RGB, normalised).
+    pub rayleigh_rgb: [f32; 3],
+
+    /// Rayleigh scattering strength multiplier.
+    pub rayleigh_strength: f32,
+
+    /// Mie (aerosol/haze) scattering strength multiplier.
+    pub mie_strength: f32,
+
+    /// Mie asymmetry parameter g (0.0 = isotropic, ~0.76 = forward-scattering typical).
+    pub mie_g: f32,
+
+    /// Haze / aerosol colour (RGB, normalised).
+    pub haze_color: [f32; 3],
+
+    /// Overall intensity multiplier for the atmosphere visual.
+    pub atmosphere_intensity: f32,
 }
 
 impl AtmosphereComposition {
@@ -414,6 +437,14 @@ impl AtmosphereComposition {
             is_reference_pressure,
             harvest_altitude_bar,
             max_harvest_altitude_bar,
+            // Scattering defaults — will be overridden by set_scattering_params()
+            scale_height_km: 8.5,
+            rayleigh_rgb: [0.175, 0.41, 1.0],
+            rayleigh_strength: 1.0,
+            mie_strength: 0.005,
+            mie_g: 0.76,
+            haze_color: [1.0, 0.9, 0.7],
+            atmosphere_intensity: 1.0,
         }
     }
 
@@ -443,6 +474,14 @@ impl AtmosphereComposition {
             is_reference_pressure: false, // Default to surface pressure for backwards compatibility
             harvest_altitude_bar: 0.0,    // No harvesting for terrestrial by default
             max_harvest_altitude_bar: 0.0,
+            // Scattering defaults
+            scale_height_km: 8.5,
+            rayleigh_rgb: [0.175, 0.41, 1.0],
+            rayleigh_strength: 1.0,
+            mie_strength: 0.005,
+            mie_g: 0.76,
+            haze_color: [1.0, 0.9, 0.7],
+            atmosphere_intensity: 1.0,
         }
     }
 
@@ -457,6 +496,113 @@ impl AtmosphereComposition {
             .iter()
             .find(|g| g.name == gas_name)
             .map(|g| g.percentage)
+    }
+
+    // ── Atmospheric scattering helpers ──────────────────────────────────
+
+    /// Compute the mean molecular weight of the atmosphere in g/mol,
+    /// based on gas composition percentages.
+    pub fn mean_molecular_weight(&self) -> f32 {
+        let mut total = 0.0_f32;
+        for gas in &self.gases {
+            let mw = match gas.name.as_str() {
+                "H2" => 2.016,
+                "He" => 4.003,
+                "CH4" => 16.04,
+                "NH3" => 17.03,
+                "H2O" => 18.015,
+                "Ne" => 20.18,
+                "N2" => 28.014,
+                "CO" => 28.01,
+                "O2" => 31.998,
+                "H2S" => 34.08,
+                "Ar" => 39.948,
+                "CO2" => 44.01,
+                "SO2" => 64.066,
+                _ => 28.97, // default to air-like
+            };
+            total += mw * gas.percentage / 100.0;
+        }
+        if total <= 0.0 { 28.97 } else { total }
+    }
+
+    /// Derive and set all scattering parameters from physical properties.
+    ///
+    /// Uses surface pressure, temperature, gas composition and body gravity
+    /// to compute plausible Rayleigh/Mie parameters.  RON overrides (passed
+    /// via the `AtmosphereData` optional fields) take precedence.
+    pub fn derive_scattering_params(
+        &mut self,
+        surface_gravity_g: f32,
+        override_scale_height: Option<f32>,
+        override_rayleigh_rgb: Option<(f32, f32, f32)>,
+        override_rayleigh_strength: Option<f32>,
+        override_mie_strength: Option<f32>,
+        override_mie_g: Option<f32>,
+        override_haze_color: Option<(f32, f32, f32)>,
+        override_intensity: Option<f32>,
+    ) {
+        // 1. Scale height: H = kT / (m g)
+        //    Using ratio to Earth: H = 8.5 * (T/288) * (1/g_ratio) * (28.97/mmw)
+        let t_kelvin = self.surface_temperature_celsius + 273.15;
+        let mmw = self.mean_molecular_weight();
+        let gravity = surface_gravity_g.max(0.01);
+        let scale_height = override_scale_height.unwrap_or_else(|| {
+            8.5 * (t_kelvin / 288.15) * (1.0 / gravity) * (28.97 / mmw)
+        });
+        self.scale_height_km = scale_height.clamp(1.0, 1000.0);
+
+        // 2. Rayleigh RGB tint — choose base colour from dominant composition
+        let base_rayleigh = override_rayleigh_rgb.map(|c| [c.0, c.1, c.2]).unwrap_or_else(|| {
+            // CO2 dominant → warm red-orange sky
+            if self.get_gas_percentage("CO2").unwrap_or(0.0) > 50.0 {
+                [1.0, 0.5, 0.2]
+            }
+            // CH4 rich (Titan-like) → blue-ish but muted
+            else if self.get_gas_percentage("CH4").unwrap_or(0.0) > 1.0 {
+                [0.3, 0.5, 0.9]
+            }
+            // H2/He dominant (gas giants) → pale blue/white
+            else if self.get_gas_percentage("H2").unwrap_or(0.0) > 50.0 {
+                [0.4, 0.55, 1.0]
+            }
+            // N2/O2 dominant (Earth-like) → classic blue
+            else {
+                [0.175, 0.41, 1.0]
+            }
+        });
+        self.rayleigh_rgb = base_rayleigh;
+
+        // 3. Rayleigh strength — proportional to pressure / Earth reference
+        let pressure_ratio = self.surface_pressure_mbar / 1013.25;
+        self.rayleigh_strength = override_rayleigh_strength
+            .unwrap_or_else(|| (pressure_ratio * (self.scale_height_km / 8.5)).clamp(0.0, 50.0));
+
+        // 4. Mie / haze
+        let haze_factor = if self.get_gas_percentage("CH4").unwrap_or(0.0) > 1.0 {
+            0.08 // Titan-like thick haze
+        } else if self.get_gas_percentage("CO2").unwrap_or(0.0) > 50.0 {
+            0.03 // Mars/Venus dust
+        } else {
+            0.005 // Earth-like clean air
+        };
+        self.mie_strength = override_mie_strength
+            .unwrap_or_else(|| (pressure_ratio.sqrt() * haze_factor).clamp(0.0, 1.0));
+        self.mie_g = override_mie_g.unwrap_or(0.76);
+
+        // 5. Haze colour
+        self.haze_color = override_haze_color.map(|c| [c.0, c.1, c.2]).unwrap_or_else(|| {
+            if self.get_gas_percentage("CO2").unwrap_or(0.0) > 50.0 {
+                [1.0, 0.6, 0.3] // warm brown/orange (Mars dust)
+            } else if self.get_gas_percentage("CH4").unwrap_or(0.0) > 1.0 {
+                [1.0, 0.7, 0.3] // amber/orange (Titan organics)
+            } else {
+                [1.0, 0.95, 0.88] // near-white (Earth clean aerosol)
+            }
+        });
+
+        // 6. Overall intensity
+        self.atmosphere_intensity = override_intensity.unwrap_or(1.0);
     }
 
     /// Calculate the colony cost.

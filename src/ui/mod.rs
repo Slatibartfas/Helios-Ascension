@@ -3111,6 +3111,66 @@ fn ui_dashboard(
                                                     });
                                                 }
                                             });
+
+                                        // Scattering parameters (informational)
+                                        ui.add_space(5.0);
+                                        let scat_id = ui.make_persistent_id(("scattering_info", entity));
+                                        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), scat_id, false)
+                                            .show_header(ui, |ui| {
+                                                ui.label(egui::RichText::new("Scattering Parameters").size(12.0));
+                                            })
+                                            .body(|ui| {
+                                                ui.horizontal(|ui| {
+                                                    ui.label("Scale Height:");
+                                                    ui.label(format!("{:.1} km", atmosphere.scale_height_km));
+                                                });
+                                                ui.horizontal(|ui| {
+                                                    ui.label("Rayleigh Strength:");
+                                                    ui.label(format!("{:.3}", atmosphere.rayleigh_strength));
+                                                });
+                                                ui.horizontal(|ui| {
+                                                    ui.label("Rayleigh RGB:");
+                                                    let [r, g, b] = atmosphere.rayleigh_rgb;
+                                                    let swatch = egui::Color32::from_rgb(
+                                                        (r * 255.0) as u8,
+                                                        (g * 255.0) as u8,
+                                                        (b * 255.0) as u8,
+                                                    );
+                                                    let (rect, _) = ui.allocate_exact_size(
+                                                        egui::vec2(14.0, 14.0),
+                                                        egui::Sense::hover(),
+                                                    );
+                                                    ui.painter().rect_filled(rect, 2.0, swatch);
+                                                    ui.label(format!("({:.2}, {:.2}, {:.2})", r, g, b));
+                                                });
+                                                ui.horizontal(|ui| {
+                                                    ui.label("Mie Strength:");
+                                                    ui.label(format!("{:.4}", atmosphere.mie_strength));
+                                                });
+                                                ui.horizontal(|ui| {
+                                                    ui.label("Mie g:");
+                                                    ui.label(format!("{:.2}", atmosphere.mie_g));
+                                                });
+                                                ui.horizontal(|ui| {
+                                                    ui.label("Haze Colour:");
+                                                    let [r, g, b] = atmosphere.haze_color;
+                                                    let swatch = egui::Color32::from_rgb(
+                                                        (r * 255.0) as u8,
+                                                        (g * 255.0) as u8,
+                                                        (b * 255.0) as u8,
+                                                    );
+                                                    let (rect, _) = ui.allocate_exact_size(
+                                                        egui::vec2(14.0, 14.0),
+                                                        egui::Sense::hover(),
+                                                    );
+                                                    ui.painter().rect_filled(rect, 2.0, swatch);
+                                                    ui.label(format!("({:.2}, {:.2}, {:.2})", r, g, b));
+                                                });
+                                                ui.horizontal(|ui| {
+                                                    ui.label("Intensity:");
+                                                    ui.label(format!("{:.2}", atmosphere.atmosphere_intensity));
+                                                });
+                                            });
                                     });
                             });
 

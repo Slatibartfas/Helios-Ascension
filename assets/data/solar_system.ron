@@ -79,6 +79,13 @@
                     (name: "CO2", percentage: 96.5),
                     (name: "N2", percentage: 3.5),
                 ],
+                // Venus — thick yellow-white sulfuric acid haze
+                rayleigh_rgb: Some((1.0, 0.85, 0.5)),
+                rayleigh_strength: Some(8.0),
+                mie_strength: Some(0.15),
+                mie_g: Some(0.82),
+                haze_color: Some((1.0, 0.9, 0.55)),
+                atmosphere_intensity: Some(1.5),
             )),
         ),
         
@@ -118,6 +125,14 @@
                     (name: "Ar", percentage: 0.93),
                     (name: "CO2", percentage: 0.04),
                 ],
+                // Scattering overrides for Earth — classic blue sky
+                scale_height_km: Some(8.5),
+                rayleigh_rgb: Some((0.175, 0.41, 1.0)),
+                rayleigh_strength: Some(1.0),
+                mie_strength: Some(0.005),
+                mie_g: Some(0.76),
+                haze_color: Some((1.0, 0.95, 0.88)),
+                atmosphere_intensity: Some(1.2),
             )),
         ),
         
@@ -172,6 +187,13 @@
                     (name: "Ar", percentage: 1.6),
                     (name: "O2", percentage: 0.13),
                 ],
+                // Mars — thin dusty red-orange atmosphere
+                rayleigh_rgb: Some((0.95, 0.5, 0.2)),
+                rayleigh_strength: Some(0.15),
+                mie_strength: Some(0.02),
+                mie_g: Some(0.7),
+                haze_color: Some((1.0, 0.6, 0.3)),
+                atmosphere_intensity: Some(1.8),
             )),
         ),
         
@@ -383,6 +405,13 @@
                     (name: "N2", percentage: 98.4),
                     (name: "CH4", percentage: 1.4),
                 ],
+                // Titan — thick amber/orange organic haze
+                rayleigh_rgb: Some((0.4, 0.45, 0.7)),
+                rayleigh_strength: Some(1.5),
+                mie_strength: Some(0.08),
+                mie_g: Some(0.8),
+                haze_color: Some((1.0, 0.65, 0.25)),
+                atmosphere_intensity: Some(1.6),
             )),
         ),
         

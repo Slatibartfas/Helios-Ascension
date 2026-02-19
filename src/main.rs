@@ -17,9 +17,9 @@ use economy::EconomyPlugin;
 use game_state::GameStatePlugin;
 use research::ResearchPlugin;
 use plugins::{
-    camera::CameraPlugin, music::MusicPlugin, solar_system::SolarSystemPlugin,
-    starmap::StarmapPlugin, system_populator::SystemPopulatorPlugin,
-    visual_effects::VisualEffectsPlugin,
+    atmosphere::AtmospherePlugin, camera::CameraPlugin, music::MusicPlugin,
+    solar_system::SolarSystemPlugin, starmap::StarmapPlugin,
+    system_populator::SystemPopulatorPlugin, visual_effects::VisualEffectsPlugin,
 };
 use render::backdrop::BackdropPlugin;
 use ui::UIPlugin;
@@ -53,6 +53,7 @@ fn main() {
         .add_plugins(CameraPlugin)
         .add_plugins(BackdropPlugin)
         .add_plugins(VisualEffectsPlugin)
+        .add_plugins(AtmospherePlugin)
         .add_plugins(SolarSystemPlugin)
         .add_plugins(StarmapPlugin)
         .add_plugins(EconomyPlugin)
