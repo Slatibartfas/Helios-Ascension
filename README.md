@@ -70,6 +70,10 @@ The game now has fully functional colony management, economy, research, and inte
 
 ### Technical Features
 
+- **Atmospheric Scattering**: Real-time single-scattering Rayleigh + Mie shader on all bodies with atmospheres
+  - Physically-derived parameters (scale height, Rayleigh tint, Mie haze) from gas composition data
+  - RON overrides for Earth (blue limb glow), Mars (reddish dust), Venus (thick yellow-white), Titan (amber haze)
+  - Correct layer ordering: surface → night lights → cloud deck → scattering shell
 - **High-Performance Foundation**: Built with Bevy 0.18 engine with optimized compilation profiles
 - **Modular Plugin Architecture**: Extensible plugin system for game systems
 - **Advanced Camera Controls**: 

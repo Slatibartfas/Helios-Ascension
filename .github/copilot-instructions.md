@@ -61,6 +61,7 @@ helios_ascension/
 │   │   ├── solar_system_data.rs # RON data loader
 │   │   ├── starmap.rs       # Starmap view (system icons, visibility toggle)
 │   │   ├── system_populator.rs  # Populates visited star systems procedurally
+│   │   ├── atmosphere.rs    # Atmospheric scattering (Rayleigh + Mie shell material)
 │   │   ├── comet_vfx.rs     # Comet visual effects (tail, glow)
 │   │   └── visual_effects.rs    # Bloom, starfield, night materials
 │   ├── render/              # Rendering utilities
@@ -234,6 +235,19 @@ When adding new UI icons (menus, research categories, etc.), applying the follow
   - `audio/music/passage-of-time.mp3` — 'Passage Of Time'
 - **Adding a track**: push a new `TrackInfo { path, title }` into the `Vec` in `MusicPlaylist::default()`. No other code changes needed.
 - **License requirement**: every track MUST include a `title` string matching the official Scott Buckley attribution so the overlay stays correct.
+
+#### Atmospheric Scattering (`src/plugins/atmosphere.rs`)
+- `AtmospherePlugin` registers `MaterialPlugin::<AtmosphereMaterial>` and a global `AtmosphereSettings` resource (enabled, quality, intensity)
+- Each body with an atmosphere gets a child sphere mesh at 1.05× visual radius with `AtmosphereMaterial` (`AtmosphereShell` marker component)
+- Shader (`assets/shaders/atmosphere_scattering.wgsl`) uses `@group(3)` bindings; planet centre is derived analytically from fragment geometry so it stays correct as planets orbit
+- Scattering parameters auto-derived from `AtmosphereComposition` via `derive_scattering_params()` on `AtmosphereComposition`:
+  - Scale height from surface gravity + mean molecular weight
+  - Rayleigh tint from dominant gas (CO2→warm, H2-dominant→blue-white for ice giants, CH4 in N2→amber for Titan, N2/O2→classic blue)
+  - Haze colour uses `H2 > 50%` branch first so Uranus/Neptune get pale blue-white, not orange
+- RON overrides in `solar_system.ron` (optional fields): `scale_height_km`, `rayleigh_rgb`, `rayleigh_strength`, `mie_strength`, `mie_g`, `haze_color`, `atmosphere_intensity`, `scattering_replaces_clouds`
+- `scattering_replaces_clouds: true` on Venus skips spawning the `venus_atmosphere_2k.jpg` texture layer to avoid double-atmosphere artefact
+- Layer ordering (surface outward): surface (1.0×) → night lights (1.002×) → cloud deck (1.015×) → scattering shell (1.05×)
+- Quality presets in `AtmosphereSettings`: `Low` (4 ray-march samples), `Medium` (8), `High` (16)
 
 #### Celestial Body & Texture Modding
 - All solar system data defined in `assets/data/solar_system.ron`

@@ -592,10 +592,15 @@ impl AtmosphereComposition {
 
         // 5. Haze colour
         self.haze_color = override_haze_color.map(|c| [c.0, c.1, c.2]).unwrap_or_else(|| {
-            if self.get_gas_percentage("CO2").unwrap_or(0.0) > 50.0 {
-                [1.0, 0.6, 0.3] // warm brown/orange (Mars dust)
-            } else if self.get_gas_percentage("CH4").unwrap_or(0.0) > 1.0 {
-                [1.0, 0.7, 0.3] // amber/orange (Titan organics)
+            let h2_pct  = self.get_gas_percentage("H2").unwrap_or(0.0);
+            let co2_pct = self.get_gas_percentage("CO2").unwrap_or(0.0);
+            let ch4_pct = self.get_gas_percentage("CH4").unwrap_or(0.0);
+            if co2_pct > 50.0 {
+                [1.0, 0.6, 0.3]   // warm brown/orange (Mars, Venus)
+            } else if h2_pct > 50.0 {
+                [0.85, 0.92, 1.0]  // pale blue-white (H2/He ice & gas giants — Uranus, Neptune, etc.)
+            } else if ch4_pct > 1.0 {
+                [1.0, 0.7, 0.3]   // amber/orange (N2+CH4 atmosphere — Titan organics)
             } else {
                 [1.0, 0.95, 0.88] // near-white (Earth clean aerosol)
             }

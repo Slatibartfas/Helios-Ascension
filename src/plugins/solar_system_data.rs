@@ -98,6 +98,13 @@ pub struct AtmosphereData {
     /// Overall intensity multiplier for the atmosphere visual (artistic override).
     #[serde(default)]
     pub atmosphere_intensity: Option<f32>,
+
+    /// When true, the scattering shader fully replaces the texture-based cloud layer.
+    /// Use for bodies like Venus where the `clouds` texture represents the whole
+    /// atmospheric appearance rather than a separate cloud deck.
+    /// Defaults to false — Earth keeps its cloud texture layered alongside scattering.
+    #[serde(default)]
+    pub scattering_replaces_clouds: bool,
 }
 
 /// Orbital parameters for a celestial body

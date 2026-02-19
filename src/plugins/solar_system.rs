@@ -1062,8 +1062,20 @@ pub fn setup_solar_system(
 
         let entity = entity_commands.id();
 
+        // If scattering is enabled and the atmosphere marks itself as replacing the cloud
+        // texture (e.g. Venus), skip the texture-based cloud layer entirely.
+        let scattering_replaces_clouds = body_data
+            .atmosphere
+            .as_ref()
+            .map(|a| a.scattering_replaces_clouds && atmosphere_settings.enabled)
+            .unwrap_or(false);
+
         // Add cloud layer if texture exists (e.g. Earth, Venus)
         if let Some(clouds_tex) = clouds_texture {
+            if scattering_replaces_clouds {
+                // Scattering shell handles the full atmospheric appearance; drop texture layer.
+                drop(clouds_tex);
+            } else {
             commands.entity(entity).with_children(|parent| {
                 parent.spawn((
                     Mesh3d(meshes.add(Sphere::new(visual_radius * 1.015).mesh().uv(64, 32))), // 1.5% larger than surface
@@ -1081,6 +1093,7 @@ pub fn setup_solar_system(
                     Transform::default(), // Relative to parent (0,0,0)
                 ));
             });
+            } // end !scattering_replaces_clouds
         }
 
         // Add night lights layer if texture exists (e.g. Earth)
