@@ -8,8 +8,8 @@
 // Billboard size = visual_radius × 8; half-size = visual_radius × 4.
 // Star disk occupies UV r ≈ 0.25  (visual_radius / (visual_radius × 4)).
 
-@group(2) @binding(0) var<uniform> color_core: vec4<f32>;
-@group(2) @binding(1) var<uniform> color_halo: vec4<f32>;
+@group(3) @binding(0) var<uniform> color_core: vec4<f32>;
+@group(3) @binding(1) var<uniform> color_halo: vec4<f32>;
 
 struct FragmentInput {
     @builtin(position) frag_coord: vec4<f32>,

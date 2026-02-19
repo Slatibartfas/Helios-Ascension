@@ -35,7 +35,7 @@ fn main() {
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Helios Ascension".to_string(),
-                resolution: WindowResolution::new(1920.0, 1080.0),
+                resolution: WindowResolution::new(1920, 1080),
                 resize_constraints: WindowResizeConstraints {
                     min_width: MIN_WINDOW_WIDTH,
                     min_height: MIN_WINDOW_HEIGHT,
@@ -46,7 +46,7 @@ fn main() {
             ..default()
         }))
         // Debug UI (egui)
-        .add_plugins(EguiPlugin)
+        .add_plugins(EguiPlugin::default())
         // Game plugins - Order matters for dependencies
         .add_plugins(GameStatePlugin)
         .add_plugins(AstronomyPlugin)
@@ -71,9 +71,10 @@ fn setup(mut commands: Commands) {
     // In Bevy 0.14, brightness is measured in lux (default: 80.0).
     // 30 lux provides enough fill light so textures are visible on all bodies,
     // while still allowing the Sun's point-light to create clear day/night contrast.
-    commands.insert_resource(AmbientLight {
+    commands.insert_resource(GlobalAmbientLight {
         color: Color::srgb(0.9, 0.92, 1.0), // Neutral to slightly blue for space
         brightness: 30.0,
+        ..default()
     });
 
     // Set clear color to deep black for space

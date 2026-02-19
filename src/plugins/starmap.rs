@@ -13,6 +13,7 @@
 
 use bevy::math::DVec3;
 use bevy::prelude::*;
+use bevy_egui::EguiPrimaryContextPass;
 use bevy::window::PrimaryWindow;
 use bevy_egui::egui;
 use std::collections::HashMap;
@@ -82,6 +83,12 @@ impl Plugin for StarmapPlugin {
                     update_starmap_visibility.after(handle_system_transition),
                     update_starmap_icon_scale,
                     update_starmap_coordinates,
+                ),
+            )
+            // Starmap hover/selection systems use EguiContexts — must run in EguiPrimaryContextPass
+            .add_systems(
+                EguiPrimaryContextPass,
+                (
                     handle_starmap_hover,
                     handle_starmap_selection,
                 ),
@@ -179,7 +186,7 @@ fn setup_starmap(
     // --- Sol System (ID: 0) ---
     let sol_material = materials.add(StandardMaterial {
         base_color: Color::srgb(1.0, 0.95, 0.7),
-        emissive: Color::srgb(6.0, 5.5, 3.5).into(), // Very bright for home system
+        emissive: LinearRgba::new(6.0, 5.5, 3.5, 1.0), // Very bright for home system
         unlit: true,
         ..default()
     });
@@ -191,13 +198,10 @@ fn setup_starmap(
 
     commands
         .spawn((
-            PbrBundle {
-                mesh: icon_mesh.clone(),
-                material: sol_material,
-                transform: Transform::from_translation(Vec3::ZERO),
-                visibility: Visibility::Hidden, // starts hidden; shown in Starmap mode
-                ..default()
-            },
+            Mesh3d(icon_mesh.clone()),
+            MeshMaterial3d(sol_material),
+            Transform::from_translation(Vec3::ZERO),
+            Visibility::Hidden, // starts hidden; shown in Starmap mode
             StarSystemIcon {
                 id: 0,
                 name: "Sol System".to_string(),
@@ -208,15 +212,12 @@ fn setup_starmap(
         ))
         .with_children(|parent| {
             parent.spawn((
-                MaterialMeshBundle {
-                    mesh: meshes.add(Rectangle::new(sol_gs, sol_gs)),
-                    material: materials_glow.add(StarGlowMaterial {
-                        color_core: sol_core,
-                        color_halo: sol_halo,
-                    }),
-                    transform: Transform::from_translation(Vec3::Z * 0.1),
-                    ..default()
-                },
+                Mesh3d(meshes.add(Rectangle::new(sol_gs, sol_gs))),
+                MeshMaterial3d(materials_glow.add(StarGlowMaterial {
+                    color_core: sol_core,
+                    color_halo: sol_halo,
+                })),
+                Transform::from_translation(Vec3::Z * 0.1),
                 Billboard,
             ));
         });
@@ -243,7 +244,7 @@ fn setup_starmap(
             base_color: Color::srgb(r, g, b),
             // Scale emissive brightness by spectral class so hot stars glow
             // visibly even at maximum starmap zoom-out.
-            emissive: Color::srgb(r * 8.0, g * 8.0, b * 8.0).into(),
+            emissive: LinearRgba::new(r * 8.0, g * 8.0, b * 8.0, 1.0),
             unlit: true,
             ..default()
         });
@@ -267,13 +268,10 @@ fn setup_starmap(
 
         commands
             .spawn((
-                PbrBundle {
-                    mesh: icon_mesh.clone(),
-                    material,
-                    transform: Transform::from_translation(spawn_pos),
-                    visibility: Visibility::Hidden,
-                    ..default()
-                },
+                Mesh3d(icon_mesh.clone()),
+                MeshMaterial3d(material),
+                Transform::from_translation(spawn_pos),
+                Visibility::Hidden,
                 StarSystemIcon {
                     id,
                     name: star.name.to_string(),
@@ -283,15 +281,12 @@ fn setup_starmap(
             ))
             .with_children(|parent| {
                 parent.spawn((
-                    MaterialMeshBundle {
-                        mesh: meshes.add(Rectangle::new(glow_size, glow_size)),
-                        material: materials_glow.add(StarGlowMaterial {
-                            color_core: core_col,
-                            color_halo: halo_col,
-                        }),
-                        transform: Transform::from_translation(Vec3::Z * 0.1),
-                        ..default()
-                    },
+                    Mesh3d(meshes.add(Rectangle::new(glow_size, glow_size))),
+                    MeshMaterial3d(materials_glow.add(StarGlowMaterial {
+                        color_core: core_col,
+                        color_halo: halo_col,
+                    })),
+                    Transform::from_translation(Vec3::Z * 0.1),
                     Billboard,
                 ));
             });
@@ -334,10 +329,10 @@ fn spawn_system_bodies(
             &SystemId,
             Option<&crate::astronomy::StellarProperties>,
         ),
-        (Without<Handle<Mesh>>, Without<Handle<StandardMaterial>>),
+        (Without<Mesh3d>, Without<MeshMaterial3d<StandardMaterial>>),
     >,
     // Query to check if system already has visual entities
-    bodies_with_visuals: Query<&SystemId, (With<CelestialBody>, With<Handle<Mesh>>)>,
+    bodies_with_visuals: Query<&SystemId, (With<CelestialBody>, With<Mesh3d>)>,
 ) {
     if !current_system.is_changed() {
         return;
@@ -417,16 +412,15 @@ fn spawn_system_bodies(
             // Limb colour: cooler shift — red is retained, green/blue sharply attenuated
             let limb_col   = Vec4::new(cr * 55.0, cg * 28.0, cb * 8.0, 1.0);
 
-            commands.entity(entity).insert(MaterialMeshBundle::<StarSurfaceMaterial> {
-                mesh,
-                material: materials_surface.add(StarSurfaceMaterial {
+            commands.entity(entity).insert((
+                Mesh3d(mesh),
+                MeshMaterial3d(materials_surface.add(StarSurfaceMaterial {
                     color_center: center_col,
                     color_limb:   limb_col,
                     star_texture:  None, // No texture for procedural stars
-                }),
-                transform: initial_transform,
-                ..default()
-            });
+                })),
+                initial_transform,
+            ));
 
             // Add light and glow as children
             let intensity = 2.8e11;
@@ -445,32 +439,27 @@ fn spawn_system_bodies(
 
             commands.entity(entity).with_children(|parent| {
                 parent.spawn((
-                    PointLightBundle {
-                        point_light: PointLight {
-                            intensity,
-                            range: 2.0e9,
-                            shadows_enabled: false,
-                            color,
-                            ..default()
-                        },
+                    PointLight {
+                        intensity,
+                        range: 2.0e9,
+                        shadows_enabled: false,
+                        color,
                         ..default()
                     },
+                    Transform::default(),
                     SystemId(sys_id),
                 ));
 
                 // Diffraction spike billboard (behind corona in depth order)
                 parent.spawn((
-                    MaterialMeshBundle {
-                        mesh: meshes.add(Rectangle::new(
-                            visual_radius * 18.0,
-                            visual_radius * 18.0,
-                        )),
-                        material: materials_diffraction.add(StarDiffractionMaterial {
-                            color: Vec4::ZERO, // LOD system drives it in
-                        }),
-                        transform: Transform::from_translation(Vec3::Z * 0.05),
-                        ..default()
-                    },
+                    Mesh3d(meshes.add(Rectangle::new(
+                        visual_radius * 18.0,
+                        visual_radius * 18.0,
+                    ))),
+                    MeshMaterial3d(materials_diffraction.add(StarDiffractionMaterial {
+                        color: Vec4::ZERO, // LOD system drives it in
+                    })),
+                    Transform::from_translation(Vec3::Z * 0.05),
                     Billboard,
                     StarDiffraction { base_color: diff_col },
                     SystemId(sys_id),
@@ -478,15 +467,12 @@ fn spawn_system_bodies(
 
                 // Corona / halo billboard
                 parent.spawn((
-                    MaterialMeshBundle {
-                        mesh: meshes.add(Rectangle::new(corona_size, corona_size)),
-                        material: materials_glow.add(StarGlowMaterial {
-                            color_core: core_col,
-                            color_halo: halo_col,
-                        }),
-                        transform: Transform::from_translation(Vec3::Z * 0.1),
-                        ..default()
-                    },
+                    Mesh3d(meshes.add(Rectangle::new(corona_size, corona_size))),
+                    MeshMaterial3d(materials_glow.add(StarGlowMaterial {
+                        color_core: core_col,
+                        color_halo: halo_col,
+                    })),
+                    Transform::from_translation(Vec3::Z * 0.1),
                     StarGlare {
                         base_core_color: core_col,
                         base_halo_color: halo_col,
@@ -503,12 +489,11 @@ fn spawn_system_bodies(
                 ..default()
             });
 
-            commands.entity(entity).insert(PbrBundle {
-                mesh,
-                material,
-                transform: initial_transform,
-                ..default()
-            });
+            commands.entity(entity).insert((
+                Mesh3d(mesh),
+                MeshMaterial3d(material),
+                initial_transform,
+            ));
         }
     }
 
@@ -522,7 +507,7 @@ fn toggle_system_view_entities(
     current_system: Res<CurrentStarSystem>,
     mut body_query: Query<(&mut Visibility, Option<&SystemId>), With<CelestialBody>>,
     mut light_query: Query<
-        (&mut Visibility, Option<&SystemId>, Option<&Parent>),
+        (&mut Visibility, Option<&SystemId>, Option<&ChildOf>),
         (
             With<PointLight>,
             Without<CelestialBody>,
@@ -531,7 +516,7 @@ fn toggle_system_view_entities(
     >,
     parent_sys_query: Query<&SystemId>,
     newly_spawned_bodies: Query<Entity, Added<CelestialBody>>,
-    newly_added_meshes: Query<Entity, (With<CelestialBody>, Added<Handle<Mesh>>)>,
+    newly_added_meshes: Query<Entity, (With<CelestialBody>, Added<Mesh3d>)>,
 ) {
     // Run if view mode changed, current system changed, new bodies were spawned,
     // or existing bodies just received visual components (meshes)
@@ -562,7 +547,7 @@ fn toggle_system_view_entities(
                 let id = if let Some(s) = sys_id {
                     s.0
                 } else if let Some(parent) = parent {
-                    parent_sys_query.get(parent.get()).map(|s| s.0).unwrap_or(0)
+                    parent_sys_query.get(parent.parent()).map(|s| s.0).unwrap_or(0)
                 } else {
                     0
                 };
@@ -626,7 +611,7 @@ fn update_starmap_visibility(
     current_system: Res<CurrentStarSystem>,
     active_menu: Res<ActiveMenu>,
     mut icon_query: Query<(&mut Visibility, &StarSystemIcon)>,
-    bodies_with_visuals: Query<&SystemId, (With<CelestialBody>, With<Handle<Mesh>>)>,
+    bodies_with_visuals: Query<&SystemId, (With<CelestialBody>, With<Mesh3d>)>,
 ) {
     if !view_mode.is_changed() && !current_system.is_changed() && !active_menu.is_changed() {
         return;
@@ -672,7 +657,7 @@ fn update_starmap_icon_scale(
     camera_query: Query<&OrbitCamera, With<GameCamera>>,
     mut icon_query: Query<(&mut Transform, &StarSystemIcon)>,
 ) {
-    let Ok(orbit) = camera_query.get_single() else {
+    let Ok(orbit) = camera_query.single() else {
         return;
     };
 
@@ -725,9 +710,9 @@ fn handle_starmap_hover(
     }
 
     // Don't process if egui is using the mouse / pointer is over a UI panel
-    let ctx = match egui_contexts.try_ctx_mut() {
-        Some(ctx) => ctx,
-        None => return,
+    let ctx = match egui_contexts.ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
     };
     {
         let hover_pos = ctx.input(|i| i.pointer.hover_pos());
@@ -745,11 +730,11 @@ fn handle_starmap_hover(
         }
     }
 
-    let Ok(window) = windows.get_single() else {
+    let Ok(window) = windows.single() else {
         return;
     };
 
-    let Ok((camera, camera_transform)) = camera_query.get_single() else {
+    let Ok((camera, camera_transform)) = camera_query.single() else {
         return;
     };
 
@@ -763,7 +748,7 @@ fn handle_starmap_hover(
     };
 
     // Convert screen position to ray
-    let Some(ray) = camera.viewport_to_world(camera_transform, cursor_position) else {
+    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_position) else {
         return;
     };
 
@@ -841,7 +826,7 @@ fn handle_starmap_selection(
     }
 
     // Set cursor to default arrow to prevent text selection cursor
-    if let Some(ctx) = egui_contexts.try_ctx_mut() {
+    if let Ok(ctx) = egui_contexts.ctx_mut() {
         let hover_pos = ctx.input(|i| i.pointer.hover_pos());
         let over_panel = if let Some(available) = panel_bounds.available_rect {
             hover_pos.map_or(false, |p| !available.contains(p))
@@ -859,7 +844,7 @@ fn handle_starmap_selection(
     }
 
     // Don't process if egui is using the mouse / pointer is over a UI panel
-    let Some(ctx) = egui_contexts.try_ctx_mut() else {
+    let Ok(ctx) = egui_contexts.ctx_mut() else {
         return;
     };
     {
@@ -874,11 +859,11 @@ fn handle_starmap_selection(
         }
     }
 
-    let Ok(window) = windows.get_single() else {
+    let Ok(window) = windows.single() else {
         return;
     };
 
-    let Ok((camera, camera_transform)) = camera_query.get_single() else {
+    let Ok((camera, camera_transform)) = camera_query.single() else {
         return;
     };
 
@@ -888,7 +873,7 @@ fn handle_starmap_selection(
     };
 
     // Convert screen position to ray
-    let Some(ray) = camera.viewport_to_world(camera_transform, cursor_position) else {
+    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_position) else {
         return;
     };
 
@@ -924,7 +909,7 @@ fn handle_starmap_selection(
 
     // If we found an icon, handle selection and double-click
     if let Some((entity, _, name)) = closest_icon {
-        let current_time = time.elapsed_seconds_f64();
+        let current_time = time.elapsed_secs_f64();
         let is_double_click = selection_state.last_clicked_entity == Some(entity)
             && (current_time - selection_state.last_click_time) < 0.3; // 300ms window
 
@@ -936,13 +921,13 @@ fn handle_starmap_selection(
             info!("Double-clicked star system: {} - zooming in", name);
 
             // Anchor camera to this system icon's position
-            if let Ok(mut anchor) = anchor_query.get_single_mut() {
+            if let Ok(mut anchor) = anchor_query.single_mut() {
                 anchor.0 = Some(entity);
                 info!("Camera anchored to {}", name);
             }
 
             // Set zoom to medium level (150k units for comfortable view)
-            if let Ok(mut orbit_camera) = orbit_camera_query.get_single_mut() {
+            if let Ok(mut orbit_camera) = orbit_camera_query.single_mut() {
                 orbit_camera.radius = 150_000.0;
             }
         } else {
@@ -981,7 +966,7 @@ fn handle_system_transition(
     }
 
     // Identify which star we are anchored to
-    if let Ok(mut anchor) = anchor_query.get_single_mut() {
+    if let Ok(mut anchor) = anchor_query.single_mut() {
         if let Some(anchored_entity) = anchor.0 {
             // Check if the anchored entity is a star system icon
             if let Ok(icon) = icon_query.get(anchored_entity) {
@@ -1008,7 +993,7 @@ fn handle_system_transition(
                 // Reset OrbitCamera target center to (0,0,0) explicitly
                 // This ensures we are looking at the star (which is at local 0,0,0)
                 // disregarding any previous starmap-space offset
-                if let Ok(mut orbit_camera) = camera_query.get_single_mut() {
+                if let Ok(mut orbit_camera) = camera_query.single_mut() {
                     orbit_camera.target_center = Vec3::ZERO;
                 }
             }

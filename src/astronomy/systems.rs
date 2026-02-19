@@ -432,8 +432,8 @@ fn create_tail_cone_mesh(
     base_color: Color,
     tip_color: Color,
 ) -> Mesh {
-    use bevy::render::mesh::{Indices, PrimitiveTopology};
-    use bevy::render::render_asset::RenderAssetUsages;
+    use bevy::mesh::{Indices, PrimitiveTopology};
+    use bevy::asset::RenderAssetUsages;
 
     let mut positions = Vec::new();
     let mut normals = Vec::new();
@@ -564,7 +564,7 @@ pub fn manage_comet_tail_meshes(
     // Despawn tails for comets that no longer need them
     for (tail_entity, tail) in tail_query.iter() {
         if !comets_needing_tails.contains(&tail.comet_entity) {
-            commands.entity(tail_entity).despawn_recursive();
+            commands.entity(tail_entity).despawn();
         }
     }
 }
@@ -618,12 +618,9 @@ fn spawn_comet_tail_meshes(
     });
 
     commands.spawn((
-        PbrBundle {
-            mesh: ion_mesh,
-            material: ion_material,
-            transform: Transform::default(), // Will be updated by update_tail_transforms
-            ..default()
-        },
+        Mesh3d(ion_mesh),
+        MeshMaterial3d(ion_material),
+        Transform::default(), // Will be updated by update_tail_transforms
         CometTail {
             comet_entity,
             is_ion_tail: true,
@@ -655,12 +652,9 @@ fn spawn_comet_tail_meshes(
     });
 
     commands.spawn((
-        PbrBundle {
-            mesh: dust_mesh,
-            material: dust_material,
-            transform: Transform::default(),
-            ..default()
-        },
+        Mesh3d(dust_mesh),
+        MeshMaterial3d(dust_material),
+        Transform::default(),
         CometTail {
             comet_entity,
             is_ion_tail: false,
@@ -1018,13 +1012,13 @@ pub fn fade_destroyed_bodies(
 
             // Despawn all children first (markers, trails, etc.)
             for child in children.iter() {
-                if let Ok(child_entity) = child_query.get(*child) {
-                    commands.entity(child_entity).despawn_recursive();
+                if let Ok(child_entity) = child_query.get(child) {
+                    commands.entity(child_entity).despawn();
                 }
             }
 
             // Despawn the body itself
-            commands.entity(entity).despawn_recursive();
+            commands.entity(entity).despawn();
         } else if let Some(mut vis) = visibility {
             // During fade-out, gradually hide the body
             // Could also modify alpha/emissive here if we add that capability
@@ -1051,7 +1045,7 @@ pub fn update_orbit_visibility(
         Option<&LogicalParent>,
     )>,
 ) {
-    let Ok(anchor) = camera_query.get_single() else {
+    let Ok(anchor) = camera_query.single() else {
         return;
     };
 
@@ -1102,7 +1096,7 @@ pub fn update_body_lod_visibility(
         With<CelestialBody>,
     >,
 ) {
-    let Ok(anchor) = camera_query.get_single() else {
+    let Ok(anchor) = camera_query.single() else {
         return;
     };
 
@@ -1177,7 +1171,7 @@ pub fn handle_body_selection(
     }
 
     // Don't process if egui is using the mouse (e.g., clicking on UI)
-    if let Some(ctx) = egui_contexts.try_ctx_mut() {
+    if let Ok(ctx) = egui_contexts.ctx_mut() {
         let hover_pos = ctx.input(|i| i.pointer.hover_pos());
         let over_panel = if let Some(available) = panel_bounds.available_rect {
             hover_pos.map_or(false, |p| !available.contains(p))
@@ -1189,11 +1183,11 @@ pub fn handle_body_selection(
         }
     }
 
-    let Ok(window) = windows.get_single() else {
+    let Ok(window) = windows.single() else {
         return;
     };
 
-    let Ok((camera, camera_transform)) = camera_query.get_single() else {
+    let Ok((camera, camera_transform)) = camera_query.single() else {
         return;
     };
 
@@ -1203,7 +1197,7 @@ pub fn handle_body_selection(
     };
 
     // Convert screen position to ray
-    let Some(ray) = camera.viewport_to_world(camera_transform, cursor_position) else {
+    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_position) else {
         return;
     };
 
@@ -1263,11 +1257,11 @@ pub fn handle_body_selection(
         commands.entity(entity).insert(Selected);
         info!("Selected celestial body: {} (entity {:?})", name, entity);
 
-        let current_time = time.elapsed_seconds_f64();
+        let current_time = time.elapsed_secs_f64();
         if let Some(last_entity) = selection_state.last_clicked_entity {
             if last_entity == entity && (current_time - selection_state.last_click_time) < 0.5 {
                 info!("Double click on {}, setting anchor.", name);
-                if let Ok(mut anchor) = anchor_query.get_single_mut() {
+                if let Ok(mut anchor) = anchor_query.single_mut() {
                     anchor.0 = Some(entity);
                 }
             }
@@ -1310,7 +1304,7 @@ pub fn handle_body_hover(
 
     // Safety check: ensure we have access to egui context
     // If the cursor is over a UI element, don't perform world picking
-    if let Some(ctx) = egui_contexts.try_ctx_mut() {
+    if let Ok(ctx) = egui_contexts.ctx_mut() {
         let hover_pos = ctx.input(|i| i.pointer.hover_pos());
         let over_panel = if let Some(available) = panel_bounds.available_rect {
             hover_pos.map_or(false, |p| !available.contains(p))
@@ -1326,11 +1320,11 @@ pub fn handle_body_hover(
         }
     }
 
-    let Ok(window) = windows.get_single() else {
+    let Ok(window) = windows.single() else {
         return;
     };
 
-    let Ok((camera, camera_transform)) = camera_query.get_single() else {
+    let Ok((camera, camera_transform)) = camera_query.single() else {
         return;
     };
 
@@ -1344,7 +1338,7 @@ pub fn handle_body_hover(
     };
 
     // Convert screen position to ray
-    let Some(ray) = camera.viewport_to_world(camera_transform, cursor_position) else {
+    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_position) else {
         return;
     };
 
@@ -1413,7 +1407,7 @@ pub fn spawn_selection_markers(
         // Remove hover marker if it exists
         for (marker_entity, owner) in hover_markers.iter() {
             if owner.0 == entity {
-                commands.entity(marker_entity).despawn_recursive();
+                commands.entity(marker_entity).despawn();
             }
         }
 
@@ -1441,7 +1435,7 @@ pub fn despawn_selection_markers(
     for entity in removed_selected.read() {
         for (marker_entity, owner) in marker_query.iter() {
             if owner.0 == entity {
-                commands.entity(marker_entity).despawn_recursive();
+                commands.entity(marker_entity).despawn();
             }
         }
 
@@ -1495,7 +1489,7 @@ pub fn despawn_hover_markers(
         
         for (marker_entity, owner) in marker_query.iter() {
             if owner.0 == entity {
-                commands.entity(marker_entity).despawn_recursive();
+                commands.entity(marker_entity).despawn();
             }
         }
     }
@@ -1504,7 +1498,7 @@ pub fn despawn_hover_markers(
 /// System that animates marker dots around selection/hover rings.
 pub fn animate_marker_dots(time: Res<Time>, mut query: Query<(&mut Transform, &mut MarkerDot)>) {
     for (mut transform, mut dot) in query.iter_mut() {
-        dot.angle = (dot.angle + dot.angular_speed * time.delta_seconds())
+        dot.angle = (dot.angle + dot.angular_speed * time.delta_secs())
             .rem_euclid(std::f32::consts::TAU);
         transform.translation = Vec3::new(
             dot.radius * dot.angle.cos(),
@@ -1543,7 +1537,7 @@ fn spawn_marker(
 
     // Create a parent entity for the reticle (no mesh, just a transform anchor)
     let marker_entity = commands
-        .spawn((SpatialBundle::default(), MarkerOwner(owner)))
+        .spawn((Transform::default(), Visibility::default(), MarkerOwner(owner)))
         .id();
 
     if is_selected {
@@ -1593,12 +1587,11 @@ fn spawn_marker(
         let h_bar_pos = Vec3::new(corner_x - x_sign * bracket_length * 0.5, 0.0, corner_z);
 
         commands.entity(marker_entity).with_children(|parent| {
-            parent.spawn(PbrBundle {
-                mesh: h_bar_mesh,
-                material: bracket_material.clone(),
-                transform: Transform::from_translation(h_bar_pos),
-                ..default()
-            });
+            parent.spawn((
+                Mesh3d(h_bar_mesh),
+                MeshMaterial3d(bracket_material.clone()),
+                Transform::from_translation(h_bar_pos),
+            ));
         });
 
         // Vertical bar extending inward from corner (along Z axis)
@@ -1610,12 +1603,11 @@ fn spawn_marker(
         let v_bar_pos = Vec3::new(corner_x, 0.0, corner_z - z_sign * bracket_length * 0.5);
 
         commands.entity(marker_entity).with_children(|parent| {
-            parent.spawn(PbrBundle {
-                mesh: v_bar_mesh,
-                material: bracket_material.clone(),
-                transform: Transform::from_translation(v_bar_pos),
-                ..default()
-            });
+            parent.spawn((
+                Mesh3d(v_bar_mesh),
+                MeshMaterial3d(bracket_material.clone()),
+                Transform::from_translation(v_bar_pos),
+            ));
         });
     }
 }
@@ -1630,7 +1622,7 @@ pub fn zoom_camera_to_anchored_body(
     >,
 ) {
     // Only trigger when camera anchor changes
-    let Ok((mut orbit_camera, anchor)) = camera_query.get_single_mut() else {
+    let Ok((mut orbit_camera, anchor)) = camera_query.single_mut() else {
         return;
     };
 
@@ -1680,11 +1672,11 @@ pub fn scale_markers_with_zoom(
     >,
     owner_query: Query<&GlobalTransform, Without<MarkerOwner>>,
 ) {
-    let Ok(orbit_camera) = orbit_camera_query.get_single() else {
+    let Ok(orbit_camera) = orbit_camera_query.single() else {
         return;
     };
 
-    let Ok(camera_global_transform) = camera_query.get_single() else {
+    let Ok(camera_global_transform) = camera_query.single() else {
         return;
     };
 
@@ -1713,7 +1705,7 @@ pub fn scale_markers_with_zoom(
             }
         } else {
             // Owner doesn't exist anymore (destroyed?), clean up marker
-            commands.entity(entity).despawn_recursive();
+            commands.entity(entity).despawn();
         }
     }
 }

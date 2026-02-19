@@ -1,7 +1,8 @@
 use bevy::prelude::*;
-use bevy::render::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
-use bevy::render::render_asset::RenderAssetUsages;
-use bevy::render::render_resource::{AsBindGroup, ShaderRef};
+use bevy::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
+use bevy::asset::RenderAssetUsages;
+use bevy::render::render_resource::AsBindGroup;
+use bevy::shader::ShaderRef;
 use rand::prelude::*;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
@@ -134,16 +135,16 @@ pub struct StarDiffraction {
 }
 
 fn update_billboards(
-    mut query: Query<(&mut Transform, &GlobalTransform, &Parent), With<Billboard>>,
+    mut query: Query<(&mut Transform, &GlobalTransform, &ChildOf), With<Billboard>>,
     parent_query: Query<&GlobalTransform, Without<Billboard>>,
     camera_query: Query<&GlobalTransform, With<Camera3d>>,
 ) {
-    if let Ok(camera_global_transform) = camera_query.get_single() {
+    if let Ok(camera_global_transform) = camera_query.single() {
         let camera_pos = camera_global_transform.translation();
         for (mut transform, _global, parent) in query.iter_mut() {
             // Compute the billboard's world position from its parent
             let parent_global = parent_query
-                .get(parent.get())
+                .get(parent.parent())
                 .map(|g| g.compute_transform())
                 .unwrap_or_default();
 
@@ -195,10 +196,10 @@ fn update_body_visibility(
 /// When zoomed in close, the glare fades to transparent, revealing the star surface.
 fn update_star_glare_lod(
     camera_query: Query<&GlobalTransform, With<Camera3d>>,
-    mut glare_query: Query<(&GlobalTransform, &Handle<StarGlowMaterial>, &StarGlare)>,
+    mut glare_query: Query<(&GlobalTransform, &MeshMaterial3d<StarGlowMaterial>, &StarGlare)>,
     mut materials: ResMut<Assets<StarGlowMaterial>>,
 ) {
-    if let Ok(cam_transform) = camera_query.get_single() {
+    if let Ok(cam_transform) = camera_query.single() {
         let cam_pos = cam_transform.translation();
 
         for (glare_transform, mat_handle, glare_data) in glare_query.iter_mut() {
@@ -240,10 +241,10 @@ fn update_star_glare_lod(
 /// The spikes are a long-range effect; at close range the surface limb-darkening takes over.
 fn update_star_diffraction_lod(
     camera_query: Query<&GlobalTransform, With<Camera3d>>,
-    mut diffraction_query: Query<(&GlobalTransform, &Handle<StarDiffractionMaterial>, &StarDiffraction)>,
+    mut diffraction_query: Query<(&GlobalTransform, &MeshMaterial3d<StarDiffractionMaterial>, &StarDiffraction)>,
     mut materials: ResMut<Assets<StarDiffractionMaterial>>,
 ) {
-    if let Ok(cam_transform) = camera_query.get_single() {
+    if let Ok(cam_transform) = camera_query.single() {
         let cam_pos = cam_transform.translation();
 
         for (diff_transform, mat_handle, diff_data) in diffraction_query.iter_mut() {
@@ -855,12 +856,9 @@ pub fn setup_solar_system(
         // Stars use the limb-darkening StarSurfaceMaterial; all other bodies use PbrBundle.
         let mut entity_commands = if let Some(star_mat) = star_surface_mat {
             commands.spawn((
-                MaterialMeshBundle {
-                    mesh,
-                    material: star_mat,
-                    transform: Transform::from_translation(initial_pos),
-                    ..default()
-                },
+                Mesh3d(mesh),
+                MeshMaterial3d(star_mat),
+                Transform::from_translation(initial_pos),
                 CelestialBody {
                     name: body_data.name.clone(),
                     radius: body_data.radius,
@@ -873,12 +871,9 @@ pub fn setup_solar_system(
             ))
         } else {
             commands.spawn((
-                PbrBundle {
-                    mesh,
-                    material: material.expect("non-star body must have StandardMaterial"),
-                    transform: Transform::from_translation(initial_pos),
-                    ..default()
-                },
+                Mesh3d(mesh),
+                MeshMaterial3d(material.expect("non-star body must have StandardMaterial")),
+                Transform::from_translation(initial_pos),
                 CelestialBody {
                     name: body_data.name.clone(),
                     radius: body_data.radius,
@@ -1041,9 +1036,9 @@ pub fn setup_solar_system(
         // Add cloud layer if texture exists (e.g. Earth, Venus)
         if let Some(clouds_tex) = clouds_texture {
             commands.entity(entity).with_children(|parent| {
-                parent.spawn(PbrBundle {
-                    mesh: meshes.add(Sphere::new(visual_radius * 1.015).mesh().uv(64, 32)), // 1.5% larger than surface
-                    material: materials.add(StandardMaterial {
+                parent.spawn((
+                    Mesh3d(meshes.add(Sphere::new(visual_radius * 1.015).mesh().uv(64, 32))), // 1.5% larger than surface
+                    MeshMaterial3d(materials.add(StandardMaterial {
                         base_color_texture: Some(clouds_tex),
                         base_color: Color::WHITE,
                         // Use additive blending since cloud textures are often black/white
@@ -1053,10 +1048,9 @@ pub fn setup_solar_system(
                         perceptual_roughness: 0.8, // Clouds are rough (diffuse)
                         reflectance: 0.6,
                         ..default()
-                    }),
-                    transform: Transform::default(), // Relative to parent (0,0,0)
-                    ..default()
-                });
+                    })),
+                    Transform::default(), // Relative to parent (0,0,0)
+                ));
             });
         }
 
@@ -1066,18 +1060,17 @@ pub fn setup_solar_system(
             use crate::plugins::visual_effects::NightMaterial;
 
             commands.entity(entity).with_children(|parent| {
-                parent.spawn(MaterialMeshBundle {
-                    mesh: meshes.add(Sphere::new(visual_radius * 1.002).mesh().uv(64, 32)), // Just slightly above surface
-                    material: materials_night.add(NightMaterial {
+                parent.spawn((
+                    Mesh3d(meshes.add(Sphere::new(visual_radius * 1.002).mesh().uv(64, 32))), // Just slightly above surface
+                    MeshMaterial3d(materials_night.add(NightMaterial {
                         night_texture: night_tex,
                         // Sun is at 0,0,0.
                         // Note: If we had moving sun or dynamic lights, we'd need to update this uniform every frame.
                         // For now, Sun is static at 0,0,0.
                         sun_position: Vec4::new(0.0, 0.0, 0.0, 0.0),
-                    }),
-                    transform: Transform::default(),
-                    ..default()
-                });
+                    })),
+                    Transform::default(),
+                ));
             });
         }
 
@@ -1116,7 +1109,7 @@ pub fn setup_solar_system(
                     // Moons and planets use world-space coordinates so that the
                     // parent planet's spin rotation does NOT drag moon positions
                     if body_data.body_type == BodyType::Ring {
-                        commands.entity(*entity).set_parent(*parent_entity);
+                        commands.entity(*entity).insert(ChildOf(*parent_entity));
                     }
                 } else {
                     warn!(
@@ -1137,8 +1130,8 @@ pub fn setup_solar_system(
 
                 // Spawn light as a child of the star entity so it follows the star
                 commands.entity(*entity).with_children(|parent| {
-                    parent.spawn(PointLightBundle {
-                        point_light: PointLight {
+                    parent.spawn((
+                        PointLight {
                             // Intensity needs to be extremely high because of the 1 AU = 1500.0 scale
                             // Physical sun is ~3.75e28 lumens.
                             // Scaled down to be reasonable for 10,000 lux at 1 AU (1500 units):
@@ -1148,9 +1141,8 @@ pub fn setup_solar_system(
                             shadows_enabled: false, // Disable to prevent star mesh from blocking its own light
                             ..default()
                         },
-                        transform: Transform::default(),
-                        ..default()
-                    });
+                        Transform::default(),
+                    ));
 
                     // ── Diffraction spike billboard (large, behind corona) ──────────────
                     // Rendered at depth_bias -2.0 (just behind corona at -1.0).
@@ -1159,17 +1151,14 @@ pub fn setup_solar_system(
                     // beyond the corona and trigger bloom at the streaks' HDR brightness.
                     let diff_col = Vec4::new(4.5, 4.2, 3.5, 1.0); // warm white
                     parent.spawn((
-                        MaterialMeshBundle {
-                            mesh: meshes.add(Rectangle::new(
-                                visual_radius * 18.0,
-                                visual_radius * 18.0,
-                            )),
-                            material: materials_diffraction.add(StarDiffractionMaterial {
-                                color: Vec4::ZERO, // starts hidden; LOD system drives it
-                            }),
-                            transform: Transform::from_translation(Vec3::Z * 0.05),
-                            ..default()
-                        },
+                        Mesh3d(meshes.add(Rectangle::new(
+                            visual_radius * 18.0,
+                            visual_radius * 18.0,
+                        ))),
+                        MeshMaterial3d(materials_diffraction.add(StarDiffractionMaterial {
+                            color: Vec4::ZERO, // starts hidden; LOD system drives it
+                        })),
+                        Transform::from_translation(Vec3::Z * 0.05),
                         Billboard,
                         StarDiffraction { base_color: diff_col },
                     ));
@@ -1182,18 +1171,15 @@ pub fn setup_solar_system(
                     let halo_col = Vec4::new(4.0, 2.5, 0.5, 1.0); // Golden/Orange halo
 
                     parent.spawn((
-                        MaterialMeshBundle {
-                            mesh: meshes.add(Rectangle::new(
-                                visual_radius * 8.0,
-                                visual_radius * 8.0,
-                            )),
-                            material: materials_glow.add(StarGlowMaterial {
-                                color_core: core_col,
-                                color_halo: halo_col,
-                            }),
-                            transform: Transform::from_translation(Vec3::Z * 0.1),
-                            ..default()
-                        },
+                        Mesh3d(meshes.add(Rectangle::new(
+                            visual_radius * 8.0,
+                            visual_radius * 8.0,
+                        ))),
+                        MeshMaterial3d(materials_glow.add(StarGlowMaterial {
+                            color_core: core_col,
+                            color_halo: halo_col,
+                        })),
+                        Transform::from_translation(Vec3::Z * 0.1),
                         Billboard,
                         StarGlare {
                             base_core_color: core_col,
@@ -1440,7 +1426,7 @@ fn initial_camera_focus(
         .map(|(e, _)| e);
 
     if let Some(sol) = sol_entity {
-        if let Ok(mut anchor) = query_camera.get_single_mut() {
+        if let Ok(mut anchor) = query_camera.single_mut() {
             if anchor.0.is_none() {
                 info!("Setting initial camera focus to Sol");
                 anchor.0 = Some(sol);
@@ -1531,13 +1517,13 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
         for _ in 0..num_layers {
             axes.push(
                 Vec3::new(
-                    rng.gen::<f32>() * 2.0 - 1.0,
-                    rng.gen::<f32>() * 2.0 - 1.0,
-                    rng.gen::<f32>() * 2.0 - 1.0,
+                    rng.random::<f32>() * 2.0 - 1.0,
+                    rng.random::<f32>() * 2.0 - 1.0,
+                    rng.random::<f32>() * 2.0 - 1.0,
                 )
                 .normalize_or_zero(),
             );
-            phases.push(rng.gen::<f32>() * std::f32::consts::TAU);
+            phases.push(rng.random::<f32>() * std::f32::consts::TAU);
         }
 
         // Determine roughness based on physical size

@@ -1,6 +1,7 @@
 use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
+use bevy::render::view::Hdr;
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass, EguiStartupSet};
 
 use crate::astronomy::components::CurrentStarSystem;
 use crate::astronomy::SCALING_FACTOR;
@@ -45,13 +46,18 @@ impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ViewMode>()
             .init_resource::<EguiPanelBounds>()
-            .add_systems(Startup, spawn_camera)
+            // Spawn camera in PreStartup before EguiStartupSet::InitContexts so
+            // bevy_egui attaches its context to this camera entity. Without this,
+            // EguiContexts::ctx_mut() returns Err during Startup and custom fonts
+            // (including emoji fonts) are silently never applied.
+            .add_systems(PreStartup, spawn_camera.before(EguiStartupSet::InitContexts))
+            .add_systems(
+                EguiPrimaryContextPass,
+                orbit_camera_controls,
+            )
             .add_systems(
                 Update,
                 (
-                    orbit_camera_controls
-                        // Run AFTER egui has processed input to respect UI interaction
-                        .after(bevy_egui::EguiSet::ProcessInput),
                     update_camera_transform,
                     update_view_mode,
                 ),
@@ -94,14 +100,13 @@ impl Default for OrbitCamera {
 
 fn spawn_camera(mut commands: Commands) {
     commands.spawn((
-        Camera3dBundle {
-            transform: Transform::from_xyz(0.0, 1000.0, 2000.0).looking_at(Vec3::ZERO, Vec3::Y),
-            projection: Projection::Perspective(PerspectiveProjection {
-                far: 3_000_000.0, // Increased to comfortably render at max camera distance
-                ..default()
-            }),
+        Camera3d::default(),
+        Transform::from_xyz(0.0, 1000.0, 2000.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Projection::Perspective(PerspectiveProjection {
+            far: 3_000_000.0, // Increased to comfortably render at max camera distance
             ..default()
-        },
+        }),
+        Hdr,
         GameCamera,
         CameraAnchor(None),
         OrbitCamera::default(),
@@ -116,7 +121,7 @@ pub fn capture_egui_panel_bounds(
     mut contexts: EguiContexts,
     mut bounds: ResMut<EguiPanelBounds>,
 ) {
-    if let Some(ctx) = contexts.try_ctx_mut() {
+    if let Ok(ctx) = contexts.ctx_mut() {
         bounds.available_rect = Some(ctx.available_rect());
     }
 }
@@ -125,12 +130,12 @@ fn orbit_camera_controls(
     mut contexts: EguiContexts,
     active_menu: Res<ActiveMenu>,
     mouse: Res<ButtonInput<MouseButton>>,
-    mut motion_events: EventReader<MouseMotion>,
-    mut scroll_events: EventReader<MouseWheel>,
+    mut motion_events: MessageReader<MouseMotion>,
+    mut scroll_events: MessageReader<MouseWheel>,
     mut query: Query<&mut OrbitCamera>,
     panel_bounds: Res<EguiPanelBounds>,
 ) {
-    let mut camera = query.single_mut();
+    let mut camera = query.single_mut().unwrap();
 
     // Block camera control when in full-screen UI modes (i.e. menus that block world interaction)
     if active_menu.current.blocks_world_interaction() {
@@ -140,7 +145,7 @@ fn orbit_camera_controls(
     }
 
     // Check if Egui wants the input (e.g. mouse over a floating window or an anchored panel)
-    if let Some(ctx) = contexts.try_ctx_mut() {
+    if let Ok(ctx) = contexts.ctx_mut() {
         let hover_pos = ctx.input(|i| i.pointer.hover_pos());
 
         // is_pointer_over_area() catches floating windows/popups.
@@ -185,7 +190,7 @@ fn update_camera_transform(
     mut camera_query: Query<(&mut Transform, &mut OrbitCamera, &CameraAnchor)>,
     target_query: Query<&GlobalTransform, Without<GameCamera>>,
 ) {
-    let (mut transform, mut orbit, anchor) = camera_query.single_mut();
+    let (mut transform, mut orbit, anchor) = camera_query.single_mut().unwrap();
 
     // Update target center if anchored
     if let Some(entity) = anchor.0 {
@@ -214,7 +219,7 @@ fn update_view_mode(
     system_metadata: Res<SystemMetadata>,
     mut view_mode: ResMut<ViewMode>,
 ) {
-    let Ok(orbit) = camera_query.get_single() else {
+    let Ok(orbit) = camera_query.single() else {
         return;
     };
 

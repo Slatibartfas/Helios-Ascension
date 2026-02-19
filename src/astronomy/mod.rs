@@ -9,6 +9,7 @@
 //! - Floating origin: Conversion from simulation to rendering coordinates
 
 use bevy::prelude::*;
+use bevy_egui::EguiPrimaryContextPass;
 
 pub mod components;
 pub mod ephemeris;
@@ -52,9 +53,6 @@ impl Plugin for AstronomyPlugin {
                     // Destruction and lifecycle
                     check_natural_destruction.after(propagate_orbits),
                     fade_destroyed_bodies.after(check_natural_destruction),
-                    // Selection and hover
-                    handle_body_selection,
-                    handle_body_hover,
                     // Selection/hover markers
                     spawn_selection_markers,
                     despawn_selection_markers,
@@ -73,6 +71,14 @@ impl Plugin for AstronomyPlugin {
                     // Comet Visuals
                     manage_comet_tail_meshes,
                     update_tail_transforms.after(propagate_orbits),
+                ),
+            )
+            // Selection and hover systems use EguiContexts — must run in EguiPrimaryContextPass
+            .add_systems(
+                EguiPrimaryContextPass,
+                (
+                    handle_body_selection,
+                    handle_body_hover,
                 ),
             );
     }

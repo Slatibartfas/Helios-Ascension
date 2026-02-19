@@ -14,7 +14,7 @@ Helios Ascension is a high-performance space strategy game inspired by Aurora 4X
 ## Technology Stack
 
 - **Language**: Rust 2021 Edition
-- **Game Engine**: Bevy 0.14
+- **Game Engine**: Bevy 0.18
 - **Architecture**: Entity Component System (ECS)
 - **Serialization**: RON (Rusty Object Notation) and Serde
 - **Math**: glam for high-performance vector/matrix operations
@@ -175,7 +175,7 @@ cargo clippy             # Linting
 ### Events
 - Use Bevy events for loose coupling between systems
 - Define custom event types as needed
-- Use `EventReader<T>` and `EventWriter<T>` in systems
+- Use `MessageReader<T>` and `MessageWriter<T>` in systems (renamed from `EventReader`/`EventWriter` in Bevy 0.17+)
 
 ## UI & Asset Guidelines
 
@@ -272,6 +272,31 @@ When adding new UI icons (menus, research categories, etc.), applying the follow
 - Mouse wheel for zoom
 - Camera focuses on selected celestial bodies
 
+### Ambient Lighting
+- Use `GlobalAmbientLight` (resource) for the default ambient light for the entire world
+- Use `AmbientLight` (component) on a `Camera` entity to override the global ambient for that camera
+- In Bevy 0.18, the old `AmbientLight` resource was split into `GlobalAmbientLight` (resource) and `AmbientLight` (component)
+
+### State Transitions (Bevy 0.18)
+- `NextState::set()` now **always triggers** `OnEnter`/`OnExit` transitions, even if setting the same state
+- Use `NextState::set_if_neq()` if you want the previous behavior of skipping same-state transitions
+
+### Entity API (Bevy 0.18)
+- Entity terminology changed from "row" to "index": `Entity::row()` → `Entity::index()`, `EntityRow` → `EntityIndex`
+- Many Entity interaction errors changed from `EntityDoesNotExistError` to `EntityNotSpawnedError`
+
+### Custom Materials & Shaders
+- Material bind groups use `@group(3)` in WGSL shaders (shifted from `@group(2)` in 0.17)
+- Custom materials use `#[derive(AsBindGroup)]` — the derive auto-generates the `label()` method
+- `MaterialPlugin` no longer has `prepass_enabled` / `shadows_enabled` fields; override `Material::enable_prepass()` / `Material::enable_shadows()` methods instead
+- Camera HDR is controlled via the `Hdr` marker component (not a field on `Camera`)
+- Bloom is at `bevy::post_process::bloom::Bloom`
+- `ShaderRef` is at `bevy::shader::ShaderRef`
+
+### Automatic Aabb Updates (Bevy 0.18)
+- Bevy now auto-updates `Aabb` when meshes/sprites change — no need to manually remove and re-add `Aabb`
+- Use `NoAutoAabb` component to opt out of automatic Aabb creation/update
+
 ## Security Considerations
 
 Apply the [security standards](./.github/instructions/security.instructions.md).
@@ -312,6 +337,16 @@ Apply the [documentation standards](./.github/instructions/documentation.instruc
 - Include examples in doc comments
 - Keep README.md up to date
 - Update ARCHITECTURE.md for significant changes
+
+### Egui System Scheduling
+- All egui-using systems must be placed in the `EguiPrimaryContextPass` schedule (from `bevy_egui`), **not** `Update`
+- This is required because `bevy_egui` 0.36+ runs its context setup in a separate pass; calling `available_rect()` before the context is ready causes a panic
+- Example: `.add_systems(EguiPrimaryContextPass, my_egui_system)`
+
+### Bevy 0.18 Feature Collections
+- Bevy 0.18 introduced high-level cargo feature collections: `2d`, `3d`, `ui`
+- Consider using these instead of listing individual sub-crate features for simpler `Cargo.toml` maintenance
+- Our project currently uses individual features for fine-grained control
 
 ## Getting Help
 

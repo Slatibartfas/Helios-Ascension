@@ -52,7 +52,7 @@ mod tests {
     #[test]
     fn test_selection_select() {
         let mut selection = Selection::new();
-        let entity = Entity::from_raw(42);
+        let entity = Entity::from_raw_u32(42).unwrap();
 
         selection.select(entity);
 
@@ -63,7 +63,7 @@ mod tests {
     #[test]
     fn test_selection_clear() {
         let mut selection = Selection::new();
-        let entity = Entity::from_raw(42);
+        let entity = Entity::from_raw_u32(42).unwrap();
 
         selection.select(entity);
         selection.clear();

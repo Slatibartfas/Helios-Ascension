@@ -1,7 +1,8 @@
-use bevy::core_pipeline::bloom::BloomSettings;
+use bevy::post_process::bloom::Bloom;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, ShaderRef};
+use bevy::render::render_resource::AsBindGroup;
+use bevy::shader::ShaderRef;
 use rand::Rng;
 
 pub struct VisualEffectsPlugin;
@@ -47,7 +48,7 @@ fn setup_starfield(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     // Create multiple layers of stars at different distances
     let layers = vec![
@@ -60,22 +61,22 @@ fn setup_starfield(
     for (count, distance, base_brightness, base_size) in layers {
         for _ in 0..count {
             // Random position on a sphere
-            let theta = rng.gen::<f32>() * std::f32::consts::TAU;
-            let phi = rng.gen::<f32>() * std::f32::consts::PI;
+            let theta = rng.random::<f32>() * std::f32::consts::TAU;
+            let phi = rng.random::<f32>() * std::f32::consts::PI;
 
             let x = distance * phi.sin() * theta.cos();
             let y = distance * phi.sin() * theta.sin();
             let z = distance * phi.cos();
 
             // Vary brightness and size
-            let brightness_variance = rng.gen::<f32>() * 0.5 + 0.5;
-            let size_variance = rng.gen::<f32>() * 0.5 + 0.5;
+            let brightness_variance = rng.random::<f32>() * 0.5 + 0.5;
+            let size_variance = rng.random::<f32>() * 0.5 + 0.5;
 
             let brightness = base_brightness * brightness_variance;
             let size = base_size * size_variance;
 
             // Star color distribution: 75% white, 10% blue, 10% yellow/orange, 5% red
-            let color_temp = rng.gen::<f32>();
+            let color_temp = rng.random::<f32>();
             let star_color = if color_temp < 0.10 {
                 // Blue stars (hot) - 10%
                 Color::srgb(0.7, 0.8, 1.0)
@@ -100,12 +101,9 @@ fn setup_starfield(
             });
 
             commands.spawn((
-                PbrBundle {
-                    mesh: star_mesh,
-                    material: star_material,
-                    transform: Transform::from_xyz(x, y, z),
-                    ..default()
-                },
+                Mesh3d(star_mesh),
+                MeshMaterial3d(star_material),
+                Transform::from_xyz(x, y, z),
                 StarParticle { brightness, size },
             ));
         }
@@ -114,19 +112,20 @@ fn setup_starfield(
 
 /// Setup camera effects for better space atmosphere
 fn setup_camera_effects(mut commands: Commands, camera_query: Query<Entity, With<Camera3d>>) {
-    if let Ok(camera_entity) = camera_query.get_single() {
+    if let Ok(camera_entity) = camera_query.single() {
         // Add bloom effect for bright objects (stars, sun) — tuned for subtle, realistic corona
         commands.entity(camera_entity).insert((
-            BloomSettings {
+            Bloom {
                 intensity: 0.25,          // Slightly increased intensity for better visible glow
                 low_frequency_boost: 0.6, // Broader soft glow
                 low_frequency_boost_curvature: 0.4,
                 high_pass_frequency: 0.1, // Allow lower frequencies to bloom (more large glow)
-                prefilter_settings: bevy::core_pipeline::bloom::BloomPrefilterSettings {
+                prefilter: bevy::post_process::bloom::BloomPrefilter {
                     threshold: 2.0, // Lower threshold so our glow materials (brightness ~5-10) trigger bloom
                     threshold_softness: 0.3,
                 },
-                composite_mode: bevy::core_pipeline::bloom::BloomCompositeMode::Additive,
+                composite_mode: bevy::post_process::bloom::BloomCompositeMode::Additive,
+                ..default()
             },
             Tonemapping::ReinhardLuminance, // Better for handling extreme dynamic range
         ));

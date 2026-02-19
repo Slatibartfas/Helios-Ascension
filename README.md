@@ -70,7 +70,7 @@ The game now has fully functional colony management, economy, research, and inte
 
 ### Technical Features
 
-- **High-Performance Foundation**: Built with Bevy 0.14 engine with optimized compilation profiles
+- **High-Performance Foundation**: Built with Bevy 0.18 engine with optimized compilation profiles
 - **Modular Plugin Architecture**: Extensible plugin system for game systems
 - **Advanced Camera Controls**: 
   - WASD for movement

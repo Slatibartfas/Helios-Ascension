@@ -10,7 +10,7 @@
 
 use bevy::audio::{AudioPlugin, AudioSink, AudioSinkPlayback, PlaybackMode};
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 // ---------------------------------------------------------------------------
 // Plugin
@@ -27,7 +27,8 @@ impl Plugin for MusicPlugin {
 
         app.init_resource::<MusicPlaylist>()
             .add_systems(Startup, start_playlist)
-            .add_systems(Update, (advance_playlist, show_music_controls));
+            .add_systems(Update, advance_playlist)
+            .add_systems(EguiPrimaryContextPass, show_music_controls);
     }
 }
 
@@ -97,15 +98,15 @@ impl Default for MusicPlaylist {
 fn spawn_track(commands: &mut Commands, asset_server: &AssetServer, playlist: &mut MusicPlaylist) {
     let track = &playlist.tracks[playlist.current_index];
     let entity = commands
-        .spawn(AudioBundle {
-            source: asset_server.load(track.path),
-            settings: PlaybackSettings {
+        .spawn((
+            AudioPlayer::new(asset_server.load(track.path)),
+            PlaybackSettings {
                 mode: PlaybackMode::Despawn,
-                volume: bevy::audio::Volume::new(playlist.volume),
+                volume: bevy::audio::Volume::Linear(playlist.volume),
                 paused: playlist.paused,
                 ..default()
             },
-        })
+        ))
         .id();
     playlist.current_entity = Some(entity);
 }
@@ -129,7 +130,7 @@ fn advance_playlist(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut playlist: ResMut<MusicPlaylist>,
-    sinks: Query<&AudioSink>,
+    mut sinks: Query<&mut AudioSink>,
     entities: Query<Entity>,
 ) {
     // --- skip or natural end ---
@@ -144,7 +145,7 @@ fn advance_playlist(
         // Despawn current entity if skipping mid-track.
         if let Some(e) = playlist.current_entity.take() {
             if entities.get(e).is_ok() {
-                commands.entity(e).despawn_recursive();
+                commands.entity(e).despawn();
             }
         }
 
@@ -155,7 +156,7 @@ fn advance_playlist(
 
     // --- sync pause / volume to live sink ---
     if let Some(entity) = playlist.current_entity {
-        if let Ok(sink) = sinks.get(entity) {
+        if let Ok(mut sink) = sinks.get_mut(entity) {
             // Sync pause state.
             if playlist.paused && !sink.is_paused() {
                 sink.pause();
@@ -163,7 +164,7 @@ fn advance_playlist(
                 sink.play();
             }
             // Sync volume.
-            sink.set_volume(playlist.volume);
+            sink.set_volume(bevy::audio::Volume::Linear(playlist.volume));
         }
     }
 }
@@ -177,17 +178,17 @@ fn advance_playlist(
 fn show_music_controls(mut contexts: EguiContexts, mut playlist: ResMut<MusicPlaylist>) {
     let track_title = playlist.tracks[playlist.current_index].title;
 
-    let ctx = match contexts.try_ctx_mut() {
-        Some(ctx) => ctx,
-        None => return,
+    let ctx = match contexts.ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
     };
 
     egui::Area::new("music_controls".into())
         .anchor(egui::Align2::RIGHT_BOTTOM, [-12.0, -12.0])
         .order(egui::Order::Foreground)
         .show(ctx, |ui| {
-            egui::Frame::none()
-                .inner_margin(egui::Margin::symmetric(6.0, 3.0))
+            egui::Frame::NONE
+                .inner_margin(egui::Margin::symmetric(6, 3))
                 .show(ui, |ui| {
                     // Both rows right-aligned (Align::Max in a top-down layout).
                     ui.with_layout(egui::Layout::top_down(egui::Align::Max), |ui| {

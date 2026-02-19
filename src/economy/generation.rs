@@ -40,7 +40,7 @@ pub fn generate_solar_system_resources(
     // Query for star systems to get frost line and metallicity information
     star_query: Query<(&StarSystem, &SpaceCoordinates)>,
 ) {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     for (entity, body, coords, orbits_body) in body_query.iter() {
         // Determine parent star, frost line, and metallicity multiplier
@@ -153,7 +153,7 @@ fn generate_resources_for_body(
     // Generate each resource type
     for resource_type in ResourceType::all() {
         // Skip some resources randomly for variation (30-50% chance to skip non-critical resources)
-        if !resource_type.is_critical() && rng.gen_bool(0.4) {
+        if !resource_type.is_critical() && rng.random_bool(0.4) {
             continue;
         }
 
@@ -999,15 +999,15 @@ fn apply_spectral_class_profile(
         AsteroidClass::CType => {
             // Scientific water content: 4-7 wt%, with up to 10.5% in some CM chondrites
             let water_abundance = if is_beyond_frost_line {
-                rng.gen_range(0.045..0.07) // 4.5-7% water by weight
+                rng.random_range(0.045..0.07) // 4.5-7% water by weight
             } else {
-                rng.gen_range(0.04..0.055) // 4-5.5% in inner belt
+                rng.random_range(0.04..0.055) // 4-5.5% in inner belt
             };
             resources.add_deposit(
                 ResourceType::Water,
                 create_deposit_legacy(
                     water_abundance,
-                    rng.gen_range(0.6..0.85),
+                    rng.random_range(0.6..0.85),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1015,8 +1015,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Hydrogen,
                 create_deposit_legacy(
-                    rng.gen_range(0.01..0.02),
-                    rng.gen_range(0.5..0.75),
+                    rng.random_range(0.01..0.02),
+                    rng.random_range(0.5..0.75),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1024,8 +1024,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Ammonia,
                 create_deposit_legacy(
-                    rng.gen_range(0.01..0.025),
-                    rng.gen_range(0.5..0.75),
+                    rng.random_range(0.01..0.025),
+                    rng.random_range(0.5..0.75),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1033,8 +1033,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Methane,
                 create_deposit_legacy(
-                    rng.gen_range(0.005..0.015),
-                    rng.gen_range(0.4..0.7),
+                    rng.random_range(0.005..0.015),
+                    rng.random_range(0.4..0.7),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1042,8 +1042,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::CarbonDioxide,
                 create_deposit_legacy(
-                    rng.gen_range(0.01..0.03),
-                    rng.gen_range(0.5..0.75),
+                    rng.random_range(0.01..0.03),
+                    rng.random_range(0.5..0.75),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1053,8 +1053,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Iron,
                 create_deposit_legacy(
-                    rng.gen_range(0.10..0.20),
-                    rng.gen_range(0.4..0.65),
+                    rng.random_range(0.10..0.20),
+                    rng.random_range(0.4..0.65),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1062,8 +1062,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Silicates,
                 create_deposit_legacy(
-                    rng.gen_range(0.40..0.60),
-                    rng.gen_range(0.5..0.7),
+                    rng.random_range(0.40..0.60),
+                    rng.random_range(0.5..0.7),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1073,8 +1073,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::RareEarths,
                 create_deposit_legacy(
-                    rng.gen_range(0.0002..0.0005),
-                    rng.gen_range(0.5..0.7),
+                    rng.random_range(0.0002..0.0005),
+                    rng.random_range(0.5..0.7),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1094,8 +1094,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Silicates,
                 create_deposit_legacy(
-                    rng.gen_range(0.45..0.65),
-                    rng.gen_range(0.7..0.9),
+                    rng.random_range(0.45..0.65),
+                    rng.random_range(0.7..0.9),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1103,8 +1103,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Iron,
                 create_deposit_legacy(
-                    rng.gen_range(0.18..0.30),
-                    rng.gen_range(0.7..0.9),
+                    rng.random_range(0.18..0.30),
+                    rng.random_range(0.7..0.9),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1112,8 +1112,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Aluminum,
                 create_deposit_legacy(
-                    rng.gen_range(0.04..0.08),
-                    rng.gen_range(0.6..0.85),
+                    rng.random_range(0.04..0.08),
+                    rng.random_range(0.6..0.85),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1123,8 +1123,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Copper,
                 create_deposit_legacy(
-                    rng.gen_range(0.0001..0.0004),
-                    rng.gen_range(0.5..0.75),
+                    rng.random_range(0.0001..0.0004),
+                    rng.random_range(0.5..0.75),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1132,8 +1132,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::RareEarths,
                 create_deposit_legacy(
-                    rng.gen_range(0.00005..0.0002),
-                    rng.gen_range(0.4..0.7),
+                    rng.random_range(0.00005..0.0002),
+                    rng.random_range(0.4..0.7),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1144,8 +1144,8 @@ fn apply_spectral_class_profile(
                 resources.add_deposit(
                     ResourceType::Water,
                     create_deposit_legacy(
-                        rng.gen_range(0.005..0.01),
-                        rng.gen_range(0.3..0.6),
+                        rng.random_range(0.005..0.01),
+                        rng.random_range(0.3..0.6),
                         body_mass,
                         BodyType::Asteroid,
                     ),
@@ -1155,8 +1155,8 @@ fn apply_spectral_class_profile(
                 resources.add_deposit(
                     ResourceType::Water,
                     create_deposit_legacy(
-                        rng.gen_range(0.002..0.007),
-                        rng.gen_range(0.2..0.5),
+                        rng.random_range(0.002..0.007),
+                        rng.random_range(0.2..0.5),
                         body_mass,
                         BodyType::Asteroid,
                     ),
@@ -1177,8 +1177,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Iron,
                 create_deposit_legacy(
-                    rng.gen_range(0.70..0.85),
-                    rng.gen_range(0.85..0.98),
+                    rng.random_range(0.70..0.85),
+                    rng.random_range(0.85..0.98),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1188,8 +1188,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Platinum,
                 create_deposit_legacy(
-                    rng.gen_range(0.00001..0.0001),
-                    rng.gen_range(0.7..0.9),
+                    rng.random_range(0.00001..0.0001),
+                    rng.random_range(0.7..0.9),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1197,8 +1197,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Gold,
                 create_deposit_legacy(
-                    rng.gen_range(0.000005..0.00005),
-                    rng.gen_range(0.7..0.9),
+                    rng.random_range(0.000005..0.00005),
+                    rng.random_range(0.7..0.9),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1206,8 +1206,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Silver,
                 create_deposit_legacy(
-                    rng.gen_range(0.00001..0.00008),
-                    rng.gen_range(0.7..0.9),
+                    rng.random_range(0.00001..0.00008),
+                    rng.random_range(0.7..0.9),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1217,8 +1217,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Copper,
                 create_deposit_legacy(
-                    rng.gen_range(0.001..0.005),
-                    rng.gen_range(0.7..0.9),
+                    rng.random_range(0.001..0.005),
+                    rng.random_range(0.7..0.9),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1228,8 +1228,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Silicates,
                 create_deposit_legacy(
-                    rng.gen_range(0.02..0.08),
-                    rng.gen_range(0.3..0.6),
+                    rng.random_range(0.02..0.08),
+                    rng.random_range(0.3..0.6),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1247,8 +1247,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Silicates,
                 create_deposit_legacy(
-                    rng.gen_range(0.40..0.55),
-                    rng.gen_range(0.75..0.92),
+                    rng.random_range(0.40..0.55),
+                    rng.random_range(0.75..0.92),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1256,8 +1256,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Titanium,
                 create_deposit_legacy(
-                    rng.gen_range(0.02..0.05),
-                    rng.gen_range(0.7..0.9),
+                    rng.random_range(0.02..0.05),
+                    rng.random_range(0.7..0.9),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1265,8 +1265,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Iron,
                 create_deposit_legacy(
-                    rng.gen_range(0.15..0.28),
-                    rng.gen_range(0.7..0.88),
+                    rng.random_range(0.15..0.28),
+                    rng.random_range(0.7..0.88),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1274,8 +1274,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Aluminum,
                 create_deposit_legacy(
-                    rng.gen_range(0.10..0.18),
-                    rng.gen_range(0.65..0.85),
+                    rng.random_range(0.10..0.18),
+                    rng.random_range(0.65..0.85),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1285,8 +1285,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Copper,
                 create_deposit_legacy(
-                    rng.gen_range(0.0001..0.0005),
-                    rng.gen_range(0.5..0.75),
+                    rng.random_range(0.0001..0.0005),
+                    rng.random_range(0.5..0.75),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1304,8 +1304,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Water,
                 create_deposit_legacy(
-                    rng.gen_range(0.35..0.55),
-                    rng.gen_range(0.7..0.9),
+                    rng.random_range(0.35..0.55),
+                    rng.random_range(0.7..0.9),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1313,8 +1313,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Methane,
                 create_deposit_legacy(
-                    rng.gen_range(0.15..0.30),
-                    rng.gen_range(0.6..0.85),
+                    rng.random_range(0.15..0.30),
+                    rng.random_range(0.6..0.85),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1322,8 +1322,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Ammonia,
                 create_deposit_legacy(
-                    rng.gen_range(0.12..0.25),
-                    rng.gen_range(0.6..0.85),
+                    rng.random_range(0.12..0.25),
+                    rng.random_range(0.6..0.85),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1331,8 +1331,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Hydrogen,
                 create_deposit_legacy(
-                    rng.gen_range(0.10..0.20),
-                    rng.gen_range(0.6..0.8),
+                    rng.random_range(0.10..0.20),
+                    rng.random_range(0.6..0.8),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1340,8 +1340,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Nitrogen,
                 create_deposit_legacy(
-                    rng.gen_range(0.05..0.12),
-                    rng.gen_range(0.5..0.75),
+                    rng.random_range(0.05..0.12),
+                    rng.random_range(0.5..0.75),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1351,8 +1351,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Silicates,
                 create_deposit_legacy(
-                    rng.gen_range(0.05..0.15),
-                    rng.gen_range(0.4..0.6),
+                    rng.random_range(0.05..0.15),
+                    rng.random_range(0.4..0.6),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1360,8 +1360,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Iron,
                 create_deposit_legacy(
-                    rng.gen_range(0.02..0.08),
-                    rng.gen_range(0.3..0.55),
+                    rng.random_range(0.02..0.08),
+                    rng.random_range(0.3..0.55),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1379,8 +1379,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Water,
                 create_deposit_legacy(
-                    rng.gen_range(0.30..0.48),
-                    rng.gen_range(0.65..0.88),
+                    rng.random_range(0.30..0.48),
+                    rng.random_range(0.65..0.88),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1388,8 +1388,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Ammonia,
                 create_deposit_legacy(
-                    rng.gen_range(0.10..0.22),
-                    rng.gen_range(0.6..0.82),
+                    rng.random_range(0.10..0.22),
+                    rng.random_range(0.6..0.82),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1397,8 +1397,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Methane,
                 create_deposit_legacy(
-                    rng.gen_range(0.12..0.25),
-                    rng.gen_range(0.55..0.8),
+                    rng.random_range(0.12..0.25),
+                    rng.random_range(0.55..0.8),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1406,8 +1406,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Hydrogen,
                 create_deposit_legacy(
-                    rng.gen_range(0.08..0.18),
-                    rng.gen_range(0.55..0.78),
+                    rng.random_range(0.08..0.18),
+                    rng.random_range(0.55..0.78),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1415,8 +1415,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::CarbonDioxide,
                 create_deposit_legacy(
-                    rng.gen_range(0.06..0.15),
-                    rng.gen_range(0.5..0.75),
+                    rng.random_range(0.06..0.15),
+                    rng.random_range(0.5..0.75),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1426,8 +1426,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Silicates,
                 create_deposit_legacy(
-                    rng.gen_range(0.08..0.18),
-                    rng.gen_range(0.45..0.65),
+                    rng.random_range(0.08..0.18),
+                    rng.random_range(0.45..0.65),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1435,8 +1435,8 @@ fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Iron,
                 create_deposit_legacy(
-                    rng.gen_range(0.03..0.10),
-                    rng.gen_range(0.35..0.6),
+                    rng.random_range(0.03..0.10),
+                    rng.random_range(0.35..0.6),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1470,7 +1470,7 @@ fn determine_asteroid_specialization(
     }
 
     // 15% chance for any asteroid to be specialized
-    let roll = rng.gen_range(0.0..1.0);
+    let roll = rng.random_range(0.0..1.0);
     if roll < 0.03 {
         AsteroidSpecialization::PlatinumRich
     } else if roll < 0.06 {
@@ -1615,96 +1615,96 @@ fn generate_resource_deposit(
     let (base_abundance, base_accessibility) = match (resource, is_inner) {
         // Volatiles - HIGH in outer system, VERY LOW in inner system
         (r, false) if r.is_volatile() => (
-            rng.gen_range(0.3..0.7), // Realistic ice composition
-            rng.gen_range(0.5..0.9), // Good accessibility (ice on surface)
+            rng.random_range(0.3..0.7), // Realistic ice composition
+            rng.random_range(0.5..0.9), // Good accessibility (ice on surface)
         ),
         (r, true) if r.is_volatile() => (
-            rng.gen_range(0.0..0.02), // Almost none in inner system
-            rng.gen_range(0.0..0.1),  // Poor accessibility if any
+            rng.random_range(0.0..0.02), // Almost none in inner system
+            rng.random_range(0.0..0.1),  // Poor accessibility if any
         ),
 
         // Atmospheric gases - Present in atmospheres and trapped in ice
         // Outer system: gases trapped as ices in body composition (significant fraction)
         (r, false) if r.is_atmospheric_gas() => (
-            rng.gen_range(0.1..0.4), // Moderate in outer system (trapped in ice)
-            rng.gen_range(0.4..0.8), // Moderate-good accessibility
+            rng.random_range(0.1..0.4), // Moderate in outer system (trapped in ice)
+            rng.random_range(0.4..0.8), // Moderate-good accessibility
         ),
         // Inner system: atmospheres are a TINY fraction of planetary mass
         // Earth's entire atmosphere is only 0.000087% of its mass
         // Rocky planets can have 0% (Mercury) to ~0.01% (Venus is an outlier at ~0.008%)
         (r, true) if r.is_atmospheric_gas() => (
-            rng.gen_range(0.0..0.0001), // Realistic: atmosphere is <0.01% of planet mass
-            rng.gen_range(0.5..0.9),    // Gas is easy to collect from atmosphere
+            rng.random_range(0.0..0.0001), // Realistic: atmosphere is <0.01% of planet mass
+            rng.random_range(0.5..0.9),    // Gas is easy to collect from atmosphere
         ),
 
         // Construction materials - HIGH in inner system, present in outer
         // More realistic abundances based on actual planetary composition
         (r, true) if r.is_construction() => {
             let abundance = match resource {
-                ResourceType::Iron => rng.gen_range(0.15..0.35), // ~30% of Earth's composition
-                ResourceType::Silicates => rng.gen_range(0.25..0.45), // Major component
-                ResourceType::Aluminum => rng.gen_range(0.05..0.12), // ~8% of crust
-                ResourceType::Titanium => rng.gen_range(0.003..0.01), // ~0.6% of crust
-                _ => rng.gen_range(0.1..0.3),
+                ResourceType::Iron => rng.random_range(0.15..0.35), // ~30% of Earth's composition
+                ResourceType::Silicates => rng.random_range(0.25..0.45), // Major component
+                ResourceType::Aluminum => rng.random_range(0.05..0.12), // ~8% of crust
+                ResourceType::Titanium => rng.random_range(0.003..0.01), // ~0.6% of crust
+                _ => rng.random_range(0.1..0.3),
             };
-            (abundance, rng.gen_range(0.6..0.95)) // Good accessibility (near surface)
+            (abundance, rng.random_range(0.6..0.95)) // Good accessibility (near surface)
         }
         (r, false) if r.is_construction() => (
-            rng.gen_range(0.05..0.2), // Present but less concentrated
-            rng.gen_range(0.1..0.3),  // Poor accessibility (buried under ice)
+            rng.random_range(0.05..0.2), // Present but less concentrated
+            rng.random_range(0.1..0.3),  // Poor accessibility (buried under ice)
         ),
 
         // Noble gases - He3 is very rare but valuable for fusion
         (r, false) if r.is_noble_gas() => (
-            rng.gen_range(0.00001..0.0001), // Extremely rare He3
-            rng.gen_range(0.3..0.7),        // Moderate accessibility
+            rng.random_range(0.00001..0.0001), // Extremely rare He3
+            rng.random_range(0.3..0.7),        // Moderate accessibility
         ),
         (r, true) if r.is_noble_gas() => (
-            rng.gen_range(0.000001..0.00001), // Trace He3 in inner system
-            rng.gen_range(0.1..0.3),          // Poor accessibility
+            rng.random_range(0.000001..0.00001), // Trace He3 in inner system
+            rng.random_range(0.1..0.3),          // Poor accessibility
         ),
 
         // Fissile materials - Rare everywhere, more realistic abundances
         (r, true) if r.is_fissile() => {
             let abundance = match resource {
-                ResourceType::Uranium => rng.gen_range(0.000001..0.00001), // ~3 ppm in Earth's crust
-                ResourceType::Thorium => rng.gen_range(0.000003..0.00003), // ~12 ppm in Earth's crust
-                _ => rng.gen_range(0.00001..0.0001),
+                ResourceType::Uranium => rng.random_range(0.000001..0.00001), // ~3 ppm in Earth's crust
+                ResourceType::Thorium => rng.random_range(0.000003..0.00003), // ~12 ppm in Earth's crust
+                _ => rng.random_range(0.00001..0.0001),
             };
-            (abundance, rng.gen_range(0.3..0.6)) // Moderate accessibility
+            (abundance, rng.random_range(0.3..0.6)) // Moderate accessibility
         }
         (r, false) if r.is_fissile() => (
-            rng.gen_range(0.0000001..0.000001), // Very rare in outer system
-            rng.gen_range(0.1..0.3),            // Poor accessibility
+            rng.random_range(0.0000001..0.000001), // Very rare in outer system
+            rng.random_range(0.1..0.3),            // Poor accessibility
         ),
 
         // Precious metals - Very rare but valuable
         (r, true) if r.is_precious_metal() => {
             let abundance = match resource {
-                ResourceType::Gold => rng.gen_range(0.0000001..0.000001), // ~0.004 ppm in crust
-                ResourceType::Silver => rng.gen_range(0.0000003..0.000003), // ~0.08 ppm in crust
-                ResourceType::Platinum => rng.gen_range(0.00000001..0.0000001), // ~0.005 ppb in crust
-                _ => rng.gen_range(0.0000001..0.000001),
+                ResourceType::Gold => rng.random_range(0.0000001..0.000001), // ~0.004 ppm in crust
+                ResourceType::Silver => rng.random_range(0.0000003..0.000003), // ~0.08 ppm in crust
+                ResourceType::Platinum => rng.random_range(0.00000001..0.0000001), // ~0.005 ppb in crust
+                _ => rng.random_range(0.0000001..0.000001),
             };
-            (abundance, rng.gen_range(0.2..0.5)) // Harder to access (concentrated deposits)
+            (abundance, rng.random_range(0.2..0.5)) // Harder to access (concentrated deposits)
         }
         (r, false) if r.is_precious_metal() => (
-            rng.gen_range(0.0000001..0.000001), // Rare in outer system too
-            rng.gen_range(0.1..0.3),            // Poor accessibility
+            rng.random_range(0.0000001..0.000001), // Rare in outer system too
+            rng.random_range(0.1..0.3),            // Poor accessibility
         ),
 
         // Specialty materials - Moderate rarity
         (r, true) if r.is_specialty() => {
             let abundance = match resource {
-                ResourceType::Copper => rng.gen_range(0.00003..0.0001), // ~60 ppm in crust
-                ResourceType::RareEarths => rng.gen_range(0.00005..0.0002), // Variable, ~200 ppm combined
-                _ => rng.gen_range(0.0001..0.001),
+                ResourceType::Copper => rng.random_range(0.00003..0.0001), // ~60 ppm in crust
+                ResourceType::RareEarths => rng.random_range(0.00005..0.0002), // Variable, ~200 ppm combined
+                _ => rng.random_range(0.0001..0.001),
             };
-            (abundance, rng.gen_range(0.3..0.7)) // Moderate accessibility
+            (abundance, rng.random_range(0.3..0.7)) // Moderate accessibility
         }
         (r, false) if r.is_specialty() => (
-            rng.gen_range(0.00001..0.0001), // Lower abundance
-            rng.gen_range(0.2..0.5),        // Harder to access
+            rng.random_range(0.00001..0.0001), // Lower abundance
+            rng.random_range(0.2..0.5),        // Harder to access
         ),
 
         // Fallback (shouldn't happen)
@@ -1845,7 +1845,7 @@ mod tests {
 
     #[test]
     fn test_generate_resources_inner_system() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let frost_line = 2.5;
         let resources = generate_resources_for_body(
             "TestBody",
@@ -1867,7 +1867,7 @@ mod tests {
 
     #[test]
     fn test_generate_resources_outer_system() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let frost_line = 2.5;
         let resources = generate_resources_for_body(
             "TestBody",
@@ -1889,7 +1889,7 @@ mod tests {
 
     #[test]
     fn test_europa_special_profile() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let resources = generate_resources_for_body(
             "Europa",
             crate::plugins::solar_system_data::BodyType::Moon,
@@ -1911,7 +1911,7 @@ mod tests {
 
     #[test]
     fn test_mars_special_profile() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let resources = generate_resources_for_body(
             "Mars",
             crate::plugins::solar_system_data::BodyType::Planet,
@@ -1932,7 +1932,7 @@ mod tests {
 
     #[test]
     fn test_atmospheric_gases_present() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let frost_line = 2.5;
         let resources = generate_resources_for_body(
             "TestBody",
@@ -1956,7 +1956,7 @@ mod tests {
 
     #[test]
     fn test_precious_metals_rare() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let frost_line = 2.5;
         let resources = generate_resources_for_body(
             "TestBody",
@@ -2000,7 +2000,7 @@ mod tests {
 
     #[test]
     fn test_resource_deposit_bounds() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let frost_line = 2.5;
         let deposit = generate_resource_deposit(
             ResourceType::Iron,
@@ -2019,7 +2019,7 @@ mod tests {
 
     #[test]
     fn test_different_frost_lines() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         // Test with a cooler star (M-type) with closer frost line
         let m_star_frost_line = 0.5;
@@ -2068,7 +2068,7 @@ mod tests {
 
     #[test]
     fn test_c_type_asteroid_spectral_profile() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let resources = generate_resources_for_body(
             "TestAsteroid",
             crate::plugins::solar_system_data::BodyType::Asteroid,
@@ -2090,7 +2090,7 @@ mod tests {
 
     #[test]
     fn test_s_type_asteroid_spectral_profile() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let resources = generate_resources_for_body(
             "TestAsteroid",
             crate::plugins::solar_system_data::BodyType::Asteroid,
@@ -2110,7 +2110,7 @@ mod tests {
 
     #[test]
     fn test_m_type_asteroid_spectral_profile() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let resources = generate_resources_for_body(
             "TestAsteroid",
             crate::plugins::solar_system_data::BodyType::Asteroid,
@@ -2134,7 +2134,7 @@ mod tests {
 
     #[test]
     fn test_v_type_asteroid_spectral_profile() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let resources = generate_resources_for_body(
             "TestAsteroid",
             crate::plugins::solar_system_data::BodyType::Asteroid,
@@ -2152,7 +2152,7 @@ mod tests {
 
     #[test]
     fn test_d_type_asteroid_spectral_profile() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let resources = generate_resources_for_body(
             "TestAsteroid",
             crate::plugins::solar_system_data::BodyType::Asteroid,
@@ -2172,7 +2172,7 @@ mod tests {
 
     #[test]
     fn test_gas_giants_no_solid_ice() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         // Test Jupiter - should NOT have water deposits (only atmospheric hydrogen/helium)
         let jupiter_mass = 1.8982e27; // kg
@@ -2240,7 +2240,7 @@ mod tests {
 
     #[test]
     fn test_mars_realistic_water() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         // Mars mass: 6.4171×10²³ kg = 6.4171×10^14 Mt
         // Scientific estimate: 5M km³ × 920 kg/m³ × 10^9 m³/km³ = 4.6×10^18 kg = 4.6×10^9 Mt
@@ -2282,7 +2282,7 @@ mod tests {
 
     #[test]
     fn test_moon_realistic_water() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         // Moon mass: 7.342×10²² kg = 7.342×10^13 Mt
         // Scientific estimate: 600 million metric tons = 6×10^8 metric tons = 600 Mt (NOT 6×10^8 Mt!)
@@ -2327,7 +2327,7 @@ mod tests {
 
     #[test]
     fn test_moon_he3_surface_only() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let moon_mass = 7.342e22;
         let moon_resources = generate_resources_for_body(
             "Moon",
@@ -2356,7 +2356,7 @@ mod tests {
 
     #[test]
     fn test_small_moon_no_atmospheric_gases() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         // Phobos-like small moon (mass < 1e21 kg) should NOT get atmospheric gas model
         let phobos_mass = 1.07e16;
         let resources = generate_resources_for_body(
@@ -2383,7 +2383,7 @@ mod tests {
 
     #[test]
     fn test_c_type_asteroid_water_realistic() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         // C-type asteroids should have 4-7% water by weight (scientifically validated)
         let resources = generate_resources_for_body(
@@ -2406,7 +2406,7 @@ mod tests {
 
     #[test]
     fn test_s_type_asteroid_low_water() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         // S-type asteroids should have <1% water (mostly as hydroxyl in minerals)
         let resources = generate_resources_for_body(
@@ -2432,7 +2432,7 @@ mod tests {
 
     #[test]
     fn test_m_type_asteroid_negligible_water() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         // M-type asteroids should have negligible/no water (anhydrous metallic cores)
         let resources = generate_resources_for_body(
@@ -2457,7 +2457,7 @@ mod tests {
 
     #[test]
     fn test_procedural_generation_realistic_all_resources() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         // Test an Earth-like planet (inner system, rocky)
         // Earth mass: 5.972×10^24 kg
@@ -2589,7 +2589,7 @@ mod tests {
 
     #[test]
     fn test_tier_calculations_realistic() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         // Test that tier calculations (proven/deep/bulk) are realistic
         // Earth mass for reference
@@ -2642,7 +2642,7 @@ mod tests {
 
     #[test]
     fn test_asteroid_tier_calculations() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         // Asteroids should have much higher proven/deep fractions (fully accessible)
         let asteroid_mass = 1.0e15; // ~1 km asteroid
@@ -2680,7 +2680,7 @@ mod tests {
 
     #[test]
     fn test_earth_special_profile() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         let earth_mass = 5.972e24; // kg
         let resources = generate_resources_for_body(
@@ -2761,7 +2761,7 @@ mod tests {
 
     #[test]
     fn test_venus_special_profile() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         let venus_mass = 4.867e24;
         let resources = generate_resources_for_body(
@@ -2790,7 +2790,7 @@ mod tests {
 
     #[test]
     fn test_mercury_special_profile() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         let mercury_mass = 3.301e23;
         let resources = generate_resources_for_body(

@@ -1,8 +1,8 @@
 #import bevy_pbr::mesh_view_bindings::view
 #import bevy_pbr::mesh_view_bindings::globals
 
-@group(2) @binding(0) var<uniform> camera_rotation: mat3x3<f32>;
-@group(2) @binding(1) var<uniform> camera_distance: f32;
+@group(3) @binding(0) var<uniform> camera_rotation: mat3x3<f32>;
+@group(3) @binding(1) var<uniform> camera_distance: f32;
 
 // --- Cinematic Constants ---
 const STAR_DENSITY: f32 = 120.0;     // Higher = smaller, more numerous stars

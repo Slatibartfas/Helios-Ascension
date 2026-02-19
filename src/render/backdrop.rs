@@ -1,15 +1,16 @@
 use bevy::prelude::*;
-use bevy::render::mesh::MeshVertexBufferLayoutRef;
+use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::render::render_resource::{
-    AsBindGroup, Face, RenderPipelineDescriptor, ShaderRef, SpecializedMeshPipelineError,
+    AsBindGroup, Face, RenderPipelineDescriptor, SpecializedMeshPipelineError,
 };
-use bevy::render::view::RenderLayers;
+use bevy::shader::ShaderRef;
+use bevy::camera::visibility::RenderLayers;
 
 // Backdrop configuration constants
 // Keep backdrop radius below camera far plane (1_500_000.0) to avoid clipping
 const BACKDROP_SPHERE_RADIUS: f32 = 1_400_000.0;
-const BACKDROP_SPHERE_UV_SEGMENTS: usize = 32;
-const BACKDROP_SPHERE_UV_RINGS: usize = 18;
+const BACKDROP_SPHERE_UV_SEGMENTS: u32 = 32;
+const BACKDROP_SPHERE_UV_RINGS: u32 = 18;
 
 /// Plugin that manages the procedural space backdrop
 pub struct BackdropPlugin;
@@ -50,7 +51,7 @@ impl Material for SkyboxMaterial {
 
     // Override specialize to disable depth write and enable back-face rendering
     fn specialize(
-        _pipeline: &bevy::pbr::MaterialPipeline<Self>,
+        _pipeline: &bevy::pbr::MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
         _key: bevy::pbr::MaterialPipelineKey<Self>,
@@ -97,12 +98,9 @@ fn spawn_backdrop_sphere(
     );
 
     commands.spawn((
-        MaterialMeshBundle {
-            mesh: backdrop_mesh,
-            material: backdrop_material,
-            transform: Transform::from_xyz(0.0, 0.0, 0.0),
-            ..default()
-        },
+        Mesh3d(backdrop_mesh),
+        MeshMaterial3d(backdrop_material),
+        Transform::from_xyz(0.0, 0.0, 0.0),
         BackdropSphere,
         RenderLayers::layer(0), // Backdrop is on default render layer (layer 0)
     ));
@@ -110,7 +108,7 @@ fn spawn_backdrop_sphere(
 
 /// Update backdrop sphere to always center on the camera
 fn update_backdrop_position(
-    mut backdrop_query: Query<(&mut Transform, &Handle<SkyboxMaterial>), With<BackdropSphere>>,
+    mut backdrop_query: Query<(&mut Transform, &MeshMaterial3d<SkyboxMaterial>), With<BackdropSphere>>,
     camera_query: Query<
         (&Transform, &crate::plugins::camera::OrbitCamera),
         (With<Camera3d>, Without<BackdropSphere>),
@@ -118,13 +116,13 @@ fn update_backdrop_position(
     mut materials: ResMut<Assets<SkyboxMaterial>>,
 ) {
     if let (Ok((mut backdrop_transform, material_handle)), Ok((camera_transform, orbit_camera))) =
-        (backdrop_query.get_single_mut(), camera_query.get_single())
+        (backdrop_query.single_mut(), camera_query.single())
     {
         // Center backdrop on camera position
         backdrop_transform.translation = camera_transform.translation;
 
         // Update material uniforms for parallax and distance fading
-        if let Some(material) = materials.get_mut(material_handle) {
+        if let Some(material) = materials.get_mut(&material_handle.0) {
             // Extract rotation from camera transform
             material.camera_rotation = Mat3::from_quat(camera_transform.rotation);
 
