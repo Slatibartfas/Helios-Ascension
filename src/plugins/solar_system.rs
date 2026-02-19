@@ -20,6 +20,7 @@ use crate::astronomy::{
 use crate::plugins::camera::{CameraAnchor, GameCamera};
 use crate::ui::SimulationTime;
 use crate::colony::{Colony, BuildingType};
+use crate::astronomy::AtmosphereComposition;
 
 pub struct SolarSystemPlugin;
 
@@ -41,7 +42,100 @@ impl Plugin for SolarSystemPlugin {
                 ),
             )
             // System to convert loaded normal/specular textures to linear formats
-            .add_systems(Update, apply_linear_to_images_system);
+            .add_systems(Update, apply_linear_to_images_system)
+            .add_systems(Update, (
+                spawn_atmosphere_shell_reactive,
+                update_atmosphere_shell,
+            ));
+    }
+}
+
+/// Reactively spawns a scattering shell when a body gains an `AtmosphereComposition`
+/// after startup (e.g. through a future terraforming system).
+fn spawn_atmosphere_shell_reactive(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials_atmosphere: ResMut<Assets<crate::plugins::atmosphere::AtmosphereMaterial>>,
+    atmosphere_settings: Res<crate::plugins::atmosphere::AtmosphereSettings>,
+    query: Query<
+        (Entity, &AtmosphereComposition, &CelestialBody, &GlobalTransform),
+        (
+            Added<AtmosphereComposition>,
+            Without<crate::plugins::atmosphere::HasAtmosphereShell>,
+        ),
+    >,
+) {
+    use crate::plugins::atmosphere::{AtmosphereMaterial, AtmosphereShell, HasAtmosphereShell};
+    if !atmosphere_settings.enabled {
+        return;
+    }
+    for (entity, atmo, body, gtransform) in &query {
+        if body.body_type == BodyType::Star {
+            continue;
+        }
+        let planet_pos: Vec3 = gtransform.translation();
+        let atmo_mat = AtmosphereMaterial::from_composition(
+            body.visual_radius,
+            atmo,
+            planet_pos,
+            Vec3::ZERO,
+            atmosphere_settings.quality,
+        );
+        commands
+            .entity(entity)
+            .insert(HasAtmosphereShell)
+            .with_children(|parent| {
+                parent.spawn((
+                    Mesh3d(meshes.add(Sphere::new(body.visual_radius * 1.05).mesh().uv(64, 32))),
+                    MeshMaterial3d(materials_atmosphere.add(atmo_mat)),
+                    Transform::default(),
+                    AtmosphereShell { body_entity: entity },
+                ));
+            });
+    }
+}
+
+/// Updates the shell material on any body whose `AtmosphereComposition` changed
+/// (e.g. composition shift as terraforming progresses).
+fn update_atmosphere_shell(
+    mut materials: ResMut<Assets<crate::plugins::atmosphere::AtmosphereMaterial>>,
+    atmosphere_settings: Res<crate::plugins::atmosphere::AtmosphereSettings>,
+    changed_bodies: Query<
+        (Entity, &AtmosphereComposition, &CelestialBody, &GlobalTransform, Option<&Children>),
+        (
+            Changed<AtmosphereComposition>,
+            With<crate::plugins::atmosphere::HasAtmosphereShell>,
+        ),
+    >,
+    shells: Query<(
+        &crate::plugins::atmosphere::AtmosphereShell,
+        &MeshMaterial3d<crate::plugins::atmosphere::AtmosphereMaterial>,
+    )>,
+) {
+    if !atmosphere_settings.enabled {
+        return;
+    }
+    for (entity, atmo, body, gtransform, maybe_children) in &changed_bodies {
+        if body.body_type == BodyType::Star {
+            continue;
+        }
+        let Some(children): Option<&Children> = maybe_children else { continue; };
+        for child in children.iter() {
+            if let Ok((shell, mat_handle)) = shells.get(child) {
+                if shell.body_entity == entity {
+                    if let Some(mat) = materials.get_mut(&mat_handle.0) {
+                        let planet_pos: Vec3 = gtransform.translation();
+                        *mat = crate::plugins::atmosphere::AtmosphereMaterial::from_composition(
+                            body.visual_radius,
+                            atmo,
+                            planet_pos,
+                            Vec3::ZERO,
+                            atmosphere_settings.quality,
+                        );
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1169,14 +1263,16 @@ pub fn setup_solar_system(
                 );
 
                 let atmo_shell_radius = visual_radius * 1.05;
-                commands.entity(entity).with_children(|parent| {
-                    parent.spawn((
-                        Mesh3d(meshes.add(Sphere::new(atmo_shell_radius).mesh().uv(64, 32))),
-                        MeshMaterial3d(materials_atmosphere.add(atmo_mat)),
-                        Transform::default(),
-                        AtmosphereShell { body_entity: entity },
-                    ));
-                });
+                commands.entity(entity)
+                    .insert(crate::plugins::atmosphere::HasAtmosphereShell)
+                    .with_children(|parent| {
+                        parent.spawn((
+                            Mesh3d(meshes.add(Sphere::new(atmo_shell_radius).mesh().uv(64, 32))),
+                            MeshMaterial3d(materials_atmosphere.add(atmo_mat)),
+                            Transform::default(),
+                            AtmosphereShell { body_entity: entity },
+                        ));
+                    });
             }
         }
 

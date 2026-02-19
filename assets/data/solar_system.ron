@@ -464,9 +464,17 @@
                 gases: [
                     (name: "H2", percentage: 83.0),
                     (name: "He", percentage: 15.0),
-                    (name: "CH4", percentage: 2.0), // Methane gives blue color
+                    (name: "CH4", percentage: 2.0), // Methane gives teal color
                 ],
-                is_reference_pressure: true, // Gas giant: pressure at reference altitude, not surface
+                is_reference_pressure: true,
+                // Uranus: distinctive pale cyan-blue from CH4 absorption.
+                // Strong scattering shell to be visible at 19 AU.
+                rayleigh_rgb: Some((0.25, 0.75, 0.80)),
+                rayleigh_strength: Some(3.5),
+                mie_strength: Some(0.02),
+                mie_g: Some(0.72),
+                haze_color: Some((0.6, 0.88, 0.95)),
+                atmosphere_intensity: Some(2.5),
             )),
         ),
         
@@ -515,9 +523,17 @@
                 gases: [
                     (name: "H2", percentage: 80.0),
                     (name: "He", percentage: 19.0),
-                    (name: "CH4", percentage: 1.5), // Methane gives blue color
+                    (name: "CH4", percentage: 1.5), // Methane gives deep blue color
                 ],
-                is_reference_pressure: true, // Gas giant: pressure at reference altitude, not surface
+                is_reference_pressure: true,
+                // Neptune: deep vivid blue from CH4 absorption, stronger than Uranus.
+                // Higher intensity to be visible at 30 AU.
+                rayleigh_rgb: Some((0.15, 0.35, 1.0)),
+                rayleigh_strength: Some(4.0),
+                mie_strength: Some(0.015),
+                mie_g: Some(0.70),
+                haze_color: Some((0.5, 0.7, 1.0)),
+                atmosphere_intensity: Some(3.0),
             )),
         ),
         

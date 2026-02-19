@@ -34,6 +34,11 @@ impl Default for AtmosphereSettings {
     }
 }
 
+/// Marker inserted on a body entity once its atmosphere scattering shell has been spawned.
+/// Prevents duplicate shells and lets reactive systems know a shell already exists.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct HasAtmosphereShell;
+
 /// Marker component for the atmosphere shell child entity.
 /// Stores the parent body entity so systems can look up body-specific data.
 #[derive(Component, Debug, Clone, Copy)]

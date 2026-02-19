@@ -558,13 +558,15 @@ impl AtmosphereComposition {
             if self.get_gas_percentage("CO2").unwrap_or(0.0) > 50.0 {
                 [1.0, 0.5, 0.2]
             }
-            // CH4 rich (Titan-like) → blue-ish but muted
+            // H2/He dominant (ice & gas giants) → blue/cyan; checked BEFORE CH4
+            // so Uranus (H2 83%, CH4 2%) and Neptune (H2 80%, CH4 1.5%) are not
+            // misclassified as Titan-like orange.
+            else if self.get_gas_percentage("H2").unwrap_or(0.0) > 50.0 {
+                [0.35, 0.55, 1.0]
+            }
+            // CH4 rich in a non-H2 atmosphere (Titan-like) → blue-muted
             else if self.get_gas_percentage("CH4").unwrap_or(0.0) > 1.0 {
                 [0.3, 0.5, 0.9]
-            }
-            // H2/He dominant (gas giants) → pale blue/white
-            else if self.get_gas_percentage("H2").unwrap_or(0.0) > 50.0 {
-                [0.4, 0.55, 1.0]
             }
             // N2/O2 dominant (Earth-like) → classic blue
             else {
