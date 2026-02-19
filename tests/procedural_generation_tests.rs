@@ -389,7 +389,8 @@ fn test_moon_uses_parent_star_frost_line() {
     app.add_plugins(MinimalPlugins);
 
     // Spawn star with a non-default frost line (10 AU)
-    let star_entity = app.world.spawn((
+    let mut world = app.world_mut();
+    let star_entity = world.spawn((
         Star,
         CelestialBody {
             name: "TS".into(),
@@ -404,7 +405,7 @@ fn test_moon_uses_parent_star_frost_line() {
     )).id();
 
     // Planet at 5.0 AU (inside star frost line)
-    let planet_entity = app.world.spawn((
+    let planet_entity = world.spawn((
         Planet,
         CelestialBody {
             name: "TS Planet at 5.00AU".into(),
@@ -419,7 +420,7 @@ fn test_moon_uses_parent_star_frost_line() {
     )).id();
 
     // Moon at 5.1 AU (should be inside same star frost line)
-    let moon_entity = app.world.spawn((
+    let moon_entity = world.spawn((
         Moon,
         CelestialBody {
             name: "TS Planet at 5.00AU Moon 1".into(),
@@ -438,7 +439,7 @@ fn test_moon_uses_parent_star_frost_line() {
     // Run one update to generate resources
     app.update();
 
-    let res = app.world.get::<helios_ascension::economy::components::PlanetResources>(moon_entity)
+    let res = app.world().get::<helios_ascension::economy::components::PlanetResources>(moon_entity)
         .expect("moon should have resources after generation");
 
     let water = res.get_abundance(&ResourceType::Water);
