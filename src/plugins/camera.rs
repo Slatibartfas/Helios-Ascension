@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use bevy::render::view::Hdr;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass, EguiStartupSet};
 
-use crate::astronomy::components::CurrentStarSystem;
+use crate::astronomy::components::{CurrentStarSystem, SystemId};
 use crate::astronomy::SCALING_FACTOR;
 use crate::game_state::ActiveMenu;
 use crate::plugins::solar_system::CelestialBody;
@@ -219,33 +219,64 @@ fn update_camera_transform(
 /// - **Stars**: clamp to `max(visual_radius × 2.5, 250)` — safely above the 200-unit
 ///   glare-fade threshold in `update_star_glare_lod`.
 /// - **Other bodies**: clamp to `max(visual_radius × 2.0, 5.0)` for comfortable close-ups.
-/// - **No anchor**: restore default 5.0.
+/// Dynamically adjusts the camera's `min_radius` so the camera can never zoom
+/// close enough to a star that the glare LOD fades to zero (leaving a black sphere).
+///
+/// Two-tier logic:
+/// 1. If the anchor entity IS a `CelestialBody` (non-star), allow a tighter zoom.
+/// 2. Otherwise (anchor is a StarSystemIcon, or no anchor) scan the current
+///    system's star bodies and floor at `visual_radius × 2.5, min 250`.
 fn update_min_zoom(
+    view_mode: Res<ViewMode>,
+    current_system: Res<CurrentStarSystem>,
     mut camera_query: Query<(&mut OrbitCamera, &CameraAnchor)>,
-    body_query: Query<&CelestialBody>,
+    body_query: Query<(&CelestialBody, Option<&SystemId>)>,
 ) {
     let Ok((mut orbit, anchor)) = camera_query.single_mut() else {
         return;
     };
 
-    let new_min = if let Some(entity) = anchor.0 {
-        if let Ok(body) = body_query.get(entity) {
-            if body.body_type == BodyType::Star {
-                // Keep camera outside glare-fade region (min_dist = 200 in glare LOD)
+    // Only meaningful while in system view.
+    if *view_mode != ViewMode::System {
+        // Restore a generous default in starmap so icons can be approached.
+        if orbit.min_radius > 5.0 {
+            orbit.min_radius = 5.0;
+        }
+        return;
+    }
+
+    // --- Case 1: anchored directly to a CelestialBody -----------------------
+    if let Some(anchor_entity) = anchor.0 {
+        if let Ok((body, _)) = body_query.get(anchor_entity) {
+            let new_min = if body.body_type == BodyType::Star {
                 (body.visual_radius * 2.5).max(250.0)
             } else {
                 (body.visual_radius * 2.0).max(5.0)
-            }
-        } else {
-            5.0
+            };
+            apply_min(&mut orbit, new_min);
+            return;
         }
-    } else {
-        5.0
-    };
+    }
 
+    // --- Case 2: anchored to a StarSystemIcon or no anchor ------------------
+    // Find the largest star in the current system and enforce its floor.
+    let sys_id = current_system.0;
+    let star_floor = body_query
+        .iter()
+        .filter(|(body, sid)| {
+            body.body_type == BodyType::Star
+                && sid.map_or(sys_id == 0, |s| s.0 == sys_id)
+        })
+        .map(|(body, _)| (body.visual_radius * 2.5).max(250.0))
+        .fold(0.0_f32, f32::max);
+
+    let new_min = if star_floor > 0.0 { star_floor } else { 5.0 };
+    apply_min(&mut orbit, new_min);
+}
+
+#[inline]
+fn apply_min(orbit: &mut OrbitCamera, new_min: f32) {
     if (orbit.min_radius - new_min).abs() > 0.1 {
-        // If current radius is already inside the new minimum (user was zoomed in before
-        // anchoring), push them out so they don't snap into the forbidden zone.
         if orbit.radius < new_min {
             orbit.radius = new_min;
         }

@@ -2296,7 +2296,7 @@ fn render_body_tree(
             egui::collapsing_header::CollapsingState::load_with_default_open(
                 ui.ctx(),
                 id,
-                body.name == "Sol",
+                body.body_type == BodyType::Star,
             )
             .show_header(ui, |ui| {
                 if ui

@@ -1384,14 +1384,25 @@ pub fn handle_body_hover(
         }
     }
 
-    // Clear all hovers first
-    for entity in hovered_query.iter() {
-        commands.entity(entity).remove::<Hovered>();
+    // Only change Hovered when the target entity actually changes.
+    // Unconditionally removing+re-inserting every frame triggers Added<Hovered>
+    // each frame, which spawns a fresh marker at Transform::default() (the star's
+    // origin position) before scale_markers_with_zoom can reposition it.
+    let new_hover = closest_body.map(|(e, _, _)| e);
+    let currently_hovered: Vec<Entity> = hovered_query.iter().collect();
+
+    // Remove Hovered from entities no longer under the cursor
+    for entity in &currently_hovered {
+        if new_hover != Some(*entity) {
+            commands.entity(*entity).remove::<Hovered>();
+        }
     }
 
-    // Set the hovered body if any
-    if let Some((entity, _, _)) = closest_body {
-        commands.entity(entity).insert(Hovered);
+    // Insert Hovered only on a newly-hovered entity
+    if let Some(entity) = new_hover {
+        if !currently_hovered.contains(&entity) {
+            commands.entity(entity).insert(Hovered);
+        }
     }
 }
 
@@ -1400,10 +1411,17 @@ pub fn spawn_selection_markers(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    selected_query: Query<(Entity, &CelestialBody), Added<Selected>>,
+    selected_query: Query<(Entity, &CelestialBody, &GlobalTransform), Added<Selected>>,
     hover_markers: Query<(Entity, &MarkerOwner), With<HoverMarker>>,
+    camera_query: Query<&GlobalTransform, With<GameCamera>>,
+    orbit_camera_query: Query<&OrbitCamera, With<GameCamera>>,
 ) {
-    for (entity, body) in selected_query.iter() {
+    let camera_pos = camera_query.single().ok().map(|t| t.translation()).unwrap_or(Vec3::ZERO);
+    let zoom_scale = orbit_camera_query.single().ok()
+        .map(|oc| (oc.radius / 1000.0_f32).clamp(1.0, 3.0))
+        .unwrap_or(1.0);
+
+    for (entity, body, gtransform) in selected_query.iter() {
         // Remove hover marker if it exists
         for (marker_entity, owner) in hover_markers.iter() {
             if owner.0 == entity {
@@ -1417,6 +1435,9 @@ pub fn spawn_selection_markers(
             &mut meshes,
             &mut materials,
             entity,
+            gtransform.translation(),
+            camera_pos,
+            zoom_scale,
             marker_radius,
             true,
         );
@@ -1430,8 +1451,15 @@ pub fn despawn_selection_markers(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut removed_selected: RemovedComponents<Selected>,
     marker_query: Query<(Entity, &MarkerOwner), With<SelectionMarker>>,
-    body_query: Query<(&CelestialBody, Option<&Hovered>)>,
+    body_query: Query<(&CelestialBody, Option<&Hovered>, &GlobalTransform)>,
+    camera_query: Query<&GlobalTransform, With<GameCamera>>,
+    orbit_camera_query: Query<&OrbitCamera, With<GameCamera>>,
 ) {
+    let camera_pos = camera_query.single().ok().map(|t| t.translation()).unwrap_or(Vec3::ZERO);
+    let zoom_scale = orbit_camera_query.single().ok()
+        .map(|oc| (oc.radius / 1000.0_f32).clamp(1.0, 3.0))
+        .unwrap_or(1.0);
+
     for entity in removed_selected.read() {
         for (marker_entity, owner) in marker_query.iter() {
             if owner.0 == entity {
@@ -1440,13 +1468,16 @@ pub fn despawn_selection_markers(
         }
 
         // If still hovered, add a hover marker
-        if let Ok((body, Some(_))) = body_query.get(entity) {
+        if let Ok((body, Some(_), gtransform)) = body_query.get(entity) {
             let marker_radius = body.visual_radius + HOVER_RING_PADDING;
             spawn_marker(
                 &mut commands,
                 &mut meshes,
                 &mut materials,
                 entity,
+                gtransform.translation(),
+                camera_pos,
+                zoom_scale,
                 marker_radius,
                 false,
             );
@@ -1459,15 +1490,25 @@ pub fn spawn_hover_markers(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    hovered_query: Query<(Entity, &CelestialBody), (Added<Hovered>, Without<Selected>)>,
+    hovered_query: Query<(Entity, &CelestialBody, &GlobalTransform), (Added<Hovered>, Without<Selected>)>,
+    camera_query: Query<&GlobalTransform, With<GameCamera>>,
+    orbit_camera_query: Query<&OrbitCamera, With<GameCamera>>,
 ) {
-    for (entity, body) in hovered_query.iter() {
+    let camera_pos = camera_query.single().ok().map(|t| t.translation()).unwrap_or(Vec3::ZERO);
+    let zoom_scale = orbit_camera_query.single().ok()
+        .map(|oc| (oc.radius / 1000.0_f32).clamp(1.0, 3.0))
+        .unwrap_or(1.0);
+
+    for (entity, body, gtransform) in hovered_query.iter() {
         let marker_radius = body.visual_radius + HOVER_RING_PADDING;
         spawn_marker(
             &mut commands,
             &mut meshes,
             &mut materials,
             entity,
+            gtransform.translation(),
+            camera_pos,
+            zoom_scale,
             marker_radius,
             false,
         );
@@ -1513,6 +1554,9 @@ fn spawn_marker(
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
     owner: Entity,
+    initial_position: Vec3,
+    camera_position: Vec3,
+    zoom_scale: f32,
     radius: f32,
     is_selected: bool,
 ) {
@@ -1535,9 +1579,24 @@ fn spawn_marker(
         ..default()
     });
 
-    // Create a parent entity for the reticle (no mesh, just a transform anchor)
+    // Create a parent entity for the reticle (no mesh, just a transform anchor).
+    // Spawn with the correct position, billboard rotation, and zoom scale immediately
+    // so there is no one-frame flash with wrong orientation or size.
+    let initial_rotation = {
+        let dir = (camera_position - initial_position).normalize_or_zero();
+        if dir != Vec3::ZERO {
+            Quat::from_rotation_arc(Vec3::Y, dir)
+        } else {
+            Quat::IDENTITY
+        }
+    };
+    let initial_transform = Transform {
+        translation: initial_position,
+        rotation: initial_rotation,
+        scale: Vec3::splat(zoom_scale),
+    };
     let marker_entity = commands
-        .spawn((Transform::default(), Visibility::default(), MarkerOwner(owner)))
+        .spawn((initial_transform, Visibility::default(), MarkerOwner(owner)))
         .id();
 
     if is_selected {

@@ -186,14 +186,14 @@ fn populate_nearby_systems(
 
             // Spawn confirmed planets first
             let mut existing_orbits = Vec::new();
-            let mut all_planet_entities: Vec<(Entity, f64, f32, f32)> = Vec::new(); // (entity, sma_au, mass_earth, visual_radius)
+            let mut all_planet_entities: Vec<(Entity, f64, f32, f32, String)> = Vec::new(); // (entity, sma_au, mass_earth, visual_radius, name)
             for planet_data in &primary_star.planets {
                 let planet_entity = spawn_confirmed_planet(&mut commands, planet_data, star_entity, system_id, primary_star.luminosity_sol, vis_scale, &mut rng);
                 existing_orbits.push(planet_data.semi_major_axis_au as f64);
                 let radius_earth = planet_data.radius_earth.unwrap_or(1.0);
                 let radius_km = radius_earth * 6371.0;
                 let vis_r = capped_visual_radius(BodyType::Planet, radius_km, planet_data.semi_major_axis_au as f64, vis_scale);
-                all_planet_entities.push((planet_entity, planet_data.semi_major_axis_au as f64, planet_data.mass_earth, vis_r));
+                all_planet_entities.push((planet_entity, planet_data.semi_major_axis_au as f64, planet_data.mass_earth, vis_r, planet_data.name.clone()));
             }
 
             // Generate procedural architecture to fill gaps
@@ -225,7 +225,7 @@ fn populate_nearby_systems(
                     &mut rng,
                 );
                 let vis_r = capped_visual_radius(planet.body_type(), planet.radius_km(), planet.semi_major_axis_au, vis_scale);
-                all_planet_entities.push((planet_entity, planet.semi_major_axis_au, planet.mass_earth as f32, vis_r));
+                all_planet_entities.push((planet_entity, planet.semi_major_axis_au, planet.mass_earth as f32, vis_r, planet.name.clone()));
             }
 
             for planet in &architecture.gas_giants {
@@ -240,15 +240,16 @@ fn populate_nearby_systems(
                     &mut rng,
                 );
                 let vis_r = capped_visual_radius(planet.body_type(), planet.radius_km(), planet.semi_major_axis_au, vis_scale);
-                all_planet_entities.push((planet_entity, planet.semi_major_axis_au, planet.mass_earth as f32, vis_r));
+                all_planet_entities.push((planet_entity, planet.semi_major_axis_au, planet.mass_earth as f32, vis_r, planet.name.clone()));
             }
 
             // Generate moons for planets massive enough to retain them
-            for &(planet_entity, sma_au, mass_earth, vis_r) in &all_planet_entities {
+            for (planet_entity, sma_au, mass_earth, vis_r, planet_name) in &all_planet_entities {
+                let (planet_entity, sma_au, mass_earth, vis_r) = (*planet_entity, *sma_au, *mass_earth, *vis_r);
                 spawn_procedural_moons(
                     &mut commands,
                     planet_entity,
-                    &system_data.system_name,
+                    planet_name,
                     sma_au,
                     mass_earth as f32,
                     vis_r,
@@ -289,7 +290,7 @@ fn populate_nearby_systems(
 
             // Compute and store bounding radius for this system
             let mut max_radius_au: f64 = 10.0;
-            for &(_, sma_au, _, _) in &all_planet_entities {
+            for (_, sma_au, _, _, _) in &all_planet_entities {
                 max_radius_au = max_radius_au.max(sma_au * 1.5);
             }
             if let Some(belt) = &architecture.asteroid_belt {
@@ -776,10 +777,27 @@ pub fn spawn_cometary_cloud(
 /// Each moon receives a [`LocalOrbitAmplification`] component so that its
 /// orbit renders outside the parent planet's visual mesh, matching the
 /// Universe Sandbox-style approach used for Sol-system moons.
+/// Convert a 1-based index to a Roman numeral string (supports I–XX).
+fn to_roman(n: u32) -> &'static str {
+    match n {
+        1 => "I",
+        2 => "II",
+        3 => "III",
+        4 => "IV",
+        5 => "V",
+        6 => "VI",
+        7 => "VII",
+        8 => "VIII",
+        9 => "IX",
+        10 => "X",
+        _ => "?",
+    }
+}
+
 fn spawn_procedural_moons(
     commands: &mut Commands,
     planet_entity: Entity,
-    system_name: &str,
+    planet_name: &str,
     planet_sma_au: f64,
     planet_mass_earth: f32,
     parent_visual_radius: f32,
@@ -868,7 +886,7 @@ fn spawn_procedural_moons(
             (display_distance / orbit_bevy).max(1.0) as f32
         };
 
-        let moon_name = format!("{} Planet at {:.2}AU Moon {}", system_name, planet_sma_au, i + 1);
+        let moon_name = format!("{} {}", planet_name, to_roman(i + 1));
 
         // Calculate moon temperature using parent planet's distance from star
         // (moons orbit the planet, but their temperature depends on their distance from the star)
@@ -902,8 +920,8 @@ fn spawn_procedural_moons(
 
     if moon_count > 0 {
         info!(
-            "  Spawned {} moons for planet at {:.2} AU in {} (orbit amp: {:.1}x-{:.1}x)",
-            moon_count, planet_sma_au, system_name,
+            "  Spawned {} moons for {} at {:.2} AU (orbit amp: {:.1}x-{:.1}x)",
+            moon_count, planet_name, planet_sma_au,
             (inner_display / (0.001 * SCALING_FACTOR)).max(1.0),
             (outer_display / ((0.001 + (moon_count as f64 - 1.0) * 0.002) * SCALING_FACTOR)).max(1.0),
         );

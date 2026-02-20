@@ -57,64 +57,67 @@ fn fbm4(p: vec2<f32>) -> f32 {
 fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
     let dx    = in.uv.x - 0.5;
     let dy    = in.uv.y - 0.5;
-    let r     = sqrt(dx * dx + dy * dy);   // 0 at centre, ~0.5 at billboard edge
-    let angle = atan2(dy, dx);             // −π .. π
+    let r     = sqrt(dx * dx + dy * dy);
+    let angle = atan2(dy, dx);
 
-    // Clip billboard corners → circular effect
-    if r > 0.5 {
-        return vec4<f32>(0.0, 0.0, 0.0, 0.0);
-    }
+    // Hard-clip only the true rectangle corners (r > 0.5 is outside the inset circle).
+    if r >= 0.5 { return vec4<f32>(0.0, 0.0, 0.0, 0.0); }
 
-    // Star disk UV radius (disk_r / billboard_half_size = 1/4 = 0.25)
-    let DISK_UV:  f32 = 0.25;
-    // Reference distance from disk edge where halo normalises to 1.0
-    // Scaled proportionally with DISK_UV (ratio ~0.56 kept from the original).
-    let REF_DIST: f32 = 0.14;
+    let DISK_UV: f32 = 0.25;
 
-    // ── Layer 1: Inverse-square halo (I ∝ r⁻²) ──────────────────────────────
-    let r_from_disk = max(r - DISK_UV + REF_DIST, REF_DIST * 0.1);
-    let halo_raw    = (REF_DIST * REF_DIST) / (r_from_disk * r_from_disk);
-    let halo        = clamp(halo_raw, 0.0, 1.0) * smoothstep(0.5, 0.18, r);
+    // ── Master radial envelope ────────────────────────────────────────────────
+    // pow(1 - r/0.5, N): guaranteed exactly 0 at r=0.5 with smooth zero-derivative
+    // → no geometric boundary can ever be seen regardless of noise on top.
+    // Power 2.2 gives a gradual outer falloff that looks like natural limb darkening.
+    let radial_env = pow(1.0 - r * 2.0, 2.2);
 
-    // ── Layer 2: Inner corona ring with FBM structure ─────────────────────────
-    // Narrow band immediately outside the stellar disk
-    let corona_band = smoothstep(DISK_UV * 0.85, DISK_UV * 1.1, r)
-                    * smoothstep(DISK_UV * 1.8,  DISK_UV * 1.1, r);
-    // Two FBM layers drifting at different speeds and directions give layered,
-    // organic wisp movement entirely driven by real-time (game speed independent).
-    let slow_t = time_phase * 0.22;
-    let fast_t = time_phase * 0.38;
-    let fbm_a  = fbm4(vec2<f32>(angle * 4.5  + slow_t,        r * 6.0 - slow_t * 0.3));
-    let fbm_b  = fbm4(vec2<f32>(angle * 6.1  - fast_t * 0.7,  r * 8.0 + fast_t * 0.5));
-    let corona  = corona_band * (0.15 + 0.7 * fbm_a + 0.35 * fbm_b) * 2.2;
+    // ── Layer 1: Halo ─────────────────────────────────────────────────────────
+    let halo_raw   = exp(-r * r * 55.0);
+    // Raise floor to 0.40 so the glow stays visible when zoomed close to the star.
+    let core_blend = smoothstep(DISK_UV * 0.5, DISK_UV * 1.1, r);
+    let halo       = halo_raw * mix(0.40, 1.0, core_blend) * 1.2;
 
-    // ── Layer 3: Ray spikes — FBM angular noise, radial extent ───────────────
-    // High angular frequency gives many thin, uneven rays
-    let angle_01  = angle * 0.15915494;              // 0 .. 1 wrap
-    // Moderate drift makes rays gently rotate and shimmer
-    let ray_fbm   = fbm4(vec2<f32>(angle_01 * 34.0 + time_phase * 0.06, 0.9 + sin(time_phase * 0.28) * 0.08));
-    // Threshold + power-sharpen: only peaks form visible rays
-    let ray_shape  = pow(max(0.0, ray_fbm - 0.32), 2.5) * 4.5;
-    // Rays extend from disk edge outward, fading beyond 60 % of billboard radius
-    let ray_radial = smoothstep(DISK_UV * 0.9, DISK_UV * 1.4, r)
-                   * smoothstep(0.5, DISK_UV * 1.6, r);
+    // ── Layer 2: Corona ───────────────────────────────────────────────────────
+    let ct1 = time_phase * 0.25;
+    let ct2 = time_phase * 0.38;
+    let ct3 = time_phase * 0.16;
+
+    let fbm_a = fbm4(vec2<f32>(angle * 4.8  + ct1,         r * 9.0  - ct1 * 0.8));
+    let fbm_b = fbm4(vec2<f32>(angle * 6.7  - ct2 * 0.75,  r * 13.0 - ct2 * 1.1));
+    let fbm_c = fbm4(vec2<f32>(angle * 2.9  + ct3 * 0.4,   r * 6.0  - ct3 * 0.5));
+
+    let extent          = 0.55 + 0.45 * fbm_c;
+    let noise_intensity = 0.2 + 0.55 * fbm_a + 0.35 * fbm_b;
+
+    // Slower inner decay so bright plumes extend organically before radial_env
+    // takes them to zero — the outer shape is formed by noise × radial_env, not
+    // by any smoothstep or clip.
+    let corona_inner = exp(-max(r - DISK_UV * 0.8, 0.0) * 7.0 / extent);
+    let corona       = corona_inner * mix(0.40, 1.0, core_blend) * noise_intensity * radial_env * 3.5;
+
+    // ── Layer 3: Rays ─────────────────────────────────────────────────────────
+    let angle_01  = angle * 0.15915494;
+    let rt1       = time_phase * 0.08;
+    let rt2       = time_phase * 0.05;
+    let ray_fbm_a = fbm4(vec2<f32>(angle_01 * 30.0 + rt1,        r * 5.0 - time_phase * 0.28));
+    let ray_fbm_b = fbm4(vec2<f32>(angle_01 * 50.0 - rt2 * 0.8,  r * 3.0 - time_phase * 0.17));
+    let ray_fbm   = ray_fbm_a * 0.65 + ray_fbm_b * 0.35;
+    let ray_shape  = pow(max(0.0, ray_fbm - 0.30), 2.2) * 5.2;
+    // Rays also fade via radial_env — no Gaussian clip needed.
+    let ray_radial = smoothstep(DISK_UV * 0.9, DISK_UV * 1.5, r) * radial_env;
     let rays = ray_shape * ray_radial;
 
     // ── Combine ───────────────────────────────────────────────────────────────
-    // Ease the glow brightness off toward the very centre so the underlying
-    // sphere reads as the star core, with the corona wrapping around it rather
-    // than drowning it out. Full contribution kicks in at the disk edge.
-    let center_fade = smoothstep(0.0, DISK_UV * 0.9, r);
-    let combined = (halo * 0.55 + corona * 0.45 + rays * 0.65) * mix(0.30, 1.0, center_fade);
+    let combined = halo * 0.55 + corona * 0.45 + rays * 0.65;
 
-    // Color: bright parts are hot-white, dim parts are golden-orange
     let t   = clamp(combined / 1.1, 0.0, 1.0);
     let col = mix(color_halo, color_core, t * t);
 
-    // HDR multipliers trigger bloom on bright regions
-    let hdr        = halo * 6.0 + corona * 4.5 + rays * 3.5 + 0.4;
+    let hdr        = halo * 5.0 + corona * 4.0 + rays * 3.5;
     let brightness = combined * hdr;
 
-    let alpha = clamp(combined, 0.0, 1.0) * smoothstep(0.5, 0.44, r);
+    // Alpha: power-curve so dim outer wisps are gently pushed toward zero —
+    // no spatial mask, no smoothstep ring, no hard clip drives this.
+    let alpha = clamp(pow(combined * 2.2, 1.4), 0.0, 1.0);
     return vec4<f32>(col.rgb * brightness * col.a, alpha);
 }

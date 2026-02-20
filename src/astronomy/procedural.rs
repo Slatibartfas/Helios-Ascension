@@ -229,7 +229,12 @@ pub fn map_star_to_system_architecture(
     }
 }
 
-/// Generate rocky planets for the inner system
+/// Generate rocky planets for the inner system.
+///
+/// Uses **sequential multiplicative spacing**: each planet is placed at a
+/// position that is at least `MIN_SPACING_FACTOR` times greater than the
+/// previous orbit. This guarantees visually distinct, non-overlapping orbits
+/// across all system scales — including ultra-compact brown-dwarf systems.
 fn generate_rocky_planets(
     star_name: &str,
     count: usize,
@@ -239,54 +244,66 @@ fn generate_rocky_planets(
 ) -> Vec<ProceduralPlanet> {
     let mut planets = Vec::new();
 
-    // Inner system range: scaled with frost line but with minimum extents
-    // so that very dim stars (brown dwarfs) still have well-separated rocky planets.
-    // Brown dwarfs can host tidally-locked rocky planets in close orbits.
+    // Inner system range: scaled with frost line but with minimum extents.
     let inner_min = (frost_line_au * 0.5).max(0.08); // At least 0.08 AU
     let inner_max = (frost_line_au * 0.95).max(inner_min + 0.25); // At least 0.25 AU range
 
-    // If frost line is too close, we can't fit rocky planets
     if inner_max <= inner_min {
         return planets;
     }
 
-    // Track all occupied orbits (existing + newly generated)
+    // Minimum multiplicative gap between consecutive orbits.
+    // A factor of 1.30 means each planet must orbit at least 30% farther
+    // out than its inner neighbour — derived loosely from mutual Hill-sphere
+    // stability criteria and ensures clear visual separation at all scales.
+    const MIN_SPACING_FACTOR: f64 = 1.30;
+
+    // Find the furthest existing orbit that lies within the inner zone so we
+    // know where to start placing new planets.
+    let last_existing_inner = existing_orbits_au
+        .iter()
+        .filter(|&&a| a <= inner_max)
+        .cloned()
+        .fold(f64::NAN, f64::max);
+
+    // Current placement cursor: start from inner_min, or just past the last
+    // existing inner-zone planet (whichever is further out).
+    let mut cursor = if last_existing_inner.is_finite() {
+        (last_existing_inner * MIN_SPACING_FACTOR).max(inner_min)
+    } else {
+        inner_min
+    };
+
+    // All orbits used for the final uniqueness check (existing + new).
     let mut all_orbits = existing_orbits_au.to_vec();
 
     for i in 0..count {
-        // Space planets roughly evenly, with some randomness
-        let base_orbit = inner_min + (inner_max - inner_min) * (i as f64 + 0.5) / (count as f64);
-        let variation = rng.random_range(-0.15..0.15);
-        let mut semi_major_axis = base_orbit * (1.0 + variation);
-
-        // Avoid collisions with all occupied orbits (need at least 0.1 AU separation)
-        while is_too_close_to_existing(semi_major_axis, &all_orbits, 0.1) {
-            semi_major_axis += rng.random_range(0.05..0.15);
+        if cursor > inner_max {
+            // No room for more planets in the inner zone.
+            break;
         }
 
-        // Ensure rocky planets remain inside the inner system (just inside the frost line)
-        if semi_major_axis > inner_max {
-            semi_major_axis = inner_max;
-        }
+        // Apply a small random jitter around the cursor position.
+        let jitter = rng.random_range(-0.06..0.06);
+        let mut semi_major_axis = (cursor * (1.0 + jitter)).clamp(inner_min, inner_max);
 
-        // After clamping, re-check separation. If we're now too close to an existing orbit,
-        // nudge the planet slightly inward while staying within the inner system bounds.
-        let mut safeguard_iterations = 0;
-        while is_too_close_to_existing(semi_major_axis, &all_orbits, 0.1)
-            && safeguard_iterations < 8
-        {
-            let delta = rng.random_range(0.05..0.15);
-            if semi_major_axis - delta < inner_min {
-                semi_major_axis = inner_min;
+        // Safety pass: if jitter pushed us into an existing orbit, walk outward
+        // in small relative steps until we are clear (max 16 iterations).
+        for _ in 0..16 {
+            let min_sep = semi_major_axis * (MIN_SPACING_FACTOR - 1.0);
+            if !is_too_close_to_existing(semi_major_axis, &all_orbits, min_sep) {
                 break;
-            } else {
-                semi_major_axis -= delta;
             }
-            safeguard_iterations += 1;
+            semi_major_axis = (semi_major_axis * 1.08).min(inner_max);
         }
 
-        // Calculate orbital period using Kepler's third law
-        // T² = a³ (for solar masses)
+        // If still too close after the safety pass (e.g., no room left), skip.
+        let min_sep = semi_major_axis * (MIN_SPACING_FACTOR - 1.0);
+        if is_too_close_to_existing(semi_major_axis, &all_orbits, min_sep) {
+            break;
+        }
+
+        // Calculate orbital period using Kepler's third law: T² = a³
         let period_years = semi_major_axis.powf(1.5);
         let period_days = period_years * 365.25;
 
@@ -298,26 +315,32 @@ fn generate_rocky_planets(
                     .unwrap_or('?')
             ),
             semi_major_axis_au: semi_major_axis,
-            eccentricity: rng.random_range(0.0..0.15), // Rocky planets tend to have low eccentricity
-            inclination: rng.random_range(-0.05..0.05), // Low inclination
+            eccentricity: rng.random_range(0.0..0.12),
+            inclination: rng.random_range(-0.05..0.05),
             longitude_ascending_node: rng.random_range(0.0..std::f64::consts::TAU),
             argument_of_periapsis: rng.random_range(0.0..std::f64::consts::TAU),
             mean_anomaly_epoch: rng.random_range(0.0..std::f64::consts::TAU),
             period_days,
-            mass_earth: rng.random_range(0.3..3.5), // Sub-Earth to Super-Earth
+            mass_earth: rng.random_range(0.3..3.5),
             radius_earth: rng.random_range(0.7..1.8),
             planet_type: PlanetType::Rocky,
         };
 
-        // Add this orbit to the tracking list so subsequent planets avoid it
         all_orbits.push(semi_major_axis);
         planets.push(planet);
+
+        // Advance the cursor: next planet must be at least MIN_SPACING_FACTOR
+        // times the current orbit, with an additional random spread.
+        cursor = semi_major_axis * rng.random_range(MIN_SPACING_FACTOR..1.60);
     }
 
     planets
 }
 
-/// Generate gas and ice giants for the outer system
+/// Generate gas and ice giants for the outer system.
+///
+/// Uses **sequential multiplicative spacing** (same principle as rocky planets)
+/// so orbits are guaranteed to be distinct at every system scale.
 fn generate_gas_giants(
     star_name: &str,
     count: usize,
@@ -329,23 +352,49 @@ fn generate_gas_giants(
     let mut planets = Vec::new();
 
     // Outer system range: frost line to ~30 AU
-    // Ensure a minimum so ultra-dim stars still get valid orbits
     let outer_min = (frost_line_au * 1.2).max(0.5);
     let outer_max = 30.0;
 
-    // Track all occupied orbits (existing + newly generated)
+    // Gas giants need even larger relative gaps than rocky planets.
+    const MIN_SPACING_FACTOR: f64 = 1.40;
+
+    // Find the furthest existing orbit in the outer zone.
+    let last_existing_outer = existing_orbits_au
+        .iter()
+        .filter(|&&a| a >= outer_min * 0.8)
+        .cloned()
+        .fold(f64::NAN, f64::max);
+
+    let mut cursor = if last_existing_outer.is_finite() {
+        (last_existing_outer * MIN_SPACING_FACTOR).max(outer_min)
+    } else {
+        outer_min
+    };
+
+    // All orbits used for uniqueness check.
     let mut all_orbits = existing_orbits_au.to_vec();
 
     for i in 0..count {
-        // Space planets with increasing separation (logarithmic spacing)
-        let t = (i as f64 + 0.5) / (count as f64);
-        let base_orbit = outer_min * (outer_max / outer_min).powf(t);
-        let variation = rng.random_range(-0.15..0.15);
-        let mut semi_major_axis = base_orbit * (1.0 + variation);
+        if cursor > outer_max {
+            break;
+        }
 
-        // Avoid collisions with all occupied orbits (need at least 0.5 AU separation for giants)
-        while is_too_close_to_existing(semi_major_axis, &all_orbits, 0.5) {
-            semi_major_axis += rng.random_range(0.3..0.8);
+        // Small jitter around cursor.
+        let jitter = rng.random_range(-0.08..0.08);
+        let mut semi_major_axis = (cursor * (1.0 + jitter)).clamp(outer_min, outer_max);
+
+        // Safety: walk outward if we land on an existing orbit (max 16 steps).
+        for _ in 0..16 {
+            let min_sep = semi_major_axis * (MIN_SPACING_FACTOR - 1.0);
+            if !is_too_close_to_existing(semi_major_axis, &all_orbits, min_sep) {
+                break;
+            }
+            semi_major_axis = (semi_major_axis * 1.10).min(outer_max);
+        }
+
+        let min_sep = semi_major_axis * (MIN_SPACING_FACTOR - 1.0);
+        if is_too_close_to_existing(semi_major_axis, &all_orbits, min_sep) {
+            break;
         }
 
         // Calculate orbital period using Kepler's third law
@@ -385,9 +434,11 @@ fn generate_gas_giants(
             planet_type,
         };
 
-        // Add this orbit to the tracking list so subsequent planets avoid it
+        // Advance cursor with multiplicative spacing + extra random spread.
         all_orbits.push(semi_major_axis);
         planets.push(planet);
+
+        cursor = semi_major_axis * rng.random_range(MIN_SPACING_FACTOR..1.80);
     }
 
     planets
@@ -455,14 +506,22 @@ fn generate_cometary_cloud(frost_line_au: f64, rng: &mut impl Rng) -> CometaryCl
     }
 }
 
-/// Check if a proposed orbit is too close to existing planets
+/// Check if a proposed orbit is too close to any existing orbit.
+///
+/// The `min_separation` is an **absolute** AU floor. In addition, orbits
+/// closer than 15 % of the smaller radius are always considered too close,
+/// which naturally enforces tighter gaps in the inner system without
+/// requiring per-callsite tuning.
 fn is_too_close_to_existing(
     proposed_au: f64,
     existing_orbits_au: &[f64],
     min_separation: f64,
 ) -> bool {
     for &existing in existing_orbits_au {
-        if (proposed_au - existing).abs() < min_separation {
+        let abs_gap = (proposed_au - existing).abs();
+        // Relative gap as a fraction of the inner orbit's radius.
+        let rel_gap = abs_gap / proposed_au.min(existing).max(1e-9);
+        if abs_gap < min_separation || rel_gap < 0.15 {
             return true;
         }
     }
