@@ -410,6 +410,11 @@ fn spawn_system_bodies(
             let linear = color.to_linear();
             let (cr, cg, cb) = (linear.red, linear.green, linear.blue);
 
+            // Luminosity-based scaling: brighter/hotter stars get a wider, more intense corona.
+            // Sirius A (L≈23) → +3.8× on top of base multiplier.
+            let luminosity = stellar_props.map(|p| p.luminosity_sol).unwrap_or(1.0);
+            let lum_factor = luminosity.powf(0.3).clamp(0.6, 4.0);
+
             // Center colour: hot HDR white derived from spectral colour (triggers bloom)
             let center_col = Vec4::new(cr * 90.0, cg * 90.0, cb * 90.0, 1.0);
             // Limb colour: cooler shift — red is retained, green/blue sharply attenuated
@@ -426,13 +431,21 @@ fn spawn_system_bodies(
             ));
 
             // Add light and glow as children
-            let intensity = 2.8e11;
+            let intensity = 2.8e11 * lum_factor;
 
-            // Corona at 5× visual_radius keeps the glow tight enough to avoid
-            // swallowing close-in planets (star sphere capped at ~15% of inner orbit).
-            let corona_size = visual_radius * 5.0;
-            let core_col    = Vec4::new(5.0, 5.0, 5.0, 1.0);
-            let halo_col    = Vec4::new(cr, cg, cb, 1.0) * 4.0;
+            // Corona size scales with luminosity: Sirius A gets ~8× vs Sol's 6×,
+            // dim M-dwarfs stay near 5×.
+            let corona_size = visual_radius * (5.0 + luminosity.sqrt() * 0.7).clamp(5.0, 12.0);
+
+            // core_col: spectrally-tinted inner corona to match the star sphere surface.
+            // Avoids the "white glow over orange star" seam on cool M/K stars.
+            let core_col = Vec4::new(
+                (cr * 5.5 + 1.0) * lum_factor,
+                (cg * 5.5 + 1.0) * lum_factor,
+                (cb * 5.5 + 1.0) * lum_factor,
+                1.0,
+            );
+            let halo_col = Vec4::new(cr * 4.0 * lum_factor, cg * 3.5 * lum_factor, cb * 2.5 * lum_factor, 1.0);
             // Diffraction: warm white derived from spectral color
             let diff_col    = Vec4::new(cr * 4.5, cg * 4.2, cb * 3.5, 1.0);
 
