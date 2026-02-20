@@ -29,6 +29,8 @@ impl Plugin for SolarSystemPlugin {
         app.add_plugins(MaterialPlugin::<StarGlowMaterial>::default())
             .add_plugins(MaterialPlugin::<StarSurfaceMaterial>::default())
             .add_plugins(MaterialPlugin::<StarDiffractionMaterial>::default())
+            .add_plugins(MaterialPlugin::<StarCorona3dMaterial>::default())
+            .add_plugins(MaterialPlugin::<StarHalo3dMaterial>::default())
             .add_systems(Startup, setup_solar_system)
             .add_systems(PostStartup, initial_camera_focus)
             .add_systems(
@@ -39,7 +41,9 @@ impl Plugin for SolarSystemPlugin {
                     update_body_visibility,
                     update_star_glare_lod,
                     update_star_diffraction_lod,
+                    update_star_corona_3d_lod,
                     update_glow_time,
+                    update_corona_3d_time,
                 ),
             )
             // System to convert loaded normal/specular textures to linear formats
@@ -238,6 +242,75 @@ pub struct StarDiffraction {
     pub visual_radius: f32,
 }
 
+// ── 3D Volumetric Corona Materials ──────────────────────────────────────────
+
+/// Inner volumetric corona shell — ray-marched 3D FBM plasma.
+/// Applied to a sphere at ~2.5× star radius with `AlphaMode::Add`.
+#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
+pub struct StarCorona3dMaterial {
+    #[uniform(0)]
+    pub color_core: Vec4,
+    #[uniform(1)]
+    pub color_halo: Vec4,
+    #[uniform(2)]
+    pub time_phase: f32,
+    /// corona_params.x = star surface radius, .y = corona shell outer radius
+    #[uniform(3)]
+    pub corona_params: Vec4,
+}
+
+impl Material for StarCorona3dMaterial {
+    fn fragment_shader() -> ShaderRef {
+        "shaders/star_corona_3d.wgsl".into()
+    }
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::Add
+    }
+    fn depth_bias(&self) -> f32 {
+        1.0
+    }
+}
+
+/// Outer diffuse halo shell — limb-brightening + coarse streamer noise.
+/// Applied to a sphere at ~4× star radius with `AlphaMode::Add`.
+#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
+pub struct StarHalo3dMaterial {
+    #[uniform(0)]
+    pub color_halo: Vec4,
+    #[uniform(1)]
+    pub time_phase: f32,
+    /// halo_params.x = star surface radius, .y = halo shell outer radius
+    #[uniform(2)]
+    pub halo_params: Vec4,
+}
+
+impl Material for StarHalo3dMaterial {
+    fn fragment_shader() -> ShaderRef {
+        "shaders/star_halo_3d.wgsl".into()
+    }
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::Add
+    }
+    fn depth_bias(&self) -> f32 {
+        2.0
+    }
+}
+
+/// Marker component for the inner 3D volumetric corona shell.
+#[derive(Component)]
+pub struct StarCoronaShell {
+    pub base_core_color: Vec4,
+    pub base_halo_color: Vec4,
+    pub visual_radius: f32,
+}
+
+/// Marker component for the outer 3D halo shell.
+#[derive(Component)]
+pub struct StarHaloShell {
+    pub base_halo_color: Vec4,
+    pub visual_radius: f32,
+}
+
 fn update_billboards(
     mut query: Query<(&mut Transform, &GlobalTransform, &ChildOf), With<Billboard>>,
     parent_query: Query<&GlobalTransform, Without<Billboard>>,
@@ -373,6 +446,71 @@ fn update_glow_time(
     let t = time.elapsed_secs();
     for (_id, mat) in glow_materials.iter_mut() {
         mat.time_phase = t;
+    }
+}
+
+/// Push real elapsed time into every 3D corona/halo material.
+fn update_corona_3d_time(
+    time: Res<Time<Real>>,
+    mut corona_materials: ResMut<Assets<StarCorona3dMaterial>>,
+    mut halo_materials: ResMut<Assets<StarHalo3dMaterial>>,
+) {
+    let t = time.elapsed_secs();
+    for (_id, mat) in corona_materials.iter_mut() {
+        mat.time_phase = t;
+    }
+    for (_id, mat) in halo_materials.iter_mut() {
+        mat.time_phase = t;
+    }
+}
+
+/// LOD system for 3D volumetric corona and halo shells.
+///
+/// Both shells fade in at distance and out when the camera is close
+/// to the star surface, mirroring the behaviour of the billboard-based
+/// glare LOD so the limb-darkened sphere is visible up close.
+fn update_star_corona_3d_lod(
+    camera_query: Query<&GlobalTransform, With<Camera3d>>,
+    corona_query: Query<(&GlobalTransform, &MeshMaterial3d<StarCorona3dMaterial>, &StarCoronaShell)>,
+    halo_query: Query<(&GlobalTransform, &MeshMaterial3d<StarHalo3dMaterial>, &StarHaloShell)>,
+    mut corona_materials: ResMut<Assets<StarCorona3dMaterial>>,
+    mut halo_materials: ResMut<Assets<StarHalo3dMaterial>>,
+) {
+    if let Ok(cam_transform) = camera_query.single() {
+        let cam_pos = cam_transform.translation();
+
+        for (shell_transform, mat_handle, data) in corona_query.iter() {
+            let shell_pos = shell_transform.translation();
+            let distance = (cam_pos - shell_pos).length();
+            let r = data.visual_radius.max(1.0);
+
+            // Inner corona: fade in from 1.5× to 6× visual radius
+            let min_dist = r * 1.5;
+            let max_dist = r * 6.0;
+            let t = ((distance - min_dist) / (max_dist - min_dist)).clamp(0.0, 1.0);
+            let t_eased = t * t * (3.0 - 2.0 * t); // smoothstep
+
+            if let Some(material) = corona_materials.get_mut(mat_handle) {
+                material.color_core = data.base_core_color * t_eased;
+                material.color_halo = data.base_halo_color * t_eased;
+            }
+        }
+
+        for (shell_transform, mat_handle, data) in halo_query.iter() {
+            let shell_pos = shell_transform.translation();
+            let distance = (cam_pos - shell_pos).length();
+            let r = data.visual_radius.max(1.0);
+
+            // Outer halo: fade in from 3× to 10× visual radius
+            let min_dist = r * 3.0;
+            let max_dist = r * 10.0;
+            let t = ((distance - min_dist) / (max_dist - min_dist)).clamp(0.0, 1.0);
+            let t_eased = t * t * (3.0 - 2.0 * t); // smoothstep
+
+            if let Some(material) = halo_materials.get_mut(mat_handle) {
+                material.color_halo = data.base_halo_color * t_eased;
+            }
+        }
     }
 }
 
@@ -747,9 +885,9 @@ pub fn setup_solar_system(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut materials_night: ResMut<Assets<crate::plugins::visual_effects::NightMaterial>>,
-    mut materials_glow: ResMut<Assets<StarGlowMaterial>>,
     mut materials_surface: ResMut<Assets<StarSurfaceMaterial>>,
-    mut materials_diffraction: ResMut<Assets<StarDiffractionMaterial>>,
+    mut materials_corona_3d: ResMut<Assets<StarCorona3dMaterial>>,
+    mut materials_halo_3d: ResMut<Assets<StarHalo3dMaterial>>,
     mut materials_atmosphere: ResMut<Assets<crate::plugins::atmosphere::AtmosphereMaterial>>,
     atmosphere_settings: Res<crate::plugins::atmosphere::AtmosphereSettings>,
     asset_server: Res<AssetServer>,
@@ -1356,68 +1494,65 @@ pub fn setup_solar_system(
         }
     }
 
-    // Third pass: Add lights and corona visuals to stars
+    // Third pass: Add lights and 3D volumetric corona/halo to stars
     for body_data in &data.bodies {
         if body_data.body_type == BodyType::Star {
             if let Some(entity) = entity_map.get(&body_data.name) {
                 // Recalculate radius for visual effects
                 let visual_radius = calculate_visual_radius(body_data.body_type, body_data.radius);
 
-                // Spawn light as a child of the star entity so it follows the star
+                // Derive corona colours from body emissive data
+                let (er, eg, eb) = body_data.emissive;
+                let core_col = Vec4::new(er * 5.0, eg * 5.0, eb * 5.0, 1.0);
+                // Gentle warm shift — avoid extreme channel suppression that
+                // causes visible colour banding on cool (M/K) stars.
+                let halo_col = Vec4::new(er * 4.5, eg * 3.5, eb * 1.8, 1.0);
+
+                // Shell radii
+                let corona_shell_r = visual_radius * 2.5;
+                let halo_shell_r   = visual_radius * 4.0;
+
+                // Spawn light and 3D corona shells as children of the star
                 commands.entity(*entity).with_children(|parent| {
                     parent.spawn((
                         PointLight {
-                            // Intensity needs to be extremely high because of the 1 AU = 1500.0 scale
-                            // Physical sun is ~3.75e28 lumens.
-                            // Scaled down to be reasonable for 10,000 lux at 1 AU (1500 units):
-                            // I = E * 4 * pi * r^2 = 10000 * 4 * pi * 1500^2 ≈ 2.8e11
                             intensity: 2.8e11,
-                            range: 2.0e9, // Effectively infinite within solar system bounds
-                            shadows_enabled: false, // Disable to prevent star mesh from blocking its own light
+                            range: 2.0e9,
+                            shadows_enabled: false,
                             ..default()
                         },
                         Transform::default(),
                     ));
 
-                    // ── Diffraction spike billboard (large, behind corona) ──────────────
-                    // Rendered at depth_bias -2.0 (just behind corona at -1.0).
-                    // Spikes are a long-range effect; the LOD system fades them in with
-                    // distance. Billboard size = visual_radius × 18 so spikes extend well
-                    // beyond the corona and trigger bloom at the streaks' HDR brightness.
-                    let diff_col = Vec4::new(4.5, 4.2, 3.5, 1.0); // warm white
+                    // ── Inner volumetric corona shell ──────────────────────────
+                    // Ray-marched 3D FBM plasma at 1.25× star radius.
                     parent.spawn((
-                        Mesh3d(meshes.add(Rectangle::new(
-                            visual_radius * 18.0,
-                            visual_radius * 18.0,
-                        ))),
-                        MeshMaterial3d(materials_diffraction.add(StarDiffractionMaterial {
-                            color: Vec4::ZERO, // starts hidden; LOD system drives it
+                        Mesh3d(meshes.add(Sphere::new(corona_shell_r).mesh().uv(64, 32))),
+                        MeshMaterial3d(materials_corona_3d.add(StarCorona3dMaterial {
+                            color_core: Vec4::ZERO, // starts hidden; LOD system drives it
+                            color_halo: Vec4::ZERO,
+                            time_phase: 0.0,
+                            corona_params: Vec4::new(visual_radius, corona_shell_r, 0.0, 0.0),
                         })),
-                        Transform::from_translation(Vec3::Z * 0.05),
-                        Billboard,
-                        StarDiffraction { base_color: diff_col, visual_radius },
+                        Transform::default(),
+                        StarCoronaShell {
+                            base_core_color: core_col,
+                            base_halo_color: halo_col,
+                            visual_radius,
+                        },
                     ));
 
-                    // ── Corona / halo billboard ────────────────────────────────────────
-                    // Billboard size = visual_radius × 6 (half-size × 3) so the star
-                    // disk sits at UV r ≈ 0.33, keeping corona compact.
-                    let core_col = Vec4::new(5.0, 5.0, 5.0, 1.0); // Blinding white core
-                    let halo_col = Vec4::new(4.0, 2.5, 0.5, 1.0); // Golden/Orange halo
-
+                    // ── Outer diffuse halo shell ──────────────────────────────
+                    // Limb-brightening glow at 3× star radius.
                     parent.spawn((
-                        Mesh3d(meshes.add(Rectangle::new(
-                            visual_radius * 6.0,
-                            visual_radius * 6.0,
-                        ))),
-                        MeshMaterial3d(materials_glow.add(StarGlowMaterial {
-                            color_core: core_col,
-                            color_halo: halo_col,
+                        Mesh3d(meshes.add(Sphere::new(halo_shell_r).mesh().uv(32, 16))),
+                        MeshMaterial3d(materials_halo_3d.add(StarHalo3dMaterial {
+                            color_halo: Vec4::ZERO, // starts hidden; LOD system drives it
                             time_phase: 0.0,
+                            halo_params: Vec4::new(visual_radius, halo_shell_r, 0.0, 0.0),
                         })),
-                        Transform::from_translation(Vec3::Z * 0.1),
-                        Billboard,
-                        StarGlare {
-                            base_core_color: core_col,
+                        Transform::default(),
+                        StarHaloShell {
                             base_halo_color: halo_col,
                             visual_radius,
                         },
