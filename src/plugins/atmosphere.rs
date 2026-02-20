@@ -89,8 +89,11 @@ impl Material for AtmosphereMaterial {
     }
 
     fn depth_bias(&self) -> f32 {
-        // Render just behind the cloud layer but in front of far-field objects
-        0.0
+        // Atmosphere shell is the outermost transparent layer — render it AFTER (on top of)
+        // the cloud deck and night-lights children, which have the same parent transform
+        // and would otherwise get a non-deterministic sort key from Bevy.
+        // Positive depth_bias = appears closer to camera = sorts last in back-to-front pass.
+        1.0
     }
 }
 

@@ -71,6 +71,7 @@
             multi_layer_textures: Some((
                 base: "textures/celestial/planets/venus_surface_8k.jpg",
                 clouds: Some("textures/celestial/planets/venus_atmosphere_2k.jpg"),
+                clouds_blend_mode: Some("opaque"),
             )),
             atmosphere: Some((
                 surface_pressure_mbar: 92000.0, // 92 bar
@@ -79,16 +80,15 @@
                     (name: "CO2", percentage: 96.5),
                     (name: "N2", percentage: 3.5),
                 ],
-                // Venus — thick yellow-white sulfuric acid haze
+                // Venus — thick yellow-white sulfuric acid haze.
+                // High scale_height fills the full shell (92 bar = opacity everywhere).
+                scale_height_km: Some(50.0),
                 rayleigh_rgb: Some((1.0, 0.85, 0.5)),
-                rayleigh_strength: Some(8.0),
-                mie_strength: Some(0.15),
+                rayleigh_strength: Some(12.0),
+                mie_strength: Some(0.18),
                 mie_g: Some(0.82),
                 haze_color: Some((1.0, 0.9, 0.55)),
-                atmosphere_intensity: Some(1.5),
-                // The clouds texture is the atmospheric appearance, not a separate cloud deck.
-                // Let the scattering shader own the visual entirely.
-                scattering_replaces_clouds: true,
+                atmosphere_intensity: Some(3.5),
             )),
         ),
         
@@ -268,6 +268,13 @@
                     (name: "He", percentage: 10.0),
                 ],
                 is_reference_pressure: true, // Gas giant: pressure at reference altitude, not surface
+                // Jupiter — warm amber/tan banded appearance with strong scattering limb
+                rayleigh_rgb: Some((1.0, 0.82, 0.55)),
+                rayleigh_strength: Some(6.0),
+                mie_strength: Some(0.12),
+                mie_g: Some(0.78),
+                haze_color: Some((1.0, 0.88, 0.65)),
+                atmosphere_intensity: Some(2.0),
             )),
         ),
         
@@ -380,6 +387,13 @@
                     (name: "CH4", percentage: 0.4),
                 ],
                 is_reference_pressure: true, // Gas giant: pressure at reference altitude, not surface
+                // Saturn — pale golden/cream atmosphere
+                rayleigh_rgb: Some((1.0, 0.90, 0.65)),
+                rayleigh_strength: Some(5.0),
+                mie_strength: Some(0.08),
+                mie_g: Some(0.75),
+                haze_color: Some((1.0, 0.94, 0.72)),
+                atmosphere_intensity: Some(2.0),
             )),
         ),
         

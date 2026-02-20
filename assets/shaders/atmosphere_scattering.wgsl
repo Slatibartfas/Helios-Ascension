@@ -192,8 +192,12 @@ fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
 
     // Clamp and compute alpha from total brightness.
     // Use a generous multiplier so thin atmospheres (Mars) are still visible.
+    // Remap through a curve so alpha saturates quickly for thick atmospheres
+    // (Venus, gas giants) while remaining subtle for thin ones (Mars).
     let brightness = dot(color, vec3<f32>(0.299, 0.587, 0.114));
-    let alpha = clamp(brightness * 4.0, 0.0, 0.92);
+    let raw_alpha = clamp(brightness * 5.0, 0.0, 1.0);
+    // Smoothstep-like curve: linear for low values, saturates faster at high end
+    let alpha = raw_alpha * raw_alpha * (3.0 - 2.0 * raw_alpha) * 0.95;
 
     return vec4<f32>(color, alpha);
 }

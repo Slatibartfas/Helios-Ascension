@@ -802,6 +802,7 @@ pub fn setup_solar_system(
             base_color_texture,
             _normal_map_texture,
             clouds_texture,
+            clouds_blend_mode,
             night_texture,
             has_dedicated_texture,
         ) = if let Some(ref multi) = body_data.multi_layer_textures {
@@ -817,6 +818,7 @@ pub fn setup_solar_system(
                 .clouds
                 .as_ref()
                 .map(|path| asset_server.load::<Image>(path.clone()));
+            let clouds_blend = multi.clouds_blend_mode.clone();
             let night_tex = multi
                 .night
                 .as_ref()
@@ -837,11 +839,12 @@ pub fn setup_solar_system(
             // Night needs to be linear? Probably sRGB for emissive, but if it behaves as data, maybe linear.
             // Usually diffuse/emissive maps are sRGB.
 
-            (base_tex, normal_tex, clouds_tex, night_tex, true)
+            (base_tex, normal_tex, clouds_tex, clouds_blend, night_tex, true)
         } else if let Some(ref texture) = body_data.texture {
             // Single dedicated texture
             (
                 Some(asset_server.load(texture.clone())),
+                None,
                 None,
                 None,
                 None,
@@ -852,6 +855,7 @@ pub fn setup_solar_system(
             let generic_path = get_generic_texture_path(body_data);
             (
                 generic_path.map(|path| asset_server.load(path)),
+                None,
                 None,
                 None,
                 None,
@@ -1156,38 +1160,34 @@ pub fn setup_solar_system(
 
         let entity = entity_commands.id();
 
-        // If scattering is enabled and the atmosphere marks itself as replacing the cloud
-        // texture (e.g. Venus), skip the texture-based cloud layer entirely.
-        let scattering_replaces_clouds = body_data
-            .atmosphere
-            .as_ref()
-            .map(|a| a.scattering_replaces_clouds && atmosphere_settings.enabled)
-            .unwrap_or(false);
-
         // Add cloud layer if texture exists (e.g. Earth, Venus)
         if let Some(clouds_tex) = clouds_texture {
-            if scattering_replaces_clouds {
-                // Scattering shell handles the full atmospheric appearance; drop texture layer.
-                drop(clouds_tex);
-            } else {
+            let alpha_mode = match clouds_blend_mode.as_deref() {
+                Some("blend") => AlphaMode::Blend,
+                Some("opaque") => AlphaMode::Opaque,
+                _ => AlphaMode::Add, // Default to Add for Earth-like clouds
+            };
+
             commands.entity(entity).with_children(|parent| {
                 parent.spawn((
                     Mesh3d(meshes.add(Sphere::new(visual_radius * 1.015).mesh().uv(64, 32))), // 1.5% larger than surface
                     MeshMaterial3d(materials.add(StandardMaterial {
                         base_color_texture: Some(clouds_tex),
                         base_color: Color::WHITE,
-                        // Use additive blending since cloud textures are often black/white
-                        // This makes black transparent and white opaque/bright
-                        alpha_mode: AlphaMode::Add,
+                        alpha_mode,
                         unlit: false,              // Clouds should be lit by the sun
                         perceptual_roughness: 0.8, // Clouds are rough (diffuse)
                         reflectance: 0.6,
+                        // Negative depth_bias makes this layer sort as "further from camera"
+                        // so it renders BEFORE (underneath) the atmosphere shell, which has
+                        // depth_bias = +1.0. Prevents dark-side flickering when both children
+                        // share the same world-space centre and Bevy can't determine order.
+                        depth_bias: -1.0,
                         ..default()
                     })),
                     Transform::default(), // Relative to parent (0,0,0)
                 ));
             });
-            } // end !scattering_replaces_clouds
         }
 
         // Add night lights layer if texture exists (e.g. Earth)
