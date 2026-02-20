@@ -245,7 +245,7 @@ pub struct StarDiffraction {
 // ── 3D Volumetric Corona Materials ──────────────────────────────────────────
 
 /// Inner volumetric corona shell — ray-marched 3D FBM plasma.
-/// Applied to a sphere at ~1.25× star radius with `AlphaMode::Add`.
+/// Applied to a sphere at ~2.5× star radius with `AlphaMode::Add`.
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
 pub struct StarCorona3dMaterial {
     #[uniform(0)]
