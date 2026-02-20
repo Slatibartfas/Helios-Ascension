@@ -1569,13 +1569,11 @@ fn spawn_marker(
         Color::srgb(0.5, 0.9, 1.0)
     };
 
-    let emissive = if is_selected { 0.6 } else { 1.0 };
+    let emissive_strength = if is_selected { 2.5 } else { 4.0 };
     let bracket_material = materials.add(StandardMaterial {
         base_color: ring_color,
-        emissive: LinearRgba::from(ring_color) * emissive,
-        metallic: 0.7,
-        perceptual_roughness: 0.1,
-        reflectance: 0.9,
+        emissive: LinearRgba::from(ring_color) * emissive_strength,
+        unlit: true,
         ..default()
     });
 
@@ -1618,8 +1616,10 @@ fn spawn_marker(
     // Create corner brackets using boxes
     // Each corner has two bars forming an L-shape
     let bracket_thickness = (radius * 0.08).max(2.0); // Scale with body size, minimum 2.0
-    let bracket_length = radius * 0.25; // Length of each bracket arm
-    let bracket_offset = radius * 0.92; // Distance from center to bracket corner
+    let bracket_length = radius * 0.30; // Length of each bracket arm
+    // Corner sits at exactly the ring radius so arms are always outside the body sphere:
+    // the perpendicular distance of each arm from center equals `radius` > visual_radius.
+    let bracket_offset = radius;
 
     // Define four corners and create L-shaped brackets at each
     let corners = [
