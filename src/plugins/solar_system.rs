@@ -272,7 +272,7 @@ impl Material for StarCorona3dMaterial {
 }
 
 /// Outer diffuse halo shell — limb-brightening + coarse streamer noise.
-/// Applied to a sphere at ~3× star radius with `AlphaMode::Add`.
+/// Applied to a sphere at ~4× star radius with `AlphaMode::Add`.
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
 pub struct StarHalo3dMaterial {
     #[uniform(0)]
