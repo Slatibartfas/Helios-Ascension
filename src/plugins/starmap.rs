@@ -20,8 +20,7 @@ use std::collections::HashMap;
 
 use super::camera::{CameraAnchor, EguiPanelBounds, GameCamera, OrbitCamera, ViewMode};
 use super::solar_system::{
-    Billboard, CelestialBody, StarDiffraction, StarDiffractionMaterial, StarGlare,
-    StarGlowMaterial, StarSurfaceMaterial,
+    Billboard, CelestialBody, StarSurfaceMaterial, StarGlowMaterial,
 };
 use super::solar_system_data::BodyType;
 use crate::astronomy::components::{
@@ -320,9 +319,9 @@ fn spawn_system_bodies(
     floating_origin: Res<FloatingOrigin>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut materials_glow: ResMut<Assets<StarGlowMaterial>>,
     mut materials_surface: ResMut<Assets<StarSurfaceMaterial>>,
-    mut materials_diffraction: ResMut<Assets<StarDiffractionMaterial>>,
+    mut materials_corona_3d: ResMut<Assets<super::solar_system::StarCorona3dMaterial>>,
+    mut materials_halo_3d: ResMut<Assets<super::solar_system::StarHalo3dMaterial>>,
     // Query for bodies that need visual components added
     bodies_without_visuals: Query<
         (
@@ -405,13 +404,12 @@ fn spawn_system_bodies(
         let initial_transform = Transform::from_translation(p_vec);
 
         if matches!(body.body_type, BodyType::Star) {
-            // Stars use StarSurfaceMaterial (limb darkening) + corona + diffraction billboards,
+            // Stars use StarSurfaceMaterial (limb darkening) + 3D volumetric corona/halo,
             // matching how the Sol star is rendered in setup_solar_system.
             let linear = color.to_linear();
             let (cr, cg, cb) = (linear.red, linear.green, linear.blue);
 
             // Luminosity-based scaling: brighter/hotter stars get a wider, more intense corona.
-            // Sirius A (L≈23) → +3.8× on top of base multiplier.
             let luminosity = stellar_props.map(|p| p.luminosity_sol).unwrap_or(1.0);
             let lum_factor = luminosity.powf(0.3).clamp(0.6, 4.0);
 
@@ -425,29 +423,28 @@ fn spawn_system_bodies(
                 MeshMaterial3d(materials_surface.add(StarSurfaceMaterial {
                     color_center: center_col,
                     color_limb:   limb_col,
-                    star_texture:  None, // No texture for procedural stars
+                    star_texture:  None,
                 })),
                 initial_transform,
             ));
 
-            // Add light and glow as children
+            // Add light and 3D corona shells as children
             let intensity = 2.8e11 * lum_factor;
 
-            // Corona size scales with luminosity: Sirius A gets ~8× vs Sol's 6×,
-            // dim M-dwarfs stay near 5×.
-            let corona_size = visual_radius * (5.0 + luminosity.sqrt() * 0.7).clamp(5.0, 12.0);
-
             // core_col: spectrally-tinted inner corona to match the star sphere surface.
-            // Avoids the "white glow over orange star" seam on cool M/K stars.
             let core_col = Vec4::new(
                 (cr * 5.5 + 1.0) * lum_factor,
                 (cg * 5.5 + 1.0) * lum_factor,
                 (cb * 5.5 + 1.0) * lum_factor,
                 1.0,
             );
-            let halo_col = Vec4::new(cr * 4.0 * lum_factor, cg * 3.5 * lum_factor, cb * 2.5 * lum_factor, 1.0);
-            // Diffraction: warm white derived from spectral color
-            let diff_col    = Vec4::new(cr * 4.5, cg * 4.2, cb * 3.5, 1.0);
+            // Gentle warm shift — avoid extreme channel suppression that
+            // causes visible colour banding on cool (M/K) stars.
+            let halo_col = Vec4::new(cr * 4.5 * lum_factor, cg * 4.0 * lum_factor, cb * 3.0 * lum_factor, 1.0);
+
+            // Shell radii
+            let corona_shell_r = visual_radius * 2.5;
+            let halo_shell_r   = visual_radius * 4.0;
 
             commands.entity(entity).with_children(|parent| {
                 parent.spawn((
@@ -462,36 +459,37 @@ fn spawn_system_bodies(
                     SystemId(sys_id),
                 ));
 
-                // Diffraction spike billboard (behind corona in depth order)
+                // Inner volumetric corona shell
                 parent.spawn((
-                    Mesh3d(meshes.add(Rectangle::new(
-                        visual_radius * 10.0,
-                        visual_radius * 10.0,
-                    ))),
-                    MeshMaterial3d(materials_diffraction.add(StarDiffractionMaterial {
-                        color: Vec4::ZERO, // LOD system drives it in
-                    })),
-                    Transform::from_translation(Vec3::Z * 0.05),
-                    Billboard,
-                    StarDiffraction { base_color: diff_col, visual_radius },
-                    SystemId(sys_id),
-                ));
-
-                // Corona / halo billboard
-                parent.spawn((
-                    Mesh3d(meshes.add(Rectangle::new(corona_size, corona_size))),
-                    MeshMaterial3d(materials_glow.add(StarGlowMaterial {
-                        color_core: core_col,
-                        color_halo: halo_col,
+                    Mesh3d(meshes.add(Sphere::new(corona_shell_r).mesh().uv(64, 32))),
+                    MeshMaterial3d(materials_corona_3d.add(super::solar_system::StarCorona3dMaterial {
+                        color_core: Vec4::ZERO, // LOD system drives it
+                        color_halo: Vec4::ZERO,
                         time_phase: 0.0,
+                        corona_params: Vec4::new(visual_radius, corona_shell_r, 0.0, 0.0),
                     })),
-                    Transform::from_translation(Vec3::Z * 0.1),
-                    StarGlare {
+                    Transform::default(),
+                    super::solar_system::StarCoronaShell {
                         base_core_color: core_col,
                         base_halo_color: halo_col,
                         visual_radius,
                     },
-                    Billboard,
+                    SystemId(sys_id),
+                ));
+
+                // Outer diffuse halo shell
+                parent.spawn((
+                    Mesh3d(meshes.add(Sphere::new(halo_shell_r).mesh().uv(32, 16))),
+                    MeshMaterial3d(materials_halo_3d.add(super::solar_system::StarHalo3dMaterial {
+                        color_halo: Vec4::ZERO, // LOD system drives it
+                        time_phase: 0.0,
+                        halo_params: Vec4::new(visual_radius, halo_shell_r, 0.0, 0.0),
+                    })),
+                    Transform::default(),
+                    super::solar_system::StarHaloShell {
+                        base_halo_color: halo_col,
+                        visual_radius,
+                    },
                     SystemId(sys_id),
                 ));
             });
