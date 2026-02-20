@@ -6,6 +6,8 @@ use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass, EguiStartupSet};
 use crate::astronomy::components::CurrentStarSystem;
 use crate::astronomy::SCALING_FACTOR;
 use crate::game_state::ActiveMenu;
+use crate::plugins::solar_system::CelestialBody;
+use crate::plugins::solar_system_data::BodyType;
 use crate::plugins::starmap::SystemMetadata;
 
 /// Base zoom threshold multiplier. The actual threshold is calculated as
@@ -60,6 +62,7 @@ impl Plugin for CameraPlugin {
                 (
                     update_camera_transform,
                     update_view_mode,
+                    update_min_zoom,
                 ),
             );
     }
@@ -207,6 +210,47 @@ fn update_camera_transform(
 
     transform.translation = position;
     transform.look_at(orbit.target_center, Vec3::Y);
+}
+
+/// Dynamically adjusts the camera's `min_radius` based on what's currently anchored.
+/// Prevents the camera from zooming so close to a star that the glare billboard fades
+/// to zero and the star becomes a black sphere.
+///
+/// - **Stars**: clamp to `max(visual_radius × 2.5, 250)` — safely above the 200-unit
+///   glare-fade threshold in `update_star_glare_lod`.
+/// - **Other bodies**: clamp to `max(visual_radius × 2.0, 5.0)` for comfortable close-ups.
+/// - **No anchor**: restore default 5.0.
+fn update_min_zoom(
+    mut camera_query: Query<(&mut OrbitCamera, &CameraAnchor)>,
+    body_query: Query<&CelestialBody>,
+) {
+    let Ok((mut orbit, anchor)) = camera_query.single_mut() else {
+        return;
+    };
+
+    let new_min = if let Some(entity) = anchor.0 {
+        if let Ok(body) = body_query.get(entity) {
+            if body.body_type == BodyType::Star {
+                // Keep camera outside glare-fade region (min_dist = 200 in glare LOD)
+                (body.visual_radius * 2.5).max(250.0)
+            } else {
+                (body.visual_radius * 2.0).max(5.0)
+            }
+        } else {
+            5.0
+        }
+    } else {
+        5.0
+    };
+
+    if (orbit.min_radius - new_min).abs() > 0.1 {
+        // If current radius is already inside the new minimum (user was zoomed in before
+        // anchoring), push them out so they don't snap into the forbidden zone.
+        if orbit.radius < new_min {
+            orbit.radius = new_min;
+        }
+        orbit.min_radius = new_min;
+    }
 }
 
 /// Updates `ViewMode` based on camera zoom radius, with hysteresis to avoid

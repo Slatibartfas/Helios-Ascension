@@ -80,16 +80,19 @@ fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
     // Narrow band immediately outside the stellar disk
     let corona_band = smoothstep(DISK_UV * 0.85, DISK_UV * 1.1, r)
                     * smoothstep(DISK_UV * 1.8,  DISK_UV * 1.1, r);
-    // FBM on (angle × freq, r) with slow time drift → animated corona wisps
-    let slow_t = time_phase * 0.08;
-    let fbm_in  = fbm4(vec2<f32>(angle * 4.5 + slow_t, r * 6.0 - slow_t * 0.3));
-    let corona  = corona_band * (0.2 + 0.8 * fbm_in) * 2.0;
+    // Two FBM layers drifting at different speeds and directions give layered,
+    // organic wisp movement entirely driven by real-time (game speed independent).
+    let slow_t = time_phase * 0.22;
+    let fast_t = time_phase * 0.38;
+    let fbm_a  = fbm4(vec2<f32>(angle * 4.5  + slow_t,        r * 6.0 - slow_t * 0.3));
+    let fbm_b  = fbm4(vec2<f32>(angle * 6.1  - fast_t * 0.7,  r * 8.0 + fast_t * 0.5));
+    let corona  = corona_band * (0.15 + 0.7 * fbm_a + 0.35 * fbm_b) * 2.2;
 
     // ── Layer 3: Ray spikes — FBM angular noise, radial extent ───────────────
     // High angular frequency gives many thin, uneven rays
     let angle_01  = angle * 0.15915494;              // 0 .. 1 wrap
-    // Slow angular drift makes rays gently rotate / shimmer
-    let ray_fbm   = fbm4(vec2<f32>(angle_01 * 34.0 + time_phase * 0.02, 0.9 + sin(time_phase * 0.15) * 0.05));
+    // Moderate drift makes rays gently rotate and shimmer
+    let ray_fbm   = fbm4(vec2<f32>(angle_01 * 34.0 + time_phase * 0.06, 0.9 + sin(time_phase * 0.28) * 0.08));
     // Threshold + power-sharpen: only peaks form visible rays
     let ray_shape  = pow(max(0.0, ray_fbm - 0.32), 2.5) * 4.5;
     // Rays extend from disk edge outward, fading beyond 60 % of billboard radius
@@ -98,7 +101,11 @@ fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
     let rays = ray_shape * ray_radial;
 
     // ── Combine ───────────────────────────────────────────────────────────────
-    let combined = halo * 0.55 + corona * 0.45 + rays * 0.65;
+    // Ease the glow brightness off toward the very centre so the underlying
+    // sphere reads as the star core, with the corona wrapping around it rather
+    // than drowning it out. Full contribution kicks in at the disk edge.
+    let center_fade = smoothstep(0.0, DISK_UV * 0.9, r);
+    let combined = (halo * 0.55 + corona * 0.45 + rays * 0.65) * mix(0.30, 1.0, center_fade);
 
     // Color: bright parts are hot-white, dim parts are golden-orange
     let t   = clamp(combined / 1.1, 0.0, 1.0);

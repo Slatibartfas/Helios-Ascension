@@ -83,7 +83,6 @@ impl Plugin for StarmapPlugin {
                     update_starmap_visibility.after(handle_system_transition),
                     update_starmap_icon_scale,
                     update_starmap_coordinates,
-                    twinkle_starmap_icons,
                 ),
             )
             // Starmap hover/selection systems use EguiContexts — must run in EguiPrimaryContextPass
@@ -125,19 +124,6 @@ pub struct HoveredStarSystem;
 #[derive(Component)]
 pub struct SelectedStarSystem;
 
-/// Per-star twinkling state stored on the glow billboard child entity.
-/// Drives multi-frequency brightness oscillation for a natural scintillation effect.
-#[derive(Component)]
-struct StarTwinkle {
-    /// Randomised per-star phase offset (radians) so stars don't pulse in unison.
-    phase: f32,
-    /// Base oscillation speed in radians/second.
-    speed: f32,
-    /// Unmodulated core colour (what the glow shader receives when flicker = 1.0).
-    base_core: Vec4,
-    /// Unmodulated halo colour.
-    base_halo: Vec4,
-}
 
 // ── Startup ─────────────────────────────────────────────────────────────────
 
@@ -201,7 +187,7 @@ fn setup_starmap(
     // --- Sol System (ID: 0) ---
     let sol_material = materials.add(StandardMaterial {
         base_color: Color::srgb(1.0, 0.95, 0.7),
-        emissive: LinearRgba::new(5.0, 4.8, 3.0, 1.0), // Bright enough to blend into glow seamlessly
+        emissive: LinearRgba::new(1.8, 1.7, 1.1, 1.0), // Subdued — corona shader provides most of the brightness
         unlit: true,
         ..default()
     });
@@ -235,12 +221,6 @@ fn setup_starmap(
                 })),
                 Transform::from_translation(Vec3::Z * 0.1),
                 Billboard,
-                StarTwinkle {
-                    phase: 0.0,
-                    speed: 1.1,
-                    base_core: sol_core,
-                    base_halo: sol_halo,
-                },
             ));
         });
 
@@ -266,7 +246,7 @@ fn setup_starmap(
             base_color: Color::srgb(r, g, b),
             // Scale emissive brightness by spectral class so hot stars glow
             // visibly even at maximum starmap zoom-out.
-            emissive: LinearRgba::new(r * 6.0, g * 6.0, b * 6.0, 1.0),
+            emissive: LinearRgba::new(r * 2.0, g * 2.0, b * 2.0, 1.0), // Subdued — corona shader provides most of the brightness
             unlit: true,
             ..default()
         });
@@ -287,11 +267,6 @@ fn setup_starmap(
         // Binary stars can extend much farther (hundreds to thousands of AU)
         // Use a conservative estimate for unknown systems
         let bounding_radius_au = FALLBACK_BOUNDING_RADIUS_AU;
-
-        // Spread twinkle phases across stars using the index for variety
-        let twinkle_phase = (i as f32 * 2.3999_f32) % std::f32::consts::TAU;
-        // Vary speed slightly per star so they don't all pulse in unison
-        let twinkle_speed = 0.8 + (i as f32 * 0.137_f32) % 0.7;
 
         commands
             .spawn((
@@ -316,12 +291,6 @@ fn setup_starmap(
                     })),
                     Transform::from_translation(Vec3::Z * 0.1),
                     Billboard,
-                    StarTwinkle {
-                        phase: twinkle_phase,
-                        speed: twinkle_speed,
-                        base_core: core_col,
-                        base_halo: halo_col,
-                    },
                 ));
             });
     }
@@ -678,43 +647,6 @@ fn update_starmap_visibility(
             }
         }
     };
-}
-
-/// Animate each star's glow billboard with a multi-frequency brightness flicker,
-/// simulating atmospheric scintillation (twinkling). Each star has a unique
-/// phase and speed so they don't pulse in unison.
-fn twinkle_starmap_icons(
-    view_mode: Res<ViewMode>,
-    time: Res<Time>,
-    mut twinkle_query: Query<(&StarTwinkle, &MeshMaterial3d<StarGlowMaterial>)>,
-    mut glow_materials: ResMut<Assets<StarGlowMaterial>>,
-) {
-    if *view_mode != ViewMode::Starmap {
-        return;
-    }
-
-    let t = time.elapsed_secs();
-
-    for (twinkle, mat_handle) in twinkle_query.iter_mut() {
-        let Some(mat) = glow_materials.get_mut(&mat_handle.0) else {
-            continue;
-        };
-
-        // Combine three incommensurate frequencies for organic-looking twinkling.
-        // Primary oscillation: gentle swell
-        // Secondary: faster shimmer
-        // Tertiary: rapid micro-flicker
-        let f1 = (t * twinkle.speed + twinkle.phase).sin();
-        let f2 = (t * twinkle.speed * 2.37 + twinkle.phase * 1.61).sin();
-        let f3 = (t * twinkle.speed * 5.13 + twinkle.phase * 0.91).sin();
-        // Weighted blend: flicker stays in ~[0.65, 1.20] range for visible twinkling
-        let flicker = 0.90 + 0.18 * f1 + 0.08 * f2 + 0.04 * f3;
-        // Halo modulates less than core
-        let halo_flicker = 0.94 + 0.08 * f1 + 0.03 * f2;
-
-        mat.color_core = twinkle.base_core * flicker;
-        mat.color_halo = twinkle.base_halo * halo_flicker;
-    }
 }
 
 /// Scale the starmap icon so it remains a comfortable visual size regardless of

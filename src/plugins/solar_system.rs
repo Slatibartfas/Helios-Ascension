@@ -368,7 +368,7 @@ fn update_star_diffraction_lod(
 /// animate its FBM corona and ray patterns. Uses `Time<Real>` (wall clock)
 /// so animation speed is independent of game speed.
 fn update_glow_time(
-    time: Res<Time>,
+    time: Res<Time<Real>>,
     mut glow_materials: ResMut<Assets<StarGlowMaterial>>,
 ) {
     let t = time.elapsed_secs();
