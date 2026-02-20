@@ -473,7 +473,7 @@ fn spawn_system_bodies(
                     })),
                     Transform::from_translation(Vec3::Z * 0.05),
                     Billboard,
-                    StarDiffraction { base_color: diff_col },
+                    StarDiffraction { base_color: diff_col, visual_radius },
                     SystemId(sys_id),
                 ));
 
@@ -489,6 +489,7 @@ fn spawn_system_bodies(
                     StarGlare {
                         base_core_color: core_col,
                         base_halo_color: halo_col,
+                        visual_radius,
                     },
                     Billboard,
                     SystemId(sys_id),

@@ -225,12 +225,17 @@ pub struct Billboard;
 pub struct StarGlare {
     pub base_core_color: Vec4,
     pub base_halo_color: Vec4,
+    /// Visual radius of the parent star in game units.
+    /// Used to scale LOD fade distances so all star sizes behave consistently.
+    pub visual_radius: f32,
 }
 
 /// Component to tag the diffraction spike billboard for LOD updates
 #[derive(Component)]
 pub struct StarDiffraction {
     pub base_color: Vec4,
+    /// Visual radius of the parent star in game units.
+    pub visual_radius: f32,
 }
 
 fn update_billboards(
@@ -293,6 +298,9 @@ fn update_body_visibility(
 /// Dynamically adjusts star glare intensity/opacity based on camera distance (LOD).
 /// When zoomed out, the glare is full brightness, hiding the surface.
 /// When zoomed in close, the glare fades to transparent, revealing the star surface.
+///
+/// LOD distances scale proportionally with the star's visual radius so
+/// the transition feels consistent regardless of star size.
 fn update_star_glare_lod(
     camera_query: Query<&GlobalTransform, With<Camera3d>>,
     mut glare_query: Query<(&GlobalTransform, &MeshMaterial3d<StarGlowMaterial>, &StarGlare)>,
@@ -305,32 +313,21 @@ fn update_star_glare_lod(
             let glare_pos = glare_transform.translation();
             let distance = (cam_pos - glare_pos).length();
 
-            // Defined LOD ranges based on typical Solar System visual scale
-            // Visual radius of Sun is approx 104.0
-            // Close up: ~200-400 units
-            // Far out: > 2000 units
+            // Scale distances by the star's visual radius so the fade
+            // happens the same number of "star radii" away for any star size.
+            // Multipliers derived from the original Sun-calibrated values
+            // (min=200, max=1500) divided by Sun visual_radius ~104:
+            //   min ≈ 2.0×, max ≈ 14.5× visual_radius
+            let r = glare_data.visual_radius.max(1.0);
+            let min_dist = r * 2.0;   // fully transparent (surface visible)
+            let max_dist = r * 14.5;  // fully opaque (glow dominates)
 
-            let min_dist = 200.0; // Fully transparent (revealing surface)
-            let max_dist = 1500.0; // Fully opaque/bright (hidden surface)
-
-            // Normalize distance 0.0 .. 1.0
             let t = ((distance - min_dist) / (max_dist - min_dist)).clamp(0.0, 1.0);
-
-            // Apply easing curve for smoother transition (e.g. smoothstep or quadratic)
-            // t * t gives a slower fade-in, keeping surface visible longer
-            // sqrt(t) gives faster fade-in
-            let t_eased = t * t * (3.0 - 2.0 * t); // Smoothstep
+            let t_eased = t * t * (3.0 - 2.0 * t); // smoothstep
 
             if let Some(material) = materials.get_mut(mat_handle) {
-                // Modulate brightness.
-                // We keep the HDR intensity but fade alpha/mix to 0 when close.
-                // Multiplying the whole vector scales both brightness and alpha (if alpha is in .w)
-
                 material.color_core = glare_data.base_core_color * t_eased;
                 material.color_halo = glare_data.base_halo_color * t_eased;
-
-                // Ensure alpha doesn't drop below 0 (vector mul handles this)
-                // When t -> 0, colors -> 0 (black/transparent with Additive blending)
             }
         }
     }
@@ -338,6 +335,8 @@ fn update_star_glare_lod(
 
 /// Fades the diffraction spike billboard in when far from the star and out when close.
 /// The spikes are a long-range effect; at close range the surface limb-darkening takes over.
+///
+/// Distances scale with the star's visual radius for size-consistent behaviour.
 fn update_star_diffraction_lod(
     camera_query: Query<&GlobalTransform, With<Camera3d>>,
     mut diffraction_query: Query<(&GlobalTransform, &MeshMaterial3d<StarDiffractionMaterial>, &StarDiffraction)>,
@@ -350,11 +349,11 @@ fn update_star_diffraction_lod(
             let diff_pos = diff_transform.translation();
             let dist = (cam_pos - diff_pos).length();
 
-            // Diffraction spikes are subtle at medium range, invisible up close.
-            let min_dist = 400.0;
-            let max_dist = 2000.0;
+            // Scale by visual radius (original Sun-calibrated: min=400, max=2000 / 104 ≈ 3.85, 19.2)
+            let r = diff_data.visual_radius.max(1.0);
+            let min_dist = r * 4.0;
+            let max_dist = r * 19.0;
             let t = ((dist - min_dist) / (max_dist - min_dist)).clamp(0.0, 1.0);
-            // Ease-in so spikes only appear well outside the near-field
             let t_eased = t * t;
 
             if let Some(mat) = materials.get_mut(mat_handle) {
@@ -1396,7 +1395,7 @@ pub fn setup_solar_system(
                         })),
                         Transform::from_translation(Vec3::Z * 0.05),
                         Billboard,
-                        StarDiffraction { base_color: diff_col },
+                        StarDiffraction { base_color: diff_col, visual_radius },
                     ));
 
                     // ── Corona / halo billboard ────────────────────────────────────────
@@ -1420,6 +1419,7 @@ pub fn setup_solar_system(
                         StarGlare {
                             base_core_color: core_col,
                             base_halo_color: halo_col,
+                            visual_radius,
                         },
                     ));
                 });
