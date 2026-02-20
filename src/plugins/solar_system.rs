@@ -39,6 +39,7 @@ impl Plugin for SolarSystemPlugin {
                     update_body_visibility,
                     update_star_glare_lod,
                     update_star_diffraction_lod,
+                    update_glow_time,
                 ),
             )
             // System to convert loaded normal/specular textures to linear formats
@@ -146,6 +147,10 @@ pub struct StarGlowMaterial {
     pub color_core: Vec4,
     #[uniform(1)]
     pub color_halo: Vec4,
+    /// Elapsed time (seconds) driving corona/ray animation.
+    /// Updated each frame by `update_glow_time` system.
+    #[uniform(2)]
+    pub time_phase: f32,
 }
 
 impl Material for StarGlowMaterial {
@@ -356,6 +361,19 @@ fn update_star_diffraction_lod(
                 mat.color = diff_data.base_color * t_eased;
             }
         }
+    }
+}
+
+/// Push real elapsed time into every `StarGlowMaterial` so the shader can
+/// animate its FBM corona and ray patterns. Uses `Time<Real>` (wall clock)
+/// so animation speed is independent of game speed.
+fn update_glow_time(
+    time: Res<Time>,
+    mut glow_materials: ResMut<Assets<StarGlowMaterial>>,
+) {
+    let t = time.elapsed_secs();
+    for (_id, mat) in glow_materials.iter_mut() {
+        mat.time_phase = t;
     }
 }
 
@@ -1382,20 +1400,20 @@ pub fn setup_solar_system(
                     ));
 
                     // ── Corona / halo billboard ────────────────────────────────────────
-                    // Billboard size = visual_radius × 8 (half-size × 4) so the star
-                    // disk sits at UV r = 0.25, matching the shader's DISK_UV constant.
-                    // Reduced from ×16 to keep the glow inside Mercury's orbit (~580 units).
+                    // Billboard size = visual_radius × 6 (half-size × 3) so the star
+                    // disk sits at UV r ≈ 0.33, keeping corona compact.
                     let core_col = Vec4::new(5.0, 5.0, 5.0, 1.0); // Blinding white core
                     let halo_col = Vec4::new(4.0, 2.5, 0.5, 1.0); // Golden/Orange halo
 
                     parent.spawn((
                         Mesh3d(meshes.add(Rectangle::new(
-                            visual_radius * 8.0,
-                            visual_radius * 8.0,
+                            visual_radius * 6.0,
+                            visual_radius * 6.0,
                         ))),
                         MeshMaterial3d(materials_glow.add(StarGlowMaterial {
                             color_core: core_col,
                             color_halo: halo_col,
+                            time_phase: 0.0,
                         })),
                         Transform::from_translation(Vec3::Z * 0.1),
                         Billboard,

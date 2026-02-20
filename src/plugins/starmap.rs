@@ -201,7 +201,7 @@ fn setup_starmap(
     // --- Sol System (ID: 0) ---
     let sol_material = materials.add(StandardMaterial {
         base_color: Color::srgb(1.0, 0.95, 0.7),
-        emissive: LinearRgba::new(2.0, 1.9, 1.2, 1.0), // Home system core (glow handles the brightness)
+        emissive: LinearRgba::new(5.0, 4.8, 3.0, 1.0), // Bright enough to blend into glow seamlessly
         unlit: true,
         ..default()
     });
@@ -231,6 +231,7 @@ fn setup_starmap(
                 MeshMaterial3d(materials_glow.add(StarGlowMaterial {
                     color_core: sol_core,
                     color_halo: sol_halo,
+                    time_phase: 0.0,
                 })),
                 Transform::from_translation(Vec3::Z * 0.1),
                 Billboard,
@@ -265,7 +266,7 @@ fn setup_starmap(
             base_color: Color::srgb(r, g, b),
             // Scale emissive brightness by spectral class so hot stars glow
             // visibly even at maximum starmap zoom-out.
-            emissive: LinearRgba::new(r * 2.5, g * 2.5, b * 2.5, 1.0),
+            emissive: LinearRgba::new(r * 6.0, g * 6.0, b * 6.0, 1.0),
             unlit: true,
             ..default()
         });
@@ -311,6 +312,7 @@ fn setup_starmap(
                     MeshMaterial3d(materials_glow.add(StarGlowMaterial {
                         color_core: core_col,
                         color_halo: halo_col,
+                        time_phase: 0.0,
                     })),
                     Transform::from_translation(Vec3::Z * 0.1),
                     Billboard,
@@ -457,13 +459,9 @@ fn spawn_system_bodies(
             // Add light and glow as children
             let intensity = 2.8e11;
 
-            // Corona size is always visual_radius × 8 regardless of luminosity.
-            // The star mesh radius is already capped by the system_populator, so
-            // there is no risk of the corona engulfing inner planets.
-            // Removing the luminosity scale-down was the key fix for dim stars
-            // (e.g. brown dwarfs) where a 0.33× multiplier shrunk the corona to
-            // 2.6× the mesh — barely enough to hide the flat sphere edge.
-            let corona_size = visual_radius * 8.0;
+            // Corona at 5× visual_radius keeps the glow tight enough to avoid
+            // swallowing close-in planets (star sphere capped at ~15% of inner orbit).
+            let corona_size = visual_radius * 5.0;
             let core_col    = Vec4::new(5.0, 5.0, 5.0, 1.0);
             let halo_col    = Vec4::new(cr, cg, cb, 1.0) * 4.0;
             // Diffraction: warm white derived from spectral color
@@ -485,8 +483,8 @@ fn spawn_system_bodies(
                 // Diffraction spike billboard (behind corona in depth order)
                 parent.spawn((
                     Mesh3d(meshes.add(Rectangle::new(
-                        visual_radius * 18.0,
-                        visual_radius * 18.0,
+                        visual_radius * 10.0,
+                        visual_radius * 10.0,
                     ))),
                     MeshMaterial3d(materials_diffraction.add(StarDiffractionMaterial {
                         color: Vec4::ZERO, // LOD system drives it in
@@ -503,6 +501,7 @@ fn spawn_system_bodies(
                     MeshMaterial3d(materials_glow.add(StarGlowMaterial {
                         color_core: core_col,
                         color_halo: halo_col,
+                        time_phase: 0.0,
                     })),
                     Transform::from_translation(Vec3::Z * 0.1),
                     StarGlare {
@@ -702,16 +701,16 @@ fn twinkle_starmap_icons(
         };
 
         // Combine three incommensurate frequencies for organic-looking twinkling.
-        // Primary oscillation: gentle swell (large amplitude, slow)
-        // Secondary: faster shimmer (medium amplitude)
-        // Tertiary: rapid micro-flicker (small amplitude)
+        // Primary oscillation: gentle swell
+        // Secondary: faster shimmer
+        // Tertiary: rapid micro-flicker
         let f1 = (t * twinkle.speed + twinkle.phase).sin();
         let f2 = (t * twinkle.speed * 2.37 + twinkle.phase * 1.61).sin();
         let f3 = (t * twinkle.speed * 5.13 + twinkle.phase * 0.91).sin();
-        // Weighted blend: flicker stays in ~[0.75, 1.10] range
-        let flicker = 0.92 + 0.10 * f1 + 0.05 * f2 + 0.02 * f3;
-        // Halo changes less than core — the corona dims subtly while the center pops
-        let halo_flicker = 0.96 + 0.04 * f1 + 0.02 * f2;
+        // Weighted blend: flicker stays in ~[0.65, 1.20] range for visible twinkling
+        let flicker = 0.90 + 0.18 * f1 + 0.08 * f2 + 0.04 * f3;
+        // Halo modulates less than core
+        let halo_flicker = 0.94 + 0.08 * f1 + 0.03 * f2;
 
         mat.color_core = twinkle.base_core * flicker;
         mat.color_halo = twinkle.base_halo * halo_flicker;

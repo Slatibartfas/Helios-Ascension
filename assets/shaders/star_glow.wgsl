@@ -10,6 +10,7 @@
 
 @group(3) @binding(0) var<uniform> color_core: vec4<f32>;
 @group(3) @binding(1) var<uniform> color_halo: vec4<f32>;
+@group(3) @binding(2) var<uniform> time_phase: f32;
 
 struct FragmentInput {
     @builtin(position) frag_coord: vec4<f32>,
@@ -79,14 +80,16 @@ fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
     // Narrow band immediately outside the stellar disk
     let corona_band = smoothstep(DISK_UV * 0.85, DISK_UV * 1.1, r)
                     * smoothstep(DISK_UV * 1.8,  DISK_UV * 1.1, r);
-    // FBM on (angle × freq, r) → ~28 angular features per 2π
-    let fbm_in  = fbm4(vec2<f32>(angle * 4.5, r * 6.0));
+    // FBM on (angle × freq, r) with slow time drift → animated corona wisps
+    let slow_t = time_phase * 0.08;
+    let fbm_in  = fbm4(vec2<f32>(angle * 4.5 + slow_t, r * 6.0 - slow_t * 0.3));
     let corona  = corona_band * (0.2 + 0.8 * fbm_in) * 2.0;
 
     // ── Layer 3: Ray spikes — FBM angular noise, radial extent ───────────────
     // High angular frequency gives many thin, uneven rays
     let angle_01  = angle * 0.15915494;              // 0 .. 1 wrap
-    let ray_fbm   = fbm4(vec2<f32>(angle_01 * 34.0, 0.9));  // ~34 angular periods
+    // Slow angular drift makes rays gently rotate / shimmer
+    let ray_fbm   = fbm4(vec2<f32>(angle_01 * 34.0 + time_phase * 0.02, 0.9 + sin(time_phase * 0.15) * 0.05));
     // Threshold + power-sharpen: only peaks form visible rays
     let ray_shape  = pow(max(0.0, ray_fbm - 0.32), 2.5) * 4.5;
     // Rays extend from disk edge outward, fading beyond 60 % of billboard radius

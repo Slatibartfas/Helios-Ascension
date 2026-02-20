@@ -3,13 +3,12 @@ use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::prelude::*;
 use bevy::render::render_resource::AsBindGroup;
 use bevy::shader::ShaderRef;
-use rand::Rng;
 
 pub struct VisualEffectsPlugin;
 
 impl Plugin for VisualEffectsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, (setup_starfield, setup_camera_effects));
+        app.add_systems(Startup, setup_camera_effects);
         app.add_plugins(MaterialPlugin::<NightMaterial>::default());
     }
 }
@@ -32,81 +31,6 @@ impl Material for NightMaterial {
     // Set transparency mode to additive blending
     fn alpha_mode(&self) -> AlphaMode {
         AlphaMode::Add
-    }
-}
-
-/// Component for starfield background particles
-#[derive(Component)]
-pub struct StarParticle {
-    pub brightness: f32,
-    pub size: f32,
-}
-
-/// Setup a procedural starfield background
-fn setup_starfield(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    let mut rng = rand::rng();
-
-    // Create multiple layers of stars at different distances
-    let layers = vec![
-        (2000, 5000.0, 0.3, 0.8), // Distant dim stars
-        (1000, 3000.0, 0.5, 1.2), // Medium distance stars
-        (500, 1500.0, 0.8, 1.5),  // Closer brighter stars
-        (200, 800.0, 1.0, 2.0),   // Close large stars
-    ];
-
-    for (count, distance, base_brightness, base_size) in layers {
-        for _ in 0..count {
-            // Random position on a sphere
-            let theta = rng.random::<f32>() * std::f32::consts::TAU;
-            let phi = rng.random::<f32>() * std::f32::consts::PI;
-
-            let x = distance * phi.sin() * theta.cos();
-            let y = distance * phi.sin() * theta.sin();
-            let z = distance * phi.cos();
-
-            // Vary brightness and size
-            let brightness_variance = rng.random::<f32>() * 0.5 + 0.5;
-            let size_variance = rng.random::<f32>() * 0.5 + 0.5;
-
-            let brightness = base_brightness * brightness_variance;
-            let size = base_size * size_variance;
-
-            // Star color distribution: 75% white, 10% blue, 10% yellow/orange, 5% red
-            let color_temp = rng.random::<f32>();
-            let star_color = if color_temp < 0.10 {
-                // Blue stars (hot) - 10%
-                Color::srgb(0.7, 0.8, 1.0)
-            } else if color_temp < 0.20 {
-                // Yellow/orange stars - 10%
-                Color::srgb(1.0, 0.9, 0.7)
-            } else if color_temp < 0.25 {
-                // Red stars (cool) - 5%
-                Color::srgb(1.0, 0.7, 0.6)
-            } else {
-                // White stars (most common) - 75%
-                Color::srgb(1.0, 1.0, 1.0)
-            };
-
-            // Create star mesh
-            let star_mesh = meshes.add(Sphere::new(size));
-            let star_material = materials.add(StandardMaterial {
-                base_color: star_color,
-                emissive: LinearRgba::from(star_color) * brightness,
-                unlit: true,
-                ..default()
-            });
-
-            commands.spawn((
-                Mesh3d(star_mesh),
-                MeshMaterial3d(star_material),
-                Transform::from_xyz(x, y, z),
-                StarParticle { brightness, size },
-            ));
-        }
     }
 }
 

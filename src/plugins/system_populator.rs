@@ -154,7 +154,7 @@ fn populate_nearby_systems(
                 .map(|p| p.semi_major_axis_au)
                 .reduce(f32::min)
             {
-                let max_star_vis = (inner_sma as f32) * (SCALING_FACTOR as f32) * 0.25;
+                let max_star_vis = (inner_sma as f32) * (SCALING_FACTOR as f32) * 0.12;
                 if let Ok(mut body) = commands.get_entity(star_entity) {
                     // We can't query components during command building, so
                     // read back the visual_radius we just set and clamp it.
