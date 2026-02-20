@@ -1,6 +1,6 @@
 // star_halo_3d.wgsl — Outer soft glow shell for stellar bodies
 //
-// Renders on a translucent sphere at ~6× star radius.  Provides the
+// Renders on a translucent sphere at ~4× star radius.  Provides the
 // wide, diffuse glow that makes the star visible at distance.  Uses
 // a combination of Gaussian radial falloff and gentle view-dependent
 // limb-brightening with coarse 3D FBM for subtle structural variation.
