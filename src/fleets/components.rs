@@ -182,7 +182,7 @@ pub struct ActiveManeuver {
     pub arrival_orbit_radius_au: f64,
     /// Arrival circularisation burn Δv (m/s) — stored for display purposes.
     pub arrival_delta_v_ms: f64,
-    /// Estimated propellant consumed by the manoeuvre (tonnes).
+    /// Estimated propellant consumed by the maneuver (tonnes).
     pub fuel_used_t: f32,
     /// Label of the transfer option chosen by the player.
     pub option_label: &'static str,
@@ -221,7 +221,7 @@ pub struct PendingFleetActions {
     pub spawn_fleets: Vec<SpawnFleetAction>,
     /// Requests to begin an orbital transfer.
     pub start_transfers: Vec<StartTransferAction>,
-    /// Fleet entities whose active manoeuvre should be aborted.
+    /// Fleet entities whose active maneuver should be aborted.
     pub cancel_maneuvers: Vec<Entity>,
 }
 

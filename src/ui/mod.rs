@@ -8381,7 +8381,7 @@ fn render_fleet_detail(
     }
 }
 
-/// Show current manoeuvre status with a progress bar.
+/// Show current maneuver status with a progress bar.
 fn render_active_maneuver_status(
     ui: &mut egui::Ui,
     maneuver: &ActiveManeuver,

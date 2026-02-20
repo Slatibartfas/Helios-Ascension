@@ -68,7 +68,7 @@ pub fn update_fleet_maneuver_positions(
     }
 }
 
-/// Detect completed manoeuvres and transition the fleet into a parking orbit
+/// Detect completed maneuvers and transition the fleet into a parking orbit
 /// around its destination body.
 pub fn complete_fleet_maneuvers(
     mut commands: Commands,
@@ -96,7 +96,7 @@ pub fn complete_fleet_maneuvers(
             ship.fuel_mass_t = (ship.fuel_mass_t - per_ship).max(0.0);
         }
 
-        // Swap manoeuvre for a stable parking orbit
+        // Swap maneuver for a stable parking orbit
         let new_orbit = FleetOrbit::new(destination, radius_au);
         commands.entity(entity).remove::<ActiveManeuver>().insert(new_orbit);
     }
@@ -143,7 +143,7 @@ pub fn process_fleet_actions(
         }
     }
 
-    // Cancel manoeuvres — park the fleet in place (no orbit body available, so skip for now)
+    // Cancel maneuvers — park the fleet in place (no orbit body available, so skip for now)
     for entity in actions.cancel_maneuvers.drain(..) {
         commands.entity(entity).remove::<ActiveManeuver>();
     }
