@@ -241,6 +241,15 @@ pub fn propagate_orbits(
 ///
 /// For moons with a [`LocalOrbitAmplification`] component the local position is
 /// additionally scaled so that the moon renders outside the parent's visual mesh.
+///
+/// Two moon models are handled:
+/// - Sol-system moons (no `OrbitCenter`): `SpaceCoordinates` stores only the local
+///   orbital offset (relative to the star-system origin). Amplify that directly
+///   and add the parent's world position.
+/// - Procedural moons (`OrbitCenter` present): `propagate_orbits` has already
+///   written `coords.position = parent_pos + local_orbit` (absolute AU).
+///   Subtract the parent's position first, amplify the remainder, then add the
+///   parent world position without amplification.
 pub fn update_render_transform(
     mut query: Query<
         (
@@ -248,6 +257,7 @@ pub fn update_render_transform(
             &mut Transform,
             Option<&LocalOrbitAmplification>,
             Option<&LogicalParent>,
+            Option<&OrbitCenter>,
         ),
     >,
     parent_coords: Query<&SpaceCoordinates>,
@@ -255,34 +265,45 @@ pub fn update_render_transform(
 ) {
     let origin_offset = floating_origin.map(|fo| fo.position).unwrap_or(DVec3::ZERO);
 
-    for (coords, mut transform, amplification, logical_parent) in query.iter_mut() {
-        let amp = amplification.map(|a| a.0 as f64).unwrap_or(1.0);
+    for (coords, mut transform, amplification, logical_parent, orbit_center) in query.iter_mut() {
+        let final_translation = if let Some(amp) = amplification {
+            let amp_f64 = amp.0 as f64;
 
-        // Convert from AU to Bevy units, applying local amplification for moons
-        // Shift by floating origin BEFORE scaling
-        let scaled_position = (coords.position - origin_offset) * SCALING_FACTOR * amp;
+            // Resolve parent SpaceCoordinates via LogicalParent
+            let parent_sc = logical_parent.and_then(|lp| parent_coords.get(lp.0).ok());
 
-        // For moons (with orbit amplification) add the parent's world position,
-        // since moons are NOT spatial children of their parent planet.
-        // This avoids the planet's spin rotation being applied to the moon.
-        let parent_offset = if amplification.is_some() {
-            logical_parent
-                .and_then(|lp| parent_coords.get(lp.0).ok())
-                .map(|parent_sc| {
-                    let pos = (parent_sc.position - origin_offset) * SCALING_FACTOR;
-                    Vec3::new(pos.x as f32, pos.y as f32, pos.z as f32)
-                })
-                .unwrap_or(Vec3::ZERO)
+            let (local_pos, parent_world) = if let Some(psc) = parent_sc {
+                if orbit_center.is_some() {
+                    // coords.position is ABSOLUTE (parent + local) because
+                    // propagate_orbits added the parent position via OrbitCenter.
+                    // Strip parent position to recover the local orbit offset.
+                    let local = coords.position - psc.position;
+                    let pw = (psc.position - origin_offset) * SCALING_FACTOR;
+                    (local, pw)
+                } else {
+                    // coords.position is already the local orbital offset
+                    // (no OrbitCenter → propagate_orbits left it as-is).
+                    let pw = (psc.position - origin_offset) * SCALING_FACTOR;
+                    (coords.position, pw)
+                }
+            } else {
+                // No parent found — fall back to non-amplified placement
+                let scaled = (coords.position - origin_offset) * SCALING_FACTOR;
+                transform.translation =
+                    Vec3::new(scaled.x as f32, scaled.y as f32, scaled.z as f32);
+                continue;
+            };
+
+            // Amplify only the local orbit offset, position relative to parent
+            let world = parent_world + local_pos * SCALING_FACTOR * amp_f64;
+            Vec3::new(world.x as f32, world.y as f32, world.z as f32)
         } else {
-            Vec3::ZERO
+            // Non-moon body: straightforward AU → Bevy-unit conversion
+            let scaled = (coords.position - origin_offset) * SCALING_FACTOR;
+            Vec3::new(scaled.x as f32, scaled.y as f32, scaled.z as f32)
         };
 
-        // Convert from f64 to f32 for rendering
-        transform.translation = Vec3::new(
-            scaled_position.x as f32,
-            scaled_position.y as f32,
-            scaled_position.z as f32,
-        ) + parent_offset;
+        transform.translation = final_translation;
     }
 }
 
