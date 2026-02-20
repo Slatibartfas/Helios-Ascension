@@ -419,6 +419,11 @@ pub struct GasGiant;
 #[derive(Component)]
 pub struct Ring;
 
+/// Marker component for entities that cannot be clicked/ray-picked in the 3-D view.
+/// They remain selectable via the ledger panel.
+#[derive(Component)]
+pub struct ClickExcluded;
+
 /// Axial tilt (obliquity) and north-pole direction of a celestial body.
 /// `obliquity` is the angle between the spin axis and the ecliptic normal (radians).
 /// `north_pole_ra` is the right-ascension direction the north pole tilts toward (radians).
@@ -932,14 +937,25 @@ pub fn setup_solar_system(
 
         // Build entity with appropriate components
         let mesh = if body_data.body_type == BodyType::Ring {
-            // Create a custom donut/annulus mesh for the rings
-            // Inner radius is approx 74,500km, Outer is 140,000km from center
-            // Ratio is ~0.53
-            let inner_radius = visual_radius * 0.53;
+            // Rings must not visually intersect their parent planet.
+            // Because calculate_visual_radius uses a non-linear (radius^0.65) scale,
+            // the naive physical ratio (74,500 / 140,000 ≈ 0.53) can place the inner
+            // edge inside the parent's rendered sphere. Instead we derive the inner
+            // edge from the parent planet's actual visual radius, plus a ~15% gap
+            // for a realistic Cassini-gap breathing room.
+            let parent_visual_radius = body_data.parent.as_deref()
+                .and_then(|parent_name| {
+                    data.bodies.iter().find(|b| b.name == parent_name)
+                })
+                .map(|parent| calculate_visual_radius(parent.body_type, parent.radius))
+                .unwrap_or(visual_radius * 0.55); // fallback: 55% of outer
+
+            // Inner edge = parent surface + 15% clearance gap.
+            // Outer edge is the ring body's own visual radius (unchanged).
+            let inner_radius = parent_visual_radius * 1.15;
             let outer_radius = visual_radius;
 
             // Create ring mesh with high segment count for smoothness
-            // We'll define a helper function create_ring_mesh
             meshes.add(create_ring_mesh(outer_radius, inner_radius, 128))
         } else if body_data.body_type == BodyType::Asteroid
             || body_data.body_type == BodyType::Comet
@@ -1052,7 +1068,7 @@ pub fn setup_solar_system(
                 entity_commands.insert(Comet);
             }
             BodyType::Ring => {
-                entity_commands.insert(Ring);
+                entity_commands.insert((Ring, ClickExcluded));
             }
         }
 

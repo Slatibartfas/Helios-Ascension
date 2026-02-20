@@ -9,7 +9,7 @@ use super::components::{
 };
 use crate::plugins::camera::{CameraAnchor, EguiPanelBounds, GameCamera, OrbitCamera, ViewMode};
 use crate::plugins::solar_system::{
-    CelestialBody, Comet, LogicalParent, Moon, Planet, Star,
+    CelestialBody, ClickExcluded, Comet, LogicalParent, Moon, Planet, Star,
 };
 use crate::plugins::solar_system_data::calculate_visual_radius;
 use crate::game_state::ActiveMenu;
@@ -1144,7 +1144,7 @@ pub fn handle_body_selection(
     mouse_button: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     camera_query: Query<(&Camera, &GlobalTransform), With<GameCamera>>,
-    body_query: Query<(Entity, &GlobalTransform, &CelestialBody, Option<&SystemId>)>,
+    body_query: Query<(Entity, &GlobalTransform, &CelestialBody, Option<&SystemId>), Without<ClickExcluded>>,
     current_system: Res<CurrentStarSystem>,
     mut commands: Commands,
     selected_query: Query<Entity, With<Selected>>,
@@ -1278,7 +1278,7 @@ pub fn handle_body_hover(
     view_mode: Res<ViewMode>,
     windows: Query<&Window, With<PrimaryWindow>>,
     camera_query: Query<(&Camera, &GlobalTransform), With<GameCamera>>,
-    body_query: Query<(Entity, &GlobalTransform, &CelestialBody, Option<&SystemId>)>,
+    body_query: Query<(Entity, &GlobalTransform, &CelestialBody, Option<&SystemId>), Without<ClickExcluded>>,
     current_system: Res<CurrentStarSystem>,
     mut commands: Commands,
     hovered_query: Query<Entity, With<Hovered>>,

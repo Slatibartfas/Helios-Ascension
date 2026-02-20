@@ -4,7 +4,7 @@ use rand::Rng;
 use super::components::{MineralDeposit, OrbitsBody, PlanetResources, StarSystem};
 use super::types::ResourceType;
 use crate::astronomy::SpaceCoordinates;
-use crate::plugins::solar_system::{Asteroid, CelestialBody, Comet, DwarfPlanet, Moon, Planet};
+use crate::plugins::solar_system::{Asteroid, CelestialBody, Comet, DwarfPlanet, Moon, Planet, Ring};
 use crate::plugins::solar_system_data::{AsteroidClass, BodyType};
 
 /// Default frost line distance in Astronomical Units (for backwards compatibility)
@@ -1850,6 +1850,51 @@ fn calculate_distance_modifier(
         }
 
         _ => 1.0,
+    }
+}
+
+/// Startup system that generates resource deposits for ring bodies (e.g. Saturn Rings).
+/// Rings consist primarily of water ice with silicate dust — treated as highly accessible
+/// icy surface material, analogous to an icy asteroid field.
+pub fn generate_ring_resources(
+    mut commands: Commands,
+    ring_query: Query<(Entity, &CelestialBody), (With<Ring>, Without<PlanetResources>)>,
+) {
+    for (entity, body) in ring_query.iter() {
+        // body.mass is in kg; 1 Mt = 1e9 kg
+        let total_mass_mt = body.mass / 1e9_f64;
+
+        // Composition of Saturn's (and generic) ring systems:
+        //   ~90 % water ice, ~7 % silicates, ~1 % nitrogen, ~1 % ammonia, ~0.5 % methane
+        let water_fraction    = 0.90_f64;
+        let silicate_fraction = 0.07_f64;
+        let nitrogen_fraction = 0.01_f64;
+        let ammonia_fraction  = 0.01_f64;
+        let methane_fraction  = 0.005_f64;
+
+        // Rings are diffuse free-floating particles — there is no "buried" material.
+        // All resources sit in the proven/surface tier, with zero deep deposits or bulk.
+        let accessibility = 0.85_f32;
+
+        let make_deposit = |frac: f64| -> MineralDeposit {
+            let mass_mt       = total_mass_mt * frac;
+            let concentration = (accessibility as f64 * 0.8).clamp(0.001, 1.0) as f32;
+            // proven = full mass, deep = 0, bulk = 0
+            MineralDeposit::new(mass_mt, 0.0, 0.0, concentration, accessibility)
+        };
+
+        let mut resources = PlanetResources::new();
+        resources.add_deposit(ResourceType::Water,    make_deposit(water_fraction));
+        resources.add_deposit(ResourceType::Silicates, make_deposit(silicate_fraction));
+        resources.add_deposit(ResourceType::Nitrogen,  make_deposit(nitrogen_fraction));
+        resources.add_deposit(ResourceType::Ammonia,   make_deposit(ammonia_fraction));
+        resources.add_deposit(ResourceType::Methane,   make_deposit(methane_fraction));
+
+        commands.entity(entity).insert(resources);
+        info!(
+            "Generated ring resources for '{}' (total {:.2e} Mt, water-ice profile)",
+            body.name, total_mass_mt
+        );
     }
 }
 

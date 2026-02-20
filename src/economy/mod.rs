@@ -23,7 +23,7 @@ pub use components::{
     MineralDeposit, OrbitsBody, PlanetResources, PowerGenerator, PowerSourceType, SpectralClass,
     StarSystem,
 };
-pub use generation::generate_solar_system_resources;
+pub use generation::{generate_ring_resources, generate_solar_system_resources};
 pub use mining::{extract_resources, update_resource_rates, MiningOperation};
 pub use types::ResourceType;
 
@@ -39,7 +39,7 @@ impl Plugin for EconomyPlugin {
             // Startup systems
             .add_systems(
                 PostStartup,
-                generate_solar_system_resources,
+                (generate_solar_system_resources, generate_ring_resources),
             )
             // Update systems
             .add_systems(

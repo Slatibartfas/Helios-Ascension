@@ -2265,6 +2265,7 @@ fn render_body_tree(
         let id = ui.make_persistent_id(entity);
 
         // Group children by type
+        let mut child_rings = Vec::new();
         let mut child_planets = Vec::new();
         let mut child_moons = Vec::new(); // Usually planets have moons
         let mut child_asteroids = Vec::new();
@@ -2276,6 +2277,7 @@ fn render_body_tree(
             for &child in children {
                 if let Some(child_body) = body_map.get(&child) {
                     match child_body.body_type {
+                        BodyType::Ring => child_rings.push(child),
                         BodyType::Planet => child_planets.push(child),
                         BodyType::Moon => child_moons.push(child),
                         BodyType::Asteroid => child_asteroids.push(child),
@@ -2327,6 +2329,19 @@ fn render_body_tree(
                 }
             })
             .body(|ui| {
+                // 0. Rings — shown first so they are never buried under 46+ moons
+                for child in child_rings {
+                    render_body_tree(
+                        ui,
+                        child,
+                        body_map,
+                        hierarchy,
+                        selection,
+                        commands,
+                        selected_query,
+                        anchor_query,
+                    );
+                }
                 // 1. Planets (Recursive)
                 for child in child_planets {
                     render_body_tree(
@@ -2352,18 +2367,19 @@ fn render_body_tree(
                     selected_query,
                     anchor_query,
                 );
-                // 3. Moons (Usually under planets, but if under Sol/others?)
-                render_grouped_children(
-                    ui,
-                    &child_moons,
-                    "Moons",
-                    entity,
-                    body_map,
-                    selection,
-                    commands,
-                    selected_query,
-                    anchor_query,
-                );
+                // 3. Moons — listed directly under the parent (no collapsible group)
+                for child in child_moons {
+                    render_body_tree(
+                        ui,
+                        child,
+                        body_map,
+                        hierarchy,
+                        selection,
+                        commands,
+                        selected_query,
+                        anchor_query,
+                    );
+                }
                 // 4. Asteroids
                 render_grouped_children(
                     ui,
@@ -2646,7 +2662,7 @@ fn ui_dashboard(
     // Query for selected body information
     mut body_query: Query<(
         &CelestialBody,
-        &SpaceCoordinates,
+        Option<&SpaceCoordinates>,
         Option<&KeplerOrbit>,
         Option<&PlanetResources>,
         Option<&AtmosphereComposition>,
@@ -2894,7 +2910,7 @@ fn ui_dashboard(
                 ui.separator();
 
                 if let Some(entity) = selection.get() {
-                    if let Ok((body, coords, orbit, resources, atmosphere, mut survey_level, population, surface_temp, logical_parent)) = body_query.get_mut(entity) {
+                    if let Ok((body, opt_coords, orbit, resources, atmosphere, mut survey_level, population, surface_temp, logical_parent)) = body_query.get_mut(entity) {
                         // Body name and basic info
                         ui.label(egui::RichText::new(&body.name).size(18.0).strong());
                         ui.add_space(10.0);
@@ -2905,29 +2921,33 @@ fn ui_dashboard(
                             // For non-star bodies, compute distance relative to
                             // the system primary (star) using the absolute position.
                             if !matches!(body.body_type, crate::plugins::solar_system_data::BodyType::Star) {
-                                // Walk up the LogicalParent chain to find the system star,
-                                // then subtract its absolute universe position so we get the
-                                // true orbital distance regardless of the star's distance from Sol.
-                                let star_pos = {
-                                    let mut current = logical_parent.map(|lp| lp.0);
-                                    let mut found = bevy::math::DVec3::ZERO;
-                                    while let Some(parent_entity) = current {
-                                        if let Ok((_, parent_body, grandparent, _, _)) = all_bodies_query.get(parent_entity) {
-                                            if matches!(parent_body.body_type, crate::plugins::solar_system_data::BodyType::Star) {
-                                                if let Ok(star_coords) = parent_coords_query.get(parent_entity) {
-                                                    found = star_coords.position;
+                                if let Some(coords) = opt_coords {
+                                    // Walk up the LogicalParent chain to find the system star,
+                                    // then subtract its absolute universe position so we get the
+                                    // true orbital distance regardless of the star's distance from Sol.
+                                    let star_pos = {
+                                        let mut current = logical_parent.map(|lp| lp.0);
+                                        let mut found = bevy::math::DVec3::ZERO;
+                                        while let Some(parent_entity) = current {
+                                            if let Ok((_, parent_body, grandparent, _, _)) = all_bodies_query.get(parent_entity) {
+                                                if matches!(parent_body.body_type, crate::plugins::solar_system_data::BodyType::Star) {
+                                                    if let Ok(star_coords) = parent_coords_query.get(parent_entity) {
+                                                        found = star_coords.position;
+                                                    }
+                                                    break;
                                                 }
+                                                current = grandparent.map(|gp| gp.0);
+                                            } else {
                                                 break;
                                             }
-                                            current = grandparent.map(|gp| gp.0);
-                                        } else {
-                                            break;
                                         }
-                                    }
-                                    found
-                                };
-                                let distance = (coords.position - star_pos).length();
-                                ui.label(format!("Distance from Star: {:.3} AU", distance));
+                                        found
+                                    };
+                                    let distance = (coords.position - star_pos).length();
+                                    ui.label(format!("Distance from Star: {:.3} AU", distance));
+                                } else {
+                                    ui.label("Position: co-orbiting parent body");
+                                }
                             }
                             ui.label(format!("Radius: {:.1} km", body.radius));
                             ui.label(format!("Mass: {:.2e} kg", body.mass));
@@ -2962,6 +2982,20 @@ fn ui_dashboard(
                             ui.add_space(10.0);
                         }
 
+                        // Rings cannot be colonised or have buildings — show a concise note
+                        // instead of the full habitability / colony-cost section.
+                        if body.body_type == crate::plugins::solar_system_data::BodyType::Ring {
+                            ui.group(|ui| {
+                                ui.label(
+                                    egui::RichText::new("⚠ Orbital Mining Only")
+                                        .strong()
+                                        .color(egui::Color32::from_rgb(255, 165, 0)),
+                                );
+                                ui.label("Ring systems consist of free-floating ice and dust.");
+                                ui.label("They cannot be colonised or have buildings constructed.");
+                                ui.label("Resources must be harvested by mining ships in orbit.");
+                            });
+                        } else {
                         // Show Colony Cost for all bodies
                         ui.group(|ui| {
                             ui.label(egui::RichText::new("Habitability").strong());
@@ -3041,7 +3075,8 @@ fn ui_dashboard(
                                 ui.label("Temperature:");
                                 ui.label(format!("{:.1}°C", temp_c));
                             });
-                        });
+                        }); // end Habitability group
+                        } // end else (non-ring body)
                         
                         ui.add_space(5.0);
 
