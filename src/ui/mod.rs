@@ -42,6 +42,13 @@ use crate::research::{
     TechnologiesData, TechCategory, TechTreeEditState, TechEditData, ContextMenuState,
     Technology, ModifierType, TechModifierDef,
 };
+use crate::fleets::{
+    ActiveManeuver, Fleet, FleetOrbit, PendingFleetActions, PlannedTransfer, ShipInfo,
+    StartTransferAction, TransferOption, AU_IN_METERS, GM_SUN,
+};
+use crate::fleets::orbital_mechanics::{
+    calculate_transfer_options, estimate_fuel_cost_tonnes, format_delta_v, format_duration,
+};
 
 /// Maximum time scale: 1 year per second (365.25 * 86400 ≈ 31,557,600)
 const MAX_TIME_SCALE: f32 = 31_557_600.0;
@@ -69,6 +76,23 @@ impl Default for ResearchUiPreferences {
             show_inactive_warning: true,
         }
     }
+}
+
+/// Per-frame UI state for the Fleets panel.
+///
+/// Persists selected fleet and planned transfer between frames.
+#[derive(Resource, Default)]
+pub struct FleetUiState {
+    /// Currently selected fleet entity in the list.
+    pub selected_fleet: Option<Entity>,
+    /// Target body chosen for transfer planning.
+    pub target_body: Option<Entity>,
+    /// Index into `computed_options` the player has highlighted.
+    pub selected_option: usize,
+    /// Transfer options computed for the current (fleet, target) pair.
+    pub computed_options: Vec<TransferOption>,
+    /// Fully assembled transfer plan ready for execution (if any).
+    pub planned_transfer: Option<PlannedTransfer>,
 }
 
 /// System sets for UI ordering. Avoids Bevy's tuple-complexity limit
@@ -658,7 +682,7 @@ impl Plugin for UIPlugin {
             .init_resource::<TimeScale>()
             .init_resource::<SimulationTime>()
             .init_resource::<ResearchUiPreferences>()
-
+            .init_resource::<FleetUiState>()
             .init_resource::<ResolutionWarning>()
             // ActiveMenu is now initialized in GameStatePlugin
             // to allow access in camera/starmap plugins
@@ -690,6 +714,7 @@ impl Plugin for UIPlugin {
             .add_systems(EguiPrimaryContextPass, ui_research_panels.in_set(UiSystemSet::MainPanels))
             .add_systems(EguiPrimaryContextPass, ui_construction_panels.in_set(UiSystemSet::MainPanels))
             .add_systems(EguiPrimaryContextPass, ui_economy_panels.in_set(UiSystemSet::MainPanels))
+            .add_systems(EguiPrimaryContextPass, ui_fleets_panel.in_set(UiSystemSet::MainPanels))
             .add_systems(
                 EguiPrimaryContextPass,
                 (
@@ -2861,7 +2886,7 @@ fn ui_dashboard(
                             ui.label("Switch to Research view to see tech tree.");
                         }
                         GameMenu::Fleets => {
-                            ui.label("Fleet management and deployment will be shown here.");
+                            ui.label("Fleet panel is open in the main view.");
                         }
                         GameMenu::Shipbuilding => {
                             ui.label("Ship design and construction queue will be shown here.");
@@ -7978,6 +8003,822 @@ fn ui_resolution_warning(
             warning.dismissed = true;
         }
     }
+}
+
+// ── Fleet UI panel ────────────────────────────────────────────────────────────
+
+/// Full-screen fleet management and orbital transfer planning panel.
+fn ui_fleets_panel(
+    mut contexts: EguiContexts,
+    active_menu: Res<ActiveMenu>,
+    fleet_query: Query<(
+        Entity,
+        &Fleet,
+        Option<&FleetOrbit>,
+        Option<&ActiveManeuver>,
+        &SpaceCoordinates,
+    )>,
+    body_query: Query<(Entity, &CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>)>,
+    mut pending_actions: ResMut<PendingFleetActions>,
+    mut fleet_ui_state: ResMut<FleetUiState>,
+    sim_time: Res<SimulationTime>,
+) {
+    if active_menu.current != GameMenu::Fleets {
+        return;
+    }
+
+    let ctx = match contexts.ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
+    };
+
+    let elapsed = sim_time.elapsed_seconds();
+
+    egui::CentralPanel::default().show(ctx, |ui| {
+        ui.heading("Fleets");
+        ui.separator();
+
+        // ── Top summary bar ──────────────────────────────────────────────────
+        let fleet_count = fleet_query.iter().count();
+        let in_transit = fleet_query.iter().filter(|(_, _, _, m, _)| m.is_some()).count();
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(format!("🚀 Total Fleets: {fleet_count}"))
+                    .size(13.0)
+                    .color(egui::Color32::from_rgb(200, 220, 255)),
+            );
+            ui.separator();
+            ui.label(
+                egui::RichText::new(format!("✈ In Transit: {in_transit}"))
+                    .size(13.0)
+                    .color(egui::Color32::from_rgb(100, 200, 255)),
+            );
+        });
+        ui.separator();
+
+        // ── Main two-column layout ───────────────────────────────────────────
+        let available = ui.available_size();
+        let left_width = (available.x * 0.32).max(280.0);
+
+        ui.horizontal_top(|ui| {
+            // ── Left column: fleet list ──────────────────────────────────────
+            ui.allocate_ui(egui::Vec2::new(left_width, available.y - 80.0), |ui| {
+                egui::Frame::default()
+                    .inner_margin(egui::Margin::same(6i8))
+                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(60, 80, 120)))
+                    .show(ui, |ui| {
+                        ui.label(
+                            egui::RichText::new("Fleet List")
+                                .strong()
+                                .size(14.0)
+                                .color(egui::Color32::from_rgb(180, 210, 255)),
+                        );
+                        ui.separator();
+
+                        egui::ScrollArea::vertical()
+                            .id_salt("fleet_list_scroll")
+                            .max_height(available.y - 140.0)
+                            .show(ui, |ui| {
+                                render_fleet_list(
+                                    ui,
+                                    &fleet_query,
+                                    &mut fleet_ui_state,
+                                    elapsed,
+                                );
+                            });
+
+                        ui.separator();
+                        // Spawn fleet button (debug/demo — requires a launch site in a full
+                        // implementation)
+                        if ui
+                            .button(egui::RichText::new("＋ New Fleet (Debug)").size(13.0))
+                            .clicked()
+                        {
+                            // Find Earth as default spawn location
+                            let earth = body_query
+                                .iter()
+                                .find(|(_, b, _, _)| b.name == "Earth")
+                                .map(|(e, _, _, _)| e);
+
+                            if let Some(earth_entity) = earth {
+                                use crate::fleets::types::{PropulsionType, ShipClass};
+                                let orbit_radius_au = 6_771.0_f64 * 1_000.0 / AU_IN_METERS;
+                                let mut ship =
+                                    ShipInfo::new("Unnamed".to_string(), ShipClass::Frigate, PropulsionType::NuclearThermal);
+                                ship.name = format!("Ship-{}", fleet_count + 1);
+                                let mut fleet_ships = Vec::new();
+                                fleet_ships.push(ship);
+                                pending_actions.spawn_fleets.push(
+                                    crate::fleets::components::SpawnFleetAction {
+                                        name: format!("Fleet {}", fleet_count + 1),
+                                        ships: fleet_ships,
+                                        orbit_body: earth_entity,
+                                        orbit_radius_au,
+                                    },
+                                );
+                            }
+                        }
+                    });
+            });
+
+            ui.add_space(8.0);
+
+            // ── Right column: selected fleet details + transfer planner ──────
+            let remaining = ui.available_width();
+            ui.allocate_ui(egui::Vec2::new(remaining, available.y - 80.0), |ui| {
+                if let Some(selected) = fleet_ui_state.selected_fleet {
+                    if let Ok((_, fleet, maybe_orbit, maybe_maneuver, _)) =
+                        fleet_query.get(selected)
+                    {
+                        egui::ScrollArea::vertical()
+                            .id_salt("fleet_detail_scroll")
+                            .show(ui, |ui| {
+                                render_fleet_detail(
+                                    ui,
+                                    selected,
+                                    fleet,
+                                    maybe_orbit,
+                                    maybe_maneuver,
+                                    &body_query,
+                                    &mut fleet_ui_state,
+                                    &mut pending_actions,
+                                    elapsed,
+                                );
+                            });
+                    } else {
+                        // Selected entity no longer exists
+                        fleet_ui_state.selected_fleet = None;
+                    }
+                } else {
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(60.0);
+                        ui.label(
+                            egui::RichText::new("Select a fleet from the list to view details.")
+                                .size(14.0)
+                                .italics()
+                                .color(egui::Color32::GRAY),
+                        );
+                    });
+                }
+            });
+        });
+    });
+}
+
+/// Render the scrollable list of fleets on the left side.
+fn render_fleet_list(
+    ui: &mut egui::Ui,
+    fleet_query: &Query<(
+        Entity,
+        &Fleet,
+        Option<&FleetOrbit>,
+        Option<&ActiveManeuver>,
+        &SpaceCoordinates,
+    )>,
+    fleet_ui_state: &mut FleetUiState,
+    elapsed: f64,
+) {
+    let mut fleets: Vec<(Entity, &Fleet, Option<&FleetOrbit>, Option<&ActiveManeuver>)> =
+        fleet_query
+            .iter()
+            .map(|(e, f, o, m, _)| (e, f, o, m))
+            .collect();
+    fleets.sort_by(|a, b| a.1.name.cmp(&b.1.name));
+
+    for (entity, fleet, maybe_orbit, maybe_maneuver) in fleets {
+        let is_selected = fleet_ui_state.selected_fleet == Some(entity);
+        let status_icon = if maybe_maneuver.is_some() { "✈" } else { "🛰" };
+        let status_color = if maybe_maneuver.is_some() {
+            egui::Color32::from_rgb(100, 180, 255)
+        } else {
+            egui::Color32::from_rgb(100, 220, 100)
+        };
+
+        let row_text = format!(
+            "{} {} — {} ship(s)",
+            status_icon,
+            fleet.name,
+            fleet.ships.len()
+        );
+
+        let resp = ui.selectable_label(
+            is_selected,
+            egui::RichText::new(&row_text).size(13.0).color(status_color),
+        );
+        if resp.clicked() {
+            if fleet_ui_state.selected_fleet == Some(entity) {
+                // Deselect
+                fleet_ui_state.selected_fleet = None;
+            } else {
+                fleet_ui_state.selected_fleet = Some(entity);
+                // Reset planning state when selection changes
+                fleet_ui_state.target_body = None;
+                fleet_ui_state.computed_options.clear();
+                fleet_ui_state.planned_transfer = None;
+                fleet_ui_state.selected_option = 0;
+            }
+        }
+
+        // Sub-status
+        ui.indent(egui::Id::new(entity).with("indent"), |ui| {
+            if let Some(maneuver) = maybe_maneuver {
+                let remaining = format_duration(maneuver.time_remaining_s(elapsed));
+                let prog = (maneuver.progress(elapsed) * 100.0) as u32;
+                ui.label(
+                    egui::RichText::new(format!("  In transit — {prog}% ({remaining} left)"))
+                        .size(11.0)
+                        .color(egui::Color32::GRAY),
+                );
+            } else if let Some(_orbit) = maybe_orbit {
+                let fuel_pct = (fleet.fuel_fraction() * 100.0) as u32;
+                ui.label(
+                    egui::RichText::new(format!("  In orbit — fuel {fuel_pct}%"))
+                        .size(11.0)
+                        .color(egui::Color32::GRAY),
+                );
+            }
+        });
+    }
+}
+
+/// Render the right panel: fleet details and transfer planner.
+#[allow(clippy::too_many_arguments)]
+fn render_fleet_detail(
+    ui: &mut egui::Ui,
+    fleet_entity: Entity,
+    fleet: &Fleet,
+    maybe_orbit: Option<&FleetOrbit>,
+    maybe_maneuver: Option<&ActiveManeuver>,
+    body_query: &Query<(Entity, &CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>)>,
+    fleet_ui_state: &mut FleetUiState,
+    pending_actions: &mut PendingFleetActions,
+    elapsed: f64,
+) {
+    // ── Fleet header ─────────────────────────────────────────────────────────
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new(format!("🚀 {}", fleet.name))
+                .strong()
+                .size(18.0)
+                .color(egui::Color32::from_rgb(200, 230, 255)),
+        );
+    });
+    ui.separator();
+
+    // ── Current status ────────────────────────────────────────────────────────
+    if let Some(maneuver) = maybe_maneuver {
+        render_active_maneuver_status(ui, maneuver, fleet, body_query, elapsed);
+    } else if let Some(orbit) = maybe_orbit {
+        render_orbit_status(ui, orbit, fleet, body_query);
+    }
+
+    ui.separator();
+
+    // ── Ship manifest ─────────────────────────────────────────────────────────
+    ui.label(
+        egui::RichText::new("Ship Manifest")
+            .strong()
+            .size(14.0),
+    );
+    egui::Grid::new("ship_manifest")
+        .num_columns(5)
+        .spacing([12.0, 4.0])
+        .striped(true)
+        .show(ui, |ui| {
+            // Header row
+            ui.label(egui::RichText::new("Name").strong().size(12.0));
+            ui.label(egui::RichText::new("Class").strong().size(12.0));
+            ui.label(egui::RichText::new("Dry (t)").strong().size(12.0));
+            ui.label(egui::RichText::new("Fuel").strong().size(12.0));
+            ui.label(egui::RichText::new("Drive").strong().size(12.0));
+            ui.end_row();
+
+            for ship in &fleet.ships {
+                ui.label(egui::RichText::new(&ship.name).size(12.0));
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} {}",
+                        ship.class.icon(),
+                        ship.class.display_name()
+                    ))
+                    .size(12.0),
+                );
+                ui.label(
+                    egui::RichText::new(format!("{:.0}", ship.dry_mass_t)).size(12.0),
+                );
+                let fuel_pct = (ship.fuel_fraction() * 100.0) as u32;
+                let fuel_color = if fuel_pct > 50 {
+                    egui::Color32::from_rgb(100, 220, 100)
+                } else if fuel_pct > 20 {
+                    egui::Color32::from_rgb(220, 180, 60)
+                } else {
+                    egui::Color32::from_rgb(220, 80, 60)
+                };
+                ui.label(
+                    egui::RichText::new(format!("{fuel_pct}%"))
+                        .size(12.0)
+                        .color(fuel_color),
+                );
+                ui.label(
+                    egui::RichText::new(ship.propulsion.display_name()).size(12.0),
+                );
+                ui.end_row();
+            }
+        });
+
+    // ── Fleet aggregate stats ─────────────────────────────────────────────────
+    ui.add_space(6.0);
+    egui::Grid::new("fleet_stats")
+        .num_columns(4)
+        .spacing([20.0, 4.0])
+        .show(ui, |ui| {
+            ui.label(egui::RichText::new("Dry mass:").size(12.0));
+            ui.label(
+                egui::RichText::new(format!("{:.0} t", fleet.total_dry_mass_t()))
+                    .size(12.0)
+                    .strong(),
+            );
+            ui.label(egui::RichText::new("Fuel:").size(12.0));
+            let fuel_pct = (fleet.fuel_fraction() * 100.0) as u32;
+            ui.label(
+                egui::RichText::new(format!(
+                    "{:.0} t ({fuel_pct}%)",
+                    fleet.total_fuel_t()
+                ))
+                .size(12.0)
+                .strong(),
+            );
+            ui.end_row();
+
+            ui.label(egui::RichText::new("Total thrust:").size(12.0));
+            ui.label(
+                egui::RichText::new(format!("{:.0} kN", fleet.total_thrust_kn()))
+                    .size(12.0)
+                    .strong(),
+            );
+            ui.label(egui::RichText::new("Max ΔV:").size(12.0));
+            ui.label(
+                egui::RichText::new(format_delta_v(fleet.max_delta_v_ms()))
+                    .size(12.0)
+                    .strong()
+                    .color(egui::Color32::from_rgb(100, 220, 255)),
+            );
+            ui.end_row();
+        });
+
+    // Only show transfer planner if the fleet is in orbit (not already in transit)
+    if maybe_maneuver.is_none() && maybe_orbit.is_some() {
+        ui.separator();
+        render_transfer_planner(
+            ui,
+            fleet_entity,
+            fleet,
+            maybe_orbit.unwrap(),
+            body_query,
+            fleet_ui_state,
+            pending_actions,
+        );
+    }
+}
+
+/// Show current manoeuvre status with a progress bar.
+fn render_active_maneuver_status(
+    ui: &mut egui::Ui,
+    maneuver: &ActiveManeuver,
+    fleet: &Fleet,
+    body_query: &Query<(Entity, &CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>)>,
+    elapsed: f64,
+) {
+    let dest_name = body_query
+        .get(maneuver.destination_body)
+        .map(|(_, b, _, _)| b.name.as_str())
+        .unwrap_or("Unknown");
+
+    let progress = maneuver.progress(elapsed) as f32;
+    let remaining = format_duration(maneuver.time_remaining_s(elapsed));
+
+    ui.group(|ui| {
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(format!("✈ En Route → {dest_name}"))
+                    .strong()
+                    .size(14.0)
+                    .color(egui::Color32::from_rgb(100, 200, 255)),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(
+                    egui::RichText::new(format!("{} remaining", remaining))
+                        .size(12.0)
+                        .color(egui::Color32::GRAY),
+                );
+            });
+        });
+
+        ui.add(
+            egui::ProgressBar::new(progress)
+                .text(format!("{:.1}%", progress * 100.0))
+                .desired_width(f32::INFINITY),
+        );
+
+        egui::Grid::new("maneuver_info")
+            .num_columns(4)
+            .spacing([16.0, 3.0])
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new("Option:").size(12.0));
+                ui.label(
+                    egui::RichText::new(maneuver.option_label).size(12.0).strong(),
+                );
+                ui.label(egui::RichText::new("Arrival ΔV:").size(12.0));
+                ui.label(
+                    egui::RichText::new(format_delta_v(maneuver.arrival_delta_v_ms))
+                        .size(12.0)
+                        .strong(),
+                );
+                ui.end_row();
+
+                ui.label(egui::RichText::new("Fuel used:").size(12.0));
+                ui.label(
+                    egui::RichText::new(format!("{:.0} t", maneuver.fuel_used_t))
+                        .size(12.0)
+                        .strong(),
+                );
+                let fuel_pct = (fleet.fuel_fraction() * 100.0) as u32;
+                ui.label(egui::RichText::new("Remaining fuel:").size(12.0));
+                ui.label(
+                    egui::RichText::new(format!("{fuel_pct}%"))
+                        .size(12.0)
+                        .strong(),
+                );
+                ui.end_row();
+            });
+    });
+}
+
+/// Show stable orbit information.
+fn render_orbit_status(
+    ui: &mut egui::Ui,
+    orbit: &FleetOrbit,
+    fleet: &Fleet,
+    body_query: &Query<(Entity, &CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>)>,
+) {
+    let body_name = body_query
+        .get(orbit.body)
+        .map(|(_, b, _, _)| b.name.as_str())
+        .unwrap_or("Unknown");
+
+    // Convert AU to km for display
+    let radius_km = orbit.radius_au * AU_IN_METERS / 1_000.0;
+    let fuel_pct = (fleet.fuel_fraction() * 100.0) as u32;
+
+    ui.group(|ui| {
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(format!("🛰 Orbiting {body_name}"))
+                    .strong()
+                    .size(14.0)
+                    .color(egui::Color32::from_rgb(100, 220, 100)),
+            );
+        });
+        egui::Grid::new("orbit_info")
+            .num_columns(4)
+            .spacing([16.0, 3.0])
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new("Altitude:").size(12.0));
+                ui.label(
+                    egui::RichText::new(format!("{:.0} km", radius_km))
+                        .size(12.0)
+                        .strong(),
+                );
+                ui.label(egui::RichText::new("Fuel:").size(12.0));
+                ui.label(
+                    egui::RichText::new(format!("{fuel_pct}%"))
+                        .size(12.0)
+                        .strong(),
+                );
+                ui.end_row();
+            });
+    });
+}
+
+/// Transfer planning sub-panel: choose a destination and transfer option.
+#[allow(clippy::too_many_arguments)]
+fn render_transfer_planner(
+    ui: &mut egui::Ui,
+    fleet_entity: Entity,
+    fleet: &Fleet,
+    orbit: &FleetOrbit,
+    body_query: &Query<(Entity, &CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>)>,
+    fleet_ui_state: &mut FleetUiState,
+    pending_actions: &mut PendingFleetActions,
+) {
+    ui.label(
+        egui::RichText::new("📡 Orbital Transfer Planner")
+            .strong()
+            .size(15.0)
+            .color(egui::Color32::from_rgb(200, 220, 255)),
+    );
+    ui.separator();
+
+    // Destination selector
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Destination:").size(13.0));
+
+        let current_label = fleet_ui_state
+            .target_body
+            .and_then(|e| body_query.get(e).ok())
+            .map(|(_, b, _, _)| b.name.as_str().to_owned())
+            .unwrap_or_else(|| "— Select —".to_owned());
+
+        egui::ComboBox::from_id_salt("fleet_target_body")
+            .selected_text(&current_label)
+            .width(200.0)
+            .show_ui(ui, |ui| {
+                // List all bodies with KeplerOrbit (i.e., they orbit something)
+                let mut bodies: Vec<(Entity, &str, f64)> = body_query
+                    .iter()
+                    .filter_map(|(e, b, _, maybe_ko)| {
+                        maybe_ko.map(|ko| (e, b.name.as_str(), ko.semi_major_axis))
+                    })
+                    .filter(|(e, _, _)| {
+                        // Don't target the body the fleet is already orbiting
+                        *e != orbit.body
+                    })
+                    .collect();
+                bodies.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
+
+                for (body_entity, body_name, _sma) in bodies {
+                    let selected = fleet_ui_state.target_body == Some(body_entity);
+                    if ui.selectable_label(selected, body_name).clicked() {
+                        if fleet_ui_state.target_body != Some(body_entity) {
+                            fleet_ui_state.target_body = Some(body_entity);
+                            fleet_ui_state.computed_options.clear();
+                            fleet_ui_state.planned_transfer = None;
+                            fleet_ui_state.selected_option = 0;
+                        }
+                    }
+                }
+            });
+    });
+
+    // Compute options when a target is selected
+    if let Some(target_entity) = fleet_ui_state.target_body {
+        if fleet_ui_state.computed_options.is_empty() {
+            // Get origin SMA from the fleet's orbit body
+            let origin_sma = body_query
+                .get(orbit.body)
+                .ok()
+                .and_then(|(_, _, _, ko)| ko)
+                .map(|ko| ko.semi_major_axis);
+
+            let dest_sma = body_query
+                .get(target_entity)
+                .ok()
+                .and_then(|(_, _, _, ko)| ko)
+                .map(|ko| ko.semi_major_axis);
+
+            if let (Some(r1), Some(r2)) = (origin_sma, dest_sma) {
+                fleet_ui_state.computed_options =
+                    calculate_transfer_options(r1, r2, GM_SUN);
+            }
+        }
+
+        if !fleet_ui_state.computed_options.is_empty() {
+            ui.add_space(6.0);
+            ui.label(egui::RichText::new("Transfer Options:").strong().size(13.0));
+            ui.add_space(4.0);
+
+            let fleet_wet_mass = fleet.total_wet_mass_t();
+            let fleet_isp = fleet.average_isp_s();
+            let fleet_max_dv = fleet.max_delta_v_ms();
+
+            let options: Vec<_> = fleet_ui_state.computed_options.clone();
+            for (idx, option) in options.iter().enumerate() {
+                let fuel_cost = estimate_fuel_cost_tonnes(
+                    fleet_wet_mass,
+                    fleet_isp,
+                    option.total_delta_v_ms,
+                );
+                let fuel_pct = if fleet_wet_mass > 0.0 {
+                    (fuel_cost / fleet_wet_mass * 100.0) as u32
+                } else {
+                    0
+                };
+                let affordable = option.total_delta_v_ms <= fleet_max_dv;
+
+                let is_selected = fleet_ui_state.selected_option == idx;
+                let row_color = if !affordable {
+                    egui::Color32::from_rgb(180, 80, 80)
+                } else if is_selected {
+                    egui::Color32::from_rgb(100, 180, 255)
+                } else {
+                    egui::Color32::from_rgb(200, 200, 200)
+                };
+
+                ui.group(|ui| {
+                    ui.set_min_width(ui.available_width());
+                    let resp = ui.selectable_label(
+                        is_selected,
+                        egui::RichText::new(format!(
+                            "{} {}",
+                            if is_selected { "●" } else { "○" },
+                            option.label
+                        ))
+                        .size(13.0)
+                        .strong()
+                        .color(row_color),
+                    );
+                    if resp.clicked() && affordable {
+                        fleet_ui_state.selected_option = idx;
+                        fleet_ui_state.planned_transfer = None;
+                    }
+
+                    egui::Grid::new(format!("option_{idx}"))
+                        .num_columns(4)
+                        .spacing([16.0, 2.0])
+                        .show(ui, |ui| {
+                            ui.label(egui::RichText::new("Total ΔV:").size(12.0));
+                            ui.label(
+                                egui::RichText::new(format_delta_v(option.total_delta_v_ms))
+                                    .size(12.0)
+                                    .strong()
+                                    .color(row_color),
+                            );
+                            ui.label(egui::RichText::new("Travel time:").size(12.0));
+                            ui.label(
+                                egui::RichText::new(format_duration(option.transfer_time_s))
+                                    .size(12.0)
+                                    .strong(),
+                            );
+                            ui.end_row();
+
+                            ui.label(egui::RichText::new("Est. fuel:").size(12.0));
+                            let fuel_color = if affordable {
+                                egui::Color32::from_rgb(220, 180, 60)
+                            } else {
+                                egui::Color32::from_rgb(220, 80, 60)
+                            };
+                            ui.label(
+                                egui::RichText::new(format!("{:.0} t ({fuel_pct}%)", fuel_cost))
+                                    .size(12.0)
+                                    .color(fuel_color),
+                            );
+                            ui.label(egui::RichText::new("Departure burn:").size(12.0));
+                            ui.label(
+                                egui::RichText::new(format_delta_v(option.delta_v1_ms))
+                                    .size(12.0),
+                            );
+                            ui.end_row();
+
+                            if !affordable {
+                                ui.label(
+                                    egui::RichText::new("⚠ Insufficient ΔV capacity")
+                                        .size(11.0)
+                                        .color(egui::Color32::from_rgb(220, 80, 60)),
+                                );
+                            }
+                        });
+                });
+                ui.add_space(2.0);
+            }
+
+            // Execute button
+            ui.add_space(8.0);
+            let sel_option = &fleet_ui_state.computed_options[fleet_ui_state.selected_option];
+            let sel_affordable = sel_option.total_delta_v_ms <= fleet_max_dv;
+
+            let btn = egui::Button::new(
+                egui::RichText::new("🚀 Execute Transfer")
+                    .size(14.0)
+                    .strong(),
+            );
+            let btn = ui.add_enabled(sel_affordable, btn);
+
+            if btn.clicked() {
+                // Build the KeplerOrbit for the transfer arc
+                if let Some(transfer) = build_planned_transfer(
+                    fleet_entity,
+                    fleet,
+                    orbit,
+                    target_entity,
+                    body_query,
+                    sel_option,
+                ) {
+                    pending_actions.start_transfers.push(StartTransferAction {
+                        fleet: fleet_entity,
+                        transfer,
+                    });
+                }
+            }
+
+            if !sel_affordable {
+                ui.label(
+                    egui::RichText::new(
+                        "Selected option requires more ΔV than this fleet can provide.",
+                    )
+                    .size(11.0)
+                    .italics()
+                    .color(egui::Color32::from_rgb(200, 100, 60)),
+                );
+            }
+        }
+    }
+}
+
+/// Build a `PlannedTransfer` from the selected transfer option and fleet/body state.
+fn build_planned_transfer(
+    _fleet_entity: Entity,
+    fleet: &Fleet,
+    orbit: &FleetOrbit,
+    target_entity: Entity,
+    body_query: &Query<(Entity, &CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>)>,
+    option: &TransferOption,
+) -> Option<PlannedTransfer> {
+    use crate::astronomy::KeplerOrbit;
+    use crate::fleets::orbital_mechanics::{estimate_fuel_cost_tonnes, AU_IN_METERS, GM_SUN};
+
+    // Origin body position and SMA
+    let (_, _, origin_sc, origin_ko) = body_query.get(orbit.body).ok()?;
+    let origin_ko = origin_ko?;
+    let origin_sma_au = origin_ko.semi_major_axis;
+
+    // Destination body position and SMA
+    let (_, _, _dest_sc, dest_ko) = body_query.get(target_entity).ok()?;
+    let dest_ko = dest_ko?;
+    let dest_sma_au = dest_ko.semi_major_axis;
+
+    // Determine outward/inward transfer
+    let outward = dest_sma_au > origin_sma_au;
+
+    // Departure angle — direction of the origin body relative to the star (origin ≈ 0,0,0)
+    let departure_angle = origin_sc.position.y.atan2(origin_sc.position.x);
+
+    // argument_of_periapsis:
+    //   outward  → periapsis is at origin body → ω = departure_angle
+    //   inward   → apoapsis is at origin body  → ω = departure_angle + π
+    let argument_of_periapsis = if outward {
+        departure_angle
+    } else {
+        departure_angle + std::f64::consts::PI
+    };
+
+    // mean_anomaly_epoch:
+    //   outward  → depart from periapsis (MA = 0)
+    //   inward   → depart from apoapsis  (MA = π)
+    let mean_anomaly_epoch = if outward { 0.0 } else { std::f64::consts::PI };
+
+    // Mean motion of the transfer orbit n = sqrt(GM / a³) [rad/s]
+    let sma_m = option.sma_au * AU_IN_METERS;
+    let mean_motion = (GM_SUN / sma_m.powi(3)).sqrt();
+
+    let transfer_orbit = KeplerOrbit {
+        semi_major_axis: option.sma_au,
+        eccentricity: option.eccentricity,
+        inclination: 0.0,
+        longitude_ascending_node: 0.0,
+        argument_of_periapsis,
+        mean_anomaly_epoch,
+        mean_motion,
+    };
+
+    // Arrival parking orbit radius — same small radius used at origin for simplicity
+    let arrival_orbit_radius_au = orbit.radius_au;
+
+    let fuel_cost =
+        estimate_fuel_cost_tonnes(fleet.total_wet_mass_t(), fleet.average_isp_s(), option.total_delta_v_ms);
+
+    // We need the star entity.  Use a simple heuristic: find the body with SMA ≈ 0 AU
+    // (i.e., a Star, which has no orbit, so KeplerOrbit is absent). For simplicity we
+    // query all bodies and pick one without a KeplerOrbit — that is the central star.
+    // If none is found, fall back to the orbit center being the origin body itself.
+    // (The correct star entity lookup would use the Star marker component, but we keep
+    //  fleets/ free of solar_system plugin dependency here.)
+    // We'll use orbit.body as the orbit_center placeholder; the systems will handle it.
+    // NOTE: For accurate position, the caller should resolve the actual star entity.
+    // Here we find the star among body_query entries that lack a KeplerOrbit.
+    let orbit_center = body_query
+        .iter()
+        .find(|(_, b, _, ko)| ko.is_none() && b.name.to_lowercase().contains("sol"))
+        .map(|(e, _, _, _)| e)
+        .or_else(|| {
+            // Fallback: use any body without KeplerOrbit as the gravitational centre
+            body_query
+                .iter()
+                .find(|(_, _, _, ko)| ko.is_none())
+                .map(|(e, _, _, _)| e)
+        })
+        .unwrap_or(orbit.body);
+
+    Some(PlannedTransfer {
+        origin_body: orbit.body,
+        destination_body: target_entity,
+        orbit_center,
+        transfer_orbit,
+        duration_s: option.transfer_time_s,
+        arrival_delta_v_ms: option.delta_v2_ms,
+        arrival_orbit_radius_au,
+        fuel_cost_t: fuel_cost,
+        option_label: option.label,
+    })
 }
 
 #[cfg(test)]

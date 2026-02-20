@@ -5,6 +5,7 @@ use bevy_egui::EguiPlugin;
 pub mod astronomy;
 pub mod colony;
 pub mod economy;
+pub mod fleets;
 pub mod game_state;
 pub mod plugins;
 pub mod render;
@@ -14,6 +15,7 @@ pub mod ui;
 use astronomy::AstronomyPlugin;
 use colony::ColonyPlugin;
 use economy::EconomyPlugin;
+use fleets::FleetPlugin;
 use game_state::GameStatePlugin;
 use research::ResearchPlugin;
 use plugins::{
@@ -59,6 +61,7 @@ fn main() {
         .add_plugins(EconomyPlugin)
         .add_plugins(ColonyPlugin)
         .add_plugins(ResearchPlugin)
+        .add_plugins(FleetPlugin)
         .add_plugins(SystemPopulatorPlugin)
         .add_plugins(UIPlugin)
         .add_plugins(MusicPlugin)
