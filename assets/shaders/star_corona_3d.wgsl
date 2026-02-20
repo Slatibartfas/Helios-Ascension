@@ -5,7 +5,7 @@
 //   2. FBM corona plumes   — animated 3D noise with radial extent variation
 //   3. Ray spikes           — high-frequency angular FBM with radial falloff
 //
-// Renders on a translucent sphere at ~4× star radius.  The fragment shader
+// Renders on a translucent sphere at ~2.5× star radius.  The fragment shader
 // ray-marches through the corona volume, but the primary visual structure
 // comes from evaluating 2D-style layers using spherical coordinates
 // (angle, radius from star centre) at each sample — giving the rich look
