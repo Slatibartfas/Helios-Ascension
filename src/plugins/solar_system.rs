@@ -1766,7 +1766,10 @@ fn apply_linear_to_images_system(
 ///   3. Rotate by `north_pole_ra` around Y (orient the lean direction)
 fn rotate_bodies(
     sim_time: Res<SimulationTime>,
-    mut query: Query<(&mut Transform, &RotationSpeed, Option<&AxialTilt>)>,
+    // Stars are excluded: their granulation texture spinning at high game speed
+    // creates unnatural strobing / sparkle artefacts. Star orientation has no
+    // gameplay significance (unlike planetary day/night cycles).
+    mut query: Query<(&mut Transform, &RotationSpeed, Option<&AxialTilt>), Without<Star>>,
 ) {
     let t = sim_time.elapsed_seconds() as f32;
     for (mut transform, rotation_speed, axial_tilt) in query.iter_mut() {

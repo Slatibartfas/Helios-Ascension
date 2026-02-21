@@ -21,7 +21,7 @@ pub struct FleetMesh;
 // ── Position update systems ───────────────────────────────────────────────────
 
 /// One full visual revolution every 120 real seconds — readable at any time scale.
-const VISUAL_ORBIT_RATE: f64 = std::f64::consts::TAU / 120.0;
+const VISUAL_ORBIT_RATE: f64 = std::f64::consts::TAU / 40.0;
 
 /// Update `SpaceCoordinates` for every fleet in a stable parking orbit.
 ///
@@ -201,7 +201,6 @@ pub fn process_fleet_actions(
 /// Heliocentric transfers continue to use the physics-accurate Keplerian arc.
 pub fn draw_fleet_trajectories(
     mut gizmos: Gizmos,
-    sim_time: Res<SimulationTime>,
     fleet_query: Query<(Entity, &ActiveManeuver), With<Fleet>>,
     center_coords: Query<&SpaceCoordinates, Without<Fleet>>,
     body_query: Query<(&Transform, &CelestialBody), Without<Fleet>>,
@@ -220,7 +219,6 @@ pub fn draw_fleet_trajectories(
     };
 
     const SEGMENTS: u32 = 64;
-    let elapsed = sim_time.elapsed_seconds();
 
     for (entity, maneuver) in fleet_query.iter() {
         // In System view only draw for the selected fleet, in Starmap always draw.
@@ -241,10 +239,10 @@ pub fn draw_fleet_trajectories(
         if !center_is_star && *view_mode == ViewMode::System {
             // ── Local transfer: visual-space arc clipped to orbit ring boundaries ──
             let origin_ring_r = body_query.get(maneuver.origin_body)
-                .map(|(_, b)| b.visual_radius * 2.0)
+                .map(|(_, b)| b.visual_radius * 3.0)
                 .unwrap_or(0.0);
             let dest_ring_r = body_query.get(maneuver.destination_body)
-                .map(|(_, b)| b.visual_radius * 2.0)
+                .map(|(_, b)| b.visual_radius * 3.0)
                 .unwrap_or(0.0);
             let origin_visual = body_query.get(maneuver.origin_body).map(|(t, _)| t.translation).ok();
             let dest_visual = body_query.get(maneuver.destination_body).map(|(t, _)| t.translation).ok();
@@ -492,6 +490,9 @@ pub fn ensure_fleet_meshes(
             Mesh3d(mesh),
             MeshMaterial3d(material),
             Transform::default(),
+            // Start hidden; update_fleet_transforms sets correct position + visibility
+            // the very next frame, preventing a one-frame flash at world origin.
+            Visibility::Hidden,
             FleetMesh,
         ));
     }
@@ -550,8 +551,9 @@ pub fn update_fleet_transforms(
                     orbit.angle_rad.sin() as f32,
                     0.0,
                 );
-                // Position at 2× visual radius so the marker sits clearly outside
-                let visual_orbit = body.visual_radius * 2.0;
+                // Position at 3× visual radius so the marker sits clearly outside
+                // the planet's visual sphere, including bloom/glow effects.
+                let visual_orbit = body.visual_radius * 3.0;
                 transform.translation = body_transform.translation + dir * visual_orbit;
             }
         } else if let Some(maneuver) = maybe_maneuver {
@@ -562,9 +564,9 @@ pub fn update_fleet_transforms(
 
             if !center_is_star {
                 // Local transfer: interpolate visually between origin and destination
-                let origin_visual = body_query.get(maneuver.origin_body).map(|(t, _)| t.translation).ok();
-                let dest_visual = body_query.get(maneuver.destination_body).map(|(t, _)| t.translation).ok();
-                if let (Some(op), Some(dp)) = (origin_visual, dest_visual) {
+                let origin_data = body_query.get(maneuver.origin_body).ok().map(|(t, b)| (t.translation, b.visual_radius * 3.0));
+                let dest_data   = body_query.get(maneuver.destination_body).ok().map(|(t, b)| (t.translation, b.visual_radius * 3.0));
+                if let (Some((op, origin_ring_r)), Some((dp, dest_ring_r))) = (origin_data, dest_data) {
                     let progress = maneuver.progress(elapsed) as f32;
                     let forward = dp - op;
                     let arc_height = forward.length() * 0.3;
@@ -572,6 +574,13 @@ pub fn update_fleet_transforms(
                     let base = op.lerp(dp, progress);
                     let bulge = perp * arc_height * (progress * std::f32::consts::PI).sin();
                     transform.translation = base + bulge;
+
+                    // Hide the sphere while still inside the origin or destination orbit ring.
+                    let inside_origin = transform.translation.distance(op) < origin_ring_r;
+                    let inside_dest   = transform.translation.distance(dp) < dest_ring_r;
+                    if inside_origin || inside_dest {
+                        *vis = Visibility::Hidden;
+                    }
                 }
             } else {
                 // Heliocentric transfer: physics-based position
@@ -594,13 +603,19 @@ pub fn update_fleet_transforms(
     }
 }
 
-/// Draw a thin dashed orbit ring around the body that the selected fleet is
-/// parked around.  Only drawn in System view when a fleet is selected and in
-/// orbit (not in transit).
+/// Draw dashed orbit rings in System view:
+///
+/// - **Parked** fleet (selected): one ring around the orbit body.
+/// - **In-transit** fleet (selected, local transfer): departure ring around `origin_body`
+///   and arrival ring around `destination_body`.
+///
+/// Ring radius = `body.visual_radius × 2.0`, matching the fleet's parking orbit
+/// visual position and the arc clip boundary used by `draw_fleet_trajectories`.
 pub fn draw_fleet_orbit_rings(
     mut gizmos: Gizmos,
     fleet_ui_state: Res<FleetUiState>,
-    fleet_query: Query<(Entity, &FleetOrbit), With<Fleet>>,
+    parked_query: Query<(Entity, &FleetOrbit), With<Fleet>>,
+    transit_query: Query<(Entity, &ActiveManeuver), With<Fleet>>,
     body_query: Query<(&Transform, &CelestialBody), Without<Fleet>>,
     view_mode: Res<ViewMode>,
 ) {
@@ -610,28 +625,57 @@ pub fn draw_fleet_orbit_rings(
     let Some(selected) = fleet_ui_state.selected_fleet else {
         return;
     };
-    let Ok((_, orbit)) = fleet_query.get(selected) else {
-        return; // selected fleet is in transit, no orbit ring
-    };
-    let Ok((body_transform, body)) = body_query.get(orbit.body) else {
-        return;
-    };
 
-    let center = body_transform.translation;
-    let radius = body.visual_radius * 2.0;
-    // Dashed effect: draw every other segment out of TOTAL_SEGMENTS
     const TOTAL_SEGMENTS: u32 = 64;
-    let color = Color::srgba(0.2, 0.9, 0.3, 0.30);
 
-    for i in 0..TOTAL_SEGMENTS {
-        if i % 2 == 1 {
-            continue; // gap
+    let draw_ring = |gizmos: &mut Gizmos, center: Vec3, radius: f32, color: Color| {
+        for i in 0..TOTAL_SEGMENTS {
+            if i % 2 == 1 { continue; } // gap — dashed
+            let a1 = (i as f32 / TOTAL_SEGMENTS as f32) * std::f32::consts::TAU;
+            let a2 = ((i + 1) as f32 / TOTAL_SEGMENTS as f32) * std::f32::consts::TAU;
+            let p1 = center + Vec3::new(a1.cos() * radius, a1.sin() * radius, 0.0);
+            let p2 = center + Vec3::new(a2.cos() * radius, a2.sin() * radius, 0.0);
+            gizmos.line(p1, p2, color);
         }
-        let a1 = (i as f32 / TOTAL_SEGMENTS as f32) * std::f32::consts::TAU;
-        let a2 = ((i + 1) as f32 / TOTAL_SEGMENTS as f32) * std::f32::consts::TAU;
-        let p1 = center + Vec3::new(a1.cos() * radius, a1.sin() * radius, 0.0);
-        let p2 = center + Vec3::new(a2.cos() * radius, a2.sin() * radius, 0.0);
-        gizmos.line(p1, p2, color);
+    };
+
+    if let Ok((_, orbit)) = parked_query.get(selected) {
+        // ── Parked: single green ring around orbit body ──
+        if let Ok((body_transform, body)) = body_query.get(orbit.body) {
+            draw_ring(
+                &mut gizmos,
+                body_transform.translation,
+                body.visual_radius * 3.0,
+                Color::srgba(0.2, 0.9, 0.3, 0.30),
+            );
+        }
+    } else if let Ok((_, maneuver)) = transit_query.get(selected) {
+        // Only draw rings for local (planet-centric) transfers
+        let center_is_star = body_query.get(maneuver.orbit_center)
+            .map(|(_, b)| b.body_type == BodyType::Star)
+            .unwrap_or(true);
+        if center_is_star {
+            return;
+        }
+
+        // Departure ring — dim green
+        if let Ok((body_transform, body)) = body_query.get(maneuver.origin_body) {
+            draw_ring(
+                &mut gizmos,
+                body_transform.translation,
+                body.visual_radius * 3.0,
+                Color::srgba(0.2, 0.9, 0.3, 0.20),
+            );
+        }
+        // Arrival ring — brighter cyan
+        if let Ok((body_transform, body)) = body_query.get(maneuver.destination_body) {
+            draw_ring(
+                &mut gizmos,
+                body_transform.translation,
+                body.visual_radius * 3.0,
+                Color::srgba(0.3, 0.8, 1.0, 0.35),
+            );
+        }
     }
 }
 

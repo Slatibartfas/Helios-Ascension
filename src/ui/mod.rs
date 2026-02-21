@@ -128,6 +128,8 @@ pub struct FleetUiState {
     pub computed_options: Vec<TransferOption>,
     /// Fully assembled transfer plan ready for execution (if any).
     pub planned_transfer: Option<PlannedTransfer>,
+    /// Whether the floating Transfer Planner popup window is open.
+    pub show_transfer_popup: bool,
 }
 
 impl FleetUiState {
@@ -769,6 +771,7 @@ impl Plugin for UIPlugin {
                     ui_starmap_hover_tooltip,
                     ui_starmap_labels,
                     ui_resolution_warning,
+                    ui_transfer_planner_popup,
                 )
                     .in_set(UiSystemSet::Overlays),
             )
@@ -8299,7 +8302,7 @@ fn ui_fleets_panel(
             ui.add_space(8.0);
 
             // ── Right column: selected fleet details + transfer planner ──────
-            let remaining = ui.available_width();
+            let remaining = ui.available_width().min(480.0);
             ui.allocate_ui_with_layout(
                 egui::Vec2::new(remaining, available.y - 80.0),
                 egui::Layout::top_down(egui::Align::Min),
@@ -8548,37 +8551,28 @@ fn render_fleet_detail(
             ui.end_row();
         });
 
-    // ── Transfer planner (always shown when a fleet is selected) ────────────
-    // For in-transit fleets, a synthetic orbit is derived from the maneuver destination
-    // so the planner can compute a new course; an abort burn penalty is applied.
-    let planner_orbit: Option<FleetOrbit> = if let Some(orbit) = maybe_orbit {
-        Some(*orbit)
-    } else if let Some(maneuver) = maybe_maneuver {
-        // Treat the current maneuver destination as the "from" body for a divert
-        Some(FleetOrbit::new(maneuver.destination_body, maneuver.arrival_orbit_radius_au))
-    } else {
-        None
-    };
-
-    if let Some(orbit) = planner_orbit {
+    // ── Transfer Planner shortcut ─────────────────────────────────────────
+    // The planner now lives in a floating popup; show a button to open it.
+    let can_plan = maybe_orbit.is_some()
+        || maybe_maneuver.is_some();
+    if can_plan {
         ui.separator();
-        render_transfer_planner(
-            ui,
-            fleet_entity,
-            fleet,
-            &orbit,
-            maybe_maneuver,
-            body_query,
-            fleet_ui_state,
-            pending_actions,
-            current_system_id,
-            body_system_ids,
-            elapsed,
-        );
+        if ui
+            .add(
+                egui::Button::new(
+                    egui::RichText::new("📡 Open Transfer Planner ↗").size(13.0),
+                )
+                .min_size(egui::Vec2::new(200.0, 32.0)),
+            )
+            .on_hover_text("Open the orbital transfer planner in a floating window")
+            .clicked()
+        {
+            fleet_ui_state.show_transfer_popup = true;
+        }
     }
 }
 
-// (Transfer planner is rendered at the bottom of the right detail panel.)
+// (Transfer Planner is now a floating popup — see ui_transfer_planner_popup.)
 
 /// Show current maneuver status with a progress bar.
 fn render_active_maneuver_status(
@@ -9466,6 +9460,95 @@ fn render_transfer_planner(
     }
 }
 
+/// Floating popup window showing the Transfer Planner over the 3D view.
+///
+/// Opened by the "Transfer Planner" button in the fleet action bar or the Fleet Management
+/// panel shortcut button. Closed with the window's × button or by deselecting the fleet.
+fn ui_transfer_planner_popup(
+    mut contexts: EguiContexts,
+    fleet_query: Query<(Entity, &Fleet, Option<&FleetOrbit>, Option<&ActiveManeuver>)>,
+    body_query: Query<(Entity, &CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>, Option<&LogicalParent>)>,
+    body_system_ids: Query<&SystemId>,
+    mut pending_actions: ResMut<PendingFleetActions>,
+    mut fleet_ui_state: ResMut<FleetUiState>,
+    sim_time: Res<SimulationTime>,
+    current_system: Res<CurrentStarSystem>,
+) {
+    if !fleet_ui_state.show_transfer_popup {
+        return;
+    }
+
+    let Some(fleet_entity) = fleet_ui_state.selected_fleet else {
+        fleet_ui_state.show_transfer_popup = false;
+        return;
+    };
+
+    let Ok((_, fleet, maybe_orbit, maybe_maneuver)) = fleet_query.get(fleet_entity) else {
+        fleet_ui_state.show_transfer_popup = false;
+        return;
+    };
+
+    let planner_orbit: Option<FleetOrbit> = if let Some(orbit) = maybe_orbit {
+        Some(*orbit)
+    } else if let Some(maneuver) = maybe_maneuver {
+        Some(FleetOrbit::new(maneuver.destination_body, maneuver.arrival_orbit_radius_au))
+    } else {
+        None
+    };
+
+    let Some(orbit) = planner_orbit else {
+        fleet_ui_state.show_transfer_popup = false;
+        return;
+    };
+
+    let ctx = match contexts.ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
+    };
+
+    let elapsed = sim_time.elapsed_seconds();
+    let current_system_id = current_system.0;
+
+    // `open` is a separate local bool — `Window::open()` sets it to false when
+    // the user clicks the × close button.
+    let mut open = true;
+    egui::Window::new("📡 Transfer Planner")
+        .open(&mut open)
+        .resizable(true)
+        .collapsible(false)
+        .default_width(460.0)
+        .anchor(egui::Align2::RIGHT_TOP, egui::Vec2::new(-12.0, 48.0))
+        .show(ctx, |ui| {
+            ui.label(
+                egui::RichText::new(format!("🚀 Fleet: {}", fleet.name))
+                    .size(12.0)
+                    .color(egui::Color32::from_rgb(130, 220, 130)),
+            );
+            ui.add_space(4.0);
+            egui::ScrollArea::vertical()
+                .max_height(600.0)
+                .show(ui, |ui| {
+                    render_transfer_planner(
+                        ui,
+                        fleet_entity,
+                        fleet,
+                        &orbit,
+                        maybe_maneuver,
+                        &body_query,
+                        &mut fleet_ui_state,
+                        &mut pending_actions,
+                        current_system_id,
+                        &body_system_ids,
+                        elapsed,
+                    );
+                });
+        });
+
+    if !open {
+        fleet_ui_state.show_transfer_popup = false;
+    }
+}
+
 /// Build a `PlannedTransfer` from the selected transfer option and fleet/body state.
 fn build_planned_transfer(
     _fleet_entity: Entity,
@@ -9645,8 +9728,8 @@ fn build_planned_transfer_lp(
 /// Construction, and Economy menus because those already fill the screen.
 fn ui_fleet_action_bar(
     mut contexts: EguiContexts,
-    mut active_menu: ResMut<ActiveMenu>,
-    fleet_ui_state: Res<FleetUiState>,
+    active_menu: Res<ActiveMenu>,
+    mut fleet_ui_state: ResMut<FleetUiState>,
     fleet_query: Query<(Entity, &Fleet, Option<&FleetOrbit>, Option<&ActiveManeuver>)>,
     mut pending_fleet_actions: ResMut<PendingFleetActions>,
 ) {
@@ -9716,8 +9799,7 @@ fn ui_fleet_action_bar(
                     .on_hover_text("Open the orbital transfer planner for this fleet")
                     .clicked()
                 {
-                    // Switch to Fleets menu where the full transfer planner lives
-                    active_menu.current = GameMenu::Fleets;
+                    fleet_ui_state.show_transfer_popup = true;
                 }
 
                 ui.add_space(4.0);
