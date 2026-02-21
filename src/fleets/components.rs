@@ -232,7 +232,9 @@ pub struct ActiveManeuver {
     /// Label of the transfer option chosen by the player.
     pub option_label: &'static str,
     /// Visual orbit angle (radians) of the fleet on its parking ring at the moment
-    /// of departure — used to draw the arc starting from the exact departure point.
+    /// of departure — retained for diagnostics.  Local transfer arcs in System view
+    /// derive the departure direction dynamically from the origin→destination geometry,
+    /// so this field does not affect the rendered trajectory.
     pub departure_angle: f32,
 }
 

@@ -303,6 +303,32 @@ fn draw_ghost_body(gizmos: &mut Gizmos, center: Vec3, ring_r: f32, body_r: f32) 
     gizmos.line(center - Vec3::Y * cs, center + Vec3::Y * cs, cross_color);
 }
 
+/// Compute the stable, optimal departure angle for a local transfer arc.
+///
+/// Returns the angle (radians) in the ecliptic plane from the origin body position
+/// toward the destination position, so the arc departure is in the direction
+/// the fleet must be facing to begin the transfer.
+///
+/// Fallback: when `origin` and `destination` are at nearly the same render position
+/// (distance ≤ 0.1 render units), returns the angle of `origin` relative to the
+/// coordinate origin.  In System view the central star is always at `Vec3::ZERO`, so
+/// this fallback yields the radially-outward direction from the star — a physically
+/// sensible departure direction for that degenerate case.
+///
+/// # Why not use the fleet's orbit phase?
+/// The fleet is assumed to wait in its parking orbit until it reaches this
+/// angle before firing, spending only a few hours to guarantee the ΔV-optimal
+/// departure geometry.  This keeps the arc stable across the fast visual orbit rate.
+fn optimal_departure_angle(origin: Vec3, destination: Vec3) -> f32 {
+    let to_dest = destination - origin;
+    if to_dest.length() > 0.1 {
+        to_dest.y.atan2(to_dest.x)
+    } else {
+        // Fallback: radially outward from the star (star is at Vec3::ZERO in System view).
+        origin.y.atan2(origin.x)
+    }
+}
+
 /// Draw the trajectory arc for the selected fleet.
 /// In System view uses SCALING_FACTOR; in Starmap view uses raw AU (1 unit = 1 AU).
 ///
@@ -365,8 +391,11 @@ pub fn draw_fleet_trajectories(
                     .ok().map(|(t, _, _)| t.translation);
                 let Some(dp) = dp_current else { continue; };
 
-                // Departure: prograde tangent at the stored departure angle (always CCW).
-                let dep_angle = maneuver.departure_angle;
+                // Optimal departure angle: direction from origin body toward the current
+                // destination position.  Consistent with the preview arc — the fleet
+                // departs from the prograde-optimal position rather than its exact orbital
+                // phase at the moment Execute was clicked.
+                let dep_angle = optimal_departure_angle(op, dp);
                 let dir_dep = Vec3::new(dep_angle.cos(), dep_angle.sin(), 0.0);
                 let p0 = op + dir_dep * origin_ring_r;
                 // Always use CCW (prograde) — flipping causes the arc to dive back through the planet.
@@ -711,7 +740,10 @@ pub fn update_fleet_transforms(
                     let progress = maneuver.progress(elapsed) as f32;
 
                     // Reproduce the EXACT same Bezier as draw_fleet_trajectories.
-                    let dep_angle = maneuver.departure_angle;
+                    // Use optimal departure angle (direction toward destination) for consistency
+                    // with the preview arc — avoids the arc shape changing based on the orbital
+                    // phase when Execute was clicked.
+                    let dep_angle = optimal_departure_angle(op, dp);
                     let dir_dep = Vec3::new(dep_angle.cos(), dep_angle.sin(), 0.0);
                     let p0 = op + dir_dep * origin_ring_r;
                     // Always prograde (CCW), no flip.
@@ -853,7 +885,8 @@ pub fn draw_fleet_orbit_rings(
 ///
 /// * Predicts where the destination body will be at current_time + transfer_time.
 /// * Draws a KSP-style ghost body (amber dashed circles) at the predicted intercept.
-/// * Arc departure tracks the fleet live as it orbits its ring.
+/// * Arc departure is anchored to the optimal firing position (direction toward predicted
+///   destination), not the fleet's rotating local orbit angle, so the preview is stable.
 pub fn draw_fleet_transfer_preview(
     mut gizmos: Gizmos,
     fleet_query: Query<(Entity, Option<&FleetOrbit>, Option<&ActiveManeuver>), With<Fleet>>,
@@ -871,10 +904,10 @@ pub fn draw_fleet_transfer_preview(
 
     let Ok((_, maybe_orbit, maybe_maneuver)) = fleet_query.get(fleet_entity) else { return; };
 
-    let (origin_body, departure_angle) = if let Some(orbit) = maybe_orbit {
-        (orbit.body, orbit.angle_rad as f32)
+    let origin_body = if let Some(orbit) = maybe_orbit {
+        orbit.body
     } else if let Some(maneuver) = maybe_maneuver {
-        (maneuver.destination_body, maneuver.departure_angle)
+        maneuver.destination_body
     } else {
         return;
     };
@@ -908,7 +941,14 @@ pub fn draw_fleet_transfer_preview(
         &amp_query,
     ).unwrap_or(dest_transform_now.translation);
 
-    // Departure: prograde tangent at fleet's current orbit angle (always CCW, no flip).
+    // Stable optimal departure angle: direction from the origin body toward the predicted
+    // destination position.  The fleet waits in its parking orbit until it reaches this
+    // angular position, then fires — this is always the ΔV-optimal departure point.
+    // Using this (instead of the fleet's rotating orbit.angle_rad) keeps the preview arc
+    // anchored; it only drifts slowly as the target body advances in its own orbit.
+    let departure_angle = optimal_departure_angle(op, dp);
+
+    // Departure: prograde tangent at the optimal departure angle (always CCW, no flip).
     let dir_dep     = Vec3::new(departure_angle.cos(), departure_angle.sin(), 0.0);
     let p0          = op + dir_dep * origin_ring_r;
     let tang_origin = Vec3::new(-departure_angle.sin(), departure_angle.cos(), 0.0);
