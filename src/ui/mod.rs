@@ -8681,12 +8681,79 @@ fn render_transfer_planner(
             local.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
             local_rings.sort_by(|a, b| a.3.partial_cmp(&b.3).unwrap_or(std::cmp::Ordering::Equal));
             dest_entries.push(DestEntry::Header(format!("{orbit_body_name} System")));
-            for (e, name, _) in local {
-                dest_entries.push(DestEntry::Body { entity: e, name });
+            for (e, name, _) in &local {
+                dest_entries.push(DestEntry::Body { entity: *e, name: name.clone() });
             }
             for (e, name, parent, radius_au) in local_rings {
                 if let Some(p) = parent {
                     dest_entries.push(DestEntry::Ring { entity: e, name, parent_entity: p, radius_au });
+                }
+            }
+        }
+
+        // ── Lagrange points for the fleet's own orbit body (Sun-Planet) ──────
+        if let Ok((_, orbit_body_data, _, Some(orbit_ko), _)) = body_query.get(orbit.body) {
+            if matches!(orbit_body_data.body_type, BodyType::Planet | BodyType::GasGiant | BodyType::DwarfPlanet) {
+                let a = orbit_ko.semi_major_axis;
+                let m_star = 1.989e30_f64;
+                let m_planet = orbit_body_data.mass;
+                let r_hill = a * (m_planet / (3.0 * m_star)).powf(1.0 / 3.0);
+                let l45_offset = r_hill * 0.05;
+                let lp_radii: [(u8, f64); 5] = [
+                    (1, (a - r_hill).max(1e-4)),
+                    (2, a + r_hill),
+                    (3, a),
+                    (4, a + l45_offset),
+                    (5, (a - l45_offset).max(1e-4)),
+                ];
+                dest_entries.push(DestEntry::Header(format!("{orbit_body_name} Lagrange Points")));
+                for (point, radius_au) in lp_radii {
+                    dest_entries.push(DestEntry::Lagrange {
+                        lp: LagrangeTarget {
+                            point,
+                            planet_entity: orbit.body,
+                            planet_name: orbit_body_name.clone(),
+                            planet_sma_au: a,
+                            radius_au,
+                            gm: GM_SUN,
+                        },
+                    });
+                }
+            }
+        }
+
+        // ── Moon Lagrange points (Planet-Moon LPs for significant moons) ─────
+        for (moon_e, moon_name, moon_sma) in &local {
+            // Use the orbit body (planet) mass as central mass
+            if let Ok((_, orbit_body_data, _, _, _)) = body_query.get(orbit.body) {
+                if let Ok((_, moon_body, _, _, _)) = body_query.get(*moon_e) {
+                    let a_moon = *moon_sma;
+                    let m_planet = orbit_body_data.mass;
+                    let m_moon = moon_body.mass;
+                    if m_moon > 0.0 && m_planet > 0.0 {
+                        let r_hill = a_moon * (m_moon / (3.0 * m_planet)).powf(1.0 / 3.0);
+                        let l45_offset = r_hill * 0.05;
+                        let lp_radii: [(u8, f64); 5] = [
+                            (1, (a_moon - r_hill).max(1e-6)),
+                            (2, a_moon + r_hill),
+                            (3, a_moon),
+                            (4, a_moon + l45_offset),
+                            (5, (a_moon - l45_offset).max(1e-6)),
+                        ];
+                        dest_entries.push(DestEntry::Header(format!("{moon_name} Lagrange Points")));
+                        for (point, radius_au) in lp_radii {
+                            dest_entries.push(DestEntry::Lagrange {
+                                lp: LagrangeTarget {
+                                    point,
+                                    planet_entity: *moon_e,
+                                    planet_name: moon_name.clone(),
+                                    planet_sma_au: a_moon,
+                                    radius_au,
+                                    gm: G_CONST * m_planet,
+                                },
+                            });
+                        }
+                    }
                 }
             }
         }
@@ -8735,16 +8802,16 @@ fn render_transfer_planner(
         if orbit.body != parent_e {
             dest_entries.push(DestEntry::Body { entity: parent_e, name: planet_name.clone() });
         }
-        for (e, name, _sma, is_ring) in children {
-            if is_ring {
+        for (e, name, _sma, is_ring) in &children {
+            if *is_ring {
                 dest_entries.push(DestEntry::Ring {
-                    entity: e,
-                    name,
+                    entity: *e,
+                    name: name.clone(),
                     parent_entity: parent_e,
-                    radius_au: _sma, // stored radius_au
+                    radius_au: *_sma, // stored radius_au
                 });
             } else {
-                dest_entries.push(DestEntry::Body { entity: e, name });
+                dest_entries.push(DestEntry::Body { entity: *e, name: name.clone() });
             }
         }
         // ── Lagrange points sub-group ──────────────────────────────────────
@@ -8777,6 +8844,39 @@ fn render_transfer_planner(
                         gm: GM_SUN,
                     },
                 });
+            }
+
+            // ── Moon Lagrange points (Planet-Moon LPs) ─────────────────────
+            for (child_e, child_name, _child_sma, is_ring) in &children {
+                if *is_ring { continue; }
+                if let Ok((_, moon_body, _, Some(moon_ko), _)) = body_query.get(*child_e) {
+                    let a_moon = moon_ko.semi_major_axis;
+                    let m_moon = moon_body.mass;
+                    if m_moon > 0.0 && m_planet > 0.0 {
+                        let r_hill_m = a_moon * (m_moon / (3.0 * m_planet)).powf(1.0 / 3.0);
+                        let l45_m = r_hill_m * 0.05;
+                        let lp_moon: [(u8, f64); 5] = [
+                            (1, (a_moon - r_hill_m).max(1e-6)),
+                            (2, a_moon + r_hill_m),
+                            (3, a_moon),
+                            (4, a_moon + l45_m),
+                            (5, (a_moon - l45_m).max(1e-6)),
+                        ];
+                        dest_entries.push(DestEntry::Header(format!("{child_name} Lagrange Points")));
+                        for (pt, r_au) in lp_moon {
+                            dest_entries.push(DestEntry::Lagrange {
+                                lp: LagrangeTarget {
+                                    point: pt,
+                                    planet_entity: *child_e,
+                                    planet_name: child_name.clone(),
+                                    planet_sma_au: a_moon,
+                                    radius_au: r_au,
+                                    gm: G_CONST * m_planet,
+                                },
+                            });
+                        }
+                    }
+                }
             }
         }
     }
@@ -8891,9 +8991,12 @@ fn render_transfer_planner(
                 for entry in &dest_entries {
                     match entry {
                         DestEntry::Header(label) => {
-                            // Never put a separator as the very first item — egui panics
+                            // Skip the visual gap before the very first header —
+                            // any widget (including add_space) as the first item
+                            // inside show_ui can confuse egui's hit-test if the
+                            // popup layer rect isn't fully initialised yet.
                             if !is_first {
-                                ui.separator();
+                                ui.add_space(5.0);
                             }
                             is_first = false;
                             ui.label(

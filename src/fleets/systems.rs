@@ -8,7 +8,12 @@ use super::orbital_mechanics::AU_IN_METERS;
 use super::types::{PropulsionType, ShipClass};
 use crate::astronomy::components::FloatingOrigin;
 use crate::astronomy::{orbit_position_from_mean_anomaly, SpaceCoordinates, SCALING_FACTOR};
-use crate::ui::SimulationTime;
+use crate::plugins::camera::{GameCamera, OrbitCamera, ViewMode};
+use crate::ui::{FleetUiState, SimulationTime};
+
+/// Marker component for entities that have a fleet mesh sphere.
+#[derive(Component)]
+pub struct FleetMesh;
 
 // ── Position update systems ───────────────────────────────────────────────────
 
@@ -121,6 +126,7 @@ pub fn process_fleet_actions(
         let mut fleet = Fleet::new(action.name);
         fleet.ships = action.ships;
         commands.spawn((fleet, orbit, SpaceCoordinates::default()));
+        // NOTE: mesh is added lazily by ensure_fleet_meshes (needs asset access)
     }
 
     // Start transfers (works for both parked and in-transit fleets)
@@ -174,21 +180,38 @@ pub fn process_fleet_actions(
 
 // ── Rendering systems ─────────────────────────────────────────────────────────
 
-/// Draw the planned trajectory arc for every fleet in transit using gizmos.
+/// Draw the trajectory arc for the selected fleet.
+/// In System view uses SCALING_FACTOR; in Starmap view uses raw AU (1 unit = 1 AU).
 pub fn draw_fleet_trajectories(
     mut gizmos: Gizmos,
-    fleet_query: Query<&ActiveManeuver, With<Fleet>>,
+    fleet_query: Query<(Entity, &ActiveManeuver), With<Fleet>>,
     center_coords: Query<&SpaceCoordinates, Without<Fleet>>,
     floating_origin: Option<Res<FloatingOrigin>>,
+    fleet_ui_state: Res<FleetUiState>,
+    view_mode: Res<ViewMode>,
 ) {
     let origin_offset = floating_origin
         .as_ref()
         .map(|fo| fo.position)
         .unwrap_or(DVec3::ZERO);
 
+    let scale: f64 = match *view_mode {
+        ViewMode::System => SCALING_FACTOR,
+        ViewMode::Starmap => 1.0,
+    };
+
     const SEGMENTS: u32 = 64;
 
-    for maneuver in fleet_query.iter() {
+    for (entity, maneuver) in fleet_query.iter() {
+        // In System view only draw for the selected fleet, in Starmap always draw.
+        if *view_mode == ViewMode::System {
+            if let Some(sel) = fleet_ui_state.selected_fleet {
+                if entity != sel {
+                    continue;
+                }
+            }
+        }
+
         let center_pos = center_coords
             .get(maneuver.orbit_center)
             .map(|sc| sc.position)
@@ -207,13 +230,12 @@ pub fn draw_fleet_trajectories(
             let orbit_pos = orbit_position_from_mean_anomaly(&maneuver.transfer_orbit, mean_anomaly);
             let world_au = center_pos + orbit_pos - origin_offset;
             let render_pos = Vec3::new(
-                (world_au.x * SCALING_FACTOR) as f32,
-                (world_au.y * SCALING_FACTOR) as f32,
-                (world_au.z * SCALING_FACTOR) as f32,
+                (world_au.x * scale) as f32,
+                (world_au.y * scale) as f32,
+                (world_au.z * scale) as f32,
             );
 
             if let Some(prev_pos) = prev {
-                // Fade slightly toward the destination end
                 let alpha = 0.8 * (1.0 - 0.4 * frac as f32);
                 gizmos.line(prev_pos, render_pos, Color::srgba(0.3, 0.8, 1.0, alpha));
             }
@@ -223,9 +245,10 @@ pub fn draw_fleet_trajectories(
 }
 
 /// Draw a small cross marker at each fleet's current render position.
+/// This fallback only draws for fleets that somehow lack a mesh.
 pub fn draw_fleet_icons(
     mut gizmos: Gizmos,
-    fleet_query: Query<(&SpaceCoordinates, Option<&ActiveManeuver>), With<Fleet>>,
+    fleet_query: Query<(&SpaceCoordinates, Option<&ActiveManeuver>), (With<Fleet>, Without<FleetMesh>)>,
     floating_origin: Option<Res<FloatingOrigin>>,
 ) {
     let origin_offset = floating_origin
@@ -250,6 +273,102 @@ pub fn draw_fleet_icons(
         let size = 10.0_f32;
         gizmos.line(render_pos - Vec3::X * size, render_pos + Vec3::X * size, color);
         gizmos.line(render_pos - Vec3::Y * size, render_pos + Vec3::Y * size, color);
+    }
+}
+
+/// Draw fleet position markers (cross gizmos) in Starmap view at AU scale.
+/// Called every frame; early-exits in System view.
+pub fn draw_fleet_starmap_icons(
+    mut gizmos: Gizmos,
+    fleet_query: Query<(&SpaceCoordinates, Option<&ActiveManeuver>), With<Fleet>>,
+    floating_origin: Option<Res<FloatingOrigin>>,
+    view_mode: Res<ViewMode>,
+    camera_query: Query<&OrbitCamera, With<GameCamera>>,
+) {
+    if *view_mode != ViewMode::Starmap {
+        return;
+    }
+
+    let origin_offset = floating_origin
+        .as_ref()
+        .map(|fo| fo.position)
+        .unwrap_or(DVec3::ZERO);
+
+    // Scale cross size proportionally to camera distance (matches star-icon scale logic).
+    let camera_radius = camera_query.single().ok().map(|c| c.radius as f32).unwrap_or(200_000.0);
+    let icon_size = 200.0 * (camera_radius / 100_000.0).sqrt().max(0.5);
+
+    for (sc, maybe_maneuver) in fleet_query.iter() {
+        // Starmap uses raw AU (1 unit = 1 AU); no SCALING_FACTOR.
+        let raw_au = sc.position - origin_offset;
+        let pos = Vec3::new(raw_au.x as f32, raw_au.y as f32, raw_au.z as f32);
+
+        let color = if maybe_maneuver.is_some() {
+            Color::srgba(0.3, 0.8, 1.0, 1.0) // cyan in transit
+        } else {
+            Color::srgba(0.2, 0.9, 0.3, 1.0) // green in orbit
+        };
+
+        gizmos.line(pos - Vec3::X * icon_size, pos + Vec3::X * icon_size, color);
+        gizmos.line(pos - Vec3::Y * icon_size, pos + Vec3::Y * icon_size, color);
+        // Small diagonal for diamond shape
+        gizmos.line(pos - Vec3::new(icon_size * 0.6, icon_size * 0.6, 0.0), pos + Vec3::new(icon_size * 0.6, icon_size * 0.6, 0.0), color.with_alpha(0.5));
+    }
+}
+
+/// Lazily add a sphere mesh + emissive material to fleet entities that don't have one yet.
+pub fn ensure_fleet_meshes(
+    mut commands: Commands,
+    fleets_without_mesh: Query<Entity, (With<Fleet>, Without<FleetMesh>)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for entity in fleets_without_mesh.iter() {
+        let mesh = meshes.add(Sphere::new(6.0).mesh().uv(16, 8));
+        let material = materials.add(StandardMaterial {
+            base_color: Color::srgb(0.3, 0.9, 0.4),
+            emissive: LinearRgba::new(0.6, 1.8, 0.8, 1.0),
+            unlit: true,
+            ..default()
+        });
+        commands.entity(entity).insert((
+            Mesh3d(mesh),
+            MeshMaterial3d(material),
+            Transform::default(),
+            FleetMesh,
+        ));
+    }
+}
+
+/// Keep each fleet entity's `Transform` in sync with its `SpaceCoordinates`.
+/// In System view positions use SCALING_FACTOR; the mesh is hidden in Starmap view
+/// (starmap rendering is handled by `draw_fleet_trajectories` gizmos at AU scale).
+pub fn update_fleet_transforms(
+    mut fleet_query: Query<(&SpaceCoordinates, &mut Transform, &mut Visibility), With<Fleet>>,
+    floating_origin: Option<Res<FloatingOrigin>>,
+    view_mode: Res<ViewMode>,
+) {
+    let origin_offset = floating_origin
+        .as_ref()
+        .map(|fo| fo.position)
+        .unwrap_or(DVec3::ZERO);
+
+    for (sc, mut transform, mut vis) in fleet_query.iter_mut() {
+        match *view_mode {
+            ViewMode::System => {
+                *vis = Visibility::Inherited;
+                let render_du = (sc.position - origin_offset) * SCALING_FACTOR;
+                transform.translation = Vec3::new(
+                    render_du.x as f32,
+                    render_du.y as f32,
+                    render_du.z as f32,
+                );
+            }
+            ViewMode::Starmap => {
+                // Hide mesh sphere in starmap; trajectory is drawn by gizmos at AU scale.
+                *vis = Visibility::Hidden;
+            }
+        }
     }
 }
 

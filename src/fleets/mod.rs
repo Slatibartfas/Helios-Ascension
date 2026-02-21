@@ -17,6 +17,7 @@ pub use components::{
     ActiveManeuver, Fleet, FleetOrbit, PendingFleetActions, PlannedTransfer, ShipInfo,
     SpawnFleetAction, StartTransferAction,
 };
+pub use systems::FleetMesh;
 pub use orbital_mechanics::{
     calculate_transfer_options, estimate_fuel_cost_tonnes, format_delta_v, format_duration,
     hohmann_transfer, rocket_equation_fuel_fraction, TransferOption, AU_IN_METERS, G_CONST,
@@ -45,6 +46,11 @@ impl Plugin for FleetPlugin {
                         .after(systems::update_fleet_maneuver_positions),
                     systems::draw_fleet_icons
                         .after(systems::update_fleet_orbit_positions),
+                    systems::draw_fleet_starmap_icons,
+                    systems::ensure_fleet_meshes,
+                    systems::update_fleet_transforms
+                        .after(systems::update_fleet_orbit_positions)
+                        .after(systems::update_fleet_maneuver_positions),
                 ),
             );
     }
