@@ -108,11 +108,11 @@ impl LagrangeTarget {
     /// Short qualifier shown after the L-number in the UI.
     pub fn qualifier(&self) -> &'static str {
         match self.point {
-            1 => "Inner (planet–star)",
-            2 => "Outer (beyond planet)",
+            1 => "Inner",
+            2 => "Outer",
             3 => "Opposition",
-            4 => "Leading Trojan (+60°)",
-            5 => "Trailing Trojan (−60°)",
+            4 => "Leading (+60°)",
+            5 => "Trailing (-60°)",
             _ => "",
         }
     }

@@ -31,7 +31,8 @@ pub use procedural::{
 };
 pub use systems::{
     animate_marker_dots, check_natural_destruction, despawn_hover_markers,
-    despawn_selection_markers, draw_orbit_paths, fade_destroyed_bodies, handle_body_hover,
+    despawn_selection_markers, draw_lagrange_point_rings, draw_orbit_paths,
+    fade_destroyed_bodies, handle_body_hover,
     handle_body_selection, manage_comet_tail_meshes, orbit_position_from_mean_anomaly,
     propagate_orbits, scale_markers_with_zoom, spawn_hover_markers, spawn_selection_markers,
     update_body_lod_visibility, update_orbit_visibility, update_render_transform,
@@ -67,6 +68,7 @@ impl Plugin for AstronomyPlugin {
                     update_body_lod_visibility,
                     // Rendering
                     draw_orbit_paths.after(update_orbit_visibility),
+                    draw_lagrange_point_rings.after(update_orbit_visibility),
                     
                     // Comet Visuals
                     manage_comet_tail_meshes,

@@ -1790,6 +1790,238 @@ pub fn scale_markers_with_zoom(
     }
 }
 
+/// Approximate solar mass (kg) used for Hill-sphere and L-point calculations.
+const SOLAR_MASS_KG: f64 = 1.989e30;
+
+/// Draws blue Lagrange-point orbit rings and point markers for the currently
+/// anchored body, matching the moon-orbit ring visibility rule:
+///
+/// * **Planet anchored** → draw the 5 Sun–Planet Lagrange rings (centered on the
+///   star, which is at the scene origin).
+/// * **Moon anchored** → draw the 5 Planet–Moon Lagrange rings (centered on the
+///   parent planet's rendered position).
+///
+/// Only drawn in `ViewMode::System` (not Starmap).
+/// Does nothing when no body is anchored or the anchored body type is a
+/// comet, asteroid, dwarf planet without moons, or star.
+pub fn draw_lagrange_point_rings(
+    mut gizmos: Gizmos,
+    view_mode: Res<ViewMode>,
+    current_system: Res<CurrentStarSystem>,
+    camera_query: Query<&CameraAnchor, With<GameCamera>>,
+    body_query: Query<(
+        &CelestialBody,
+        &SpaceCoordinates,
+        Option<&KeplerOrbit>,
+        Option<&LogicalParent>,
+        Option<&SystemId>,
+        Option<&Moon>,
+    )>,
+    floating_origin: Option<Res<crate::astronomy::components::FloatingOrigin>>,
+) {
+    use std::f32::consts::TAU;
+
+    if *view_mode != ViewMode::System {
+        return;
+    }
+
+    let Ok(anchor) = camera_query.single() else {
+        return;
+    };
+    let Some(anchored) = anchor.0 else {
+        return;
+    };
+
+    let Ok((
+        anchored_body,
+        anchored_sc,
+        anchored_ko,
+        anchored_parent,
+        anchored_sys,
+        is_moon,
+    )) = body_query.get(anchored) else {
+        return;
+    };
+
+    // Only current system
+    let body_system = anchored_sys.map(|s| s.0).unwrap_or(0);
+    if body_system != current_system.0 {
+        return;
+    }
+
+    let origin_offset = floating_origin
+        .as_ref()
+        .map(|fo| fo.position)
+        .unwrap_or(DVec3::ZERO);
+
+    // Convert a heliocentric AU position to render-space Vec3
+    let to_render = |pos: DVec3| -> Vec3 {
+        let s = (pos - origin_offset) * SCALING_FACTOR;
+        Vec3::new(s.x as f32, s.y as f32, s.z as f32)
+    };
+
+    // Colors for all L-point indicators
+    let ring_color = Color::srgba(0.25, 0.55, 1.0, 0.50); // soft blue, semi-transparent
+    let dot_color  = Color::srgba(0.50, 0.80, 1.0, 0.90); // brighter blue for the dots
+    // Slightly dimmer ring for L3/L4/L5 (they share the planet's orbital ring)
+    let l345_color = Color::srgba(0.20, 0.45, 0.95, 0.35);
+
+    const SEGMENTS: u32 = 72;
+
+    // Draw a dashed circle in the XY (ecliptic) plane.
+    // `center` — center in render space; `radius` — radius in render units.
+    let draw_ring = |gizmos: &mut Gizmos, center: Vec3, radius: f32, color: Color| {
+        for i in 0..SEGMENTS {
+            if i % 2 == 1 { continue; }   // every second segment skipped → dashed look
+            let a1 = (i     as f32 / SEGMENTS as f32) * TAU;
+            let a2 = ((i+1) as f32 / SEGMENTS as f32) * TAU;
+            let p1 = center + Vec3::new(a1.cos() * radius, a1.sin() * radius, 0.0);
+            let p2 = center + Vec3::new(a2.cos() * radius, a2.sin() * radius, 0.0);
+            gizmos.line(p1, p2, color);
+        }
+    };
+
+    // Draw a small cross-dot marker at a render-space position.
+    let draw_dot = |gizmos: &mut Gizmos, pos: Vec3, half: f32, color: Color| {
+        gizmos.line(pos - Vec3::X * half, pos + Vec3::X * half, color);
+        gizmos.line(pos - Vec3::Y * half, pos + Vec3::Y * half, color);
+    };
+
+    // Helper: position (AU, f64) along an angle at a given radius
+    let lp_pos = |r_au: f64, angle: f64| -> DVec3 {
+        DVec3::new(r_au * angle.cos(), r_au * angle.sin(), 0.0)
+    };
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Case A: Planet/GasGiant/DwarfPlanet anchored → Sun–Planet L-points
+    // ─────────────────────────────────────────────────────────────────────────
+    if is_moon.is_none()
+        && matches!(
+            anchored_body.body_type,
+            crate::plugins::solar_system_data::BodyType::Planet
+            | crate::plugins::solar_system_data::BodyType::GasGiant
+            | crate::plugins::solar_system_data::BodyType::DwarfPlanet
+        )
+    {
+        let Some(ko) = anchored_ko else { return };
+
+        let a_au = ko.semi_major_axis;
+        let m_planet = anchored_body.mass;
+        let r_hill = a_au * (m_planet / (3.0 * SOLAR_MASS_KG)).powf(1.0 / 3.0);
+
+        // Current heliocentric angle of the planet
+        let theta = anchored_sc.position.y.atan2(anchored_sc.position.x);
+
+        // Ring radii in render units
+        let l1_r = (a_au - r_hill) * SCALING_FACTOR as f64;
+        let l2_r = (a_au + r_hill) * SCALING_FACTOR as f64;
+        let l345_r = a_au * SCALING_FACTOR as f64;
+
+        let star_render = Vec3::ZERO;  // star is at scene origin
+
+        // Clamp so very small Hill spheres are still visible
+        let l1_radius = (l1_r as f32).max(40.0);
+        let l2_radius = (l2_r as f32).max(l1_radius + 40.0);
+        let l345_radius = l345_r as f32;
+
+        // Actual L-point positions in AU for the dot markers
+        let lp_positions: [DVec3; 5] = [
+            lp_pos(a_au - r_hill, theta),
+            lp_pos(a_au + r_hill, theta),
+            lp_pos(a_au, theta + std::f64::consts::PI),
+            lp_pos(a_au, theta + std::f64::consts::FRAC_PI_3),
+            lp_pos(a_au, theta - std::f64::consts::FRAC_PI_3),
+        ];
+
+        // L1 ring
+        draw_ring(&mut gizmos, star_render, l1_radius, ring_color);
+        // L2 ring (only drawn if meaningfully different from L1)
+        if (l2_radius - l1_radius).abs() > 5.0 {
+            draw_ring(&mut gizmos, star_render, l2_radius, ring_color);
+        }
+        // L3/L4/L5 share the planet orbit ring
+        draw_ring(&mut gizmos, star_render, l345_radius, l345_color);
+
+        // Dot markers + circle for each L-point
+        let dot_half = (r_hill * SCALING_FACTOR as f64 * 0.10).clamp(30.0, 200.0) as f32;
+        for pos_au in &lp_positions {
+            let render_pos = to_render(*pos_au);
+            draw_dot(&mut gizmos, render_pos, dot_half, dot_color);
+            gizmos.circle(
+                bevy::math::Isometry3d::from_translation(render_pos),
+                dot_half * 1.6,
+                dot_color,
+            );
+        }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+    // Case B: Moon anchored → Planet–Moon L-points
+    // ─────────────────────────────────────────────────────────────────────────
+    else if is_moon.is_some() {
+        let Some(ko) = anchored_ko else { return };
+        let Some(parent_lp) = anchored_parent else { return };
+
+        let Ok((parent_body, parent_sc, _, _, _, _)) = body_query.get(parent_lp.0) else {
+            return;
+        };
+
+        let a_moon = ko.semi_major_axis; // moon's SMA around its planet (AU)
+        let m_planet = parent_body.mass;
+        let m_moon = anchored_body.mass;
+
+        if m_planet <= 0.0 || m_moon <= 0.0 {
+            return;
+        }
+
+        let r_hill = a_moon * (m_moon / (3.0 * m_planet)).powf(1.0 / 3.0);
+
+        // Render-space center of the planet (rings centered here)
+        let parent_render = to_render(parent_sc.position);
+
+        // Moon's orbital angle around the planet
+        let moon_rel = anchored_sc.position - parent_sc.position;
+        let theta = moon_rel.y.atan2(moon_rel.x);
+
+        // Ring radii in render units
+        let sma_render = a_moon * SCALING_FACTOR as f64;
+        let l1_r = ((a_moon - r_hill) * SCALING_FACTOR as f64).max(10.0);
+        let l2_r = ((a_moon + r_hill) * SCALING_FACTOR as f64).max(l1_r + 10.0);
+
+        let l1_radius = l1_r as f32;
+        let l2_radius = l2_r as f32;
+        let l345_radius = sma_render as f32;
+
+        // L-point offsets from planet center in render units
+        let lp_offsets: [Vec3; 5] = [
+            Vec3::new((l1_r * theta.cos()) as f32,      (l1_r * theta.sin()) as f32,      0.0),
+            Vec3::new((l2_r * theta.cos()) as f32,      (l2_r * theta.sin()) as f32,      0.0),
+            Vec3::new((sma_render * (theta + std::f64::consts::PI).cos()) as f32,
+                       (sma_render * (theta + std::f64::consts::PI).sin()) as f32,      0.0),
+            Vec3::new((sma_render * (theta + std::f64::consts::FRAC_PI_3).cos()) as f32,
+                       (sma_render * (theta + std::f64::consts::FRAC_PI_3).sin()) as f32, 0.0),
+            Vec3::new((sma_render * (theta - std::f64::consts::FRAC_PI_3).cos()) as f32,
+                       (sma_render * (theta - std::f64::consts::FRAC_PI_3).sin()) as f32, 0.0),
+        ];
+
+        draw_ring(&mut gizmos, parent_render, l1_radius, ring_color);
+        if (l2_radius - l1_radius).abs() > 3.0 {
+            draw_ring(&mut gizmos, parent_render, l2_radius, ring_color);
+        }
+        draw_ring(&mut gizmos, parent_render, l345_radius, l345_color);
+
+        let dot_half = (r_hill * SCALING_FACTOR as f64 * 0.10).clamp(8.0, 60.0) as f32;
+        for offset in &lp_offsets {
+            let render_pos = parent_render + *offset;
+            draw_dot(&mut gizmos, render_pos, dot_half, dot_color);
+            gizmos.circle(
+                bevy::math::Isometry3d::from_translation(render_pos),
+                dot_half * 1.6,
+                dot_color,
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
