@@ -1819,8 +1819,6 @@ pub fn draw_lagrange_point_rings(
     )>,
     floating_origin: Option<Res<crate::astronomy::components::FloatingOrigin>>,
 ) {
-    use std::f32::consts::TAU;
-
     if *view_mode != ViewMode::System {
         return;
     }
@@ -1860,26 +1858,8 @@ pub fn draw_lagrange_point_rings(
         Vec3::new(s.x as f32, s.y as f32, s.z as f32)
     };
 
-    // Colors for all L-point indicators
-    let ring_color = Color::srgba(0.25, 0.55, 1.0, 0.50); // soft blue, semi-transparent
+    // Colors for L-point dot indicators
     let dot_color  = Color::srgba(0.50, 0.80, 1.0, 0.90); // brighter blue for the dots
-    // Slightly dimmer ring for L3/L4/L5 (they share the planet's orbital ring)
-    let l345_color = Color::srgba(0.20, 0.45, 0.95, 0.35);
-
-    const SEGMENTS: u32 = 72;
-
-    // Draw a dashed circle in the XY (ecliptic) plane.
-    // `center` — center in render space; `radius` — radius in render units.
-    let draw_ring = |gizmos: &mut Gizmos, center: Vec3, radius: f32, color: Color| {
-        for i in 0..SEGMENTS {
-            if i % 2 == 1 { continue; }   // every second segment skipped → dashed look
-            let a1 = (i     as f32 / SEGMENTS as f32) * TAU;
-            let a2 = ((i+1) as f32 / SEGMENTS as f32) * TAU;
-            let p1 = center + Vec3::new(a1.cos() * radius, a1.sin() * radius, 0.0);
-            let p2 = center + Vec3::new(a2.cos() * radius, a2.sin() * radius, 0.0);
-            gizmos.line(p1, p2, color);
-        }
-    };
 
     // Draw a small cross-dot marker at a render-space position.
     let draw_dot = |gizmos: &mut Gizmos, pos: Vec3, half: f32, color: Color| {
@@ -1912,18 +1892,6 @@ pub fn draw_lagrange_point_rings(
         // Current heliocentric angle of the planet
         let theta = anchored_sc.position.y.atan2(anchored_sc.position.x);
 
-        // Ring radii in render units
-        let l1_r = (a_au - r_hill) * SCALING_FACTOR as f64;
-        let l2_r = (a_au + r_hill) * SCALING_FACTOR as f64;
-        let l345_r = a_au * SCALING_FACTOR as f64;
-
-        let star_render = Vec3::ZERO;  // star is at scene origin
-
-        // Clamp so very small Hill spheres are still visible
-        let l1_radius = (l1_r as f32).max(40.0);
-        let l2_radius = (l2_r as f32).max(l1_radius + 40.0);
-        let l345_radius = l345_r as f32;
-
         // Actual L-point positions in AU for the dot markers
         let lp_positions: [DVec3; 5] = [
             lp_pos(a_au - r_hill, theta),
@@ -1933,17 +1901,8 @@ pub fn draw_lagrange_point_rings(
             lp_pos(a_au, theta - std::f64::consts::FRAC_PI_3),
         ];
 
-        // L1 ring
-        draw_ring(&mut gizmos, star_render, l1_radius, ring_color);
-        // L2 ring (only drawn if meaningfully different from L1)
-        if (l2_radius - l1_radius).abs() > 5.0 {
-            draw_ring(&mut gizmos, star_render, l2_radius, ring_color);
-        }
-        // L3/L4/L5 share the planet orbit ring
-        draw_ring(&mut gizmos, star_render, l345_radius, l345_color);
-
-        // Dot markers + circle for each L-point
-        let dot_half = (r_hill * SCALING_FACTOR as f64 * 0.10).clamp(30.0, 200.0) as f32;
+        // Dot markers + circle for each L-point (no orbit rings drawn)
+        let dot_half = (r_hill * SCALING_FACTOR as f64 * 0.10).clamp(5.0, 30.0) as f32;
         for pos_au in &lp_positions {
             let render_pos = to_render(*pos_au);
             draw_dot(&mut gizmos, render_pos, dot_half, dot_color);
@@ -1975,21 +1934,17 @@ pub fn draw_lagrange_point_rings(
 
         let r_hill = a_moon * (m_moon / (3.0 * m_planet)).powf(1.0 / 3.0);
 
-        // Render-space center of the planet (rings centered here)
+        // Render-space center of the planet (marker reference point)
         let parent_render = to_render(parent_sc.position);
 
         // Moon's orbital angle around the planet
         let moon_rel = anchored_sc.position - parent_sc.position;
         let theta = moon_rel.y.atan2(moon_rel.x);
 
-        // Ring radii in render units
+        // L-point offsets from planet center in render units
         let sma_render = a_moon * SCALING_FACTOR as f64;
         let l1_r = ((a_moon - r_hill) * SCALING_FACTOR as f64).max(10.0);
         let l2_r = ((a_moon + r_hill) * SCALING_FACTOR as f64).max(l1_r + 10.0);
-
-        let l1_radius = l1_r as f32;
-        let l2_radius = l2_r as f32;
-        let l345_radius = sma_render as f32;
 
         // L-point offsets from planet center in render units
         let lp_offsets: [Vec3; 5] = [
@@ -2003,13 +1958,8 @@ pub fn draw_lagrange_point_rings(
                        (sma_render * (theta - std::f64::consts::FRAC_PI_3).sin()) as f32, 0.0),
         ];
 
-        draw_ring(&mut gizmos, parent_render, l1_radius, ring_color);
-        if (l2_radius - l1_radius).abs() > 3.0 {
-            draw_ring(&mut gizmos, parent_render, l2_radius, ring_color);
-        }
-        draw_ring(&mut gizmos, parent_render, l345_radius, l345_color);
-
-        let dot_half = (r_hill * SCALING_FACTOR as f64 * 0.10).clamp(8.0, 60.0) as f32;
+        // Dot markers + circle for each L-point (no orbit rings drawn)
+        let dot_half = (r_hill * SCALING_FACTOR as f64 * 0.10).clamp(3.0, 15.0) as f32;
         for offset in &lp_offsets {
             let render_pos = parent_render + *offset;
             draw_dot(&mut gizmos, render_pos, dot_half, dot_color);

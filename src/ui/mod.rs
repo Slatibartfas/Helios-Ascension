@@ -9635,6 +9635,10 @@ fn render_transfer_planner(
                         { return None; }
                         // Exclude the fleet's current body and the chosen destination
                         if e == orbit.body || Some(e) == body_target_snap { return None; }
+                        // Only consider planets/bodies in the current star system
+                        if body_system_ids.get(e).map(|s| s.0).unwrap_or(0) != current_system_id {
+                            return None;
+                        }
                         let sma = maybe_ko?.semi_major_axis;
                         if sma < MIN_HELIOCENTRIC_SMA_AU { return None; }
                         let gm_p = G_CONST * body.mass;
