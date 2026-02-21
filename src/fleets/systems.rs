@@ -994,6 +994,142 @@ pub fn draw_fleet_transfer_preview(
     // Ghost body at predicted arrival position.
     draw_ghost_body(&mut gizmos, dp, dest_ring_r, dest_visual_r);
 }
+
+/// Draw the two-leg slingshot arc when a gravity-assist flyby is selected.
+///
+/// - **Leg 1** (origin → flyby body): lime-green dashed arc.
+/// - **Leg 2** (flyby body → destination): magenta dashed arc.
+/// - A bright yellow cross marker is drawn at the predicted flyby intercept.
+/// - A ghost-body circle is drawn at the predicted destination position.
+///
+/// The regular amber preview arc (`draw_fleet_transfer_preview`) continues to
+/// be drawn; this system adds the two-colour slingshot overlay on top.
+pub fn draw_gravity_assist_preview(
+    mut gizmos: Gizmos,
+    fleet_query: Query<(Entity, Option<&FleetOrbit>, Option<&ActiveManeuver>), With<Fleet>>,
+    body_query: Query<(&Transform, &CelestialBody, Option<&LogicalParent>), Without<Fleet>>,
+    kepler_query: Query<&KeplerOrbit, Without<Fleet>>,
+    amp_query: Query<&LocalOrbitAmplification, Without<Fleet>>,
+    fleet_ui_state: Res<FleetUiState>,
+    view_mode: Res<ViewMode>,
+    sim_time: Res<SimulationTime>,
+) {
+    if *view_mode != ViewMode::System { return; }
+    if !fleet_ui_state.show_transfer_popup { return; }
+    let Some(sel_ga_idx) = fleet_ui_state.selected_gravity_assist else { return; };
+    let Some(fleet_entity) = fleet_ui_state.selected_fleet else { return; };
+    let Some(target_entity) = fleet_ui_state.target_body else { return; };
+    let Some(ga_entry) = fleet_ui_state.gravity_assist_candidates.get(sel_ga_idx) else { return; };
+
+    let flyby_entity = ga_entry.flyby_entity;
+    let leg1_time = ga_entry.option.leg1_time_s;
+    let total_time = ga_entry.option.total_time_s;
+    let departure_offset_s = fleet_ui_state.departure_offset_days * 86_400.0;
+
+    let Ok((_, maybe_orbit, maybe_maneuver)) = fleet_query.get(fleet_entity) else { return; };
+    let origin_body = if let Some(orbit) = maybe_orbit {
+        orbit.body
+    } else if let Some(maneuver) = maybe_maneuver {
+        maneuver.destination_body
+    } else {
+        return;
+    };
+    // Sanity: all three bodies must be distinct
+    if origin_body == target_entity || origin_body == flyby_entity || flyby_entity == target_entity {
+        return;
+    }
+
+    let Ok((origin_t, origin_bd, _))  = body_query.get(origin_body)  else { return; };
+    let Ok((_, flyby_bd, _))           = body_query.get(flyby_entity) else { return; };
+    let Ok((dest_t,   dest_bd,   _))   = body_query.get(target_entity) else { return; };
+
+    let op = origin_t.translation;
+    let origin_ring_r = origin_bd.visual_radius * FLEET_ORBIT_RADIUS_MULT;
+    let flyby_ring_r  = flyby_bd.visual_radius  * FLEET_ORBIT_RADIUS_MULT;
+    let dest_ring_r   = dest_bd.visual_radius   * FLEET_ORBIT_RADIUS_MULT;
+
+    let current_sim_s = sim_time.elapsed_seconds();
+    let depart_s = current_sim_s + departure_offset_s;
+
+    // Predict flyby body position at end of Leg 1
+    let fp = predict_body_visual_pos(
+        flyby_entity, depart_s + leg1_time,
+        &body_query, &kepler_query, &amp_query,
+    ).unwrap_or_else(|| body_query.get(flyby_entity).map(|(t, _, _)| t.translation).unwrap_or(Vec3::ZERO));
+
+    // Predict destination body position at end of full two-leg transfer
+    let dp = predict_body_visual_pos(
+        target_entity, depart_s + total_time,
+        &body_query, &kepler_query, &amp_query,
+    ).unwrap_or(dest_t.translation);
+
+    const SEGS: u32 = 48;
+
+    // ── Leg 1: origin → flyby (lime-green dashes) ────────────────────────────
+    let dep1 = optimal_departure_angle(op, fp);
+    let dir1 = Vec3::new(dep1.cos(), dep1.sin(), 0.0);
+    let p0 = op + dir1 * origin_ring_r;
+    let tang0 = Vec3::new(-dep1.sin(), dep1.cos(), 0.0);
+    let inward1 = (op - fp).normalize_or_zero();
+    let p3_1 = fp + inward1 * flyby_ring_r;
+    let rad1 = (fp - op).normalize_or_zero();
+    let td1 = {
+        let a = Vec3::new(-rad1.y, rad1.x, 0.0);
+        if a.dot(tang0) >= 0.0 { a } else { -a }
+    };
+    let cl1 = (p3_1 - p0).length() * 0.40;
+    let p1_1 = p0     + tang0 * cl1;
+    let p2_1 = p3_1   - td1   * cl1;
+    let bez1 = |t: f32| -> Vec3 {
+        let u = 1.0 - t;
+        u*u*u*p0 + 3.0*u*u*t*p1_1 + 3.0*u*t*t*p2_1 + t*t*t*p3_1
+    };
+    for i in 0..SEGS {
+        if i % 2 == 1 { continue; }
+        let t0 = i as f32 / SEGS as f32;
+        let t1 = (i + 1) as f32 / SEGS as f32;
+        let alpha = 0.80 - 0.35 * t0;
+        gizmos.line(bez1(t0), bez1(t1), Color::srgba(0.3, 1.0, 0.4, alpha));
+    }
+
+    // ── Leg 2: flyby → destination (magenta dashes) ──────────────────────────
+    let dep2 = optimal_departure_angle(fp, dp);
+    let dir2 = Vec3::new(dep2.cos(), dep2.sin(), 0.0);
+    let p0_2 = fp + dir2 * flyby_ring_r;
+    let tang0_2 = Vec3::new(-dep2.sin(), dep2.cos(), 0.0);
+    let inward2 = (fp - dp).normalize_or_zero();
+    let p3_2 = dp + inward2 * dest_ring_r;
+    let rad2 = (dp - fp).normalize_or_zero();
+    let td2 = {
+        let a = Vec3::new(-rad2.y, rad2.x, 0.0);
+        if a.dot(tang0_2) >= 0.0 { a } else { -a }
+    };
+    let cl2 = (p3_2 - p0_2).length() * 0.40;
+    let p1_2 = p0_2 + tang0_2 * cl2;
+    let p2_2 = p3_2 - td2     * cl2;
+    let bez2 = |t: f32| -> Vec3 {
+        let u = 1.0 - t;
+        u*u*u*p0_2 + 3.0*u*u*t*p1_2 + 3.0*u*t*t*p2_2 + t*t*t*p3_2
+    };
+    for i in 0..SEGS {
+        if i % 2 == 1 { continue; }
+        let t0 = i as f32 / SEGS as f32;
+        let t1 = (i + 1) as f32 / SEGS as f32;
+        let alpha = 0.80 - 0.35 * t0;
+        gizmos.line(bez2(t0), bez2(t1), Color::srgba(1.0, 0.3, 0.8, alpha));
+    }
+
+    // ── Flyby node: yellow cross + ghost ring ─────────────────────────────────
+    let cross = flyby_ring_r * 2.5;
+    let node_color = Color::srgba(1.0, 1.0, 0.3, 0.9);
+    gizmos.line(fp - Vec3::X * cross, fp + Vec3::X * cross, node_color);
+    gizmos.line(fp - Vec3::Y * cross, fp + Vec3::Y * cross, node_color);
+    draw_ghost_body(&mut gizmos, fp, flyby_ring_r * 1.4, flyby_bd.visual_radius * 0.7);
+
+    // ── Destination ghost ─────────────────────────────────────────────────────
+    draw_ghost_body(&mut gizmos, dp, dest_ring_r, dest_bd.visual_radius);
+}
+
 // ── Startup ───────────────────────────────────────────────────────────────────
 
 /// Spawn a sample fleet in Earth's orbit at game start for demonstration.

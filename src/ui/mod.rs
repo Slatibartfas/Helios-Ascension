@@ -49,7 +49,8 @@ use crate::fleets::{
 };
 use crate::fleets::orbital_mechanics::{
     calculate_transfer_options, calculate_transfer_options_phased, compute_transfer_window,
-    format_delta_v, format_duration,
+    find_gravity_assist_options, format_delta_v, format_duration,
+    hohmann_transfer, GravityAssistOption,
 };
 
 /// Maximum time scale: 1 year per second (365.25 * 86400 ≈ 31,557,600)
@@ -118,6 +119,16 @@ impl LagrangeTarget {
     }
 }
 
+/// Pairs a [`GravityAssistOption`] (pure physics) with the ECS entity of the flyby
+/// body, so the 3-D slingshot preview renderer can resolve screen coordinates.
+#[derive(Debug, Clone)]
+pub struct GravityAssistEntry {
+    /// The computed gravity-assist trajectory data.
+    pub option: GravityAssistOption,
+    /// ECS entity for the flyby body (used by `draw_gravity_assist_preview`).
+    pub flyby_entity: Entity,
+}
+
 /// Per-frame UI state for the Fleets panel.
 ///
 /// Persists selected fleet and planned transfer between frames.
@@ -150,6 +161,11 @@ pub struct FleetUiState {
     pub planned_transfer: Option<PlannedTransfer>,
     /// Whether the floating Transfer Planner popup window is open.
     pub show_transfer_popup: bool,
+    /// Gravity-assist flyby candidates for the current heliocentric transfer.
+    /// Recomputed every frame when a body target is selected.
+    pub gravity_assist_candidates: Vec<GravityAssistEntry>,
+    /// Index of the currently chosen gravity-assist candidate (`None` = direct transfer).
+    pub selected_gravity_assist: Option<usize>,
 }
 
 impl FleetUiState {
@@ -163,6 +179,8 @@ impl FleetUiState {
         self.computed_options.clear();
         self.planned_transfer = None;
         self.selected_option = 0;
+        self.gravity_assist_candidates.clear();
+        self.selected_gravity_assist = None;
     }
 }
 
@@ -9605,6 +9623,82 @@ fn render_transfer_planner(
                 window_this_frame = Some(window);
                 opts
             };
+            // ── Gravity assist candidates (heliocentric transfers only) ─────────
+            // Collect planets between r1 and r2, compute two-leg patched-conic options.
+            // Only meaningful when GM ≈ GM_SUN (genuinely heliocentric transfer).
+            if (gm - GM_SUN).abs() < 1e10 && !is_course_correction {
+                let ga_bodies: Vec<(String, f64, f64, f64)> = body_query
+                    .iter()
+                    .filter_map(|(e, body, _, maybe_ko, _)| {
+                        if !matches!(body.body_type,
+                            BodyType::Planet | BodyType::GasGiant | BodyType::DwarfPlanet)
+                        { return None; }
+                        // Exclude the fleet's current body and the chosen destination
+                        if e == orbit.body || Some(e) == body_target_snap { return None; }
+                        let sma = maybe_ko?.semi_major_axis;
+                        if sma < MIN_HELIOCENTRIC_SMA_AU { return None; }
+                        let gm_p = G_CONST * body.mass;
+                        // Safe flyby periapsis: 3 × body radius (km → m → AU)
+                        let min_peri = (body.radius as f64 * 3_000.0) / AU_IN_METERS;
+                        Some((body.name.clone(), sma, gm_p, min_peri.max(1e-6)))
+                    })
+                    .collect();
+
+                let new_candidates: Vec<GravityAssistEntry> =
+                    find_gravity_assist_options(r1, r2, gm, &ga_bodies)
+                    .into_iter()
+                    .filter_map(|opt| {
+                        // Resolve each candidate to its ECS entity by name
+                        let entity = body_query
+                            .iter()
+                            .find(|(_, b, _, _, _)| b.name == opt.body_name)
+                            .map(|(e, _, _, _, _)| e)?;
+                        Some(GravityAssistEntry { option: opt, flyby_entity: entity })
+                    })
+                    .collect();
+
+                fleet_ui_state.gravity_assist_candidates = new_candidates;
+
+                // Validate selected index is still in-range (target may have changed)
+                if fleet_ui_state.selected_gravity_assist
+                    .map(|i| i >= fleet_ui_state.gravity_assist_candidates.len())
+                    .unwrap_or(false)
+                {
+                    fleet_ui_state.selected_gravity_assist = None;
+                }
+            } else {
+                fleet_ui_state.gravity_assist_candidates.clear();
+                fleet_ui_state.selected_gravity_assist = None;
+            }
+
+            // If a gravity assist is selected, prepend it as option 0 so the
+            // regular execute/select logic treats it uniformly.
+            if let Some(sel_ga) = fleet_ui_state.selected_gravity_assist {
+                let ga_data = fleet_ui_state.gravity_assist_candidates.get(sel_ga)
+                    .map(|e| (
+                        e.option.total_dv_ms,
+                        e.option.total_time_s,
+                        e.option.flyby_radius_au,
+                        e.option.dv_depart_ms + e.option.dv_mid_ms, // departure + mid-course
+                        e.option.dv_arrive_ms,
+                    ));
+                if let Some((total_dv, total_time, fly_r, dv1, dv2)) = ga_data {
+                    // Use Leg-2 Hohmann parameters for the transfer-orbit visualization
+                    // (the arc the fleet actually flies after the flyby).
+                    let (_, _, _, ga_sma, ga_ecc) = hohmann_transfer(fly_r, r2, gm);
+                    let ga_option = TransferOption {
+                        label: "Gravity Assist",
+                        total_delta_v_ms: total_dv,
+                        delta_v1_ms: dv1,   // actual departure + any mid-course burn
+                        delta_v2_ms: dv2,   // actual arrival circularisation
+                        transfer_time_s: total_time,
+                        sma_au: ga_sma,     // Leg-2 ellipse SMA for arc rendering
+                        eccentricity: ga_ecc,
+                        energy_multiplier: 1.0,
+                    };
+                    fleet_ui_state.computed_options.insert(0, ga_option);
+                }
+            }
             } else if let Some(ref lp) = lp_target_snap {
                 // Lagrange-point transfer: heliocentric Hohmann to the LP radius
                 let r1_lp = body_query.get(orbit.body).ok()
@@ -9722,6 +9816,132 @@ fn render_transfer_planner(
                     ("○ Poor", egui::Color32::from_rgb(220, 80, 60))
                 };
                 ui.label(egui::RichText::new(quality_str).size(11.0).color(quality_color));
+            });
+        }
+
+        // ── Gravity Assists panel ─────────────────────────────────────────────
+        // Shown whenever there are heliocentric flyby candidates for this route.
+        if !fleet_ui_state.gravity_assist_candidates.is_empty() {
+            ui.add_space(6.0);
+            let num_ga = fleet_ui_state.gravity_assist_candidates.len();
+            let header_text = format!("⚡ Gravity Assists ({num_ga} available)");
+            egui::CollapsingHeader::new(
+                egui::RichText::new(header_text)
+                    .size(12.0)
+                    .strong()
+                    .color(egui::Color32::from_rgb(120, 220, 255)),
+            )
+            .default_open(true)
+            .show(ui, |ui| {
+                // Snapshot data before mut-borrowing fleet_ui_state below
+                let snapped: Vec<(usize, String, f64, f64, f64, f64)> =
+                    fleet_ui_state.gravity_assist_candidates
+                        .iter()
+                        .enumerate()
+                        .map(|(i, e)| (
+                            i,
+                            e.option.body_name.clone(),
+                            e.option.dv_savings_ms,
+                            e.option.extra_time_s,
+                            e.option.window_period_s,
+                            e.option.v_inf_ms,
+                        ))
+                        .collect();
+
+                for (idx, body_name, savings, extra_t, win_period, v_inf) in snapped {
+                    let is_sel = fleet_ui_state.selected_gravity_assist == Some(idx);
+                    let beneficial = savings > 100.0;
+                    let header_color = if is_sel {
+                        egui::Color32::from_rgb(80, 255, 180)
+                    } else if beneficial {
+                        egui::Color32::from_rgb(160, 255, 100)
+                    } else {
+                        egui::Color32::GRAY
+                    };
+
+                    ui.group(|ui| {
+                        ui.set_min_width(ui.available_width());
+                        ui.label(
+                            egui::RichText::new(format!("⚡ via {body_name}"))
+                                .size(12.0)
+                                .strong()
+                                .color(header_color),
+                        );
+                        egui::Grid::new(format!("ga_grid_{idx}"))
+                            .num_columns(2)
+                            .spacing([8.0, 2.0])
+                            .show(ui, |ui| {
+                                if beneficial {
+                                    ui.label(egui::RichText::new("ΔV saved:").size(11.0));
+                                    ui.label(
+                                        egui::RichText::new(format_delta_v(savings))
+                                            .size(11.0)
+                                            .strong()
+                                            .color(egui::Color32::from_rgb(80, 220, 80)),
+                                    );
+                                } else {
+                                    ui.label(egui::RichText::new("Extra ΔV:").size(11.0));
+                                    ui.label(
+                                        egui::RichText::new(format_delta_v(-savings))
+                                            .size(11.0)
+                                            .color(egui::Color32::GRAY),
+                                    );
+                                }
+                                ui.end_row();
+
+                                ui.label(egui::RichText::new("Extra time:").size(11.0));
+                                let sign = if extra_t >= 0.0 { "+" } else { "" };
+                                ui.label(
+                                    egui::RichText::new(
+                                        format!("{sign}{}", format_duration(extra_t.abs()))
+                                    )
+                                    .size(11.0)
+                                    .color(egui::Color32::LIGHT_GRAY),
+                                );
+                                ui.end_row();
+
+                                ui.label(egui::RichText::new("Window every:").size(11.0));
+                                let win_str = if win_period.is_finite() {
+                                    format_duration(win_period)
+                                } else {
+                                    "∞".to_owned()
+                                };
+                                ui.label(
+                                    egui::RichText::new(win_str)
+                                        .size(11.0)
+                                        .color(egui::Color32::GRAY),
+                                );
+                                ui.end_row();
+
+                                ui.label(egui::RichText::new("v∞:").size(11.0));
+                                ui.label(
+                                    egui::RichText::new(format_delta_v(v_inf))
+                                        .size(11.0)
+                                        .color(egui::Color32::GRAY),
+                                );
+                                ui.end_row();
+                            });
+
+                        ui.horizontal(|ui| {
+                            if is_sel {
+                                if ui.small_button("✕ Clear Assist").clicked() {
+                                    fleet_ui_state.selected_gravity_assist = None;
+                                    // Shift selection back to direct Efficient option
+                                    fleet_ui_state.selected_option = 0;
+                                    fleet_ui_state.planned_transfer = None;
+                                }
+                            } else {
+                                let label = if beneficial { "⚡ Use Gravity Assist" } else { "Use Anyway" };
+                                if ui.small_button(label).clicked() {
+                                    fleet_ui_state.selected_gravity_assist = Some(idx);
+                                    fleet_ui_state.selected_option = 0; // GA is option 0
+                                    fleet_ui_state.planned_transfer = None;
+                                }
+                            }
+                        });
+                    });
+                    ui.add_space(2.0);
+                }
             });
         }
 

@@ -145,6 +145,186 @@ pub fn phase_dv_factor(delta_phi_rad: f64) -> f64 {
     1.0 + 1.4 * s * s
 }
 
+// ── Gravity-assist slingshot trajectories ────────────────────────────────────
+
+/// Minimum relative velocity (m/s) at the flyby body for the encounter to be
+/// worth including as a gravity-assist candidate.  Below this threshold the
+/// hyperbolic flyby deflection angle is negligible and the assist provides no
+/// meaningful benefit.
+const MIN_VIABLE_V_INF_MS: f64 = 50.0;
+///
+/// Produced by [`compute_gravity_assist`] for a single flyby body and by
+/// [`find_gravity_assist_options`] for all candidates on a given route.
+#[derive(Debug, Clone)]
+pub struct GravityAssistOption {
+    /// Display name of the flyby body (e.g. "Jupiter").
+    pub body_name: String,
+    /// Heliocentric orbit radius of the flyby body (AU).
+    pub flyby_radius_au: f64,
+    /// Hyperbolic excess velocity at closest approach (m/s).
+    pub v_inf_ms: f64,
+    /// Maximum ΔV the gravity assist can provide (m/s).
+    pub max_dv_assist_ms: f64,
+    /// Total ΔV for the full two-leg assisted trajectory (m/s).
+    pub total_dv_ms: f64,
+    /// ΔV savings vs a direct Hohmann (positive = assist saves propellant, m/s).
+    pub dv_savings_ms: f64,
+    /// Total travel time for the assisted trajectory (seconds).
+    pub total_time_s: f64,
+    /// Extra travel time vs the direct Hohmann (seconds; negative means shorter).
+    pub extra_time_s: f64,
+    /// Approximate alignment-window repeat period — the synodic period of the
+    /// origin body with respect to the flyby body (seconds).
+    pub window_period_s: f64,
+    /// Half-period of the Leg 1 transfer ellipse (origin → flyby, seconds).
+    /// Used by the render system to predict the flyby body position at intercept.
+    pub leg1_time_s: f64,
+    /// Half-period of the Leg 2 transfer ellipse (flyby → destination, seconds).
+    pub leg2_time_s: f64,
+    // ── Individual burn breakdown (used by the execute logic) ─────────────────
+    /// Departure burn ΔV at the origin (m/s).
+    pub dv_depart_ms: f64,
+    /// Mid-course correction at the flyby node (m/s); 0 when the kick is sufficient.
+    pub dv_mid_ms: f64,
+    /// Arrival circularisation burn at the destination (m/s).
+    pub dv_arrive_ms: f64,
+}
+
+/// Compute a single-flyby gravity-assist trajectory from `r1_au` to `r2_au`
+/// via an intermediate flyby body at `r_fly_au`.
+///
+/// Uses a **two-leg patched-conic** (Hohmann + hyperbolic flyby) approximation:
+///
+/// 1. **Leg 1**: spacecraft travels on a Hohmann semi-arc from r1 to r_fly.
+/// 2. **Flyby**: hyperbolic encounter at r_fly; maximum ΔV kick limited by
+///    `min_periapsis_au` (minimum safe closest-approach distance).
+/// 3. **Leg 2**: spacecraft continues from r_fly to r2 using the post-flyby
+///    velocity; a mid-course correction burn is added if needed.
+///
+/// All distance parameters in AU; `gm` / `gm_planet` in m³ s⁻².
+pub fn compute_gravity_assist(
+    r1_au: f64,
+    r2_au: f64,
+    r_fly_au: f64,
+    gm: f64,
+    gm_planet: f64,
+    flyby_body_name: String,
+    min_periapsis_au: f64,
+) -> GravityAssistOption {
+    let r1 = r1_au * AU_IN_METERS;
+    let r2 = r2_au * AU_IN_METERS;
+    let r_fly = r_fly_au * AU_IN_METERS;
+    let r_peri = min_periapsis_au * AU_IN_METERS;
+
+    // Direct Hohmann for ΔV comparison
+    let (dv_d1, dv_d2, t_direct, _, _) = hohmann_transfer(r1_au, r2_au, gm);
+    let total_dv_direct = dv_d1 + dv_d2;
+
+    // ── Leg 1: r1 → r_fly ────────────────────────────────────────────────────
+    let a1 = (r1 + r_fly) / 2.0;
+    let v_circ1 = (gm / r1).sqrt();
+    let v_leg1_at_r1 = (gm * (2.0 / r1 - 1.0 / a1)).sqrt();
+    let dv_depart = (v_leg1_at_r1 - v_circ1).abs();
+
+    // Spacecraft velocity on the Leg 1 ellipse at the flyby radius
+    let v_sc = (gm * (2.0 / r_fly - 1.0 / a1)).sqrt();
+    // Flyby body's circular orbital velocity
+    let v_planet = (gm / r_fly).sqrt();
+    // Relative speed (v_inf) — always positive
+    let v_inf = (v_sc - v_planet).abs();
+
+    // ── Maximum gravity-assist kick ───────────────────────────────────────────
+    // Deflection angle limited by minimum flyby periapsis:
+    //   sin(δ/2) = 1 / (1 + r_peri × v_inf² / GM_planet)
+    let term = if gm_planet > 0.0 { r_peri * v_inf * v_inf / gm_planet } else { 1e9 };
+    let sin_half = 1.0 / (1.0 + term);
+    let max_dv_assist = 2.0 * v_inf * sin_half;
+
+    // ── Post-flyby spacecraft velocity ────────────────────────────────────────
+    // Outward (r2 > r1): craft is slower than planet → trailing flyby adds speed.
+    // Inward  (r2 < r1): craft is faster than planet → leading flyby removes speed.
+    let outward = r2_au > r1_au;
+    let v_after = if outward {
+        v_sc + max_dv_assist
+    } else {
+        (v_sc - max_dv_assist).max(0.0)
+    };
+
+    // ── Leg 2: r_fly → r2 ────────────────────────────────────────────────────
+    let a2 = (r_fly + r2) / 2.0;
+    // Velocity needed at r_fly to enter a Hohmann arc to r2
+    let v_need = (gm * (2.0 / r_fly - 1.0 / a2)).sqrt();
+    // Mid-course correction burn if the assist over- or under-shoots
+    let dv_mid = if outward {
+        (v_need - v_after).max(0.0) // need more speed than assist provided
+    } else {
+        (v_after - v_need).max(0.0) // assist decelerated too much
+    };
+    // Circularisation at destination
+    let v_circ2 = (gm / r2).sqrt();
+    let v_dest = (gm * (2.0 / r2 - 1.0 / a2)).sqrt();
+    let dv_arrive = (v_circ2 - v_dest).abs();
+
+    // ── Aggregates ────────────────────────────────────────────────────────────
+    let total_dv = dv_depart + dv_mid + dv_arrive;
+    let dv_savings = total_dv_direct - total_dv;
+    // Leg travel times (half-period of each transfer ellipse)
+    let t_leg1 = std::f64::consts::PI * (a1.powi(3) / gm).sqrt();
+    let t_leg2 = std::f64::consts::PI * (a2.powi(3) / gm).sqrt();
+    let total_time = t_leg1 + t_leg2;
+    let extra_time = total_time - t_direct;
+
+    // Synodic period between origin and flyby body (alignment-window cadence)
+    let n1 = (gm / r1.powi(3)).sqrt();
+    let n_fly = (gm / r_fly.powi(3)).sqrt();
+    let dn = (n1 - n_fly).abs();
+    let window_period_s = if dn > 1e-25 { std::f64::consts::TAU / dn } else { f64::INFINITY };
+
+    GravityAssistOption {
+        body_name: flyby_body_name,
+        flyby_radius_au: r_fly_au,
+        v_inf_ms: v_inf,
+        max_dv_assist_ms: max_dv_assist,
+        total_dv_ms: total_dv,
+        dv_savings_ms: dv_savings,
+        total_time_s: total_time,
+        extra_time_s: extra_time,
+        window_period_s,
+        leg1_time_s: t_leg1,
+        leg2_time_s: t_leg2,
+        dv_depart_ms: dv_depart,
+        dv_mid_ms: dv_mid,
+        dv_arrive_ms: dv_arrive,
+    }
+}
+
+/// Find all single-flyby gravity-assist opportunities for a heliocentric
+/// transfer from `r1_au` to `r2_au`.
+///
+/// Candidates are bodies whose orbit lies strictly between origin and destination.
+/// All candidates are returned (including ones with negative ΔV savings) so the
+/// player can understand why a particular flyby is not beneficial.
+///
+/// - `bodies`: `(name, sma_au, gm_planet, min_periapsis_au)` for each body.
+///   `min_periapsis_au` should be ≈ 3 × body radius for a safe flyby.
+pub fn find_gravity_assist_options(
+    r1_au: f64,
+    r2_au: f64,
+    gm: f64,
+    bodies: &[(String, f64, f64, f64)],
+) -> Vec<GravityAssistOption> {
+    let r_lo = r1_au.min(r2_au);
+    let r_hi = r1_au.max(r2_au);
+    bodies
+        .iter()
+        .filter(|(_, sma, _, _)| *sma > r_lo + 1e-4 && *sma < r_hi - 1e-4)
+        .map(|(name, sma, gm_p, r_min)| {
+            compute_gravity_assist(r1_au, r2_au, *sma, gm, *gm_p, name.clone(), *r_min)
+        })
+        .filter(|o| o.v_inf_ms > MIN_VIABLE_V_INF_MS) // exclude negligible-deflection encounters
+        .collect()
+}
+
 /// Compute phase-aware transfer options for a planned departure.
 ///
 /// This is the preferred alternative to [`calculate_transfer_options`] when
@@ -647,5 +827,83 @@ mod tests {
                 p.label, p.total_delta_v_ms, b.total_delta_v_ms
             );
         }
+    }
+
+    // ── Gravity assist tests ─────────────────────────────────────────────────
+
+    /// Earth → Saturn with a Jupiter flyby should save significant ΔV.
+    #[test]
+    fn test_earth_saturn_via_jupiter_saves_dv() {
+        let r_earth   = 1.000_f64;
+        let r_saturn  = 9.537_f64;
+        let r_jupiter = 5.204_f64;
+        let gm_jup = 1.267e17_f64;
+        // Minimum flyby periapsis ≈ 3 × Jupiter radius (71,492 km)
+        let r_peri = 3.0 * 71_492.0e3 / AU_IN_METERS;
+
+        let opt = compute_gravity_assist(
+            r_earth, r_saturn, r_jupiter, GM_SUN, gm_jup,
+            "Jupiter".to_string(), r_peri,
+        );
+
+        // Jupiter slingshot should save at least 1 km/s vs direct Hohmann
+        assert!(
+            opt.dv_savings_ms > 1_000.0,
+            "Jupiter flyby for Earth→Saturn should save >1 km/s, saved {:.0} m/s",
+            opt.dv_savings_ms
+        );
+        // v_inf at Jupiter should be significant
+        assert!(
+            opt.v_inf_ms > 1_000.0,
+            "v_inf at Jupiter should be >1 km/s, got {:.0} m/s",
+            opt.v_inf_ms
+        );
+        // leg1_time + leg2_time should equal total_time
+        assert!(
+            (opt.leg1_time_s + opt.leg2_time_s - opt.total_time_s).abs() < 1.0,
+            "leg1 + leg2 should equal total time: {:.0} + {:.0} ≠ {:.0}",
+            opt.leg1_time_s, opt.leg2_time_s, opt.total_time_s
+        );
+    }
+
+    /// find_gravity_assist_options returns Jupiter and Mars for Earth→Saturn,
+    /// but not Venus or Earth (outside the range).
+    #[test]
+    fn test_find_gravity_assist_earth_to_saturn() {
+        let r_peri_jup = 3.0 * 71_492.0e3 / AU_IN_METERS;
+        let bodies = vec![
+            ("Venus".to_string(),   0.723, 3.248e14, 3.0 * 6_051.0e3 / AU_IN_METERS),
+            ("Earth".to_string(),   1.000, 3.986e14, 3.0 * 6_371.0e3 / AU_IN_METERS),
+            ("Mars".to_string(),    1.524, 4.282e13, 3.0 * 3_390.0e3 / AU_IN_METERS),
+            ("Jupiter".to_string(), 5.204, 1.267e17, r_peri_jup),
+        ];
+
+        let opts = find_gravity_assist_options(1.0, 9.537, GM_SUN, &bodies);
+
+        assert!(opts.iter().any(|o| o.body_name == "Jupiter"),
+            "Jupiter should be a candidate for Earth→Saturn");
+        assert!(opts.iter().any(|o| o.body_name == "Mars"),
+            "Mars should be a candidate for Earth→Saturn");
+        assert!(!opts.iter().any(|o| o.body_name == "Venus"),
+            "Venus should NOT be a candidate (outside range 1.0–9.537 AU)");
+        assert!(!opts.iter().any(|o| o.body_name == "Earth"),
+            "Earth should NOT be a candidate (origin body)");
+    }
+
+    /// Earth → Mars: no gravity-assist candidates (no planets between 1 and 1.524 AU).
+    #[test]
+    fn test_no_gravity_assist_earth_to_mars() {
+        let bodies = vec![
+            ("Venus".to_string(),   0.723, 3.248e14, 3.0 * 6_051.0e3 / AU_IN_METERS),
+            ("Earth".to_string(),   1.000, 3.986e14, 3.0 * 6_371.0e3 / AU_IN_METERS),
+            ("Jupiter".to_string(), 5.204, 1.267e17, 3.0 * 71_492.0e3 / AU_IN_METERS),
+        ];
+
+        let opts = find_gravity_assist_options(1.0, 1.524, GM_SUN, &bodies);
+        assert!(
+            opts.is_empty(),
+            "No candidates between Earth and Mars, but got: {:?}",
+            opts.iter().map(|o| o.body_name.as_str()).collect::<Vec<_>>()
+        );
     }
 }

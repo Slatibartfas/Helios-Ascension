@@ -22,7 +22,8 @@ pub use orbital_mechanics::{
     calculate_transfer_options, calculate_transfer_options_phased, compute_transfer_window,
     estimate_fuel_cost_tonnes, format_delta_v, format_duration,
     hohmann_transfer, phase_dv_factor, rocket_equation_fuel_fraction,
-    TransferOption, TransferWindowInfo, AU_IN_METERS, G_CONST, GM_SUN,
+    GravityAssistOption, TransferOption, TransferWindowInfo,
+    AU_IN_METERS, G_CONST, GM_SUN,
 };
 pub use types::{PropulsionType, ShipClass};
 
@@ -53,6 +54,8 @@ impl Plugin for FleetPlugin {
                     systems::draw_fleet_orbit_rings
                         .after(systems::update_fleet_transforms),
                     systems::draw_fleet_transfer_preview
+                        .after(systems::update_fleet_transforms),
+                    systems::draw_gravity_assist_preview
                         .after(systems::update_fleet_transforms),
                     systems::ensure_fleet_meshes,
                     systems::update_fleet_transforms
