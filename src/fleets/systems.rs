@@ -319,7 +319,6 @@ pub fn draw_fleet_trajectories(
     floating_origin: Option<Res<FloatingOrigin>>,
     fleet_ui_state: Res<FleetUiState>,
     view_mode: Res<ViewMode>,
-    sim_time: Res<SimulationTime>,
 ) {
     let origin_offset = floating_origin
         .as_ref()
@@ -348,7 +347,7 @@ pub fn draw_fleet_trajectories(
             .unwrap_or(true);
 
         if !center_is_star && *view_mode == ViewMode::System {
-            // ── Local transfer: visual-space arc with predicted arrival position ──
+            // ── Local transfer: visual-space arc ──
             let origin_ring_r = body_query.get(maneuver.origin_body)
                 .map(|(_, b, _)| b.visual_radius * FLEET_ORBIT_RADIUS_MULT)
                 .unwrap_or(0.0);
@@ -361,36 +360,31 @@ pub fn draw_fleet_trajectories(
             let center_visual = body_query.get(maneuver.orbit_center)
                 .map(|(t, _, _)| t.translation).ok();
 
-            // Predict where the destination body will be when the fleet arrives.
-            let dp_predicted = predict_body_visual_pos(
-                maneuver.destination_body,
-                maneuver.arrival_time,
-                &body_query,
-                &kepler_query,
-                &amp_query,
-            );
-            let dp_current = body_query.get(maneuver.destination_body)
-                .map(|(t, _, _)| t.translation).ok();
-            let dp = dp_predicted.or(dp_current);
+            if let (Some(op), Some(cv)) = (origin_visual, center_visual) {
+                let dp_current = body_query.get(maneuver.destination_body)
+                    .ok().map(|(t, _, _)| t.translation);
+                let Some(dp) = dp_current else { continue; };
 
-            if let (Some(op), Some(dp), Some(cv)) = (origin_visual, dp, center_visual) {
-                // Departure: exact point on origin ring at stored departure angle.
+                // Departure: prograde tangent at the stored departure angle (always CCW).
                 let dep_angle = maneuver.departure_angle;
                 let dir_dep = Vec3::new(dep_angle.cos(), dep_angle.sin(), 0.0);
                 let p0 = op + dir_dep * origin_ring_r;
-                let tang_ccw = Vec3::new(-dep_angle.sin(), dep_angle.cos(), 0.0);
-                let tang_origin = if tang_ccw.dot(dp - p0) >= 0.0 { tang_ccw } else { -tang_ccw };
+                // Always use CCW (prograde) — flipping causes the arc to dive back through the planet.
+                let tang_origin = Vec3::new(-dep_angle.sin(), dep_angle.cos(), 0.0);
 
-                // Arrival: tangential approach at predicted destination ring.
+                // Arrival: point on the ring radially facing the origin body.
                 let radial_dest_raw = dp - cv;
                 let radial_dest = if radial_dest_raw.length() > 1.0 {
                     radial_dest_raw.normalize()
                 } else {
                     (dp - op).normalize_or_zero()
                 };
+                // p3 is on the arrival ring, on the side closest to the origin.
+                // The fleet threads into the ring from the inward-facing side.
+                let inward = (op - dp).normalize_or_zero();
+                let p3 = dp + inward * dest_ring_r;
                 let tang_d_a = Vec3::new(-radial_dest.y, radial_dest.x, 0.0);
                 let tang_dest = if tang_d_a.dot(tang_origin) >= 0.0 { tang_d_a } else { -tang_d_a };
-                let p3 = dp + tang_dest * dest_ring_r;
 
                 let ctrl_len = (p3 - p0).length() * 0.40;
                 let p1 = p0 + tang_origin * ctrl_len;
@@ -412,10 +406,16 @@ pub fn draw_fleet_trajectories(
                     prev = Some(pos);
                 }
 
-                // Ghost body at predicted arrival position.
-                draw_ghost_body(&mut gizmos, dp, dest_ring_r, dest_visual_r);
+                // Ghost at predicted arrival (separate from the arc endpoint which tracks current).
+                let dp_ghost = predict_body_visual_pos(
+                    maneuver.destination_body,
+                    maneuver.arrival_time,
+                    &body_query,
+                    &kepler_query,
+                    &amp_query,
+                ).unwrap_or(dp);
+                draw_ghost_body(&mut gizmos, dp_ghost, dest_ring_r, dest_visual_r);
             }
-            let _ = sim_time.elapsed_seconds(); // suppress unused-resource warning
             continue;
         }
 
@@ -710,12 +710,12 @@ pub fn update_fleet_transforms(
                 if let (Some((op, origin_ring_r)), Some((dp, dest_ring_r))) = (origin_data, dest_data) {
                     let progress = maneuver.progress(elapsed) as f32;
 
-                    // Reproduce the same Bezier used by draw_fleet_trajectories.
+                    // Reproduce the EXACT same Bezier as draw_fleet_trajectories.
                     let dep_angle = maneuver.departure_angle;
                     let dir_dep = Vec3::new(dep_angle.cos(), dep_angle.sin(), 0.0);
                     let p0 = op + dir_dep * origin_ring_r;
-                    let tang_ccw = Vec3::new(-dep_angle.sin(), dep_angle.cos(), 0.0);
-                    let tang_origin = if tang_ccw.dot(dp - p0) >= 0.0 { tang_ccw } else { -tang_ccw };
+                    // Always prograde (CCW), no flip.
+                    let tang_origin = Vec3::new(-dep_angle.sin(), dep_angle.cos(), 0.0);
 
                     let cv = body_query.get(maneuver.orbit_center)
                         .map(|(t, _)| t.translation).unwrap_or(dp);
@@ -725,9 +725,10 @@ pub fn update_fleet_transforms(
                     } else {
                         (dp - op).normalize_or_zero()
                     };
+                    let inward = (op - dp).normalize_or_zero();
+                    let p3 = dp + inward * dest_ring_r;
                     let tang_d_a = Vec3::new(-radial.y, radial.x, 0.0);
                     let tang_dest = if tang_d_a.dot(tang_origin) >= 0.0 { tang_d_a } else { -tang_d_a };
-                    let p3 = dp + tang_dest * dest_ring_r;
 
                     let ctrl_len = (p3 - p0).length() * 0.40;
                     let p1 = p0 + tang_origin * ctrl_len;
@@ -907,13 +908,12 @@ pub fn draw_fleet_transfer_preview(
         &amp_query,
     ).unwrap_or(dest_transform_now.translation);
 
-    // Departure: fleet actual orbit-ring position (live angle, updates every frame).
+    // Departure: prograde tangent at fleet's current orbit angle (always CCW, no flip).
     let dir_dep     = Vec3::new(departure_angle.cos(), departure_angle.sin(), 0.0);
     let p0          = op + dir_dep * origin_ring_r;
-    let tang_ccw    = Vec3::new(-departure_angle.sin(), departure_angle.cos(), 0.0);
-    let tang_origin = if tang_ccw.dot(dp - p0) >= 0.0 { tang_ccw } else { -tang_ccw };
+    let tang_origin = Vec3::new(-departure_angle.sin(), departure_angle.cos(), 0.0);
 
-    // Arrival: tangential at predicted destination ring.
+    // Arrival: point on the ring approached from the origin-facing (inward) side.
     let dest_center_pos = if dest_lp.map(|lp| lp.0) == Some(origin_body) {
         op
     } else if let Some(lp) = dest_lp {
@@ -927,9 +927,10 @@ pub fn draw_fleet_transfer_preview(
     } else {
         (dp - op).normalize_or_zero()
     };
+    let inward = (op - dp).normalize_or_zero();
+    let p3 = dp + inward * dest_ring_r;
     let tang_d_a  = Vec3::new(-radial_dest.y, radial_dest.x, 0.0);
     let tang_dest = if tang_d_a.dot(tang_origin) >= 0.0 { tang_d_a } else { -tang_d_a };
-    let p3 = dp + tang_dest * dest_ring_r;
 
     // Cubic Bezier.
     let ctrl_len = (p3 - p0).length() * 0.40;
