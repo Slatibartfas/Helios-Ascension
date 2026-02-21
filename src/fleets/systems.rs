@@ -8,7 +8,7 @@ use super::orbital_mechanics::AU_IN_METERS;
 use super::types::{PropulsionType, ShipClass};
 use bevy::time::Real;
 use crate::astronomy::components::FloatingOrigin;
-use crate::astronomy::{orbit_position_from_mean_anomaly, KeplerOrbit, SpaceCoordinates, SCALING_FACTOR};
+use crate::astronomy::{orbit_position_from_mean_anomaly, KeplerOrbit, LocalOrbitAmplification, SpaceCoordinates, SCALING_FACTOR};
 use crate::plugins::camera::{GameCamera, OrbitCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, LogicalParent};
 use crate::plugins::solar_system_data::BodyType;
@@ -238,6 +238,7 @@ fn predict_body_visual_pos(
     future_sim_s: f64,
     body_query: &Query<(&Transform, &CelestialBody, Option<&LogicalParent>), Without<Fleet>>,
     kepler_query: &Query<&KeplerOrbit, Without<Fleet>>,
+    amp_query: &Query<&LocalOrbitAmplification, Without<Fleet>>,
 ) -> Option<Vec3> {
     let kepler = kepler_query.get(target).ok()?;
     let (_, _, maybe_lp) = body_query.get(target).ok()?;
@@ -246,10 +247,13 @@ fn predict_body_visual_pos(
     let ma = kepler.mean_anomaly_epoch + kepler.mean_motion * future_sim_s;
     let pos_au = orbit_position_from_mean_anomaly(kepler, ma);
 
+    // Apply LocalOrbitAmplification (moons rendered further from parent than raw AU).
+    let amp = amp_query.get(target).map(|a| a.0 as f64).unwrap_or(1.0);
+
     let pos_scaled = Vec3::new(
-        (pos_au.x * SCALING_FACTOR) as f32,
-        (pos_au.y * SCALING_FACTOR) as f32,
-        (pos_au.z * SCALING_FACTOR) as f32,
+        (pos_au.x * SCALING_FACTOR * amp) as f32,
+        (pos_au.y * SCALING_FACTOR * amp) as f32,
+        (pos_au.z * SCALING_FACTOR * amp) as f32,
     );
 
     // Anchor to the parent body's current visual position.
@@ -311,6 +315,7 @@ pub fn draw_fleet_trajectories(
     center_coords: Query<&SpaceCoordinates, Without<Fleet>>,
     body_query: Query<(&Transform, &CelestialBody, Option<&LogicalParent>), Without<Fleet>>,
     kepler_query: Query<&KeplerOrbit, Without<Fleet>>,
+    amp_query: Query<&LocalOrbitAmplification, Without<Fleet>>,
     floating_origin: Option<Res<FloatingOrigin>>,
     fleet_ui_state: Res<FleetUiState>,
     view_mode: Res<ViewMode>,
@@ -362,6 +367,7 @@ pub fn draw_fleet_trajectories(
                 maneuver.arrival_time,
                 &body_query,
                 &kepler_query,
+                &amp_query,
             );
             let dp_current = body_query.get(maneuver.destination_body)
                 .map(|(t, _, _)| t.translation).ok();
@@ -852,6 +858,7 @@ pub fn draw_fleet_transfer_preview(
     fleet_query: Query<(Entity, Option<&FleetOrbit>, Option<&ActiveManeuver>), With<Fleet>>,
     body_query: Query<(&Transform, &CelestialBody, Option<&LogicalParent>), Without<Fleet>>,
     kepler_query: Query<&KeplerOrbit, Without<Fleet>>,
+    amp_query: Query<&LocalOrbitAmplification, Without<Fleet>>,
     fleet_ui_state: Res<FleetUiState>,
     view_mode: Res<ViewMode>,
     sim_time: Res<SimulationTime>,
@@ -897,6 +904,7 @@ pub fn draw_fleet_transfer_preview(
         current_sim_s + travel_time_s,
         &body_query,
         &kepler_query,
+        &amp_query,
     ).unwrap_or(dest_transform_now.translation);
 
     // Departure: fleet actual orbit-ring position (live angle, updates every frame).
