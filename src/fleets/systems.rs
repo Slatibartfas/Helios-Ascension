@@ -6,10 +6,13 @@ use bevy::prelude::*;
 use super::components::{ActiveManeuver, Fleet, FleetOrbit, PendingFleetActions, ShipInfo};
 use super::orbital_mechanics::AU_IN_METERS;
 use super::types::{PropulsionType, ShipClass};
+use bevy::time::Real;
 use crate::astronomy::components::FloatingOrigin;
 use crate::astronomy::{orbit_position_from_mean_anomaly, SpaceCoordinates, SCALING_FACTOR};
 use crate::plugins::camera::{GameCamera, OrbitCamera, ViewMode};
-use crate::ui::{FleetUiState, SimulationTime};
+use crate::plugins::solar_system::CelestialBody;
+use crate::plugins::solar_system_data::BodyType;
+use crate::ui::{FleetUiState, SimulationTime, TimeScale};
 
 /// Marker component for entities that have a fleet mesh sphere.
 #[derive(Component)]
@@ -17,23 +20,32 @@ pub struct FleetMesh;
 
 // ── Position update systems ───────────────────────────────────────────────────
 
+/// One full visual revolution every 120 real seconds — readable at any time scale.
+const VISUAL_ORBIT_RATE: f64 = std::f64::consts::TAU / 120.0;
+
 /// Update `SpaceCoordinates` for every fleet in a stable parking orbit.
 ///
-/// The fleet's world position equals its parent body's position
-/// plus a small circular offset at `FleetOrbit.radius_au`.
+/// The visual orbital angle advances at a gameplay-friendly fixed real-time rate
+/// (1 rev per 120 s) that freezes when the simulation is paused.  The
+/// `SpaceCoordinates` are updated from the angle for collision/range queries,
+/// but the actual render position uses the body's visual `Transform` so moon
+/// orbit amplification is handled correctly.
 pub fn update_fleet_orbit_positions(
-    sim_time: Res<SimulationTime>,
+    real_time: Res<Time<Real>>,
+    time_scale: Res<TimeScale>,
     mut fleet_query: Query<
         (&mut SpaceCoordinates, &mut FleetOrbit),
         (With<Fleet>, Without<ActiveManeuver>),
     >,
     body_coords: Query<&SpaceCoordinates, Without<Fleet>>,
 ) {
-    let elapsed = sim_time.elapsed_seconds();
+    // Freeze the visual orbit when the player has paused the simulation.
+    let real_delta = if time_scale.is_paused() { 0.0 } else { real_time.delta_secs_f64() };
 
     for (mut fleet_sc, mut orbit) in fleet_query.iter_mut() {
-        // Advance the visual orbital angle
-        orbit.angle_rad = (orbit.angular_velocity * elapsed).rem_euclid(std::f64::consts::TAU);
+        // Advance the visual orbital angle at a slow, legible rate.
+        orbit.angle_rad = (orbit.angle_rad + VISUAL_ORBIT_RATE * real_delta)
+            .rem_euclid(std::f64::consts::TAU);
 
         if let Ok(body_sc) = body_coords.get(orbit.body) {
             let offset = DVec3::new(
@@ -156,6 +168,7 @@ pub fn process_fleet_actions(
         let maneuver = ActiveManeuver {
             transfer_orbit: t.transfer_orbit,
             orbit_center: t.orbit_center,
+            origin_body: t.origin_body,
             departure_time: elapsed,
             arrival_time: elapsed + t.duration_s,
             destination_body: t.destination_body,
@@ -182,10 +195,16 @@ pub fn process_fleet_actions(
 
 /// Draw the trajectory arc for the selected fleet.
 /// In System view uses SCALING_FACTOR; in Starmap view uses raw AU (1 unit = 1 AU).
+///
+/// For local (non-heliocentric) transfers the trajectory is drawn in **visual space**
+/// by interpolating between the origin and destination body render positions.
+/// Heliocentric transfers continue to use the physics-accurate Keplerian arc.
 pub fn draw_fleet_trajectories(
     mut gizmos: Gizmos,
+    sim_time: Res<SimulationTime>,
     fleet_query: Query<(Entity, &ActiveManeuver), With<Fleet>>,
     center_coords: Query<&SpaceCoordinates, Without<Fleet>>,
+    body_query: Query<(&Transform, &CelestialBody), Without<Fleet>>,
     floating_origin: Option<Res<FloatingOrigin>>,
     fleet_ui_state: Res<FleetUiState>,
     view_mode: Res<ViewMode>,
@@ -201,6 +220,7 @@ pub fn draw_fleet_trajectories(
     };
 
     const SEGMENTS: u32 = 64;
+    let elapsed = sim_time.elapsed_seconds();
 
     for (entity, maneuver) in fleet_query.iter() {
         // In System view only draw for the selected fleet, in Starmap always draw.
@@ -212,6 +232,60 @@ pub fn draw_fleet_trajectories(
             }
         }
 
+        // Determine if this is a local (planet-centric) transfer by checking whether
+        // the orbit center is a star. For local transfers we draw in visual space.
+        let center_is_star = body_query.get(maneuver.orbit_center)
+            .map(|(_, b)| b.body_type == BodyType::Star)
+            .unwrap_or(true); // default to heliocentric treatment if unknown
+
+        if !center_is_star && *view_mode == ViewMode::System {
+            // ── Local transfer: visual-space arc clipped to orbit ring boundaries ──
+            let origin_ring_r = body_query.get(maneuver.origin_body)
+                .map(|(_, b)| b.visual_radius * 2.0)
+                .unwrap_or(0.0);
+            let dest_ring_r = body_query.get(maneuver.destination_body)
+                .map(|(_, b)| b.visual_radius * 2.0)
+                .unwrap_or(0.0);
+            let origin_visual = body_query.get(maneuver.origin_body).map(|(t, _)| t.translation).ok();
+            let dest_visual = body_query.get(maneuver.destination_body).map(|(t, _)| t.translation).ok();
+
+            if let (Some(op), Some(dp)) = (origin_visual, dest_visual) {
+                let forward = dp - op;
+                let arc_height = forward.length() * 0.3;
+                let perp = Vec3::new(-forward.y, forward.x, 0.0).normalize_or_zero();
+
+                // Helper: evaluate arc position at parameter t ∈ [0,1]
+                let arc_pos = |t: f32| -> Vec3 {
+                    let base = op.lerp(dp, t);
+                    let bulge = perp * arc_height * (t * std::f32::consts::PI).sin();
+                    base + bulge
+                };
+
+                // Only draw segments that lie outside both orbit rings.
+                // This naturally clips the arc at the ring boundaries.
+                let mut prev: Option<Vec3> = None;
+                for i in 0..=SEGMENTS {
+                    let t_frac = i as f32 / SEGMENTS as f32;
+                    let pos = arc_pos(t_frac);
+                    let inside_origin = pos.distance(op) < origin_ring_r;
+                    let inside_dest   = pos.distance(dp) < dest_ring_r;
+
+                    if inside_origin || inside_dest {
+                        prev = None; // lift the pen — restart outside the ring
+                        continue;
+                    }
+
+                    if let Some(prev_pos) = prev {
+                        let alpha = 0.85 - 0.35 * t_frac;
+                        gizmos.line(prev_pos, pos, Color::srgba(0.3, 0.8, 1.0, alpha));
+                    }
+                    prev = Some(pos);
+                }
+            }
+            continue;
+        }
+
+        // ── Heliocentric / Starmap: physics-accurate Keplerian arc ──
         let center_pos = center_coords
             .get(maneuver.orbit_center)
             .map(|sc| sc.position)
@@ -252,7 +326,7 @@ pub fn draw_fleet_trajectories(
 pub fn draw_fleet_selection_reticule(
     mut gizmos: Gizmos,
     fleet_ui_state: Res<FleetUiState>,
-    fleet_query: Query<&SpaceCoordinates, With<Fleet>>,
+    fleet_query: Query<(&SpaceCoordinates, Option<&Transform>), With<Fleet>>,
     floating_origin: Option<Res<FloatingOrigin>>,
     view_mode: Res<ViewMode>,
     camera_query: Query<&OrbitCamera, With<GameCamera>>,
@@ -260,7 +334,7 @@ pub fn draw_fleet_selection_reticule(
     let Some(selected) = fleet_ui_state.selected_fleet else {
         return;
     };
-    let Ok(sc) = fleet_query.get(selected) else {
+    let Ok((sc, maybe_transform)) = fleet_query.get(selected) else {
         return;
     };
 
@@ -271,8 +345,14 @@ pub fn draw_fleet_selection_reticule(
 
     let (center, arm) = match *view_mode {
         ViewMode::System => {
-            let du = (sc.position - origin_offset) * SCALING_FACTOR;
-            let pos = Vec3::new(du.x as f32, du.y as f32, du.z as f32);
+            // Use the fleet's already-computed visual Transform if available,
+            // so the reticule tracks the visual position (accounts for moon amplification).
+            let pos = if let Some(t) = maybe_transform {
+                t.translation
+            } else {
+                let du = (sc.position - origin_offset) * SCALING_FACTOR;
+                Vec3::new(du.x as f32, du.y as f32, du.z as f32)
+            };
             (pos, 22.0_f32)
         }
         ViewMode::Starmap => {
@@ -417,23 +497,84 @@ pub fn ensure_fleet_meshes(
     }
 }
 
-/// Keep each fleet entity's `Transform` in sync with its `SpaceCoordinates`.
-/// In System view positions use SCALING_FACTOR; the mesh is hidden in Starmap view
-/// (starmap rendering is handled by `draw_fleet_trajectories` gizmos at AU scale).
+/// Keep each fleet entity's `Transform` in sync with its position, and control
+/// mesh visibility:
+///
+/// - **Orbiting + unselected**: hidden (the orbit ring gizmo provides context).
+/// - **Orbiting + selected**: shown just outside the parent body's visual sphere.
+/// - **In-transit (local)**: follows a visual arc between bodies.
+/// - **In-transit (heliocentric)**: computed from `SpaceCoordinates`.
+///
+/// The mesh sphere is also hidden in Starmap view.
 pub fn update_fleet_transforms(
-    mut fleet_query: Query<(&SpaceCoordinates, &mut Transform, &mut Visibility), With<Fleet>>,
+    mut fleet_query: Query<
+        (Entity, &SpaceCoordinates, &mut Transform, &mut Visibility, Option<&FleetOrbit>, Option<&ActiveManeuver>),
+        With<Fleet>,
+    >,
+    body_query: Query<(&Transform, &CelestialBody), Without<Fleet>>,
     floating_origin: Option<Res<FloatingOrigin>>,
     view_mode: Res<ViewMode>,
+    sim_time: Res<SimulationTime>,
+    fleet_ui_state: Res<FleetUiState>,
 ) {
     let origin_offset = floating_origin
         .as_ref()
         .map(|fo| fo.position)
         .unwrap_or(DVec3::ZERO);
+    let elapsed = sim_time.elapsed_seconds();
+    let selected = fleet_ui_state.selected_fleet;
 
-    for (sc, mut transform, mut vis) in fleet_query.iter_mut() {
-        match *view_mode {
-            ViewMode::System => {
-                *vis = Visibility::Inherited;
+    for (entity, sc, mut transform, mut vis, maybe_orbit, maybe_maneuver) in fleet_query.iter_mut() {
+        // Starmap: hide all fleet spheres (gizmos handle that view).
+        if *view_mode == ViewMode::Starmap {
+            *vis = Visibility::Hidden;
+            continue;
+        }
+
+        let is_selected = selected == Some(entity);
+        let is_in_transit = maybe_maneuver.is_some();
+
+        // Hide parked (non-transiting) fleets that are not selected.
+        if !is_in_transit && !is_selected {
+            *vis = Visibility::Hidden;
+            // Still update position so the reticule and orbit ring are accurate.
+        } else {
+            *vis = Visibility::Inherited;
+        }
+
+        if let Some(orbit) = maybe_orbit {
+            // ── Orbiting fleet: place just outside the parent body's visual sphere ──
+            if let Ok((body_transform, body)) = body_query.get(orbit.body) {
+                let dir = Vec3::new(
+                    orbit.angle_rad.cos() as f32,
+                    orbit.angle_rad.sin() as f32,
+                    0.0,
+                );
+                // Position at 2× visual radius so the marker sits clearly outside
+                let visual_orbit = body.visual_radius * 2.0;
+                transform.translation = body_transform.translation + dir * visual_orbit;
+            }
+        } else if let Some(maneuver) = maybe_maneuver {
+            // ── In-transit: check whether this is a local or heliocentric transfer ──
+            let center_is_star = body_query.get(maneuver.orbit_center)
+                .map(|(_, b)| b.body_type == BodyType::Star)
+                .unwrap_or(true);
+
+            if !center_is_star {
+                // Local transfer: interpolate visually between origin and destination
+                let origin_visual = body_query.get(maneuver.origin_body).map(|(t, _)| t.translation).ok();
+                let dest_visual = body_query.get(maneuver.destination_body).map(|(t, _)| t.translation).ok();
+                if let (Some(op), Some(dp)) = (origin_visual, dest_visual) {
+                    let progress = maneuver.progress(elapsed) as f32;
+                    let forward = dp - op;
+                    let arc_height = forward.length() * 0.3;
+                    let perp = Vec3::new(-forward.y, forward.x, 0.0).normalize_or_zero();
+                    let base = op.lerp(dp, progress);
+                    let bulge = perp * arc_height * (progress * std::f32::consts::PI).sin();
+                    transform.translation = base + bulge;
+                }
+            } else {
+                // Heliocentric transfer: physics-based position
                 let render_du = (sc.position - origin_offset) * SCALING_FACTOR;
                 transform.translation = Vec3::new(
                     render_du.x as f32,
@@ -441,11 +582,56 @@ pub fn update_fleet_transforms(
                     render_du.z as f32,
                 );
             }
-            ViewMode::Starmap => {
-                // Hide mesh sphere in starmap; trajectory is drawn by gizmos at AU scale.
-                *vis = Visibility::Hidden;
-            }
+        } else {
+            // Fallback: physics position
+            let render_du = (sc.position - origin_offset) * SCALING_FACTOR;
+            transform.translation = Vec3::new(
+                render_du.x as f32,
+                render_du.y as f32,
+                render_du.z as f32,
+            );
         }
+    }
+}
+
+/// Draw a thin dashed orbit ring around the body that the selected fleet is
+/// parked around.  Only drawn in System view when a fleet is selected and in
+/// orbit (not in transit).
+pub fn draw_fleet_orbit_rings(
+    mut gizmos: Gizmos,
+    fleet_ui_state: Res<FleetUiState>,
+    fleet_query: Query<(Entity, &FleetOrbit), With<Fleet>>,
+    body_query: Query<(&Transform, &CelestialBody), Without<Fleet>>,
+    view_mode: Res<ViewMode>,
+) {
+    if *view_mode != ViewMode::System {
+        return;
+    }
+    let Some(selected) = fleet_ui_state.selected_fleet else {
+        return;
+    };
+    let Ok((_, orbit)) = fleet_query.get(selected) else {
+        return; // selected fleet is in transit, no orbit ring
+    };
+    let Ok((body_transform, body)) = body_query.get(orbit.body) else {
+        return;
+    };
+
+    let center = body_transform.translation;
+    let radius = body.visual_radius * 2.0;
+    // Dashed effect: draw every other segment out of TOTAL_SEGMENTS
+    const TOTAL_SEGMENTS: u32 = 64;
+    let color = Color::srgba(0.2, 0.9, 0.3, 0.30);
+
+    for i in 0..TOTAL_SEGMENTS {
+        if i % 2 == 1 {
+            continue; // gap
+        }
+        let a1 = (i as f32 / TOTAL_SEGMENTS as f32) * std::f32::consts::TAU;
+        let a2 = ((i + 1) as f32 / TOTAL_SEGMENTS as f32) * std::f32::consts::TAU;
+        let p1 = center + Vec3::new(a1.cos() * radius, a1.sin() * radius, 0.0);
+        let p2 = center + Vec3::new(a2.cos() * radius, a2.sin() * radius, 0.0);
+        gizmos.line(p1, p2, color);
     }
 }
 

@@ -2,7 +2,6 @@
 //! ECS components for the fleet management and orbital transfer system.
 
 use bevy::prelude::*;
-use super::orbital_mechanics::AU_IN_METERS;
 use super::types::{PropulsionType, ShipClass};
 use crate::astronomy::KeplerOrbit;
 
@@ -135,27 +134,16 @@ pub struct FleetOrbit {
     pub body: Entity,
     /// Orbit radius in AU from the body's centre.
     pub radius_au: f64,
-    /// Current orbital angle in radians (in the ecliptic plane).
+    /// Current visual orbital angle in radians (in the ecliptic plane).
+    /// Advanced by `update_fleet_orbit_positions` at a gameplay-friendly rate,
+    /// not physics-accurate angular velocity.
     pub angle_rad: f64,
-    /// Angular velocity in rad/s (for visual animation).
-    pub angular_velocity: f64,
 }
 
 impl FleetOrbit {
     /// Create a circular orbit around `body` at `radius_au` astronomical units.
-    ///
-    /// The angular velocity is computed using a heliocentric approximation
-    /// (valid when the orbital radius is ≪ the body's distance from its star).
     pub fn new(body: Entity, radius_au: f64) -> Self {
-        use super::orbital_mechanics::GM_SUN;
-        let r_m = radius_au * AU_IN_METERS;
-        let period_s = 2.0 * std::f64::consts::PI * (r_m.powi(3) / GM_SUN).sqrt();
-        let angular_velocity = if period_s > 0.0 {
-            std::f64::consts::TAU / period_s
-        } else {
-            0.0
-        };
-        Self { body, radius_au, angle_rad: 0.0, angular_velocity }
+        Self { body, radius_au, angle_rad: 0.0 }
     }
 }
 
@@ -173,6 +161,8 @@ pub struct ActiveManeuver {
     pub transfer_orbit: KeplerOrbit,
     /// Entity of the star (or central body) the transfer orbit is centred on.
     pub orbit_center: Entity,
+    /// Entity of the body the fleet departed from (used for visual arc rendering).
+    pub origin_body: Entity,
     /// `SimulationTime.elapsed` at the moment of departure.
     pub departure_time: f64,
     /// `SimulationTime.elapsed` when the fleet is expected to arrive.
