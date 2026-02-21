@@ -9961,6 +9961,32 @@ fn ui_fleet_action_bar(
                     info!("Invade requested for {:?}", selected_entity);
                 }
 
+                ui.add_space(8.0);
+                ui.separator();
+                ui.add_space(4.0);
+
+                // Refuel — only when in stable orbit
+                let needs_fuel = fleet.ships.iter().any(|s| s.fuel_mass_t < s.max_fuel_t);
+                if ui
+                    .add_enabled(
+                        in_orbit && needs_fuel,
+                        egui::Button::new(egui::RichText::new("⛽ Refuel").size(13.0))
+                            .min_size(egui::Vec2::new(86.0, 36.0)),
+                    )
+                    .on_hover_text(if in_orbit {
+                        if needs_fuel {
+                            "Refuel all ships to full capacity"
+                        } else {
+                            "All ships are already at full fuel"
+                        }
+                    } else {
+                        "Cannot refuel while in transit"
+                    })
+                    .clicked()
+                {
+                    pending_fleet_actions.refuel_fleets.push(selected_entity);
+                }
+
                 // Cancel maneuver button — only in transit
                 if in_transit {
                     ui.add_space(8.0);
