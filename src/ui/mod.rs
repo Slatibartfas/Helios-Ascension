@@ -53,6 +53,11 @@ use crate::fleets::orbital_mechanics::{
 /// Maximum time scale: 1 year per second (365.25 * 86400 ≈ 31,557,600)
 const MAX_TIME_SCALE: f32 = 31_557_600.0;
 
+/// Semi-major axis threshold (AU) below which a body's orbit is considered
+/// non-heliocentric (e.g. a moon orbiting a planet rather than the star).
+/// Used when walking up the hierarchy to find the heliocentric SMA.
+const MIN_HELIOCENTRIC_SMA_AU: f64 = 0.05;
+
 /// Minimum supported window dimensions to prevent UI overlap
 /// Full HD (1920×1080) is required for the complex strategy game UI
 const MIN_WINDOW_WIDTH: f32 = 1920.0;
@@ -122,6 +127,16 @@ pub struct FleetUiState {
     pub target_body: Option<Entity>,
     /// Selected Lagrange-point target (mutually exclusive with `target_body`).
     pub target_lagrange: Option<LagrangeTarget>,
+    /// Selected top-level category in the two-level destination selector.
+    /// Holds the category label string (e.g. "Earth", "Mars", "Fleets").
+    pub selected_dest_category: Option<String>,
+    /// Fleet entity targeted for an intercept course.
+    /// Mutually exclusive with `target_body` and `target_lagrange`.
+    pub target_fleet: Option<Entity>,
+    /// Desired passing distance for fleet intercepts (km). 0 = rendezvous.
+    pub intercept_passing_km: f64,
+    /// Desired encounter speed for fleet intercepts (m/s). 0 = match velocity.
+    pub intercept_speed_ms: f64,
     /// Index into `computed_options` the player has highlighted.
     pub selected_option: usize,
     /// Transfer options computed for the current (fleet, target) pair.
@@ -137,6 +152,8 @@ impl FleetUiState {
     pub fn clear_target(&mut self) {
         self.target_body = None;
         self.target_lagrange = None;
+        self.target_fleet = None;
+        self.selected_dest_category = None;
         self.computed_options.clear();
         self.planned_transfer = None;
         self.selected_option = 0;
@@ -8744,6 +8761,7 @@ fn render_transfer_planner(
     orbit: &FleetOrbit,
     current_maneuver: Option<&ActiveManeuver>,
     body_query: &Query<(Entity, &CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>, Option<&LogicalParent>)>,
+    all_fleets_query: &Query<(Entity, &Fleet, &SpaceCoordinates, Option<&FleetOrbit>, Option<&ActiveManeuver>), Without<CelestialBody>>,
     fleet_ui_state: &mut FleetUiState,
     pending_actions: &mut PendingFleetActions,
     current_system_id: usize,
@@ -8781,12 +8799,14 @@ fn render_transfer_planner(
     //   Body   — selectable destination
     //   Ring   — selectable ring destination (no KeplerOrbit; radius from body.radius field)
     //   Lagrange — one of the 5 L-points of a planet-star system
+    //   FleetTarget — another fleet (for intercept course)
     #[derive(Clone)]
     enum DestEntry {
         Header(String),
         Body { entity: Entity, name: String },
         Ring { entity: Entity, name: String, parent_entity: Entity, radius_au: f64 },
         Lagrange { lp: LagrangeTarget },
+        FleetTarget { entity: Entity, name: String, in_transit: bool },
     }
 
     let mut dest_entries: Vec<DestEntry> = Vec::new();
@@ -9123,111 +9143,320 @@ fn render_transfer_planner(
         }
     }
 
-    // ── Render the selector ──────────────────────────────────────────────────
-    // Determine label for the current selection
-    let current_label = if let Some(ref lp) = fleet_ui_state.target_lagrange {
-        format!("L{} {} — {}", lp.point, lp.planet_name, lp.qualifier())
-    } else {
-        fleet_ui_state.target_body
-            .and_then(|e| body_query.get(e).ok())
-            .map(|(_, b, _, _, _)| {
-                if b.body_type == BodyType::Ring {
-                    format!("{} (Ring)", b.name)
-                } else {
-                    b.name.clone()
+    // ── Build hierarchical categories from dest_entries ─────────────────────
+    // Top-level headers ("…System", "Small Bodies", "Heliocentric") become
+    // category names in the first-level picker. Lagrange sub-headers are kept
+    // as visual separators inside each category group.
+    #[derive(Clone)]
+    struct DestGroup {
+        name: String,
+        entries: Vec<DestEntry>,
+    }
+
+    let mut groups: Vec<DestGroup> = Vec::new();
+    for entry in dest_entries {
+        let is_top_header = match &entry {
+            DestEntry::Header(label) => {
+                label.ends_with(" System")
+                    || label == "Planets"
+                    || label == "Heliocentric"
+                    || label.starts_with("Small Bodies")
+            }
+            _ => false,
+        };
+        if is_top_header {
+            let name = match &entry {
+                DestEntry::Header(label) => {
+                    label.strip_suffix(" System").unwrap_or(label).to_string()
                 }
-            })
-            .unwrap_or_else(|| "— Select —".to_owned())
-    };
+                _ => unreachable!(),
+            };
+            groups.push(DestGroup { name, entries: Vec::new() });
+        } else if let Some(g) = groups.last_mut() {
+            g.entries.push(entry);
+        }
+    }
+
+    // ── Fleet intercept category ─────────────────────────────────────────────
+    {
+        let other_fleets: Vec<(Entity, String, bool)> = all_fleets_query
+            .iter()
+            .filter(|(e, _, _, _, _)| *e != fleet_entity)
+            .map(|(e, f, _, _, maybe_ma)| (e, f.name.clone(), maybe_ma.is_some()))
+            .collect();
+        if !other_fleets.is_empty() {
+            let mut fleet_group = DestGroup { name: "Fleets".to_string(), entries: Vec::new() };
+            // In-orbit fleets first
+            for (e, name, in_transit) in &other_fleets {
+                fleet_group.entries.push(DestEntry::FleetTarget {
+                    entity: *e,
+                    name: name.clone(),
+                    in_transit: *in_transit,
+                });
+            }
+            groups.push(fleet_group);
+        }
+    }
+
+    // ── Render the two-level selector ────────────────────────────────────────
+    // Step 1: category (planet system / small bodies / fleets)
+    let cat_label = fleet_ui_state.selected_dest_category.clone()
+        .unwrap_or_else(|| "— System —".to_owned());
 
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Destination:").size(13.0));
-        egui::ComboBox::from_id_salt("fleet_target_body")
-            .selected_text(&current_label)
-            .width(280.0)
+        ui.label(egui::RichText::new("System:").size(13.0));
+        egui::ComboBox::from_id_salt("fleet_dest_category")
+            .selected_text(&cat_label)
+            .width(200.0)
             .show_ui(ui, |ui| {
-                let mut is_first = true;
-                for entry in &dest_entries {
-                    match entry {
-                        DestEntry::Header(label) => {
-                            // Skip the visual gap before the very first header —
-                            // any widget (including add_space) as the first item
-                            // inside show_ui can confuse egui's hit-test if the
-                            // popup layer rect isn't fully initialised yet.
-                            if !is_first {
-                                ui.add_space(5.0);
-                            }
-                            is_first = false;
-                            ui.label(
-                                egui::RichText::new(label.as_str())
-                                    .strong()
-                                    .size(11.0)
-                                    .color(egui::Color32::from_rgb(180, 180, 100)),
-                            );
-                        }
-                        DestEntry::Body { entity, name } => {
-                            is_first = false;
-                            let selected = fleet_ui_state.target_body == Some(*entity)
-                                && fleet_ui_state.target_lagrange.is_none();
-                            if ui.selectable_label(
-                                selected,
-                                egui::RichText::new(format!("  {name}")).size(12.0),
-                            ).clicked() && !selected {
-                                fleet_ui_state.target_body = Some(*entity);
-                                fleet_ui_state.target_lagrange = None;
-                                fleet_ui_state.computed_options.clear();
-                                fleet_ui_state.planned_transfer = None;
-                                fleet_ui_state.selected_option = 0;
-                            }
-                        }
-                        DestEntry::Ring { entity, name, .. } => {
-                            is_first = false;
-                            let selected = fleet_ui_state.target_body == Some(*entity)
-                                && fleet_ui_state.target_lagrange.is_none();
-                            if ui.selectable_label(
-                                selected,
-                                egui::RichText::new(format!("  {name} 💍")).size(12.0),
-                            ).clicked() && !selected {
-                                fleet_ui_state.target_body = Some(*entity);
-                                fleet_ui_state.target_lagrange = None;
-                                fleet_ui_state.computed_options.clear();
-                                fleet_ui_state.planned_transfer = None;
-                                fleet_ui_state.selected_option = 0;
-                            }
-                        }
-                        DestEntry::Lagrange { lp } => {
-                            is_first = false;
-                            let is_sel = fleet_ui_state.target_lagrange.as_ref()
-                                .map(|cur| cur.point == lp.point && cur.planet_entity == lp.planet_entity)
-                                .unwrap_or(false);
-                            let lp_label = format!("  L{}  —  {}", lp.point, lp.qualifier());
-                            if ui.selectable_label(
-                                is_sel,
-                                egui::RichText::new(lp_label)
-                                    .size(12.0)
-                                    .color(egui::Color32::from_rgb(140, 210, 160)),
-                            ).clicked() && !is_sel {
-                                fleet_ui_state.target_body = None;
-                                fleet_ui_state.target_lagrange = Some(lp.clone());
-                                fleet_ui_state.computed_options.clear();
-                                fleet_ui_state.planned_transfer = None;
-                                fleet_ui_state.selected_option = 0;
-                            }
-                        }
+                for group in &groups {
+                    let cat_is_sel = fleet_ui_state.selected_dest_category.as_deref() == Some(&group.name);
+                    if ui.selectable_label(
+                        cat_is_sel,
+                        egui::RichText::new(&group.name).size(13.0),
+                    ).clicked() && !cat_is_sel {
+                        fleet_ui_state.selected_dest_category = Some(group.name.clone());
+                        // Clear the specific target so the second step is re-selected
+                        fleet_ui_state.target_body = None;
+                        fleet_ui_state.target_lagrange = None;
+                        fleet_ui_state.target_fleet = None;
+                        fleet_ui_state.computed_options.clear();
+                        fleet_ui_state.planned_transfer = None;
+                        fleet_ui_state.selected_option = 0;
                     }
                 }
             });
     });
 
+    // Step 2: specific target within selected category
+    let active_group = groups.iter().find(|g| {
+        fleet_ui_state.selected_dest_category.as_deref() == Some(&g.name)
+    });
+
+    let target_label = if let Some(ref lp) = fleet_ui_state.target_lagrange {
+        format!("L{} {} — {}", lp.point, lp.planet_name, lp.qualifier())
+    } else if let Some(tf) = fleet_ui_state.target_fleet {
+        all_fleets_query.get(tf)
+            .map(|(_, f, _, _, ma)| {
+                let status = if ma.is_some() { "✈" } else { "🛰" };
+                format!("{status} {}", f.name)
+            })
+            .unwrap_or_else(|_| "— Target —".to_owned())
+    } else {
+        fleet_ui_state.target_body
+            .and_then(|e| body_query.get(e).ok())
+            .map(|(_, b, _, _, _)| {
+                if b.body_type == BodyType::Ring {
+                    format!("{} 💍", b.name)
+                } else {
+                    b.name.clone()
+                }
+            })
+            .unwrap_or_else(|| "— Target —".to_owned())
+    };
+
+    if active_group.is_some() {
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Target:").size(13.0));
+            egui::ComboBox::from_id_salt("fleet_target_body")
+                .selected_text(&target_label)
+                .width(280.0)
+                .show_ui(ui, |ui| {
+                    if let Some(group) = active_group {
+                        let mut first_sub = true;
+                        for entry in &group.entries {
+                            match entry {
+                                DestEntry::Header(label) => {
+                                    if !first_sub { ui.add_space(4.0); }
+                                    first_sub = false;
+                                    ui.label(
+                                        egui::RichText::new(label.as_str())
+                                            .strong()
+                                            .size(11.0)
+                                            .color(egui::Color32::from_rgb(180, 180, 100)),
+                                    );
+                                }
+                                DestEntry::Body { entity, name } => {
+                                    first_sub = false;
+                                    let selected = fleet_ui_state.target_body == Some(*entity)
+                                        && fleet_ui_state.target_lagrange.is_none()
+                                        && fleet_ui_state.target_fleet.is_none();
+                                    if ui.selectable_label(
+                                        selected,
+                                        egui::RichText::new(format!("  {name}")).size(12.0),
+                                    ).clicked() && !selected {
+                                        fleet_ui_state.target_body = Some(*entity);
+                                        fleet_ui_state.target_lagrange = None;
+                                        fleet_ui_state.target_fleet = None;
+                                        fleet_ui_state.computed_options.clear();
+                                        fleet_ui_state.planned_transfer = None;
+                                        fleet_ui_state.selected_option = 0;
+                                    }
+                                }
+                                DestEntry::Ring { entity, name, .. } => {
+                                    first_sub = false;
+                                    let selected = fleet_ui_state.target_body == Some(*entity)
+                                        && fleet_ui_state.target_lagrange.is_none()
+                                        && fleet_ui_state.target_fleet.is_none();
+                                    if ui.selectable_label(
+                                        selected,
+                                        egui::RichText::new(format!("  {name} 💍")).size(12.0),
+                                    ).clicked() && !selected {
+                                        fleet_ui_state.target_body = Some(*entity);
+                                        fleet_ui_state.target_lagrange = None;
+                                        fleet_ui_state.target_fleet = None;
+                                        fleet_ui_state.computed_options.clear();
+                                        fleet_ui_state.planned_transfer = None;
+                                        fleet_ui_state.selected_option = 0;
+                                    }
+                                }
+                                DestEntry::Lagrange { lp } => {
+                                    first_sub = false;
+                                    let is_sel = fleet_ui_state.target_lagrange.as_ref()
+                                        .map(|cur| cur.point == lp.point && cur.planet_entity == lp.planet_entity)
+                                        .unwrap_or(false);
+                                    let lp_label = format!("  L{}  —  {}", lp.point, lp.qualifier());
+                                    if ui.selectable_label(
+                                        is_sel,
+                                        egui::RichText::new(lp_label)
+                                            .size(12.0)
+                                            .color(egui::Color32::from_rgb(140, 210, 160)),
+                                    ).clicked() && !is_sel {
+                                        fleet_ui_state.target_body = None;
+                                        fleet_ui_state.target_lagrange = Some(lp.clone());
+                                        fleet_ui_state.target_fleet = None;
+                                        fleet_ui_state.computed_options.clear();
+                                        fleet_ui_state.planned_transfer = None;
+                                        fleet_ui_state.selected_option = 0;
+                                    }
+                                }
+                                DestEntry::FleetTarget { entity, name, in_transit } => {
+                                    first_sub = false;
+                                    let is_sel = fleet_ui_state.target_fleet == Some(*entity);
+                                    let icon = if *in_transit { "✈" } else { "🛰" };
+                                    let status = if *in_transit { "In transit" } else { "In orbit" };
+                                    let label = format!("  {icon} {name}  ({status})");
+                                    if ui.selectable_label(
+                                        is_sel,
+                                        egui::RichText::new(label)
+                                            .size(12.0)
+                                            .color(egui::Color32::from_rgb(100, 210, 240)),
+                                    ).clicked() && !is_sel {
+                                        fleet_ui_state.target_fleet = Some(*entity);
+                                        fleet_ui_state.target_body = None;
+                                        fleet_ui_state.target_lagrange = None;
+                                        fleet_ui_state.computed_options.clear();
+                                        fleet_ui_state.planned_transfer = None;
+                                        fleet_ui_state.selected_option = 0;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+        });
+    }
+
+    // ── Intercept parameters (shown only when a fleet is targeted) ────────────
+    if fleet_ui_state.target_fleet.is_some() {
+        ui.add_space(6.0);
+        ui.group(|ui| {
+            ui.label(
+                egui::RichText::new("⚔ Intercept Parameters")
+                    .strong()
+                    .size(13.0)
+                    .color(egui::Color32::from_rgb(220, 160, 80)),
+            );
+            ui.add_space(4.0);
+
+            // Passing distance slider: 0 = rendezvous / dock, up to 1 000 km = fast flyby
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Passing distance:").size(12.0));
+                let mut pd = fleet_ui_state.intercept_passing_km as f32;
+                if ui.add(
+                    egui::Slider::new(&mut pd, 0.0_f32..=1_000.0_f32)
+                        .suffix(" km")
+                        .text("0 = rendezvous")
+                        .step_by(10.0),
+                ).changed() {
+                    fleet_ui_state.intercept_passing_km = pd as f64;
+                    fleet_ui_state.computed_options.clear();
+                }
+            });
+
+            // Encounter speed: 0 = match velocity (boarding), up to 30 km/s = high-speed pass
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Encounter speed:").size(12.0));
+                let mut spd_kms = (fleet_ui_state.intercept_speed_ms / 1_000.0) as f32;
+                if ui.add(
+                    egui::Slider::new(&mut spd_kms, 0.0_f32..=30.0_f32)
+                        .suffix(" km/s")
+                        .text("0 = match velocity")
+                        .step_by(0.5),
+                ).changed() {
+                    fleet_ui_state.intercept_speed_ms = spd_kms as f64 * 1_000.0;
+                    fleet_ui_state.computed_options.clear();
+                }
+            });
+
+            ui.label(
+                egui::RichText::new(
+                    if fleet_ui_state.intercept_passing_km < 1.0 && fleet_ui_state.intercept_speed_ms < 100.0 {
+                        "Mode: Rendezvous / docking approach"
+                    } else if fleet_ui_state.intercept_passing_km > 100.0 || fleet_ui_state.intercept_speed_ms > 5_000.0 {
+                        "Mode: High-speed flyby (combat pass)"
+                    } else {
+                        "Mode: Close approach (boarding range)"
+                    }
+                )
+                .size(11.0)
+                .italics()
+                .color(egui::Color32::from_rgb(160, 200, 160)),
+            );
+        });
+    }
+
     // ── Compute transfer options when a target is selected ───────────────────
-    let any_target = fleet_ui_state.target_body.is_some() || fleet_ui_state.target_lagrange.is_some();
+    let fleet_target_snap = fleet_ui_state.target_fleet;
+    let any_target = fleet_ui_state.target_body.is_some()
+        || fleet_ui_state.target_lagrange.is_some()
+        || fleet_target_snap.is_some();
     // Snapshot lagrange so we can use it immutably while also mut-borrowing fleet_ui_state below
     let lp_target_snap = fleet_ui_state.target_lagrange.clone();
     let body_target_snap = fleet_ui_state.target_body;
 
     if any_target {
         // Recompute every frame so values stay current as time and fleet position change.
-        if let Some(target_entity) = body_target_snap {
+
+        // ── Fleet intercept computation ──────────────────────────────────────
+        if let Some(target_fleet_entity) = fleet_target_snap {
+            // Use the target fleet's current heliocentric position as the intercept radius.
+            // r2 = distance from origin (0,0,0) to target fleet position in AU.
+            let target_sc = all_fleets_query.get(target_fleet_entity)
+                .map(|(_, _, sc, _, _)| sc.position)
+                .unwrap_or(bevy::math::DVec3::ZERO);
+            let r2_au = target_sc.length().max(0.001);
+
+            // r1: heliocentric distance of the departing fleet
+            let r1_au = {
+                let own_ko = body_query.get(orbit.body).ok()
+                    .and_then(|(_, _, _, ko, _)| ko)
+                    .map(|ko| ko.semi_major_axis);
+                let origin_parent = body_query.get(orbit.body).ok()
+                    .and_then(|(_, _, _, _, lp)| lp).map(|lp| lp.0);
+                if own_ko.map(|s| s < MIN_HELIOCENTRIC_SMA_AU).unwrap_or(true) {
+                    origin_parent
+                        .and_then(|pe| body_query.get(pe).ok())
+                        .and_then(|(_, _, _, ko, _)| ko)
+                        .map(|ko| ko.semi_major_axis)
+                        .or(own_ko)
+                        .unwrap_or(1.0)
+                } else {
+                    own_ko.unwrap_or(1.0)
+                }
+            };
+            fleet_ui_state.computed_options = calculate_transfer_options(r1_au, r2_au, GM_SUN);
+        } else if let Some(target_entity) = body_target_snap {
             //   - Ring transfer (dest has no KeplerOrbit; use body.radius as r2):
             //       r1 = fleet orbit radius or origin SMA, r2 = ring.radius_au, GM = parent mass * G
             //   - Local transfer (dest orbits fleet's body, e.g. Earth→Moon):
@@ -9347,7 +9576,30 @@ fn render_transfer_planner(
 
         if !fleet_ui_state.computed_options.is_empty() {
             ui.add_space(6.0);
-            ui.label(egui::RichText::new("Transfer Options:").strong().size(13.0));
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Transfer Options:").strong().size(13.0));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(
+                        egui::RichText::new("⟳ Live")
+                            .size(10.0)
+                            .color(egui::Color32::from_rgb(100, 200, 120))
+                            .italics(),
+                    );
+                });
+            });
+            // For fleet intercepts note the encounter speed penalty
+            if fleet_target_snap.is_some() && fleet_ui_state.intercept_speed_ms > 100.0 {
+                let extra_dv_kms = fleet_ui_state.intercept_speed_ms / 1_000.0;
+                ui.label(
+                    egui::RichText::new(format!(
+                        "⚠ +{:.1} km/s added for encounter speed (not included in ΔV below)",
+                        extra_dv_kms
+                    ))
+                    .size(11.0)
+                    .italics()
+                    .color(egui::Color32::from_rgb(220, 160, 60)),
+                );
+            }
             ui.add_space(4.0);
 
             let fleet_wet_mass = fleet.total_wet_mass_t();
@@ -9478,6 +9730,13 @@ fn render_transfer_planner(
             if resp.clicked() {
                 let maybe_transfer = if let Some(ref lp) = lp_target_snap {
                     build_planned_transfer_lp(fleet_entity, fleet, orbit, lp, body_query, sel_option)
+                } else if let Some(tfe) = fleet_target_snap {
+                    // Intercept: build transfer using the target fleet's current orbit body as destination
+                    all_fleets_query.get(tfe).ok()
+                        .and_then(|(_, _, _, maybe_fo, _)| maybe_fo)
+                        .and_then(|fo| {
+                            build_planned_transfer(fleet_entity, fleet, orbit, fo.body, body_query, sel_option)
+                        })
                 } else if let Some(te) = body_target_snap {
                     build_planned_transfer(fleet_entity, fleet, orbit, te, body_query, sel_option)
                 } else {
@@ -9517,6 +9776,7 @@ fn render_transfer_planner(
 fn ui_transfer_planner_popup(
     mut contexts: EguiContexts,
     fleet_query: Query<(Entity, &Fleet, Option<&FleetOrbit>, Option<&ActiveManeuver>)>,
+    all_fleets_query: Query<(Entity, &Fleet, &SpaceCoordinates, Option<&FleetOrbit>, Option<&ActiveManeuver>), Without<CelestialBody>>,
     body_query: Query<(Entity, &CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>, Option<&LogicalParent>)>,
     body_system_ids: Query<&SystemId>,
     mut pending_actions: ResMut<PendingFleetActions>,
@@ -9579,6 +9839,7 @@ fn ui_transfer_planner_popup(
                         &orbit,
                         maybe_maneuver,
                         &body_query,
+                        &all_fleets_query,
                         &mut fleet_ui_state,
                         &mut pending_actions,
                         current_system_id,
