@@ -9226,8 +9226,8 @@ fn render_transfer_planner(
     let body_target_snap = fleet_ui_state.target_body;
 
     if any_target {
-        if fleet_ui_state.computed_options.is_empty() {
-            if let Some(target_entity) = body_target_snap {
+        // Recompute every frame so values stay current as time and fleet position change.
+        if let Some(target_entity) = body_target_snap {
             //   - Ring transfer (dest has no KeplerOrbit; use body.radius as r2):
             //       r1 = fleet orbit radius or origin SMA, r2 = ring.radius_au, GM = parent mass * G
             //   - Local transfer (dest orbits fleet's body, e.g. Earth→Moon):
@@ -9344,7 +9344,6 @@ fn render_transfer_planner(
                     .unwrap_or(1.0);
                 fleet_ui_state.computed_options = calculate_transfer_options(r1_lp, lp.radius_au, lp.gm);
             }
-        }
 
         if !fleet_ui_state.computed_options.is_empty() {
             ui.add_space(6.0);
@@ -9386,7 +9385,7 @@ fn render_transfer_planner(
                         .strong()
                         .color(row_color),
                     );
-                    if resp.clicked() && affordable {
+                    if resp.clicked() {
                         fleet_ui_state.selected_option = idx;
                         fleet_ui_state.planned_transfer = None;
                     }
