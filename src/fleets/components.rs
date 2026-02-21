@@ -305,6 +305,9 @@ pub struct StartTransferAction {
     /// Fuel (tonnes) to deduct immediately as an abort/correction burn penalty.
     /// Zero for transfers from a stable orbit; non-zero for mid-transit course corrections.
     pub abort_cost_t: f32,
+    /// How far in the future (seconds) the fleet should depart.  Zero = depart immediately.
+    /// The fleet remains in its parking orbit until this offset elapses.
+    pub departure_offset_s: f64,
 }
 
 /// A fully computed transfer plan, ready to be turned into an `ActiveManeuver`.

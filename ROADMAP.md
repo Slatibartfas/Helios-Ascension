@@ -1,8 +1,8 @@
 # Helios Ascension - Development Roadmap
 
-## Current Status: v0.2.0 - Core Mechanics Complete ✅
+## Current Status: v0.3.0 - Fleet & Orbital Transfer System Complete ✅
 
-The game has progressed beyond the foundation phase with fully implemented colony management, economy, research, and UI systems. The core gameplay loop is functional!
+The game has a fully implemented fleet management system with realistic orbital mechanics, transfer planning, gravity-assist routing, and Lagrange-point targeting. Core gameplay loop is functional and ships fly!
 
 ## Phase 1: Core Mechanics ✅ COMPLETE
 
@@ -32,11 +32,22 @@ The game has progressed beyond the foundation phase with fully implemented colon
 - [x] Construction queue system
 - [x] Building functionality (mining, research, habitation, industry, logistics, power, financial, military)
 
-### 2.2 Spacecraft (In Progress)
+### 2.2 Spacecraft ✅
 - [x] Ship design system foundation
-- [ ] Ship construction
-- [ ] Ship movement and navigation
-- [ ] Fleet management
+- [x] **7 ship classes**: Courier, Frigate, Destroyer, Cruiser, Research Vessel, Freighter, Station
+- [x] **5 propulsion types**: Chemical, Nuclear Thermal, Ion Drive, Nuclear Pulse, Fusion Torch
+- [x] Tsiolkovsky rocket-equation Δv and fuel calculations
+- [x] Fleet spawning from launch sites (Shipyard, Launch Site buildings)
+- [x] Fleet movement — orbital transfer arcs with Keplerian propagation
+- [x] **3 transfer options** per route (efficient Hohmann, moderate, fast)
+- [x] Transfer window planner with synodic-period countdown and phase-angle display
+- [x] Phased departure planning (departure-time slider)
+- [x] Gravity-assist flyby candidate computation
+- [x] Lagrange-point targeting (planetary L4/L5, Earth-Sun L1/L2/L3)
+- [x] Fleet intercept planning
+- [x] Mid-transit course correction and abort burns
+- [x] Refuelling from planetary stockpiles
+- [x] Trajectory visualisation (arcs, orbit rings, selection reticules, starmap icons)
 
 ### 2.3 Mining Operations ✅
 - [x] Mineral deposits on celestial bodies
@@ -118,11 +129,13 @@ The game has progressed beyond the foundation phase with fully implemented colon
 - [x] Information overlays (orbit paths, labels)
 - [x] Camera improvements (automatic view transitions)
 
-### 6.3 Audio (Planned)
-- [ ] Music system
+### 6.3 Audio ✅
+- [x] Music system (sequential playlist with CC-BY attribution overlay)
+- [x] **3 ambient tracks** by Scott Buckley (CC-BY 4.0)
 - [ ] Sound effects
 - [ ] Ambient audio
 - [ ] Audio settings
+
 
 ## Phase 7: Polish & Content
 
@@ -213,7 +226,7 @@ The game has progressed beyond the foundation phase with fully implemented colon
   - Solar system simulation with 377 bodies
   - Debug UI with inspector
 
-- **v0.2.0** - Core Mechanics ✅ COMPLETE (Current)
+- **v0.2.0** - Core Mechanics ✅ COMPLETE
   - Resource system (20 resource types)
   - Research tree (15 tech categories)
   - Colony management (29 building types)
@@ -222,17 +235,26 @@ The game has progressed beyond the foundation phase with fully implemented colon
   - Comprehensive UI panels
   - Starmap with 60 nearby star systems
 
-- **v0.3.0** - Expansion & Ships (In Progress)
-  - Interstellar travel
-  - Ship construction and movement
-  - Fleet management
-  - Advanced exploration
+- **v0.3.0** - Fleet & Orbital Transfer ✅ COMPLETE (Current)
+  - Fleet management system (7 ship classes, 5 propulsion types)
+  - Keplerian transfer arc propagation
+  - 3 transfer options per route (Hohmann / moderate / fast)
+  - Transfer window planner with synodic-period countdown
+  - Phased departure planning
+  - Gravity-assist flyby candidates
+  - Lagrange-point targeting (L4/L5, L1/L2/L3)
+  - Fleet intercept planning
+  - Mid-transit course correction and abort burns
+  - Refuelling from planetary stockpiles
+  - Full trajectory visualisation
+  - Background music playlist (CC-BY, Scott Buckley)
+  - Atmospheric scattering shader (Rayleigh + Mie)
 
-- **v0.4.0** - Strategic Depth (Next)
-  - Terraforming mechanics
-  - Advanced colony management
-  - Strategic resources
-  - Complex supply chains
+- **v0.4.0** - Expansion & Exploration (Next)
+  - Interstellar travel with realistic transit times
+  - Ship construction pipeline (Shipyard building integration)
+  - Advanced exploration mechanics
+  - Anomaly detection
 
 - **v0.5.0** - Factions & Diplomacy
   - AI factions
@@ -273,4 +295,4 @@ Priority areas for contribution:
 
 *This roadmap is subject to change based on community feedback and development priorities.*
 
-Last Updated: 2026-02-15
+Last Updated: 2026-02-21

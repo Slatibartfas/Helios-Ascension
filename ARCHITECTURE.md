@@ -4,7 +4,7 @@
 Helios Ascension is a Grand Strategy 4X game built with the Bevy Engine, featuring realistic orbital mechanics. The project emphasizes high performance, modularity, and extensibility.
 
 ## Core Technologies
-- **Game Engine**: Bevy 0.14 (ECS-based game engine)
+- **Game Engine**: Bevy 0.18 (ECS-based game engine)
 - **Language**: Rust 2021 edition
 - **Graphics**: 3D rendering with PBR materials
 - **Debug Tools**: bevy_inspector_egui for runtime inspection
@@ -165,6 +165,7 @@ Egui-based dashboard with time controls, body info, and resource display.
 - `SimulationTime`: Custom game clock (elapsed f64 seconds, no delta cap)
 - `TimeScale`: Speed multiplier (1 day/s, 1 wk/s, 1 mo/s, 1 yr/s)
 - `Selection`: Currently selected entity
+- `FleetUiState`: Per-frame fleet panel state — selected fleet, planned transfer, target body, gravity-assist candidates
 
 **Panels:**
 - Survey Panel: Body details, resources, population
@@ -172,14 +173,63 @@ Egui-based dashboard with time controls, body info, and resource display.
 - Research Panel: Technology tree browser
 - Economy Panel: Budget and resource tracking
 - Starmap Panel: System selection and navigation
-- Fleet Panel: Ship management (placeholder)
-- Shipbuilding Panel: Vessel construction (placeholder)
+- Fleet Panel: Full fleet management — spawn, transfer planning, transfer-window countdown, gravity-assist routing, Lagrange-point targeting, intercept planning, refuel, abort
+- Shipbuilding Panel: Vessel construction (planned)
 
 **Key Design Decision — SimulationTime:**
 - Bevy's `Time<Virtual>` caps delta at 250ms, limiting effective speed to ~15×.
 - `SimulationTime` advances by `real_delta × time_scale` with no cap.
 - All game-world systems MUST use `SimulationTime`, not `Time<Virtual>`.
 - All calculations must be analytical (state from total time), not incremental.
+
+#### 9. FleetPlugin (`src/fleets/`)
+Fleet spawning, orbital transfer planning, trajectory propagation, and visualisation.
+
+**Components:**
+- `Fleet`: Named collection of ships with mass, Isp, thrust, and fuel properties
+- `ShipInfo`: Per-ship data (class, dry mass, fuel, thrust, Isp, propulsion type)
+- `FleetOrbit`: Stable circular parking orbit tracked per frame for a fleet
+- `ActiveManeuver`: Keplerian transfer arc being executed — drives position analytically from `SimulationTime`
+- `PlannedTransfer`: A fully computed transfer ready for execution
+
+**Resources:**
+- `PendingFleetActions`: Thread-safe action queue: spawn, start-transfer, cancel, refuel requests
+- `FleetUiState` (in `ui`): Selected fleet, target body/Lagrange, computed transfer options, transfer-window data
+
+**Systems:**
+- `spawn_initial_fleet`: Creates Earth-orbit frigate fleet at game start
+- `process_fleet_actions`: Consumes `PendingFleetActions` — spawns/refuels/cancels
+- `update_fleet_orbit_positions`: Advances parking-orbit angle at visual rate (1 rev / 40 s real time)
+- `update_fleet_maneuver_positions`: Propagates transfer-arc position analytically each frame
+- `complete_fleet_maneuvers`: Transitions fleet from `ActiveManeuver` → `FleetOrbit` at arrival
+- `draw_fleet_trajectories`, `draw_fleet_icons`, `draw_fleet_orbit_rings`, `draw_fleet_selection_reticule`: Gizmo-based visualisation
+- `draw_fleet_transfer_preview`, `draw_gravity_assist_preview`: Preview arcs before committing a transfer
+- `draw_fleet_starmap_icons`: Fleet markers in starmap view
+- `ensure_fleet_meshes`, `update_fleet_transforms`: Entity transform upkeep
+
+**Ship Classes (7):**
+Courier, Frigate, Destroyer, Cruiser, ResearchVessel, Freighter, Station
+
+**Propulsion Types (5):**
+- Chemical (450 s Isp) — high thrust, low efficiency
+- NuclearThermal (900 s Isp)
+- IonDrive (5 000 s Isp) — low thrust, very high efficiency
+- NuclearPulse (10 000 s Isp)
+- FusionTorch (50 000 s Isp) — high thrust and high efficiency
+
+**Orbital Mechanics (`src/fleets/orbital_mechanics.rs`):**
+- `hohmann_transfer()`: Minimum-energy co-planar transfer between circular orbits
+- `calculate_transfer_options()`: Returns 3 transfer options (efficient / moderate / fast)
+- `calculate_transfer_options_phased()`: Same but departing after a player-chosen offset (days)
+- `compute_transfer_window()`: Synodic-period countdown and live phase-angle rate
+- `estimate_fuel_cost_tonnes()`: Tsiolkovsky rocket-equation fuel estimate
+- `GravityAssistOption`: Represents a flyby body that bends the trajectory, reducing Δv
+
+**Transfer Window Planning:**
+- `TransferWindowInfo` computed every frame: seconds to next optimal Hohmann window, synodic period, current phase-angle error, phase-rate (rad/s)
+- Player can slide the departure-time offset to align with the window
+- Gravity-assist candidates automatically surfaced in the UI for heliocentric transfers
+- Lagrange-point targets (L1/L2/L3 for Sun-Earth, L4/L5 for any planet)
 
 ### Custom Start Dates & Ephemeris (New)
 - The project includes an **ephemeris module** (`src/astronomy/ephemeris.rs`) capable of calculating mean anomalies (orbital positions) for planets, moons, and dwarf planets at any Unix timestamp using J2000-based elements.
@@ -236,10 +286,11 @@ Functions that operate on entities with specific components:
 
 ### Upcoming Features
 1. **Interstellar Travel**: Ship movement between star systems
-2. **Combat System**: Space battles and defense
-3. **Diplomacy**: AI factions and relations
-4. **Terraforming**: Long-term planetary modification
-5. **Advanced Ship Design**: Modular spacecraft construction
+2. **Ship Construction Pipeline**: Shipyard-to-fleet construction queue
+3. **Combat System**: Space battles and defense
+4. **Diplomacy**: AI factions and relations
+5. **Terraforming**: Long-term planetary modification
+6. **Advanced Ship Design**: Modular spacecraft construction
 
 ### Data-Driven Design
 Future systems will use data files (RON/JSON) for configuration:
@@ -263,6 +314,12 @@ src/
 │   ├── budget.rs        # GlobalBudget, EnergyGrid
 │   ├── generation.rs    # Procedural resource generation
 │   └── types.rs         # ResourceType definitions
+├── fleets/              # Fleet management & orbital transfer
+│   ├── components.rs    # Fleet, FleetOrbit, ActiveManeuver, PlannedTransfer
+│   ├── orbital_mechanics.rs # Hohmann transfers, transfer windows, gravity assists
+│   ├── systems.rs       # Fleet position, maneuver execution, visualisation
+│   ├── types.rs         # ShipClass, PropulsionType
+│   └── mod.rs           # FleetPlugin
 ├── plugins/             # Game systems
 │   ├── camera.rs        # Camera movement, anchoring & ViewMode
 │   ├── solar_system.rs  # Body spawning, rotation, billboards
@@ -272,7 +329,7 @@ src/
 ├── render/              # Rendering utilities
 │   └── backdrop.rs      # Skybox background
 └── ui/                  # User interface
-    ├── mod.rs           # UIPlugin, SimulationTime, TimeScale
+    ├── mod.rs           # UIPlugin, SimulationTime, TimeScale, FleetUiState
     └── interaction.rs   # Selection management
 ```
 

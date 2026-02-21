@@ -48,6 +48,12 @@ helios_ascension/
 │   │   ├── generation.rs    # Procedural resource generation
 │   │   ├── mining.rs        # Mining operations and efficiency
 │   │   └── types.rs         # ResourceType definitions (20 types)
+│   ├── fleets/              # Fleet management & orbital transfer
+│   │   ├── components.rs    # Fleet, FleetOrbit, ActiveManeuver, PlannedTransfer
+│   │   ├── orbital_mechanics.rs # Hohmann transfers, transfer windows, gravity assists
+│   │   ├── systems.rs       # Fleet position, maneuver execution, visualisation
+│   │   ├── types.rs         # ShipClass (7), PropulsionType (5)
+│   │   └── mod.rs           # FleetPlugin
 │   ├── research/            # Technology tree system
 │   │   ├── components.rs    # TechnologyProgress, EngineeringProject
 │   │   ├── types.rs         # TechCategory enum (15 categories)
@@ -67,7 +73,7 @@ helios_ascension/
 │   ├── render/              # Rendering utilities
 │   │   └── backdrop.rs      # Skybox background
 │   └── ui/                  # User interface
-│       ├── mod.rs           # UIPlugin, SimulationTime, TimeScale, all panels
+│       ├── mod.rs           # UIPlugin, SimulationTime, TimeScale, FleetUiState, all panels
 │       └── interaction.rs   # Selection management
 ├── assets/
 │   ├── audio/
@@ -224,6 +230,32 @@ When adding new UI icons (menus, research categories, etc.), applying the follow
 - **Data-driven**: All technologies defined in `assets/data/technologies.ron` — add techs without touching Rust code
 - Debug menu (F12) for instant research
 - See [docs/RESEARCH_MODDING.md](docs/RESEARCH_MODDING.md) for the full modding guide (modifier types, component definitions, balancing)
+
+#### Fleet Management & Orbital Mechanics (`src/fleets/`)
+- **`FleetPlugin`** manages fleet spawning, transfer planning, and ECS lifecycle
+- **7 ship classes** (`ShipClass`): Courier, Frigate, Destroyer, Cruiser, ResearchVessel, Freighter, Station
+  - Each class has a default dry mass (500 t – 100 000 t) and fuel fraction
+- **5 propulsion types** (`PropulsionType`): Chemical (450 s), NuclearThermal (900 s), IonDrive (5 000 s), NuclearPulse (10 000 s), FusionTorch (50 000 s)
+  - Tsiolkovsky rocket equation used throughout: Δv = Isp × g₀ × ln(m_wet / m_dry)
+- **`Fleet`** component: named collection of `ShipInfo` structs; Δv capacity is limited by the weakest ship
+- **`FleetOrbit`** component: stable circular parking orbit around a body; visual angle advances at 1 rev/40 s real time (freezes when paused)
+- **`ActiveManeuver`** component: Keplerian transfer arc computed once and propagated analytically each frame by `update_fleet_maneuver_positions`; removed by `complete_fleet_maneuvers` when `arrival_time` is reached
+- **`PendingFleetActions`** resource: thread-safe action queue (spawn, start-transfer, cancel-maneuver, refuel) consumed once per Update tick by `process_fleet_actions`
+- **Transfer planning** (`orbital_mechanics.rs`):
+  - `hohmann_transfer()` — minimum-energy co-planar transfer
+  - `calculate_transfer_options()` — 3 options (Efficient / Moderate / Fast) with different energy multipliers
+  - `calculate_transfer_options_phased()` — same but after a player-chosen departure delay
+  - `compute_transfer_window()` — live synodic-period countdown, phase-angle error, and phase-rate (rad/s)
+  - `GravityAssistOption` — flyby bodies near the transfer arc that reduce total Δv
+- **`FleetUiState`** resource (in `src/ui/`): per-frame state for the Fleet panel
+  - `selected_fleet`, `target_body`, `target_lagrange`, `target_fleet`
+  - `departure_offset_days` slider for phased departure timing
+  - `computed_options` / `planned_transfer` / `show_transfer_popup`
+  - `gravity_assist_candidates` — surfaced automatically for heliocentric transfers
+- **Lagrange points**: `LagrangeTarget` struct holds the primary, secondary, and Lagrange index (1–5); computing L4/L5 for any planet or Sun-Earth L1/L2/L3 is supported
+- **Visualisation** (gizmo-based, no persistent meshes): trajectory arcs, orbit rings, selection reticules, transfer-preview arcs, gravity-assist preview, starmap icons
+- **Important**: fleet visual orbit rate uses `Time<Real>` (real-time), but maneuver position uses `SimulationTime` — never mix them
+- An initial Earth-orbit frigate fleet is spawned in `PostStartup` by `spawn_initial_fleet`
 
 #### Background Music (`src/plugins/music.rs`)
 - `MusicPlugin` plays a sequential looping playlist of ambient tracks during gameplay

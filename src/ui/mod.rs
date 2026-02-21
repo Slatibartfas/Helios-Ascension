@@ -10212,6 +10212,7 @@ fn render_transfer_planner(
                         fleet: fleet_entity,
                         transfer,
                         abort_cost_t,
+                        departure_offset_s: fleet_ui_state.departure_offset_days * 86_400.0,
                     });
                 }
             }

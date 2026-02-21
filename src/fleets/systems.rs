@@ -77,7 +77,11 @@ pub fn update_fleet_maneuver_positions(
     let elapsed = sim_time.elapsed_seconds();
 
     for (mut fleet_sc, maneuver) in fleet_query.iter_mut() {
-        let dt = (elapsed - maneuver.departure_time).max(0.0);
+        // Skip pre-departure fleets — they are still handled by update_fleet_orbit_positions.
+        if elapsed < maneuver.departure_time {
+            continue;
+        }
+        let dt = elapsed - maneuver.departure_time;
         let mean_anomaly = maneuver.transfer_orbit.mean_anomaly_epoch
             + maneuver.transfer_orbit.mean_motion * dt;
 
@@ -163,6 +167,41 @@ pub fn complete_fleet_maneuvers(
     }
 }
 
+/// Remove `FleetOrbit` from a pre-departure fleet exactly at its scheduled departure time.
+///
+/// When a transfer is executed with a non-zero departure offset the fleet retains its
+/// `FleetOrbit` (so it keeps orbiting visually) alongside the queued `ActiveManeuver`.
+/// This system detects when `elapsed >= maneuver.departure_time` and:
+/// 1. Re-orients the transfer orbit's `argument_of_periapsis` to the origin body's
+///    **actual** heliocentric angle at the moment of departure.  This corrects for
+///    planet drift between the time the player clicked Execute and the real departure.
+/// 2. Removes `FleetOrbit` so `update_fleet_maneuver_positions` takes over.
+pub fn activate_scheduled_departures(
+    mut commands: Commands,
+    sim_time: Res<SimulationTime>,
+    mut query: Query<(Entity, &FleetOrbit, &mut ActiveManeuver), With<Fleet>>,
+    origin_coords: Query<&SpaceCoordinates, Without<Fleet>>,
+) {
+    let elapsed = sim_time.elapsed_seconds();
+    for (entity, _orbit, mut maneuver) in query.iter_mut() {
+        if elapsed < maneuver.departure_time {
+            continue;
+        }
+        // Correct the transfer-orbit orientation: the argument of periapsis must match
+        // the origin body's heliocentric angle at the actual departure moment.
+        // For outward transfers (mean_anomaly_epoch ≈ 0, departure at periapsis):
+        //   AoP = atan2(y, x)
+        // For inward transfers (mean_anomaly_epoch ≈ π, departure at apoapsis):
+        //   AoP = atan2(y, x) + π  (periapsis is on the opposite side)
+        if let Ok(sc) = origin_coords.get(maneuver.origin_body) {
+            let theta = sc.position.y.atan2(sc.position.x);
+            maneuver.transfer_orbit.argument_of_periapsis =
+                theta + maneuver.transfer_orbit.mean_anomaly_epoch;
+        }
+        commands.entity(entity).remove::<FleetOrbit>();
+    }
+}
+
 // ── Action processing ─────────────────────────────────────────────────────────
 
 /// Process fleet actions queued by the UI in the previous frame.
@@ -209,6 +248,7 @@ pub fn process_fleet_actions(
         }
 
         let t = &action.transfer;
+        let departure_s = elapsed + action.departure_offset_s;
         let departure_angle = orbit_query.get(action.fleet)
             .map(|o| o.angle_rad as f32)
             .unwrap_or(0.0);
@@ -216,8 +256,8 @@ pub fn process_fleet_actions(
             transfer_orbit: t.transfer_orbit,
             orbit_center: t.orbit_center,
             origin_body: t.origin_body,
-            departure_time: elapsed,
-            arrival_time: elapsed + t.duration_s,
+            departure_time: departure_s,
+            arrival_time: departure_s + t.duration_s,
             destination_body: t.destination_body,
             arrival_orbit_radius_au: t.arrival_orbit_radius_au,
             arrival_delta_v_ms: t.arrival_delta_v_ms,
@@ -225,12 +265,23 @@ pub fn process_fleet_actions(
             option_label: t.option_label,
             departure_angle,
         };
-        // Remove whatever the fleet currently has (FleetOrbit or ActiveManeuver) and insert new maneuver
-        commands
-            .entity(action.fleet)
-            .remove::<FleetOrbit>()
-            .remove::<ActiveManeuver>()
-            .insert(maneuver);
+        if is_in_transit {
+            // Course correction: swap immediately (no parking orbit to preserve).
+            commands
+                .entity(action.fleet)
+                .remove::<FleetOrbit>()
+                .remove::<ActiveManeuver>()
+                .insert(maneuver);
+        } else {
+            // Parked fleet: keep FleetOrbit so the fleet continues its parking orbit
+            // animation until departure_time.  `activate_scheduled_departures` will
+            // remove FleetOrbit and refit the transfer-orbit geometry at departure.
+            commands
+                .entity(action.fleet)
+                .remove::<ActiveManeuver>()
+                .insert(maneuver);
+            // FleetOrbit intentionally kept.
+        }
     }
 
     // Cancel maneuvers — park the fleet in place (no orbit body available, so skip for now)
@@ -942,10 +993,14 @@ pub fn draw_fleet_transfer_preview(
 
     // Hoist fleet-state lookup so both LP and regular branches can share it.
     let Ok((_, maybe_orbit, maybe_maneuver)) = fleet_query.get(fleet_entity) else { return; };
-    // Once the fleet has departed the real trajectory arc replaces the preview.
-    if maybe_maneuver.is_some() { return; }
+    // Once the fleet has physically departed the real trajectory arc replaces the preview.
+    // Pre-departure (fleet has both FleetOrbit and ActiveManeuver): keep showing preview.
+    let elapsed = sim_time.elapsed_seconds();
+    if let Some(m) = maybe_maneuver {
+        if elapsed >= m.departure_time { return; }
+    }
 
-    let current_sim_s      = sim_time.elapsed_seconds();
+    let current_sim_s      = elapsed;
     let departure_offset_s = fleet_ui_state.departure_offset_days * 86_400.0;
     let departure_s        = current_sim_s + departure_offset_s;
 
@@ -1171,8 +1226,10 @@ pub fn draw_gravity_assist_preview(
     let departure_offset_s = fleet_ui_state.departure_offset_days * 86_400.0;
 
     let Ok((_, maybe_orbit, maybe_maneuver)) = fleet_query.get(fleet_entity) else { return; };
-    // Once the fleet has departed the real trajectory arc replaces the preview.
-    if maybe_maneuver.is_some() { return; }
+    // Once the fleet has physically departed the real trajectory arc replaces the preview.
+    if let Some(m) = maybe_maneuver {
+        if sim_time.elapsed_seconds() >= m.departure_time { return; }
+    }
     let origin_body = if let Some(orbit) = maybe_orbit {
         orbit.body
     } else {

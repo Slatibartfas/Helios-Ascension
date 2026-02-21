@@ -1938,20 +1938,56 @@ pub fn draw_lagrange_point_rings(
         let planet_render = to_render(p3d);
         let min_lp_dist = anchored_body.visual_radius * 1.6;
         let dot_half = (r_hill * SCALING_FACTOR as f64 * 0.10).clamp(5.0, 30.0) as f32;
+        // Minimum 3D gap between L1 and L2.  Without this, both markers lie on
+        // the planet–star axis and appear to stack when the camera is aligned
+        // with that axis (e.g. when anchored to Earth and looking along the
+        // ecliptic).
+        let min_l1l2_sep = (min_lp_dist * 2.0).max(dot_half * 8.0);
 
-        let base_marker_count = lp_markers.markers.len();
-        for (i, pos_au) in lp_positions.iter().enumerate() {
-            let raw_render = to_render(*pos_au);
-
-            // Push LP outside the planet's visual sphere when it falls inside.
-            let from_planet = raw_render - planet_render;
-            let dist_planet = from_planet.length();
-            let render_pos = if dist_planet > 0.1 && dist_planet < min_lp_dist {
+        // ── Pass 1: clamp each LP outside the visual sphere ──────────────────
+        let clamp_one = |pos_au: DVec3| -> Vec3 {
+            let raw = to_render(pos_au);
+            let from_planet = raw - planet_render;
+            let d = from_planet.length();
+            if d > 0.1 && d < min_lp_dist {
                 planet_render + from_planet.normalize() * min_lp_dist
             } else {
-                raw_render
-            };
+                raw
+            }
+        };
+        let mut render_positions: [Vec3; 5] = [
+            clamp_one(lp_positions[0]),
+            clamp_one(lp_positions[1]),
+            clamp_one(lp_positions[2]),
+            clamp_one(lp_positions[3]),
+            clamp_one(lp_positions[4]),
+        ];
 
+        // ── Pass 2: ensure L1 and L2 are visually distinct ───────────────────
+        // After clamping both land on the planet–star axis at ±min_lp_dist.
+        // Enforce a minimum separation so they never overlap from any viewing
+        // direction.
+        {
+            let axis = render_positions[1] - render_positions[0]; // L2 − L1
+            let sep = axis.length();
+            if sep < min_l1l2_sep {
+                let push_dir = if sep > 0.001 {
+                    axis.normalize()
+                } else {
+                    // L1 and L2 are coincident — push them apart perpendicular
+                    // to the planet direction in the orbital (XY) plane.
+                    let pf = Vec3::new(px as f32, py as f32, 0.0);
+                    Vec3::new(-pf.y, pf.x, 0.0).normalize_or_zero()
+                };
+                let extra = (min_l1l2_sep - sep) * 0.5;
+                render_positions[0] -= push_dir * extra; // push L1 inward (toward star)
+                render_positions[1] += push_dir * extra; // push L2 outward (away from star)
+            }
+        }
+
+        // ── Pass 3: draw and register ─────────────────────────────────────────
+        let base_marker_count = lp_markers.markers.len();
+        for (i, &render_pos) in render_positions.iter().enumerate() {
             let marker_idx = base_marker_count + i;
             let color = lp_color(marker_idx);
             draw_dot(&mut gizmos, render_pos, dot_half, color);
