@@ -1,3 +1,4 @@
+
 //! ECS components for the fleet management and orbital transfer system.
 
 use bevy::prelude::*;
@@ -245,6 +246,9 @@ pub struct StartTransferAction {
     pub fleet: Entity,
     /// Fully computed transfer details.
     pub transfer: PlannedTransfer,
+    /// Fuel (tonnes) to deduct immediately as an abort/correction burn penalty.
+    /// Zero for transfers from a stable orbit; non-zero for mid-transit course corrections.
+    pub abort_cost_t: f32,
 }
 
 /// A fully computed transfer plan, ready to be turned into an `ActiveManeuver`.

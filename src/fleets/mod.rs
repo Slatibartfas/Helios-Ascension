@@ -19,7 +19,8 @@ pub use components::{
 };
 pub use orbital_mechanics::{
     calculate_transfer_options, estimate_fuel_cost_tonnes, format_delta_v, format_duration,
-    hohmann_transfer, rocket_equation_fuel_fraction, TransferOption, AU_IN_METERS, GM_SUN,
+    hohmann_transfer, rocket_equation_fuel_fraction, TransferOption, AU_IN_METERS, G_CONST,
+    GM_SUN,
 };
 pub use types::{PropulsionType, ShipClass};
 

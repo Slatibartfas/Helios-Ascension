@@ -109,7 +109,9 @@ pub fn process_fleet_actions(
     mut commands: Commands,
     mut actions: ResMut<PendingFleetActions>,
     sim_time: Res<SimulationTime>,
-    fleet_query: Query<&FleetOrbit, (With<Fleet>, Without<ActiveManeuver>)>,
+    orbit_query: Query<&FleetOrbit, With<Fleet>>,
+    maneuver_query: Query<(), (With<Fleet>, With<ActiveManeuver>)>,
+    mut fleet_query: Query<&mut Fleet>,
 ) {
     let elapsed = sim_time.elapsed_seconds();
 
@@ -121,26 +123,47 @@ pub fn process_fleet_actions(
         commands.spawn((fleet, orbit, SpaceCoordinates::default()));
     }
 
-    // Start transfers
+    // Start transfers (works for both parked and in-transit fleets)
     for action in actions.start_transfers.drain(..) {
-        if fleet_query.get(action.fleet).is_ok() {
-            let t = &action.transfer;
-            let maneuver = ActiveManeuver {
-                transfer_orbit: t.transfer_orbit,
-                orbit_center: t.orbit_center,
-                departure_time: elapsed,
-                arrival_time: elapsed + t.duration_s,
-                destination_body: t.destination_body,
-                arrival_orbit_radius_au: t.arrival_orbit_radius_au,
-                arrival_delta_v_ms: t.arrival_delta_v_ms,
-                fuel_used_t: t.fuel_cost_t,
-                option_label: t.option_label,
-            };
-            commands
-                .entity(action.fleet)
-                .remove::<FleetOrbit>()
-                .insert(maneuver);
+        let is_parked = orbit_query.get(action.fleet).is_ok();
+        let is_in_transit = maneuver_query.get(action.fleet).is_ok();
+
+        if !is_parked && !is_in_transit {
+            continue;
         }
+
+        // Deduct abort burn cost from fleet fuel (course corrections only)
+        if action.abort_cost_t > 0.0 {
+            if let Ok(mut fleet) = fleet_query.get_mut(action.fleet) {
+                let per_ship = if fleet.ships.is_empty() {
+                    0.0
+                } else {
+                    action.abort_cost_t / fleet.ships.len() as f32
+                };
+                for ship in fleet.ships.iter_mut() {
+                    ship.fuel_mass_t = (ship.fuel_mass_t - per_ship).max(0.0);
+                }
+            }
+        }
+
+        let t = &action.transfer;
+        let maneuver = ActiveManeuver {
+            transfer_orbit: t.transfer_orbit,
+            orbit_center: t.orbit_center,
+            departure_time: elapsed,
+            arrival_time: elapsed + t.duration_s,
+            destination_body: t.destination_body,
+            arrival_orbit_radius_au: t.arrival_orbit_radius_au,
+            arrival_delta_v_ms: t.arrival_delta_v_ms,
+            fuel_used_t: t.fuel_cost_t,
+            option_label: t.option_label,
+        };
+        // Remove whatever the fleet currently has (FleetOrbit or ActiveManeuver) and insert new maneuver
+        commands
+            .entity(action.fleet)
+            .remove::<FleetOrbit>()
+            .remove::<ActiveManeuver>()
+            .insert(maneuver);
     }
 
     // Cancel maneuvers — park the fleet in place (no orbit body available, so skip for now)

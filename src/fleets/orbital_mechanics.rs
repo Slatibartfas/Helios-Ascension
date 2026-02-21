@@ -6,6 +6,9 @@
 /// Gravitational parameter of the Sun (m³ s⁻²)
 pub const GM_SUN: f64 = 1.327_124_4e20;
 
+/// Newtonian gravitational constant (m³ kg⁻¹ s⁻²)
+pub const G_CONST: f64 = 6.674e-11;
+
 /// Metres per Astronomical Unit
 pub const AU_IN_METERS: f64 = 1.495_978_707e11;
 
