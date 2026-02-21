@@ -20,8 +20,9 @@ pub mod systems;
 
 pub use components::{
     AtmosphereComposition, AtmosphericGas, CometTail, Destroyed, FloatingOrigin, Hovered,
-    KeplerOrbit, LocalOrbitAmplification, OrbitCenter, OrbitPath, Selected, SpaceCoordinates,
-    StellarProperties, SurfaceTemperature, calculate_general_colony_cost,
+    KeplerOrbit, LagrangePointMarkers, LastLpClick, LocalOrbitAmplification, LpMarkerInfo,
+    OrbitCenter, OrbitPath, Selected, SpaceCoordinates, StellarProperties, SurfaceTemperature,
+    calculate_general_colony_cost,
 };
 pub use ephemeris::{calculate_position_for_body, calculate_positions_at_timestamp};
 pub use exoplanets::{ConfirmedPlanet, RealPlanet};
@@ -32,7 +33,7 @@ pub use procedural::{
 pub use systems::{
     animate_marker_dots, check_natural_destruction, despawn_hover_markers,
     despawn_selection_markers, draw_lagrange_point_rings, draw_orbit_paths,
-    fade_destroyed_bodies, handle_body_hover,
+    fade_destroyed_bodies, handle_body_hover, handle_lp_hover,
     handle_body_selection, manage_comet_tail_meshes, orbit_position_from_mean_anomaly,
     propagate_orbits, scale_markers_with_zoom, spawn_hover_markers, spawn_selection_markers,
     update_body_lod_visibility, update_orbit_visibility, update_render_transform,
@@ -45,6 +46,8 @@ pub struct AstronomyPlugin;
 impl Plugin for AstronomyPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(nearby_stars::NearbyStarsPlugin)
+            .init_resource::<LagrangePointMarkers>()
+            .init_resource::<LastLpClick>()
             .add_systems(
                 Update,
                 (
@@ -81,6 +84,7 @@ impl Plugin for AstronomyPlugin {
                 (
                     handle_body_selection,
                     handle_body_hover,
+                    handle_lp_hover.after(handle_body_hover),
                 ),
             );
     }

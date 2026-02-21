@@ -387,10 +387,10 @@ pub fn draw_fleet_trajectories(
     for (entity, maneuver) in fleet_query.iter() {
         // In System view only draw for the selected fleet, in Starmap always draw.
         if *view_mode == ViewMode::System {
-            if let Some(sel) = fleet_ui_state.selected_fleet {
-                if entity != sel {
-                    continue;
-                }
+            match fleet_ui_state.selected_fleet {
+                Some(sel) if entity != sel => continue,
+                None => continue, // No fleet selected → hide all trajectories
+                _ => {}
             }
         }
 
@@ -940,23 +940,31 @@ pub fn draw_fleet_transfer_preview(
     if !fleet_ui_state.show_transfer_popup { return; }
     let Some(fleet_entity) = fleet_ui_state.selected_fleet else { return; };
 
+    // Hoist fleet-state lookup so both LP and regular branches can share it.
+    let Ok((_, maybe_orbit, maybe_maneuver)) = fleet_query.get(fleet_entity) else { return; };
+    // Once the fleet has departed the real trajectory arc replaces the preview.
+    if maybe_maneuver.is_some() { return; }
+
+    let current_sim_s      = sim_time.elapsed_seconds();
+    let departure_offset_s = fleet_ui_state.departure_offset_days * 86_400.0;
+    let departure_s        = current_sim_s + departure_offset_s;
+
     // ── Lagrange-point target preview ─────────────────────────────────────────
     // LP transfers have no body entity; draw an arc to the predicted LP position.
     if let Some(lp) = &fleet_ui_state.target_lagrange {
-        let Ok((_, maybe_orbit, maybe_maneuver)) = fleet_query.get(fleet_entity) else { return; };
         let origin_body = if let Some(orbit) = maybe_orbit {
             orbit.body
-        } else if let Some(maneuver) = maybe_maneuver {
-            maneuver.destination_body
         } else {
             return;
         };
 
         let Ok((origin_transform, origin_body_data, _)) = body_query.get(origin_body) else { return; };
-        let op = origin_transform.translation;
+        // Predict origin body position at planned departure so the start mark moves
+        // when the player drags the departure slider.
+        let op = predict_body_visual_pos(origin_body, departure_s, &body_query, &kepler_query, &amp_query)
+            .unwrap_or(origin_transform.translation);
         let origin_ring_r = origin_body_data.visual_radius * FLEET_ORBIT_RADIUS_MULT;
 
-        let current_sim_s = sim_time.elapsed_seconds();
         let travel_time_s = if fleet_ui_state.selected_option < fleet_ui_state.computed_options.len() {
             fleet_ui_state.computed_options[fleet_ui_state.selected_option].transfer_time_s
         } else if let Some(pt) = &fleet_ui_state.planned_transfer {
@@ -965,12 +973,12 @@ pub fn draw_fleet_transfer_preview(
             0.0
         };
 
-        // Predict the LP's parent planet position at arrival to get LP direction.
+        // Predict the LP's parent planet position at planned arrival to get LP direction.
         let planet_pos_now = body_query.get(lp.planet_entity)
             .ok().map(|(t, _, _)| t.translation).unwrap_or(Vec3::ZERO);
         let planet_pos_arrival = predict_body_visual_pos(
             lp.planet_entity,
-            current_sim_s + travel_time_s,
+            departure_s + travel_time_s,
             &body_query,
             &kepler_query,
             &amp_query,
@@ -1039,12 +1047,8 @@ pub fn draw_fleet_transfer_preview(
 
     let Some(target_entity) = fleet_ui_state.target_body   else { return; };
 
-    let Ok((_, maybe_orbit, maybe_maneuver)) = fleet_query.get(fleet_entity) else { return; };
-
     let origin_body = if let Some(orbit) = maybe_orbit {
         orbit.body
-    } else if let Some(maneuver) = maybe_maneuver {
-        maneuver.destination_body
     } else {
         return;
     };
@@ -1054,13 +1058,15 @@ pub fn draw_fleet_transfer_preview(
     let Ok((origin_transform, origin_body_data, _))      = body_query.get(origin_body)   else { return; };
     let Ok((dest_transform_now, dest_body_data, dest_lp)) = body_query.get(target_entity) else { return; };
 
-    let op            = origin_transform.translation;
+    // Predict origin body position at planned departure time so the start mark moves
+    // when the player drags the departure slider.
+    let op            = predict_body_visual_pos(origin_body, departure_s, &body_query, &kepler_query, &amp_query)
+        .unwrap_or(origin_transform.translation);
     let origin_ring_r = origin_body_data.visual_radius * FLEET_ORBIT_RADIUS_MULT;
     let dest_visual_r = dest_body_data.visual_radius;
     let dest_ring_r   = dest_visual_r * FLEET_ORBIT_RADIUS_MULT;
 
     // Travel time from selected transfer option (or 0 = show arc to current position).
-    let current_sim_s = sim_time.elapsed_seconds();
     let travel_time_s = if fleet_ui_state.selected_option < fleet_ui_state.computed_options.len() {
         fleet_ui_state.computed_options[fleet_ui_state.selected_option].transfer_time_s
     } else if let Some(pt) = &fleet_ui_state.planned_transfer {
@@ -1069,10 +1075,11 @@ pub fn draw_fleet_transfer_preview(
         0.0
     };
 
-    // Predict destination body position at estimated arrival time.
+    // Predict destination body position at planned departure + travel time so the
+    // ghost mark moves when the player drags the departure slider.
     let dp = predict_body_visual_pos(
         target_entity,
-        current_sim_s + travel_time_s,
+        departure_s + travel_time_s,
         &body_query,
         &kepler_query,
         &amp_query,
@@ -1164,10 +1171,10 @@ pub fn draw_gravity_assist_preview(
     let departure_offset_s = fleet_ui_state.departure_offset_days * 86_400.0;
 
     let Ok((_, maybe_orbit, maybe_maneuver)) = fleet_query.get(fleet_entity) else { return; };
+    // Once the fleet has departed the real trajectory arc replaces the preview.
+    if maybe_maneuver.is_some() { return; }
     let origin_body = if let Some(orbit) = maybe_orbit {
         orbit.body
-    } else if let Some(maneuver) = maybe_maneuver {
-        maneuver.destination_body
     } else {
         return;
     };
@@ -1176,17 +1183,20 @@ pub fn draw_gravity_assist_preview(
         return;
     }
 
+    let current_sim_s = sim_time.elapsed_seconds();
+    let depart_s = current_sim_s + departure_offset_s;
+
     let Ok((origin_t, origin_bd, _))  = body_query.get(origin_body)  else { return; };
     let Ok((_, flyby_bd, _))           = body_query.get(flyby_entity) else { return; };
     let Ok((dest_t,   dest_bd,   _))   = body_query.get(target_entity) else { return; };
 
-    let op = origin_t.translation;
+    // Predict origin body position at planned departure time so the start mark moves
+    // when the player drags the departure slider.
+    let op = predict_body_visual_pos(origin_body, depart_s, &body_query, &kepler_query, &amp_query)
+        .unwrap_or(origin_t.translation);
     let origin_ring_r = origin_bd.visual_radius * FLEET_ORBIT_RADIUS_MULT;
     let flyby_ring_r  = flyby_bd.visual_radius  * FLEET_ORBIT_RADIUS_MULT;
     let dest_ring_r   = dest_bd.visual_radius   * FLEET_ORBIT_RADIUS_MULT;
-
-    let current_sim_s = sim_time.elapsed_seconds();
-    let depart_s = current_sim_s + departure_offset_s;
 
     // Predict flyby body position at end of Leg 1
     let fp = predict_body_visual_pos(

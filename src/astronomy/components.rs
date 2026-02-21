@@ -253,6 +253,51 @@ pub struct MarkerDot {
     pub radius: f32,
 }
 
+// ── Lagrange-point hover / selection ─────────────────────────────────────────
+
+/// Per-frame data for one rendered Lagrange-point marker.
+/// Stored in [`LagrangePointMarkers`] so hover / selection systems can reference
+/// LP positions without needing the full rendering system.
+#[derive(Debug, Clone)]
+pub struct LpMarkerInfo {
+    /// World-space render position of this marker.
+    pub render_pos: bevy::math::Vec3,
+    /// Hit-test radius in render units (matches the drawn dot/circle size).
+    pub hit_radius: f32,
+    /// L-point index: 1 = L1, 2 = L2, 3 = L3, 4 = L4, 5 = L5.
+    pub point: u8,
+    /// ECS entity of the parent planet whose L-points these are.
+    pub planet_entity: bevy::ecs::entity::Entity,
+    /// Human-readable planet name (e.g. "Earth").
+    pub planet_name: String,
+    /// Planet's heliocentric semi-major axis in AU.
+    pub planet_sma_au: f64,
+    /// Effective heliocentric orbital radius of this LP in AU.
+    pub lp_radius_au: f64,
+    /// Gravitational parameter of the central star (m³ s⁻²).
+    pub gm: f64,
+}
+
+/// Resource populated each frame by [`draw_lagrange_point_rings`].
+///
+/// Cleared at the start of the system and re-filled with the current frame's
+/// LP marker positions.  Used by hover-detection and selection systems that
+/// run after rendering.
+#[derive(Resource, Default)]
+pub struct LagrangePointMarkers {
+    /// All LP markers drawn this frame.
+    pub markers: Vec<LpMarkerInfo>,
+    /// Index into `markers` of the currently hovered LP, if any.
+    pub hovered_index: Option<usize>,
+}
+
+/// Resource set by [`handle_lp_hover`] when the player left-clicks on a
+/// Lagrange-point marker.  UI systems consume & clear this each frame.
+#[derive(Resource, Default)]
+pub struct LastLpClick {
+    pub info: Option<LpMarkerInfo>,
+}
+
 /// Component for the surface temperature of a celestial body.
 /// This exists for all solid bodies, regardless of whether they have an atmosphere.
 #[derive(Component, Debug, Clone, Copy, Default)]

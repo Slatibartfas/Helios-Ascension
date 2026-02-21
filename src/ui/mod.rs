@@ -21,7 +21,7 @@ pub use interaction::Selection;
 
 use crate::astronomy::components::{CurrentStarSystem, SystemId};
 use crate::astronomy::nearby_stars::NearbyStarsData;
-use crate::astronomy::{AtmosphereComposition, Hovered, KeplerOrbit, Selected, SpaceCoordinates};
+use crate::astronomy::{AtmosphereComposition, Hovered, KeplerOrbit, LagrangePointMarkers, LastLpClick, Selected, SpaceCoordinates};
 use crate::colony::{
     BuildingCategory, BuildingType, BuildingsData, Colony, ConstructionDebugSettings,
     ConstructionProject, PendingConstructionActions,
@@ -813,6 +813,7 @@ impl Plugin for UIPlugin {
                     ui_starmap_labels,
                     ui_resolution_warning,
                     ui_transfer_planner_popup,
+                    ui_lp_click_handler,
                 )
                     .in_set(UiSystemSet::Overlays),
             )
@@ -2641,10 +2642,11 @@ fn render_fleet_ledger_tree(
     }
 }
 
-/// System that displays a tooltip for hovered celestial bodies
+/// System that displays a tooltip for hovered celestial bodies or Lagrange points
 fn ui_hover_tooltip(
     mut contexts: EguiContexts,
     hovered_query: Query<&CelestialBody, With<Hovered>>,
+    lp_markers: Res<LagrangePointMarkers>,
     active_menu: Res<ActiveMenu>,
 ) {
     // Don't show world tooltips when a full-screen overlay is active
@@ -2656,6 +2658,81 @@ fn ui_hover_tooltip(
         Ok(ctx) => ctx,
         Err(_) => return,
     };
+
+    // Helper: LP qualifier label
+    let lp_qualifier = |point: u8| -> &'static str {
+        match point {
+            1 => "Inner",
+            2 => "Outer",
+            3 => "Opposition",
+            4 => "Leading (+60\u{00b0})",
+            5 => "Trailing (-60\u{00b0})",
+            _ => "",
+        }
+    };
+
+    // LP hover takes priority: show LP tooltip when a Lagrange point is hovered.
+    if let Some(idx) = lp_markers.hovered_index {
+        if let Some(m) = lp_markers.markers.get(idx) {
+            let available_rect = ctx.available_rect();
+            let tooltip_pos = ctx
+                .input(|i| i.pointer.hover_pos())
+                .map(|p| egui::pos2(p.x + 12.0, p.y + 12.0))
+                .unwrap_or(egui::pos2(100.0, 100.0));
+
+            egui::Area::new("lp_hover_tooltip".into())
+                .fixed_pos(tooltip_pos)
+                .interactable(false)
+                .order(egui::Order::Tooltip)
+                .constrain_to(available_rect)
+                .show(ctx, |ui| {
+                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                    egui::Frame::NONE
+                        .fill(egui::Color32::from_rgba_unmultiplied(20, 25, 35, 240))
+                        .stroke(egui::Stroke::new(2.0, egui::Color32::from_rgb(80, 180, 255)))
+                        .inner_margin(12.0)
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new(format!("L{}", m.point))
+                                        .size(16.0)
+                                        .color(egui::Color32::from_rgb(100, 200, 255))
+                                        .strong(),
+                                );
+                                ui.label(
+                                    egui::RichText::new(format!(" \u{2013} {}", m.planet_name))
+                                        .size(16.0)
+                                        .color(egui::Color32::from_rgb(200, 220, 255))
+                                        .strong(),
+                                );
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new(lp_qualifier(m.point))
+                                        .size(12.0)
+                                        .color(egui::Color32::from_rgb(150, 180, 210)),
+                                );
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new(format!("Radius: {:.3} AU", m.lp_radius_au))
+                                        .size(11.0)
+                                        .color(egui::Color32::from_rgb(130, 160, 190)),
+                                );
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new("Click to select as fleet target")
+                                        .size(10.0)
+                                        .italics()
+                                        .color(egui::Color32::from_rgb(120, 140, 160)),
+                                );
+                            });
+                        });
+                });
+            return;
+        }
+    }
 
     // Display hover tooltip if a body is hovered
     if let Ok(body) = hovered_query.single() {
@@ -2701,6 +2778,29 @@ fn ui_hover_tooltip(
                     });
             });
     }
+}
+
+/// Read [`LastLpClick`] resource and update the fleet transfer planner
+/// so that the clicked LP becomes the active transfer target.
+fn ui_lp_click_handler(
+    mut last_click: ResMut<LastLpClick>,
+    mut fleet_ui_state: ResMut<FleetUiState>,
+) {
+    let Some(m_owned) = last_click.info.take() else { return; };
+    let m = &m_owned;
+    fleet_ui_state.target_lagrange = Some(LagrangeTarget {
+            point: m.point,
+            planet_entity: m.planet_entity,
+            planet_name: m.planet_name.clone(),
+            planet_sma_au: m.planet_sma_au,
+            radius_au: m.lp_radius_au,
+            gm: m.gm,
+        });
+    fleet_ui_state.target_body  = None;
+    fleet_ui_state.target_fleet = None;
+    fleet_ui_state.selected_option = 0;
+    fleet_ui_state.computed_options.clear();
+    fleet_ui_state.planned_transfer = None;
 }
 
 /// Display hover tooltip for star systems in starmap view

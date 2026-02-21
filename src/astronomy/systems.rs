@@ -4,9 +4,11 @@ use bevy::window::PrimaryWindow;
 
 use super::components::{
     CometTail, CurrentStarSystem, Destroyed, HoverMarker, Hovered, KeplerOrbit,
-    LocalOrbitAmplification, MarkerDot, MarkerOwner, OrbitCenter, OrbitPath, Selected,
+    LagrangePointMarkers, LastLpClick, LocalOrbitAmplification, LpMarkerInfo,
+    MarkerDot, MarkerOwner, OrbitCenter, OrbitPath, Selected,
     SelectionMarker, SpaceCoordinates, SystemId,
 };
+use crate::fleets::orbital_mechanics::{G_CONST as ORBIT_G, GM_SUN};
 use crate::plugins::camera::{CameraAnchor, EguiPanelBounds, GameCamera, OrbitCamera, ViewMode};
 use crate::plugins::solar_system::{
     CelestialBody, ClickExcluded, Comet, LogicalParent, Moon, Planet, Star,
@@ -1819,7 +1821,13 @@ pub fn draw_lagrange_point_rings(
         Option<&LocalOrbitAmplification>,
     )>,
     floating_origin: Option<Res<crate::astronomy::components::FloatingOrigin>>,
+    mut lp_markers: ResMut<LagrangePointMarkers>,
 ) {
+    // Capture hover state before clearing for per-marker colour lookup.
+    let hovered_index = lp_markers.hovered_index;
+    // Refresh LP marker list every frame (populated below when in System view).
+    lp_markers.markers.clear();
+
     if *view_mode != ViewMode::System {
         return;
     }
@@ -1860,18 +1868,21 @@ pub fn draw_lagrange_point_rings(
         Vec3::new(s.x as f32, s.y as f32, s.z as f32)
     };
 
-    // Colors for L-point dot indicators
-    let dot_color  = Color::srgba(0.50, 0.80, 1.0, 0.90); // brighter blue for the dots
+    // Highlight color when this marker is hovered; default color otherwise.
+    // (Uses the pre-captured `hovered_index` copy to avoid a borrow conflict
+    // with the mutable `lp_markers.markers` push below.)
+    let lp_color = |idx: usize| -> Color {
+        if hovered_index == Some(idx) {
+            Color::srgba(1.0, 1.0, 0.3, 1.0) // bright yellow when hovered
+        } else {
+            Color::srgba(0.50, 0.80, 1.0, 0.90) // default blue-cyan
+        }
+    };
 
     // Draw a small cross-dot marker at a render-space position.
     let draw_dot = |gizmos: &mut Gizmos, pos: Vec3, half: f32, color: Color| {
         gizmos.line(pos - Vec3::X * half, pos + Vec3::X * half, color);
         gizmos.line(pos - Vec3::Y * half, pos + Vec3::Y * half, color);
-    };
-
-    // Helper: position (AU, f64) along an angle at a given radius
-    let lp_pos = |r_au: f64, angle: f64| -> DVec3 {
-        DVec3::new(r_au * angle.cos(), r_au * angle.sin(), 0.0)
     };
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1891,28 +1902,76 @@ pub fn draw_lagrange_point_rings(
         let m_planet = anchored_body.mass;
         let r_hill = a_au * (m_planet / (3.0 * SOLAR_MASS_KG)).powf(1.0 / 3.0);
 
-        // Current heliocentric angle of the planet
-        let theta = anchored_sc.position.y.atan2(anchored_sc.position.x);
+        // Compute LP positions using the full 3D planet direction so that LP
+        // markers sit at the correct z-height for inclined orbits (fixes
+        // markers appearing to "float" above/below the planet in perspective).
+        let p3d = anchored_sc.position;
+        let p_mag = p3d.length();
+        if p_mag < 1e-10 { return; }
+        let p_dir = p3d / p_mag; // unit vector from star toward planet
 
-        // Actual L-point positions in AU for the dot markers
+        // L4/L5: rotate p_dir by ±60° around the Z axis (ecliptic normal is a
+        // valid approximation for bodies with small orbital inclinations; their
+        // z-component is preserved by scaling p_dir, giving the correct z).
+        let cos60 = (std::f64::consts::PI / 3.0).cos(); // 0.5
+        let sin60 = (std::f64::consts::PI / 3.0).sin(); // ≈ 0.866
+        let (px, py, pz) = (p_dir.x, p_dir.y, p_dir.z);
+
         let lp_positions: [DVec3; 5] = [
-            lp_pos(a_au - r_hill, theta),
-            lp_pos(a_au + r_hill, theta),
-            lp_pos(a_au, theta + std::f64::consts::PI),
-            lp_pos(a_au, theta + std::f64::consts::FRAC_PI_3),
-            lp_pos(a_au, theta - std::f64::consts::FRAC_PI_3),
+            p_dir * (a_au - r_hill),                              // L1: inner
+            p_dir * (a_au + r_hill),                              // L2: outer
+            -p_dir * a_au,                                        // L3: opposition
+            DVec3::new(a_au * (px * cos60 - py * sin60),          // L4: leading +60°
+                       a_au * (px * sin60 + py * cos60),
+                       pz * a_au),
+            DVec3::new(a_au * (px * cos60 + py * sin60),          // L5: trailing −60°
+                       a_au * (-px * sin60 + py * cos60),
+                       pz * a_au),
+        ];
+        let lp_radii: [f64; 5] = [
+            a_au - r_hill, a_au + r_hill, a_au, a_au, a_au,
         ];
 
-        // Dot markers + circle for each L-point (no orbit rings drawn)
+        // Minimum render-space distance from the planet's visual centre so that
+        // LP markers (especially L1 on inner planets) don't appear inside the
+        // enlarged visual sphere.
+        let planet_render = to_render(p3d);
+        let min_lp_dist = anchored_body.visual_radius * 1.6;
         let dot_half = (r_hill * SCALING_FACTOR as f64 * 0.10).clamp(5.0, 30.0) as f32;
-        for pos_au in &lp_positions {
-            let render_pos = to_render(*pos_au);
-            draw_dot(&mut gizmos, render_pos, dot_half, dot_color);
+
+        let base_marker_count = lp_markers.markers.len();
+        for (i, pos_au) in lp_positions.iter().enumerate() {
+            let raw_render = to_render(*pos_au);
+
+            // Push LP outside the planet's visual sphere when it falls inside.
+            let from_planet = raw_render - planet_render;
+            let dist_planet = from_planet.length();
+            let render_pos = if dist_planet > 0.1 && dist_planet < min_lp_dist {
+                planet_render + from_planet.normalize() * min_lp_dist
+            } else {
+                raw_render
+            };
+
+            let marker_idx = base_marker_count + i;
+            let color = lp_color(marker_idx);
+            draw_dot(&mut gizmos, render_pos, dot_half, color);
             gizmos.circle(
                 bevy::math::Isometry3d::from_translation(render_pos),
                 dot_half * 1.6,
-                dot_color,
+                color,
             );
+
+            // Record for hover / selection systems.
+            lp_markers.markers.push(LpMarkerInfo {
+                render_pos,
+                hit_radius: dot_half * 3.0,
+                point: (i + 1) as u8,
+                planet_entity: anchored,
+                planet_name: anchored_body.name.clone(),
+                planet_sma_au: a_au,
+                lp_radius_au: lp_radii[i],
+                gm: GM_SUN,
+            });
         }
     }
     // ─────────────────────────────────────────────────────────────────────────
@@ -1954,6 +2013,10 @@ pub fn draw_lagrange_point_rings(
         let l1_r = ((a_moon - r_hill) * amp * SCALING_FACTOR as f64).max(10.0);
         let l2_r = ((a_moon + r_hill) * amp * SCALING_FACTOR as f64).max(l1_r + 10.0);
 
+        // LP heliocentric radii (for hover/select metadata)
+        let lp_radii_b: [f64; 5] = [
+            a_moon - r_hill, a_moon + r_hill, a_moon, a_moon, a_moon,
+        ];
         // L-point offsets from planet center in render units
         let lp_offsets: [Vec3; 5] = [
             Vec3::new((l1_r * theta.cos()) as f32,      (l1_r * theta.sin()) as f32,      0.0),
@@ -1969,14 +2032,102 @@ pub fn draw_lagrange_point_rings(
         // Dot markers + circle for each L-point (no orbit rings drawn).
         // Use the amplified hill radius so markers scale with the visual orbit.
         let dot_half = (r_hill * amp * SCALING_FACTOR as f64 * 0.10).clamp(3.0, 15.0) as f32;
-        for offset in &lp_offsets {
+        let base_marker_count = lp_markers.markers.len();
+        for (i, offset) in lp_offsets.iter().enumerate() {
             let render_pos = parent_render + *offset;
-            draw_dot(&mut gizmos, render_pos, dot_half, dot_color);
+            let marker_idx = base_marker_count + i;
+            let color = lp_color(marker_idx);
+            draw_dot(&mut gizmos, render_pos, dot_half, color);
             gizmos.circle(
                 bevy::math::Isometry3d::from_translation(render_pos),
                 dot_half * 1.6,
-                dot_color,
+                color,
             );
+
+            // Record for hover detection (GM = parent planet's GM for moon LP).
+            let planet_gm = ORBIT_G * m_planet;
+            lp_markers.markers.push(LpMarkerInfo {
+                render_pos,
+                hit_radius: dot_half * 3.0,
+                point: (i + 1) as u8,
+                planet_entity: anchored,
+                planet_name: anchored_body.name.clone(),
+                planet_sma_au: a_moon,
+                lp_radius_au: lp_radii_b[i],
+                gm: planet_gm,
+            });
+        }
+    }
+}
+
+/// Hover-detection system for Lagrange-point markers.
+///
+/// Tests the mouse ray against the LP marker hit-spheres recorded by
+/// [`draw_lagrange_point_rings`] and updates
+/// [`LagrangePointMarkers::hovered_index`].  Sets [`LastLpClick`]
+/// when the player left-clicks on a hovered LP.
+pub fn handle_lp_hover(
+    view_mode: Res<ViewMode>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<GameCamera>>,
+    mut lp_markers: ResMut<LagrangePointMarkers>,
+    mut last_click: ResMut<LastLpClick>,
+    mouse_button: Res<ButtonInput<MouseButton>>,
+    mut egui_contexts: bevy_egui::EguiContexts,
+    active_menu: Res<ActiveMenu>,
+    panel_bounds: Res<EguiPanelBounds>,
+) {
+    if *view_mode != ViewMode::System {
+        lp_markers.hovered_index = None;
+        return;
+    }
+    if active_menu.current.blocks_world_interaction() {
+        lp_markers.hovered_index = None;
+        return;
+    }
+
+    // Bail if egui is consuming the pointer.
+    if let Ok(ctx) = egui_contexts.ctx_mut() {
+        let hover_pos = ctx.input(|i| i.pointer.hover_pos());
+        let over_panel = if let Some(available) = panel_bounds.available_rect {
+            hover_pos.map_or(false, |p| !available.contains(p))
+        } else { false };
+        if ctx.is_pointer_over_area() || ctx.is_using_pointer() || over_panel {
+            lp_markers.hovered_index = None;
+            return;
+        }
+    }
+
+    let Ok(window) = windows.single() else { return; };
+    let Ok((camera, camera_transform)) = camera_query.single() else { return; };
+    let Some(cursor_pos) = window.cursor_position() else {
+        lp_markers.hovered_index = None;
+        return;
+    };
+    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) else { return; };
+
+    // Find the nearest LP marker whose hit-sphere the ray passes through.
+    let mut best: Option<(usize, f32)> = None; // (index, ray-projection distance)
+    for (i, m) in lp_markers.markers.iter().enumerate() {
+        let to_marker = m.render_pos - ray.origin;
+        let proj = to_marker.dot(*ray.direction);
+        if proj <= 0.0 { continue; }
+        let closest = ray.origin + *ray.direction * proj;
+        let dist = (m.render_pos - closest).length();
+        if dist < m.hit_radius {
+            if best.map_or(true, |(_, prev_proj)| proj < prev_proj) {
+                best = Some((i, proj));
+            }
+        }
+    }
+
+    lp_markers.hovered_index = best.map(|(i, _)| i);
+
+    // Set LastLpClick resource when the player clicks a hovered LP.
+    if mouse_button.just_pressed(MouseButton::Left) {
+        if let Some(idx) = lp_markers.hovered_index {
+            let info = lp_markers.markers[idx].clone();
+            last_click.info = Some(info);
         }
     }
 }
