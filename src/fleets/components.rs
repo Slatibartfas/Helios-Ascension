@@ -192,12 +192,16 @@ pub struct FleetOrbit {
     /// Advanced by `update_fleet_orbit_positions` at a gameplay-friendly rate,
     /// not physics-accurate angular velocity.
     pub angle_rad: f64,
+    /// Visual orbit direction: +1.0 = CCW (prograde), -1.0 = CW (retrograde).
+    /// Derived from the actual Keplerian velocity direction at insertion so that
+    /// the parking-orbit icon continues in the same direction as the arrival arc.
+    pub direction: f64,
 }
 
 impl FleetOrbit {
-    /// Create a circular orbit around `body` at `radius_au` astronomical units.
+    /// Create a prograde (CCW) circular orbit around `body` at `radius_au` astronomical units.
     pub fn new(body: Entity, radius_au: f64) -> Self {
-        Self { body, radius_au, angle_rad: 0.0 }
+        Self { body, radius_au, angle_rad: 0.0, direction: 1.0 }
     }
 }
 

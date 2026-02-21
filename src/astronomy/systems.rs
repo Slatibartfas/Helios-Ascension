@@ -1816,6 +1816,7 @@ pub fn draw_lagrange_point_rings(
         Option<&LogicalParent>,
         Option<&SystemId>,
         Option<&Moon>,
+        Option<&LocalOrbitAmplification>,
     )>,
     floating_origin: Option<Res<crate::astronomy::components::FloatingOrigin>>,
 ) {
@@ -1837,6 +1838,7 @@ pub fn draw_lagrange_point_rings(
         anchored_parent,
         anchored_sys,
         is_moon,
+        anchored_amp,
     )) = body_query.get(anchored) else {
         return;
     };
@@ -1920,7 +1922,7 @@ pub fn draw_lagrange_point_rings(
         let Some(ko) = anchored_ko else { return };
         let Some(parent_lp) = anchored_parent else { return };
 
-        let Ok((parent_body, parent_sc, _, _, _, _)) = body_query.get(parent_lp.0) else {
+        let Ok((parent_body, parent_sc, _, _, _, _, _)) = body_query.get(parent_lp.0) else {
             return;
         };
 
@@ -1934,17 +1936,23 @@ pub fn draw_lagrange_point_rings(
 
         let r_hill = a_moon * (m_moon / (3.0 * m_planet)).powf(1.0 / 3.0);
 
+        // Visual amplification factor — moons may be rendered further from their
+        // parent planet than raw AU physics to keep them visible.  LP markers must
+        // use the same amplified scale so they appear at the correct visual position.
+        let amp = anchored_amp.map(|a| a.0 as f64).unwrap_or(1.0);
+
         // Render-space center of the planet (marker reference point)
         let parent_render = to_render(parent_sc.position);
 
-        // Moon's orbital angle around the planet
+        // Moon's orbital angle around the planet (use physics angle; amp changes
+        // distance only, not direction).
         let moon_rel = anchored_sc.position - parent_sc.position;
         let theta = moon_rel.y.atan2(moon_rel.x);
 
-        // L-point offsets from planet center in render units
-        let sma_render = a_moon * SCALING_FACTOR as f64;
-        let l1_r = ((a_moon - r_hill) * SCALING_FACTOR as f64).max(10.0);
-        let l2_r = ((a_moon + r_hill) * SCALING_FACTOR as f64).max(l1_r + 10.0);
+        // L-point offsets from planet center in render units (amplified)
+        let sma_render = a_moon * amp * SCALING_FACTOR as f64;
+        let l1_r = ((a_moon - r_hill) * amp * SCALING_FACTOR as f64).max(10.0);
+        let l2_r = ((a_moon + r_hill) * amp * SCALING_FACTOR as f64).max(l1_r + 10.0);
 
         // L-point offsets from planet center in render units
         let lp_offsets: [Vec3; 5] = [
@@ -1958,8 +1966,9 @@ pub fn draw_lagrange_point_rings(
                        (sma_render * (theta - std::f64::consts::FRAC_PI_3).sin()) as f32, 0.0),
         ];
 
-        // Dot markers + circle for each L-point (no orbit rings drawn)
-        let dot_half = (r_hill * SCALING_FACTOR as f64 * 0.10).clamp(3.0, 15.0) as f32;
+        // Dot markers + circle for each L-point (no orbit rings drawn).
+        // Use the amplified hill radius so markers scale with the visual orbit.
+        let dot_half = (r_hill * amp * SCALING_FACTOR as f64 * 0.10).clamp(3.0, 15.0) as f32;
         for offset in &lp_offsets {
             let render_pos = parent_render + *offset;
             draw_dot(&mut gizmos, render_pos, dot_half, dot_color);
