@@ -278,7 +278,6 @@ pub fn draw_fleet_selection_reticule(
         ViewMode::Starmap => {
             let camera_radius = camera_query
                 .single()
-                .ok()
                 .map(|c| c.radius as f32)
                 .unwrap_or(200_000.0);
             let icon_size = 280.0 * (camera_radius / 100_000.0).sqrt().max(0.5);

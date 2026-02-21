@@ -2556,7 +2556,11 @@ fn render_fleet_ledger_tree(
             "Location unknown".to_string()
         };
 
-        let ships_txt = format!("{} ship(s)", fleet.ships.len());
+        let ships_txt = format!(
+            "{} {}",
+            fleet.ships.len(),
+            if fleet.ships.len() == 1 { "ship" } else { "ships" }
+        );
 
         if ui
             .selectable_label(
