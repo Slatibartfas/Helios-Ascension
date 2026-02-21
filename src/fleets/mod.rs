@@ -19,9 +19,10 @@ pub use components::{
 };
 pub use systems::FleetMesh;
 pub use orbital_mechanics::{
-    calculate_transfer_options, estimate_fuel_cost_tonnes, format_delta_v, format_duration,
-    hohmann_transfer, rocket_equation_fuel_fraction, TransferOption, AU_IN_METERS, G_CONST,
-    GM_SUN,
+    calculate_transfer_options, calculate_transfer_options_phased, compute_transfer_window,
+    estimate_fuel_cost_tonnes, format_delta_v, format_duration,
+    hohmann_transfer, phase_dv_factor, rocket_equation_fuel_fraction,
+    TransferOption, TransferWindowInfo, AU_IN_METERS, G_CONST, GM_SUN,
 };
 pub use types::{PropulsionType, ShipClass};
 

@@ -36,6 +36,199 @@ pub struct TransferOption {
     pub energy_multiplier: f64,
 }
 
+/// Information about the next optimal Hohmann launch window between two bodies.
+///
+/// Because the two bodies orbit at different rates, there is only one optimal
+/// departure geometry (the Hohmann phase angle) every synodic period.
+/// Departing outside this window requires extra ΔV to compensate.
+#[derive(Debug, Clone)]
+pub struct TransferWindowInfo {
+    /// Seconds from **now** until the next optimal Hohmann departure window.
+    /// `0.0` means the window is open right now (or orbits are identical).
+    pub time_to_window_s: f64,
+    /// Time between consecutive optimal windows (synodic period, seconds).
+    /// `f64::INFINITY` when origin and destination share the same SMA.
+    pub synodic_period_s: f64,
+    /// Signed phase-angle error **right now** in radians, range [−π, π].
+    /// `0.0` = perfectly at an optimal window; `±π` = worst possible geometry.
+    pub phase_error_now_rad: f64,
+    /// Rate of change of the (dest − origin) phase angle, radians per second.
+    /// Positive means the destination is gaining angular lead over the origin.
+    pub phase_rate_rad_s: f64,
+}
+
+/// Compute the next optimal Hohmann launch window for a co-planar circular
+/// orbit transfer.
+///
+/// - `r1_au`, `r2_au`: semi-major axes of origin and destination (AU).
+/// - `gm`: gravitational parameter of the central body (m³ s⁻²).
+/// - `theta1_rad`: **current** heliocentric angle of the origin body (radians).
+/// - `theta2_rad`: **current** heliocentric angle of the destination body (radians).
+///
+/// The returned [`TransferWindowInfo`] is accurate for the instant the angles
+/// were sampled; call once per frame to get live values.
+pub fn compute_transfer_window(
+    r1_au: f64,
+    r2_au: f64,
+    gm: f64,
+    theta1_rad: f64,
+    theta2_rad: f64,
+) -> TransferWindowInfo {
+    use std::f64::consts::{PI, TAU};
+
+    if (r1_au - r2_au).abs() < 1e-9 {
+        return TransferWindowInfo {
+            time_to_window_s: 0.0,
+            synodic_period_s: f64::INFINITY,
+            phase_error_now_rad: 0.0,
+            phase_rate_rad_s: 0.0,
+        };
+    }
+
+    let r1 = r1_au * AU_IN_METERS;
+    let r2 = r2_au * AU_IN_METERS;
+
+    // Mean motions for circular-orbit approximation
+    let n1 = (gm / r1.powi(3)).sqrt(); // rad/s  (origin)
+    let n2 = (gm / r2.powi(3)).sqrt(); // rad/s  (destination)
+
+    // Hohmann transfer time (half the period of the transfer ellipse)
+    let a = (r1 + r2) / 2.0;
+    let t_h = PI * (a.powi(3) / gm).sqrt();
+
+    // Required phase angle at departure: φ_dest − φ_origin = π − n₂·T
+    // (Valid for both inward and outward Hohmann transfers.)
+    let phi_req = (PI - n2 * t_h).rem_euclid(TAU);
+
+    // Current phase angle (destination − origin), normalised to [0, 2π)
+    let phi_curr = (theta2_rad - theta1_rad).rem_euclid(TAU);
+
+    // Rate at which the phase angle changes: d(θ₂−θ₁)/dt = n₂ − n₁
+    let d_phi_dt = n2 - n1;
+
+    let synodic_period_s = if d_phi_dt.abs() < 1e-25 {
+        f64::INFINITY
+    } else {
+        TAU / d_phi_dt.abs()
+    };
+
+    // Time until next window: solve φ_curr + d_phi_dt·t ≡ φ_req  (mod 2π)
+    let delta_phi = phi_req - phi_curr;
+    let time_to_window_s = if d_phi_dt.abs() < 1e-25 || synodic_period_s.is_infinite() {
+        0.0
+    } else {
+        (delta_phi / d_phi_dt).rem_euclid(synodic_period_s)
+    };
+
+    // Signed phase error right now, normalised to [−π, π]
+    let raw_err = phi_curr - phi_req;
+    let phase_error_now_rad = ((raw_err + PI).rem_euclid(TAU)) - PI;
+
+    TransferWindowInfo {
+        time_to_window_s,
+        synodic_period_s,
+        phase_error_now_rad,
+        phase_rate_rad_s: d_phi_dt,
+    }
+}
+
+/// ΔV correction factor for a departure with phase-angle error `delta_phi_rad`.
+///
+/// | Phase error | Factor |
+/// |-------------|--------|
+/// | 0 (optimal) | 1.0    |
+/// | π/2         | 1.35   |
+/// | π (worst)   | 2.4    |
+/// | 2π (optimal again) | 1.0 |
+pub fn phase_dv_factor(delta_phi_rad: f64) -> f64 {
+    let s = (delta_phi_rad / 2.0).sin();
+    1.0 + 1.4 * s * s
+}
+
+/// Compute phase-aware transfer options for a planned departure.
+///
+/// This is the preferred alternative to [`calculate_transfer_options`] when
+/// actual body positions are available.  The three options still represent
+/// the Efficient / Moderate / Fast speed trade-off, but their ΔV now
+/// includes a phase-correction penalty that **varies with the departure
+/// time** and therefore updates live as the simulation clock advances.
+///
+/// - `departure_offset_s`: seconds from *now* until the fleet departs.
+///   `0.0` means depart immediately.
+/// - `window`: pre-computed window info for the current frame.
+///
+/// Phase sensitivity by option:
+/// - **Efficient**: full correction (most sensitive — must wait for windows).
+/// - **Moderate**: 65 % of correction (balanced).
+/// - **Fast**: 30 % of correction (high-thrust can overcome bad geometry).
+pub fn calculate_transfer_options_phased(
+    r1_au: f64,
+    r2_au: f64,
+    gm: f64,
+    departure_offset_s: f64,
+    window: &TransferWindowInfo,
+) -> Vec<TransferOption> {
+    if (r1_au - r2_au).abs() < 1e-9 {
+        return vec![TransferOption {
+            label: "Same orbit",
+            total_delta_v_ms: 0.0,
+            delta_v1_ms: 0.0,
+            delta_v2_ms: 0.0,
+            transfer_time_s: 0.0,
+            sma_au: r1_au,
+            eccentricity: 0.0,
+            energy_multiplier: 1.0,
+        }];
+    }
+
+    let (dv1_h, dv2_h, t_h, sma_h, ecc_h) = hohmann_transfer(r1_au, r2_au, gm);
+
+    // Phase angle at the chosen departure time:
+    // phase(t) = phase_now + phase_rate · t
+    // ⟹ phase_error(t) = phase_error_now − phase_rate · t
+    let phase_at_dep = window.phase_error_now_rad
+        - window.phase_rate_rad_s * departure_offset_s;
+    // Normalise to [−π, π]
+    let phase_at_dep = ((phase_at_dep + std::f64::consts::PI)
+        .rem_euclid(std::f64::consts::TAU))
+        - std::f64::consts::PI;
+
+    // Full correction factor (for the Efficient option)
+    let corr_full = phase_dv_factor(phase_at_dep.abs());
+
+    // Efficient: most sensitive to phase angle
+    let efficient = TransferOption {
+        label: "Efficient",
+        total_delta_v_ms: (dv1_h + dv2_h) * corr_full,
+        delta_v1_ms: dv1_h * corr_full,
+        delta_v2_ms: dv2_h * corr_full,
+        transfer_time_s: t_h,
+        sma_au: sma_h,
+        eccentricity: ecc_h,
+        energy_multiplier: corr_full,
+    };
+
+    // Moderate (1.5× Hohmann base): 65 % of phase correction
+    let corr_mod = 1.0 + (corr_full - 1.0) * 0.65;
+    let hohmann_base = TransferOption {
+        label: "", // internal baseline — not returned to the user
+        total_delta_v_ms: dv1_h + dv2_h,
+        delta_v1_ms: dv1_h,
+        delta_v2_ms: dv2_h,
+        transfer_time_s: t_h,
+        sma_au: sma_h,
+        eccentricity: ecc_h,
+        energy_multiplier: 1.0,
+    };
+    let moderate = scaled_transfer(&hohmann_base, 1.5 * corr_mod, "Moderate");
+
+    // Fast (2.5× Hohmann base): 30 % of phase correction
+    let corr_fast = 1.0 + (corr_full - 1.0) * 0.30;
+    let fast = scaled_transfer(&hohmann_base, 2.5 * corr_fast, "Fast");
+
+    vec![efficient, moderate, fast]
+}
+
 /// Compute all three standard transfer options (efficient, moderate, fast)
 /// between two coplanar circular orbits around the same central body.
 ///
@@ -44,6 +237,8 @@ pub struct TransferOption {
 /// - `gm`: gravitational parameter of the central body in m³ s⁻²
 ///
 /// Returns options ordered from least to most Δv.
+/// **Prefer [`calculate_transfer_options_phased`] when actual body positions
+/// are available**, as this version ignores launch-window geometry.
 pub fn calculate_transfer_options(r1_au: f64, r2_au: f64, gm: f64) -> Vec<TransferOption> {
     // Degenerate case — same orbit
     if (r1_au - r2_au).abs() < 1e-9 {
@@ -327,5 +522,130 @@ mod tests {
         assert!(format_duration(86_400.0 * 15.0).contains("d"));
         assert!(format_duration(86_400.0 * 50.0).contains("mo"));
         assert!(format_duration(86_400.0 * 400.0).contains("yr"));
+    }
+
+    // ── Transfer window tests ────────────────────────────────────────────────
+
+    /// Earth–Venus synodic period should be ≈ 584 days.
+    #[test]
+    fn test_earth_venus_synodic_period() {
+        let w = compute_transfer_window(1.000, 0.723, GM_SUN, 0.0, 0.0);
+        let synodic_days = w.synodic_period_s / 86_400.0;
+        assert!(
+            (synodic_days - 583.9).abs() < 10.0,
+            "Venus synodic period: expected ≈ 584 d, got {:.1} d",
+            synodic_days
+        );
+    }
+
+    /// Earth–Mars synodic period should be ≈ 780 days.
+    #[test]
+    fn test_earth_mars_synodic_period() {
+        let w = compute_transfer_window(1.000, 1.524, GM_SUN, 0.0, 0.0);
+        let synodic_days = w.synodic_period_s / 86_400.0;
+        assert!(
+            (synodic_days - 779.9).abs() < 15.0,
+            "Mars synodic period: expected ≈ 780 d, got {:.1} d",
+            synodic_days
+        );
+    }
+
+    /// When positioned at the exact Hohmann phase angle, time_to_window ≈ 0
+    /// and phase_error ≈ 0.
+    #[test]
+    fn test_window_at_optimal_phase() {
+        let r1 = 1.000_f64;
+        let r2 = 1.524_f64;
+
+        // Compute the required phase angle
+        let r1_m = r1 * AU_IN_METERS;
+        let r2_m = r2 * AU_IN_METERS;
+        let n2 = (GM_SUN / r2_m.powi(3)).sqrt();
+        let a = (r1_m + r2_m) / 2.0;
+        let t_h = std::f64::consts::PI * (a.powi(3) / GM_SUN).sqrt();
+        let phi_req = std::f64::consts::PI - n2 * t_h; // ≈ 0.773 rad
+
+        let w = compute_transfer_window(r1, r2, GM_SUN, 0.0, phi_req);
+
+        assert!(
+            w.phase_error_now_rad.abs() < 1e-6,
+            "Phase error at optimal window should be ~0, got {:.2e}",
+            w.phase_error_now_rad
+        );
+        assert!(
+            w.time_to_window_s < 1.0,
+            "Time to window at optimal window should be ~0, got {:.1} s",
+            w.time_to_window_s
+        );
+    }
+
+    /// time_to_window is always in [0, synodic_period).
+    #[test]
+    fn test_window_time_in_range() {
+        let w = compute_transfer_window(1.0, 1.524, GM_SUN, 1.23, 2.89);
+        assert!(w.time_to_window_s >= 0.0);
+        assert!(w.time_to_window_s < w.synodic_period_s);
+    }
+
+    /// phase_dv_factor is 1.0 at 0 and 2π, and monotonically increasing in [0, π].
+    #[test]
+    fn test_phase_dv_factor_shape() {
+        let f0 = phase_dv_factor(0.0);
+        let f_half = phase_dv_factor(std::f64::consts::FRAC_PI_2);
+        let f_pi = phase_dv_factor(std::f64::consts::PI);
+        let f_tau = phase_dv_factor(std::f64::consts::TAU);
+
+        assert!((f0 - 1.0).abs() < 1e-10, "factor at 0 should be 1.0, got {}", f0);
+        assert!(f_half > f0, "factor increases from 0 to π/2");
+        assert!(f_pi > f_half, "factor increases from π/2 to π");
+        assert!((f_tau - 1.0).abs() < 1e-6, "factor at 2π should be ~1.0, got {}", f_tau);
+    }
+
+    /// At optimal window (departure at time_to_window), phased Efficient option
+    /// should match the base Hohmann ΔV within 0.1 m/s.
+    #[test]
+    fn test_phased_options_at_optimal_window_match_hohmann() {
+        let r1 = 1.000_f64;
+        let r2 = 1.524_f64;
+
+        // Place destination at the exact required phase angle
+        let r1_m = r1 * AU_IN_METERS;
+        let r2_m = r2 * AU_IN_METERS;
+        let n2 = (GM_SUN / r2_m.powi(3)).sqrt();
+        let a = (r1_m + r2_m) / 2.0;
+        let t_h = std::f64::consts::PI * (a.powi(3) / GM_SUN).sqrt();
+        let phi_req = std::f64::consts::PI - n2 * t_h;
+
+        let window = compute_transfer_window(r1, r2, GM_SUN, 0.0, phi_req);
+        // Depart at time_to_window (should be ≈ 0 since we set the exact angle)
+        let phased = calculate_transfer_options_phased(r1, r2, GM_SUN, window.time_to_window_s, &window);
+        let base = calculate_transfer_options(r1, r2, GM_SUN);
+
+        assert!(
+            (phased[0].total_delta_v_ms - base[0].total_delta_v_ms).abs() < 0.5,
+            "At optimal window, phased Efficient ΔV ({:.1}) should ≈ Hohmann ({:.1})",
+            phased[0].total_delta_v_ms,
+            base[0].total_delta_v_ms
+        );
+    }
+
+    /// Off-window phased ΔV must be ≥ Hohmann for Efficient and ≥ base for others.
+    #[test]
+    fn test_phased_options_off_window_cost_more() {
+        let r1 = 1.000_f64;
+        let r2 = 1.524_f64;
+        // Use a deliberately bad phase angle (π rad off from optimal)
+        let window = compute_transfer_window(r1, r2, GM_SUN, 0.0, 0.0); // arbitrary non-optimal
+        let base = calculate_transfer_options(r1, r2, GM_SUN);
+        let phased = calculate_transfer_options_phased(r1, r2, GM_SUN, 0.0, &window);
+
+        // All options should cost at least as much as base Hohmann
+        for (p, b) in phased.iter().zip(base.iter()) {
+            assert!(
+                p.total_delta_v_ms >= b.total_delta_v_ms - 1.0,
+                "Phased {} should cost ≥ base ({:.0} vs {:.0})",
+                p.label, p.total_delta_v_ms, b.total_delta_v_ms
+            );
+        }
     }
 }

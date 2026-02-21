@@ -44,10 +44,12 @@ use crate::research::{
 };
 use crate::fleets::{
     ActiveManeuver, Fleet, FleetOrbit, PendingFleetActions, PlannedTransfer, ShipInfo,
-    StartTransferAction, TransferOption, AU_IN_METERS, G_CONST, GM_SUN,
+    StartTransferAction, TransferOption, TransferWindowInfo,
+    AU_IN_METERS, G_CONST, GM_SUN,
 };
 use crate::fleets::orbital_mechanics::{
-    calculate_transfer_options, format_delta_v, format_duration,
+    calculate_transfer_options, calculate_transfer_options_phased, compute_transfer_window,
+    format_delta_v, format_duration,
 };
 
 /// Maximum time scale: 1 year per second (365.25 * 86400 ≈ 31,557,600)
@@ -137,6 +139,9 @@ pub struct FleetUiState {
     pub intercept_passing_km: f64,
     /// Desired encounter speed for fleet intercepts (m/s). 0 = match velocity.
     pub intercept_speed_ms: f64,
+    /// Days from *now* until the fleet's planned departure (0 = depart immediately).
+    /// Adjusted by the departure-time slider in the transfer planner.
+    pub departure_offset_days: f64,
     /// Index into `computed_options` the player has highlighted.
     pub selected_option: usize,
     /// Transfer options computed for the current (fleet, target) pair.
@@ -154,6 +159,7 @@ impl FleetUiState {
         self.target_lagrange = None;
         self.target_fleet = None;
         self.selected_dest_category = None;
+        self.departure_offset_days = 0.0;
         self.computed_options.clear();
         self.planned_transfer = None;
         self.selected_option = 0;
@@ -9425,8 +9431,14 @@ fn render_transfer_planner(
     let lp_target_snap = fleet_ui_state.target_lagrange.clone();
     let body_target_snap = fleet_ui_state.target_body;
 
+    // Transfer window info computed this frame (Some only for body-target transfers).
+    // Kept as a local so the window UI section can read it without re-computing.
+    let mut window_this_frame: Option<TransferWindowInfo> = None;
+    let mut window_max_slider_days: f64 = 730.0;
+
     if any_target {
-        // Recompute every frame so values stay current as time and fleet position change.
+        // Recompute every frame — body angles (SpaceCoordinates) update with the simulation clock,
+        // so the phase error and launch-window countdown change live.
 
         // ── Fleet intercept computation ──────────────────────────────────────
         if let Some(target_fleet_entity) = fleet_target_snap {
@@ -9557,7 +9569,42 @@ fn render_transfer_planner(
                     .map(|ko| ko.semi_major_axis).unwrap_or(1.5);
                 (r1, r2, GM_SUN)
             };
-            fleet_ui_state.computed_options = calculate_transfer_options(r1, r2, gm);
+            fleet_ui_state.computed_options = {
+                // Extract heliocentric angles of origin and destination bodies.
+                // For the origin: if fleet is at a moon, walk up to the parent planet's
+                // position so we get a proper heliocentric angle for window computation.
+                let origin_entry = body_query.get(orbit.body).ok();
+                let theta1 = {
+                    let own_ko_sma = origin_entry
+                        .and_then(|(_, _, _, ko, _)| ko)
+                        .map(|ko| ko.semi_major_axis);
+                    let pos = if own_ko_sma.map(|s| s < MIN_HELIOCENTRIC_SMA_AU).unwrap_or(false) {
+                        // Moon: use parent body's heliocentric position
+                        origin_entry
+                            .and_then(|(_, _, _, _, lp)| lp).map(|lp| lp.0)
+                            .and_then(|pe| body_query.get(pe).ok())
+                            .map(|(_, _, sc, _, _)| sc.position)
+                    } else {
+                        origin_entry.map(|(_, _, sc, _, _)| sc.position)
+                    };
+                    pos.map(|p| p.y.atan2(p.x)).unwrap_or(0.0)
+                };
+                let theta2 = body_query.get(target_entity).ok()
+                    .map(|(_, _, sc, _, _)| sc.position.y.atan2(sc.position.x))
+                    .unwrap_or(0.0);
+
+                // Compute transfer window from live positions
+                let window = compute_transfer_window(r1, r2, gm, theta1, theta2);
+                window_max_slider_days = if window.synodic_period_s.is_finite() {
+                    (window.synodic_period_s / 86_400.0 * 2.0).max(730.0)
+                } else {
+                    730.0
+                };
+                let departure_s = fleet_ui_state.departure_offset_days * 86_400.0;
+                let opts = calculate_transfer_options_phased(r1, r2, gm, departure_s, &window);
+                window_this_frame = Some(window);
+                opts
+            };
             } else if let Some(ref lp) = lp_target_snap {
                 // Lagrange-point transfer: heliocentric Hohmann to the LP radius
                 let r1_lp = body_query.get(orbit.body).ok()
@@ -9574,19 +9621,113 @@ fn render_transfer_planner(
                 fleet_ui_state.computed_options = calculate_transfer_options(r1_lp, lp.radius_au, lp.gm);
             }
 
+        // ── Transfer Window info + departure slider ─────────────────────────
+        // Only shown for body-target transfers (not fleet intercepts or Lagrange).
+        if let Some(ref window) = window_this_frame {
+            let syn_days = if window.synodic_period_s.is_finite() {
+                window.synodic_period_s / 86_400.0
+            } else {
+                f64::INFINITY
+            };
+            let window_days = window.time_to_window_s / 86_400.0;
+
+            ui.add_space(6.0);
+            ui.group(|ui| {
+                ui.label(
+                    egui::RichText::new("⏱ Transfer Window")
+                        .strong()
+                        .size(12.0)
+                        .color(egui::Color32::from_rgb(160, 210, 255)),
+                );
+                ui.add_space(3.0);
+
+                egui::Grid::new("window_info_grid")
+                    .num_columns(2)
+                    .spacing([8.0, 3.0])
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new("Next window:").size(12.0));
+                        if window_days < 1.0 {
+                            ui.label(
+                                egui::RichText::new("NOW  ✓")
+                                    .size(12.0)
+                                    .strong()
+                                    .color(egui::Color32::from_rgb(80, 220, 80)),
+                            );
+                        } else {
+                            ui.label(
+                                egui::RichText::new(format!("{}", format_duration(window.time_to_window_s)))
+                                    .size(12.0)
+                                    .color(egui::Color32::from_rgb(200, 200, 200)),
+                            );
+                        }
+                        ui.end_row();
+
+                        ui.label(egui::RichText::new("Synodic period:").size(12.0));
+                        let syn_str = if syn_days.is_finite() {
+                            format_duration(window.synodic_period_s)
+                        } else {
+                            "∞ (same orbit)".to_owned()
+                        };
+                        ui.label(egui::RichText::new(syn_str).size(12.0).color(egui::Color32::GRAY));
+                        ui.end_row();
+                    });
+            });
+
+            // ── Departure time slider ────────────────────────────────────────
+            ui.add_space(6.0);
+            ui.label(egui::RichText::new("Planned Departure:").strong().size(12.0));
+
+            let max_days = window_max_slider_days.min(1_825.0); // cap at 5 years
+            ui.horizontal(|ui| {
+                let mut offset_days = fleet_ui_state.departure_offset_days as f32;
+                let slider = egui::Slider::new(&mut offset_days, 0.0_f32..=max_days as f32)
+                    .suffix(" d")
+                    .step_by(1.0)
+                    .custom_formatter(|v, _| {
+                        if v < 1.0 {
+                            "Now".to_owned()
+                        } else {
+                            format_duration(v as f64 * 86_400.0)
+                        }
+                    });
+                if ui.add(slider).changed() {
+                    fleet_ui_state.departure_offset_days = offset_days as f64;
+                    // Options are recomputed every frame; no explicit clear needed.
+                }
+            });
+
+            ui.horizontal(|ui| {
+                if ui.small_button("⚡ Depart Now").clicked() {
+                    fleet_ui_state.departure_offset_days = 0.0;
+                }
+                if window_days > 0.5 {
+                    if ui.small_button(format!("🎯 Next Window (+{:.0} d)", window_days)).clicked() {
+                        fleet_ui_state.departure_offset_days = window_days;
+                    }
+                }
+                // Show phase quality for currently selected departure
+                let dep_s = fleet_ui_state.departure_offset_days * 86_400.0;
+                let phase_at = {
+                    let raw = window.phase_error_now_rad - window.phase_rate_rad_s * dep_s;
+                    ((raw + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU)) - std::f64::consts::PI
+                };
+                let factor = crate::fleets::orbital_mechanics::phase_dv_factor(phase_at.abs());
+                let (quality_str, quality_color) = if factor < 1.05 {
+                    ("● Optimal", egui::Color32::from_rgb(80, 220, 80))
+                } else if factor < 1.40 {
+                    ("◑ Good", egui::Color32::from_rgb(180, 220, 80))
+                } else if factor < 1.80 {
+                    ("◔ Fair", egui::Color32::from_rgb(220, 180, 60))
+                } else {
+                    ("○ Poor", egui::Color32::from_rgb(220, 80, 60))
+                };
+                ui.label(egui::RichText::new(quality_str).size(11.0).color(quality_color));
+            });
+        }
+
         if !fleet_ui_state.computed_options.is_empty() {
             ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("Transfer Options:").strong().size(13.0));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(
-                        egui::RichText::new("⟳ Live")
-                            .size(10.0)
-                            .color(egui::Color32::from_rgb(100, 200, 120))
-                            .italics(),
-                    );
-                });
-            });
+            ui.label(egui::RichText::new("Transfer Options:").strong().size(13.0));
             // For fleet intercepts note the encounter speed penalty
             if fleet_target_snap.is_some() && fleet_ui_state.intercept_speed_ms > 100.0 {
                 let extra_dv_kms = fleet_ui_state.intercept_speed_ms / 1_000.0;
