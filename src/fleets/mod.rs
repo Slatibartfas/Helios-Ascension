@@ -47,6 +47,7 @@ impl Plugin for FleetPlugin {
                     systems::draw_fleet_icons
                         .after(systems::update_fleet_orbit_positions),
                     systems::draw_fleet_starmap_icons,
+                    systems::draw_fleet_selection_reticule,
                     systems::ensure_fleet_meshes,
                     systems::update_fleet_transforms
                         .after(systems::update_fleet_orbit_positions)

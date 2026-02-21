@@ -244,6 +244,84 @@ pub fn draw_fleet_trajectories(
     }
 }
 
+/// Draw a green corner-bracket selection reticule around the currently selected fleet.
+///
+/// Draws 4 L-shaped brackets in System view using gizmos.  In Starmap view the
+/// reticule is drawn at AU-scale.  The reticule is only shown while a fleet is
+/// selected (`FleetUiState.selected_fleet`).
+pub fn draw_fleet_selection_reticule(
+    mut gizmos: Gizmos,
+    fleet_ui_state: Res<FleetUiState>,
+    fleet_query: Query<&SpaceCoordinates, With<Fleet>>,
+    floating_origin: Option<Res<FloatingOrigin>>,
+    view_mode: Res<ViewMode>,
+    camera_query: Query<&OrbitCamera, With<GameCamera>>,
+) {
+    let Some(selected) = fleet_ui_state.selected_fleet else {
+        return;
+    };
+    let Ok(sc) = fleet_query.get(selected) else {
+        return;
+    };
+
+    let origin_offset = floating_origin
+        .as_ref()
+        .map(|fo| fo.position)
+        .unwrap_or(DVec3::ZERO);
+
+    let (center, arm) = match *view_mode {
+        ViewMode::System => {
+            let du = (sc.position - origin_offset) * SCALING_FACTOR;
+            let pos = Vec3::new(du.x as f32, du.y as f32, du.z as f32);
+            (pos, 22.0_f32)
+        }
+        ViewMode::Starmap => {
+            let camera_radius = camera_query
+                .single()
+                .ok()
+                .map(|c| c.radius as f32)
+                .unwrap_or(200_000.0);
+            let icon_size = 280.0 * (camera_radius / 100_000.0).sqrt().max(0.5);
+            let raw = sc.position - origin_offset;
+            let pos = Vec3::new(raw.x as f32, raw.y as f32, raw.z as f32);
+            (pos, icon_size)
+        }
+    };
+
+    // Bright green for friendly-fleet selection
+    let color = Color::srgba(0.15, 1.0, 0.35, 1.0);
+    let dim = Color::srgba(0.15, 1.0, 0.35, 0.35);
+    let gap = arm * 0.35; // gap between centre and bracket start
+    let len = arm * 0.55; // length of each bracket arm
+
+    // Draw 4 L-shaped corner brackets in the XY plane (ecliptic plane).
+    // Each corner: two short lines meeting at a right angle.
+    for &(sx, sy) in &[(1.0_f32, 1.0), (-1.0, 1.0), (-1.0, -1.0), (1.0, -1.0)] {
+        let corner = center + Vec3::new(sx * arm, sy * arm, 0.0);
+
+        // Horizontal arm (towards centre along X)
+        let h_start = corner;
+        let h_end = corner - Vec3::new(sx * len, 0.0, 0.0);
+        gizmos.line(h_start, h_end, color);
+
+        // Vertical arm (towards centre along Y)
+        let v_end = corner - Vec3::new(0.0, sy * len, 0.0);
+        gizmos.line(h_start, v_end, color);
+    }
+
+    // Cross hair: faint diagonal lines through centre for readability
+    gizmos.line(
+        center - Vec3::new(gap, 0.0, 0.0),
+        center + Vec3::new(gap, 0.0, 0.0),
+        dim,
+    );
+    gizmos.line(
+        center - Vec3::new(0.0, gap, 0.0),
+        center + Vec3::new(0.0, gap, 0.0),
+        dim,
+    );
+}
+
 /// Draw a small cross marker at each fleet's current render position.
 /// This fallback only draws for fleets that somehow lack a mesh.
 pub fn draw_fleet_icons(

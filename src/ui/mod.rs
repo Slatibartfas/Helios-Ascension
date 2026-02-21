@@ -761,6 +761,7 @@ impl Plugin for UIPlugin {
             .add_systems(EguiPrimaryContextPass, ui_construction_panels.in_set(UiSystemSet::MainPanels))
             .add_systems(EguiPrimaryContextPass, ui_economy_panels.in_set(UiSystemSet::MainPanels))
             .add_systems(EguiPrimaryContextPass, ui_fleets_panel.in_set(UiSystemSet::MainPanels))
+            .add_systems(EguiPrimaryContextPass, ui_fleet_action_bar.in_set(UiSystemSet::MainPanels))
             .add_systems(
                 EguiPrimaryContextPass,
                 (
@@ -2503,6 +2504,92 @@ fn render_body_tree(
     }
 }
 
+/// Render fleet rows inside the left ledger "Fleets" collapsible section.
+///
+/// Each row shows status icon, fleet name, and current location.
+/// Clicking a row selects/deselects the fleet and clears any body selection.
+#[allow(clippy::too_many_arguments)]
+fn render_fleet_ledger_tree(
+    ui: &mut egui::Ui,
+    fleet_query: &Query<(Entity, &Fleet, Option<&FleetOrbit>, Option<&ActiveManeuver>)>,
+    body_map: &std::collections::HashMap<Entity, &CelestialBody>,
+    fleet_ui_state: &mut FleetUiState,
+    selected_query: &Query<Entity, With<Selected>>,
+    commands: &mut Commands,
+    selection: &mut Selection,
+) {
+    let mut fleets: Vec<(Entity, &Fleet, Option<&FleetOrbit>, Option<&ActiveManeuver>)> =
+        fleet_query.iter().map(|(e, f, o, m)| (e, f, o, m)).collect();
+    fleets.sort_by(|a, b| a.1.name.cmp(&b.1.name));
+
+    if fleets.is_empty() {
+        ui.label(
+            egui::RichText::new("  No fleets deployed")
+                .size(12.0)
+                .color(egui::Color32::GRAY)
+                .italics(),
+        );
+        return;
+    }
+
+    for (entity, fleet, maybe_orbit, maybe_maneuver) in fleets {
+        let is_selected = fleet_ui_state.selected_fleet == Some(entity);
+
+        let status_icon = if maybe_maneuver.is_some() { "✈" } else { "🛰" };
+        let display_name = format!("{} {}", status_icon, fleet.name);
+
+        let row_color = if is_selected {
+            egui::Color32::from_rgb(100, 220, 100)
+        } else {
+            egui::Color32::from_rgb(170, 200, 170)
+        };
+
+        let sub_status = if maybe_maneuver.is_some() {
+            "↗ In transit".to_string()
+        } else if let Some(orbit) = maybe_orbit {
+            let body_name = body_map
+                .get(&orbit.body)
+                .map(|b| b.name.as_str())
+                .unwrap_or("?");
+            format!("⊙ Orbiting {body_name}")
+        } else {
+            "Location unknown".to_string()
+        };
+
+        let ships_txt = format!("{} ship(s)", fleet.ships.len());
+
+        if ui
+            .selectable_label(
+                is_selected,
+                egui::RichText::new(&display_name).color(row_color).size(13.0),
+            )
+            .clicked()
+        {
+            if is_selected {
+                fleet_ui_state.selected_fleet = None;
+            } else {
+                // Clear body selection
+                for e in selected_query.iter() {
+                    commands.entity(e).remove::<Selected>();
+                }
+                selection.clear();
+                fleet_ui_state.selected_fleet = Some(entity);
+                fleet_ui_state.clear_target();
+            }
+        }
+
+        // Sub-status line
+        ui.horizontal(|ui| {
+            ui.add_space(18.0);
+            ui.label(
+                egui::RichText::new(format!("{sub_status}  {ships_txt}"))
+                    .size(10.0)
+                    .color(egui::Color32::GRAY),
+            );
+        });
+    }
+}
+
 /// System that displays a tooltip for hovered celestial bodies
 fn ui_hover_tooltip(
     mut contexts: EguiContexts,
@@ -2730,6 +2817,8 @@ fn ui_dashboard(
     current_system: Res<CurrentStarSystem>,
     nearby_stars: Res<NearbyStarsData>,
     active_menu: Res<ActiveMenu>,
+    mut fleet_ui_state: ResMut<FleetUiState>,
+    fleet_query: Query<(Entity, &Fleet, Option<&FleetOrbit>, Option<&ActiveManeuver>)>,
     // Query for selected body information
     mut body_query: Query<(
         &CelestialBody,
@@ -2892,6 +2981,36 @@ fn ui_dashboard(
                                     &mut anchor_query,
                                 );
                             }
+
+                            // ── Fleet section ─────────────────────────────
+                            ui.add_space(4.0);
+                            ui.separator();
+
+                            let fleet_id = ui.make_persistent_id("survey_fleet_tree");
+                            egui::collapsing_header::CollapsingState::load_with_default_open(
+                                ui.ctx(),
+                                fleet_id,
+                                true,
+                            )
+                            .show_header(ui, |ui| {
+                                let n = fleet_query.iter().count();
+                                ui.label(
+                                    egui::RichText::new(format!("🚀 Fleets ({n})"))
+                                        .strong()
+                                        .color(egui::Color32::from_rgb(120, 210, 140)),
+                                );
+                            })
+                            .body(|ui| {
+                                render_fleet_ledger_tree(
+                                    ui,
+                                    &fleet_query,
+                                    &body_map,
+                                    &mut fleet_ui_state,
+                                    &selected_query,
+                                    &mut commands,
+                                    &mut selection,
+                                );
+                            });
                         });
                 }
                 _ => {
@@ -9513,6 +9632,219 @@ fn build_planned_transfer_lp(
         fuel_cost_t: fuel_cost,
         option_label: option.label,
     })
+}
+
+// ── Fleet action bar (bottom overlay) ────────────────────────────────────────
+
+/// Renders a thin action bar at the bottom of the 3D view whenever a fleet is
+/// selected.  The bar is hidden in the full-screen Fleets panel, Research,
+/// Construction, and Economy menus because those already fill the screen.
+fn ui_fleet_action_bar(
+    mut contexts: EguiContexts,
+    mut active_menu: ResMut<ActiveMenu>,
+    fleet_ui_state: Res<FleetUiState>,
+    fleet_query: Query<(Entity, &Fleet, Option<&FleetOrbit>, Option<&ActiveManeuver>)>,
+    mut pending_fleet_actions: ResMut<PendingFleetActions>,
+) {
+    // Only show when a fleet is selected AND we are NOT inside a full-screen panel.
+    let Some(selected_entity) = fleet_ui_state.selected_fleet else {
+        return;
+    };
+
+    if matches!(
+        active_menu.current,
+        GameMenu::Fleets
+            | GameMenu::Research
+            | GameMenu::Construction
+            | GameMenu::Economy
+    ) {
+        return;
+    }
+
+    let Ok((_, fleet, maybe_orbit, maybe_maneuver)) = fleet_query.get(selected_entity) else {
+        return; // Fleet was despawned
+    };
+
+    let ctx = match contexts.ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
+    };
+
+    let in_transit = maybe_maneuver.is_some();
+    let in_orbit = maybe_orbit.is_some();
+    let ship_count = fleet.ships.len();
+
+    // Determine which ship-class-dependent actions are available.
+    // For now all friendly fleets can survey; combat actions are always shown
+    // (hostile fleet detection comes in a future PR).
+    let has_ships = ship_count > 0;
+
+    egui::TopBottomPanel::bottom("fleet_action_bar")
+        .min_height(48.0)
+        .max_height(56.0)
+        .show(ctx, |ui| {
+            ui.horizontal_centered(|ui| {
+                ui.add_space(8.0);
+
+                // Fleet name + status label
+                let status_str = if in_transit {
+                    " ✈ In Transit".to_string()
+                } else {
+                    " 🛰 In Orbit".to_string()
+                };
+                ui.label(
+                    egui::RichText::new(format!("🚀 {} —{status_str}", fleet.name))
+                        .size(13.0)
+                        .strong()
+                        .color(egui::Color32::from_rgb(130, 220, 130)),
+                );
+
+                ui.separator();
+
+                // Transfer Planner — always available
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new("🗺 Transfer Planner").size(13.0),
+                        )
+                        .min_size(egui::Vec2::new(140.0, 36.0)),
+                    )
+                    .on_hover_text("Open the orbital transfer planner for this fleet")
+                    .clicked()
+                {
+                    // Switch to Fleets menu where the full transfer planner lives
+                    active_menu.current = GameMenu::Fleets;
+                }
+
+                ui.add_space(4.0);
+
+                // Split Fleet — only useful when in orbit and has > 1 ship
+                let can_split = in_orbit && ship_count > 1;
+                if ui
+                    .add_enabled(
+                        can_split,
+                        egui::Button::new(egui::RichText::new("✂ Split Fleet").size(13.0))
+                            .min_size(egui::Vec2::new(110.0, 36.0)),
+                    )
+                    .on_hover_text("Detach selected ships into a new fleet")
+                    .clicked()
+                {
+                    // Stub: split action will be fully implemented in a future update
+                    info!("Split fleet requested for {:?}", selected_entity);
+                }
+
+                ui.add_space(4.0);
+
+                // Merge Fleet — only when in orbit (merging in transit is not possible)
+                let can_merge = in_orbit;
+                if ui
+                    .add_enabled(
+                        can_merge,
+                        egui::Button::new(egui::RichText::new("🔗 Merge Fleet").size(13.0))
+                            .min_size(egui::Vec2::new(110.0, 36.0)),
+                    )
+                    .on_hover_text("Merge with another fleet at the same location")
+                    .clicked()
+                {
+                    // Stub: merge action will be fully implemented in a future update
+                    info!("Merge fleet requested for {:?}", selected_entity);
+                }
+
+                ui.add_space(8.0);
+                ui.separator();
+                ui.add_space(4.0);
+
+                // Survey — available when in orbit
+                if ui
+                    .add_enabled(
+                        in_orbit && has_ships,
+                        egui::Button::new(egui::RichText::new("🔭 Survey").size(13.0))
+                            .min_size(egui::Vec2::new(86.0, 36.0)),
+                    )
+                    .on_hover_text("Survey the body this fleet is orbiting")
+                    .clicked()
+                {
+                    info!("Survey requested for {:?}", selected_entity);
+                }
+
+                ui.add_space(4.0);
+
+                // Attack — available when in transit or orbit
+                if ui
+                    .add_enabled(
+                        has_ships,
+                        egui::Button::new(
+                            egui::RichText::new("⚔ Attack")
+                                .size(13.0)
+                                .color(egui::Color32::from_rgb(230, 130, 100)),
+                        )
+                        .min_size(egui::Vec2::new(80.0, 36.0)),
+                    )
+                    .on_hover_text("Engage enemy vessels in combat")
+                    .clicked()
+                {
+                    info!("Attack requested for {:?}", selected_entity);
+                }
+
+                ui.add_space(4.0);
+
+                // Bombard — requires orbit
+                if ui
+                    .add_enabled(
+                        in_orbit && has_ships,
+                        egui::Button::new(
+                            egui::RichText::new("💣 Bombard")
+                                .size(13.0)
+                                .color(egui::Color32::from_rgb(230, 130, 100)),
+                        )
+                        .min_size(egui::Vec2::new(90.0, 36.0)),
+                    )
+                    .on_hover_text("Bombard the surface of the body being orbited")
+                    .clicked()
+                {
+                    info!("Bombard requested for {:?}", selected_entity);
+                }
+
+                ui.add_space(4.0);
+
+                // Invade — requires orbit
+                if ui
+                    .add_enabled(
+                        in_orbit && has_ships,
+                        egui::Button::new(
+                            egui::RichText::new("👊 Invade")
+                                .size(13.0)
+                                .color(egui::Color32::from_rgb(230, 130, 100)),
+                        )
+                        .min_size(egui::Vec2::new(86.0, 36.0)),
+                    )
+                    .on_hover_text("Land troops to take control of the colony")
+                    .clicked()
+                {
+                    info!("Invade requested for {:?}", selected_entity);
+                }
+
+                // Cancel maneuver button — only in transit
+                if in_transit {
+                    ui.add_space(8.0);
+                    ui.separator();
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new("⛔ Abort Transfer")
+                                    .size(13.0)
+                                    .color(egui::Color32::from_rgb(220, 80, 80)),
+                            )
+                            .min_size(egui::Vec2::new(120.0, 36.0)),
+                        )
+                        .on_hover_text("Abort the current transfer (wastes correction burn fuel)")
+                        .clicked()
+                    {
+                        pending_fleet_actions.cancel_maneuvers.push(selected_entity);
+                    }
+                }
+            });
+        });
 }
 
 #[cfg(test)]
