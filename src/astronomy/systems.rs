@@ -1944,6 +1944,12 @@ pub fn draw_lagrange_point_rings(
         // ecliptic).
         let min_l1l2_sep = (min_lp_dist * 2.0).max(dot_half * 8.0);
 
+        // Planet-star axis in render space (direction from star toward planet).
+        // Used as the authoritative push direction for L1/L2 to avoid the
+        // precision loss that occurs when normalising a near-zero `from_planet`
+        // vector (r_hill can be tiny in render units for inner planets).
+        let p_dir_render = planet_render.normalize_or_zero();
+
         // ── Pass 1: clamp each LP outside the visual sphere ──────────────────
         let clamp_one = |pos_au: DVec3| -> Vec3 {
             let raw = to_render(pos_au);
@@ -1955,29 +1961,37 @@ pub fn draw_lagrange_point_rings(
                 raw
             }
         };
+
+        // L1 and L2 are computed directly from the planet-star axis rather than
+        // going through `clamp_one`.  This avoids the precision loss that occurs
+        // when r_hill is tiny in render space (d ≤ 0.1 → clamp skipped, or
+        // near-zero `from_planet` → normalize gives a random direction).
+        let r_hill_render = (r_hill * SCALING_FACTOR as f64) as f32;
+        let l1_dist = r_hill_render.max(min_lp_dist); // distance from planet render centre
+        let l2_dist = r_hill_render.max(min_lp_dist);
+
         let mut render_positions: [Vec3; 5] = [
-            clamp_one(lp_positions[0]),
-            clamp_one(lp_positions[1]),
+            planet_render - p_dir_render * l1_dist,  // L1: toward star (inner)
+            planet_render + p_dir_render * l2_dist,  // L2: away from star (outer)
             clamp_one(lp_positions[2]),
             clamp_one(lp_positions[3]),
             clamp_one(lp_positions[4]),
         ];
 
         // ── Pass 2: ensure L1 and L2 are visually distinct ───────────────────
-        // After clamping both land on the planet–star axis at ±min_lp_dist.
         // Enforce a minimum separation so they never overlap from any viewing
         // direction.
         {
             let axis = render_positions[1] - render_positions[0]; // L2 − L1
             let sep = axis.length();
             if sep < min_l1l2_sep {
+                // Always push along the planet-star axis for L1/L2.
+                // The previous perpendicular fallback (-pf.y, pf.x) was incorrect
+                // and caused markers to jump to a tangential position.
                 let push_dir = if sep > 0.001 {
                     axis.normalize()
                 } else {
-                    // L1 and L2 are coincident — push them apart perpendicular
-                    // to the planet direction in the orbital (XY) plane.
-                    let pf = Vec3::new(px as f32, py as f32, 0.0);
-                    Vec3::new(-pf.y, pf.x, 0.0).normalize_or_zero()
+                    p_dir_render
                 };
                 let extra = (min_l1l2_sep - sep) * 0.5;
                 render_positions[0] -= push_dir * extra; // push L1 inward (toward star)

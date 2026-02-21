@@ -2334,6 +2334,7 @@ fn render_grouped_children(
     group_name: &str,
     parent_entity: Entity,
     body_map: &std::collections::HashMap<Entity, &CelestialBody>,
+    hierarchy: &std::collections::HashMap<Entity, Vec<Entity>>,
     selection: &mut Selection,
     commands: &mut Commands,
     selected_query: &Query<Entity, With<Selected>>,
@@ -2351,17 +2352,18 @@ fn render_grouped_children(
         })
         .body(|ui| {
             for &child_entity in children {
-                if let Some(body) = body_map.get(&child_entity) {
-                    render_body_row(
-                        ui,
-                        child_entity,
-                        body,
-                        selection,
-                        commands,
-                        selected_query,
-                        anchor_query,
-                    );
-                }
+                // Use render_body_tree so bodies with children (e.g. Pluto → Charon)
+                // are expanded recursively rather than shown as a flat row.
+                render_body_tree(
+                    ui,
+                    child_entity,
+                    body_map,
+                    hierarchy,
+                    selection,
+                    commands,
+                    selected_query,
+                    anchor_query,
+                );
             }
         });
 }
@@ -2472,13 +2474,14 @@ fn render_body_tree(
                         anchor_query,
                     );
                 }
-                // 2. Dwarf Planets (Grouped or Recursive if important?) Grouped.
+                // 2. Dwarf Planets (Grouped, recursive so moons like Charon are shown)
                 render_grouped_children(
                     ui,
                     &child_dwarf_planets,
                     "Dwarf Planets",
                     entity,
                     body_map,
+                    hierarchy,
                     selection,
                     commands,
                     selected_query,
@@ -2504,6 +2507,7 @@ fn render_body_tree(
                     "Asteroids",
                     entity,
                     body_map,
+                    hierarchy,
                     selection,
                     commands,
                     selected_query,
@@ -2516,6 +2520,7 @@ fn render_body_tree(
                     "Comets",
                     entity,
                     body_map,
+                    hierarchy,
                     selection,
                     commands,
                     selected_query,
