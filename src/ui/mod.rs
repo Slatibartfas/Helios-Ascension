@@ -47,7 +47,7 @@ use crate::fleets::{
     StartTransferAction, TransferOption, AU_IN_METERS, G_CONST, GM_SUN,
 };
 use crate::fleets::orbital_mechanics::{
-    calculate_transfer_options, estimate_fuel_cost_tonnes, format_delta_v, format_duration,
+    calculate_transfer_options, format_delta_v, format_duration,
 };
 
 /// Maximum time scale: 1 year per second (365.25 * 86400 ≈ 31,557,600)
@@ -2550,11 +2550,14 @@ fn render_fleet_ledger_tree(
         let sub_status = if maybe_maneuver.is_some() {
             "↗ In transit".to_string()
         } else if let Some(orbit) = maybe_orbit {
-            let body_name = body_map
-                .get(&orbit.body)
-                .map(|b| b.name.as_str())
-                .unwrap_or("?");
-            format!("⊙ Orbiting {body_name}")
+            let body = body_map.get(&orbit.body);
+            let body_name = body.map(|b| b.name.as_str()).unwrap_or("?");
+            // Show a distinct label for heliocentric Lagrange-point orbits.
+            if body.map(|b| b.body_type) == Some(BodyType::Star) {
+                format!("✦ Lagrange Orbit ({body_name})")
+            } else {
+                format!("⊙ Orbiting {body_name}")
+            }
         } else {
             "Location unknown".to_string()
         };
@@ -8465,8 +8468,9 @@ fn render_fleet_detail(
             .strong()
             .size(14.0),
     );
+    let in_orbit_for_manifest = maybe_orbit.is_some();
     egui::Grid::new("ship_manifest")
-        .num_columns(5)
+        .num_columns(6)
         .spacing([12.0, 4.0])
         .striped(true)
         .show(ui, |ui| {
@@ -8476,6 +8480,7 @@ fn render_fleet_detail(
             ui.label(egui::RichText::new("Dry (t)").strong().size(12.0));
             ui.label(egui::RichText::new("Fuel").strong().size(12.0));
             ui.label(egui::RichText::new("Drive").strong().size(12.0));
+            ui.label(egui::RichText::new("Actions").strong().size(12.0));
             ui.end_row();
 
             for ship in &fleet.ships {
@@ -8507,6 +8512,24 @@ fn render_fleet_detail(
                 ui.label(
                     egui::RichText::new(ship.propulsion.display_name()).size(12.0),
                 );
+                // Refuel button — enabled only while in a stable orbit.
+                // Currently fills to max for free (debug). In future will
+                // draw propellant from the orbited body's stockpile.
+                let refuel_resp = ui.add_enabled(
+                    in_orbit_for_manifest,
+                    egui::Button::new(egui::RichText::new("⛽ Refuel").size(11.0))
+                        .min_size(egui::Vec2::new(60.0, 18.0)),
+                );
+                if refuel_resp
+                    .on_hover_text(if in_orbit_for_manifest {
+                        "Refuel this ship to full capacity (free — debug)"
+                    } else {
+                        "Cannot refuel while in transit"
+                    })
+                    .clicked()
+                {
+                    pending_actions.refuel_fleets.push(fleet_entity);
+                }
                 ui.end_row();
             }
         });
@@ -8654,19 +8677,38 @@ fn render_orbit_status(
     fleet: &Fleet,
     body_query: &Query<(Entity, &CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>, Option<&LogicalParent>)>,
 ) {
-    let body_name = body_query
+    let (body_name, body_type) = body_query
         .get(orbit.body)
-        .map(|(_, b, _, _, _)| b.name.as_str())
-        .unwrap_or("Unknown");
+        .map(|(_, b, _, _, _)| (b.name.as_str(), b.body_type))
+        .unwrap_or(("Unknown", BodyType::Planet));
 
-    // Convert AU to km for display
-    let radius_km = orbit.radius_au * AU_IN_METERS / 1_000.0;
     let fuel_pct = (fleet.fuel_fraction() * 100.0) as u32;
+
+    // For star-orbiting fleets (Lagrange points), display heliocentric orbital
+    // radius in AU rather than an altitude in km (which would be nonsensical
+    // at interplanetary scales).
+    let altitude_label;
+    let altitude_value;
+    if body_type == BodyType::Star {
+        altitude_label = "Orbital radius:";
+        altitude_value = format!("{:.4} AU", orbit.radius_au);
+    } else {
+        let radius_km = orbit.radius_au * AU_IN_METERS / 1_000.0;
+        altitude_label = "Altitude:";
+        altitude_value = format!("{:.0} km", radius_km);
+    };
+
+    // Label: for star-orbiting fleets say "at Lagrange point" to make it clear.
+    let status_label = if body_type == BodyType::Star {
+        format!("🛰 Lagrange Orbit ({body_name})")
+    } else {
+        format!("🛰 Orbiting {body_name}")
+    };
 
     ui.group(|ui| {
         ui.horizontal(|ui| {
             ui.label(
-                egui::RichText::new(format!("🛰 Orbiting {body_name}"))
+                egui::RichText::new(status_label)
                     .strong()
                     .size(14.0)
                     .color(egui::Color32::from_rgb(100, 220, 100)),
@@ -8676,9 +8718,9 @@ fn render_orbit_status(
             .num_columns(4)
             .spacing([16.0, 3.0])
             .show(ui, |ui| {
-                ui.label(egui::RichText::new("Altitude:").size(12.0));
+                ui.label(egui::RichText::new(altitude_label).size(12.0));
                 ui.label(
-                    egui::RichText::new(format!("{:.0} km", radius_km))
+                    egui::RichText::new(altitude_value)
                         .size(12.0)
                         .strong(),
                 );
@@ -9247,22 +9289,40 @@ fn render_transfer_planner(
                     .map(|ko| ko.semi_major_axis).unwrap_or(0.00257);
                 (orbit.radius_au, r2, G_CONST * parent_mass)
             } else if dest_parent.is_some() && dest_parent == origin_parent {
-                // Moon-to-moon: both orbit the same planet
+                // Both orbit the same central body (moon-to-moon, OR interplanetary e.g. Earth→Mars)
                 let shared = dest_parent.unwrap();
-                let parent_mass = body_query.get(shared).ok()
-                    .map(|(_, b, _, _, _)| b.mass).unwrap_or(5.972e24);
+                // NOTE: The Sun lacks SpaceCoordinates, so body_query.get(Sun) fails.
+                // Fall back to GM_SUN so interplanetary transfers compute correctly.
+                let gm = body_query.get(shared).ok()
+                    .map(|(_, b, _, _, _)| {
+                        if b.body_type == BodyType::Star { GM_SUN } else { G_CONST * b.mass }
+                    })
+                    .unwrap_or(GM_SUN);
                 let r1 = body_query.get(orbit.body).ok()
                     .and_then(|(_, _, _, ko, _)| ko)
                     .map(|ko| ko.semi_major_axis).unwrap_or(0.00257);
                 let r2 = body_query.get(target_entity).ok()
                     .and_then(|(_, _, _, ko, _)| ko)
                     .map(|ko| ko.semi_major_axis).unwrap_or(0.00257);
-                (r1, r2, G_CONST * parent_mass)
+                (r1, r2, gm)
             } else {
-                // Heliocentric
-                let r1 = body_query.get(orbit.body).ok()
+                // Heliocentric: fleet is at a body that is not in the same parent chain as dest.
+                // If fleet is parked at a moon, its KeplerOrbit SMA is Earth-relative, NOT
+                // heliocentric. Walk up one level to get the heliocentric SMA.
+                let own_sma = body_query.get(orbit.body).ok()
                     .and_then(|(_, _, _, ko, _)| ko)
-                    .map(|ko| ko.semi_major_axis).unwrap_or(1.0);
+                    .map(|ko| ko.semi_major_axis);
+                let r1 = if own_sma.map(|s| s < 0.05).unwrap_or(true) {
+                    // Small SMA → likely a moon; use its parent's heliocentric SMA
+                    origin_parent
+                        .and_then(|pe| body_query.get(pe).ok())
+                        .and_then(|(_, _, _, ko, _)| ko)
+                        .map(|ko| ko.semi_major_axis)
+                        .or(own_sma)
+                        .unwrap_or(1.0)
+                } else {
+                    own_sma.unwrap_or(1.0)
+                };
                 let r2 = body_query.get(target_entity).ok()
                     .and_then(|(_, _, _, ko, _)| ko)
                     .map(|ko| ko.semi_major_axis).unwrap_or(1.5);
@@ -9292,16 +9352,11 @@ fn render_transfer_planner(
             ui.add_space(4.0);
 
             let fleet_wet_mass = fleet.total_wet_mass_t();
-            let fleet_isp = fleet.average_isp_s();
             let fleet_max_dv = fleet.max_delta_v_ms();
 
             let options: Vec<_> = fleet_ui_state.computed_options.clone();
             for (idx, option) in options.iter().enumerate() {
-                let fuel_cost = estimate_fuel_cost_tonnes(
-                    fleet_wet_mass,
-                    fleet_isp,
-                    option.total_delta_v_ms,
-                );
+                let fuel_cost = fleet.total_fuel_cost_for_dv(option.total_delta_v_ms);
                 let fuel_pct = if fleet_wet_mass > 0.0 {
                     (fuel_cost / fleet_wet_mass * 100.0) as u32
                 } else {
@@ -9400,11 +9455,7 @@ fn render_transfer_planner(
 
             // Effective ΔV available after paying abort cost
             let dv_after_abort = if abort_cost_t > 0.0 {
-                use crate::fleets::orbital_mechanics::G0;
-                let wet_after = (fleet.total_wet_mass_t() - abort_cost_t).max(0.0) as f64;
-                let dry = fleet.total_dry_mass_t() as f64;
-                let isp = fleet.average_isp_s() as f64;
-                if wet_after > dry { isp * G0 * (wet_after / dry).ln() } else { 0.0 }
+                fleet.min_delta_v_after_abort(abort_cost_t)
             } else {
                 fleet_max_dv
             };
@@ -9512,19 +9563,13 @@ fn ui_transfer_planner_popup(
     // `open` is a separate local bool — `Window::open()` sets it to false when
     // the user clicks the × close button.
     let mut open = true;
-    egui::Window::new("📡 Transfer Planner")
+    egui::Window::new(format!("📡 Transfer Planner — {}", fleet.name))
         .open(&mut open)
         .resizable(true)
         .collapsible(false)
         .default_width(460.0)
-        .anchor(egui::Align2::RIGHT_TOP, egui::Vec2::new(-12.0, 48.0))
+        .default_pos(egui::pos2(660.0, 90.0))
         .show(ctx, |ui| {
-            ui.label(
-                egui::RichText::new(format!("🚀 Fleet: {}", fleet.name))
-                    .size(12.0)
-                    .color(egui::Color32::from_rgb(130, 220, 130)),
-            );
-            ui.add_space(4.0);
             egui::ScrollArea::vertical()
                 .max_height(600.0)
                 .show(ui, |ui| {
@@ -9559,7 +9604,7 @@ fn build_planned_transfer(
     option: &TransferOption,
 ) -> Option<PlannedTransfer> {
     use crate::astronomy::KeplerOrbit;
-    use crate::fleets::orbital_mechanics::{estimate_fuel_cost_tonnes, AU_IN_METERS, G_CONST, GM_SUN};
+    use crate::fleets::orbital_mechanics::{AU_IN_METERS, G_CONST, GM_SUN};
 
     let (_, origin_body, origin_sc, origin_ko, origin_lp) = body_query.get(orbit.body).ok()?;
     let (_, dest_body, _dest_sc, dest_ko, dest_lp) = body_query.get(target_entity).ok()?;
@@ -9595,16 +9640,27 @@ fn build_planned_transfer(
         let r2 = dest_ko.map(|ko| ko.semi_major_axis).unwrap_or(0.00257);
         (orbit.radius_au, r2, G_CONST * origin_body.mass, orbit.body, target_entity)
     } else if dest_parent.is_some() && dest_parent == origin_parent {
-        // Moon-to-moon
+        // Both orbit the same central body (moon-to-moon OR interplanetary, e.g. Earth→Mars).
+        // NOTE: The Sun lacks SpaceCoordinates so body_query.get(Sun) fails — fall back to GM_SUN.
         let shared = dest_parent.unwrap();
-        let parent_mass = body_query.get(shared).ok()
-            .map(|(_, b, _, _, _)| b.mass).unwrap_or(5.972e24);
+        let gm = body_query.get(shared).ok()
+            .map(|(_, b, _, _, _)| if b.body_type == BodyType::Star { GM_SUN } else { G_CONST * b.mass })
+            .unwrap_or(GM_SUN);
         let r1 = origin_ko.map(|ko| ko.semi_major_axis).unwrap_or(0.00257);
         let r2 = dest_ko.map(|ko| ko.semi_major_axis).unwrap_or(0.00257);
-        (r1, r2, G_CONST * parent_mass, shared, target_entity)
+        (r1, r2, gm, shared, target_entity)
     } else {
-        // Heliocentric
-        let r1 = origin_ko.map(|ko| ko.semi_major_axis).unwrap_or(1.0);
+        // Heliocentric: if fleet is at a moon, its own SMA is Earth-relative — use parent's SMA.
+        let r1 = if origin_ko.map(|ko| ko.semi_major_axis < 0.05).unwrap_or(true) {
+            origin_parent
+                .and_then(|pe| body_query.get(pe).ok())
+                .and_then(|(_, _, _, ko, _)| ko)
+                .map(|ko| ko.semi_major_axis)
+                .or_else(|| origin_ko.map(|ko| ko.semi_major_axis))
+                .unwrap_or(1.0)
+        } else {
+            origin_ko.map(|ko| ko.semi_major_axis).unwrap_or(1.0)
+        };
         let r2 = dest_ko.map(|ko| ko.semi_major_axis).unwrap_or(1.5);
         let star = body_query.iter()
             .find(|(_, b, _, ko, _)| ko.is_none() && b.body_type == BodyType::Star)
@@ -9639,11 +9695,7 @@ fn build_planned_transfer(
         orbit.radius_au
     };
 
-    let fuel_cost = estimate_fuel_cost_tonnes(
-        fleet.total_wet_mass_t(),
-        fleet.average_isp_s(),
-        option.total_delta_v_ms,
-    );
+    let fuel_cost = fleet.total_fuel_cost_for_dv(option.total_delta_v_ms);
 
     Some(PlannedTransfer {
         origin_body: orbit.body,
@@ -9668,7 +9720,7 @@ fn build_planned_transfer_lp(
     option: &TransferOption,
 ) -> Option<PlannedTransfer> {
     use crate::astronomy::KeplerOrbit;
-    use crate::fleets::orbital_mechanics::{estimate_fuel_cost_tonnes, AU_IN_METERS};
+    use crate::fleets::orbital_mechanics::AU_IN_METERS;
 
     // LP transfers are heliocentric – find the star as orbit center
     let star_entity = body_query.iter()
@@ -9702,15 +9754,14 @@ fn build_planned_transfer_lp(
         mean_motion,
     };
 
-    let fuel_cost = estimate_fuel_cost_tonnes(
-        fleet.total_wet_mass_t(),
-        fleet.average_isp_s(),
-        option.total_delta_v_ms,
-    );
+    let fuel_cost = fleet.total_fuel_cost_for_dv(option.total_delta_v_ms);
 
     Some(PlannedTransfer {
         origin_body: orbit.body,
-        destination_body: lp.planet_entity,
+        // Lagrange point orbits are heliocentric: the fleet parks around the star at the
+        // LP's heliocentric radius, NOT around the planet.  Parking around the planet at
+        // `lp.radius_au` (≈1 AU) would put the fleet ~2 AU from the Sun and off-screen.
+        destination_body: star_entity,
         orbit_center: star_entity,
         transfer_orbit,
         duration_s: option.transfer_time_s,

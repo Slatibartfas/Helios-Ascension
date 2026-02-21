@@ -57,6 +57,18 @@ impl ShipInfo {
         }
         self.fuel_mass_t / self.max_fuel_t
     }
+
+    /// Maximum achievable Δv for this ship alone (m/s), using the Tsiolkovsky
+    /// rocket equation with this ship's current fuel level and Isp.
+    pub fn delta_v_ms(&self) -> f64 {
+        use super::orbital_mechanics::G0;
+        let dry = self.dry_mass_t as f64;
+        let wet = self.wet_mass_t() as f64;
+        if dry <= 0.0 || wet <= dry {
+            return 0.0;
+        }
+        self.isp_s as f64 * G0 * (wet / dry).ln()
+    }
 }
 
 /// A named collection of ships orbiting (or transferring between) celestial bodies.
@@ -103,16 +115,58 @@ impl Fleet {
         self.ships.iter().map(|s| s.thrust_kn).sum()
     }
 
-    /// Maximum achievable Δv for the entire fleet (m/s), using the Tsiolkovsky
-    /// rocket equation with the fleet's current fuel level and average Isp.
+    /// Maximum achievable Δv for the entire fleet (m/s).
+    ///
+    /// A fleet's Δv capacity is limited by the ship with the **lowest** individual
+    /// Δv — every ship must complete the maneuver, so the weakest ship determines
+    /// what the fleet can achieve.
     pub fn max_delta_v_ms(&self) -> f64 {
-        use super::orbital_mechanics::G0;
-        let dry = self.total_dry_mass_t() as f64;
-        let wet = self.total_wet_mass_t() as f64;
-        if dry <= 0.0 || wet <= dry {
+        if self.ships.is_empty() {
             return 0.0;
         }
-        self.average_isp_s() as f64 * G0 * (wet / dry).ln()
+        self.ships
+            .iter()
+            .map(|s| s.delta_v_ms())
+            .fold(f64::INFINITY, f64::min)
+    }
+
+    /// Total propellant consumed (tonnes) across all ships to perform `delta_v_ms`.
+    ///
+    /// Each ship's fuel cost is computed individually from its own Isp and wet
+    /// mass via the Tsiolkovsky rocket equation, then summed.
+    pub fn total_fuel_cost_for_dv(&self, delta_v_ms: f64) -> f32 {
+        use super::orbital_mechanics::estimate_fuel_cost_tonnes;
+        self.ships
+            .iter()
+            .map(|s| estimate_fuel_cost_tonnes(s.wet_mass_t(), s.isp_s, delta_v_ms))
+            .sum()
+    }
+
+    /// Minimum Δv (m/s) available after deducting `abort_fuel_t` evenly across
+    /// all ships.
+    ///
+    /// Used to pre-check whether a course correction is feasible once the abort
+    /// burn penalty has been paid.
+    pub fn min_delta_v_after_abort(&self, abort_fuel_t: f32) -> f64 {
+        if self.ships.is_empty() {
+            return 0.0;
+        }
+        let n = self.ships.len() as f32;
+        let per_ship = abort_fuel_t / n;
+        self.ships
+            .iter()
+            .map(|s| {
+                use super::orbital_mechanics::G0;
+                let dry = s.dry_mass_t as f64;
+                let fuel_after = (s.fuel_mass_t - per_ship).max(0.0) as f64;
+                let wet_after = dry + fuel_after;
+                if wet_after > dry {
+                    s.isp_s as f64 * G0 * (wet_after / dry).ln()
+                } else {
+                    0.0
+                }
+            })
+            .fold(f64::INFINITY, f64::min)
     }
 
     /// Fuel fill level as a fraction 0..1.
@@ -177,6 +231,9 @@ pub struct ActiveManeuver {
     pub fuel_used_t: f32,
     /// Label of the transfer option chosen by the player.
     pub option_label: &'static str,
+    /// Visual orbit angle (radians) of the fleet on its parking ring at the moment
+    /// of departure — used to draw the arc starting from the exact departure point.
+    pub departure_angle: f32,
 }
 
 impl ActiveManeuver {
@@ -214,6 +271,9 @@ pub struct PendingFleetActions {
     pub start_transfers: Vec<StartTransferAction>,
     /// Fleet entities whose active maneuver should be aborted.
     pub cancel_maneuvers: Vec<Entity>,
+    /// Fleets to refuel — fills all ships to their maximum propellant capacity.
+    /// In the future this will draw propellant from the location's resource stockpile.
+    pub refuel_fleets: Vec<Entity>,
 }
 
 /// Request to spawn a new fleet in orbit around a body.
