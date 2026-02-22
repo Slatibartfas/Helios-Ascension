@@ -48,7 +48,7 @@ use crate::fleets::{
     AU_IN_METERS, G_CONST, GM_SUN,
 };
 use crate::fleets::orbital_mechanics::{
-    apply_thrust_limits, brachistochrone_option, calculate_transfer_options,
+    apply_thrust_limits, kinematic_transfer_options, calculate_transfer_options,
     calculate_transfer_options_phased, compute_burn_time_s, compute_transfer_window,
     find_gravity_assist_options, format_delta_v, format_duration,
     hohmann_transfer, GravityAssistOption,
@@ -2573,6 +2573,7 @@ fn render_fleet_ledger_tree(
     commands: &mut Commands,
     selection: &mut Selection,
     elapsed: f64,
+    anchor_query: &mut Query<&mut CameraAnchor, With<GameCamera>>,
 ) {
     let mut fleets: Vec<(Entity, &Fleet, Option<&FleetOrbit>, Option<&ActiveManeuver>)> =
         fleet_query.iter().map(|(e, f, o, m)| (e, f, o, m)).collect();
@@ -2625,13 +2626,12 @@ fn render_fleet_ledger_tree(
             if fleet.ships.len() == 1 { "ship" } else { "ships" }
         );
 
-        if ui
-            .selectable_label(
-                is_selected,
-                egui::RichText::new(&display_name).color(row_color).size(13.0),
-            )
-            .clicked()
-        {
+        let row_response = ui.selectable_label(
+            is_selected,
+            egui::RichText::new(&display_name).color(row_color).size(13.0),
+        );
+
+        if row_response.clicked() {
             if is_selected {
                 fleet_ui_state.selected_fleet = None;
             } else {
@@ -2642,6 +2642,33 @@ fn render_fleet_ledger_tree(
                 selection.clear();
                 fleet_ui_state.selected_fleet = Some(entity);
                 fleet_ui_state.clear_target();
+            }
+        }
+
+        if row_response.double_clicked() {
+            // Select the fleet
+            for e in selected_query.iter() {
+                commands.entity(e).remove::<Selected>();
+            }
+            selection.clear();
+            fleet_ui_state.selected_fleet = Some(entity);
+            fleet_ui_state.clear_target();
+
+            // Anchor camera to the fleet's current or departure body
+            let anchor_body = if let Some(maneuver) = maybe_maneuver {
+                // In transit: anchor to departure (origin) body
+                Some(maneuver.origin_body)
+            } else if let Some(orbit) = maybe_orbit {
+                // Orbiting: anchor to that body
+                Some(orbit.body)
+            } else {
+                None
+            };
+
+            if let Some(body_entity) = anchor_body {
+                if let Ok(mut anchor) = anchor_query.single_mut() {
+                    anchor.0 = Some(body_entity);
+                }
             }
         }
 
@@ -3032,6 +3059,7 @@ fn ui_dashboard(
     // Ledger Panel (Left)
     egui::SidePanel::left("ledger_panel")
         .min_width(200.0)
+        .default_width(230.0)
         .show(ctx, |ui| {
             match active_menu.current {
                 GameMenu::Starmap => {
@@ -3178,6 +3206,7 @@ fn ui_dashboard(
                                     &mut commands,
                                     &mut selection,
                                     sim_time.elapsed_seconds(),
+                                    &mut anchor_query,
                                 );
                             });
                         });
@@ -9777,6 +9806,16 @@ fn render_transfer_planner(
                 fleet.min_accel_ms2(),
                 fleet.average_isp_s(),
             );
+            // Add kinematic options for high-thrust fleets intercepting other fleets.
+            let hohmann_dv = fleet_ui_state.computed_options.first().map(|o| o.total_delta_v_ms).unwrap_or(0.0);
+            let sma_h = fleet_ui_state.computed_options.first().map(|o| o.sma_au).unwrap_or(0.0);
+            let ecc_h = fleet_ui_state.computed_options.first().map(|o| o.eccentricity).unwrap_or(0.0);
+            let d = (r2_au - r1_au).abs() * crate::fleets::orbital_mechanics::AU_IN_METERS;
+            let mut kinematics = kinematic_transfer_options(
+                d, fleet.min_accel_ms2(), fleet.max_delta_v_ms(),
+                hohmann_dv, sma_h, ecc_h, false
+            );
+            fleet_ui_state.computed_options.append(&mut kinematics);
         } else if let Some(target_entity) = body_target_snap {
             //   - Ring transfer (dest has no KeplerOrbit; use body.radius as r2):
             //       r1 = fleet orbit radius or origin SMA, r2 = ring.radius_au, GM = parent mass * G
@@ -9982,14 +10021,21 @@ fn render_transfer_planner(
                 opts
             };
             // Post-process: fill burn_time_s, flag thrust-limited options,
-            // and add a "Flip & Burn" option for high-thrust fleets.
+            // and add kinematic options for high-thrust fleets.
             {
                 let accel = fleet.min_accel_ms2();
                 let isp = fleet.average_isp_s();
                 apply_thrust_limits(&mut fleet_ui_state.computed_options, accel, isp);
-                if let Some(brach) = brachistochrone_option(r1, r2, gm, accel, isp, fleet.max_delta_v_ms()) {
-                    fleet_ui_state.computed_options.push(brach);
-                }
+                
+                let hohmann_dv = fleet_ui_state.computed_options.first().map(|o| o.total_delta_v_ms).unwrap_or(0.0);
+                let sma_h = fleet_ui_state.computed_options.first().map(|o| o.sma_au).unwrap_or(0.0);
+                let ecc_h = fleet_ui_state.computed_options.first().map(|o| o.eccentricity).unwrap_or(0.0);
+                let d = (r2 - r1).abs() * crate::fleets::orbital_mechanics::AU_IN_METERS;
+                let mut kinematics = kinematic_transfer_options(
+                    d, accel, fleet.max_delta_v_ms(),
+                    hohmann_dv, sma_h, ecc_h, false
+                );
+                fleet_ui_state.computed_options.append(&mut kinematics);
             }
             // ── Gravity assist candidates (heliocentric transfers only) ─────────
             // Collect planets between r1 and r2, compute two-leg patched-conic options.
@@ -10101,6 +10147,16 @@ fn render_transfer_planner(
                     fleet.min_accel_ms2(),
                     fleet.average_isp_s(),
                 );
+                // Add kinematic options for high-thrust fleets targeting Lagrange points.
+                let hohmann_dv = fleet_ui_state.computed_options.first().map(|o| o.total_delta_v_ms).unwrap_or(0.0);
+                let sma_h = fleet_ui_state.computed_options.first().map(|o| o.sma_au).unwrap_or(0.0);
+                let ecc_h = fleet_ui_state.computed_options.first().map(|o| o.eccentricity).unwrap_or(0.0);
+                let d = (lp.radius_au - r1_lp).abs() * crate::fleets::orbital_mechanics::AU_IN_METERS;
+                let mut kinematics = kinematic_transfer_options(
+                    d, fleet.min_accel_ms2(), fleet.max_delta_v_ms(),
+                    hohmann_dv, sma_h, ecc_h, false
+                );
+                fleet_ui_state.computed_options.append(&mut kinematics);
             }
 
         // ── Interstellar transfer computation ───────────────────────────────
@@ -10114,39 +10170,12 @@ fn render_transfer_planner(
 
             fleet_ui_state.computed_options.clear();
 
-            if accel >= 0.05 && max_dv > 0.0 {
-                // Brachistochrone kinematics for straight-line interstellar cruise.
-                let dv_brach = 2.0 * (accel * distance_m).sqrt();
-                let t_brach  = 2.0 * (distance_m / accel).sqrt();
-                let feasible = dv_brach <= max_dv;
+            let mut kinematics = kinematic_transfer_options(
+                distance_m, accel, max_dv,
+                0.0, 0.0, 0.0, true
+            );
+            fleet_ui_state.computed_options.append(&mut kinematics);
 
-                let (trip_time, thrust_limited) = if feasible {
-                    (t_brach, false)
-                } else {
-                    // Burn to max ΔV/2 then coast; decelerate symmetrically
-                    let half_dv   = max_dv / 2.0;
-                    let t_accel   = half_dv / accel;
-                    let d_accel   = 0.5 * accel * t_accel * t_accel;
-                    let d_coast   = (distance_m - 2.0 * d_accel).max(0.0);
-                    let v_cruise  = half_dv;
-                    let t_coast   = if v_cruise > 0.0 { d_coast / v_cruise } else { f64::INFINITY };
-                    (2.0 * t_accel + t_coast, true)
-                };
-
-                let used_dv = if feasible { dv_brach } else { max_dv };
-                fleet_ui_state.computed_options.push(TransferOption {
-                    label: "Interstellar",
-                    total_delta_v_ms: used_dv,
-                    delta_v1_ms: used_dv * 0.5,
-                    delta_v2_ms: used_dv * 0.5,
-                    transfer_time_s: trip_time,
-                    sma_au: 0.0,
-                    eccentricity: 0.0,
-                    energy_multiplier: 1.0,
-                    burn_time_s: if feasible { t_brach } else { max_dv / accel },
-                    is_thrust_limited: thrust_limited,
-                });
-            }
             if fleet_ui_state.computed_options.is_empty() {
                 // Fleet lacks the minimum thrust for interstellar travel
                 fleet_ui_state.computed_options.push(TransferOption {
@@ -10289,6 +10318,46 @@ fn render_transfer_planner(
                                 fleet_ui_state.departure_offset_days = window_days;
                             }
                         }
+                    });
+                });
+
+                // Fleet stats infobox (narrow, right-most)
+                ui.group(|ui| {
+                    ui.set_min_width(90.0);
+                    ui.set_max_width(96.0);
+                    ui.vertical(|ui| {
+                        ui.set_min_height(82.0);
+                        ui.label(
+                            egui::RichText::new("🚀 Fleet")
+                                .strong()
+                                .size(12.0)
+                                .color(egui::Color32::from_rgb(160, 210, 255)),
+                        );
+                        ui.add_space(3.0);
+
+                        let dv_kms = fleet.max_delta_v_ms() / 1_000.0;
+                        let thrust_kn = fleet.total_thrust_kn();
+                        let thrust_str = if thrust_kn >= 1_000.0 {
+                            format!("{:.1} MN", thrust_kn / 1_000.0)
+                        } else {
+                            format!("{:.0} kN", thrust_kn)
+                        };
+
+                        ui.label(egui::RichText::new("ΔV avail.").size(10.0).color(egui::Color32::GRAY));
+                        ui.label(
+                            egui::RichText::new(format!("{:.2} km/s", dv_kms))
+                                .size(11.0)
+                                .strong()
+                                .color(egui::Color32::from_rgb(200, 230, 255)),
+                        );
+                        ui.add_space(4.0);
+                        ui.label(egui::RichText::new("Thrust").size(10.0).color(egui::Color32::GRAY));
+                        ui.label(
+                            egui::RichText::new(thrust_str)
+                                .size(11.0)
+                                .strong()
+                                .color(egui::Color32::from_rgb(200, 230, 255)),
+                        );
                     });
                 });
             });
@@ -10758,7 +10827,7 @@ fn ui_transfer_planner_popup(
         .resizable(true)
         .collapsible(false)
         .default_width(460.0)
-        .default_pos(egui::pos2(660.0, 90.0))
+        .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 135.0))
         .show(ctx, |ui| {
             egui::ScrollArea::vertical()
                 .max_height(600.0)

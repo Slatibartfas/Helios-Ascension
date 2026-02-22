@@ -601,83 +601,90 @@ pub fn apply_thrust_limits(
     }
 }
 
-/// Build a "Flip & Burn" (brachistochrone) transfer option for a fleet
-/// with sufficient thrust *and* propellant.
+/// Compute kinematic (point-and-burn) transfer options for a given distance.
 ///
-/// A flip-and-burn trajectory applies maximum thrust for the first half
-/// of the trip (accelerating toward the target), then rotates 180° and
-/// applies maximum thrust for the second half (decelerating to match the
-/// destination's orbital velocity).  This minimises transit time for a
-/// given thrust level at the cost of very high ΔV expenditure.
-///
-/// The chord-distance approximation `D ≈ |r₂ − r₁| × AU` is used.
+/// Returns a list of options (e.g., Efficient Coast, Moderate Coast, Flip & Burn)
+/// based on the fleet's acceleration and ΔV capacity.
 ///
 /// # Parameters
-/// - `r1_au`, `r2_au`: semi-major axes of origin and destination (AU)
-/// - `gm`: gravitational parameter of the central body (m³/s²)
-/// - `fleet_accel_ms2`: fleet minimum acceleration (m/s²) — use
-///   [`Fleet::min_accel_ms2`]
-/// - `_fleet_avg_isp_s`: fleet average specific impulse (s); reserved for
-///   future partial-thrust models
-/// - `fleet_max_dv_ms`: fleet total ΔV capacity (m/s) — use
-///   [`Fleet::max_delta_v_ms`].  The option is suppressed when the
-///   required brachistochrone ΔV exceeds this value, preventing infeasible
-///   options from appearing (e.g. chemical rockets with large thrust but
-///   tiny ΔV budgets).
-///
-/// # Returns
-/// `None` when:
-/// - the acceleration is below [`MIN_BRACH_ACCEL_MS2`] (0.05 m/s²), or
-/// - the two orbits are identical, or
-/// - the required ΔV exceeds `fleet_max_dv_ms`.
-pub fn brachistochrone_option(
-    r1_au: f64,
-    r2_au: f64,
-    gm: f64,
+/// - `distance_m`: straight-line distance to target in meters
+/// - `fleet_accel_ms2`: fleet minimum acceleration (m/s²)
+/// - `fleet_max_dv_ms`: fleet total ΔV capacity (m/s)
+/// - `hohmann_dv`: baseline Hohmann ΔV for energy multiplier (0.0 for interstellar)
+/// - `sma_h`: baseline Hohmann SMA for arc visualization (0.0 for interstellar)
+/// - `ecc_h`: baseline Hohmann eccentricity for arc visualization (0.0 for interstellar)
+/// - `is_interstellar`: true if this is an interstellar transfer (changes labels)
+pub fn kinematic_transfer_options(
+    distance_m: f64,
     fleet_accel_ms2: f64,
-    _fleet_avg_isp_s: f32,
     fleet_max_dv_ms: f64,
-) -> Option<TransferOption> {
-    /// Minimum fleet acceleration (m/s²) to offer the Flip & Burn option.
-    /// Set to 0.05 m/s² so that FusionTorch ships (≈ 0.01 g = 0.098 m/s²)
-    /// always qualify while ion drives (≈ 0.005 m/s²) are excluded.
+    hohmann_dv: f64,
+    sma_h: f64,
+    ecc_h: f64,
+    is_interstellar: bool,
+) -> Vec<TransferOption> {
+    let mut options = Vec::new();
+
     const MIN_BRACH_ACCEL_MS2: f64 = 0.05;
-    if fleet_accel_ms2 < MIN_BRACH_ACCEL_MS2 { return None; }
+    if fleet_accel_ms2 < MIN_BRACH_ACCEL_MS2 || distance_m < 1e6 || fleet_max_dv_ms <= 0.0 {
+        return options;
+    }
 
-    let d = (r2_au - r1_au).abs() * AU_IN_METERS;
-    if d < 1e6 { return None; }
+    let make_option = |dv: f64, label: &'static str| -> TransferOption {
+        let half_dv  = dv / 2.0;
+        let t_accel  = half_dv / fleet_accel_ms2;
+        let d_accel  = 0.5 * fleet_accel_ms2 * t_accel * t_accel;
+        let d_coast  = (distance_m - 2.0 * d_accel).max(0.0);
+        let v_cruise = half_dv;
+        let t_coast  = if v_cruise > 0.0 { d_coast / v_cruise } else { 0.0 };
+        let trip_time = 2.0 * t_accel + t_coast;
+        
+        let thrust_limited = d_coast <= 0.0;
+        let energy_multiplier = if hohmann_dv > 0.0 { dv / hohmann_dv } else { dv / fleet_max_dv_ms };
 
-    // Flip-and-burn kinematics (constant acceleration, chord-distance model):
-    //   T = 2√(D/a)   ΔV = 2√(a·D)  (symmetric accel + decel half-burns)
-    let dv_brach = 2.0 * (fleet_accel_ms2 * d).sqrt();
-    let t_brach = 2.0 * (d / fleet_accel_ms2).sqrt();
+        TransferOption {
+            label,
+            total_delta_v_ms: dv,
+            delta_v1_ms: dv * 0.5,
+            delta_v2_ms: dv * 0.5,
+            transfer_time_s: trip_time,
+            sma_au: sma_h,
+            eccentricity: ecc_h,
+            energy_multiplier,
+            burn_time_s: 2.0 * t_accel,
+            is_thrust_limited: thrust_limited,
+        }
+    };
 
-    // Feasibility check: the fleet must carry enough propellant for the maneuver.
-    // Chemical/NTR ships have high acceleration but minuscule ΔV capacity — their
-    // required brachistochrone ΔV would be orders of magnitude above available fuel.
-    if dv_brach > fleet_max_dv_ms { return None; }
+    let dv_brach = 2.0 * (fleet_accel_ms2 * distance_m).sqrt();
+    let t_brach  = 2.0 * (distance_m / fleet_accel_ms2).sqrt();
 
-    // Energy multiplier relative to the Hohmann baseline
-    let (dv1_h, dv2_h, _, sma_h, ecc_h) = hohmann_transfer(r1_au, r2_au, gm);
-    let hohmann_dv = dv1_h + dv2_h;
-    let energy_multiplier = if hohmann_dv > 0.0 { dv_brach / hohmann_dv } else { 1.0 };
+    if dv_brach <= fleet_max_dv_ms {
+        // Fleet can sustain continuous thrust for the entire trip.
+        options.push(make_option(fleet_max_dv_ms * 0.33, "Efficient Coast"));
+        options.push(make_option(fleet_max_dv_ms * 0.67, "Moderate Coast"));
+        
+        let energy_multiplier = if hohmann_dv > 0.0 { dv_brach / hohmann_dv } else { dv_brach / fleet_max_dv_ms };
+        options.push(TransferOption {
+            label: "Flip & Burn",
+            total_delta_v_ms: dv_brach,
+            delta_v1_ms: dv_brach * 0.5,
+            delta_v2_ms: dv_brach * 0.5,
+            transfer_time_s: t_brach,
+            sma_au: sma_h,
+            eccentricity: ecc_h,
+            energy_multiplier,
+            burn_time_s: t_brach,
+            is_thrust_limited: false,
+        });
+    } else {
+        // Fleet must coast most of the way.
+        options.push(make_option(fleet_max_dv_ms * 0.33, "Efficient Coast"));
+        options.push(make_option(fleet_max_dv_ms * 0.67, "Moderate Coast"));
+        options.push(make_option(fleet_max_dv_ms,        if is_interstellar { "Max Speed" } else { "Fast Coast" }));
+    }
 
-    Some(TransferOption {
-        label: "Flip & Burn",
-        total_delta_v_ms: dv_brach,
-        delta_v1_ms: dv_brach * 0.5, // acceleration half-burn
-        delta_v2_ms: dv_brach * 0.5, // deceleration half-burn
-        transfer_time_s: t_brach,
-        sma_au: sma_h, // placeholder SMA for arc visualization
-        eccentricity: ecc_h,
-        energy_multiplier,
-        // The entire trip is a powered burn; transfer_time_s IS the burn time
-        // (constant-acceleration kinematic model: thrust throughout).
-        burn_time_s: t_brach,
-        // Flip & Burn is by definition a continuous-thrust profile; the
-        // Hohmann impulsive approximation does not apply, so this flag stays false.
-        is_thrust_limited: false,
-    })
+    options
 }
 
 /// Compute the propellant mass fraction consumed to perform a given Δv.
@@ -1125,17 +1132,18 @@ mod tests {
         assert_eq!(compute_burn_time_s(1000.0, 10.0, 0.0), 0.0);
     }
 
-    /// brachistochrone_option returns None for sub-threshold acceleration.
+    /// kinematic_transfer_options returns empty for sub-threshold acceleration.
     #[test]
     fn test_brachistochrone_below_threshold() {
         // Ion drive accel ≈ 0.0054 m/s² — below the 0.05 m/s² threshold.
         // Provide a large max_dv so only the accel check fires.
-        let result = brachistochrone_option(1.0, 1.524, GM_SUN, 0.0054, 5_000.0, 1_000_000_000.0);
-        assert!(result.is_none(),
-            "Ion drive should not produce a Flip & Burn option");
+        let d = (1.524 - 1.0) * AU_IN_METERS;
+        let result = kinematic_transfer_options(d, 0.0054, 1_000_000_000.0, 0.0, 0.0, 0.0, false);
+        assert!(result.is_empty(),
+            "Ion drive should not produce kinematic options");
     }
 
-    /// brachistochrone_option produces a valid option for high-thrust, high-Isp ships.
+    /// kinematic_transfer_options produces a valid option for high-thrust, high-Isp ships.
     /// Earth-Mars with accel = 10 m/s²: t < Hohmann, ΔV >> Hohmann.
     #[test]
     fn test_brachistochrone_high_thrust() {
@@ -1143,7 +1151,9 @@ mod tests {
         // Antimatter Frigate: Isp=1 000 000 s, fuel_frac=0.45, wet=3636t
         // ΔV_max = 1_000_000 × 9.81 × ln(1.818) ≈ 5 866 km/s  (plenty)
         let max_dv = 1_000_000.0_f64 * 9.806_65 * (3636.0_f64 / 2000.0_f64).ln();
-        let opt = brachistochrone_option(1.0, 1.524, GM_SUN, accel, 50_000.0, max_dv)
+        let d = (1.524 - 1.0) * AU_IN_METERS;
+        let opts = kinematic_transfer_options(d, accel, max_dv, 0.0, 0.0, 0.0, false);
+        let opt = opts.into_iter().find(|o| o.label == "Flip & Burn")
             .expect("High-thrust, high-Isp fleet should get Flip & Burn option");
         assert_eq!(opt.label, "Flip & Burn");
         // ΔV should be far above Hohmann
@@ -1168,7 +1178,7 @@ mod tests {
     }
 
     /// Chemical ships have high acceleration but tiny ΔV capacity.
-    /// brachistochrone_option must return None even though accel > threshold.
+    /// kinematic_transfer_options must not return Flip & Burn even though accel > threshold.
     #[test]
     fn test_brachistochrone_insufficient_dv() {
         // Chemical Frigate: dry=2000t, fuel_frac=0.45, Isp=450s
@@ -1181,9 +1191,10 @@ mod tests {
         let max_dv = isp as f64 * G0 * (wet / dry).ln(); // ≈ 2 640 m/s
         let accel = 10.0 * dry * 9.81 / wet; // ≈ 54 m/s²
 
-        let result = brachistochrone_option(1.0, 1.524, GM_SUN, accel, isp, max_dv);
+        let d = (1.524 - 1.0) * AU_IN_METERS;
+        let opts = kinematic_transfer_options(d, accel, max_dv, 0.0, 0.0, 0.0, false);
         assert!(
-            result.is_none(),
+            !opts.iter().any(|o| o.label == "Flip & Burn"),
             "Chemical ship with only {:.0} m/s ΔV should not get Flip & Burn (needs >> that)",
             max_dv
         );
@@ -1201,7 +1212,9 @@ mod tests {
         let max_dv = 50_000.0_f64 * G0 * (wet / dry).ln(); // ≈ 293 km/s
 
         // Use r2 = 1.38 AU so |r2-r1| × AU ≈ 0.38 AU = minimum Earth–Mars distance
-        let opt = brachistochrone_option(1.0, 1.38, GM_SUN, accel, 50_000.0, max_dv)
+        let d = (1.38 - 1.0) * AU_IN_METERS;
+        let opts = kinematic_transfer_options(d, accel, max_dv, 0.0, 0.0, 0.0, false);
+        let opt = opts.into_iter().find(|o| o.label == "Flip & Burn")
             .expect("0.01 g fusion should produce a Flip & Burn option for Mars min approach");
         let days = opt.transfer_time_s / 86_400.0;
         assert!(
@@ -1228,7 +1241,9 @@ mod tests {
         let wet = dry / (1.0 - 0.45_f64);
         let max_dv = 1_000_000.0_f64 * G0 * (wet / dry).ln(); // ≈ 5 866 km/s
 
-        let opt = brachistochrone_option(1.0, 1.38, GM_SUN, accel, 1_000_000.0, max_dv)
+        let d = (1.38 - 1.0) * AU_IN_METERS;
+        let opts = kinematic_transfer_options(d, accel, max_dv, 0.0, 0.0, 0.0, false);
+        let opt = opts.into_iter().find(|o| o.label == "Flip & Burn")
             .expect("1 g antimatter should produce a Flip & Burn option for Mars min approach");
         let days = opt.transfer_time_s / 86_400.0;
         assert!(

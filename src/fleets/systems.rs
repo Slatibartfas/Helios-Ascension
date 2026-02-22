@@ -28,6 +28,65 @@ const VISUAL_ORBIT_RATE: f64 = std::f64::consts::TAU / 40.0;
 /// the body's glow without the ring dominating the view.
 const FLEET_ORBIT_RADIUS_MULT: f32 = 1.5;
 
+/// Number of sub-samples used to approximate arc length for dashed curves.
+const ARC_SAMPLES: usize = 256;
+/// Fraction of each dash-gap cycle occupied by the visible dash (0.6 = 60%).
+const DASH_RATIO: f32 = 0.6;
+
+/// Draw a dashed curve with *proportional*, arc-length-uniform spacing.
+///
+/// The curve is densely over-sampled, then `num_dashes` dash-gap cycles are
+/// placed at uniform arc-length intervals.  The result looks the same
+/// regardless of the curve's total world-space length.
+///
+/// * `sample_fn` — maps `t ∈ [0, 1]` to a world-space position on the curve.
+/// * `num_dashes` — how many visible dash segments the curve should contain.
+/// * `color_fn` — maps arc-length fraction `∈ [0, 1]` to the dash colour.
+fn draw_dashed_curve(
+    gizmos: &mut Gizmos,
+    sample_fn: impl Fn(f32) -> Vec3,
+    num_dashes: u32,
+    color_fn: impl Fn(f32) -> Color,
+) {
+    let mut points = Vec::with_capacity(ARC_SAMPLES + 1);
+    for i in 0..=ARC_SAMPLES {
+        points.push(sample_fn(i as f32 / ARC_SAMPLES as f32));
+    }
+    draw_dashed_polyline(gizmos, &points, num_dashes, &color_fn);
+}
+
+/// Draw a dashed polyline with proportional, arc-length-uniform spacing.
+///
+/// `num_dashes` visible dash segments are distributed evenly along the total
+/// arc length.  Each sub-segment is drawn when its midpoint falls inside a
+/// dash phase.  With ≥ 256 samples the transition error is sub-pixel.
+fn draw_dashed_polyline(
+    gizmos: &mut Gizmos,
+    points: &[Vec3],
+    num_dashes: u32,
+    color_fn: &dyn Fn(f32) -> Color,
+) {
+    if points.len() < 2 || num_dashes == 0 { return; }
+    let n = points.len();
+    let mut cum = Vec::with_capacity(n);
+    cum.push(0.0_f32);
+    for i in 1..n {
+        cum.push(cum[i - 1] + (points[i] - points[i - 1]).length());
+    }
+    let total = *cum.last().unwrap();
+    if total < 0.001 { return; }
+    let cycle = total / num_dashes as f32;
+    let dash_len = cycle * DASH_RATIO;
+    for i in 1..n {
+        let mid_arc = (cum[i - 1] + cum[i]) * 0.5;
+        let phase = mid_arc % cycle;
+        if phase < dash_len {
+            let frac = mid_arc / total;
+            gizmos.line(points[i - 1], points[i], color_fn(frac));
+        }
+    }
+}
+
 /// Update `SpaceCoordinates` for every fleet in a stable parking orbit.
 ///
 /// The visual orbital angle advances at a gameplay-friendly fixed real-time rate
@@ -353,33 +412,32 @@ fn predict_body_visual_pos(
 /// * Smaller dashed amber circle at approximately the body's visual size.
 /// * Crosshair in the centre.
 fn draw_ghost_body(gizmos: &mut Gizmos, center: Vec3, ring_r: f32, body_r: f32, skip_outer_ring: bool) {
-    const N: u32 = 32;
     let tau = std::f32::consts::TAU;
 
     // Arrival orbit ring — dashed amber, 50 % alpha.
-    // Suppressed when an identical cyan ring is already drawn by draw_fleet_orbit_rings
-    // (e.g. Moon → Earth inward transfer where destination == orbit centre).
     if !skip_outer_ring {
-        for i in 0..N {
-            if i % 2 == 1 { continue; }
-            let a1 = (i as f32 / N as f32) * tau;
-            let a2 = ((i + 1) as f32 / N as f32) * tau;
-            let p1 = center + Vec3::new(a1.cos() * ring_r, a1.sin() * ring_r, 0.0);
-            let p2 = center + Vec3::new(a2.cos() * ring_r, a2.sin() * ring_r, 0.0);
-            gizmos.line(p1, p2, Color::srgba(1.0, 0.75, 0.15, 0.50));
-        }
+        draw_dashed_curve(
+            gizmos,
+            |t| {
+                let a = t * tau;
+                center + Vec3::new(a.cos() * ring_r, a.sin() * ring_r, 0.0)
+            },
+            16,
+            |_| Color::srgba(1.0, 0.75, 0.15, 0.50),
+        );
     }
 
     // Ghost body outline — slightly smaller, 28 % alpha.
     let ghost_r = (body_r * 0.85).max(ring_r * 0.35);
-    for i in 0..N {
-        if i % 2 == 1 { continue; }
-        let a1 = (i as f32 / N as f32) * tau;
-        let a2 = ((i + 1) as f32 / N as f32) * tau;
-        let p1 = center + Vec3::new(a1.cos() * ghost_r, a1.sin() * ghost_r, 0.0);
-        let p2 = center + Vec3::new(a2.cos() * ghost_r, a2.sin() * ghost_r, 0.0);
-        gizmos.line(p1, p2, Color::srgba(1.0, 0.75, 0.15, 0.28));
-    }
+    draw_dashed_curve(
+        gizmos,
+        |t| {
+            let a = t * tau;
+            center + Vec3::new(a.cos() * ghost_r, a.sin() * ghost_r, 0.0)
+        },
+        12,
+        |_| Color::srgba(1.0, 0.75, 0.15, 0.28),
+    );
 
     // Centre crosshair.
     let cs = ring_r * 0.18;
@@ -539,24 +597,37 @@ pub fn draw_fleet_trajectories(
                 let tang_d_a = Vec3::new(-radial_dest.y, radial_dest.x, 0.0);
                 let tang_dest = if tang_d_a.dot(tang_origin) >= 0.0 { tang_d_a } else { -tang_d_a };
 
-                let ctrl_len = (p3 - p0).length() * 0.40;
-                let p1 = p0 + tang_origin * ctrl_len;
-                let p2 = p3 - tang_dest   * ctrl_len;
-
-                let bezier = |t: f32| -> Vec3 {
-                    let u = 1.0 - t;
-                    u*u*u*p0 + 3.0*u*u*t*p1 + 3.0*u*t*t*p2 + t*t*t*p3
-                };
-
-                let mut prev: Option<Vec3> = None;
-                for i in 0..=SEGMENTS {
-                    let t_frac = i as f32 / SEGMENTS as f32;
-                    let pos = bezier(t_frac);
-                    if let Some(prev_pos) = prev {
-                        let alpha = 0.85 - 0.35 * t_frac;
-                        gizmos.line(prev_pos, pos, Color::srgba(0.3, 0.8, 1.0, alpha));
+                let is_kinematic = maneuver.option_label == "Flip & Burn" || maneuver.option_label.contains("Coast") || maneuver.option_label == "Max Speed";
+                if is_kinematic {
+                    // Kinematic transfer: straight powered line, no ballistic arc.
+                    for i in 0..SEGMENTS {
+                        let t0 = i as f32 / SEGMENTS as f32;
+                        let t1 = (i + 1) as f32 / SEGMENTS as f32;
+                        let pos0 = p0 + (p3 - p0) * t0;
+                        let pos1 = p0 + (p3 - p0) * t1;
+                        let alpha = 0.85 - 0.35 * t0;
+                        gizmos.line(pos0, pos1, Color::srgba(0.3, 0.8, 1.0, alpha));
                     }
-                    prev = Some(pos);
+                } else {
+                    let ctrl_len = (p3 - p0).length() * 0.40;
+                    let p1 = p0 + tang_origin * ctrl_len;
+                    let p2 = p3 - tang_dest   * ctrl_len;
+
+                    let bezier = |t: f32| -> Vec3 {
+                        let u = 1.0 - t;
+                        u*u*u*p0 + 3.0*u*u*t*p1 + 3.0*u*t*t*p2 + t*t*t*p3
+                    };
+
+                    let mut prev: Option<Vec3> = None;
+                    for i in 0..=SEGMENTS {
+                        let t_frac = i as f32 / SEGMENTS as f32;
+                        let pos = bezier(t_frac);
+                        if let Some(prev_pos) = prev {
+                            let alpha = 0.85 - 0.35 * t_frac;
+                            gizmos.line(prev_pos, pos, Color::srgba(0.3, 0.8, 1.0, alpha));
+                        }
+                        prev = Some(pos);
+                    }
                 }
 
                 // Ghost body at predicted arrival position (same as arc target).
@@ -579,26 +650,57 @@ pub fn draw_fleet_trajectories(
         let total_ma_travel = maneuver.transfer_orbit.mean_motion
             * (maneuver.arrival_time - maneuver.departure_time);
 
-        let mut prev: Option<Vec3> = None;
-
-        for i in 0..=SEGMENTS {
-            let frac = i as f64 / SEGMENTS as f64;
-            let mean_anomaly =
-                maneuver.transfer_orbit.mean_anomaly_epoch + total_ma_travel * frac;
-
-            let orbit_pos = orbit_position_from_mean_anomaly(&maneuver.transfer_orbit, mean_anomaly);
-            let world_au = center_pos + orbit_pos - origin_offset;
-            let render_pos = Vec3::new(
-                (world_au.x * scale) as f32,
-                (world_au.y * scale) as f32,
-                (world_au.z * scale) as f32,
+        let is_kinematic = maneuver.option_label == "Flip & Burn" || maneuver.option_label.contains("Coast") || maneuver.option_label == "Max Speed";
+        if is_kinematic {
+            // Kinematic transfer: straight powered line between departure and arrival positions.
+            let p0_au = orbit_position_from_mean_anomaly(
+                &maneuver.transfer_orbit,
+                maneuver.transfer_orbit.mean_anomaly_epoch,
             );
-
-            if let Some(prev_pos) = prev {
-                let alpha = 0.8 * (1.0 - 0.4 * frac as f32);
-                gizmos.line(prev_pos, render_pos, Color::srgba(0.3, 0.8, 1.0, alpha));
+            let p1_au = orbit_position_from_mean_anomaly(
+                &maneuver.transfer_orbit,
+                maneuver.transfer_orbit.mean_anomaly_epoch + total_ma_travel,
+            );
+            let rp0 = Vec3::new(
+                ((center_pos.x + p0_au.x - origin_offset.x) * scale) as f32,
+                ((center_pos.y + p0_au.y - origin_offset.y) * scale) as f32,
+                ((center_pos.z + p0_au.z - origin_offset.z) * scale) as f32,
+            );
+            let rp1 = Vec3::new(
+                ((center_pos.x + p1_au.x - origin_offset.x) * scale) as f32,
+                ((center_pos.y + p1_au.y - origin_offset.y) * scale) as f32,
+                ((center_pos.z + p1_au.z - origin_offset.z) * scale) as f32,
+            );
+            for i in 0..SEGMENTS {
+                let t0 = i as f32 / SEGMENTS as f32;
+                let t1 = (i + 1) as f32 / SEGMENTS as f32;
+                let pos0 = rp0 + (rp1 - rp0) * t0;
+                let pos1 = rp0 + (rp1 - rp0) * t1;
+                let alpha = 0.8 * (1.0 - 0.4 * t0);
+                gizmos.line(pos0, pos1, Color::srgba(0.3, 0.8, 1.0, alpha));
             }
-            prev = Some(render_pos);
+        } else {
+            let mut prev: Option<Vec3> = None;
+
+            for i in 0..=SEGMENTS {
+                let frac = i as f64 / SEGMENTS as f64;
+                let mean_anomaly =
+                    maneuver.transfer_orbit.mean_anomaly_epoch + total_ma_travel * frac;
+
+                let orbit_pos = orbit_position_from_mean_anomaly(&maneuver.transfer_orbit, mean_anomaly);
+                let world_au = center_pos + orbit_pos - origin_offset;
+                let render_pos = Vec3::new(
+                    (world_au.x * scale) as f32,
+                    (world_au.y * scale) as f32,
+                    (world_au.z * scale) as f32,
+                );
+
+                if let Some(prev_pos) = prev {
+                    let alpha = 0.8 * (1.0 - 0.4 * frac as f32);
+                    gizmos.line(prev_pos, render_pos, Color::srgba(0.3, 0.8, 1.0, alpha));
+                }
+                prev = Some(render_pos);
+            }
         }
     }
 }
@@ -982,17 +1084,17 @@ pub fn draw_fleet_orbit_rings(
         return;
     };
 
-    const TOTAL_SEGMENTS: u32 = 64;
-
     let draw_ring = |gizmos: &mut Gizmos, center: Vec3, radius: f32, color: Color| {
-        for i in 0..TOTAL_SEGMENTS {
-            if i % 2 == 1 { continue; } // gap — dashed
-            let a1 = (i as f32 / TOTAL_SEGMENTS as f32) * std::f32::consts::TAU;
-            let a2 = ((i + 1) as f32 / TOTAL_SEGMENTS as f32) * std::f32::consts::TAU;
-            let p1 = center + Vec3::new(a1.cos() * radius, a1.sin() * radius, 0.0);
-            let p2 = center + Vec3::new(a2.cos() * radius, a2.sin() * radius, 0.0);
-            gizmos.line(p1, p2, color);
-        }
+        let tau = std::f32::consts::TAU;
+        draw_dashed_curve(
+            gizmos,
+            |t| {
+                let a = t * tau;
+                center + Vec3::new(a.cos() * radius, a.sin() * radius, 0.0)
+            },
+            32,
+            |_| color,
+        );
     };
 
     if let Ok((_, orbit)) = parked_query.get(selected) {
@@ -1061,7 +1163,7 @@ pub fn draw_fleet_orbit_rings(
 ///   destination), not the fleet's rotating local orbit angle, so the preview is stable.
 pub fn draw_fleet_transfer_preview(
     mut gizmos: Gizmos,
-    fleet_query: Query<(Entity, Option<&FleetOrbit>, Option<&ActiveManeuver>), With<Fleet>>,
+    fleet_query: Query<(Entity, &Transform, Option<&FleetOrbit>, Option<&ActiveManeuver>), With<Fleet>>,
     body_query: Query<(&Transform, &CelestialBody, Option<&LogicalParent>), Without<Fleet>>,
     kepler_query: Query<&KeplerOrbit, Without<Fleet>>,
     amp_query: Query<&LocalOrbitAmplification, Without<Fleet>>,
@@ -1074,7 +1176,7 @@ pub fn draw_fleet_transfer_preview(
     let Some(fleet_entity) = fleet_ui_state.selected_fleet else { return; };
 
     // Hoist fleet-state lookup so both LP and regular branches can share it.
-    let Ok((_, maybe_orbit, maybe_maneuver)) = fleet_query.get(fleet_entity) else { return; };
+    let Ok((_, _, maybe_orbit, maybe_maneuver)) = fleet_query.get(fleet_entity) else { return; };
     // Hide the preview as soon as a transfer has been planned/executed — the real
     // trajectory arc (drawn by draw_fleet_orbit_rings / maneuver gizmos) takes over.
     if maybe_maneuver.is_some() { return; }
@@ -1152,29 +1254,114 @@ pub fn draw_fleet_transfer_preview(
             u*u*u*p0 + 3.0*u*u*t*p1 + 3.0*u*t*t*p2 + t*t*t*p3
         };
 
-        // Dashed amber arc.
-        const LP_SEGS: u32 = 48;
-        for i in 0..LP_SEGS {
-            if i % 2 == 1 { continue; }
-            let t0 = i as f32 / LP_SEGS as f32;
-            let t1 = (i + 1) as f32 / LP_SEGS as f32;
-            let alpha = 0.70 - 0.35 * t0;
-            gizmos.line(lp_bezier(t0), lp_bezier(t1), Color::srgba(1.0, 0.75, 0.15, alpha));
-        }
+        // Dashed amber arc — arc-length-uniform.
+        draw_dashed_curve(
+            &mut gizmos, &lp_bezier, 24,
+            |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+        );
 
         // LP marker: crosshair + dashed circle in cyan-blue.
         let lp_color = Color::srgba(0.5, 0.85, 1.0, 0.85);
         let cs = lp_marker_r * 1.4;
         gizmos.line(dp - Vec3::X * cs, dp + Vec3::X * cs, lp_color);
         gizmos.line(dp - Vec3::Y * cs, dp + Vec3::Y * cs, lp_color);
-        const LP_N: u32 = 24;
-        for i in 0..LP_N {
-            if i % 2 == 1 { continue; }
-            let a1 = (i as f32 / LP_N as f32) * std::f32::consts::TAU;
-            let a2 = ((i + 1) as f32 / LP_N as f32) * std::f32::consts::TAU;
-            let q1 = dp + Vec3::new(a1.cos() * lp_marker_r, a1.sin() * lp_marker_r, 0.0);
-            let q2 = dp + Vec3::new(a2.cos() * lp_marker_r, a2.sin() * lp_marker_r, 0.0);
-            gizmos.line(q1, q2, lp_color);
+        {
+            let tau = std::f32::consts::TAU;
+            draw_dashed_curve(
+                &mut gizmos,
+                |t| {
+                    let a = t * tau;
+                    dp + Vec3::new(a.cos() * lp_marker_r, a.sin() * lp_marker_r, 0.0)
+                },
+                12,
+                |_| lp_color,
+            );
+        }
+
+        return;
+    }
+
+    // ── Fleet-intercept target preview ──────────────────────────────────────
+    if let Some(target_fleet_entity) = fleet_ui_state.target_fleet {
+        if target_fleet_entity == fleet_entity { return; }
+
+        let origin_body = if let Some(orbit) = maybe_orbit {
+            orbit.body
+        } else {
+            return;
+        };
+
+        let Ok((origin_transform, origin_body_data, _)) = body_query.get(origin_body) else { return; };
+        let op = predict_body_visual_pos(origin_body, departure_s, &body_query, &kepler_query, &amp_query)
+            .unwrap_or(origin_transform.translation);
+        let origin_ring_r = origin_body_data.visual_radius * FLEET_ORBIT_RADIUS_MULT;
+
+        // Use the target fleet's current visual Transform position — fleets have no Keplerian
+        // orbit to predict future positions from, so we target where they are right now.
+        let Ok((_, target_fleet_transform, _, _)) = fleet_query.get(target_fleet_entity) else { return; };
+        let dp = target_fleet_transform.translation;
+
+        let is_kinematic = fleet_ui_state.computed_options
+            .get(fleet_ui_state.selected_option)
+            .map(|opt| opt.label == "Flip & Burn" || opt.label.contains("Coast") || opt.label == "Max Speed")
+            .unwrap_or(false);
+
+        // Fixed visual marker radius — no physical body size for a fleet.
+        let marker_r = 15.0_f32;
+
+        let is_inward = op.length_squared() > dp.length_squared();
+        let departure_angle = optimal_departure_angle(op, dp);
+        let dir_dep = Vec3::new(departure_angle.cos(), departure_angle.sin(), 0.0);
+        let p0 = op + dir_dep * origin_ring_r;
+        let tang_origin = if is_inward {
+            Vec3::new(departure_angle.sin(), -departure_angle.cos(), 0.0)
+        } else {
+            Vec3::new(-departure_angle.sin(), departure_angle.cos(), 0.0)
+        };
+
+        let inward = (op - dp).normalize_or_zero();
+        let p3 = dp + inward * marker_r;
+        let radial_dest = dp.normalize_or_zero();
+        let tang_d_a = Vec3::new(-radial_dest.y, radial_dest.x, 0.0);
+        let tang_dest = if tang_d_a.dot(tang_origin) >= 0.0 { tang_d_a } else { -tang_d_a };
+
+        if is_kinematic {
+            draw_dashed_curve(
+                &mut gizmos,
+                |t| p0 + (p3 - p0) * t,
+                24,
+                |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+            );
+        } else {
+            let ctrl_len = (p3 - p0).length() * 0.40;
+            let p1 = p0 + tang_origin * ctrl_len;
+            let p2 = p3 - tang_dest * ctrl_len;
+            let bezier = move |t: f32| -> Vec3 {
+                let u = 1.0 - t;
+                u*u*u*p0 + 3.0*u*u*t*p1 + 3.0*u*t*t*p2 + t*t*t*p3
+            };
+            draw_dashed_curve(
+                &mut gizmos, &bezier, 24,
+                |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+            );
+        }
+
+        // Fleet-target marker: crosshair + dashed circle in orange-red.
+        let fleet_color = Color::srgba(1.0, 0.4, 0.1, 0.9);
+        let cs = marker_r * 1.5;
+        gizmos.line(dp - Vec3::X * cs, dp + Vec3::X * cs, fleet_color);
+        gizmos.line(dp - Vec3::Y * cs, dp + Vec3::Y * cs, fleet_color);
+        {
+            let tau = std::f32::consts::TAU;
+            draw_dashed_curve(
+                &mut gizmos,
+                |t| {
+                    let a = t * tau;
+                    dp + Vec3::new(a.cos() * marker_r, a.sin() * marker_r, 0.0)
+                },
+                10,
+                |_| fleet_color,
+            );
         }
 
         return;
@@ -1282,23 +1469,32 @@ pub fn draw_fleet_transfer_preview(
     let tang_d_a  = Vec3::new(-radial_dest.y, radial_dest.x, 0.0);
     let tang_dest = if tang_d_a.dot(tang_origin) >= 0.0 { tang_d_a } else { -tang_d_a };
 
-    // Cubic Bezier.
-    let ctrl_len = (p3 - p0).length() * 0.40;
-    let p1 = p0 + tang_origin * ctrl_len;
-    let p2 = p3 - tang_dest   * ctrl_len;
-    let bezier = |t: f32| -> Vec3 {
-        let u = 1.0 - t;
-        u*u*u*p0 + 3.0*u*u*t*p1 + 3.0*u*t*t*p2 + t*t*t*p3
-    };
+    // Check whether the selected option is a kinematic transfer.
+    let is_kinematic = fleet_ui_state.computed_options
+        .get(fleet_ui_state.selected_option)
+        .map(|opt| opt.label == "Flip & Burn" || opt.label.contains("Coast") || opt.label == "Max Speed")
+        .unwrap_or(false);
 
-    // Dashed amber arc.
-    const SEGMENTS: u32 = 48;
-    for i in 0..SEGMENTS {
-        if i % 2 == 1 { continue; }
-        let t0 = i as f32 / SEGMENTS as f32;
-        let t1 = (i + 1) as f32 / SEGMENTS as f32;
-        let alpha = 0.70 - 0.35 * t0;
-        gizmos.line(bezier(t0), bezier(t1), Color::srgba(1.0, 0.75, 0.15, alpha));
+    // Dashed amber arc — straight line for kinematic transfers, cubic Bezier for ballistic arcs.
+    if is_kinematic {
+        draw_dashed_curve(
+            &mut gizmos,
+            |t| p0 + (p3 - p0) * t,
+            24,
+            |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+        );
+    } else {
+        let ctrl_len = (p3 - p0).length() * 0.40;
+        let p1 = p0 + tang_origin * ctrl_len;
+        let p2 = p3 - tang_dest   * ctrl_len;
+        let bezier = move |t: f32| -> Vec3 {
+            let u = 1.0 - t;
+            u*u*u*p0 + 3.0*u*u*t*p1 + 3.0*u*t*t*p2 + t*t*t*p3
+        };
+        draw_dashed_curve(
+            &mut gizmos, &bezier, 24,
+            |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+        );
     }
 
     // Ghost body at predicted arrival position.
@@ -1309,8 +1505,11 @@ pub fn draw_fleet_transfer_preview(
 
 /// Draw the two-leg slingshot arc when a gravity-assist flyby is selected.
 ///
-/// - **Leg 1** (origin → flyby body): lime-green dashed arc.
-/// - **Leg 2** (flyby body → destination): magenta dashed arc.
+/// The trajectory is drawn as a **single continuous curve** that passes through
+/// the flyby body position, with a visible "bend" showing the gravitational
+/// deflection.  Colour transitions from lime-green (approach leg) to magenta
+/// (departure leg) at the flyby point.
+///
 /// - A bright yellow cross marker is drawn at the predicted flyby intercept.
 /// - A ghost-body circle is drawn at the predicted destination position.
 ///
@@ -1363,7 +1562,6 @@ pub fn draw_gravity_assist_preview(
     let op = predict_body_visual_pos(origin_body, depart_s, &body_query, &kepler_query, &amp_query)
         .unwrap_or(origin_t.translation);
     let origin_ring_r = origin_bd.visual_radius * FLEET_ORBIT_RADIUS_MULT;
-    let flyby_ring_r  = flyby_bd.visual_radius  * FLEET_ORBIT_RADIUS_MULT;
     let dest_ring_r   = dest_bd.visual_radius   * FLEET_ORBIT_RADIUS_MULT;
 
     // Predict flyby body position at end of Leg 1
@@ -1378,9 +1576,17 @@ pub fn draw_gravity_assist_preview(
         &body_query, &kepler_query, &amp_query,
     ).unwrap_or(dest_t.translation);
 
-    const SEGS: u32 = 48;
+    // ── Compute a smooth hyperbolic-flyby trajectory ──────────────────────────
+    //
+    // Instead of meeting at the planet centre (which creates a sharp corner),
+    // the two Bezier legs meet at a *periapsis* point offset from the planet
+    // centre.  The offset direction is derived from the hyperbola axis of
+    // symmetry: the bisector of the incoming asymptote (away from planet) and
+    // the outgoing asymptote (away from planet).  Both legs share the same
+    // tangent at the periapsis, producing a C1-continuous curve with a clear
+    // smooth gravitational deflection.
 
-    // ── Leg 1: origin → flyby (lime-green dashes) ────────────────────────────
+    // Departure point on origin ring (same as the regular transfer preview).
     let is_outward1 = fp.length_squared() > op.length_squared();
     let rad_op = op.normalize_or_zero();
     let prograde_op = Vec3::new(-rad_op.y, rad_op.x, 0.0);
@@ -1388,53 +1594,74 @@ pub fn draw_gravity_assist_preview(
     let dir_dep1 = if is_outward1 { rad_op } else { -rad_op };
     let p0 = op + dir_dep1 * origin_ring_r;
 
-    let rad_fp = fp.normalize_or_zero();
-    let prograde_fp = Vec3::new(-rad_fp.y, rad_fp.x, 0.0);
-    let td1 = if is_outward1 { prograde_fp } else { -prograde_fp };
-    let dir_arr1 = if is_outward1 { -rad_fp } else { rad_fp };
-    let p3_1 = fp + dir_arr1 * flyby_ring_r;
-
-    let cl1 = (p3_1 - p0).length() * 0.40;
-    let p1_1 = p0     + tang0 * cl1;
-    let p2_1 = p3_1   - td1   * cl1;
-    let bez1 = |t: f32| -> Vec3 {
-        let u = 1.0 - t;
-        u*u*u*p0 + 3.0*u*u*t*p1_1 + 3.0*u*t*t*p2_1 + t*t*t*p3_1
-    };
-    for i in 0..SEGS {
-        if i % 2 == 1 { continue; }
-        let t0 = i as f32 / SEGS as f32;
-        let t1 = (i + 1) as f32 / SEGS as f32;
-        let alpha = 0.80 - 0.35 * t0;
-        gizmos.line(bez1(t0), bez1(t1), Color::srgba(0.3, 1.0, 0.4, alpha));
-    }
-
-    // ── Leg 2: flyby → destination (magenta dashes) ──────────────────────────
+    // Arrival point on destination ring.
     let is_outward2 = dp.length_squared() > fp.length_squared();
-    let tang0_2 = if is_outward2 { prograde_fp } else { -prograde_fp };
-    let dir_dep2 = if is_outward2 { rad_fp } else { -rad_fp };
-    let p0_2 = fp + dir_dep2 * flyby_ring_r;
-
     let rad_dp = dp.normalize_or_zero();
     let prograde_dp = Vec3::new(-rad_dp.y, rad_dp.x, 0.0);
     let td2 = if is_outward2 { prograde_dp } else { -prograde_dp };
     let dir_arr2 = if is_outward2 { -rad_dp } else { rad_dp };
     let p3_2 = dp + dir_arr2 * dest_ring_r;
 
-    let cl2 = (p3_2 - p0_2).length() * 0.40;
-    let p1_2 = p0_2 + tang0_2 * cl2;
-    let p2_2 = p3_2 - td2     * cl2;
-    let bez2 = |t: f32| -> Vec3 {
-        let u = 1.0 - t;
-        u*u*u*p0_2 + 3.0*u*u*t*p1_2 + 3.0*u*t*t*p2_2 + t*t*t*p3_2
+    // ── Hyperbolic periapsis computation ─────────────────────────────────────
+    // Approach direction: from origin toward flyby body.
+    let dir_approach = (fp - op).normalize_or_zero();
+    // Departure direction: from flyby body toward destination.
+    let dir_depart  = (dp - fp).normalize_or_zero();
+
+    // The incoming asymptote points away from the planet on the approach side;
+    // the outgoing asymptote points away on the departure side.
+    // Their bisector gives the apse line direction → periapsis.
+    let apse_raw = -dir_approach + dir_depart;
+    let apse_dir = if apse_raw.length() > 0.001 {
+        apse_raw.normalize()
+    } else {
+        // Near-zero deflection (straight-through): offset perpendicular to approach.
+        Vec3::new(-dir_approach.y, dir_approach.x, 0.0)
     };
-    for i in 0..SEGS {
-        if i % 2 == 1 { continue; }
-        let t0 = i as f32 / SEGS as f32;
-        let t1 = (i + 1) as f32 / SEGS as f32;
-        let alpha = 0.80 - 0.35 * t0;
-        gizmos.line(bez2(t0), bez2(t1), Color::srgba(1.0, 0.3, 0.8, alpha));
-    }
+
+    // Periapsis offset distance: just outside the flyby ring for visual clarity.
+    let flyby_ring_r = flyby_bd.visual_radius * FLEET_ORBIT_RADIUS_MULT;
+    let periapsis_dist = flyby_ring_r * 2.0;
+    let periapsis = fp + apse_dir * periapsis_dist;
+
+    // Tangent at periapsis: perpendicular to the apse line — this is the velocity
+    // direction at closest approach on a hyperbola.
+    let tang_perp_a = Vec3::new(-apse_dir.y, apse_dir.x, 0.0);
+    // Choose the sign so it flows from approach to departure direction.
+    let peri_tang = if tang_perp_a.dot(dir_depart) >= 0.0 { tang_perp_a } else { -tang_perp_a };
+
+    // ── Build two C1-continuous Bezier legs meeting at periapsis ──────────────
+    let cl1 = (periapsis - p0).length() * 0.40;
+    let p1_1 = p0       + tang0     * cl1;
+    let p2_1 = periapsis - peri_tang * cl1;
+
+    let cl2 = (p3_2 - periapsis).length() * 0.40;
+    let p1_2 = periapsis + peri_tang * cl2;
+    let p2_2 = p3_2      - td2      * cl2;
+
+    let peri = periapsis; // copy for closures
+    let bez1 = move |t: f32| -> Vec3 {
+        let u = 1.0 - t;
+        u*u*u*p0 + 3.0*u*u*t*p1_1 + 3.0*u*t*t*p2_1 + t*t*t*peri
+    };
+    let bez2 = move |t: f32| -> Vec3 {
+        let u = 1.0 - t;
+        u*u*u*peri + 3.0*u*u*t*p1_2 + 3.0*u*t*t*p2_2 + t*t*t*p3_2
+    };
+
+    // ── Draw both legs with arc-length-uniform dashing ───────────────────────
+
+    // Leg 1: lime-green approach arc.
+    draw_dashed_curve(
+        &mut gizmos, &bez1, 24,
+        |f| Color::srgba(0.3, 1.0, 0.4, 0.80 - 0.35 * f),
+    );
+
+    // Leg 2: magenta departure arc.
+    draw_dashed_curve(
+        &mut gizmos, &bez2, 24,
+        |f| Color::srgba(1.0, 0.3, 0.8, 0.80 - 0.35 * f),
+    );
 
     // ── Flyby node: yellow cross + ghost ring ─────────────────────────────────
     let cross = flyby_ring_r * 2.5;
