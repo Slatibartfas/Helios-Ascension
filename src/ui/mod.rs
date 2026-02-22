@@ -9898,7 +9898,7 @@ fn render_transfer_planner(
                 for opt in fleet_ui_state.computed_options.iter_mut() {
                     opt.burn_time_s = compute_burn_time_s(opt.total_delta_v_ms, accel, isp);
                 }
-                if let Some(brach) = brachistochrone_option(r1, r2, gm, accel, isp) {
+                if let Some(brach) = brachistochrone_option(r1, r2, gm, accel, isp, fleet.max_delta_v_ms()) {
                     fleet_ui_state.computed_options.push(brach);
                 }
             }

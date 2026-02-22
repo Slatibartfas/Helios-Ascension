@@ -106,6 +106,15 @@ impl PropulsionType {
     }
 
     /// Effective specific impulse in seconds.
+    ///
+    /// Reference values:
+    /// - Chemical:        450 s  (kerosene/LOX)
+    /// - Nuclear Thermal: 900 s  (NERVA-class)
+    /// - Ion Drive:     5 000 s  (Hall-effect thruster)
+    /// - Nuclear Pulse: 10 000 s (Orion-class)
+    /// - Fusion Torch:  50 000 s (inertial-confinement fusion)
+    /// - Antimatter:  1 000 000 s (matter–antimatter annihilation; gives mass
+    ///   ratio < 2 for a 1 g Saturn run, per published estimates)
     pub fn isp_s(self) -> f32 {
         match self {
             PropulsionType::Chemical => 450.0,
@@ -113,39 +122,43 @@ impl PropulsionType {
             PropulsionType::IonDrive => 5_000.0,
             PropulsionType::NuclearPulse => 10_000.0,
             PropulsionType::FusionTorch => 50_000.0,
-            PropulsionType::AntimatterDrive => 500_000.0,
+            PropulsionType::AntimatterDrive => 1_000_000.0,
         }
     }
 
     /// Thrust in kilonewtons for a ship of the given dry mass (tonnes).
     ///
-    /// The physics formula is:
-    /// ```text
-    /// F (kN) = TWR × (mass in kg) × g₀ / 1000
-    ///          = TWR × (mass_tonnes × 1000) × 9.81 / 1000
-    ///          = TWR × mass_tonnes × 9.81
-    /// ```
+    /// `thrust_kN = TWR_vs_dry × dry_mass_t × g₀`
     ///
-    /// The previous implementation erroneously applied a `/ 1000` conversion
-    /// before multiplying by the thrust-to-weight ratio, resulting in values
-    /// that were three orders of magnitude too small.  This function now
-    /// returns a realistic kilonewton value.
+    /// TWR values are calibrated so that a fully-fuelled Frigate (dry 2 000 t,
+    /// fuel fraction 0.45 → wet 3 636 t) achieves the following initial
+    /// acceleration:
     ///
-    /// Uses a simplified thrust-to-weight ratio per propulsion type.
+    /// | Drive            | TWR_vs_dry | Frigate accel | Game role                  |
+    /// |------------------|-----------|---------------|----------------------------|
+    /// | Chemical         | 10.0      | ~54 m/s²      | High thrust, very limited ΔV (no Flip & Burn) |
+    /// | Nuclear Thermal  | 2.0       | ~11 m/s²      | Moderate thrust, medium ΔV |
+    /// | Ion Drive        | 0.001     | ~0.005 m/s²   | Near-zero accel, vast ΔV   |
+    /// | Nuclear Pulse    | 0.3       | ~1.6 m/s²     | High-thrust nuclear option  |
+    /// | Fusion Torch     | 0.02      | ~0.11 m/s²    | ≈0.01 g → ~17-day Mars trip|
+    /// | Antimatter Drive | 2.0       | ~10.8 m/s²    | ≈1 g   → ~1.7-day Mars trip|
     pub fn thrust_kn(self, dry_mass_t: f32) -> f32 {
-        // Thrust-to-weight ratio (unitless)
         let twr = match self {
             PropulsionType::Chemical => 10.0_f32,
-            PropulsionType::NuclearThermal => 5.0,
+            PropulsionType::NuclearThermal => 2.0,
             PropulsionType::IonDrive => 0.001,
-            PropulsionType::NuclearPulse => 50.0,
-            PropulsionType::FusionTorch => 1.0,
-            // Antimatter: high thrust AND very high Isp.  TWR of 2 relative to dry
-            // mass gives ~11 m/s² at full wet mass for a Frigate — enough for
-            // planetary flip-and-burn trajectories.
+            // Nuclear pulse (Orion-class): continuous high-thrust pulse drive.
+            // 0.3 × dry mass gives a Frigate ~1.6 m/s² (~0.16 g) initial accel.
+            PropulsionType::NuclearPulse => 0.3,
+            // Fusion torch: sustained low-to-mid thrust with excellent Isp.
+            // 0.02 × dry mass gives a Frigate ~0.11 m/s² (~0.01 g) initial accel,
+            // matching published estimates of ~17-day brachistochrone trips to Mars.
+            PropulsionType::FusionTorch => 0.02,
+            // Antimatter: high thrust AND very high Isp.
+            // 2.0 × dry mass gives a Frigate ~11 m/s² (~1.1 g) initial accel,
+            // matching ~1.7-day Mars and ~5.8-day Jupiter brachistochrone trips.
             PropulsionType::AntimatterDrive => 2.0,
         };
-        // convert tonnes to kg, multiply by g₀ and TWR, then divide by 1000 for kN
         dry_mass_t * 9.81 * twr
     }
 }
