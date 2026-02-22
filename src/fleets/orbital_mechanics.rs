@@ -365,9 +365,9 @@ pub fn calculate_transfer_options_phased(
 
     // Phase angle at the chosen departure time:
     // phase(t) = phase_now + phase_rate · t
-    // ⟹ phase_error(t) = phase_error_now − phase_rate · t
+    // ⟹ phase_error(t) = phase_error_now + phase_rate · t
     let phase_at_dep = window.phase_error_now_rad
-        - window.phase_rate_rad_s * departure_offset_s;
+        + window.phase_rate_rad_s * departure_offset_s;
     // Normalise to [−π, π]
     let phase_at_dep = ((phase_at_dep + std::f64::consts::PI)
         .rem_euclid(std::f64::consts::TAU))

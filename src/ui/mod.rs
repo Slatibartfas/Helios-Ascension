@@ -10059,40 +10059,39 @@ fn render_transfer_planner(
                                 .color(egui::Color32::from_rgb(160, 210, 255)),
                         );
 
-                        // Row 2: slider + quality indicator on the same line
-                        ui.horizontal(|ui| {
-                            let mut offset_days = fleet_ui_state.departure_offset_days as f32;
-                            let slider = egui::Slider::new(&mut offset_days, 0.0_f32..=max_days as f32)
-                                .step_by(step_size as f64)
-                                .custom_formatter(|v, _| {
-                                    if v < 0.01 {
-                                        "Now".to_owned()
-                                    } else {
-                                        format_duration(v as f64 * 86_400.0)
-                                    }
-                                });
-                            if ui.add(slider).changed() {
-                                fleet_ui_state.departure_offset_days = offset_days as f64;
-                            }
+                        // Row 2: slider
+                        let mut offset_days = fleet_ui_state.departure_offset_days as f32;
+                        let slider = egui::Slider::new(&mut offset_days, 0.0_f32..=max_days as f32)
+                            .step_by(step_size as f64)
+                            .custom_formatter(|v, _| {
+                                if v < 0.01 {
+                                    "Now".to_owned()
+                                } else {
+                                    format_duration(v as f64 * 86_400.0)
+                                }
+                            });
+                        if ui.add(slider).changed() {
+                            fleet_ui_state.departure_offset_days = offset_days as f64;
+                        }
 
-                            let dep_s = fleet_ui_state.departure_offset_days * 86_400.0;
-                            let phase_at = {
-                                let raw = window.phase_error_now_rad - window.phase_rate_rad_s * dep_s;
-                                ((raw + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU)) - std::f64::consts::PI
-                            };
-                            let factor = crate::fleets::orbital_mechanics::phase_dv_factor(phase_at.abs());
-                            let (quality_str, quality_color) = if factor < 1.05 {
-                                ("● Optimal", egui::Color32::from_rgb(80, 220, 80))
-                            } else if factor < 1.40 {
-                                ("◑ Good", egui::Color32::from_rgb(180, 220, 80))
-                            } else if factor < 1.80 {
-                                ("◔ Fair", egui::Color32::from_rgb(220, 180, 60))
-                            } else {
-                                ("○ Poor", egui::Color32::from_rgb(220, 80, 60))
-                            };
-                            ui.label(egui::RichText::new(quality_str).size(11.0).color(quality_color))
-                                .on_hover_text("Indicates how well the planets are aligned for a transfer at the planned departure time. Poor alignment requires significantly more ΔV.");
-                        });
+                        // Row 3: alignment indicator (below the slider)
+                        let dep_s = fleet_ui_state.departure_offset_days * 86_400.0;
+                        let phase_at = {
+                            let raw = window.phase_error_now_rad + window.phase_rate_rad_s * dep_s;
+                            ((raw + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU)) - std::f64::consts::PI
+                        };
+                        let factor = crate::fleets::orbital_mechanics::phase_dv_factor(phase_at.abs());
+                        let (quality_str, quality_color) = if factor < 1.05 {
+                            ("● Optimal", egui::Color32::from_rgb(80, 220, 80))
+                        } else if factor < 1.40 {
+                            ("◑ Good", egui::Color32::from_rgb(180, 220, 80))
+                        } else if factor < 1.80 {
+                            ("◔ Fair", egui::Color32::from_rgb(220, 180, 60))
+                        } else {
+                            ("○ Poor", egui::Color32::from_rgb(220, 80, 60))
+                        };
+                        ui.label(egui::RichText::new(quality_str).size(11.0).color(quality_color))
+                            .on_hover_text("Indicates how well the planets are aligned for a transfer at the planned departure time. Poor alignment requires significantly more ΔV.");
 
                         // Next Window button on its own row
                         if window_days > 0.5 {
@@ -10234,7 +10233,35 @@ fn render_transfer_planner(
 
         if !fleet_ui_state.computed_options.is_empty() {
             ui.add_space(6.0);
-            ui.label(egui::RichText::new("Transfer Options:").strong().size(13.0));
+
+            let fleet_wet_mass = fleet.total_wet_mass_t();
+            let fleet_max_dv = fleet.max_delta_v_ms();
+
+            // Pre-compute execute button state so we can embed it in the header row
+            let sel_option = fleet_ui_state.computed_options[fleet_ui_state.selected_option].clone();
+            let abort_cost_t: f32 = if let Some(maneuver) = current_maneuver {
+                let progress = maneuver.progress(elapsed) as f32;
+                let abort_factor = 4.0 * progress * (1.0 - progress);
+                maneuver.fuel_used_t * abort_factor * 0.6
+            } else {
+                0.0
+            };
+            let dv_after_abort = if abort_cost_t > 0.0 {
+                fleet.min_delta_v_after_abort(abort_cost_t)
+            } else {
+                fleet_max_dv
+            };
+            let sel_affordable_with_abort = sel_option.total_delta_v_ms <= dv_after_abort;
+            let btn_label = if is_course_correction {
+                if abort_cost_t > 0.01 {
+                    format!("🔄 Execute Course Correction (+{:.0} t abort burn)", abort_cost_t)
+                } else {
+                    "🔄 Execute Course Correction".to_string()
+                }
+            } else {
+                "🚀 Execute Transfer".to_string()
+            };
+
             // For fleet intercepts note the encounter speed penalty
             if fleet_target_snap.is_some() && fleet_ui_state.intercept_speed_ms > 100.0 {
                 let extra_dv_kms = fleet_ui_state.intercept_speed_ms / 1_000.0;
@@ -10248,10 +10275,55 @@ fn render_transfer_planner(
                     .color(egui::Color32::from_rgb(220, 160, 60)),
                 );
             }
-            ui.add_space(4.0);
 
-            let fleet_wet_mass = fleet.total_wet_mass_t();
-            let fleet_max_dv = fleet.max_delta_v_ms();
+            // Header row: "Transfer Options:" on the left, Execute button right-aligned
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Transfer Options:").strong().size(13.0));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let btn = egui::Button::new(
+                        egui::RichText::new(&btn_label).size(13.0).strong(),
+                    );
+                    let resp = ui.add_enabled(sel_affordable_with_abort, btn);
+                    if resp.clicked() {
+                        let maybe_transfer = if let Some(ref lp) = lp_target_snap {
+                            build_planned_transfer_lp(fleet_entity, fleet, orbit, lp, body_query, &sel_option)
+                        } else if let Some(tfe) = fleet_target_snap {
+                            all_fleets_query.get(tfe).ok()
+                                .and_then(|(_, _, _, maybe_fo, _)| maybe_fo)
+                                .and_then(|fo| {
+                                    build_planned_transfer(fleet_entity, fleet, orbit, fo.body, body_query, &sel_option)
+                                })
+                        } else if let Some(te) = body_target_snap {
+                            build_planned_transfer(fleet_entity, fleet, orbit, te, body_query, &sel_option)
+                        } else {
+                            None
+                        };
+                        if let Some(transfer) = maybe_transfer {
+                            pending_actions.start_transfers.push(StartTransferAction {
+                                fleet: fleet_entity,
+                                transfer,
+                                abort_cost_t,
+                                departure_offset_s: fleet_ui_state.departure_offset_days * 86_400.0,
+                            });
+                        }
+                    }
+                });
+            });
+            if !sel_affordable_with_abort {
+                ui.label(
+                    egui::RichText::new(
+                        if abort_cost_t > 0.0 {
+                            "Insufficient ΔV remaining after abort burn."
+                        } else {
+                            "Selected option requires more ΔV than this fleet can provide."
+                        },
+                    )
+                    .size(11.0)
+                    .italics()
+                    .color(egui::Color32::from_rgb(200, 100, 60)),
+                );
+            }
+            ui.add_space(4.0);
 
             let options: Vec<_> = fleet_ui_state.computed_options.clone();
             for (idx, option) in options.iter().enumerate() {
@@ -10339,81 +10411,6 @@ fn render_transfer_planner(
                 ui.add_space(2.0);
             }
 
-            // Execute button
-            ui.add_space(8.0);
-            let sel_option = &fleet_ui_state.computed_options[fleet_ui_state.selected_option];
-
-            // Abort burn cost for mid-transit course corrections
-            let abort_cost_t: f32 = if let Some(maneuver) = current_maneuver {
-                let progress = maneuver.progress(elapsed) as f32;
-                let abort_factor = 4.0 * progress * (1.0 - progress); // peaks at 50%
-                maneuver.fuel_used_t * abort_factor * 0.6
-            } else {
-                0.0
-            };
-
-            // Effective ΔV available after paying abort cost
-            let dv_after_abort = if abort_cost_t > 0.0 {
-                fleet.min_delta_v_after_abort(abort_cost_t)
-            } else {
-                fleet_max_dv
-            };
-            let sel_affordable_with_abort = sel_option.total_delta_v_ms <= dv_after_abort;
-
-            let btn_label = if is_course_correction {
-                if abort_cost_t > 0.01 {
-                    format!("🔄 Execute Course Correction (+{:.0} t abort burn)", abort_cost_t)
-                } else {
-                    "🔄 Execute Course Correction".to_string()
-                }
-            } else {
-                "🚀 Execute Transfer".to_string()
-            };
-
-            let btn = egui::Button::new(
-                egui::RichText::new(btn_label).size(14.0).strong(),
-            );
-            let resp = ui.add_enabled(sel_affordable_with_abort, btn);
-
-            if resp.clicked() {
-                let maybe_transfer = if let Some(ref lp) = lp_target_snap {
-                    build_planned_transfer_lp(fleet_entity, fleet, orbit, lp, body_query, sel_option)
-                } else if let Some(tfe) = fleet_target_snap {
-                    // Intercept: build transfer using the target fleet's current orbit body as destination
-                    all_fleets_query.get(tfe).ok()
-                        .and_then(|(_, _, _, maybe_fo, _)| maybe_fo)
-                        .and_then(|fo| {
-                            build_planned_transfer(fleet_entity, fleet, orbit, fo.body, body_query, sel_option)
-                        })
-                } else if let Some(te) = body_target_snap {
-                    build_planned_transfer(fleet_entity, fleet, orbit, te, body_query, sel_option)
-                } else {
-                    None
-                };
-                if let Some(transfer) = maybe_transfer {
-                    pending_actions.start_transfers.push(StartTransferAction {
-                        fleet: fleet_entity,
-                        transfer,
-                        abort_cost_t,
-                        departure_offset_s: fleet_ui_state.departure_offset_days * 86_400.0,
-                    });
-                }
-            }
-
-            if !sel_affordable_with_abort {
-                ui.label(
-                    egui::RichText::new(
-                        if abort_cost_t > 0.0 {
-                            "Insufficient ΔV remaining after abort burn."
-                        } else {
-                            "Selected option requires more ΔV than this fleet can provide."
-                        },
-                    )
-                    .size(11.0)
-                    .italics()
-                    .color(egui::Color32::from_rgb(200, 100, 60)),
-                );
-            }
         }
     }
 }
@@ -10732,6 +10729,11 @@ fn ui_fleet_action_bar(
     let in_transit = maybe_maneuver.is_some();
     let in_orbit = maybe_orbit.is_some();
     let ship_count = fleet.ships.len();
+    // Only show abort when the fleet is waiting to depart (still has its parking orbit).
+    // Canceling mid-flight is unsupported: there is no FleetOrbit to return to.
+    let is_waiting_for_departure = maybe_maneuver
+        .map(|m| sim_time.elapsed_seconds() < m.departure_time)
+        .unwrap_or(false);
 
     // Determine which ship-class-dependent actions are available.
     // For now all friendly fleets can survey; combat actions are always shown
@@ -10912,8 +10914,8 @@ fn ui_fleet_action_bar(
                     pending_fleet_actions.refuel_fleets.push(selected_entity);
                 }
 
-                // Cancel maneuver button — only in transit
-                if in_transit {
+                // Abort button — only while waiting to depart (fleet still has its parking orbit)
+                if is_waiting_for_departure {
                     ui.add_space(8.0);
                     ui.separator();
                     if ui
@@ -10925,7 +10927,7 @@ fn ui_fleet_action_bar(
                             )
                             .min_size(egui::Vec2::new(120.0, 36.0)),
                         )
-                        .on_hover_text("Abort the current transfer (wastes correction burn fuel)")
+                        .on_hover_text("Abort the planned transfer and return to parking orbit")
                         .clicked()
                     {
                         pending_fleet_actions.cancel_maneuvers.push(selected_entity);

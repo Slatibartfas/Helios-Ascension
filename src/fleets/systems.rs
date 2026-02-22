@@ -497,8 +497,26 @@ pub fn draw_fleet_trajectories(
                 let dep_angle = optimal_departure_angle(op, dp);
                 let dir_dep = Vec3::new(dep_angle.cos(), dep_angle.sin(), 0.0);
                 let p0 = op + dir_dep * origin_ring_r;
-                // Always CCW (prograde) departure tangent.
-                let tang_origin = Vec3::new(-dep_angle.sin(), dep_angle.cos(), 0.0);
+
+                // Determine if this is an inward (orbit-lowering) transfer so
+                // the departure tangent matches the preview arc direction.
+                let origin_lp = body_query.get(maneuver.origin_body)
+                    .ok().and_then(|(_, _, lp)| lp.map(|lp| lp.0));
+                let dest_lp = body_query.get(maneuver.destination_body)
+                    .ok().and_then(|(_, _, lp)| lp.map(|lp| lp.0));
+                let is_inward = if origin_lp == Some(maneuver.destination_body) {
+                    true  // Origin orbits the destination (e.g. Moon → Earth)
+                } else if dest_lp == Some(maneuver.origin_body) {
+                    false // Destination orbits the origin (e.g. Earth → Moon)
+                } else {
+                    op.length_squared() > dp.length_squared()
+                };
+                // Departure tangent: prograde (CCW) for outward, retrograde (CW) for inward.
+                let tang_origin = if is_inward {
+                    Vec3::new(dep_angle.sin(), -dep_angle.cos(), 0.0)  // CW
+                } else {
+                    Vec3::new(-dep_angle.sin(), dep_angle.cos(), 0.0)  // CCW
+                };
 
                 // Arrival: radial direction of destination relative to its orbital centre.
                 let radial_dest_raw = dp - cv_current;
@@ -862,8 +880,26 @@ pub fn update_fleet_transforms(
                     let dep_angle = optimal_departure_angle(op, dp);
                     let dir_dep = Vec3::new(dep_angle.cos(), dep_angle.sin(), 0.0);
                     let p0 = op + dir_dep * origin_ring_r;
-                    // Always prograde (CCW), no flip.
-                    let tang_origin = Vec3::new(-dep_angle.sin(), dep_angle.cos(), 0.0);
+
+                    // Determine if this is an inward (orbit-lowering) transfer so
+                    // the fleet follows the same arc shape as the preview/trajectory.
+                    let origin_lp = body_query.get(maneuver.origin_body)
+                        .ok().and_then(|(_, _, lp)| lp.map(|lp| lp.0));
+                    let dest_lp = body_query.get(maneuver.destination_body)
+                        .ok().and_then(|(_, _, lp)| lp.map(|lp| lp.0));
+                    let is_inward = if origin_lp == Some(maneuver.destination_body) {
+                        true  // Origin orbits the destination (e.g. Moon → Earth)
+                    } else if dest_lp == Some(maneuver.origin_body) {
+                        false // Destination orbits the origin (e.g. Earth → Moon)
+                    } else {
+                        op.length_squared() > dp.length_squared()
+                    };
+                    // Departure tangent: prograde (CCW) for outward, retrograde (CW) for inward.
+                    let tang_origin = if is_inward {
+                        Vec3::new(dep_angle.sin(), -dep_angle.cos(), 0.0)  // CW
+                    } else {
+                        Vec3::new(-dep_angle.sin(), dep_angle.cos(), 0.0)  // CCW
+                    };
 
                     let radial_raw = dp - cv_current;
                     let radial = if radial_raw.length() > 1.0 {
@@ -1028,12 +1064,10 @@ pub fn draw_fleet_transfer_preview(
 
     // Hoist fleet-state lookup so both LP and regular branches can share it.
     let Ok((_, maybe_orbit, maybe_maneuver)) = fleet_query.get(fleet_entity) else { return; };
-    // Once the fleet has physically departed the real trajectory arc replaces the preview.
-    // Pre-departure (fleet has both FleetOrbit and ActiveManeuver): keep showing preview.
+    // Hide the preview as soon as a transfer has been planned/executed — the real
+    // trajectory arc (drawn by draw_fleet_orbit_rings / maneuver gizmos) takes over.
+    if maybe_maneuver.is_some() { return; }
     let elapsed = sim_time.elapsed_seconds();
-    if let Some(m) = maybe_maneuver {
-        if elapsed >= m.departure_time { return; }
-    }
 
     let current_sim_s      = elapsed;
     let departure_offset_s = fleet_ui_state.departure_offset_days * 86_400.0;
@@ -1145,8 +1179,8 @@ pub fn draw_fleet_transfer_preview(
 
     if origin_body == target_entity { return; }
 
-    let Ok((origin_transform, origin_body_data, _))      = body_query.get(origin_body)   else { return; };
-    let Ok((dest_transform_now, dest_body_data, dest_lp)) = body_query.get(target_entity) else { return; };
+    let Ok((origin_transform, origin_body_data, origin_lp)) = body_query.get(origin_body)   else { return; };
+    let Ok((dest_transform_now, dest_body_data, dest_lp))  = body_query.get(target_entity) else { return; };
 
     // Predict origin body position at planned departure time so the start mark moves
     // when the player drags the departure slider.
@@ -1194,6 +1228,20 @@ pub fn draw_fleet_transfer_preview(
 
     let dp = dp_absolute - cv_predicted + cv_at_departure;
 
+    // ── Determine if this is an inward (orbit-lowering) transfer ─────────────
+    // Inward transfers require a retrograde departure burn (CW tangent), while
+    // outward transfers use a prograde departure burn (CCW tangent).
+    let is_inward = if origin_lp.map(|lp| lp.0) == Some(target_entity) {
+        // Origin orbits the destination (e.g. Moon → Earth): always inward.
+        true
+    } else if dest_lp.map(|lp| lp.0) == Some(origin_body) {
+        // Destination orbits the origin (e.g. Earth → Moon): always outward.
+        false
+    } else {
+        // Same parent (e.g. Mars → Earth): compare distances from the star.
+        op.length_squared() > dp.length_squared()
+    };
+
     // Stable optimal departure angle: direction from the origin body toward the predicted
     // destination position.  The fleet waits in its parking orbit until it reaches this
     // angular position, then fires — this is always the ΔV-optimal departure point.
@@ -1201,10 +1249,15 @@ pub fn draw_fleet_transfer_preview(
     // anchored; it only drifts slowly as the target body advances in its own orbit.
     let departure_angle = optimal_departure_angle(op, dp);
 
-    // Departure: prograde tangent at the optimal departure angle (always CCW, no flip).
+    // Departure point on the origin ring, facing the destination.
     let dir_dep     = Vec3::new(departure_angle.cos(), departure_angle.sin(), 0.0);
     let p0          = op + dir_dep * origin_ring_r;
-    let tang_origin = Vec3::new(-departure_angle.sin(), departure_angle.cos(), 0.0);
+    // Departure tangent: prograde (CCW) for outward, retrograde (CW) for inward.
+    let tang_origin = if is_inward {
+        Vec3::new(departure_angle.sin(), -departure_angle.cos(), 0.0)  // CW
+    } else {
+        Vec3::new(-departure_angle.sin(), departure_angle.cos(), 0.0)  // CCW
+    };
 
     // Arrival: point on the ring approached from the origin-facing (inward) side.
     let radial_dest_raw = dp - cv_at_departure;
@@ -1273,10 +1326,8 @@ pub fn draw_gravity_assist_preview(
     let departure_offset_s = fleet_ui_state.departure_offset_days * 86_400.0;
 
     let Ok((_, maybe_orbit, maybe_maneuver)) = fleet_query.get(fleet_entity) else { return; };
-    // Once the fleet has physically departed the real trajectory arc replaces the preview.
-    if let Some(m) = maybe_maneuver {
-        if sim_time.elapsed_seconds() >= m.departure_time { return; }
-    }
+    // Hide the gravity-assist preview as soon as a transfer has been planned/executed.
+    if maybe_maneuver.is_some() { return; }
     let origin_body = if let Some(orbit) = maybe_orbit {
         orbit.body
     } else {
