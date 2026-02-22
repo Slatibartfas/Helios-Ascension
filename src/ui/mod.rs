@@ -167,6 +167,9 @@ pub struct FleetUiState {
     pub gravity_assist_candidates: Vec<GravityAssistEntry>,
     /// Index of the currently chosen gravity-assist candidate (`None` = direct transfer).
     pub selected_gravity_assist: Option<usize>,
+    /// Interstellar target: (system_id, display_name, distance_ly).
+    /// Mutually exclusive with `target_body`, `target_lagrange`, and `target_fleet`.
+    pub target_star_system: Option<(usize, String, f32)>,
 }
 
 impl FleetUiState {
@@ -175,6 +178,7 @@ impl FleetUiState {
         self.target_body = None;
         self.target_lagrange = None;
         self.target_fleet = None;
+        self.target_star_system = None;
         self.selected_dest_category = None;
         self.departure_offset_days = 0.0;
         self.computed_options.clear();
@@ -8945,6 +8949,7 @@ fn render_transfer_planner(
     current_system_id: usize,
     body_system_ids: &Query<&SystemId>,
     elapsed: f64,
+    nearby_stars: &NearbyStarsData,
 ) {
     let is_course_correction = current_maneuver.is_some();
 
@@ -8978,6 +8983,7 @@ fn render_transfer_planner(
     //   Ring   — selectable ring destination (no KeplerOrbit; radius from body.radius field)
     //   Lagrange — one of the 5 L-points of a planet-star system
     //   FleetTarget — another fleet (for intercept course)
+    //   StarSystem — interstellar target (another star system)
     #[derive(Clone)]
     enum DestEntry {
         Header(String),
@@ -8985,6 +8991,7 @@ fn render_transfer_planner(
         Ring { entity: Entity, name: String, parent_entity: Entity, radius_au: f64 },
         Lagrange { lp: LagrangeTarget },
         FleetTarget { entity: Entity, name: String, in_transit: bool },
+        StarSystem { system_id: usize, name: String, distance_ly: f32 },
     }
 
     let mut dest_entries: Vec<DestEntry> = Vec::new();
@@ -9295,11 +9302,13 @@ fn render_transfer_planner(
 
     // ── Group: Solar Approach ────────────────────────────────────────────────
     // Always offer a direct solar-approach destination so the player can plot
-    // an inward heliocentric transfer toward the star.  Shown regardless of
-    // whether the fleet is already in heliocentric space.
-    // The star now has SpaceCoordinates (zero vector), so body_query finds it.
+    // an inward heliocentric transfer toward the star.  Filter by current_system_id
+    // to find Sol, not Alpha Centauri or another star from a different system.
     let star_entity = body_query.iter()
-        .find(|(_, b, _, _, _)| b.body_type == BodyType::Star)
+        .find(|(e, b, _, _, _)| {
+            b.body_type == BodyType::Star
+                && body_system_ids.get(*e).ok().map(|s| s.0 == current_system_id).unwrap_or(false)
+        })
         .map(|(e, _, _, _, _)| e);
     if let Some(star_e) = star_entity {
         dest_entries.push(DestEntry::Header("Solar".to_string()));
@@ -9307,6 +9316,52 @@ fn render_transfer_planner(
             entity: star_e,
             name: "☀ Solar Approach (0.3 AU)".to_string(),
         });
+    }
+
+    // ── Group: Interstellar ──────────────────────────────────────────────────
+    // List every other star system from NearbyStarsData as an interstellar target.
+    // The current system is identified by its numeric id; Sol = id 0 by convention.
+    {
+        let mut interstellar_entries: Vec<DestEntry> = nearby_stars.systems
+            .iter()
+            .filter(|sys| {
+                // Exclude the current system (id comparison via name match is a fallback)
+                // NearbyStarsData systems use 0-based index ordering; system_id 0 = Sol.
+                // We exclude any system whose name matches current system's star name.
+                let this_star_name = body_query.iter()
+                    .find(|(e, b, _, _, _)| {
+                        b.body_type == BodyType::Star
+                            && body_system_ids.get(*e).ok()
+                                .map(|s| s.0 == current_system_id)
+                                .unwrap_or(false)
+                    })
+                    .map(|(_, b, _, _, _)| b.name.as_str())
+                    .unwrap_or("Sol");
+                // Each StarSystemData has stars[0].name; compare to current star
+                !sys.stars.iter().any(|s| s.name == this_star_name)
+                    && sys.distance_ly > 0.0
+            })
+            .enumerate()
+            .map(|(idx, sys)| {
+                let display = format!("✨ {} ({:.2} ly)", sys.system_name, sys.distance_ly);
+                // Use index+1 as system_id (0 reserved for Sol in current system)
+                DestEntry::StarSystem {
+                    system_id: idx + 1,
+                    name: display,
+                    distance_ly: sys.distance_ly,
+                }
+            })
+            .collect();
+
+        if !interstellar_entries.is_empty() {
+            interstellar_entries.sort_by(|a, b| {
+                let da = if let DestEntry::StarSystem { distance_ly, .. } = a { *distance_ly } else { 0.0 };
+                let db = if let DestEntry::StarSystem { distance_ly, .. } = b { *distance_ly } else { 0.0 };
+                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+            });
+            dest_entries.push(DestEntry::Header("Interstellar".to_string()));
+            dest_entries.extend(interstellar_entries);
+        }
     }
 
     // ── Build hierarchical categories from dest_entries ─────────────────────
@@ -9326,6 +9381,7 @@ fn render_transfer_planner(
                 label.ends_with(" System")
                     || label == "Planets"
                     || label == "Solar"
+                    || label == "Interstellar"
                     || label.starts_with("Small Bodies")
             }
             _ => false,
@@ -9396,6 +9452,16 @@ fn render_transfer_planner(
                 break;
             }
         }
+    } else if let Some((tss_id, _, _)) = fleet_ui_state.target_star_system {
+        for group in &groups {
+            if group.entries.iter().any(|e| match e {
+                DestEntry::StarSystem { system_id, .. } => *system_id == tss_id,
+                _ => false,
+            }) {
+                correct_category = Some(group.name.clone());
+                break;
+            }
+        }
     }
 
     if let Some(cat) = correct_category {
@@ -9430,6 +9496,7 @@ fn render_transfer_planner(
                         fleet_ui_state.target_body = None;
                         fleet_ui_state.target_lagrange = None;
                         fleet_ui_state.target_fleet = None;
+                        fleet_ui_state.target_star_system = None;
                         fleet_ui_state.computed_options.clear();
                         fleet_ui_state.planned_transfer = None;
                         fleet_ui_state.selected_option = 0;
@@ -9454,6 +9521,8 @@ fn render_transfer_planner(
                 format!("{status} {}", f.name)
             })
             .unwrap_or_else(|_| "— Target —".to_owned())
+    } else if let Some((_, ref name, _)) = fleet_ui_state.target_star_system {
+        name.clone()
     } else {
         fleet_ui_state.target_body
             .and_then(|e| body_query.get(e).ok())
@@ -9560,6 +9629,28 @@ fn render_transfer_planner(
                                         fleet_ui_state.target_fleet = Some(*entity);
                                         fleet_ui_state.target_body = None;
                                         fleet_ui_state.target_lagrange = None;
+                                        fleet_ui_state.target_star_system = None;
+                                        fleet_ui_state.computed_options.clear();
+                                        fleet_ui_state.planned_transfer = None;
+                                        fleet_ui_state.selected_option = 0;
+                                        fleet_ui_state.selected_gravity_assist = None;
+                                    }
+                                }
+                                DestEntry::StarSystem { system_id, name, distance_ly } => {
+                                    first_sub = false;
+                                    let is_sel = fleet_ui_state.target_star_system
+                                        .as_ref().map(|(id, _, _)| *id == *system_id)
+                                        .unwrap_or(false);
+                                    if ui.selectable_label(
+                                        is_sel,
+                                        egui::RichText::new(format!("  {name}"))
+                                            .size(12.0)
+                                            .color(egui::Color32::from_rgb(200, 180, 255)),
+                                    ).clicked() && !is_sel {
+                                        fleet_ui_state.target_star_system = Some((*system_id, name.clone(), *distance_ly));
+                                        fleet_ui_state.target_body = None;
+                                        fleet_ui_state.target_lagrange = None;
+                                        fleet_ui_state.target_fleet = None;
                                         fleet_ui_state.computed_options.clear();
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
@@ -9634,9 +9725,11 @@ fn render_transfer_planner(
 
     // ── Compute transfer options when a target is selected ───────────────────
     let fleet_target_snap = fleet_ui_state.target_fleet;
+    let star_system_snap = fleet_ui_state.target_star_system.clone();
     let any_target = fleet_ui_state.target_body.is_some()
         || fleet_ui_state.target_lagrange.is_some()
-        || fleet_target_snap.is_some();
+        || fleet_target_snap.is_some()
+        || star_system_snap.is_some();
     // Snapshot lagrange so we can use it immutably while also mut-borrowing fleet_ui_state below
     let lp_target_snap = fleet_ui_state.target_lagrange.clone();
     let body_target_snap = fleet_ui_state.target_body;
@@ -10010,6 +10103,67 @@ fn render_transfer_planner(
                 );
             }
 
+        // ── Interstellar transfer computation ───────────────────────────────
+        if let Some((_, _, distance_ly)) = star_system_snap {
+            use crate::fleets::orbital_mechanics::{AU_IN_METERS, TransferOption};
+            // 1 ly = 63 241.077 AU
+            const AU_PER_LY: f64 = 63_241.077;
+            let distance_m  = distance_ly as f64 * AU_PER_LY * AU_IN_METERS;
+            let accel       = fleet.min_accel_ms2();
+            let max_dv      = fleet.max_delta_v_ms();
+
+            fleet_ui_state.computed_options.clear();
+
+            if accel >= 0.05 && max_dv > 0.0 {
+                // Brachistochrone kinematics for straight-line interstellar cruise.
+                let dv_brach = 2.0 * (accel * distance_m).sqrt();
+                let t_brach  = 2.0 * (distance_m / accel).sqrt();
+                let feasible = dv_brach <= max_dv;
+
+                let (trip_time, thrust_limited) = if feasible {
+                    (t_brach, false)
+                } else {
+                    // Burn to max ΔV/2 then coast; decelerate symmetrically
+                    let half_dv   = max_dv / 2.0;
+                    let t_accel   = half_dv / accel;
+                    let d_accel   = 0.5 * accel * t_accel * t_accel;
+                    let d_coast   = (distance_m - 2.0 * d_accel).max(0.0);
+                    let v_cruise  = half_dv;
+                    let t_coast   = if v_cruise > 0.0 { d_coast / v_cruise } else { f64::INFINITY };
+                    (2.0 * t_accel + t_coast, true)
+                };
+
+                let used_dv = if feasible { dv_brach } else { max_dv };
+                fleet_ui_state.computed_options.push(TransferOption {
+                    label: "Interstellar",
+                    total_delta_v_ms: used_dv,
+                    delta_v1_ms: used_dv * 0.5,
+                    delta_v2_ms: used_dv * 0.5,
+                    transfer_time_s: trip_time,
+                    sma_au: 0.0,
+                    eccentricity: 0.0,
+                    energy_multiplier: 1.0,
+                    burn_time_s: if feasible { t_brach } else { max_dv / accel },
+                    is_thrust_limited: thrust_limited,
+                });
+            }
+            if fleet_ui_state.computed_options.is_empty() {
+                // Fleet lacks the minimum thrust for interstellar travel
+                fleet_ui_state.computed_options.push(TransferOption {
+                    label: "Insufficient thrust",
+                    total_delta_v_ms: 0.0,
+                    delta_v1_ms: 0.0,
+                    delta_v2_ms: 0.0,
+                    transfer_time_s: f64::INFINITY,
+                    sma_au: 0.0,
+                    eccentricity: 0.0,
+                    energy_multiplier: 0.0,
+                    burn_time_s: 0.0,
+                    is_thrust_limited: true,
+                });
+            }
+        }
+
         // ── Transfer Window info + departure slider ─────────────────────────
         // Only shown for body-target transfers (not fleet intercepts or Lagrange).
         if let Some(ref window) = window_this_frame {
@@ -10287,7 +10441,38 @@ fn render_transfer_planner(
                 fleet_max_dv
             };
             let sel_affordable_with_abort = sel_option.total_delta_v_ms <= dv_after_abort;
-            let btn_label = if is_course_correction {
+
+            // Interstellar note
+            let is_interstellar = star_system_snap.is_some();
+            if is_interstellar {
+                if let Some((_, ref sys_name, dist_ly)) = star_system_snap {
+                    ui.group(|ui| {
+                        ui.label(
+                            egui::RichText::new(format!("🌌 Interstellar Mission: {}", sys_name))
+                                .strong().size(13.0).color(egui::Color32::from_rgb(200, 180, 255)),
+                        );
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "Distance: {:.2} ly = {:.0} AU",
+                                dist_ly,
+                                dist_ly as f64 * 63_241.077
+                            )).size(11.0).color(egui::Color32::GRAY),
+                        );
+                        ui.label(
+                            egui::RichText::new(
+                                "⚠ Interstellar navigation is point-and-burn. \
+                                 Transfer windows do not apply. \
+                                 Ensure adequate ΔV and life-support reserves."
+                            ).size(11.0).italics().color(egui::Color32::from_rgb(220, 180, 80)),
+                        );
+                    });
+                    ui.add_space(4.0);
+                }
+            }
+
+            let btn_label = if is_interstellar {
+                "🚀 Commit Interstellar Course".to_string()
+            } else if is_course_correction {
                 if abort_cost_t > 0.01 {
                     let abort_dv_kms = (fleet_max_dv - dv_after_abort) / 1_000.0;
                     format!("🔄 Execute Course Correction (+{:.2} km/s abort burn)", abort_dv_kms)
@@ -10314,35 +10499,51 @@ fn render_transfer_planner(
 
             // Execute Transfer button — left-aligned, above the options list
             {
+                let insufficient = sel_option.is_thrust_limited && is_interstellar && sel_option.total_delta_v_ms == 0.0;
                 let btn = egui::Button::new(
                     egui::RichText::new(&btn_label).size(13.0).strong(),
                 );
-                let resp = ui.add_enabled(sel_affordable_with_abort, btn);
+                let resp = ui.add_enabled(!insufficient && (sel_affordable_with_abort || is_interstellar), btn);
                 if resp.clicked() {
-                    let maybe_transfer = if let Some(ref lp) = lp_target_snap {
-                        build_planned_transfer_lp(fleet_entity, fleet, orbit, lp, body_query, &sel_option)
-                    } else if let Some(tfe) = fleet_target_snap {
-                        all_fleets_query.get(tfe).ok()
-                            .and_then(|(_, _, _, maybe_fo, _)| maybe_fo)
-                            .and_then(|fo| {
-                                build_planned_transfer(fleet_entity, fleet, orbit, fo.body, body_query, &sel_option)
-                            })
-                    } else if let Some(te) = body_target_snap {
-                        build_planned_transfer(fleet_entity, fleet, orbit, te, body_query, &sel_option)
+                    if is_interstellar {
+                        // Interstellar travel: no ECS destination body; log mission intent.
+                        // Full multi-system navigation will be implemented in a future session.
+                        if let Some((sys_id, ref sys_name, dist_ly)) = star_system_snap {
+                            info!(
+                                "Fleet '{}' committed to interstellar course: {} ({:.2} ly, system_id {}). \
+                                 ΔV required: {:.1} km/s, travel time: {:.1} years. \
+                                 Multi-system navigation NYI.",
+                                fleet.name, sys_name, dist_ly, sys_id,
+                                sel_option.total_delta_v_ms / 1_000.0,
+                                sel_option.transfer_time_s / (365.25 * 86_400.0),
+                            );
+                        }
                     } else {
-                        None
-                    };
-                    if let Some(transfer) = maybe_transfer {
-                        pending_actions.start_transfers.push(StartTransferAction {
-                            fleet: fleet_entity,
-                            transfer,
-                            abort_cost_t,
-                            departure_offset_s: fleet_ui_state.departure_offset_days * 86_400.0,
-                        });
+                        let maybe_transfer = if let Some(ref lp) = lp_target_snap {
+                            build_planned_transfer_lp(fleet_entity, fleet, orbit, lp, body_query, &sel_option)
+                        } else if let Some(tfe) = fleet_target_snap {
+                            all_fleets_query.get(tfe).ok()
+                                .and_then(|(_, _, _, maybe_fo, _)| maybe_fo)
+                                .and_then(|fo| {
+                                    build_planned_transfer(fleet_entity, fleet, orbit, fo.body, body_query, &sel_option)
+                                })
+                        } else if let Some(te) = body_target_snap {
+                            build_planned_transfer(fleet_entity, fleet, orbit, te, body_query, &sel_option)
+                        } else {
+                            None
+                        };
+                        if let Some(transfer) = maybe_transfer {
+                            pending_actions.start_transfers.push(StartTransferAction {
+                                fleet: fleet_entity,
+                                transfer,
+                                abort_cost_t,
+                                departure_offset_s: fleet_ui_state.departure_offset_days * 86_400.0,
+                            });
+                        }
                     }
                 }
             }
-            if !sel_affordable_with_abort {
+            if !is_interstellar && !sel_affordable_with_abort {
                 ui.label(
                     egui::RichText::new(
                         if abort_cost_t > 0.0 {
@@ -10512,6 +10713,7 @@ fn ui_transfer_planner_popup(
     mut fleet_ui_state: ResMut<FleetUiState>,
     sim_time: Res<SimulationTime>,
     current_system: Res<CurrentStarSystem>,
+    nearby_stars: Res<NearbyStarsData>,
 ) {
     if !fleet_ui_state.show_transfer_popup {
         return;
@@ -10574,6 +10776,7 @@ fn ui_transfer_planner_popup(
                         current_system_id,
                         &body_system_ids,
                         elapsed,
+                        &nearby_stars,
                     );
                 });
         });
