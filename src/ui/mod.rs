@@ -9327,10 +9327,53 @@ fn render_transfer_planner(
         }
     }
 
+    // ── Auto-select category if a target is selected ─────────────────────────
+    let mut correct_category = None;
+    if let Some(target) = fleet_ui_state.target_body {
+        for group in &groups {
+            if group.entries.iter().any(|e| match e {
+                DestEntry::Body { entity, .. } | DestEntry::Ring { entity, .. } => *entity == target,
+                _ => false,
+            }) {
+                correct_category = Some(group.name.clone());
+                break;
+            }
+        }
+    } else if let Some(ref lp) = fleet_ui_state.target_lagrange {
+        for group in &groups {
+            if group.entries.iter().any(|e| match e {
+                DestEntry::Lagrange { lp: entry_lp } => entry_lp.point == lp.point && entry_lp.planet_entity == lp.planet_entity,
+                _ => false,
+            }) {
+                correct_category = Some(group.name.clone());
+                break;
+            }
+        }
+    } else if let Some(tf) = fleet_ui_state.target_fleet {
+        for group in &groups {
+            if group.entries.iter().any(|e| match e {
+                DestEntry::FleetTarget { entity, .. } => *entity == tf,
+                _ => false,
+            }) {
+                correct_category = Some(group.name.clone());
+                break;
+            }
+        }
+    }
+
+    if let Some(cat) = correct_category {
+        let sel = fleet_ui_state.selected_dest_category.as_deref();
+        if sel != Some(&cat) && !(sel == Some("Small Bodies") && cat.starts_with("Small Bodies")) {
+            fleet_ui_state.selected_dest_category = Some(cat);
+        }
+    }
+
     // ── Render the two-level selector ────────────────────────────────────────
     // Step 1: category (planet system / small bodies / fleets)
-    let cat_label = fleet_ui_state.selected_dest_category.clone()
-        .unwrap_or_else(|| "— System —".to_owned());
+    let cat_label = groups.iter().find(|g| {
+        let sel = fleet_ui_state.selected_dest_category.as_deref();
+        sel == Some(&g.name) || (sel == Some("Small Bodies") && g.name.starts_with("Small Bodies"))
+    }).map(|g| g.name.clone()).unwrap_or_else(|| fleet_ui_state.selected_dest_category.clone().unwrap_or_else(|| "— System —".to_owned()));
 
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("System:").size(13.0));
@@ -9339,7 +9382,8 @@ fn render_transfer_planner(
             .width(200.0)
             .show_ui(ui, |ui| {
                 for group in &groups {
-                    let cat_is_sel = fleet_ui_state.selected_dest_category.as_deref() == Some(&group.name);
+                    let sel = fleet_ui_state.selected_dest_category.as_deref();
+                    let cat_is_sel = sel == Some(&group.name) || (sel == Some("Small Bodies") && group.name.starts_with("Small Bodies"));
                     if ui.selectable_label(
                         cat_is_sel,
                         egui::RichText::new(&group.name).size(13.0),
@@ -9359,7 +9403,8 @@ fn render_transfer_planner(
 
     // Step 2: specific target within selected category
     let active_group = groups.iter().find(|g| {
-        fleet_ui_state.selected_dest_category.as_deref() == Some(&g.name)
+        let sel = fleet_ui_state.selected_dest_category.as_deref();
+        sel == Some(&g.name) || (sel == Some("Small Bodies") && g.name.starts_with("Small Bodies"))
     });
 
     let target_label = if let Some(ref lp) = fleet_ui_state.target_lagrange {

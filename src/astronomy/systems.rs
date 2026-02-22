@@ -1167,7 +1167,7 @@ pub fn handle_body_selection(
     mouse_button: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     camera_query: Query<(&Camera, &GlobalTransform), With<GameCamera>>,
-    body_query: Query<(Entity, &GlobalTransform, &CelestialBody, Option<&SystemId>), Without<ClickExcluded>>,
+    body_query: Query<(Entity, &GlobalTransform, &CelestialBody, Option<&SystemId>, Option<&crate::plugins::solar_system::LogicalParent>), Without<ClickExcluded>>,
     current_system: Res<CurrentStarSystem>,
     mut commands: Commands,
     selected_query: Query<Entity, With<Selected>>,
@@ -1177,6 +1177,7 @@ pub fn handle_body_selection(
     mut egui_contexts: bevy_egui::EguiContexts,
     active_menu: Res<ActiveMenu>,
     panel_bounds: Res<EguiPanelBounds>,
+    mut fleet_ui_state: ResMut<crate::ui::FleetUiState>,
 ) {
     // Disable body selection when a full-screen overlay menu is active
     if active_menu.current.blocks_world_interaction() {
@@ -1189,7 +1190,9 @@ pub fn handle_body_selection(
     }
 
     // Only process on mouse click
-    if !mouse_button.just_pressed(MouseButton::Left) {
+    let left_click = mouse_button.just_pressed(MouseButton::Left);
+    let right_click = mouse_button.just_pressed(MouseButton::Right);
+    if !left_click && !right_click {
         return;
     }
 
@@ -1230,7 +1233,7 @@ pub fn handle_body_selection(
     // Stores: (Entity, ray_distance, body name)
     let mut closest_body: Option<(Entity, f32, f32, String)> = None;
 
-    for (entity, transform, body, system_id) in body_query.iter() {
+    for (entity, transform, body, system_id, _logical_parent) in body_query.iter() {
         // Only interact with bodies in the current star system
         let body_system = system_id.map(|s| s.0).unwrap_or(0);
         if body_system != current_system.0 {
@@ -1270,28 +1273,43 @@ pub fn handle_body_selection(
         }
     }
 
-    // Deselect all currently selected bodies
-    for entity in selected_query.iter() {
-        commands.entity(entity).remove::<Selected>();
+    // Deselect all currently selected bodies if left clicking
+    if left_click {
+        for entity in selected_query.iter() {
+            commands.entity(entity).remove::<Selected>();
+        }
     }
 
     // Select the clicked body if any
     if let Some((entity, _, _, name)) = closest_body {
-        commands.entity(entity).insert(Selected);
-        info!("Selected celestial body: {} (entity {:?})", name, entity);
+        if left_click {
+            commands.entity(entity).insert(Selected);
+            info!("Selected celestial body: {} (entity {:?})", name, entity);
 
-        let current_time = time.elapsed_secs_f64();
-        if let Some(last_entity) = selection_state.last_clicked_entity {
-            if last_entity == entity && (current_time - selection_state.last_click_time) < 0.5 {
-                info!("Double click on {}, setting anchor.", name);
-                if let Ok(mut anchor) = anchor_query.single_mut() {
-                    anchor.0 = Some(entity);
+            let current_time = time.elapsed_secs_f64();
+            if let Some(last_entity) = selection_state.last_clicked_entity {
+                if last_entity == entity && (current_time - selection_state.last_click_time) < 0.5 {
+                    info!("Double click on {}, setting anchor.", name);
+                    if let Ok(mut anchor) = anchor_query.single_mut() {
+                        anchor.0 = Some(entity);
+                    }
                 }
             }
+            selection_state.last_click_time = current_time;
+            selection_state.last_clicked_entity = Some(entity);
+        } else if right_click {
+            if fleet_ui_state.selected_fleet.is_some() {
+                info!("Right clicked celestial body: {} (entity {:?}) with fleet selected, opening transfer planner", name, entity);
+                fleet_ui_state.target_body = Some(entity);
+                fleet_ui_state.target_lagrange = None;
+                fleet_ui_state.target_fleet = None;
+                fleet_ui_state.computed_options.clear();
+                fleet_ui_state.planned_transfer = None;
+                fleet_ui_state.selected_option = 0;
+                fleet_ui_state.show_transfer_popup = true;
+            }
         }
-        selection_state.last_click_time = current_time;
-        selection_state.last_clicked_entity = Some(entity);
-    } else {
+    } else if left_click {
         selection_state.last_clicked_entity = None;
     }
 }
@@ -2126,6 +2144,7 @@ pub fn handle_lp_hover(
     mut egui_contexts: bevy_egui::EguiContexts,
     active_menu: Res<ActiveMenu>,
     panel_bounds: Res<EguiPanelBounds>,
+    mut fleet_ui_state: ResMut<crate::ui::FleetUiState>,
 ) {
     if *view_mode != ViewMode::System {
         lp_markers.hovered_index = None;
@@ -2178,6 +2197,27 @@ pub fn handle_lp_hover(
         if let Some(idx) = lp_markers.hovered_index {
             let info = lp_markers.markers[idx].clone();
             last_click.info = Some(info);
+        }
+    } else if mouse_button.just_pressed(MouseButton::Right) {
+        if let Some(idx) = lp_markers.hovered_index {
+            if fleet_ui_state.selected_fleet.is_some() {
+                let info = lp_markers.markers[idx].clone();
+                info!("Right clicked LP: L{} of {}, opening transfer planner", info.point, info.planet_name);
+                fleet_ui_state.target_lagrange = Some(crate::ui::LagrangeTarget {
+                    point: info.point,
+                    planet_entity: info.planet_entity,
+                    planet_name: info.planet_name.clone(),
+                    planet_sma_au: info.planet_sma_au,
+                    radius_au: info.lp_radius_au,
+                    gm: info.gm,
+                });
+                fleet_ui_state.target_body = None;
+                fleet_ui_state.target_fleet = None;
+                fleet_ui_state.computed_options.clear();
+                fleet_ui_state.planned_transfer = None;
+                fleet_ui_state.selected_option = 0;
+                fleet_ui_state.show_transfer_popup = true;
+            }
         }
     }
 }

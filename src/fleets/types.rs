@@ -111,7 +111,19 @@ impl PropulsionType {
         }
     }
 
-    /// Thrust in kilonewtons for a ship of the given dry mass.
+    /// Thrust in kilonewtons for a ship of the given dry mass (tonnes).
+    ///
+    /// The physics formula is:
+    /// ```text
+    /// F (kN) = TWR × (mass in kg) × g₀ / 1000
+    ///          = TWR × (mass_tonnes × 1000) × 9.81 / 1000
+    ///          = TWR × mass_tonnes × 9.81
+    /// ```
+    ///
+    /// The previous implementation erroneously applied a `/ 1000` conversion
+    /// before multiplying by the thrust-to-weight ratio, resulting in values
+    /// that were three orders of magnitude too small.  This function now
+    /// returns a realistic kilonewton value.
     ///
     /// Uses a simplified thrust-to-weight ratio per propulsion type.
     pub fn thrust_kn(self, dry_mass_t: f32) -> f32 {
@@ -123,7 +135,7 @@ impl PropulsionType {
             PropulsionType::NuclearPulse => 50.0,
             PropulsionType::FusionTorch => 1.0,
         };
-        // F = twr × m × g₀  (g₀ = 9.81 m/s², convert from kN)
-        dry_mass_t * 9.81 / 1_000.0 * twr
+        // convert tonnes to kg, multiply by g₀ and TWR, then divide by 1000 for kN
+        dry_mass_t * 9.81 * twr
     }
 }

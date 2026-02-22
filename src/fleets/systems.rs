@@ -20,7 +20,7 @@ pub struct FleetMesh;
 
 // ── Position update systems ───────────────────────────────────────────────────
 
-/// One full visual revolution every 120 real seconds — readable at any time scale.
+/// One full visual revolution every 40 real seconds — readable at any time scale.
 const VISUAL_ORBIT_RATE: f64 = std::f64::consts::TAU / 40.0;
 
 /// Multiplier applied to a body's visual radius to determine the orbit ring
