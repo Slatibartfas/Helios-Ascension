@@ -34,6 +34,13 @@ pub struct TransferOption {
     pub eccentricity: f64,
     /// Energy multiplier relative to Hohmann minimum (1.0 = most efficient).
     pub energy_multiplier: f64,
+    /// Total powered burn time (seconds) for a fleet with the given thrust profile.
+    ///
+    /// Set to `0.0` when no fleet propulsion data is available (pure geometry
+    /// computations).  The UI fills this in after computing options by calling
+    /// [`compute_burn_time_s`] with the fleet's actual min-acceleration and
+    /// average specific impulse.
+    pub burn_time_s: f64,
 }
 
 /// Information about the next optimal Hohmann launch window between two bodies.
@@ -358,6 +365,7 @@ pub fn calculate_transfer_options_phased(
             sma_au: r1_au,
             eccentricity: 0.0,
             energy_multiplier: 1.0,
+            burn_time_s: 0.0,
         }];
     }
 
@@ -386,6 +394,7 @@ pub fn calculate_transfer_options_phased(
         sma_au: sma_h,
         eccentricity: ecc_h,
         energy_multiplier: corr_full,
+        burn_time_s: 0.0,
     };
 
     // Moderate (1.5× Hohmann base): 65 % of phase correction
@@ -399,6 +408,7 @@ pub fn calculate_transfer_options_phased(
         sma_au: sma_h,
         eccentricity: ecc_h,
         energy_multiplier: 1.0,
+        burn_time_s: 0.0,
     };
     let moderate = scaled_transfer(&hohmann_base, 1.5 * corr_mod, "Moderate");
 
@@ -431,6 +441,7 @@ pub fn calculate_transfer_options(r1_au: f64, r2_au: f64, gm: f64) -> Vec<Transf
             sma_au: r1_au,
             eccentricity: 0.0,
             energy_multiplier: 1.0,
+            burn_time_s: 0.0,
         }];
     }
 
@@ -445,6 +456,7 @@ pub fn calculate_transfer_options(r1_au: f64, r2_au: f64, gm: f64) -> Vec<Transf
         sma_au: sma_h,
         eccentricity: ecc_h,
         energy_multiplier: 1.0,
+        burn_time_s: 0.0,
     };
 
     // Moderate ≈ 1.5× Δv, ≈ 0.65× time
@@ -510,7 +522,87 @@ fn scaled_transfer(base: &TransferOption, energy_multiplier: f64, label: &'stati
         sma_au: sma,
         eccentricity,
         energy_multiplier,
+        burn_time_s: 0.0,
     }
+}
+
+/// Compute the total powered burn time (seconds) for a fleet to execute a
+/// given Δv at its minimum achievable acceleration.
+///
+/// Derived from the Tsiolkovsky rocket equation time-integral:
+/// `t = (1 − e^(−ΔV/vₑ)) × vₑ / a_min`
+///
+/// where `vₑ = avg_isp_s × g₀` is the effective exhaust velocity and
+/// `a_min` is the fleet's minimum acceleration (weakest-ship bottleneck).
+///
+/// Returns 0.0 when any argument is non-positive.
+pub fn compute_burn_time_s(total_dv_ms: f64, fleet_accel_ms2: f64, avg_isp_s: f32) -> f64 {
+    if fleet_accel_ms2 <= 0.0 || total_dv_ms <= 0.0 || avg_isp_s <= 0.0 {
+        return 0.0;
+    }
+    let ve = avg_isp_s as f64 * G0;
+    let fuel_fraction = 1.0 - (-total_dv_ms / ve).exp();
+    fuel_fraction * ve / fleet_accel_ms2
+}
+
+/// Build a "Flip & Burn" (brachistochrone) transfer option for a fleet
+/// with sufficient thrust.
+///
+/// A flip-and-burn trajectory applies maximum thrust for the first half
+/// of the trip (accelerating toward the target), then rotates 180° and
+/// applies maximum thrust for the second half (decelerating to match the
+/// destination's orbital velocity).  This minimises transit time for a
+/// given thrust level at the cost of very high ΔV expenditure.
+///
+/// The chord-distance approximation `D ≈ |r₂ − r₁| × AU` is used.
+///
+/// # Parameters
+/// - `r1_au`, `r2_au`: semi-major axes of origin and destination (AU)
+/// - `gm`: gravitational parameter of the central body (m³/s²)
+/// - `fleet_accel_ms2`: fleet minimum acceleration (m/s²)
+/// - `fleet_avg_isp_s`: fleet thrust-weighted average specific impulse (s)
+///
+/// # Returns
+/// `None` when the acceleration is below the minimum threshold of 0.1 m/s²
+/// or the two orbits are identical.
+pub fn brachistochrone_option(
+    r1_au: f64,
+    r2_au: f64,
+    gm: f64,
+    fleet_accel_ms2: f64,
+    _fleet_avg_isp_s: f32,
+) -> Option<TransferOption> {
+    /// Minimum fleet acceleration (m/s²) to offer the Flip & Burn option.
+    const MIN_BRACH_ACCEL_MS2: f64 = 0.1;
+    if fleet_accel_ms2 < MIN_BRACH_ACCEL_MS2 { return None; }
+
+    let d = (r2_au - r1_au).abs() * AU_IN_METERS;
+    if d < 1e6 { return None; }
+
+    // Flip-and-burn kinematics (constant acceleration, chord-distance model):
+    //   acceleration phase: v_max = √(a·D),  t₁ = √(D/a)
+    //   deceleration phase: symmetric mirror image
+    let dv_brach = 2.0 * (fleet_accel_ms2 * d).sqrt();
+    let t_brach = 2.0 * (d / fleet_accel_ms2).sqrt();
+
+    // Energy multiplier relative to the Hohmann baseline
+    let (dv1_h, dv2_h, _, sma_h, ecc_h) = hohmann_transfer(r1_au, r2_au, gm);
+    let hohmann_dv = dv1_h + dv2_h;
+    let energy_multiplier = if hohmann_dv > 0.0 { dv_brach / hohmann_dv } else { 1.0 };
+
+    Some(TransferOption {
+        label: "Flip & Burn",
+        total_delta_v_ms: dv_brach,
+        delta_v1_ms: dv_brach * 0.5, // acceleration half-burn
+        delta_v2_ms: dv_brach * 0.5, // deceleration half-burn
+        transfer_time_s: t_brach,
+        sma_au: sma_h, // placeholder SMA for arc visualization
+        eccentricity: ecc_h,
+        energy_multiplier,
+        // The entire trip is a powered burn; transfer_time_s IS the burn time
+        // (constant-acceleration kinematic model: burn throughout).
+        burn_time_s: t_brach,
+    })
 }
 
 /// Compute the propellant mass fraction consumed to perform a given Δv.
@@ -904,6 +996,95 @@ mod tests {
             opts.is_empty(),
             "No candidates between Earth and Mars, but got: {:?}",
             opts.iter().map(|o| o.body_name.as_str()).collect::<Vec<_>>()
+        );
+    }
+
+    // ── Thrust and burn-time tests ───────────────────────────────────────────
+
+    /// Chemical engine burn is short (impulsive).
+    /// Frigate: dry 2000 t, fuel fraction 0.45 → wet ≈ 3636 t.
+    ///   thrust_kn  = TWR(10) × dry_mass(2000 t) × g0(9.81) = 196 200 kN
+    ///   accel      = thrust_kn / wet_mass_t        ≈ 54 m/s²   (kN/t = m/s²)
+    /// Earth-Mars Hohmann ΔV ≈ 5.6 km/s; expected burn < 5 minutes.
+    #[test]
+    fn test_burn_time_chemical_is_impulsive() {
+        let isp = 450.0_f32;
+        // Frigate Chemical: TWR=10 vs 2000 t dry, wet=2000/(1-0.45)≈3636 t
+        let thrust_kn = 10.0_f64 * 2_000.0 * 9.81; // = 196 200 kN
+        let wet_mass_t = 2_000.0_f64 / (1.0 - 0.45); // ≈ 3636 t
+        let accel = thrust_kn / wet_mass_t; // kN/t = m/s²
+        let t = compute_burn_time_s(5_600.0, accel, isp);
+        assert!(
+            t < 300.0,
+            "Chemical burn should be impulsive (<5 min), got {:.0} s",
+            t
+        );
+    }
+
+    /// Ion-drive burn is extended (many hours).
+    /// Frigate: dry 2000 t, fuel fraction 0.45 → wet ≈ 3636 t.
+    ///   thrust_kn = TWR(0.001) × dry_mass(2000 t) × g0(9.81) ≈ 19.62 kN
+    ///   accel     = 19.62 / 3636 ≈ 0.0054 m/s²
+    /// Same 5.6 km/s ΔV should take multiple hours.
+    #[test]
+    fn test_burn_time_ion_drive_is_extended() {
+        let isp = 5_000.0_f32;
+        // Frigate IonDrive: TWR=0.001 vs 2000 t dry, wet≈3636 t
+        let thrust_kn = 0.001_f64 * 2_000.0 * 9.81; // ≈ 19.62 kN
+        let wet_mass_t = 2_000.0_f64 / (1.0 - 0.45); // ≈ 3636 t
+        let accel = thrust_kn / wet_mass_t; // kN/t = m/s²
+        let t = compute_burn_time_s(5_600.0, accel, isp);
+        let hours = t / 3_600.0;
+        assert!(
+            hours > 1.0,
+            "Ion drive burn should take >1 hour, got {:.2} h",
+            hours
+        );
+    }
+
+    /// compute_burn_time_s returns 0 for non-positive inputs.
+    #[test]
+    fn test_burn_time_zero_inputs() {
+        assert_eq!(compute_burn_time_s(0.0, 10.0, 450.0), 0.0);
+        assert_eq!(compute_burn_time_s(1000.0, 0.0, 450.0), 0.0);
+        assert_eq!(compute_burn_time_s(1000.0, 10.0, 0.0), 0.0);
+    }
+
+    /// brachistochrone_option returns None for sub-threshold acceleration.
+    #[test]
+    fn test_brachistochrone_below_threshold() {
+        // Ion drive accel ≈ 0.0054 m/s² — below the 0.1 m/s² threshold
+        let result = brachistochrone_option(1.0, 1.524, GM_SUN, 0.0054, 5_000.0);
+        assert!(result.is_none(),
+            "Ion drive should not produce a Flip & Burn option");
+    }
+
+    /// brachistochrone_option produces a valid option for high-thrust ships.
+    /// Earth-Mars with accel = 10 m/s²: t < Hohmann, ΔV >> Hohmann.
+    #[test]
+    fn test_brachistochrone_high_thrust() {
+        let accel = 10.0_f64; // m/s²
+        let opt = brachistochrone_option(1.0, 1.524, GM_SUN, accel, 50_000.0)
+            .expect("High-thrust fleet should get Flip & Burn option");
+        assert_eq!(opt.label, "Flip & Burn");
+        // ΔV should be far above Hohmann
+        let (dv1, dv2, t_h, _, _) = hohmann_transfer(1.0, 1.524, GM_SUN);
+        let hohmann_dv = dv1 + dv2;
+        assert!(
+            opt.total_delta_v_ms > hohmann_dv * 5.0,
+            "Flip & Burn ΔV ({:.0} m/s) should >> Hohmann ({:.0} m/s)",
+            opt.total_delta_v_ms, hohmann_dv
+        );
+        // Transfer time should be less than Hohmann
+        assert!(
+            opt.transfer_time_s < t_h,
+            "Flip & Burn time ({:.1} d) should be < Hohmann ({:.1} d)",
+            opt.transfer_time_s / 86_400.0, t_h / 86_400.0
+        );
+        // burn_time_s should equal transfer_time_s (always thrusting)
+        assert!(
+            (opt.burn_time_s - opt.transfer_time_s).abs() < 1.0,
+            "Flip & Burn: burn_time should ≈ transfer_time"
         );
     }
 }

@@ -86,6 +86,10 @@ pub enum PropulsionType {
     NuclearPulse,
     /// Fusion torch — very high thrust and specific impulse (~50 000 s)
     FusionTorch,
+    /// Antimatter drive — extreme specific impulse (~500 000 s) and high thrust.
+    /// Matter–antimatter annihilation provides the highest theoretical exhaust
+    /// velocity achievable without exotic physics.
+    AntimatterDrive,
 }
 
 impl PropulsionType {
@@ -97,6 +101,7 @@ impl PropulsionType {
             PropulsionType::IonDrive => "Ion Drive",
             PropulsionType::NuclearPulse => "Nuclear Pulse",
             PropulsionType::FusionTorch => "Fusion Torch",
+            PropulsionType::AntimatterDrive => "Antimatter Drive",
         }
     }
 
@@ -108,6 +113,7 @@ impl PropulsionType {
             PropulsionType::IonDrive => 5_000.0,
             PropulsionType::NuclearPulse => 10_000.0,
             PropulsionType::FusionTorch => 50_000.0,
+            PropulsionType::AntimatterDrive => 500_000.0,
         }
     }
 
@@ -134,6 +140,10 @@ impl PropulsionType {
             PropulsionType::IonDrive => 0.001,
             PropulsionType::NuclearPulse => 50.0,
             PropulsionType::FusionTorch => 1.0,
+            // Antimatter: high thrust AND very high Isp.  TWR of 2 relative to dry
+            // mass gives ~11 m/s² at full wet mass for a Frigate — enough for
+            // planetary flip-and-burn trajectories.
+            PropulsionType::AntimatterDrive => 2.0,
         };
         // convert tonnes to kg, multiply by g₀ and TWR, then divide by 1000 for kN
         dry_mass_t * 9.81 * twr

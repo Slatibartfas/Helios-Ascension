@@ -1449,32 +1449,92 @@ pub fn draw_gravity_assist_preview(
 
 // ── Startup ───────────────────────────────────────────────────────────────────
 
-/// Spawn a sample fleet in Earth's orbit at game start for demonstration.
+/// Spawn demonstration fleets at game start covering all four propulsion archetypes.
+///
+/// | Fleet                     | Location | Propulsion         |
+/// |---------------------------|----------|--------------------|
+/// | Earth Defense Squadron    | Earth    | Nuclear Thermal    |
+/// | Chemical Strike Force     | Venus    | Chemical           |
+/// | Ion Research Fleet        | Mars     | Ion Drive          |
+/// | Fusion Expeditionary Corps| Jupiter  | Fusion Torch       |
+/// | Antimatter Vanguard       | Saturn   | Antimatter Drive   |
 pub fn spawn_initial_fleet(
     mut commands: Commands,
     body_query: Query<(Entity, &crate::plugins::solar_system::CelestialBody)>,
 ) {
-    // Find Earth by name
-    let Some((earth_entity, _)) = body_query.iter().find(|(_, b)| b.name == "Earth") else {
-        return;
+    // Helper: find a body by name, log a warning if missing.
+    let find_body = |name: &str| -> Option<Entity> {
+        body_query.iter().find(|(_, b)| b.name == name).map(|(e, _)| e)
     };
 
-    // Parking orbit at ~400 km above Earth's surface: r ≈ 6771 km = 4.52e-5 AU
-    let orbit_radius_au = 6_771.0_f64 * 1_000.0 / AU_IN_METERS; // km → m → AU
+    // ── Earth Defense Squadron (Nuclear Thermal, Earth orbit) ─────────────────
+    if let Some(earth) = find_body("Earth") {
+        let radius_au = 6_771.0_f64 * 1_000.0 / AU_IN_METERS;
+        let mut fleet = Fleet::new("Earth Defense Squadron".to_string());
+        fleet.ships.push(ShipInfo::new("EDS Helios".to_string(),
+            ShipClass::Frigate, PropulsionType::NuclearThermal));
+        fleet.ships.push(ShipInfo::new("EDS Aurora".to_string(),
+            ShipClass::Destroyer, PropulsionType::NuclearThermal));
+        commands.spawn((fleet, FleetOrbit::new(earth, radius_au), SpaceCoordinates::default()));
+    } else {
+        bevy::log::warn!("spawn_initial_fleet: Earth not found");
+    }
 
-    let orbit = FleetOrbit::new(earth_entity, orbit_radius_au);
+    // ── Chemical Strike Force (Chemical, Venus orbit) ─────────────────────────
+    if let Some(venus) = find_body("Venus") {
+        // Venus radius ≈ 6052 km; 400 km altitude orbit
+        let radius_au = 6_452.0_f64 * 1_000.0 / AU_IN_METERS;
+        let mut fleet = Fleet::new("Chemical Strike Force".to_string());
+        fleet.ships.push(ShipInfo::new("CSV Pyrrhus".to_string(),
+            ShipClass::Frigate, PropulsionType::Chemical));
+        fleet.ships.push(ShipInfo::new("CSV Ares".to_string(),
+            ShipClass::Frigate, PropulsionType::Chemical));
+        fleet.ships.push(ShipInfo::new("CSV Hammer".to_string(),
+            ShipClass::Destroyer, PropulsionType::Chemical));
+        commands.spawn((fleet, FleetOrbit::new(venus, radius_au), SpaceCoordinates::default()));
+    } else {
+        bevy::log::warn!("spawn_initial_fleet: Venus not found");
+    }
 
-    let mut fleet = Fleet::new("Earth Defense Squadron".to_string());
-    fleet.ships.push(ShipInfo::new(
-        "EDS Helios".to_string(),
-        ShipClass::Frigate,
-        PropulsionType::NuclearThermal,
-    ));
-    fleet.ships.push(ShipInfo::new(
-        "EDS Aurora".to_string(),
-        ShipClass::Destroyer,
-        PropulsionType::NuclearThermal,
-    ));
+    // ── Ion Research Fleet (Ion Drive, Mars orbit) ────────────────────────────
+    if let Some(mars) = find_body("Mars") {
+        // Mars radius ≈ 3390 km; 400 km altitude orbit
+        let radius_au = 3_790.0_f64 * 1_000.0 / AU_IN_METERS;
+        let mut fleet = Fleet::new("Ion Research Fleet".to_string());
+        fleet.ships.push(ShipInfo::new("IRS Odyssey".to_string(),
+            ShipClass::ResearchVessel, PropulsionType::IonDrive));
+        fleet.ships.push(ShipInfo::new("IRS Pathfinder".to_string(),
+            ShipClass::Freighter, PropulsionType::IonDrive));
+        commands.spawn((fleet, FleetOrbit::new(mars, radius_au), SpaceCoordinates::default()));
+    } else {
+        bevy::log::warn!("spawn_initial_fleet: Mars not found");
+    }
 
-    commands.spawn((fleet, orbit, SpaceCoordinates::default()));
+    // ── Fusion Expeditionary Corps (Fusion Torch, Jupiter orbit) ─────────────
+    if let Some(jupiter) = find_body("Jupiter") {
+        // Jupiter radius ≈ 71 492 km; 5 000 km altitude orbit
+        let radius_au = 76_492.0_f64 * 1_000.0 / AU_IN_METERS;
+        let mut fleet = Fleet::new("Fusion Expeditionary Corps".to_string());
+        fleet.ships.push(ShipInfo::new("FEC Prometheus".to_string(),
+            ShipClass::Frigate, PropulsionType::FusionTorch));
+        fleet.ships.push(ShipInfo::new("FEC Titan".to_string(),
+            ShipClass::Cruiser, PropulsionType::FusionTorch));
+        commands.spawn((fleet, FleetOrbit::new(jupiter, radius_au), SpaceCoordinates::default()));
+    } else {
+        bevy::log::warn!("spawn_initial_fleet: Jupiter not found");
+    }
+
+    // ── Antimatter Vanguard (Antimatter Drive, Saturn orbit) ──────────────────
+    if let Some(saturn) = find_body("Saturn") {
+        // Saturn radius ≈ 60 268 km; 5 000 km altitude orbit
+        let radius_au = 65_268.0_f64 * 1_000.0 / AU_IN_METERS;
+        let mut fleet = Fleet::new("Antimatter Vanguard".to_string());
+        fleet.ships.push(ShipInfo::new("AMV Singularity".to_string(),
+            ShipClass::Destroyer, PropulsionType::AntimatterDrive));
+        fleet.ships.push(ShipInfo::new("AMV Horizon".to_string(),
+            ShipClass::Frigate, PropulsionType::AntimatterDrive));
+        commands.spawn((fleet, FleetOrbit::new(saturn, radius_au), SpaceCoordinates::default()));
+    } else {
+        bevy::log::warn!("spawn_initial_fleet: Saturn not found");
+    }
 }

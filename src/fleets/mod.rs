@@ -21,7 +21,8 @@ pub use systems::{
     activate_scheduled_departures, FleetMesh,
 };
 pub use orbital_mechanics::{
-    calculate_transfer_options, calculate_transfer_options_phased, compute_transfer_window,
+    brachistochrone_option, calculate_transfer_options, calculate_transfer_options_phased,
+    compute_burn_time_s, compute_transfer_window,
     estimate_fuel_cost_tonnes, format_delta_v, format_duration,
     hohmann_transfer, phase_dv_factor, rocket_equation_fuel_fraction,
     GravityAssistOption, TransferOption, TransferWindowInfo,

@@ -48,7 +48,8 @@ use crate::fleets::{
     AU_IN_METERS, G_CONST, GM_SUN,
 };
 use crate::fleets::orbital_mechanics::{
-    calculate_transfer_options, calculate_transfer_options_phased, compute_transfer_window,
+    brachistochrone_option, calculate_transfer_options, calculate_transfer_options_phased,
+    compute_burn_time_s, compute_transfer_window,
     find_gravity_assist_options, format_delta_v, format_duration,
     hohmann_transfer, GravityAssistOption,
 };
@@ -9677,6 +9678,14 @@ fn render_transfer_planner(
                 }
             };
             fleet_ui_state.computed_options = calculate_transfer_options(r1_au, r2_au, GM_SUN);
+            // Post-process: fill burn_time_s using fleet min-accel and avg Isp.
+            {
+                let accel = fleet.min_accel_ms2();
+                let isp = fleet.average_isp_s();
+                for opt in fleet_ui_state.computed_options.iter_mut() {
+                    opt.burn_time_s = compute_burn_time_s(opt.total_delta_v_ms, accel, isp);
+                }
+            }
         } else if let Some(target_entity) = body_target_snap {
             //   - Ring transfer (dest has no KeplerOrbit; use body.radius as r2):
             //       r1 = fleet orbit radius or origin SMA, r2 = ring.radius_au, GM = parent mass * G
@@ -9881,6 +9890,18 @@ fn render_transfer_planner(
                 window_this_frame = Some(window);
                 opts
             };
+            // Post-process: fill burn_time_s using fleet min-accel and avg Isp,
+            // and add a "Flip & Burn" option for high-thrust fleets.
+            {
+                let accel = fleet.min_accel_ms2();
+                let isp = fleet.average_isp_s();
+                for opt in fleet_ui_state.computed_options.iter_mut() {
+                    opt.burn_time_s = compute_burn_time_s(opt.total_delta_v_ms, accel, isp);
+                }
+                if let Some(brach) = brachistochrone_option(r1, r2, gm, accel, isp) {
+                    fleet_ui_state.computed_options.push(brach);
+                }
+            }
             // ── Gravity assist candidates (heliocentric transfers only) ─────────
             // Collect planets between r1 and r2, compute two-leg patched-conic options.
             // Only meaningful when GM ≈ GM_SUN (genuinely heliocentric transfer).
@@ -9957,6 +9978,8 @@ fn render_transfer_planner(
                         sma_au: ga_sma,     // Leg-2 ellipse SMA for arc rendering
                         eccentricity: ga_ecc,
                         energy_multiplier: 1.0,
+                        burn_time_s: compute_burn_time_s(
+                            total_dv, fleet.min_accel_ms2(), fleet.average_isp_s()),
                     };
                     fleet_ui_state.computed_options.insert(0, ga_option);
                 }
@@ -9975,6 +9998,14 @@ fn render_transfer_planner(
                     })
                     .unwrap_or(1.0);
                 fleet_ui_state.computed_options = calculate_transfer_options(r1_lp, lp.radius_au, lp.gm);
+                // Post-process: fill burn_time_s.
+                {
+                    let accel = fleet.min_accel_ms2();
+                    let isp = fleet.average_isp_s();
+                    for opt in fleet_ui_state.computed_options.iter_mut() {
+                        opt.burn_time_s = compute_burn_time_s(opt.total_delta_v_ms, accel, isp);
+                    }
+                }
             }
 
         // ── Transfer Window info + departure slider ─────────────────────────
@@ -10400,6 +10431,40 @@ fn render_transfer_planner(
                                     .size(12.0),
                             );
                             ui.end_row();
+
+                            // Burn time row — shows how long the fleet's engines fire.
+                            if option.burn_time_s > 0.0 {
+                                // Classify burn profile based on burn/transfer time ratio.
+                                let (profile_label, profile_color) =
+                                    if option.label == "Flip & Burn" {
+                                        // Entire trip is a burn
+                                        ("⚡ Full thrust", egui::Color32::from_rgb(255, 180, 60))
+                                    } else {
+                                        let ratio = option.burn_time_s / option.transfer_time_s.max(1.0);
+                                        if option.burn_time_s < 3_600.0 {
+                                            ("Impulsive", egui::Color32::from_rgb(120, 200, 120))
+                                        } else if ratio < 0.05 {
+                                            ("Short burn", egui::Color32::from_rgb(140, 210, 140))
+                                        } else if ratio < 0.25 {
+                                            ("Extended burn", egui::Color32::from_rgb(220, 200, 80))
+                                        } else {
+                                            ("Continuous thrust", egui::Color32::from_rgb(220, 140, 60))
+                                        }
+                                    };
+                                ui.label(egui::RichText::new("Burn time:").size(12.0));
+                                ui.label(
+                                    egui::RichText::new(format_duration(option.burn_time_s))
+                                        .size(12.0)
+                                        .strong(),
+                                );
+                                ui.label(egui::RichText::new("Profile:").size(12.0));
+                                ui.label(
+                                    egui::RichText::new(profile_label)
+                                        .size(12.0)
+                                        .color(profile_color),
+                                );
+                                ui.end_row();
+                            }
 
                             if !affordable {
                                 ui.label(

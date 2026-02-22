@@ -177,6 +177,24 @@ impl Fleet {
         }
         self.total_fuel_t() / max
     }
+
+    /// Minimum fleet acceleration (m/s²) — the weakest ship in the fleet
+    /// determines how quickly the entire fleet can change velocity.
+    ///
+    /// Each ship's specific acceleration is `thrust_kn / wet_mass_t` (kN/t = m/s²).
+    /// The fleet can only maneuver as fast as the ship with the lowest value.
+    ///
+    /// Returns 0.0 for an empty fleet or if all ships have zero mass.
+    pub fn min_accel_ms2(&self) -> f64 {
+        self.ships
+            .iter()
+            .map(|s| {
+                let wm = s.wet_mass_t();
+                if wm <= 0.0 { 0.0_f64 } else { (s.thrust_kn / wm) as f64 }
+            })
+            .reduce(f64::min)
+            .unwrap_or(0.0)
+    }
 }
 
 /// Stable circular parking orbit for a fleet around a celestial body.
