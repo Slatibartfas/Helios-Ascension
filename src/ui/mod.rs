@@ -9292,32 +9292,20 @@ fn render_transfer_planner(
         }
     }
 
-    // ── Group: Solar orbit (escape to heliocentric) ─────────────────────────
-    // Allow the fleet to escape its current planet's gravity and park in a
-    // heliocentric orbit at the planet's orbital distance.
+    // ── Group: Solar Approach ────────────────────────────────────────────────
+    // Always offer a direct solar-approach destination so the player can plot
+    // an inward heliocentric transfer toward the star.  Shown regardless of
+    // whether the fleet is already in heliocentric space.
+    // The star now has SpaceCoordinates (zero vector), so body_query finds it.
     let star_entity = body_query.iter()
         .find(|(_, b, _, _, _)| b.body_type == BodyType::Star)
         .map(|(e, _, _, _, _)| e);
     if let Some(star_e) = star_entity {
-        // Only offer heliocentric if the fleet isn't already in a heliocentric zone
-        let is_already_helio = body_query.get(orbit.body).ok()
-            .and_then(|(_, _, _, _, lp)| lp.map(|l| l.0))
-            .and_then(|grand_parent| body_query.get(grand_parent).ok()
-                .map(|(_, b, _, _, _)| b.body_type == BodyType::Star))
-            .unwrap_or(false)
-            || body_query.get(orbit.body).ok()
-                .map(|(_, b, _, ko, _)| b.body_type == BodyType::Star || ko.is_none())
-                .unwrap_or(false);
-        if !is_already_helio {
-            let parent_body_name = body_query.get(orbit.body)
-                .map(|(_, b, _, _, _)| b.name.clone())
-                .unwrap_or_default();
-            dest_entries.push(DestEntry::Header("Heliocentric".to_string()));
-            dest_entries.push(DestEntry::Body {
-                entity: star_e,
-                name: format!("☀ Solar Orbit (escape {parent_body_name})"),
-            });
-        }
+        dest_entries.push(DestEntry::Header("Solar".to_string()));
+        dest_entries.push(DestEntry::Body {
+            entity: star_e,
+            name: "☀ Solar Approach (0.3 AU)".to_string(),
+        });
     }
 
     // ── Build hierarchical categories from dest_entries ─────────────────────
@@ -9336,7 +9324,7 @@ fn render_transfer_planner(
             DestEntry::Header(label) => {
                 label.ends_with(" System")
                     || label == "Planets"
-                    || label == "Heliocentric"
+                    || label == "Solar"
                     || label.starts_with("Small Bodies")
             }
             _ => false,
@@ -9696,8 +9684,8 @@ fn render_transfer_planner(
             //       r1 = fleet's parking orbit radius, r2 = dest SMA, GM = parent mass * G
             //   - Moon-to-moon (both orbit the same planet):
             //       r1 = origin moon SMA, r2 = dest moon SMA, GM = shared planet mass * G
-            //   - Heliocentric escape (dest is a star):
-            //       r1 = fleet parking orbit, r2 = planet's SOI radius, GM = planet mass * G
+            //   - Solar approach (dest is a star):
+            //       r1 = fleet's heliocentric SMA, r2 = 0.3 AU, GM = GM_SUN
             //   - Heliocentric transfer (both in heliocentric orbits):
             //       r1 = origin body heliocentric SMA, r2 = dest heliocentric SMA, GM_SUN
             let dest_body_type = body_query.get(target_entity).ok()
@@ -9709,19 +9697,31 @@ fn render_transfer_planner(
             let origin_parent = body_query.get(orbit.body).ok()
                 .and_then(|(_, _, _, _, lp)| lp).map(|lp| lp.0);
 
+            // Target solar approach orbit (AU from star).  Inside Mercury's orbit so the
+            // transfer is always clearly "inward".  Requires advanced propulsion (~10–20 km/s).
+            const SOLAR_APPROACH_AU: f64 = 0.3;
+
             let (r1, r2, gm) = if dest_body_type == Some(BodyType::Star) {
-                // Heliocentric escape: escape to the planet's Sphere of Influence boundary
-                // ΔV ≈ v_park * (sqrt(2) − 1) for a parabolic (C3=0) escape burn
-                // We model this as a Hohmann from r1 = orbit.radius_au to r2 = planet SOI
-                // SOI ≈ a_planet * (m_planet / m_star)^(2/5); approximate as ~0.01 AU for Earth
-                let parent_mass = body_query.get(orbit.body).ok()
-                    .map(|(_, b, _, _, _)| b.mass).unwrap_or(5.972e24);
-                let planet_sma_au = body_query.get(orbit.body).ok()
+                // Heliocentric inward transfer: plot a Hohmann from the fleet's heliocentric
+                // distance to SOLAR_APPROACH_AU using GM_SUN as the central-body parameter.
+                // Walk up the parent chain to find the fleet's heliocentric SMA.
+                let own_sma = body_query.get(orbit.body).ok()
                     .and_then(|(_, _, _, ko, _)| ko)
-                    .map(|ko| ko.semi_major_axis).unwrap_or(1.0);
-                // SOI radius: a * (m_planet/m_star)^(2/5)
-                let soi_au = planet_sma_au * (parent_mass / (1.989e30_f64)).powf(0.4);
-                (orbit.radius_au, soi_au.max(orbit.radius_au * 50.0), G_CONST * parent_mass)
+                    .map(|ko| ko.semi_major_axis);
+                let r1_au = if own_sma.map(|s| s < MIN_HELIOCENTRIC_SMA_AU).unwrap_or(true) {
+                    // Fleet is parked at a moon/sub-body; use its planet's heliocentric SMA.
+                    origin_parent
+                        .and_then(|pe| body_query.get(pe).ok())
+                        .and_then(|(_, _, _, ko, _)| ko)
+                        .map(|ko| ko.semi_major_axis)
+                        .or(own_sma)
+                        .unwrap_or(1.0)
+                } else {
+                    own_sma.unwrap_or(1.0)
+                };
+                // Ensure r2 is strictly less than r1 (always an inward transfer).
+                let r2_au = SOLAR_APPROACH_AU.min(r1_au * 0.5);
+                (r1_au, r2_au, GM_SUN)
             } else if !dest_has_orbit && dest_parent == Some(orbit.body) {
                 // Ring around current orbit body
                 let parent_mass = body_query.get(orbit.body).ok()
@@ -10007,6 +10007,7 @@ fn render_transfer_planner(
                 // Left: Transfer Window box
                 ui.group(|ui| {
                     ui.vertical(|ui| {
+                        ui.set_min_height(82.0);
                         ui.label(
                             egui::RichText::new("⏱ Transfer Window")
                                 .strong()
@@ -10051,6 +10052,7 @@ fn render_transfer_planner(
                 // Right: Planned Departure box
                 ui.group(|ui| {
                     ui.vertical(|ui| {
+                        ui.set_min_height(82.0);
                         // Row 1: label
                         ui.label(
                             egui::RichText::new("🕐 Planned Departure")
@@ -10254,7 +10256,8 @@ fn render_transfer_planner(
             let sel_affordable_with_abort = sel_option.total_delta_v_ms <= dv_after_abort;
             let btn_label = if is_course_correction {
                 if abort_cost_t > 0.01 {
-                    format!("🔄 Execute Course Correction (+{:.0} t abort burn)", abort_cost_t)
+                    let abort_dv_kms = (fleet_max_dv - dv_after_abort) / 1_000.0;
+                    format!("🔄 Execute Course Correction (+{:.2} km/s abort burn)", abort_dv_kms)
                 } else {
                     "🔄 Execute Course Correction".to_string()
                 }
@@ -10276,39 +10279,36 @@ fn render_transfer_planner(
                 );
             }
 
-            // Header row: "Transfer Options:" on the left, Execute button right-aligned
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("Transfer Options:").strong().size(13.0));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let btn = egui::Button::new(
-                        egui::RichText::new(&btn_label).size(13.0).strong(),
-                    );
-                    let resp = ui.add_enabled(sel_affordable_with_abort, btn);
-                    if resp.clicked() {
-                        let maybe_transfer = if let Some(ref lp) = lp_target_snap {
-                            build_planned_transfer_lp(fleet_entity, fleet, orbit, lp, body_query, &sel_option)
-                        } else if let Some(tfe) = fleet_target_snap {
-                            all_fleets_query.get(tfe).ok()
-                                .and_then(|(_, _, _, maybe_fo, _)| maybe_fo)
-                                .and_then(|fo| {
-                                    build_planned_transfer(fleet_entity, fleet, orbit, fo.body, body_query, &sel_option)
-                                })
-                        } else if let Some(te) = body_target_snap {
-                            build_planned_transfer(fleet_entity, fleet, orbit, te, body_query, &sel_option)
-                        } else {
-                            None
-                        };
-                        if let Some(transfer) = maybe_transfer {
-                            pending_actions.start_transfers.push(StartTransferAction {
-                                fleet: fleet_entity,
-                                transfer,
-                                abort_cost_t,
-                                departure_offset_s: fleet_ui_state.departure_offset_days * 86_400.0,
-                            });
-                        }
+            // Execute Transfer button — left-aligned, above the options list
+            {
+                let btn = egui::Button::new(
+                    egui::RichText::new(&btn_label).size(13.0).strong(),
+                );
+                let resp = ui.add_enabled(sel_affordable_with_abort, btn);
+                if resp.clicked() {
+                    let maybe_transfer = if let Some(ref lp) = lp_target_snap {
+                        build_planned_transfer_lp(fleet_entity, fleet, orbit, lp, body_query, &sel_option)
+                    } else if let Some(tfe) = fleet_target_snap {
+                        all_fleets_query.get(tfe).ok()
+                            .and_then(|(_, _, _, maybe_fo, _)| maybe_fo)
+                            .and_then(|fo| {
+                                build_planned_transfer(fleet_entity, fleet, orbit, fo.body, body_query, &sel_option)
+                            })
+                    } else if let Some(te) = body_target_snap {
+                        build_planned_transfer(fleet_entity, fleet, orbit, te, body_query, &sel_option)
+                    } else {
+                        None
+                    };
+                    if let Some(transfer) = maybe_transfer {
+                        pending_actions.start_transfers.push(StartTransferAction {
+                            fleet: fleet_entity,
+                            transfer,
+                            abort_cost_t,
+                            departure_offset_s: fleet_ui_state.departure_offset_days * 86_400.0,
+                        });
                     }
-                });
-            });
+                }
+            }
             if !sel_affordable_with_abort {
                 ui.label(
                     egui::RichText::new(
@@ -10324,6 +10324,8 @@ fn render_transfer_planner(
                 );
             }
             ui.add_space(4.0);
+            ui.label(egui::RichText::new("Transfer Options:").strong().size(13.0));
+            ui.add_space(2.0);
 
             let options: Vec<_> = fleet_ui_state.computed_options.clone();
             for (idx, option) in options.iter().enumerate() {

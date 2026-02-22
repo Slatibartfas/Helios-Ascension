@@ -1139,6 +1139,10 @@ pub fn setup_solar_system(
                     asteroid_class: body_data.asteroid_class,
                 },
                 RotationSpeed(rotation_speed),
+                // Stars sit at the system origin; give them SpaceCoordinates so they
+                // are visible to queries that need to look up the star by entity
+                // (e.g. the fleet transfer-planner solar-approach logic).
+                SpaceCoordinates::new(bevy::math::DVec3::ZERO),
             ))
         } else {
             commands.spawn((

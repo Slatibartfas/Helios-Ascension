@@ -40,7 +40,7 @@ pub fn update_fleet_orbit_positions(
     time_scale: Res<TimeScale>,
     mut fleet_query: Query<
         (&mut SpaceCoordinates, &mut FleetOrbit),
-        (With<Fleet>, Without<ActiveManeuver>),
+        With<Fleet>,
     >,
     body_coords: Query<&SpaceCoordinates, Without<Fleet>>,
 ) {
@@ -347,21 +347,27 @@ fn predict_body_visual_pos(
 
 /// Draw a KSP-style "ghost" body gizmo at `center` showing predicted arrival position.
 ///
-/// * Dashed amber ring at `ring_r` — the arrival orbit ring.
+/// * Dashed amber ring at `ring_r` — the arrival orbit ring (skipped when
+///   `skip_outer_ring` is true, e.g. when the destination is the orbit centre and
+///   `draw_fleet_orbit_rings` already draws a cyan arrival ring at the same radius).
 /// * Smaller dashed amber circle at approximately the body's visual size.
 /// * Crosshair in the centre.
-fn draw_ghost_body(gizmos: &mut Gizmos, center: Vec3, ring_r: f32, body_r: f32) {
+fn draw_ghost_body(gizmos: &mut Gizmos, center: Vec3, ring_r: f32, body_r: f32, skip_outer_ring: bool) {
     const N: u32 = 32;
     let tau = std::f32::consts::TAU;
 
     // Arrival orbit ring — dashed amber, 50 % alpha.
-    for i in 0..N {
-        if i % 2 == 1 { continue; }
-        let a1 = (i as f32 / N as f32) * tau;
-        let a2 = ((i + 1) as f32 / N as f32) * tau;
-        let p1 = center + Vec3::new(a1.cos() * ring_r, a1.sin() * ring_r, 0.0);
-        let p2 = center + Vec3::new(a2.cos() * ring_r, a2.sin() * ring_r, 0.0);
-        gizmos.line(p1, p2, Color::srgba(1.0, 0.75, 0.15, 0.50));
+    // Suppressed when an identical cyan ring is already drawn by draw_fleet_orbit_rings
+    // (e.g. Moon → Earth inward transfer where destination == orbit centre).
+    if !skip_outer_ring {
+        for i in 0..N {
+            if i % 2 == 1 { continue; }
+            let a1 = (i as f32 / N as f32) * tau;
+            let a2 = ((i + 1) as f32 / N as f32) * tau;
+            let p1 = center + Vec3::new(a1.cos() * ring_r, a1.sin() * ring_r, 0.0);
+            let p2 = center + Vec3::new(a2.cos() * ring_r, a2.sin() * ring_r, 0.0);
+            gizmos.line(p1, p2, Color::srgba(1.0, 0.75, 0.15, 0.50));
+        }
     }
 
     // Ghost body outline — slightly smaller, 28 % alpha.
@@ -554,7 +560,12 @@ pub fn draw_fleet_trajectories(
                 }
 
                 // Ghost body at predicted arrival position (same as arc target).
-                draw_ghost_body(&mut gizmos, dp, dest_ring_r, dest_visual_r);
+                // Suppress the outer ring when the destination IS the orbit centre
+                // (e.g. Moon → Earth): draw_fleet_orbit_rings already draws a cyan
+                // arrival ring at that same radius, and the two rings overlapping looks
+                // visually strange.
+                let dest_is_orbit_center = origin_lp == Some(maneuver.destination_body);
+                draw_ghost_body(&mut gizmos, dp, dest_ring_r, dest_visual_r, dest_is_orbit_center);
             }
             continue;
         }
@@ -1291,7 +1302,9 @@ pub fn draw_fleet_transfer_preview(
     }
 
     // Ghost body at predicted arrival position.
-    draw_ghost_body(&mut gizmos, dp, dest_ring_r, dest_visual_r);
+    // In the preview the destination is the body we are flying TO, not the orbit
+    // centre, so the outer ring is always wanted here.
+    draw_ghost_body(&mut gizmos, dp, dest_ring_r, dest_visual_r, false);
 }
 
 /// Draw the two-leg slingshot arc when a gravity-assist flyby is selected.
@@ -1428,10 +1441,10 @@ pub fn draw_gravity_assist_preview(
     let node_color = Color::srgba(1.0, 1.0, 0.3, 0.9);
     gizmos.line(fp - Vec3::X * cross, fp + Vec3::X * cross, node_color);
     gizmos.line(fp - Vec3::Y * cross, fp + Vec3::Y * cross, node_color);
-    draw_ghost_body(&mut gizmos, fp, flyby_ring_r * 1.4, flyby_bd.visual_radius * 0.7);
+    draw_ghost_body(&mut gizmos, fp, flyby_ring_r * 1.4, flyby_bd.visual_radius * 0.7, false);
 
     // ── Destination ghost ─────────────────────────────────────────────────────
-    draw_ghost_body(&mut gizmos, dp, dest_ring_r, dest_bd.visual_radius);
+    draw_ghost_body(&mut gizmos, dp, dest_ring_r, dest_bd.visual_radius, false);
 }
 
 // ── Startup ───────────────────────────────────────────────────────────────────
