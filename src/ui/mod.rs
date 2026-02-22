@@ -10012,50 +10012,61 @@ fn render_transfer_planner(
                 1.0 // 1 day
             };
 
-            // Row 1: label + slider
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("Planned Departure:").strong().size(12.0));
-                let mut offset_days = fleet_ui_state.departure_offset_days as f32;
-                let slider = egui::Slider::new(&mut offset_days, 0.0_f32..=max_days as f32)
-                    .step_by(step_size as f64)
-                    .custom_formatter(|v, _| {
-                        if v < 0.01 {
-                            "Now".to_owned()
-                        } else {
-                            format_duration(v as f64 * 86_400.0)
-                        }
-                    });
-                if ui.add(slider).changed() {
-                    fleet_ui_state.departure_offset_days = offset_days as f64;
-                    // Options are recomputed every frame; no explicit clear needed.
-                }
-            });
+            ui.group(|ui| {
+                // Row 1: label
+                ui.label(
+                    egui::RichText::new("🕐 Planned Departure")
+                        .strong()
+                        .size(12.0)
+                        .color(egui::Color32::from_rgb(160, 210, 255)),
+                );
+                ui.add_space(3.0);
 
-            // Row 2: Next Window button + alignment indicator
-            ui.horizontal(|ui| {
+                // Row 2: slider (left) + alignment indicator (right)
+                ui.horizontal(|ui| {
+                    let mut offset_days = fleet_ui_state.departure_offset_days as f32;
+                    let slider = egui::Slider::new(&mut offset_days, 0.0_f32..=max_days as f32)
+                        .step_by(step_size as f64)
+                        .custom_formatter(|v, _| {
+                            if v < 0.01 {
+                                "Now".to_owned()
+                            } else {
+                                format_duration(v as f64 * 86_400.0)
+                            }
+                        });
+                    if ui.add(slider).changed() {
+                        fleet_ui_state.departure_offset_days = offset_days as f64;
+                    }
+
+                    // Alignment indicator – right-aligned
+                    let dep_s = fleet_ui_state.departure_offset_days * 86_400.0;
+                    let phase_at = {
+                        let raw = window.phase_error_now_rad - window.phase_rate_rad_s * dep_s;
+                        ((raw + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU)) - std::f64::consts::PI
+                    };
+                    let factor = crate::fleets::orbital_mechanics::phase_dv_factor(phase_at.abs());
+                    let (quality_str, quality_color) = if factor < 1.05 {
+                        ("● Optimal", egui::Color32::from_rgb(80, 220, 80))
+                    } else if factor < 1.40 {
+                        ("◑ Good", egui::Color32::from_rgb(180, 220, 80))
+                    } else if factor < 1.80 {
+                        ("◔ Fair", egui::Color32::from_rgb(220, 180, 60))
+                    } else {
+                        ("○ Poor", egui::Color32::from_rgb(220, 80, 60))
+                    };
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(egui::RichText::new(quality_str).size(11.0).color(quality_color))
+                            .on_hover_text("Indicates how well the planets are aligned for a transfer at the planned departure time. Poor alignment requires significantly more ΔV.");
+                    });
+                });
+
+                // Next Window button on its own row
                 if window_days > 0.5 {
+                    ui.add_space(2.0);
                     if ui.small_button(format!("🎯 Next Window (+{:.0} d)", window_days)).clicked() {
                         fleet_ui_state.departure_offset_days = window_days;
                     }
                 }
-                // Show phase quality for currently selected departure
-                let dep_s = fleet_ui_state.departure_offset_days * 86_400.0;
-                let phase_at = {
-                    let raw = window.phase_error_now_rad - window.phase_rate_rad_s * dep_s;
-                    ((raw + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU)) - std::f64::consts::PI
-                };
-                let factor = crate::fleets::orbital_mechanics::phase_dv_factor(phase_at.abs());
-                let (quality_str, quality_color) = if factor < 1.05 {
-                    ("● Optimal Alignment", egui::Color32::from_rgb(80, 220, 80))
-                } else if factor < 1.40 {
-                    ("◑ Good Alignment", egui::Color32::from_rgb(180, 220, 80))
-                } else if factor < 1.80 {
-                    ("◔ Fair Alignment", egui::Color32::from_rgb(220, 180, 60))
-                } else {
-                    ("○ Poor Alignment", egui::Color32::from_rgb(220, 80, 60))
-                };
-                ui.label(egui::RichText::new(quality_str).size(11.0).color(quality_color))
-                    .on_hover_text("Indicates how well the planets are aligned for a transfer at the planned departure time. Poor alignment requires significantly more ΔV.");
             });
         }
 
