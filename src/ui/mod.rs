@@ -8556,13 +8556,23 @@ fn render_fleet_list(
 
         // Sub-status
         if let Some(maneuver) = maybe_maneuver {
-            let remaining = format_duration(maneuver.time_remaining_s(elapsed));
-            let prog = (maneuver.progress(elapsed) * 100.0) as u32;
-            ui.label(
-                egui::RichText::new(format!("  In transit — {prog}% ({remaining} left)"))
-                    .size(11.0)
-                    .color(egui::Color32::GRAY),
-            );
+            if elapsed < maneuver.departure_time {
+                let wait_time = maneuver.departure_time - elapsed;
+                let wait_str = format_duration(wait_time);
+                ui.label(
+                    egui::RichText::new(format!("  Waiting to depart — T-minus {wait_str}"))
+                        .size(11.0)
+                        .color(egui::Color32::from_rgb(255, 200, 100)),
+                );
+            } else {
+                let remaining = format_duration(maneuver.time_remaining_s(elapsed));
+                let prog = (maneuver.progress(elapsed) * 100.0) as u32;
+                ui.label(
+                    egui::RichText::new(format!("  In transit — {prog}% ({remaining} left)"))
+                        .size(11.0)
+                        .color(egui::Color32::GRAY),
+                );
+            }
         } else if let Some(_orbit) = maybe_orbit {
             let fuel_pct = (fleet.fuel_fraction() * 100.0) as u32;
             ui.label(
@@ -8602,7 +8612,7 @@ fn render_fleet_detail(
 
     // ── Current status ────────────────────────────────────────────────────────
     if let Some(maneuver) = maybe_maneuver {
-        render_active_maneuver_status(ui, maneuver, fleet, body_query, elapsed);
+        render_active_maneuver_status(ui, fleet_entity, maneuver, fleet, body_query, pending_actions, elapsed);
     } else if let Some(orbit) = maybe_orbit {
         render_orbit_status(ui, orbit, fleet, body_query);
     }
@@ -8747,15 +8757,45 @@ fn render_fleet_detail(
 /// Show current maneuver status with a progress bar.
 fn render_active_maneuver_status(
     ui: &mut egui::Ui,
+    fleet_entity: Entity,
     maneuver: &ActiveManeuver,
     fleet: &Fleet,
     body_query: &Query<(Entity, &CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>, Option<&LogicalParent>)>,
+    pending_actions: &mut PendingFleetActions,
     elapsed: f64,
 ) {
     let dest_name = body_query
         .get(maneuver.destination_body)
         .map(|(_, b, _, _, _)| b.name.as_str())
         .unwrap_or("Unknown");
+
+    if elapsed < maneuver.departure_time {
+        let wait_time = maneuver.departure_time - elapsed;
+        let wait_str = format_duration(wait_time);
+        ui.group(|ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(format!("⏳ Waiting to depart for {dest_name}"))
+                        .strong()
+                        .size(14.0)
+                        .color(egui::Color32::from_rgb(255, 200, 100)),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(
+                        egui::RichText::new(format!("T-minus {}", wait_str))
+                            .size(12.0)
+                            .color(egui::Color32::GRAY),
+                    );
+                });
+            });
+            
+            ui.add_space(4.0);
+            if ui.button(egui::RichText::new("🛑 Abort Mission").size(12.0)).clicked() {
+                pending_actions.cancel_maneuvers.push(fleet_entity);
+            }
+        });
+        return;
+    }
 
     let progress = maneuver.progress(elapsed) as f32;
     let remaining = format_duration(maneuver.time_remaining_s(elapsed));
@@ -9683,7 +9723,7 @@ fn render_transfer_planner(
                     .map(|(_, b, _, _, _)| (b.radius as f64 * 1_000.0) / AU_IN_METERS)
                     .unwrap_or(0.001);
                 (orbit.radius_au, r2, G_CONST * parent_mass)
-            } else if !dest_has_orbit && dest_parent.is_some() {
+            } else if !dest_has_orbit && dest_parent.is_some() && dest_parent == origin_parent {
                 // Ring around another planet (dest_parent is a planet, not fleet's body)
                 let shared = dest_parent.unwrap();
                 let parent_mass = body_query.get(shared).ok()
@@ -9727,7 +9767,7 @@ fn render_transfer_planner(
                 let own_sma = body_query.get(orbit.body).ok()
                     .and_then(|(_, _, _, ko, _)| ko)
                     .map(|ko| ko.semi_major_axis);
-                let r1 = if own_sma.map(|s| s < 0.05).unwrap_or(true) {
+                let r1 = if own_sma.map(|s| s < MIN_HELIOCENTRIC_SMA_AU).unwrap_or(true) {
                     // Small SMA → likely a moon; use its parent's heliocentric SMA
                     origin_parent
                         .and_then(|pe| body_query.get(pe).ok())
@@ -9738,34 +9778,56 @@ fn render_transfer_planner(
                 } else {
                     own_sma.unwrap_or(1.0)
                 };
-                let r2 = body_query.get(target_entity).ok()
+                let dest_sma = body_query.get(target_entity).ok()
                     .and_then(|(_, _, _, ko, _)| ko)
-                    .map(|ko| ko.semi_major_axis).unwrap_or(1.5);
+                    .map(|ko| ko.semi_major_axis);
+                let r2 = if dest_sma.map(|s| s < MIN_HELIOCENTRIC_SMA_AU).unwrap_or(true) {
+                    // Small SMA → likely a moon; use its parent's heliocentric SMA
+                    dest_parent
+                        .and_then(|pe| body_query.get(pe).ok())
+                        .and_then(|(_, _, _, ko, _)| ko)
+                        .map(|ko| ko.semi_major_axis)
+                        .or(dest_sma)
+                        .unwrap_or(1.5)
+                } else {
+                    dest_sma.unwrap_or(1.5)
+                };
                 (r1, r2, GM_SUN)
             };
             fleet_ui_state.computed_options = {
-                // Extract heliocentric angles of origin and destination bodies.
-                // For the origin: if fleet is at a moon, walk up to the parent planet's
-                // position so we get a proper heliocentric angle for window computation.
-                let origin_entry = body_query.get(orbit.body).ok();
-                let theta1 = {
-                    let own_ko_sma = origin_entry
-                        .and_then(|(_, _, _, ko, _)| ko)
-                        .map(|ko| ko.semi_major_axis);
-                    let pos = if own_ko_sma.map(|s| s < MIN_HELIOCENTRIC_SMA_AU).unwrap_or(false) {
-                        // Moon: use parent body's heliocentric position
-                        origin_entry
-                            .and_then(|(_, _, _, _, lp)| lp).map(|lp| lp.0)
-                            .and_then(|pe| body_query.get(pe).ok())
-                            .map(|(_, _, sc, _, _)| sc.position)
+                // Extract angles of origin and destination bodies in the correct coordinate system.
+                let is_heliocentric = (gm - GM_SUN).abs() < 1e10;
+
+                let get_heliocentric_pos = |entity: Entity| -> Option<bevy::math::DVec3> {
+                    let entry = body_query.get(entity).ok()?;
+                    let is_moon = entry.1.body_type == BodyType::Moon;
+                    if is_moon {
+                        let parent_entity = entry.4?.0;
+                        let parent_entry = body_query.get(parent_entity).ok()?;
+                        Some(parent_entry.2.position)
                     } else {
-                        origin_entry.map(|(_, _, sc, _, _)| sc.position)
-                    };
-                    pos.map(|p| p.y.atan2(p.x)).unwrap_or(0.0)
+                        Some(entry.2.position)
+                    }
                 };
-                let theta2 = body_query.get(target_entity).ok()
-                    .map(|(_, _, sc, _, _)| sc.position.y.atan2(sc.position.x))
-                    .unwrap_or(0.0);
+
+                let get_local_pos = |entity: Entity, central_body: Entity| -> Option<bevy::math::DVec3> {
+                    if entity == central_body {
+                        Some(bevy::math::DVec3::ZERO)
+                    } else {
+                        let entry = body_query.get(entity).ok()?;
+                        Some(entry.2.position)
+                    }
+                };
+
+                let (pos1, pos2) = if is_heliocentric {
+                    (get_heliocentric_pos(orbit.body), get_heliocentric_pos(target_entity))
+                } else {
+                    let central_body = dest_parent.unwrap_or(orbit.body);
+                    (get_local_pos(orbit.body, central_body), get_local_pos(target_entity, central_body))
+                };
+
+                let theta1 = pos1.map(|p| p.y.atan2(p.x)).unwrap_or(0.0);
+                let theta2 = pos2.map(|p| p.y.atan2(p.x)).unwrap_or(0.0);
 
                 // Compute transfer window from live positions
                 let window = compute_transfer_window(r1, r2, gm, theta1, theta2);
@@ -10171,13 +10233,8 @@ fn render_transfer_planner(
                         .color(row_color),
                     );
                     if resp.clicked() {
+                        fleet_ui_state.selected_option = idx;
                         fleet_ui_state.planned_transfer = None;
-                        if fleet_ui_state.selected_gravity_assist.is_some() && idx != 0 {
-                            fleet_ui_state.selected_gravity_assist = None;
-                            fleet_ui_state.selected_option = idx - 1;
-                        } else {
-                            fleet_ui_state.selected_option = idx;
-                        }
                     }
 
                     egui::Grid::new(format!("option_{idx}"))
@@ -10469,8 +10526,10 @@ fn build_planned_transfer(
     };
 
     let outward = dest_sma_au >= origin_sma_au;
-    let departure_angle = origin_sc.position.y.atan2(origin_sc.position.x);
-    let argument_of_periapsis = if outward { departure_angle } else { departure_angle + std::f64::consts::PI };
+    let center_pos = body_query.get(orbit_center).map(|(_, _, sc, _, _)| sc.position).unwrap_or(bevy::math::DVec3::ZERO);
+    let rel_pos = origin_sc.position - center_pos;
+    let departure_angle = rel_pos.y.atan2(rel_pos.x);
+    let argument_of_periapsis = if outward { departure_angle } else { departure_angle - std::f64::consts::PI };
     let mean_anomaly_epoch = if outward { 0.0 } else { std::f64::consts::PI };
     let sma_m = option.sma_au * AU_IN_METERS;
     let mean_motion = (gm / sma_m.powi(3)).sqrt();
@@ -10535,11 +10594,13 @@ fn build_planned_transfer_lp(
     let mean_motion = (gm / sma_m.powi(3)).sqrt();
 
     let outward = lp.radius_au >= lp.planet_sma_au;
-    let departure_angle = origin_sc.position.y.atan2(origin_sc.position.x);
+    let center_pos = body_query.get(star_entity).map(|(_, _, sc, _, _)| sc.position).unwrap_or(bevy::math::DVec3::ZERO);
+    let rel_pos = origin_sc.position - center_pos;
+    let departure_angle = rel_pos.y.atan2(rel_pos.x);
     let argument_of_periapsis = if outward {
         departure_angle
     } else {
-        departure_angle + std::f64::consts::PI
+        departure_angle - std::f64::consts::PI
     };
     let mean_anomaly_epoch = if outward { 0.0 } else { std::f64::consts::PI };
 

@@ -180,7 +180,7 @@ pub fn activate_scheduled_departures(
     mut commands: Commands,
     sim_time: Res<SimulationTime>,
     mut query: Query<(Entity, &FleetOrbit, &mut ActiveManeuver), With<Fleet>>,
-    origin_coords: Query<&SpaceCoordinates, Without<Fleet>>,
+    body_coords: Query<&SpaceCoordinates, Without<Fleet>>,
 ) {
     let elapsed = sim_time.elapsed_seconds();
     for (entity, _orbit, mut maneuver) in query.iter_mut() {
@@ -188,15 +188,16 @@ pub fn activate_scheduled_departures(
             continue;
         }
         // Correct the transfer-orbit orientation: the argument of periapsis must match
-        // the origin body's heliocentric angle at the actual departure moment.
-        // For outward transfers (mean_anomaly_epoch ≈ 0, departure at periapsis):
-        //   AoP = atan2(y, x)
-        // For inward transfers (mean_anomaly_epoch ≈ π, departure at apoapsis):
-        //   AoP = atan2(y, x) + π  (periapsis is on the opposite side)
-        if let Ok(sc) = origin_coords.get(maneuver.origin_body) {
-            let theta = sc.position.y.atan2(sc.position.x);
+        // the origin body's angle relative to the orbit center at the actual departure moment.
+        if let Ok(origin_sc) = body_coords.get(maneuver.origin_body) {
+            let center_pos = body_coords.get(maneuver.orbit_center)
+                .map(|sc| sc.position)
+                .unwrap_or(DVec3::ZERO);
+            
+            let rel_pos = origin_sc.position - center_pos;
+            let theta = rel_pos.y.atan2(rel_pos.x);
             maneuver.transfer_orbit.argument_of_periapsis =
-                theta + maneuver.transfer_orbit.mean_anomaly_epoch;
+                theta - maneuver.transfer_orbit.mean_anomaly_epoch;
         }
         commands.entity(entity).remove::<FleetOrbit>();
     }
@@ -1271,17 +1272,19 @@ pub fn draw_gravity_assist_preview(
     const SEGS: u32 = 48;
 
     // ── Leg 1: origin → flyby (lime-green dashes) ────────────────────────────
-    let dep1 = optimal_departure_angle(op, fp);
-    let dir1 = Vec3::new(dep1.cos(), dep1.sin(), 0.0);
-    let p0 = op + dir1 * origin_ring_r;
-    let tang0 = Vec3::new(-dep1.sin(), dep1.cos(), 0.0);
-    let inward1 = (op - fp).normalize_or_zero();
-    let p3_1 = fp + inward1 * flyby_ring_r;
-    let rad1 = fp.normalize_or_zero();
-    let td1 = {
-        let a = Vec3::new(-rad1.y, rad1.x, 0.0);
-        if a.dot(tang0) >= 0.0 { a } else { -a }
-    };
+    let is_outward1 = fp.length_squared() > op.length_squared();
+    let rad_op = op.normalize_or_zero();
+    let prograde_op = Vec3::new(-rad_op.y, rad_op.x, 0.0);
+    let tang0 = if is_outward1 { prograde_op } else { -prograde_op };
+    let dir_dep1 = if is_outward1 { rad_op } else { -rad_op };
+    let p0 = op + dir_dep1 * origin_ring_r;
+
+    let rad_fp = fp.normalize_or_zero();
+    let prograde_fp = Vec3::new(-rad_fp.y, rad_fp.x, 0.0);
+    let td1 = if is_outward1 { prograde_fp } else { -prograde_fp };
+    let dir_arr1 = if is_outward1 { -rad_fp } else { rad_fp };
+    let p3_1 = fp + dir_arr1 * flyby_ring_r;
+
     let cl1 = (p3_1 - p0).length() * 0.40;
     let p1_1 = p0     + tang0 * cl1;
     let p2_1 = p3_1   - td1   * cl1;
@@ -1298,17 +1301,17 @@ pub fn draw_gravity_assist_preview(
     }
 
     // ── Leg 2: flyby → destination (magenta dashes) ──────────────────────────
-    let dep2 = optimal_departure_angle(fp, dp);
-    let dir2 = Vec3::new(dep2.cos(), dep2.sin(), 0.0);
-    let p0_2 = fp + dir2 * flyby_ring_r;
-    let tang0_2 = Vec3::new(-dep2.sin(), dep2.cos(), 0.0);
-    let inward2 = (fp - dp).normalize_or_zero();
-    let p3_2 = dp + inward2 * dest_ring_r;
-    let rad2 = dp.normalize_or_zero();
-    let td2 = {
-        let a = Vec3::new(-rad2.y, rad2.x, 0.0);
-        if a.dot(tang0_2) >= 0.0 { a } else { -a }
-    };
+    let is_outward2 = dp.length_squared() > fp.length_squared();
+    let tang0_2 = if is_outward2 { prograde_fp } else { -prograde_fp };
+    let dir_dep2 = if is_outward2 { rad_fp } else { -rad_fp };
+    let p0_2 = fp + dir_dep2 * flyby_ring_r;
+
+    let rad_dp = dp.normalize_or_zero();
+    let prograde_dp = Vec3::new(-rad_dp.y, rad_dp.x, 0.0);
+    let td2 = if is_outward2 { prograde_dp } else { -prograde_dp };
+    let dir_arr2 = if is_outward2 { -rad_dp } else { rad_dp };
+    let p3_2 = dp + dir_arr2 * dest_ring_r;
+
     let cl2 = (p3_2 - p0_2).length() * 0.40;
     let p1_2 = p0_2 + tang0_2 * cl2;
     let p2_2 = p3_2 - td2     * cl2;
