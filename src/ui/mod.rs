@@ -48,8 +48,8 @@ use crate::fleets::{
     AU_IN_METERS, G_CONST, GM_SUN,
 };
 use crate::fleets::orbital_mechanics::{
-    brachistochrone_option, calculate_transfer_options, calculate_transfer_options_phased,
-    compute_burn_time_s, compute_transfer_window,
+    apply_thrust_limits, brachistochrone_option, calculate_transfer_options,
+    calculate_transfer_options_phased, compute_burn_time_s, compute_transfer_window,
     find_gravity_assist_options, format_delta_v, format_duration,
     hohmann_transfer, GravityAssistOption,
 };
@@ -9678,14 +9678,12 @@ fn render_transfer_planner(
                 }
             };
             fleet_ui_state.computed_options = calculate_transfer_options(r1_au, r2_au, GM_SUN);
-            // Post-process: fill burn_time_s using fleet min-accel and avg Isp.
-            {
-                let accel = fleet.min_accel_ms2();
-                let isp = fleet.average_isp_s();
-                for opt in fleet_ui_state.computed_options.iter_mut() {
-                    opt.burn_time_s = compute_burn_time_s(opt.total_delta_v_ms, accel, isp);
-                }
-            }
+            // Post-process: fill burn_time_s and flag thrust-limited options.
+            apply_thrust_limits(
+                &mut fleet_ui_state.computed_options,
+                fleet.min_accel_ms2(),
+                fleet.average_isp_s(),
+            );
         } else if let Some(target_entity) = body_target_snap {
             //   - Ring transfer (dest has no KeplerOrbit; use body.radius as r2):
             //       r1 = fleet orbit radius or origin SMA, r2 = ring.radius_au, GM = parent mass * G
@@ -9890,14 +9888,12 @@ fn render_transfer_planner(
                 window_this_frame = Some(window);
                 opts
             };
-            // Post-process: fill burn_time_s using fleet min-accel and avg Isp,
+            // Post-process: fill burn_time_s, flag thrust-limited options,
             // and add a "Flip & Burn" option for high-thrust fleets.
             {
                 let accel = fleet.min_accel_ms2();
                 let isp = fleet.average_isp_s();
-                for opt in fleet_ui_state.computed_options.iter_mut() {
-                    opt.burn_time_s = compute_burn_time_s(opt.total_delta_v_ms, accel, isp);
-                }
+                apply_thrust_limits(&mut fleet_ui_state.computed_options, accel, isp);
                 if let Some(brach) = brachistochrone_option(r1, r2, gm, accel, isp, fleet.max_delta_v_ms()) {
                     fleet_ui_state.computed_options.push(brach);
                 }
@@ -9969,17 +9965,25 @@ fn render_transfer_planner(
                     // Use Leg-2 Hohmann parameters for the transfer-orbit visualization
                     // (the arc the fleet actually flies after the flyby).
                     let (_, _, _, ga_sma, ga_ecc) = hohmann_transfer(fly_r, r2, gm);
+                    let burn_t = compute_burn_time_s(total_dv, fleet.min_accel_ms2(), fleet.average_isp_s());
+                    // Gravity-assist options use multi-leg patched-conic timing; the burn
+                    // is spread across two legs so we apply the thrust-limit check here.
+                    let (ga_transfer_time, ga_thrust_limited) = if burn_t > 0.0 && burn_t > total_time {
+                        (burn_t, true)
+                    } else {
+                        (total_time, false)
+                    };
                     let ga_option = TransferOption {
                         label: "Gravity Assist",
                         total_delta_v_ms: total_dv,
                         delta_v1_ms: dv1,   // actual departure + any mid-course burn
                         delta_v2_ms: dv2,   // actual arrival circularisation
-                        transfer_time_s: total_time,
+                        transfer_time_s: ga_transfer_time,
                         sma_au: ga_sma,     // Leg-2 ellipse SMA for arc rendering
                         eccentricity: ga_ecc,
                         energy_multiplier: 1.0,
-                        burn_time_s: compute_burn_time_s(
-                            total_dv, fleet.min_accel_ms2(), fleet.average_isp_s()),
+                        burn_time_s: burn_t,
+                        is_thrust_limited: ga_thrust_limited,
                     };
                     fleet_ui_state.computed_options.insert(0, ga_option);
                 }
@@ -9998,14 +10002,12 @@ fn render_transfer_planner(
                     })
                     .unwrap_or(1.0);
                 fleet_ui_state.computed_options = calculate_transfer_options(r1_lp, lp.radius_au, lp.gm);
-                // Post-process: fill burn_time_s.
-                {
-                    let accel = fleet.min_accel_ms2();
-                    let isp = fleet.average_isp_s();
-                    for opt in fleet_ui_state.computed_options.iter_mut() {
-                        opt.burn_time_s = compute_burn_time_s(opt.total_delta_v_ms, accel, isp);
-                    }
-                }
+                // Post-process: fill burn_time_s and flag thrust-limited options.
+                apply_thrust_limits(
+                    &mut fleet_ui_state.computed_options,
+                    fleet.min_accel_ms2(),
+                    fleet.average_isp_s(),
+                );
             }
 
         // ── Transfer Window info + departure slider ─────────────────────────
@@ -10436,7 +10438,10 @@ fn render_transfer_planner(
                             if option.burn_time_s > 0.0 {
                                 // Classify burn profile based on burn/transfer time ratio.
                                 let (profile_label, profile_color) =
-                                    if option.label == "Flip & Burn" {
+                                    if option.is_thrust_limited {
+                                        // Burn time >= Hohmann time: impulsive assumption invalid.
+                                        ("⚠ Thrust-limited", egui::Color32::from_rgb(220, 100, 40))
+                                    } else if option.label == "Flip & Burn" {
                                         // Entire trip is a burn
                                         ("⚡ Full thrust", egui::Color32::from_rgb(255, 180, 60))
                                     } else {
@@ -10464,6 +10469,17 @@ fn render_transfer_planner(
                                         .color(profile_color),
                                 );
                                 ui.end_row();
+
+                                // Extra warning row for thrust-limited options.
+                                if option.is_thrust_limited {
+                                    ui.label(
+                                        egui::RichText::new("  Low-thrust spiral — travel time ≥ burn time")
+                                            .size(11.0)
+                                            .italics()
+                                            .color(egui::Color32::from_rgb(180, 130, 80)),
+                                    );
+                                    ui.end_row();
+                                }
                             }
 
                             if !affordable {

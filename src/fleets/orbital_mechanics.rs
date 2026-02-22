@@ -41,6 +41,17 @@ pub struct TransferOption {
     /// [`compute_burn_time_s`] with the fleet's actual min-acceleration and
     /// average specific impulse.
     pub burn_time_s: f64,
+    /// `true` when the fleet's thrust is so low that the Hohmann instantaneous-burn
+    /// approximation is invalid.
+    ///
+    /// Set by [`apply_thrust_limits`] when `burn_time_s > transfer_time_s`.
+    /// When this flag is set, `transfer_time_s` has already been adjusted upward
+    /// to `burn_time_s` (Edelbaum low-thrust approximation: t ≥ ΔV / a_min).
+    ///
+    /// The UI highlights these options with a "⚠ Thrust-limited" warning so
+    /// the player understands the displayed trip time is a minimum estimate,
+    /// not a Keplerian ballistic arc.
+    pub is_thrust_limited: bool,
 }
 
 /// Information about the next optimal Hohmann launch window between two bodies.
@@ -366,6 +377,7 @@ pub fn calculate_transfer_options_phased(
             eccentricity: 0.0,
             energy_multiplier: 1.0,
             burn_time_s: 0.0,
+            is_thrust_limited: false,
         }];
     }
 
@@ -395,6 +407,7 @@ pub fn calculate_transfer_options_phased(
         eccentricity: ecc_h,
         energy_multiplier: corr_full,
         burn_time_s: 0.0,
+        is_thrust_limited: false,
     };
 
     // Moderate (1.5× Hohmann base): 65 % of phase correction
@@ -409,6 +422,7 @@ pub fn calculate_transfer_options_phased(
         eccentricity: ecc_h,
         energy_multiplier: 1.0,
         burn_time_s: 0.0,
+        is_thrust_limited: false,
     };
     let moderate = scaled_transfer(&hohmann_base, 1.5 * corr_mod, "Moderate");
 
@@ -442,6 +456,7 @@ pub fn calculate_transfer_options(r1_au: f64, r2_au: f64, gm: f64) -> Vec<Transf
             eccentricity: 0.0,
             energy_multiplier: 1.0,
             burn_time_s: 0.0,
+            is_thrust_limited: false,
         }];
     }
 
@@ -457,6 +472,7 @@ pub fn calculate_transfer_options(r1_au: f64, r2_au: f64, gm: f64) -> Vec<Transf
         eccentricity: ecc_h,
         energy_multiplier: 1.0,
         burn_time_s: 0.0,
+        is_thrust_limited: false,
     };
 
     // Moderate ≈ 1.5× Δv, ≈ 0.65× time
@@ -523,6 +539,7 @@ fn scaled_transfer(base: &TransferOption, energy_multiplier: f64, label: &'stati
         eccentricity,
         energy_multiplier,
         burn_time_s: 0.0,
+        is_thrust_limited: false,
     }
 }
 
@@ -543,6 +560,45 @@ pub fn compute_burn_time_s(total_dv_ms: f64, fleet_accel_ms2: f64, avg_isp_s: f3
     let ve = avg_isp_s as f64 * G0;
     let fuel_fraction = 1.0 - (-total_dv_ms / ve).exp();
     fuel_fraction * ve / fleet_accel_ms2
+}
+
+/// Apply thrust-limited corrections to a list of transfer options in place.
+///
+/// For each option this function:
+/// 1. Computes `burn_time_s` from the Tsiolkovsky time-integral using the fleet's
+///    minimum acceleration and average specific impulse.
+/// 2. When `burn_time_s > transfer_time_s` the Hohmann instantaneous-burn
+///    approximation breaks down (the engine cannot fire fast enough to deliver
+///    the Δv as a brief impulse).  In that case:
+///    - `transfer_time_s` is raised to `burn_time_s` — the actual trip cannot
+///      complete faster than the engine allows (Edelbaum low-thrust bound).
+///    - `is_thrust_limited` is set to `true` so the UI can display a warning.
+///
+/// Flip & Burn options (`label == "Flip & Burn"`) are skipped — they already
+/// model a continuous-thrust profile and their `transfer_time_s` IS the burn
+/// time by construction.
+///
+/// # Arguments
+/// - `options`: mutable slice of options to update (typically `computed_options`).
+/// - `fleet_accel_ms2`: fleet minimum acceleration (m/s²) — bottleneck ship.
+/// - `avg_isp_s`: fleet thrust-weighted average specific impulse (s).
+pub fn apply_thrust_limits(
+    options: &mut Vec<TransferOption>,
+    fleet_accel_ms2: f64,
+    avg_isp_s: f32,
+) {
+    for opt in options.iter_mut() {
+        if opt.label == "Flip & Burn" {
+            continue; // already a continuous-thrust model; no adjustment needed
+        }
+        opt.burn_time_s = compute_burn_time_s(opt.total_delta_v_ms, fleet_accel_ms2, avg_isp_s);
+        if opt.burn_time_s > 0.0 && opt.burn_time_s > opt.transfer_time_s {
+            // The drive is too weak to perform impulsive burns.
+            // Minimum realistic transit time = the total burn time.
+            opt.transfer_time_s = opt.burn_time_s;
+            opt.is_thrust_limited = true;
+        }
+    }
 }
 
 /// Build a "Flip & Burn" (brachistochrone) transfer option for a fleet
@@ -618,6 +674,9 @@ pub fn brachistochrone_option(
         // The entire trip is a powered burn; transfer_time_s IS the burn time
         // (constant-acceleration kinematic model: thrust throughout).
         burn_time_s: t_brach,
+        // Flip & Burn is by definition a continuous-thrust profile; the
+        // Hohmann impulsive approximation does not apply, so this flag stays false.
+        is_thrust_limited: false,
     })
 }
 
@@ -1177,5 +1236,95 @@ mod tests {
             "1 g brachistochrone to Mars min: expected ≈1.76 days, got {:.2} days",
             days
         );
+    }
+
+    // ── apply_thrust_limits tests ────────────────────────────────────────────
+
+    /// Ion drive Earth → Moon: burn time >> Hohmann time → must be thrust-limited.
+    ///
+    /// Moon SMA ≈ 0.00257 AU (384,400 km / AU_IN_METERS).
+    /// Earth-Moon Hohmann ΔV ≈ 3.9 km/s, transfer ≈ 4.7 days.
+    /// Ion Frigate accel ≈ 0.0054 m/s² → burn ≈ 8+ days → thrust-limited.
+    #[test]
+    fn test_thrust_limited_ion_drive_earth_moon() {
+        // Moon orbit in AU
+        let r_moon_au = 384_400.0e3 / AU_IN_METERS;
+        // Earth-Moon local transfer (GM = Earth ≈ 3.986e14)
+        let gm_earth = 3.986e14_f64;
+        // Use a small inner orbit radius for the fleet's parking orbit
+        let r_leo_au = 400.0e3 / AU_IN_METERS; // 400 km LEO
+
+        // Ion Frigate: TWR=0.001, dry=2000 t, wet=3636 t
+        let dry = 2_000.0_f64;
+        let fuel_frac = 0.45_f64;
+        let wet = dry / (1.0 - fuel_frac);
+        let thrust_kn = 0.001_f64 * dry * 9.81; // kN  (TWR=0.001 × dry × g0)
+        let accel = thrust_kn / wet; // kN/t = m/s²
+        let isp = 5_000.0_f32;
+
+        // Verify the fleet's acceleration is below the brachistochrone threshold but >0
+        assert!(accel > 0.0 && accel < 0.05, "Ion accel should be ~0.0054 m/s²");
+
+        let mut opts = calculate_transfer_options(r_leo_au, r_moon_au, gm_earth);
+        apply_thrust_limits(&mut opts, accel, isp);
+
+        // All standard options should be thrust-limited (ion burns > Hohmann time)
+        for opt in &opts {
+            if opt.label == "Same orbit" { continue; }
+            assert!(
+                opt.is_thrust_limited,
+                "Ion drive Earth-Moon '{}' option should be thrust-limited \
+                 (burn {:.1} d > Hohmann time before adjustment)",
+                opt.label,
+                opt.burn_time_s / 86_400.0
+            );
+            // Travel time must have been raised to at least the burn time
+            assert!(
+                (opt.transfer_time_s - opt.burn_time_s).abs() < 1.0,
+                "Thrust-limited transfer_time_s should equal burn_time_s"
+            );
+        }
+    }
+
+    /// Chemical Earth → Mars: burn time << Hohmann time → NOT thrust-limited.
+    #[test]
+    fn test_not_thrust_limited_chemical_earth_mars() {
+        // Chemical Frigate: TWR=10, dry=2000 t, wet=3636 t, Isp=450 s
+        let dry = 2_000.0_f64;
+        let wet = dry / (1.0 - 0.45_f64);
+        let accel = 10.0 * dry * 9.81 / wet; // ≈ 54 m/s²
+        let isp = 450.0_f32;
+
+        let mut opts = calculate_transfer_options(1.0, 1.524, GM_SUN);
+        apply_thrust_limits(&mut opts, accel, isp);
+
+        for opt in &opts {
+            assert!(
+                !opt.is_thrust_limited,
+                "Chemical Earth-Mars '{}' should NOT be thrust-limited (burn << Hohmann)",
+                opt.label
+            );
+        }
+    }
+
+    /// apply_thrust_limits skips Flip & Burn options.
+    #[test]
+    fn test_thrust_limits_skips_flip_and_burn() {
+        let mut opts = vec![TransferOption {
+            label: "Flip & Burn",
+            total_delta_v_ms: 100_000.0,
+            delta_v1_ms: 50_000.0,
+            delta_v2_ms: 50_000.0,
+            transfer_time_s: 50_000.0, // already equals burn time by construction
+            sma_au: 1.2,
+            eccentricity: 0.2,
+            energy_multiplier: 10.0,
+            burn_time_s: 50_000.0,
+            is_thrust_limited: false,
+        }];
+        // Even with tiny accel, Flip & Burn should be untouched
+        apply_thrust_limits(&mut opts, 0.0001, 5_000.0);
+        assert!(!opts[0].is_thrust_limited, "Flip & Burn should not be marked thrust-limited");
+        assert_eq!(opts[0].transfer_time_s, 50_000.0, "Flip & Burn transfer time should be unchanged");
     }
 }
