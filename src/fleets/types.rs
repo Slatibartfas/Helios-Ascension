@@ -1,5 +1,54 @@
 //! Ship class and propulsion type definitions for the fleet system.
 
+/// Roles that can be assigned to a fleet, changing its icon and primary purpose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FleetRole {
+    /// Default role for unassigned fleets
+    Unassigned,
+    /// Combat fleet focused on offensive operations
+    Attack,
+    /// Combat fleet focused on protecting assets
+    Defend,
+    /// Exploration and scientific survey fleet
+    Survey,
+    /// Logistics and cargo transport fleet
+    Transport,
+    /// Long-range exploration fleet
+    Explore,
+}
+
+impl Default for FleetRole {
+    fn default() -> Self {
+        Self::Unassigned
+    }
+}
+
+impl FleetRole {
+    /// Human-readable display name.
+    pub fn display_name(self) -> &'static str {
+        match self {
+            FleetRole::Unassigned => "Unassigned",
+            FleetRole::Attack => "Attack",
+            FleetRole::Defend => "Defend",
+            FleetRole::Survey => "Survey",
+            FleetRole::Transport => "Transport",
+            FleetRole::Explore => "Explore",
+        }
+    }
+
+    /// UI icon character.
+    pub fn icon(self) -> &'static str {
+        match self {
+            FleetRole::Unassigned => "🚀",
+            FleetRole::Attack => "⚔",
+            FleetRole::Defend => "🛡",
+            FleetRole::Survey => "🔭",
+            FleetRole::Transport => "📦",
+            FleetRole::Explore => "🧭",
+        }
+    }
+}
+
 /// Classes of ships that can be built and flown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ShipClass {

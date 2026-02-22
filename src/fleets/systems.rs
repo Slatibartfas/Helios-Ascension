@@ -140,18 +140,37 @@ pub fn update_fleet_maneuver_positions(
         if elapsed < maneuver.departure_time {
             continue;
         }
-        let dt = elapsed - maneuver.departure_time;
-        let mean_anomaly = maneuver.transfer_orbit.mean_anomaly_epoch
-            + maneuver.transfer_orbit.mean_motion * dt;
+        
+        let is_kinematic = maneuver.option_label == "Flip & Burn" || maneuver.option_label.contains("Coast") || maneuver.option_label == "Max Speed";
+        
+        if is_kinematic {
+            let progress = maneuver.progress(elapsed);
+            
+            // Get origin position at departure
+            let origin_pos = maneuver.start_position_au.unwrap_or_else(|| {
+                center_coords.get(maneuver.origin_body).map(|sc| sc.position).unwrap_or(DVec3::ZERO)
+            });
+            
+            // Get destination position at arrival
+            let dest_pos = maneuver.end_position_au.unwrap_or_else(|| {
+                center_coords.get(maneuver.destination_body).map(|sc| sc.position).unwrap_or(DVec3::ZERO)
+            });
+            
+            fleet_sc.position = origin_pos + (dest_pos - origin_pos) * progress;
+        } else {
+            let dt = elapsed - maneuver.departure_time;
+            let mean_anomaly = maneuver.transfer_orbit.mean_anomaly_epoch
+                + maneuver.transfer_orbit.mean_motion * dt;
 
-        let orbit_pos_au = orbit_position_from_mean_anomaly(&maneuver.transfer_orbit, mean_anomaly);
+            let orbit_pos_au = orbit_position_from_mean_anomaly(&maneuver.transfer_orbit, mean_anomaly);
 
-        let center_pos = center_coords
-            .get(maneuver.orbit_center)
-            .map(|sc| sc.position)
-            .unwrap_or(DVec3::ZERO);
+            let center_pos = center_coords
+                .get(maneuver.orbit_center)
+                .map(|sc| sc.position)
+                .unwrap_or(DVec3::ZERO);
 
-        fleet_sc.position = center_pos + orbit_pos_au;
+            fleet_sc.position = center_pos + orbit_pos_au;
+        }
     }
 }
 
@@ -195,22 +214,32 @@ pub fn complete_fleet_maneuvers(
             let rel = fleet_sc.position - center_pos;
             let pos_angle = rel.y.atan2(rel.x);
 
-            // Determine whether the arrival was prograde (CCW) or retrograde (CW)
-            // by computing the Keplerian velocity direction at the moment of arrival
-            // and taking its cross product with the position vector.
-            let mean_anomaly_arrival = maneuver.transfer_orbit.mean_anomaly_epoch
-                + maneuver.transfer_orbit.mean_motion * (elapsed - maneuver.departure_time);
-            let small_dt = 1.0_f64; // 1 second step
-            let ma_before = mean_anomaly_arrival
-                - maneuver.transfer_orbit.mean_motion * small_dt;
-            let pos_before = orbit_position_from_mean_anomaly(
-                &maneuver.transfer_orbit, ma_before);
-            let pos_now = orbit_position_from_mean_anomaly(
-                &maneuver.transfer_orbit, mean_anomaly_arrival);
-            let vel_dir = pos_now - pos_before; // proportional to velocity
-            // 2-D cross product (z-component): rel × vel_dir
-            let cross_z = rel.x * vel_dir.y - rel.y * vel_dir.x;
-            let direction = if cross_z >= 0.0 { 1.0 } else { -1.0 };
+            let is_kinematic = maneuver.option_label == "Flip & Burn" || maneuver.option_label.contains("Coast") || maneuver.option_label == "Max Speed";
+            
+            let direction = if is_kinematic {
+                let start_pos = maneuver.start_position_au.unwrap_or(DVec3::ZERO);
+                let end_pos = maneuver.end_position_au.unwrap_or(DVec3::ZERO);
+                let vel_dir = end_pos - start_pos;
+                let cross_z = rel.x * vel_dir.y - rel.y * vel_dir.x;
+                if cross_z >= 0.0 { 1.0 } else { -1.0 }
+            } else {
+                // Determine whether the arrival was prograde (CCW) or retrograde (CW)
+                // by computing the Keplerian velocity direction at the moment of arrival
+                // and taking its cross product with the position vector.
+                let mean_anomaly_arrival = maneuver.transfer_orbit.mean_anomaly_epoch
+                    + maneuver.transfer_orbit.mean_motion * (elapsed - maneuver.departure_time);
+                let small_dt = 1.0_f64; // 1 second step
+                let ma_before = mean_anomaly_arrival
+                    - maneuver.transfer_orbit.mean_motion * small_dt;
+                let pos_before = orbit_position_from_mean_anomaly(
+                    &maneuver.transfer_orbit, ma_before);
+                let pos_now = orbit_position_from_mean_anomaly(
+                    &maneuver.transfer_orbit, mean_anomaly_arrival);
+                let vel_dir = pos_now - pos_before; // proportional to velocity
+                // 2-D cross product (z-component): rel × vel_dir
+                let cross_z = rel.x * vel_dir.y - rel.y * vel_dir.x;
+                if cross_z >= 0.0 { 1.0 } else { -1.0 }
+            };
 
             (pos_angle, direction)
         };
@@ -272,6 +301,9 @@ pub fn process_fleet_actions(
     orbit_query: Query<&FleetOrbit, With<Fleet>>,
     maneuver_query: Query<(), (With<Fleet>, With<ActiveManeuver>)>,
     mut fleet_query: Query<&mut Fleet>,
+    body_query: Query<(&Transform, &CelestialBody, Option<&LogicalParent>), Without<Fleet>>,
+    kepler_query: Query<&KeplerOrbit, Without<Fleet>>,
+    center_coords: Query<&SpaceCoordinates, Without<Fleet>>,
 ) {
     let elapsed = sim_time.elapsed_seconds();
 
@@ -309,21 +341,50 @@ pub fn process_fleet_actions(
 
         let t = &action.transfer;
         let departure_s = elapsed + action.departure_offset_s;
+        let arrival_s = departure_s + t.duration_s;
         let departure_angle = orbit_query.get(action.fleet)
             .map(|o| o.angle_rad as f32)
             .unwrap_or(0.0);
+            
+        let is_kinematic = t.option_label == "Flip & Burn" || t.option_label.contains("Coast") || t.option_label == "Max Speed";
+        let (start_position_au, end_position_au) = if is_kinematic {
+            let start_pos = predict_body_physics_pos(
+                t.origin_body,
+                departure_s,
+                &body_query,
+                &kepler_query,
+            ).unwrap_or_else(|| {
+                center_coords.get(t.origin_body).map(|sc| sc.position).unwrap_or(DVec3::ZERO)
+            });
+            
+            let end_pos = predict_body_physics_pos(
+                t.destination_body,
+                arrival_s,
+                &body_query,
+                &kepler_query,
+            ).unwrap_or_else(|| {
+                center_coords.get(t.destination_body).map(|sc| sc.position).unwrap_or(DVec3::ZERO)
+            });
+            
+            (Some(start_pos), Some(end_pos))
+        } else {
+            (None, None)
+        };
+            
         let maneuver = ActiveManeuver {
             transfer_orbit: t.transfer_orbit,
             orbit_center: t.orbit_center,
             origin_body: t.origin_body,
             departure_time: departure_s,
-            arrival_time: departure_s + t.duration_s,
+            arrival_time: arrival_s,
             destination_body: t.destination_body,
             arrival_orbit_radius_au: t.arrival_orbit_radius_au,
             arrival_delta_v_ms: t.arrival_delta_v_ms,
             fuel_used_t: t.fuel_cost_t,
             option_label: t.option_label,
             departure_angle,
+            start_position_au,
+            end_position_au,
         };
         if is_in_transit {
             // Course correction: swap immediately (no parking orbit to preserve).
@@ -402,6 +463,34 @@ fn predict_body_visual_pos(
     };
 
     Some(parent_pos + pos_scaled)
+}
+
+/// Predict the physics (AU) `DVec3` position where a celestial body will
+/// be at `future_sim_s` by propagating its `KeplerOrbit` forward.
+///
+/// Returns `None` if the body has no `KeplerOrbit` component.
+fn predict_body_physics_pos(
+    target: Entity,
+    future_sim_s: f64,
+    body_query: &Query<(&Transform, &CelestialBody, Option<&LogicalParent>), Without<Fleet>>,
+    kepler_query: &Query<&KeplerOrbit, Without<Fleet>>,
+) -> Option<DVec3> {
+    let kepler = kepler_query.get(target).ok()?;
+    let (_, _, maybe_lp) = body_query.get(target).ok()?;
+
+    // Advance mean anomaly to future simulation time.
+    let ma = kepler.mean_anomaly_epoch + kepler.mean_motion * future_sim_s;
+    let pos_au = orbit_position_from_mean_anomaly(kepler, ma);
+
+    // Anchor to the parent body's predicted physics position.
+    let parent_pos = if let Some(lp) = maybe_lp {
+        predict_body_physics_pos(lp.0, future_sim_s, body_query, kepler_query)
+            .unwrap_or(DVec3::ZERO)
+    } else {
+        DVec3::ZERO // star at origin
+    };
+
+    Some(parent_pos + pos_au)
 }
 
 /// Draw a KSP-style "ghost" body gizmo at `center` showing predicted arrival position.
@@ -653,14 +742,14 @@ pub fn draw_fleet_trajectories(
         let is_kinematic = maneuver.option_label == "Flip & Burn" || maneuver.option_label.contains("Coast") || maneuver.option_label == "Max Speed";
         if is_kinematic {
             // Kinematic transfer: straight powered line between departure and arrival positions.
-            let p0_au = orbit_position_from_mean_anomaly(
-                &maneuver.transfer_orbit,
-                maneuver.transfer_orbit.mean_anomaly_epoch,
-            );
-            let p1_au = orbit_position_from_mean_anomaly(
-                &maneuver.transfer_orbit,
-                maneuver.transfer_orbit.mean_anomaly_epoch + total_ma_travel,
-            );
+            let p0_au = maneuver.start_position_au.unwrap_or_else(|| {
+                center_coords.get(maneuver.origin_body).map(|sc| sc.position).unwrap_or(DVec3::ZERO)
+            }) - center_pos;
+            
+            let p1_au = maneuver.end_position_au.unwrap_or_else(|| {
+                center_coords.get(maneuver.destination_body).map(|sc| sc.position).unwrap_or(DVec3::ZERO)
+            }) - center_pos;
+            
             let rp0 = Vec3::new(
                 ((center_pos.x + p0_au.x - origin_offset.x) * scale) as f32,
                 ((center_pos.y + p0_au.y - origin_offset.y) * scale) as f32,

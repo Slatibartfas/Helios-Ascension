@@ -110,9 +110,13 @@ impl Fleet {
         self.ships.iter().map(|s| s.thrust_kn * s.isp_s).sum::<f32>() / total_thrust
     }
 
-    /// Total thrust of all engines in the fleet (kilonewtons).
-    pub fn total_thrust_kn(&self) -> f32 {
-        self.ships.iter().map(|s| s.thrust_kn).sum()
+    /// Minimum thrust of any ship in the fleet (kilonewtons).
+    pub fn min_thrust_kn(&self) -> f32 {
+        self.ships
+            .iter()
+            .map(|s| s.thrust_kn)
+            .reduce(f32::min)
+            .unwrap_or(0.0)
     }
 
     /// Maximum achievable Δv for the entire fleet (m/s).
@@ -258,6 +262,12 @@ pub struct ActiveManeuver {
     /// derive the departure direction dynamically from the origin→destination geometry,
     /// so this field does not affect the rendered trajectory.
     pub departure_angle: f32,
+    /// The physics position (AU) of the origin body at departure time.
+    /// Used for kinematic transfers.
+    pub start_position_au: Option<bevy::math::DVec3>,
+    /// The physics position (AU) of the destination body at arrival time.
+    /// Used for kinematic transfers.
+    pub end_position_au: Option<bevy::math::DVec3>,
 }
 
 impl ActiveManeuver {

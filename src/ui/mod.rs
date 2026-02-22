@@ -8758,9 +8758,9 @@ fn render_fleet_detail(
             );
             ui.end_row();
 
-            ui.label(egui::RichText::new("Total thrust:").size(12.0));
+            ui.label(egui::RichText::new("Min thrust:").size(12.0));
             ui.label(
-                egui::RichText::new(format!("{:.0} kN", fleet.total_thrust_kn()))
+                egui::RichText::new(format!("{:.0} kN", fleet.min_thrust_kn()))
                     .size(12.0)
                     .strong(),
             );
@@ -10338,12 +10338,15 @@ fn render_transfer_planner(
                         ui.add_space(3.0);
 
                         let dv_kms = fleet.max_delta_v_ms() / 1_000.0;
-                        let thrust_kn = fleet.total_thrust_kn();
+                        let thrust_kn = fleet.min_thrust_kn();
                         let thrust_str = if thrust_kn >= 1_000.0 {
                             format!("{:.1} MN", thrust_kn / 1_000.0)
                         } else {
                             format!("{:.0} kN", thrust_kn)
                         };
+                        let accel_ms2 = fleet.min_accel_ms2();
+                        let accel_g = accel_ms2 / 9.80665;
+                        let accel_str = format!("{:.3} g", accel_g);
 
                         ui.label(egui::RichText::new("ΔV avail.").size(10.0).color(egui::Color32::GRAY));
                         ui.label(
@@ -10356,6 +10359,14 @@ fn render_transfer_planner(
                         ui.label(egui::RichText::new("Thrust").size(10.0).color(egui::Color32::GRAY));
                         ui.label(
                             egui::RichText::new(thrust_str)
+                                .size(11.0)
+                                .strong()
+                                .color(egui::Color32::from_rgb(200, 230, 255)),
+                        );
+                        ui.add_space(4.0);
+                        ui.label(egui::RichText::new("Accel.").size(10.0).color(egui::Color32::GRAY));
+                        ui.label(
+                            egui::RichText::new(accel_str)
                                 .size(11.0)
                                 .strong()
                                 .color(egui::Color32::from_rgb(200, 230, 255)),
@@ -10744,6 +10755,16 @@ fn render_transfer_planner(
                                     egui::RichText::new(profile_label)
                                         .size(12.0)
                                         .color(profile_color),
+                                );
+                                ui.end_row();
+
+                                let accel_ms2 = fleet.min_accel_ms2();
+                                let accel_g = accel_ms2 / 9.80665;
+                                ui.label(egui::RichText::new("Acceleration:").size(12.0));
+                                ui.label(
+                                    egui::RichText::new(format!("{:.2} g", accel_g))
+                                        .size(12.0)
+                                        .strong(),
                                 );
                                 ui.end_row();
 
