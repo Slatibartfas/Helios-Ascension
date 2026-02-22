@@ -8383,11 +8383,9 @@ fn ui_fleets_panel(
         &SpaceCoordinates,
     )>,
     body_query: Query<(Entity, &CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>, Option<&LogicalParent>)>,
-    body_system_ids: Query<&SystemId>,
     mut pending_actions: ResMut<PendingFleetActions>,
     mut fleet_ui_state: ResMut<FleetUiState>,
     sim_time: Res<SimulationTime>,
-    current_system: Res<CurrentStarSystem>,
 ) {
     if active_menu.current != GameMenu::Fleets {
         return;
@@ -8518,8 +8516,6 @@ fn ui_fleets_panel(
                                     &body_query,
                                     &mut fleet_ui_state,
                                     &mut pending_actions,
-                                    current_system.0,
-                                    &body_system_ids,
                                     elapsed,
                                 );
                             });
@@ -8636,8 +8632,6 @@ fn render_fleet_detail(
     body_query: &Query<(Entity, &CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>, Option<&LogicalParent>)>,
     fleet_ui_state: &mut FleetUiState,
     pending_actions: &mut PendingFleetActions,
-    current_system_id: usize,
-    body_system_ids: &Query<&SystemId>,
     elapsed: f64,
 ) {
     // ── Fleet header ─────────────────────────────────────────────────────────
@@ -8668,7 +8662,7 @@ fn render_fleet_detail(
     );
     let in_orbit_for_manifest = maybe_orbit.is_some();
     egui::Grid::new("ship_manifest")
-        .num_columns(6)
+        .num_columns(8)
         .spacing([12.0, 4.0])
         .striped(true)
         .show(ui, |ui| {
@@ -8678,6 +8672,8 @@ fn render_fleet_detail(
             ui.label(egui::RichText::new("Dry (t)").strong().size(12.0));
             ui.label(egui::RichText::new("Fuel").strong().size(12.0));
             ui.label(egui::RichText::new("Drive").strong().size(12.0));
+            ui.label(egui::RichText::new("Thrust").strong().size(12.0));
+            ui.label(egui::RichText::new("Max ΔV").strong().size(12.0));
             ui.label(egui::RichText::new("Actions").strong().size(12.0));
             ui.end_row();
 
@@ -8709,6 +8705,12 @@ fn render_fleet_detail(
                 );
                 ui.label(
                     egui::RichText::new(ship.propulsion.display_name()).size(12.0),
+                );
+                ui.label(
+                    egui::RichText::new(format!("{:.0} kN", ship.thrust_kn)).size(12.0),
+                );
+                ui.label(
+                    egui::RichText::new(format_delta_v(ship.delta_v_ms())).size(12.0),
                 );
                 // Refuel button — enabled only while in a stable orbit.
                 // Currently fills to max for free (debug). In future will
@@ -8861,7 +8863,7 @@ fn render_active_maneuver_status(
         ui.add(
             egui::ProgressBar::new(progress)
                 .text(format!("{:.1}%", progress * 100.0))
-                .desired_width(f32::INFINITY),
+                .desired_width(ui.available_width()),
         );
 
         egui::Grid::new("maneuver_info")
@@ -9017,7 +9019,9 @@ fn render_transfer_planner(
     enum DestEntry {
         Header(String),
         Body { entity: Entity, name: String },
-        Ring { entity: Entity, name: String, parent_entity: Entity, radius_au: f64 },
+        // Rings are treated like regular bodies for selection; the extra
+        // parent/radius information used to be stored here but never read.
+        Ring { entity: Entity, name: String },
         Lagrange { lp: LagrangeTarget },
         FleetTarget { entity: Entity, name: String, in_transit: bool },
         StarSystem { system_id: usize, name: String, distance_ly: f32 },
@@ -9077,9 +9081,9 @@ fn render_transfer_planner(
             for (e, name, _) in &local {
                 dest_entries.push(DestEntry::Body { entity: *e, name: name.clone() });
             }
-            for (e, name, parent, radius_au) in local_rings {
-                if let Some(p) = parent {
-                    dest_entries.push(DestEntry::Ring { entity: e, name, parent_entity: p, radius_au });
+            for (e, name, parent, _radius_au) in local_rings {
+                if parent.is_some() {
+                    dest_entries.push(DestEntry::Ring { entity: e, name });
                 }
             }
         }
@@ -9200,8 +9204,6 @@ fn render_transfer_planner(
                 dest_entries.push(DestEntry::Ring {
                     entity: *e,
                     name: name.clone(),
-                    parent_entity: parent_e,
-                    radius_au: *_sma, // stored radius_au
                 });
             } else {
                 dest_entries.push(DestEntry::Body { entity: *e, name: name.clone() });
@@ -9604,7 +9606,7 @@ fn render_transfer_planner(
                                         fleet_ui_state.selected_gravity_assist = None;
                                     }
                                 }
-                                DestEntry::Ring { entity, name, .. } => {
+                                DestEntry::Ring { entity, name } => {
                                     first_sub = false;
                                     let selected = fleet_ui_state.target_body == Some(*entity)
                                         && fleet_ui_state.target_lagrange.is_none()
@@ -10495,6 +10497,11 @@ fn render_transfer_planner(
             let fleet_wet_mass = fleet.total_wet_mass_t();
             let fleet_max_dv = fleet.max_delta_v_ms();
 
+            // Ensure selected_option is within bounds
+            if fleet_ui_state.selected_option >= fleet_ui_state.computed_options.len() {
+                fleet_ui_state.selected_option = fleet_ui_state.computed_options.len() - 1;
+            }
+
             // Pre-compute execute button state so we can embed it in the header row
             let sel_option = fleet_ui_state.computed_options[fleet_ui_state.selected_option].clone();
             let abort_cost_t: f32 = if let Some(maneuver) = current_maneuver {
@@ -11081,7 +11088,8 @@ fn ui_fleet_action_bar(
         Err(_) => return,
     };
 
-    let in_transit = maybe_maneuver.is_some();
+    // `in_transit` was previously used by the old action bar logic but
+    // the status string now derives directly from `maybe_maneuver`.
     let in_orbit = maybe_orbit.is_some();
     let ship_count = fleet.ships.len();
     // Only show abort when the fleet is waiting to depart (still has its parking orbit).
@@ -11103,6 +11111,9 @@ fn ui_fleet_action_bar(
                 ui.add_space(8.0);
 
                 // Fleet name + status label
+                // Note: we compute the status string directly rather than creating
+                // an `in_transit` boolean earlier, which keeps the variable list
+                // minimal and avoids unused variable warnings.
                 let status_str = if let Some(maneuver) = maybe_maneuver {
                     if sim_time.elapsed_seconds() < maneuver.departure_time {
                         " ⏳ Waiting to depart".to_string()

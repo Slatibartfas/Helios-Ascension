@@ -1608,10 +1608,14 @@ pub fn draw_gravity_assist_preview(
     // Departure direction: from flyby body toward destination.
     let dir_depart  = (dp - fp).normalize_or_zero();
 
-    // The incoming asymptote points away from the planet on the approach side;
-    // the outgoing asymptote points away on the departure side.
-    // Their bisector gives the apse line direction → periapsis.
-    let apse_raw = -dir_approach + dir_depart;
+    // The asymptote directions from the focus (planet) are:
+    //   incoming:  -dir_approach   (toward where the spacecraft came from)
+    //   outgoing:   dir_depart     (toward where the spacecraft is going)
+    // Their vector sum bisects the NARROW angle between them, but the
+    // periapsis of the hyperbolic trajectory is on the WIDE side (the
+    // 360°−δ arc that the spacecraft actually traverses).  So we negate
+    // the bisector to get the correct periapsis direction.
+    let apse_raw = dir_approach - dir_depart;
     let apse_dir = if apse_raw.length() > 0.001 {
         apse_raw.normalize()
     } else {
