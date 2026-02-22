@@ -9767,6 +9767,19 @@ fn render_transfer_planner(
                     .and_then(|(_, _, _, ko, _)| ko)
                     .map(|ko| ko.semi_major_axis).unwrap_or(0.00257);
                 (r1, r2, gm)
+            } else if Some(target_entity) == origin_parent {
+                // Downward transfer: fleet is at a moon, destination is the parent planet.
+                // e.g. Moon → Earth: r1 = Moon SMA around Earth, r2 = low parking orbit, gm = planet's GM.
+                let parent_mass = body_query.get(target_entity).ok()
+                    .map(|(_, b, _, _, _)| b.mass).unwrap_or(5.972e24);
+                let r1 = body_query.get(orbit.body).ok()
+                    .and_then(|(_, _, _, ko, _)| ko)
+                    .map(|ko| ko.semi_major_axis).unwrap_or(0.00257);
+                // Target a low parking orbit ≈ 3× destination body surface radius.
+                let r2 = body_query.get(target_entity).ok()
+                    .map(|(_, b, _, _, _)| (b.radius as f64 * 3_000.0) / AU_IN_METERS)
+                    .unwrap_or(4.26e-5);
+                (r1, r2.min(r1 * 0.5), G_CONST * parent_mass)
             } else {
                 // Heliocentric: fleet is at a body that is not in the same parent chain as dest.
                 // If fleet is parked at a moon, its KeplerOrbit SMA is Earth-relative, NOT
@@ -9804,6 +9817,8 @@ fn render_transfer_planner(
             fleet_ui_state.computed_options = {
                 // Extract angles of origin and destination bodies in the correct coordinate system.
                 let is_heliocentric = (gm - GM_SUN).abs() < 1e10;
+                // Moon → parent-planet case: target IS the body that origin orbits around.
+                let is_moon_to_parent = Some(target_entity) == origin_parent;
 
                 let get_heliocentric_pos = |entity: Entity| -> Option<bevy::math::DVec3> {
                     let entry = body_query.get(entity).ok()?;
@@ -9826,7 +9841,18 @@ fn render_transfer_planner(
                     }
                 };
 
-                let (pos1, pos2) = if is_heliocentric {
+                let (pos1, pos2) = if is_moon_to_parent {
+                    // Use Moon's heliocentric position minus parent planet's heliocentric position
+                    // to get the Moon's local angle around the planet.
+                    // theta2 = 0 (planet is at the center of the reference frame).
+                    let moon_helio = body_query.get(orbit.body).ok()
+                        .map(|(_, _, sc, _, _)| sc.position)
+                        .unwrap_or(bevy::math::DVec3::ZERO);
+                    let planet_helio = body_query.get(target_entity).ok()
+                        .map(|(_, _, sc, _, _)| sc.position)
+                        .unwrap_or(bevy::math::DVec3::ZERO);
+                    (Some(moon_helio - planet_helio), Some(bevy::math::DVec3::ZERO))
+                } else if is_heliocentric {
                     (get_heliocentric_pos(orbit.body), get_heliocentric_pos(target_entity))
                 } else {
                     let central_body = dest_parent.unwrap_or(orbit.body);
@@ -9955,49 +9981,6 @@ fn render_transfer_planner(
             let window_days = window.time_to_window_s / 86_400.0;
 
             ui.add_space(6.0);
-            ui.group(|ui| {
-                ui.label(
-                    egui::RichText::new("⏱ Transfer Window")
-                        .strong()
-                        .size(12.0)
-                        .color(egui::Color32::from_rgb(160, 210, 255)),
-                );
-                ui.add_space(3.0);
-
-                egui::Grid::new("window_info_grid")
-                    .num_columns(2)
-                    .spacing([8.0, 3.0])
-                    .show(ui, |ui| {
-                        ui.label(egui::RichText::new("Next window:").size(12.0));
-                        if window_days < 1.0 {
-                            ui.label(
-                                egui::RichText::new("NOW  ✓")
-                                    .size(12.0)
-                                    .strong()
-                                    .color(egui::Color32::from_rgb(80, 220, 80)),
-                            );
-                        } else {
-                            ui.label(
-                                egui::RichText::new(format!("{}", format_duration(window.time_to_window_s)))
-                                    .size(12.0)
-                                    .color(egui::Color32::from_rgb(200, 200, 200)),
-                            );
-                        }
-                        ui.end_row();
-
-                        ui.label(egui::RichText::new("Synodic period:").size(12.0));
-                        let syn_str = if syn_days.is_finite() {
-                            format_duration(window.synodic_period_s)
-                        } else {
-                            "∞ (same orbit)".to_owned()
-                        };
-                        ui.label(egui::RichText::new(syn_str).size(12.0).color(egui::Color32::GRAY));
-                        ui.end_row();
-                    });
-            });
-
-            // ── Departure time slider ────────────────────────────────────────
-            ui.add_space(6.0);
 
             let max_days = window_max_slider_days.min(1_825.0); // cap at 5 years
             let step_size = if max_days <= 1.0 {
@@ -10012,61 +9995,107 @@ fn render_transfer_planner(
                 1.0 // 1 day
             };
 
-            ui.group(|ui| {
-                // Row 1: label
-                ui.label(
-                    egui::RichText::new("🕐 Planned Departure")
-                        .strong()
-                        .size(12.0)
-                        .color(egui::Color32::from_rgb(160, 210, 255)),
-                );
-                ui.add_space(3.0);
+            // ── Transfer Window (left) + Planned Departure (right) side by side ──
+            ui.horizontal_top(|ui| {
+                // Left: Transfer Window box
+                ui.group(|ui| {
+                    ui.label(
+                        egui::RichText::new("⏱ Transfer Window")
+                            .strong()
+                            .size(12.0)
+                            .color(egui::Color32::from_rgb(160, 210, 255)),
+                    );
+                    ui.add_space(3.0);
 
-                // Row 2: slider (left) + alignment indicator (right)
-                ui.horizontal(|ui| {
-                    let mut offset_days = fleet_ui_state.departure_offset_days as f32;
-                    let slider = egui::Slider::new(&mut offset_days, 0.0_f32..=max_days as f32)
-                        .step_by(step_size as f64)
-                        .custom_formatter(|v, _| {
-                            if v < 0.01 {
-                                "Now".to_owned()
+                    egui::Grid::new("window_info_grid")
+                        .num_columns(2)
+                        .spacing([8.0, 3.0])
+                        .show(ui, |ui| {
+                            ui.label(egui::RichText::new("Next window:").size(12.0));
+                            if window_days < 1.0 {
+                                ui.label(
+                                    egui::RichText::new("NOW  ✓")
+                                        .size(12.0)
+                                        .strong()
+                                        .color(egui::Color32::from_rgb(80, 220, 80)),
+                                );
                             } else {
-                                format_duration(v as f64 * 86_400.0)
+                                ui.label(
+                                    egui::RichText::new(format!("{}", format_duration(window.time_to_window_s)))
+                                        .size(12.0)
+                                        .color(egui::Color32::from_rgb(200, 200, 200)),
+                                );
                             }
-                        });
-                    if ui.add(slider).changed() {
-                        fleet_ui_state.departure_offset_days = offset_days as f64;
-                    }
+                            ui.end_row();
 
-                    // Alignment indicator – right-aligned
-                    let dep_s = fleet_ui_state.departure_offset_days * 86_400.0;
-                    let phase_at = {
-                        let raw = window.phase_error_now_rad - window.phase_rate_rad_s * dep_s;
-                        ((raw + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU)) - std::f64::consts::PI
-                    };
-                    let factor = crate::fleets::orbital_mechanics::phase_dv_factor(phase_at.abs());
-                    let (quality_str, quality_color) = if factor < 1.05 {
-                        ("● Optimal", egui::Color32::from_rgb(80, 220, 80))
-                    } else if factor < 1.40 {
-                        ("◑ Good", egui::Color32::from_rgb(180, 220, 80))
-                    } else if factor < 1.80 {
-                        ("◔ Fair", egui::Color32::from_rgb(220, 180, 60))
-                    } else {
-                        ("○ Poor", egui::Color32::from_rgb(220, 80, 60))
-                    };
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(egui::RichText::new(quality_str).size(11.0).color(quality_color))
-                            .on_hover_text("Indicates how well the planets are aligned for a transfer at the planned departure time. Poor alignment requires significantly more ΔV.");
-                    });
+                            ui.label(egui::RichText::new("Synodic period:").size(12.0));
+                            let syn_str = if syn_days.is_finite() {
+                                format_duration(window.synodic_period_s)
+                            } else {
+                                "∞ (same orbit)".to_owned()
+                            };
+                            ui.label(egui::RichText::new(syn_str).size(12.0).color(egui::Color32::GRAY));
+                            ui.end_row();
+                        });
                 });
 
-                // Next Window button on its own row
-                if window_days > 0.5 {
-                    ui.add_space(2.0);
-                    if ui.small_button(format!("🎯 Next Window (+{:.0} d)", window_days)).clicked() {
-                        fleet_ui_state.departure_offset_days = window_days;
+                // Right: Planned Departure box
+                ui.group(|ui| {
+                    // Row 1: label
+                    ui.label(
+                        egui::RichText::new("🕐 Planned Departure")
+                            .strong()
+                            .size(12.0)
+                            .color(egui::Color32::from_rgb(160, 210, 255)),
+                    );
+                    ui.add_space(3.0);
+
+                    // Row 2: slider (left) + alignment indicator (right)
+                    ui.horizontal(|ui| {
+                        let mut offset_days = fleet_ui_state.departure_offset_days as f32;
+                        let slider = egui::Slider::new(&mut offset_days, 0.0_f32..=max_days as f32)
+                            .step_by(step_size as f64)
+                            .custom_formatter(|v, _| {
+                                if v < 0.01 {
+                                    "Now".to_owned()
+                                } else {
+                                    format_duration(v as f64 * 86_400.0)
+                                }
+                            });
+                        if ui.add(slider).changed() {
+                            fleet_ui_state.departure_offset_days = offset_days as f64;
+                        }
+
+                        // Alignment indicator – right-aligned
+                        let dep_s = fleet_ui_state.departure_offset_days * 86_400.0;
+                        let phase_at = {
+                            let raw = window.phase_error_now_rad - window.phase_rate_rad_s * dep_s;
+                            ((raw + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU)) - std::f64::consts::PI
+                        };
+                        let factor = crate::fleets::orbital_mechanics::phase_dv_factor(phase_at.abs());
+                        let (quality_str, quality_color) = if factor < 1.05 {
+                            ("● Optimal", egui::Color32::from_rgb(80, 220, 80))
+                        } else if factor < 1.40 {
+                            ("◑ Good", egui::Color32::from_rgb(180, 220, 80))
+                        } else if factor < 1.80 {
+                            ("◔ Fair", egui::Color32::from_rgb(220, 180, 60))
+                        } else {
+                            ("○ Poor", egui::Color32::from_rgb(220, 80, 60))
+                        };
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(egui::RichText::new(quality_str).size(11.0).color(quality_color))
+                                .on_hover_text("Indicates how well the planets are aligned for a transfer at the planned departure time. Poor alignment requires significantly more ΔV.");
+                        });
+                    });
+
+                    // Next Window button on its own row
+                    if window_days > 0.5 {
+                        ui.add_space(2.0);
+                        if ui.small_button(format!("🎯 Next Window (+{:.0} d)", window_days)).clicked() {
+                            fleet_ui_state.departure_offset_days = window_days;
+                        }
                     }
-                }
+                });
             });
         }
 
