@@ -1306,6 +1306,7 @@ pub fn handle_body_selection(
                 fleet_ui_state.computed_options.clear();
                 fleet_ui_state.planned_transfer = None;
                 fleet_ui_state.selected_option = 0;
+                fleet_ui_state.selected_gravity_assist = None;
                 fleet_ui_state.show_transfer_popup = true;
             }
         }
@@ -2216,6 +2217,7 @@ pub fn handle_lp_hover(
                 fleet_ui_state.computed_options.clear();
                 fleet_ui_state.planned_transfer = None;
                 fleet_ui_state.selected_option = 0;
+                fleet_ui_state.selected_gravity_assist = None;
                 fleet_ui_state.show_transfer_popup = true;
             }
         }

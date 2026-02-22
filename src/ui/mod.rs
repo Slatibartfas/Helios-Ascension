@@ -2804,6 +2804,7 @@ fn ui_lp_click_handler(
     fleet_ui_state.target_body  = None;
     fleet_ui_state.target_fleet = None;
     fleet_ui_state.selected_option = 0;
+    fleet_ui_state.selected_gravity_assist = None;
     fleet_ui_state.computed_options.clear();
     fleet_ui_state.planned_transfer = None;
 }
@@ -9396,6 +9397,7 @@ fn render_transfer_planner(
                         fleet_ui_state.computed_options.clear();
                         fleet_ui_state.planned_transfer = None;
                         fleet_ui_state.selected_option = 0;
+                        fleet_ui_state.selected_gravity_assist = None;
                     }
                 }
             });
@@ -9465,6 +9467,7 @@ fn render_transfer_planner(
                                         fleet_ui_state.computed_options.clear();
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
+                                        fleet_ui_state.selected_gravity_assist = None;
                                     }
                                 }
                                 DestEntry::Ring { entity, name, .. } => {
@@ -9482,6 +9485,7 @@ fn render_transfer_planner(
                                         fleet_ui_state.computed_options.clear();
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
+                                        fleet_ui_state.selected_gravity_assist = None;
                                     }
                                 }
                                 DestEntry::Lagrange { lp } => {
@@ -9502,6 +9506,7 @@ fn render_transfer_planner(
                                         fleet_ui_state.computed_options.clear();
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
+                                        fleet_ui_state.selected_gravity_assist = None;
                                     }
                                 }
                                 DestEntry::FleetTarget { entity, name, in_transit } => {
@@ -9522,6 +9527,7 @@ fn render_transfer_planner(
                                         fleet_ui_state.computed_options.clear();
                                         fleet_ui_state.planned_transfer = None;
                                         fleet_ui_state.selected_option = 0;
+                                        fleet_ui_state.selected_gravity_assist = None;
                                     }
                                 }
                             }
@@ -9764,7 +9770,7 @@ fn render_transfer_planner(
                 // Compute transfer window from live positions
                 let window = compute_transfer_window(r1, r2, gm, theta1, theta2);
                 window_max_slider_days = if window.synodic_period_s.is_finite() {
-                    (window.synodic_period_s / 86_400.0 * 2.0).max(730.0)
+                    (window.synodic_period_s / 86_400.0 * 1.5).max(1.0)
                 } else {
                     730.0
                 };
@@ -9926,13 +9932,24 @@ fn render_transfer_planner(
             ui.label(egui::RichText::new("Planned Departure:").strong().size(12.0));
 
             let max_days = window_max_slider_days.min(1_825.0); // cap at 5 years
+            let step_size = if max_days <= 1.0 {
+                0.01 // ~14 mins
+            } else if max_days <= 10.0 {
+                0.05 // ~1.2 hours
+            } else if max_days <= 50.0 {
+                0.1 // ~2.4 hours
+            } else if max_days <= 200.0 {
+                0.5 // 12 hours
+            } else {
+                1.0 // 1 day
+            };
+
             ui.horizontal(|ui| {
                 let mut offset_days = fleet_ui_state.departure_offset_days as f32;
                 let slider = egui::Slider::new(&mut offset_days, 0.0_f32..=max_days as f32)
-                    .suffix(" d")
-                    .step_by(1.0)
+                    .step_by(step_size as f64)
                     .custom_formatter(|v, _| {
-                        if v < 1.0 {
+                        if v < 0.01 {
                             "Now".to_owned()
                         } else {
                             format_duration(v as f64 * 86_400.0)
@@ -9961,15 +9978,16 @@ fn render_transfer_planner(
                 };
                 let factor = crate::fleets::orbital_mechanics::phase_dv_factor(phase_at.abs());
                 let (quality_str, quality_color) = if factor < 1.05 {
-                    ("● Optimal", egui::Color32::from_rgb(80, 220, 80))
+                    ("● Optimal Alignment", egui::Color32::from_rgb(80, 220, 80))
                 } else if factor < 1.40 {
-                    ("◑ Good", egui::Color32::from_rgb(180, 220, 80))
+                    ("◑ Good Alignment", egui::Color32::from_rgb(180, 220, 80))
                 } else if factor < 1.80 {
-                    ("◔ Fair", egui::Color32::from_rgb(220, 180, 60))
+                    ("◔ Fair Alignment", egui::Color32::from_rgb(220, 180, 60))
                 } else {
-                    ("○ Poor", egui::Color32::from_rgb(220, 80, 60))
+                    ("○ Poor Alignment", egui::Color32::from_rgb(220, 80, 60))
                 };
-                ui.label(egui::RichText::new(quality_str).size(11.0).color(quality_color));
+                ui.label(egui::RichText::new(quality_str).size(11.0).color(quality_color))
+                    .on_hover_text("Indicates how well the planets are aligned for a transfer at the planned departure time. Poor alignment requires significantly more ΔV.");
             });
         }
 
@@ -10085,7 +10103,7 @@ fn render_transfer_planner(
                                     fleet_ui_state.planned_transfer = None;
                                 }
                             } else {
-                                let label = if beneficial { "⚡ Use Gravity Assist" } else { "Use Anyway" };
+                                let label = if beneficial { "⚡ Use Gravity Assist" } else { "Use Suboptimal Assist" };
                                 if ui.small_button(label).clicked() {
                                     fleet_ui_state.selected_gravity_assist = Some(idx);
                                     fleet_ui_state.selected_option = 0; // GA is option 0
@@ -10153,8 +10171,13 @@ fn render_transfer_planner(
                         .color(row_color),
                     );
                     if resp.clicked() {
-                        fleet_ui_state.selected_option = idx;
                         fleet_ui_state.planned_transfer = None;
+                        if fleet_ui_state.selected_gravity_assist.is_some() && idx != 0 {
+                            fleet_ui_state.selected_gravity_assist = None;
+                            fleet_ui_state.selected_option = idx - 1;
+                        } else {
+                            fleet_ui_state.selected_option = idx;
+                        }
                     }
 
                     egui::Grid::new(format!("option_{idx}"))

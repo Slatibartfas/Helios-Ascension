@@ -333,9 +333,10 @@ fn predict_body_visual_pos(
         (pos_au.z * SCALING_FACTOR * amp) as f32,
     );
 
-    // Anchor to the parent body's current visual position.
+    // Anchor to the parent body's predicted visual position.
     let parent_pos = if let Some(lp) = maybe_lp {
-        body_query.get(lp.0).ok().map(|(t, _, _)| t.translation).unwrap_or(Vec3::ZERO)
+        predict_body_visual_pos(lp.0, future_sim_s, body_query, kepler_query, amp_query)
+            .unwrap_or_else(|| body_query.get(lp.0).ok().map(|(t, _, _)| t.translation).unwrap_or(Vec3::ZERO))
     } else {
         Vec3::ZERO // star at render origin
     };
@@ -1276,7 +1277,7 @@ pub fn draw_gravity_assist_preview(
     let tang0 = Vec3::new(-dep1.sin(), dep1.cos(), 0.0);
     let inward1 = (op - fp).normalize_or_zero();
     let p3_1 = fp + inward1 * flyby_ring_r;
-    let rad1 = (fp - op).normalize_or_zero();
+    let rad1 = fp.normalize_or_zero();
     let td1 = {
         let a = Vec3::new(-rad1.y, rad1.x, 0.0);
         if a.dot(tang0) >= 0.0 { a } else { -a }
@@ -1303,7 +1304,7 @@ pub fn draw_gravity_assist_preview(
     let tang0_2 = Vec3::new(-dep2.sin(), dep2.cos(), 0.0);
     let inward2 = (fp - dp).normalize_or_zero();
     let p3_2 = dp + inward2 * dest_ring_r;
-    let rad2 = (dp - fp).normalize_or_zero();
+    let rad2 = dp.normalize_or_zero();
     let td2 = {
         let a = Vec3::new(-rad2.y, rad2.x, 0.0);
         if a.dot(tang0_2) >= 0.0 { a } else { -a }
