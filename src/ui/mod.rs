@@ -2567,6 +2567,7 @@ fn render_fleet_ledger_tree(
     selected_query: &Query<Entity, With<Selected>>,
     commands: &mut Commands,
     selection: &mut Selection,
+    elapsed: f64,
 ) {
     let mut fleets: Vec<(Entity, &Fleet, Option<&FleetOrbit>, Option<&ActiveManeuver>)> =
         fleet_query.iter().map(|(e, f, o, m)| (e, f, o, m)).collect();
@@ -2594,8 +2595,12 @@ fn render_fleet_ledger_tree(
             egui::Color32::from_rgb(170, 200, 170)
         };
 
-        let sub_status = if maybe_maneuver.is_some() {
-            "↗ In transit".to_string()
+        let sub_status = if let Some(maneuver) = maybe_maneuver {
+            if elapsed < maneuver.departure_time {
+                "⏳ Waiting to depart".to_string()
+            } else {
+                "↗ In transit".to_string()
+            }
         } else if let Some(orbit) = maybe_orbit {
             let body = body_map.get(&orbit.body);
             let body_name = body.map(|b| b.name.as_str()).unwrap_or("?");
@@ -3004,6 +3009,7 @@ fn ui_dashboard(
     // Starmap queries
     star_system_query: Query<(Entity, &StarSystemIcon, Option<&SelectedStarSystem>)>,
     mut anchor_query: Query<&mut CameraAnchor, With<GameCamera>>,
+    sim_time: Res<SimulationTime>,
 ) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
@@ -3166,6 +3172,7 @@ fn ui_dashboard(
                                     &selected_query,
                                     &mut commands,
                                     &mut selection,
+                                    sim_time.elapsed_seconds(),
                                 );
                             });
                         });
@@ -9991,7 +9998,6 @@ fn render_transfer_planner(
 
             // ── Departure time slider ────────────────────────────────────────
             ui.add_space(6.0);
-            ui.label(egui::RichText::new("Planned Departure:").strong().size(12.0));
 
             let max_days = window_max_slider_days.min(1_825.0); // cap at 5 years
             let step_size = if max_days <= 1.0 {
@@ -10006,7 +10012,9 @@ fn render_transfer_planner(
                 1.0 // 1 day
             };
 
+            // Row 1: label + slider
             ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Planned Departure:").strong().size(12.0));
                 let mut offset_days = fleet_ui_state.departure_offset_days as f32;
                 let slider = egui::Slider::new(&mut offset_days, 0.0_f32..=max_days as f32)
                     .step_by(step_size as f64)
@@ -10023,10 +10031,8 @@ fn render_transfer_planner(
                 }
             });
 
+            // Row 2: Next Window button + alignment indicator
             ui.horizontal(|ui| {
-                if ui.small_button("⚡ Depart Now").clicked() {
-                    fleet_ui_state.departure_offset_days = 0.0;
-                }
                 if window_days > 0.5 {
                     if ui.small_button(format!("🎯 Next Window (+{:.0} d)", window_days)).clicked() {
                         fleet_ui_state.departure_offset_days = window_days;
@@ -10643,6 +10649,7 @@ fn ui_fleet_action_bar(
     mut fleet_ui_state: ResMut<FleetUiState>,
     fleet_query: Query<(Entity, &Fleet, Option<&FleetOrbit>, Option<&ActiveManeuver>)>,
     mut pending_fleet_actions: ResMut<PendingFleetActions>,
+    sim_time: Res<SimulationTime>,
 ) {
     // Only show when a fleet is selected AND we are NOT inside a full-screen panel.
     let Some(selected_entity) = fleet_ui_state.selected_fleet else {
@@ -10685,8 +10692,12 @@ fn ui_fleet_action_bar(
                 ui.add_space(8.0);
 
                 // Fleet name + status label
-                let status_str = if in_transit {
-                    " ✈ In Transit".to_string()
+                let status_str = if let Some(maneuver) = maybe_maneuver {
+                    if sim_time.elapsed_seconds() < maneuver.departure_time {
+                        " ⏳ Waiting to depart".to_string()
+                    } else {
+                        " ✈ In Transit".to_string()
+                    }
                 } else {
                     " 🛰 In Orbit".to_string()
                 };

@@ -1308,6 +1308,7 @@ pub fn handle_body_selection(
                 fleet_ui_state.selected_option = 0;
                 fleet_ui_state.selected_gravity_assist = None;
                 fleet_ui_state.show_transfer_popup = true;
+                fleet_ui_state.departure_offset_days = -1.0; // Signal to auto-set to next window
             }
         }
     } else if left_click {
