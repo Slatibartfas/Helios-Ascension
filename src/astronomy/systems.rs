@@ -1056,7 +1056,7 @@ pub fn fade_destroyed_bodies(
 /// System that controls orbit visibility based on body type and camera anchor.
 ///
 /// Moon orbits are only shown when their parent planet is the camera's anchor,
-/// preventing overlapping moon systems from cluttering the view.
+/// their parent planet is selected, or the selected fleet orbits their parent planet.
 pub fn update_orbit_visibility(
     view_mode: Res<ViewMode>,
     camera_query: Query<&CameraAnchor, With<GameCamera>>,
@@ -1067,10 +1067,19 @@ pub fn update_orbit_visibility(
         Option<&Moon>,
         Option<&LogicalParent>,
     )>,
+    selected_query: Query<(), With<Selected>>,
+    fleet_ui_state: Res<crate::ui::FleetUiState>,
+    fleet_orbit_query: Query<&crate::fleets::FleetOrbit, With<crate::fleets::Fleet>>,
 ) {
     let Ok(anchor) = camera_query.single() else {
         return;
     };
+
+    // Determine which body the selected fleet is currently orbiting (if any).
+    let selected_fleet_orbit_body = fleet_ui_state
+        .selected_fleet
+        .and_then(|fe| fleet_orbit_query.get(fe).ok())
+        .map(|fo| fo.body);
 
     for (mut orbit_path, selected, planet, moon, logical_parent) in orbit_query.iter_mut() {
         // Hide all orbits in starmap view
@@ -1086,11 +1095,20 @@ pub fn update_orbit_visibility(
             // Planets always show their orbit
             orbit_path.visible = true;
         } else if moon.is_some() {
-            // Show moon orbits only when the parent planet is the camera anchor
-            orbit_path.visible = anchor.0.is_some()
-                && logical_parent
-                    .map(|lp| Some(lp.0) == anchor.0)
-                    .unwrap_or(false);
+            let parent_entity = logical_parent.map(|lp| lp.0);
+            // Show moon orbits when the parent planet is:
+            // 1. the camera anchor
+            let parent_anchored = anchor.0.is_some()
+                && parent_entity.map(|e| Some(e) == anchor.0).unwrap_or(false);
+            // 2. selected
+            let parent_selected = parent_entity
+                .map(|e| selected_query.contains(e))
+                .unwrap_or(false);
+            // 3. the orbit target of the currently selected fleet
+            let fleet_orbits_parent = parent_entity
+                .map(|e| Some(e) == selected_fleet_orbit_body)
+                .unwrap_or(false);
+            orbit_path.visible = parent_anchored || parent_selected || fleet_orbits_parent;
         } else {
             // Asteroids, Comets, DwarfPlanets are hidden by default
             orbit_path.visible = false;
@@ -1118,10 +1136,19 @@ pub fn update_body_lod_visibility(
         ),
         With<CelestialBody>,
     >,
+    selected_bodies: Query<(), With<Selected>>,
+    fleet_ui_state: Res<crate::ui::FleetUiState>,
+    fleet_orbit_query: Query<&crate::fleets::FleetOrbit, With<crate::fleets::Fleet>>,
 ) {
     let Ok(anchor) = camera_query.single() else {
         return;
     };
+
+    // Determine which body the selected fleet is currently orbiting (if any).
+    let selected_fleet_orbit_body = fleet_ui_state
+        .selected_fleet
+        .and_then(|fe| fleet_orbit_query.get(fe).ok())
+        .map(|fo| fo.body);
 
     for (mut visibility, logical_parent, moon, selected, system_id) in body_query.iter_mut() {
         // Bodies from other star systems must stay hidden, regardless of
@@ -1139,12 +1166,18 @@ pub fn update_body_lod_visibility(
         }
 
         if moon.is_some() {
-            // Moon visibility: only when parent planet is the camera anchor
+            // Moon visibility: only when parent planet is the camera anchor,
+            // the parent planet is selected, or the selected fleet orbits the parent.
+            let parent_entity = logical_parent.map(|lp| lp.0);
             let parent_anchored = anchor.0.is_some()
-                && logical_parent
-                    .map(|lp| Some(lp.0) == anchor.0)
-                    .unwrap_or(false);
-            *visibility = if parent_anchored {
+                && parent_entity.map(|e| Some(e) == anchor.0).unwrap_or(false);
+            let parent_selected = parent_entity
+                .map(|e| selected_bodies.contains(e))
+                .unwrap_or(false);
+            let fleet_orbits_parent = parent_entity
+                .map(|e| Some(e) == selected_fleet_orbit_body)
+                .unwrap_or(false);
+            *visibility = if parent_anchored || parent_selected || fleet_orbits_parent {
                 Visibility::Inherited
             } else {
                 Visibility::Hidden

@@ -245,7 +245,7 @@ pub struct StarDiffraction {
 // ── 3D Volumetric Corona Materials ──────────────────────────────────────────
 
 /// Inner volumetric corona shell — ray-marched 3D FBM plasma.
-/// Applied to a sphere at ~2.5× star radius with `AlphaMode::Add`.
+/// Applied to a sphere at ~1.75× star radius with `AlphaMode::Add`.
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
 pub struct StarCorona3dMaterial {
     #[uniform(0)]
@@ -1513,7 +1513,7 @@ pub fn setup_solar_system(
                 let halo_col = Vec4::new(er * 4.5, eg * 3.5, eb * 1.8, 1.0);
 
                 // Shell radii
-                let corona_shell_r = visual_radius * 2.5;
+                let corona_shell_r = visual_radius * 1.75;
                 let halo_shell_r   = visual_radius * 4.0;
 
                 // Spawn light and 3D corona shells as children of the star
@@ -1529,9 +1529,9 @@ pub fn setup_solar_system(
                     ));
 
                     // ── Inner volumetric corona shell ──────────────────────────
-                    // Ray-marched 3D FBM plasma at 1.25× star radius.
+                    // Ray-marched 3D FBM plasma at 1.75× star radius.
                     parent.spawn((
-                        Mesh3d(meshes.add(Sphere::new(corona_shell_r).mesh().uv(64, 32))),
+                        Mesh3d(meshes.add(Sphere::new(corona_shell_r).mesh().ico(5).unwrap())),
                         MeshMaterial3d(materials_corona_3d.add(StarCorona3dMaterial {
                             color_core: Vec4::ZERO, // starts hidden; LOD system drives it
                             color_halo: Vec4::ZERO,

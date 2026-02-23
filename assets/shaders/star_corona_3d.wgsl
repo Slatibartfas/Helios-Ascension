@@ -5,7 +5,7 @@
 //   2. FBM corona plumes   — animated 3D noise with radial extent variation
 //   3. Ray spikes           — high-frequency angular FBM with radial falloff
 //
-// Renders on a translucent sphere at ~2.5× star radius.  The fragment shader
+// Renders on a translucent sphere at ~1.75× star radius.  The fragment shader
 // ray-marches through the corona volume, but the primary visual structure
 // comes from evaluating 2D-style layers using spherical coordinates
 // (angle, radius from star centre) at each sample — giving the rich look
@@ -118,11 +118,18 @@ fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
     let star_r  = corona_params.x;
     let shell_r = corona_params.y;
 
-    // Derive star centre from fragment geometry
-    let center = in.world_position.xyz - normalize(in.world_normal) * shell_r;
+    // Derive star centre from fragment geometry.
+    let world_n = normalize(in.world_normal);
+    let center  = in.world_position.xyz - world_n * shell_r;
 
     let cam_pos = view.world_position.xyz;
     let ray_dir = normalize(in.world_position.xyz - cam_pos);
+
+    // Discard silhouette-edge fragments where the interpolated normal is nearly
+    // perpendicular to the view ray — center derivation is unreliable there and
+    // produces static spark artefacts at the mesh boundary.
+    let ndotv = dot(-ray_dir, world_n);
+    if ndotv < 0.08 { return vec4<f32>(0.0, 0.0, 0.0, 0.0); }
 
     // Intersect view ray with corona volume
     let outer_hit = ray_sphere(cam_pos, ray_dir, center, shell_r);
@@ -179,11 +186,16 @@ fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
         let angle = angle1 + perturb;
 
         // ── Noise-modulated radial envelope (breaks roundness) ────
-        // Instead of a smooth pow() falloff, modulate with angular noise
-        // so that the corona edge is ragged and turbulent.
+        // edge_warp varies widely to produce turbulent, irregular plume edges.
+        // outer_fade independently forces the entire corona to zero well before
+        // the shell boundary, so the edge_warp range can be wide without ever
+        // producing sparkle/lightning at the geometric mesh edge.
         let edge_noise = fbm3_3oct(dir_n * 4.0 + vec3<f32>(ct1 * 0.3, ct2 * 0.2, -ct3 * 0.4));
-        let edge_warp  = 0.7 + edge_noise * 0.6;  // range ~0.7..1.3
-        let radial_env = pow(max(1.0 - r * 2.0 * edge_warp, 0.0), 1.8);
+        let edge_warp  = 0.6 + edge_noise * 0.7;  // range ~0.6..1.3 — restore turbulent edges
+        // Fade drives to ~0 by altitude 0.90 so the outermost ray-march samples
+        // contribute nothing regardless of noise state — no spark artefacts.
+        let outer_fade = 1.0 - smoothstep(0.45, 0.90, altitude);
+        let radial_env = pow(max(1.0 - r * 2.0 * edge_warp, 0.0), 1.8) * outer_fade;
 
         // ── Layer 1: Halo ─────────────────────────────────────────
         let halo_raw   = exp(-r * r * 55.0);

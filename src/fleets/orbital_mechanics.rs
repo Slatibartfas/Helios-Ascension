@@ -483,6 +483,82 @@ pub fn calculate_transfer_options(r1_au: f64, r2_au: f64, gm: f64) -> Vec<Transf
     vec![efficient, moderate, fast]
 }
 
+/// Transfer options for a **co-orbital phasing maneuver** to an L3, L4, or L5
+/// Lagrange point.
+///
+/// L4 and L5 share the planet's orbital radius but are displaced by ±60° in
+/// phase; L3 is at the same radius but 180° away.  A standard Hohmann transfer
+/// (which only handles radial differences) cannot be used.
+///
+/// The maneuver lowers the spacecraft into a slightly smaller orbit so it
+/// completes orbits faster and drifts forward to close the phase gap in `N`
+/// complete laps, then raises back to the parking orbit.  This is sometimes
+/// called a *phasing orbit* or *co-orbital rendezvous*.
+///
+/// # Arguments
+/// - `r_au` - Heliocentric orbit radius in AU (≈ planet SMA).
+/// - `gm`   - Gravitational parameter of the central body (m³ s⁻²).
+/// - `delta_phi_rad` - Phase angle to cover (positive, radians).
+///   Use `π/3` (60°) for L4 / L5, `π` (180°) for L3.
+///
+/// # Returns
+/// Three [`TransferOption`]s ordered Efficient → Moderate → Fast
+/// (3-orbit, 2-orbit, 1-orbit phasing).
+pub fn co_orbital_phasing_options(
+    r_au: f64,
+    gm: f64,
+    delta_phi_rad: f64,
+) -> Vec<TransferOption> {
+    let r_m = r_au * AU_IN_METERS;
+    if r_m <= 0.0 || gm <= 0.0 || delta_phi_rad <= 0.0 {
+        return Vec::new();
+    }
+
+    // Circular orbital speed at the parking orbit
+    let v_circ = (gm / r_m).sqrt();
+    // Parking orbit period
+    let t_park = std::f64::consts::TAU * (r_m * r_m * r_m / gm).sqrt();
+
+    [(3u32, "Efficient"), (2, "Moderate"), (1, "Fast")]
+        .into_iter()
+        .map(|(n, label)| {
+            let nf = n as f64;
+            // Fractional SMA reduction needed so that in N full laps on the
+            // lower orbit the spacecraft gains `delta_phi` over the target.
+            //   Phase gained / lap = 2π × (T_park / T_phase − 1)
+            //   ≈ 2π × (3/2)(Δa/a)    [Kepler 3, first order]
+            //   ⟹ Δa/a = delta_phi / (3π N)
+            let da_over_a = delta_phi_rad / (3.0 * std::f64::consts::PI * nf);
+
+            // ΔV for each of the two burns (lower into phasing orbit, then raise back).
+            // From vis-viva, a small SMA change → δv ≈ v_circ × (Δa / 2a).
+            let dv_per_burn = v_circ * da_over_a * 0.5;
+            let total_dv = dv_per_burn * 2.0;
+
+            // Phasing orbit SMA (slightly lower → shorter period → gains phase)
+            let sma_phasing_au = r_au * (1.0 - da_over_a);
+
+            // Travel time: N laps on the phasing orbit.
+            // T_phase = T_park / (1 + delta_phi/(2π N))
+            let t_phase = t_park / (1.0 + delta_phi_rad / (std::f64::consts::TAU * nf));
+            let transfer_time_s = nf * t_phase;
+
+            TransferOption {
+                label,
+                total_delta_v_ms: total_dv,
+                delta_v1_ms: dv_per_burn,
+                delta_v2_ms: dv_per_burn,
+                transfer_time_s,
+                sma_au: sma_phasing_au,
+                eccentricity: 0.0, // phasing orbit is near-circular
+                energy_multiplier: 1.0 / nf,
+                burn_time_s: 0.0,
+                is_thrust_limited: false,
+            }
+        })
+        .collect()
+}
+
 /// Standard Hohmann transfer between two coplanar circular orbits.
 ///
 /// Returns `(delta_v1_ms, delta_v2_ms, transfer_time_s, sma_au, eccentricity)`.
@@ -606,6 +682,14 @@ pub fn apply_thrust_limits(
 /// Returns a list of options (e.g., Efficient Coast, Moderate Coast, Flip & Burn)
 /// based on the fleet's acceleration and ΔV capacity.
 ///
+/// Options whose total ΔV falls below `5 × hohmann_dv` are **excluded** because
+/// the flat-space (zero-gravity) kinematic model ignores gravity entirely.
+/// The cruise speed (= ΔV/2) must significantly exceed the escape velocity
+/// of the dominant gravity well for the straight-line approximation to hold.
+/// At 5× the Hohmann minimum, cruise speed approaches or exceeds the escape
+/// velocity for typical gravity wells, making gravity losses a ~10-20%
+/// perturbation rather than the dominant force.
+///
 /// # Parameters
 /// - `distance_m`: straight-line distance to target in meters
 /// - `fleet_accel_ms2`: fleet minimum acceleration (m/s²)
@@ -629,6 +713,22 @@ pub fn kinematic_transfer_options(
     if fleet_accel_ms2 < MIN_BRACH_ACCEL_MS2 || distance_m < 1e6 || fleet_max_dv_ms <= 0.0 {
         return options;
     }
+
+    // Minimum factor above the Hohmann ΔV that a kinematic coast option must
+    // reach before it is offered.  The flat-space kinematic model ignores
+    // gravity entirely, so cruise speed (= ΔV/2) must significantly exceed the
+    // escape velocity of the dominant gravity well for the straight-line
+    // approximation to hold.
+    //
+    // At 5× Hohmann the cruise speed approaches or exceeds the escape velocity
+    // for typical gravity wells (e.g. Earth v_esc ≈ 10.9 km/s, Earth→Moon
+    // Hohmann ≈ 3.9 km/s → threshold 19.5 km/s → cruise 9.75 km/s ≈ v_esc).
+    // Below this, gravity losses dominate and the model produces nonsensical
+    // trip times.
+    //
+    // For interstellar transfers (`hohmann_dv == 0.0`) the threshold is
+    // bypassed — solar/stellar gravity is negligible at interstellar scales.
+    const KINEMATIC_MIN_DV_FACTOR: f64 = 5.0;
 
     let make_option = |dv: f64, label: &'static str| -> TransferOption {
         let half_dv  = dv / 2.0;
@@ -659,29 +759,48 @@ pub fn kinematic_transfer_options(
     let dv_brach = 2.0 * (fleet_accel_ms2 * distance_m).sqrt();
     let t_brach  = 2.0 * (distance_m / fleet_accel_ms2).sqrt();
 
+    let min_coast_dv = hohmann_dv * KINEMATIC_MIN_DV_FACTOR;
+
     if dv_brach <= fleet_max_dv_ms {
         // Fleet can sustain continuous thrust for the entire trip.
-        options.push(make_option(fleet_max_dv_ms * 0.33, "Efficient Coast"));
-        options.push(make_option(fleet_max_dv_ms * 0.67, "Moderate Coast"));
+        let eff = make_option(fleet_max_dv_ms * 0.33, "Efficient Coast");
+        if hohmann_dv <= 0.0 || eff.total_delta_v_ms >= min_coast_dv {
+            options.push(eff);
+        }
+        let moderate = make_option(fleet_max_dv_ms * 0.67, "Moderate Coast");
+        if hohmann_dv <= 0.0 || moderate.total_delta_v_ms >= min_coast_dv {
+            options.push(moderate);
+        }
         
         let energy_multiplier = if hohmann_dv > 0.0 { dv_brach / hohmann_dv } else { dv_brach / fleet_max_dv_ms };
-        options.push(TransferOption {
-            label: "Flip & Burn",
-            total_delta_v_ms: dv_brach,
-            delta_v1_ms: dv_brach * 0.5,
-            delta_v2_ms: dv_brach * 0.5,
-            transfer_time_s: t_brach,
-            sma_au: sma_h,
-            eccentricity: ecc_h,
-            energy_multiplier,
-            burn_time_s: t_brach,
-            is_thrust_limited: false,
-        });
+        if hohmann_dv <= 0.0 || dv_brach >= min_coast_dv {
+            options.push(TransferOption {
+                label: "Flip & Burn",
+                total_delta_v_ms: dv_brach,
+                delta_v1_ms: dv_brach * 0.5,
+                delta_v2_ms: dv_brach * 0.5,
+                transfer_time_s: t_brach,
+                sma_au: sma_h,
+                eccentricity: ecc_h,
+                energy_multiplier,
+                burn_time_s: t_brach,
+                is_thrust_limited: false,
+            });
+        }
     } else {
         // Fleet must coast most of the way.
-        options.push(make_option(fleet_max_dv_ms * 0.33, "Efficient Coast"));
-        options.push(make_option(fleet_max_dv_ms * 0.67, "Moderate Coast"));
-        options.push(make_option(fleet_max_dv_ms,        if is_interstellar { "Max Speed" } else { "Fast Coast" }));
+        let eff = make_option(fleet_max_dv_ms * 0.33, "Efficient Coast");
+        if hohmann_dv <= 0.0 || eff.total_delta_v_ms >= min_coast_dv {
+            options.push(eff);
+        }
+        let moderate = make_option(fleet_max_dv_ms * 0.67, "Moderate Coast");
+        if hohmann_dv <= 0.0 || moderate.total_delta_v_ms >= min_coast_dv {
+            options.push(moderate);
+        }
+        let fast = make_option(fleet_max_dv_ms, if is_interstellar { "Max Speed" } else { "Fast Coast" });
+        if hohmann_dv <= 0.0 || fast.total_delta_v_ms >= min_coast_dv {
+            options.push(fast);
+        }
     }
 
     options
@@ -1198,6 +1317,69 @@ mod tests {
             "Chemical ship with only {:.0} m/s ΔV should not get Flip & Burn (needs >> that)",
             max_dv
         );
+    }
+
+    /// Kinematic coast options must not appear when ΔV is close to Hohmann.
+    ///
+    /// The flat-space kinematic model ignores gravity, so it produces nonsensical
+    /// trip times when the ship's ΔV is near the orbital-mechanics minimum.
+    /// Earth→Moon with a chemical frigate (max ΔV ≈ 4.5 km/s, Hohmann ≈ 3.9 km/s):
+    /// all kinematic options are filtered because even 100% of fleet ΔV
+    /// (4.5 km/s) is far below the 5× Hohmann threshold (19.5 km/s) — the
+    /// ship's cruise speed would be below Earth's escape velocity.
+    #[test]
+    fn test_kinematic_filters_near_hohmann_options() {
+        let gm_earth = 3.986e14_f64;
+        let r_leo_au = 400.0e3 / AU_IN_METERS;
+        let r_moon_au = 384_400.0e3 / AU_IN_METERS;
+        let (dv1, dv2, _, sma, ecc) = hohmann_transfer(r_leo_au, r_moon_au, gm_earth);
+        let hohmann_dv = dv1 + dv2;
+
+        // Chemical Frigate: high accel, low ΔV — well below 5× Hohmann
+        let max_dv = 4_500.0_f64; // 4.5 km/s (< 5 × 3.9 km/s ≈ 19.5 km/s)
+        let accel = 10.8_f64; // ~1.1 g
+
+        let d = (r_moon_au - r_leo_au) * AU_IN_METERS;
+        let opts = kinematic_transfer_options(d, accel, max_dv, hohmann_dv, sma, ecc, false);
+
+        assert!(
+            opts.is_empty(),
+            "Chemical fleet (ΔV {:.0} m/s ≈ {:.1}× Hohmann {:.0} m/s) should have \
+             NO kinematic options — cruise speed far below escape velocity, but got: {:?}",
+            max_dv, max_dv / hohmann_dv, hohmann_dv,
+            opts.iter().map(|o| (o.label, o.total_delta_v_ms)).collect::<Vec<_>>()
+        );
+    }
+
+    /// A high-ΔV ship (e.g. fusion) with > 2× Hohmann ΔV SHOULD get kinematic options.
+    #[test]
+    fn test_kinematic_appears_for_high_dv_ships() {
+        let gm_earth = 3.986e14_f64;
+        let r_leo_au = 400.0e3 / AU_IN_METERS;
+        let r_moon_au = 384_400.0e3 / AU_IN_METERS;
+        let (dv1, dv2, _, sma, ecc) = hohmann_transfer(r_leo_au, r_moon_au, gm_earth);
+        let hohmann_dv = dv1 + dv2;
+
+        // Fusion ship: ~293 km/s ΔV — vastly above Hohmann
+        let max_dv = 293_000.0_f64;
+        let accel = 0.098_f64; // 0.01 g
+
+        let d = (r_moon_au - r_leo_au) * AU_IN_METERS;
+        let opts = kinematic_transfer_options(d, accel, max_dv, hohmann_dv, sma, ecc, false);
+
+        assert!(
+            !opts.is_empty(),
+            "Fusion fleet (ΔV {:.0} m/s >> Hohmann {:.0} m/s) should have kinematic options",
+            max_dv, hohmann_dv
+        );
+        // All options should have ΔV >= 5× Hohmann
+        for opt in &opts {
+            assert!(
+                opt.total_delta_v_ms >= hohmann_dv * 5.0,
+                "Kinematic '{}' ΔV ({:.0} m/s) should be >= 5× Hohmann ({:.0} m/s)",
+                opt.label, opt.total_delta_v_ms, hohmann_dv * 5.0
+            );
+        }
     }
 
     /// At 0.01 g (0.098 m/s²), Mars minimum approach (~0.38 AU) brachistochrone

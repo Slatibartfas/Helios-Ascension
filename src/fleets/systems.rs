@@ -1410,19 +1410,30 @@ pub fn draw_fleet_transfer_preview(
             0.0
         };
 
-        // Predict the LP's parent planet position at planned arrival to get LP direction.
+        // Predict the LP's parent planet position to get LP direction.
         let planet_pos_now = body_query.get(lp.planet_entity)
             .ok().map(|(t, _, _)| t.translation).unwrap_or(Vec3::ZERO);
-        let planet_pos_arrival = predict_body_visual_pos(
-            lp.planet_entity,
-            departure_s + travel_time_s,
-            &body_query,
-            &kepler_query,
-            &amp_query,
-        ).unwrap_or(planet_pos_now);
+
+        // For co-orbital L3/L4/L5 phasing, show the arc toward the CURRENT LP
+        // marker position (the one visible on screen) instead of a predicted
+        // position many years in the future.  Phasing maneuvers keep the fleet
+        // near the planet's orbit, so the current marker is the intuitive target.
+        // L1/L2 are radial transfers that use the predicted arrival position.
+        let co_orbital_lp = matches!(lp.point, 3 | 4 | 5);
+        let planet_ref_pos = if co_orbital_lp {
+            planet_pos_now
+        } else {
+            predict_body_visual_pos(
+                lp.planet_entity,
+                departure_s + travel_time_s,
+                &body_query,
+                &kepler_query,
+                &amp_query,
+            ).unwrap_or(planet_pos_now)
+        };
 
         // L3 is opposite the planet; L4/L5 are ±60°; L1/L2 are along the planet axis.
-        let planet_angle = planet_pos_arrival.y.atan2(planet_pos_arrival.x) as f64;
+        let planet_angle = planet_ref_pos.y.atan2(planet_ref_pos.x) as f64;
         let lp_angle = match lp.point {
             3 => planet_angle + std::f64::consts::PI,
             4 => planet_angle + std::f64::consts::FRAC_PI_3,
