@@ -25,7 +25,7 @@ The game now has fully functional colony management, economy, research, interste
 
 - **Fleet Management & Orbital Mechanics**: Command fleets across the solar system
   - **7 ship classes**: Courier, Frigate, Destroyer, Cruiser, Research Vessel, Freighter, Station
-  - **5 propulsion types**: Chemical (450 s Isp), Nuclear Thermal (900 s), Ion Drive (5 000 s), Nuclear Pulse (10 000 s), Fusion Torch (50 000 s)
+  - **6 propulsion types**: Chemical (450 s Isp), Nuclear Thermal (900 s), Ion Drive (5 000 s), Nuclear Pulse (10 000 s), Fusion Torch (50 000 s), Antimatter Drive (1 000 000 s)
   - Realistic Tsiolkovsky rocket-equation Δv and fuel calculations per ship
   - **3 transfer options** per route: efficient Hohmann, moderate, and fast burns
   - Transfer window planner: live synodic-period countdown and phase-angle display

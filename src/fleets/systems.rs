@@ -141,9 +141,7 @@ pub fn update_fleet_maneuver_positions(
             continue;
         }
         
-        let is_kinematic = maneuver.option_label == "Flip & Burn" || maneuver.option_label.contains("Coast") || maneuver.option_label == "Max Speed";
-        
-        if is_kinematic {
+        if maneuver.is_kinematic() {
             let progress = maneuver.progress(elapsed);
             
             // Get origin position at departure
@@ -214,9 +212,7 @@ pub fn complete_fleet_maneuvers(
             let rel = fleet_sc.position - center_pos;
             let pos_angle = rel.y.atan2(rel.x);
 
-            let is_kinematic = maneuver.option_label == "Flip & Burn" || maneuver.option_label.contains("Coast") || maneuver.option_label == "Max Speed";
-            
-            let direction = if is_kinematic {
+            let direction = if maneuver.is_kinematic() {
                 let start_pos = maneuver.start_position_au.unwrap_or(DVec3::ZERO);
                 let end_pos = maneuver.end_position_au.unwrap_or(DVec3::ZERO);
                 let vel_dir = end_pos - start_pos;
@@ -346,24 +342,30 @@ pub fn process_fleet_actions(
             .map(|o| o.angle_rad as f32)
             .unwrap_or(0.0);
             
-        let is_kinematic = t.option_label == "Flip & Burn" || t.option_label.contains("Coast") || t.option_label == "Max Speed";
+        let is_kinematic = t.option_label == "Flip & Burn" || t.option_label.contains("Coast") || t.option_label == "Max Speed" || t.option_label.contains("Direct");
         let (start_position_au, end_position_au) = if is_kinematic {
-            let start_pos = predict_body_physics_pos(
-                t.origin_body,
-                departure_s,
-                &body_query,
-                &kepler_query,
-            ).unwrap_or_else(|| {
-                center_coords.get(t.origin_body).map(|sc| sc.position).unwrap_or(DVec3::ZERO)
+            // Use pre-computed positions from PlannedTransfer if available (e.g. LP Direct),
+            // otherwise predict from body entities.
+            let start_pos = t.start_position_au.unwrap_or_else(|| {
+                predict_body_physics_pos(
+                    t.origin_body,
+                    departure_s,
+                    &body_query,
+                    &kepler_query,
+                ).unwrap_or_else(|| {
+                    center_coords.get(t.origin_body).map(|sc| sc.position).unwrap_or(DVec3::ZERO)
+                })
             });
             
-            let end_pos = predict_body_physics_pos(
-                t.destination_body,
-                arrival_s,
-                &body_query,
-                &kepler_query,
-            ).unwrap_or_else(|| {
-                center_coords.get(t.destination_body).map(|sc| sc.position).unwrap_or(DVec3::ZERO)
+            let end_pos = t.end_position_au.unwrap_or_else(|| {
+                predict_body_physics_pos(
+                    t.destination_body,
+                    arrival_s,
+                    &body_query,
+                    &kepler_query,
+                ).unwrap_or_else(|| {
+                    center_coords.get(t.destination_body).map(|sc| sc.position).unwrap_or(DVec3::ZERO)
+                })
             });
             
             (Some(start_pos), Some(end_pos))
@@ -772,8 +774,7 @@ pub fn draw_fleet_trajectories(
                 let tang_d_a = Vec3::new(-radial_dest.y, radial_dest.x, 0.0);
                 let tang_dest = if tang_d_a.dot(tang_origin) >= 0.0 { tang_d_a } else { -tang_d_a };
 
-                let is_kinematic = maneuver.option_label == "Flip & Burn" || maneuver.option_label.contains("Coast") || maneuver.option_label == "Max Speed";
-                if is_kinematic {
+                if maneuver.is_kinematic() {
                     // Kinematic transfer: straight powered line, no ballistic arc.
                     for i in 0..SEGMENTS {
                         let t0 = i as f32 / SEGMENTS as f32;
@@ -825,8 +826,7 @@ pub fn draw_fleet_trajectories(
         let total_ma_travel = maneuver.transfer_orbit.mean_motion
             * (maneuver.arrival_time - maneuver.departure_time);
 
-        let is_kinematic = maneuver.option_label == "Flip & Burn" || maneuver.option_label.contains("Coast") || maneuver.option_label == "Max Speed";
-        if is_kinematic {
+        if maneuver.is_kinematic() {
             // Kinematic transfer: straight powered line between departure and arrival positions.
             let p0_au = maneuver.start_position_au.unwrap_or_else(|| {
                 center_coords.get(maneuver.origin_body).map(|sc| sc.position).unwrap_or(DVec3::ZERO)
@@ -1514,7 +1514,7 @@ pub fn draw_fleet_transfer_preview(
 
         let is_kinematic = fleet_ui_state.computed_options
             .get(fleet_ui_state.selected_option)
-            .map(|opt| opt.label == "Flip & Burn" || opt.label.contains("Coast") || opt.label == "Max Speed")
+            .map(|opt| opt.label == "Flip & Burn" || opt.label.contains("Coast") || opt.label == "Max Speed" || opt.label.contains("Direct"))
             .unwrap_or(false);
 
         // Fixed visual marker radius — no physical body size for a fleet.
@@ -1683,7 +1683,7 @@ pub fn draw_fleet_transfer_preview(
     // Check whether the selected option is a kinematic transfer.
     let is_kinematic = fleet_ui_state.computed_options
         .get(fleet_ui_state.selected_option)
-        .map(|opt| opt.label == "Flip & Burn" || opt.label.contains("Coast") || opt.label == "Max Speed")
+        .map(|opt| opt.label == "Flip & Burn" || opt.label.contains("Coast") || opt.label == "Max Speed" || opt.label.contains("Direct"))
         .unwrap_or(false);
 
     // Dashed amber arc — straight line for kinematic transfers, cubic Bezier for ballistic arcs.

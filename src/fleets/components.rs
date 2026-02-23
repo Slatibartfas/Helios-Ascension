@@ -273,6 +273,18 @@ pub struct ActiveManeuver {
 }
 
 impl ActiveManeuver {
+    /// Whether this transfer uses kinematic (straight-line) interpolation rather
+    /// than Keplerian orbit propagation.
+    ///
+    /// Kinematic transfers include flip-and-burn, coast phases, max-speed runs,
+    /// and direct L1/L2 Lagrange-point transfers.
+    pub fn is_kinematic(&self) -> bool {
+        self.option_label == "Flip & Burn"
+            || self.option_label.contains("Coast")
+            || self.option_label == "Max Speed"
+            || self.option_label.contains("Direct")
+    }
+
     /// Fractional progress of the transfer arc, clamped to \[0, 1\].
     pub fn progress(&self, current_sim_time: f64) -> f64 {
         let elapsed = current_sim_time - self.departure_time;
@@ -393,4 +405,10 @@ pub struct PlannedTransfer {
     pub fuel_cost_t: f32,
     /// Label identifying which transfer option was chosen.
     pub option_label: &'static str,
+    /// Pre-computed departure position (AU) for kinematic/direct transfers.
+    /// When set, `process_fleet_actions` uses this instead of predicting from `origin_body`.
+    pub start_position_au: Option<bevy::math::DVec3>,
+    /// Pre-computed arrival position (AU) for kinematic/direct transfers.
+    /// When set, `process_fleet_actions` uses this instead of predicting from `destination_body`.
+    pub end_position_au: Option<bevy::math::DVec3>,
 }

@@ -49,7 +49,7 @@ use crate::fleets::{
 };
 use crate::fleets::orbital_mechanics::{
     apply_thrust_limits, kinematic_transfer_options, calculate_transfer_options,
-    calculate_transfer_options_phased, co_orbital_phasing_options,
+    calculate_transfer_options_phased, co_orbital_phasing_options, direct_lp_transfer_options,
     compute_burn_time_s, compute_transfer_window,
     find_gravity_assist_options, format_delta_v, format_duration,
     hohmann_transfer, GravityAssistOption,
@@ -9508,7 +9508,6 @@ fn render_transfer_planner(
     body_system_ids: &Query<&SystemId>,
     elapsed: f64,
     nearby_stars: &NearbyStarsData,
-    current_timestamp: i64,
 ) {
     let is_course_correction = current_maneuver.is_some();
 
@@ -10661,9 +10660,22 @@ fn render_transfer_planner(
                 // Lagrange-point transfer.
                 // Determine the fleet's current heliocentric SMA, walking up to
                 // the planet's SMA when the fleet is parked at a moon/sub-body.
+                // When orbiting the star directly (e.g. after a previous LP transfer),
+                // use the fleet's parking radius if available, otherwise the LP planet's SMA.
                 let r1_lp = body_query.get(orbit.body).ok()
-                    .and_then(|(_, _, _, ko, _)| ko)
-                    .map(|ko| ko.semi_major_axis)
+                    .and_then(|(_, body, _, ko, _)| {
+                        if body.body_type == BodyType::Star {
+                            // Fleet parked around the star — use its parking orbit radius
+                            // or fall back to the target LP's planet SMA.
+                            if orbit.radius_au > 0.01 {
+                                Some(orbit.radius_au)
+                            } else {
+                                Some(lp.planet_sma_au)
+                            }
+                        } else {
+                            ko.map(|ko| ko.semi_major_axis)
+                        }
+                    })
                     .or_else(|| {
                         body_query.get(orbit.body).ok()
                             .and_then(|(_, _, _, _, parent)| parent)
@@ -10671,7 +10683,7 @@ fn render_transfer_planner(
                                 .and_then(|(_, _, _, ko, _)| ko)
                                 .map(|ko| ko.semi_major_axis))
                     })
-                    .unwrap_or(1.0);
+                    .unwrap_or(lp.planet_sma_au);
 
                 // L3/L4/L5 are co-orbital with the planet (same heliocentric radius,
                 // different phase angle).  A Hohmann gives 0 Delta-V in this case.
@@ -10703,9 +10715,12 @@ fn render_transfer_planner(
                     );
                     fleet_ui_state.computed_options.append(&mut kinematics);
                 } else {
-                    // Radially-offset LP (L1/L2) or cross-orbit transfer: standard Hohmann.
+                    // Radially-offset LP (L1/L2) or cross-orbit transfer.
+                    // L1/L2 are very close radially (~r_hill ≈ 0.01 AU for Earth).
+                    // Use direct LP transfer (manifold-like) instead of Hohmann half-orbit
+                    // to get realistic ~1–3 month travel times and straight-line rendering.
                     fleet_ui_state.computed_options =
-                        calculate_transfer_options(r1_lp, lp.radius_au, lp.gm);
+                        direct_lp_transfer_options(r1_lp, lp.radius_au, lp.gm);
                     apply_thrust_limits(
                         &mut fleet_ui_state.computed_options,
                         fleet.min_accel_ms2(),
@@ -10786,7 +10801,7 @@ fn render_transfer_planner(
                             );
                         } else {
                             ui.label(
-                                egui::RichText::new("⏱ Radial Transfer")
+                                egui::RichText::new("🎯 Direct LP Transfer")
                                     .strong().size(12.0)
                                     .color(egui::Color32::from_rgb(160, 210, 255)),
                             );
@@ -10799,6 +10814,10 @@ fn render_transfer_planner(
                             ui.label(
                                 egui::RichText::new(format!("r = {:.4} AU", lp.radius_au))
                                     .size(11.0).color(egui::Color32::GRAY),
+                            );
+                            ui.label(
+                                egui::RichText::new("Low-energy manifold trajectory\nto the Lagrange equilibrium.")
+                                    .size(10.0).color(egui::Color32::GRAY),
                             );
                         }
                     });
@@ -11154,17 +11173,10 @@ fn render_transfer_planner(
                 }
                 if !is_interstellar {
                     ui.add_space(12.0);
-                    let departure_offset_s = fleet_ui_state.departure_offset_days * 86_400.0;
-                    let total_eta_s = departure_offset_s + sel_option.transfer_time_s;
-                    let arrival_timestamp = current_timestamp + total_eta_s as i64;
                     ui.label(
-                        egui::RichText::new(format!(
-                            "ETA  {}  (arr. {})",
-                            format_duration(total_eta_s),
-                            format_timestamp_date_time(arrival_timestamp),
-                        ))
-                        .size(12.0)
-                        .color(egui::Color32::from_rgb(160, 220, 160)),
+                        egui::RichText::new(format!("ETA  {}", format_duration(sel_option.transfer_time_s)))
+                            .size(12.0)
+                            .color(egui::Color32::from_rgb(160, 220, 160)),
                     );
                 }
             });
@@ -11544,7 +11556,6 @@ fn ui_transfer_planner_popup(
                         &body_system_ids,
                         elapsed,
                         &nearby_stars,
-                        sim_time.current_timestamp(),
                     );
                 });
         });
@@ -11676,6 +11687,8 @@ fn build_planned_transfer(
         arrival_orbit_radius_au,
         fuel_cost_t: fuel_cost,
         option_label: option.label,
+        start_position_au: None,
+        end_position_au: None,
     })
 }
 
@@ -11697,17 +11710,50 @@ fn build_planned_transfer_lp(
         .map(|(e, _, _, _, _)| e)
         .unwrap_or(orbit.body);
 
-    // Use the planet's space position for the departure angle
-    let (_, _, origin_sc, _, _) = body_query.get(orbit.body).ok()?;
+    // Determine departure position.  For fleets orbiting the star directly
+    // (e.g. after a previous LP transfer), `orbit.body` is the star whose
+    // SpaceCoordinates are at the heliocentric origin → rel_pos would be
+    // (0,0,0) and departure_angle 0.  In that case use the L-point's parent
+    // planet position instead so the orbit geometry is meaningful.
+    let center_pos = body_query.get(star_entity)
+        .map(|(_, _, sc, _, _)| sc.position)
+        .unwrap_or(bevy::math::DVec3::ZERO);
+
+    let origin_pos = {
+        let (_, body_data, origin_sc, _, _) = body_query.get(orbit.body).ok()?;
+        if body_data.body_type == BodyType::Star {
+            // Fleet is parked around the star — use the planet's current position
+            // as the departure reference instead.
+            body_query.get(lp.planet_entity)
+                .map(|(_, _, sc, _, _)| sc.position)
+                .unwrap_or(origin_sc.position)
+        } else {
+            origin_sc.position
+        }
+    };
+
+    let rel_pos = origin_pos - center_pos;
+    let departure_angle = rel_pos.y.atan2(rel_pos.x);
+
+    // L1/L2 direct transfers use kinematic (straight-line) rendering.
+    // Override the option label to trigger kinematic mode in the rendering pipeline.
+    let is_direct_lp = matches!(lp.point, 1 | 2);
+    let option_label: &'static str = if is_direct_lp {
+        match option.label {
+            "Efficient" => "Direct Efficient",
+            "Moderate"  => "Direct Moderate",
+            "Fast"      => "Direct Fast",
+            other       => other,  // kinematic labels pass through unchanged
+        }
+    } else {
+        option.label
+    };
 
     let gm = lp.gm;
     let sma_m = option.sma_au * AU_IN_METERS;
     let mean_motion = (gm / sma_m.powi(3)).sqrt();
 
     let outward = lp.radius_au >= lp.planet_sma_au;
-    let center_pos = body_query.get(star_entity).map(|(_, _, sc, _, _)| sc.position).unwrap_or(bevy::math::DVec3::ZERO);
-    let rel_pos = origin_sc.position - center_pos;
-    let departure_angle = rel_pos.y.atan2(rel_pos.x);
     let argument_of_periapsis = if outward {
         departure_angle
     } else {
@@ -11727,6 +11773,24 @@ fn build_planned_transfer_lp(
 
     let fuel_cost = fleet.total_fuel_cost_for_dv(option.total_delta_v_ms);
 
+    // For direct L1/L2 transfers, pre-compute start and end positions so the
+    // kinematic rendering draws a straight line to the LP, not to the Sun.
+    let (start_pos, end_pos) = if is_direct_lp {
+        // Start: fleet's origin body (planet) position
+        let start = origin_pos;
+        // End: LP position at the same angle as the planet (L1/L2 are along the
+        // Sun-planet radial line).
+        let planet_dir = if rel_pos.length() > 1e-12 {
+            rel_pos.normalize()
+        } else {
+            bevy::math::DVec3::X
+        };
+        let end = center_pos + planet_dir * lp.radius_au;
+        (Some(start), Some(end))
+    } else {
+        (None, None)
+    };
+
     Some(PlannedTransfer {
         origin_body: orbit.body,
         // Lagrange point orbits are heliocentric: the fleet parks around the star at the
@@ -11739,7 +11803,9 @@ fn build_planned_transfer_lp(
         arrival_delta_v_ms: option.delta_v2_ms,
         arrival_orbit_radius_au: lp.radius_au,
         fuel_cost_t: fuel_cost,
-        option_label: option.label,
+        option_label,
+        start_position_au: start_pos,
+        end_position_au: end_pos,
     })
 }
 

@@ -35,7 +35,7 @@ The game has a fully implemented fleet management system with realistic orbital 
 ### 2.2 Spacecraft ✅
 - [x] Ship design system foundation
 - [x] **7 ship classes**: Courier, Frigate, Destroyer, Cruiser, Research Vessel, Freighter, Station
-- [x] **5 propulsion types**: Chemical, Nuclear Thermal, Ion Drive, Nuclear Pulse, Fusion Torch
+- [x] **6 propulsion types**: Chemical, Nuclear Thermal, Ion Drive, Nuclear Pulse, Fusion Torch, Antimatter Drive
 - [x] Tsiolkovsky rocket-equation Δv and fuel calculations
 - [x] Fleet spawning from launch sites (Shipyard, Launch Site buildings)
 - [x] Fleet movement — orbital transfer arcs with Keplerian propagation

@@ -235,7 +235,7 @@ When adding new UI icons (menus, research categories, etc.), applying the follow
 - **`FleetPlugin`** manages fleet spawning, transfer planning, and ECS lifecycle
 - **7 ship classes** (`ShipClass`): Courier, Frigate, Destroyer, Cruiser, ResearchVessel, Freighter, Station
   - Each class has a default dry mass (500 t – 100 000 t) and fuel fraction
-- **5 propulsion types** (`PropulsionType`): Chemical (450 s), NuclearThermal (900 s), IonDrive (5 000 s), NuclearPulse (10 000 s), FusionTorch (50 000 s)
+- **6 propulsion types** (`PropulsionType`): Chemical (450 s), NuclearThermal (900 s), IonDrive (5 000 s), NuclearPulse (10 000 s), FusionTorch (50 000 s), AntimatterDrive (1 000 000 s)
   - Tsiolkovsky rocket equation used throughout: Δv = Isp × g₀ × ln(m_wet / m_dry)
 - **`Fleet`** component: named collection of `ShipInfo` structs; Δv capacity is limited by the weakest ship
 - **`FleetOrbit`** component: stable circular parking orbit around a body; visual angle advances at 1 rev/40 s real time (freezes when paused)
