@@ -9019,36 +9019,37 @@ fn render_fleet_name_marquee(
                 .color(name_color),
         );
     } else {
-        // Compute scroll offset from real time:
-        //   pause 1.5 s → scroll at 45 px/s → pause 1.5 s → repeat.
-        let scroll_dist = full_width - max_width + 12.0;
-        let speed = 45.0_f64;
-        let pause = 1.5_f64;
-        let period = pause + scroll_dist as f64 / speed + pause;
-        let t = ui.input(|i| i.time) % period;
-        let offset_x = if t < pause {
-            0.0_f32
-        } else if t < pause + scroll_dist as f64 / speed {
-            ((t - pause) * speed) as f32
-        } else {
-            0.0
-        };
+        // Continuous marquee: scroll left at constant speed, loop seamlessly.
+        // Two copies of the text are painted side-by-side separated by a gap;
+        // the offset cycles over (full_width + gap) so the join is invisible.
+        let gap = 72.0_f32;
+        let cycle = (full_width + gap) as f64;
+        let speed = 50.0_f64; // px / real-second
+        let t = ui.input(|i| i.time);
+        let offset_x = ((t * speed) % cycle) as f32;
 
-        egui::ScrollArea::horizontal()
-            .id_salt(("fleet_name_marquee", fleet_entity))
-            .scroll_offset(egui::Vec2::new(offset_x, 0.0))
-            .max_width(max_width)
-            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
-            .show(ui, |ui| {
-                ui.label(
-                    egui::RichText::new(&name_text)
-                        .strong()
-                        .size(18.0)
-                        .color(name_color),
-                );
-            });
+        let text_height = ui
+            .painter()
+            .layout_no_wrap(name_text.clone(), font_id.clone(), name_color)
+            .size()
+            .y;
+        let widget_height = text_height.max(24.0);
+        let (rect, _) = ui.allocate_exact_size(
+            egui::vec2(max_width, widget_height),
+            egui::Sense::hover(),
+        );
+        let painter = ui.painter_at(rect); // clips to rect automatically
+        let y = rect.top() + (rect.height() - text_height) * 0.5;
 
-        // Request a repaint so the animation keeps ticking.
+        // Re-layout for painting (layout_no_wrap needs Arc<Galley>)
+        let galley2 = painter.layout_no_wrap(name_text.clone(), font_id.clone(), name_color);
+        let x0 = rect.left() - offset_x;
+        painter.galley(egui::pos2(x0, y), galley2.clone(), name_color);
+        let x1 = x0 + (full_width + gap);
+        if x1 < rect.right() + full_width {
+            painter.galley(egui::pos2(x1, y), galley2, name_color);
+        }
+
         ui.ctx().request_repaint();
     }
 
@@ -9071,23 +9072,20 @@ fn render_fleet_detail(
     elapsed: f64,
 ) {
     // ── Fleet header ─────────────────────────────────────────────────────────
+    // Row 1: fleet name + ✏ button (full width, no competing right-side controls)
     ui.horizontal(|ui| {
-        // Reserve space: ✏ button ~26px; right controls (Disband + Role combo + label) ~280px.
-        // The name area gets whatever remains, clamped to a sensible range.
-        let name_area_width = (ui.available_width() - 310.0).clamp(80.0, 340.0);
+        let name_area_width = (ui.available_width() - 32.0).max(60.0);
 
-        // Check without holding a borrow so we can mutate freely afterward.
         let is_editing_this = fleet_ui_state.editing_fleet_name
             .as_ref()
             .map(|(e, _)| *e == fleet_entity)
             .unwrap_or(false);
 
         if is_editing_this {
-            // Scope the mutable borrow so we can write back after the widget call.
             let (committed_name, should_cancel) = {
                 if let Some((_, ref mut current_name)) = fleet_ui_state.editing_fleet_name {
                     let response = ui.add_sized(
-                        [name_area_width + 26.0, 24.0],
+                        [name_area_width, 24.0],
                         egui::TextEdit::singleline(current_name),
                     );
                     let cancelled = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape));
@@ -9099,7 +9097,7 @@ fn render_fleet_detail(
                 } else {
                     (None, false)
                 }
-            }; // borrow of editing_fleet_name ends here
+            };
             if let Some(name) = committed_name {
                 pending_actions.rename_fleets.push((fleet_entity, name));
                 fleet_ui_state.editing_fleet_name = None;
@@ -9109,37 +9107,39 @@ fn render_fleet_detail(
         } else {
             render_fleet_name_marquee(ui, fleet, fleet_entity, name_area_width, &mut fleet_ui_state.editing_fleet_name);
         }
+    });
 
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button(egui::RichText::new("🗑 Disband").color(egui::Color32::from_rgb(220, 80, 60)))
-                .on_hover_text(if fleet.ships.is_empty() { "Disband this fleet" } else { "Disband fleet (destroys all ships)" })
-                .clicked()
-            {
-                fleet_ui_state.disband_confirm_fleet = Some(fleet_entity);
-            }
-            egui::ComboBox::from_id_salt("fleet_role_combo")
-                .selected_text(fleet.role.display_name())
-                .show_ui(ui, |ui| {
-                    use crate::fleets::types::FleetRole;
-                    let roles = [
-                        FleetRole::Unassigned,
-                        FleetRole::Attack,
-                        FleetRole::Defend,
-                        FleetRole::Survey,
-                        FleetRole::Transport,
-                        FleetRole::Explore,
-                    ];
-                    for role in roles {
-                        if ui.selectable_label(
-                            fleet.role == role,
-                            format!("{} {}", role.icon(), role.display_name()),
-                        ).clicked() {
-                            pending_actions.change_fleet_roles.push((fleet_entity, role));
-                        }
+    // Row 2: Role selector + Disband (left-aligned)
+    ui.horizontal(|ui| {
+        ui.label("Role:");
+        egui::ComboBox::from_id_salt("fleet_role_combo")
+            .selected_text(fleet.role.display_name())
+            .show_ui(ui, |ui| {
+                use crate::fleets::types::FleetRole;
+                let roles = [
+                    FleetRole::Unassigned,
+                    FleetRole::Attack,
+                    FleetRole::Defend,
+                    FleetRole::Survey,
+                    FleetRole::Transport,
+                    FleetRole::Explore,
+                ];
+                for role in roles {
+                    if ui.selectable_label(
+                        fleet.role == role,
+                        format!("{} {}", role.icon(), role.display_name()),
+                    ).clicked() {
+                        pending_actions.change_fleet_roles.push((fleet_entity, role));
                     }
-                });
-            ui.label("Role:");
-        });
+                }
+            });
+        ui.add_space(8.0);
+        if ui.button(egui::RichText::new("🗑 Disband").color(egui::Color32::from_rgb(220, 80, 60)))
+            .on_hover_text(if fleet.ships.is_empty() { "Disband this fleet" } else { "Disband fleet (destroys all ships)" })
+            .clicked()
+        {
+            fleet_ui_state.disband_confirm_fleet = Some(fleet_entity);
+        }
     });
     ui.separator();
 
