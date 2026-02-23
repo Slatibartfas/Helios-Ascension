@@ -1062,6 +1062,31 @@ pub fn ensure_fleet_meshes(
     }
 }
 
+/// Update fleet mesh sphere colours based on transit state.
+///
+/// In-transit fleets travel along the **cyan** trajectory arc, so the default green
+/// blends in.  Switching to **bright yellow** while in transit gives strong contrast
+/// at all zoom levels.  Runs every frame (fleet count is small, so the overhead is
+/// negligible; running unconditionally avoids `RemovedComponents` bookkeeping).
+pub fn update_fleet_mesh_materials(
+    fleet_query: Query<(Option<&ActiveManeuver>, &MeshMaterial3d<StandardMaterial>), (With<Fleet>, With<FleetMesh>)>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for (maybe_maneuver, mat_handle) in fleet_query.iter() {
+        if let Some(mat) = materials.get_mut(&mat_handle.0) {
+            if maybe_maneuver.is_some() {
+                // In transit: bright yellow — high contrast against the cyan arc.
+                mat.base_color = Color::srgb(1.0, 0.92, 0.2);
+                mat.emissive = LinearRgba::new(3.5, 2.8, 0.4, 1.0);
+            } else {
+                // In orbit: standard green.
+                mat.base_color = Color::srgb(0.3, 0.9, 0.4);
+                mat.emissive = LinearRgba::new(0.6, 1.8, 0.8, 1.0);
+            }
+        }
+    }
+}
+
 /// Keep each fleet entity's `Transform` in sync with its position, and control
 /// mesh visibility:
 ///

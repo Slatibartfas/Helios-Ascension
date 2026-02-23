@@ -850,6 +850,7 @@ impl Plugin for UIPlugin {
                 Update,
                 (
                     sync_selection_with_astronomy,
+                    clear_fleet_on_body_select,
                     sync_active_menu_with_view_mode,
                     advance_simulation_time,
                     process_menu_icons,
@@ -865,6 +866,20 @@ impl Plugin for UIPlugin {
             );
     }
 } 
+
+/// Clear the fleet selection whenever a celestial body gains the `Selected` component.
+///
+/// This covers every selection path (3-D viewport left-click, ledger row click,
+/// anchor-button click) without requiring `FleetUiState` to be threaded through
+/// every UI render function.
+fn clear_fleet_on_body_select(
+    added_selected: Query<(), (With<CelestialBody>, Added<Selected>)>,
+    mut fleet_ui_state: ResMut<FleetUiState>,
+) {
+    if added_selected.iter().next().is_some() {
+        fleet_ui_state.selected_fleet = None;
+    }
+}
 
 /// System that syncs the UI selection with the astronomy Selected component
 fn sync_selection_with_astronomy(
@@ -2677,20 +2692,20 @@ fn render_fleet_ledger_tree(
             fleet_ui_state.selected_fleet = Some(entity);
             fleet_ui_state.clear_target();
 
-            // Anchor camera to the fleet's current or departure body
-            let anchor_body = if let Some(maneuver) = maybe_maneuver {
-                // In transit: anchor to departure (origin) body
-                Some(maneuver.origin_body)
+            // Anchor camera to the moving fleet dot (in transit) or its orbit body.
+            let anchor_entity = if maybe_maneuver.is_some() {
+                // In transit: track the fleet's position along the trajectory arc.
+                Some(entity)
             } else if let Some(orbit) = maybe_orbit {
-                // Orbiting: anchor to that body
+                // Orbiting: anchor to the parent body.
                 Some(orbit.body)
             } else {
                 None
             };
 
-            if let Some(body_entity) = anchor_body {
+            if let Some(anchor_ent) = anchor_entity {
                 if let Ok(mut anchor) = anchor_query.single_mut() {
-                    anchor.0 = Some(body_entity);
+                    anchor.0 = Some(anchor_ent);
                 }
             }
         }
@@ -2704,6 +2719,21 @@ fn render_fleet_ledger_tree(
                     .color(egui::Color32::GRAY),
             );
         });
+
+        // Compact transit progress bar — shown once the fleet has actually departed.
+        if let Some(maneuver) = maybe_maneuver {
+            if elapsed >= maneuver.departure_time {
+                let progress = maneuver.progress(elapsed) as f32;
+                ui.horizontal(|ui| {
+                    ui.add_space(18.0);
+                    ui.add(
+                        egui::ProgressBar::new(progress)
+                            .desired_width(ui.available_width() - 4.0)
+                            .text(format!("{:.1}%", progress * 100.0)),
+                    );
+                });
+            }
+        }
     }
 }
 

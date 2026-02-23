@@ -64,6 +64,8 @@ impl Plugin for FleetPlugin {
                     systems::draw_gravity_assist_preview
                         .after(systems::update_fleet_transforms),
                     systems::ensure_fleet_meshes,
+                    systems::update_fleet_mesh_materials
+                        .after(systems::ensure_fleet_meshes),
                     systems::update_fleet_transforms
                         .after(systems::update_fleet_orbit_positions)
                         .after(systems::update_fleet_maneuver_positions),
