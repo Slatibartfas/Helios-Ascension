@@ -14,7 +14,7 @@ pub mod systems;
 pub mod types;
 
 pub use components::{
-    ActiveManeuver, Fleet, FleetOrbit, PendingFleetActions, PlannedTransfer, ShipInfo,
+    ActiveManeuver, Fleet, FleetOrbit, MergeFleetAction, PendingFleetActions, PlannedTransfer, ShipInfo,
     SpawnFleetAction, StartTransferAction,
 };
 pub use systems::{

@@ -316,8 +316,21 @@ pub struct PendingFleetActions {
     pub change_fleet_roles: Vec<(Entity, FleetRole)>,
     /// Requests to transfer ships between fleets.
     pub transfer_ships: Vec<TransferShipsAction>,
-    /// Requests to disband empty fleets.
+    /// Requests to disband fleets (confirmed by the player).
     pub disband_fleets: Vec<Entity>,
+    /// Requests to merge several fleets into one.
+    pub merge_fleets: Vec<MergeFleetAction>,
+}
+
+/// Merge two or more fleets: all ships from `source_fleets` are moved into
+/// `target_fleet` (which keeps its name), and the source fleet entities are
+/// despawned once empty.
+#[derive(Debug, Clone)]
+pub struct MergeFleetAction {
+    /// Fleets whose ships will be moved out and despawned.
+    pub source_fleets: Vec<Entity>,
+    /// Fleet entity that survives and receives all ships.
+    pub target_fleet: Entity,
 }
 
 /// Request to transfer ships between fleets.

@@ -471,12 +471,42 @@ pub fn process_fleet_actions(
         }
     }
 
-    // Disband empty fleets
+    // Disband fleets (already confirmed by the player in the UI).
     for entity in actions.disband_fleets.drain(..) {
-        if let Ok(fleet) = fleet_query.get(entity) {
-            if fleet.ships.is_empty() {
-                commands.entity(entity).despawn();
+        if fleet_query.get(entity).is_ok() {
+            commands.entity(entity).despawn();
+        }
+    }
+
+    // Merge fleets: move all ships into the target fleet, despawn sources.
+    // All fleets must be in orbit (not in transit) at the same body.
+    for action in actions.merge_fleets.drain(..) {
+        // Verify target is in a stable orbit.
+        let target_body = match orbit_query.get(action.target_fleet) {
+            Ok(o) => o.body,
+            Err(_) => continue, // target is in transit — reject
+        };
+        // Verify every source is in orbit at the same body.
+        let all_valid = action.source_fleets.iter().all(|&src| {
+            orbit_query.get(src).map(|o| o.body == target_body).unwrap_or(false)
+        });
+        if !all_valid {
+            continue;
+        }
+        // Collect all ships from sources first to satisfy the borrow checker.
+        let mut collected_ships: Vec<ShipInfo> = Vec::new();
+        let mut to_despawn: Vec<Entity> = Vec::new();
+        for src_entity in &action.source_fleets {
+            if let Ok(mut src) = fleet_query.get_mut(*src_entity) {
+                collected_ships.append(&mut src.ships);
+                to_despawn.push(*src_entity);
             }
+        }
+        if let Ok(mut target) = fleet_query.get_mut(action.target_fleet) {
+            target.ships.append(&mut collected_ships);
+        }
+        for e in to_despawn {
+            commands.entity(e).despawn();
         }
     }
 }
