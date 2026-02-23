@@ -28,7 +28,7 @@ pub use orbital_mechanics::{
     GravityAssistOption, TransferOption, TransferWindowInfo,
     AU_IN_METERS, G_CONST, GM_SUN,
 };
-pub use types::{PropulsionType, ShipClass};
+pub use types::{PropulsionType, ShipClass, FleetRole};
 
 /// Plugin that adds the fleet management system to the Bevy app.
 pub struct FleetPlugin;

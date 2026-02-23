@@ -43,7 +43,7 @@ use crate::research::{
     Technology, ModifierType, TechModifierDef,
 };
 use crate::fleets::{
-    ActiveManeuver, Fleet, FleetOrbit, PendingFleetActions, PlannedTransfer, ShipInfo,
+    ActiveManeuver, Fleet, FleetOrbit, PendingFleetActions, PlannedTransfer,
     StartTransferAction, TransferOption, TransferWindowInfo,
     AU_IN_METERS, G_CONST, GM_SUN,
 };
@@ -170,6 +170,8 @@ pub struct FleetUiState {
     /// Interstellar target: (system_id, display_name, distance_ly).
     /// Mutually exclusive with `target_body`, `target_lagrange`, and `target_fleet`.
     pub target_star_system: Option<(usize, String, f32)>,
+    /// Currently editing fleet name: (fleet_entity, new_name).
+    pub editing_fleet_name: Option<(Entity, String)>,
 }
 
 impl FleetUiState {
@@ -186,6 +188,7 @@ impl FleetUiState {
         self.selected_option = 0;
         self.gravity_assist_candidates.clear();
         self.selected_gravity_assist = None;
+        self.editing_fleet_name = None;
     }
 }
 
@@ -8450,36 +8453,41 @@ fn ui_fleets_panel(
                                     ui,
                                     &fleet_query,
                                     &mut fleet_ui_state,
+                                    &mut pending_actions,
                                     elapsed,
                                 );
                             });
 
                         ui.separator();
-                        // Spawn fleet button (debug/demo — requires a launch site in a full
-                        // implementation)
+                        // Spawn fleet button
                         if ui
-                            .button(egui::RichText::new("＋ New Fleet (Debug)").size(13.0))
+                            .button(egui::RichText::new("＋ Create Fleet").size(13.0))
                             .clicked()
                         {
-                            // Find Earth as default spawn location
-                            let earth = body_query
-                                .iter()
-                                .find(|(_, b, _, _, _)| b.name == "Earth")
-                                .map(|(e, _, _, _, _)| e);
+                            // Find location based on selected fleet, or default to Earth
+                            let mut spawn_body = None;
+                            if let Some(selected) = fleet_ui_state.selected_fleet {
+                                if let Ok((_, _, maybe_orbit, _, _)) = fleet_query.get(selected) {
+                                    if let Some(orbit) = maybe_orbit {
+                                        spawn_body = Some(orbit.body);
+                                    }
+                                }
+                            }
+                            
+                            if spawn_body.is_none() {
+                                spawn_body = body_query
+                                    .iter()
+                                    .find(|(_, b, _, _, _)| b.name == "Earth")
+                                    .map(|(e, _, _, _, _)| e);
+                            }
 
-                            if let Some(earth_entity) = earth {
-                                use crate::fleets::types::{PropulsionType, ShipClass};
+                            if let Some(body_entity) = spawn_body {
                                 let orbit_radius_au = 6_771.0_f64 * 1_000.0 / AU_IN_METERS;
-                                let mut ship =
-                                    ShipInfo::new("Unnamed".to_string(), ShipClass::Frigate, PropulsionType::NuclearThermal);
-                                ship.name = format!("Ship-{}", fleet_count + 1);
-                                let mut fleet_ships = Vec::new();
-                                fleet_ships.push(ship);
                                 pending_actions.spawn_fleets.push(
                                     crate::fleets::components::SpawnFleetAction {
-                                        name: format!("Fleet {}", fleet_count + 1),
-                                        ships: fleet_ships,
-                                        orbit_body: earth_entity,
+                                        name: format!("New Fleet {}", fleet_count + 1),
+                                        ships: Vec::new(),
+                                        orbit_body: body_entity,
                                         orbit_radius_au,
                                     },
                                 );
@@ -8551,6 +8559,7 @@ fn render_fleet_list(
         &SpaceCoordinates,
     )>,
     fleet_ui_state: &mut FleetUiState,
+    pending_actions: &mut PendingFleetActions,
     elapsed: f64,
 ) {
     let mut fleets: Vec<(Entity, &Fleet, Option<&FleetOrbit>, Option<&ActiveManeuver>)> =
@@ -8562,7 +8571,7 @@ fn render_fleet_list(
 
     for (entity, fleet, maybe_orbit, maybe_maneuver) in fleets {
         let is_selected = fleet_ui_state.selected_fleet == Some(entity);
-        let status_icon = if maybe_maneuver.is_some() { "✈" } else { "🛰" };
+        let status_icon = if maybe_maneuver.is_some() { "✈" } else { fleet.role.icon() };
         let status_color = if maybe_maneuver.is_some() {
             egui::Color32::from_rgb(100, 180, 255)
         } else {
@@ -8576,18 +8585,32 @@ fn render_fleet_list(
             fleet.ships.len()
         );
 
-        let resp = ui.selectable_label(
-            is_selected,
-            egui::RichText::new(&row_text).size(13.0).color(status_color),
-        );
-        if resp.clicked() {
-            if fleet_ui_state.selected_fleet == Some(entity) {
-                // Deselect
-                fleet_ui_state.selected_fleet = None;
-            } else {
-                fleet_ui_state.selected_fleet = Some(entity);
-                // Reset planning state when selection changes
-                fleet_ui_state.clear_target();
+        let drop_zone = ui.dnd_drop_zone::<(Entity, usize), _>(egui::Frame::NONE, |ui| {
+            let resp = ui.selectable_label(
+                is_selected,
+                egui::RichText::new(&row_text).size(13.0).color(status_color),
+            );
+            if resp.clicked() {
+                if fleet_ui_state.selected_fleet == Some(entity) {
+                    // Deselect
+                    fleet_ui_state.selected_fleet = None;
+                } else {
+                    fleet_ui_state.selected_fleet = Some(entity);
+                    // Reset planning state when selection changes
+                    fleet_ui_state.clear_target();
+                }
+            }
+            resp
+        });
+
+        if let Some(payload) = drop_zone.1 {
+            let (source_fleet, ship_idx) = *payload;
+            if source_fleet != entity {
+                pending_actions.transfer_ships.push(crate::fleets::components::TransferShipsAction {
+                    source_fleet,
+                    destination_fleet: entity,
+                    ship_indices: vec![ship_idx],
+                });
             }
         }
 
@@ -8619,6 +8642,14 @@ fn render_fleet_list(
             );
         }
     }
+
+    ui.add_space(6.0);
+    ui.label(
+        egui::RichText::new("💡 Drag a ship name onto another fleet to transfer it")
+            .size(10.0)
+            .italics()
+            .color(egui::Color32::from_rgb(120, 140, 170)),
+    );
 }
 
 /// Render the right panel: fleet details (ship manifest, stats, status) and transfer planner.
@@ -8636,12 +8667,75 @@ fn render_fleet_detail(
 ) {
     // ── Fleet header ─────────────────────────────────────────────────────────
     ui.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new(format!("🚀 {}", fleet.name))
-                .strong()
-                .size(18.0)
-                .color(egui::Color32::from_rgb(200, 230, 255)),
-        );
+        if let Some((editing_entity, ref mut current_name)) = fleet_ui_state.editing_fleet_name {
+            if editing_entity == fleet_entity {
+                let response = ui.text_edit_singleline(current_name);
+                let cancelled = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape));
+                let committed = response.lost_focus() && !cancelled;
+                if committed {
+                    pending_actions.rename_fleets.push((fleet_entity, current_name.clone()));
+                    fleet_ui_state.editing_fleet_name = None;
+                } else if cancelled {
+                    fleet_ui_state.editing_fleet_name = None;
+                } else {
+                    response.request_focus();
+                }
+            } else {
+                ui.label(
+                    egui::RichText::new(format!("{} {}", fleet.role.icon(), fleet.name))
+                        .strong()
+                        .size(18.0)
+                        .color(egui::Color32::from_rgb(200, 230, 255)),
+                );
+                if ui.button("✏").on_hover_text("Rename Fleet").clicked() {
+                    fleet_ui_state.editing_fleet_name = Some((fleet_entity, fleet.name.clone()));
+                }
+            }
+        } else {
+            ui.label(
+                egui::RichText::new(format!("{} {}", fleet.role.icon(), fleet.name))
+                    .strong()
+                    .size(18.0)
+                    .color(egui::Color32::from_rgb(200, 230, 255)),
+            );
+            if ui.button("✏").on_hover_text("Rename Fleet").clicked() {
+                fleet_ui_state.editing_fleet_name = Some((fleet_entity, fleet.name.clone()));
+            }
+        }
+
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if fleet.ships.is_empty() {
+                if ui.button(egui::RichText::new("🗑 Disband").color(egui::Color32::from_rgb(220, 80, 60)))
+                    .on_hover_text("Disband this empty fleet")
+                    .clicked()
+                {
+                    pending_actions.disband_fleets.push(fleet_entity);
+                    fleet_ui_state.selected_fleet = None;
+                }
+            }
+            egui::ComboBox::from_id_salt("fleet_role_combo")
+                .selected_text(fleet.role.display_name())
+                .show_ui(ui, |ui| {
+                    use crate::fleets::types::FleetRole;
+                    let roles = [
+                        FleetRole::Unassigned,
+                        FleetRole::Attack,
+                        FleetRole::Defend,
+                        FleetRole::Survey,
+                        FleetRole::Transport,
+                        FleetRole::Explore,
+                    ];
+                    for role in roles {
+                        if ui.selectable_label(
+                            fleet.role == role,
+                            format!("{} {}", role.icon(), role.display_name()),
+                        ).clicked() {
+                            pending_actions.change_fleet_roles.push((fleet_entity, role));
+                        }
+                    }
+                });
+            ui.label("Role:");
+        });
     });
     ui.separator();
 
@@ -8677,8 +8771,11 @@ fn render_fleet_detail(
             ui.label(egui::RichText::new("Actions").strong().size(12.0));
             ui.end_row();
 
-            for ship in &fleet.ships {
-                ui.label(egui::RichText::new(&ship.name).size(12.0));
+            for (idx, ship) in fleet.ships.iter().enumerate() {
+                let drag_id = egui::Id::new("drag_ship").with(fleet_entity).with(idx);
+                ui.dnd_drag_source(drag_id, (fleet_entity, idx), |ui| {
+                    ui.label(egui::RichText::new(&ship.name).size(12.0));
+                });
                 ui.label(
                     egui::RichText::new(format!(
                         "{} {}",

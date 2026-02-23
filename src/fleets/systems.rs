@@ -423,6 +423,62 @@ pub fn process_fleet_actions(
             }
         }
     }
+
+    // Rename fleets
+    for (entity, new_name) in actions.rename_fleets.drain(..) {
+        if let Ok(mut fleet) = fleet_query.get_mut(entity) {
+            fleet.name = new_name;
+        }
+    }
+
+    // Change fleet roles
+    for (entity, new_role) in actions.change_fleet_roles.drain(..) {
+        if let Ok(mut fleet) = fleet_query.get_mut(entity) {
+            fleet.role = new_role;
+        }
+    }
+
+    // Transfer ships between fleets
+    for action in actions.transfer_ships.drain(..) {
+        // Ensure both fleets exist and are in the same location
+        let source_orbit = orbit_query.get(action.source_fleet).ok().cloned();
+        let dest_orbit = orbit_query.get(action.destination_fleet).ok().cloned();
+        
+        // Only allow transfer if both are parked at the same body
+        if let (Some(src_orbit), Some(dst_orbit)) = (source_orbit, dest_orbit) {
+            if src_orbit.body == dst_orbit.body {
+                let mut despawn_source = false;
+                if let Ok([mut src_fleet, mut dst_fleet]) = fleet_query.get_many_mut([action.source_fleet, action.destination_fleet]) {
+                    // Sort indices in descending order so we can remove them without shifting issues
+                    let mut indices = action.ship_indices.clone();
+                    indices.sort_unstable_by(|a, b| b.cmp(a));
+                    
+                    for idx in indices {
+                        if idx < src_fleet.ships.len() {
+                            let ship = src_fleet.ships.remove(idx);
+                            dst_fleet.ships.push(ship);
+                        }
+                    }
+                    
+                    if src_fleet.ships.is_empty() {
+                        despawn_source = true;
+                    }
+                }
+                if despawn_source {
+                    commands.entity(action.source_fleet).despawn();
+                }
+            }
+        }
+    }
+
+    // Disband empty fleets
+    for entity in actions.disband_fleets.drain(..) {
+        if let Ok(fleet) = fleet_query.get(entity) {
+            if fleet.ships.is_empty() {
+                commands.entity(entity).despawn();
+            }
+        }
+    }
 }
 
 // ── Rendering systems ─────────────────────────────────────────────────────────

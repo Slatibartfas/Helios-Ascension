@@ -2,7 +2,7 @@
 //! ECS components for the fleet management and orbital transfer system.
 
 use bevy::prelude::*;
-use super::types::{PropulsionType, ShipClass};
+use super::types::{PropulsionType, ShipClass, FleetRole};
 use crate::astronomy::KeplerOrbit;
 
 /// Summary information about a single ship within a fleet.
@@ -76,6 +76,8 @@ impl ShipInfo {
 pub struct Fleet {
     /// Display name for this fleet.
     pub name: String,
+    /// The assigned role of the fleet.
+    pub role: FleetRole,
     /// Ships that make up this fleet.
     pub ships: Vec<ShipInfo>,
 }
@@ -83,7 +85,7 @@ pub struct Fleet {
 impl Fleet {
     /// Create an empty fleet with the given name.
     pub fn new(name: String) -> Self {
-        Self { name, ships: Vec::new() }
+        Self { name, role: FleetRole::default(), ships: Vec::new() }
     }
 
     /// Total dry mass of all ships (tonnes).
@@ -308,6 +310,25 @@ pub struct PendingFleetActions {
     /// Fleets to refuel — fills all ships to their maximum propellant capacity.
     /// In the future this will draw propellant from the location's resource stockpile.
     pub refuel_fleets: Vec<Entity>,
+    /// Requests to rename a fleet.
+    pub rename_fleets: Vec<(Entity, String)>,
+    /// Requests to change a fleet's role.
+    pub change_fleet_roles: Vec<(Entity, FleetRole)>,
+    /// Requests to transfer ships between fleets.
+    pub transfer_ships: Vec<TransferShipsAction>,
+    /// Requests to disband empty fleets.
+    pub disband_fleets: Vec<Entity>,
+}
+
+/// Request to transfer ships between fleets.
+#[derive(Debug, Clone)]
+pub struct TransferShipsAction {
+    /// The source fleet entity.
+    pub source_fleet: Entity,
+    /// The destination fleet entity.
+    pub destination_fleet: Entity,
+    /// The indices of the ships to transfer from the source fleet.
+    pub ship_indices: Vec<usize>,
 }
 
 /// Request to spawn a new fleet in orbit around a body.
