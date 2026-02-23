@@ -10714,13 +10714,32 @@ fn render_transfer_planner(
                         hohmann_dv, sma_h, 0.0, false
                     );
                     fleet_ui_state.computed_options.append(&mut kinematics);
-                } else {
-                    // Radially-offset LP (L1/L2) or cross-orbit transfer.
-                    // L1/L2 are very close radially (~r_hill ≈ 0.01 AU for Earth).
-                    // Use direct LP transfer (manifold-like) instead of Hohmann half-orbit
-                    // to get realistic ~1–3 month travel times and straight-line rendering.
+                } else if matches!(lp.point, 1 | 2) {
+                    // L1/L2: small radial offset from planet (~r_hill ≈ 0.01 AU).
+                    // Use a direct manifold-like trajectory (realistic ~1–3 month travel
+                    // time) instead of a Hohmann half-orbit that takes 6 months and arrives
+                    // 180° away from the LP.
                     fleet_ui_state.computed_options =
                         direct_lp_transfer_options(r1_lp, lp.radius_au, lp.gm);
+                    apply_thrust_limits(
+                        &mut fleet_ui_state.computed_options,
+                        fleet.min_accel_ms2(),
+                        fleet.average_isp_s(),
+                    );
+                    let hohmann_dv = fleet_ui_state.computed_options.first().map(|o| o.total_delta_v_ms).unwrap_or(0.0);
+                    let sma_h = fleet_ui_state.computed_options.first().map(|o| o.sma_au).unwrap_or(0.0);
+                    let ecc_h = fleet_ui_state.computed_options.first().map(|o| o.eccentricity).unwrap_or(0.0);
+                    let d = (lp.radius_au - r1_lp).abs() * crate::fleets::orbital_mechanics::AU_IN_METERS;
+                    let mut kinematics = kinematic_transfer_options(
+                        d, fleet.min_accel_ms2(), fleet.max_delta_v_ms(),
+                        hohmann_dv, sma_h, ecc_h, false
+                    );
+                    fleet_ui_state.computed_options.append(&mut kinematics);
+                } else {
+                    // L3/L4/L5 cross-orbit (fleet NOT co-orbital with the planet):
+                    // standard Hohmann Keplerian transfer to the planet's SMA.
+                    fleet_ui_state.computed_options =
+                        calculate_transfer_options(r1_lp, lp.radius_au, lp.gm);
                     apply_thrust_limits(
                         &mut fleet_ui_state.computed_options,
                         fleet.min_accel_ms2(),
@@ -10782,7 +10801,27 @@ fn render_transfer_planner(
                     ui.vertical(|ui| {
                         ui.set_min_height(82.0);
                         let lp = lp_target_snap.as_ref().unwrap();
-                        let is_co_orbital = matches!(lp.point, 3 | 4 | 5);
+                        // Determine actual transfer type — same logic as the computation
+                        // section above.  L3/L4/L5 are co-orbital only when the fleet is
+                        // already near the planet's SMA (within 0.02 AU).
+                        let r1_info = body_query.get(orbit.body).ok()
+                            .and_then(|(_, body, _, ko, _)| {
+                                if body.body_type == BodyType::Star {
+                                    if orbit.radius_au > 0.01 { Some(orbit.radius_au) }
+                                    else { Some(lp.planet_sma_au) }
+                                } else { ko.map(|k| k.semi_major_axis) }
+                            })
+                            .or_else(|| {
+                                body_query.get(orbit.body).ok()
+                                    .and_then(|(_, _, _, _, parent)| parent)
+                                    .and_then(|lpp| body_query.get(lpp.0).ok()
+                                        .and_then(|(_, _, _, ko, _)| ko)
+                                        .map(|ko| ko.semi_major_axis))
+                            })
+                            .unwrap_or(lp.planet_sma_au);
+                        let is_co_orbital = matches!(lp.point, 3 | 4 | 5)
+                            && (r1_info - lp.planet_sma_au).abs() < 0.02;
+                        let is_l12_direct = matches!(lp.point, 1 | 2);
                         if is_co_orbital {
                             ui.label(
                                 egui::RichText::new("⟳ Co-orbital Phasing")
@@ -10799,7 +10838,7 @@ fn render_transfer_planner(
                                 egui::RichText::new("Fleet drifts in a slightly\nlower orbit to cover the\nphase gap over N laps.")
                                     .size(10.0).color(egui::Color32::GRAY),
                             );
-                        } else {
+                        } else if is_l12_direct {
                             ui.label(
                                 egui::RichText::new("🎯 Direct LP Transfer")
                                     .strong().size(12.0)
@@ -10817,6 +10856,27 @@ fn render_transfer_planner(
                             );
                             ui.label(
                                 egui::RichText::new("Low-energy manifold trajectory\nto the Lagrange equilibrium.")
+                                    .size(10.0).color(egui::Color32::GRAY),
+                            );
+                        } else {
+                            // L3/L4/L5 cross-orbit (fleet not co-orbital): Hohmann
+                            ui.label(
+                                egui::RichText::new("⬆ Hohmann Transfer")
+                                    .strong().size(12.0)
+                                    .color(egui::Color32::from_rgb(160, 210, 255)),
+                            );
+                            ui.add_space(3.0);
+                            ui.label(
+                                egui::RichText::new(format!("L{}: {}", lp.point, lp.qualifier()))
+                                    .size(12.0).strong()
+                                    .color(egui::Color32::from_rgb(200, 200, 200)),
+                            );
+                            ui.label(
+                                egui::RichText::new(format!("r = {:.4} AU", lp.radius_au))
+                                    .size(11.0).color(egui::Color32::GRAY),
+                            );
+                            ui.label(
+                                egui::RichText::new("Keplerian transfer arc,\nthen phase into the LP.")
                                     .size(10.0).color(egui::Color32::GRAY),
                             );
                         }

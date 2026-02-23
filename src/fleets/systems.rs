@@ -265,6 +265,7 @@ pub fn activate_scheduled_departures(
     sim_time: Res<SimulationTime>,
     mut query: Query<(Entity, &FleetOrbit, &mut ActiveManeuver), With<Fleet>>,
     body_coords: Query<&SpaceCoordinates, Without<Fleet>>,
+    fleet_sc_query: Query<&SpaceCoordinates, With<Fleet>>,
 ) {
     let elapsed = sim_time.elapsed_seconds();
     for (entity, _orbit, mut maneuver) in query.iter_mut() {
@@ -283,6 +284,15 @@ pub fn activate_scheduled_departures(
             maneuver.transfer_orbit.argument_of_periapsis =
                 theta - maneuver.transfer_orbit.mean_anomaly_epoch;
         }
+
+        // For kinematic (Direct LP) transfers with a departure offset, the start_position_au
+        // was set at planning time — update it to the fleet's actual physics position now.
+        if maneuver.is_kinematic() && maneuver.start_position_au.is_some() {
+            if let Ok(fleet_sc) = fleet_sc_query.get(entity) {
+                maneuver.start_position_au = Some(fleet_sc.position);
+            }
+        }
+
         commands.entity(entity).remove::<FleetOrbit>();
     }
 }
@@ -300,6 +310,7 @@ pub fn process_fleet_actions(
     body_query: Query<(&Transform, &CelestialBody, Option<&LogicalParent>), Without<Fleet>>,
     kepler_query: Query<&KeplerOrbit, Without<Fleet>>,
     center_coords: Query<&SpaceCoordinates, Without<Fleet>>,
+    fleet_sc_query: Query<&SpaceCoordinates, With<Fleet>>,
 ) {
     let elapsed = sim_time.elapsed_seconds();
 
@@ -344,18 +355,29 @@ pub fn process_fleet_actions(
             
         let is_kinematic = t.option_label == "Flip & Burn" || t.option_label.contains("Coast") || t.option_label == "Max Speed" || t.option_label.contains("Direct");
         let (start_position_au, end_position_au) = if is_kinematic {
-            // Use pre-computed positions from PlannedTransfer if available (e.g. LP Direct),
-            // otherwise predict from body entities.
-            let start_pos = t.start_position_au.unwrap_or_else(|| {
-                predict_body_physics_pos(
-                    t.origin_body,
-                    departure_s,
-                    &body_query,
-                    &kepler_query,
-                ).unwrap_or_else(|| {
-                    center_coords.get(t.origin_body).map(|sc| sc.position).unwrap_or(DVec3::ZERO)
+            // For course corrections (mid-transit), always use the fleet's actual current
+            // physics position as departure — the pre-computed start from the planner may
+            // reference a planet body (e.g. Jupiter) rather than where the fleet actually is.
+            let start_pos = if is_in_transit {
+                fleet_sc_query.get(action.fleet)
+                    .map(|sc| sc.position)
+                    .unwrap_or_else(|_| {
+                        // Fallback: predict origin body
+                        predict_body_physics_pos(t.origin_body, departure_s, &body_query, &kepler_query)
+                            .unwrap_or_else(|| center_coords.get(t.origin_body).map(|sc| sc.position).unwrap_or(DVec3::ZERO))
+                    })
+            } else {
+                t.start_position_au.unwrap_or_else(|| {
+                    predict_body_physics_pos(
+                        t.origin_body,
+                        departure_s,
+                        &body_query,
+                        &kepler_query,
+                    ).unwrap_or_else(|| {
+                        center_coords.get(t.origin_body).map(|sc| sc.position).unwrap_or(DVec3::ZERO)
+                    })
                 })
-            });
+            };
             
             let end_pos = t.end_position_au.unwrap_or_else(|| {
                 predict_body_physics_pos(
