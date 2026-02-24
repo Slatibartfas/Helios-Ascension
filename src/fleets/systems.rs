@@ -285,7 +285,7 @@ pub fn activate_scheduled_departures(
                 theta - maneuver.transfer_orbit.mean_anomaly_epoch;
         }
 
-        // For kinematic (Direct LP) transfers with a departure offset, the start_position_au
+        // For kinematic LP transfers with a departure offset, the start_position_au
         // was set at planning time — update it to the fleet's actual physics position now.
         if maneuver.is_kinematic() && maneuver.start_position_au.is_some() {
             if let Ok(fleet_sc) = fleet_sc_query.get(entity) {

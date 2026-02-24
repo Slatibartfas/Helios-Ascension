@@ -11833,19 +11833,38 @@ fn build_planned_transfer_lp(
 
     let fuel_cost = fleet.total_fuel_cost_for_dv(option.total_delta_v_ms);
 
-    // For direct L1/L2 transfers, pre-compute start and end positions so the
-    // kinematic rendering draws a straight line to the LP, not to the Sun.
-    let (start_pos, end_pos) = if is_direct_lp {
-        // Start: fleet's origin body (planet) position
+    // Pre-compute start/end positions (AU) for ALL kinematic options — not only
+    // L1/L2 Direct.  Without this, process_fleet_actions falls back to resolving
+    // destination_body (always star_entity for LP transfers) whose SpaceCoordinates
+    // are (0,0,0), so every kinematic LP transfer would fly toward the Sun instead
+    // of toward the Lagrange point.
+    let is_kinematic_option = option_label == "Flip & Burn"
+        || option_label.contains("Coast")
+        || option_label == "Max Speed"
+        || option_label.contains("Direct");
+
+    let (start_pos, end_pos) = if is_kinematic_option {
         let start = origin_pos;
-        // End: LP position at the same angle as the planet (L1/L2 are along the
-        // Sun-planet radial line).
-        let planet_dir = if rel_pos.length() > 1e-12 {
-            rel_pos.normalize()
-        } else {
-            bevy::math::DVec3::X
+
+        // Compute the LP's heliocentric position from its host planet's current angle.
+        let planet_pos = body_query.get(lp.planet_entity)
+            .map(|(_, _, sc, _, _)| sc.position)
+            .unwrap_or(origin_pos);
+        let planet_rel = planet_pos - center_pos;
+        let planet_angle = planet_rel.y.atan2(planet_rel.x);
+
+        // L1/L2 sit on the Sun-planet radial; L3 is opposite; L4/L5 are ±60°.
+        let lp_angle = match lp.point {
+            3 => planet_angle + std::f64::consts::PI,
+            4 => planet_angle + std::f64::consts::FRAC_PI_3,
+            5 => planet_angle - std::f64::consts::FRAC_PI_3,
+            _ => planet_angle, // L1/L2: same angular direction as the planet
         };
-        let end = center_pos + planet_dir * lp.radius_au;
+        let end = center_pos + bevy::math::DVec3::new(
+            lp.radius_au * lp_angle.cos(),
+            lp.radius_au * lp_angle.sin(),
+            0.0,
+        );
         (Some(start), Some(end))
     } else {
         (None, None)
