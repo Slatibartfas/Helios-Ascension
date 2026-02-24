@@ -110,8 +110,12 @@ pub fn update_fleet_orbit_positions(
         // Advance the visual orbital angle at a slow, legible rate.
         // `orbit.direction` is +1 (CCW/prograde) or -1 (CW/retrograde) and is set
         // at insertion to match the arrival arc's tangent direction.
-        orbit.angle_rad = (orbit.angle_rad + orbit.direction * VISUAL_ORBIT_RATE * real_delta)
-            .rem_euclid(std::f64::consts::TAU);
+        // direction == 0.0 marks an LP-stationed fleet whose angle is frozen at the
+        // Lagrange-point angular position — do not advance it visually.
+        if orbit.direction != 0.0 {
+            orbit.angle_rad = (orbit.angle_rad + orbit.direction * VISUAL_ORBIT_RATE * real_delta)
+                .rem_euclid(std::f64::consts::TAU);
+        }
 
         if let Ok(body_sc) = body_coords.get(orbit.body) {
             let offset = DVec3::new(
@@ -179,6 +183,7 @@ pub fn complete_fleet_maneuvers(
     sim_time: Res<SimulationTime>,
     mut fleet_query: Query<(Entity, &mut Fleet, &ActiveManeuver, &SpaceCoordinates)>,
     center_coords: Query<&SpaceCoordinates, Without<Fleet>>,
+    body_type_query: Query<&CelestialBody, Without<Fleet>>,
 ) {
     let elapsed = sim_time.elapsed_seconds();
 
@@ -203,8 +208,8 @@ pub fn complete_fleet_maneuvers(
 
         // Compute the initial parking orbit angle from the fleet's current
         // physics position relative to the destination body's centre.
-        // For Lagrange-point transfers the destination is the star, which lacks
-        // SpaceCoordinates (it is always at the heliocentric origin DVec3::ZERO).
+        // For L3/L4/L5 transfers the destination is the star (always at DVec3::ZERO);
+        // for L1/L2 transfers it is the parent planet (has real SpaceCoordinates).
         let (initial_angle, orbit_direction) = {
             let center_pos = center_coords.get(destination)
                 .map(|sc| sc.position)
@@ -238,6 +243,19 @@ pub fn complete_fleet_maneuvers(
             };
 
             (pos_angle, direction)
+        };
+
+        // LP-stationed (L3/L4/L5) arrivals: a kinematic arc ending at a heliocentric
+        // position (star destination) should freeze the fleet at the Lagrange-point
+        // angular position instead of freely orbiting the Sun at 1 AU every 40 s.
+        let orbit_direction = if maneuver.is_kinematic()
+            && body_type_query.get(destination)
+                .map(|b| b.body_type == BodyType::Star)
+                .unwrap_or(false)
+        {
+            0.0 // sentinel: LP-stationed, angle frozen
+        } else {
+            orbit_direction
         };
 
         // Swap maneuver for a stable parking orbit
@@ -1322,6 +1340,14 @@ pub fn draw_fleet_orbit_rings(
     if let Ok((_, orbit)) = parked_query.get(selected) {
         // ── Parked: single green ring around orbit body ──
         if let Ok((body_transform, body)) = body_query.get(orbit.body) {
+            // For LP-stationed fleets (direction == 0.0) the fleet is frozen at a
+            // heliocentric Lagrange-point position; skip the 1-AU orbit ring that
+            // would otherwise dominate the view.  The green selection reticule from
+            // `draw_fleet_selection_reticule` already marks the fleet's position.
+            if body.body_type == BodyType::Star && orbit.direction == 0.0 {
+                return;
+            }
+
             // For star-orbiting fleets (Lagrange points), the orbit radius is
             // heliocentric AU — convert to visual units.  This draws a large
             // ring matching the fleet's actual heliocentric orbital path.

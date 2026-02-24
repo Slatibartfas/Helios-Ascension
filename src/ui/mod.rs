@@ -11795,18 +11795,50 @@ fn build_planned_transfer_lp(
     let rel_pos = origin_pos - center_pos;
     let departure_angle = rel_pos.y.atan2(rel_pos.x);
 
-    // L1/L2 direct transfers use kinematic (straight-line) rendering.
-    // Override the option label to trigger kinematic mode in the rendering pipeline.
-    let is_direct_lp = matches!(lp.point, 1 | 2);
-    let option_label: &'static str = if is_direct_lp {
-        match option.label {
-            "Efficient" => "Direct Efficient",
-            "Moderate"  => "Direct Moderate",
-            "Fast"      => "Direct Fast",
-            other       => other,  // kinematic labels pass through unchanged
-        }
+    // ALL LP transfers are kinematic (direct Bezier arc from origin to LP position).
+    // This prevents co-orbital phasing options from rendering as multi-lap Keplerian
+    // rings around the Sun (which previously looked like "multiple orbit rings").
+    let option_label: &'static str = match option.label {
+        "Efficient" => "Direct Efficient",
+        "Moderate"  => "Direct Moderate",
+        "Fast"      => "Direct Fast",
+        other       => other, // kinematic labels (Flip & Burn, Coast, Max Speed, Direct *) pass through
+    };
+
+    // Pre-compute the heliocentric LP position for kinematic arc rendering.
+    // Every LP transfer sets start/end positions so the fleet flies to the correct
+    // Lagrange-point location rather than the star origin (0,0,0).
+    let planet_pos = body_query.get(lp.planet_entity)
+        .map(|(_, _, sc, _, _)| sc.position)
+        .unwrap_or(origin_pos);
+    let planet_rel = planet_pos - center_pos;
+    let planet_angle = planet_rel.y.atan2(planet_rel.x);
+    let lp_angle = match lp.point {
+        3 => planet_angle + std::f64::consts::PI,
+        4 => planet_angle + std::f64::consts::FRAC_PI_3,
+        5 => planet_angle - std::f64::consts::FRAC_PI_3,
+        _ => planet_angle, // L1/L2: on the Sun-planet radial
+    };
+    let lp_pos_au = center_pos + bevy::math::DVec3::new(
+        lp.radius_au * lp_angle.cos(),
+        lp.radius_au * lp_angle.sin(),
+        0.0,
+    );
+    let start_pos = Some(origin_pos);
+    let end_pos   = Some(lp_pos_au);
+
+    // L1/L2: the LP is physically near the planet (±r_hill from the planet's
+    // heliocentric position).  Park the fleet around the planet at r_hill so it
+    // co-orbits with the planet rather than orbiting the Sun at 1 AU.
+    //
+    // L3/L4/L5: heliocentric co-orbital positions.  Park the fleet around the
+    // star at the planet's SMA; `complete_fleet_maneuvers` will set direction=0.0
+    // (frozen) because `is_kinematic()` + star destination → LP-stationed sentinel.
+    let (destination_body, arrival_orbit_radius_au) = if matches!(lp.point, 1 | 2) {
+        let r_hill = (lp.radius_au - lp.planet_sma_au).abs().max(0.001);
+        (lp.planet_entity, r_hill)
     } else {
-        option.label
+        (star_entity, lp.planet_sma_au)
     };
 
     let gm = lp.gm;
@@ -11833,54 +11865,14 @@ fn build_planned_transfer_lp(
 
     let fuel_cost = fleet.total_fuel_cost_for_dv(option.total_delta_v_ms);
 
-    // Pre-compute start/end positions (AU) for ALL kinematic options — not only
-    // L1/L2 Direct.  Without this, process_fleet_actions falls back to resolving
-    // destination_body (always star_entity for LP transfers) whose SpaceCoordinates
-    // are (0,0,0), so every kinematic LP transfer would fly toward the Sun instead
-    // of toward the Lagrange point.
-    let is_kinematic_option = option_label == "Flip & Burn"
-        || option_label.contains("Coast")
-        || option_label == "Max Speed"
-        || option_label.contains("Direct");
-
-    let (start_pos, end_pos) = if is_kinematic_option {
-        let start = origin_pos;
-
-        // Compute the LP's heliocentric position from its host planet's current angle.
-        let planet_pos = body_query.get(lp.planet_entity)
-            .map(|(_, _, sc, _, _)| sc.position)
-            .unwrap_or(origin_pos);
-        let planet_rel = planet_pos - center_pos;
-        let planet_angle = planet_rel.y.atan2(planet_rel.x);
-
-        // L1/L2 sit on the Sun-planet radial; L3 is opposite; L4/L5 are ±60°.
-        let lp_angle = match lp.point {
-            3 => planet_angle + std::f64::consts::PI,
-            4 => planet_angle + std::f64::consts::FRAC_PI_3,
-            5 => planet_angle - std::f64::consts::FRAC_PI_3,
-            _ => planet_angle, // L1/L2: same angular direction as the planet
-        };
-        let end = center_pos + bevy::math::DVec3::new(
-            lp.radius_au * lp_angle.cos(),
-            lp.radius_au * lp_angle.sin(),
-            0.0,
-        );
-        (Some(start), Some(end))
-    } else {
-        (None, None)
-    };
-
     Some(PlannedTransfer {
         origin_body: orbit.body,
-        // Lagrange point orbits are heliocentric: the fleet parks around the star at the
-        // LP's heliocentric radius, NOT around the planet.  Parking around the planet at
-        // `lp.radius_au` (≈1 AU) would put the fleet ~2 AU from the Sun and off-screen.
-        destination_body: star_entity,
+        destination_body,
         orbit_center: star_entity,
         transfer_orbit,
         duration_s: option.transfer_time_s,
         arrival_delta_v_ms: option.delta_v2_ms,
-        arrival_orbit_radius_au: lp.radius_au,
+        arrival_orbit_radius_au,
         fuel_cost_t: fuel_cost,
         option_label,
         start_position_au: start_pos,
