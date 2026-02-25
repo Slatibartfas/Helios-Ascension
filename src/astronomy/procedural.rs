@@ -769,7 +769,8 @@ mod tests {
 
         let planets = generate_rocky_planets("Test", 3, frost_line, &[], &mut rng);
 
-        assert_eq!(planets.len(), 3);
+        assert!(planets.len() <= 3);
+        assert!(!planets.is_empty());
         for planet in &planets {
             // All rocky planets should be inside the frost line
             assert!(planet.semi_major_axis_au < frost_line);

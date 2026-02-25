@@ -1,9 +1,9 @@
 # Helios-Ascension
 A 4X grand strategy game with realistic orbital mechanics and a big focus on resource management, logistics and research. Climb the Kardashev scale starting at 0.7 and expand your civilization across the stars!
 
-## Current Status: v0.2.0 - Core Mechanics Implemented ✨
+## Current Status: v0.3.0 - Fleet & Orbital Transfer System Implemented ✨
 
-The game now has fully functional colony management, economy, research, and interstellar navigation systems!
+The game now has fully functional colony management, economy, research, interstellar navigation, and a complete fleet movement system with realistic orbital mechanics!
 
 ## Features
 
@@ -22,6 +22,21 @@ The game now has fully functional colony management, economy, research, and inte
   - Resource stockpiles, production rates, and consumption tracking
   - Global budget management with income and expenses
   - Energy grid with power generation (solar, fission, fusion) and distribution
+
+- **Fleet Management & Orbital Mechanics**: Command fleets across the solar system
+  - **7 ship classes**: Courier, Frigate, Destroyer, Cruiser, Research Vessel, Freighter, Station
+  - **6 propulsion types**: Chemical (450 s Isp), Nuclear Thermal (900 s), Ion Drive (5 000 s), Nuclear Pulse (10 000 s), Fusion Torch (50 000 s), Antimatter Drive (1 000 000 s)
+  - Realistic Tsiolkovsky rocket-equation Δv and fuel calculations per ship
+  - **3 transfer options** per route: efficient Hohmann, moderate, and fast burns
+  - Transfer window planner: live synodic-period countdown and phase-angle display
+  - Phased departure planning — adjust departure time to hit the optimal window
+  - **Gravity-assist flyby candidates** automatically computed for each heliocentric transfer
+  - **Lagrange-point targeting** (L4/L5 for any planet, Earth-Sun L1/L2/L3)
+  - Fleet intercept planning with configurable passing distance and encounter speed
+  - Mid-transit course-correction with abort-burn fuel deduction
+  - Refuelling from planetary stockpiles
+  - Visual trajectory arcs, orbit rings, selection reticules, and starmap icons
+  - Initial Earth-orbit frigate fleet spawned at game start
 
 - **Research & Technology**: Unlock new capabilities through scientific advancement
   - **15 technology categories**: Electronics, Military, SpaceTechnology, Biology, Physics, Energy, Sociology, Construction, Propulsion, Materials, Sensors, Weapons, DefensiveSystems, LifeSupport, Industry
@@ -62,8 +77,8 @@ The game now has fully functional colony management, economy, research, and inte
   - Research Panel: Technology tree browser and project selection
   - Economy Panel: Financial overview and resource tracking
   - Starmap Panel: Interstellar navigation and system selection
-  - Fleet Panel: Fleet management (coming soon)
-  - Shipbuilding Panel: Vessel construction (coming soon)
+  - Fleet Panel: Full fleet management — spawn fleets, select transfer options, gravity assists, Lagrange-point routing, refuel, and abort maneuvers
+  - Shipbuilding Panel: Vessel construction (planned)
   
 - **Time Control**: Variable simulation speed (1 day/s to 1 year/s)
 - **Debug Inspector**: Integrated inspector using bevy_inspector_egui for runtime entity inspection
@@ -149,6 +164,7 @@ helios_ascension/
 │   ├── astronomy/           # Orbital mechanics & coordinate systems
 │   ├── colony/              # Colony management & buildings
 │   ├── economy/             # Resources, budget & energy grid
+│   ├── fleets/              # Fleet management, orbital mechanics & transfer planning
 │   ├── research/            # Technology tree & engineering
 │   ├── plugins/             # Bevy plugin modules
 │   │   ├── camera.rs        # Camera control system
@@ -174,6 +190,7 @@ The game uses a modular plugin architecture built on Bevy's ECS (Entity Componen
 - **ColonyPlugin**: Colony management with 29 building types
 - **EconomyPlugin**: Resource production, consumption, and budget tracking
 - **ResearchPlugin**: Technology tree and research progression
+- **FleetPlugin**: Fleet management, orbital transfer planning, gravity assists, and trajectory rendering
 - **UIPlugin**: Dashboard with time controls and interactive panels
 - **StarmapPlugin**: Interstellar navigation and system selection
 
