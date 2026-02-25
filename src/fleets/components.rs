@@ -276,10 +276,10 @@ impl ActiveManeuver {
     /// Whether this transfer uses kinematic (straight-line) interpolation rather
     /// than Keplerian orbit propagation.
     ///
-    /// Kinematic transfers include flip-and-burn, coast phases, max-speed runs,
+    /// Kinematic transfers include full-thrust, coast phases, max-speed runs,
     /// and direct L1/L2 Lagrange-point transfers.
     pub fn is_kinematic(&self) -> bool {
-        self.option_label == "Flip & Burn"
+        self.option_label == "Full Thrust"
             || self.option_label.contains("Coast")
             || self.option_label == "Max Speed"
             || self.option_label.contains("Direct")

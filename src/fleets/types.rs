@@ -185,7 +185,7 @@ impl PropulsionType {
     ///
     /// | Drive            | TWR_vs_dry | Frigate accel | Game role                  |
     /// |------------------|-----------|---------------|----------------------------|
-    /// | Chemical         | 10.0      | ~54 m/s²      | High thrust, very limited ΔV (no Flip & Burn) |
+    /// | Chemical         | 10.0      | ~54 m/s²      | High thrust, very limited ΔV (no Full Thrust) |
     /// | Nuclear Thermal  | 2.0       | ~11 m/s²      | Moderate thrust, medium ΔV |
     /// | Ion Drive        | 0.001     | ~0.005 m/s²   | Near-zero accel, vast ΔV   |
     /// | Nuclear Pulse    | 0.3       | ~1.6 m/s²     | High-thrust nuclear option  |

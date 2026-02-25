@@ -856,6 +856,8 @@ impl Plugin for UIPlugin {
                     advance_simulation_time,
                     process_menu_icons,
                     process_research_icons,
+                    switch_anchor_on_arrival
+                        .after(crate::fleets::systems::complete_fleet_maneuvers),
                 ),
             )
             // Capture egui's available_rect AFTER all panels have registered themselves
@@ -2680,20 +2682,18 @@ fn render_fleet_ledger_tree(
             fleet_ui_state.selected_fleet = Some(entity);
             fleet_ui_state.clear_target();
 
-            // Anchor camera to the fleet's current or departure body
-            let anchor_body = if let Some(maneuver) = maybe_maneuver {
-                // In transit: anchor to departure (origin) body
-                Some(maneuver.origin_body)
-            } else if let Some(orbit) = maybe_orbit {
-                // Orbiting: anchor to that body
-                Some(orbit.body)
-            } else {
-                None
-            };
-
-            if let Some(body_entity) = anchor_body {
-                if let Ok(mut anchor) = anchor_query.single_mut() {
-                    anchor.0 = Some(body_entity);
+            // Camera anchor behaviour:
+            // - Orbiting  → anchor to the body being orbited.
+            // - In transit → anchor to the fleet dot itself so the camera follows
+            //   the ship along its arc.  A separate system (switch_anchor_on_arrival)
+            //   will redirect the anchor to the destination body once the maneuver
+            //   completes.
+            if let Ok(mut anchor) = anchor_query.single_mut() {
+                if let Some(orbit) = maybe_orbit {
+                    anchor.0 = Some(orbit.body);
+                } else if maybe_maneuver.is_some() {
+                    // Follow the moving fleet dot
+                    anchor.0 = Some(entity);
                 }
             }
         }
@@ -11436,7 +11436,7 @@ fn render_transfer_planner(
                                     if option.is_thrust_limited {
                                         // Burn time >= Hohmann time: impulsive assumption invalid.
                                         ("⚠ Thrust-limited", egui::Color32::from_rgb(220, 100, 40))
-                                    } else if option.label == "Flip & Burn" {
+                                    } else if option.label == "Full Thrust" {
                                         // Entire trip is a burn
                                         ("⚡ Full thrust", egui::Color32::from_rgb(255, 180, 60))
                                     } else {
@@ -11813,7 +11813,7 @@ fn build_planned_transfer_lp(
         "Efficient" => "Direct Efficient",
         "Moderate"  => "Direct Moderate",
         "Fast"      => "Direct Fast",
-        other       => other, // kinematic labels (Flip & Burn, Coast, Max Speed, Direct *) pass through
+        other       => other, // kinematic labels (Full Thrust, Coast, Max Speed, Direct *) pass through
     };
 
     // Pre-compute the heliocentric LP position for kinematic arc rendering.
@@ -12161,6 +12161,36 @@ fn ui_fleet_action_bar(
                 }
             });
         });
+}
+
+/// Seamlessly re-anchors the camera from a transiting fleet entity to its
+/// destination body the moment the maneuver completes.
+///
+/// When the player double-clicks an in-transit fleet, the camera is anchored
+/// to the fleet entity itself so it follows the moving dot.  This system
+/// detects `ActiveManeuver` removal (fired by `complete_fleet_maneuvers`) and,
+/// if the camera anchor is still pointing at that fleet, redirects it to the
+/// newly-inserted `FleetOrbit.body` — typically the destination planet or moon.
+fn switch_anchor_on_arrival(
+    mut removed: RemovedComponents<ActiveManeuver>,
+    fleet_query: Query<&FleetOrbit>,
+    mut anchor_query: Query<&mut CameraAnchor, With<GameCamera>>,
+) {
+    let Ok(mut anchor) = anchor_query.single_mut() else {
+        return;
+    };
+
+    for fleet_entity in removed.read() {
+        // Only act when this fleet is the current anchor target.
+        if anchor.0 != Some(fleet_entity) {
+            continue;
+        }
+        // Redirect to the destination body; fall back to no anchor if not found.
+        anchor.0 = fleet_query
+            .get(fleet_entity)
+            .ok()
+            .map(|orbit| orbit.body);
+    }
 }
 
 #[cfg(test)]

@@ -389,7 +389,7 @@ pub fn process_fleet_actions(
             .map(|o| o.angle_rad as f32)
             .unwrap_or(0.0);
             
-        let is_kinematic = t.option_label == "Flip & Burn" || t.option_label.contains("Coast") || t.option_label == "Max Speed" || t.option_label.contains("Direct");
+        let is_kinematic = t.option_label == "Full Thrust" || t.option_label.contains("Coast") || t.option_label == "Max Speed" || t.option_label.contains("Direct");
         let (start_position_au, end_position_au) = if is_kinematic {
             // For course corrections (mid-transit), always use the fleet's actual current
             // physics position as departure — the pre-computed start from the planner may
@@ -1360,8 +1360,14 @@ pub fn update_fleet_transforms(
                     let p2 = p3 - tang_dest   * ctrl_len;
 
                     let t = progress;
-                    let u = 1.0 - t;
-                    transform.translation = u*u*u*p0 + 3.0*u*u*t*p1 + 3.0*u*t*t*p2 + t*t*t*p3;
+                    if maneuver.is_kinematic() {
+                        // Kinematic (brachistochrone): straight-line interpolation.
+                        transform.translation = p0 + (p3 - p0) * t;
+                    } else {
+                        // Ballistic (Hohmann): cubic Bézier matching the trajectory gizmo.
+                        let u = 1.0 - t;
+                        transform.translation = u*u*u*p0 + 3.0*u*u*t*p1 + 3.0*u*t*t*p2 + t*t*t*p3;
+                    }
 
                     // Hide the sphere while still inside the origin or destination orbit ring.
                     let inside_origin = transform.translation.distance(op) < origin_ring_r;
@@ -1459,15 +1465,23 @@ pub fn draw_fleet_orbit_rings(
             .map(|(_, b)| b.body_type == BodyType::Star)
             .unwrap_or(true);
         if center_is_star {
-            // Heliocentric (LP) transfer: draw a dim departure ring so the user can
-            // see where the fleet left from.  The trajectory arc (draw_fleet_trajectories)
-            // shows the full heliocentric path when the fleet is selected.
+            // Heliocentric transfer: draw a dim departure ring near origin and a
+            // brighter cyan arrival ring near the destination so the user has visual
+            // anchors at both ends regardless of camera position.
             if let Ok((body_transform, body)) = body_query.get(maneuver.origin_body) {
                 draw_ring(
                     &mut gizmos,
                     body_transform.translation,
                     fleet_parking_visual_radius(body.visual_radius),
                     Color::srgba(0.2, 0.9, 0.3, 0.15),
+                );
+            }
+            if let Ok((body_transform, body)) = body_query.get(maneuver.destination_body) {
+                draw_ring(
+                    &mut gizmos,
+                    body_transform.translation,
+                    fleet_parking_visual_radius(body.visual_radius),
+                    Color::srgba(0.3, 0.8, 1.0, 0.35),
                 );
             }
             return;
@@ -1652,7 +1666,7 @@ pub fn draw_fleet_transfer_preview(
 
         let is_kinematic = fleet_ui_state.computed_options
             .get(fleet_ui_state.selected_option)
-            .map(|opt| opt.label == "Flip & Burn" || opt.label.contains("Coast") || opt.label == "Max Speed" || opt.label.contains("Direct"))
+            .map(|opt| opt.label == "Full Thrust" || opt.label.contains("Coast") || opt.label == "Max Speed" || opt.label.contains("Direct"))
             .unwrap_or(false);
 
         // Fixed visual marker radius — no physical body size for a fleet.
@@ -1821,7 +1835,7 @@ pub fn draw_fleet_transfer_preview(
     // Check whether the selected option is a kinematic transfer.
     let is_kinematic = fleet_ui_state.computed_options
         .get(fleet_ui_state.selected_option)
-        .map(|opt| opt.label == "Flip & Burn" || opt.label.contains("Coast") || opt.label == "Max Speed" || opt.label.contains("Direct"))
+        .map(|opt| opt.label == "Full Thrust" || opt.label.contains("Coast") || opt.label == "Max Speed" || opt.label.contains("Direct"))
         .unwrap_or(false);
 
     // Dashed amber arc — straight line for kinematic transfers, cubic Bezier for ballistic arcs.

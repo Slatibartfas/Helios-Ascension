@@ -831,7 +831,7 @@ pub fn compute_burn_time_s(total_dv_ms: f64, fleet_accel_ms2: f64, avg_isp_s: f3
 ///      complete faster than the engine allows (Edelbaum low-thrust bound).
 ///    - `is_thrust_limited` is set to `true` so the UI can display a warning.
 ///
-/// Flip & Burn options (`label == "Flip & Burn"`) are skipped — they already
+/// Full Thrust options (`label == "Full Thrust"`) are skipped — they already
 /// model a continuous-thrust profile and their `transfer_time_s` IS the burn
 /// time by construction.
 ///
@@ -845,7 +845,7 @@ pub fn apply_thrust_limits(
     avg_isp_s: f32,
 ) {
     for opt in options.iter_mut() {
-        if opt.label == "Flip & Burn" {
+        if opt.label == "Full Thrust" {
             continue; // already a continuous-thrust model; no adjustment needed
         }
         opt.burn_time_s = compute_burn_time_s(opt.total_delta_v_ms, fleet_accel_ms2, avg_isp_s);
@@ -860,7 +860,7 @@ pub fn apply_thrust_limits(
 
 /// Compute kinematic (point-and-burn) transfer options for a given distance.
 ///
-/// Returns a list of options (e.g., Efficient Coast, Moderate Coast, Flip & Burn)
+/// Returns a list of options (e.g., Long Coast, Short Coast, Full Thrust)
 /// based on the fleet's acceleration and ΔV capacity.
 ///
 /// Options whose total ΔV falls below `5 × hohmann_dv` are **excluded** because
@@ -945,19 +945,31 @@ pub fn kinematic_transfer_options(
 
     if dv_brach <= fleet_max_dv_ms {
         // Fleet can sustain continuous thrust for the entire trip.
-        let eff = make_option(fleet_max_dv_ms * 0.33, "Efficient Coast");
+        // Use fractions of dv_brach (not fleet_max_dv_ms) so that coast
+        // options always allocate less ΔV than the brachistochrone.  Using
+        // fleet_max_dv_ms could exceed dv_brach, making the kinematic
+        // model produce a longer trip time with MORE fuel — nonsensical.
+        let eff = make_option(dv_brach * 0.33, "Long Coast");
         if hohmann_dv <= 0.0 || eff.total_delta_v_ms >= min_coast_dv {
             options.push(eff);
         }
-        let moderate = make_option(fleet_max_dv_ms * 0.67, "Moderate Coast");
+        let moderate = make_option(dv_brach * 0.67, "Short Coast");
         if hohmann_dv <= 0.0 || moderate.total_delta_v_ms >= min_coast_dv {
             options.push(moderate);
         }
         
         let energy_multiplier = if hohmann_dv > 0.0 { dv_brach / hohmann_dv } else { dv_brach / fleet_max_dv_ms };
-        if hohmann_dv <= 0.0 || dv_brach >= min_coast_dv {
+        // Full Thrust uses a lower threshold than coast options.  The flat-space
+        // brachistochrone formula ignores gravity, so `dv_brach` can fall below the
+        // Hohmann minimum — which is physically impossible (you can't arrive with
+        // less energy than the minimum-energy transfer).  Filter Full Thrust when
+        // `dv_brach < hohmann_dv` to prevent showing nonsensical ΔV values.
+        //
+        // Coast options use the stricter 5× Hohmann threshold because their
+        // cruise speed must exceed escape velocity for the coasting model to hold.
+        if hohmann_dv <= 0.0 || dv_brach >= hohmann_dv {
             options.push(TransferOption {
-                label: "Flip & Burn",
+                label: "Full Thrust",
                 total_delta_v_ms: dv_brach,
                 delta_v1_ms: dv_brach * 0.5,
                 delta_v2_ms: dv_brach * 0.5,
@@ -972,11 +984,11 @@ pub fn kinematic_transfer_options(
         }
     } else {
         // Fleet must coast most of the way.
-        let eff = make_option(fleet_max_dv_ms * 0.33, "Efficient Coast");
+        let eff = make_option(fleet_max_dv_ms * 0.33, "Long Coast");
         if hohmann_dv <= 0.0 || eff.total_delta_v_ms >= min_coast_dv {
             options.push(eff);
         }
-        let moderate = make_option(fleet_max_dv_ms * 0.67, "Moderate Coast");
+        let moderate = make_option(fleet_max_dv_ms * 0.67, "Short Coast");
         if hohmann_dv <= 0.0 || moderate.total_delta_v_ms >= min_coast_dv {
             options.push(moderate);
         }
@@ -1455,27 +1467,27 @@ mod tests {
         let max_dv = 1_000_000.0_f64 * 9.806_65 * (3636.0_f64 / 2000.0_f64).ln();
         let d = (1.524 - 1.0) * AU_IN_METERS;
         let opts = kinematic_transfer_options(d, accel, max_dv, 0.0, 0.0, 0.0, false);
-        let opt = opts.into_iter().find(|o| o.label == "Flip & Burn")
-            .expect("High-thrust, high-Isp fleet should get Flip & Burn option");
-        assert_eq!(opt.label, "Flip & Burn");
+        let opt = opts.into_iter().find(|o| o.label == "Full Thrust")
+            .expect("High-thrust, high-Isp fleet should get Full Thrust option");
+        assert_eq!(opt.label, "Full Thrust");
         // ΔV should be far above Hohmann
         let (dv1, dv2, t_h, _, _) = hohmann_transfer(1.0, 1.524, GM_SUN);
         let hohmann_dv = dv1 + dv2;
         assert!(
             opt.total_delta_v_ms > hohmann_dv * 5.0,
-            "Flip & Burn ΔV ({:.0} m/s) should >> Hohmann ({:.0} m/s)",
+            "Full Thrust ΔV ({:.0} m/s) should >> Hohmann ({:.0} m/s)",
             opt.total_delta_v_ms, hohmann_dv
         );
         // Transfer time should be less than Hohmann
         assert!(
             opt.transfer_time_s < t_h,
-            "Flip & Burn time ({:.1} d) should be < Hohmann ({:.1} d)",
+            "Full Thrust time ({:.1} d) should be < Hohmann ({:.1} d)",
             opt.transfer_time_s / 86_400.0, t_h / 86_400.0
         );
         // burn_time_s should equal transfer_time_s (always thrusting)
         assert!(
             (opt.burn_time_s - opt.transfer_time_s).abs() < 1.0,
-            "Flip & Burn: burn_time should ≈ transfer_time"
+            "Full Thrust: burn_time should ≈ transfer_time"
         );
     }
 
@@ -1496,8 +1508,8 @@ mod tests {
         let d = (1.524 - 1.0) * AU_IN_METERS;
         let opts = kinematic_transfer_options(d, accel, max_dv, 0.0, 0.0, 0.0, false);
         assert!(
-            !opts.iter().any(|o| o.label == "Flip & Burn"),
-            "Chemical ship with only {:.0} m/s ΔV should not get Flip & Burn (needs >> that)",
+            !opts.iter().any(|o| o.label == "Full Thrust"),
+            "Chemical ship with only {:.0} m/s ΔV should not get Full Thrust (needs >> that)",
             max_dv
         );
     }
@@ -1535,19 +1547,19 @@ mod tests {
     }
 
     /// A high-ΔV ship (e.g. fusion) with > 2× Hohmann ΔV SHOULD get kinematic options.
+    /// Full Thrust appears when `dv_brach >= hohmann_dv`; coast options need 5× Hohmann.
     #[test]
     fn test_kinematic_appears_for_high_dv_ships() {
-        let gm_earth = 3.986e14_f64;
-        let r_leo_au = 400.0e3 / AU_IN_METERS;
-        let r_moon_au = 384_400.0e3 / AU_IN_METERS;
-        let (dv1, dv2, _, sma, ecc) = hohmann_transfer(r_leo_au, r_moon_au, gm_earth);
+        // Earth → Mars (heliocentric): Hohmann ΔV ≈ 5.6 km/s.
+        // Fusion ship at 0.01 g over 0.524 AU: dv_brach ≈ 100+ km/s >> Hohmann.
+        let (dv1, dv2, _, sma, ecc) = hohmann_transfer(1.0, 1.524, GM_SUN);
         let hohmann_dv = dv1 + dv2;
 
         // Fusion ship: ~293 km/s ΔV — vastly above Hohmann
         let max_dv = 293_000.0_f64;
         let accel = 0.098_f64; // 0.01 g
 
-        let d = (r_moon_au - r_leo_au) * AU_IN_METERS;
+        let d = (1.524 - 1.0) * AU_IN_METERS;
         let opts = kinematic_transfer_options(d, accel, max_dv, hohmann_dv, sma, ecc, false);
 
         assert!(
@@ -1555,13 +1567,30 @@ mod tests {
             "Fusion fleet (ΔV {:.0} m/s >> Hohmann {:.0} m/s) should have kinematic options",
             max_dv, hohmann_dv
         );
-        // All options should have ΔV >= 5× Hohmann
-        for opt in &opts {
+        // Full Thrust (brachistochrone) should be present — dv_brach >> hohmann_dv
+        // at interplanetary distances with 0.01 g.
+        assert!(
+            opts.iter().any(|o| o.label == "Full Thrust"),
+            "Fusion fleet should have a Full Thrust option, got: {:?}",
+            opts.iter().map(|o| o.label).collect::<Vec<_>>()
+        );
+        // Full Thrust ΔV must exceed Hohmann minimum.
+        if let Some(ft) = opts.iter().find(|o| o.label == "Full Thrust") {
             assert!(
-                opt.total_delta_v_ms >= hohmann_dv * 5.0,
-                "Kinematic '{}' ΔV ({:.0} m/s) should be >= 5× Hohmann ({:.0} m/s)",
-                opt.label, opt.total_delta_v_ms, hohmann_dv * 5.0
+                ft.total_delta_v_ms >= hohmann_dv,
+                "Full Thrust ΔV ({:.0}) must be >= Hohmann ({:.0})",
+                ft.total_delta_v_ms, hohmann_dv
             );
+        }
+        // Coast options (if any) should have ΔV >= 5× Hohmann.
+        for opt in &opts {
+            if opt.label.contains("Coast") {
+                assert!(
+                    opt.total_delta_v_ms >= hohmann_dv * 5.0,
+                    "Coast '{}' ΔV ({:.0} m/s) should be >= 5× Hohmann ({:.0} m/s)",
+                    opt.label, opt.total_delta_v_ms, hohmann_dv * 5.0
+                );
+            }
         }
     }
 
@@ -1579,8 +1608,8 @@ mod tests {
         // Use r2 = 1.38 AU so |r2-r1| × AU ≈ 0.38 AU = minimum Earth–Mars distance
         let d = (1.38 - 1.0) * AU_IN_METERS;
         let opts = kinematic_transfer_options(d, accel, max_dv, 0.0, 0.0, 0.0, false);
-        let opt = opts.into_iter().find(|o| o.label == "Flip & Burn")
-            .expect("0.01 g fusion should produce a Flip & Burn option for Mars min approach");
+        let opt = opts.into_iter().find(|o| o.label == "Full Thrust")
+            .expect("0.01 g fusion should produce a Full Thrust option for Mars min approach");
         let days = opt.transfer_time_s / 86_400.0;
         assert!(
             (days - 17.6).abs() < 1.5,
@@ -1608,8 +1637,8 @@ mod tests {
 
         let d = (1.38 - 1.0) * AU_IN_METERS;
         let opts = kinematic_transfer_options(d, accel, max_dv, 0.0, 0.0, 0.0, false);
-        let opt = opts.into_iter().find(|o| o.label == "Flip & Burn")
-            .expect("1 g antimatter should produce a Flip & Burn option for Mars min approach");
+        let opt = opts.into_iter().find(|o| o.label == "Full Thrust")
+            .expect("1 g antimatter should produce a Full Thrust option for Mars min approach");
         let days = opt.transfer_time_s / 86_400.0;
         assert!(
             (days - 1.76).abs() < 0.2,
@@ -1687,11 +1716,11 @@ mod tests {
         }
     }
 
-    /// apply_thrust_limits skips Flip & Burn options.
+    /// apply_thrust_limits skips Full Thrust options.
     #[test]
-    fn test_thrust_limits_skips_flip_and_burn() {
+    fn test_thrust_limits_skips_full_thrust() {
         let mut opts = vec![TransferOption {
-            label: "Flip & Burn",
+            label: "Full Thrust",
             total_delta_v_ms: 100_000.0,
             delta_v1_ms: 50_000.0,
             delta_v2_ms: 50_000.0,
@@ -1703,9 +1732,9 @@ mod tests {
             burn_time_s: 50_000.0,
             is_thrust_limited: false,
         }];
-        // Even with tiny accel, Flip & Burn should be untouched
+        // Even with tiny accel, Full Thrust should be untouched
         apply_thrust_limits(&mut opts, 0.0001, 5_000.0);
-        assert!(!opts[0].is_thrust_limited, "Flip & Burn should not be marked thrust-limited");
-        assert_eq!(opts[0].transfer_time_s, 50_000.0, "Flip & Burn transfer time should be unchanged");
+        assert!(!opts[0].is_thrust_limited, "Full Thrust should not be marked thrust-limited");
+        assert_eq!(opts[0].transfer_time_s, 50_000.0, "Full Thrust transfer time should be unchanged");
     }
 }
