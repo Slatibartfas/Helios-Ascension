@@ -1911,53 +1911,6 @@ pub fn draw_fleet_transfer_preview(
     // In the preview the destination is the body we are flying TO, not the orbit
     // centre, so the outer ring is always wanted here.
     draw_ghost_body(&mut gizmos, dp, dest_ring_r, dest_visual_r, false);
-
-    // ── Arrival highlight arc on target body's orbit ring ─────────────────────
-    // When the predicted arrival position is far off-screen (e.g. a distant moon
-    // like Fornjot after a long transfer window), the bezier arc and ghost body
-    // become invisible.  To keep the player informed, we draw a thin bright-orange
-    // arc segment directly on the target body's **orbit ring** (centered on the
-    // orbit parent, which typically remains on-screen) at the angular position
-    // where the body will be at arrival time.  This is always visible as long as
-    // the orbit parent is in view.
-    //
-    // The arc spans ±30° of mean anomaly around the arrival point and fades
-    // toward its ends, creating a clear "arrival window" marker on the orbit ring.
-    if let Ok(kepler) = kepler_query.get(target_entity) {
-        let amp = amp_query.get(target_entity).map(|a| a.0 as f64).unwrap_or(1.0);
-        let arrival_time = departure_s + travel_time_s;
-        let ma_arrival = kepler.mean_anomaly_epoch + kepler.mean_motion * arrival_time;
-
-        // Sweep ±30° of mean anomaly around the arrival point.
-        const ARRIVAL_ARC_SPAN: f64 = std::f64::consts::PI / 6.0; // 30°
-        const ARRIVAL_ARC_STEPS: usize = 32;
-
-        let mut prev: Option<Vec3> = None;
-        for i in 0..=ARRIVAL_ARC_STEPS {
-            let frac = i as f64 / ARRIVAL_ARC_STEPS as f64;
-            let ma = ma_arrival - ARRIVAL_ARC_SPAN + frac * 2.0 * ARRIVAL_ARC_SPAN;
-            let pos_au = orbit_position_from_mean_anomaly(kepler, ma);
-            let pos_scaled = Vec3::new(
-                (pos_au.x * SCALING_FACTOR * amp) as f32,
-                (pos_au.y * SCALING_FACTOR * amp) as f32,
-                (pos_au.z * SCALING_FACTOR * amp) as f32,
-            );
-            // Arc is anchored to the orbit center at departure time — the same
-            // reference frame used for `dp`, so the arc midpoint (frac=0.5) sits
-            // exactly at the ghost body marker when it is on-screen.
-            let arc_pos = cv_at_departure + pos_scaled;
-
-            // Fade to transparent at the arc ends, full brightness at the midpoint.
-            let edge_fade = 1.0_f32 - (2.0 * frac as f32 - 1.0).abs();
-            let alpha = 0.18 + 0.72 * edge_fade;
-            let arc_color = Color::srgba(1.0, 0.55, 0.1, alpha);
-
-            if let Some(p) = prev {
-                gizmos.line(p, arc_pos, arc_color);
-            }
-            prev = Some(arc_pos);
-        }
-    }
 }
 
 /// Draw the two-leg slingshot arc when a gravity-assist flyby is selected.
