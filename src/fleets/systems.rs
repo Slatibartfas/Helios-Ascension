@@ -766,10 +766,36 @@ pub fn draw_fleet_trajectories(
             let origin_visual = body_query.get(maneuver.origin_body)
                 .map(|(t, _, _)| t.translation).ok();
 
-            if let Some(op) = origin_visual {
+            if let Some(op_current) = origin_visual {
                 let dp_current = body_query.get(maneuver.destination_body)
                     .ok().map(|(t, _, _)| t.translation);
                 let Some(dp_now) = dp_current else { continue; };
+
+                let cv_current = body_query.get(maneuver.orbit_center)
+                    .map(|(t, _, _)| t.translation).unwrap_or(Vec3::ZERO);
+
+                // Once departed, fix the origin at the moon's departure-time position
+                // so it moves with the planet but not with the moon's orbit.
+                let is_departed = sim_elapsed >= maneuver.departure_time;
+                let op = if is_departed {
+                    let op_absolute = predict_body_visual_pos(
+                        maneuver.origin_body,
+                        maneuver.departure_time,
+                        &body_query,
+                        &kepler_query,
+                        &amp_query,
+                    ).unwrap_or(op_current);
+                    let cv_at_departure = predict_body_visual_pos(
+                        maneuver.orbit_center,
+                        maneuver.departure_time,
+                        &body_query,
+                        &kepler_query,
+                        &amp_query,
+                    ).unwrap_or(cv_current);
+                    op_absolute - cv_at_departure + cv_current
+                } else {
+                    op_current
+                };
 
                 // For the in-transit arc, target where the body WILL BE at arrival,
                 // not where it is now.  The preview used predicted pos; once departed
@@ -789,9 +815,6 @@ pub fn draw_fleet_trajectories(
                     &kepler_query,
                     &amp_query,
                 ).unwrap_or(dp_absolute);
-
-                let cv_current = body_query.get(maneuver.orbit_center)
-                    .map(|(t, _, _)| t.translation).unwrap_or(Vec3::ZERO);
 
                 let dp = dp_absolute - cv_predicted + cv_current;
 
@@ -1292,7 +1315,30 @@ pub fn update_fleet_transforms(
                 // Local transfer: follow the same cubic Bezier as the trajectory gizmo.
                 let origin_data = body_query.get(maneuver.origin_body).ok().map(|(t, b, _)| (t.translation, fleet_parking_visual_radius(b.visual_radius)));
                 let dest_data   = body_query.get(maneuver.destination_body).ok().map(|(t, b, _)| (t.translation, fleet_parking_visual_radius(b.visual_radius)));
-                if let (Some((op, origin_ring_r)), Some((dp_now, dest_ring_r))) = (origin_data, dest_data) {
+                if let (Some((op_current, origin_ring_r)), Some((dp_now, dest_ring_r))) = (origin_data, dest_data) {
+                    let cv_current = body_query.get(maneuver.orbit_center)
+                        .map(|(t, _, _)| t.translation).unwrap_or(Vec3::ZERO);
+
+                    // Once departed, fix the origin at the moon's departure-time position
+                    // so the fleet moves with the planet but not the moon's orbit.
+                    let op = {
+                        let op_absolute = predict_body_visual_pos(
+                            maneuver.origin_body,
+                            maneuver.departure_time,
+                            &body_query,
+                            &kepler_query,
+                            &amp_query,
+                        ).unwrap_or(op_current);
+                        let cv_at_departure = predict_body_visual_pos(
+                            maneuver.orbit_center,
+                            maneuver.departure_time,
+                            &body_query,
+                            &kepler_query,
+                            &amp_query,
+                        ).unwrap_or(cv_current);
+                        op_absolute - cv_at_departure + cv_current
+                    };
+
                     let dp_absolute = predict_body_visual_pos(
                         maneuver.destination_body,
                         maneuver.arrival_time,
@@ -1308,9 +1354,6 @@ pub fn update_fleet_transforms(
                         &kepler_query,
                         &amp_query,
                     ).unwrap_or(dp_absolute);
-
-                    let cv_current = body_query.get(maneuver.orbit_center)
-                        .map(|(t, _, _)| t.translation).unwrap_or(Vec3::ZERO);
 
                     let dp = dp_absolute - cv_predicted + cv_current;
 
