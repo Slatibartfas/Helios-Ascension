@@ -723,6 +723,8 @@ pub fn draw_fleet_trajectories(
     floating_origin: Option<Res<FloatingOrigin>>,
     fleet_ui_state: Res<FleetUiState>,
     view_mode: Res<ViewMode>,
+    sim_time: Res<SimulationTime>,
+    real_time: Res<Time<Real>>,
 ) {
     let origin_offset = floating_origin
         .as_ref()
@@ -735,6 +737,8 @@ pub fn draw_fleet_trajectories(
     };
 
     const SEGMENTS: u32 = 64;
+    let sim_elapsed = sim_time.elapsed_seconds();
+    let real_secs = real_time.elapsed_secs();
 
     for (entity, maneuver) in fleet_query.iter() {
         // In System view only draw for the selected fleet, in Starmap always draw.
@@ -832,15 +836,43 @@ pub fn draw_fleet_trajectories(
                 let tang_d_a = Vec3::new(-radial_dest.y, radial_dest.x, 0.0);
                 let tang_dest = if tang_d_a.dot(tang_origin) >= 0.0 { tang_d_a } else { -tang_d_a };
 
+                // ── Semi-transparent purple glow: show only the remaining arc ─────────
+                let progress_t = if maneuver.arrival_time > maneuver.departure_time {
+                    ((sim_elapsed - maneuver.departure_time)
+                        / (maneuver.arrival_time - maneuver.departure_time))
+                        .clamp(0.0, 1.0) as f32
+                } else {
+                    1.0_f32
+                };
+                let remaining_span = (1.0_f32 - progress_t).max(1e-4_f32);
+                // Glow pulse travels from fleet toward target, one cycle per 4 real seconds.
+                let glow_pos = progress_t + (real_secs / 4.0_f32).fract() * remaining_span;
+                let traj_color = |t: f32| -> Color {
+                    let arc_frac = ((t - progress_t) / remaining_span).clamp(0.0, 1.0);
+                    let base_a = 0.50 - 0.22 * arc_frac;
+                    let dist = (t - glow_pos).abs();
+                    let glow = (1.0 - (dist / 0.09_f32).min(1.0)).powi(2);
+                    // Deep purple base; bright lavender-white at pulse peak (triggers bloom).
+                    Color::linear_rgba(
+                        0.55 + glow * 1.15,
+                        0.08 + glow * 0.50,
+                        0.85 + glow * 1.05,
+                        (base_a + glow * 0.45).min(1.0),
+                    )
+                };
+
                 if maneuver.is_kinematic() {
-                    // Kinematic transfer: straight powered line, no ballistic arc.
-                    for i in 0..SEGMENTS {
+                    // Kinematic transfer: straight powered line — draw only the remaining arc.
+                    let start_pos = p0 + (p3 - p0) * progress_t;
+                    let mut prev = Some(start_pos);
+                    for i in 0..=SEGMENTS {
                         let t0 = i as f32 / SEGMENTS as f32;
-                        let t1 = (i + 1) as f32 / SEGMENTS as f32;
-                        let pos0 = p0 + (p3 - p0) * t0;
-                        let pos1 = p0 + (p3 - p0) * t1;
-                        let alpha = 0.85 - 0.35 * t0;
-                        gizmos.line(pos0, pos1, Color::srgba(0.3, 0.8, 1.0, alpha));
+                        if t0 <= progress_t { continue; }
+                        let pos = p0 + (p3 - p0) * t0;
+                        if let Some(prev_pos) = prev {
+                            gizmos.line(prev_pos, pos, traj_color(t0));
+                        }
+                        prev = Some(pos);
                     }
                 } else {
                     let ctrl_len = (p3 - p0).length() * 0.40;
@@ -856,13 +888,14 @@ pub fn draw_fleet_trajectories(
                         u*u*u*p0 + 3.0*u*u*t*p1 + 3.0*u*t*t*p2 + t*t*t*p3
                     };
 
-                    let mut prev: Option<Vec3> = None;
+                    // Start exactly at the fleet's current position on the Bezier arc.
+                    let mut prev: Option<Vec3> = Some(bezier(progress_t));
                     for i in 0..=SEGMENTS {
                         let t_frac = i as f32 / SEGMENTS as f32;
+                        if t_frac <= progress_t { continue; }
                         let pos = bezier(t_frac);
                         if let Some(prev_pos) = prev {
-                            let alpha = 0.85 - 0.35 * t_frac;
-                            gizmos.line(prev_pos, pos, Color::srgba(0.3, 0.8, 1.0, alpha));
+                            gizmos.line(prev_pos, pos, traj_color(t_frac));
                         }
                         prev = Some(pos);
                     }
@@ -885,19 +918,39 @@ pub fn draw_fleet_trajectories(
             .map(|sc| sc.position)
             .unwrap_or(DVec3::ZERO);
 
-        let total_ma_travel = maneuver.transfer_orbit.mean_motion
-            * (maneuver.arrival_time - maneuver.departure_time);
+        // ── Semi-transparent purple glow: show only the remaining arc ─────────
+        let progress_t = if maneuver.arrival_time > maneuver.departure_time {
+            ((sim_elapsed - maneuver.departure_time)
+                / (maneuver.arrival_time - maneuver.departure_time))
+                .clamp(0.0, 1.0) as f32
+        } else {
+            1.0_f32
+        };
+        let remaining_span = (1.0_f32 - progress_t).max(1e-4_f32);
+        let glow_pos = progress_t + (real_secs / 4.0_f32).fract() * remaining_span;
+        let traj_color = |t: f32| -> Color {
+            let arc_frac = ((t - progress_t) / remaining_span).clamp(0.0, 1.0);
+            let base_a = 0.50 - 0.22 * arc_frac;
+            let dist = (t - glow_pos).abs();
+            let glow = (1.0 - (dist / 0.09_f32).min(1.0)).powi(2);
+            Color::linear_rgba(
+                0.55 + glow * 1.15,
+                0.08 + glow * 0.50,
+                0.85 + glow * 1.05,
+                (base_a + glow * 0.45).min(1.0),
+            )
+        };
 
         if maneuver.is_kinematic() {
-            // Kinematic transfer: straight powered line between departure and arrival positions.
+            // Kinematic transfer: straight powered line — draw only the remaining arc.
             let p0_au = maneuver.start_position_au.unwrap_or_else(|| {
                 center_coords.get(maneuver.origin_body).map(|sc| sc.position).unwrap_or(DVec3::ZERO)
             }) - center_pos;
-            
+
             let p1_au = maneuver.end_position_au.unwrap_or_else(|| {
                 center_coords.get(maneuver.destination_body).map(|sc| sc.position).unwrap_or(DVec3::ZERO)
             }) - center_pos;
-            
+
             let rp0 = Vec3::new(
                 ((center_pos.x + p0_au.x - origin_offset.x) * scale) as f32,
                 ((center_pos.y + p0_au.y - origin_offset.y) * scale) as f32,
@@ -908,22 +961,38 @@ pub fn draw_fleet_trajectories(
                 ((center_pos.y + p1_au.y - origin_offset.y) * scale) as f32,
                 ((center_pos.z + p1_au.z - origin_offset.z) * scale) as f32,
             );
-            for i in 0..SEGMENTS {
+            let start_pos = rp0 + (rp1 - rp0) * progress_t;
+            let mut prev = Some(start_pos);
+            for i in 0..=SEGMENTS {
                 let t0 = i as f32 / SEGMENTS as f32;
-                let t1 = (i + 1) as f32 / SEGMENTS as f32;
-                let pos0 = rp0 + (rp1 - rp0) * t0;
-                let pos1 = rp0 + (rp1 - rp0) * t1;
-                let alpha = 0.8 * (1.0 - 0.4 * t0);
-                gizmos.line(pos0, pos1, Color::srgba(0.3, 0.8, 1.0, alpha));
+                if t0 <= progress_t { continue; }
+                let pos = rp0 + (rp1 - rp0) * t0;
+                if let Some(prev_pos) = prev {
+                    gizmos.line(prev_pos, pos, traj_color(t0));
+                }
+                prev = Some(pos);
             }
         } else {
-            let mut prev: Option<Vec3> = None;
+            let total_ma_travel = maneuver.transfer_orbit.mean_motion
+                * (maneuver.arrival_time - maneuver.departure_time);
+
+            // Start exactly at the fleet's current Keplerian position on the arc.
+            let ma_start = maneuver.transfer_orbit.mean_anomaly_epoch
+                + total_ma_travel * progress_t as f64;
+            let orbit_start = orbit_position_from_mean_anomaly(&maneuver.transfer_orbit, ma_start);
+            let world_start = center_pos + orbit_start - origin_offset;
+            let mut prev: Option<Vec3> = Some(Vec3::new(
+                (world_start.x * scale) as f32,
+                (world_start.y * scale) as f32,
+                (world_start.z * scale) as f32,
+            ));
 
             for i in 0..=SEGMENTS {
                 let frac = i as f64 / SEGMENTS as f64;
+                if (frac as f32) <= progress_t { continue; }
+
                 let mean_anomaly =
                     maneuver.transfer_orbit.mean_anomaly_epoch + total_ma_travel * frac;
-
                 let orbit_pos = orbit_position_from_mean_anomaly(&maneuver.transfer_orbit, mean_anomaly);
                 let world_au = center_pos + orbit_pos - origin_offset;
                 let render_pos = Vec3::new(
@@ -933,8 +1002,7 @@ pub fn draw_fleet_trajectories(
                 );
 
                 if let Some(prev_pos) = prev {
-                    let alpha = 0.8 * (1.0 - 0.4 * frac as f32);
-                    gizmos.line(prev_pos, render_pos, Color::srgba(0.3, 0.8, 1.0, alpha));
+                    gizmos.line(prev_pos, render_pos, traj_color(frac as f32));
                 }
                 prev = Some(render_pos);
             }
