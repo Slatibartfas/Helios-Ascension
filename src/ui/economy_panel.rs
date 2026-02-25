@@ -50,7 +50,6 @@ enum EconomySourceKind {
 #[allow(dead_code)]
 struct BodyEconomyEntry {
     #[allow(dead_code)]
-    #[allow(dead_code)]
     body_name: String,
     /// Prepared for future use (stations, mining ships)
     #[allow(dead_code)]

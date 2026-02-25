@@ -496,17 +496,6 @@ pub(super) fn format_rate_monthly(value: f64) -> (String, egui::Color32) {
     }
 }
 
-/// Format a monthly rate for points (integer display).
-pub(super) fn format_points_rate_monthly(value: f64) -> (String, egui::Color32) {
-    if value > 0.0 {
-        (format!("+{:.0}/mo", value), egui::Color32::from_rgb(100, 255, 100))
-    } else if value < 0.0 {
-        (format!("{:.0}/mo", value), egui::Color32::from_rgb(255, 100, 100))
-    } else {
-        ("+0/mo".to_string(), egui::Color32::GRAY)
-    }
-}
-
 /// Main UI dashboard system
 #[allow(clippy::too_many_arguments)]
 pub(super) fn ui_dashboard(

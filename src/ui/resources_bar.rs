@@ -1,5 +1,5 @@
 use super::*;
-use super::dashboard::{format_mass, format_rate_monthly, format_points_rate_monthly};
+use super::dashboard::{format_mass, format_rate_monthly};
 use super::time::{format_timestamp_date_time, estimate_research_project_end_timestamp, estimate_engineering_project_end_timestamp};
 use super::research_panel::{ActiveProjectInfo, render_research_tech_tooltip_content};
 
@@ -906,98 +906,6 @@ pub(super) fn ui_resources_bar(
                 }
             }
 
-            if !still_open {
-                open_popup.open = None;
-            }
-        } else if cat_name == "ResearchPoints" {
-            let rp_color = egui::Color32::from_rgb(100, 200, 255);
-            let mut still_open = true;
-            let window_response = egui::Window::new("Research Points")
-                .id(egui::Id::new("research_points_window"))
-                .fixed_pos(egui::pos2(anchor_rect.left(), anchor_rect.bottom() + 2.0))
-                .collapsible(false)
-                .resizable(false)
-                .title_bar(false)
-                .open(&mut still_open)
-                .frame(egui::Frame::popup(ctx.style().as_ref()))
-                .show(ctx, |ui| {
-                    ui.set_min_width(220.0);
-                    ui.horizontal(|ui| {
-                        ui.add(egui::Label::new(egui::RichText::new("🔬").size(18.0).color(rp_color)).selectable(false));
-                        ui.add(egui::Label::new(egui::RichText::new("Research Points").size(16.0).strong().color(rp_color)).selectable(false));
-                    });
-                    ui.separator();
-
-                    ui.horizontal(|ui| {
-                        ui.add(egui::Label::new("Available:").selectable(false));
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.add(egui::Label::new(egui::RichText::new(format!("{:.0}", research_state.research_points_available)).strong()).selectable(false));
-                        });
-                    });
-                    ui.horizontal(|ui| {
-                        ui.add(egui::Label::new("Monthly Income:").selectable(false));
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let (rt, rc) = format_points_rate_monthly(rate_tracker.research_rate_per_month);
-                            ui.add(egui::Label::new(egui::RichText::new(rt).strong().color(rc)).selectable(false));
-                        });
-                    });
-                });
-
-            if let Some(inner_response) = window_response {
-                if ctx.input(|i| i.pointer.any_pressed()) {
-                    if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
-                        if !inner_response.response.rect.contains(pos) && !anchor_rect.contains(pos) {
-                            open_popup.open = None;
-                        }
-                    }
-                }
-            }
-            if !still_open {
-                open_popup.open = None;
-            }
-        } else if cat_name == "EngineeringPoints" {
-            let ep_color = egui::Color32::from_rgb(100, 255, 200);
-            let mut still_open = true;
-            let window_response = egui::Window::new("Engineering Points")
-                .id(egui::Id::new("engineering_points_window"))
-                .fixed_pos(egui::pos2(anchor_rect.left(), anchor_rect.bottom() + 2.0))
-                .collapsible(false)
-                .resizable(false)
-                .title_bar(false)
-                .open(&mut still_open)
-                .frame(egui::Frame::popup(ctx.style().as_ref()))
-                .show(ctx, |ui| {
-                    ui.set_min_width(220.0);
-                    ui.horizontal(|ui| {
-                        ui.add(egui::Label::new(egui::RichText::new("⚙").size(18.0).color(ep_color)).selectable(false));
-                        ui.add(egui::Label::new(egui::RichText::new("Engineering Points").size(16.0).strong().color(ep_color)).selectable(false));
-                    });
-                    ui.separator();
-
-                    ui.horizontal(|ui| {
-                        ui.add(egui::Label::new("Available:").selectable(false));
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.add(egui::Label::new(egui::RichText::new(format!("{:.0}", research_state.engineering_points_available)).strong()).selectable(false));
-                        });
-                    });
-                    ui.horizontal(|ui| {
-                        ui.add(egui::Label::new("Monthly Income:").selectable(false));
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let (rt, rc) = format_points_rate_monthly(rate_tracker.engineering_rate_per_month);
-                            ui.add(egui::Label::new(egui::RichText::new(rt).strong().color(rc)).selectable(false));
-                        });
-                    });
-                });
-
-            if let Some(inner_response) = window_response {
-                if ctx.input(|i| i.pointer.any_pressed()) {
-                    if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
-                        if !inner_response.response.rect.contains(pos) && !anchor_rect.contains(pos) {
-                            open_popup.open = None;
-                        }
-                    }
-                }
-            }
             if !still_open {
                 open_popup.open = None;
             }
