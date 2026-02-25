@@ -2179,7 +2179,7 @@ pub fn handle_lp_hover(
     mut egui_contexts: bevy_egui::EguiContexts,
     active_menu: Res<ActiveMenu>,
     panel_bounds: Res<EguiPanelBounds>,
-    mut fleet_ui_state: ResMut<crate::ui::FleetUiState>,
+    _fleet_ui_state: ResMut<crate::ui::FleetUiState>,
 ) {
     if *view_mode != ViewMode::System {
         lp_markers.hovered_index = None;
@@ -2234,27 +2234,15 @@ pub fn handle_lp_hover(
             last_click.info = Some(info);
         }
     } else if mouse_button.just_pressed(MouseButton::Right) {
-        if let Some(idx) = lp_markers.hovered_index {
-            if fleet_ui_state.selected_fleet.is_some() {
-                let info = lp_markers.markers[idx].clone();
-                info!("Right clicked LP: L{} of {}, opening transfer planner", info.point, info.planet_name);
-                fleet_ui_state.target_lagrange = Some(crate::ui::LagrangeTarget {
-                    point: info.point,
-                    planet_entity: info.planet_entity,
-                    planet_name: info.planet_name.clone(),
-                    planet_sma_au: info.planet_sma_au,
-                    radius_au: info.lp_radius_au,
-                    gm: info.gm,
-                });
-                fleet_ui_state.target_body = None;
-                fleet_ui_state.target_fleet = None;
-                fleet_ui_state.computed_options.clear();
-                fleet_ui_state.planned_transfer = None;
-                fleet_ui_state.selected_option = 0;
-                fleet_ui_state.selected_gravity_assist = None;
-                fleet_ui_state.show_transfer_popup = true;
-            }
-        }
+        // TODO(lagrange-transfers): Re-enable right-click LP → transfer once Lagrange-point
+        // transfer planning is working correctly. For now LP markers are display-only.
+        // if let Some(idx) = lp_markers.hovered_index {
+        //     if fleet_ui_state.selected_fleet.is_some() {
+        //         let info = lp_markers.markers[idx].clone();
+        //         fleet_ui_state.target_lagrange = Some(crate::ui::LagrangeTarget { ... });
+        //         fleet_ui_state.show_transfer_popup = true;
+        //     }
+        // }
     }
 }
 

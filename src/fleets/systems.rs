@@ -28,6 +28,24 @@ const VISUAL_ORBIT_RATE: f64 = std::f64::consts::TAU / 40.0;
 /// the body's glow without the ring dominating the view.
 const FLEET_ORBIT_RADIUS_MULT: f32 = 1.5;
 
+/// Radius of the sphere mesh spawned for each fleet icon (must match `ensure_fleet_meshes`).
+const FLEET_SPHERE_RADIUS: f32 = 6.0;
+
+/// Minimum clearance gap between the fleet sphere's surface and the body's visual surface.
+const FLEET_ORBIT_MIN_GAP: f32 = 3.0;
+
+/// Compute the visual-space parking orbit radius for a fleet around a body.
+///
+/// Uses `body_visual_radius * FLEET_ORBIT_RADIUS_MULT` as default, but enforces
+/// a minimum of `body_visual_radius + FLEET_SPHERE_RADIUS + FLEET_ORBIT_MIN_GAP`
+/// so the fleet marker never intersects the body for very small or inflated bodies.
+#[inline]
+fn fleet_parking_visual_radius(body_visual_radius: f32) -> f32 {
+    let proportional = body_visual_radius * FLEET_ORBIT_RADIUS_MULT;
+    let minimum = body_visual_radius + FLEET_SPHERE_RADIUS + FLEET_ORBIT_MIN_GAP;
+    proportional.max(minimum)
+}
+
 /// Number of sub-samples used to approximate arc length for dashed curves.
 const ARC_SAMPLES: usize = 256;
 /// Fraction of each dash-gap cycle occupied by the visible dash (0.6 = 60%).
@@ -735,10 +753,10 @@ pub fn draw_fleet_trajectories(
         if !center_is_star && *view_mode == ViewMode::System {
             // ── Local transfer: visual-space arc ──
             let origin_ring_r = body_query.get(maneuver.origin_body)
-                .map(|(_, b, _)| b.visual_radius * FLEET_ORBIT_RADIUS_MULT)
+                .map(|(_, b, _)| fleet_parking_visual_radius(b.visual_radius))
                 .unwrap_or(0.0);
             let (dest_visual_r, dest_ring_r) = body_query.get(maneuver.destination_body)
-                .map(|(_, b, _)| (b.visual_radius, b.visual_radius * FLEET_ORBIT_RADIUS_MULT))
+                .map(|(_, b, _)| (b.visual_radius, fleet_parking_visual_radius(b.visual_radius)))
                 .unwrap_or((0.0, 0.0));
 
             let origin_visual = body_query.get(maneuver.origin_body)
@@ -826,8 +844,12 @@ pub fn draw_fleet_trajectories(
                     }
                 } else {
                     let ctrl_len = (p3 - p0).length() * 0.40;
-                    let p1 = p0 + tang_origin * ctrl_len;
-                    let p2 = p3 - tang_dest   * ctrl_len;
+                    let mut p1 = p0 + tang_origin * ctrl_len;
+                    let mut p2 = p3 - tang_dest   * ctrl_len;
+                    // Smoothly interpolate z so the arc bridges the two orbital planes
+                    // even when the tangent vectors are 2D (z = 0).
+                    p1.z = p0.z + (p3.z - p0.z) * 0.33;
+                    p2.z = p0.z + (p3.z - p0.z) * 0.67;
 
                     let bezier = |t: f32| -> Vec3 {
                         let u = 1.0 - t;
@@ -1188,7 +1210,7 @@ pub fn update_fleet_transforms(
                 let visual_orbit = if body.body_type == BodyType::Star {
                     orbit.radius_au as f32 * SCALING_FACTOR as f32
                 } else {
-                    body.visual_radius * FLEET_ORBIT_RADIUS_MULT
+                    fleet_parking_visual_radius(body.visual_radius)
                 };
                 transform.translation = body_transform.translation + dir * visual_orbit;
             }
@@ -1200,8 +1222,8 @@ pub fn update_fleet_transforms(
 
             if !center_is_star {
                 // Local transfer: follow the same cubic Bezier as the trajectory gizmo.
-                let origin_data = body_query.get(maneuver.origin_body).ok().map(|(t, b, _)| (t.translation, b.visual_radius * FLEET_ORBIT_RADIUS_MULT));
-                let dest_data   = body_query.get(maneuver.destination_body).ok().map(|(t, b, _)| (t.translation, b.visual_radius * FLEET_ORBIT_RADIUS_MULT));
+                let origin_data = body_query.get(maneuver.origin_body).ok().map(|(t, b, _)| (t.translation, fleet_parking_visual_radius(b.visual_radius)));
+                let dest_data   = body_query.get(maneuver.destination_body).ok().map(|(t, b, _)| (t.translation, fleet_parking_visual_radius(b.visual_radius)));
                 if let (Some((op, origin_ring_r)), Some((dp_now, dest_ring_r))) = (origin_data, dest_data) {
                     let dp_absolute = predict_body_visual_pos(
                         maneuver.destination_body,
@@ -1354,7 +1376,7 @@ pub fn draw_fleet_orbit_rings(
             let ring_radius = if body.body_type == BodyType::Star {
                 orbit.radius_au as f32 * SCALING_FACTOR as f32
             } else {
-                body.visual_radius * FLEET_ORBIT_RADIUS_MULT
+                fleet_parking_visual_radius(body.visual_radius)
             };
             draw_ring(
                 &mut gizmos,
@@ -1376,7 +1398,7 @@ pub fn draw_fleet_orbit_rings(
                 draw_ring(
                     &mut gizmos,
                     body_transform.translation,
-                    body.visual_radius * FLEET_ORBIT_RADIUS_MULT,
+                    fleet_parking_visual_radius(body.visual_radius),
                     Color::srgba(0.2, 0.9, 0.3, 0.15),
                 );
             }
@@ -1388,7 +1410,7 @@ pub fn draw_fleet_orbit_rings(
             draw_ring(
                 &mut gizmos,
                 body_transform.translation,
-                body.visual_radius * FLEET_ORBIT_RADIUS_MULT,
+                fleet_parking_visual_radius(body.visual_radius),
                 Color::srgba(0.2, 0.9, 0.3, 0.20),
             );
         }
@@ -1397,7 +1419,7 @@ pub fn draw_fleet_orbit_rings(
             draw_ring(
                 &mut gizmos,
                 body_transform.translation,
-                body.visual_radius * FLEET_ORBIT_RADIUS_MULT,
+                fleet_parking_visual_radius(body.visual_radius),
                 Color::srgba(0.3, 0.8, 1.0, 0.35),
             );
         }
@@ -1448,7 +1470,7 @@ pub fn draw_fleet_transfer_preview(
         // when the player drags the departure slider.
         let op = predict_body_visual_pos(origin_body, departure_s, &body_query, &kepler_query, &amp_query)
             .unwrap_or(origin_transform.translation);
-        let origin_ring_r = origin_body_data.visual_radius * FLEET_ORBIT_RADIUS_MULT;
+        let origin_ring_r = fleet_parking_visual_radius(origin_body_data.visual_radius);
 
         let travel_time_s = if fleet_ui_state.selected_option < fleet_ui_state.computed_options.len() {
             fleet_ui_state.computed_options[fleet_ui_state.selected_option].transfer_time_s
@@ -1553,7 +1575,7 @@ pub fn draw_fleet_transfer_preview(
         let Ok((origin_transform, origin_body_data, _)) = body_query.get(origin_body) else { return; };
         let op = predict_body_visual_pos(origin_body, departure_s, &body_query, &kepler_query, &amp_query)
             .unwrap_or(origin_transform.translation);
-        let origin_ring_r = origin_body_data.visual_radius * FLEET_ORBIT_RADIUS_MULT;
+        let origin_ring_r = fleet_parking_visual_radius(origin_body_data.visual_radius);
 
         // Use the target fleet's current visual Transform position — fleets have no Keplerian
         // orbit to predict future positions from, so we target where they are right now.
@@ -1643,9 +1665,9 @@ pub fn draw_fleet_transfer_preview(
     // when the player drags the departure slider.
     let op            = predict_body_visual_pos(origin_body, departure_s, &body_query, &kepler_query, &amp_query)
         .unwrap_or(origin_transform.translation);
-    let origin_ring_r = origin_body_data.visual_radius * FLEET_ORBIT_RADIUS_MULT;
+    let origin_ring_r = fleet_parking_visual_radius(origin_body_data.visual_radius);
     let dest_visual_r = dest_body_data.visual_radius;
-    let dest_ring_r   = dest_visual_r * FLEET_ORBIT_RADIUS_MULT;
+    let dest_ring_r   = fleet_parking_visual_radius(dest_visual_r);
 
     // Travel time from selected transfer option (or 0 = show arc to current position).
     let travel_time_s = if fleet_ui_state.selected_option < fleet_ui_state.computed_options.len() {
@@ -1744,8 +1766,12 @@ pub fn draw_fleet_transfer_preview(
         );
     } else {
         let ctrl_len = (p3 - p0).length() * 0.40;
-        let p1 = p0 + tang_origin * ctrl_len;
-        let p2 = p3 - tang_dest   * ctrl_len;
+        let mut p1 = p0 + tang_origin * ctrl_len;
+        let mut p2 = p3 - tang_dest   * ctrl_len;
+        // Smoothly interpolate z so the arc bridges the two orbital planes
+        // even when the tangent vectors are 2D (z = 0).
+        p1.z = p0.z + (p3.z - p0.z) * 0.33;
+        p2.z = p0.z + (p3.z - p0.z) * 0.67;
         let bezier = move |t: f32| -> Vec3 {
             let u = 1.0 - t;
             u*u*u*p0 + 3.0*u*u*t*p1 + 3.0*u*t*t*p2 + t*t*t*p3
@@ -1820,8 +1846,8 @@ pub fn draw_gravity_assist_preview(
     // when the player drags the departure slider.
     let op = predict_body_visual_pos(origin_body, depart_s, &body_query, &kepler_query, &amp_query)
         .unwrap_or(origin_t.translation);
-    let origin_ring_r = origin_bd.visual_radius * FLEET_ORBIT_RADIUS_MULT;
-    let dest_ring_r   = dest_bd.visual_radius   * FLEET_ORBIT_RADIUS_MULT;
+    let origin_ring_r = fleet_parking_visual_radius(origin_bd.visual_radius);
+    let dest_ring_r   = fleet_parking_visual_radius(dest_bd.visual_radius);
 
     // Predict flyby body position at end of Leg 1
     let fp = predict_body_visual_pos(
@@ -1883,7 +1909,7 @@ pub fn draw_gravity_assist_preview(
     };
 
     // Periapsis offset distance: just outside the flyby ring for visual clarity.
-    let flyby_ring_r = flyby_bd.visual_radius * FLEET_ORBIT_RADIUS_MULT;
+    let flyby_ring_r = fleet_parking_visual_radius(flyby_bd.visual_radius);
     let periapsis_dist = flyby_ring_r * 2.0;
     let periapsis = fp + apse_dir * periapsis_dist;
 

@@ -41,6 +41,12 @@ pub struct TransferOption {
     /// [`compute_burn_time_s`] with the fleet's actual min-acceleration and
     /// average specific impulse.
     pub burn_time_s: f64,
+    /// ΔV contribution from the orbital-plane change (m/s).
+    ///
+    /// The plane change is combined with the Hohmann burn at the apoapsis
+    /// (lowest-speed point) using the vector law of cosines, which is the
+    /// most fuel-efficient strategy.  Zero for co-planar transfers.
+    pub plane_change_dv_ms: f64,
     /// `true` when the fleet's thrust is so low that the Hohmann instantaneous-burn
     /// approximation is invalid.
     ///
@@ -365,6 +371,7 @@ pub fn calculate_transfer_options_phased(
     gm: f64,
     departure_offset_s: f64,
     window: &TransferWindowInfo,
+    delta_i_rad: f64,
 ) -> Vec<TransferOption> {
     if (r1_au - r2_au).abs() < 1e-9 {
         return vec![TransferOption {
@@ -372,6 +379,7 @@ pub fn calculate_transfer_options_phased(
             total_delta_v_ms: 0.0,
             delta_v1_ms: 0.0,
             delta_v2_ms: 0.0,
+            plane_change_dv_ms: 0.0,
             transfer_time_s: 0.0,
             sma_au: r1_au,
             eccentricity: 0.0,
@@ -381,7 +389,8 @@ pub fn calculate_transfer_options_phased(
         }];
     }
 
-    let (dv1_h, dv2_h, t_h, sma_h, ecc_h) = hohmann_transfer(r1_au, r2_au, gm);
+    let (_, _, t_h, sma_h, ecc_h) = hohmann_transfer(r1_au, r2_au, gm);
+    let (dv1_i, dv2_i, plane_dv) = hohmann_burns_inclined(r1_au, r2_au, gm, delta_i_rad);
 
     // Phase angle at the chosen departure time:
     // phase(t) = phase_now + phase_rate · t
@@ -396,12 +405,13 @@ pub fn calculate_transfer_options_phased(
     // Full correction factor (for the Efficient option)
     let corr_full = phase_dv_factor(phase_at_dep.abs());
 
-    // Efficient: most sensitive to phase angle
+    // Efficient: most sensitive to phase angle; plane change combined at apoapsis.
     let efficient = TransferOption {
         label: "Efficient",
-        total_delta_v_ms: (dv1_h + dv2_h) * corr_full,
-        delta_v1_ms: dv1_h * corr_full,
-        delta_v2_ms: dv2_h * corr_full,
+        total_delta_v_ms: (dv1_i + dv2_i) * corr_full,
+        delta_v1_ms: dv1_i * corr_full,
+        delta_v2_ms: dv2_i * corr_full,
+        plane_change_dv_ms: plane_dv,
         transfer_time_s: t_h,
         sma_au: sma_h,
         eccentricity: ecc_h,
@@ -410,13 +420,14 @@ pub fn calculate_transfer_options_phased(
         is_thrust_limited: false,
     };
 
-    // Moderate (1.5× Hohmann base): 65 % of phase correction
+    // Moderate (1.5× inclined base): 65 % of phase correction
     let corr_mod = 1.0 + (corr_full - 1.0) * 0.65;
-    let hohmann_base = TransferOption {
+    let inclined_base = TransferOption {
         label: "", // internal baseline — not returned to the user
-        total_delta_v_ms: dv1_h + dv2_h,
-        delta_v1_ms: dv1_h,
-        delta_v2_ms: dv2_h,
+        total_delta_v_ms: dv1_i + dv2_i,
+        delta_v1_ms: dv1_i,
+        delta_v2_ms: dv2_i,
+        plane_change_dv_ms: plane_dv,
         transfer_time_s: t_h,
         sma_au: sma_h,
         eccentricity: ecc_h,
@@ -424,11 +435,11 @@ pub fn calculate_transfer_options_phased(
         burn_time_s: 0.0,
         is_thrust_limited: false,
     };
-    let moderate = scaled_transfer(&hohmann_base, 1.5 * corr_mod, "Moderate");
+    let moderate = scaled_transfer(&inclined_base, 1.5 * corr_mod, "Moderate");
 
-    // Fast (2.5× Hohmann base): 30 % of phase correction
+    // Fast (2.5× inclined base): 30 % of phase correction
     let corr_fast = 1.0 + (corr_full - 1.0) * 0.30;
-    let fast = scaled_transfer(&hohmann_base, 2.5 * corr_fast, "Fast");
+    let fast = scaled_transfer(&inclined_base, 2.5 * corr_fast, "Fast");
 
     vec![efficient, moderate, fast]
 }
@@ -443,7 +454,7 @@ pub fn calculate_transfer_options_phased(
 /// Returns options ordered from least to most Δv.
 /// **Prefer [`calculate_transfer_options_phased`] when actual body positions
 /// are available**, as this version ignores launch-window geometry.
-pub fn calculate_transfer_options(r1_au: f64, r2_au: f64, gm: f64) -> Vec<TransferOption> {
+pub fn calculate_transfer_options(r1_au: f64, r2_au: f64, gm: f64, delta_i_rad: f64) -> Vec<TransferOption> {
     // Degenerate case — same orbit
     if (r1_au - r2_au).abs() < 1e-9 {
         return vec![TransferOption {
@@ -451,6 +462,7 @@ pub fn calculate_transfer_options(r1_au: f64, r2_au: f64, gm: f64) -> Vec<Transf
             total_delta_v_ms: 0.0,
             delta_v1_ms: 0.0,
             delta_v2_ms: 0.0,
+            plane_change_dv_ms: 0.0,
             transfer_time_s: 0.0,
             sma_au: r1_au,
             eccentricity: 0.0,
@@ -460,13 +472,15 @@ pub fn calculate_transfer_options(r1_au: f64, r2_au: f64, gm: f64) -> Vec<Transf
         }];
     }
 
-    let (dv1_h, dv2_h, t_h, sma_h, ecc_h) = hohmann_transfer(r1_au, r2_au, gm);
+    let (_, _, t_h, sma_h, ecc_h) = hohmann_transfer(r1_au, r2_au, gm);
+    let (dv1_i, dv2_i, plane_dv) = hohmann_burns_inclined(r1_au, r2_au, gm, delta_i_rad);
 
     let efficient = TransferOption {
         label: "Efficient",
-        total_delta_v_ms: dv1_h + dv2_h,
-        delta_v1_ms: dv1_h,
-        delta_v2_ms: dv2_h,
+        total_delta_v_ms: dv1_i + dv2_i,
+        delta_v1_ms: dv1_i,
+        delta_v2_ms: dv2_i,
+        plane_change_dv_ms: plane_dv,
         transfer_time_s: t_h,
         sma_au: sma_h,
         eccentricity: ecc_h,
@@ -475,7 +489,7 @@ pub fn calculate_transfer_options(r1_au: f64, r2_au: f64, gm: f64) -> Vec<Transf
         is_thrust_limited: false,
     };
 
-    // Moderate ≈ 1.5× Δv, ≈ 0.65× time
+    // Moderate ≈ 1.5× Δv, ≈ 0.65× time (plane_change_dv_ms propagates via scaled_transfer)
     let moderate = scaled_transfer(&efficient, 1.5, "Moderate");
     // Fast ≈ 2.5× Δv, ≈ 0.40× time
     let fast = scaled_transfer(&efficient, 2.5, "Fast");
@@ -527,6 +541,7 @@ pub fn direct_lp_transfer_options(r1_au: f64, r2_au: f64, gm: f64) -> Vec<Transf
             total_delta_v_ms: 0.0,
             delta_v1_ms: 0.0,
             delta_v2_ms: 0.0,
+            plane_change_dv_ms: 0.0,
             transfer_time_s: 0.0,
             sma_au: r1_au,
             eccentricity: 0.0,
@@ -537,6 +552,7 @@ pub fn direct_lp_transfer_options(r1_au: f64, r2_au: f64, gm: f64) -> Vec<Transf
     }
 
     let (dv1_h, dv2_h, _t_h, sma_h, ecc_h) = hohmann_transfer(r1_au, r2_au, gm);
+    // LP transfers are always co-planar (L-points share the planet's orbital plane).
 
     // Direct transfer time: approximate the actual arc length for L1/L2.
     // Real L-point transfers use manifold dynamics and coast along a near-
@@ -570,6 +586,7 @@ pub fn direct_lp_transfer_options(r1_au: f64, r2_au: f64, gm: f64) -> Vec<Transf
         total_delta_v_ms: dv1_h + dv2_h,
         delta_v1_ms: dv1_h,
         delta_v2_ms: dv2_h,
+        plane_change_dv_ms: 0.0,
         transfer_time_s: direct_time_s,
         sma_au: sma_h,
         eccentricity: ecc_h,
@@ -583,6 +600,7 @@ pub fn direct_lp_transfer_options(r1_au: f64, r2_au: f64, gm: f64) -> Vec<Transf
         total_delta_v_ms: (dv1_h + dv2_h) * 1.3,
         delta_v1_ms: dv1_h * 1.3,
         delta_v2_ms: dv2_h * 1.3,
+        plane_change_dv_ms: 0.0,
         transfer_time_s: direct_time_s * 0.65,
         sma_au: sma_h,
         eccentricity: ecc_h,
@@ -596,6 +614,7 @@ pub fn direct_lp_transfer_options(r1_au: f64, r2_au: f64, gm: f64) -> Vec<Transf
         total_delta_v_ms: (dv1_h + dv2_h) * 2.0,
         delta_v1_ms: dv1_h * 2.0,
         delta_v2_ms: dv2_h * 2.0,
+        plane_change_dv_ms: 0.0,
         transfer_time_s: direct_time_s * 0.35,
         sma_au: sma_h,
         eccentricity: ecc_h,
@@ -653,6 +672,7 @@ pub fn co_orbital_phasing_options(
                 total_delta_v_ms: total_dv,
                 delta_v1_ms: dv_per_burn,
                 delta_v2_ms: dv_per_burn,
+                plane_change_dv_ms: 0.0,
                 transfer_time_s,
                 sma_au: sma_phasing_au,
                 eccentricity: 0.0, // phasing orbit is near-circular
@@ -693,6 +713,61 @@ pub fn hohmann_transfer(r1_au: f64, r2_au: f64, gm: f64) -> (f64, f64, f64, f64,
     (dv1, dv2, t_transfer, a / AU_IN_METERS, ecc)
 }
 
+/// Compute the angle between two orbital planes in radians.
+///
+/// Given inclination `i` and longitude of ascending node `Ω` for each orbit:
+///   cos(Δi) = sin(i₁)·sin(i₂)·cos(Ω₂−Ω₁) + cos(i₁)·cos(i₂)
+pub fn plane_change_angle(i1_rad: f64, lan1_rad: f64, i2_rad: f64, lan2_rad: f64) -> f64 {
+    let dot = i1_rad.sin() * i2_rad.sin() * (lan2_rad - lan1_rad).cos()
+        + i1_rad.cos() * i2_rad.cos();
+    dot.clamp(-1.0, 1.0).acos()
+}
+
+/// Combined-burn ΔV for simultaneously changing velocity magnitude and plane.
+///
+/// Uses the law of cosines: `dv = √(v_a² + v_b² − 2·v_a·v_b·cos(Δi))`.
+/// More efficient than a separate plane-change burn.
+#[inline]
+fn combined_burn_dv(v_a: f64, v_b: f64, delta_i_rad: f64) -> f64 {
+    (v_a * v_a + v_b * v_b - 2.0 * v_a * v_b * delta_i_rad.cos()).sqrt()
+}
+
+/// Compute departure and arrival ΔV for a Hohmann transfer with the plane
+/// change combined optimally into one burn.
+///
+/// The plane change is added to the burn at the **apoapsis** (lowest velocity),
+/// which is the cheapest location for a combined manoeuvre:
+/// - **Outward** (r2 > r1): apoapsis at arrival → combine plane change there.
+/// - **Inward**  (r2 < r1): apoapsis at departure → combine plane change there.
+///
+/// Returns `(dv1, dv2, plane_change_dv_ms)`.
+/// `plane_change_dv_ms` is the extra ΔV over a co-planar Hohmann, for display.
+fn hohmann_burns_inclined(r1_au: f64, r2_au: f64, gm: f64, delta_i_rad: f64) -> (f64, f64, f64) {
+    let r1 = r1_au * AU_IN_METERS;
+    let r2 = r2_au * AU_IN_METERS;
+    let a  = (r1 + r2) / 2.0;
+    let v1_c = (gm / r1).sqrt();
+    let v2_c = (gm / r2).sqrt();
+    let v1_t = (gm * (2.0 / r1 - 1.0 / a)).sqrt(); // transfer velocity at r1
+    let v2_t = (gm * (2.0 / r2 - 1.0 / a)).sqrt(); // transfer velocity at r2
+    let dv1_c = (v1_t - v1_c).abs();
+    let dv2_c = (v2_c - v2_t).abs();
+
+    if delta_i_rad < 1e-9 {
+        return (dv1_c, dv2_c, 0.0);
+    }
+
+    // Combine plane change at the apoapsis (lowest-speed burn).
+    let outward = r2 > r1;
+    let (dv1, dv2) = if outward {
+        (dv1_c, combined_burn_dv(v2_c, v2_t, delta_i_rad))
+    } else {
+        (combined_burn_dv(v1_c, v1_t, delta_i_rad), dv2_c)
+    };
+    let plane_dv = (dv1 + dv2 - dv1_c - dv2_c).max(0.0);
+    (dv1, dv2, plane_dv)
+}
+
 /// Produce a higher-energy (faster, more expensive) transfer option by scaling
 /// the Hohmann Δv budget by `energy_multiplier`.
 ///
@@ -720,6 +795,7 @@ fn scaled_transfer(base: &TransferOption, energy_multiplier: f64, label: &'stati
         eccentricity,
         energy_multiplier,
         burn_time_s: 0.0,
+        plane_change_dv_ms: base.plane_change_dv_ms,
         is_thrust_limited: false,
     }
 }
@@ -852,6 +928,7 @@ pub fn kinematic_transfer_options(
             total_delta_v_ms: dv,
             delta_v1_ms: dv * 0.5,
             delta_v2_ms: dv * 0.5,
+            plane_change_dv_ms: 0.0,
             transfer_time_s: trip_time,
             sma_au: sma_h,
             eccentricity: ecc_h,
@@ -884,6 +961,7 @@ pub fn kinematic_transfer_options(
                 total_delta_v_ms: dv_brach,
                 delta_v1_ms: dv_brach * 0.5,
                 delta_v2_ms: dv_brach * 0.5,
+                plane_change_dv_ms: 0.0,
                 transfer_time_s: t_brach,
                 sma_au: sma_h,
                 eccentricity: ecc_h,
@@ -1038,7 +1116,7 @@ mod tests {
 
     #[test]
     fn test_calculate_transfer_options_returns_three() {
-        let options = calculate_transfer_options(1.0, 1.524, GM_SUN);
+        let options = calculate_transfer_options(1.0, 1.524, GM_SUN, 0.0);
         assert_eq!(options.len(), 3, "should produce 3 options");
         assert_eq!(options[0].label, "Efficient");
         assert_eq!(options[1].label, "Moderate");
@@ -1054,7 +1132,7 @@ mod tests {
 
     #[test]
     fn test_same_orbit_returns_zero_delta_v() {
-        let options = calculate_transfer_options(1.0, 1.0, GM_SUN);
+        let options = calculate_transfer_options(1.0, 1.0, GM_SUN, 0.0);
         assert_eq!(options.len(), 1);
         assert_eq!(options[0].total_delta_v_ms, 0.0);
     }
@@ -1196,8 +1274,8 @@ mod tests {
 
         let window = compute_transfer_window(r1, r2, GM_SUN, 0.0, phi_req);
         // Depart at time_to_window (should be ≈ 0 since we set the exact angle)
-        let phased = calculate_transfer_options_phased(r1, r2, GM_SUN, window.time_to_window_s, &window);
-        let base = calculate_transfer_options(r1, r2, GM_SUN);
+        let phased = calculate_transfer_options_phased(r1, r2, GM_SUN, window.time_to_window_s, &window, 0.0);
+        let base = calculate_transfer_options(r1, r2, GM_SUN, 0.0);
 
         assert!(
             (phased[0].total_delta_v_ms - base[0].total_delta_v_ms).abs() < 0.5,
@@ -1214,8 +1292,8 @@ mod tests {
         let r2 = 1.524_f64;
         // Use a deliberately bad phase angle (π rad off from optimal)
         let window = compute_transfer_window(r1, r2, GM_SUN, 0.0, 0.0); // arbitrary non-optimal
-        let base = calculate_transfer_options(r1, r2, GM_SUN);
-        let phased = calculate_transfer_options_phased(r1, r2, GM_SUN, 0.0, &window);
+        let base = calculate_transfer_options(r1, r2, GM_SUN, 0.0);
+        let phased = calculate_transfer_options_phased(r1, r2, GM_SUN, 0.0, &window, 0.0);
 
         // All options should cost at least as much as base Hohmann
         for (p, b) in phased.iter().zip(base.iter()) {
@@ -1567,7 +1645,7 @@ mod tests {
         // Verify the fleet's acceleration is below the brachistochrone threshold but >0
         assert!(accel > 0.0 && accel < 0.05, "Ion accel should be ~0.0054 m/s²");
 
-        let mut opts = calculate_transfer_options(r_leo_au, r_moon_au, gm_earth);
+        let mut opts = calculate_transfer_options(r_leo_au, r_moon_au, gm_earth, 0.0);
         apply_thrust_limits(&mut opts, accel, isp);
 
         // All standard options should be thrust-limited (ion burns > Hohmann time)
@@ -1597,7 +1675,7 @@ mod tests {
         let accel = 10.0 * dry * 9.81 / wet; // ≈ 54 m/s²
         let isp = 450.0_f32;
 
-        let mut opts = calculate_transfer_options(1.0, 1.524, GM_SUN);
+        let mut opts = calculate_transfer_options(1.0, 1.524, GM_SUN, 0.0);
         apply_thrust_limits(&mut opts, accel, isp);
 
         for opt in &opts {
@@ -1617,6 +1695,7 @@ mod tests {
             total_delta_v_ms: 100_000.0,
             delta_v1_ms: 50_000.0,
             delta_v2_ms: 50_000.0,
+            plane_change_dv_ms: 0.0,
             transfer_time_s: 50_000.0, // already equals burn time by construction
             sma_au: 1.2,
             eccentricity: 0.2,
