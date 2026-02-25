@@ -1061,6 +1061,7 @@ pub fn update_orbit_visibility(
     view_mode: Res<ViewMode>,
     camera_query: Query<&CameraAnchor, With<GameCamera>>,
     mut orbit_query: Query<(
+        Entity,
         &mut OrbitPath,
         Option<&Selected>,
         Option<&Planet>,
@@ -1070,6 +1071,7 @@ pub fn update_orbit_visibility(
     selected_query: Query<(), With<Selected>>,
     fleet_ui_state: Res<crate::ui::FleetUiState>,
     fleet_orbit_query: Query<&crate::fleets::FleetOrbit, With<crate::fleets::Fleet>>,
+    fleet_maneuver_query: Query<&crate::fleets::ActiveManeuver, With<crate::fleets::Fleet>>,
 ) {
     let Ok(anchor) = camera_query.single() else {
         return;
@@ -1081,7 +1083,13 @@ pub fn update_orbit_visibility(
         .and_then(|fe| fleet_orbit_query.get(fe).ok())
         .map(|fo| fo.body);
 
-    for (mut orbit_path, selected, planet, moon, logical_parent) in orbit_query.iter_mut() {
+    // Determine the origin/destination bodies of an active transit (if any).
+    let selected_fleet_transit_bodies = fleet_ui_state
+        .selected_fleet
+        .and_then(|fe| fleet_maneuver_query.get(fe).ok())
+        .map(|m| (m.origin_body, m.destination_body));
+
+    for (entity, mut orbit_path, selected, planet, moon, logical_parent) in orbit_query.iter_mut() {
         // Hide all orbits in starmap view
         if *view_mode == ViewMode::Starmap {
             orbit_path.visible = false;
@@ -1104,11 +1112,22 @@ pub fn update_orbit_visibility(
             let parent_selected = parent_entity
                 .map(|e| selected_query.contains(e))
                 .unwrap_or(false);
-            // 3. the orbit target of the currently selected fleet
+            // 3. the orbit target of the currently selected fleet (parent or the moon itself)
             let fleet_orbits_parent = parent_entity
                 .map(|e| Some(e) == selected_fleet_orbit_body)
                 .unwrap_or(false);
-            orbit_path.visible = parent_anchored || parent_selected || fleet_orbits_parent;
+            let fleet_orbits_self = selected_fleet_orbit_body == Some(entity);
+            // 4. the selected fleet is transiting to/from this moon or its parent
+            let fleet_transits_self = selected_fleet_transit_bodies
+                .map(|(o, d)| o == entity || d == entity)
+                .unwrap_or(false);
+            let fleet_transits_parent = parent_entity
+                .map(|pe| selected_fleet_transit_bodies
+                    .map(|(o, d)| o == pe || d == pe)
+                    .unwrap_or(false))
+                .unwrap_or(false);
+            orbit_path.visible = parent_anchored || parent_selected || fleet_orbits_parent
+                || fleet_orbits_self || fleet_transits_self || fleet_transits_parent;
         } else {
             // Asteroids, Comets, DwarfPlanets are hidden by default
             orbit_path.visible = false;
@@ -1128,6 +1147,7 @@ pub fn update_body_lod_visibility(
     current_system: Res<CurrentStarSystem>,
     mut body_query: Query<
         (
+            Entity,
             &mut Visibility,
             Option<&LogicalParent>,
             Option<&Moon>,
@@ -1139,6 +1159,7 @@ pub fn update_body_lod_visibility(
     selected_bodies: Query<(), With<Selected>>,
     fleet_ui_state: Res<crate::ui::FleetUiState>,
     fleet_orbit_query: Query<&crate::fleets::FleetOrbit, With<crate::fleets::Fleet>>,
+    fleet_maneuver_query: Query<&crate::fleets::ActiveManeuver, With<crate::fleets::Fleet>>,
 ) {
     let Ok(anchor) = camera_query.single() else {
         return;
@@ -1150,7 +1171,13 @@ pub fn update_body_lod_visibility(
         .and_then(|fe| fleet_orbit_query.get(fe).ok())
         .map(|fo| fo.body);
 
-    for (mut visibility, logical_parent, moon, selected, system_id) in body_query.iter_mut() {
+    // Determine the origin/destination bodies of an active transit (if any).
+    let selected_fleet_transit_bodies = fleet_ui_state
+        .selected_fleet
+        .and_then(|fe| fleet_maneuver_query.get(fe).ok())
+        .map(|m| (m.origin_body, m.destination_body));
+
+    for (entity, mut visibility, logical_parent, moon, selected, system_id) in body_query.iter_mut() {
         // Bodies from other star systems must stay hidden, regardless of
         // selection or anchor state.
         let body_system = system_id.map(|s| s.0).unwrap_or(0);
@@ -1167,7 +1194,8 @@ pub fn update_body_lod_visibility(
 
         if moon.is_some() {
             // Moon visibility: only when parent planet is the camera anchor,
-            // the parent planet is selected, or the selected fleet orbits the parent.
+            // the parent planet is selected, or the selected fleet orbits the
+            // parent planet or the moon itself.
             let parent_entity = logical_parent.map(|lp| lp.0);
             let parent_anchored = anchor.0.is_some()
                 && parent_entity.map(|e| Some(e) == anchor.0).unwrap_or(false);
@@ -1177,7 +1205,18 @@ pub fn update_body_lod_visibility(
             let fleet_orbits_parent = parent_entity
                 .map(|e| Some(e) == selected_fleet_orbit_body)
                 .unwrap_or(false);
-            *visibility = if parent_anchored || parent_selected || fleet_orbits_parent {
+            let fleet_orbits_self = selected_fleet_orbit_body == Some(entity);
+            // Also show when the selected fleet is transiting to/from this moon or its parent.
+            let fleet_transits_self = selected_fleet_transit_bodies
+                .map(|(o, d)| o == entity || d == entity)
+                .unwrap_or(false);
+            let fleet_transits_parent = parent_entity
+                .map(|pe| selected_fleet_transit_bodies
+                    .map(|(o, d)| o == pe || d == pe)
+                    .unwrap_or(false))
+                .unwrap_or(false);
+            *visibility = if parent_anchored || parent_selected || fleet_orbits_parent
+                || fleet_orbits_self || fleet_transits_self || fleet_transits_parent {
                 Visibility::Inherited
             } else {
                 Visibility::Hidden
@@ -1714,8 +1753,10 @@ fn spawn_marker(
         let corner_z = bracket_offset * z_sign;
 
         // Horizontal bar extending inward from corner (along X axis)
+        // Add bracket_thickness so the bar extends half-a-thickness past the
+        // corner point, filling the outer-corner gap where the two arms meet.
         let h_bar_mesh = meshes.add(Cuboid::new(
-            bracket_length,
+            bracket_length + bracket_thickness,
             bracket_thickness,
             bracket_thickness,
         ));
@@ -1733,7 +1774,7 @@ fn spawn_marker(
         let v_bar_mesh = meshes.add(Cuboid::new(
             bracket_thickness,
             bracket_thickness,
-            bracket_length,
+            bracket_length + bracket_thickness,
         ));
         let v_bar_pos = Vec3::new(corner_x, 0.0, corner_z - z_sign * bracket_length * 0.5);
 
