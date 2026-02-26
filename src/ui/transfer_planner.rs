@@ -1443,6 +1443,18 @@ pub(super) fn render_transfer_planner(
                             fleet_ui_state.departure_offset_days = offset_days as f64;
                         }
 
+                        // Orbit-wait counter: shown when the fleet must loop its parking ring
+                        // more than once before reaching the departure angle.
+                        if fleet_ui_state.waiting_orbit_count > 1 {
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new(format!("× {} orbits (waiting)", fleet_ui_state.waiting_orbit_count))
+                                        .size(10.5)
+                                        .color(egui::Color32::from_rgb(160, 80, 220)),
+                                );
+                            });
+                        }
+
                         // Row 3: alignment indicator (below the slider)
                         let dep_s = fleet_ui_state.departure_offset_days * 86_400.0;
                         let phase_at = {

@@ -253,13 +253,13 @@ fn optimal_departure_angle(origin: Vec3, destination: Vec3) -> f32 {
 /// Heliocentric transfers continue to use the physics-accurate Keplerian arc.
 pub fn draw_fleet_trajectories(
     mut gizmos: Gizmos,
-    fleet_query: Query<(Entity, &ActiveManeuver), With<Fleet>>,
+    fleet_query: Query<(Entity, &ActiveManeuver, Option<&FleetOrbit>), With<Fleet>>,
     center_coords: Query<&SpaceCoordinates, Without<Fleet>>,
     body_query: Query<(&Transform, &CelestialBody, Option<&LogicalParent>), Without<Fleet>>,
     kepler_query: Query<&KeplerOrbit, Without<Fleet>>,
     amp_query: Query<&LocalOrbitAmplification, Without<Fleet>>,
     floating_origin: Option<Res<FloatingOrigin>>,
-    fleet_ui_state: Res<FleetUiState>,
+    mut fleet_ui_state: ResMut<FleetUiState>,
     view_mode: Res<ViewMode>,
     sim_time: Res<SimulationTime>,
     real_time: Res<Time<Real>>,
@@ -278,7 +278,9 @@ pub fn draw_fleet_trajectories(
     let sim_elapsed = sim_time.elapsed_seconds();
     let real_secs = real_time.elapsed_secs();
 
-    for (entity, maneuver) in fleet_query.iter() {
+    fleet_ui_state.waiting_orbit_count = 0;
+
+    for (entity, maneuver, maybe_orbit) in fleet_query.iter() {
         // In System view only draw for the selected fleet, in Starmap always draw.
         if *view_mode == ViewMode::System {
             match fleet_ui_state.selected_fleet {
@@ -377,10 +379,19 @@ pub fn draw_fleet_trajectories(
                     op.length_squared() > dp.length_squared()
                 };
                 // Departure tangent: prograde (CCW) for outward, retrograde (CW) for inward.
-                let tang_origin = if is_inward {
+                // For inward transfers (Moon → Planet) a pure perpendicular tangent creates an
+                // S-curve that exits the origin at a weird angle and can pass through the
+                // destination body.  Blend 80% toward the direct p0→destination direction.
+                let tang_orbit = if is_inward {
                     Vec3::new(dep_angle.sin(), -dep_angle.cos(), 0.0)  // CW
                 } else {
                     Vec3::new(-dep_angle.sin(), dep_angle.cos(), 0.0)  // CCW
+                };
+                let direct_dir = (dp - p0).normalize_or_zero();
+                let tang_origin = if is_inward {
+                    (tang_orbit * 0.20 + direct_dir * 0.80).normalize_or_zero()
+                } else {
+                    tang_orbit
                 };
 
                 // Arrival: radial direction of destination relative to its orbital centre.
@@ -393,10 +404,73 @@ pub fn draw_fleet_trajectories(
                 // p3 is on the arrival ring, on the side closest to the origin.
                 let inward = (op - dp).normalize_or_zero();
                 let p3 = dp + inward * dest_ring_r;
-                // Always use the CCW (prograde) arrival tangent so the direction
-                // matches the parking orbit that follows insertion.
+                // For inward, invert the sign condition so both control points stay on the
+                // same side of the arc — this eliminates the S-curve through the destination.
                 let tang_d_a = Vec3::new(-radial_dest.y, radial_dest.x, 0.0);
-                let tang_dest = if tang_d_a.dot(tang_origin) >= 0.0 { tang_d_a } else { -tang_d_a };
+                let tang_dest = if is_inward {
+                    if tang_d_a.dot(tang_origin) < 0.0 { tang_d_a } else { -tang_d_a }
+                } else {
+                    if tang_d_a.dot(tang_origin) >= 0.0 { tang_d_a } else { -tang_d_a }
+                };
+
+                // ── Waiting arc: shown when departure is scheduled in the future ────────
+                // The fleet sits in its parking orbit until departure_time; draw a faint
+                // purple arc from the fleet's current angle to the departure point so the
+                // player can see how much longer the wait is.
+                let is_pre_departure = sim_elapsed < maneuver.departure_time;
+                if is_pre_departure {
+                    if let Some(orbit) = maybe_orbit {
+                        if orbit.direction != 0.0 && orbit.body == maneuver.origin_body {
+                            let orbit_center = body_query.get(maneuver.origin_body)
+                                .map(|(t, _, _)| t.translation).unwrap_or(Vec3::ZERO);
+                            let current_a = orbit.angle_rad as f32;
+                            let tau = std::f32::consts::TAU;
+                            // Angular distance in the fleet's orbit direction to the departure point.
+                            let waiting_angle = if orbit.direction > 0.0 {
+                                (dep_angle - current_a).rem_euclid(tau)
+                            } else {
+                                (current_a - dep_angle).rem_euclid(tau)
+                            };
+                            let full_orbits    = (waiting_angle / tau) as u32;
+                            let last_arc_angle = waiting_angle % tau;
+                            fleet_ui_state.waiting_orbit_count = full_orbits + 1;
+
+                            let r = origin_ring_r;
+                            // Dim full ring for each complete extra revolution.
+                            if full_orbits > 0 {
+                                for i in 0..64u32 {
+                                    let a0 = i as f32 / 64.0 * tau;
+                                    let a1 = (i + 1) as f32 / 64.0 * tau;
+                                    gizmos.line(
+                                        orbit_center + Vec3::new(a0.cos() * r, a0.sin() * r, 0.0),
+                                        orbit_center + Vec3::new(a1.cos() * r, a1.sin() * r, 0.0),
+                                        Color::linear_rgba(0.50, 0.05, 0.80, 0.10),
+                                    );
+                                }
+                            }
+                            // Partial arc brightening toward the departure point.
+                            let arc_start = dep_angle - orbit.direction as f32 * last_arc_angle;
+                            for i in 0..48u32 {
+                                let t0    = i as f32 / 48.0;
+                                let t1    = (i + 1) as f32 / 48.0;
+                                let alpha = 0.10 + 0.22 * t0;
+                                let a0 = arc_start + orbit.direction as f32 * last_arc_angle * t0;
+                                let a1 = arc_start + orbit.direction as f32 * last_arc_angle * t1;
+                                gizmos.line(
+                                    orbit_center + Vec3::new(a0.cos() * r, a0.sin() * r, 0.0),
+                                    orbit_center + Vec3::new(a1.cos() * r, a1.sin() * r, 0.0),
+                                    Color::linear_rgba(0.55, 0.05, 0.85, alpha),
+                                );
+                            }
+                            // Small tick at the fleet's current parking position.
+                            let fleet_pos = orbit_center + Vec3::new(current_a.cos() * r, current_a.sin() * r, 0.0);
+                            let tick = 5.0_f32;
+                            let tick_col = Color::linear_rgba(0.65, 0.10, 0.90, 0.65);
+                            gizmos.line(fleet_pos - Vec3::X * tick, fleet_pos + Vec3::X * tick, tick_col);
+                            gizmos.line(fleet_pos - Vec3::Y * tick, fleet_pos + Vec3::Y * tick, tick_col);
+                        }
+                    }
+                }
 
                 // ── Semi-transparent purple glow: show only the remaining arc ─────────
                 let progress_t = if maneuver.arrival_time > maneuver.departure_time {
@@ -920,10 +994,17 @@ pub fn update_fleet_transforms(
                         op.length_squared() > dp.length_squared()
                     };
                     // Departure tangent: prograde (CCW) for outward, retrograde (CW) for inward.
-                    let tang_origin = if is_inward {
+                    // Blend 80% toward direct for inward (Moon → Planet) to avoid weird angles.
+                    let tang_orbit = if is_inward {
                         Vec3::new(dep_angle.sin(), -dep_angle.cos(), 0.0)  // CW
                     } else {
                         Vec3::new(-dep_angle.sin(), dep_angle.cos(), 0.0)  // CCW
+                    };
+                    let direct_dir = (dp - p0).normalize_or_zero();
+                    let tang_origin = if is_inward {
+                        (tang_orbit * 0.20 + direct_dir * 0.80).normalize_or_zero()
+                    } else {
+                        tang_orbit
                     };
 
                     let radial_raw = dp - cv_current;
@@ -935,7 +1016,11 @@ pub fn update_fleet_transforms(
                     let inward = (op - dp).normalize_or_zero();
                     let p3 = dp + inward * dest_ring_r;
                     let tang_d_a = Vec3::new(-radial.y, radial.x, 0.0);
-                    let tang_dest = if tang_d_a.dot(tang_origin) >= 0.0 { tang_d_a } else { -tang_d_a };
+                    let tang_dest = if is_inward {
+                        if tang_d_a.dot(tang_origin) < 0.0 { tang_d_a } else { -tang_d_a }
+                    } else {
+                        if tang_d_a.dot(tang_origin) >= 0.0 { tang_d_a } else { -tang_d_a }
+                    };
 
                     let ctrl_len = (p3 - p0).length() * 0.40;
                     let p1 = p0 + tang_origin * ctrl_len;
@@ -1397,10 +1482,17 @@ pub fn draw_fleet_transfer_preview(
     let dir_dep     = Vec3::new(departure_angle.cos(), departure_angle.sin(), 0.0);
     let p0          = op + dir_dep * origin_ring_r;
     // Departure tangent: prograde (CCW) for outward, retrograde (CW) for inward.
-    let tang_origin = if is_inward {
+    // Blend 80% toward direct for inward (Moon → Planet) to avoid weird departure angles.
+    let tang_orbit_raw = if is_inward {
         Vec3::new(departure_angle.sin(), -departure_angle.cos(), 0.0)  // CW
     } else {
         Vec3::new(-departure_angle.sin(), departure_angle.cos(), 0.0)  // CCW
+    };
+    let direct_dir = (dp - p0).normalize_or_zero();
+    let tang_origin = if is_inward {
+        (tang_orbit_raw * 0.20 + direct_dir * 0.80).normalize_or_zero()
+    } else {
+        tang_orbit_raw
     };
 
     // Arrival: point on the ring approached from the origin-facing (inward) side.
@@ -1412,8 +1504,14 @@ pub fn draw_fleet_transfer_preview(
     };
     let inward = (op - dp).normalize_or_zero();
     let p3 = dp + inward * dest_ring_r;
+    // For inward transfers, invert the sign condition so both control points stay on the
+    // same side of the arc — this eliminates the S-curve that cut through the destination.
     let tang_d_a  = Vec3::new(-radial_dest.y, radial_dest.x, 0.0);
-    let tang_dest = if tang_d_a.dot(tang_origin) >= 0.0 { tang_d_a } else { -tang_d_a };
+    let tang_dest = if is_inward {
+        if tang_d_a.dot(tang_origin) < 0.0 { tang_d_a } else { -tang_d_a }
+    } else {
+        if tang_d_a.dot(tang_origin) >= 0.0 { tang_d_a } else { -tang_d_a }
+    };
 
     // Check whether the selected option is a kinematic transfer.
     let is_kinematic = fleet_ui_state.computed_options

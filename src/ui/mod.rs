@@ -204,6 +204,10 @@ pub struct FleetUiState {
     pub last_single_selected: Option<Entity>,
     /// Selected spawn location body for the "Create Fleet" picker.
     pub spawn_location_body: Option<Entity>,
+    /// Number of full orbital laps the fleet will complete while waiting for planned
+    /// departure (0 = depart immediately or no target selected).  Updated each frame
+    /// by `draw_fleet_transfer_preview` and consumed by the Transfer Planner UI.
+    pub waiting_orbit_count: u32,
 }
 
 impl FleetUiState {
@@ -221,6 +225,7 @@ impl FleetUiState {
         self.gravity_assist_candidates.clear();
         self.selected_gravity_assist = None;
         self.editing_fleet_name = None;
+        self.waiting_orbit_count = 0;
     }
 
     /// Clear multi-selection state.

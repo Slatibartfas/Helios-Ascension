@@ -758,7 +758,7 @@ fn render_fleet_detail(
 
     // ── Current status ────────────────────────────────────────────────────────
     if let Some(maneuver) = maybe_maneuver {
-        render_active_maneuver_status(ui, fleet_entity, maneuver, fleet, body_query, pending_actions, elapsed);
+        render_active_maneuver_status(ui, fleet_entity, maneuver, fleet, body_query, pending_actions, elapsed, fleet_ui_state.waiting_orbit_count);
     } else if let Some(orbit) = maybe_orbit {
         render_orbit_status(ui, orbit, fleet, body_query);
     }
@@ -920,6 +920,7 @@ fn render_active_maneuver_status(
     body_query: &Query<(Entity, &CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>, Option<&LogicalParent>)>,
     pending_actions: &mut PendingFleetActions,
     elapsed: f64,
+    waiting_orbit_count: u32,
 ) {
     let dest_name = body_query
         .get(maneuver.destination_body)
@@ -945,7 +946,16 @@ fn render_active_maneuver_status(
                     );
                 });
             });
-            
+
+            // Orbit-wait counter from the trajectory gizmo.
+            if waiting_orbit_count > 1 {
+                ui.label(
+                    egui::RichText::new(format!("× {} orbits until departure angle", waiting_orbit_count))
+                        .size(11.0)
+                        .color(egui::Color32::from_rgb(160, 80, 220)),
+                );
+            }
+
             ui.add_space(4.0);
             if ui.button(egui::RichText::new("🛑 Abort Mission").size(12.0)).clicked() {
                 pending_actions.cancel_maneuvers.push(fleet_entity);
