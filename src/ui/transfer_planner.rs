@@ -16,8 +16,23 @@ pub(super) fn render_transfer_planner(
     elapsed: f64,
     nearby_stars: &NearbyStarsData,
     current_timestamp: i64,
+    // Fleet's actual current heliocentric/local position when performing a course
+    // correction (fleet is mid-transit). Used to compute accurate r1 and ΔV options
+    // from the real location instead of the stand-in orbit body's SMA.
+    course_correction_sc: Option<bevy::math::DVec3>,
 ) {
-    let is_course_correction = current_maneuver.is_some();
+    // `is_course_correction` is true only when the fleet has actively departed
+    // (elapsed >= departure_time).  Waiting-to-depart fleets still have an
+    // ActiveManeuver but should show the normal Transfer Planner, not Course Correction.
+    let is_course_correction = if let Some(man) = current_maneuver {
+        elapsed >= man.departure_time
+    } else {
+        false
+    };
+    // Course corrections depart immediately — reset any leftover departure delay.
+    if is_course_correction {
+        fleet_ui_state.departure_offset_days = 0.0;
+    }
 
     if is_course_correction {
         ui.label(
@@ -27,7 +42,7 @@ pub(super) fn render_transfer_planner(
                 .color(egui::Color32::from_rgb(255, 200, 80)),
         );
         ui.label(
-            egui::RichText::new("Redirecting mid-transit burns additional fuel for the abort maneuver.")
+            egui::RichText::new("Select a new target and execute to redirect immediately. Use Abort Mission to cancel and return to origin orbit.")
                 .size(11.0)
                 .italics()
                 .color(egui::Color32::GRAY),
@@ -854,6 +869,18 @@ pub(super) fn render_transfer_planner(
                 };
                 (r1, r2, GM_SUN)
             };
+            // For course corrections override r1 with the fleet's actual heliocentric
+            // distance so \u{394}V options reflect a transfer FROM the real current position,
+            // not the origin body's orbital SMA (which may differ significantly mid-transit).
+            let r1 = if is_course_correction {
+                if let (Some(sc_pos), true) = (course_correction_sc, (gm - GM_SUN).abs() < 1e10) {
+                    sc_pos.length() // heliocentric distance in AU
+                } else {
+                    r1
+                }
+            } else {
+                r1
+            };
             fleet_ui_state.computed_options = {
                 // Extract angles of origin and destination bodies in the correct coordinate system.
                 let is_heliocentric = (gm - GM_SUN).abs() < 1e10;
@@ -897,7 +924,14 @@ pub(super) fn render_transfer_planner(
                     let central_body = dest_parent.unwrap_or(orbit.body);
                     (get_local_pos(orbit.body, central_body), get_local_pos(target_entity, central_body))
                 };
-
+                // For course corrections, override pos1 with the fleet's actual current
+                // heliocentric position so the transfer-window phase angle and quality
+                // indicator reflect the fleet's real location, not the origin body's.
+                let pos1 = if is_course_correction && is_heliocentric {
+                    course_correction_sc.or(pos1)
+                } else {
+                    pos1
+                };
                 let theta1 = pos1.map(|p| p.y.atan2(p.x)).unwrap_or(0.0);
                 let theta2 = pos2.map(|p| p.y.atan2(p.x)).unwrap_or(0.0);
 
@@ -1211,7 +1245,10 @@ pub(super) fn render_transfer_planner(
             }
         }
 
-        // ── Transfer Window info + departure slider ─────────────────────────
+        // ── Transfer Window / Departure slider — hidden for course corrections ────
+        // Course corrections execute immediately; no departure window or delay needed.
+        if !is_course_correction {
+
         // Show a co-orbital / L-point info section for Lagrange targets.
         if window_this_frame.is_none() && lp_target_snap.is_some() {
             ui.add_space(6.0);
@@ -1536,6 +1573,8 @@ pub(super) fn render_transfer_planner(
                 });
             });
         }
+
+        } // end !is_course_correction (Transfer Window / Departure slider section)
 
         if !fleet_ui_state.computed_options.is_empty() {
             ui.add_space(6.0);

@@ -414,18 +414,66 @@ pub fn draw_fleet_trajectories(
                 };
 
                 // ── Waiting arc: shown when departure is scheduled in the future ────────
-                // The fleet sits in its parking orbit until departure_time; draw a faint
-                // purple arc from the fleet's current angle to the departure point so the
-                // player can see how much longer the wait is.
+                // When the origin body is a moon (has a logical parent), draw the arc along
+                // the moon's orbit around its parent planet — this is far more readable than
+                // the tiny fleet-parking ring.  For planet-origin transfers fall back to the
+                // parking ring arc around the origin body.
                 let is_pre_departure = sim_elapsed < maneuver.departure_time;
                 if is_pre_departure {
-                    if let Some(orbit) = maybe_orbit {
+                    let tau = std::f32::consts::TAU;
+
+                    if origin_lp.is_some() {
+                        // ── Moon origin: arc along the moon's orbit around the planet ──
+                        // current moon angle and orbit radius come from op_current vs planet.
+                        let rel_current = op_current - cv_current;
+                        let moon_orbit_r   = rel_current.length();
+                        let current_moon_a = rel_current.y.atan2(rel_current.x);
+                        // departure angle of the moon relative to the planet (in current frame).
+                        let rel_depart     = op - cv_current;
+                        let depart_moon_a  = rel_depart.y.atan2(rel_depart.x);
+                        // Moons orbit prograde (CCW).
+                        let waiting_angle  = (depart_moon_a - current_moon_a).rem_euclid(tau);
+                        let full_orbits    = (waiting_angle / tau) as u32;
+                        let last_arc_angle = waiting_angle % tau;
+                        fleet_ui_state.waiting_orbit_count = full_orbits + 1;
+
+                        // Dim full ring for each complete extra revolution.
+                        if full_orbits > 0 {
+                            for i in 0..64u32 {
+                                let a0 = i as f32 / 64.0 * tau;
+                                let a1 = (i + 1) as f32 / 64.0 * tau;
+                                gizmos.line(
+                                    cv_current + Vec3::new(a0.cos() * moon_orbit_r, a0.sin() * moon_orbit_r, 0.0),
+                                    cv_current + Vec3::new(a1.cos() * moon_orbit_r, a1.sin() * moon_orbit_r, 0.0),
+                                    Color::linear_rgba(0.50, 0.05, 0.80, 0.10),
+                                );
+                            }
+                        }
+                        // Partial arc brightening CCW from the moon's current position to the
+                        // departure position.
+                        for i in 0..48u32 {
+                            let t0    = i as f32 / 48.0;
+                            let t1    = (i + 1) as f32 / 48.0;
+                            let alpha = 0.10 + 0.22 * t0;
+                            let a0 = current_moon_a + last_arc_angle * t0;
+                            let a1 = current_moon_a + last_arc_angle * t1;
+                            gizmos.line(
+                                cv_current + Vec3::new(a0.cos() * moon_orbit_r, a0.sin() * moon_orbit_r, 0.0),
+                                cv_current + Vec3::new(a1.cos() * moon_orbit_r, a1.sin() * moon_orbit_r, 0.0),
+                                Color::linear_rgba(0.55, 0.05, 0.85, alpha),
+                            );
+                        }
+                        // Small tick at the moon's current orbital position.
+                        let tick = 5.0_f32;
+                        let tick_col = Color::linear_rgba(0.65, 0.10, 0.90, 0.65);
+                        gizmos.line(op_current - Vec3::X * tick, op_current + Vec3::X * tick, tick_col);
+                        gizmos.line(op_current - Vec3::Y * tick, op_current + Vec3::Y * tick, tick_col);
+                    } else if let Some(orbit) = maybe_orbit {
+                        // ── Planet origin: arc along the fleet's parking ring ──
                         if orbit.direction != 0.0 && orbit.body == maneuver.origin_body {
                             let orbit_center = body_query.get(maneuver.origin_body)
                                 .map(|(t, _, _)| t.translation).unwrap_or(Vec3::ZERO);
                             let current_a = orbit.angle_rad as f32;
-                            let tau = std::f32::consts::TAU;
-                            // Angular distance in the fleet's orbit direction to the departure point.
                             let waiting_angle = if orbit.direction > 0.0 {
                                 (dep_angle - current_a).rem_euclid(tau)
                             } else {
@@ -436,7 +484,6 @@ pub fn draw_fleet_trajectories(
                             fleet_ui_state.waiting_orbit_count = full_orbits + 1;
 
                             let r = origin_ring_r;
-                            // Dim full ring for each complete extra revolution.
                             if full_orbits > 0 {
                                 for i in 0..64u32 {
                                     let a0 = i as f32 / 64.0 * tau;
@@ -448,7 +495,6 @@ pub fn draw_fleet_trajectories(
                                     );
                                 }
                             }
-                            // Partial arc brightening toward the departure point.
                             let arc_start = dep_angle - orbit.direction as f32 * last_arc_angle;
                             for i in 0..48u32 {
                                 let t0    = i as f32 / 48.0;
@@ -462,7 +508,6 @@ pub fn draw_fleet_trajectories(
                                     Color::linear_rgba(0.55, 0.05, 0.85, alpha),
                                 );
                             }
-                            // Small tick at the fleet's current parking position.
                             let fleet_pos = orbit_center + Vec3::new(current_a.cos() * r, current_a.sin() * r, 0.0);
                             let tick = 5.0_f32;
                             let tick_col = Color::linear_rgba(0.65, 0.10, 0.90, 0.65);
@@ -1196,15 +1241,63 @@ pub fn draw_fleet_transfer_preview(
     let Some(fleet_entity) = fleet_ui_state.selected_fleet else { return; };
 
     // Hoist fleet-state lookup so both LP and regular branches can share it.
-    let Ok((_, _, maybe_orbit, maybe_maneuver)) = fleet_query.get(fleet_entity) else { return; };
-    // Hide the preview as soon as a transfer has been planned/executed — the real
-    // trajectory arc (drawn by draw_fleet_orbit_rings / maneuver gizmos) takes over.
-    if maybe_maneuver.is_some() { return; }
+    let Ok((_, fleet_transform, maybe_orbit, maybe_maneuver)) = fleet_query.get(fleet_entity) else { return; };
     let elapsed = sim_time.elapsed_seconds();
 
     let current_sim_s      = elapsed;
     let departure_offset_s = fleet_ui_state.departure_offset_days * 86_400.0;
     let departure_s        = current_sim_s + departure_offset_s;
+
+    // Course correction: fleet is actively mid-transit but the transfer planner is open.
+    // Draw a dashed amber straight-line preview from the fleet's current render position
+    // to the predicted destination so the player can see where the correction will take
+    // them before committing.  Only show when the fleet has actually departed
+    // (same threshold as is_course_correction in render_transfer_planner).
+    if let Some(man) = maybe_maneuver {
+        if elapsed >= man.departure_time {
+            let Some(target_entity) = fleet_ui_state.target_body else { return; };
+            let travel_time_s = fleet_ui_state
+                .computed_options
+                .get(fleet_ui_state.selected_option)
+                .map(|o| o.transfer_time_s)
+                .unwrap_or(0.0);
+            let fleet_pos = fleet_transform.translation;
+            let dest_pos_now = body_query
+                .get(target_entity)
+                .map(|(t, _, _)| t.translation)
+                .unwrap_or(fleet_pos);
+            let dp = predict_body_visual_pos(
+                target_entity,
+                current_sim_s + travel_time_s,
+                &body_query,
+                &kepler_query,
+                &amp_query,
+            )
+            .unwrap_or(dest_pos_now);
+            // Dashed amber arc from current fleet position to predicted arrival point.
+            draw_dashed_curve(
+                &mut gizmos,
+                |t| fleet_pos + (dp - fleet_pos) * t,
+                24,
+                |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+            );
+            // Ghost body (amber dashed circle) at the predicted destination position.
+            let dest_visual_r = body_query
+                .get(target_entity)
+                .map(|(_, b, _)| b.visual_radius)
+                .unwrap_or(10.0);
+            draw_ghost_body(
+                &mut gizmos,
+                dp,
+                fleet_parking_visual_radius(dest_visual_r),
+                dest_visual_r,
+                false,
+            );
+            return;
+        }
+        // Fleet has ActiveManeuver but hasn't departed yet (waiting-to-depart):
+        // fall through to the normal pre-departure preview so the arc still shows.
+    }
 
     // ── Lagrange-point target preview ─────────────────────────────────────────
     // LP transfers have no body entity; draw an arc to the predicted LP position.

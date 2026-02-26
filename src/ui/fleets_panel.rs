@@ -1123,7 +1123,27 @@ pub(super) fn ui_transfer_planner_popup(
     let planner_orbit: Option<FleetOrbit> = if let Some(orbit) = maybe_orbit {
         Some(*orbit)
     } else if let Some(maneuver) = maybe_maneuver {
-        Some(FleetOrbit::new(maneuver.destination_body, maneuver.arrival_orbit_radius_au))
+        // Use origin_body (the departure body) rather than destination_body.
+        // If we used destination_body and the user re-targets the same destination,
+        // r1 == r2 and the planner shows "Same orbit, 0 m/s" with zero travel time.
+        Some(FleetOrbit::new(maneuver.origin_body, maneuver.arrival_orbit_radius_au))
+    } else {
+        None
+    };
+
+    // For course corrections, pass the fleet's actual current heliocentric position
+    // so the planner can show accurate ΔV from the fleet's real location, not the
+    // origin body's orbit.  Only set for fleets that have actually departed
+    // (elapsed >= departure_time); waiting-to-depart fleets still use normal planner mode.
+    let course_correction_sc = if let Some(man) = maybe_maneuver {
+        if sim_time.elapsed_seconds() >= man.departure_time {
+            all_fleets_query
+                .get(fleet_entity)
+                .ok()
+                .map(|(_, _, sc, _, _)| sc.position)
+        } else {
+            None
+        }
     } else {
         None
     };
@@ -1169,6 +1189,7 @@ pub(super) fn ui_transfer_planner_popup(
                         elapsed,
                         &nearby_stars,
                         sim_time.current_timestamp(),
+                        course_correction_sc,
                     );
                 });
         });

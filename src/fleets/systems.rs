@@ -302,7 +302,15 @@ pub fn process_fleet_actions(
             .map(|o| o.angle_rad as f32)
             .unwrap_or(0.0);
             
-        let is_kinematic = t.option_label == "Full Thrust" || t.option_label.contains("Coast") || t.option_label == "Max Speed" || t.option_label.contains("Direct");
+        // Course corrections (is_in_transit) are always kinematic so the fleet's actual
+        // current SpaceCoordinates position is used as the departure point.  Without this,
+        // build_planned_transfer would compute Keplerian elements from the wrong origin body
+        // (the destination body used as a stand-in), causing the fleet to teleport.
+        let is_kinematic = is_in_transit
+            || t.option_label == "Full Thrust"
+            || t.option_label.contains("Coast")
+            || t.option_label == "Max Speed"
+            || t.option_label.contains("Direct");
         let (start_position_au, end_position_au) = if is_kinematic {
             // For course corrections (mid-transit), always use the fleet's actual current
             // physics position as departure — the pre-computed start from the planner may
