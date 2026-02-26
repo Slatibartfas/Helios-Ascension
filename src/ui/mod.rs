@@ -24,6 +24,7 @@ pub mod icons;
 mod resources_bar;
 mod dashboard;
 mod research_panel;
+mod tech_tree;
 mod construction_panel;
 mod economy_panel;
 mod fleets_panel;
