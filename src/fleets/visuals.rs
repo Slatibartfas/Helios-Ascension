@@ -312,10 +312,13 @@ pub fn draw_fleet_trajectories(
                 let cv_current = body_query.get(maneuver.orbit_center)
                     .map(|(t, _, _)| t.translation).unwrap_or(Vec3::ZERO);
 
-                // Once departed, fix the origin at the moon's departure-time position
-                // so it moves with the planet but not with the moon's orbit.
-                let is_departed = sim_elapsed >= maneuver.departure_time;
-                let op = if is_departed {
+                // Pin the arc origin to the predicted departure position (works both
+                // before and after departure).  Before departure this shows where the
+                // origin body *will be* at departure time; after departure it fixes the
+                // arc start at the historical departure position, anchored to the current
+                // render position of the orbit-centre body so the arc follows the
+                // planet's visual drift in the system view.
+                let op = {
                     let op_absolute = predict_body_visual_pos(
                         maneuver.origin_body,
                         maneuver.departure_time,
@@ -331,8 +334,6 @@ pub fn draw_fleet_trajectories(
                         &amp_query,
                     ).unwrap_or(cv_current);
                     op_absolute - cv_at_departure + cv_current
-                } else {
-                    op_current
                 };
 
                 // For the in-transit arc, target where the body WILL BE at arrival,
