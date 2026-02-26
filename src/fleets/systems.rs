@@ -32,7 +32,7 @@ pub fn update_fleet_orbit_positions(
         (&mut SpaceCoordinates, &mut FleetOrbit),
         With<Fleet>,
     >,
-    body_coords: Query<&SpaceCoordinates, Without<Fleet>>,
+    body_coords: Query<(&SpaceCoordinates, Option<&LogicalParent>), Without<Fleet>>,
 ) {
     // Freeze the visual orbit when the player has paused the simulation.
     let real_delta = if time_scale.is_paused() { 0.0 } else { real_time.delta_secs_f64() };
@@ -48,13 +48,25 @@ pub fn update_fleet_orbit_positions(
                 .rem_euclid(std::f64::consts::TAU);
         }
 
-        if let Ok(body_sc) = body_coords.get(orbit.body) {
+        if let Ok((body_sc, maybe_lp)) = body_coords.get(orbit.body) {
             let offset = DVec3::new(
                 orbit.radius_au * orbit.angle_rad.cos(),
                 orbit.radius_au * orbit.angle_rad.sin(),
                 0.0,
             );
-            fleet_sc.position = body_sc.position + offset;
+            // If the orbit body is a moon (has a LogicalParent), its SpaceCoordinates
+            // store only a local offset from its parent planet.  Add the parent's
+            // heliocentric position so the fleet's SpaceCoordinates are heliocentric,
+            // which is required for correct departure-direction and range queries.
+            let body_helio_pos = if let Some(lp) = maybe_lp {
+                body_coords.get(lp.0)
+                    .map(|(sc, _)| sc.position)
+                    .unwrap_or(DVec3::ZERO)
+                    + body_sc.position
+            } else {
+                body_sc.position
+            };
+            fleet_sc.position = body_helio_pos + offset;
         }
     }
 }

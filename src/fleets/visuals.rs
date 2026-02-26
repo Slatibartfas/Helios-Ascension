@@ -400,7 +400,9 @@ pub fn draw_fleet_trajectories(
                     Vec3::new(-dep_angle.sin(), dep_angle.cos(), 0.0)  // CCW
                 };
                 let direct_dir = (dp - p0).normalize_or_zero();
-                let tang_origin = if is_inward {
+                let tang_origin = if maneuver.start_visual_pos.is_some() {
+                    (tang_orbit * 0.10 + direct_dir * 0.90).normalize_or_zero()
+                } else if is_inward {
                     (tang_orbit * 0.20 + direct_dir * 0.80).normalize_or_zero()
                 } else {
                     tang_orbit
@@ -1068,7 +1070,9 @@ pub fn update_fleet_transforms(
                         Vec3::new(-dep_angle.sin(), dep_angle.cos(), 0.0)  // CCW
                     };
                     let direct_dir = (dp - p0).normalize_or_zero();
-                    let tang_origin = if is_inward {
+                    let tang_origin = if maneuver.start_visual_pos.is_some() {
+                        (tang_orbit * 0.10 + direct_dir * 0.90).normalize_or_zero()
+                    } else if is_inward {
                         (tang_orbit * 0.20 + direct_dir * 0.80).normalize_or_zero()
                     } else {
                         tang_orbit
@@ -1574,7 +1578,10 @@ pub fn draw_fleet_transfer_preview(
     // ── Determine if this is an inward (orbit-lowering) transfer ─────────────
     // Inward transfers require a retrograde departure burn (CW tangent), while
     // outward transfers use a prograde departure burn (CCW tangent).
-    let is_inward = if origin_lp.map(|lp| lp.0) == Some(target_entity) {
+    let is_inward = if is_course_correction {
+        // For course corrections, compare the fleet's current distance to the destination distance.
+        op.length_squared() > dp.length_squared()
+    } else if origin_lp.map(|lp| lp.0) == Some(target_entity) {
         // Origin orbits the destination (e.g. Moon → Earth): always inward.
         true
     } else if dest_lp.map(|lp| lp.0) == Some(origin_body) {
@@ -1603,7 +1610,11 @@ pub fn draw_fleet_transfer_preview(
         Vec3::new(-departure_angle.sin(), departure_angle.cos(), 0.0)  // CCW
     };
     let direct_dir = (dp - p0).normalize_or_zero();
-    let tang_origin = if is_inward {
+    let tang_origin = if is_course_correction {
+        // For course corrections, the fleet is already moving.
+        // Blend heavily toward the direct path to avoid a sharp "hook" at the start.
+        (tang_orbit_raw * 0.10 + direct_dir * 0.90).normalize_or_zero()
+    } else if is_inward {
         (tang_orbit_raw * 0.20 + direct_dir * 0.80).normalize_or_zero()
     } else {
         tang_orbit_raw

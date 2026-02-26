@@ -2213,15 +2213,37 @@ fn build_planned_transfer(
         // not the orbit_center entity.  Subtract center_pos for consistency.
         fleet_pos - center_pos
     } else {
-        origin_sc.position - center_pos
+        // For heliocentric transfers where the fleet orbits a moon, the moon's
+        // SpaceCoordinates stores only a local offset from its parent planet — not a
+        // heliocentric position.  Use the parent planet's heliocentric SC so that the
+        // departure direction (argument_of_periapsis) points in the correct direction.
+        let origin_helio_pos = if origin_lp.is_some() && center_pos.length_squared() < 1e-20 {
+            origin_parent
+                .and_then(|pe| body_query.get(pe).ok())
+                .map(|(_, _, sc, _, _)| sc.position)
+                .unwrap_or(origin_sc.position)
+        } else {
+            origin_sc.position
+        };
+        origin_helio_pos - center_pos
     };
 
     // Derive the transfer-orbit plane from the 3D departure and arrival position
     // vectors relative to the central body (r1 × r2 gives the plane normal).
     // This keeps inclination, LAN, and argument_of_periapsis mutually consistent
     // so the propagated green-dot position and the displayed preview arc match.
+    // For heliocentric transfers where the destination is a moon, its SpaceCoordinates
+    // also stores only a local offset — use the parent planet's position instead.
     let dest_sc_pos = body_query.get(target_entity).ok()
-        .map(|(_, _, sc, _, _)| sc.position)
+        .map(|(_, _, sc, _, lp)| {
+            if lp.is_some() && center_pos.length_squared() < 1e-20 {
+                lp.and_then(|lp| body_query.get(lp.0).ok())
+                    .map(|(_, _, sc, _, _)| sc.position)
+                    .unwrap_or(sc.position)
+            } else {
+                sc.position
+            }
+        })
         .unwrap_or(bevy::math::DVec3::ZERO);
     let dest_rel = dest_sc_pos - center_pos;
 
