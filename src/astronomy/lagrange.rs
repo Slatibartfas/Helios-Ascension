@@ -346,7 +346,6 @@ pub fn handle_lp_hover(
     mut egui_contexts: bevy_egui::EguiContexts,
     active_menu: Res<ActiveMenu>,
     panel_bounds: Res<EguiPanelBounds>,
-    _fleet_ui_state: ResMut<crate::ui::FleetUiState>,
 ) {
     if *view_mode != ViewMode::System {
         lp_markers.hovered_index = None;

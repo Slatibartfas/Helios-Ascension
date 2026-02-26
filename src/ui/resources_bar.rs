@@ -167,7 +167,7 @@ pub(super) fn ui_resources_bar(
 
                     // Find active research projects
                     let mut active_rps: Vec<_> = research_projects.iter().filter(|p| p.active).collect();
-                    active_rps.sort_by(|a, b| (b.progress / b.required_points).partial_cmp(&(a.progress / a.required_points)).unwrap_or(std::cmp::Ordering::Equal));
+                    active_rps.sort_by(|a, b| b.progress_percent().partial_cmp(&a.progress_percent()).unwrap_or(std::cmp::Ordering::Equal));
                     
                     let furthest_rp = active_rps.first();
                     let has_active_rp = !active_rps.is_empty();
@@ -196,7 +196,7 @@ pub(super) fn ui_resources_bar(
                                         if let Some(tech) = technologies.technologies.get(&project.tech_id) {
                                             ui.add(egui::Label::new(egui::RichText::new(&tech.name).size(12.0).color(text_color)).selectable(false));
                                             
-                                            let progress_fraction = (project.progress / project.required_points).clamp(0.0, 1.0) as f32;
+                                            let progress_fraction = project.progress_percent();
                                             ui.add(egui::ProgressBar::new(progress_fraction)
                                                 .desired_width(100.0)
                                                 .desired_height(4.0)
@@ -241,7 +241,7 @@ pub(super) fn ui_resources_bar(
 
                     // Find active engineering projects
                     let mut active_eps: Vec<_> = engineering_projects.iter().collect();
-                    active_eps.sort_by(|a, b| (b.progress / b.required_points).partial_cmp(&(a.progress / a.required_points)).unwrap_or(std::cmp::Ordering::Equal));
+                    active_eps.sort_by(|a, b| b.progress_percent().partial_cmp(&a.progress_percent()).unwrap_or(std::cmp::Ordering::Equal));
                     
                     let furthest_ep = active_eps.first();
                     let has_active_ep = !active_eps.is_empty();
@@ -270,7 +270,7 @@ pub(super) fn ui_resources_bar(
                                         let name = technologies.components.get(&project.component_id).map(|c| c.name.as_str()).unwrap_or("Unknown Component");
                                         ui.add(egui::Label::new(egui::RichText::new(name).size(12.0).color(text_color)).selectable(false));
                                         
-                                        let progress_fraction = (project.progress / project.required_points).clamp(0.0, 1.0) as f32;
+                                        let progress_fraction = project.progress_percent();
                                         ui.add(egui::ProgressBar::new(progress_fraction)
                                             .desired_width(100.0)
                                             .desired_height(4.0)

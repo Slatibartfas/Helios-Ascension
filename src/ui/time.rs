@@ -3,7 +3,7 @@ use super::*;
 /// Time scale resource for controlling simulation speed
 #[derive(Resource, Debug, Clone)]
 pub struct TimeScale {
-    /// Current time scale multiplier (0.0 = paused, 1.0 = normal, up to 604,800.0)
+    /// Current time scale multiplier (0.0 = paused, 1.0 = normal, up to 31,557,600.0 ≈ 1 year/second)
     pub scale: f32,
     /// Last active scale before pausing, restored on resume
     last_active_scale: f32,
@@ -91,48 +91,7 @@ impl SimulationTime {
 
     /// Format the current date/time as DD.MM.YYYY HH:MM
     pub fn format_date_time(&self) -> String {
-        let timestamp = self.current_timestamp();
-
-        // Convert Unix timestamp to date components
-        let total_days = timestamp / 86400;
-        let time_of_day = timestamp % 86400;
-
-        let hours = (time_of_day / 3600) % 24;
-        let minutes = (time_of_day % 3600) / 60;
-
-        // Simplified date calculation starting from Unix epoch (1970-01-01)
-        // This is a simplified calculation for display purposes
-        let mut days_remaining = total_days;
-        let mut year = 1970;
-
-        loop {
-            let days_in_year = if is_leap_year(year) { 366 } else { 365 };
-            if days_remaining >= days_in_year {
-                days_remaining -= days_in_year;
-                year += 1;
-            } else {
-                break;
-            }
-        }
-
-        let mut month = 1;
-        let days_in_months = get_days_in_months(year);
-
-        for &days_in_month in &days_in_months {
-            if days_remaining >= days_in_month {
-                days_remaining -= days_in_month;
-                month += 1;
-            } else {
-                break;
-            }
-        }
-
-        let day = days_remaining + 1; // Days are 1-indexed
-
-        format!(
-            "{:02}.{:02}.{} {:02}:{:02}",
-            day, month, year, hours, minutes
-        )
+        format_timestamp_date_time(self.current_timestamp())
     }
 
     /// Format an arbitrary simulation elapsed time (seconds from simulation epoch) as a
