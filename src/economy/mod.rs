@@ -13,6 +13,7 @@ pub mod budget;
 pub mod components;
 pub mod generation;
 pub mod mining;
+pub(crate) mod profiles;
 pub mod types;
 
 pub use budget::{

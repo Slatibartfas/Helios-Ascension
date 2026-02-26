@@ -14,8 +14,10 @@ use bevy_egui::EguiPrimaryContextPass;
 pub mod components;
 pub mod ephemeris;
 pub mod exoplanets;
+pub mod lagrange;
 pub mod nearby_stars;
 pub mod procedural;
+pub mod selection;
 pub mod systems;
 
 pub use components::{
@@ -31,14 +33,17 @@ pub use procedural::{
     AsteroidBelt, CometaryCloud, PlanetType, ProceduralPlanet, SystemArchitecture,
 };
 pub use systems::{
-    animate_marker_dots, check_natural_destruction, despawn_hover_markers,
-    despawn_selection_markers, draw_lagrange_point_rings, draw_orbit_paths,
-    fade_destroyed_bodies, handle_body_hover, handle_lp_hover,
-    handle_body_selection, manage_comet_tail_meshes, orbit_position_from_mean_anomaly,
-    propagate_orbits, scale_markers_with_zoom, spawn_hover_markers, spawn_selection_markers,
-    update_body_lod_visibility, update_orbit_visibility, update_render_transform,
-    update_tail_transforms, zoom_camera_to_anchored_body, SCALING_FACTOR,
+    check_natural_destruction, draw_orbit_paths,
+    fade_destroyed_bodies, manage_comet_tail_meshes, orbit_position_from_mean_anomaly,
+    propagate_orbits, update_body_lod_visibility, update_orbit_visibility, update_render_transform,
+    update_tail_transforms, SCALING_FACTOR,
 };
+pub use selection::{
+    animate_marker_dots, despawn_hover_markers, despawn_selection_markers,
+    handle_body_hover, handle_body_selection, scale_markers_with_zoom,
+    spawn_hover_markers, spawn_selection_markers, zoom_camera_to_anchored_body,
+};
+pub use lagrange::{draw_lagrange_point_rings, handle_lp_hover};
 
 /// Plugin that adds astronomy systems to the Bevy app
 pub struct AstronomyPlugin;

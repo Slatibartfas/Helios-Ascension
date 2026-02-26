@@ -3,6 +3,7 @@ pub mod camera;
 pub mod music;
 pub mod solar_system;
 pub mod solar_system_data;
+pub mod star_materials;
 pub mod starmap;
 pub mod system_populator;
 pub mod visual_effects;
