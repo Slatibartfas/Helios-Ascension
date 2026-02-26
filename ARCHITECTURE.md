@@ -159,7 +159,19 @@ Interstellar navigation and star system visualization.
 - `handle_starmap_hover`: Detects mouse hover over stars
 
 #### 8. UIPlugin (`src/ui/`)
-Egui-based dashboard with time controls, body info, and resource display.
+Egui-based dashboard with time controls, body info, and resource display. The module is split into focused sub-files to keep each file manageable.
+
+**Sub-modules:**
+- `time.rs`: `SimulationTime` custom clock, `TimeScale` multiplier, time-formatting helpers
+- `icons.rs`: `MenuIcons` and `ResearchIcons` texture handles, icon load/process systems
+- `resources_bar.rs`: Top resource bar rendering (~1 000 lines)
+- `dashboard.rs`: Main survey panel, time controls bar, star system detail panel
+- `research_panel.rs`: Full research/engineering UI including interactive tech tree
+- `construction_panel.rs`: Construction queue panel
+- `economy_panel.rs`: Economy overview, per-resource rates, colony/mining/power tabs
+- `fleets_panel.rs`: Fleet list, detail view, `FleetUiState`, transfer planner, LP transfers
+- `interaction.rs`: `Selection` resource, body selection helpers
+- `mod.rs`: `UIPlugin`, shared constants, overlay systems (tooltips, starmap labels), re-exports
 
 **Resources:**
 - `SimulationTime`: Custom game clock (elapsed f64 seconds, no delta cap)
@@ -329,8 +341,16 @@ src/
 ├── render/              # Rendering utilities
 │   └── backdrop.rs      # Skybox background
 └── ui/                  # User interface
-    ├── mod.rs           # UIPlugin, SimulationTime, TimeScale, FleetUiState
-    └── interaction.rs   # Selection management
+    ├── mod.rs                 # UIPlugin, shared constants, overlay systems, re-exports
+    ├── time.rs                # SimulationTime, TimeScale, time helpers
+    ├── icons.rs               # MenuIcons, ResearchIcons, icon loading/processing
+    ├── resources_bar.rs       # Top resource bar UI
+    ├── dashboard.rs           # Main dashboard, time controls, star system panel
+    ├── research_panel.rs      # Research/engineering UI and tech tree
+    ├── construction_panel.rs  # Construction queue UI
+    ├── economy_panel.rs       # Economy/budget UI
+    ├── fleets_panel.rs        # Fleet management, transfer planner, FleetUiState
+    └── interaction.rs         # Selection management
 ```
 
 ## Adding New Plugins

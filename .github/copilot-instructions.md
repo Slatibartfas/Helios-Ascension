@@ -73,8 +73,16 @@ helios_ascension/
 │   ├── render/              # Rendering utilities
 │   │   └── backdrop.rs      # Skybox background
 │   └── ui/                  # User interface
-│       ├── mod.rs           # UIPlugin, SimulationTime, TimeScale, FleetUiState, all panels
-│       └── interaction.rs   # Selection management
+│       ├── mod.rs                 # UIPlugin, shared constants, overlay systems, re-exports
+│       ├── time.rs                # SimulationTime, TimeScale, time helpers
+│       ├── icons.rs               # MenuIcons, ResearchIcons, icon loading/processing
+│       ├── resources_bar.rs       # Top resource bar UI
+│       ├── dashboard.rs           # Main dashboard, time controls, star system panel
+│       ├── research_panel.rs      # Research/engineering UI and tech tree
+│       ├── construction_panel.rs  # Construction queue UI
+│       ├── economy_panel.rs       # Economy/budget UI
+│       ├── fleets_panel.rs        # Fleet management, transfer planner, FleetUiState
+│       └── interaction.rs         # Selection management
 ├── assets/
 │   ├── audio/
 │   │   └── music/           # Background music (CC-BY 4.0, Scott Buckley)
@@ -247,7 +255,7 @@ When adding new UI icons (menus, research categories, etc.), applying the follow
   - `calculate_transfer_options_phased()` — same but after a player-chosen departure delay
   - `compute_transfer_window()` — live synodic-period countdown, phase-angle error, and phase-rate (rad/s)
   - `GravityAssistOption` — flyby bodies near the transfer arc that reduce total Δv
-- **`FleetUiState`** resource (in `src/ui/`): per-frame state for the Fleet panel
+- **`FleetUiState`** resource (in `src/ui/fleets_panel.rs`, re-exported as `crate::ui::FleetUiState`): per-frame state for the Fleet panel
   - `selected_fleet`, `target_body`, `target_lagrange`, `target_fleet`
   - `departure_offset_days` slider for phased departure timing
   - `computed_options` / `planned_transfer` / `show_transfer_popup`
@@ -294,7 +302,7 @@ When adding new UI icons (menus, research categories, etc.), applying the follow
 
 ### Simulation Time (IMPORTANT)
 - **Never use `Time<Virtual>`** for game-world calculations. Bevy's virtual time has a hard `max_delta` cap (~250ms) that silently limits effective speed to ~15×.
-- Use `SimulationTime` (defined in `src/ui/mod.rs`) for all game-world elapsed time. It reads `Time<Real>` delta and scales it by `TimeScale`, with **no cap**, enabling speeds up to 1 year/second.
+- Use `SimulationTime` (defined in `src/ui/time.rs`, re-exported as `crate::ui::SimulationTime`) for all game-world elapsed time. It reads `Time<Real>` delta and scales it by `TimeScale`, with **no cap**, enabling speeds up to 1 year/second.
 - Access via `Res<SimulationTime>` — call `.elapsed_seconds()` to get total simulation time in f64.
 - All time-dependent game systems (orbits, rotation, economy ticks, research, production) **must** use `SimulationTime`, not `Time`, `Time<Virtual>`, or `time.delta_seconds()`.
 - `Time` / `Time<Real>` should only be used for UI animations, camera movement, and other real-time visual effects that should not scale with game speed.
