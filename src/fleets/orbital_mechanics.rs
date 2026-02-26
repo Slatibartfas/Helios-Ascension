@@ -713,6 +713,197 @@ pub fn hohmann_transfer(r1_au: f64, r2_au: f64, gm: f64) -> (f64, f64, f64, f64,
     (dv1, dv2, t_transfer, a / AU_IN_METERS, ecc)
 }
 
+/// Compute the 3D velocity vector (m/s) of a body on a Keplerian orbit at
+/// the given mean anomaly.
+///
+/// Uses the standard perifocal-frame velocity components, then applies the
+/// same Euler-angle rotation sequence as `orbit_position_from_mean_anomaly`
+/// in `astronomy::systems`: argument of periapsis (ω), inclination (i),
+/// longitude of ascending node (Ω).
+///
+/// `gm` is the central body's gravitational parameter in m³ s⁻².
+pub fn keplerian_velocity_vector(
+    orbit: &crate::astronomy::KeplerOrbit,
+    mean_anomaly: f64,
+    gm: f64,
+) -> bevy::math::DVec3 {
+    use bevy::math::DVec3;
+    let e = orbit.eccentricity;
+
+    // Solve Kepler's equation E − e·sin(E) = M  (Newton–Raphson, 50 iters max)
+    let mut ea = mean_anomaly;
+    for _ in 0..50 {
+        let f  = ea - e * ea.sin() - mean_anomaly;
+        let df = 1.0 - e * ea.cos();
+        if df.abs() < 1e-15 { break; }
+        let d  = f / df;
+        ea -= d;
+        if d.abs() < 1e-12 { break; }
+    }
+
+    // True anomaly ν from eccentric anomaly E
+    let nu = 2.0 * ((((1.0 + e) / (1.0 - e).max(1e-15)).sqrt() * (ea / 2.0).tan()).atan());
+
+    // Semi-latus rectum in metres
+    let a_m  = orbit.semi_major_axis * AU_IN_METERS;
+    let p_m  = a_m * (1.0 - e * e).max(0.0);
+    if p_m < 1e3 {
+        return DVec3::ZERO;
+    }
+    // Characteristic velocity √(GM/p) [m/s]
+    let vc = (gm / p_m).sqrt();
+
+    // Velocity in the orbital plane (P̂, Q̂ directions before ω rotation):
+    //   vx = −√(GM/p)·sin(ν)
+    //   vy =  √(GM/p)·(e + cos(ν))
+    let vx_orb = -vc * nu.sin();
+    let vy_orb =  vc * (e + nu.cos());
+
+    // Rotate by argument of periapsis ω (matches position code)
+    let cos_w  = orbit.argument_of_periapsis.cos();
+    let sin_w  = orbit.argument_of_periapsis.sin();
+    let vx_peri = vx_orb * cos_w - vy_orb * sin_w;
+    let vy_peri = vx_orb * sin_w + vy_orb * cos_w;
+
+    // Rotate by inclination i and longitude of ascending node Ω
+    let cos_i  = orbit.inclination.cos();
+    let sin_i  = orbit.inclination.sin();
+    let cos_om = orbit.longitude_ascending_node.cos();
+    let sin_om = orbit.longitude_ascending_node.sin();
+
+    let vx = vx_peri * cos_om - vy_peri * cos_i * sin_om;
+    let vy = vx_peri * sin_om + vy_peri * cos_i * cos_om;
+    let vz = vy_peri * sin_i;
+
+    DVec3::new(vx, vy, vz)
+}
+
+/// Compute realistic transfer options for a **mid-transit course correction**.
+///
+/// Unlike `calculate_transfer_options` / `calculate_transfer_options_phased`,
+/// which assume the fleet starts from rest in a circular parking orbit, this
+/// function accounts for the fleet's actual current velocity vector.
+///
+/// The **redirect ΔV** (departure burn) is the vector magnitude:
+///
+/// `Δv_redirect = |v_required_departure − v_current|`
+///
+/// where `v_required_departure` is the tangential velocity needed to enter the
+/// new Hohmann (or higher-energy) transfer orbit at the fleet's current position.
+/// Three options are returned: **Efficient** (1× Hohmann), **Moderate** (1.5×),
+/// **Fast** (2.5×), mirroring the standard option set.
+///
+/// If the fleet is heading in a favourable direction, the redirect Δv can be
+/// *less* than the fresh Hohmann cost.  If the fleet is heading the wrong way
+/// (opposite direction or toward a different body) the redirect Δv will be
+/// substantially *larger*.
+///
+/// # Arguments
+/// - `r_vec_au`:     Fleet's current position vector relative to orbit centre (AU).
+///                   Its length gives the current orbital radius `r1`.
+/// - `r_dest_au`:    Destination orbital radius (AU) — `r2`.
+/// - `gm`:           Gravitational parameter of the central body (m³ s⁻²).
+/// - `v_current_ms`: Fleet's current velocity vector in m/s.
+/// - `delta_i_rad`:  Required orbital-plane change (radians; 0 for co-planar).
+pub fn course_correction_transfer_options(
+    r_vec_au: bevy::math::DVec3,
+    r_dest_au: f64,
+    gm: f64,
+    v_current_ms: bevy::math::DVec3,
+    delta_i_rad: f64,
+) -> Vec<TransferOption> {
+    let r1_au = r_vec_au.length();
+    if r1_au < 1e-9 || r_dest_au < 1e-9 {
+        return Vec::new();
+    }
+
+    let r1 = r1_au * AU_IN_METERS;
+    let r2 = r_dest_au * AU_IN_METERS;
+
+    // Base Hohmann for timing / SMA / eccentricity reference
+    let (dv1_h, dv2_h, t_h, sma_h, ecc_h) = hohmann_transfer(r1_au, r_dest_au, gm);
+
+    let v_circ_r2  = (gm / r2).sqrt();
+
+    // Departure direction is always PROGRADE (CCW tangent at current position).
+    // For outward Hohmann: speed up → faster than circular, still prograde.
+    // For inward Hohmann: slow down → slower than circular, still prograde.
+    let r_hat    = r_vec_au.normalize_or_zero();
+    let z_north  = bevy::math::DVec3::Z;
+    let prograde = z_north.cross(r_hat).normalize_or_zero();
+
+    let outward = r2 > r1;
+
+    let energy_levels: &[(&'static str, f64)] = &[
+        ("Efficient", 1.0),
+        ("Moderate",  1.5),
+        ("Fast",      2.5),
+    ];
+
+    let mut options = Vec::new();
+    for &(label, energy_mult) in energy_levels {
+        // Required departure speed at r1 on the (possibly scaled) transfer orbit.
+        // For efficient (1×): vis-viva speed on the Hohmann ellipse.
+        // For higher energy: scale the ΔV burn linearly, then add/subtract from
+        // circular velocity depending on direction.
+        let v_circ_r1 = (gm / r1).sqrt();
+        let v_dep_speed = if outward {
+            // Outward: burn prograde → departure faster than circular.
+            v_circ_r1 + dv1_h * energy_mult
+        } else {
+            // Inward: burn retrograde → departure slower than circular.
+            // Can go negative at extreme energy multipliers (retrograde).
+            v_circ_r1 - dv1_h * energy_mult
+        };
+        // Velocity vector: always in prograde direction. Negative speed = retrograde,
+        // which the vector subtraction handles correctly.
+        let v_dep_vec = prograde * v_dep_speed;
+
+        // Redirect ΔV: vector difference between required and current velocity (3-D).
+        let dv_redirect = (v_dep_vec - v_current_ms).length();
+
+        // Arrival circularisation ΔV (same scaling as `scaled_transfer`).
+        let dv2_arrival = dv2_h * energy_mult;
+
+        // Velocity on the transfer orbit at r2 for plane-change combination.
+        let v_tr_r2 = if outward {
+            // Outward: arriving at apoapsis, slower than circular.
+            (v_circ_r2 - dv2_arrival).abs()
+        } else {
+            // Inward: arriving at periapsis, faster than circular.
+            v_circ_r2 + dv2_arrival
+        };
+
+        // Combine optional plane-change with the arrival burn (slower end)
+        let (dv1_final, dv2_final, plane_dv) = if delta_i_rad > 1e-4 {
+            let dv2_inclined = combined_burn_dv(v_circ_r2, v_tr_r2, delta_i_rad);
+            let pdv = (dv2_inclined - dv2_arrival).max(0.0);
+            (dv_redirect, dv2_inclined, pdv)
+        } else {
+            (dv_redirect, dv2_arrival, 0.0)
+        };
+
+        // Transfer time: same scaling as `scaled_transfer` (higher energy → faster)
+        let t_option = t_h * energy_mult.powf(-2.0 / 3.0);
+
+        options.push(TransferOption {
+            label,
+            total_delta_v_ms: dv1_final + dv2_final,
+            delta_v1_ms: dv1_final,
+            delta_v2_ms: dv2_final,
+            plane_change_dv_ms: plane_dv,
+            transfer_time_s: t_option,
+            sma_au: sma_h,
+            eccentricity: ecc_h,
+            energy_multiplier: energy_mult,
+            burn_time_s: 0.0,
+            is_thrust_limited: false,
+        });
+    }
+
+    options
+}
+
 /// Compute the angle between two orbital planes in radians.
 ///
 /// Given inclination `i` and longitude of ascending node `Ω` for each orbit:

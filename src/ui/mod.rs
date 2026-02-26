@@ -76,6 +76,7 @@ use crate::fleets::orbital_mechanics::{
     compute_burn_time_s, compute_transfer_window,
     find_gravity_assist_options, format_delta_v, format_duration,
     hohmann_transfer, plane_change_angle, GravityAssistOption,
+    course_correction_transfer_options, keplerian_velocity_vector,
 };
 
 /// Maximum time scale: 1 year per second (365.25 * 86400 ≈ 31,557,600)

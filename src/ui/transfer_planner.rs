@@ -869,15 +869,35 @@ pub(super) fn render_transfer_planner(
                 };
                 (r1, r2, GM_SUN)
             };
-            // For course corrections override r1 with the fleet's actual heliocentric
-            // distance so \u{394}V options reflect a transfer FROM the real current position,
-            // not the origin body's orbital SMA (which may differ significantly mid-transit).
-            let r1 = if is_course_correction {
-                if let (Some(sc_pos), true) = (course_correction_sc, (gm - GM_SUN).abs() < 1e10) {
-                    sc_pos.length() // heliocentric distance in AU
+            // For course corrections, compute the fleet's position in the correct local frame.
+            // For heliocentric transfers the position is already relative to the Sun.
+            // For local transfers (e.g. moon-to-moon around Jupiter) we must subtract
+            // the central body's heliocentric position so distances and phase angles
+            // are Jupiter-centric, not Sun-centric.
+            let is_heliocentric_gm = (gm - GM_SUN).abs() < 1e10;
+            let cc_local_pos: Option<bevy::math::DVec3> = if is_course_correction {
+                if let Some(fleet_helio) = course_correction_sc {
+                    if is_heliocentric_gm {
+                        Some(fleet_helio)
+                    } else {
+                        // Determine the central body entity: shared parent of both moons,
+                        // or the planet if the fleet is going to one of its moons.
+                        let central_entity = dest_parent.or(origin_parent);
+                        let center_helio = central_entity
+                            .and_then(|e| body_query.get(e).ok())
+                            .map(|(_, _, sc, _, _)| sc.position)
+                            .unwrap_or(bevy::math::DVec3::ZERO);
+                        Some(fleet_helio - center_helio)
+                    }
                 } else {
-                    r1
+                    None
                 }
+            } else {
+                None
+            };
+            // Override r1 with the fleet's actual distance from the central body.
+            let r1 = if is_course_correction {
+                cc_local_pos.map(|p| p.length()).unwrap_or(r1)
             } else {
                 r1
             };
@@ -925,10 +945,10 @@ pub(super) fn render_transfer_planner(
                     (get_local_pos(orbit.body, central_body), get_local_pos(target_entity, central_body))
                 };
                 // For course corrections, override pos1 with the fleet's actual current
-                // heliocentric position so the transfer-window phase angle and quality
-                // indicator reflect the fleet's real location, not the origin body's.
-                let pos1 = if is_course_correction && is_heliocentric {
-                    course_correction_sc.or(pos1)
+                // position in the correct local frame so the transfer-window phase angle
+                // and quality indicator reflect the fleet's real location.
+                let pos1 = if is_course_correction {
+                    cc_local_pos.or(pos1)
                 } else {
                     pos1
                 };
@@ -997,7 +1017,55 @@ pub(super) fn render_transfer_planner(
                 };
 
                 let departure_s = fleet_ui_state.departure_offset_days * 86_400.0;
-                let opts = calculate_transfer_options_phased(r1, r2, gm, departure_s, &window, delta_i);
+                let opts = if is_course_correction {
+                    // ── Course-correction branch ─────────────────────────────────
+                    // Estimate the fleet's current velocity vector so the redirect ΔV
+                    // reflects the actual momentum that must be cancelled/redirected —
+                    // not a fresh Hohmann from a circular parking orbit.
+                    let v_current_ms: bevy::math::DVec3 = if let Some(man) = current_maneuver {
+                        let progress = man.progress(elapsed);
+                        if man.is_kinematic() {
+                            // Kinematic (straight-line) transfer: velocity is constant in
+                            // direction along (end − start); magnitude follows a symmetric
+                            // brachistochrone profile (0 → peak → 0).
+                            if let (Some(start), Some(end)) = (man.start_position_au, man.end_position_au) {
+                                let dir   = (end - start).normalize_or_zero();
+                                let dist_m = (end - start).length()
+                                    * crate::fleets::orbital_mechanics::AU_IN_METERS;
+                                let dur_s  = (man.arrival_time - man.departure_time).max(1.0);
+                                // Brachistochrone peak speed (at midpoint) = 2 × distance / duration
+                                let v_peak = 2.0 * dist_m / dur_s;
+                                let speed = if man.option_label == "Full Thrust" {
+                                    // Profile: 0 at t=0, v_peak at t=T/2, 0 at t=T
+                                    v_peak * 2.0 * progress.min(1.0 - progress)
+                                } else {
+                                    // Coast options run at near-constant cruise speed ≈ dist / duration
+                                    dist_m / dur_s
+                                };
+                                dir * speed
+                            } else {
+                                bevy::math::DVec3::ZERO
+                            }
+                        } else {
+                            // Keplerian transfer: compute velocity from orbital elements via
+                            // vis-viva equation + perifocal rotation.
+                            let t_since_depart = (elapsed - man.departure_time).max(0.0);
+                            let mean_anomaly = man.transfer_orbit.mean_anomaly_epoch
+                                + man.transfer_orbit.mean_motion * t_since_depart;
+                            keplerian_velocity_vector(&man.transfer_orbit, mean_anomaly, gm)
+                        }
+                    } else {
+                        bevy::math::DVec3::ZERO
+                    };
+                    // r_vec: fleet's current position relative to the central body (AU).
+                    // cc_local_pos is already in the correct local frame for both heliocentric
+                    // and planetary-system transfers. Fall back to r1 on the x-axis.
+                    let r_vec = cc_local_pos
+                        .unwrap_or_else(|| bevy::math::DVec3::new(r1, 0.0, 0.0));
+                    course_correction_transfer_options(r_vec, r2, gm, v_current_ms, delta_i)
+                } else {
+                    calculate_transfer_options_phased(r1, r2, gm, departure_s, &window, delta_i)
+                };
                 window_this_frame = Some(window);
                 opts
             };
@@ -1007,16 +1075,21 @@ pub(super) fn render_transfer_planner(
                 let accel = fleet.min_accel_ms2();
                 let isp = fleet.average_isp_s();
                 apply_thrust_limits(&mut fleet_ui_state.computed_options, accel, isp);
-                
-                let hohmann_dv = fleet_ui_state.computed_options.first().map(|o| o.total_delta_v_ms).unwrap_or(0.0);
-                let sma_h = fleet_ui_state.computed_options.first().map(|o| o.sma_au).unwrap_or(0.0);
-                let ecc_h = fleet_ui_state.computed_options.first().map(|o| o.eccentricity).unwrap_or(0.0);
-                let d = (r2 - r1).abs() * crate::fleets::orbital_mechanics::AU_IN_METERS;
-                let mut kinematics = kinematic_transfer_options(
-                    d, accel, fleet.max_delta_v_ms(),
-                    hohmann_dv, sma_h, ecc_h, false
-                );
-                fleet_ui_state.computed_options.append(&mut kinematics);
+
+                // Kinematic coast/thrust options are not meaningful for course corrections —
+                // the fleet is already in free-flight and the redirect cost is captured by
+                // `course_correction_transfer_options`.
+                if !is_course_correction {
+                    let hohmann_dv = fleet_ui_state.computed_options.first().map(|o| o.total_delta_v_ms).unwrap_or(0.0);
+                    let sma_h = fleet_ui_state.computed_options.first().map(|o| o.sma_au).unwrap_or(0.0);
+                    let ecc_h = fleet_ui_state.computed_options.first().map(|o| o.eccentricity).unwrap_or(0.0);
+                    let d = (r2 - r1).abs() * crate::fleets::orbital_mechanics::AU_IN_METERS;
+                    let mut kinematics = kinematic_transfer_options(
+                        d, accel, fleet.max_delta_v_ms(),
+                        hohmann_dv, sma_h, ecc_h, false
+                    );
+                    fleet_ui_state.computed_options.append(&mut kinematics);
+                }
             }
             // ── Gravity assist candidates (heliocentric transfers only) ─────────
             // Collect planets between r1 and r2, compute two-leg patched-conic options.
@@ -1685,10 +1758,10 @@ pub(super) fn render_transfer_planner(
                             all_fleets_query.get(tfe).ok()
                                 .and_then(|(_, _, _, maybe_fo, _)| maybe_fo)
                                 .and_then(|fo| {
-                                    build_planned_transfer(fleet_entity, fleet, orbit, fo.body, body_query, &sel_option)
+                                    build_planned_transfer(fleet_entity, fleet, orbit, fo.body, body_query, &sel_option, course_correction_sc)
                                 })
                         } else if let Some(te) = body_target_snap {
-                            build_planned_transfer(fleet_entity, fleet, orbit, te, body_query, &sel_option)
+                            build_planned_transfer(fleet_entity, fleet, orbit, te, body_query, &sel_option, course_correction_sc)
                         } else {
                             None
                         };
@@ -1699,6 +1772,9 @@ pub(super) fn render_transfer_planner(
                                 abort_cost_t,
                                 departure_offset_s: fleet_ui_state.departure_offset_days * 86_400.0,
                             });
+                            // Close the transfer popup so the preview arc doesn't
+                            // immediately show an abort trajectory after launch.
+                            fleet_ui_state.show_transfer_popup = false;
                         }
                     }
                 }
@@ -2045,6 +2121,11 @@ fn build_planned_transfer(
     target_entity: Entity,
     body_query: &Query<(Entity, &CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>, Option<&LogicalParent>)>,
     option: &TransferOption,
+    // For course corrections: the fleet's actual current position (in whatever
+    // frame matches the central-body coordinates, typically heliocentric AU).
+    // When set, used instead of the origin body's position for orbital-element
+    // derivation so the Keplerian arc starts from the fleet, not from Jupiter.
+    course_correction_pos: Option<bevy::math::DVec3>,
 ) -> Option<PlannedTransfer> {
     use crate::astronomy::KeplerOrbit;
     use crate::fleets::orbital_mechanics::{AU_IN_METERS, G_CONST, GM_SUN};
@@ -2119,9 +2200,21 @@ fn build_planned_transfer(
         (r1, r2, GM_SUN, star, target_entity)
     };
 
-    let outward = dest_sma_au >= origin_sma_au;
+    // For course corrections, determine outward/inward from the fleet's actual distance vs
+    // the destination distance.  The body SMAs may not reflect the fleet's position mid-transit.
+    // (Computed after rel_pos and dest_rel are available below; use a closure to defer.)
     let center_pos = body_query.get(orbit_center).map(|(_, _, sc, _, _)| sc.position).unwrap_or(bevy::math::DVec3::ZERO);
-    let rel_pos = origin_sc.position - center_pos;
+    // For course corrections use the fleet's actual position; otherwise use the origin body.
+    let rel_pos = if let Some(fleet_pos) = course_correction_pos {
+        // fleet_pos is already in the correct frame (heliocentric or planet-relative).
+        // If the orbit center has coordinates, convert fleet_pos to center-relative.
+        // cc_local_pos from the caller is already planet-relative for local transfers,
+        // but heliocentric for Sun transfers — both are relative to the frame origin,
+        // not the orbit_center entity.  Subtract center_pos for consistency.
+        fleet_pos - center_pos
+    } else {
+        origin_sc.position - center_pos
+    };
 
     // Derive the transfer-orbit plane from the 3D departure and arrival position
     // vectors relative to the central body (r1 × r2 gives the plane normal).
@@ -2131,6 +2224,16 @@ fn build_planned_transfer(
         .map(|(_, _, sc, _, _)| sc.position)
         .unwrap_or(bevy::math::DVec3::ZERO);
     let dest_rel = dest_sc_pos - center_pos;
+
+    // For course corrections, determine outward/inward from the fleet's actual distance vs
+    // the destination distance.  The body SMAs may not reflect the fleet's position mid-transit.
+    let outward = if course_correction_pos.is_some() {
+        let fleet_r = rel_pos.length();
+        let dest_r  = dest_rel.length();
+        dest_r >= fleet_r
+    } else {
+        dest_sma_au >= origin_sma_au
+    };
 
     let plane_normal = rel_pos.cross(dest_rel);
     let plane_normal_len = plane_normal.length();

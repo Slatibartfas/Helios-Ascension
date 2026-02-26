@@ -302,12 +302,11 @@ pub fn process_fleet_actions(
             .map(|o| o.angle_rad as f32)
             .unwrap_or(0.0);
             
-        // Course corrections (is_in_transit) are always kinematic so the fleet's actual
-        // current SpaceCoordinates position is used as the departure point.  Without this,
-        // build_planned_transfer would compute Keplerian elements from the wrong origin body
-        // (the destination body used as a stand-in), causing the fleet to teleport.
-        let is_kinematic = is_in_transit
-            || t.option_label == "Full Thrust"
+        // Course corrections (is_in_transit) for truly kinematic option types still use
+        // kinematic interpolation.  Efficient/Moderate/Fast Hohmann-style options now use
+        // proper Keplerian arcs — the transfer orbit elements are computed from the
+        // fleet's actual position by build_planned_transfer.
+        let is_kinematic = t.option_label == "Full Thrust"
             || t.option_label.contains("Coast")
             || t.option_label == "Max Speed"
             || t.option_label.contains("Direct");

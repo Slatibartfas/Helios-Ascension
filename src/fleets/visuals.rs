@@ -1249,55 +1249,19 @@ pub fn draw_fleet_transfer_preview(
     let departure_s        = current_sim_s + departure_offset_s;
 
     // Course correction: fleet is actively mid-transit but the transfer planner is open.
-    // Draw a dashed amber straight-line preview from the fleet's current render position
-    // to the predicted destination so the player can see where the correction will take
-    // them before committing.  Only show when the fleet has actually departed
-    // (same threshold as is_course_correction in render_transfer_planner).
-    if let Some(man) = maybe_maneuver {
-        if elapsed >= man.departure_time {
-            let Some(target_entity) = fleet_ui_state.target_body else { return; };
-            let travel_time_s = fleet_ui_state
-                .computed_options
-                .get(fleet_ui_state.selected_option)
-                .map(|o| o.transfer_time_s)
-                .unwrap_or(0.0);
-            let fleet_pos = fleet_transform.translation;
-            let dest_pos_now = body_query
-                .get(target_entity)
-                .map(|(t, _, _)| t.translation)
-                .unwrap_or(fleet_pos);
-            let dp = predict_body_visual_pos(
-                target_entity,
-                current_sim_s + travel_time_s,
-                &body_query,
-                &kepler_query,
-                &amp_query,
-            )
-            .unwrap_or(dest_pos_now);
-            // Dashed amber arc from current fleet position to predicted arrival point.
-            draw_dashed_curve(
-                &mut gizmos,
-                |t| fleet_pos + (dp - fleet_pos) * t,
-                24,
-                |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
-            );
-            // Ghost body (amber dashed circle) at the predicted destination position.
-            let dest_visual_r = body_query
-                .get(target_entity)
-                .map(|(_, b, _)| b.visual_radius)
-                .unwrap_or(10.0);
-            draw_ghost_body(
-                &mut gizmos,
-                dp,
-                fleet_parking_visual_radius(dest_visual_r),
-                dest_visual_r,
-                false,
-            );
-            return;
-        }
-        // Fleet has ActiveManeuver but hasn't departed yet (waiting-to-depart):
-        // fall through to the normal pre-departure preview so the arc still shows.
-    }
+    // Instead of returning early with a straight line, we override the departure point
+    // (p0) to be the fleet's current render position and fall through to the normal
+    // Bezier/kinematic preview arc so the player sees the actual trajectory shape.
+    let is_course_correction = maybe_maneuver
+        .map(|man| elapsed >= man.departure_time)
+        .unwrap_or(false);
+    // For course corrections the fleet's current Transform IS the departure point;
+    // for normal transfers it's the predicted origin body position at departure time.
+    let course_correction_fleet_pos: Option<Vec3> = if is_course_correction {
+        Some(fleet_transform.translation)
+    } else {
+        None
+    };
 
     // ── Lagrange-point target preview ─────────────────────────────────────────
     // LP transfers have no body entity; draw an arc to the predicted LP position.
@@ -1493,7 +1457,17 @@ pub fn draw_fleet_transfer_preview(
 
     let Some(target_entity) = fleet_ui_state.target_body   else { return; };
 
-    let origin_body = if let Some(orbit) = maybe_orbit {
+    let origin_body = if is_course_correction {
+        // During course corrections, FleetOrbit may not exist — the fleet is mid-transit.
+        // Use the active maneuver's origin body as the conceptual origin.
+        if let Some(orbit) = maybe_orbit {
+            orbit.body
+        } else if let Some(man) = maybe_maneuver {
+            man.origin_body
+        } else {
+            return;
+        }
+    } else if let Some(orbit) = maybe_orbit {
         orbit.body
     } else {
         return;
@@ -1504,11 +1478,20 @@ pub fn draw_fleet_transfer_preview(
     let Ok((origin_transform, origin_body_data, origin_lp)) = body_query.get(origin_body)   else { return; };
     let Ok((dest_transform_now, dest_body_data, dest_lp))  = body_query.get(target_entity) else { return; };
 
-    // Predict origin body position at planned departure time so the start mark moves
-    // when the player drags the departure slider.
-    let op            = predict_body_visual_pos(origin_body, departure_s, &body_query, &kepler_query, &amp_query)
-        .unwrap_or(origin_transform.translation);
-    let origin_ring_r = fleet_parking_visual_radius(origin_body_data.visual_radius);
+    // For course corrections: departure point = fleet's current render position.
+    // For normal transfers: departure point = predicted origin body position at departure.
+    let op = if let Some(fleet_pos) = course_correction_fleet_pos {
+        fleet_pos
+    } else {
+        predict_body_visual_pos(origin_body, departure_s, &body_query, &kepler_query, &amp_query)
+            .unwrap_or(origin_transform.translation)
+    };
+    // Origin ring radius is 0 for course corrections (fleet is already at the departure point).
+    let origin_ring_r = if is_course_correction {
+        0.0
+    } else {
+        fleet_parking_visual_radius(origin_body_data.visual_radius)
+    };
     let dest_visual_r = dest_body_data.visual_radius;
     let dest_ring_r   = fleet_parking_visual_radius(dest_visual_r);
 
