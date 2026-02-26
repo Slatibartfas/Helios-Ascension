@@ -27,6 +27,7 @@ mod research_panel;
 mod construction_panel;
 mod economy_panel;
 mod fleets_panel;
+mod transfer_planner;
 
 pub use time::{TimeScale, SimulationTime};
 pub use icons::{MenuIcons, ResearchIcons};
