@@ -270,6 +270,9 @@ pub struct ActiveManeuver {
     /// The physics position (AU) of the destination body at arrival time.
     /// Used for kinematic transfers.
     pub end_position_au: Option<bevy::math::DVec3>,
+    /// The visual position of the fleet at the moment of departure.
+    /// Used for course corrections to prevent the visual arc from jumping back to the origin body.
+    pub start_visual_pos: Option<bevy::math::Vec3>,
 }
 
 impl ActiveManeuver {

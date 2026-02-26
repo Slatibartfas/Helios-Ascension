@@ -260,6 +260,7 @@ pub fn process_fleet_actions(
     kepler_query: Query<&KeplerOrbit, Without<Fleet>>,
     center_coords: Query<&SpaceCoordinates, Without<Fleet>>,
     fleet_sc_query: Query<&SpaceCoordinates, With<Fleet>>,
+    fleet_transform_query: Query<&Transform, With<Fleet>>,
 ) {
     let elapsed = sim_time.elapsed_seconds();
 
@@ -351,6 +352,12 @@ pub fn process_fleet_actions(
             (None, None)
         };
             
+        let start_visual_pos = if is_in_transit {
+            fleet_transform_query.get(action.fleet).ok().map(|t| t.translation)
+        } else {
+            None
+        };
+
         let maneuver = ActiveManeuver {
             transfer_orbit: t.transfer_orbit,
             orbit_center: t.orbit_center,
@@ -365,6 +372,7 @@ pub fn process_fleet_actions(
             departure_angle,
             start_position_au,
             end_position_au,
+            start_visual_pos,
         };
         if is_in_transit {
             // Course correction: swap immediately (no parking orbit to preserve).

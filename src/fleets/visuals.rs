@@ -320,7 +320,18 @@ pub fn draw_fleet_trajectories(
                 // arc start at the historical departure position, anchored to the current
                 // render position of the orbit-centre body so the arc follows the
                 // planet's visual drift in the system view.
-                let op = {
+                let op = if let Some(start_pos) = maneuver.start_visual_pos {
+                    // For course corrections, the fleet started mid-transit.
+                    // Anchor its historical start position to the orbit centre's current position.
+                    let cv_at_departure = predict_body_visual_pos(
+                        maneuver.orbit_center,
+                        maneuver.departure_time,
+                        &body_query,
+                        &kepler_query,
+                        &amp_query,
+                    ).unwrap_or(cv_current);
+                    start_pos - cv_at_departure + cv_current
+                } else {
                     let op_absolute = predict_body_visual_pos(
                         maneuver.origin_body,
                         maneuver.departure_time,
@@ -363,7 +374,8 @@ pub fn draw_fleet_trajectories(
                 // arrival position — same logic as the preview arc (stable, prograde-optimal).
                 let dep_angle = optimal_departure_angle(op, dp);
                 let dir_dep = Vec3::new(dep_angle.cos(), dep_angle.sin(), 0.0);
-                let p0 = op + dir_dep * origin_ring_r;
+                let actual_origin_ring_r = if maneuver.start_visual_pos.is_some() { 0.0 } else { origin_ring_r };
+                let p0 = op + dir_dep * actual_origin_ring_r;
 
                 // Determine if this is an inward (orbit-lowering) transfer so
                 // the departure tangent matches the preview arc direction.
@@ -979,7 +991,16 @@ pub fn update_fleet_transforms(
 
                     // Once departed, fix the origin at the moon's departure-time position
                     // so the fleet moves with the planet but not the moon's orbit.
-                    let op = {
+                    let op = if let Some(start_pos) = maneuver.start_visual_pos {
+                        let cv_at_departure = predict_body_visual_pos(
+                            maneuver.orbit_center,
+                            maneuver.departure_time,
+                            &body_query,
+                            &kepler_query,
+                            &amp_query,
+                        ).unwrap_or(cv_current);
+                        start_pos - cv_at_departure + cv_current
+                    } else {
                         let op_absolute = predict_body_visual_pos(
                             maneuver.origin_body,
                             maneuver.departure_time,
@@ -1023,7 +1044,8 @@ pub fn update_fleet_transforms(
                     // phase when Execute was clicked.
                     let dep_angle = optimal_departure_angle(op, dp);
                     let dir_dep = Vec3::new(dep_angle.cos(), dep_angle.sin(), 0.0);
-                    let p0 = op + dir_dep * origin_ring_r;
+                    let actual_origin_ring_r = if maneuver.start_visual_pos.is_some() { 0.0 } else { origin_ring_r };
+                    let p0 = op + dir_dep * actual_origin_ring_r;
 
                     // Determine if this is an inward (orbit-lowering) transfer so
                     // the fleet follows the same arc shape as the preview/trajectory.
@@ -1275,9 +1297,17 @@ pub fn draw_fleet_transfer_preview(
         let Ok((origin_transform, origin_body_data, _)) = body_query.get(origin_body) else { return; };
         // Predict origin body position at planned departure so the start mark moves
         // when the player drags the departure slider.
-        let op = predict_body_visual_pos(origin_body, departure_s, &body_query, &kepler_query, &amp_query)
-            .unwrap_or(origin_transform.translation);
-        let origin_ring_r = fleet_parking_visual_radius(origin_body_data.visual_radius);
+        let op = if let Some(fleet_pos) = course_correction_fleet_pos {
+            fleet_pos
+        } else {
+            predict_body_visual_pos(origin_body, departure_s, &body_query, &kepler_query, &amp_query)
+                .unwrap_or(origin_transform.translation)
+        };
+        let origin_ring_r = if is_course_correction {
+            0.0
+        } else {
+            fleet_parking_visual_radius(origin_body_data.visual_radius)
+        };
 
         let travel_time_s = if fleet_ui_state.selected_option < fleet_ui_state.computed_options.len() {
             fleet_ui_state.computed_options[fleet_ui_state.selected_option].transfer_time_s
@@ -1380,9 +1410,17 @@ pub fn draw_fleet_transfer_preview(
         };
 
         let Ok((origin_transform, origin_body_data, _)) = body_query.get(origin_body) else { return; };
-        let op = predict_body_visual_pos(origin_body, departure_s, &body_query, &kepler_query, &amp_query)
-            .unwrap_or(origin_transform.translation);
-        let origin_ring_r = fleet_parking_visual_radius(origin_body_data.visual_radius);
+        let op = if let Some(fleet_pos) = course_correction_fleet_pos {
+            fleet_pos
+        } else {
+            predict_body_visual_pos(origin_body, departure_s, &body_query, &kepler_query, &amp_query)
+                .unwrap_or(origin_transform.translation)
+        };
+        let origin_ring_r = if is_course_correction {
+            0.0
+        } else {
+            fleet_parking_visual_radius(origin_body_data.visual_radius)
+        };
 
         // Use the target fleet's current visual Transform position — fleets have no Keplerian
         // orbit to predict future positions from, so we target where they are right now.
