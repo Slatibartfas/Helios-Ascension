@@ -2182,7 +2182,7 @@ fn build_planned_transfer(
         (r1, r2.min(r1 * 0.5), G_CONST * parent_mass, target_entity, target_entity)
     } else {
         // Heliocentric: if fleet is at a moon, its own SMA is Earth-relative — use parent's SMA.
-        let r1 = if origin_ko.map(|ko| ko.semi_major_axis < 0.05).unwrap_or(true) {
+        let r1 = if origin_ko.map(|ko| ko.semi_major_axis < MIN_HELIOCENTRIC_SMA_AU).unwrap_or(true) {
             origin_parent
                 .and_then(|pe| body_query.get(pe).ok())
                 .and_then(|(_, _, _, ko, _)| ko)
@@ -2192,7 +2192,16 @@ fn build_planned_transfer(
         } else {
             origin_ko.map(|ko| ko.semi_major_axis).unwrap_or(1.0)
         };
-        let r2 = dest_ko.map(|ko| ko.semi_major_axis).unwrap_or(1.5);
+        let r2 = if dest_ko.map(|ko| ko.semi_major_axis < MIN_HELIOCENTRIC_SMA_AU).unwrap_or(true) {
+            dest_parent
+                .and_then(|pe| body_query.get(pe).ok())
+                .and_then(|(_, _, _, ko, _)| ko)
+                .map(|ko| ko.semi_major_axis)
+                .or_else(|| dest_ko.map(|ko| ko.semi_major_axis))
+                .unwrap_or(1.5)
+        } else {
+            dest_ko.map(|ko| ko.semi_major_axis).unwrap_or(1.5)
+        };
         let star = body_query.iter()
             .find(|(_, b, _, ko, _)| ko.is_none() && b.body_type == BodyType::Star)
             .map(|(e, _, _, _, _)| e)

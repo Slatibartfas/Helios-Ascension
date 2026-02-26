@@ -949,6 +949,13 @@ pub fn update_fleet_transforms(
         }
 
         let is_selected = selected == Some(entity);
+        // A fleet that has both FleetOrbit AND ActiveManeuver is in the departure frame —
+        // the FleetOrbit removal is still pending (deferred command). Treat it as in-transit
+        // once the maneuver's departure_time has been reached so we use Keplerian positions
+        // rather than the moon's amplified visual Transform.
+        let maneuver_started = maybe_maneuver
+            .map(|m| elapsed >= m.departure_time)
+            .unwrap_or(false);
         let is_in_transit = maybe_maneuver.is_some();
 
         // Hide parked (non-transiting) fleets that are not selected.
@@ -959,7 +966,7 @@ pub fn update_fleet_transforms(
             *vis = Visibility::Inherited;
         }
 
-        if let Some(orbit) = maybe_orbit {
+        if let Some(orbit) = maybe_orbit.filter(|_| !maneuver_started) {
             // ── Orbiting fleet: place at visual orbit position ──
             if let Ok((body_transform, body, _)) = body_query.get(orbit.body) {
                 let dir = Vec3::new(
