@@ -234,16 +234,28 @@ pub fn activate_scheduled_departures(
             continue;
         }
         // Correct the transfer-orbit orientation: the argument of periapsis must match
-        // the origin body's angle relative to the orbit center at the actual departure moment.
-        if let Ok(origin_sc) = body_coords.get(maneuver.origin_body) {
+        // the departure position relative to the orbit center at the actual departure moment.
+        // Use the fleet's own (heliocentric) SpaceCoordinates rather than the origin body's
+        // SpaceCoordinates: moons only store a local offset from their parent planet, so
+        // querying the moon entity directly would give the wrong departure direction.
+        {
             let center_pos = body_coords.get(maneuver.orbit_center)
                 .map(|sc| sc.position)
                 .unwrap_or(DVec3::ZERO);
-            
-            let rel_pos = origin_sc.position - center_pos;
-            let theta = rel_pos.y.atan2(rel_pos.x);
-            maneuver.transfer_orbit.argument_of_periapsis =
-                theta - maneuver.transfer_orbit.mean_anomaly_epoch;
+
+            let rel_pos = if let Ok(fleet_sc) = fleet_sc_query.get(entity) {
+                fleet_sc.position - center_pos
+            } else if let Ok(origin_sc) = body_coords.get(maneuver.origin_body) {
+                origin_sc.position - center_pos
+            } else {
+                DVec3::ZERO
+            };
+
+            if rel_pos.length_squared() > 1e-30 {
+                let theta = rel_pos.y.atan2(rel_pos.x);
+                maneuver.transfer_orbit.argument_of_periapsis =
+                    theta - maneuver.transfer_orbit.mean_anomaly_epoch;
+            }
         }
 
         // For kinematic LP transfers with a departure offset, the start_position_au
