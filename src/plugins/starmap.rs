@@ -16,6 +16,7 @@ use bevy::prelude::*;
 use bevy_egui::EguiPrimaryContextPass;
 use bevy::window::PrimaryWindow;
 use bevy_egui::egui;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::camera::{CameraAnchor, EguiPanelBounds, GameCamera, OrbitCamera, ViewMode};
@@ -61,6 +62,101 @@ impl SystemMetadata {
     }
 }
 
+// ── Planet Texture Manifest ──────────────────────────────────────────────────
+
+/// Maps planet-type category names to lists of texture asset paths.
+///
+/// Loaded at startup from `assets/data/planet_textures.ron`.  Modders can add
+/// texture paths to any category list or introduce new categories — no code
+/// changes required.
+#[derive(Resource, Debug, Clone, Serialize, Deserialize)]
+pub struct PlanetTextureManifest {
+    /// Map from category name (e.g. `"jungle"`, `"lava"`) to an ordered list
+    /// of texture paths relative to the `assets/` directory.
+    pub categories: HashMap<String, Vec<String>>,
+}
+
+impl PlanetTextureManifest {
+    /// Load the manifest from a RON file on disk.
+    pub fn load_from_file(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let contents = std::fs::read_to_string(path)?;
+        let manifest: PlanetTextureManifest = ron::from_str(&contents)?;
+        Ok(manifest)
+    }
+
+    /// Pick a texture from a category deterministically by `seed`.
+    /// Returns `None` if the category is missing or empty.
+    pub fn pick(&self, category: &str, seed: u32) -> Option<&str> {
+        let list = self.categories.get(category)?;
+        if list.is_empty() {
+            return None;
+        }
+        Some(&list[(seed as usize) % list.len()])
+    }
+
+    /// Built-in fallback used when `planet_textures.ron` cannot be read.
+    fn default_fallback() -> Self {
+        let entries: &[(&str, &[&str])] = &[
+            ("barren",    &["textures/celestial/planets/mercury_8k.jpg"]),
+            ("desert",    &["textures/celestial/planets/mars_8k.jpg",
+                            "textures/celestial/planets/venus_surface_8k.jpg"]),
+            ("temperate", &["textures/celestial/planets/earth_8k.jpg"]),
+            ("jungle",    &["textures/celestial/planets/earth_8k.jpg"]),
+            ("ocean",     &["textures/celestial/planets/earth_8k.jpg"]),
+            ("tundra",    &["textures/celestial/planets/pluto_8k.png",
+                            "textures/celestial/planets/mars_8k.jpg"]),
+            ("ice",       &["textures/celestial/planets/pluto_8k.png",
+                            "textures/celestial/planets/eris_2k.jpg"]),
+            ("lava",      &["textures/celestial/planets/mercury_8k.jpg",
+                            "textures/celestial/planets/venus_surface_8k.jpg"]),
+            ("gas_giant", &["textures/celestial/planets/jupiter_8k.jpg",
+                            "textures/celestial/planets/saturn_8k.jpg"]),
+            ("ice_giant", &["textures/celestial/planets/neptune_2k.jpg",
+                            "textures/celestial/planets/uranus_2k.jpg"]),
+            ("dwarf",     &["textures/celestial/planets/pluto_8k.png",
+                            "textures/celestial/planets/eris_2k.jpg",
+                            "textures/celestial/asteroids/generic_s_type_2k.jpg",
+                            "textures/celestial/asteroids/generic_c_type_2k.jpg"]),
+            ("moon",      &["textures/celestial/moons/moon_8k.jpg",
+                            "textures/celestial/moons/europa_4k.png",
+                            "textures/celestial/moons/ganymede_4k.jpg",
+                            "textures/celestial/moons/callisto_4k.jpg",
+                            "textures/celestial/moons/titan_4k.jpg",
+                            "textures/celestial/moons/triton_4k.jpg"]),
+            ("asteroid_s",&["textures/celestial/asteroids/generic_s_type_2k.jpg"]),
+            ("asteroid_c",&["textures/celestial/asteroids/generic_c_type_2k.jpg"]),
+            ("comet",     &["textures/celestial/comets/generic_nucleus_2k.jpg"]),
+        ];
+        let categories = entries
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.iter().map(|s| s.to_string()).collect()))
+            .collect();
+        Self { categories }
+    }
+}
+
+/// Startup system that loads `assets/data/planet_textures.ron` and inserts it
+/// as a `PlanetTextureManifest` resource.  Falls back to built-in defaults if
+/// the file cannot be read.
+fn load_planet_texture_manifest(mut commands: Commands) {
+    match PlanetTextureManifest::load_from_file("assets/data/planet_textures.ron") {
+        Ok(manifest) => {
+            info!(
+                "Loaded planet texture manifest ({} categories)",
+                manifest.categories.len()
+            );
+            commands.insert_resource(manifest);
+        }
+        Err(e) => {
+            warn!(
+                "Could not load planet_textures.ron ({}). Using built-in defaults.",
+                e
+            );
+            commands.insert_resource(PlanetTextureManifest::default_fallback());
+        }
+    }
+}
+
 /// Plugin that manages the starmap view layer.
 pub struct StarmapPlugin;
 
@@ -69,7 +165,7 @@ impl Plugin for StarmapPlugin {
         app.init_resource::<CurrentStarSystem>()
             .init_resource::<FloatingOrigin>()
             .init_resource::<SystemMetadata>()
-            .add_systems(Startup, setup_starmap)
+            .add_systems(Startup, (setup_starmap, load_planet_texture_manifest))
             .add_systems(
                 Update,
                 (
@@ -311,206 +407,202 @@ fn tag_sol_bodies(
     }
 }
 
-/// Select a base texture path for a procedurally-generated body based on its
-/// physical properties.  All texture paths are relative to the `assets/`
-/// directory (the Bevy `AssetServer` convention).
+/// Classify an exoplanet body into a texture category string.
 ///
-/// The selection uses:
-/// * `body_type` – the broad category (planet, gas giant, moon, etc.)
-/// * `asteroid_class` – spectral class for asteroids/comets
-/// * `avg_temp_c` – equilibrium surface temperature in Celsius
-/// * `name` – deterministic name-hash to add variety within a class
-fn select_exoplanet_texture_path(
+/// The category is used to look up a texture from `PlanetTextureManifest` and
+/// to derive a tint colour in `category_tint`.
+fn classify_exoplanet(
     body_type: BodyType,
     asteroid_class: Option<AsteroidClass>,
-    avg_temp_c: Option<f32>,
-    name: &str,
-) -> Option<&'static str> {
-    // Deterministic hash from body name for within-class variety
-    let seed: u32 = name
-        .bytes()
-        .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
-
+    avg_temp_c: f32,
+    seed: u32,
+) -> &'static str {
     match body_type {
-        BodyType::Planet => {
-            let temp = avg_temp_c.unwrap_or(-100.0);
-            if temp < -100.0 {
-                // Frozen / icy world (beyond frost line)
-                if seed % 2 == 0 {
-                    Some("textures/celestial/planets/pluto_8k.png")
-                } else {
-                    Some("textures/celestial/asteroids/generic_c_type_2k.jpg")
-                }
-            } else if temp < 0.0 {
-                // Cold rocky / permafrost world
-                if seed % 2 == 0 {
-                    Some("textures/celestial/planets/mars_8k.jpg")
-                } else {
-                    Some("textures/celestial/planets/mercury_8k.jpg")
-                }
-            } else if temp < 60.0 {
-                // Temperate / potentially habitable zone
-                match seed % 3 {
-                    0 => Some("textures/celestial/planets/earth_8k.jpg"),
-                    1 => Some("textures/celestial/planets/mars_8k.jpg"),
-                    _ => Some("textures/celestial/planets/mercury_8k.jpg"),
-                }
-            } else if temp < 300.0 {
-                // Hot / arid rocky world
-                if seed % 2 == 0 {
-                    Some("textures/celestial/planets/venus_surface_8k.jpg")
-                } else {
-                    Some("textures/celestial/planets/mars_8k.jpg")
-                }
-            } else {
-                // Extremely hot / scorched
-                if seed % 2 == 0 {
-                    Some("textures/celestial/planets/mercury_8k.jpg")
-                } else {
-                    Some("textures/celestial/planets/venus_surface_8k.jpg")
-                }
-            }
-        }
-        BodyType::DwarfPlanet => {
-            // Dwarf planets: icy Kuiper-belt objects or rocky Ceres-like bodies
-            match seed % 3 {
-                0 => Some("textures/celestial/planets/pluto_8k.png"),
-                1 => Some("textures/celestial/asteroids/generic_s_type_2k.jpg"),
-                _ => Some("textures/celestial/asteroids/generic_c_type_2k.jpg"),
-            }
-        }
         BodyType::GasGiant => {
-            let temp = avg_temp_c.unwrap_or(-100.0);
-            if temp < -80.0 {
-                // Ice giant (cold, distant from star)
-                if seed % 2 == 0 {
-                    Some("textures/celestial/planets/neptune_2k.jpg")
-                } else {
-                    Some("textures/celestial/planets/uranus_2k.jpg")
-                }
+            if avg_temp_c < -80.0 {
+                "ice_giant"
             } else {
-                // Gas giant (warm, inner)
-                if seed % 2 == 0 {
-                    Some("textures/celestial/planets/jupiter_8k.jpg")
-                } else {
-                    Some("textures/celestial/planets/saturn_8k.jpg")
-                }
+                "gas_giant"
             }
         }
-        BodyType::Moon => {
-            // Vary across common Sol-system moon archetypes
-            match seed % 5 {
-                0 => Some("textures/celestial/moons/moon_8k.jpg"),
-                1 => Some("textures/celestial/moons/europa_4k.png"),
-                2 => Some("textures/celestial/moons/ganymede_4k.jpg"),
-                3 => Some("textures/celestial/moons/callisto_4k.jpg"),
-                _ => Some("textures/celestial/moons/moon_8k.jpg"),
-            }
-        }
+        BodyType::DwarfPlanet => "dwarf",
+        BodyType::Moon => "moon",
         BodyType::Asteroid => {
-            let class = asteroid_class.unwrap_or(AsteroidClass::CType);
-            match class {
+            match asteroid_class.unwrap_or(AsteroidClass::CType) {
                 AsteroidClass::SType | AsteroidClass::VType | AsteroidClass::MType => {
-                    Some("textures/celestial/asteroids/generic_s_type_2k.jpg")
+                    "asteroid_s"
                 }
-                _ => Some("textures/celestial/asteroids/generic_c_type_2k.jpg"),
+                _ => "asteroid_c",
             }
         }
-        BodyType::Comet => Some("textures/celestial/comets/generic_nucleus_2k.jpg"),
-        _ => None,
+        BodyType::Comet => "comet",
+        BodyType::Planet => {
+            if avg_temp_c > 500.0 {
+                "lava"
+            } else if avg_temp_c > 60.0 {
+                "desert"
+            } else if avg_temp_c >= -20.0 {
+                // Habitable-zone planets: distribute across three archetypes
+                match seed % 3 {
+                    0 => "jungle",
+                    1 => "ocean",
+                    _ => "temperate",
+                }
+            } else if avg_temp_c >= -100.0 {
+                "tundra"
+            } else {
+                "ice"
+            }
+        }
+        _ => "barren",
     }
 }
 
-/// Generate a procedural base-color tint for a textured exoplanet body.
-///
-/// When a texture is applied (`base_color` multiplies the texture sample), a
-/// near-white tint with a subtle spectral shift makes each body look distinct
-/// while still allowing the texture detail to show through.
-fn exoplanet_tint_color(
-    body_type: BodyType,
-    asteroid_class: Option<AsteroidClass>,
-    avg_temp_c: Option<f32>,
-    name: &str,
-) -> (Color, f32, f32) {
-    let seed: u32 = name
-        .bytes()
-        .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
-    let r1 = ((seed % 1000) as f32) / 1000.0;
-    let r2 = (((seed / 1000) % 1000) as f32) / 1000.0;
-    let r3 = (((seed / 1_000_000) % 1000) as f32) / 1000.0;
-
-    match body_type {
-        BodyType::Planet | BodyType::DwarfPlanet => {
-            let temp = avg_temp_c.unwrap_or(-100.0);
-            let tint = if temp < -100.0 {
-                // Icy – blue-grey
-                Color::srgb(0.85 + r1 * 0.10, 0.90 + r1 * 0.05, 1.0)
-            } else if temp < 0.0 {
-                // Cold rocky – neutral with slight cool cast
-                let b = 0.90 + r1 * 0.08;
-                Color::srgb(b * 0.92, b * 0.94, b)
-            } else if temp < 60.0 {
-                // Temperate – near-white, let the texture dominate
-                let b = 0.92 + r1 * 0.06;
-                Color::srgb(b, b, b)
-            } else if temp < 300.0 {
-                // Hot / arid – warm orange-red
-                let b = 0.90 + r1 * 0.08;
-                Color::srgb(b, b * 0.85, b * 0.70)
-            } else {
-                // Scorched – reddish
-                let b = 0.88 + r1 * 0.10;
-                Color::srgb(b, b * 0.75, b * 0.60)
-            };
-            let roughness = 0.70 + r2 * 0.20;
-            let metallic = 0.0 + r3 * 0.05;
-            (tint, roughness, metallic)
+/// Return `(base_color_tint, perceptual_roughness, metallic)` for a body
+/// category.  The tint multiplies the texture sample to give each planet type
+/// a distinctive colour cast while still showing the underlying texture detail.
+fn category_tint(category: &str, r1: f32, r2: f32, r3: f32) -> (Color, f32, f32) {
+    match category {
+        "lava" => {
+            // Deep orange-red — volcanic, scorched
+            let b = 0.75 + r1 * 0.15;
+            (
+                Color::srgb(b, (b * 0.32).min(1.0), (b * 0.06).min(1.0)),
+                0.70 + r2 * 0.15,
+                0.0 + r3 * 0.05,
+            )
         }
-        BodyType::GasGiant => {
-            let temp = avg_temp_c.unwrap_or(-100.0);
-            let tint = if temp < -80.0 {
-                // Ice giant – blue-cyan
-                Color::srgb(0.80 + r1 * 0.10, 0.88 + r1 * 0.08, 1.0)
-            } else {
-                // Gas giant – warm amber/orange
-                let b = 0.88 + r1 * 0.08;
-                Color::srgb(b, b * 0.90, b * 0.70)
-            };
-            (tint, 0.60 + r2 * 0.15, 0.0 + r3 * 0.05)
+        "desert" => {
+            // Warm orange-tan — arid and dusty
+            let b = 0.88 + r1 * 0.10;
+            (
+                Color::srgb(b, (b * 0.80).min(1.0), (b * 0.58).min(1.0)),
+                0.75 + r2 * 0.15,
+                0.0 + r3 * 0.05,
+            )
         }
-        BodyType::Moon => {
+        "temperate" => {
+            // Near-white — let the texture dominate
+            let b = 0.90 + r1 * 0.08;
+            (Color::srgb(b, b, b), 0.65 + r2 * 0.20, 0.0 + r3 * 0.05)
+        }
+        "jungle" => {
+            // Deep green tint — dense vegetation
+            let b = 0.80 + r1 * 0.12;
+            (
+                Color::srgb(
+                    (b * 0.68).min(1.0),
+                    b,
+                    (b * 0.65).min(1.0),
+                ),
+                0.70 + r2 * 0.18,
+                0.0 + r3 * 0.05,
+            )
+        }
+        "ocean" => {
+            // Deep blue — ocean-dominated
+            let b = 0.80 + r1 * 0.12;
+            (
+                Color::srgb(
+                    (b * 0.50).min(1.0),
+                    (b * 0.72).min(1.0),
+                    b,
+                ),
+                0.60 + r2 * 0.15,
+                0.0 + r3 * 0.05,
+            )
+        }
+        "tundra" => {
+            // Blue-grey — cold, partially frozen
+            let b = 0.78 + r1 * 0.14;
+            (
+                Color::srgb(
+                    (b * 0.86).min(1.0),
+                    (b * 0.91).min(1.0),
+                    b,
+                ),
+                0.78 + r2 * 0.12,
+                0.0 + r3 * 0.05,
+            )
+        }
+        "ice" => {
+            // Pale blue-white — deeply frozen
+            let b = 0.85 + r1 * 0.12;
+            (
+                Color::srgb(
+                    (b * 0.88).min(1.0),
+                    (b * 0.93).min(1.0),
+                    b,
+                ),
+                0.72 + r2 * 0.15,
+                0.0 + r3 * 0.05,
+            )
+        }
+        "barren" => {
+            // Neutral grey — cratered, airless
+            let b = 0.78 + r1 * 0.16;
+            (
+                Color::srgb(b, (b * 0.93).min(1.0), (b * 0.88).min(1.0)),
+                0.80 + r2 * 0.12,
+                0.0 + r3 * 0.05,
+            )
+        }
+        "gas_giant" => {
+            // Warm amber — banded atmosphere
+            let b = 0.88 + r1 * 0.08;
+            (
+                Color::srgb(b, (b * 0.87).min(1.0), (b * 0.65).min(1.0)),
+                0.60 + r2 * 0.15,
+                0.0 + r3 * 0.05,
+            )
+        }
+        "ice_giant" => {
+            // Blue-cyan — methane-dominated
+            let b = 0.78 + r1 * 0.12;
+            (
+                Color::srgb(
+                    (b * 0.76).min(1.0),
+                    (b * 0.90).min(1.0),
+                    b,
+                ),
+                0.62 + r2 * 0.15,
+                0.0 + r3 * 0.05,
+            )
+        }
+        "dwarf" => {
+            let b = 0.65 + r1 * 0.22;
+            (
+                Color::srgb(b, (b * 0.95).min(1.0), (b * 0.90).min(1.0)),
+                0.78 + r2 * 0.15,
+                0.02 + r3 * 0.06,
+            )
+        }
+        "moon" => {
             let b = 0.80 + r1 * 0.18;
-            (Color::srgb(b, b * 0.98, b * 0.95), 0.75 + r2 * 0.15, 0.0 + r3 * 0.05)
+            (
+                Color::srgb(b, (b * 0.98).min(1.0), (b * 0.95).min(1.0)),
+                0.75 + r2 * 0.15,
+                0.0 + r3 * 0.05,
+            )
         }
-        BodyType::Asteroid => {
-            let class = asteroid_class.unwrap_or(AsteroidClass::CType);
-            let (tint, roughness, metallic) = match class {
-                AsteroidClass::MType => {
-                    // Metallic – bright silvery-grey; values stay within [0, 1]
-                    let b = 0.85 + r1 * 0.15;
-                    (Color::srgb(b, b, b), 0.25 + r2 * 0.15, 0.60 + r3 * 0.30)
-                }
-                AsteroidClass::VType => {
-                    let b = 0.90 + r1 * 0.10;
-                    (Color::srgb((b * 1.1).min(1.0), (b * 0.85).min(1.0), (b * 0.75).min(1.0)), 0.65 + r2 * 0.15, 0.10 + r3 * 0.10)
-                }
-                AsteroidClass::DType | AsteroidClass::PType => {
-                    let b = 0.45 + r1 * 0.20;
-                    (Color::srgb(b * 1.05, b * 0.92, b * 0.82), 0.82 + r2 * 0.12, 0.0 + r3 * 0.04)
-                }
-                AsteroidClass::SType => {
-                    let b = 0.88 + r1 * 0.15;
-                    (Color::srgb(b, b * 0.93, b * 0.85), 0.68 + r2 * 0.18, 0.05 + r3 * 0.10)
-                }
-                _ => {
-                    let b = 0.65 + r1 * 0.25;
-                    (Color::srgb(b, b * 0.96, b * 0.90), 0.72 + r2 * 0.18, 0.03 + r3 * 0.07)
-                }
-            };
-            (tint, roughness, metallic)
+        "asteroid_s" => {
+            let b = 0.85 + r1 * 0.12;
+            (
+                Color::srgb(b, (b * 0.93).min(1.0), (b * 0.84).min(1.0)),
+                0.68 + r2 * 0.18,
+                0.05 + r3 * 0.10,
+            )
         }
-        BodyType::Comet => {
-            let b = 0.55 + r1 * 0.30;
+        "asteroid_c" => {
+            let b = 0.52 + r1 * 0.22;
+            (
+                Color::srgb(b, (b * 0.96).min(1.0), (b * 0.90).min(1.0)),
+                0.82 + r2 * 0.12,
+                0.02 + r3 * 0.07,
+            )
+        }
+        "comet" => {
+            let b = 0.55 + r1 * 0.28;
             let tint_r = r2 * 0.12;
             (
                 Color::srgb(
@@ -538,6 +630,7 @@ fn spawn_system_bodies(
     mut materials_corona_3d: ResMut<Assets<super::solar_system::StarCorona3dMaterial>>,
     mut materials_halo_3d: ResMut<Assets<super::solar_system::StarHalo3dMaterial>>,
     asset_server: Res<AssetServer>,
+    manifest: Res<PlanetTextureManifest>,
     // Query for bodies that need visual components added
     bodies_without_visuals: Query<
         (
@@ -713,26 +806,27 @@ fn spawn_system_bodies(
                 ));
             });
         } else {
-            // Select a texture and procedural material properties based on body type
-            let texture_path = select_exoplanet_texture_path(
-                body.body_type,
-                body.asteroid_class,
-                avg_temp_c,
-                &body.name,
-            );
-            let (tint, roughness, metallic) = exoplanet_tint_color(
-                body.body_type,
-                body.asteroid_class,
-                avg_temp_c,
-                &body.name,
-            );
+            // Classify body into a texture category, then look up the manifest
+            let avg_temp = avg_temp_c.unwrap_or(-100.0);
+            let seed: u32 = body.name
+                .bytes()
+                .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
 
-            let base_color_texture: Option<Handle<Image>> =
-                texture_path.map(|p| asset_server.load(p));
+            let category = classify_exoplanet(body.body_type, body.asteroid_class, avg_temp, seed);
+
+            let r1 = ((seed % 1000) as f32) / 1000.0;
+            let r2 = (((seed / 1000) % 1000) as f32) / 1000.0;
+            let r3 = (((seed / 1_000_000) % 1000) as f32) / 1000.0;
+            let (tint, roughness, metallic) = category_tint(category, r1, r2, r3);
+
+            let base_color_texture: Option<Handle<Image>> = manifest
+                .pick(category, seed)
+                .map(|p| p.to_string())
+                .map(|p| asset_server.load(p));
             let has_texture = base_color_texture.is_some();
 
             // When a texture is loaded, use the tint as a subtle multiplier;
-            // when there is no texture, use the tint as the solid base colour.
+            // when there is no texture, use the fallback flat colour.
             let base_color = if has_texture { tint } else { color };
 
             let material = materials.add(StandardMaterial {
@@ -1269,5 +1363,173 @@ fn handle_system_transition(
     // Clear all starmap selections (visual rings etc)
     for entity in selected_query.iter() {
         commands.entity(entity).remove::<SelectedStarSystem>();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_seed(name: &str) -> u32 {
+        name.bytes()
+            .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32))
+    }
+
+    // ── classify_exoplanet ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_classify_lava() {
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 600.0, 0), "lava");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 501.0, 0), "lava");
+        // exactly 500.0 is desert (condition is > 500.0)
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 500.0, 0), "desert");
+    }
+
+    #[test]
+    fn test_classify_desert() {
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 200.0, 0), "desert");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 60.1, 0), "desert");
+        // exactly 60.0 is habitable (condition is > 60.0 for desert)
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 60.0, 0), "jungle");
+    }
+
+    #[test]
+    fn test_classify_habitable_zone() {
+        // Seed 0 → 0 % 3 == 0 → "jungle"
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 15.0, 0), "jungle");
+        // Seed 1 → 1 % 3 == 1 → "ocean"
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 15.0, 1), "ocean");
+        // Seed 2 → 2 % 3 == 2 → "temperate"
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 15.0, 2), "temperate");
+    }
+
+    #[test]
+    fn test_classify_tundra() {
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, -50.0, 0), "tundra");
+        // -20.0 is the habitable lower bound (inclusive), so just below it is tundra
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, -20.1, 0), "tundra");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, -99.9, 0), "tundra");
+        // exactly -100.0 is tundra (>= -100.0)
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, -100.0, 0), "tundra");
+        // exactly -20.0 is habitable (>= -20.0)
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, -20.0, 0), "jungle");
+    }
+
+    #[test]
+    fn test_classify_ice() {
+        // -100.0 is tundra (>= -100.0); strictly below -100.0 is ice
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, -100.1, 0), "ice");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, -250.0, 0), "ice");
+    }
+
+    #[test]
+    fn test_classify_gas_and_ice_giants() {
+        assert_eq!(classify_exoplanet(BodyType::GasGiant, None, -200.0, 0), "ice_giant");
+        // strictly below -80.0 is ice_giant; -80.0 itself is gas_giant
+        assert_eq!(classify_exoplanet(BodyType::GasGiant, None, -80.1, 0), "ice_giant");
+        assert_eq!(classify_exoplanet(BodyType::GasGiant, None, -80.0, 0), "gas_giant");
+        assert_eq!(classify_exoplanet(BodyType::GasGiant, None, 100.0, 0), "gas_giant");
+    }
+
+    #[test]
+    fn test_classify_small_bodies() {
+        assert_eq!(classify_exoplanet(BodyType::DwarfPlanet, None, -200.0, 0), "dwarf");
+        assert_eq!(classify_exoplanet(BodyType::Moon, None, 0.0, 0), "moon");
+        assert_eq!(classify_exoplanet(BodyType::Comet, None, -50.0, 0), "comet");
+    }
+
+    #[test]
+    fn test_classify_asteroids() {
+        assert_eq!(
+            classify_exoplanet(BodyType::Asteroid, Some(AsteroidClass::SType), 0.0, 0),
+            "asteroid_s"
+        );
+        assert_eq!(
+            classify_exoplanet(BodyType::Asteroid, Some(AsteroidClass::MType), 0.0, 0),
+            "asteroid_s"
+        );
+        assert_eq!(
+            classify_exoplanet(BodyType::Asteroid, Some(AsteroidClass::CType), 0.0, 0),
+            "asteroid_c"
+        );
+        assert_eq!(
+            classify_exoplanet(BodyType::Asteroid, Some(AsteroidClass::DType), 0.0, 0),
+            "asteroid_c"
+        );
+    }
+
+    // ── PlanetTextureManifest::pick ──────────────────────────────────────────
+
+    #[test]
+    fn test_manifest_pick_deterministic() {
+        let manifest = PlanetTextureManifest::default_fallback();
+        let a = manifest.pick("desert", 5).unwrap().to_string();
+        let b = manifest.pick("desert", 5).unwrap().to_string();
+        assert_eq!(a, b, "same seed should always return same texture");
+    }
+
+    #[test]
+    fn test_manifest_pick_wraps_index() {
+        let manifest = PlanetTextureManifest::default_fallback();
+        // "gas_giant" has 2 textures; seeds 0 and 2 should map to the same one
+        let t0 = manifest.pick("gas_giant", 0).unwrap().to_string();
+        let t2 = manifest.pick("gas_giant", 2).unwrap().to_string();
+        assert_eq!(t0, t2);
+    }
+
+    #[test]
+    fn test_manifest_pick_missing_category_returns_none() {
+        let manifest = PlanetTextureManifest::default_fallback();
+        assert!(manifest.pick("nonexistent_category", 0).is_none());
+    }
+
+    #[test]
+    fn test_manifest_fallback_has_all_expected_categories() {
+        let manifest = PlanetTextureManifest::default_fallback();
+        for cat in &[
+            "barren", "desert", "temperate", "jungle", "ocean",
+            "tundra", "ice", "lava", "gas_giant", "ice_giant",
+            "dwarf", "moon", "asteroid_s", "asteroid_c", "comet",
+        ] {
+            assert!(
+                manifest.categories.contains_key(*cat),
+                "missing category: {}",
+                cat
+            );
+        }
+    }
+
+    #[test]
+    fn test_manifest_loads_from_ron_file() {
+        let result = PlanetTextureManifest::load_from_file("assets/data/planet_textures.ron");
+        assert!(result.is_ok(), "Failed to load planet_textures.ron: {:?}", result.err());
+        let manifest = result.unwrap();
+        assert!(manifest.categories.len() >= 14, "expected at least 14 categories");
+        assert!(manifest.pick("desert", 0).is_some());
+        assert!(manifest.pick("jungle", 0).is_some());
+        assert!(manifest.pick("lava", 0).is_some());
+    }
+
+    // ── category_tint colour values stay within [0, 1] ──────────────────────
+
+    #[test]
+    fn test_category_tint_values_in_range() {
+        let categories = [
+            "lava", "desert", "temperate", "jungle", "ocean",
+            "tundra", "ice", "barren", "gas_giant", "ice_giant",
+            "dwarf", "moon", "asteroid_s", "asteroid_c", "comet",
+        ];
+        // Test with extreme r values to catch clamping issues
+        for cat in &categories {
+            for &r in &[0.0f32, 0.5, 0.999] {
+                let (color, roughness, metallic) = category_tint(cat, r, r, r);
+                let srgba = color.to_srgba();
+                assert!(srgba.red   >= 0.0 && srgba.red   <= 1.0, "{cat} red out of range");
+                assert!(srgba.green >= 0.0 && srgba.green <= 1.0, "{cat} green out of range");
+                assert!(srgba.blue  >= 0.0 && srgba.blue  <= 1.0, "{cat} blue out of range");
+                assert!(roughness >= 0.0 && roughness <= 1.0, "{cat} roughness out of range");
+                assert!(metallic  >= 0.0 && metallic  <= 1.0, "{cat} metallic out of range");
+            }
+        }
     }
 }
