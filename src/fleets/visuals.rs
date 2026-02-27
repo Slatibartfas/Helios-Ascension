@@ -243,6 +243,104 @@ fn optimal_departure_angle(origin: Vec3, destination: Vec3) -> f32 {
     }
 }
 
+// ── Shared transfer-arc geometry ──────────────────────────────────────────────
+
+/// Computed Bezier control points for a transfer arc.
+///
+/// All three rendering paths (preview, transit gizmo, fleet dot) share this
+/// geometry via [`compute_transfer_arc`] to guarantee identical curves.
+struct TransferArcGeometry {
+    /// Bezier start point (on origin ring, or fleet pos for course corrections).
+    p0: Vec3,
+    /// Bezier control point near departure.
+    p1: Vec3,
+    /// Bezier control point near arrival.
+    p2: Vec3,
+    /// Bezier end point (on destination ring).
+    p3: Vec3,
+    /// Whether this is a kinematic (straight-line) transfer.
+    is_kinematic: bool,
+    /// Departure angle computed by `optimal_departure_angle`.
+    departure_angle: f32,
+}
+
+impl TransferArcGeometry {
+    /// Evaluate the arc at parameter `t` ∈ \[0, 1\].
+    fn eval(&self, t: f32) -> Vec3 {
+        if self.is_kinematic {
+            self.p0 + (self.p3 - self.p0) * t
+        } else {
+            let u = 1.0 - t;
+            u*u*u*self.p0 + 3.0*u*u*t*self.p1 + 3.0*u*t*t*self.p2 + t*t*t*self.p3
+        }
+    }
+}
+
+/// Compute the visual Bezier geometry for a transfer arc.
+///
+/// # Parameters
+/// - `op` / `dp`: departure / arrival body positions (frame-corrected by the caller).
+/// - `origin_ring_r`: fleet parking radius at origin (0 for course corrections).
+/// - `dest_ring_r`: fleet parking radius at destination.
+/// - `is_course_correction`: use tighter tangent blend (10/90 instead of 20/80).
+/// - `is_inward`: orbit-lowering transfer (CW departure tangent).
+/// - `is_kinematic`: straight line instead of cubic Bezier.
+/// - `cv_ref`: orbit-centre position for computing arrival tangent direction.
+///   Use `cv_current` for local transfers, `cv_at_departure` for heliocentric / preview.
+fn compute_transfer_arc(
+    op: Vec3,
+    dp: Vec3,
+    origin_ring_r: f32,
+    dest_ring_r: f32,
+    is_course_correction: bool,
+    is_inward: bool,
+    is_kinematic: bool,
+    cv_ref: Vec3,
+) -> TransferArcGeometry {
+    let departure_angle = optimal_departure_angle(op, dp);
+    let dir_dep = Vec3::new(departure_angle.cos(), departure_angle.sin(), 0.0);
+    let p0 = op + dir_dep * origin_ring_r;
+
+    let tang_orbit_raw = if is_inward {
+        Vec3::new(departure_angle.sin(), -departure_angle.cos(), 0.0) // CW
+    } else {
+        Vec3::new(-departure_angle.sin(), departure_angle.cos(), 0.0) // CCW
+    };
+    let direct_dir = (dp - p0).normalize_or_zero();
+    let tang_origin = if is_course_correction {
+        (tang_orbit_raw * 0.10 + direct_dir * 0.90).normalize_or_zero()
+    } else if is_inward {
+        (tang_orbit_raw * 0.20 + direct_dir * 0.80).normalize_or_zero()
+    } else {
+        tang_orbit_raw
+    };
+
+    let radial_dest_raw = dp - cv_ref;
+    let radial_dest = if radial_dest_raw.length() > 1.0 {
+        radial_dest_raw.normalize()
+    } else {
+        (dp - op).normalize_or_zero()
+    };
+    let inward_dir = (op - dp).normalize_or_zero();
+    let p3 = dp + inward_dir * dest_ring_r;
+    let tang_d_a = Vec3::new(-radial_dest.y, radial_dest.x, 0.0);
+    let tang_dest = if is_inward {
+        if tang_d_a.dot(tang_origin) < 0.0 { tang_d_a } else { -tang_d_a }
+    } else {
+        if tang_d_a.dot(tang_origin) >= 0.0 { tang_d_a } else { -tang_d_a }
+    };
+
+    let ctrl_len = (p3 - p0).length() * 0.40;
+    let mut p1 = p0 + tang_origin * ctrl_len;
+    let mut p2 = p3 - tang_dest * ctrl_len;
+    // Smoothly interpolate z so the arc bridges the two orbital planes
+    // even when the tangent vectors are 2D (z = 0).
+    p1.z = p0.z + (p3.z - p0.z) * 0.33;
+    p2.z = p0.z + (p3.z - p0.z) * 0.67;
+
+    TransferArcGeometry { p0, p1, p2, p3, is_kinematic, departure_angle }
+}
+
 // ── Public drawing / mesh systems ─────────────────────────────────────────────
 
 /// Draw the trajectory arc for the selected fleet.
@@ -370,15 +468,6 @@ pub fn draw_fleet_trajectories(
 
                 let dp = dp_absolute - cv_predicted + cv_current;
 
-                // Optimal departure angle: direction from origin body toward the predicted
-                // arrival position — same logic as the preview arc (stable, prograde-optimal).
-                let dep_angle = optimal_departure_angle(op, dp);
-                let dir_dep = Vec3::new(dep_angle.cos(), dep_angle.sin(), 0.0);
-                let actual_origin_ring_r = if maneuver.start_visual_pos.is_some() { 0.0 } else { origin_ring_r };
-                let p0 = op + dir_dep * actual_origin_ring_r;
-
-                // Determine if this is an inward (orbit-lowering) transfer so
-                // the departure tangent matches the preview arc direction.
                 let origin_lp = body_query.get(maneuver.origin_body)
                     .ok().and_then(|(_, _, lp)| lp.map(|lp| lp.0));
                 let dest_lp = body_query.get(maneuver.destination_body)
@@ -390,42 +479,12 @@ pub fn draw_fleet_trajectories(
                 } else {
                     op.length_squared() > dp.length_squared()
                 };
-                // Departure tangent: prograde (CCW) for outward, retrograde (CW) for inward.
-                // For inward transfers (Moon → Planet) a pure perpendicular tangent creates an
-                // S-curve that exits the origin at a weird angle and can pass through the
-                // destination body.  Blend 80% toward the direct p0→destination direction.
-                let tang_orbit = if is_inward {
-                    Vec3::new(dep_angle.sin(), -dep_angle.cos(), 0.0)  // CW
-                } else {
-                    Vec3::new(-dep_angle.sin(), dep_angle.cos(), 0.0)  // CCW
-                };
-                let direct_dir = (dp - p0).normalize_or_zero();
-                let tang_origin = if maneuver.start_visual_pos.is_some() {
-                    (tang_orbit * 0.10 + direct_dir * 0.90).normalize_or_zero()
-                } else if is_inward {
-                    (tang_orbit * 0.20 + direct_dir * 0.80).normalize_or_zero()
-                } else {
-                    tang_orbit
-                };
-
-                // Arrival: radial direction of destination relative to its orbital centre.
-                let radial_dest_raw = dp - cv_current;
-                let radial_dest = if radial_dest_raw.length() > 1.0 {
-                    radial_dest_raw.normalize()
-                } else {
-                    (dp - op).normalize_or_zero()
-                };
-                // p3 is on the arrival ring, on the side closest to the origin.
-                let inward = (op - dp).normalize_or_zero();
-                let p3 = dp + inward * dest_ring_r;
-                // For inward, invert the sign condition so both control points stay on the
-                // same side of the arc — this eliminates the S-curve through the destination.
-                let tang_d_a = Vec3::new(-radial_dest.y, radial_dest.x, 0.0);
-                let tang_dest = if is_inward {
-                    if tang_d_a.dot(tang_origin) < 0.0 { tang_d_a } else { -tang_d_a }
-                } else {
-                    if tang_d_a.dot(tang_origin) >= 0.0 { tang_d_a } else { -tang_d_a }
-                };
+                let actual_origin_ring_r = if maneuver.start_visual_pos.is_some() { 0.0 } else { origin_ring_r };
+                let geo = compute_transfer_arc(
+                    op, dp, actual_origin_ring_r, dest_ring_r,
+                    maneuver.start_visual_pos.is_some(), is_inward, maneuver.is_kinematic(), cv_current,
+                );
+                let dep_angle = geo.departure_angle;
 
                 // ── Waiting arc: shown when departure is scheduled in the future ────────
                 // When the origin body is a moon (has a logical parent), draw the arc along
@@ -556,44 +615,16 @@ pub fn draw_fleet_trajectories(
                     )
                 };
 
-                if maneuver.is_kinematic() {
-                    // Kinematic transfer: straight powered line — draw only the remaining arc.
-                    let start_pos = p0 + (p3 - p0) * progress_t;
-                    let mut prev = Some(start_pos);
-                    for i in 0..=SEGMENTS {
-                        let t0 = i as f32 / SEGMENTS as f32;
-                        if t0 <= progress_t { continue; }
-                        let pos = p0 + (p3 - p0) * t0;
-                        if let Some(prev_pos) = prev {
-                            gizmos.line(prev_pos, pos, traj_color(t0));
-                        }
-                        prev = Some(pos);
+                // Draw remaining arc with shared geometry.
+                let mut prev: Option<Vec3> = Some(geo.eval(progress_t));
+                for i in 0..=SEGMENTS {
+                    let t_frac = i as f32 / SEGMENTS as f32;
+                    if t_frac <= progress_t { continue; }
+                    let pos = geo.eval(t_frac);
+                    if let Some(prev_pos) = prev {
+                        gizmos.line(prev_pos, pos, traj_color(t_frac));
                     }
-                } else {
-                    let ctrl_len = (p3 - p0).length() * 0.40;
-                    let mut p1 = p0 + tang_origin * ctrl_len;
-                    let mut p2 = p3 - tang_dest   * ctrl_len;
-                    // Smoothly interpolate z so the arc bridges the two orbital planes
-                    // even when the tangent vectors are 2D (z = 0).
-                    p1.z = p0.z + (p3.z - p0.z) * 0.33;
-                    p2.z = p0.z + (p3.z - p0.z) * 0.67;
-
-                    let bezier = |t: f32| -> Vec3 {
-                        let u = 1.0 - t;
-                        u*u*u*p0 + 3.0*u*u*t*p1 + 3.0*u*t*t*p2 + t*t*t*p3
-                    };
-
-                    // Start exactly at the fleet's current position on the Bezier arc.
-                    let mut prev: Option<Vec3> = Some(bezier(progress_t));
-                    for i in 0..=SEGMENTS {
-                        let t_frac = i as f32 / SEGMENTS as f32;
-                        if t_frac <= progress_t { continue; }
-                        let pos = bezier(t_frac);
-                        if let Some(prev_pos) = prev {
-                            gizmos.line(prev_pos, pos, traj_color(t_frac));
-                        }
-                        prev = Some(pos);
-                    }
+                    prev = Some(pos);
                 }
 
                 // Ghost body at predicted arrival position (same as arc target).
@@ -674,39 +705,11 @@ pub fn draw_fleet_trajectories(
                 op.length_squared() > dp.length_squared()
             };
 
-            // ── Departure tangent (verbatim from preview) ────────────────────
-            let departure_angle = optimal_departure_angle(op, dp);
-            let dir_dep = Vec3::new(departure_angle.cos(), departure_angle.sin(), 0.0);
-            let p0 = op + dir_dep * actual_origin_ring_r;
-            let tang_orbit_raw = if is_inward {
-                Vec3::new(departure_angle.sin(), -departure_angle.cos(), 0.0)
-            } else {
-                Vec3::new(-departure_angle.sin(), departure_angle.cos(), 0.0)
-            };
-            let direct_dir = (dp - p0).normalize_or_zero();
-            let tang_origin = if is_course_correction {
-                (tang_orbit_raw * 0.10 + direct_dir * 0.90).normalize_or_zero()
-            } else if is_inward {
-                (tang_orbit_raw * 0.20 + direct_dir * 0.80).normalize_or_zero()
-            } else {
-                tang_orbit_raw
-            };
-
-            // ── Arrival tangent (verbatim from preview) ──────────────────────
-            let radial_dest_raw = dp - cv_at_departure;
-            let radial_dest = if radial_dest_raw.length() > 1.0 {
-                radial_dest_raw.normalize()
-            } else {
-                (dp - op).normalize_or_zero()
-            };
-            let inward_dir = (op - dp).normalize_or_zero();
-            let p3 = dp + inward_dir * dest_ring_r;
-            let tang_d_a = Vec3::new(-radial_dest.y, radial_dest.x, 0.0);
-            let tang_dest = if is_inward {
-                if tang_d_a.dot(tang_origin) < 0.0 { tang_d_a } else { -tang_d_a }
-            } else {
-                if tang_d_a.dot(tang_origin) >= 0.0 { tang_d_a } else { -tang_d_a }
-            };
+            // ── Shared geometry ───────────────────────────────────────────
+            let geo = compute_transfer_arc(
+                op, dp, actual_origin_ring_r, dest_ring_r,
+                is_course_correction, is_inward, maneuver.is_kinematic(), cv_at_departure,
+            );
 
             // ── Progress & glow ──────────────────────────────────────────────
             let progress_t = if maneuver.arrival_time > maneuver.departure_time {
@@ -731,43 +734,16 @@ pub fn draw_fleet_trajectories(
                 )
             };
 
-            // ── Kinematic (brachistochrone) vs Bezier ────────────────────────
-            let is_kinematic = maneuver.is_kinematic();
-
-            if is_kinematic {
-                // Straight line — identical to preview kinematic branch.
-                let start_pos = p0 + (p3 - p0) * progress_t;
-                let mut prev = Some(start_pos);
-                for i in 0..=SEGMENTS {
-                    let t0 = i as f32 / SEGMENTS as f32;
-                    if t0 <= progress_t { continue; }
-                    let pos = p0 + (p3 - p0) * t0;
-                    if let Some(prev_pos) = prev {
-                        gizmos.line(prev_pos, pos, traj_color(t0));
-                    }
-                    prev = Some(pos);
+            // Draw remaining arc with shared geometry.
+            let mut prev: Option<Vec3> = Some(geo.eval(progress_t));
+            for i in 0..=SEGMENTS {
+                let t_frac = i as f32 / SEGMENTS as f32;
+                if t_frac <= progress_t { continue; }
+                let pos = geo.eval(t_frac);
+                if let Some(prev_pos) = prev {
+                    gizmos.line(prev_pos, pos, traj_color(t_frac));
                 }
-            } else {
-                // Cubic Bezier — identical to preview Bezier branch.
-                let ctrl_len = (p3 - p0).length() * 0.40;
-                let mut p1 = p0 + tang_origin * ctrl_len;
-                let mut p2 = p3 - tang_dest * ctrl_len;
-                p1.z = p0.z + (p3.z - p0.z) * 0.33;
-                p2.z = p0.z + (p3.z - p0.z) * 0.67;
-                let bezier = |t: f32| -> Vec3 {
-                    let u = 1.0 - t;
-                    u*u*u*p0 + 3.0*u*u*t*p1 + 3.0*u*t*t*p2 + t*t*t*p3
-                };
-                let mut prev: Option<Vec3> = Some(bezier(progress_t));
-                for i in 0..=SEGMENTS {
-                    let t_frac = i as f32 / SEGMENTS as f32;
-                    if t_frac <= progress_t { continue; }
-                    let pos = bezier(t_frac);
-                    if let Some(prev_pos) = prev {
-                        gizmos.line(prev_pos, pos, traj_color(t_frac));
-                    }
-                    prev = Some(pos);
-                }
+                prev = Some(pos);
             }
 
             draw_ghost_body(&mut gizmos, dp, dest_ring_r, dest_visual_r, false);
@@ -1214,72 +1190,25 @@ pub fn update_fleet_transforms(
 
                     let progress = maneuver.progress(elapsed) as f32;
 
-                    // Reproduce the EXACT same Bezier as draw_fleet_trajectories.
-                    // Use optimal departure angle (direction toward destination) for consistency
-                    // with the preview arc — avoids the arc shape changing based on the orbital
-                    // phase when Execute was clicked.
-                    let dep_angle = optimal_departure_angle(op, dp);
-                    let dir_dep = Vec3::new(dep_angle.cos(), dep_angle.sin(), 0.0);
-                    let actual_origin_ring_r = if maneuver.start_visual_pos.is_some() { 0.0 } else { origin_ring_r };
-                    let p0 = op + dir_dep * actual_origin_ring_r;
-
-                    // Determine if this is an inward (orbit-lowering) transfer so
-                    // the fleet follows the same arc shape as the preview/trajectory.
+                    // Use shared geometry — guarantees dot follows the same curve
+                    // as the transit gizmo and preview.
                     let origin_lp = body_query.get(maneuver.origin_body)
                         .ok().and_then(|(_, _, lp)| lp.map(|lp| lp.0));
                     let dest_lp = body_query.get(maneuver.destination_body)
                         .ok().and_then(|(_, _, lp)| lp.map(|lp| lp.0));
                     let is_inward = if origin_lp == Some(maneuver.destination_body) {
-                        true  // Origin orbits the destination (e.g. Moon → Earth)
+                        true
                     } else if dest_lp == Some(maneuver.origin_body) {
-                        false // Destination orbits the origin (e.g. Earth → Moon)
+                        false
                     } else {
                         op.length_squared() > dp.length_squared()
                     };
-                    // Departure tangent: prograde (CCW) for outward, retrograde (CW) for inward.
-                    // Blend 80% toward direct for inward (Moon → Planet) to avoid weird angles.
-                    let tang_orbit = if is_inward {
-                        Vec3::new(dep_angle.sin(), -dep_angle.cos(), 0.0)  // CW
-                    } else {
-                        Vec3::new(-dep_angle.sin(), dep_angle.cos(), 0.0)  // CCW
-                    };
-                    let direct_dir = (dp - p0).normalize_or_zero();
-                    let tang_origin = if maneuver.start_visual_pos.is_some() {
-                        (tang_orbit * 0.10 + direct_dir * 0.90).normalize_or_zero()
-                    } else if is_inward {
-                        (tang_orbit * 0.20 + direct_dir * 0.80).normalize_or_zero()
-                    } else {
-                        tang_orbit
-                    };
-
-                    let radial_raw = dp - cv_current;
-                    let radial = if radial_raw.length() > 1.0 {
-                        radial_raw.normalize()
-                    } else {
-                        (dp - op).normalize_or_zero()
-                    };
-                    let inward = (op - dp).normalize_or_zero();
-                    let p3 = dp + inward * dest_ring_r;
-                    let tang_d_a = Vec3::new(-radial.y, radial.x, 0.0);
-                    let tang_dest = if is_inward {
-                        if tang_d_a.dot(tang_origin) < 0.0 { tang_d_a } else { -tang_d_a }
-                    } else {
-                        if tang_d_a.dot(tang_origin) >= 0.0 { tang_d_a } else { -tang_d_a }
-                    };
-
-                    let ctrl_len = (p3 - p0).length() * 0.40;
-                    let p1 = p0 + tang_origin * ctrl_len;
-                    let p2 = p3 - tang_dest   * ctrl_len;
-
-                    let t = progress;
-                    if maneuver.is_kinematic() {
-                        // Kinematic (brachistochrone): straight-line interpolation.
-                        transform.translation = p0 + (p3 - p0) * t;
-                    } else {
-                        // Ballistic (Hohmann): cubic Bézier matching the trajectory gizmo.
-                        let u = 1.0 - t;
-                        transform.translation = u*u*u*p0 + 3.0*u*u*t*p1 + 3.0*u*t*t*p2 + t*t*t*p3;
-                    }
+                    let actual_origin_ring_r = if maneuver.start_visual_pos.is_some() { 0.0 } else { origin_ring_r };
+                    let geo = compute_transfer_arc(
+                        op, dp, actual_origin_ring_r, dest_ring_r,
+                        maneuver.start_visual_pos.is_some(), is_inward, maneuver.is_kinematic(), cv_current,
+                    );
+                    transform.translation = geo.eval(progress);
 
                     // Hide the sphere while still inside the origin or destination orbit ring.
                     let inside_origin = transform.translation.distance(op) < origin_ring_r;
@@ -1289,13 +1218,77 @@ pub fn update_fleet_transforms(
                     }
                 }
             } else {
-                // Heliocentric transfer: physics-based position
-                let render_du = (sc.position - origin_offset) * SCALING_FACTOR;
-                transform.translation = Vec3::new(
-                    render_du.x as f32,
-                    render_du.y as f32,
-                    render_du.z as f32,
+                // Heliocentric transfer in System view: follow Bezier matching the
+                // trajectory gizmo so the green dot tracks the purple arc exactly.
+                // The physics SpaceCoordinates (Keplerian) are kept for range queries;
+                // only the visual Transform follows the Bezier.
+                let origin_lp = body_query.get(maneuver.origin_body)
+                    .ok().and_then(|(_, _, lp)| lp.map(|lp| lp.0));
+                let dest_lp_entity = body_query.get(maneuver.destination_body)
+                    .ok().and_then(|(_, _, lp)| lp.map(|lp| lp.0));
+
+                let origin_ring_r = body_query.get(maneuver.origin_body)
+                    .map(|(_, b, _)| fleet_parking_visual_radius(b.visual_radius))
+                    .unwrap_or(0.0);
+                let dest_ring_r = body_query.get(maneuver.destination_body)
+                    .map(|(_, b, _)| fleet_parking_visual_radius(b.visual_radius))
+                    .unwrap_or(0.0);
+
+                let origin_now = body_query.get(maneuver.origin_body)
+                    .map(|(t, _, _)| t.translation).unwrap_or(Vec3::ZERO);
+                let is_course_correction = maneuver.start_visual_pos.is_some();
+                let actual_origin_ring_r = if is_course_correction { 0.0 } else { origin_ring_r };
+                let op = if let Some(start_pos) = maneuver.start_visual_pos {
+                    start_pos
+                } else {
+                    predict_body_visual_pos(
+                        maneuver.origin_body, maneuver.departure_time,
+                        &body_query, &kepler_query, &amp_query,
+                    ).unwrap_or(origin_now)
+                };
+
+                let dest_now = body_query.get(maneuver.destination_body)
+                    .map(|(t, _, _)| t.translation).unwrap_or(Vec3::ZERO);
+                let dp_absolute = predict_body_visual_pos(
+                    maneuver.destination_body, maneuver.arrival_time,
+                    &body_query, &kepler_query, &amp_query,
+                ).unwrap_or(dest_now);
+
+                let orbit_center_visual = dest_lp_entity.unwrap_or(maneuver.destination_body);
+                let cv_predicted = predict_body_visual_pos(
+                    orbit_center_visual, maneuver.arrival_time,
+                    &body_query, &kepler_query, &amp_query,
+                ).unwrap_or(dp_absolute);
+                let cv_at_departure = predict_body_visual_pos(
+                    orbit_center_visual, maneuver.departure_time,
+                    &body_query, &kepler_query, &amp_query,
+                ).unwrap_or(cv_predicted);
+                let dp = dp_absolute - cv_predicted + cv_at_departure;
+
+                let is_inward = if is_course_correction {
+                    op.length_squared() > dp.length_squared()
+                } else if origin_lp == Some(maneuver.destination_body) {
+                    true
+                } else if dest_lp_entity == Some(maneuver.origin_body) {
+                    false
+                } else {
+                    op.length_squared() > dp.length_squared()
+                };
+
+                let geo = compute_transfer_arc(
+                    op, dp, actual_origin_ring_r, dest_ring_r,
+                    is_course_correction, is_inward, maneuver.is_kinematic(), cv_at_departure,
                 );
+
+                let progress = maneuver.progress(elapsed) as f32;
+                transform.translation = geo.eval(progress);
+
+                // Hide inside origin/dest orbit rings
+                let inside_origin = transform.translation.distance(op) < origin_ring_r;
+                let inside_dest   = transform.translation.distance(dp) < dest_ring_r;
+                if inside_origin || inside_dest {
+                    *vis = Visibility::Hidden;
+                }
             }
         } else {
             // Fallback: physics position
@@ -1766,83 +1759,25 @@ pub fn draw_fleet_transfer_preview(
         op.length_squared() > dp.length_squared()
     };
 
-    // Stable optimal departure angle: direction from the origin body toward the predicted
-    // destination position.  The fleet waits in its parking orbit until it reaches this
-    // angular position, then fires — this is always the ΔV-optimal departure point.
-    // Using this (instead of the fleet's rotating orbit.angle_rad) keeps the preview arc
-    // anchored; it only drifts slowly as the target body advances in its own orbit.
-    let departure_angle = optimal_departure_angle(op, dp);
-
-    // Departure point on the origin ring, facing the destination.
-    let dir_dep     = Vec3::new(departure_angle.cos(), departure_angle.sin(), 0.0);
-    let p0          = op + dir_dep * origin_ring_r;
-    // Departure tangent: prograde (CCW) for outward, retrograde (CW) for inward.
-    // Blend 80% toward direct for inward (Moon → Planet) to avoid weird departure angles.
-    let tang_orbit_raw = if is_inward {
-        Vec3::new(departure_angle.sin(), -departure_angle.cos(), 0.0)  // CW
-    } else {
-        Vec3::new(-departure_angle.sin(), departure_angle.cos(), 0.0)  // CCW
-    };
-    let direct_dir = (dp - p0).normalize_or_zero();
-    let tang_origin = if is_course_correction {
-        // For course corrections, the fleet is already moving.
-        // Blend heavily toward the direct path to avoid a sharp "hook" at the start.
-        (tang_orbit_raw * 0.10 + direct_dir * 0.90).normalize_or_zero()
-    } else if is_inward {
-        (tang_orbit_raw * 0.20 + direct_dir * 0.80).normalize_or_zero()
-    } else {
-        tang_orbit_raw
-    };
-
-    // Arrival: point on the ring approached from the origin-facing (inward) side.
-    let radial_dest_raw = dp - cv_at_departure;
-    let radial_dest = if radial_dest_raw.length() > 1.0 {
-        radial_dest_raw.normalize()
-    } else {
-        (dp - op).normalize_or_zero()
-    };
-    let inward = (op - dp).normalize_or_zero();
-    let p3 = dp + inward * dest_ring_r;
-    // For inward transfers, invert the sign condition so both control points stay on the
-    // same side of the arc — this eliminates the S-curve that cut through the destination.
-    let tang_d_a  = Vec3::new(-radial_dest.y, radial_dest.x, 0.0);
-    let tang_dest = if is_inward {
-        if tang_d_a.dot(tang_origin) < 0.0 { tang_d_a } else { -tang_d_a }
-    } else {
-        if tang_d_a.dot(tang_origin) >= 0.0 { tang_d_a } else { -tang_d_a }
-    };
-
     // Check whether the selected option is a kinematic transfer.
     let is_kinematic = fleet_ui_state.computed_options
         .get(fleet_ui_state.selected_option)
         .map(|opt| opt.label == "Full Thrust" || opt.label.contains("Coast") || opt.label == "Max Speed" || opt.label.contains("Direct"))
         .unwrap_or(false);
 
-    // Dashed amber arc — straight line for kinematic transfers, cubic Bezier for ballistic arcs.
-    if is_kinematic {
-        draw_dashed_curve(
-            &mut gizmos,
-            |t| p0 + (p3 - p0) * t,
-            24,
-            |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
-        );
-    } else {
-        let ctrl_len = (p3 - p0).length() * 0.40;
-        let mut p1 = p0 + tang_origin * ctrl_len;
-        let mut p2 = p3 - tang_dest   * ctrl_len;
-        // Smoothly interpolate z so the arc bridges the two orbital planes
-        // even when the tangent vectors are 2D (z = 0).
-        p1.z = p0.z + (p3.z - p0.z) * 0.33;
-        p2.z = p0.z + (p3.z - p0.z) * 0.67;
-        let bezier = move |t: f32| -> Vec3 {
-            let u = 1.0 - t;
-            u*u*u*p0 + 3.0*u*u*t*p1 + 3.0*u*t*t*p2 + t*t*t*p3
-        };
-        draw_dashed_curve(
-            &mut gizmos, &bezier, 24,
-            |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
-        );
-    }
+    // Shared geometry — identical curve to transit gizmo and fleet dot.
+    let geo = compute_transfer_arc(
+        op, dp, origin_ring_r, dest_ring_r,
+        is_course_correction, is_inward, is_kinematic, cv_at_departure,
+    );
+
+    // Dashed amber arc.
+    draw_dashed_curve(
+        &mut gizmos,
+        |t| geo.eval(t),
+        24,
+        |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+    );
 
     // Ghost body at predicted arrival position.
     // In the preview the destination is the body we are flying TO, not the orbit
