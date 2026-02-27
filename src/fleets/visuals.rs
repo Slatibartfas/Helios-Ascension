@@ -308,11 +308,15 @@ fn compute_transfer_arc(
     };
     let direct_dir = (dp - p0).normalize_or_zero();
     let tang_origin = if is_course_correction {
+        // Course corrections: fleet already moving, aim mostly at destination.
         (tang_orbit_raw * 0.10 + direct_dir * 0.90).normalize_or_zero()
     } else if is_inward {
+        // Inward (retrograde departure): blend heavily toward direct path.
         (tang_orbit_raw * 0.20 + direct_dir * 0.80).normalize_or_zero()
     } else {
-        tang_orbit_raw
+        // Outward (prograde departure): blend to avoid the 90° hook while
+        // keeping the prograde orbital character of a Hohmann departure.
+        (tang_orbit_raw * 0.55 + direct_dir * 0.45).normalize_or_zero()
     };
 
     let radial_dest_raw = dp - cv_ref;
@@ -1524,28 +1528,15 @@ pub fn draw_fleet_transfer_preview(
         // Small marker radius for the LP arrival point (no physical body radius).
         let lp_marker_r = (lp.radius_au as f32 * SCALING_FACTOR as f32 * 0.015).clamp(10.0, 50.0);
 
-        let departure_angle = optimal_departure_angle(op, dp);
-        let dir_dep = Vec3::new(departure_angle.cos(), departure_angle.sin(), 0.0);
-        let p0 = op + dir_dep * origin_ring_r;
-        let tang_origin = Vec3::new(-departure_angle.sin(), departure_angle.cos(), 0.0);
-
-        let inward = (op - dp).normalize_or_zero();
-        let p3 = dp + inward * lp_marker_r;
-        // Arrival tangent: perpendicular to the heliocentric radial direction (prograde).
-        let radial_dest = dp.normalize_or_zero();
-        let tang_dest = Vec3::new(-radial_dest.y, radial_dest.x, 0.0);
-
-        let ctrl_len = (p3 - p0).length() * 0.40;
-        let p1 = p0 + tang_origin * ctrl_len;
-        let p2 = p3 - tang_dest   * ctrl_len;
-        let lp_bezier = |t: f32| -> Vec3 {
-            let u = 1.0 - t;
-            u*u*u*p0 + 3.0*u*u*t*p1 + 3.0*u*t*t*p2 + t*t*t*p3
-        };
+        let is_inward = op.length_squared() > dp.length_squared();
+        let geo = compute_transfer_arc(
+            op, dp, origin_ring_r, lp_marker_r,
+            is_course_correction, is_inward, false, Vec3::ZERO,
+        );
 
         // Dashed amber arc — arc-length-uniform.
         draw_dashed_curve(
-            &mut gizmos, &lp_bezier, 24,
+            &mut gizmos, |t| geo.eval(t), 24,
             |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
         );
 
@@ -1607,41 +1598,18 @@ pub fn draw_fleet_transfer_preview(
         let marker_r = 15.0_f32;
 
         let is_inward = op.length_squared() > dp.length_squared();
-        let departure_angle = optimal_departure_angle(op, dp);
-        let dir_dep = Vec3::new(departure_angle.cos(), departure_angle.sin(), 0.0);
-        let p0 = op + dir_dep * origin_ring_r;
-        let tang_origin = if is_inward {
-            Vec3::new(departure_angle.sin(), -departure_angle.cos(), 0.0)
-        } else {
-            Vec3::new(-departure_angle.sin(), departure_angle.cos(), 0.0)
-        };
+        // cv_ref = Vec3::ZERO (star) for fleet-intercept — no specific orbit centre.
+        let geo = compute_transfer_arc(
+            op, dp, origin_ring_r, marker_r,
+            is_course_correction, is_inward, is_kinematic, Vec3::ZERO,
+        );
 
-        let inward = (op - dp).normalize_or_zero();
-        let p3 = dp + inward * marker_r;
-        let radial_dest = dp.normalize_or_zero();
-        let tang_d_a = Vec3::new(-radial_dest.y, radial_dest.x, 0.0);
-        let tang_dest = if tang_d_a.dot(tang_origin) >= 0.0 { tang_d_a } else { -tang_d_a };
-
-        if is_kinematic {
-            draw_dashed_curve(
-                &mut gizmos,
-                |t| p0 + (p3 - p0) * t,
-                24,
-                |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
-            );
-        } else {
-            let ctrl_len = (p3 - p0).length() * 0.40;
-            let p1 = p0 + tang_origin * ctrl_len;
-            let p2 = p3 - tang_dest * ctrl_len;
-            let bezier = move |t: f32| -> Vec3 {
-                let u = 1.0 - t;
-                u*u*u*p0 + 3.0*u*u*t*p1 + 3.0*u*t*t*p2 + t*t*t*p3
-            };
-            draw_dashed_curve(
-                &mut gizmos, &bezier, 24,
-                |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
-            );
-        }
+        draw_dashed_curve(
+            &mut gizmos,
+            |t| geo.eval(t),
+            24,
+            |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+        );
 
         // Fleet-target marker: crosshair + dashed circle in orange-red.
         let fleet_color = Color::srgba(1.0, 0.4, 0.1, 0.9);
