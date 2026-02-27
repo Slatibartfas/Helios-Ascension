@@ -1155,9 +1155,13 @@ pub(super) fn render_transfer_planner(
                         e.option.dv_arrive_ms,
                     ));
                 if let Some((total_dv, total_time, fly_r, dv1, dv2)) = ga_data {
-                    // Use Leg-2 Hohmann parameters for the transfer-orbit visualization
-                    // (the arc the fleet actually flies after the flyby).
-                    let (_, _, _, ga_sma, ga_ecc) = hohmann_transfer(fly_r, r2, gm);
+                    // Use Leg-1 Hohmann parameters (origin → flyby body) for the
+                    // transfer-orbit Keplerian arc.  This makes the purple active-orbit
+                    // arc match the approach leg shown in the gravity-assist preview.
+                    // The arc is computed pointing from the origin toward the flyby body,
+                    // and build_planned_transfer is passed the flyby entity as its orbital
+                    // target so the departure/arrival plane vectors are consistent.
+                    let (_, _, _, ga_sma, ga_ecc) = hohmann_transfer(r1, fly_r, gm);
                     let burn_t = compute_burn_time_s(total_dv, fleet.min_accel_ms2(), fleet.average_isp_s());
                     // Gravity-assist options use multi-leg patched-conic timing; the burn
                     // is spread across two legs so we apply the thrust-limit check here.
@@ -1173,7 +1177,7 @@ pub(super) fn render_transfer_planner(
                         delta_v2_ms: dv2,   // actual arrival circularisation
                         plane_change_dv_ms: 0.0, // gravity-assist paths are heliocentric (ecliptic)
                         transfer_time_s: ga_transfer_time,
-                        sma_au: ga_sma,     // Leg-2 ellipse SMA for arc rendering
+                        sma_au: ga_sma,     // Leg-1 ellipse SMA (origin → flyby body)
                         eccentricity: ga_ecc,
                         energy_multiplier: 1.0,
                         burn_time_s: burn_t,
@@ -1761,7 +1765,23 @@ pub(super) fn render_transfer_planner(
                                     build_planned_transfer(fleet_entity, fleet, orbit, fo.body, body_query, &sel_option, course_correction_sc)
                                 })
                         } else if let Some(te) = body_target_snap {
-                            build_planned_transfer(fleet_entity, fleet, orbit, te, body_query, &sel_option, course_correction_sc)
+                            if sel_option.label == "Gravity Assist" {
+                                // For a gravity assist, the Keplerian arc (Leg 1) is computed
+                                // toward the flyby body so the orbital plane and departure
+                                // direction are correct.  We still record the final destination
+                                // in destination_body so the fleet parks there on arrival.
+                                let flyby_e = fleet_ui_state.selected_gravity_assist
+                                    .and_then(|i| fleet_ui_state.gravity_assist_candidates.get(i))
+                                    .map(|ga| ga.flyby_entity);
+                                if let Some(flyby) = flyby_e {
+                                    build_planned_transfer(fleet_entity, fleet, orbit, flyby, body_query, &sel_option, course_correction_sc)
+                                        .map(|mut pt| { pt.destination_body = te; pt })
+                                } else {
+                                    build_planned_transfer(fleet_entity, fleet, orbit, te, body_query, &sel_option, course_correction_sc)
+                                }
+                            } else {
+                                build_planned_transfer(fleet_entity, fleet, orbit, te, body_query, &sel_option, course_correction_sc)
+                            }
                         } else {
                             None
                         };
