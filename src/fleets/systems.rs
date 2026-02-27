@@ -252,9 +252,27 @@ pub fn activate_scheduled_departures(
             };
 
             if rel_pos.length_squared() > 1e-30 {
-                let theta = rel_pos.y.atan2(rel_pos.x);
-                maneuver.transfer_orbit.argument_of_periapsis =
-                    theta - maneuver.transfer_orbit.mean_anomaly_epoch;
+                let lan = maneuver.transfer_orbit.longitude_ascending_node;
+                let incl = maneuver.transfer_orbit.inclination;
+                
+                if incl > 1e-10 {
+                    let n = bevy::math::DVec3::new(
+                        incl.sin() * lan.sin(),
+                        -incl.sin() * lan.cos(),
+                        incl.cos()
+                    );
+                    let node = bevy::math::DVec3::new(lan.cos(), lan.sin(), 0.0);
+                    let peri_dir = rel_pos.normalize_or_zero();
+                    let cos_w = node.dot(peri_dir);
+                    let sin_w = n.dot(node.cross(peri_dir));
+                    let omega = sin_w.atan2(cos_w);
+                    maneuver.transfer_orbit.argument_of_periapsis =
+                        omega - maneuver.transfer_orbit.mean_anomaly_epoch;
+                } else {
+                    let theta = rel_pos.y.atan2(rel_pos.x);
+                    maneuver.transfer_orbit.argument_of_periapsis =
+                        theta - maneuver.transfer_orbit.mean_anomaly_epoch;
+                }
             }
         }
 

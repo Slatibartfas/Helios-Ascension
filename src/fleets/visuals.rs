@@ -607,6 +607,138 @@ pub fn draw_fleet_trajectories(
             continue;
         }
 
+        // ── Heliocentric System view: Bezier arc matching the preview style ────────────────
+        // Even though the physics position is Keplerian, we draw the in-transit arc as the
+        // same cubic Bezier used by the preview so it looks consistent and starts from the
+        // origin body's visual position (e.g. the moon) rather than the planet orbit centre.
+        if center_is_star && *view_mode == ViewMode::System {
+            let origin_lp = body_query.get(maneuver.origin_body)
+                .ok().and_then(|(_, _, lp)| lp.map(|lp| lp.0));
+            let dest_lp = body_query.get(maneuver.destination_body)
+                .ok().and_then(|(_, _, lp)| lp.map(|lp| lp.0));
+
+            let origin_ring_r = body_query.get(maneuver.origin_body)
+                .map(|(_, b, _)| fleet_parking_visual_radius(b.visual_radius))
+                .unwrap_or(0.0);
+            let (dest_visual_r, dest_ring_r) = body_query.get(maneuver.destination_body)
+                .map(|(_, b, _)| (b.visual_radius, fleet_parking_visual_radius(b.visual_radius)))
+                .unwrap_or((0.0, 0.0));
+
+            let origin_now = body_query.get(maneuver.origin_body)
+                .map(|(t, _, _)| t.translation).unwrap_or(Vec3::ZERO);
+            // Anchor the departure point to where the origin body was at departure time.
+            // For heliocentric transfers the orbit center (star) is at ZERO so no frame
+            // correction is needed — the predicted visual position is already heliocentric.
+            let op = predict_body_visual_pos(
+                maneuver.origin_body, maneuver.departure_time,
+                &body_query, &kepler_query, &amp_query,
+            ).unwrap_or(origin_now);
+
+            let dest_now = body_query.get(maneuver.destination_body)
+                .map(|(t, _, _)| t.translation).unwrap_or(Vec3::ZERO);
+            let dp_predicted = predict_body_visual_pos(
+                maneuver.destination_body, maneuver.arrival_time,
+                &body_query, &kepler_query, &amp_query,
+            ).unwrap_or(dest_now);
+
+            // If the destination is a moon, anchor it to the parent planet's current frame
+            // so the arc endpoint tracks the visually correct position (same as local arc).
+            let dp = if let Some(lp_entity) = dest_lp {
+                let cv_pred = predict_body_visual_pos(
+                    lp_entity, maneuver.arrival_time, &body_query, &kepler_query, &amp_query,
+                ).unwrap_or(Vec3::ZERO);
+                let cv_now = body_query.get(lp_entity)
+                    .map(|(t, _, _)| t.translation).unwrap_or(Vec3::ZERO);
+                dp_predicted - cv_pred + cv_now
+            } else {
+                dp_predicted
+            };
+
+            let is_inward = if origin_lp == Some(maneuver.destination_body) {
+                true
+            } else if dest_lp == Some(maneuver.origin_body) {
+                false
+            } else {
+                op.length_squared() > dp.length_squared()
+            };
+
+            let departure_angle = optimal_departure_angle(op, dp);
+            let dir_dep = Vec3::new(departure_angle.cos(), departure_angle.sin(), 0.0);
+            let p0 = op + dir_dep * origin_ring_r;
+            let tang_orbit = if is_inward {
+                Vec3::new(departure_angle.sin(), -departure_angle.cos(), 0.0)
+            } else {
+                Vec3::new(-departure_angle.sin(), departure_angle.cos(), 0.0)
+            };
+            let direct_dir = (dp - p0).normalize_or_zero();
+            let tang_origin = if is_inward {
+                (tang_orbit * 0.20 + direct_dir * 0.80).normalize_or_zero()
+            } else {
+                tang_orbit
+            };
+
+            let inward_dir = (op - dp).normalize_or_zero();
+            let p3 = dp + inward_dir * dest_ring_r;
+            let radial_dest_raw = dp - Vec3::ZERO; // heliocentric: center is origin
+            let radial_dest = if radial_dest_raw.length() > 1.0 {
+                radial_dest_raw.normalize()
+            } else {
+                (dp - op).normalize_or_zero()
+            };
+            let tang_d_a = Vec3::new(-radial_dest.y, radial_dest.x, 0.0);
+            let tang_dest = if is_inward {
+                if tang_d_a.dot(tang_origin) < 0.0 { tang_d_a } else { -tang_d_a }
+            } else {
+                if tang_d_a.dot(tang_origin) >= 0.0 { tang_d_a } else { -tang_d_a }
+            };
+
+            let progress_t = if maneuver.arrival_time > maneuver.departure_time {
+                ((sim_elapsed - maneuver.departure_time)
+                    / (maneuver.arrival_time - maneuver.departure_time))
+                    .clamp(0.0, 1.0) as f32
+            } else {
+                1.0_f32
+            };
+            let remaining_span = (1.0 - progress_t).max(1e-4_f32);
+            let glow_pos = progress_t + (real_secs / 4.0_f32).fract() * remaining_span;
+            let traj_color = |t: f32| -> Color {
+                let arc_frac = ((t - progress_t) / remaining_span).clamp(0.0, 1.0);
+                let base_a = 0.50 - 0.22 * arc_frac;
+                let dist = (t - glow_pos).abs();
+                let glow = (1.0 - (dist / 0.09_f32).min(1.0)).powi(2);
+                Color::linear_rgba(
+                    0.55 + glow * 1.15,
+                    0.08 + glow * 0.50,
+                    0.85 + glow * 1.05,
+                    (base_a + glow * 0.45).min(1.0),
+                )
+            };
+
+            let ctrl_len = (p3 - p0).length() * 0.40;
+            let mut p1 = p0 + tang_origin * ctrl_len;
+            let mut p2 = p3 - tang_dest * ctrl_len;
+            p1.z = p0.z + (p3.z - p0.z) * 0.33;
+            p2.z = p0.z + (p3.z - p0.z) * 0.67;
+            let bezier = |t: f32| -> Vec3 {
+                let u = 1.0 - t;
+                u*u*u*p0 + 3.0*u*u*t*p1 + 3.0*u*t*t*p2 + t*t*t*p3
+            };
+
+            let mut prev: Option<Vec3> = Some(bezier(progress_t));
+            for i in 0..=SEGMENTS {
+                let t_frac = i as f32 / SEGMENTS as f32;
+                if t_frac <= progress_t { continue; }
+                let pos = bezier(t_frac);
+                if let Some(prev_pos) = prev {
+                    gizmos.line(prev_pos, pos, traj_color(t_frac));
+                }
+                prev = Some(pos);
+            }
+
+            draw_ghost_body(&mut gizmos, dp, dest_ring_r, dest_visual_r, false);
+            continue;
+        }
+
         // ── Heliocentric / Starmap: physics-accurate Keplerian arc ──
         let center_pos = center_coords
             .get(maneuver.orbit_center)

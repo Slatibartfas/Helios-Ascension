@@ -2202,8 +2202,10 @@ fn build_planned_transfer(
         } else {
             dest_ko.map(|ko| ko.semi_major_axis).unwrap_or(1.5)
         };
+        // Require the star to be close to the heliocentric origin (< 1 AU) so that nearby
+        // star catalog entities with large SpaceCoordinates are not mistakenly selected.
         let star = body_query.iter()
-            .find(|(_, b, _, ko, _)| ko.is_none() && b.body_type == BodyType::Star)
+            .find(|(_, b, sc, ko, _)| ko.is_none() && b.body_type == BodyType::Star && sc.position.length_squared() < 1.0)
             .map(|(e, _, _, _, _)| e)
             .unwrap_or(orbit.body);
         (r1, r2, GM_SUN, star, target_entity)
@@ -2226,7 +2228,7 @@ fn build_planned_transfer(
         // SpaceCoordinates stores only a local offset from its parent planet — not a
         // heliocentric position.  Use the parent planet's heliocentric SC so that the
         // departure direction (argument_of_periapsis) points in the correct direction.
-        let origin_helio_pos = if origin_lp.is_some() && center_pos.length_squared() < 1e-20 {
+        let origin_helio_pos = if origin_body.body_type == BodyType::Moon && center_pos.length_squared() < 1e-20 {
             origin_parent
                 .and_then(|pe| body_query.get(pe).ok())
                 .map(|(_, _, sc, _, _)| sc.position)
@@ -2244,8 +2246,8 @@ fn build_planned_transfer(
     // For heliocentric transfers where the destination is a moon, its SpaceCoordinates
     // also stores only a local offset — use the parent planet's position instead.
     let dest_sc_pos = body_query.get(target_entity).ok()
-        .map(|(_, _, sc, _, lp)| {
-            if lp.is_some() && center_pos.length_squared() < 1e-20 {
+        .map(|(_, b, sc, _, lp)| {
+            if b.body_type == BodyType::Moon && center_pos.length_squared() < 1e-20 {
                 lp.and_then(|lp| body_query.get(lp.0).ok())
                     .map(|(_, _, sc, _, _)| sc.position)
                     .unwrap_or(sc.position)
@@ -2355,9 +2357,10 @@ fn build_planned_transfer_lp(
     use crate::astronomy::KeplerOrbit;
     use crate::fleets::orbital_mechanics::AU_IN_METERS;
 
-    // LP transfers are heliocentric – find the star as orbit center
+    // LP transfers are heliocentric – find the star as orbit center.
+    // Use the proximity guard to skip distant nearby-star catalog entities.
     let star_entity = body_query.iter()
-        .find(|(_, b, _, ko, _)| ko.is_none() && b.body_type == BodyType::Star)
+        .find(|(_, b, sc, ko, _)| ko.is_none() && b.body_type == BodyType::Star && sc.position.length_squared() < 1.0)
         .map(|(e, _, _, _, _)| e)
         .unwrap_or(orbit.body);
 
