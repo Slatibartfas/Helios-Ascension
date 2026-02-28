@@ -75,6 +75,20 @@ pub fn update_fleet_orbit_positions(
 ///
 /// The fleet follows a Keplerian ellipse (`ActiveManeuver.transfer_orbit`)
 /// centred on `orbit_center`, advancing analytically from the departure time.
+
+/// Return the active Keplerian orbit and the time elapsed within that orbit
+/// for a given maneuver and simulation time.
+///
+/// For gravity-assist transfers the fleet switches from Leg-1 (`transfer_orbit`)
+/// to Leg-2 (`leg2_orbit`) after `leg2_start_s` seconds; for all other
+/// transfers this always returns `(&transfer_orbit, dt)`.
+fn active_orbit_at(maneuver: &ActiveManeuver, dt: f64) -> (&KeplerOrbit, f64) {
+    match &maneuver.leg2_orbit {
+        Some(leg2) if dt >= maneuver.leg2_start_s => (leg2, dt - maneuver.leg2_start_s),
+        _ => (&maneuver.transfer_orbit, dt),
+    }
+}
+
 pub fn update_fleet_maneuver_positions(
     sim_time: Res<SimulationTime>,
     mut fleet_query: Query<(&mut SpaceCoordinates, &ActiveManeuver), With<Fleet>>,
@@ -104,10 +118,15 @@ pub fn update_fleet_maneuver_positions(
             fleet_sc.position = origin_pos + (dest_pos - origin_pos) * progress;
         } else {
             let dt = elapsed - maneuver.departure_time;
-            let mean_anomaly = maneuver.transfer_orbit.mean_anomaly_epoch
-                + maneuver.transfer_orbit.mean_motion * dt;
 
-            let orbit_pos_au = orbit_position_from_mean_anomaly(&maneuver.transfer_orbit, mean_anomaly);
+            // For gravity-assist transfers, stitch Leg-1 and Leg-2 Keplerian arcs:
+            // follow transfer_orbit until leg2_start_s, then switch to leg2_orbit.
+            let (active_orbit, dt_in_orbit) = active_orbit_at(maneuver, dt);
+
+            let mean_anomaly = active_orbit.mean_anomaly_epoch
+                + active_orbit.mean_motion * dt_in_orbit;
+
+            let orbit_pos_au = orbit_position_from_mean_anomaly(active_orbit, mean_anomaly);
 
             let center_pos = center_coords
                 .get(maneuver.orbit_center)
@@ -168,17 +187,19 @@ pub fn complete_fleet_maneuvers(
                 if cross_z >= 0.0 { 1.0 } else { -1.0 }
             } else {
                 // Determine whether the arrival was prograde (CCW) or retrograde (CW)
-                // by computing the Keplerian velocity direction at the moment of arrival
-                // and taking its cross product with the position vector.
-                let mean_anomaly_arrival = maneuver.transfer_orbit.mean_anomaly_epoch
-                    + maneuver.transfer_orbit.mean_motion * (elapsed - maneuver.departure_time);
+                // by computing the Keplerian velocity direction at the moment of arrival.
+                // For gravity-assist transfers, use the Leg-2 orbit at arrival (if present).
+                let dt = elapsed - maneuver.departure_time;
+                let (arrival_orbit, dt_in_orbit) = active_orbit_at(maneuver, dt);
+                let mean_anomaly_arrival = arrival_orbit.mean_anomaly_epoch
+                    + arrival_orbit.mean_motion * dt_in_orbit;
                 let small_dt = 1.0_f64; // 1 second step
                 let ma_before = mean_anomaly_arrival
-                    - maneuver.transfer_orbit.mean_motion * small_dt;
+                    - arrival_orbit.mean_motion * small_dt;
                 let pos_before = orbit_position_from_mean_anomaly(
-                    &maneuver.transfer_orbit, ma_before);
+                    arrival_orbit, ma_before);
                 let pos_now = orbit_position_from_mean_anomaly(
-                    &maneuver.transfer_orbit, mean_anomaly_arrival);
+                    arrival_orbit, mean_anomaly_arrival);
                 let vel_dir = pos_now - pos_before; // proportional to velocity
                 // 2-D cross product (z-component): rel × vel_dir
                 let cross_z = rel.x * vel_dir.y - rel.y * vel_dir.x;
@@ -415,6 +436,8 @@ pub fn process_fleet_actions(
             start_position_au,
             end_position_au,
             start_visual_pos,
+            leg2_orbit: t.leg2_orbit,
+            leg2_start_s: t.leg2_start_s,
         };
         if is_in_transit {
             // Course correction: swap immediately (no parking orbit to preserve).

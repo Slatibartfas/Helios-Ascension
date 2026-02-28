@@ -273,6 +273,14 @@ pub struct ActiveManeuver {
     /// The visual position of the fleet at the moment of departure.
     /// Used for course corrections to prevent the visual arc from jumping back to the origin body.
     pub start_visual_pos: Option<bevy::math::Vec3>,
+    /// Optional second-leg Keplerian orbit for gravity-assist transfers (flyby → destination).
+    ///
+    /// When set, `update_fleet_maneuver_positions` follows `transfer_orbit` until
+    /// `leg2_start_s` seconds after departure, then switches to this orbit.
+    pub leg2_orbit: Option<KeplerOrbit>,
+    /// Seconds after departure when the Leg-2 orbit begins (= Leg-1 half-period).
+    /// Only meaningful when `leg2_orbit` is `Some`.
+    pub leg2_start_s: f64,
 }
 
 impl ActiveManeuver {
@@ -414,4 +422,12 @@ pub struct PlannedTransfer {
     /// Pre-computed arrival position (AU) for kinematic/direct transfers.
     /// When set, `process_fleet_actions` uses this instead of predicting from `destination_body`.
     pub end_position_au: Option<bevy::math::DVec3>,
+    /// Optional second-leg Keplerian orbit for gravity-assist transfers (flyby → destination).
+    ///
+    /// When set, `update_fleet_maneuver_positions` follows `transfer_orbit` until
+    /// `leg2_start_s` seconds after departure, then switches to this orbit.
+    pub leg2_orbit: Option<KeplerOrbit>,
+    /// Seconds after departure when the Leg-2 orbit begins (= Leg-1 half-period).
+    /// Only meaningful when `leg2_orbit` is `Some`.
+    pub leg2_start_s: f64,
 }

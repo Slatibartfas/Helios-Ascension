@@ -89,8 +89,8 @@ texture is picked from `assets/data/planet_textures.ron`.
 | `tundra`    | −100 – −20 °C     | Permafrost, grey-blue    |
 | `ice`       | below −100 °C     | Frozen, Pluto-like       |
 | `barren`    | any (default)     | Cratered, airless        |
-| `gas_giant` | > −80 °C          | Jupiter / Saturn-like    |
-| `ice_giant` | ≤ −80 °C          | Neptune / Uranus-like    |
+| `gas_giant` | ≥ −80 °C          | Jupiter / Saturn-like    |
+| `ice_giant` | < −80 °C          | Neptune / Uranus-like    |
 | `dwarf`     | —                 | KBOs, dwarf planets      |
 | `moon`      | —                 | Natural satellites       |
 

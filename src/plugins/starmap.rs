@@ -67,8 +67,9 @@ impl SystemMetadata {
 /// Maps planet-type category names to lists of texture asset paths.
 ///
 /// Loaded at startup from `assets/data/planet_textures.ron`.  Modders can add
-/// texture paths to any category list or introduce new categories — no code
-/// changes required.
+/// or reorder texture paths in any existing category list without changing Rust
+/// code.  Introducing brand-new categories requires also updating the
+/// `classify_exoplanet` function so those categories are selected.
 #[derive(Resource, Debug, Clone, Serialize, Deserialize)]
 pub struct PlanetTextureManifest {
     /// Map from category name (e.g. `"jungle"`, `"lava"`) to an ordered list
