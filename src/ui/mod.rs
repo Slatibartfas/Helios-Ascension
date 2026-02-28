@@ -765,7 +765,7 @@ fn ui_starmap_labels(
 
 fn ui_hover_tooltip(
     mut contexts: EguiContexts,
-    hovered_query: Query<&CelestialBody, With<Hovered>>,
+    hovered_query: Query<(&CelestialBody, Option<&crate::plugins::starmap::PlanetCategory>), With<Hovered>>,
     lp_markers: Res<LagrangePointMarkers>,
     active_menu: Res<ActiveMenu>,
 ) {
@@ -879,7 +879,7 @@ fn ui_hover_tooltip(
     }
 
     // Display hover tooltip if a body is hovered
-    if let Ok(body) = hovered_query.single() {
+    if let Ok((body, category_opt)) = hovered_query.single() {
         // Anchor the tooltip near the mouse pointer so it appears over the 3D view
         let available_rect = ctx.available_rect();
         let tooltip_pos = ctx
@@ -912,9 +912,20 @@ fn ui_hover_tooltip(
                             );
                         });
 
+                        // Show planet category if available, otherwise fall back to body type
+                        let type_label = if let Some(cat) = category_opt {
+                            // Capitalise the category for display (e.g. "desert" → "Desert")
+                            let mut s = cat.0.clone();
+                            if let Some(first) = s.get_mut(..1) {
+                                first.make_ascii_uppercase();
+                            }
+                            s
+                        } else {
+                            format!("{:?}", body.body_type)
+                        };
                         ui.horizontal(|ui| {
                             ui.label(
-                                egui::RichText::new(format!("Type: {:?}", body.body_type))
+                                egui::RichText::new(format!("Type: {}", type_label))
                                     .size(12.0)
                                     .color(egui::Color32::from_rgb(180, 180, 180)),
                             );

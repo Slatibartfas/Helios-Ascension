@@ -31,7 +31,7 @@ use crate::plugins::solar_system::{
     create_ring_mesh,
 };
 use crate::plugins::solar_system_data::{calculate_visual_radius, system_visual_scale, AsteroidClass, BodyType};
-use crate::plugins::starmap::SystemMetadata;
+use crate::plugins::starmap::{PlanetCategory, SystemMetadata, classify_exoplanet};
 
 pub struct SystemPopulatorPlugin;
 
@@ -504,6 +504,11 @@ pub fn spawn_confirmed_planet(
     let max_orbit_fraction = orbit_distance_bevy * 0.10;
     let visual_radius = base_visual_radius.min(max_orbit_fraction).max(2.0);
 
+    // Classify the planet based on temperature for texture/UI display
+    let cat_seed: u32 = planet_data.name.bytes()
+        .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
+    let category = classify_exoplanet(BodyType::Planet, None, *avg_temp, cat_seed);
+
     let mut entity_commands = commands.spawn((
         Planet,
         RealPlanet, // Mark as confirmed planet
@@ -520,6 +525,7 @@ pub fn spawn_confirmed_planet(
             min_celsius: min_temp,
             max_celsius: max_temp,
         },
+        PlanetCategory(category.to_string()),
         orbit,
         OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.7)), // Cyan/blue — matches Sol palette
         SpaceCoordinates::default(),                      // Will be updated by propagate_orbits
@@ -593,6 +599,11 @@ pub fn spawn_procedural_planet(
     let max_orbit_fraction = orbit_distance_bevy * 0.10;
     let visual_radius = base_visual_radius.min(max_orbit_fraction).max(2.0);
 
+    // Classify the planet based on temperature for texture/UI display
+    let cat_seed: u32 = planet.name.bytes()
+        .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
+    let category = classify_exoplanet(planet.body_type(), None, *avg_temp, cat_seed);
+
     let mut entity_commands = commands.spawn((
         Planet,
         CelestialBody {
@@ -608,6 +619,7 @@ pub fn spawn_procedural_planet(
             min_celsius: min_temp,
             max_celsius: max_temp,
         },
+        PlanetCategory(category.to_string()),
         orbit,
         OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.6)), // Cyan/blue — procedural planets
         SpaceCoordinates::default(), // Will be updated by propagate_orbits

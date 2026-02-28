@@ -21,7 +21,7 @@ use std::collections::HashMap;
 
 use super::camera::{CameraAnchor, EguiPanelBounds, GameCamera, OrbitCamera, ViewMode};
 use super::solar_system::{
-    Billboard, CelestialBody, StarSurfaceMaterial, StarGlowMaterial,
+    Billboard, CelestialBody, Ring, StarSurfaceMaterial, StarGlowMaterial,
 };
 use super::solar_system_data::{AsteroidClass, BodyType};
 use crate::astronomy::components::{
@@ -455,11 +455,7 @@ pub fn classify_exoplanet(
                 "lava"
             } else if avg_temp_c > 60.0 {
                 // Very hot worlds above habitable band yet below lava
-                if avg_temp_c > 45.0 {
-                    "savannah"
-                } else {
-                    "desert"
-                }
+                "desert"
             } else if avg_temp_c >= -20.0 {
                 // Habitable-zone planets: split by temperature into four archetypes
                 if avg_temp_c < -5.0 {
@@ -640,6 +636,41 @@ fn category_tint(category: &str, r1: f32, r2: f32, r3: f32) -> (Color, f32, f32)
                 0.01 + r3 * 0.05,
             )
         }
+        "alpine" => {
+            // Cool grey-blue with white snow caps
+            let b = 0.82 + r1 * 0.12;
+            (
+                Color::srgb(
+                    (b * 0.85).min(1.0),
+                    (b * 0.90).min(1.0),
+                    b,
+                ),
+                0.72 + r2 * 0.15,
+                0.0 + r3 * 0.05,
+            )
+        }
+        "savannah" => {
+            // Warm golden-brown — dry grasslands
+            let b = 0.85 + r1 * 0.10;
+            (
+                Color::srgb(b, (b * 0.82).min(1.0), (b * 0.55).min(1.0)),
+                0.73 + r2 * 0.15,
+                0.0 + r3 * 0.05,
+            )
+        }
+        "swamp" => {
+            // Dark green-brown — murky wetlands
+            let b = 0.70 + r1 * 0.15;
+            (
+                Color::srgb(
+                    (b * 0.72).min(1.0),
+                    (b * 0.85).min(1.0),
+                    (b * 0.55).min(1.0),
+                ),
+                0.78 + r2 * 0.14,
+                0.0 + r3 * 0.05,
+            )
+        }
         _ => (Color::WHITE, 0.80, 0.0),
     }
 }
@@ -669,8 +700,10 @@ fn spawn_system_bodies(
         ),
         (Without<Mesh3d>, Without<MeshMaterial3d<StandardMaterial>>),
     >,
-    // Query to check if system already has visual entities
-    bodies_with_visuals: Query<&SystemId, (With<CelestialBody>, With<Mesh3d>)>,
+    // Query to check if system already has visual entities — exclude Ring entities
+    // because rings are spawned with Mesh3d at Startup and would falsely trigger
+    // the early-return guard before the star/planet meshes are ever inserted.
+    bodies_with_visuals: Query<&SystemId, (With<CelestialBody>, With<Mesh3d>, Without<Ring>)>,
 ) {
     if !current_system.is_changed() {
         return;
@@ -681,7 +714,7 @@ fn spawn_system_bodies(
         return;
     } // Sol is handled by solar_system.rs
 
-    // Check if this system already has visual entities
+    // Check if this system already has non-ring visual entities
     if bodies_with_visuals.iter().any(|id| id.0 == sys_id) {
         // Visuals already added, nothing to do
         return;
@@ -840,8 +873,6 @@ fn spawn_system_bodies(
 
             let category = classify_exoplanet(body.body_type, body.asteroid_class, avg_temp, seed);
 
-            // record the computed category on the entity for later systems
-            let planet_category = PlanetCategory(category.to_string());
 
             let r1 = ((seed % 1000) as f32) / 1000.0;
             let r2 = (((seed / 1000) % 1000) as f32) / 1000.0;
@@ -873,6 +904,7 @@ fn spawn_system_bodies(
                 Mesh3d(mesh),
                 MeshMaterial3d(material),
                 initial_transform,
+                PlanetCategory(category.to_string()),
             ));
         }
     }
@@ -991,9 +1023,16 @@ fn update_starmap_visibility(
     current_system: Res<CurrentStarSystem>,
     active_menu: Res<ActiveMenu>,
     mut icon_query: Query<(&mut Visibility, &StarSystemIcon)>,
-    bodies_with_visuals: Query<&SystemId, (With<CelestialBody>, With<Mesh3d>)>,
+    // Exclude Ring entities — same reason as spawn_system_bodies.
+    bodies_with_visuals: Query<&SystemId, (With<CelestialBody>, With<Mesh3d>, Without<Ring>)>,
+    // React on the frame after deferred mesh-insertion commands are flushed.
+    newly_added_meshes: Query<Entity, (With<CelestialBody>, Added<Mesh3d>)>,
 ) {
-    if !view_mode.is_changed() && !current_system.is_changed() && !active_menu.is_changed() {
+    if !view_mode.is_changed()
+        && !current_system.is_changed()
+        && !active_menu.is_changed()
+        && newly_added_meshes.is_empty()
+    {
         return;
     }
 

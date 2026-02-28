@@ -799,10 +799,14 @@ pub(super) fn ui_dashboard(
                     if let Ok((body, opt_coords, orbit, resources, atmosphere, category_opt, mut survey_level, population, surface_temp, logical_parent)) = body_query.get_mut(entity) {
                         // Body name and basic info
                         ui.label(egui::RichText::new(&body.name).size(18.0).strong());
-                        // show category string in tooltip-style text if available
+                        // show category string below the name if available
                         if let Some(cat) = category_opt {
+                            let mut label = cat.0.clone();
+                            if let Some(first) = label.get_mut(..1) {
+                                first.make_ascii_uppercase();
+                            }
                             ui.label(
-                                egui::RichText::new(&cat.0)
+                                egui::RichText::new(label)
                                     .small()
                                     .color(egui::Color32::GRAY),
                             );

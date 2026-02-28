@@ -381,27 +381,50 @@ fn compute_gravity_assist_arc(
     flyby_ring_r: f32,
     dest_ring_r: f32,
 ) -> GravityAssistArcGeometry {
-    // ── Departure point — flyby-facing side of origin ring ────────────────────
+    // ── Departure ────────────────────────────────────────────────────────────
     let dir_to_flyby = (fp - op).normalize_or_zero();
-    let p0 = op + dir_to_flyby * origin_ring_r;
 
-    // Departure tangent: mostly orbital-prograde with a small toward-flyby bias.
-    let rad_op = op.normalize_or_zero();
+    // Is the fleet transferring outward (prograde burn) or inward (retrograde)?
     let is_outward1 = fp.length_squared() > op.length_squared();
-    let prograde_op = Vec3::new(-rad_op.y, rad_op.x, 0.0);
-    let prograde1 = if is_outward1 { prograde_op } else { -prograde_op };
-    let tang0 = (prograde1 * 0.80 + dir_to_flyby * 0.20).normalize_or_zero();
 
-    // ── Arrival point — inbound-facing side of destination ring ───────────────
+    // Departure ring point: rotate dir_to_flyby by 90° so the prograde (or
+    // retrograde) direction at that ring point aims toward the flyby body.
+    // For an outward/prograde departure: rotate -90° (CW).
+    // For an inward/retrograde departure: rotate +90° (CCW).
+    let dep_dir = if is_outward1 {
+        Vec3::new(dir_to_flyby.y, -dir_to_flyby.x, 0.0)
+    } else {
+        Vec3::new(-dir_to_flyby.y, dir_to_flyby.x, 0.0)
+    };
+    let p0 = op + dep_dir * origin_ring_r;
+
+    // Departure tangent: the prograde direction at that ring point.
+    let rad_at_p0 = (p0 - op).normalize_or_zero();
+    let prograde_at_p0 = Vec3::new(-rad_at_p0.y, rad_at_p0.x, 0.0);
+    let tang0 = if is_outward1 { prograde_at_p0 } else { -prograde_at_p0 };
+
+    // ── Arrival ──────────────────────────────────────────────────────────────
     let dir_from_flyby = (dp - fp).normalize_or_zero();
-    let p3_2 = dp - dir_from_flyby * dest_ring_r;
 
-    // Arrival tangent: mostly orbital-prograde with a small along-track bias.
-    let rad_dp = dp.normalize_or_zero();
+    // Is the fleet arriving from further out (needs prograde to capture) or inside?
     let is_outward2 = dp.length_squared() > fp.length_squared();
-    let prograde_dp = Vec3::new(-rad_dp.y, rad_dp.x, 0.0);
-    let prograde2 = if is_outward2 { prograde_dp } else { -prograde_dp };
-    let td2 = (prograde2 * 0.80 + dir_from_flyby * 0.20).normalize_or_zero();
+
+    // Arrival ring point: rotate the inbound direction by 90° so prograde at
+    // that point aligns with the incoming leg for tangential insertion.
+    let inbound = -dir_from_flyby;
+    let arr_dir = if is_outward2 {
+        // Arriving at an outer body: fleet comes in with prograde-ish velocity
+        Vec3::new(inbound.y, -inbound.x, 0.0)
+    } else {
+        // Arriving at an inner body: fleet comes in retrograde-ish
+        Vec3::new(-inbound.y, inbound.x, 0.0)
+    };
+    let p3_2 = dp + arr_dir * dest_ring_r;
+
+    // Arrival tangent: prograde direction at the arrival ring point.
+    let rad_at_p3 = (p3_2 - dp).normalize_or_zero();
+    let prograde_at_p3 = Vec3::new(-rad_at_p3.y, rad_at_p3.x, 0.0);
+    let td2 = if is_outward2 { prograde_at_p3 } else { -prograde_at_p3 };
 
     // ── Hyperbolic periapsis ─────────────────────────────────────────────────
     let dir_approach = dir_to_flyby;
