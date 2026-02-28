@@ -39,13 +39,13 @@ pub(super) fn ui_fleets_panel(
             ui.label(
                 egui::RichText::new(format!("🚀 Total Fleets: {fleet_count}"))
                     .size(13.0)
-                    .color(egui::Color32::from_rgb(200, 220, 255)),
+                    .color(theme::TEXT_VALUE),
             );
             ui.separator();
             ui.label(
                 egui::RichText::new(format!("✈ In Transit: {in_transit}"))
                     .size(13.0)
-                    .color(egui::Color32::from_rgb(100, 200, 255)),
+                    .color(theme::RP_BLUE),
             );
         });
         ui.separator();
@@ -62,13 +62,13 @@ pub(super) fn ui_fleets_panel(
                 |ui| {
                 egui::Frame::default()
                     .inner_margin(egui::Margin::same(6i8))
-                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(60, 80, 120)))
+                    .stroke(egui::Stroke::new(1.0, theme::BORDER))
                     .show(ui, |ui| {
                         ui.label(
                             egui::RichText::new("Fleet List")
                                 .strong()
                                 .size(14.0)
-                                .color(egui::Color32::from_rgb(180, 210, 255)),
+                                .color(theme::TEXT_VALUE),
                         );
                         ui.separator();
 
@@ -124,14 +124,14 @@ pub(super) fn ui_fleets_panel(
                                 ui.label(
                                     egui::RichText::new("Location:")
                                         .size(12.0)
-                                        .color(egui::Color32::GRAY),
+                                        .color(theme::TEXT_DIM),
                                 );
                                 if colony_entries.is_empty() {
                                     ui.label(
                                         egui::RichText::new("No colonies yet")
                                             .size(12.0)
                                             .italics()
-                                            .color(egui::Color32::DARK_GRAY),
+                                            .color(theme::TEXT_HINT),
                                     );
                                 } else {
                                     egui::ComboBox::from_id_salt("create_fleet_location")
@@ -147,7 +147,7 @@ pub(super) fn ui_fleets_panel(
                                                         egui::RichText::new(format!("★ {star_name}"))
                                                             .size(11.0)
                                                             .strong()
-                                                            .color(egui::Color32::from_rgb(255, 220, 100)),
+                                                            .color(theme::STAR_GOLD),
                                                     );
                                                 }
                                                 let is_sel = fleet_ui_state.spawn_location_body == Some(*e);
@@ -198,7 +198,7 @@ pub(super) fn ui_fleets_panel(
                 |ui| {
                 egui::Frame::default()
                     .inner_margin(egui::Margin::same(6i8))
-                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(60, 80, 120)))
+                    .stroke(egui::Stroke::new(1.0, theme::BORDER))
                     .show(ui, |ui| {
                 if let Some(selected) = fleet_ui_state.selected_fleet {
                     if let Ok((_, fleet, maybe_orbit, maybe_maneuver, _)) =
@@ -230,7 +230,7 @@ pub(super) fn ui_fleets_panel(
                             egui::RichText::new("Select a fleet from the list to view details.")
                                 .size(14.0)
                                 .italics()
-                                .color(egui::Color32::GRAY),
+                                .color(theme::TEXT_DIM),
                         );
                     });
                 }
@@ -254,14 +254,14 @@ pub(super) fn ui_fleets_panel(
                     ui.set_min_width(360.0);
                     ui.vertical_centered(|ui| {
                         ui.add_space(6.0);
-                        ui.label(egui::RichText::new("⚠").size(36.0).color(egui::Color32::from_rgb(255, 180, 40)));
+                        ui.label(egui::RichText::new("⚠").size(36.0).color(theme::AMBER));
                     });
                     ui.add_space(4.0);
                     ui.label(
                         egui::RichText::new(format!("Disband \"{}\"?", fleet_name))
                             .strong()
                             .size(15.0)
-                            .color(egui::Color32::from_rgb(255, 220, 120)),
+                            .color(theme::AMBER),
                     );
                     if ship_count > 0 {
                         ui.add_space(4.0);
@@ -271,7 +271,7 @@ pub(super) fn ui_fleets_panel(
                                 ship_count
                             ))
                             .size(13.0)
-                            .color(egui::Color32::from_rgb(220, 120, 100)),
+                            .color(theme::RED),
                         );
                     }
                     ui.add_space(10.0);
@@ -284,7 +284,7 @@ pub(super) fn ui_fleets_panel(
                             .button(
                                 egui::RichText::new("🗑 Disband")
                                     .size(13.0)
-                                    .color(egui::Color32::from_rgb(230, 80, 60)),
+                                    .color(theme::RED),
                             )
                             .clicked()
                         {
@@ -435,7 +435,7 @@ fn render_fleet_list(
                 egui::RichText::new(format!("★  {current_system}"))
                     .size(12.0)
                     .strong()
-                    .color(egui::Color32::from_rgb(255, 220, 100)),
+                    .color(theme::STAR_GOLD),
             );
         }
 
@@ -443,9 +443,9 @@ fn render_fleet_list(
         let is_checked = fleet_ui_state.selected_fleets.contains(&entry.entity);
         let row_text = format!("{} {} — {} ship(s)", entry.role_icon, entry.name, entry.ship_count);
         let row_color = if entry.in_transit {
-            egui::Color32::from_rgb(100, 180, 255)
+            theme::RP_BLUE
         } else {
-            egui::Color32::from_rgb(100, 220, 100)
+            theme::GREEN
         };
 
         // ── Row: [checkbox] [drop-zone selectable] ────────────────────────────
@@ -573,18 +573,18 @@ fn render_fleet_list(
         let sub = if let Some(wait_str) = &entry.waiting_depart {
             egui::RichText::new(format!("    Waiting — T-minus {wait_str}"))
                 .size(11.0)
-                .color(egui::Color32::from_rgb(255, 200, 100))
+                .color(theme::AMBER)
         } else if let Some((prog, rem)) = &entry.transit_progress {
             egui::RichText::new(format!(
                 "    ✈ {} — {}% done, {} left",
                 entry.location_text, prog, rem
             ))
             .size(11.0)
-            .color(egui::Color32::from_rgb(160, 190, 230))
+            .color(theme::TEXT_VALUE)
         } else {
             egui::RichText::new(format!("    {} — fuel {}%", entry.location_text, entry.fuel_pct))
                 .size(11.0)
-                .color(egui::Color32::GRAY)
+                .color(theme::TEXT_DIM)
         };
         ui.label(sub);
     }
@@ -597,7 +597,7 @@ fn render_fleet_list(
             ui.label(
                 egui::RichText::new(format!("{n} selected"))
                     .size(12.0)
-                    .color(egui::Color32::from_rgb(200, 220, 255)),
+                    .color(theme::TEXT_VALUE),
             );
             // All selected fleets must be in orbit at the same body (not in transit).
             let merge_bodies: Vec<Option<Entity>> = fleet_ui_state
@@ -652,7 +652,7 @@ fn render_fleet_list(
         egui::RichText::new("💡 Drag ship name → fleet to transfer  ·  Ctrl/⌘+click or Shift+click to multi-select")
             .size(10.0)
             .italics()
-            .color(egui::Color32::from_rgb(120, 140, 170)),
+            .color(theme::TEXT_DIM),
     );
 }
 
@@ -669,7 +669,7 @@ fn render_fleet_name_marquee(
 ) {
     let name_text = format!("{} {}", fleet.role.icon(), fleet.name);
     let font_id = egui::FontId::proportional(18.0);
-    let name_color = egui::Color32::from_rgb(200, 230, 255);
+    let name_color = theme::TEXT_VALUE;
 
     // Measure the full text width at the desired font size.
     let full_width = ui
@@ -780,7 +780,7 @@ fn render_fleet_detail(
     // Row 2: Role selector + Disband (right-aligned)
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button(egui::RichText::new("🗑 Disband").color(egui::Color32::from_rgb(220, 80, 60)))
+            if ui.button(egui::RichText::new("🗑 Disband").color(theme::RED))
                 .on_hover_text(if fleet.ships.is_empty() { "Disband this fleet" } else { "Disband fleet (destroys all ships)" })
                 .clicked()
             {
@@ -862,11 +862,11 @@ fn render_fleet_detail(
                 );
                 let fuel_pct = (ship.fuel_fraction() * 100.0) as u32;
                 let fuel_color = if fuel_pct > 50 {
-                    egui::Color32::from_rgb(100, 220, 100)
+                    theme::GREEN
                 } else if fuel_pct > 20 {
-                    egui::Color32::from_rgb(220, 180, 60)
+                    theme::AMBER
                 } else {
-                    egui::Color32::from_rgb(220, 80, 60)
+                    theme::RED
                 };
                 ui.label(
                     egui::RichText::new(format!("{fuel_pct}%"))
@@ -939,7 +939,7 @@ fn render_fleet_detail(
                 egui::RichText::new(format_delta_v(fleet.max_delta_v_ms()))
                     .size(12.0)
                     .strong()
-                    .color(egui::Color32::from_rgb(100, 220, 255)),
+                    .color(theme::ACCENT),
             );
             ui.end_row();
         });
@@ -992,13 +992,13 @@ fn render_active_maneuver_status(
                     egui::RichText::new(format!("⏳ Waiting to depart for {dest_name}"))
                         .strong()
                         .size(14.0)
-                        .color(egui::Color32::from_rgb(255, 200, 100)),
+                        .color(theme::AMBER),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(
                         egui::RichText::new(format!("T-minus {}", wait_str))
                             .size(12.0)
-                            .color(egui::Color32::GRAY),
+                            .color(theme::TEXT_DIM),
                     );
                 });
             });
@@ -1008,7 +1008,7 @@ fn render_active_maneuver_status(
                 ui.label(
                     egui::RichText::new(format!("× {} orbits until departure angle", waiting_orbit_count))
                         .size(11.0)
-                        .color(egui::Color32::from_rgb(160, 80, 220)),
+                        .color(theme::GRAVITY_ASSIST),
                 );
             }
 
@@ -1029,13 +1029,13 @@ fn render_active_maneuver_status(
                 egui::RichText::new(format!("✈ En Route → {dest_name}"))
                     .strong()
                     .size(14.0)
-                    .color(egui::Color32::from_rgb(100, 200, 255)),
+                    .color(theme::RP_BLUE),
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(
                     egui::RichText::new(format!("{} remaining", remaining))
                         .size(12.0)
-                        .color(egui::Color32::GRAY),
+                        .color(theme::TEXT_DIM),
                 );
             });
         });
@@ -1121,7 +1121,7 @@ fn render_orbit_status(
                 egui::RichText::new(status_label)
                     .strong()
                     .size(14.0)
-                    .color(egui::Color32::from_rgb(100, 220, 100)),
+                    .color(theme::GREEN),
             );
         });
         egui::Grid::new("orbit_info")
@@ -1333,7 +1333,7 @@ pub(super) fn ui_fleet_action_bar(
                         egui::RichText::new(format!("🚀 {} —{status_str}", fleet.name))
                             .size(13.0)
                             .strong()
-                            .color(egui::Color32::from_rgb(130, 220, 130)),
+                            .color(theme::GREEN),
                     );
                     // Progress bar + ETA date for actively transiting fleets
                     if let Some(maneuver) = maybe_maneuver {
@@ -1349,7 +1349,7 @@ pub(super) fn ui_fleet_action_bar(
                                 ui.label(
                                     egui::RichText::new(format!("ETA {eta_str}"))
                                         .size(11.0)
-                                        .color(egui::Color32::from_rgb(100, 180, 255)),
+                                        .color(theme::RP_BLUE),
                                 );
                             });
                         }
@@ -1432,7 +1432,7 @@ pub(super) fn ui_fleet_action_bar(
                         egui::Button::new(
                             egui::RichText::new("⚔ Attack")
                                 .size(13.0)
-                                .color(egui::Color32::from_rgb(230, 130, 100)),
+                                .color(theme::RED),
                         )
                         .min_size(egui::Vec2::new(80.0, 36.0)),
                     )
@@ -1451,7 +1451,7 @@ pub(super) fn ui_fleet_action_bar(
                         egui::Button::new(
                             egui::RichText::new("💣 Bombard")
                                 .size(13.0)
-                                .color(egui::Color32::from_rgb(230, 130, 100)),
+                                .color(theme::RED),
                         )
                         .min_size(egui::Vec2::new(90.0, 36.0)),
                     )
@@ -1470,7 +1470,7 @@ pub(super) fn ui_fleet_action_bar(
                         egui::Button::new(
                             egui::RichText::new("👊 Invade")
                                 .size(13.0)
-                                .color(egui::Color32::from_rgb(230, 130, 100)),
+                                .color(theme::RED),
                         )
                         .min_size(egui::Vec2::new(86.0, 36.0)),
                     )
@@ -1515,7 +1515,7 @@ pub(super) fn ui_fleet_action_bar(
                             egui::Button::new(
                                 egui::RichText::new("⛔ Abort Transfer")
                                     .size(13.0)
-                                    .color(egui::Color32::from_rgb(220, 80, 80)),
+                                    .color(theme::RED),
                             )
                             .min_size(egui::Vec2::new(120.0, 36.0)),
                         )

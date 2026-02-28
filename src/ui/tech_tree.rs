@@ -20,7 +20,7 @@ pub(super) fn render_tech_tree_tab(
         ui.label(
             egui::RichText::new("Right-click: Edit/delete node | Right-click empty space: Add new tech")
                 .small()
-                .color(egui::Color32::from_rgb(255, 200, 100)),
+                .color(theme::AMBER),
         );
     }
     ui.separator();
@@ -286,7 +286,7 @@ pub(super) fn render_tech_tree_tab(
             egui::Align2::CENTER_BOTTOM,
             format!("Tier {}", tier),
             font_header.clone(),
-            egui::Color32::from_rgb(180, 180, 190),
+            theme::TEXT_DIM,
         );
     }
     
@@ -425,7 +425,7 @@ pub(super) fn render_tech_tree_tab(
             } else if can_research {
                 egui::Color32::from_rgb(255, 240, 180)
             } else {
-                egui::Color32::from_rgb(170, 170, 175)
+                theme::TEXT_DIM
             };
             
             let row1_y = (node_rect.top() + v_pad + name_row_h / 2.0).round();
@@ -458,14 +458,14 @@ pub(super) fn render_tech_tree_tab(
             // --- row 2: research cost / progress (left-aligned, dimmer) ---
             let row2_y = (node_rect.top() + v_pad + name_row_h + row_gap + cost_row_h / 2.0).round();
             let (cost_text, cost_color) = if is_unlocked {
-                ("✔ Researched".to_string(), egui::Color32::from_rgb(120, 200, 120))
+                ("✔ Researched".to_string(), theme::GREEN)
             } else if let Some(pct) = research_progress {
                 (
                     format!("⏳ {:.0}%  ({:.0} RP)", pct * 100.0, tech.research_cost),
-                    egui::Color32::from_rgb(100, 180, 255),
+                    theme::RP_BLUE,
                 )
             } else {
-                (format!("{:.0} RP", tech.research_cost), egui::Color32::from_rgb(150, 180, 220))
+                (format!("{:.0} RP", tech.research_cost), theme::TEXT_VALUE)
             };
             painter.text(
                 egui::Pos2::new(name_x, row2_y),
@@ -482,13 +482,13 @@ pub(super) fn render_tech_tree_tab(
                     egui::Pos2::new(node_rect.left() + 2.0, node_rect.bottom() - bar_h - 1.0),
                     egui::Vec2::new((node_rect.width() - 4.0) * pct, bar_h),
                 );
-                painter.rect_filled(bar_rect, 0.0, egui::Color32::from_rgb(80, 160, 255));
+                painter.rect_filled(bar_rect, 0.0, theme::RP_BLUE);
                 // bg track
                 let track_rect = egui::Rect::from_min_size(
                     egui::Pos2::new(node_rect.left() + 2.0 + (node_rect.width() - 4.0) * pct, node_rect.bottom() - bar_h - 1.0),
                     egui::Vec2::new((node_rect.width() - 4.0) * (1.0 - pct), bar_h),
                 );
-                painter.rect_filled(track_rect, 0.0, egui::Color32::from_rgb(40, 40, 50));
+                painter.rect_filled(track_rect, 0.0, theme::SURFACE);
             }
             
             // --- hit-test ---
@@ -609,7 +609,7 @@ pub(super) fn render_tech_tree_tab(
                     ui.label(
                         egui::RichText::new("This will also remove it from all prerequisite lists.")
                             .small()
-                            .color(egui::Color32::YELLOW),
+                            .color(theme::AMBER),
                     );
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
@@ -740,7 +740,7 @@ pub(super) fn render_tech_tree_tab(
                 .resizable(false)
                 .title_bar(false)
                 .frame(egui::Frame::popup(ui.ctx().style().as_ref())
-                    .fill(egui::Color32::from_rgba_unmultiplied(25, 30, 40, 245))
+                    .fill(egui::Color32::from_rgba_unmultiplied(13, 17, 23, 245))
                     .stroke(egui::Stroke::new(2.0, tech_category_color(tech.category))))
                 .show(ui.ctx(), |ui| {
                     render_research_tech_tooltip_content(
@@ -762,19 +762,19 @@ pub(super) fn render_tech_tree_tab(
                     if debug_enabled {
                         ui.add_space(5.0);
                         ui.separator();
-                        ui.label(egui::RichText::new("🐛 Debug").small().color(egui::Color32::RED));
+                        ui.label(egui::RichText::new("🐛 Debug").small().color(theme::RED));
                         if tech.modifiers.is_empty() {
                             ui.label(
                                 egui::RichText::new("This tech grants no modifiers.")
                                     .small()
                                     .italics()
-                                    .color(egui::Color32::GRAY),
+                                    .color(theme::TEXT_DIM),
                             );
                         } else {
                             ui.label(
                                 egui::RichText::new("Modifiers this tech grants:")
                                     .small()
-                                    .color(egui::Color32::from_rgb(200, 200, 200)),
+                                    .color(theme::TEXT),
                             );
                             for m in &tech.modifiers {
                                 ui.label(
@@ -785,9 +785,9 @@ pub(super) fn render_tech_tree_tab(
                                     ))
                                     .small()
                                     .color(if m.value >= 0.0 {
-                                        egui::Color32::from_rgb(100, 220, 100)
+                                        theme::GREEN
                                     } else {
-                                        egui::Color32::from_rgb(220, 100, 100)
+                                        theme::RED
                                     }),
                                 );
                             }
@@ -836,15 +836,15 @@ pub(super) fn render_tech_tree_tab(
     ui.scope_builder(egui::UiBuilder::new().max_rect(status_rect), |ui| {
         ui.horizontal(|ui| {
             ui.label("Status:");
-            ui.colored_label(egui::Color32::from_rgb(50, 200, 50), "● Unlocked");
-            ui.colored_label(egui::Color32::from_rgb(80, 160, 255), "● Researching");
-            ui.colored_label(egui::Color32::from_rgb(255, 200, 50), "● Available");
-            ui.colored_label(egui::Color32::from_rgb(100, 100, 100), "● Locked");
+            ui.colored_label(theme::GREEN, "● Unlocked");
+            ui.colored_label(theme::RP_BLUE, "● Researching");
+            ui.colored_label(theme::AMBER, "● Available");
+            ui.colored_label(theme::TEXT_HINT, "● Locked");
             ui.label(format!("| Zoom: {:.1}x", zoom));
             if debug_enabled {
                 ui.separator();
                 ui.colored_label(
-                    egui::Color32::from_rgb(255, 100, 100),
+                    theme::RED,
                     "Right-click: edit/add techs",
                 );
             }
@@ -915,7 +915,7 @@ pub(super) fn render_tech_edit_dialog(
                                     ui.label(
                                         egui::RichText::new(&edit_data.id)
                                             .monospace()
-                                            .color(egui::Color32::GRAY),
+                                            .color(theme::TEXT_DIM),
                                     );
                                 }
                                 ui.end_row();
@@ -972,9 +972,9 @@ pub(super) fn render_tech_edit_dialog(
                                 ui.horizontal(|ui| {
                                     let exists = tech_data.technologies.contains_key(prereq);
                                     let color = if exists {
-                                        egui::Color32::from_rgb(100, 255, 100)
+                                        theme::GREEN
                                     } else {
-                                        egui::Color32::from_rgb(255, 100, 100)
+                                        theme::RED
                                     };
                                     ui.colored_label(color, prereq);
                                     if ui.small_button("✖").clicked() {
@@ -1037,16 +1037,16 @@ pub(super) fn render_tech_edit_dialog(
                                 ui.label(
                                     egui::RichText::new("No modifiers")
                                         .italics()
-                                        .color(egui::Color32::GRAY),
+                                        .color(theme::TEXT_DIM),
                                 );
                             }
                             for (i, m) in edit_data.modifiers.iter().enumerate() {
                                 ui.horizontal(|ui| {
                                     ui.colored_label(
                                         if m.value >= 0.0 {
-                                            egui::Color32::from_rgb(100, 220, 100)
+                                            theme::GREEN
                                         } else {
-                                            egui::Color32::from_rgb(220, 100, 100)
+                                            theme::RED
                                         },
                                         format!("{}: {:+.1}%", m.modifier_type.display_name(), m.value),
                                     );
@@ -1117,7 +1117,7 @@ pub(super) fn render_tech_edit_dialog(
 
                         if !errors.is_empty() {
                             for err in &errors {
-                                ui.colored_label(egui::Color32::from_rgb(255, 100, 100), err);
+                                ui.colored_label(theme::RED, err);
                             }
                         }
 
@@ -1250,7 +1250,7 @@ pub(super) fn tech_category_color(cat: TechCategory) -> egui::Color32 {
         TechCategory::Sensors => egui::Color32::from_rgb(100, 255, 255),
         TechCategory::SpaceTechnology => egui::Color32::from_rgb(150, 200, 255),
         TechCategory::Sociology => egui::Color32::from_rgb(255, 150, 200),
-        TechCategory::LifeSupport => egui::Color32::from_rgb(100, 255, 100),
+        TechCategory::LifeSupport => theme::GREEN,
         TechCategory::Industry => egui::Color32::from_rgb(180, 180, 50),
     }
 }

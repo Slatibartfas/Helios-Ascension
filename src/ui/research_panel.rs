@@ -127,7 +127,7 @@ pub(super) fn ui_research_panels(
         if debug_settings.enabled {
             ui.group(|ui| {
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("🐛 DEBUG MODE").strong().color(egui::Color32::RED));
+                    ui.label(egui::RichText::new("🐛 DEBUG MODE").strong().color(theme::RED));
                     ui.label(egui::RichText::new("(Press F12 to toggle)").italics().small());
                 });
                 ui.separator();
@@ -164,7 +164,7 @@ pub(super) fn ui_research_panels(
                 ui.label(egui::RichText::new("⚠ Debug features are for development only and will be removed in release builds")
                     .small()
                     .italics()
-                    .color(egui::Color32::YELLOW));
+                    .color(theme::AMBER));
             });
             ui.add_space(5.0);
         } else {
@@ -173,7 +173,7 @@ pub(super) fn ui_research_panels(
                 ui.label(egui::RichText::new("Press F12 to toggle debug mode")
                     .small()
                     .italics()
-                    .color(egui::Color32::GRAY));
+                    .color(theme::TEXT_DIM));
             });
         }
         
@@ -241,14 +241,14 @@ fn render_overview_tab(
             ui.horizontal(|ui| {
                 ui.label("Research Points:");
                 ui.label(egui::RichText::new(format!("{:.0} RP/year", rp_per_year))
-                    .color(egui::Color32::from_rgb(100, 200, 255)));
+                    .color(theme::RP_BLUE));
                 ui.label(format!("(Pool: {:.0})", research_state.research_points_available));
             });
             
             ui.horizontal(|ui| {
                 ui.label("Engineering Points:");
                 ui.label(egui::RichText::new(format!("{:.0} EP/year", ep_per_year))
-                    .color(egui::Color32::from_rgb(100, 255, 200)));
+                    .color(theme::EP_TEAL));
                 ui.label(format!("(Pool: {:.0})", research_state.engineering_points_available));
             });
         });
@@ -268,7 +268,7 @@ fn render_overview_tab(
             if total_count == 0 {
                 ui.label(egui::RichText::new("No active research projects")
                     .italics()
-                    .color(egui::Color32::GRAY));
+                    .color(theme::TEXT_DIM));
             } else {
                 for (entity, project, team) in research_projects.iter() {
                     if let Some(tech) = tech_data.get_tech(&project.tech_id) {
@@ -286,9 +286,9 @@ fn render_overview_tab(
                                 ui.label(egui::RichText::new(if project.active { "🔬" } else { "⏸" }).size(14.0));
                                 ui.label(egui::RichText::new(&tech.name).strong());
                                 if !project.active {
-                                    ui.label(egui::RichText::new("PAUSED").color(egui::Color32::YELLOW));
+                                    ui.label(egui::RichText::new("PAUSED").color(theme::AMBER));
                                 }
-                                ui.label(egui::RichText::new(format!("({})", team.name)).size(11.0).color(egui::Color32::GRAY));
+                                ui.label(egui::RichText::new(format!("({})", team.name)).size(11.0).color(theme::TEXT_DIM));
                             });
                             info_scope.response.on_hover_ui(|ui| {
                                 render_research_tech_tooltip_content(
@@ -329,7 +329,7 @@ fn render_overview_tab(
             if project_count == 0 {
                 ui.label(egui::RichText::new("No active engineering projects")
                     .italics()
-                    .color(egui::Color32::GRAY));
+                    .color(theme::TEXT_DIM));
             } else {
                 for (project, team) in engineering_projects.iter() {
                     if let Some(component) = tech_data.get_component(&project.component_id) {
@@ -337,7 +337,7 @@ fn render_overview_tab(
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new("⚙").size(14.0));
                             ui.label(egui::RichText::new(&component.name).strong());
-                            ui.label(egui::RichText::new(format!("({})", team.name)).size(11.0).color(egui::Color32::GRAY));
+                            ui.label(egui::RichText::new(format!("({})", team.name)).size(11.0).color(theme::TEXT_DIM));
                             ui.add(
                                 egui::ProgressBar::new(progress)
                                     .text(format!("{:.0}% ({:.0}/{:.0} EP)", progress * 100.0, project.progress, project.required_points))
@@ -360,7 +360,7 @@ fn render_overview_tab(
             if team_count == 0 {
                 ui.label(egui::RichText::new("No teams available - teams will be added in future updates")
                     .italics()
-                    .color(egui::Color32::GRAY));
+                    .color(theme::TEXT_DIM));
             } else {
                 for (_entity, team) in all_teams.iter() {
                     ui.horizontal(|ui| {
@@ -412,11 +412,11 @@ pub(super) fn render_research_tech_tooltip_content(
         ui.label(&tech.description);
         ui.add_space(4.0);
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(format!("Tier: {}", tech.tier)).color(egui::Color32::GRAY));
+            ui.label(egui::RichText::new(format!("Tier: {}", tech.tier)).color(theme::TEXT_DIM));
             ui.separator();
             ui.label(
                 egui::RichText::new(format!("Cost: {:.0} RP", tech.research_cost))
-                    .color(egui::Color32::from_rgb(120, 200, 255))
+                    .color(theme::RP_BLUE)
                     .strong(),
             );
         });
@@ -427,9 +427,9 @@ pub(super) fn render_research_tech_tooltip_content(
             for prereq_id in &tech.prerequisites {
                 if let Some(prereq) = tech_data.get_tech(prereq_id) {
                     let c = if research_state.is_unlocked(prereq_id) {
-                        egui::Color32::from_rgb(100, 255, 100)
+                        theme::GREEN
                     } else {
-                        egui::Color32::from_rgb(255, 100, 100)
+                        theme::RED
                     };
                     ui.label(egui::RichText::new(format!("  • {}", prereq.name)).color(c));
                 }
@@ -441,13 +441,13 @@ pub(super) fn render_research_tech_tooltip_content(
             ui.label(
                 egui::RichText::new("Unlocks Components:")
                     .strong()
-                    .color(egui::Color32::from_rgb(140, 230, 200)),
+                    .color(theme::EP_TEAL),
             );
             for comp_id in &tech.unlocks_components {
                 if let Some(comp) = tech_data.get_component(comp_id) {
                     ui.label(
                         egui::RichText::new(format!("  ⚙ {} ({:.0} EP)", comp.name, comp.engineering_cost))
-                            .color(egui::Color32::from_rgb(140, 230, 200)),
+                            .color(theme::EP_TEAL),
                     );
                 }
             }
@@ -458,13 +458,13 @@ pub(super) fn render_research_tech_tooltip_content(
             ui.label(
                 egui::RichText::new("Provides Bonuses:")
                     .strong()
-                    .color(egui::Color32::from_rgb(120, 255, 140)),
+                    .color(theme::GREEN),
             );
             for modifier in &tech.modifiers {
                 let (value_text, value_color) = match &modifier.modifier_type {
                     crate::research::types::ModifierType::UnlockMechanic(_) => (
                         modifier.modifier_type.display_name(),
-                        egui::Color32::from_rgb(120, 220, 255),
+                        theme::ACCENT,
                     ),
                     _ => {
                         let is_positive = modifier.value >= 0.0;
@@ -475,9 +475,9 @@ pub(super) fn render_research_tech_tooltip_content(
                             _ => is_positive,
                         };
                         let value_color = if is_beneficial {
-                            egui::Color32::from_rgb(120, 255, 140)
+                            theme::GREEN
                         } else {
-                            egui::Color32::from_rgb(255, 120, 120)
+                            theme::RED
                         };
                         (
                             format!("{}: {:+.0}%", modifier.modifier_type.display_name(), modifier.value),
@@ -495,7 +495,7 @@ pub(super) fn render_research_tech_tooltip_content(
             let status = if info.active { "Researching" } else { "Paused" };
             ui.label(
                 egui::RichText::new(format!("⏳ {}: {:.1}%", status, info.progress_percent * 100.0))
-                    .color(egui::Color32::from_rgb(100, 180, 255))
+                    .color(theme::RP_BLUE)
                     .strong(),
             );
             ui.add(
@@ -528,9 +528,9 @@ fn render_available_research_tab(
             "Teams: {}/{} in use | {} available",
             active_count, team_capacity.max_research_teams, teams_available
         )).color(if teams_available > 0 {
-            egui::Color32::from_rgb(100, 255, 100)
+            theme::GREEN
         } else {
-            egui::Color32::from_rgb(255, 200, 100)
+            theme::AMBER
         }));
     });
     ui.separator();
@@ -564,7 +564,7 @@ fn render_available_research_tab(
                             ui.label(egui::RichText::new(&tech.name).strong());
                             ui.label(egui::RichText::new(tech.category.display_name()).size(12.0).color(cat_color));
                             if !info.active {
-                                ui.label(egui::RichText::new("PAUSED").color(egui::Color32::YELLOW));
+                                ui.label(egui::RichText::new("PAUSED").color(theme::AMBER));
                             }
                         });
                         info_scope.response.on_hover_ui(|ui| {
@@ -642,7 +642,7 @@ fn render_available_research_tab(
         if available_techs.is_empty() && active_projects.is_empty() {
             ui.label(egui::RichText::new("No technologies available for research")
                 .italics()
-                .color(egui::Color32::GRAY));
+                .color(theme::TEXT_DIM));
             ui.label("Complete more research to unlock new technologies.");
         } else if !available_techs.is_empty() {
             ui.label(egui::RichText::new("Available to Start").strong().size(16.0));
@@ -660,7 +660,7 @@ fn render_available_research_tab(
                 ui.horizontal(|ui| {
                     // Info labels in a scope so tooltip hover isn't stolen by the button
                     let info_scope = ui.scope(|ui| {
-                        ui.label(egui::RichText::new("⏳").color(egui::Color32::from_rgb(255, 255, 100)));
+                        ui.label(egui::RichText::new("⏳").color(theme::AMBER));
                         if let Some(tex) = icon_textures.get(&tech.category) {
                             ui.add(egui::Image::new(egui::load::SizedTexture::new(*tex, [16.0, 16.0]))
                                 .tint(cat_color));
@@ -669,16 +669,16 @@ fn render_available_research_tab(
                         ui.label(egui::RichText::new(tech.category.display_name()).size(12.0).color(cat_color));
                         ui.add_space(8.0);
                         ui.label(egui::RichText::new(format!("{:.0} RP", tech.research_cost))
-                            .color(egui::Color32::from_rgb(150, 200, 255)));
+                            .color(theme::RP_BLUE));
                         ui.label(egui::RichText::new(format!("T{}", tech.tier))
-                            .size(11.0).color(egui::Color32::GRAY));
+                            .size(11.0).color(theme::TEXT_DIM));
                         if !tech.unlocks_components.is_empty() {
                             ui.label(egui::RichText::new(format!("⚙{}", tech.unlocks_components.len()))
-                                .size(11.0).color(egui::Color32::from_rgb(140, 230, 200)));
+                                .size(11.0).color(theme::EP_TEAL));
                         }
                         if !tech.modifiers.is_empty() {
                             ui.label(egui::RichText::new(format!("✦{}", tech.modifiers.len()))
-                                .size(11.0).color(egui::Color32::from_rgb(100, 255, 100)));
+                                .size(11.0).color(theme::GREEN));
                         }
                     });
                     info_scope.response.on_hover_ui(|ui| {
@@ -729,7 +729,7 @@ fn render_available_engineering_tab(
         if available_components.is_empty() {
             ui.label(egui::RichText::new("No components available for engineering")
                 .italics()
-                .color(egui::Color32::GRAY));
+                .color(theme::TEXT_DIM));
             ui.label("Research new technologies to unlock component designs.");
         } else {
             // Sort by cost
@@ -741,7 +741,7 @@ fn render_available_engineering_tab(
                 let parent_tech = tech_data.get_tech(&component.required_tech);
                 let cat_color = parent_tech
                     .map(|t| tech_category_color(t.category))
-                    .unwrap_or(egui::Color32::from_rgb(200, 200, 100));
+                    .unwrap_or(theme::AMBER);
 
                 let row = ui.horizontal(|ui| {
                     // Component icon
@@ -762,13 +762,13 @@ fn render_available_engineering_tab(
                     ui.add_space(8.0);
                     // Cost
                     ui.label(egui::RichText::new(format!("{:.0} EP", component.engineering_cost))
-                        .color(egui::Color32::from_rgb(150, 255, 200)));
+                        .color(theme::EP_TEAL));
                     // From tech
                     if let Some(tech) = parent_tech {
                         ui.label(egui::RichText::new(format!("(from: {})", tech.name))
                             .size(11.0)
                             .italics()
-                            .color(egui::Color32::GRAY));
+                            .color(theme::TEXT_DIM));
                     }
                     // Start button
                     let _ = ui.button("🔧 Start Engineering (NYI)");
@@ -790,10 +790,10 @@ fn render_available_engineering_tab(
                     ui.label(&component.description);
                     ui.add_space(4.0);
                     ui.label(egui::RichText::new(format!("Engineering Cost: {:.0} EP", component.engineering_cost))
-                        .color(egui::Color32::from_rgb(150, 255, 200)).strong());
+                        .color(theme::EP_TEAL).strong());
                     if let Some(tech) = parent_tech {
                         ui.label(egui::RichText::new(format!("Required Tech: {}", tech.name))
-                            .size(12.0).color(egui::Color32::GRAY));
+                            .size(12.0).color(theme::TEXT_DIM));
                     }
                 });
             }
@@ -849,7 +849,7 @@ fn render_bonuses_tab(
         if research_state.active_modifiers.is_empty() {
             ui.label(egui::RichText::new("No bonuses active yet")
                 .italics()
-                .color(egui::Color32::GRAY));
+                .color(theme::TEXT_DIM));
             ui.label("Research technologies to unlock bonuses.");
             return;
         }
@@ -869,9 +869,9 @@ fn render_bonuses_tab(
                     _ => is_positive,
                 };
                 let value_color = if is_beneficial {
-                    egui::Color32::from_rgb(100, 255, 100)
+                    theme::GREEN
                 } else {
-                    egui::Color32::from_rgb(255, 100, 100)
+                    theme::RED
                 };
 
                 let modifier_name = modifier_type.display_name();
@@ -885,7 +885,7 @@ fn render_bonuses_tab(
                             ui.painter().rect_filled(
                                 row_rect,
                                 2.0,
-                                egui::Color32::from_rgba_unmultiplied(40, 40, 40, 120),
+                                egui::Color32::from_rgba_unmultiplied(13, 17, 23, 120),
                             );
                         }
                         ui.label(egui::RichText::new(if is_beneficial { "▲" } else { "▼" })
@@ -898,7 +898,7 @@ fn render_bonuses_tab(
                         if source_count > 0 {
                             ui.label(egui::RichText::new(format!(
                                 "({} source{})", source_count, if source_count > 1 { "s" } else { "" }
-                            )).size(11.0).color(egui::Color32::GRAY));
+                            )).size(11.0).color(theme::TEXT_DIM));
                         }
                         if is_pinned {
                             ui.label(egui::RichText::new("📌").size(10.0));
@@ -945,13 +945,13 @@ fn render_bonuses_tab(
                             ui.painter().rect_filled(
                                 row_rect,
                                 2.0,
-                                egui::Color32::from_rgba_unmultiplied(40, 40, 40, 120),
+                                egui::Color32::from_rgba_unmultiplied(13, 17, 23, 120),
                             );
                         }
-                        ui.label(egui::RichText::new("✔").color(egui::Color32::from_rgb(100, 255, 200)));
+                        ui.label(egui::RichText::new("✔").color(theme::EP_TEAL));
                         ui.label(egui::RichText::new(&modifier_name)
                             .strong()
-                            .color(egui::Color32::from_rgb(120, 220, 255)));
+                            .color(theme::ACCENT));
                         if is_pinned {
                             ui.label(egui::RichText::new("📌").size(10.0));
                         }
@@ -984,7 +984,7 @@ fn render_bonuses_tab(
         ui.label(egui::RichText::new("Click a row to pin its detail box. Click again to unpin.")
             .size(10.0)
             .italics()
-            .color(egui::Color32::DARK_GRAY));
+            .color(theme::TEXT_HINT));
     });
 
     // Determine which detail box to show and at what position.
@@ -1014,14 +1014,14 @@ fn render_bonuses_tab(
                 _ => is_positive,
             };
             let value_color = if is_beneficial {
-                egui::Color32::from_rgb(100, 255, 100)
+                theme::GREEN
             } else {
-                egui::Color32::from_rgb(255, 100, 100)
+                theme::RED
             };
             let border_color = if is_pinned {
                 value_color
             } else {
-                egui::Color32::from_rgb(100, 100, 100)
+                theme::TEXT_HINT
             };
             let border_width = if is_pinned { 2.0 } else { 1.0 };
 
@@ -1033,7 +1033,7 @@ fn render_bonuses_tab(
                 .interactable(true)
                 .show(ui.ctx(), |ui| {
                     egui::Frame::NONE
-                        .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 35, 245))
+                        .fill(egui::Color32::from_rgba_unmultiplied(13, 17, 23, 245))
                         .stroke(egui::Stroke::new(border_width, border_color))
                         .inner_margin(10.0)
                         .corner_radius(4.0)
@@ -1067,9 +1067,9 @@ fn render_bonus_detail_content(
     if !is_unlock {
         ui.label(egui::RichText::new(format!("Total: {:+.0}%", total_value))
             .color(if total_value >= 0.0 {
-                egui::Color32::from_rgb(100, 255, 100)
+                theme::GREEN
             } else {
-                egui::Color32::from_rgb(255, 100, 100)
+                theme::RED
             })
             .strong()
             .size(13.0));
@@ -1092,9 +1092,9 @@ fn render_bonus_detail_content(
                     ui.label(egui::RichText::new(format!("{:+.0}%", value))
                         .size(11.0)
                         .color(if *value >= 0.0 {
-                            egui::Color32::from_rgb(100, 255, 100)
+                            theme::GREEN
                         } else {
-                            egui::Color32::from_rgb(255, 100, 100)
+                            theme::RED
                         }));
                 }
             });
@@ -1103,7 +1103,7 @@ fn render_bonus_detail_content(
         ui.label(egui::RichText::new("No tech sources found")
             .italics()
             .size(10.0)
-            .color(egui::Color32::GRAY));
+            .color(theme::TEXT_DIM));
     }
 }
 
@@ -1131,7 +1131,7 @@ fn render_archive_tab(
             if unlocked_count == 0 {
                 ui.label(egui::RichText::new("No technologies researched yet")
                     .italics()
-                    .color(egui::Color32::GRAY));
+                    .color(theme::TEXT_DIM));
             } else {
                 // Organize by category
                 for category in TechCategory::all() {
@@ -1168,7 +1168,7 @@ fn render_archive_tab(
                                     if tech.research_cost > 0.0 {
                                         ui.label(egui::RichText::new(format!("({:.0} RP)", tech.research_cost))
                                             .size(11.0)
-                                            .color(egui::Color32::from_rgb(120, 200, 255)));
+                                            .color(theme::RP_BLUE));
                                     }
                                 });
                                 row.response.on_hover_ui(|ui| {
@@ -1204,7 +1204,7 @@ fn render_archive_tab(
             if completed_count == 0 {
                 ui.label(egui::RichText::new("No components engineered yet")
                     .italics()
-                    .color(egui::Color32::GRAY));
+                    .color(theme::TEXT_DIM));
             } else {
                 for comp_id in &research_state.completed_components {
                     if let Some(component) = tech_data.get_component(comp_id) {
@@ -1213,7 +1213,7 @@ fn render_archive_tab(
                             ui.label(&component.name);
                             ui.label(egui::RichText::new(format!("({:.0} EP)", component.engineering_cost))
                                 .size(11.0)
-                                .color(egui::Color32::GRAY));
+                                .color(theme::TEXT_DIM));
                         });
                     }
                 }

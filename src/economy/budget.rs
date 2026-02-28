@@ -69,18 +69,32 @@ impl GlobalBudget {
         let mut stockpiles = HashMap::new();
 
         // Initialize with starting resources for gameplay.
-        // Stockpiles represent refined strategic reserves, roughly 1-3 years
-        // of current global production in each category.
+        // Stockpiles are calibrated to ~2 years of Earth colony maintenance
+        // consumption (see buildings.ron maintenance_resources × Earth building counts).
+        // Resources with no Earth maintenance are set as construction reserves.
+        //
+        // 2026 Earth annual maintenance totals (Mt/yr):
+        //   Iron ~259, Copper ~26, Water ~400, Aluminum ~5,
+        //   Nickel ~3.2, Tungsten ~0.084, Lithium ~0.17,
+        //   Sulfur ~74.4, Phosphorus ~28.5, RareEarths ~0.25
+        //
         // All values in Megatons (Mt).
-        stockpiles.insert(ResourceType::Water, 10_000.0);    // ~2 yr industrial use (excl. agriculture)
-        stockpiles.insert(ResourceType::Oxygen, 300.0);      // ~2 yr industrial gas production
-        stockpiles.insert(ResourceType::Iron, 5_000.0);      // ~2 yr steel production
-        stockpiles.insert(ResourceType::Copper, 50.0);       // ~2 yr refined copper
-        stockpiles.insert(ResourceType::Silicates, 100_000.0);// ~2 yr aggregate production
-        stockpiles.insert(ResourceType::Aluminum, 150.0);    // ~2 yr primary aluminum
-        stockpiles.insert(ResourceType::RareEarths, 0.7);    // ~2 yr REO production
-        stockpiles.insert(ResourceType::Uranium, 0.12);      // ~2 yr mine output
-        stockpiles.insert(ResourceType::Thorium, 0.02);      // ~2 yr (byproduct)
+        stockpiles.insert(ResourceType::Water, 800.0);       // ~2 yr (400 Mt/yr from Refineries)
+        stockpiles.insert(ResourceType::Oxygen, 200.0);      // Construction buffer; easily harvested
+        stockpiles.insert(ResourceType::Iron, 520.0);        // ~2 yr (259 Mt/yr aggregate)
+        stockpiles.insert(ResourceType::Copper, 50.0);       // ~2 yr (26 Mt/yr)
+        stockpiles.insert(ResourceType::Silicates, 50_000.0);// Construction reserve; extremely abundant
+        stockpiles.insert(ResourceType::Aluminum, 100.0);    // Construction buffer (5 Mt/yr maintenance)
+        stockpiles.insert(ResourceType::RareEarths, 0.5);    // ~2 yr (0.25 Mt/yr from ResearchLabs)
+        stockpiles.insert(ResourceType::Uranium, 0.12);      // Fissile construction reserve
+        stockpiles.insert(ResourceType::Thorium, 0.02);      // Fissile construction reserve
+        stockpiles.insert(ResourceType::Deuterium, 5.0);     // Fusion fuel reserve (FusionReactor: 5 Mt/yr)
+        stockpiles.insert(ResourceType::Nickel, 7.0);        // ~2 yr (3.2 Mt/yr: factories + refineries + mines)
+        stockpiles.insert(ResourceType::Tungsten, 0.17);     // ~2 yr (0.084 Mt/yr: factories + refineries)
+        stockpiles.insert(ResourceType::Carbon, 20.0);       // Construction reserve (OrbitalLift, Shipyard)
+        stockpiles.insert(ResourceType::Phosphorus, 60.0);   // ~2 yr (28.5 Mt/yr: farms + chem plants)
+        stockpiles.insert(ResourceType::Lithium, 0.35);      // ~2 yr (0.17 Mt/yr: factories + labs)
+        stockpiles.insert(ResourceType::Sulfur, 150.0);      // ~2 yr (74.4 Mt/yr: chem plants + farms + factories)
 
         Self {
             stockpiles,

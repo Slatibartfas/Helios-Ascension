@@ -89,6 +89,36 @@ pub fn determine_resource_phase(
                 ResourcePhase::Solid
             }
         }
+        ResourceType::Deuterium => {
+            // Deuterium: melts at −254.4°C, boils at −249.5°C
+            if temp_celsius >= -254.4 && temp_celsius <= -249.5 {
+                ResourcePhase::Liquid
+            } else if temp_celsius > -249.5 {
+                ResourcePhase::Vapor
+            } else {
+                ResourcePhase::Solid
+            }
+        }
+        ResourceType::Sulfur => {
+            // Sulfur: melts at 115°C, boils at 445°C
+            if temp_celsius >= 115.0 && temp_celsius <= 445.0 {
+                ResourcePhase::Liquid
+            } else if temp_celsius > 445.0 {
+                ResourcePhase::Vapor
+            } else {
+                ResourcePhase::Solid
+            }
+        }
+        ResourceType::Phosphorus => {
+            // White phosphorus: melts at 44°C, boils at 280°C
+            if temp_celsius >= 44.0 && temp_celsius <= 280.0 {
+                ResourcePhase::Liquid
+            } else if temp_celsius > 280.0 {
+                ResourcePhase::Vapor
+            } else {
+                ResourcePhase::Solid
+            }
+        }
         // Non-volatile resources are always solid minerals
         _ => ResourcePhase::Solid,
     }
@@ -103,6 +133,8 @@ pub enum ResourceType {
     Hydrogen,
     Ammonia,
     Methane,
+    /// The hard limit on hydroponics and population growth
+    Phosphorus,
 
     // Atmospheric gases - Essential for terraforming
     Nitrogen,
@@ -115,9 +147,17 @@ pub enum ResourceType {
     Aluminum,
     Titanium,
     Silicates,
+    /// Found in M-type asteroids; essential for non-brittle alloys
+    Nickel,
+    /// Kinetic weapons (railguns) and high-heat engineering
+    Tungsten,
+    /// Graphene/nanotubes for lightweight, ultra-strong hulls
+    Carbon,
 
-    // Noble gases - Fusion fuel
+    // Fusion fuel
     Helium3,
+    /// Easier fusion than He-3; the "oil" of the 22nd century
+    Deuterium,
 
     // Fissile materials - Rare, inner solar system
     Uranium,
@@ -131,6 +171,10 @@ pub enum ResourceType {
     // Specialty materials - Advanced technology
     Copper,
     RareEarths,
+    /// Battery tech and fusion reactor maintenance
+    Lithium,
+    /// Industrial chemistry, sulfuric acid, and battery electrolytes
+    Sulfur,
 }
 
 impl ResourceType {
@@ -142,6 +186,7 @@ impl ResourceType {
             Hydrogen,
             Ammonia,
             Methane,
+            Phosphorus,
             Nitrogen,
             Oxygen,
             CarbonDioxide,
@@ -150,7 +195,11 @@ impl ResourceType {
             Aluminum,
             Titanium,
             Silicates,
+            Nickel,
+            Tungsten,
+            Carbon,
             Helium3,
+            Deuterium,
             Uranium,
             Thorium,
             Gold,
@@ -158,6 +207,8 @@ impl ResourceType {
             Platinum,
             Copper,
             RareEarths,
+            Lithium,
+            Sulfur,
         ]
     }
 
@@ -169,6 +220,7 @@ impl ResourceType {
                 | ResourceType::Hydrogen
                 | ResourceType::Ammonia
                 | ResourceType::Methane
+                | ResourceType::Phosphorus
         )
     }
 
@@ -191,12 +243,15 @@ impl ResourceType {
                 | ResourceType::Aluminum
                 | ResourceType::Titanium
                 | ResourceType::Silicates
+                | ResourceType::Nickel
+                | ResourceType::Tungsten
+                | ResourceType::Carbon
         )
     }
 
-    /// Returns true if this is a noble gas
-    pub fn is_noble_gas(&self) -> bool {
-        matches!(self, ResourceType::Helium3)
+    /// Returns true if this is a fusion fuel resource
+    pub fn is_fusion_fuel(&self) -> bool {
+        matches!(self, ResourceType::Helium3 | ResourceType::Deuterium)
     }
 
     /// Returns true if this is a fissile material
@@ -214,7 +269,13 @@ impl ResourceType {
 
     /// Returns true if this is a specialty material
     pub fn is_specialty(&self) -> bool {
-        matches!(self, ResourceType::Copper | ResourceType::RareEarths)
+        matches!(
+            self,
+            ResourceType::Copper
+                | ResourceType::RareEarths
+                | ResourceType::Lithium
+                | ResourceType::Sulfur
+        )
     }
 
     /// Returns the display name of the resource
@@ -240,6 +301,13 @@ impl ResourceType {
             ResourceType::Platinum => "Platinum",
             ResourceType::Copper => "Copper",
             ResourceType::RareEarths => "Rare Earths",
+            ResourceType::Phosphorus => "Phosphorus",
+            ResourceType::Nickel => "Nickel",
+            ResourceType::Tungsten => "Tungsten",
+            ResourceType::Carbon => "Carbon",
+            ResourceType::Deuterium => "Deuterium",
+            ResourceType::Lithium => "Lithium",
+            ResourceType::Sulfur => "Sulfur",
         }
     }
 
@@ -266,6 +334,13 @@ impl ResourceType {
             ResourceType::Platinum => "Pt",
             ResourceType::Copper => "Cu",
             ResourceType::RareEarths => "REE",
+            ResourceType::Phosphorus => "P",
+            ResourceType::Nickel => "Ni",
+            ResourceType::Tungsten => "W",
+            ResourceType::Carbon => "C",
+            ResourceType::Deuterium => "D",
+            ResourceType::Lithium => "Li",
+            ResourceType::Sulfur => "S",
         }
     }
 
@@ -277,6 +352,7 @@ impl ResourceType {
                 | ResourceType::Oxygen
                 | ResourceType::Iron
                 | ResourceType::Helium3
+                | ResourceType::Deuterium
                 | ResourceType::Uranium
         )
     }
@@ -289,7 +365,7 @@ impl ResourceType {
             "Atmospheric Gases"
         } else if self.is_construction() {
             "Construction"
-        } else if self.is_noble_gas() {
+        } else if self.is_fusion_fuel() {
             "Fusion Fuel"
         } else if self.is_fissile() {
             "Fissiles"
@@ -312,6 +388,7 @@ impl ResourceType {
                     ResourceType::Hydrogen,
                     ResourceType::Ammonia,
                     ResourceType::Methane,
+                    ResourceType::Phosphorus,
                 ],
             ),
             (
@@ -330,9 +407,15 @@ impl ResourceType {
                     ResourceType::Aluminum,
                     ResourceType::Titanium,
                     ResourceType::Silicates,
+                    ResourceType::Nickel,
+                    ResourceType::Tungsten,
+                    ResourceType::Carbon,
                 ],
             ),
-            ("Fusion Fuel", vec![ResourceType::Helium3]),
+            (
+                "Fusion Fuel",
+                vec![ResourceType::Helium3, ResourceType::Deuterium],
+            ),
             (
                 "Fissiles",
                 vec![ResourceType::Uranium, ResourceType::Thorium],
@@ -347,7 +430,12 @@ impl ResourceType {
             ),
             (
                 "Specialty",
-                vec![ResourceType::Copper, ResourceType::RareEarths],
+                vec![
+                    ResourceType::Copper,
+                    ResourceType::RareEarths,
+                    ResourceType::Lithium,
+                    ResourceType::Sulfur,
+                ],
             ),
         ]
     }
@@ -366,19 +454,26 @@ mod tests {
     #[test]
     fn test_resource_type_all() {
         let all = ResourceType::all();
-        assert_eq!(all.len(), 20, "Should have exactly 20 resource types");
+        assert_eq!(all.len(), 27, "Should have exactly 27 resource types");
     }
 
     #[test]
     fn test_resource_categorization() {
         assert!(ResourceType::Water.is_volatile());
+        assert!(ResourceType::Phosphorus.is_volatile());
         assert!(ResourceType::Nitrogen.is_atmospheric_gas());
         assert!(ResourceType::Oxygen.is_atmospheric_gas());
         assert!(ResourceType::Iron.is_construction());
-        assert!(ResourceType::Helium3.is_noble_gas());
+        assert!(ResourceType::Nickel.is_construction());
+        assert!(ResourceType::Tungsten.is_construction());
+        assert!(ResourceType::Carbon.is_construction());
+        assert!(ResourceType::Helium3.is_fusion_fuel());
+        assert!(ResourceType::Deuterium.is_fusion_fuel());
         assert!(ResourceType::Uranium.is_fissile());
         assert!(ResourceType::Gold.is_precious_metal());
         assert!(ResourceType::Copper.is_specialty());
+        assert!(ResourceType::Lithium.is_specialty());
+        assert!(ResourceType::Sulfur.is_specialty());
     }
 
     #[test]
@@ -388,8 +483,8 @@ mod tests {
             .filter(|r| r.is_critical())
             .count();
         assert_eq!(
-            critical_count, 5,
-            "Should have exactly 5 critical resources"
+            critical_count, 6,
+            "Should have exactly 6 critical resources"
         );
     }
 
@@ -413,12 +508,19 @@ mod tests {
     #[test]
     fn test_resource_category() {
         assert_eq!(ResourceType::Water.category(), "Volatiles");
+        assert_eq!(ResourceType::Phosphorus.category(), "Volatiles");
         assert_eq!(ResourceType::Nitrogen.category(), "Atmospheric Gases");
         assert_eq!(ResourceType::Iron.category(), "Construction");
+        assert_eq!(ResourceType::Nickel.category(), "Construction");
+        assert_eq!(ResourceType::Tungsten.category(), "Construction");
+        assert_eq!(ResourceType::Carbon.category(), "Construction");
         assert_eq!(ResourceType::Helium3.category(), "Fusion Fuel");
+        assert_eq!(ResourceType::Deuterium.category(), "Fusion Fuel");
         assert_eq!(ResourceType::Uranium.category(), "Fissiles");
         assert_eq!(ResourceType::Gold.category(), "Precious Metals");
         assert_eq!(ResourceType::Copper.category(), "Specialty");
+        assert_eq!(ResourceType::Lithium.category(), "Specialty");
+        assert_eq!(ResourceType::Sulfur.category(), "Specialty");
     }
 
     #[test]
@@ -437,11 +539,11 @@ mod tests {
         assert_eq!(categories[5].0, "Precious Metals");
         assert_eq!(categories[6].0, "Specialty");
 
-        // Check total resources (should be all 20)
+        // Check total resources (should be all 27)
         let total_resources: usize = categories
             .iter()
             .map(|(_, resources)| resources.len())
             .sum();
-        assert_eq!(total_resources, 20);
+        assert_eq!(total_resources, 27);
     }
 }

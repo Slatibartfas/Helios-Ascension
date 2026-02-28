@@ -29,6 +29,8 @@ mod construction_panel;
 mod economy_panel;
 mod fleets_panel;
 mod transfer_planner;
+mod dossier_panel;
+pub(super) mod theme;
 
 pub use time::{TimeScale, SimulationTime};
 pub use icons::{MenuIcons, ResearchIcons};
@@ -355,6 +357,7 @@ fn setup_egui_fonts(mut contexts: EguiContexts) {
         
     if let Ok(ctx) = contexts.ctx_mut() {
         ctx.set_fonts(fonts);
+        theme::apply_global_visuals(ctx);
     }
 }
 
@@ -396,6 +399,7 @@ impl Plugin for UIPlugin {
                     .in_set(UiSystemSet::TopBar),
             )
             .add_systems(EguiPrimaryContextPass, ui_dashboard.in_set(UiSystemSet::MainPanels))
+            .add_systems(EguiPrimaryContextPass, dossier_panel::ui_planet_dossier.in_set(UiSystemSet::MainPanels))
             .add_systems(EguiPrimaryContextPass, ui_research_panels.in_set(UiSystemSet::MainPanels))
             .add_systems(EguiPrimaryContextPass, ui_construction_panels.in_set(UiSystemSet::MainPanels))
             .add_systems(EguiPrimaryContextPass, ui_economy_panels.in_set(UiSystemSet::MainPanels))
@@ -554,9 +558,9 @@ fn ui_top_menu_bar(
                             // Tint the icon:
                             // Blue/Cyan for active, White/Gray for inactive
                             let tint = if is_active {
-                                egui::Color32::from_rgb(100, 200, 255)
+                                theme::ACCENT
                             } else {
-                                egui::Color32::from_rgb(200, 200, 200)
+                                theme::TEXT_DIM
                             };
 
                             let mut img = egui::Image::new((*texture_id, size));
@@ -567,7 +571,7 @@ fn ui_top_menu_bar(
                             // Highlight active menu by drawing a subtle stroke around the widget
                             if is_active {
                                 let rect = resp.rect;
-                                ui.painter().rect_stroke(rect, 4.0, egui::Stroke::new(2.0, egui::Color32::from_rgb(100, 200, 255)), egui::StrokeKind::Outside);
+                                ui.painter().rect_stroke(rect, 4.0, egui::Stroke::new(2.0, theme::ACCENT), egui::StrokeKind::Outside);
                             }
 
                             let resp = resp.on_hover_text(menu.name());
@@ -605,15 +609,15 @@ fn ui_top_menu_bar(
                                 egui::Button::new(
                                     egui::RichText::new(button_text)
                                         .size(14.0)
-                                        .color(egui::Color32::from_rgb(100, 200, 255))
+                                        .color(theme::ACCENT)
                                 )
-                                .fill(egui::Color32::from_rgb(40, 60, 80))
+                                .fill(theme::SURFACE_RAISED)
                             } else {
                                 egui::Button::new(
                                     egui::RichText::new(button_text)
                                         .size(14.0)
                                 )
-                                .fill(egui::Color32::from_rgb(30, 30, 35))
+                                .fill(theme::SURFACE)
                             };
 
                             if ui.add(button).clicked() {
@@ -649,15 +653,15 @@ fn ui_top_menu_bar(
                             egui::Button::new(
                                 egui::RichText::new(button_text)
                                     .size(14.0)
-                                    .color(egui::Color32::from_rgb(100, 200, 255))
+                                    .color(theme::ACCENT)
                             )
-                            .fill(egui::Color32::from_rgb(40, 60, 80))
+                            .fill(theme::SURFACE_RAISED)
                         } else {
                             egui::Button::new(
                                 egui::RichText::new(button_text)
                                     .size(14.0)
                             )
-                            .fill(egui::Color32::from_rgb(30, 30, 35))
+                            .fill(theme::SURFACE)
                         };
 
                         if ui.add(button).clicked() {
@@ -745,9 +749,9 @@ fn ui_starmap_labels(
             }
 
             let color = if is_selected.is_some() {
-                egui::Color32::from_rgb(100, 200, 255) // Bright blue for selected
+                theme::ACCENT
             } else {
-                egui::Color32::from_rgb(200, 200, 200) // Light gray for others
+                theme::TEXT_DIM
             };
 
             painter.text(
@@ -808,21 +812,21 @@ fn ui_hover_tooltip(
                 .show(ctx, |ui| {
                     ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                     egui::Frame::NONE
-                        .fill(egui::Color32::from_rgba_unmultiplied(20, 25, 35, 240))
-                        .stroke(egui::Stroke::new(2.0, egui::Color32::from_rgb(80, 180, 255)))
+                        .fill(egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245))
+                        .stroke(egui::Stroke::new(2.0, theme::ACCENT_DIM))
                         .inner_margin(12.0)
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 ui.label(
                                     egui::RichText::new(format!("L{}", m.point))
                                         .size(16.0)
-                                        .color(egui::Color32::from_rgb(100, 200, 255))
+                                        .color(theme::ACCENT)
                                         .strong(),
                                 );
                                 ui.label(
                                     egui::RichText::new(format!(" \u{2013} {}", m.planet_name))
                                         .size(16.0)
-                                        .color(egui::Color32::from_rgb(200, 220, 255))
+                                        .color(theme::TEXT_VALUE)
                                         .strong(),
                                 );
                             });
@@ -830,7 +834,7 @@ fn ui_hover_tooltip(
                                 ui.label(
                                     egui::RichText::new(lp_qualifier(m.point))
                                         .size(12.0)
-                                        .color(egui::Color32::from_rgb(150, 180, 210)),
+                                        .color(theme::TEXT_DIM),
                                 );
                             });
                             // Distance from parent planet (more intuitive than heliocentric radius).
@@ -847,14 +851,14 @@ fn ui_hover_tooltip(
                                 format!("{:.3} AU from {}", dist_from_planet_au, m.planet_name)
                             };
                             let stability = match m.point {
-                                4 | 5 => ("Stable", egui::Color32::from_rgb(100, 210, 130)),
-                                _ => ("Unstable", egui::Color32::from_rgb(220, 160, 80)),
+                                4 | 5 => ("Stable", theme::GREEN),
+                                _ => ("Unstable", theme::AMBER),
                             };
                             ui.horizontal(|ui| {
                                 ui.label(
                                     egui::RichText::new(dist_str)
                                         .size(11.0)
-                                        .color(egui::Color32::from_rgb(130, 160, 190)),
+                                        .color(theme::TEXT_DIM),
                                 );
                             });
                             ui.horizontal(|ui| {
@@ -869,7 +873,7 @@ fn ui_hover_tooltip(
                                     egui::RichText::new("Click to select as fleet target")
                                         .size(10.0)
                                         .italics()
-                                        .color(egui::Color32::from_rgb(120, 140, 160)),
+                                        .color(theme::TEXT_HINT),
                                 );
                             });
                         });
@@ -895,10 +899,10 @@ fn ui_hover_tooltip(
             .show(ctx, |ui| {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                 egui::Frame::NONE
-                    .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 30, 240))
+                    .fill(egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245))
                     .stroke(egui::Stroke::new(
                         2.0,
-                        egui::Color32::from_rgb(100, 180, 255),
+                        theme::ACCENT_DIM,
                     ))
                     .inner_margin(12.0)
                     .show(ui, |ui| {
@@ -907,7 +911,7 @@ fn ui_hover_tooltip(
                             ui.label(
                                 egui::RichText::new(&body.name)
                                     .size(16.0)
-                                    .color(egui::Color32::from_rgb(150, 220, 255))
+                                    .color(theme::ACCENT)
                                     .strong(),
                             );
                         });
@@ -927,7 +931,7 @@ fn ui_hover_tooltip(
                             ui.label(
                                 egui::RichText::new(format!("Type: {}", type_label))
                                     .size(12.0)
-                                    .color(egui::Color32::from_rgb(180, 180, 180)),
+                                    .color(theme::TEXT_DIM),
                             );
                         });
 
@@ -1030,10 +1034,10 @@ fn ui_starmap_hover_tooltip(
             .show(ctx, |ui| {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                 egui::Frame::NONE
-                    .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 30, 240))
+                    .fill(egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245))
                     .stroke(egui::Stroke::new(
                         2.0,
-                        egui::Color32::from_rgb(255, 180, 100),
+                        theme::AMBER,
                     ))
                     .inner_margin(12.0)
                     .show(ui, |ui| {
@@ -1041,7 +1045,7 @@ fn ui_starmap_hover_tooltip(
                             ui.label(
                                 egui::RichText::new(&icon.name)
                                     .size(16.0)
-                                    .color(egui::Color32::from_rgb(255, 220, 150))
+                                    .color(theme::STAR_GOLD)
                                     .strong(),
                             );
                         });
@@ -1050,7 +1054,7 @@ fn ui_starmap_hover_tooltip(
                             ui.label(
                                 egui::RichText::new(format!("Distance: {:.2} ly", distance_ly))
                                     .size(12.0)
-                                    .color(egui::Color32::from_rgb(180, 180, 180)),
+                                    .color(theme::TEXT_DIM),
                             );
                         });
 
@@ -1059,7 +1063,7 @@ fn ui_starmap_hover_tooltip(
                                 ui.label(
                                     egui::RichText::new(format!("Bodies: {}", body_count))
                                         .size(12.0)
-                                        .color(egui::Color32::from_rgb(180, 180, 180)),
+                                        .color(theme::TEXT_DIM),
                                 );
                             });
                         }

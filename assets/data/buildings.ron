@@ -109,6 +109,7 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
+                ("Nickel", 0.0001),
             ],
             modifiers: [
                 (modifier_type: "MiningEfficiency", value: 15.0),
@@ -131,6 +132,9 @@
             maintenance_resources: [
                 ("Iron", 0.02),
                 ("Water", 0.5),
+                ("Nickel", 0.0005),
+                ("Tungsten", 0.00003),
+                ("Sulfur", 0.008),
             ],
             modifiers: [
                 (modifier_type: "MiningEfficiency", value: 8.0),
@@ -149,10 +153,15 @@
                 ("Iron", 1500.0),
                 ("Copper", 500.0),
                 ("Aluminum", 500.0),
+                ("Nickel", 200.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.05),
                 ("Copper", 0.005),
+                ("Nickel", 0.001),
+                ("Tungsten", 0.00003),
+                ("Lithium", 0.00006),
+                ("Sulfur", 0.005),
             ],
             modifiers: [
                 (modifier_type: "ConstructionCost", value: -5.0),
@@ -175,6 +184,7 @@
             maintenance_resources: [
                 ("Iron", 1.0),
                 ("Titanium", 0.1),
+                ("Tungsten", 0.0001),
             ],
             modifiers: [
                 (modifier_type: "DeepMiningEfficiency", value: 25.0),
@@ -259,14 +269,17 @@
                 ("Iron", 800.0),
                 ("Copper", 300.0),
                 ("Silicates", 200.0),
+                ("Sulfur", 100.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.02),
-                ("Water", 0.5),
+                ("Copper", 0.01),
+                ("Nickel", 0.0005),
+                ("Sulfur", 0.03),
+                ("Phosphorus", 0.003),
             ],
             modifiers: [
-                // Acts as a specialized refinery for volatiles
-                (modifier_type: "MiningEfficiency", value: 4.0),
+                (modifier_type: "ChemicalProcessing", value: 1.0),
             ],
         ),
         (
@@ -284,6 +297,7 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.05),
+                ("Sulfur", 0.005),
             ],
             modifiers: [
                 (modifier_type: "MiningEfficiency", value: 10.0),
@@ -325,10 +339,11 @@
                 ("Titanium", 3000.0),
                 ("Iron", 2000.0),
                 ("RareEarths", 500.0),
+                ("Carbon", 1000.0),
             ],
             maintenance_resources: [
-                ("Titanium", 0.2),
-                ("Iron", 0.3),
+                ("Titanium", 1.0),
+                ("Iron", 0.5),
             ],
             modifiers: [],
         ),
@@ -366,9 +381,10 @@
             resource_costs: [
                 ("Silicates", 500.0),
                 ("Copper", 200.0),
+                ("Lithium", 50.0),
             ],
             maintenance_resources: [
-                ("Silicates", 0.1),
+                ("Silicates", 0.01),
             ],
             modifiers: [
                 (modifier_type: "PowerGeneration", value: 5.0),
@@ -387,12 +403,13 @@
                 ("Iron", 1000.0),
                 ("Uranium", 500.0),
                 ("Copper", 500.0),
+                ("Lithium", 100.0),
             ],
             maintenance_resources: [
-                ("Uranium", 0.5),
+                ("Uranium", 5.0),
             ],
             modifiers: [
-                (modifier_type: "PowerGeneration", value: 15.0),
+                (modifier_type: "PowerGeneration", value: 20.0),
             ],
         ),
         (
@@ -408,9 +425,11 @@
                 ("Titanium", 2500.0),
                 ("RareEarths", 1200.0),
                 ("Helium3", 800.0),
+                ("Lithium", 200.0),
             ],
             maintenance_resources: [
                 ("Helium3", 10.0),
+                ("Deuterium", 5.0),
             ],
             modifiers: [
                 (modifier_type: "PowerGeneration", value: 40.0),
@@ -433,9 +452,11 @@
                 ("Iron", 600.0),
                 ("Silicates", 400.0),
                 ("Water", 200.0),
+                ("Phosphorus", 100.0),
             ],
             maintenance_resources: [
                 ("Water", 10.0),
+                ("Phosphorus", 0.5),
             ],
             modifiers: [
                 (modifier_type: "FoodProduction", value: 4000.0), // Feeds 4000 people
@@ -453,9 +474,12 @@
             resource_costs: [
                 ("Iron", 50.0),
                 ("Water", 50.0),
+                ("Phosphorus", 20.0),
             ],
             maintenance_resources: [
                 ("Water", 0.0),
+                ("Sulfur", 0.003),
+                ("Phosphorus", 0.003),
             ],
             modifiers: [
                 (modifier_type: "FoodProduction", value: 1000000.0), // Feeds 1M people (Mega-Farm)
@@ -504,6 +528,7 @@
             maintenance_resources: [
                 ("Copper", 0.005),
                 ("RareEarths", 0.0005),
+                ("Lithium", 0.0001),
             ],
             modifiers: [
                 (modifier_type: "ResearchSpeed", value: 5.0),
@@ -633,6 +658,8 @@
                 ("Titanium", 4000.0),
                 ("Aluminum", 2500.0),
                 ("Copper", 1500.0),
+                ("Nickel", 500.0),
+                ("Carbon", 300.0),
             ],
             maintenance_resources: [
                 ("Iron", 5.0),
@@ -655,9 +682,11 @@
                 ("Iron", 1500.0),
                 ("Titanium", 1000.0),
                 ("Copper", 500.0),
+                ("Tungsten", 300.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.5),
+                ("Copper", 0.01),
             ],
             modifiers: [],
         ),

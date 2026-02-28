@@ -42,6 +42,16 @@ pub(super) fn apply_special_body_profile(
                     0.05, // very low accessibility (deep atmosphere)
                 ),
             );
+            // Deuterium: D/H ratio ~2.5×10⁻⁵ in Jupiter's hydrogen
+            resources.add_deposit(
+                ResourceType::Deuterium,
+                create_atmospheric_deposit(
+                    (body_mass * 0.000025) / 1e9,
+                    0.1,
+                    0.0,
+                    0.03, // very hard to extract from deep atmosphere
+                ),
+            );
                // Note: Water exists as atmospheric vapor (~0.25%), not as mineable solid ice
             info!("Applied Jupiter special profile: gas giant atmosphere (no solid resources)");
             Some(resources)
@@ -62,6 +72,16 @@ pub(super) fn apply_special_body_profile(
                     0.05,
                 ),
             );
+            // Deuterium: D/H ratio ~2.25×10⁻⁵ in Saturn's hydrogen
+            resources.add_deposit(
+                ResourceType::Deuterium,
+                create_atmospheric_deposit(
+                    (body_mass * 0.0000225) / 1e9,
+                    0.1,
+                    0.0,
+                    0.03,
+                ),
+            );
             info!("Applied Saturn special profile: gas giant atmosphere (no solid resources)");
             Some(resources)
         }
@@ -79,6 +99,16 @@ pub(super) fn apply_special_body_profile(
                     0.1,
                     0.0,
                     0.05,
+                ),
+            );
+            // Deuterium in ice giant hydrogen
+            resources.add_deposit(
+                ResourceType::Deuterium,
+                create_atmospheric_deposit(
+                    (body_mass * 0.000022) / 1e9,
+                    0.1,
+                    0.0,
+                    0.04,
                 ),
             );
             resources.add_deposit(
@@ -102,6 +132,16 @@ pub(super) fn apply_special_body_profile(
                     0.1,
                     0.0,
                     0.05,
+                ),
+            );
+            // Deuterium in ice giant hydrogen
+            resources.add_deposit(
+                ResourceType::Deuterium,
+                create_atmospheric_deposit(
+                    (body_mass * 0.000025) / 1e9,
+                    0.1,
+                    0.0,
+                    0.04,
                 ),
             );
             resources.add_deposit(
@@ -250,6 +290,71 @@ pub(super) fn apply_special_body_profile(
                 MineralDeposit::new(0.069, 0.10, 2.99e4, 0.0000000038, 0.2),
             );
 
+            // === NEW RESOURCES (2026 baseline) ===
+
+            // Nickel — ~2.7 Mt/yr (refined)
+            // Proven: ~95 Mt (USGS 2024 reserves)
+            // Deep: ~350 Mt (USGS identified resources + laterite)
+            // Bulk: ~1.8×10¹³ Mt (core is ~5% Ni, mantle ~0.2%)
+            resources.add_deposit(
+                ResourceType::Nickel,
+                MineralDeposit::new(95.0, 350.0, 1.8e13, 0.0054, 0.7),
+            );
+
+            // Tungsten — ~0.084 Mt/yr (84,000 tonnes)
+            // Proven: ~3.8 Mt (USGS 2024 reserves)
+            // Deep: ~12 Mt (USGS identified resources)
+            // Bulk: Crustal average ~1.3 ppm
+            resources.add_deposit(
+                ResourceType::Tungsten,
+                MineralDeposit::new(3.8, 12.0, 7.76e9, 0.0000168, 0.4),
+            );
+
+            // Carbon — ~9,000 Mt/yr (coal equiv + industrial)
+            // Proven: ~1,100,000 Mt (proven coal reserves, USGS/WEC 2024)
+            // Deep: ~10,000,000 Mt (total coal resources + carbonate rocks)
+            // Bulk: Crustal average ~200 ppm (mostly in carbonate sediment)
+            resources.add_deposit(
+                ResourceType::Carbon,
+                MineralDeposit::new(1_100_000.0, 10_000_000.0, 1.19e12, 0.18, 0.8),
+            );
+
+            // Phosphorus — ~0.22 Mt/yr (220,000 tonnes elemental P)
+            // Proven: ~71,000 Mt phosphate rock (USGS 2024; ~13% P content = ~9,200 Mt P)
+            // Deep: ~300,000 Mt (USGS total resources)
+            // Bulk: Crustal average ~1,050 ppm
+            resources.add_deposit(
+                ResourceType::Phosphorus,
+                MineralDeposit::new(9_200.0, 39_000.0, 6.27e12, 0.000044, 0.5),
+            );
+
+            // Deuterium — ocean D/H ratio 1.5576×10⁻⁴
+            // Total ocean hydrogen mass: ~1.11×10¹¹ Mt
+            // Deuterium: 0.01558% = ~1.73×10⁷ Mt (practically inexhaustible)
+            // Proven: 2.1×10⁷ Mt (extractable from seawater)
+            resources.add_deposit(
+                ResourceType::Deuterium,
+                MineralDeposit::new(21_000_000.0, 0.0, 0.0, 0.0002, 0.6),
+            );
+
+            // Lithium — ~0.13 Mt/yr (130,000 tonnes)
+            // Proven: ~28 Mt (USGS 2024 reserves)
+            // Deep: ~98 Mt (USGS identified resources)
+            // Bulk: Crustal average ~20 ppm
+            resources.add_deposit(
+                ResourceType::Lithium,
+                MineralDeposit::new(28.0, 98.0, 1.19e11, 0.0000026, 0.35),
+            );
+
+            // Sulfur — ~80 Mt/yr (elemental + recovered)
+            // Proven: ~600 Mt (USGS 2024 reserves, mostly from oil/gas)
+            // Deep: ~5,000 Mt (volcanic + evaporite deposits)
+            // Bulk: Crustal average ~350 ppm
+            resources.add_deposit(
+                ResourceType::Sulfur,
+                MineralDeposit::new(600.0, 5_000.0, 2.09e12, 0.016, 0.6),
+            );
+
             // === ATMOSPHERIC GASES ===
             // Concentrations proportional to 2026 industrial gas production.
             // N₂ (highest industrial output) = 1.0 reference.
@@ -308,6 +413,21 @@ pub(super) fn apply_special_body_profile(
                 ResourceType::Iron,
                 create_deposit_legacy(0.02, 0.1, body_mass, BodyType::Moon),
             );
+            // Deuterium from subsurface ocean (D/H ~1.5×10⁻⁴ in water)
+            resources.add_deposit(
+                ResourceType::Deuterium,
+                create_deposit_legacy(0.000013, 0.3, body_mass, BodyType::Moon),
+            );
+            // Sulfur from irradiated surface (from Io's volcanic output)
+            resources.add_deposit(
+                ResourceType::Sulfur,
+                create_deposit_legacy(0.002, 0.5, body_mass, BodyType::Moon),
+            );
+            // Nickel in rocky interior
+            resources.add_deposit(
+                ResourceType::Nickel,
+                create_deposit_legacy(0.005, 0.1, body_mass, BodyType::Moon),
+            );
             info!("Applied Europa special profile: massive subsurface ocean (2-3× Earth's oceans)");
             Some(resources)
         }
@@ -346,6 +466,31 @@ pub(super) fn apply_special_body_profile(
                 ResourceType::Nitrogen,
                 create_deposit_legacy(0.02, 0.4, body_mass, BodyType::Planet),
             ); // Thin atmosphere
+            // Nickel: meteoritic enrichment of regolith (~1.5% from meteorites)
+            resources.add_deposit(
+                ResourceType::Nickel,
+                create_deposit_legacy(0.01, 0.5, body_mass, BodyType::Planet),
+            );
+            // Sulfur: sulfate minerals in regolith (MgSO4 etc. from Spirit/Opportunity)
+            resources.add_deposit(
+                ResourceType::Sulfur,
+                create_deposit_legacy(0.003, 0.6, body_mass, BodyType::Planet),
+            );
+            // Carbon: as carbonates in martian soil (~0.5% estimate)
+            resources.add_deposit(
+                ResourceType::Carbon,
+                create_deposit_legacy(0.005, 0.4, body_mass, BodyType::Planet),
+            );
+            // Phosphorus: trace in basaltic rock (~0.1%)
+            resources.add_deposit(
+                ResourceType::Phosphorus,
+                create_deposit_legacy(0.001, 0.3, body_mass, BodyType::Planet),
+            );
+            // Deuterium: from polar ice (D/H enriched ~5× vs Earth on Mars)
+            resources.add_deposit(
+                ResourceType::Deuterium,
+                create_deposit_from_absolute_mass(700.0, 0.3, BodyType::Planet),
+            );
             info!("Applied Mars special profile: 4.6 billion Mt water ice, basaltic regolith");
             Some(resources)
         }
@@ -395,6 +540,16 @@ pub(super) fn apply_special_body_profile(
                 ResourceType::Helium3,
                 MineralDeposit::new(0.9, 0.1, 0.0, 0.8, 0.8),
             );
+            // Nickel: trace in lunar regolith from meteoritic input (~0.3%)
+            resources.add_deposit(
+                ResourceType::Nickel,
+                create_deposit_legacy(0.003, 0.4, body_mass, BodyType::Moon),
+            );
+            // Sulfur: volcanic glasses contain ~0.05% S
+            resources.add_deposit(
+                ResourceType::Sulfur,
+                create_deposit_legacy(0.0005, 0.3, body_mass, BodyType::Moon),
+            );
             info!("Applied Moon special profile: 600 Mt water ice in polar craters");
             Some(resources)
         }
@@ -420,6 +575,21 @@ pub(super) fn apply_special_body_profile(
             resources.add_deposit(
                 ResourceType::Silicates,
                 create_deposit_legacy(0.02, 0.2, body_mass, BodyType::Moon),
+            );
+            // Carbon: abundant in hydrocarbon form (ethane, propane, etc.)
+            resources.add_deposit(
+                ResourceType::Carbon,
+                create_deposit_legacy(0.08, 0.8, body_mass, BodyType::Moon),
+            );
+            // Phosphorus: trace in rocky interior
+            resources.add_deposit(
+                ResourceType::Phosphorus,
+                create_deposit_legacy(0.0005, 0.2, body_mass, BodyType::Moon),
+            );
+            // Deuterium: from water ice subsurface
+            resources.add_deposit(
+                ResourceType::Deuterium,
+                create_deposit_legacy(0.000015, 0.2, body_mass, BodyType::Moon),
             );
             info!("Applied Titan special profile: hydrocarbon lakes and thick N2 atmosphere");
             Some(resources)
@@ -447,6 +617,21 @@ pub(super) fn apply_special_body_profile(
                 ResourceType::Iron,
                 create_deposit_legacy(0.02, 0.3, body_mass, BodyType::Moon),
             );
+            // Deuterium from subsurface ocean
+            resources.add_deposit(
+                ResourceType::Deuterium,
+                create_deposit_legacy(0.000012, 0.6, body_mass, BodyType::Moon),
+            );
+            // Phosphorus: detected in plume material
+            resources.add_deposit(
+                ResourceType::Phosphorus,
+                create_deposit_legacy(0.0003, 0.7, body_mass, BodyType::Moon),
+            );
+            // Sulfur: trace in hydrothermal fluids
+            resources.add_deposit(
+                ResourceType::Sulfur,
+                create_deposit_legacy(0.001, 0.5, body_mass, BodyType::Moon),
+            );
             info!("Applied Enceladus special profile: active water geysers");
             Some(resources)
         }
@@ -472,6 +657,31 @@ pub(super) fn apply_special_body_profile(
             resources.add_deposit(
                 ResourceType::Copper,
                 create_deposit_legacy(0.0001, 0.4, body_mass, BodyType::DwarfPlanet),
+            );
+            // Carbon: C-type body, abundant carbonaceous material
+            resources.add_deposit(
+                ResourceType::Carbon,
+                create_deposit_legacy(0.03, 0.5, body_mass, BodyType::DwarfPlanet),
+            );
+            // Phosphorus: present in aqueously altered minerals
+            resources.add_deposit(
+                ResourceType::Phosphorus,
+                create_deposit_legacy(0.002, 0.4, body_mass, BodyType::DwarfPlanet),
+            );
+            // Sulfur: sulfate/sulfide minerals
+            resources.add_deposit(
+                ResourceType::Sulfur,
+                create_deposit_legacy(0.005, 0.4, body_mass, BodyType::DwarfPlanet),
+            );
+            // Nickel: in chondritic material
+            resources.add_deposit(
+                ResourceType::Nickel,
+                create_deposit_legacy(0.01, 0.4, body_mass, BodyType::DwarfPlanet),
+            );
+            // Deuterium: from water ice
+            resources.add_deposit(
+                ResourceType::Deuterium,
+                create_deposit_legacy(0.00006, 0.3, body_mass, BodyType::DwarfPlanet),
             );
             info!("Applied Ceres special profile: water-rich dwarf planet");
             Some(resources)
@@ -546,6 +756,27 @@ pub(super) fn apply_special_body_profile(
                 ResourceType::Copper,
                 create_deposit_legacy(0.00003, 0.15, body_mass, BodyType::Planet),
             );
+            // Nickel: similar to Earth's bulk composition
+            resources.add_deposit(
+                ResourceType::Nickel,
+                create_deposit_legacy(0.018, 0.15, body_mass, BodyType::Planet),
+            );
+            // Tungsten: refractory, present in crust
+            resources.add_deposit(
+                ResourceType::Tungsten,
+                create_deposit_legacy(0.0000013, 0.10, body_mass, BodyType::Planet),
+            );
+            // Carbon: CO2 atmosphere contains carbon (as the CO2 is already counted,
+            // this represents crustal carbonate rocks)
+            resources.add_deposit(
+                ResourceType::Carbon,
+                create_deposit_legacy(0.0001, 0.1, body_mass, BodyType::Planet),
+            );
+            // Sulfur: SO2 in atmosphere (~150 ppm) and volcanic surface deposits
+            resources.add_deposit(
+                ResourceType::Sulfur,
+                create_deposit_legacy(0.001, 0.3, body_mass, BodyType::Planet),
+            );
 
             info!("Applied Venus special profile: massive CO2 atmosphere, no water, extreme surface");
             Some(resources)
@@ -614,6 +845,26 @@ pub(super) fn apply_special_body_profile(
             resources.add_deposit(
                 ResourceType::Helium3,
                 create_solar_wind_deposit((body_mass * 0.000000001) / 1e9, 0.6),
+            );
+            // Nickel: large metallic core, high nickel content (~5% of core)
+            resources.add_deposit(
+                ResourceType::Nickel,
+                create_deposit_legacy(0.03, 0.6, body_mass, BodyType::Planet),
+            );
+            // Sulfur: MESSENGER detected volatile-rich surface (~4% S by weight)
+            resources.add_deposit(
+                ResourceType::Sulfur,
+                create_deposit_legacy(0.04, 0.7, body_mass, BodyType::Planet),
+            );
+            // Tungsten: refractory siderophile, concentrated in metallic core
+            resources.add_deposit(
+                ResourceType::Tungsten,
+                create_deposit_legacy(0.00001, 0.4, body_mass, BodyType::Planet),
+            );
+            // Carbon: MESSENGER found ~3-4% carbon on surface (graphite)
+            resources.add_deposit(
+                ResourceType::Carbon,
+                create_deposit_legacy(0.035, 0.6, body_mass, BodyType::Planet),
             );
 
             info!("Applied Mercury special profile: massive iron core, polar ice, solar wind He-3");
@@ -725,6 +976,57 @@ pub(super) fn apply_spectral_class_profile(
                 ),
             );
 
+            // Carbon: 3-8% in carbonaceous chondrites — the best Carbon source
+            resources.add_deposit(
+                ResourceType::Carbon,
+                create_deposit_legacy(
+                    rng.random_range(0.03..0.08),
+                    rng.random_range(0.6..0.85),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
+            // Phosphorus: 0.1-0.3% — the *only* reliable source outside Earth
+            resources.add_deposit(
+                ResourceType::Phosphorus,
+                create_deposit_legacy(
+                    rng.random_range(0.001..0.003),
+                    rng.random_range(0.5..0.7),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
+            // Sulfur: 1-3% in sulfide minerals
+            resources.add_deposit(
+                ResourceType::Sulfur,
+                create_deposit_legacy(
+                    rng.random_range(0.01..0.03),
+                    rng.random_range(0.5..0.75),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
+            // Nickel: 1-2% (moderate, in silicate matrix)
+            resources.add_deposit(
+                ResourceType::Nickel,
+                create_deposit_legacy(
+                    rng.random_range(0.01..0.02),
+                    rng.random_range(0.4..0.65),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
+            // Deuterium: trace, bound in hydrated minerals (D/H ~1.5×10⁻⁴)
+            resources.add_deposit(
+                ResourceType::Deuterium,
+                create_deposit_legacy(
+                    rng.random_range(0.000006..0.00001),
+                    rng.random_range(0.4..0.6),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
+
             info!(
                 "Applied C-Type spectral profile to {}: 4-7% water content",
                 body_name
@@ -779,6 +1081,46 @@ pub(super) fn apply_spectral_class_profile(
                 create_deposit_legacy(
                     rng.random_range(0.00005..0.0002),
                     rng.random_range(0.4..0.7),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
+            // Nickel: 0.5-2% in metallic grains within silicate matrix
+            resources.add_deposit(
+                ResourceType::Nickel,
+                create_deposit_legacy(
+                    rng.random_range(0.005..0.02),
+                    rng.random_range(0.6..0.8),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
+            // Sulfur: 0.1-0.5% in sulfide inclusions
+            resources.add_deposit(
+                ResourceType::Sulfur,
+                create_deposit_legacy(
+                    rng.random_range(0.001..0.005),
+                    rng.random_range(0.4..0.65),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
+            // Carbon: trace only in S-type
+            resources.add_deposit(
+                ResourceType::Carbon,
+                create_deposit_legacy(
+                    rng.random_range(0.0001..0.001),
+                    rng.random_range(0.3..0.5),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
+            // Tungsten: trace in refractory silicates
+            resources.add_deposit(
+                ResourceType::Tungsten,
+                create_deposit_legacy(
+                    rng.random_range(0.00001..0.0001),
+                    rng.random_range(0.4..0.6),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -868,6 +1210,26 @@ pub(super) fn apply_spectral_class_profile(
                     BodyType::Asteroid,
                 ),
             );
+            // Nickel: 5-15% — the *primary* Nickel source (nickel-iron alloy)
+            resources.add_deposit(
+                ResourceType::Nickel,
+                create_deposit_legacy(
+                    rng.random_range(0.05..0.15),
+                    rng.random_range(0.85..0.98),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
+            // Tungsten: 0.01-0.1% — concentrated in metallic bodies
+            resources.add_deposit(
+                ResourceType::Tungsten,
+                create_deposit_legacy(
+                    rng.random_range(0.0001..0.001),
+                    rng.random_range(0.7..0.9),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
 
             // Minimal silicates, NO significant volatiles (anhydrous)
             resources.add_deposit(
@@ -932,6 +1294,26 @@ pub(super) fn apply_spectral_class_profile(
                 create_deposit_legacy(
                     rng.random_range(0.0001..0.0005),
                     rng.random_range(0.5..0.75),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
+            // Nickel: 1-3% in differentiated body
+            resources.add_deposit(
+                ResourceType::Nickel,
+                create_deposit_legacy(
+                    rng.random_range(0.01..0.03),
+                    rng.random_range(0.6..0.8),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
+            // Tungsten: trace in basaltic material
+            resources.add_deposit(
+                ResourceType::Tungsten,
+                create_deposit_legacy(
+                    rng.random_range(0.00001..0.00005),
+                    rng.random_range(0.5..0.7),
                     body_mass,
                     BodyType::Asteroid,
                 ),
@@ -1011,6 +1393,36 @@ pub(super) fn apply_spectral_class_profile(
                     BodyType::Asteroid,
                 ),
             );
+            // Carbon: 5-12% — organic-rich primitive material
+            resources.add_deposit(
+                ResourceType::Carbon,
+                create_deposit_legacy(
+                    rng.random_range(0.05..0.12),
+                    rng.random_range(0.6..0.85),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
+            // Phosphorus: 0.05-0.2% in primitive organics
+            resources.add_deposit(
+                ResourceType::Phosphorus,
+                create_deposit_legacy(
+                    rng.random_range(0.0005..0.002),
+                    rng.random_range(0.5..0.7),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
+            // Sulfur: 2-5% in primitive volatile-rich material
+            resources.add_deposit(
+                ResourceType::Sulfur,
+                create_deposit_legacy(
+                    rng.random_range(0.02..0.05),
+                    rng.random_range(0.55..0.8),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
 
             info!(
                 "Applied D-Type spectral profile to {}: Primitive, extremely high volatiles",
@@ -1082,6 +1494,36 @@ pub(super) fn apply_spectral_class_profile(
                 create_deposit_legacy(
                     rng.random_range(0.03..0.10),
                     rng.random_range(0.35..0.6),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
+            // Carbon: 4-10% in primitive material
+            resources.add_deposit(
+                ResourceType::Carbon,
+                create_deposit_legacy(
+                    rng.random_range(0.04..0.10),
+                    rng.random_range(0.55..0.8),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
+            // Phosphorus: 0.03-0.15% in primitive organics
+            resources.add_deposit(
+                ResourceType::Phosphorus,
+                create_deposit_legacy(
+                    rng.random_range(0.0003..0.0015),
+                    rng.random_range(0.45..0.65),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
+            // Sulfur: 1.5-4% in volatile-rich primitive material
+            resources.add_deposit(
+                ResourceType::Sulfur,
+                create_deposit_legacy(
+                    rng.random_range(0.015..0.04),
+                    rng.random_range(0.5..0.75),
                     body_mass,
                     BodyType::Asteroid,
                 ),
