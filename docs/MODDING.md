@@ -79,23 +79,29 @@ texture is picked from `assets/data/planet_textures.ron`.
 
 ### Archetypes
 
-| Category    | Temperature range | Appearance               |
-|-------------|-------------------|--------------------------|
-| `lava`      | > 500 °C          | Volcanic, molten surface |
-| `desert`    | 60 – 500 °C       | Arid, dusty, rusty red   |
-| `jungle`    | −20 – 60 °C       | Dense green biosphere    |
-| `ocean`     | −20 – 60 °C       | Global blue ocean        |
-| `temperate` | −20 – 60 °C       | Earth-like mixed biomes  |
-| `tundra`    | −100 – −20 °C     | Permafrost, grey-blue    |
-| `ice`       | below −100 °C     | Frozen, Pluto-like       |
-| `barren`    | any (default)     | Cratered, airless        |
-| `gas_giant` | ≥ −80 °C          | Jupiter / Saturn-like    |
-| `ice_giant` | < −80 °C          | Neptune / Uranus-like    |
-| `dwarf`     | —                 | KBOs, dwarf planets      |
-| `moon`      | —                 | Natural satellites       |
+| Category    | Temperature range              | Appearance                         |
+|-------------|--------------------------------|------------------------------------|
+| `lava`      | > 500 °C                       | Volcanic, molten surface           |
+| `desert`    | 60 – 500 °C                    | Arid, dusty, rusty red             |
+| `savannah`  | > 45 °C (up to 500 °C)         | Hot grasslands, scorched plains    |
+| `jungle`    | −20 – 60 °C                    | Dense green biosphere              |
+| `ocean`     | −20 – 60 °C                    | Global blue ocean                  |
+| `temperate` | −20 – 60 °C                    | Earth-like mixed biomes            |
+| `alpine`    | −20 to 60 °C (< −5 °C)         | Cold habitable, frosty highlands   |
+| `swamp`     | −20 to 45 °C                   | Murky, wet marshlands              |
+| `tundra`    | −100 – −20 °C                  | Permafrost, grey-blue              |
+| `ice`       | below −100 °C                  | Frozen, Pluto-like                 |
+| `barren`    | any (default)                  | Cratered, airless                  |
+| `gas_giant` | ≥ −80 °C                       | Jupiter / Saturn-like              |
+| `ice_giant` | < −80 °C                       | Neptune / Uranus-like              |
+| `dwarf`     | —                              | KBOs, dwarf planets                |
+| `moon`      | —                              | Natural satellites                 |
 
 Jungle, ocean, and temperate worlds are all in the same temperature band; the
 game distributes among the three deterministically by body name.
+
+> **Note:** The category is also shown in starmap tooltips and the selected-body
+> panel, making it easier to identify generated worlds.
 
 ### Adding Textures to a Category
 

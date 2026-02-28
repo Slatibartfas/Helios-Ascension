@@ -515,6 +515,7 @@ pub(super) fn ui_dashboard(
         Option<&KeplerOrbit>,
         Option<&PlanetResources>,
         Option<&AtmosphereComposition>,
+        Option<&crate::plugins::starmap::PlanetCategory>,
         Option<&mut SurveyLevel>,
         Option<&Population>,
         Option<&crate::astronomy::SurfaceTemperature>,
@@ -795,9 +796,17 @@ pub(super) fn ui_dashboard(
                 ui.separator();
 
                 if let Some(entity) = selection.get() {
-                    if let Ok((body, opt_coords, orbit, resources, atmosphere, mut survey_level, population, surface_temp, logical_parent)) = body_query.get_mut(entity) {
+                    if let Ok((body, opt_coords, orbit, resources, atmosphere, category_opt, mut survey_level, population, surface_temp, logical_parent)) = body_query.get_mut(entity) {
                         // Body name and basic info
                         ui.label(egui::RichText::new(&body.name).size(18.0).strong());
+                        // show category string in tooltip-style text if available
+                        if let Some(cat) = category_opt {
+                            ui.label(
+                                egui::RichText::new(&cat.0)
+                                    .small()
+                                    .color(egui::Color32::GRAY),
+                            );
+                        }
                         ui.add_space(10.0);
 
                         // Position information

@@ -31,7 +31,7 @@ pub fn handle_body_selection(
     mouse_button: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     camera_query: Query<(&Camera, &GlobalTransform), With<GameCamera>>,
-    body_query: Query<(Entity, &GlobalTransform, &CelestialBody, Option<&SystemId>, Option<&crate::plugins::solar_system::LogicalParent>), Without<ClickExcluded>>,
+    body_query: Query<(Entity, &GlobalTransform, &CelestialBody, Option<&SystemId>, Option<&crate::plugins::solar_system::LogicalParent>, &Visibility), Without<ClickExcluded>>,
     current_system: Res<CurrentStarSystem>,
     mut commands: Commands,
     selected_query: Query<Entity, With<Selected>>,
@@ -97,10 +97,15 @@ pub fn handle_body_selection(
     // Stores: (Entity, ray_distance, body name)
     let mut closest_body: Option<(Entity, f32, f32, String)> = None;
 
-    for (entity, transform, body, system_id, _logical_parent) in body_query.iter() {
+    for (entity, transform, body, system_id, _logical_parent, visibility) in body_query.iter() {
         // Only interact with bodies in the current star system
         let body_system = system_id.map(|s| s.0).unwrap_or(0);
         if body_system != current_system.0 {
+            continue;
+        }
+
+        // Skip hidden bodies (e.g. moons whose parent is not anchored/selected)
+        if *visibility == Visibility::Hidden {
             continue;
         }
 
@@ -183,7 +188,7 @@ pub fn handle_body_hover(
     view_mode: Res<ViewMode>,
     windows: Query<&Window, With<PrimaryWindow>>,
     camera_query: Query<(&Camera, &GlobalTransform), With<GameCamera>>,
-    body_query: Query<(Entity, &GlobalTransform, &CelestialBody, Option<&SystemId>), Without<ClickExcluded>>,
+    body_query: Query<(Entity, &GlobalTransform, &CelestialBody, Option<&SystemId>, &Visibility), Without<ClickExcluded>>,
     current_system: Res<CurrentStarSystem>,
     mut commands: Commands,
     hovered_query: Query<Entity, With<Hovered>>,
@@ -252,10 +257,15 @@ pub fn handle_body_hover(
     // stars from stealing hovers away from smaller planets orbiting nearby.
     let mut closest_body: Option<(Entity, f32, f32)> = None;
 
-    for (entity, transform, body, system_id) in body_query.iter() {
+    for (entity, transform, body, system_id, visibility) in body_query.iter() {
         // Only interact with bodies in the current star system
         let body_system = system_id.map(|s| s.0).unwrap_or(0);
         if body_system != current_system.0 {
+            continue;
+        }
+
+        // Skip hidden bodies (e.g. moons whose parent is not anchored/selected)
+        if *visibility == Visibility::Hidden {
             continue;
         }
 

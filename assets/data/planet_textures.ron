@@ -74,6 +74,15 @@
             // Currently uses Earth as a placeholder — replace with dedicated textures.
             "textures/celestial/planets/earth_8k.jpg",
         ],
+        "alpine": [
+            "textures/celestial/planets/alpine/Alpine.png",
+        ],
+        "savannah": [
+            "textures/celestial/planets/savannah/Savannah.png",
+        ],
+        "swamp": [
+            "textures/celestial/planets/swamp/Swamp.png",
+        ],
         "tundra": [
             // Cold permafrost worlds. Add tundra planet textures to
             // assets/textures/celestial/planets/tundra/ and register them here.

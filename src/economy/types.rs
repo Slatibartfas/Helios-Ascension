@@ -1,6 +1,99 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+/// Phase state of a resource deposit (ice, liquid, or vapor).
+///
+/// Determined by surface temperature and pressure of the host body.
+/// Affects extraction difficulty, accessibility bonuses, and visual representation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum ResourcePhase {
+    /// Solid / frozen state (default for most deposits)
+    #[default]
+    Solid,
+    /// Liquid state — easier extraction, enables ocean formation
+    Liquid,
+    /// Gaseous / vapor state — atmospheric harvesting
+    Vapor,
+}
+
+impl fmt::Display for ResourcePhase {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ResourcePhase::Solid => write!(f, "Solid"),
+            ResourcePhase::Liquid => write!(f, "Liquid"),
+            ResourcePhase::Vapor => write!(f, "Vapor"),
+        }
+    }
+}
+
+/// Determine the phase of a volatile resource based on temperature and pressure.
+///
+/// Uses simplified phase boundary logic:
+/// - **Water**: liquid at 0–100°C with pressure ≥ 6.1 mbar (triple point)
+/// - **Methane**: liquid at −182 to −161°C
+/// - **Ammonia**: liquid at −78 to −33°C
+/// - **Hydrogen**: liquid at −259 to −253°C (rare, requires extreme cold)
+///
+/// Non-volatile resources always return `Solid`.
+pub fn determine_resource_phase(
+    resource: ResourceType,
+    temp_celsius: f32,
+    pressure_mbar: f32,
+) -> ResourcePhase {
+    match resource {
+        ResourceType::Water => {
+            // Water triple point: 0.01°C at 6.11 mbar
+            // Boiling point varies with pressure, but simplified to 100°C at 1013 mbar
+            if pressure_mbar < 6.1 {
+                // Below triple point pressure: sublimation only (ice ↔ vapor)
+                if temp_celsius > 0.0 {
+                    ResourcePhase::Vapor
+                } else {
+                    ResourcePhase::Solid
+                }
+            } else if temp_celsius >= 0.0 && temp_celsius <= 100.0 + (pressure_mbar - 1013.0) * 0.03 {
+                ResourcePhase::Liquid
+            } else if temp_celsius > 100.0 + (pressure_mbar - 1013.0) * 0.03 {
+                ResourcePhase::Vapor
+            } else {
+                ResourcePhase::Solid
+            }
+        }
+        ResourceType::Methane => {
+            // Methane: melts at −182.5°C, boils at −161.5°C (at 1 atm)
+            if temp_celsius >= -182.5 && temp_celsius <= -161.5 {
+                ResourcePhase::Liquid
+            } else if temp_celsius > -161.5 {
+                ResourcePhase::Vapor
+            } else {
+                ResourcePhase::Solid
+            }
+        }
+        ResourceType::Ammonia => {
+            // Ammonia: melts at −77.7°C, boils at −33.3°C (at 1 atm)
+            if temp_celsius >= -78.0 && temp_celsius <= -33.0 {
+                ResourcePhase::Liquid
+            } else if temp_celsius > -33.0 {
+                ResourcePhase::Vapor
+            } else {
+                ResourcePhase::Solid
+            }
+        }
+        ResourceType::Hydrogen => {
+            // Hydrogen: melts at −259°C, boils at −253°C
+            if temp_celsius >= -259.0 && temp_celsius <= -253.0 {
+                ResourcePhase::Liquid
+            } else if temp_celsius > -253.0 {
+                ResourcePhase::Vapor
+            } else {
+                ResourcePhase::Solid
+            }
+        }
+        // Non-volatile resources are always solid minerals
+        _ => ResourcePhase::Solid,
+    }
+}
+
 /// Resource types in the Helios Ascension economy
 /// Categorized by their geological and industrial properties
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

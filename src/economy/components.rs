@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use super::types::ResourceType;
+use super::types::{ResourcePhase, ResourceType};
 
 /// Source category for power generation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -212,6 +212,12 @@ pub struct MineralDeposit {
     /// and hides the concentration bar (meaningless for gases in air).
     #[serde(default)]
     pub is_atmospheric: bool,
+
+    /// Physical phase of this deposit (Solid/Liquid/Vapor).
+    /// Determined by the body's surface temperature and pressure.
+    /// Liquid deposits have higher accessibility for extraction.
+    #[serde(default)]
+    pub phase: ResourcePhase,
 }
 
 impl MineralDeposit {
@@ -221,6 +227,7 @@ impl MineralDeposit {
             reserve: ResourceReserve::new(proven, deep, bulk, concentration),
             accessibility: accessibility.clamp(0.0, 1.0),
             is_atmospheric: false,
+            phase: ResourcePhase::Solid,
         }
     }
 
@@ -230,6 +237,7 @@ impl MineralDeposit {
             reserve: ResourceReserve::default(),
             accessibility: 0.0,
             is_atmospheric: false,
+            phase: ResourcePhase::Solid,
         }
     }
 

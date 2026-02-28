@@ -8,6 +8,8 @@
 
 use bevy::math::DVec3;
 use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy::asset::RenderAssetUsages;
 use rand::prelude::*;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
@@ -25,7 +27,8 @@ use crate::economy::components::{OrbitsBody, SpectralClass, StarSystem};
 use crate::economy::generation::generate_solar_system_resources;
 use crate::game_state::GameSeed;
 use crate::plugins::solar_system::{
-    Asteroid, CelestialBody, Comet, LogicalParent, Moon, Planet, Star,
+    Asteroid, CelestialBody, ClickExcluded, Comet, LogicalParent, Moon, Planet, Ring, Star,
+    create_ring_mesh,
 };
 use crate::plugins::solar_system_data::{calculate_visual_radius, system_visual_scale, AsteroidClass, BodyType};
 use crate::plugins::starmap::SystemMetadata;
@@ -48,6 +51,9 @@ impl Plugin for SystemPopulatorPlugin {
 /// for deterministic generation
 fn populate_nearby_systems(
     mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
     stars_data: Res<NearbyStarsData>,
     game_seed: Res<GameSeed>,
     _current_system: Res<CurrentStarSystem>,
@@ -243,7 +249,7 @@ fn populate_nearby_systems(
                 all_planet_entities.push((planet_entity, planet.semi_major_axis_au, planet.mass_earth as f32, vis_r, planet.name.clone()));
             }
 
-            // Generate moons for planets massive enough to retain them
+            // Generate moons and possibly rings for planets massive enough to retain them
             for (planet_entity, sma_au, mass_earth, vis_r, planet_name) in &all_planet_entities {
                 let (planet_entity, sma_au, mass_earth, vis_r) = (*planet_entity, *sma_au, *mass_earth, *vis_r);
                 spawn_procedural_moons(
@@ -258,6 +264,30 @@ fn populate_nearby_systems(
                     vis_scale,
                     &mut rng,
                 );
+
+                // Possibly add a ring system around large gas/ice giants.
+                // Only bodies outside ~half the frost line can retain stable rings (no tidal disruption).
+                let ring_chance = if mass_earth > 30.0 && sma_au > architecture.frost_line_au * 0.5 {
+                    0.42 // Large gas giants: ~42% chance
+                } else if mass_earth > 10.0 && sma_au > architecture.frost_line_au * 0.5 {
+                    0.20 // Ice giants / sub-giants: ~20% chance
+                } else {
+                    0.0
+                };
+                if ring_chance > 0.0 && rng.random_bool(ring_chance) {
+                    spawn_procedural_ring(
+                        &mut commands,
+                        &mut meshes,
+                        &mut materials,
+                        &mut images,
+                        planet_entity,
+                        planet_name,
+                        vis_r,
+                        mass_earth,
+                        system_id,
+                        &mut rng,
+                    );
+                }
             }
 
             // Spawn asteroid belt if present
@@ -777,6 +807,197 @@ pub fn spawn_cometary_cloud(
 /// Each moon receives a [`LocalOrbitAmplification`] component so that its
 /// orbit renders outside the parent planet's visual mesh, matching the
 /// Universe Sandbox-style approach used for Sol-system moons.
+/// Spawn a procedural ring system around a gas/ice giant.
+///
+/// Generates a 1-D radial RGBA texture with distinct ring bands, gaps, and a
+/// colour gradient — mimicking the approach used by the Sol system’s real
+/// Saturn / Uranus ring textures.  The texture is mapped across the U
+/// coordinate of the ring mesh (0 = inner edge, 1 = outer edge).
+fn spawn_procedural_ring(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    images: &mut Assets<Image>,
+    planet_entity: Entity,
+    planet_name: &str,
+    planet_visual_radius: f32,
+    mass_earth: f32,
+    system_id: usize,
+    rng: &mut impl Rng,
+) {
+    // ── Geometry ──────────────────────────────────────────────────────────
+    let outer_scale: f32 = rng.random_range(1.5_f32..2.5);
+    let inner_frac:  f32 = rng.random_range(0.40_f32..0.70);
+    let outer_radius = planet_visual_radius * outer_scale;
+    let inner_radius = outer_radius * inner_frac;
+
+    // ── Ring flavor (base colour palette) ─────────────────────────────────
+    let flavor: u32 = rng.random_range(0..100);
+    // (inner_rgb, outer_rgb) – the colour lerps from inner to outer
+    let (inner_rgb, outer_rgb, flavor_label): ([f32; 3], [f32; 3], &str) = if flavor < 35 {
+        // Saturn-like: warm cream-to-tan gradient
+        ([0.92, 0.86, 0.70], [0.72, 0.58, 0.38], "Saturn-tan")
+    } else if flavor < 58 {
+        // Uranus-like: pale blue-grey → slate
+        ([0.72, 0.82, 0.88], [0.45, 0.55, 0.62], "Uranus-blue")
+    } else if flavor < 76 {
+        // Icy white (Neptune-like): almost white → cool grey
+        ([0.92, 0.94, 0.96], [0.68, 0.72, 0.78], "Icy-white")
+    } else if flavor < 92 {
+        // Dusty reddish-brown: warm rust gradient
+        ([0.78, 0.52, 0.36], [0.55, 0.32, 0.20], "Dusty-red")
+    } else {
+        // Near-transparent sooty dark (faint Jupiter-like)
+        ([0.35, 0.30, 0.25], [0.18, 0.15, 0.12], "Dark-faint")
+    };
+
+    // Per-ring jitter so no two look identical
+    let jitter_r = rng.random_range(-0.05_f32..0.05);
+    let jitter_g = rng.random_range(-0.05_f32..0.05);
+    let jitter_b = rng.random_range(-0.05_f32..0.05);
+
+    // ── Generate procedural ring texture ─────────────────────────────────
+    // 512 pixels wide (U direction = radial), 1 pixel tall.
+    // This is replicated around the ring via UV mapping.
+    const TEX_W: u32 = 512;
+    const TEX_H: u32 = 1;
+
+    // Decide how many ring bands and gaps this system has
+    let num_bands: usize = rng.random_range(3..=8);
+    let num_gaps:  usize = rng.random_range(1..=num_bands.saturating_sub(1).max(1));
+
+    // Pre-generate gap locations (as fractions 0..1 across the radial extent)
+    // and widths.  Gaps are narrow transparent slots between bands.
+    struct GapInfo {
+        center: f32, // 0..1
+        half_w: f32, // half-width in 0..1
+    }
+    let gaps: Vec<GapInfo> = (0..num_gaps)
+        .map(|_| GapInfo {
+            center: rng.random_range(0.08_f32..0.92),
+            half_w: rng.random_range(0.01_f32..0.06),
+        })
+        .collect();
+
+    // Pre-generate band density peaks.  Each band is a smooth bump that
+    // contributes opacity; overlapping bumps create the rich layered look.
+    struct BandInfo {
+        center: f32,
+        sigma:  f32, // gaussian width
+        peak:   f32, // peak alpha
+    }
+    let bands: Vec<BandInfo> = (0..num_bands)
+        .map(|_| BandInfo {
+            center: rng.random_range(0.05_f32..0.95),
+            sigma:  rng.random_range(0.04_f32..0.20),
+            peak:   rng.random_range(0.35_f32..0.85),
+        })
+        .collect();
+
+    let mut pixels = Vec::with_capacity((TEX_W as usize) * 4);
+    for x in 0..TEX_W {
+        let u = x as f32 / (TEX_W - 1) as f32; // 0 = inner, 1 = outer
+
+        // Colour: lerp inner → outer + jitter
+        let cr = ((inner_rgb[0] + (outer_rgb[0] - inner_rgb[0]) * u) + jitter_r).clamp(0.0, 1.0);
+        let cg = ((inner_rgb[1] + (outer_rgb[1] - inner_rgb[1]) * u) + jitter_g).clamp(0.0, 1.0);
+        let cb = ((inner_rgb[2] + (outer_rgb[2] - inner_rgb[2]) * u) + jitter_b).clamp(0.0, 1.0);
+
+        // Alpha: sum of band contributions
+        let mut alpha: f32 = 0.0;
+        for band in &bands {
+            let d = (u - band.center) / band.sigma;
+            alpha += band.peak * (-0.5 * d * d).exp();
+        }
+
+        // Cut gaps: anywhere inside a gap, drive alpha to zero
+        for gap in &gaps {
+            if (u - gap.center).abs() < gap.half_w {
+                // Smooth edge: fade linearly over the outer 30% of the gap
+                let edge_dist = gap.half_w - (u - gap.center).abs();
+                let edge_zone = gap.half_w * 0.3;
+                let gap_factor = if edge_dist > edge_zone {
+                    0.0 // deep inside gap
+                } else {
+                    edge_dist / edge_zone // smooth ramp at edge
+                };
+                alpha *= gap_factor;
+            }
+        }
+
+        // Soft fade at inner and outer edges so the ring doesn't end abruptly
+        let edge_fade = (u * 8.0).min(1.0) * ((1.0 - u) * 8.0).min(1.0);
+        alpha *= edge_fade;
+
+        // Add a touch of fine-grain noise for texture
+        let noise = rng.random_range(-0.04_f32..0.04);
+        alpha = (alpha + noise).clamp(0.0, 1.0);
+
+        pixels.push((cr * 255.0) as u8);
+        pixels.push((cg * 255.0) as u8);
+        pixels.push((cb * 255.0) as u8);
+        pixels.push((alpha * 255.0) as u8);
+    }
+
+    let ring_image = Image::new(
+        Extent3d {
+            width: TEX_W,
+            height: TEX_H,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        pixels,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::default(),
+    );
+    let texture_handle = images.add(ring_image);
+
+    // ── Slight random tilt ────────────────────────────────────────────────
+    let tilt: f32 = rng.random_range(-0.14_f32..0.14);
+    let transform = Transform::from_rotation(Quat::from_rotation_x(tilt));
+
+    // ── Ring mass estimate ────────────────────────────────────────────────
+    let ring_mass_kg: f64 = (mass_earth as f64).sqrt() * 2.0e18;
+    let ring_radius_km = outer_radius * 5_000.0;
+
+    // ── Build mesh + material ─────────────────────────────────────────────
+    let mesh_handle = meshes.add(create_ring_mesh(outer_radius, inner_radius, 128));
+    let mat_handle  = materials.add(StandardMaterial {
+        base_color: Color::WHITE,
+        base_color_texture: Some(texture_handle),
+        alpha_mode: AlphaMode::Blend,
+        cull_mode: None,
+        unlit: true,
+        perceptual_roughness: 0.9,
+        metallic: 0.0,
+        ..default()
+    });
+
+    commands.spawn((
+        Ring,
+        ClickExcluded,
+        CelestialBody {
+            name: format!("{} Rings", planet_name),
+            mass: ring_mass_kg,
+            radius: ring_radius_km,
+            body_type: BodyType::Ring,
+            visual_radius: outer_radius,
+            asteroid_class: None,
+        },
+        Mesh3d(mesh_handle),
+        MeshMaterial3d(mat_handle),
+        transform,
+        SystemId(system_id),
+        ChildOf(planet_entity),
+        LogicalParent(planet_entity),
+    ));
+
+    info!(
+        "  Spawned rings for '{}' (outer={:.1}, inner={:.1}, bands={}, gaps={}, flavor={})",
+        planet_name, outer_radius, inner_radius, num_bands, num_gaps, flavor_label,
+    );
+}
+
 /// Convert a 1-based index to a Roman numeral string (supports I–XX).
 fn to_roman(n: u32) -> &'static str {
     match n {
@@ -902,11 +1123,15 @@ fn spawn_procedural_moons(
         // (moons orbit the planet, but their temperature depends on their distance from the star)
         let (avg_temp, min_temp, max_temp) = calculate_temperature_from_star(planet_sma_au, star_luminosity_sol);
 
-        // Cap moon visual radius so it never exceeds half the parent planet's visual size.
-        // Without this, the shared MIN_VISUAL_RADIUS floor can make small moons appear
-        // as large as or larger than their parent when the planet itself is near the floor.
+        // Cap moon visual radius relative to the parent planet's visual size.
+        // Gas/ice giant moons are capped tighter (15%) because real moons like
+        // Ganymede are only ~4% of Jupiter's radius.  Rocky planet moons allow up
+        // to 25% (Earth's Moon is ~27% physically, but non-linear scaling inflates
+        // the ratio).  Without this cap the shared MIN_VISUAL_RADIUS floor can
+        // make small moons appear as large as their parent.
+        let max_moon_ratio = if planet_mass_earth > 10.0 { 0.15 } else { 0.25 };
         let moon_visual_radius = (calculate_visual_radius(BodyType::Moon, radius_km) * vis_scale)
-            .min(parent_visual_radius * 0.5);
+            .min(parent_visual_radius * max_moon_ratio);
 
         commands.spawn((
             Moon,

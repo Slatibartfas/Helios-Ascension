@@ -345,6 +345,92 @@ fn compute_transfer_arc(
     TransferArcGeometry { p0, p1, p2, p3, is_kinematic, departure_angle }
 }
 
+// ── Gravity-assist arc geometry ──────────────────────────────────────────────
+
+/// Computed two-leg Bezier geometry for a gravity-assist slingshot trajectory.
+///
+/// Both the preview and the in-transit renderer share this geometry to guarantee
+/// identical curves.
+struct GravityAssistArcGeometry {
+    p0_1: Vec3, p1_1: Vec3, p2_1: Vec3, p3_1: Vec3,
+    p0_2: Vec3, p1_2: Vec3, p2_2: Vec3, p3_2: Vec3,
+}
+
+impl GravityAssistArcGeometry {
+    fn eval_leg1(&self, t: f32) -> Vec3 {
+        let u = 1.0 - t;
+        u*u*u*self.p0_1 + 3.0*u*u*t*self.p1_1 + 3.0*u*t*t*self.p2_1 + t*t*t*self.p3_1
+    }
+    fn eval_leg2(&self, t: f32) -> Vec3 {
+        let u = 1.0 - t;
+        u*u*u*self.p0_2 + 3.0*u*u*t*self.p1_2 + 3.0*u*t*t*self.p2_2 + t*t*t*self.p3_2
+    }
+}
+
+/// Build two C1-continuous Bezier legs for a gravity-assist flyby trajectory.
+///
+/// The departure tangent is blended 80% toward the flyby body and 20%
+/// orbital-prograde, eliminating the 90° hook produced by a pure prograde
+/// departure tangent.  The two legs meet at a hyperbolic periapsis point offset
+/// from the flyby body, producing a realistic gravitational-deflection bend.
+fn compute_gravity_assist_arc(
+    op: Vec3,
+    fp: Vec3,
+    dp: Vec3,
+    origin_ring_r: f32,
+    flyby_ring_r: f32,
+    dest_ring_r: f32,
+) -> GravityAssistArcGeometry {
+    // ── Departure point — flyby-facing side of origin ring ────────────────────
+    let dir_to_flyby = (fp - op).normalize_or_zero();
+    let p0 = op + dir_to_flyby * origin_ring_r;
+
+    // Departure tangent: mostly orbital-prograde with a small toward-flyby bias.
+    let rad_op = op.normalize_or_zero();
+    let is_outward1 = fp.length_squared() > op.length_squared();
+    let prograde_op = Vec3::new(-rad_op.y, rad_op.x, 0.0);
+    let prograde1 = if is_outward1 { prograde_op } else { -prograde_op };
+    let tang0 = (prograde1 * 0.80 + dir_to_flyby * 0.20).normalize_or_zero();
+
+    // ── Arrival point — inbound-facing side of destination ring ───────────────
+    let dir_from_flyby = (dp - fp).normalize_or_zero();
+    let p3_2 = dp - dir_from_flyby * dest_ring_r;
+
+    // Arrival tangent: mostly orbital-prograde with a small along-track bias.
+    let rad_dp = dp.normalize_or_zero();
+    let is_outward2 = dp.length_squared() > fp.length_squared();
+    let prograde_dp = Vec3::new(-rad_dp.y, rad_dp.x, 0.0);
+    let prograde2 = if is_outward2 { prograde_dp } else { -prograde_dp };
+    let td2 = (prograde2 * 0.80 + dir_from_flyby * 0.20).normalize_or_zero();
+
+    // ── Hyperbolic periapsis ─────────────────────────────────────────────────
+    let dir_approach = dir_to_flyby;
+    let dir_depart   = dir_from_flyby;
+    let apse_raw = dir_approach - dir_depart;
+    let apse_dir = if apse_raw.length() > 0.001 {
+        apse_raw.normalize()
+    } else {
+        Vec3::new(-dir_approach.y, dir_approach.x, 0.0)
+    };
+    let periapsis = fp + apse_dir * (flyby_ring_r * 2.0);
+    let tang_perp_a = Vec3::new(-apse_dir.y, apse_dir.x, 0.0);
+    let peri_tang = if tang_perp_a.dot(dir_depart) >= 0.0 { tang_perp_a } else { -tang_perp_a };
+
+    // ── Bezier control points ────────────────────────────────────────────────
+    let cl1 = (periapsis - p0).length() * 0.40;
+    let p1_1 = p0        + tang0     * cl1;
+    let p2_1 = periapsis - peri_tang * cl1;
+
+    let cl2 = (p3_2 - periapsis).length() * 0.40;
+    let p1_2 = periapsis + peri_tang * cl2;
+    let p2_2 = p3_2      - td2       * cl2;
+
+    GravityAssistArcGeometry {
+        p0_1: p0, p1_1, p2_1, p3_1: periapsis,
+        p0_2: periapsis, p1_2, p2_2, p3_2,
+    }
+}
+
 // ── Public drawing / mesh systems ─────────────────────────────────────────────
 
 /// Draw the trajectory arc for the selected fleet.
@@ -723,28 +809,12 @@ pub fn draw_fleet_trajectories(
                     .unwrap_or(0.0);
                 let flyby_ring_r = fleet_parking_visual_radius(flyby_visual_r);
 
-                // geometry for the two legs
-                let is_inward1 = op.length_squared() > fp.length_squared();
-                let is_inward2 = fp.length_squared() > dp.length_squared();
-                let geo1 = compute_transfer_arc(
-                    op,
-                    fp,
+                // geometry for the two legs — shared helper produces C1-continuous slingshot
+                let ga_geo = compute_gravity_assist_arc(
+                    op, fp, dp,
                     actual_origin_ring_r,
                     flyby_ring_r,
-                    is_course_correction,
-                    is_inward1,
-                    maneuver.is_kinematic(),
-                    cv_at_departure,
-                );
-                let geo2 = compute_transfer_arc(
-                    fp,
-                    dp,
-                    flyby_ring_r,
                     dest_ring_r,
-                    is_course_correction,
-                    is_inward2,
-                    maneuver.is_kinematic(),
-                    cv_at_departure,
                 );
 
                 // fractions along total t range where leg switch happens
@@ -779,21 +849,20 @@ pub fn draw_fleet_trajectories(
                     )
                 };
 
-                // draw remaining piecewise along geo1/geo2
-                let mut prev: Option<Vec3> = if progress_t < leg1_frac {
-                    Some(geo1.eval(progress_t / leg1_frac))
-                } else {
-                    Some(geo2.eval((progress_t - leg1_frac) / leg2_frac))
+                // draw remaining piecewise along ga_geo leg1/leg2
+                let eval_at = |t_frac: f32| -> Vec3 {
+                    if t_frac < leg1_frac {
+                        ga_geo.eval_leg1(t_frac / leg1_frac)
+                    } else {
+                        ga_geo.eval_leg2((t_frac - leg1_frac) / leg2_frac.max(1e-6))
+                    }
                 };
+                let mut prev: Option<Vec3> = Some(eval_at(progress_t));
 
                 for i in 0..=SEGMENTS {
                     let t_frac = i as f32 / SEGMENTS as f32;
                     if t_frac <= progress_t { continue; }
-                    let pos = if t_frac < leg1_frac {
-                        geo1.eval(t_frac / leg1_frac)
-                    } else {
-                        geo2.eval((t_frac - leg1_frac) / leg2_frac)
-                    };
+                    let pos = eval_at(t_frac);
                     if let Some(prev_pos) = prev {
                         gizmos.line(prev_pos, pos, traj_color(t_frac));
                     }
@@ -1942,94 +2011,24 @@ pub fn draw_gravity_assist_preview(
         &body_query, &kepler_query, &amp_query,
     ).unwrap_or(dest_t.translation);
 
-    // ── Compute a smooth hyperbolic-flyby trajectory ──────────────────────────
-    //
-    // Instead of meeting at the planet centre (which creates a sharp corner),
-    // the two Bezier legs meet at a *periapsis* point offset from the planet
-    // centre.  The offset direction is derived from the hyperbola axis of
-    // symmetry: the bisector of the incoming asymptote (away from planet) and
-    // the outgoing asymptote (away from planet).  Both legs share the same
-    // tangent at the periapsis, producing a C1-continuous curve with a clear
-    // smooth gravitational deflection.
-
-    // Departure point on origin ring (same as the regular transfer preview).
-    let is_outward1 = fp.length_squared() > op.length_squared();
-    let rad_op = op.normalize_or_zero();
-    let prograde_op = Vec3::new(-rad_op.y, rad_op.x, 0.0);
-    let tang0 = if is_outward1 { prograde_op } else { -prograde_op };
-    let dir_dep1 = if is_outward1 { rad_op } else { -rad_op };
-    let p0 = op + dir_dep1 * origin_ring_r;
-
-    // Arrival point on destination ring.
-    let is_outward2 = dp.length_squared() > fp.length_squared();
-    let rad_dp = dp.normalize_or_zero();
-    let prograde_dp = Vec3::new(-rad_dp.y, rad_dp.x, 0.0);
-    let td2 = if is_outward2 { prograde_dp } else { -prograde_dp };
-    let dir_arr2 = if is_outward2 { -rad_dp } else { rad_dp };
-    let p3_2 = dp + dir_arr2 * dest_ring_r;
-
-    // ── Hyperbolic periapsis computation ─────────────────────────────────────
-    // Approach direction: from origin toward flyby body.
-    let dir_approach = (fp - op).normalize_or_zero();
-    // Departure direction: from flyby body toward destination.
-    let dir_depart  = (dp - fp).normalize_or_zero();
-
-    // The asymptote directions from the focus (planet) are:
-    //   incoming:  -dir_approach   (toward where the spacecraft came from)
-    //   outgoing:   dir_depart     (toward where the spacecraft is going)
-    // Their vector sum bisects the NARROW angle between them, but the
-    // periapsis of the hyperbolic trajectory is on the WIDE side (the
-    // 360°−δ arc that the spacecraft actually traverses).  So we negate
-    // the bisector to get the correct periapsis direction.
-    let apse_raw = dir_approach - dir_depart;
-    let apse_dir = if apse_raw.length() > 0.001 {
-        apse_raw.normalize()
-    } else {
-        // Near-zero deflection (straight-through): offset perpendicular to approach.
-        Vec3::new(-dir_approach.y, dir_approach.x, 0.0)
-    };
-
-    // Periapsis offset distance: just outside the flyby ring for visual clarity.
+    // ── Shared geometry via the same helper used during active transit ───────
     let flyby_ring_r = fleet_parking_visual_radius(flyby_bd.visual_radius);
-    let periapsis_dist = flyby_ring_r * 2.0;
-    let periapsis = fp + apse_dir * periapsis_dist;
+    let ga_geo = compute_gravity_assist_arc(op, fp, dp, origin_ring_r, flyby_ring_r, dest_ring_r);
 
-    // Tangent at periapsis: perpendicular to the apse line — this is the velocity
-    // direction at closest approach on a hyperbola.
-    let tang_perp_a = Vec3::new(-apse_dir.y, apse_dir.x, 0.0);
-    // Choose the sign so it flows from approach to departure direction.
-    let peri_tang = if tang_perp_a.dot(dir_depart) >= 0.0 { tang_perp_a } else { -tang_perp_a };
-
-    // ── Build two C1-continuous Bezier legs meeting at periapsis ──────────────
-    let cl1 = (periapsis - p0).length() * 0.40;
-    let p1_1 = p0       + tang0     * cl1;
-    let p2_1 = periapsis - peri_tang * cl1;
-
-    let cl2 = (p3_2 - periapsis).length() * 0.40;
-    let p1_2 = periapsis + peri_tang * cl2;
-    let p2_2 = p3_2      - td2      * cl2;
-
-    let peri = periapsis; // copy for closures
-    let bez1 = move |t: f32| -> Vec3 {
-        let u = 1.0 - t;
-        u*u*u*p0 + 3.0*u*u*t*p1_1 + 3.0*u*t*t*p2_1 + t*t*t*peri
-    };
-    let bez2 = move |t: f32| -> Vec3 {
-        let u = 1.0 - t;
-        u*u*u*peri + 3.0*u*u*t*p1_2 + 3.0*u*t*t*p2_2 + t*t*t*p3_2
-    };
+    let leg1 = |t: f32| ga_geo.eval_leg1(t);
+    let leg2 = |t: f32| ga_geo.eval_leg2(t);
 
     // ── Draw both legs with arc-length-uniform dashing ───────────────────────
 
     // Leg 1: lime-green approach arc.
     draw_dashed_curve(
-        &mut gizmos, &bez1, 24,
+        &mut gizmos, &leg1, 24,
         |f| Color::srgba(0.3, 1.0, 0.4, 0.80 - 0.35 * f),
     );
 
     // Leg 2: magenta departure arc.
     draw_dashed_curve(
-        &mut gizmos, &bez2, 24,
+        &mut gizmos, &leg2, 24,
         |f| Color::srgba(1.0, 0.3, 0.8, 0.80 - 0.35 * f),
     );
 

@@ -26,7 +26,7 @@ pub use components::{
 };
 pub use generation::{generate_ring_resources, generate_solar_system_resources};
 pub use mining::{extract_resources, update_resource_rates, MiningOperation};
-pub use types::ResourceType;
+pub use types::{ResourcePhase, ResourceType};
 
 /// Plugin that adds the economy system to the Bevy app
 pub struct EconomyPlugin;

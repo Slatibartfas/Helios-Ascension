@@ -62,6 +62,16 @@ impl SystemMetadata {
     }
 }
 
+// ── Planet Category ────────────────────────────────────────────────────────
+
+/// ECS component storing the texture-category string for a celestial body.
+///
+/// The value is set at spawn time via [`classify_exoplanet`] and can be used by
+/// any system that wants to know what visual archetype a body belongs to
+/// (e.g. `"jungle"`, `"ice_giant"`, `"lava"`).
+#[derive(Component, Debug, Clone)]
+pub struct PlanetCategory(pub String);
+
 // ── Planet Texture Manifest ──────────────────────────────────────────────────
 
 /// Maps planet-type category names to lists of texture asset paths.
@@ -104,6 +114,9 @@ impl PlanetTextureManifest {
             ("temperate", &["textures/celestial/planets/earth_8k.jpg"]),
             ("jungle",    &["textures/celestial/planets/earth_8k.jpg"]),
             ("ocean",     &["textures/celestial/planets/earth_8k.jpg"]),
+            ("alpine",    &["textures/celestial/planets/earth_8k.jpg"]),
+            ("savannah",  &["textures/celestial/planets/earth_8k.jpg"]),
+            ("swamp",     &["textures/celestial/planets/earth_8k.jpg"]),
             ("tundra",    &["textures/celestial/planets/pluto_8k.png",
                             "textures/celestial/planets/mars_8k.jpg"]),
             ("ice",       &["textures/celestial/planets/pluto_8k.png",
@@ -412,7 +425,7 @@ fn tag_sol_bodies(
 ///
 /// The category is used to look up a texture from `PlanetTextureManifest` and
 /// to derive a tint colour in `category_tint`.
-fn classify_exoplanet(
+pub fn classify_exoplanet(
     body_type: BodyType,
     asteroid_class: Option<AsteroidClass>,
     avg_temp_c: f32,
@@ -441,13 +454,25 @@ fn classify_exoplanet(
             if avg_temp_c > 500.0 {
                 "lava"
             } else if avg_temp_c > 60.0 {
-                "desert"
+                // Very hot worlds above habitable band yet below lava
+                if avg_temp_c > 45.0 {
+                    "savannah"
+                } else {
+                    "desert"
+                }
             } else if avg_temp_c >= -20.0 {
-                // Habitable-zone planets: distribute across three archetypes
-                match seed % 3 {
-                    0 => "jungle",
-                    1 => "ocean",
-                    _ => "temperate",
+                // Habitable-zone planets: split by temperature into four archetypes
+                if avg_temp_c < -5.0 {
+                    "alpine"
+                } else if avg_temp_c > 45.0 {
+                    "savannah"
+                } else {
+                    match seed % 4 {
+                        0 => "jungle",
+                        1 => "ocean",
+                        2 => "temperate",
+                        _ => "swamp",
+                    }
                 }
             } else if avg_temp_c >= -100.0 {
                 "tundra"
@@ -814,6 +839,9 @@ fn spawn_system_bodies(
                 .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
 
             let category = classify_exoplanet(body.body_type, body.asteroid_class, avg_temp, seed);
+
+            // record the computed category on the entity for later systems
+            let planet_category = PlanetCategory(category.to_string());
 
             let r1 = ((seed % 1000) as f32) / 1000.0;
             let r2 = (((seed / 1000) % 1000) as f32) / 1000.0;
@@ -1388,20 +1416,26 @@ mod tests {
 
     #[test]
     fn test_classify_desert() {
+        // very hot worlds outside the habitable zone (<= 60) now fall into
+        // the savannah category; only temps above 60.0 are desert now.
         assert_eq!(classify_exoplanet(BodyType::Planet, None, 200.0, 0), "desert");
         assert_eq!(classify_exoplanet(BodyType::Planet, None, 60.1, 0), "desert");
-        // exactly 60.0 is habitable (condition is > 60.0 for desert)
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 60.0, 0), "jungle");
+        // exactly 60.0 sits at the hot habitable band and should be savannah
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 60.0, 0), "savannah");
     }
 
     #[test]
     fn test_classify_habitable_zone() {
-        // Seed 0 → 0 % 3 == 0 → "jungle"
+        // Temperatures inside habitable band (-20.0..=60.0).
+        // Four-category distribution controlled by seed % 4.
+        // Seed 0 → 0 % 4 == 0 → "jungle"
         assert_eq!(classify_exoplanet(BodyType::Planet, None, 15.0, 0), "jungle");
-        // Seed 1 → 1 % 3 == 1 → "ocean"
+        // Seed 1 → 1 % 4 == 1 → "ocean"
         assert_eq!(classify_exoplanet(BodyType::Planet, None, 15.0, 1), "ocean");
-        // Seed 2 → 2 % 3 == 2 → "temperate"
+        // Seed 2 → 2 % 4 == 2 → "temperate"
         assert_eq!(classify_exoplanet(BodyType::Planet, None, 15.0, 2), "temperate");
+        // Seed 3 → 3 % 4 == 3 → "swamp"
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 15.0, 3), "swamp");
     }
 
     #[test]
@@ -1412,8 +1446,32 @@ mod tests {
         assert_eq!(classify_exoplanet(BodyType::Planet, None, -99.9, 0), "tundra");
         // exactly -100.0 is tundra (>= -100.0)
         assert_eq!(classify_exoplanet(BodyType::Planet, None, -100.0, 0), "tundra");
-        // exactly -20.0 is habitable (>= -20.0)
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, -20.0, 0), "jungle");
+        // -10.0 is cold but still in habitable band and should classify as alpine
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, -10.0, 0), "alpine");
+        // exactly -20.0 lies on the cold edge of the habitable band and
+        // is classified as alpine under the new rules.
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, -20.0, 0), "alpine");
+    }
+
+    #[test]
+    fn test_classify_alpine() {
+        // Temperatures well inside the habitable window but coldend (< -5°C) are alpine.
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, -20.0, 0), "alpine");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, -10.0, 0), "alpine");
+    }
+
+    #[test]
+    fn test_boundary_minus_five() {
+        // The boundary temp -5°C should no longer count as alpine; it maps to jungle.
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, -5.0, 0), "jungle");
+    }
+
+    #[test]
+    fn test_classify_savannah() {
+        // Very hot worlds above habitable band but below lava, and hot
+        // habitable-zone worlds (>45°C) should be labelled "savannah".
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 46.0, 0), "savannah");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 60.0, 0), "savannah");
     }
 
     #[test]

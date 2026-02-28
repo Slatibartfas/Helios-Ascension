@@ -25,6 +25,7 @@ pub use super::star_materials::{
     Billboard, StarCoronaShell, StarCorona3dMaterial, StarDiffraction, StarDiffractionMaterial,
     StarGlare, StarGlowMaterial, StarHalo3dMaterial, StarHaloShell, StarSurfaceMaterial,
 };
+use super::starmap::PlanetCategory;
 use super::star_materials::{
     update_billboards, update_body_visibility, update_corona_3d_time, update_glow_time,
     update_star_corona_3d_lod, update_star_diffraction_lod, update_star_glare_lod,
@@ -790,6 +791,26 @@ pub fn setup_solar_system(
         };
 
         // Stars use the limb-darkening StarSurfaceMaterial; all other bodies use PbrBundle.
+        // compute classification string based on data; helper defined below
+        fn classify_for_spawn(body_data: &super::solar_system_data::CelestialBodyData) -> &'static str {
+            // mimic the logic used in starmap classification so categories agree
+            let avg_temp = body_data
+                .atmosphere
+                .as_ref()
+                .map(|a| a.surface_temperature_celsius)
+                .unwrap_or(-100.0);
+            let mut seed = 0u32;
+            for byte in body_data.name.bytes() {
+                seed = seed.wrapping_mul(31).wrapping_add(byte as u32);
+            }
+            crate::plugins::starmap::classify_exoplanet(
+                body_data.body_type,
+                body_data.asteroid_class,
+                avg_temp,
+                seed,
+            )
+        }
+
         let mut entity_commands = if let Some(star_mat) = star_surface_mat {
             commands.spawn((
                 Mesh3d(mesh),
@@ -808,6 +829,7 @@ pub fn setup_solar_system(
                 // are visible to queries that need to look up the star by entity
                 // (e.g. the fleet transfer-planner solar-approach logic).
                 SpaceCoordinates::new(bevy::math::DVec3::ZERO),
+                PlanetCategory(classify_for_spawn(body_data).to_string()),
             ))
         } else {
             commands.spawn((
@@ -823,6 +845,7 @@ pub fn setup_solar_system(
                     asteroid_class: body_data.asteroid_class,
                 },
                 RotationSpeed(rotation_speed),
+                PlanetCategory(classify_for_spawn(body_data).to_string()),
             ))
         };
 
@@ -1571,7 +1594,7 @@ fn initial_camera_focus(
 }
 
 // Helper to create a flat ring (annulus) mesh
-fn create_ring_mesh(outer_radius: f32, inner_radius: f32, segments: u32) -> Mesh {
+pub(crate) fn create_ring_mesh(outer_radius: f32, inner_radius: f32, segments: u32) -> Mesh {
     let mut positions = Vec::new();
     let mut normals = Vec::new();
     let mut uvs = Vec::new();
