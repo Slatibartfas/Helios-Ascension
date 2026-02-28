@@ -280,8 +280,12 @@ pub struct ActiveManeuver {
     pub leg2_orbit: Option<KeplerOrbit>,
     /// Seconds after departure when the Leg-2 orbit begins (= Leg-1 half-period).
     /// Only meaningful when `leg2_orbit` is `Some`.
-    pub leg2_start_s: f64,
-}
+    pub leg2_start_s: f64,    /// For gravity-assist transfers, the body that will be used for the flyby.
+    ///
+    /// This is set when a `PlannedTransfer` containing a two‑leg assist is built,
+    /// and propagated into the corresponding `ActiveManeuver`.  The render
+    /// systems use it to reconstruct the two‑leg trajectory after execution.
+    pub flyby_body: Option<Entity>,}
 
 impl ActiveManeuver {
     /// Whether this transfer uses kinematic (straight-line) interpolation rather
@@ -422,6 +426,12 @@ pub struct PlannedTransfer {
     /// Pre-computed arrival position (AU) for kinematic/direct transfers.
     /// When set, `process_fleet_actions` uses this instead of predicting from `destination_body`.
     pub end_position_au: Option<bevy::math::DVec3>,
+    /// For gravity-assist transfers a pre-computed flyby body is stored here.
+    ///
+    /// This allows the rendering code to know where the two-leg corner should
+    /// occur once the maneuver is in progress.  `None` for all non-GA transfers.
+    pub flyby_body: Option<Entity>,
+
     /// Optional second-leg Keplerian orbit for gravity-assist transfers (flyby → destination).
     ///
     /// When set, `update_fleet_maneuver_positions` follows `transfer_orbit` until

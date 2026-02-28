@@ -436,6 +436,7 @@ pub fn process_fleet_actions(
             start_position_au,
             end_position_au,
             start_visual_pos,
+            flyby_body: t.flyby_body,
             leg2_orbit: t.leg2_orbit,
             leg2_start_s: t.leg2_start_s,
         };

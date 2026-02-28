@@ -177,6 +177,10 @@ pub struct CelestialBodyData {
     /// Optional texture path (relative to assets directory)
     #[serde(default)]
     pub texture: Option<String>,
+    /// Optional alpha texture path for rings (relative to assets directory).
+    /// When provided together with `texture`, both are combined into a runtime RGBA texture.
+    #[serde(default)]
+    pub ring_alpha_texture: Option<String>,
     /// Multi-layer texture configuration (replaces single texture if present)
     #[serde(default)]
     pub multi_layer_textures: Option<MultiLayerTextures>,

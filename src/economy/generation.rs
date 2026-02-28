@@ -777,13 +777,22 @@ pub fn generate_ring_resources(
         // body.mass is in kg; 1 Mt = 1e9 kg
         let total_mass_mt = body.mass / 1e9_f64;
 
-        // Composition of Saturn's (and generic) ring systems:
-        //   ~90 % water ice, ~7 % silicates, ~1 % nitrogen, ~1 % ammonia, ~0.5 % methane
-        let water_fraction    = 0.90_f64;
-        let silicate_fraction = 0.07_f64;
-        let nitrogen_fraction = 0.01_f64;
-        let ammonia_fraction  = 0.01_f64;
-        let methane_fraction  = 0.005_f64;
+        // Ring composition profile selected by ring name:
+        // - Uranus Rings: darker/volatile-rich mix
+        // - Otherwise: Saturn-style (and generic) ice-dominant mix
+        let (profile_name, water_fraction, silicate_fraction, methane_fraction, ammonia_fraction, nitrogen_fraction) =
+            if body.name == "Uranus Rings" {
+                ("Uranus", 0.55_f64, 0.25_f64, 0.10_f64, 0.06_f64, 0.04_f64)
+            } else {
+                (
+                    "Saturn/Generic",
+                    0.90_f64,
+                    0.07_f64,
+                    0.005_f64,
+                    0.01_f64,
+                    0.01_f64,
+                )
+            };
 
         // Rings are diffuse free-floating particles — there is no "buried" material.
         // All resources sit in the proven/surface tier, with zero deep deposits or bulk.
@@ -805,8 +814,8 @@ pub fn generate_ring_resources(
 
         commands.entity(entity).insert(resources);
         info!(
-            "Generated ring resources for '{}' (total {:.2e} Mt, water-ice profile)",
-            body.name, total_mass_mt
+            "Generated ring resources for '{}' (profile: {}, total {:.2e} Mt)",
+            body.name, profile_name, total_mass_mt
         );
     }
 }

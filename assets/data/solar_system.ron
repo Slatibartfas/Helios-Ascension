@@ -7624,5 +7624,18 @@
             rotation_period: 0.0,
             texture: Some("textures/celestial/rings/saturn_rings_8k.png"),
         ),
+        (
+            name: "Uranus Rings",
+            body_type: Ring,
+            mass: 1.5e16,
+            radius: 51000.0,
+            color: (0.25, 0.25, 0.28),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Uranus"),
+            orbit: None,
+            rotation_period: 0.0,
+            texture: Some("textures/celestial/rings/uranusringcolour.jpg"),
+            ring_alpha_texture: Some("textures/celestial/rings/uranusringtrans.gif"),
+        ),
     ]
 )

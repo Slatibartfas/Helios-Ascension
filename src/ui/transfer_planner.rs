@@ -1785,6 +1785,10 @@ pub(super) fn render_transfer_planner(
                                     );
 
                                     if let Some(ref mut pt) = maybe_pt {
+                                        // Record the flyby body so the executed maneuver can
+                                        // reproduce the two-leg path for rendering.
+                                        pt.flyby_body = Some(flyby);
+
                                         // Always record the actual destination so the fleet
                                         // parks at the right body on arrival.
                                         pt.destination_body = te;
@@ -2451,6 +2455,7 @@ fn build_planned_transfer(
         option_label: option.label,
         start_position_au: None,
         end_position_au: None,
+        flyby_body: None,
         leg2_orbit: None,
         leg2_start_s: 0.0,
     })
@@ -2582,6 +2587,7 @@ fn build_planned_transfer_lp(
         option_label,
         start_position_au: start_pos,
         end_position_au: end_pos,
+        flyby_body: None,
         leg2_orbit: None,
         leg2_start_s: 0.0,
     })

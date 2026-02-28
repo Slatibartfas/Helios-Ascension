@@ -698,6 +698,115 @@ pub fn draw_fleet_trajectories(
             ).unwrap_or(cv_predicted);
             let dp = dp_absolute - cv_predicted + cv_at_departure;
 
+            // --- gravity assist special case ------------------------------------------------
+            if let (Some(flyby), Some(_)) = (maneuver.flyby_body, maneuver.leg2_orbit.as_ref()) {
+                // predict flyby position at the time the second leg begins
+                let fp_absolute = predict_body_visual_pos(
+                    flyby,
+                    maneuver.departure_time + maneuver.leg2_start_s,
+                    &body_query,
+                    &kepler_query,
+                    &amp_query,
+                ).unwrap_or_else(|| {
+                    body_query
+                        .get(flyby)
+                        .ok()
+                        .map(|(t, _, _)| t.translation)
+                        .unwrap_or(Vec3::ZERO)
+                });
+                let fp = fp_absolute - cv_predicted + cv_at_departure;
+
+                // ring radii and visual size
+                let flyby_visual_r = body_query
+                    .get(flyby)
+                    .map(|(_, b, _)| b.visual_radius)
+                    .unwrap_or(0.0);
+                let flyby_ring_r = fleet_parking_visual_radius(flyby_visual_r);
+
+                // geometry for the two legs
+                let is_inward1 = op.length_squared() > fp.length_squared();
+                let is_inward2 = fp.length_squared() > dp.length_squared();
+                let geo1 = compute_transfer_arc(
+                    op,
+                    fp,
+                    actual_origin_ring_r,
+                    flyby_ring_r,
+                    is_course_correction,
+                    is_inward1,
+                    maneuver.is_kinematic(),
+                    cv_at_departure,
+                );
+                let geo2 = compute_transfer_arc(
+                    fp,
+                    dp,
+                    flyby_ring_r,
+                    dest_ring_r,
+                    is_course_correction,
+                    is_inward2,
+                    maneuver.is_kinematic(),
+                    cv_at_departure,
+                );
+
+                // fractions along total t range where leg switch happens
+                let leg1_frac = if maneuver.arrival_time > maneuver.departure_time {
+                    (maneuver.leg2_start_s
+                        / (maneuver.arrival_time - maneuver.departure_time)) as f32
+                } else {
+                    0.5_f32
+                };
+                let leg2_frac = 1.0 - leg1_frac;
+
+                // progress / glow etc reuse below
+                let progress_t = if maneuver.arrival_time > maneuver.departure_time {
+                    ((sim_elapsed - maneuver.departure_time)
+                        / (maneuver.arrival_time - maneuver.departure_time))
+                        .clamp(0.0, 1.0) as f32
+                } else {
+                    1.0_f32
+                };
+                let remaining_span = (1.0 - progress_t).max(1e-4_f32);
+                let glow_pos = progress_t + (real_secs / 4.0_f32).fract() * remaining_span;
+                let traj_color = |t: f32| -> Color {
+                    let arc_frac = ((t - progress_t) / remaining_span).clamp(0.0, 1.0);
+                    let base_a = 0.50 - 0.22 * arc_frac;
+                    let dist = (t - glow_pos).abs();
+                    let glow = (1.0 - (dist / 0.09_f32).min(1.0)).powi(2);
+                    Color::linear_rgba(
+                        0.55 + glow * 1.15,
+                        0.08 + glow * 0.50,
+                        0.85 + glow * 1.05,
+                        (base_a + glow * 0.45).min(1.0),
+                    )
+                };
+
+                // draw remaining piecewise along geo1/geo2
+                let mut prev: Option<Vec3> = if progress_t < leg1_frac {
+                    Some(geo1.eval(progress_t / leg1_frac))
+                } else {
+                    Some(geo2.eval((progress_t - leg1_frac) / leg2_frac))
+                };
+
+                for i in 0..=SEGMENTS {
+                    let t_frac = i as f32 / SEGMENTS as f32;
+                    if t_frac <= progress_t { continue; }
+                    let pos = if t_frac < leg1_frac {
+                        geo1.eval(t_frac / leg1_frac)
+                    } else {
+                        geo2.eval((t_frac - leg1_frac) / leg2_frac)
+                    };
+                    if let Some(prev_pos) = prev {
+                        gizmos.line(prev_pos, pos, traj_color(t_frac));
+                    }
+                    prev = Some(pos);
+                }
+
+                // ghost bodies at flyby and destination
+                draw_ghost_body(&mut gizmos, fp, flyby_ring_r, flyby_visual_r, false);
+                let dest_is_orbit_center = origin_lp == Some(maneuver.destination_body);
+                draw_ghost_body(&mut gizmos, dp, dest_ring_r, dest_visual_r, dest_is_orbit_center);
+                continue;
+            }
+
             // ── Inward / outward ─────────────────────────────────────────────
             let is_inward = if is_course_correction {
                 op.length_squared() > dp.length_squared()
@@ -1436,6 +1545,13 @@ pub fn draw_fleet_transfer_preview(
     if *view_mode != ViewMode::System { return; }
     if !fleet_ui_state.show_transfer_popup { return; }
     let Some(fleet_entity) = fleet_ui_state.selected_fleet else { return; };
+
+    // If a gravity assist candidate has been chosen, the transfer planner shows a
+    // specialised two-leg trajectory.  In that case skip the standard amber preview
+    // arc entirely; the assist code will draw its own overlay on top.
+    if fleet_ui_state.selected_gravity_assist.is_some() {
+        return;
+    }
 
     // Hoist fleet-state lookup so both LP and regular branches can share it.
     let Ok((_, fleet_transform, maybe_orbit, maybe_maneuver)) = fleet_query.get(fleet_entity) else { return; };

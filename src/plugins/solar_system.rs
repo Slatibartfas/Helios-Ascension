@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 use bevy::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
 use bevy::asset::RenderAssetUsages;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use image::{ImageBuffer, RgbaImage, imageops::FilterType};
 use rand::prelude::*;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
@@ -37,6 +39,7 @@ impl Plugin for SolarSystemPlugin {
             .add_plugins(MaterialPlugin::<StarDiffractionMaterial>::default())
             .add_plugins(MaterialPlugin::<StarCorona3dMaterial>::default())
             .add_plugins(MaterialPlugin::<StarHalo3dMaterial>::default())
+            .init_resource::<RingAlphaCombineQueue>()
             .add_systems(Startup, setup_solar_system)
             .add_systems(PostStartup, initial_camera_focus)
             .add_systems(
@@ -54,6 +57,7 @@ impl Plugin for SolarSystemPlugin {
             )
             // System to convert loaded normal/specular textures to linear formats
             .add_systems(Update, apply_linear_to_images_system)
+            .add_systems(Update, combine_ring_alpha_textures)
             .add_systems(Update, (
                 spawn_atmosphere_shell_reactive,
                 update_atmosphere_shell,
@@ -516,6 +520,17 @@ struct LinearImageQueue {
     handles: Vec<Handle<Image>>,
 }
 
+struct RingAlphaEntry {
+    material_handle: Handle<StandardMaterial>,
+    color_handle: Handle<Image>,
+    alpha_handle: Handle<Image>,
+}
+
+#[derive(Resource, Default)]
+pub struct RingAlphaCombineQueue {
+    entries: Vec<RingAlphaEntry>,
+}
+
 pub fn setup_solar_system(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -527,6 +542,7 @@ pub fn setup_solar_system(
     mut materials_atmosphere: ResMut<Assets<crate::plugins::atmosphere::AtmosphereMaterial>>,
     atmosphere_settings: Res<crate::plugins::atmosphere::AtmosphereSettings>,
     asset_server: Res<AssetServer>,
+    mut ring_alpha_queue: ResMut<RingAlphaCombineQueue>,
 ) {
     // Queue to collect normal/specular handles that must be treated as linear textures
     let mut linear_handle_queue: Vec<Handle<Image>> = Vec::new();
@@ -695,7 +711,7 @@ pub fn setup_solar_system(
         let material: Option<Handle<StandardMaterial>> = if is_star {
             None
         } else if body_data.body_type == BodyType::Ring {
-            Some(materials.add(StandardMaterial {
+            let ring_material_handle = materials.add(StandardMaterial {
                 base_color: material_color,
                 base_color_texture: base_color_texture.clone(),
                 perceptual_roughness: roughness,
@@ -705,7 +721,20 @@ pub fn setup_solar_system(
                 cull_mode: None, // Double-sided
                 unlit: true,
                 ..default()
-            }))
+            });
+
+            if let (Some(color_handle), Some(alpha_path)) =
+                (&base_color_texture, &body_data.ring_alpha_texture)
+            {
+                let alpha_handle = asset_server.load::<Image>(alpha_path.clone());
+                ring_alpha_queue.entries.push(RingAlphaEntry {
+                    material_handle: ring_material_handle.clone(),
+                    color_handle: color_handle.clone(),
+                    alpha_handle,
+                });
+            }
+
+            Some(ring_material_handle)
         } else {
             Some(materials.add(StandardMaterial {
                 base_color: material_color,
@@ -1365,13 +1394,105 @@ pub fn setup_solar_system(
     info!("Solar system setup complete!");
 }
 
+fn combine_ring_alpha_textures(
+    mut images: ResMut<Assets<Image>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut queue: ResMut<RingAlphaCombineQueue>,
+) {
+    fn to_rgba8_pixels(image: &Image) -> Option<(u32, u32, Vec<u8>)> {
+        let width = image.texture_descriptor.size.width;
+        let height = image.texture_descriptor.size.height;
+        let data = image.data.as_ref()?;
+
+        let rgba = match image.texture_descriptor.format {
+            TextureFormat::Rgba8Unorm | TextureFormat::Rgba8UnormSrgb => data.clone(),
+            TextureFormat::Bgra8Unorm | TextureFormat::Bgra8UnormSrgb => {
+                if data.len() != (width as usize) * (height as usize) * 4 {
+                    return None;
+                }
+                let mut out = Vec::with_capacity(data.len());
+                for chunk in data.chunks_exact(4) {
+                    out.push(chunk[2]);
+                    out.push(chunk[1]);
+                    out.push(chunk[0]);
+                    out.push(chunk[3]);
+                }
+                out
+            }
+            _ => return None,
+        };
+
+        Some((width, height, rgba))
+    }
+
+    let mut pending = Vec::with_capacity(queue.entries.len());
+
+    for entry in queue.entries.drain(..) {
+        let prepared = {
+            let color_image = images.get(&entry.color_handle);
+            let alpha_image = images.get(&entry.alpha_handle);
+
+            if let (Some(color_image), Some(alpha_image)) = (color_image, alpha_image) {
+                let color = to_rgba8_pixels(color_image);
+                let alpha = to_rgba8_pixels(alpha_image);
+                Some((color, alpha))
+            } else {
+                None
+            }
+        };
+
+        let Some((Some((color_w, color_h, color_bytes)), Some((alpha_w, alpha_h, alpha_bytes)))) = prepared else {
+            pending.push(entry);
+            continue;
+        };
+
+        let Some(color_rgba): Option<RgbaImage> = ImageBuffer::from_raw(color_w, color_h, color_bytes) else {
+            continue;
+        };
+        let Some(alpha_rgba): Option<RgbaImage> = ImageBuffer::from_raw(alpha_w, alpha_h, alpha_bytes) else {
+            continue;
+        };
+
+        let alpha_resized = if alpha_w == color_w && alpha_h == color_h {
+            alpha_rgba
+        } else {
+            image::imageops::resize(&alpha_rgba, color_w, color_h, FilterType::Triangle)
+        };
+
+        let mut combined = Vec::with_capacity((color_w as usize) * (color_h as usize) * 4);
+        for (color_px, alpha_px) in color_rgba.pixels().zip(alpha_resized.pixels()) {
+            let [r, g, b, _] = color_px.0;
+            let [ar, ag, ab, _] = alpha_px.0;
+            let alpha = ((ar as u16 * 77 + ag as u16 * 150 + ab as u16 * 29) / 256) as u8;
+            combined.extend_from_slice(&[r, g, b, alpha]);
+        }
+
+        let combined_image = Image::new(
+            Extent3d {
+                width: color_w,
+                height: color_h,
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            combined,
+            TextureFormat::Rgba8UnormSrgb,
+            RenderAssetUsages::default(),
+        );
+
+        let combined_handle = images.add(combined_image);
+        if let Some(material) = materials.get_mut(&entry.material_handle) {
+            material.base_color_texture = Some(combined_handle);
+        }
+    }
+
+    queue.entries = pending;
+}
+
 // System to convert any queued normal/specular images to linear format once they are loaded
 fn apply_linear_to_images_system(
     mut images: ResMut<Assets<Image>>,
     mut queue: ResMut<LinearImageQueue>,
 ) {
-    use bevy::render::render_resource::TextureFormat;
-
     // Retain only those handles that are not yet processed
     queue.handles.retain(|handle| {
         if let Some(image) = images.get_mut(handle) {
