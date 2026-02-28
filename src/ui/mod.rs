@@ -765,7 +765,7 @@ fn ui_starmap_labels(
 
 fn ui_hover_tooltip(
     mut contexts: EguiContexts,
-    hovered_query: Query<(&CelestialBody, Option<&crate::plugins::starmap::PlanetCategory>), With<Hovered>>,
+    hovered_query: Query<(&CelestialBody, Option<&crate::plugins::starmap::PlanetCategory>, Option<&crate::astronomy::OceanProperties>), With<Hovered>>,
     lp_markers: Res<LagrangePointMarkers>,
     active_menu: Res<ActiveMenu>,
 ) {
@@ -879,7 +879,7 @@ fn ui_hover_tooltip(
     }
 
     // Display hover tooltip if a body is hovered
-    if let Ok((body, category_opt)) = hovered_query.single() {
+    if let Ok((body, category_opt, ocean_props)) = hovered_query.single() {
         // Anchor the tooltip near the mouse pointer so it appears over the 3D view
         let available_rect = ctx.available_rect();
         let tooltip_pos = ctx
@@ -930,6 +930,33 @@ fn ui_hover_tooltip(
                                     .color(egui::Color32::from_rgb(180, 180, 180)),
                             );
                         });
+
+                        // Ocean indicator
+                        if let Some(ocean) = ocean_props {
+                            let (icon, text, color) = if ocean.is_subsurface {
+                                ("\u{1F9CA}", "Subsurface Ocean", egui::Color32::from_rgb(100, 180, 220))
+                            } else {
+                                match ocean.ocean_type {
+                                    crate::astronomy::OceanType::Water =>
+                                        ("\u{1F30A}", "Water Ocean", egui::Color32::from_rgb(64, 164, 223)),
+                                    crate::astronomy::OceanType::Methane =>
+                                        ("\u{1F7E0}", "Methane Ocean", egui::Color32::from_rgb(200, 150, 50)),
+                                    crate::astronomy::OceanType::Hydrocarbon =>
+                                        ("\u{26FD}", "Hydrocarbon Lakes", egui::Color32::from_rgb(180, 140, 60)),
+                                    crate::astronomy::OceanType::Ammonia =>
+                                        ("\u{1F7E3}", "Ammonia Ocean", egui::Color32::from_rgb(160, 120, 200)),
+                                    crate::astronomy::OceanType::Subsurface =>
+                                        ("\u{1F9CA}", "Subsurface Ocean", egui::Color32::from_rgb(100, 180, 220)),
+                                }
+                            };
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new(format!("{} {}", icon, text))
+                                        .size(11.0)
+                                        .color(color),
+                                );
+                            });
+                        }
                     });
             });
     }

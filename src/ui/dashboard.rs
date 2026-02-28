@@ -520,6 +520,7 @@ pub(super) fn ui_dashboard(
         Option<&Population>,
         Option<&crate::astronomy::SurfaceTemperature>,
         Option<&LogicalParent>,
+        Option<&crate::astronomy::OceanProperties>,
     )>,
     // Read-only lookup for parent body coordinates
     parent_coords_query: Query<&SpaceCoordinates>,
@@ -796,7 +797,7 @@ pub(super) fn ui_dashboard(
                 ui.separator();
 
                 if let Some(entity) = selection.get() {
-                    if let Ok((body, opt_coords, orbit, resources, atmosphere, category_opt, mut survey_level, population, surface_temp, logical_parent)) = body_query.get_mut(entity) {
+                    if let Ok((body, opt_coords, orbit, resources, atmosphere, category_opt, mut survey_level, population, surface_temp, logical_parent, ocean_props)) = body_query.get_mut(entity) {
                         // Body name and basic info
                         ui.label(egui::RichText::new(&body.name).size(18.0).strong());
                         // show category string below the name if available
@@ -1049,6 +1050,90 @@ pub(super) fn ui_dashboard(
                             });
 
                             ui.add_space(10.0);
+                        }
+
+                        // Ocean section
+                        if let Some(ocean) = ocean_props {
+                            ui.group(|ui| {
+                                let id = ui.make_persistent_id(("ocean_header", entity));
+                                egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
+                                    .show_header(ui, |ui| {
+                                        let icon = if ocean.is_subsurface { "🧊" } else { "🌊" };
+                                        let label = if ocean.is_subsurface {
+                                            "Subsurface Ocean"
+                                        } else {
+                                            match ocean.ocean_type {
+                                                crate::astronomy::OceanType::Water => "Ocean (Water)",
+                                                crate::astronomy::OceanType::Methane => "Ocean (Methane)",
+                                                crate::astronomy::OceanType::Hydrocarbon => "Lakes (Hydrocarbon)",
+                                                crate::astronomy::OceanType::Ammonia => "Ocean (Ammonia)",
+                                                crate::astronomy::OceanType::Subsurface => "Subsurface Ocean",
+                                            }
+                                        };
+                                        let color = match ocean.ocean_type {
+                                            crate::astronomy::OceanType::Water => egui::Color32::from_rgb(64, 164, 223),
+                                            crate::astronomy::OceanType::Methane | crate::astronomy::OceanType::Hydrocarbon => egui::Color32::from_rgb(180, 140, 60),
+                                            crate::astronomy::OceanType::Ammonia => egui::Color32::from_rgb(160, 120, 200),
+                                            crate::astronomy::OceanType::Subsurface => egui::Color32::from_rgb(100, 180, 220),
+                                        };
+                                        ui.colored_label(color, format!("{} {}", icon, label));
+                                    })
+                                    .body(|ui| {
+                                        if ocean.is_subsurface {
+                                            ui.horizontal(|ui| {
+                                                ui.label("Location:");
+                                                ui.colored_label(egui::Color32::from_rgb(100, 180, 220), "Beneath ice crust");
+                                            });
+                                        } else {
+                                            ui.horizontal(|ui| {
+                                                ui.label("Surface Coverage:");
+                                                ui.label(format!("{:.0}%", ocean.surface_fraction * 100.0));
+                                            });
+                                        }
+                                        ui.horizontal(|ui| {
+                                            ui.label("Mean Depth:");
+                                            if ocean.mean_depth_km >= 1.0 {
+                                                ui.label(format!("{:.1} km", ocean.mean_depth_km));
+                                            } else {
+                                                ui.label(format!("{:.0} m", ocean.mean_depth_km * 1000.0));
+                                            }
+                                        });
+                                        let hab = ocean.habitability_modifier();
+                                        ui.horizontal(|ui| {
+                                            ui.label("Colony Growth:");
+                                            let (color, text) = if hab > 1.2 {
+                                                (egui::Color32::GREEN, format!("+{:.0}% growth bonus", (hab - 1.0) * 100.0))
+                                            } else if hab > 1.0 {
+                                                (egui::Color32::from_rgb(100, 220, 100), format!("+{:.0}% growth bonus", (hab - 1.0) * 100.0))
+                                            } else if hab < 1.0 {
+                                                (egui::Color32::from_rgb(255, 140, 0), format!("{:.0}% growth penalty", (1.0 - hab) * 100.0))
+                                            } else {
+                                                (egui::Color32::GRAY, "Neutral".to_string())
+                                            };
+                                            ui.colored_label(color, text)
+                                                .on_hover_text(if ocean.is_subsurface {
+                                                    "Subsurface oceans are not directly accessible for surface colonies."
+                                                } else {
+                                                    match ocean.ocean_type {
+                                                        crate::astronomy::OceanType::Water => "Liquid water boosts climate stability and colony growth.",
+                                                        crate::astronomy::OceanType::Methane | crate::astronomy::OceanType::Hydrocarbon => "Flammable hydrocarbon environment limits colony operations.",
+                                                        crate::astronomy::OceanType::Ammonia => "Ammonia is toxic — requires full environmental protection.",
+                                                        _ => "",
+                                                    }
+                                                });
+                                        });
+                                        // Resource note
+                                        let resource_note = match ocean.ocean_type {
+                                            crate::astronomy::OceanType::Water => "💧 Liquid water deposits have boosted extraction accessibility.",
+                                            crate::astronomy::OceanType::Methane | crate::astronomy::OceanType::Hydrocarbon => "⛽ Liquid hydrocarbon deposits have boosted extraction accessibility.",
+                                            crate::astronomy::OceanType::Ammonia => "⚗️ Liquid ammonia deposits have boosted extraction accessibility.",
+                                            crate::astronomy::OceanType::Subsurface => "🔬 Subsurface ocean confirmed. Deep drilling required for access.",
+                                        };
+                                        ui.add_space(4.0);
+                                        ui.colored_label(egui::Color32::LIGHT_GRAY, egui::RichText::new(resource_note).small());
+                                    });
+                            });
+                            ui.add_space(5.0);
                         }
 
                         // Resources if available
