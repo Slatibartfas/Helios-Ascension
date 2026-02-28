@@ -299,13 +299,18 @@ fn compute_transfer_arc(
 ) -> TransferArcGeometry {
     let departure_angle = optimal_departure_angle(op, dp);
     let dir_dep = Vec3::new(departure_angle.cos(), departure_angle.sin(), 0.0);
-    let p0 = op + dir_dep * origin_ring_r;
 
-    let tang_orbit_raw = if is_inward {
-        Vec3::new(departure_angle.sin(), -departure_angle.cos(), 0.0) // CW
+    // Rotate direction by 90° so the ring point is where prograde (outward) or
+    // retrograde (inward) aims toward the destination — Hohmann departure.
+    let dep_ring_dir = if is_inward {
+        Vec3::new(-dir_dep.y, dir_dep.x, 0.0)  // CCW rotation
     } else {
-        Vec3::new(-departure_angle.sin(), departure_angle.cos(), 0.0) // CCW
+        Vec3::new(dir_dep.y, -dir_dep.x, 0.0)  // CW rotation
     };
+    let p0 = op + dep_ring_dir * origin_ring_r;
+
+    // Prograde/retrograde at the rotated ring point now points along dir_dep.
+    let tang_orbit_raw = dir_dep;
     let direct_dir = (dp - p0).normalize_or_zero();
     let tang_origin = if is_course_correction {
         // Course corrections: fleet already moving, aim mostly at destination.
@@ -325,8 +330,15 @@ fn compute_transfer_arc(
     } else {
         (dp - op).normalize_or_zero()
     };
-    let inward_dir = (op - dp).normalize_or_zero();
-    let p3 = dp + inward_dir * dest_ring_r;
+    // Arrival ring point: rotate inbound direction by 90° so the fleet arrives
+    // where prograde/retrograde aligns with the incoming trajectory.
+    let inbound = (dp - op).normalize_or_zero();
+    let arr_ring_dir = if is_inward {
+        Vec3::new(-inbound.y, inbound.x, 0.0)  // CCW rotation
+    } else {
+        Vec3::new(inbound.y, -inbound.x, 0.0)  // CW rotation
+    };
+    let p3 = dp + arr_ring_dir * dest_ring_r;
     let tang_d_a = Vec3::new(-radial_dest.y, radial_dest.x, 0.0);
     let tang_dest = if is_inward {
         if tang_d_a.dot(tang_origin) < 0.0 { tang_d_a } else { -tang_d_a }
@@ -406,25 +418,23 @@ fn compute_gravity_assist_arc(
     // ── Arrival ──────────────────────────────────────────────────────────────
     let dir_from_flyby = (dp - fp).normalize_or_zero();
 
-    // Is the fleet arriving from further out (needs prograde to capture) or inside?
+    // Is the destination further from the sun than the flyby body?
     let is_outward2 = dp.length_squared() > fp.length_squared();
 
-    // Arrival ring point: rotate the inbound direction by 90° so prograde at
-    // that point aligns with the incoming leg for tangential insertion.
+    // Arrival ring point: rotate inbound direction by 90° so the fleet arrives
+    // where prograde/retrograde aligns with the incoming trajectory.
+    // Same rotation convention as departure: CW for outward, CCW for inward.
     let inbound = -dir_from_flyby;
     let arr_dir = if is_outward2 {
-        // Arriving at an outer body: fleet comes in with prograde-ish velocity
-        Vec3::new(inbound.y, -inbound.x, 0.0)
+        Vec3::new(inbound.y, -inbound.x, 0.0)   // CW for outer arrival
     } else {
-        // Arriving at an inner body: fleet comes in retrograde-ish
-        Vec3::new(-inbound.y, inbound.x, 0.0)
+        Vec3::new(-inbound.y, inbound.x, 0.0)   // CCW for inner arrival
     };
     let p3_2 = dp + arr_dir * dest_ring_r;
 
-    // Arrival tangent: prograde direction at the arrival ring point.
-    let rad_at_p3 = (p3_2 - dp).normalize_or_zero();
-    let prograde_at_p3 = Vec3::new(-rad_at_p3.y, rad_at_p3.x, 0.0);
-    let td2 = if is_outward2 { prograde_at_p3 } else { -prograde_at_p3 };
+    // Arrival tangent: the inbound direction (reversed from dir_from_flyby),
+    // so the Bezier arrives aligned with the incoming leg.
+    let td2 = inbound;
 
     // ── Hyperbolic periapsis ─────────────────────────────────────────────────
     let dir_approach = dir_to_flyby;
