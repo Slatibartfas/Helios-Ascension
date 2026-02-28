@@ -32,6 +32,7 @@ use crate::plugins::solar_system::{
 };
 use crate::plugins::solar_system_data::{calculate_visual_radius, system_visual_scale, AsteroidClass, BodyType};
 use crate::plugins::starmap::{PlanetCategory, SystemMetadata, classify_exoplanet};
+use crate::astronomy::infer_ocean_properties;
 
 pub struct SystemPopulatorPlugin;
 
@@ -482,9 +483,9 @@ pub fn spawn_confirmed_planet(
     );
 
     let (avg_temp, has_atmosphere) = if let Some((_atmosphere, surface_temp)) = &atmosphere_result {
-        (surface_temp, true)
+        (*surface_temp, true)
     } else {
-        (&equilibrium_temp_c, false)
+        (equilibrium_temp_c, false)
     };
 
     info!(
@@ -507,7 +508,7 @@ pub fn spawn_confirmed_planet(
     // Classify the planet based on temperature for texture/UI display
     let cat_seed: u32 = planet_data.name.bytes()
         .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
-    let category = classify_exoplanet(BodyType::Planet, None, *avg_temp, cat_seed);
+    let category = classify_exoplanet(BodyType::Planet, None, avg_temp, cat_seed, false, false);
 
     let mut entity_commands = commands.spawn((
         Planet,
@@ -521,7 +522,7 @@ pub fn spawn_confirmed_planet(
             asteroid_class: None,
         },
         SurfaceTemperature {
-            average_celsius: *avg_temp,
+            average_celsius: avg_temp,
             min_celsius: min_temp,
             max_celsius: max_temp,
         },
@@ -535,9 +536,20 @@ pub fn spawn_confirmed_planet(
         SystemId(system_id),
     ));
 
+    // Extract ocean-relevant info before consuming atmosphere_result
+    let pressure_mbar = atmosphere_result
+        .as_ref()
+        .map(|(a, _)| a.surface_pressure_mbar)
+        .unwrap_or(0.0);
+
     // Add atmosphere if generated
     if let Some((atmosphere, _)) = atmosphere_result {
         entity_commands.insert(atmosphere);
+    }
+
+    // Infer ocean from temperature and atmosphere
+    if let Some(ocean) = infer_ocean_properties(avg_temp, pressure_mbar, true, false, radius_km) {
+        entity_commands.insert(ocean);
     }
 
     entity_commands.id()
@@ -576,9 +588,9 @@ pub fn spawn_procedural_planet(
     );
 
     let (avg_temp, has_atmosphere) = if let Some((_, surface_temp)) = &atmosphere_result {
-        (surface_temp, true)
+        (*surface_temp, true)
     } else {
-        (&equilibrium_temp_c, false)
+        (equilibrium_temp_c, false)
     };
 
     info!(
@@ -602,7 +614,7 @@ pub fn spawn_procedural_planet(
     // Classify the planet based on temperature for texture/UI display
     let cat_seed: u32 = planet.name.bytes()
         .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
-    let category = classify_exoplanet(planet.body_type(), None, *avg_temp, cat_seed);
+    let category = classify_exoplanet(planet.body_type(), None, avg_temp, cat_seed, false, false);
 
     let mut entity_commands = commands.spawn((
         Planet,
@@ -615,7 +627,7 @@ pub fn spawn_procedural_planet(
             asteroid_class: None,
         },
         SurfaceTemperature {
-            average_celsius: *avg_temp,
+            average_celsius: avg_temp,
             min_celsius: min_temp,
             max_celsius: max_temp,
         },
@@ -629,9 +641,25 @@ pub fn spawn_procedural_planet(
         SystemId(system_id),
     ));
 
+    // Extract ocean-relevant info before consuming atmosphere_result
+    let pressure_mbar = atmosphere_result
+        .as_ref()
+        .map(|(a, _)| a.surface_pressure_mbar)
+        .unwrap_or(0.0);
+    let has_methane = atmosphere_result
+        .as_ref()
+        .and_then(|(a, _)| a.gases.iter().find(|g| g.name == "CH4"))
+        .map(|g| g.percentage > 0.5)
+        .unwrap_or(false);
+
     // Add atmosphere if generated
     if let Some((atmosphere, _)) = atmosphere_result {
         entity_commands.insert(atmosphere);
+    }
+
+    // Infer ocean from temperature and atmosphere
+    if let Some(ocean) = infer_ocean_properties(avg_temp, pressure_mbar, true, has_methane, radius_km) {
+        entity_commands.insert(ocean);
     }
 
     let entity = entity_commands.id();

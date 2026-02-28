@@ -298,6 +298,109 @@ pub struct LastLpClick {
     pub info: Option<LpMarkerInfo>,
 }
 
+/// The type of liquid ocean on a celestial body.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum OceanType {
+    /// Liquid water (Earth, potentially Mars in the past)
+    Water,
+    /// Liquid methane/ethane (Titan)
+    Methane,
+    /// Liquid ammonia (hypothetical super-Earths)
+    Ammonia,
+    /// Hydrocarbon mix — methane + ethane lakes (Titan)
+    Hydrocarbon,
+    /// Subsurface ocean beneath ice crust (Europa, Enceladus, Ganymede)
+    Subsurface,
+}
+
+/// Component describing a body's ocean properties.
+///
+/// Attached to any body that has a significant liquid surface or subsurface
+/// ocean. Used for visuals (ocean shell), resource phase logic, and colony
+/// habitability modifiers.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct OceanProperties {
+    /// What liquid the ocean is made of.
+    pub ocean_type: OceanType,
+    /// Fraction of the body's surface covered by liquid (0.0–1.0).
+    /// For subsurface oceans this is typically 1.0 (global ocean under ice).
+    pub surface_fraction: f32,
+    /// Average depth of the ocean in km.
+    pub mean_depth_km: f32,
+    /// Whether the ocean is beneath an ice shell (Europa-style).
+    pub is_subsurface: bool,
+}
+
+impl OceanProperties {
+    /// Colony habitability multiplier based on ocean presence.
+    /// Water oceans boost growth; exotic liquids are neutral or slightly negative.
+    pub fn habitability_modifier(&self) -> f64 {
+        if self.is_subsurface {
+            return 1.0; // Subsurface oceans don't directly help surface colonies
+        }
+        match self.ocean_type {
+            OceanType::Water => 1.0 + (self.surface_fraction as f64) * 0.5, // Up to +50%
+            OceanType::Ammonia => 0.9,  // Mildly hostile
+            OceanType::Methane | OceanType::Hydrocarbon => 0.85, // Hostile
+            OceanType::Subsurface => 1.0,
+        }
+    }
+}
+
+/// Infer ocean properties from temperature, pressure and atmosphere composition.
+///
+/// Called during procedural generation to decide whether a body should have
+/// surface or subsurface liquids based on physical conditions.
+pub fn infer_ocean_properties(
+    avg_temp_c: f32,
+    surface_pressure_mbar: f32,
+    has_water_deposits: bool,
+    has_methane: bool,
+    radius_km: f32,
+) -> Option<OceanProperties> {
+    // Water ocean: requires liquid-water temperature range and sufficient pressure
+    if has_water_deposits && avg_temp_c > 0.0 && avg_temp_c < 100.0 && surface_pressure_mbar > 6.1
+    {
+        let fraction = if avg_temp_c > 10.0 && avg_temp_c < 50.0 {
+            0.6 // Temperate → large ocean coverage
+        } else {
+            0.3 // Edge of habitability → smaller coverage
+        };
+        return Some(OceanProperties {
+            ocean_type: OceanType::Water,
+            surface_fraction: fraction,
+            mean_depth_km: 3.0, // Earth-like average
+            is_subsurface: false,
+        });
+    }
+
+    // Methane/hydrocarbon lakes (Titan-like): very cold, thick atmosphere with CH4
+    if has_methane
+        && avg_temp_c > -183.0
+        && avg_temp_c < -161.0
+        && surface_pressure_mbar > 100.0
+    {
+        return Some(OceanProperties {
+            ocean_type: OceanType::Hydrocarbon,
+            surface_fraction: 0.02, // Titan has ~1.6% lake coverage
+            mean_depth_km: 0.15,
+            is_subsurface: false,
+        });
+    }
+
+    // Subsurface ocean: icy moon heuristic — small, cold body with water ice
+    if has_water_deposits && avg_temp_c < -20.0 && radius_km > 200.0 && radius_km < 3000.0 {
+        return Some(OceanProperties {
+            ocean_type: OceanType::Subsurface,
+            surface_fraction: 1.0,
+            mean_depth_km: 50.0,
+            is_subsurface: true,
+        });
+    }
+
+    None
+}
+
 /// Component for the surface temperature of a celestial body.
 /// This exists for all solid bodies, regardless of whether they have an atmosphere.
 #[derive(Component, Debug, Clone, Copy, Default)]

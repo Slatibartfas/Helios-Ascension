@@ -56,6 +56,7 @@ fn main() {
         .add_plugins(BackdropPlugin)
         .add_plugins(VisualEffectsPlugin)
         .add_plugins(AtmospherePlugin)
+        .add_plugins(plugins::ocean::OceanPlugin)
         .add_plugins(SolarSystemPlugin)
         .add_plugins(StarmapPlugin)
         .add_plugins(EconomyPlugin)

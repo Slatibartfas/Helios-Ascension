@@ -4,6 +4,7 @@ use super::components::{Colony, ConstructionProject, PendingConstructionActions}
 use super::data::{BuildingsData, deduct_resources};
 use super::types::BuildingType;
 use super::ConstructionDebugSettings;
+use crate::astronomy::OceanProperties;
 use crate::economy::budget::SECONDS_PER_YEAR;
 use crate::ui::SimulationTime;
 
@@ -148,8 +149,10 @@ pub fn process_construction_actions(
 ///
 /// Uses `SimulationTime` to calculate elapsed time and applies the
 /// growth calculated by `Colony::population_growth_per_year`.
+/// Bodies with liquid-water oceans receive a habitability bonus.
 pub fn update_colony_growth(
-    mut colonies: Query<&mut Colony>,
+    mut colonies: Query<(Entity, &mut Colony)>,
+    ocean_query: Query<&OceanProperties>,
     sim_time: Res<SimulationTime>,
     mut last_elapsed: Local<f64>,
 ) {
@@ -166,9 +169,13 @@ pub fn update_colony_growth(
         return;
     }
 
-    for mut colony in colonies.iter_mut() {
-        let growth = colony.population_growth_per_year() * years_elapsed;
-        colony.population += growth;
+    for (entity, mut colony) in colonies.iter_mut() {
+        let base_growth = colony.population_growth_per_year() * years_elapsed;
+        let ocean_modifier = ocean_query
+            .get(entity)
+            .map(|o| o.habitability_modifier())
+            .unwrap_or(1.0);
+        colony.population += base_growth * ocean_modifier;
     }
 }
 

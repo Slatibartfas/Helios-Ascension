@@ -137,6 +137,9 @@
                 haze_color: Some((1.0, 0.95, 0.88)),
                 atmosphere_intensity: Some(1.2),
             )),
+            ocean_fraction: Some(0.71),
+            ocean_type: Some(Water),
+            ocean_depth_km: Some(3.688),
         ),
         
         // Moon
@@ -316,6 +319,9 @@
             )),
             rotation_period: 3.551181,
             texture: Some("textures/celestial/moons/europa_4k.png"),
+            ocean_fraction: Some(1.0),
+            ocean_type: Some(Subsurface),
+            ocean_depth_km: Some(100.0),
         ),
         
         // Ganymede
@@ -336,6 +342,9 @@
             )),
             rotation_period: 7.15455296,
             texture: Some("textures/celestial/moons/ganymede_4k.jpg"),
+            ocean_fraction: Some(1.0),
+            ocean_type: Some(Subsurface),
+            ocean_depth_km: Some(80.0),
         ),
         
         // Callisto
@@ -356,6 +365,9 @@
             )),
             rotation_period: 16.6890184,
             texture: Some("textures/celestial/moons/callisto_4k.jpg"),
+            ocean_fraction: Some(0.5),
+            ocean_type: Some(Subsurface),
+            ocean_depth_km: Some(10.0),
         ),
         
         // Saturn
@@ -414,7 +426,12 @@
                 initial_angle: 286.99,
             )),
             rotation_period: 15.945,
-            texture: Some("textures/celestial/moons/titan_4k.jpg"),
+            // titan_4k.jpg is a Cassini RADAR/SAR synthetic aperture map —
+            // monochromatic and very dark.  Without a proper colour texture we fall
+            // back to the generic rocky texture tinted by color: (0.85, 0.7, 0.5),
+            // giving a warm amber surface that the atmosphere shader covers with
+            // the characteristic orange haze.
+            texture: None,
             atmosphere: Some((
                 surface_pressure_mbar: 1500.0, // 1.5 bar - denser than Earth!
                 surface_temperature_celsius: -179.0,
@@ -430,6 +447,9 @@
                 haze_color: Some((1.0, 0.65, 0.25)),
                 atmosphere_intensity: Some(1.6),
             )),
+            ocean_fraction: Some(0.017),
+            ocean_type: Some(Hydrocarbon),
+            ocean_depth_km: Some(0.15),
         ),
         
         // Rhea
@@ -1947,6 +1967,9 @@
             )),
             rotation_period: 1.37,
             texture: Some("textures/celestial/moons/enceladus_4k.jpg"),
+            ocean_fraction: Some(1.0),
+            ocean_type: Some(Subsurface),
+            ocean_depth_km: Some(10.0),
         ),
         
         // Tethys

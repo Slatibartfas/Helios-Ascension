@@ -135,7 +135,8 @@ impl PlanetTextureManifest {
                             "textures/celestial/moons/europa_4k.png",
                             "textures/celestial/moons/ganymede_4k.jpg",
                             "textures/celestial/moons/callisto_4k.jpg",
-                            "textures/celestial/moons/titan_4k.jpg",
+                            // titan_4k.jpg excluded — it is a Cassini RADAR/SAR map
+                            // (monochromatic/dark), not a colour image.
                             "textures/celestial/moons/triton_4k.jpg"]),
             ("asteroid_s",&["textures/celestial/asteroids/generic_s_type_2k.jpg"]),
             ("asteroid_c",&["textures/celestial/asteroids/generic_c_type_2k.jpg"]),
@@ -425,11 +426,17 @@ fn tag_sol_bodies(
 ///
 /// The category is used to look up a texture from `PlanetTextureManifest` and
 /// to derive a tint colour in `category_tint`.
+///
+/// `has_surface_ocean` and `ocean_is_water` allow the classifier to prefer the
+/// "ocean" archetype when a body actually possesses a liquid-water ocean,
+/// rather than relying solely on the seed-based random distribution.
 pub fn classify_exoplanet(
     body_type: BodyType,
     asteroid_class: Option<AsteroidClass>,
     avg_temp_c: f32,
     seed: u32,
+    has_surface_ocean: bool,
+    ocean_is_water: bool,
 ) -> &'static str {
     match body_type {
         BodyType::GasGiant => {
@@ -462,6 +469,9 @@ pub fn classify_exoplanet(
                     "alpine"
                 } else if avg_temp_c > 45.0 {
                     "savannah"
+                } else if has_surface_ocean && ocean_is_water {
+                    // Bodies with confirmed liquid-water oceans always classify as "ocean"
+                    "ocean"
                 } else {
                     match seed % 4 {
                         0 => "jungle",
@@ -871,7 +881,7 @@ fn spawn_system_bodies(
                 .bytes()
                 .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
 
-            let category = classify_exoplanet(body.body_type, body.asteroid_class, avg_temp, seed);
+            let category = classify_exoplanet(body.body_type, body.asteroid_class, avg_temp, seed, false, false);
 
 
             let r1 = ((seed % 1000) as f32) / 1000.0;
@@ -1447,20 +1457,20 @@ mod tests {
 
     #[test]
     fn test_classify_lava() {
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 600.0, 0), "lava");
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 501.0, 0), "lava");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 600.0, 0, false, false), "lava");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 501.0, 0, false, false), "lava");
         // exactly 500.0 is desert (condition is > 500.0)
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 500.0, 0), "desert");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 500.0, 0, false, false), "desert");
     }
 
     #[test]
     fn test_classify_desert() {
         // very hot worlds outside the habitable zone (<= 60) now fall into
         // the savannah category; only temps above 60.0 are desert now.
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 200.0, 0), "desert");
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 60.1, 0), "desert");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 200.0, 0, false, false), "desert");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 60.1, 0, false, false), "desert");
         // exactly 60.0 sits at the hot habitable band and should be savannah
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 60.0, 0), "savannah");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 60.0, 0, false, false), "savannah");
     }
 
     #[test]
@@ -1468,92 +1478,105 @@ mod tests {
         // Temperatures inside habitable band (-20.0..=60.0).
         // Four-category distribution controlled by seed % 4.
         // Seed 0 → 0 % 4 == 0 → "jungle"
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 15.0, 0), "jungle");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 15.0, 0, false, false), "jungle");
         // Seed 1 → 1 % 4 == 1 → "ocean"
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 15.0, 1), "ocean");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 15.0, 1, false, false), "ocean");
         // Seed 2 → 2 % 4 == 2 → "temperate"
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 15.0, 2), "temperate");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 15.0, 2, false, false), "temperate");
         // Seed 3 → 3 % 4 == 3 → "swamp"
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 15.0, 3), "swamp");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 15.0, 3, false, false), "swamp");
     }
 
     #[test]
     fn test_classify_tundra() {
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, -50.0, 0), "tundra");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, -50.0, 0, false, false), "tundra");
         // -20.0 is the habitable lower bound (inclusive), so just below it is tundra
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, -20.1, 0), "tundra");
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, -99.9, 0), "tundra");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, -20.1, 0, false, false), "tundra");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, -99.9, 0, false, false), "tundra");
         // exactly -100.0 is tundra (>= -100.0)
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, -100.0, 0), "tundra");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, -100.0, 0, false, false), "tundra");
         // -10.0 is cold but still in habitable band and should classify as alpine
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, -10.0, 0), "alpine");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, -10.0, 0, false, false), "alpine");
         // exactly -20.0 lies on the cold edge of the habitable band and
         // is classified as alpine under the new rules.
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, -20.0, 0), "alpine");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, -20.0, 0, false, false), "alpine");
     }
 
     #[test]
     fn test_classify_alpine() {
         // Temperatures well inside the habitable window but coldend (< -5°C) are alpine.
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, -20.0, 0), "alpine");
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, -10.0, 0), "alpine");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, -20.0, 0, false, false), "alpine");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, -10.0, 0, false, false), "alpine");
     }
 
     #[test]
     fn test_boundary_minus_five() {
         // The boundary temp -5°C should no longer count as alpine; it maps to jungle.
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, -5.0, 0), "jungle");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, -5.0, 0, false, false), "jungle");
     }
 
     #[test]
     fn test_classify_savannah() {
         // Very hot worlds above habitable band but below lava, and hot
         // habitable-zone worlds (>45°C) should be labelled "savannah".
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 46.0, 0), "savannah");
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 60.0, 0), "savannah");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 46.0, 0, false, false), "savannah");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 60.0, 0, false, false), "savannah");
     }
 
     #[test]
     fn test_classify_ice() {
         // -100.0 is tundra (>= -100.0); strictly below -100.0 is ice
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, -100.1, 0), "ice");
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, -250.0, 0), "ice");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, -100.1, 0, false, false), "ice");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, -250.0, 0, false, false), "ice");
     }
 
     #[test]
     fn test_classify_gas_and_ice_giants() {
-        assert_eq!(classify_exoplanet(BodyType::GasGiant, None, -200.0, 0), "ice_giant");
+        assert_eq!(classify_exoplanet(BodyType::GasGiant, None, -200.0, 0, false, false), "ice_giant");
         // strictly below -80.0 is ice_giant; -80.0 itself is gas_giant
-        assert_eq!(classify_exoplanet(BodyType::GasGiant, None, -80.1, 0), "ice_giant");
-        assert_eq!(classify_exoplanet(BodyType::GasGiant, None, -80.0, 0), "gas_giant");
-        assert_eq!(classify_exoplanet(BodyType::GasGiant, None, 100.0, 0), "gas_giant");
+        assert_eq!(classify_exoplanet(BodyType::GasGiant, None, -80.1, 0, false, false), "ice_giant");
+        assert_eq!(classify_exoplanet(BodyType::GasGiant, None, -80.0, 0, false, false), "gas_giant");
+        assert_eq!(classify_exoplanet(BodyType::GasGiant, None, 100.0, 0, false, false), "gas_giant");
     }
 
     #[test]
     fn test_classify_small_bodies() {
-        assert_eq!(classify_exoplanet(BodyType::DwarfPlanet, None, -200.0, 0), "dwarf");
-        assert_eq!(classify_exoplanet(BodyType::Moon, None, 0.0, 0), "moon");
-        assert_eq!(classify_exoplanet(BodyType::Comet, None, -50.0, 0), "comet");
+        assert_eq!(classify_exoplanet(BodyType::DwarfPlanet, None, -200.0, 0, false, false), "dwarf");
+        assert_eq!(classify_exoplanet(BodyType::Moon, None, 0.0, 0, false, false), "moon");
+        assert_eq!(classify_exoplanet(BodyType::Comet, None, -50.0, 0, false, false), "comet");
     }
 
     #[test]
     fn test_classify_asteroids() {
         assert_eq!(
-            classify_exoplanet(BodyType::Asteroid, Some(AsteroidClass::SType), 0.0, 0),
+            classify_exoplanet(BodyType::Asteroid, Some(AsteroidClass::SType), 0.0, 0, false, false),
             "asteroid_s"
         );
         assert_eq!(
-            classify_exoplanet(BodyType::Asteroid, Some(AsteroidClass::MType), 0.0, 0),
+            classify_exoplanet(BodyType::Asteroid, Some(AsteroidClass::MType), 0.0, 0, false, false),
             "asteroid_s"
         );
         assert_eq!(
-            classify_exoplanet(BodyType::Asteroid, Some(AsteroidClass::CType), 0.0, 0),
+            classify_exoplanet(BodyType::Asteroid, Some(AsteroidClass::CType), 0.0, 0, false, false),
             "asteroid_c"
         );
         assert_eq!(
-            classify_exoplanet(BodyType::Asteroid, Some(AsteroidClass::DType), 0.0, 0),
+            classify_exoplanet(BodyType::Asteroid, Some(AsteroidClass::DType), 0.0, 0, false, false),
             "asteroid_c"
         );
+    }
+
+    #[test]
+    fn test_classify_ocean_override() {
+        // With has_surface_ocean=true and ocean_is_water=true, habitable-zone planets
+        // should always classify as "ocean" regardless of seed.
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 15.0, 0, true, true), "ocean");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 15.0, 2, true, true), "ocean");
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 15.0, 3, true, true), "ocean");
+        // Non-water oceans should NOT force the "ocean" category
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 15.0, 0, true, false), "jungle");
+        // Outside habitable zone, ocean flag has no effect
+        assert_eq!(classify_exoplanet(BodyType::Planet, None, 600.0, 0, true, true), "lava");
     }
 
     // ── PlanetTextureManifest::pick ──────────────────────────────────────────

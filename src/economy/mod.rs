@@ -40,7 +40,13 @@ impl Plugin for EconomyPlugin {
             // Startup systems
             .add_systems(
                 PostStartup,
-                (generate_solar_system_resources, generate_ring_resources),
+                (generate_solar_system_resources, generate_ring_resources)
+                    .chain()
+                    .before(generation::stamp_resource_phases),
+            )
+            .add_systems(
+                PostStartup,
+                generation::stamp_resource_phases,
             )
             // Update systems
             .add_systems(

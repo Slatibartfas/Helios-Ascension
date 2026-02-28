@@ -23,6 +23,7 @@ pub mod systems;
 pub use components::{
     AtmosphereComposition, AtmosphericGas, CometTail, Destroyed, FloatingOrigin, Hovered,
     KeplerOrbit, LagrangePointMarkers, LastLpClick, LocalOrbitAmplification, LpMarkerInfo,
+    OceanProperties, OceanType, infer_ocean_properties,
     OrbitCenter, OrbitPath, Selected, SpaceCoordinates, StellarProperties, SurfaceTemperature,
     calculate_general_colony_cost,
 };

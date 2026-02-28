@@ -1,6 +1,7 @@
 pub mod atmosphere;
 pub mod camera;
 pub mod music;
+pub mod ocean;
 pub mod solar_system;
 pub mod solar_system_data;
 pub mod star_materials;

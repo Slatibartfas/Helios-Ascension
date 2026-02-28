@@ -2,8 +2,8 @@ use bevy::prelude::*;
 use rand::Rng;
 
 use super::components::{MineralDeposit, OrbitsBody, PlanetResources, StarSystem};
-use super::types::ResourceType;
-use crate::astronomy::SpaceCoordinates;
+use super::types::{ResourceType, ResourcePhase, determine_resource_phase};
+use crate::astronomy::{SpaceCoordinates, SurfaceTemperature, AtmosphereComposition};
 use crate::plugins::solar_system::{Asteroid, CelestialBody, Comet, DwarfPlanet, Moon, Planet, Ring};
 use crate::plugins::solar_system_data::{AsteroidClass, BodyType};
 
@@ -817,6 +817,38 @@ pub fn generate_ring_resources(
             "Generated ring resources for '{}' (profile: {}, total {:.2e} Mt)",
             body.name, profile_name, total_mass_mt
         );
+    }
+}
+
+/// System that stamps the `phase` field on every mineral deposit based on
+/// the body's surface temperature and atmospheric pressure.
+///
+/// Should run in `PostStartup` *after* `generate_solar_system_resources` so that
+/// deposits already exist.  Also marks liquid-phase deposits with a 1.5×
+/// accessibility bonus (more accessible than solid ores).
+pub fn stamp_resource_phases(
+    mut resources_query: Query<(
+        &mut PlanetResources,
+        &SurfaceTemperature,
+        Option<&AtmosphereComposition>,
+    )>,
+) {
+    for (mut planet, temp, maybe_atmo) in resources_query.iter_mut() {
+        let pressure_mbar = maybe_atmo
+            .map(|a| a.surface_pressure_mbar)
+            .unwrap_or(0.0);
+
+        for (resource_type, deposit) in planet.deposits.iter_mut() {
+            let phase =
+                determine_resource_phase(*resource_type, temp.average_celsius, pressure_mbar);
+
+            deposit.phase = phase;
+
+            // Liquid deposits are easier to extract — boost accessibility
+            if phase == ResourcePhase::Liquid {
+                deposit.accessibility = (deposit.accessibility * 1.5).min(1.0);
+            }
+        }
     }
 }
 

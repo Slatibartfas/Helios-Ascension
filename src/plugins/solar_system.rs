@@ -15,6 +15,7 @@ use crate::economy::components::{Population, PowerGenerator, PowerSourceType};
 use crate::astronomy::{
     orbit_position_from_mean_anomaly, KeplerOrbit, LocalOrbitAmplification, OrbitPath,
     SpaceCoordinates, SCALING_FACTOR, StellarProperties, SurfaceTemperature,
+    OceanProperties, OceanType,
 };
 use crate::plugins::camera::{CameraAnchor, GameCamera};
 use crate::ui::SimulationTime;
@@ -743,9 +744,10 @@ pub fn setup_solar_system(
                 // Note: normal_map_texture is loaded but not applied yet
                 // TODO: Enable once multi-layer rendering is fully implemented
                 // normal_map_texture,
-                // Subtle emissive so the dark side isn't pitch-black.
+                // Subtle uniform ambient glow so the dark side isn't pitch-black.
+                // Do NOT set emissive_texture here — reusing base_color_texture as an
+                // emissive map causes visual artifacts and is conceptually incorrect.
                 emissive: LinearRgba::WHITE * 0.02,
-                emissive_texture: base_color_texture,
                 perceptual_roughness: roughness,
                 metallic,
                 reflectance: 0.5,
@@ -808,6 +810,9 @@ pub fn setup_solar_system(
                 body_data.asteroid_class,
                 avg_temp,
                 seed,
+                body_data.ocean_fraction.unwrap_or(0.0) > 0.0
+                    && body_data.ocean_type != Some(OceanType::Subsurface),
+                body_data.ocean_type == Some(OceanType::Water),
             )
         }
 
@@ -1020,6 +1025,19 @@ pub fn setup_solar_system(
             min_celsius: min_temp_c,
             max_celsius: max_temp_c,
         });
+
+        // Insert ocean properties from RON data if present
+        if let Some(fraction) = body_data.ocean_fraction {
+            let ocean_type = body_data.ocean_type.unwrap_or(OceanType::Water);
+            let depth = body_data.ocean_depth_km.unwrap_or(3.0);
+            let is_subsurface = ocean_type == OceanType::Subsurface;
+            entity_commands.insert(OceanProperties {
+                ocean_type,
+                surface_fraction: fraction,
+                mean_depth_km: depth,
+                is_subsurface,
+            });
+        }
 
         let entity = entity_commands.id();
 

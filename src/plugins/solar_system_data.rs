@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use bevy::prelude::*;
+use crate::astronomy::OceanType;
 
 /// Type of celestial body
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -190,6 +191,15 @@ pub struct CelestialBodyData {
     /// Atmosphere data (if the body has an atmosphere)
     #[serde(default)]
     pub atmosphere: Option<AtmosphereData>,
+    /// Fraction of the surface covered by liquid ocean (0.0–1.0).
+    #[serde(default)]
+    pub ocean_fraction: Option<f32>,
+    /// Type of ocean liquid (Water, Methane, Hydrocarbon, Subsurface, etc.)
+    #[serde(default)]
+    pub ocean_type: Option<OceanType>,
+    /// Average depth of the ocean in km.
+    #[serde(default)]
+    pub ocean_depth_km: Option<f32>,
 }
 
 /// Complete solar system data

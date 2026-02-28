@@ -135,7 +135,8 @@
             "textures/celestial/moons/europa_4k.png",
             "textures/celestial/moons/ganymede_4k.jpg",
             "textures/celestial/moons/callisto_4k.jpg",
-            "textures/celestial/moons/titan_4k.jpg",
+            // titan_4k.jpg is a Cassini RADAR/SAR map (monochromatic, very dark) —
+            // not a colour image, so it makes procedural moons look pitch-black.
             "textures/celestial/moons/triton_4k.jpg",
         ],
         "asteroid_s": [

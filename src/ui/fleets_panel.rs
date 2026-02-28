@@ -462,10 +462,66 @@ fn render_fleet_list(
             }
 
             let drop_result = ui.dnd_drop_zone::<(Entity, usize), _>(egui::Frame::NONE, |ui| {
-                let resp = ui.selectable_label(
-                    is_primary,
-                    egui::RichText::new(&row_text).size(13.0).color(row_color),
+                // Measure the full text to decide whether to marquee-scroll.
+                let font_id = egui::FontId::proportional(13.0);
+                let available_w = ui.available_width().max(1.0);
+                let row_height = ui.text_style_height(&egui::TextStyle::Body);
+                let full_text_width = ui
+                    .painter()
+                    .layout_no_wrap(row_text.clone(), font_id.clone(), row_color)
+                    .size()
+                    .x;
+
+                let (rect, resp) = ui.allocate_exact_size(
+                    egui::Vec2::new(available_w, row_height),
+                    egui::Sense::click_and_drag(),
                 );
+
+                // Selection / hover background — mirrors selectable_label visuals.
+                if is_primary || resp.hovered() {
+                    let vis = ui.style().interact_selectable(&resp, is_primary);
+                    let rounding = vis.rounding();
+                    ui.painter().rect_filled(rect.expand(1.0), rounding, vis.bg_fill);
+                    ui.painter().rect_stroke(rect.expand(1.0), rounding, vis.bg_stroke, egui::StrokeKind::Inside);
+                }
+
+                // Narrow the draw region slightly so text doesn't touch the edge.
+                let text_rect = rect.shrink2(egui::Vec2::new(4.0, 0.0));
+                if full_text_width <= text_rect.width() {
+                    // Text fits — draw as-is.
+                    ui.painter().text(
+                        text_rect.left_center(),
+                        egui::Align2::LEFT_CENTER,
+                        &row_text,
+                        font_id,
+                        row_color,
+                    );
+                } else {
+                    // Marquee: slide left at 40 px/s with 1.5 s pauses at each end.
+                    let scroll_range = full_text_width - text_rect.width();
+                    let scroll_speed = 40.0_f32;
+                    let pause = 1.5_f32;
+                    let scroll_dur = scroll_range / scroll_speed;
+                    let cycle = pause + scroll_dur + pause;
+                    let t = (ui.ctx().input(|i| i.time) as f32) % cycle;
+                    let offset_x = if t < pause {
+                        0.0
+                    } else if t < pause + scroll_dur {
+                        (t - pause) * scroll_speed
+                    } else {
+                        scroll_range
+                    };
+                    let painter = ui.painter().with_clip_rect(text_rect);
+                    painter.text(
+                        text_rect.left_center() - egui::Vec2::new(offset_x, 0.0),
+                        egui::Align2::LEFT_CENTER,
+                        &row_text,
+                        font_id,
+                        row_color,
+                    );
+                    ui.ctx().request_repaint(); // keep animation running
+                }
+
                 if resp.clicked() {
                     let ctrl = ui.input(|i| i.modifiers.ctrl || i.modifiers.mac_cmd);
                     let shift = ui.input(|i| i.modifiers.shift);
