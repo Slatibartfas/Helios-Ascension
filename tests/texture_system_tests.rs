@@ -62,7 +62,7 @@ fn test_asteroid_classification_deserializes() {
         "textures/celestial/asteroids/vesta_4k.png"
     );
 
-    // Ceres should have asteroid classification
+    // Ceres should have asteroid classification and a dedicated texture
     let ceres = data.get_body("Ceres").expect("Ceres should exist");
     assert!(
         ceres.asteroid_class.is_some(),
@@ -73,6 +73,26 @@ fn test_asteroid_classification_deserializes() {
         &AsteroidClass::CType,
         "Ceres should be C-type"
     );
+    assert!(
+        ceres.texture.is_some(),
+        "Ceres should have a dedicated texture"
+    );
+    assert_eq!(
+        ceres.texture.as_ref().unwrap(),
+        "textures/celestial/planets/dwarf/ceres_4k.png",
+        "Ceres texture path should be updated"
+    );
+
+    // Haumea, Makemake and Eris each have explicit textures as well
+    for (name, expected) in &[
+        ("Haumea", "textures/celestial/planets/dwarf/haumea_4k.jpg"),
+        ("Makemake", "textures/celestial/planets/dwarf/makemake_4k.jpg"),
+        ("Eris", "textures/celestial/planets/dwarf/eris_4k.jpg"),
+    ] {
+        let body = data.get_body(name).expect(&format!("{} should exist", name));
+        assert!(body.texture.is_some(), "{} needs a dedicated texture", name);
+        assert_eq!(body.texture.as_ref().unwrap(), expected);
+    }
 }
 
 #[test]

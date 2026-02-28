@@ -112,8 +112,12 @@
         "dwarf": [
             // Dwarf planets and KBOs. Add textures to
             // assets/textures/celestial/planets/dwarf/ and register them here.
+            "textures/celestial/planets/ceres_4k.png",
+            "textures/celestial/planets/haumea_4k.jpg",
+            "textures/celestial/planets/makemake_4k.jpg",
+            "textures/celestial/planets/eris_4k.jpg",
             "textures/celestial/planets/pluto_8k.png",
-            "textures/celestial/planets/eris_2k.jpg",
+            // generic fallbacks for procedural asteroids
             "textures/celestial/asteroids/generic_s_type_2k.jpg",
             "textures/celestial/asteroids/generic_c_type_2k.jpg",
         ],

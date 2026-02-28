@@ -632,7 +632,7 @@
                 initial_angle: 286.78,
             )),
             rotation_period: 1.08,
-            texture: Some("textures/celestial/planets/eris_2k.jpg"),
+            texture: Some("textures/celestial/planets/dwarf/eris_4k.jpg"),
         ),
         
         // Makemake
@@ -652,6 +652,7 @@
                 initial_angle: 120.57,
             )),
             rotation_period: 0.95,
+            texture: Some("textures/celestial/planets/dwarf/makemake_4k.jpg"),
         ),
         
         // Haumea
@@ -671,6 +672,7 @@
                 initial_angle: 168.04,
             )),
             rotation_period: 0.163,
+            texture: Some("textures/celestial/planets/dwarf/haumea_4k.jpg"),
         ),
         
         // MAIN BELT ASTEROIDS (Largest)
@@ -693,7 +695,7 @@
             )),
             rotation_period: 0.3781,
             asteroid_class: Some(CType),
-            texture: Some("textures/celestial/asteroids/ceres_4k.png"),
+            texture: Some("textures/celestial/planets/dwarf/ceres_4k.png"),
         ),
         
         // Vesta
