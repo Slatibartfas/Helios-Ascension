@@ -1766,16 +1766,105 @@ pub(super) fn render_transfer_planner(
                                 })
                         } else if let Some(te) = body_target_snap {
                             if sel_option.label == "Gravity Assist" {
-                                // For a gravity assist, the Keplerian arc (Leg 1) is computed
-                                // toward the flyby body so the orbital plane and departure
-                                // direction are correct.  We still record the final destination
-                                // in destination_body so the fleet parks there on arrival.
-                                let flyby_e = fleet_ui_state.selected_gravity_assist
+                                // Build the Leg-1 arc toward the flyby body so the departure
+                                // direction and orbital plane are correct, then stitch in a
+                                // Leg-2 arc (flyby → destination) so the in-transit position
+                                // is correct throughout the full two-leg trajectory.
+                                let sel_ga_idx = fleet_ui_state.selected_gravity_assist;
+                                let flyby_e = sel_ga_idx
                                     .and_then(|i| fleet_ui_state.gravity_assist_candidates.get(i))
                                     .map(|ga| ga.flyby_entity);
+                                let ga_opt = sel_ga_idx
+                                    .and_then(|i| fleet_ui_state.gravity_assist_candidates.get(i))
+                                    .map(|e| e.option.clone());
+
                                 if let Some(flyby) = flyby_e {
-                                    build_planned_transfer(fleet_entity, fleet, orbit, flyby, body_query, &sel_option, course_correction_sc)
-                                        .map(|mut pt| { pt.destination_body = te; pt })
+                                    let mut maybe_pt = build_planned_transfer(
+                                        fleet_entity, fleet, orbit, flyby,
+                                        body_query, &sel_option, course_correction_sc,
+                                    );
+
+                                    if let Some(ref mut pt) = maybe_pt {
+                                        // Always record the actual destination so the fleet
+                                        // parks at the right body on arrival.
+                                        pt.destination_body = te;
+
+                                        // Stitch in Leg-2: flyby → final destination.
+                                        if let Some(ga) = ga_opt {
+                                            use crate::astronomy::KeplerOrbit;
+                                            use crate::fleets::orbital_mechanics::AU_IN_METERS;
+                                            use bevy::math::DVec3;
+
+                                            // All three positions must resolve; skip Leg-2
+                                            // if any entity is missing to avoid garbage orbit.
+                                            let center_res = body_query.get(pt.orbit_center).ok().map(|(_, _, sc, _, _)| sc.position);
+                                            let flyby_res  = body_query.get(flyby).ok().map(|(_, _, sc, _, _)| sc.position);
+                                            let dest_res   = body_query.get(te).ok().map(|(_, _, sc, _, _)| sc.position);
+
+                                            if let (Some(center_pos), Some(flyby_pos), Some(dest_pos)) =
+                                                (center_res, flyby_res, dest_res)
+                                            {
+
+                                            let flyby_rel = flyby_pos - center_pos;
+                                            let dest_rel  = dest_pos  - center_pos;
+                                            let flyby_r   = flyby_rel.length();
+                                            let dest_r    = dest_rel.length();
+
+                                            let (.., leg2_sma, leg2_ecc) =
+                                                hohmann_transfer(flyby_r, dest_r, GM_SUN);
+                                            let leg2_outward = dest_r >= flyby_r;
+                                            let leg2_mae = if leg2_outward { 0.0 } else { std::f64::consts::PI };
+
+                                            // Derive orbital plane and AoP for Leg-2 from
+                                            // the flyby body's current position.
+                                            let plane_n = flyby_rel.cross(dest_rel);
+                                            let plane_len = plane_n.length();
+                                            let (incl2, lan2, aop2) = if plane_len > 1e-20 {
+                                                let n = plane_n / plane_len;
+                                                // Clamp guards against floating-point rounding
+                                                // that can push the dot product slightly outside
+                                                // [-1, 1], which would cause acos to return NaN.
+                                                let incl = n.z.clamp(-1.0, 1.0).acos();
+                                                let nxy = DVec3::new(-n.y, n.x, 0.0);
+                                                let nl  = nxy.length();
+                                                let lan = if nl > 1e-20 {
+                                                    let nd = nxy / nl; nd.y.atan2(nd.x)
+                                                } else { 0.0 };
+                                                let aop = if nl > 1e-20 {
+                                                    let nd = nxy / nl;
+                                                    let pd = flyby_rel.normalize_or_zero();
+                                                    let cw = nd.dot(pd);
+                                                    let sw = n.dot(nd.cross(pd));
+                                                    let om = sw.atan2(cw);
+                                                    if leg2_outward { om } else { om + std::f64::consts::PI }
+                                                } else {
+                                                    let ang = flyby_rel.y.atan2(flyby_rel.x);
+                                                    if leg2_outward { ang } else { ang - std::f64::consts::PI }
+                                                };
+                                                (incl, lan, aop)
+                                            } else {
+                                                let ang = flyby_rel.y.atan2(flyby_rel.x);
+                                                let aop = if leg2_outward { ang } else { ang - std::f64::consts::PI };
+                                                (0.0, 0.0, aop)
+                                            };
+
+                                            let sma_m = leg2_sma * AU_IN_METERS;
+                                            let leg2_mm = (GM_SUN / sma_m.powi(3)).sqrt();
+
+                                            pt.leg2_orbit = Some(KeplerOrbit {
+                                                semi_major_axis: leg2_sma,
+                                                eccentricity: leg2_ecc,
+                                                inclination: incl2,
+                                                longitude_ascending_node: lan2,
+                                                argument_of_periapsis: aop2,
+                                                mean_anomaly_epoch: leg2_mae,
+                                                mean_motion: leg2_mm,
+                                            });
+                                            pt.leg2_start_s = ga.leg1_time_s;
+                                            } // end: if let (Some(center_pos), ...)
+                                        }
+                                    }
+                                    maybe_pt
                                 } else {
                                     build_planned_transfer(fleet_entity, fleet, orbit, te, body_query, &sel_option, course_correction_sc)
                                 }
@@ -2362,6 +2451,8 @@ fn build_planned_transfer(
         option_label: option.label,
         start_position_au: None,
         end_position_au: None,
+        leg2_orbit: None,
+        leg2_start_s: 0.0,
     })
 }
 
@@ -2491,5 +2582,7 @@ fn build_planned_transfer_lp(
         option_label,
         start_position_au: start_pos,
         end_position_au: end_pos,
+        leg2_orbit: None,
+        leg2_start_s: 0.0,
     })
 }

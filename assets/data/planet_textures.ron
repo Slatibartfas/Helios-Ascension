@@ -1,0 +1,138 @@
+// Planet Texture Manifest
+//
+// This file maps planet-type categories to lists of texture paths.
+// All paths are relative to the `assets/` directory.
+//
+// MODDING GUIDE
+// =============
+// To add your own textures for a planet type:
+//
+//   1. Place your texture file in the matching subfolder under
+//      `assets/textures/celestial/planets/<category>/`
+//      (or anywhere else inside `assets/`).
+//
+//   2. Add the path to the appropriate category list below.
+//      Example — adding a custom jungle texture:
+//
+//      "jungle": [
+//          "textures/celestial/planets/jungle/my_jungle_planet.jpg",  // <-- add here
+//          "textures/celestial/planets/earth_8k.jpg",
+//      ],
+//
+//   3. Restart the game. The new texture will be used automatically.
+//
+// The game picks textures DETERMINISTICALLY by body name, so each planet
+// always gets the same texture across sessions. Adding more textures gives
+// more variety without breaking reproducibility.
+//
+// CATEGORIES
+// ==========
+//   barren     — Cratered, airless rocky worlds (Mercury-like)
+//   desert     — Hot arid worlds: 60°C – 500°C  (Mars / Venus -like)
+//   temperate  — Mixed biome Earth-like worlds: -20°C – 60°C
+//   jungle     — Lush, heavily-vegetated worlds: -20°C – 60°C
+//   ocean      — Global-ocean-dominated worlds:  -20°C – 60°C
+//   tundra     — Cold permafrost worlds: -100°C – -20°C
+//   ice        — Deeply-frozen worlds below -100°C (Pluto-like)
+//   lava       — Volcanically-active scorched worlds above 500°C
+//   gas_giant  — Warm gas giants (Jupiter / Saturn -like)
+//   ice_giant  — Cold ice giants (Neptune / Uranus -like)
+//   dwarf      — Dwarf planets and Kuiper Belt Objects
+//   moon       — Natural satellites
+//   asteroid_s — Silicaceous / metallic / basaltic asteroids
+//   asteroid_c — Carbonaceous / dark primitive asteroids
+//   comet      — Cometary nuclei
+
+(
+    categories: {
+        // ── Rocky terrestrial worlds ─────────────────────────────────────────
+        "barren": [
+            // Heavily cratered, airless worlds. Add barren planet textures to
+            // assets/textures/celestial/planets/barren/ and register them here.
+            "textures/celestial/planets/mercury_8k.jpg",
+        ],
+        "desert": [
+            // Hot, arid worlds. Add desert planet textures to
+            // assets/textures/celestial/planets/desert/ and register them here.
+            "textures/celestial/planets/mars_8k.jpg",
+            "textures/celestial/planets/venus_surface_8k.jpg",
+        ],
+        "temperate": [
+            // Earth-like mixed biome worlds. Add temperate planet textures to
+            // assets/textures/celestial/planets/temperate/ and register them here.
+            "textures/celestial/planets/earth_8k.jpg",
+        ],
+        "jungle": [
+            // Lush, heavily vegetated worlds. Add jungle planet textures to
+            // assets/textures/celestial/planets/jungle/ and register them here.
+            // Currently uses Earth as a placeholder — replace with dedicated textures.
+            "textures/celestial/planets/earth_8k.jpg",
+        ],
+        "ocean": [
+            // Global-ocean worlds. Add ocean planet textures to
+            // assets/textures/celestial/planets/ocean/ and register them here.
+            // Currently uses Earth as a placeholder — replace with dedicated textures.
+            "textures/celestial/planets/earth_8k.jpg",
+        ],
+        "tundra": [
+            // Cold permafrost worlds. Add tundra planet textures to
+            // assets/textures/celestial/planets/tundra/ and register them here.
+            "textures/celestial/planets/pluto_8k.png",
+            "textures/celestial/planets/mars_8k.jpg",
+        ],
+        "ice": [
+            // Deeply frozen worlds. Add ice planet textures to
+            // assets/textures/celestial/planets/ice/ and register them here.
+            "textures/celestial/planets/pluto_8k.png",
+            "textures/celestial/planets/eris_2k.jpg",
+        ],
+        "lava": [
+            // Volcanically active scorched worlds. Add lava planet textures to
+            // assets/textures/celestial/planets/lava/ and register them here.
+            // Currently uses Mercury/Venus as placeholders — replace with dedicated textures.
+            "textures/celestial/planets/mercury_8k.jpg",
+            "textures/celestial/planets/venus_surface_8k.jpg",
+        ],
+
+        // ── Giant planets ────────────────────────────────────────────────────
+        "gas_giant": [
+            // Warm gas giants. Add gas giant textures to
+            // assets/textures/celestial/planets/gas_giant/ and register them here.
+            "textures/celestial/planets/jupiter_8k.jpg",
+            "textures/celestial/planets/saturn_8k.jpg",
+        ],
+        "ice_giant": [
+            // Cold ice giants. Add ice giant textures to
+            // assets/textures/celestial/planets/ice_giant/ and register them here.
+            "textures/celestial/planets/neptune_2k.jpg",
+            "textures/celestial/planets/uranus_2k.jpg",
+        ],
+
+        // ── Small bodies ─────────────────────────────────────────────────────
+        "dwarf": [
+            // Dwarf planets and KBOs. Add textures to
+            // assets/textures/celestial/planets/dwarf/ and register them here.
+            "textures/celestial/planets/pluto_8k.png",
+            "textures/celestial/planets/eris_2k.jpg",
+            "textures/celestial/asteroids/generic_s_type_2k.jpg",
+            "textures/celestial/asteroids/generic_c_type_2k.jpg",
+        ],
+        "moon": [
+            "textures/celestial/moons/moon_8k.jpg",
+            "textures/celestial/moons/europa_4k.png",
+            "textures/celestial/moons/ganymede_4k.jpg",
+            "textures/celestial/moons/callisto_4k.jpg",
+            "textures/celestial/moons/titan_4k.jpg",
+            "textures/celestial/moons/triton_4k.jpg",
+        ],
+        "asteroid_s": [
+            "textures/celestial/asteroids/generic_s_type_2k.jpg",
+        ],
+        "asteroid_c": [
+            "textures/celestial/asteroids/generic_c_type_2k.jpg",
+        ],
+        "comet": [
+            "textures/celestial/comets/generic_nucleus_2k.jpg",
+        ],
+    }
+)

@@ -830,9 +830,19 @@ fn spawn_procedural_moons(
         return;
     }
 
-    // Visual bounds for moon orbits (in Bevy units)
+    // Visual bounds for moon orbits (in Bevy units).
+    // The outer display radius is additionally capped at 20% of the planet's own
+    // orbital distance from its star.  Without this cap, `capped_visual_radius`
+    // already limits planet visual size to ~10% of orbit, so the 10× multiplier
+    // could push the outermost moon orbit out to ~100% of the planet's orbital
+    // radius — causing it to intersect neighbouring planet orbits.
+    // `.max(inner_display * 1.5)` ensures there is always a minimum spread even
+    // for very close-in planets where the 20% orbital cap is tight.
+    let hill_sphere_cap = planet_sma_au * SCALING_FACTOR * 0.20;
     let inner_display = parent_visual_radius as f64 * INNER_MOON_MULTIPLIER;
-    let outer_display = parent_visual_radius as f64 * OUTER_MOON_MULTIPLIER;
+    let outer_display = (parent_visual_radius as f64 * OUTER_MOON_MULTIPLIER)
+        .min(hill_sphere_cap)
+        .max(inner_display * 1.5);
 
     for i in 0..moon_count {
         // Moon orbital distance scales with planet mass (Hill sphere proxy)
@@ -892,6 +902,12 @@ fn spawn_procedural_moons(
         // (moons orbit the planet, but their temperature depends on their distance from the star)
         let (avg_temp, min_temp, max_temp) = calculate_temperature_from_star(planet_sma_au, star_luminosity_sol);
 
+        // Cap moon visual radius so it never exceeds half the parent planet's visual size.
+        // Without this, the shared MIN_VISUAL_RADIUS floor can make small moons appear
+        // as large as or larger than their parent when the planet itself is near the floor.
+        let moon_visual_radius = (calculate_visual_radius(BodyType::Moon, radius_km) * vis_scale)
+            .min(parent_visual_radius * 0.5);
+
         commands.spawn((
             Moon,
             CelestialBody {
@@ -899,7 +915,7 @@ fn spawn_procedural_moons(
                 mass: moon_mass_kg,
                 radius: radius_km,
                 body_type: BodyType::Moon,
-                visual_radius: calculate_visual_radius(BodyType::Moon, radius_km) * vis_scale,
+                visual_radius: moon_visual_radius,
                 asteroid_class: None,
             },
             SurfaceTemperature {

@@ -5,10 +5,11 @@ This guide explains how to add custom textures and celestial bodies to Helios As
 ## Table of Contents
 1. [Quick Start - Replace a Texture](#quick-start---replace-a-texture)
 2. [Understanding the Texture System](#understanding-the-texture-system)
-3. [Adding Custom Textures](#adding-custom-textures)
-4. [Adding New Bodies](#adding-new-bodies)
-5. [Creating a Texture Pack](#creating-a-texture-pack)
-6. [Future: Multiple Solar Systems](#future-multiple-solar-systems)
+3. [Planet Texture Manifest (Exoplanet Modding)](#planet-texture-manifest-exoplanet-modding)
+4. [Adding Custom Textures](#adding-custom-textures)
+5. [Adding New Bodies](#adding-new-bodies)
+6. [Creating a Texture Pack](#creating-a-texture-pack)
+7. [Future: Multiple Solar Systems](#future-multiple-solar-systems)
 
 ## Quick Start - Replace a Texture
 
@@ -40,9 +41,9 @@ The game uses a **priority-based texture system**:
 ```
 1. Dedicated Texture (if specified in RON file)
    ↓ (if not available)
-2. Generic Texture (based on body type/class)
-   ↓ (with)
-3. Procedural Variation (unique per body)
+2. Planet Texture Manifest (for exoplanet / procedural bodies)
+   ↓ (pick from category list by body name hash)
+3. Procedural Tint (colour-shift the texture by planet archetype)
 ```
 
 **Key Code** (in `src/plugins/solar_system.rs`):
@@ -69,6 +70,72 @@ This means:
 - Good: `textures/custom/my_mod/earth_alternative.jpg`
 - Bad: `/home/user/mars.jpg` (absolute paths won't work)
 - Bad: `mars.jpg` (must be in assets directory)
+
+## Planet Texture Manifest (Exoplanet Modding)
+
+When the game visits a procedurally-generated star system, each planet is
+classified into an **archetype** based on its temperature and body type, then a
+texture is picked from `assets/data/planet_textures.ron`.
+
+### Archetypes
+
+| Category    | Temperature range | Appearance               |
+|-------------|-------------------|--------------------------|
+| `lava`      | > 500 °C          | Volcanic, molten surface |
+| `desert`    | 60 – 500 °C       | Arid, dusty, rusty red   |
+| `jungle`    | −20 – 60 °C       | Dense green biosphere    |
+| `ocean`     | −20 – 60 °C       | Global blue ocean        |
+| `temperate` | −20 – 60 °C       | Earth-like mixed biomes  |
+| `tundra`    | −100 – −20 °C     | Permafrost, grey-blue    |
+| `ice`       | below −100 °C     | Frozen, Pluto-like       |
+| `barren`    | any (default)     | Cratered, airless        |
+| `gas_giant` | ≥ −80 °C          | Jupiter / Saturn-like    |
+| `ice_giant` | < −80 °C          | Neptune / Uranus-like    |
+| `dwarf`     | —                 | KBOs, dwarf planets      |
+| `moon`      | —                 | Natural satellites       |
+
+Jungle, ocean, and temperate worlds are all in the same temperature band; the
+game distributes among the three deterministically by body name.
+
+### Adding Textures to a Category
+
+1. Place your texture in the matching subfolder:
+   ```
+   assets/textures/celestial/planets/<category>/my_texture.jpg
+   ```
+
+2. Register it in `assets/data/planet_textures.ron`:
+   ```ron
+   "jungle": [
+       "textures/celestial/planets/jungle/my_jungle_planet.jpg",  // add here
+       "textures/celestial/planets/earth_8k.jpg",
+   ],
+   ```
+
+3. Restart the game — done!  The new texture is blended into the rotation for
+   that category.  More entries = more variety.
+
+### Example: Adding a Lava World Texture
+
+1. Download or create a volcanic/lava planet texture (equirectangular, 2K–8K).
+2. Save to `assets/textures/celestial/planets/lava/io_like_4k.jpg`.
+3. Edit `assets/data/planet_textures.ron`:
+   ```ron
+   "lava": [
+       "textures/celestial/planets/lava/io_like_4k.jpg",  // your new texture
+       "textures/celestial/planets/mercury_8k.jpg",
+       "textures/celestial/planets/venus_surface_8k.jpg",
+   ],
+   ```
+4. Every lava world in procedural systems now has a 1-in-3 chance of getting
+   your texture (picked by body name — fully deterministic).
+
+### Using a Custom Category
+
+You can add entirely new categories and reference them from code (requires a
+small code change to `classify_exoplanet` in `src/plugins/starmap.rs`), or
+simply add extra textures to an existing category to expand variety without any
+code changes.
 
 ## Adding Custom Textures
 
