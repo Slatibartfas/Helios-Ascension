@@ -140,12 +140,12 @@ pub(super) fn ui_resources_bar(
                         .inner_margin(egui::Margin::symmetric(1, 2))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
-                                ui.add(egui::Label::new(egui::RichText::new(icon).size(20.0).color(color)).selectable(false));
+                                ui.add(egui::Label::new(egui::RichText::new(icon).size(16.0).color(color)).selectable(false));
                                 ui.add_space(1.0);
                                 ui.vertical(|ui| {
-                                    ui.set_min_width(72.0);  // Fixed width to prevent wiggling
-                                    ui.set_max_width(72.0);
-                                    ui.add(egui::Label::new(egui::RichText::new(format_mass(category_total)).size(14.0).color(text_color)).selectable(false));
+                                    ui.set_min_width(68.0);  // Fixed width to prevent wiggling
+                                    ui.set_max_width(68.0);
+                                    ui.add(egui::Label::new(egui::RichText::new(format_mass(category_total)).size(13.0).color(text_color)).selectable(false));
                                     let (rate_text, rate_color) = format_rate_monthly(category_rate);
                                     ui.add(egui::Label::new(egui::RichText::new(rate_text).size(10.0).color(rate_color)).selectable(false));
                                 });
@@ -157,7 +157,6 @@ pub(super) fn ui_resources_bar(
                     // Hover and open-state border effect
                     if interact.hovered() || is_this_open {
                         ui.painter().rect_stroke(interact.rect, 2.0, egui::Stroke::new(1.0, color), egui::StrokeKind::Outside);
-                        interact.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
                     }
 
                     // Toggle popup on click
@@ -169,7 +168,7 @@ pub(super) fn ui_resources_bar(
                         }
                     }
 
-                    ui.add_space(8.0);
+                    ui.add_space(4.0);
                 }
 
                 // Research Points display
@@ -331,8 +330,6 @@ pub(super) fn ui_resources_bar(
                         "Type {:.3}",
                         kardashev.max(0.0)
                     )).size(14.0).color(theme::CAT_STRATEGIC)).selectable(false));
-                    
-                    ui.add(egui::Label::new(egui::RichText::new("Kardashev:").size(14.0).color(theme::TEXT_DIM)).selectable(false));
 
                     ui.separator();
 
