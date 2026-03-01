@@ -111,14 +111,36 @@ impl Colony {
         domes * 1_000_000.0 + housing_complexes * 250_000.0 + underground * 600_000.0
     }
 
+    /// Calculate food production rate (Mt/year) from agricultural buildings.
+    ///
+    /// - Farm: 100 Mt/year (large-scale agriculture feeding ~1M people)
+    /// - AgriDome: 0.4 Mt/year (enclosed agriculture feeding ~4K people)
+    pub fn food_production_per_year(&self) -> f64 {
+        let farm_count = self.building_count(BuildingType::Farm) as f64;
+        let agri_count = self.building_count(BuildingType::AgriDome) as f64;
+        farm_count * 100.0 + agri_count * 0.4
+    }
+
+    /// Calculate food consumption rate (Mt/year) based on population.
+    ///
+    /// Per-capita consumption: 0.0001 Mt/person/year (100 tonnes/person/year).
+    /// This rate is calibrated so that 1 Farm (100 Mt/year) feeds 1M people
+    /// and 1 AgriDome (0.4 Mt/year) feeds 4K people.
+    pub fn food_consumption_per_year(&self) -> f64 {
+        self.population * 0.0001
+    }
+
     /// Calculate base population growth rate per year.
     ///
     /// Base growth: 5% per year (viable gameplay pacing at 1wk/s).
     /// At 1wk/s game speed, a 100K-pop colony reaches ~1M in ~5 real minutes.
     /// Medical centres add 1% each (up to meaningful bonus).
-    /// AgriDome supports 500,000 population each (food).
     /// Growth slows as housing fills. Logistics also applies.
-    pub fn population_growth_per_year(&self) -> f64 {
+    ///
+    /// # Arguments
+    /// * `food_factor` - Food adequacy ratio (0.5 = ship supply only, 1.0 = fully fed).
+    ///   Derived from the Food resource stockpile by the growth system.
+    pub fn population_growth_per_year(&self, food_factor: f64) -> f64 {
         if self.population <= 0.0 {
             return 0.0;
         }
@@ -134,17 +156,6 @@ impl Colony {
         // Medical centres add 1% each
         let medical_bonus =
             self.building_count(BuildingType::MedicalCenter) as f64 * 0.01;
-
-        // Agri domes/Farms contribute to food – without them growth is halved
-        let agri_count = self.building_count(BuildingType::AgriDome) as f64;
-        let farm_count = self.building_count(BuildingType::Farm) as f64;
-        let food_capacity = agri_count * 500_000.0 + farm_count * 1_000_000.0;
-        
-        let food_factor = if food_capacity > 0.0 {
-            (food_capacity / self.population).min(1.0)
-        } else {
-            0.5 // Ship-based supply can sustain half rate
-        };
 
         // Housing utilisation factor – growth slows as housing fills
         let utilisation = (self.population / housing).min(1.0);
@@ -381,7 +392,7 @@ mod tests {
     #[test]
     fn test_population_growth_no_housing() {
         let colony = Colony::new("Test".to_string(), 1000.0);
-        assert_eq!(colony.population_growth_per_year(), 0.0);
+        assert_eq!(colony.population_growth_per_year(1.0), 0.0);
     }
 
     #[test]
@@ -390,7 +401,7 @@ mod tests {
         colony.add_building(BuildingType::HabitatDome); // 1,000,000 capacity
         colony.add_building(BuildingType::AgriDome); // food for 500,000
 
-        let growth = colony.population_growth_per_year();
+        let growth = colony.population_growth_per_year(1.0);
         // Should be positive with housing and food
         assert!(growth > 0.0, "Growth should be positive: {}", growth);
     }

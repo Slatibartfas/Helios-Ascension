@@ -205,7 +205,7 @@ fn render_construction_panel(
             });
 
             // Growth
-            let growth = colony.population_growth_per_year();
+            let growth = colony.population_growth_per_year(1.0);
             if growth.abs() > 0.1 {
                 ui.horizontal(|ui| {
                     ui.label(format!(
