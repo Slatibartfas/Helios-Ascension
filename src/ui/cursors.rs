@@ -63,7 +63,6 @@ fn update_cursor_icon(
     if *last_cursor == Some(egui_cursor) {
         return;
     }
-    *last_cursor = Some(egui_cursor);
 
     let mut icon_component = match cursor_icon.iter_mut().next() {
         Some(i) => i,
@@ -88,4 +87,9 @@ fn update_cursor_icon(
         hotspot,
         ..default()
     }));
+
+    // Only record the last cursor AFTER the write succeeds. If we updated
+    // last_cursor before the query succeeded and then returned early, the
+    // cache would be permanently wrong and the cursor would never be set.
+    *last_cursor = Some(egui_cursor);
 }
