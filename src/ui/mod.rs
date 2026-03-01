@@ -21,6 +21,7 @@ pub use interaction::Selection;
 
 pub mod time;
 pub mod icons;
+pub mod cursors;
 mod resources_bar;
 mod dashboard;
 mod research_panel;
@@ -545,13 +546,17 @@ fn ui_top_menu_bar(
                 ui.add_space(10.0);
                 
                 // Add each menu button
-                for &menu in GameMenu::all() {
+                for (idx, &menu) in GameMenu::all().iter().enumerate() {
                     let is_active = active_menu.current == menu;
-                    
+
+                    // compute tooltip with corresponding F-key
+                    let hotkey_label = format!("F{}", idx + 1);
+                    let tooltip_text = format!("{} (hotkey {})", menu.name(), hotkey_label);
+
                     if let Some(map) = texture_map.as_ref() {
                         if let Some(texture_id) = map.get(&menu) {
                             let size = egui::vec2(80.0, 80.0);
-                            
+
                             // Tint the icon:
                             // Cyan for active, clearly visible light-grey for inactive
                             let tint = if is_active {
@@ -562,7 +567,7 @@ fn ui_top_menu_bar(
 
                             let mut img = egui::Image::new((*texture_id, size));
                             img = img.tint(tint);
-                            
+
                             let resp = ui.add(egui::Button::image(img));
 
                             // Highlight active menu by drawing a subtle stroke around the widget
@@ -571,7 +576,7 @@ fn ui_top_menu_bar(
                                 ui.painter().rect_stroke(rect, 4.0, egui::Stroke::new(2.0, theme::ACCENT), egui::StrokeKind::Outside);
                             }
 
-                            let resp = resp.on_hover_text(menu.name());
+                            let resp = resp.on_hover_text(tooltip_text.clone());
                             if resp.clicked() {
                                 active_menu.current = menu;
                                 match menu {
@@ -617,7 +622,7 @@ fn ui_top_menu_bar(
                                 .fill(theme::SURFACE)
                             };
 
-                            if ui.add(button).clicked() {
+                            if ui.add(button).on_hover_text(tooltip_text.clone()).clicked() {
                                 active_menu.current = menu;
                                 match menu {
                                     GameMenu::Starmap => {
@@ -661,7 +666,7 @@ fn ui_top_menu_bar(
                             .fill(theme::SURFACE)
                         };
 
-                        if ui.add(button).clicked() {
+                        if ui.add(button).on_hover_text(tooltip_text.clone()).clicked() {
                             active_menu.current = menu;
                             match menu {
                                 GameMenu::Starmap => {

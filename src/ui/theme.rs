@@ -2,6 +2,10 @@
 //!
 //! Centralises palette constants, font helpers, and the global egui `Visuals`
 //! configuration so every panel inherits the same dark-navy aesthetic.
+//!
+//! Many helper functions are part of the intended public API and will be picked
+//! up as more panels migrate to the theme — suppress dead_code for this module.
+#![allow(dead_code)]
 
 use bevy_egui::egui;
 
