@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy::window::{CursorIcon, CustomCursor, CustomCursorImage, PrimaryWindow};
-use bevy_egui::{egui, EguiContexts};
+use bevy_egui::{egui, EguiGlobalSettings, EguiOutput, EguiPostUpdateSet};
 
 /// Handles loading and management of custom cursors.
 pub struct CursorPlugin;
@@ -8,9 +8,21 @@ pub struct CursorPlugin;
 impl Plugin for CursorPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CursorAssets>()
-            .add_systems(Startup, setup_cursors)
-            .add_systems(Update, update_cursor_icon);
+            .add_systems(Startup, (disable_egui_cursor_updates, setup_cursors))
+            // Run in PostUpdate *after* bevy_egui has finalized EguiOutput so we
+            // read the real cursor type for this frame, not a stale/empty value.
+            // Must run before `Last` where bevy_winit applies the cursor.
+            .add_systems(
+                PostUpdate,
+                update_cursor_icon.after(EguiPostUpdateSet::ProcessOutput),
+            );
     }
+}
+
+/// Disable `bevy_egui`'s built-in cursor management so it doesn't overwrite
+/// our `CursorIcon::Custom(...)` with `CursorIcon::System(...)` every frame.
+fn disable_egui_cursor_updates(mut egui_settings: ResMut<EguiGlobalSettings>) {
+    egui_settings.enable_cursor_icon_updates = false;
 }
 
 /// Stores handles to cursor images.
@@ -30,15 +42,19 @@ fn setup_cursors(mut cursor_assets: ResMut<CursorAssets>, asset_server: Res<Asse
 }
 
 fn update_cursor_icon(
-    mut cursor_icon: Query<&mut CursorIcon, With<PrimaryWindow>>,
+    mut commands: Commands,
+    mut primary_window: Query<(Entity, Option<&mut CursorIcon>), With<PrimaryWindow>>,
     cursor_assets: Res<CursorAssets>,
-    mut egui_contexts: EguiContexts,
-    asset_server: Res<AssetServer>,
+    // EguiOutput is populated by bevy_egui in EguiPostUpdateSet::ProcessOutput.
+    // We run after that set, so this reflects the current frame's cursor request.
+    egui_output: Query<&EguiOutput>,
+    // Check Assets<Image> directly — this is what bevy_winit reads when applying
+    // the custom cursor. If the image is not in Assets<Image> yet, winit silently
+    // skips and only retries when CursorIcon changes again — so we gate here.
+    images: Res<Assets<Image>>,
     mut last_cursor: Local<Option<egui::CursorIcon>>,
 ) {
-    // Wait until all cursor assets are fully loaded before switching away from
-    // the system cursor. This prevents flickering and the brief system-cursor
-    // flash while textures stream in during the first few frames.
+    // Only set CursorIcon::Custom once all images are loaded into Assets<Image>.
     let all_loaded = [
         &cursor_assets.regular,
         &cursor_assets.hover,
@@ -46,34 +62,32 @@ fn update_cursor_icon(
         &cursor_assets.crosshair,
     ]
     .iter()
-    .all(|h| asset_server.is_loaded_with_dependencies(*h));
+    .all(|h| images.contains(*h));
     if !all_loaded {
         return;
     }
 
-    let ctx = match egui_contexts.ctx_mut() {
-        Ok(ctx) => ctx,
-        Err(_) => return,
-    };
-
-    let egui_cursor = ctx.output(|o| o.cursor_icon);
+    // Read the cursor type egui requested this frame from the finalized output.
+    let egui_cursor = egui_output
+        .iter()
+        .next()
+        .map(|o| o.platform_output.cursor_icon)
+        .unwrap_or(egui::CursorIcon::Default);
 
     // Only update the CursorIcon component when the cursor type actually changes.
-    // Rebuilding the custom cursor every frame triggers OS-level reload and flicker.
     if *last_cursor == Some(egui_cursor) {
         return;
     }
 
-    let mut icon_component = match cursor_icon.iter_mut().next() {
-        Some(i) => i,
+    let (window_entity, existing_icon) = match primary_window.iter_mut().next() {
+        Some(v) => v,
         None => return,
     };
 
-    // Hotspot coordinates are relative to the 32×32 cursor images.
     let (target_handle, hotspot): (&Handle<Image>, (u16, u16)) = match egui_cursor {
         egui::CursorIcon::Default => (&cursor_assets.regular, (2, 2)),
-        egui::CursorIcon::PointingHand => (&cursor_assets.hover, (6, 1)),
-        egui::CursorIcon::Text => (&cursor_assets.text, (16, 14)),
+        egui::CursorIcon::PointingHand => (&cursor_assets.hover, (16, 16)),
+        egui::CursorIcon::Text => (&cursor_assets.text, (16, 16)),
         egui::CursorIcon::Crosshair => (&cursor_assets.crosshair, (16, 16)),
         egui::CursorIcon::ResizeHorizontal
         | egui::CursorIcon::ResizeVertical
@@ -82,14 +96,17 @@ fn update_cursor_icon(
         _ => (&cursor_assets.regular, (2, 2)),
     };
 
-    *icon_component = CursorIcon::Custom(CustomCursor::Image(CustomCursorImage {
+    let target_icon = CursorIcon::Custom(CustomCursor::Image(CustomCursorImage {
         handle: target_handle.clone(),
         hotspot,
         ..default()
     }));
 
-    // Only record the last cursor AFTER the write succeeds. If we updated
-    // last_cursor before the query succeeded and then returned early, the
-    // cache would be permanently wrong and the cursor would never be set.
+    if let Some(mut icon_component) = existing_icon {
+        *icon_component = target_icon;
+    } else {
+        commands.entity(window_entity).insert(target_icon);
+    }
+
     *last_cursor = Some(egui_cursor);
 }
