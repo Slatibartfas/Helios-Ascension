@@ -158,7 +158,7 @@ fn build_economy_hierarchy(
         let colony_snap = colony_opt.map(|c| ColonySnapshot {
             name: c.name.clone(),
             population: c.population,
-            growth_per_year: c.population_growth_per_year(),
+            growth_per_year: c.population_growth_per_year(1.0),
             housing_capacity: c.housing_capacity(),
             total_buildings: c.total_buildings(),
             workforce_efficiency: c.workforce_efficiency(),

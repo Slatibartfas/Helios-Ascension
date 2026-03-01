@@ -119,6 +119,16 @@ pub fn determine_resource_phase(
                 ResourcePhase::Solid
             }
         }
+        ResourceType::Fluorine => {
+            // Fluorine: melts at −220°C, boils at −188°C
+            if temp_celsius >= -220.0 && temp_celsius <= -188.0 {
+                ResourcePhase::Liquid
+            } else if temp_celsius > -188.0 {
+                ResourcePhase::Vapor
+            } else {
+                ResourcePhase::Solid
+            }
+        }
         // Non-volatile resources are always solid minerals
         _ => ResourcePhase::Solid,
     }
@@ -135,6 +145,11 @@ pub enum ResourceType {
     Methane,
     /// The hard limit on hydroponics and population growth
     Phosphorus,
+
+    // Biological - Produced by colonies, consumed by population
+    /// Aggregate food supply: crops, algae, cultured protein.
+    /// Produced by Farms and AgriDomes; consumed per-capita.
+    Food,
 
     // Atmospheric gases - Essential for terraforming
     Nitrogen,
@@ -153,6 +168,10 @@ pub enum ResourceType {
     Tungsten,
     /// Graphene/nanotubes for lightweight, ultra-strong hulls
     Carbon,
+    /// Stainless steel and corrosion-resistant alloys (Fe+Cr)
+    Chromium,
+    /// Lightweight structural alloys (Mg-Al), sacrificial anodes
+    Magnesium,
 
     // Fusion fuel
     Helium3,
@@ -175,6 +194,12 @@ pub enum ResourceType {
     Lithium,
     /// Industrial chemistry, sulfuric acid, and battery electrolytes
     Sulfur,
+    /// Li-Co-oxide cathodes, superalloys for turbopumps and reactor components
+    Cobalt,
+    /// FLOX oxidiser, UF₆ enrichment, semiconductor etching
+    Fluorine,
+    /// Manufactured plastics, lubricants, and chemical feedstocks
+    Polymers,
 
     // Exotic materials - Late-game / post-fusion technology
     /// Produced in particle accelerators; fuel for antimatter drives (1 000 000 s Isp)
@@ -199,6 +224,7 @@ impl ResourceType {
             Ammonia,
             Methane,
             Phosphorus,
+            Food,
             Nitrogen,
             Oxygen,
             CarbonDioxide,
@@ -210,6 +236,8 @@ impl ResourceType {
             Nickel,
             Tungsten,
             Carbon,
+            Chromium,
+            Magnesium,
             Helium3,
             Deuterium,
             Uranium,
@@ -221,6 +249,9 @@ impl ResourceType {
             RareEarths,
             Lithium,
             Sulfur,
+            Cobalt,
+            Fluorine,
+            Polymers,
             Antimatter,
             ExoticMatter,
             Metamaterials,
@@ -238,6 +269,11 @@ impl ResourceType {
                 | ResourceType::Methane
                 | ResourceType::Phosphorus
         )
+    }
+
+    /// Returns true if this is a biological resource (produced, not mined)
+    pub fn is_biological(&self) -> bool {
+        matches!(self, ResourceType::Food)
     }
 
     /// Returns true if this is an atmospheric gas (for terraforming)
@@ -262,6 +298,8 @@ impl ResourceType {
                 | ResourceType::Nickel
                 | ResourceType::Tungsten
                 | ResourceType::Carbon
+                | ResourceType::Chromium
+                | ResourceType::Magnesium
         )
     }
 
@@ -291,6 +329,9 @@ impl ResourceType {
                 | ResourceType::RareEarths
                 | ResourceType::Lithium
                 | ResourceType::Sulfur
+                | ResourceType::Cobalt
+                | ResourceType::Fluorine
+                | ResourceType::Polymers
         )
     }
 
@@ -335,6 +376,12 @@ impl ResourceType {
             ResourceType::Deuterium => "Deuterium",
             ResourceType::Lithium => "Lithium",
             ResourceType::Sulfur => "Sulfur",
+            ResourceType::Food => "Food",
+            ResourceType::Chromium => "Chromium",
+            ResourceType::Magnesium => "Magnesium",
+            ResourceType::Cobalt => "Cobalt",
+            ResourceType::Fluorine => "Fluorine",
+            ResourceType::Polymers => "Polymers",
             ResourceType::Antimatter => "Antimatter",
             ResourceType::ExoticMatter => "Exotic Matter",
             ResourceType::Metamaterials => "Metamaterials",
@@ -372,6 +419,12 @@ impl ResourceType {
             ResourceType::Deuterium => "D",
             ResourceType::Lithium => "Li",
             ResourceType::Sulfur => "S",
+            ResourceType::Food => "Fd",
+            ResourceType::Chromium => "Cr",
+            ResourceType::Magnesium => "Mg",
+            ResourceType::Cobalt => "Co",
+            ResourceType::Fluorine => "F",
+            ResourceType::Polymers => "Py",
             ResourceType::Antimatter => "Am\u{0305}",
             ResourceType::ExoticMatter => "Xm",
             ResourceType::Metamaterials => "Mm",
@@ -389,12 +442,15 @@ impl ResourceType {
                 | ResourceType::Helium3
                 | ResourceType::Deuterium
                 | ResourceType::Uranium
+                | ResourceType::Food
         )
     }
 
     /// Returns the category name for UI grouping
     pub fn category(&self) -> &'static str {
-        if self.is_volatile() {
+        if self.is_biological() {
+            "Biological"
+        } else if self.is_volatile() {
             "Volatiles"
         } else if self.is_atmospheric_gas() {
             "Atmospheric Gases"
@@ -418,6 +474,12 @@ impl ResourceType {
     /// Returns all resources by category
     pub fn by_category() -> Vec<(&'static str, Vec<ResourceType>)> {
         vec![
+            (
+                "Biological",
+                vec![
+                    ResourceType::Food,
+                ],
+            ),
             (
                 "Volatiles",
                 vec![
@@ -447,6 +509,8 @@ impl ResourceType {
                     ResourceType::Nickel,
                     ResourceType::Tungsten,
                     ResourceType::Carbon,
+                    ResourceType::Chromium,
+                    ResourceType::Magnesium,
                 ],
             ),
             (
@@ -472,6 +536,9 @@ impl ResourceType {
                     ResourceType::RareEarths,
                     ResourceType::Lithium,
                     ResourceType::Sulfur,
+                    ResourceType::Cobalt,
+                    ResourceType::Fluorine,
+                    ResourceType::Polymers,
                 ],
             ),
             (
@@ -500,19 +567,22 @@ mod tests {
     #[test]
     fn test_resource_type_all() {
         let all = ResourceType::all();
-        assert_eq!(all.len(), 31, "Should have exactly 31 resource types");
+        assert_eq!(all.len(), 37, "Should have exactly 37 resource types");
     }
 
     #[test]
     fn test_resource_categorization() {
         assert!(ResourceType::Water.is_volatile());
         assert!(ResourceType::Phosphorus.is_volatile());
+        assert!(ResourceType::Food.is_biological());
         assert!(ResourceType::Nitrogen.is_atmospheric_gas());
         assert!(ResourceType::Oxygen.is_atmospheric_gas());
         assert!(ResourceType::Iron.is_construction());
         assert!(ResourceType::Nickel.is_construction());
         assert!(ResourceType::Tungsten.is_construction());
         assert!(ResourceType::Carbon.is_construction());
+        assert!(ResourceType::Chromium.is_construction());
+        assert!(ResourceType::Magnesium.is_construction());
         assert!(ResourceType::Helium3.is_fusion_fuel());
         assert!(ResourceType::Deuterium.is_fusion_fuel());
         assert!(ResourceType::Uranium.is_fissile());
@@ -520,6 +590,9 @@ mod tests {
         assert!(ResourceType::Copper.is_strategic());
         assert!(ResourceType::Lithium.is_strategic());
         assert!(ResourceType::Sulfur.is_strategic());
+        assert!(ResourceType::Cobalt.is_strategic());
+        assert!(ResourceType::Fluorine.is_strategic());
+        assert!(ResourceType::Polymers.is_strategic());
         assert!(ResourceType::Antimatter.is_exotic());
         assert!(ResourceType::ExoticMatter.is_exotic());
         assert!(ResourceType::Metamaterials.is_exotic());
@@ -533,8 +606,8 @@ mod tests {
             .filter(|r| r.is_critical())
             .count();
         assert_eq!(
-            critical_count, 6,
-            "Should have exactly 6 critical resources"
+            critical_count, 7,
+            "Should have exactly 7 critical resources"
         );
     }
 
@@ -557,6 +630,7 @@ mod tests {
 
     #[test]
     fn test_resource_category() {
+        assert_eq!(ResourceType::Food.category(), "Biological");
         assert_eq!(ResourceType::Water.category(), "Volatiles");
         assert_eq!(ResourceType::Phosphorus.category(), "Volatiles");
         assert_eq!(ResourceType::Nitrogen.category(), "Atmospheric Gases");
@@ -564,6 +638,8 @@ mod tests {
         assert_eq!(ResourceType::Nickel.category(), "Construction");
         assert_eq!(ResourceType::Tungsten.category(), "Construction");
         assert_eq!(ResourceType::Carbon.category(), "Construction");
+        assert_eq!(ResourceType::Chromium.category(), "Construction");
+        assert_eq!(ResourceType::Magnesium.category(), "Construction");
         assert_eq!(ResourceType::Helium3.category(), "Fusion Fuel");
         assert_eq!(ResourceType::Deuterium.category(), "Fusion Fuel");
         assert_eq!(ResourceType::Uranium.category(), "Fissiles");
@@ -571,6 +647,9 @@ mod tests {
         assert_eq!(ResourceType::Copper.category(), "Strategic");
         assert_eq!(ResourceType::Lithium.category(), "Strategic");
         assert_eq!(ResourceType::Sulfur.category(), "Strategic");
+        assert_eq!(ResourceType::Cobalt.category(), "Strategic");
+        assert_eq!(ResourceType::Fluorine.category(), "Strategic");
+        assert_eq!(ResourceType::Polymers.category(), "Strategic");
         assert_eq!(ResourceType::Antimatter.category(), "Exotic");
         assert_eq!(ResourceType::ExoticMatter.category(), "Exotic");
     }
@@ -579,24 +658,25 @@ mod tests {
     fn test_by_category() {
         let categories = ResourceType::by_category();
 
-        // Should have 8 categories
-        assert_eq!(categories.len(), 8);
+        // Should have 9 categories
+        assert_eq!(categories.len(), 9);
 
         // Check category names
-        assert_eq!(categories[0].0, "Volatiles");
-        assert_eq!(categories[1].0, "Atmospheric Gases");
-        assert_eq!(categories[2].0, "Construction");
-        assert_eq!(categories[3].0, "Fusion Fuel");
-        assert_eq!(categories[4].0, "Fissiles");
-        assert_eq!(categories[5].0, "Precious Metals");
-        assert_eq!(categories[6].0, "Strategic");
-        assert_eq!(categories[7].0, "Exotic");
+        assert_eq!(categories[0].0, "Biological");
+        assert_eq!(categories[1].0, "Volatiles");
+        assert_eq!(categories[2].0, "Atmospheric Gases");
+        assert_eq!(categories[3].0, "Construction");
+        assert_eq!(categories[4].0, "Fusion Fuel");
+        assert_eq!(categories[5].0, "Fissiles");
+        assert_eq!(categories[6].0, "Precious Metals");
+        assert_eq!(categories[7].0, "Strategic");
+        assert_eq!(categories[8].0, "Exotic");
 
-        // Check total resources (should be all 31)
+        // Check total resources (should be all 37)
         let total_resources: usize = categories
             .iter()
             .map(|(_, resources)| resources.len())
             .sum();
-        assert_eq!(total_resources, 31);
+        assert_eq!(total_resources, 37);
     }
 }

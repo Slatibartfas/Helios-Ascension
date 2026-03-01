@@ -347,12 +347,48 @@ pub(super) fn apply_special_body_profile(
             );
 
             // Sulfur — ~80 Mt/yr (elemental + recovered)
-            // Proven: ~600 Mt (USGS 2024 reserves, mostly from oil/gas)
+            // Proven: ~600 Mt (USGS 2024 reserves)
             // Deep: ~5,000 Mt (volcanic + evaporite deposits)
             // Bulk: Crustal average ~350 ppm
             resources.add_deposit(
                 ResourceType::Sulfur,
                 MineralDeposit::new(600.0, 5_000.0, 2.09e12, 0.016, 0.6),
+            );
+
+            // Chromium — ~44 Mt/yr (chromite ore)
+            // Proven: ~600 Mt (USGS 2024 reserves, mainly South Africa)
+            // Deep: ~12,000 Mt (USGS identified resources in layered intrusions)
+            // Bulk: Crustal average ~100 ppm
+            resources.add_deposit(
+                ResourceType::Chromium,
+                MineralDeposit::new(600.0, 12_000.0, 5.97e11, 0.0088, 0.5),
+            );
+
+            // Magnesium — ~1.1 Mt/yr (primary production)
+            // Proven: ~12,000 Mt (dolomite/magnesite reserves, practically unlimited from seawater)
+            // Deep: ~100,000 Mt (magnesite deposits worldwide)
+            // Bulk: Crustal average ~2.3% (5th most abundant element)
+            resources.add_deposit(
+                ResourceType::Magnesium,
+                MineralDeposit::new(12_000.0, 100_000.0, 1.37e14, 0.022, 0.7),
+            );
+
+            // Cobalt — ~0.22 Mt/yr (220,000 tonnes)
+            // Proven: ~8.3 Mt (USGS 2024 reserves, mainly DRC)
+            // Deep: ~25 Mt (USGS identified resources incl. ocean floor nodules)
+            // Bulk: Crustal average ~25 ppm
+            resources.add_deposit(
+                ResourceType::Cobalt,
+                MineralDeposit::new(8.3, 25.0, 1.49e11, 0.0000044, 0.35),
+            );
+
+            // Fluorine — ~8.5 Mt/yr (fluorspar equivalent)
+            // Proven: ~320 Mt (USGS 2024 fluorspar reserves)
+            // Deep: ~5,000 Mt (USGS identified resources)
+            // Bulk: Crustal average ~585 ppm
+            resources.add_deposit(
+                ResourceType::Fluorine,
+                MineralDeposit::new(320.0, 5_000.0, 3.49e12, 0.0017, 0.5),
             );
 
             // === ATMOSPHERIC GASES ===
@@ -491,6 +527,26 @@ pub(super) fn apply_special_body_profile(
                 ResourceType::Deuterium,
                 create_deposit_from_absolute_mass(700.0, 0.3, BodyType::Planet),
             );
+            // Chromium: in basaltic crust (Cr-spinel in chassignites)
+            resources.add_deposit(
+                ResourceType::Chromium,
+                create_deposit_legacy(0.002, 0.4, body_mass, BodyType::Planet),
+            );
+            // Magnesium: abundant in olivine-rich basalts (~6% of regolith)
+            resources.add_deposit(
+                ResourceType::Magnesium,
+                create_deposit_legacy(0.06, 0.5, body_mass, BodyType::Planet),
+            );
+            // Cobalt: trace in basaltic rocks (~50 ppm)
+            resources.add_deposit(
+                ResourceType::Cobalt,
+                create_deposit_legacy(0.00005, 0.3, body_mass, BodyType::Planet),
+            );
+            // Fluorine: trace in fluorapatite minerals (~50 ppm)
+            resources.add_deposit(
+                ResourceType::Fluorine,
+                create_deposit_legacy(0.00005, 0.3, body_mass, BodyType::Planet),
+            );
             debug!("Applied Mars special profile: 4.6 billion Mt water ice, basaltic regolith");
             Some(resources)
         }
@@ -549,6 +605,22 @@ pub(super) fn apply_special_body_profile(
             resources.add_deposit(
                 ResourceType::Sulfur,
                 create_deposit_legacy(0.0005, 0.3, body_mass, BodyType::Moon),
+            );
+            // Chromium: trace in highland plagioclase (~0.04%)
+            resources.add_deposit(
+                ResourceType::Chromium,
+                create_deposit_legacy(0.0004, 0.3, body_mass, BodyType::Moon),
+            );
+            // Magnesium: abundant in olivine-bearing rocks (~5% of regolith)
+            resources.add_deposit(
+                ResourceType::Magnesium,
+                create_deposit_legacy(0.05, 0.6, body_mass, BodyType::Moon),
+            );
+            // Deuterium: trace in polar water ice (D/H ~1.5×10⁻⁴)
+            // Water mass ~600 Mt × D/H ratio → a few Mt of deuterium
+            resources.add_deposit(
+                ResourceType::Deuterium,
+                MineralDeposit::new(1.5, 0.5, 0.5, 0.3, 0.3),
             );
             debug!("Applied Moon special profile: 600 Mt water ice in polar craters");
             Some(resources)
@@ -777,6 +849,21 @@ pub(super) fn apply_special_body_profile(
                 ResourceType::Sulfur,
                 create_deposit_legacy(0.001, 0.3, body_mass, BodyType::Planet),
             );
+            // Chromium: in basaltic crust, similar to Earth interior
+            resources.add_deposit(
+                ResourceType::Chromium,
+                create_deposit_legacy(0.001, 0.1, body_mass, BodyType::Planet),
+            );
+            // Magnesium: in silicate mantle (~10%)
+            resources.add_deposit(
+                ResourceType::Magnesium,
+                create_deposit_legacy(0.03, 0.15, body_mass, BodyType::Planet),
+            );
+            // Fluorine: HF in atmosphere trace; fluorapatite in crust
+            resources.add_deposit(
+                ResourceType::Fluorine,
+                create_deposit_legacy(0.0003, 0.15, body_mass, BodyType::Planet),
+            );
 
             debug!("Applied Venus special profile: massive CO2 atmosphere, no water, extreme surface");
             Some(resources)
@@ -865,6 +952,21 @@ pub(super) fn apply_special_body_profile(
             resources.add_deposit(
                 ResourceType::Carbon,
                 create_deposit_legacy(0.035, 0.6, body_mass, BodyType::Planet),
+            );
+            // Chromium: siderophile, concentrated in large metallic core
+            resources.add_deposit(
+                ResourceType::Chromium,
+                create_deposit_legacy(0.005, 0.5, body_mass, BodyType::Planet),
+            );
+            // Magnesium: in silicate mantle (~9%)
+            resources.add_deposit(
+                ResourceType::Magnesium,
+                create_deposit_legacy(0.09, 0.5, body_mass, BodyType::Planet),
+            );
+            // Cobalt: concentrated in metallic core with nickel
+            resources.add_deposit(
+                ResourceType::Cobalt,
+                create_deposit_legacy(0.0005, 0.4, body_mass, BodyType::Planet),
             );
 
             debug!("Applied Mercury special profile: massive iron core, polar ice, solar wind He-3");
@@ -1026,8 +1128,38 @@ pub(super) fn apply_spectral_class_profile(
                     BodyType::Asteroid,
                 ),
             );
+            // Chromium: 0.2-0.5% in chromite grains within carbonaceous matrix
+            resources.add_deposit(
+                ResourceType::Chromium,
+                create_deposit_legacy(
+                    rng.random_range(0.002..0.005),
+                    rng.random_range(0.4..0.65),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
+            // Magnesium: 5-15% in olivine and serpentine minerals
+            resources.add_deposit(
+                ResourceType::Magnesium,
+                create_deposit_legacy(
+                    rng.random_range(0.05..0.15),
+                    rng.random_range(0.5..0.75),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
+            // Cobalt: 50-150 ppm, associated with nickel-iron inclusions
+            resources.add_deposit(
+                ResourceType::Cobalt,
+                create_deposit_legacy(
+                    rng.random_range(0.00005..0.00015),
+                    rng.random_range(0.4..0.65),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
 
-            info!(
+            debug!(
                 "Applied C-Type spectral profile to {}: 4-7% water content",
                 body_name
             );
@@ -1125,6 +1257,36 @@ pub(super) fn apply_spectral_class_profile(
                     BodyType::Asteroid,
                 ),
             );
+            // Chromium: 0.2-0.5% in pyroxene/olivine silicates
+            resources.add_deposit(
+                ResourceType::Chromium,
+                create_deposit_legacy(
+                    rng.random_range(0.002..0.005),
+                    rng.random_range(0.5..0.7),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
+            // Magnesium: 10-20% in olivine (Mg₂SiO₄) and pyroxene
+            resources.add_deposit(
+                ResourceType::Magnesium,
+                create_deposit_legacy(
+                    rng.random_range(0.10..0.20),
+                    rng.random_range(0.7..0.9),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
+            // Cobalt: 25-100 ppm in metallic grains
+            resources.add_deposit(
+                ResourceType::Cobalt,
+                create_deposit_legacy(
+                    rng.random_range(0.000025..0.0001),
+                    rng.random_range(0.5..0.7),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
 
             // Very low volatiles (<1% water scientifically, as hydroxyl in minerals)
             if is_beyond_frost_line {
@@ -1150,7 +1312,7 @@ pub(super) fn apply_spectral_class_profile(
                 );
             }
 
-            info!(
+            debug!(
                 "Applied S-Type spectral profile to {}: <1% water, high silicates",
                 body_name
             );
@@ -1230,6 +1392,36 @@ pub(super) fn apply_spectral_class_profile(
                     BodyType::Asteroid,
                 ),
             );
+            // Chromium: 0.3-1% — concentrated in metallic core remnants
+            resources.add_deposit(
+                ResourceType::Chromium,
+                create_deposit_legacy(
+                    rng.random_range(0.003..0.01),
+                    rng.random_range(0.7..0.9),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
+            // Cobalt: 0.05-0.5% — the *primary* Cobalt source (nickel-iron-cobalt alloy)
+            resources.add_deposit(
+                ResourceType::Cobalt,
+                create_deposit_legacy(
+                    rng.random_range(0.0005..0.005),
+                    rng.random_range(0.8..0.95),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
+            // Magnesium: 1-3% trace in metallic matrix
+            resources.add_deposit(
+                ResourceType::Magnesium,
+                create_deposit_legacy(
+                    rng.random_range(0.01..0.03),
+                    rng.random_range(0.5..0.7),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
 
             // Minimal silicates, NO significant volatiles (anhydrous)
             resources.add_deposit(
@@ -1242,7 +1434,7 @@ pub(super) fn apply_spectral_class_profile(
                 ),
             );
 
-            info!(
+            debug!(
                 "Applied M-Type spectral profile to {}: Metallic, negligible water",
                 body_name
             );
@@ -1318,8 +1510,28 @@ pub(super) fn apply_spectral_class_profile(
                     BodyType::Asteroid,
                 ),
             );
+            // Chromium: 0.1-0.3% in pyroxene-bearing basalt
+            resources.add_deposit(
+                ResourceType::Chromium,
+                create_deposit_legacy(
+                    rng.random_range(0.001..0.003),
+                    rng.random_range(0.6..0.8),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
+            // Magnesium: 5-12% in pyroxene (MgSiO₃) basalt
+            resources.add_deposit(
+                ResourceType::Magnesium,
+                create_deposit_legacy(
+                    rng.random_range(0.05..0.12),
+                    rng.random_range(0.7..0.85),
+                    body_mass,
+                    BodyType::Asteroid,
+                ),
+            );
 
-            info!(
+            debug!(
                 "Applied V-Type spectral profile to {}: Basaltic, high titanium",
                 body_name
             );
@@ -1424,7 +1636,7 @@ pub(super) fn apply_spectral_class_profile(
                 ),
             );
 
-            info!(
+            debug!(
                 "Applied D-Type spectral profile to {}: Primitive, extremely high volatiles",
                 body_name
             );
@@ -1529,7 +1741,7 @@ pub(super) fn apply_spectral_class_profile(
                 ),
             );
 
-            info!(
+            debug!(
                 "Applied P-Type spectral profile to {}: Primitive, very high volatiles",
                 body_name
             );

@@ -31,6 +31,7 @@
             maintenance_resources: [
                 ("Water", 5.0),
                 ("Oxygen", 2.0),
+                ("Polymers", 0.005),
             ],
             modifiers: [],
         ),
@@ -50,6 +51,8 @@
             ],
             maintenance_resources: [
                 ("Iron", 1.0),
+                ("Polymers", 0.01),
+                ("Magnesium", 0.005),
             ],
             modifiers: [],
         ),
@@ -68,6 +71,7 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.001),
+                ("Polymers", 0.002),
             ],
             modifiers: [],
         ),
@@ -87,6 +91,7 @@
             ],
             maintenance_resources: [
                 ("Iron", 2.0),
+                ("Polymers", 0.008),
             ],
             modifiers: [],
         ),
@@ -135,6 +140,7 @@
                 ("Nickel", 0.0005),
                 ("Tungsten", 0.00003),
                 ("Sulfur", 0.008),
+                ("Chromium", 0.003),
             ],
             modifiers: [
                 (modifier_type: "MiningEfficiency", value: 8.0),
@@ -162,6 +168,9 @@
                 ("Tungsten", 0.00003),
                 ("Lithium", 0.00006),
                 ("Sulfur", 0.005),
+                ("Chromium", 0.005),
+                ("Cobalt", 0.001),
+                ("Polymers", 0.003),
             ],
             modifiers: [
                 (modifier_type: "ConstructionCost", value: -5.0),
@@ -185,6 +194,7 @@
                 ("Iron", 1.0),
                 ("Titanium", 0.1),
                 ("Tungsten", 0.0001),
+                ("Chromium", 0.005),
             ],
             modifiers: [
                 (modifier_type: "DeepMiningEfficiency", value: 25.0),
@@ -277,6 +287,7 @@
                 ("Nickel", 0.0005),
                 ("Sulfur", 0.03),
                 ("Phosphorus", 0.003),
+                ("Fluorine", 0.005),
             ],
             modifiers: [
                 (modifier_type: "ChemicalProcessing", value: 1.0),
@@ -407,6 +418,7 @@
             ],
             maintenance_resources: [
                 ("Uranium", 5.0),
+                ("Fluorine", 0.01),
             ],
             modifiers: [
                 (modifier_type: "PowerGeneration", value: 20.0),
@@ -430,6 +442,8 @@
             maintenance_resources: [
                 ("Helium3", 10.0),
                 ("Deuterium", 5.0),
+                ("Cobalt", 0.002),
+                ("Fluorine", 0.003),
             ],
             modifiers: [
                 (modifier_type: "PowerGeneration", value: 40.0),
@@ -502,6 +516,7 @@
             maintenance_resources: [
                 ("Water", 0.1),
                 ("Copper", 0.005),
+                ("Polymers", 0.003),
             ],
             modifiers: [
                 (modifier_type: "PopulationGrowth", value: 5.0),
@@ -529,6 +544,7 @@
                 ("Copper", 0.005),
                 ("RareEarths", 0.0005),
                 ("Lithium", 0.0001),
+                ("Polymers", 0.002),
             ],
             modifiers: [
                 (modifier_type: "ResearchSpeed", value: 5.0),
@@ -573,6 +589,7 @@
             maintenance_resources: [
                 ("RareEarths", 0.005),
                 ("Copper", 0.01),
+                ("Cobalt", 0.001),
             ],
             modifiers: [
                 (modifier_type: "ResearchSpeed", value: 15.0),
@@ -664,6 +681,9 @@
             maintenance_resources: [
                 ("Iron", 5.0),
                 ("Titanium", 1.0),
+                ("Chromium", 0.5),
+                ("Cobalt", 0.05),
+                ("Magnesium", 0.3),
             ],
             modifiers: [
                 (modifier_type: "ConstructionCost", value: -10.0),
@@ -707,6 +727,7 @@
             maintenance_resources: [
                 ("Iron", 0.5),
                 ("Aluminum", 0.1),
+                ("Magnesium", 0.05),
             ],
             modifiers: [],
         ),

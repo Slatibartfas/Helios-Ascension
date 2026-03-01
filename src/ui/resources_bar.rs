@@ -5,6 +5,7 @@ use super::research_panel::{ActiveProjectInfo, render_research_tech_tooltip_cont
 
 fn get_resource_category_icon(category: &str) -> &'static str {
     match category {
+        "Biological" => "\u{1F35E}",          // 🍞
         "Volatiles" => "\u{1F4A7}",          // 💧
         "Atmospheric Gases" => "\u{2601}",   // ☁
         "Construction" => "\u{1F9F1}",       // 🧱
@@ -20,6 +21,9 @@ fn get_resource_category_icon(category: &str) -> &'static str {
 /// Get the icon for a specific resource type
 fn get_resource_icon(resource: &ResourceType) -> &'static str {
     match resource {
+        // Biological
+        ResourceType::Food => "\u{1F35E}",           // 🍞
+
         // Volatiles
         ResourceType::Water => "\u{1F4A7}",          // 💧
         ResourceType::Hydrogen => "\u{1F388}",       // 🎈
@@ -41,6 +45,8 @@ fn get_resource_icon(resource: &ResourceType) -> &'static str {
         ResourceType::Nickel => "\u{1F9F2}",         // 🧲
         ResourceType::Tungsten => "\u{1F3AF}",       // 🎯
         ResourceType::Carbon => "\u{2666}",          // ♦
+        ResourceType::Chromium => "\u{1F6E0}",       // 🛠
+        ResourceType::Magnesium => "\u{2728}",       // ✨
         
         // Energy
         ResourceType::Helium3 => "\u{2600}",         // ☀
@@ -60,6 +66,9 @@ fn get_resource_icon(resource: &ResourceType) -> &'static str {
         ResourceType::RareEarths => "\u{1F4F1}",     // 📱
         ResourceType::Lithium => "\u{1F50B}",        // 🔋
         ResourceType::Sulfur => "\u{1F9EA}",         // 🧪
+        ResourceType::Cobalt => "\u{1F535}",         // 🔵
+        ResourceType::Fluorine => "\u{1F4A0}",       // 💠
+        ResourceType::Polymers => "\u{1F9F4}",       // 🧴
 
         // Exotic
         ResourceType::Antimatter => "\u{2604}",       // ☄
@@ -128,7 +137,7 @@ pub(super) fn ui_resources_bar(
 
                     // Use a Frame for the category display
                     let response = egui::Frame::NONE
-                        .inner_margin(egui::Margin::symmetric(3, 2))
+                        .inner_margin(egui::Margin::symmetric(1, 2))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
                                 ui.add(egui::Label::new(egui::RichText::new(icon).size(20.0).color(color)).selectable(false));
@@ -187,7 +196,7 @@ pub(super) fn ui_resources_bar(
                     let border_color = if flash > 0.5 { warning_color } else { egui::Color32::TRANSPARENT };
 
                     let response = egui::Frame::NONE
-                        .inner_margin(egui::Margin::symmetric(3, 2))
+                        .inner_margin(egui::Margin::symmetric(1, 2))
                         .stroke(egui::Stroke::new(if flash > 0.0 { 2.0 } else { 0.0 }, border_color))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
@@ -261,7 +270,7 @@ pub(super) fn ui_resources_bar(
                     let border_color = if flash > 0.5 { warning_color } else { egui::Color32::TRANSPARENT };
 
                     let response = egui::Frame::NONE
-                        .inner_margin(egui::Margin::symmetric(3, 2))
+                        .inner_margin(egui::Margin::symmetric(1, 2))
                         .stroke(egui::Stroke::new(if flash > 0.0 { 2.0 } else { 0.0 }, border_color))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
@@ -343,7 +352,7 @@ pub(super) fn ui_resources_bar(
 
                     // Power generation display (clickable with tooltip)
                     let response = egui::Frame::NONE
-                        .inner_margin(egui::Margin::symmetric(3, 2))
+                        .inner_margin(egui::Margin::symmetric(1, 2))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
                                 ui.set_min_width(82.0);  // Fixed width to prevent wiggling
@@ -398,7 +407,7 @@ pub(super) fn ui_resources_bar(
                         .map_or(false, |(n, _)| n == "Treasury");
 
                     let treasury_response = egui::Frame::NONE
-                        .inner_margin(egui::Margin::symmetric(3, 2))
+                        .inner_margin(egui::Margin::symmetric(1, 2))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
                                 ui.add(
@@ -478,7 +487,7 @@ pub(super) fn ui_resources_bar(
 
                     // Use a Frame for the population display
                     let pop_response = egui::Frame::NONE
-                        .inner_margin(egui::Margin::symmetric(3, 2))
+                        .inner_margin(egui::Margin::symmetric(1, 2))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
                                 ui.set_min_width(68.0);  // Fixed width to prevent wiggling
@@ -940,16 +949,13 @@ pub(super) fn ui_resources_bar(
 
                     // Header + data rows in a single grid so columns stay aligned
                     egui::Grid::new(format!("res_popup_{}", cat_name))
-                        .num_columns(4)
-                        .spacing([6.0, 4.0])
+                        .num_columns(3)
+                        .spacing([20.0, 4.0])
                         .striped(true)
                         .show(ui, |ui| {
                             // Header
-                            ui.label(""); // icon column
                             ui.add(egui::Label::new(egui::RichText::new("Resource").strong().size(11.0)).selectable(false));
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                ui.add(egui::Label::new(egui::RichText::new("Stockpile").strong().size(11.0)).selectable(false));
-                            });
+                            ui.add(egui::Label::new(egui::RichText::new("Stockpile").strong().size(11.0)).selectable(false));
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 ui.add(egui::Label::new(egui::RichText::new("/mo").strong().size(11.0)).selectable(false));
                             });
@@ -959,12 +965,13 @@ pub(super) fn ui_resources_bar(
                                 let amount = budget.get_stockpile(resource);
                                 let rate = rate_tracker.get_resource_rate(resource);
 
-                                // Icon
-                                ui.add(egui::Label::new(egui::RichText::new(get_resource_icon(resource)).size(14.0)).selectable(false));
-                                // Name
-                                ui.add(egui::Label::new(egui::RichText::new(resource.display_name()).size(12.0)).selectable(false));
-                                // Stockpile — right-aligned
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                // Icon + Name in one cell
+                                ui.horizontal(|ui| {
+                                    ui.add(egui::Label::new(egui::RichText::new(get_resource_icon(resource)).size(14.0)).selectable(false));
+                                    ui.add(egui::Label::new(egui::RichText::new(resource.display_name()).size(12.0)).selectable(false));
+                                });
+                                // Stockpile — left-aligned
+                                {
                                     let stock_color = if amount <= 0.0 {
                                         theme::RED
                                     } else if amount < 100.0 && resource.is_critical() {
@@ -973,7 +980,7 @@ pub(super) fn ui_resources_bar(
                                         theme::TEXT
                                     };
                                     ui.add(egui::Label::new(egui::RichText::new(format_mass(amount)).monospace().size(12.0).color(stock_color)).selectable(false));
-                                });
+                                }
                                 // Rate — right-aligned
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                     let (rt, rc) = format_rate_monthly(rate);
