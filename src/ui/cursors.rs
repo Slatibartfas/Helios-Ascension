@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy::window::{CursorIcon, CustomCursor, PrimaryWindow};
+use bevy::window::{CursorIcon, CustomCursor, PrimaryWindow, CustomCursorImage};
 use bevy_egui::{egui, EguiContexts};
 
 /// Handles loading and management of custom cursors.
@@ -30,21 +30,24 @@ fn setup_cursors(mut cursor_assets: ResMut<CursorAssets>, asset_server: Res<Asse
 }
 
 fn update_cursor_icon(
-    mut windows: Query<&mut Window, With<PrimaryWindow>>,
+    mut cursor_icon: Query<&mut CursorIcon, With<PrimaryWindow>>,
     cursor_assets: Res<CursorAssets>,
     mut egui_contexts: EguiContexts,
 ) {
-    let mut window = match windows.get_single_mut() {
-        Ok(w) => w,
-        Err(_) => return,
+    let mut icon_component = match cursor_icon.iter_mut().next() {
+        Some(i) => i,
+        None => return,
     };
 
-    let ctx = egui_contexts.ctx_mut();
+    let ctx = match egui_contexts.ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
+    };
     
     // Check if we are hovering over any UI widget that requests a specific cursor
     let egui_cursor = ctx.output(|o| o.cursor_icon);
 
-    let (icon, hotspot) = match egui_cursor {
+    let (target_handle, hotspot) = match egui_cursor {
         egui::CursorIcon::Default => (&cursor_assets.regular, (2, 2)),
         // Only use hover cursor for active pointing
         egui::CursorIcon::PointingHand => (&cursor_assets.hover, (4, 4)),
@@ -61,8 +64,11 @@ fn update_cursor_icon(
         _ => (&cursor_assets.regular, (2, 2)),
     };
 
-    window.cursor.icon = CursorIcon::Custom(CustomCursor::Image {
-        handle: icon.clone(),
-        hotspot,
-    });
+    *icon_component = CursorIcon::Custom(CustomCursor::Image(
+        CustomCursorImage {
+            handle: target_handle.clone(),
+            hotspot,
+            ..default()
+        }
+    ));
 }

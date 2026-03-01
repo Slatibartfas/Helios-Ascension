@@ -363,6 +363,7 @@ impl Plugin for UIPlugin {
     fn build(&self, app: &mut App) {
         app
             // Egui plugin is added in `main.rs` (explicit bevy_egui integration)
+            .add_plugins(cursors::CursorPlugin)
             // Resources
             .init_resource::<Selection>()
             .init_resource::<TimeScale>()
