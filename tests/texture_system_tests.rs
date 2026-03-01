@@ -79,7 +79,7 @@ fn test_asteroid_classification_deserializes() {
     );
     assert_eq!(
         ceres.texture.as_ref().unwrap(),
-        "textures/celestial/planets/dwarf/ceres_4k.png",
+        "textures/celestial/planets/dwarf/4k_ceres.jpg",
         "Ceres texture path should be updated"
     );
 

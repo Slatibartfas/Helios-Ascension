@@ -93,7 +93,7 @@ fn populate_nearby_systems(
             id
         };
 
-        info!(
+        debug!(
             "Populating system '{}' at {:.2} ly with {} stars",
             system_data.system_name,
             system_data.distance_ly,
@@ -108,7 +108,7 @@ fn populate_nearby_systems(
 
         if let Some(pos_ly) = NearbyStarsData::get_position_by_name(&system_data.system_name) {
              star_position = DVec3::new(pos_ly[0], pos_ly[1], pos_ly[2]) * 63241.077;
-             info!("  Using 3D coordinates for '{}': {:?}", system_data.system_name, star_position);
+             debug!("  Using 3D coordinates for '{}': {:?}", system_data.system_name, star_position);
         } else {
              warn!("  No 3D coordinates found for '{}', using fallback X-axis placement", system_data.system_name);
         }
@@ -122,7 +122,7 @@ fn populate_nearby_systems(
             // Use real metallicity if available, otherwise generate random
             let metallicity = primary_star.metallicity.unwrap_or_else(|| {
                 let random_value = rng.random_range(-0.5..0.5);
-                info!(
+                debug!(
                     "  No metallicity data for '{}', using random: {:.2}",
                     primary_star.name, random_value
                 );
@@ -130,7 +130,7 @@ fn populate_nearby_systems(
             });
 
             if primary_star.metallicity.is_some() {
-                info!(
+                debug!(
                     "  Using real metallicity data for '{}': [Fe/H]={:.2}",
                     primary_star.name, metallicity
                 );
@@ -141,7 +141,7 @@ fn populate_nearby_systems(
             // meshes so they don't overwhelm their tiny orbits.
             let vis_scale = system_visual_scale(primary_star.luminosity_sol);
             if vis_scale < 1.0 {
-                info!(
+                debug!(
                     "  Visual scale for '{}': {:.2}x (L={:.2e})",
                     system_data.system_name, vis_scale, primary_star.luminosity_sol
                 );
@@ -212,7 +212,7 @@ fn populate_nearby_systems(
                 &mut rng,
             );
 
-            info!(
+            debug!(
                 "  Generated {} rocky planets, {} gas giants for '{}'",
                 architecture.rocky_planets.len(),
                 architecture.gas_giants.len(),
@@ -390,7 +390,7 @@ pub fn spawn_star_entity_with_metallicity(
 
     let star_system = StarSystem::with_metallicity(frost_line_au, spectral_class, metallicity);
 
-    info!(
+    debug!(
         "Spawning star '{}' ({}): L={:.3}L☉, frost_line={:.2}AU, [Fe/H]={:.2}",
         star_data.name,
         star_data.spectral_type,
@@ -488,7 +488,7 @@ pub fn spawn_confirmed_planet(
         (equilibrium_temp_c, false)
     };
 
-    info!(
+    debug!(
         "Spawning confirmed planet '{}': a={:.2}AU, M={:.1}M⊕, type={}, T={:.1}°C{}",
         planet_data.name,
         planet_data.semi_major_axis_au,
@@ -534,6 +534,11 @@ pub fn spawn_confirmed_planet(
         OrbitsBody::new(parent_star),
         LogicalParent(parent_star),
         SystemId(system_id),
+        Transform::default(), // Required so ring ChildOf relationships have a valid parent transform
+        // Visibility required so that child entities (rings, atmosphere shells) have a
+        // valid InheritedVisibility propagation chain — prevents Bevy B0004 warnings.
+        // Hidden by default since these bodies are in distant systems and have no mesh yet.
+        Visibility::Hidden,
     ));
 
     // Extract ocean-relevant info before consuming atmosphere_result
@@ -593,7 +598,7 @@ pub fn spawn_procedural_planet(
         (equilibrium_temp_c, false)
     };
 
-    info!(
+    debug!(
         "Spawning procedural planet '{}': a={:.2}AU, M={:.1}M⊕, R={:.1}R⊕, type={:?}, T={:.1}°C{}",
         planet.name,
         planet.semi_major_axis_au,
@@ -639,6 +644,11 @@ pub fn spawn_procedural_planet(
         OrbitsBody::new(parent_star),
         LogicalParent(parent_star),
         SystemId(system_id),
+        Transform::default(), // Required so ring ChildOf relationships have a valid parent transform
+        // Visibility required so that child entities (rings, atmosphere shells) have a
+        // valid InheritedVisibility propagation chain — prevents Bevy B0004 warnings.
+        // Hidden by default since these bodies are in distant systems and have no mesh yet.
+        Visibility::Hidden,
     ));
 
     // Extract ocean-relevant info before consuming atmosphere_result
@@ -690,7 +700,7 @@ pub fn spawn_asteroid_belt(
         ^ belt.outer_au.to_bits();
     let mut rng = StdRng::seed_from_u64(seed);
 
-    info!(
+    debug!(
         "Spawning asteroid belt: {:.2}-{:.2} AU, {} asteroids",
         belt.inner_au, belt.outer_au, belt.count
     );
@@ -779,7 +789,7 @@ pub fn spawn_cometary_cloud(
         ^ cloud.outer_au.to_bits();
     let mut rng = StdRng::seed_from_u64(seed);
 
-    info!(
+    debug!(
         "Spawning cometary cloud: {:.2}-{:.2} AU, {} comets",
         cloud.inner_au, cloud.outer_au, cloud.count
     );
@@ -1032,7 +1042,7 @@ fn spawn_procedural_ring(
         LogicalParent(planet_entity),
     ));
 
-    info!(
+    debug!(
         "  Spawned rings for '{}' (outer={:.1}, inner={:.1}, bands={}, gaps={}, flavor={})",
         planet_name, outer_radius, inner_radius, num_bands, num_gaps, flavor_label,
     );
@@ -1200,7 +1210,7 @@ fn spawn_procedural_moons(
     }
 
     if moon_count > 0 {
-        info!(
+        debug!(
             "  Spawned {} moons for {} at {:.2} AU (orbit amp: {:.1}x-{:.1}x)",
             moon_count, planet_name, planet_sma_au,
             (inner_display / (0.001 * SCALING_FACTOR)).max(1.0),

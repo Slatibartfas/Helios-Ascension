@@ -42,12 +42,18 @@ pub struct EguiPanelBounds {
     pub available_rect: Option<egui::Rect>,
 }
 
+/// Saved camera radius from before entering a full-screen menu.
+/// Restored when returning to Survey/Starmap view.
+#[derive(Resource, Default)]
+pub struct SavedSurveyRadius(pub Option<f32>);
+
 pub struct CameraPlugin;
 
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ViewMode>()
             .init_resource::<EguiPanelBounds>()
+            .init_resource::<SavedSurveyRadius>()
             // Spawn camera in PreStartup before EguiStartupSet::InitContexts so
             // bevy_egui attaches its context to this camera entity. Without this,
             // EguiContexts::ctx_mut() returns Err during Startup and custom fonts
@@ -63,6 +69,7 @@ impl Plugin for CameraPlugin {
                     update_camera_transform,
                     update_view_mode,
                     update_min_zoom,
+                    save_restore_zoom_on_menu_change,
                 ),
             );
     }
@@ -89,7 +96,7 @@ pub struct OrbitCamera {
 impl Default for OrbitCamera {
     fn default() -> Self {
         Self {
-            radius: 2000.0,
+            radius: 20_000.0,
             pitch: 0.5,
             yaw: 0.0,
             min_radius: 5.0,
@@ -104,7 +111,7 @@ impl Default for OrbitCamera {
 fn spawn_camera(mut commands: Commands) {
     commands.spawn((
         Camera3d::default(),
-        Transform::from_xyz(0.0, 1000.0, 2000.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(0.0, 10_000.0, 20_000.0).looking_at(Vec3::ZERO, Vec3::Y),
         Projection::Perspective(PerspectiveProjection {
             far: 3_000_000.0, // Increased to comfortably render at max camera distance
             ..default()
@@ -272,6 +279,29 @@ fn update_min_zoom(
 
     let new_min = if star_floor > 0.0 { star_floor } else { 5.0 };
     apply_min(&mut orbit, new_min);
+}
+
+/// Saves the camera zoom radius when entering a full-screen menu (blocks_world_interaction),
+/// and restores it when returning to Survey or Starmap.
+fn save_restore_zoom_on_menu_change(
+    active_menu: Res<ActiveMenu>,
+    mut saved: ResMut<SavedSurveyRadius>,
+    mut camera_query: Query<&mut OrbitCamera, With<GameCamera>>,
+) {
+    if !active_menu.is_changed() {
+        return;
+    }
+    let Ok(mut orbit) = camera_query.single_mut() else {
+        return;
+    };
+
+    if active_menu.current.blocks_world_interaction() {
+        // Entering a full-screen menu — save the current radius.
+        saved.0 = Some(orbit.radius);
+    } else if let Some(saved_radius) = saved.0.take() {
+        // Returning to survey/starmap — restore the saved radius.
+        orbit.radius = saved_radius.clamp(orbit.min_radius, orbit.max_radius);
+    }
 }
 
 #[inline]
