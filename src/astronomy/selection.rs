@@ -306,7 +306,9 @@ pub fn handle_body_hover(
     // origin position) before scale_markers_with_zoom can reposition it.
     let new_hover = closest_body.map(|(e, _, _)| e);
     let hover_is_body = new_hover.is_some();
-    let planner_mode_active = fleet_ui_state.show_transfer_popup || fleet_ui_state.selected_fleet.is_some();
+    // Use crosshair only while the transfer planner popup is open.
+    // A selected fleet that is merely being inspected (no active planning) keeps the default cursor.
+    let planner_mode_active = fleet_ui_state.show_transfer_popup;
     let currently_hovered: Vec<Entity> = hovered_query.iter().collect();
 
     // Remove Hovered from entities no longer under the cursor

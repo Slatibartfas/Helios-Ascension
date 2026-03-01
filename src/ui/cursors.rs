@@ -47,7 +47,9 @@ fn update_cursor_icon(
     cursor_assets: Res<CursorAssets>,
     // EguiOutput is populated by bevy_egui in EguiPostUpdateSet::ProcessOutput.
     // We run after that set, so this reflects the current frame's cursor request.
-    egui_output: Query<&EguiOutput>,
+    // Scoped to PrimaryWindow so that in multi-window setups we always read the
+    // correct window's egui cursor, not an arbitrary first result.
+    egui_output: Query<&EguiOutput, With<PrimaryWindow>>,
     // Check Assets<Image> directly — this is what bevy_winit reads when applying
     // the custom cursor. If the image is not in Assets<Image> yet, winit silently
     // skips and only retries when CursorIcon changes again — so we gate here.
