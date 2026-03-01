@@ -195,6 +195,7 @@ pub fn handle_body_hover(
     mut egui_contexts: bevy_egui::EguiContexts,
     active_menu: Res<ActiveMenu>,
     panel_bounds: Res<EguiPanelBounds>,
+    fleet_ui_state: Res<FleetUiState>,
 ) {
     // Disable hover when a full-screen menu overlay is active (Research, etc.)
     if active_menu.current.blocks_world_interaction() {
@@ -304,6 +305,10 @@ pub fn handle_body_hover(
     // each frame, which spawns a fresh marker at Transform::default() (the star's
     // origin position) before scale_markers_with_zoom can reposition it.
     let new_hover = closest_body.map(|(e, _, _)| e);
+    let hover_is_body = new_hover.is_some();
+    // Use crosshair only while the transfer planner popup is open.
+    // A selected fleet that is merely being inspected (no active planning) keeps the default cursor.
+    let planner_mode_active = fleet_ui_state.show_transfer_popup;
     let currently_hovered: Vec<Entity> = hovered_query.iter().collect();
 
     // Remove Hovered from entities no longer under the cursor
@@ -318,6 +323,18 @@ pub fn handle_body_hover(
         if !currently_hovered.contains(&entity) {
             commands.entity(entity).insert(Hovered);
         }
+    }
+
+    if let Ok(ctx) = egui_contexts.ctx_mut() {
+        ctx.output_mut(|o| {
+            o.cursor_icon = if planner_mode_active {
+                bevy_egui::egui::CursorIcon::Crosshair
+            } else if hover_is_body {
+                bevy_egui::egui::CursorIcon::PointingHand
+            } else {
+                bevy_egui::egui::CursorIcon::Default
+            };
+        });
     }
 }
 

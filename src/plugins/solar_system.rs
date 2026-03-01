@@ -614,7 +614,7 @@ pub fn setup_solar_system(
         // Check for multi-layer textures first, then single texture, then generic
         let (
             base_color_texture,
-            _normal_map_texture,
+            normal_map_texture,
             clouds_texture,
             clouds_blend_mode,
             night_texture,
@@ -741,9 +741,7 @@ pub fn setup_solar_system(
             Some(materials.add(StandardMaterial {
                 base_color: material_color,
                 base_color_texture: base_color_texture.clone(),
-                // Note: normal_map_texture is loaded but not applied yet
-                // TODO: Enable once multi-layer rendering is fully implemented
-                // normal_map_texture,
+                normal_map_texture,
                 // Subtle uniform ambient glow so the dark side isn't pitch-black.
                 // Do NOT set emissive_texture here — reusing base_color_texture as an
                 // emissive map causes visual artifacts and is conceptually incorrect.
