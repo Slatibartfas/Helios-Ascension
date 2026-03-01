@@ -442,10 +442,14 @@ fn render_fleet_list(
         let is_primary = fleet_ui_state.selected_fleet == Some(entry.entity);
         let is_checked = fleet_ui_state.selected_fleets.contains(&entry.entity);
         let row_text = format!("{} {} — {} ship(s)", entry.role_icon, entry.name, entry.ship_count);
-        let row_color = if entry.in_transit {
+        // Selected: bright accent so text is readable on the teal selection background.
+        // Unselected in-transit: cool blue.  Unselected orbiting: bright teal-green.
+        let row_color = if is_primary {
+            theme::ACCENT
+        } else if entry.in_transit {
             theme::RP_BLUE
         } else {
-            theme::GREEN
+            theme::EP_TEAL
         };
 
         // ── Row: [checkbox] [drop-zone selectable] ────────────────────────────
@@ -586,7 +590,9 @@ fn render_fleet_list(
                 .size(11.0)
                 .color(theme::TEXT_DIM)
         };
-        ui.label(sub);
+        // Prevent the sub-status line from wrapping (a truncated single line is
+        // cleaner than a surprise second line breaking the list layout).
+        ui.add(egui::Label::new(sub).truncate());
     }
 
     // ── Multi-select action bar ───────────────────────────────────────────────
@@ -1566,7 +1572,7 @@ mod tests {
     #[test]
     fn test_time_scale_creation() {
         let time_scale = TimeScale::new();
-        assert_eq!(time_scale.scale, 1.0);
+        assert_eq!(time_scale.scale, 3_600.0); // default is 1 hr/s
         assert!(!time_scale.is_paused());
     }
 

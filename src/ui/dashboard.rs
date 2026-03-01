@@ -1,5 +1,4 @@
 use super::*;
-use super::time::format_time_rate;
 
 fn render_selectable_label(ui: &mut egui::Ui, is_selected: bool, name: &str) -> egui::Response {
     if is_selected {
@@ -780,79 +779,142 @@ pub(super) fn ui_dashboard(
 /// **before** any side panel (Research, Construction, Economy, etc.) is
 /// rendered. This ensures the panel is never occluded regardless of the
 /// active menu.
+///
+/// Keyboard shortcuts:
+/// - **Space** — toggle pause / resume
+/// - **1–5** — set speed (1 hr/s … 1 yr/s)
 pub(super) fn ui_time_controls(
     mut contexts: EguiContexts,
     mut time_scale: ResMut<TimeScale>,
     sim_time: Res<SimulationTime>,
     view_mode: Res<ViewMode>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    real_time: Res<Time<Real>>,
 ) {
+    // ── Keyboard shortcuts (skip when egui is consuming input) ────────────
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
         Err(_) => return,
     };
 
+    if !ctx.wants_keyboard_input() {
+        if keyboard_input.just_pressed(KeyCode::Space) {
+            if time_scale.is_paused() {
+                time_scale.resume();
+            } else {
+                time_scale.pause();
+            }
+        }
+        // Keys 1-5 set speeds (and un-pause if currently paused)
+        const SPEED_PRESETS: [f32; 5] = [3_600.0, 86_400.0, 604_800.0, 2_592_000.0, 31_557_600.0];
+        let speed_keys = [
+            KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3,
+            KeyCode::Digit4, KeyCode::Digit5,
+        ];
+        for (key, &preset) in speed_keys.iter().zip(SPEED_PRESETS.iter()) {
+            if keyboard_input.just_pressed(*key) {
+                time_scale.set_speed(preset);
+                break;
+            }
+        }
+    }
+
+    // ── Blink factor for pause button (0.0 → 1.0, ~1.5 Hz) ──────────────
+    let blink = if time_scale.is_paused() {
+        (real_time.elapsed_secs() * std::f32::consts::TAU * 1.5).sin() * 0.5 + 0.5
+    } else {
+        0.0
+    };
+
+    // ── Helper: render a speed preset button with active highlight ────────
+    let active_scale = time_scale.scale;
+    let is_paused = time_scale.is_paused();
+
     egui::TopBottomPanel::bottom("time_controls")
-        .min_height(80.0)
+        .min_height(54.0)
         .show(ctx, |ui| {
-            ui.heading("Time Controls");
-            ui.separator();
-
             ui.horizontal(|ui| {
-                // Pause/Resume button
-                if time_scale.is_paused() {
-                    if ui.button("▶ Resume").clicked() {
-                        time_scale.resume();
-                    }
-                } else if ui.button("⏸ Pause").clicked() {
-                    time_scale.pause();
-                }
-
-                ui.separator();
-
-                // Preset speed buttons with meaningful labels
-                if ui.button("1 hr/s").clicked() {
-                    time_scale.scale = 3_600.0;
-                }
-                if ui.button("1 day/s").clicked() {
-                    time_scale.scale = 86_400.0;
-                }
-                if ui.button("1 wk/s").clicked() {
-                    time_scale.scale = 604_800.0;
-                }
-                if ui.button("1 mo/s").clicked() {
-                    time_scale.scale = 2_592_000.0;
-                }
-                if ui.button("1 yr/s").clicked() {
-                    time_scale.scale = 31_557_600.0;
-                }
-
-                ui.separator();
-
-                // Logarithmic slider for fine control
-                ui.label("Speed:");
-                ui.add(
-                    egui::Slider::new(&mut time_scale.scale, 1.0..=MAX_TIME_SCALE)
-                        .logarithmic(true)
-                        .text("")
-                        .custom_formatter(|v, _| format_time_rate(v as f32)),
-                );
-            });
-
-            ui.horizontal(|ui| {
-                ui.label(format!("Speed: {}", format_time_rate(time_scale.scale)));
-                if time_scale.is_paused() {
-                    ui.colored_label(theme::RED, "⏸ PAUSED");
-                }
-                ui.separator();
-                ui.label(format!("Date: {}", sim_time.format_date_time()));
-                ui.separator();
-                let (view_label, view_color) = match *view_mode {
-                    ViewMode::System => ("🔭 System View", theme::RP_BLUE),
-                    ViewMode::Starmap => {
-                        ("🌌 Starmap View", theme::STAR_GOLD)
-                    }
+                // ── Pause button ──────────────────────────────────────────
+                let pause_fill = if is_paused {
+                    // Blend surface → red based on blink
+                    let r = (13.0 + 100.0 * blink) as u8;
+                    let g = (17.0f32 * (1.0 - blink * 0.8)) as u8;
+                    let b = (23.0f32 * (1.0 - blink * 0.9)) as u8;
+                    egui::Color32::from_rgb(r, g, b)
+                } else {
+                    theme::SURFACE
                 };
-                ui.colored_label(view_color, view_label);
+                let pause_stroke = if is_paused {
+                    let alpha = (120.0 + 135.0 * blink) as u8;
+                    egui::Stroke::new(1.5, egui::Color32::from_rgba_unmultiplied(231, 76, 60, alpha))
+                } else {
+                    egui::Stroke::new(0.5, theme::BORDER)
+                };
+                let pause_label = if is_paused {
+                    egui::RichText::new("⏸ PAUSED").color(
+                        egui::Color32::from_rgba_unmultiplied(255, 90, 70, (180.0 + 75.0 * blink) as u8)
+                    )
+                } else {
+                    egui::RichText::new("▶ Running").color(theme::TEXT_DIM)
+                };
+                let pause_btn = egui::Button::new(pause_label)
+                    .stroke(pause_stroke)
+                    .fill(pause_fill);
+                if ui.add(pause_btn).clicked() {
+                    if is_paused {
+                        time_scale.resume();
+                    } else {
+                        time_scale.pause();
+                    }
+                }
+
+                ui.separator();
+
+                // ── Speed preset buttons [1]–[5] with active highlight ────
+                const SPEED_LABELS: [&str; 5] = ["1 hr/s", "1 day/s", "1 wk/s", "1 mo/s", "1 yr/s"];
+                const SPEED_VALUES: [f32; 5] = [3_600.0, 86_400.0, 604_800.0, 2_592_000.0, 31_557_600.0];
+                const SPEED_HOTKEYS: [&str; 5] = ["[1]", "[2]", "[3]", "[4]", "[5]"];
+
+                for i in 0..5 {
+                    let is_active = !is_paused && (active_scale - SPEED_VALUES[i]).abs() < 1.0;
+                    let label_text = format!("{}\n{}", SPEED_HOTKEYS[i], SPEED_LABELS[i]);
+                    let btn = if is_active {
+                        egui::Button::new(
+                            egui::RichText::new(&label_text)
+                                .color(theme::ACCENT)
+                                .small(),
+                        )
+                        .stroke(egui::Stroke::new(1.5, theme::ACCENT))
+                        .fill(theme::SURFACE_RAISED)
+                    } else {
+                        egui::Button::new(
+                            egui::RichText::new(&label_text)
+                                .color(theme::TEXT_DIM)
+                                .small(),
+                        )
+                        .stroke(egui::Stroke::new(0.5, theme::BORDER))
+                        .fill(theme::SURFACE)
+                    };
+                    if ui.add_sized([56.0, 36.0], btn).clicked() {
+                        time_scale.set_speed(SPEED_VALUES[i]);
+                    }
+                }
+
+                ui.separator();
+
+                // ── Status info ───────────────────────────────────────────
+                ui.vertical(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!("Date: {}", sim_time.format_date_time()))
+                            .color(theme::TEXT)
+                            .small(),
+                    );
+                    let (view_label, view_color) = match *view_mode {
+                        ViewMode::System => ("🔭 System View", theme::RP_BLUE),
+                        ViewMode::Starmap => ("🌌 Starmap View", theme::STAR_GOLD),
+                    };
+                    ui.colored_label(view_color, egui::RichText::new(view_label).small());
+                });
             });
         });
 }

@@ -15,7 +15,7 @@ Complete reference for the resource and economy system in Helios: Ascension.
 
 ## Resource Types
 
-The game features **27 resource types** organized into **7 categories**:
+The game features **31 resource types** organized into **8 categories**:
 
 ### Volatiles
 - **Water (H2O):** Life support, terraforming
@@ -52,11 +52,17 @@ The game features **27 resource types** organized into **7 categories**:
 - **Silver (Ag):** Electronics, currency (~0.08 ppm in crust)
 - **Platinum (Pt):** Catalysts, high-tech (~0.005 ppb in crust)
 
-### Specialty Materials
+### Strategic Materials
 - **Copper (Cu):** Electronics, conductors (~60 ppm in crust)
 - **Rare Earths (REE):** Advanced technology, magnets (~200 ppm combined)
 - **Lithium (Li):** Batteries, fusion blankets (~20 ppm in crust)
 - **Sulfur (S):** Chemical industry, fertilizer (~350 ppm in crust)
+
+### Exotic Materials
+- **Antimatter (Am̄):** Produced in particle accelerators; fuel for antimatter drives
+- **Exotic Matter (Xm):** Negative-energy-density matter for warp drives and wormholes
+- **Metamaterials (Mm):** Engineered composites for cloaking, shielding, and sensors
+- **Computronium (Qb):** Optimised computational substrate for Culture-level AI minds
 
 ---
 

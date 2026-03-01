@@ -11,7 +11,8 @@ fn get_resource_category_icon(category: &str) -> &'static str {
         "Fusion Fuel" => "\u{1F50B}",        // 🔋
         "Fissiles" => "\u{2622}",            // ☢
         "Precious Metals" => "\u{1F48E}",    // 💎
-        "Specialty" => "\u{2728}",           // ✨
+        "Strategic" => "\u{2699}",           // ⚙
+        "Exotic" => "\u{1F52E}",              // 🔮
         _ => "\u{1F4E6}",                    // 📦
     }
 }
@@ -54,11 +55,17 @@ fn get_resource_icon(resource: &ResourceType) -> &'static str {
         ResourceType::Silver => "\u{1F948}",         // 🥈
         ResourceType::Platinum => "\u{1F48D}",       // 💍
 
-        // Specialty
+        // Strategic
         ResourceType::Copper => "\u{1F50C}",         // 🔌
         ResourceType::RareEarths => "\u{1F4F1}",     // 📱
         ResourceType::Lithium => "\u{1F50B}",        // 🔋
         ResourceType::Sulfur => "\u{1F9EA}",         // 🧪
+
+        // Exotic
+        ResourceType::Antimatter => "\u{2604}",       // ☄
+        ResourceType::ExoticMatter => "\u{1F300}",    // 🌀
+        ResourceType::Metamaterials => "\u{1F52C}",   // 🔬
+        ResourceType::Computronium => "\u{1F9E0}",    // 🧠
     }
 }
 
@@ -314,7 +321,7 @@ pub(super) fn ui_resources_bar(
                     ui.add(egui::Label::new(egui::RichText::new(format!(
                         "Type {:.3}",
                         kardashev.max(0.0)
-                    )).size(14.0).color(theme::CAT_SPECIALTY)).selectable(false));
+                    )).size(14.0).color(theme::CAT_STRATEGIC)).selectable(false));
                     
                     ui.add(egui::Label::new(egui::RichText::new("Kardashev:").size(14.0).color(theme::TEXT_DIM)).selectable(false));
 
@@ -931,33 +938,50 @@ pub(super) fn ui_resources_bar(
                     });
                     ui.separator();
 
-                    // Header row
-                    ui.horizontal(|ui| {
-                        ui.add_space(24.0); // icon space
-                        ui.add(egui::Label::new(egui::RichText::new("Resource").strong()).selectable(false));
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.add(egui::Label::new(egui::RichText::new("  /mo").strong().size(11.0)).selectable(false));
-                            ui.add_space(10.0);
-                            ui.add(egui::Label::new(egui::RichText::new("Stockpile").strong().size(11.0)).selectable(false));
-                        });
-                    });
-
-                    for resource in &resources {
-                        let amount = budget.get_stockpile(resource);
-                        let rate = rate_tracker.get_resource_rate(resource);
-                        ui.horizontal(|ui| {
-                            ui.add(egui::Label::new(egui::RichText::new(get_resource_icon(resource)).size(16.0)).selectable(false));
-                            ui.add(egui::Label::new(resource.display_name()).selectable(false));
+                    // Header + data rows in a single grid so columns stay aligned
+                    egui::Grid::new(format!("res_popup_{}", cat_name))
+                        .num_columns(4)
+                        .spacing([6.0, 4.0])
+                        .striped(true)
+                        .show(ui, |ui| {
+                            // Header
+                            ui.label(""); // icon column
+                            ui.add(egui::Label::new(egui::RichText::new("Resource").strong().size(11.0)).selectable(false));
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                // Monthly rate
-                                let (rt, rc) = format_rate_monthly(rate);
-                                ui.add(egui::Label::new(egui::RichText::new(rt).size(11.0).color(rc)).selectable(false));
-                                ui.add_space(10.0);
-                                // Stockpile
-                                ui.add(egui::Label::new(egui::RichText::new(format_mass(amount)).strong()).selectable(false));
+                                ui.add(egui::Label::new(egui::RichText::new("Stockpile").strong().size(11.0)).selectable(false));
                             });
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.add(egui::Label::new(egui::RichText::new("/mo").strong().size(11.0)).selectable(false));
+                            });
+                            ui.end_row();
+
+                            for resource in &resources {
+                                let amount = budget.get_stockpile(resource);
+                                let rate = rate_tracker.get_resource_rate(resource);
+
+                                // Icon
+                                ui.add(egui::Label::new(egui::RichText::new(get_resource_icon(resource)).size(14.0)).selectable(false));
+                                // Name
+                                ui.add(egui::Label::new(egui::RichText::new(resource.display_name()).size(12.0)).selectable(false));
+                                // Stockpile — right-aligned
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    let stock_color = if amount <= 0.0 {
+                                        theme::RED
+                                    } else if amount < 100.0 && resource.is_critical() {
+                                        theme::AMBER
+                                    } else {
+                                        theme::TEXT
+                                    };
+                                    ui.add(egui::Label::new(egui::RichText::new(format_mass(amount)).monospace().size(12.0).color(stock_color)).selectable(false));
+                                });
+                                // Rate — right-aligned
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    let (rt, rc) = format_rate_monthly(rate);
+                                    ui.add(egui::Label::new(egui::RichText::new(rt).monospace().size(11.0).color(rc)).selectable(false));
+                                });
+                                ui.end_row();
+                            }
                         });
-                    }
                 });
 
             // Close if clicked outside

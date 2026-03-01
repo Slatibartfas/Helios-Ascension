@@ -56,6 +56,9 @@ pub const TEXT_VALUE: egui::Color32 = egui::Color32::from_rgb(200, 215, 240);
 pub const TEXT_DIM: egui::Color32 = egui::Color32::from_rgb(120, 140, 170);
 /// Very faint hint text.
 pub const TEXT_HINT: egui::Color32 = egui::Color32::from_rgb(90, 105, 130);
+/// Inactive nav-bar icon tint — bright enough to read clearly but distinct from the
+/// active cyan accent so the selected button still stands out.
+pub const ICON_INACTIVE: egui::Color32 = egui::Color32::from_rgb(190, 205, 225);
 
 // ─── Resource Category Colours ───────────────────────────────────────────
 
@@ -71,8 +74,10 @@ pub const CAT_FUSION: egui::Color32 = egui::Color32::from_rgb(255, 100, 200);
 pub const CAT_FISSILES: egui::Color32 = egui::Color32::from_rgb(80, 230, 80);
 /// Precious metals
 pub const CAT_PRECIOUS: egui::Color32 = egui::Color32::from_rgb(255, 215, 0);
-/// Specialty materials
-pub const CAT_SPECIALTY: egui::Color32 = egui::Color32::from_rgb(180, 120, 255);
+/// Strategic materials (Copper, REE, Li, S)
+pub const CAT_STRATEGIC: egui::Color32 = egui::Color32::from_rgb(180, 120, 255);
+/// Exotic materials (Antimatter, Exotic Matter, Metamaterials, Computronium)
+pub const CAT_EXOTIC: egui::Color32 = egui::Color32::from_rgb(255, 60, 120);
 
 // ─── Font Helpers ────────────────────────────────────────────────────────
 
@@ -157,7 +162,8 @@ pub fn category_color(category: &str) -> egui::Color32 {
         "Fusion Fuel" => CAT_FUSION,
         "Fissiles" => CAT_FISSILES,
         "Precious Metals" => CAT_PRECIOUS,
-        "Specialty" => CAT_SPECIALTY,
+        "Strategic" => CAT_STRATEGIC,
+        "Exotic" => CAT_EXOTIC,
         _ => TEXT_DIM,
     }
 }

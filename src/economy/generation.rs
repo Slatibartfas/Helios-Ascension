@@ -90,7 +90,7 @@ pub fn generate_solar_system_resources(
             (coords.position.length(), DEFAULT_FROST_LINE_AU, 1.0)
         };
 
-        info!(
+        debug!(
             "Generating resources for {} at {:.2} AU (frost line: {:.2} AU, metallicity mult: {:.2}x)",
             body.name, distance_from_star, frost_line, metallicity_multiplier
         );
@@ -482,7 +482,7 @@ fn apply_asteroid_specialization(
                 scale_deposit(&mut deposit, 10.0);
                 cap_deposit_conc(&mut deposit, 0.005);
             }
-            _ if !resource.is_precious_metal() && !resource.is_specialty() => {
+            _ if !resource.is_precious_metal() && !resource.is_strategic() => {
                 scale_deposit(&mut deposit, 0.2);
             }
             _ => {}
@@ -678,8 +678,8 @@ fn generate_resource_deposit(
             rng.random_range(0.1..0.3),            // Poor accessibility
         ),
 
-        // Specialty materials - Moderate rarity
-        (r, true) if r.is_specialty() => {
+        // Strategic materials - Moderate rarity
+        (r, true) if r.is_strategic() => {
             let abundance = match resource {
                 ResourceType::Copper => rng.random_range(0.00003..0.0001),     // ~60 ppm in crust
                 ResourceType::RareEarths => rng.random_range(0.00005..0.0002), // Variable, ~200 ppm combined
@@ -689,7 +689,7 @@ fn generate_resource_deposit(
             };
             (abundance, rng.random_range(0.3..0.7)) // Moderate accessibility
         }
-        (r, false) if r.is_specialty() => {
+        (r, false) if r.is_strategic() => {
             let abundance = match resource {
                 // Sulfur is relatively abundant in outer system (volcanic moons, ices)
                 ResourceType::Sulfur => rng.random_range(0.001..0.005),
@@ -808,13 +808,16 @@ fn calculate_distance_modifier(
             1.0 - (distance_diff * 0.1).min(0.5) // Less penalty for distance
         }
 
-        // Specialty materials have complex distribution
-        r if r.is_specialty() => {
+        // Strategic materials have complex distribution
+        r if r.is_strategic() => {
             // Peak around optimal distance (scaled by frost line)
             // For Sun-like stars (frost_line ~2.5), optimal is ~1.5 AU
             let optimal_distance = frost_line_au * 0.6;
             1.0 - ((distance_au - optimal_distance).abs() * 0.15).min(0.6)
         }
+
+        // Exotic materials are never naturally occurring
+        r if r.is_exotic() => 0.0,
 
         _ => 1.0,
     }
@@ -870,7 +873,7 @@ pub fn generate_ring_resources(
         resources.add_deposit(ResourceType::Carbon, make_deposit(0.005));
 
         commands.entity(entity).insert(resources);
-        info!(
+        debug!(
             "Generated ring resources for '{}' (profile: {}, total {:.2e} Mt)",
             body.name, profile_name, total_mass_mt
         );

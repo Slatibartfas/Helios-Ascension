@@ -168,13 +168,25 @@ pub enum ResourceType {
     Silver,
     Platinum,
 
-    // Specialty materials - Advanced technology
+    // Strategic materials - Critical for advanced technology
     Copper,
     RareEarths,
     /// Battery tech and fusion reactor maintenance
     Lithium,
     /// Industrial chemistry, sulfuric acid, and battery electrolytes
     Sulfur,
+
+    // Exotic materials - Late-game / post-fusion technology
+    /// Produced in particle accelerators; fuel for antimatter drives (1 000 000 s Isp)
+    Antimatter,
+    /// Negative-energy-density matter required for warp bubbles and wormholes
+    ExoticMatter,
+    /// Engineered composite materials with unnatural optical/EM properties;
+    /// enables cloaking, perfect lenses, and advanced shielding
+    Metamaterials,
+    /// Optimised computational substrate; required for Culture-level AI minds
+    /// and post-singularity automation
+    Computronium,
 }
 
 impl ResourceType {
@@ -209,6 +221,10 @@ impl ResourceType {
             RareEarths,
             Lithium,
             Sulfur,
+            Antimatter,
+            ExoticMatter,
+            Metamaterials,
+            Computronium,
         ]
     }
 
@@ -267,14 +283,25 @@ impl ResourceType {
         )
     }
 
-    /// Returns true if this is a specialty material
-    pub fn is_specialty(&self) -> bool {
+    /// Returns true if this is a strategic material
+    pub fn is_strategic(&self) -> bool {
         matches!(
             self,
             ResourceType::Copper
                 | ResourceType::RareEarths
                 | ResourceType::Lithium
                 | ResourceType::Sulfur
+        )
+    }
+
+    /// Returns true if this is an exotic material (late-game)
+    pub fn is_exotic(&self) -> bool {
+        matches!(
+            self,
+            ResourceType::Antimatter
+                | ResourceType::ExoticMatter
+                | ResourceType::Metamaterials
+                | ResourceType::Computronium
         )
     }
 
@@ -308,6 +335,10 @@ impl ResourceType {
             ResourceType::Deuterium => "Deuterium",
             ResourceType::Lithium => "Lithium",
             ResourceType::Sulfur => "Sulfur",
+            ResourceType::Antimatter => "Antimatter",
+            ResourceType::ExoticMatter => "Exotic Matter",
+            ResourceType::Metamaterials => "Metamaterials",
+            ResourceType::Computronium => "Computronium",
         }
     }
 
@@ -341,6 +372,10 @@ impl ResourceType {
             ResourceType::Deuterium => "D",
             ResourceType::Lithium => "Li",
             ResourceType::Sulfur => "S",
+            ResourceType::Antimatter => "Am\u{0305}",
+            ResourceType::ExoticMatter => "Xm",
+            ResourceType::Metamaterials => "Mm",
+            ResourceType::Computronium => "Qb",
         }
     }
 
@@ -371,8 +406,10 @@ impl ResourceType {
             "Fissiles"
         } else if self.is_precious_metal() {
             "Precious Metals"
-        } else if self.is_specialty() {
-            "Specialty"
+        } else if self.is_strategic() {
+            "Strategic"
+        } else if self.is_exotic() {
+            "Exotic"
         } else {
             "Other"
         }
@@ -429,12 +466,21 @@ impl ResourceType {
                 ],
             ),
             (
-                "Specialty",
+                "Strategic",
                 vec![
                     ResourceType::Copper,
                     ResourceType::RareEarths,
                     ResourceType::Lithium,
                     ResourceType::Sulfur,
+                ],
+            ),
+            (
+                "Exotic",
+                vec![
+                    ResourceType::Antimatter,
+                    ResourceType::ExoticMatter,
+                    ResourceType::Metamaterials,
+                    ResourceType::Computronium,
                 ],
             ),
         ]
@@ -454,7 +500,7 @@ mod tests {
     #[test]
     fn test_resource_type_all() {
         let all = ResourceType::all();
-        assert_eq!(all.len(), 27, "Should have exactly 27 resource types");
+        assert_eq!(all.len(), 31, "Should have exactly 31 resource types");
     }
 
     #[test]
@@ -471,9 +517,13 @@ mod tests {
         assert!(ResourceType::Deuterium.is_fusion_fuel());
         assert!(ResourceType::Uranium.is_fissile());
         assert!(ResourceType::Gold.is_precious_metal());
-        assert!(ResourceType::Copper.is_specialty());
-        assert!(ResourceType::Lithium.is_specialty());
-        assert!(ResourceType::Sulfur.is_specialty());
+        assert!(ResourceType::Copper.is_strategic());
+        assert!(ResourceType::Lithium.is_strategic());
+        assert!(ResourceType::Sulfur.is_strategic());
+        assert!(ResourceType::Antimatter.is_exotic());
+        assert!(ResourceType::ExoticMatter.is_exotic());
+        assert!(ResourceType::Metamaterials.is_exotic());
+        assert!(ResourceType::Computronium.is_exotic());
     }
 
     #[test]
@@ -518,17 +568,19 @@ mod tests {
         assert_eq!(ResourceType::Deuterium.category(), "Fusion Fuel");
         assert_eq!(ResourceType::Uranium.category(), "Fissiles");
         assert_eq!(ResourceType::Gold.category(), "Precious Metals");
-        assert_eq!(ResourceType::Copper.category(), "Specialty");
-        assert_eq!(ResourceType::Lithium.category(), "Specialty");
-        assert_eq!(ResourceType::Sulfur.category(), "Specialty");
+        assert_eq!(ResourceType::Copper.category(), "Strategic");
+        assert_eq!(ResourceType::Lithium.category(), "Strategic");
+        assert_eq!(ResourceType::Sulfur.category(), "Strategic");
+        assert_eq!(ResourceType::Antimatter.category(), "Exotic");
+        assert_eq!(ResourceType::ExoticMatter.category(), "Exotic");
     }
 
     #[test]
     fn test_by_category() {
         let categories = ResourceType::by_category();
 
-        // Should have 7 categories
-        assert_eq!(categories.len(), 7);
+        // Should have 8 categories
+        assert_eq!(categories.len(), 8);
 
         // Check category names
         assert_eq!(categories[0].0, "Volatiles");
@@ -537,13 +589,14 @@ mod tests {
         assert_eq!(categories[3].0, "Fusion Fuel");
         assert_eq!(categories[4].0, "Fissiles");
         assert_eq!(categories[5].0, "Precious Metals");
-        assert_eq!(categories[6].0, "Specialty");
+        assert_eq!(categories[6].0, "Strategic");
+        assert_eq!(categories[7].0, "Exotic");
 
-        // Check total resources (should be all 27)
+        // Check total resources (should be all 31)
         let total_resources: usize = categories
             .iter()
             .map(|(_, resources)| resources.len())
             .sum();
-        assert_eq!(total_resources, 27);
+        assert_eq!(total_resources, 31);
     }
 }

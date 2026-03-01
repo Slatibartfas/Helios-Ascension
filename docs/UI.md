@@ -132,14 +132,15 @@ Track resources, production, and budget.
 - **Consumption Rate**: Resources used per year
 - **Net Rate**: Net production/consumption (green/red)
 
-### Resource Types (20 Total)
-- **Volatiles**: Water, Hydrogen, Ammonia, Methane
+### Resource Types (31 Total)
+- **Volatiles**: Water, Hydrogen, Ammonia, Methane, Phosphorus
 - **Atmospheric Gases**: Nitrogen, Oxygen, Carbon Dioxide, Argon
-- **Construction Materials**: Iron, Aluminum, Titanium, Silicates
-- **Fusion Fuel**: Helium-3
+- **Construction Materials**: Iron, Aluminum, Titanium, Silicates, Nickel, Tungsten, Carbon
+- **Fusion Fuel**: Helium-3, Deuterium
 - **Fissiles**: Uranium, Thorium
 - **Precious Metals**: Gold, Silver, Platinum
-- **Specialty Materials**: Copper, Rare Earths
+- **Strategic Materials**: Copper, Rare Earths, Lithium, Sulfur
+- **Exotic Materials**: Antimatter, Exotic Matter, Metamaterials, Computronium
 
 ### Budget Information
 - **Treasury**: Current monetary credits (MC)

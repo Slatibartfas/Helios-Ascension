@@ -53,7 +53,7 @@ pub(super) fn apply_special_body_profile(
                 ),
             );
                // Note: Water exists as atmospheric vapor (~0.25%), not as mineable solid ice
-            info!("Applied Jupiter special profile: gas giant atmosphere (no solid resources)");
+            debug!("Applied Jupiter special profile: gas giant atmosphere (no solid resources)");
             Some(resources)
         }
 
@@ -82,7 +82,7 @@ pub(super) fn apply_special_body_profile(
                     0.03,
                 ),
             );
-            info!("Applied Saturn special profile: gas giant atmosphere (no solid resources)");
+            debug!("Applied Saturn special profile: gas giant atmosphere (no solid resources)");
             Some(resources)
         }
 
@@ -115,7 +115,7 @@ pub(super) fn apply_special_body_profile(
                 ResourceType::Methane,
                 create_deposit_legacy(0.02, 0.03, body_mass, BodyType::Planet),
             ); // Atmospheric methane
-            info!("Applied Uranus special profile: ice giant atmosphere (minimal solid resources)");
+            debug!("Applied Uranus special profile: ice giant atmosphere (minimal solid resources)");
             Some(resources)
         }
 
@@ -387,7 +387,7 @@ pub(super) fn apply_special_body_profile(
                 resources.add_deposit(ResourceType::Argon, dep);
             }
 
-            info!("Applied Earth special profile: production-calibrated concentrations (2026 baseline)");
+            debug!("Applied Earth special profile: production-calibrated concentrations (2026 baseline)");
             Some(resources)
         }
 
@@ -428,7 +428,7 @@ pub(super) fn apply_special_body_profile(
                 ResourceType::Nickel,
                 create_deposit_legacy(0.005, 0.1, body_mass, BodyType::Moon),
             );
-            info!("Applied Europa special profile: massive subsurface ocean (2-3× Earth's oceans)");
+            debug!("Applied Europa special profile: massive subsurface ocean (2-3× Earth's oceans)");
             Some(resources)
         }
 
@@ -491,7 +491,7 @@ pub(super) fn apply_special_body_profile(
                 ResourceType::Deuterium,
                 create_deposit_from_absolute_mass(700.0, 0.3, BodyType::Planet),
             );
-            info!("Applied Mars special profile: 4.6 billion Mt water ice, basaltic regolith");
+            debug!("Applied Mars special profile: 4.6 billion Mt water ice, basaltic regolith");
             Some(resources)
         }
 
@@ -550,7 +550,7 @@ pub(super) fn apply_special_body_profile(
                 ResourceType::Sulfur,
                 create_deposit_legacy(0.0005, 0.3, body_mass, BodyType::Moon),
             );
-            info!("Applied Moon special profile: 600 Mt water ice in polar craters");
+            debug!("Applied Moon special profile: 600 Mt water ice in polar craters");
             Some(resources)
         }
 
@@ -591,7 +591,7 @@ pub(super) fn apply_special_body_profile(
                 ResourceType::Deuterium,
                 create_deposit_legacy(0.000015, 0.2, body_mass, BodyType::Moon),
             );
-            info!("Applied Titan special profile: hydrocarbon lakes and thick N2 atmosphere");
+            debug!("Applied Titan special profile: hydrocarbon lakes and thick N2 atmosphere");
             Some(resources)
         }
 
@@ -632,7 +632,7 @@ pub(super) fn apply_special_body_profile(
                 ResourceType::Sulfur,
                 create_deposit_legacy(0.001, 0.5, body_mass, BodyType::Moon),
             );
-            info!("Applied Enceladus special profile: active water geysers");
+            debug!("Applied Enceladus special profile: active water geysers");
             Some(resources)
         }
 
@@ -683,7 +683,7 @@ pub(super) fn apply_special_body_profile(
                 ResourceType::Deuterium,
                 create_deposit_legacy(0.00006, 0.3, body_mass, BodyType::DwarfPlanet),
             );
-            info!("Applied Ceres special profile: water-rich dwarf planet");
+            debug!("Applied Ceres special profile: water-rich dwarf planet");
             Some(resources)
         }
 
@@ -778,7 +778,7 @@ pub(super) fn apply_special_body_profile(
                 create_deposit_legacy(0.001, 0.3, body_mass, BodyType::Planet),
             );
 
-            info!("Applied Venus special profile: massive CO2 atmosphere, no water, extreme surface");
+            debug!("Applied Venus special profile: massive CO2 atmosphere, no water, extreme surface");
             Some(resources)
         }
 
@@ -867,7 +867,7 @@ pub(super) fn apply_special_body_profile(
                 create_deposit_legacy(0.035, 0.6, body_mass, BodyType::Planet),
             );
 
-            info!("Applied Mercury special profile: massive iron core, polar ice, solar wind He-3");
+            debug!("Applied Mercury special profile: massive iron core, polar ice, solar wind He-3");
             Some(resources)
         }
 

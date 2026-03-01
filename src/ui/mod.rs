@@ -81,9 +81,6 @@ use crate::fleets::orbital_mechanics::{
     course_correction_transfer_options, keplerian_velocity_vector,
 };
 
-/// Maximum time scale: 1 year per second (365.25 * 86400 ≈ 31,557,600)
-const MAX_TIME_SCALE: f32 = 31_557_600.0;
-
 /// Semi-major axis threshold (AU) below which a body's orbit is considered
 /// non-heliocentric (e.g. a moon orbiting a planet rather than the star).
 /// Used when walking up the hierarchy to find the heliocentric SMA.
@@ -556,11 +553,11 @@ fn ui_top_menu_bar(
                             let size = egui::vec2(80.0, 80.0);
                             
                             // Tint the icon:
-                            // Blue/Cyan for active, White/Gray for inactive
+                            // Cyan for active, clearly visible light-grey for inactive
                             let tint = if is_active {
                                 theme::ACCENT
                             } else {
-                                theme::TEXT_DIM
+                                theme::ICON_INACTIVE
                             };
 
                             let mut img = egui::Image::new((*texture_id, size));
@@ -695,6 +692,78 @@ fn ui_top_menu_bar(
                 }
             });
         });
+
+    // ── Keyboard hotkeys ──────────────────────────────────────────────────────
+    // Skip hotkeys while a text widget has focus (e.g. fleet-name editor).
+    let has_keyboard_focus = ctx.memory(|m| m.focused().is_some());
+    if !has_keyboard_focus {
+        enum HotkeyIntent {
+            SetMenu(usize),
+            Escape,
+        }
+        let fkeys = [
+            egui::Key::F1,  egui::Key::F2,  egui::Key::F3,  egui::Key::F4,
+            egui::Key::F5,  egui::Key::F6,  egui::Key::F7,  egui::Key::F8,
+            egui::Key::F9,  egui::Key::F10, egui::Key::F11,
+        ];
+        let intent: Option<HotkeyIntent> = ctx.input_mut(|i| {
+            for (idx, &fkey) in fkeys.iter().enumerate() {
+                if i.consume_key(egui::Modifiers::NONE, fkey) {
+                    return Some(HotkeyIntent::SetMenu(idx));
+                }
+            }
+            if i.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+                return Some(HotkeyIntent::Escape);
+            }
+            None
+        });
+        if let Some(intent) = intent {
+            match intent {
+                HotkeyIntent::SetMenu(idx) => {
+                    if let Some(&target_menu) = GameMenu::all().get(idx) {
+                        active_menu.current = target_menu;
+                        match target_menu {
+                            GameMenu::Starmap => {
+                                *view_mode = ViewMode::Starmap;
+                                if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
+                                    orbit.radius = starmap_radius;
+                                    orbit.target_center = Vec3::ZERO;
+                                    anchor.0 = None;
+                                }
+                            }
+                            GameMenu::Survey => {
+                                *view_mode = ViewMode::System;
+                                if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
+                                    if anchor.0.is_none() {
+                                        if let Some((sel_entity, _)) =
+                                            star_icon_query.iter().find(|(_, sel)| sel.is_some())
+                                        {
+                                            anchor.0 = Some(sel_entity);
+                                        }
+                                    }
+                                    orbit.radius = 150_000.0;
+                                }
+                            }
+                            _ => *view_mode = ViewMode::System,
+                        }
+                    }
+                }
+                HotkeyIntent::Escape => {
+                    // If we're on the neutral Survey / Starmap view, ESC opens the main menu.
+                    // If a menu panel is open, ESC dismisses it and returns to the base view.
+                    let base_view = match *view_mode {
+                        ViewMode::Starmap => GameMenu::Starmap,
+                        ViewMode::System  => GameMenu::Survey,
+                    };
+                    if matches!(active_menu.current, GameMenu::Survey | GameMenu::Starmap) {
+                        active_menu.current = GameMenu::Main;
+                    } else {
+                        active_menu.current = base_view;
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Render floating labels next to star system icons in starmap view
