@@ -715,7 +715,7 @@
             )),
             rotation_period: 0.3781,
             asteroid_class: Some(CType),
-            texture: Some("textures/celestial/planets/dwarf/ceres_4k.png"),
+            texture: Some("textures/celestial/planets/dwarf/4k_ceres.jpg"),
         ),
         
         // Vesta

@@ -145,7 +145,7 @@ pub fn map_star_to_system_architecture(
     // Calculate frost line
     let frost_line_au = calculate_frost_line(luminosity_solar);
 
-    info!(
+    debug!(
         "Generating system architecture for {} (L={:.3}L☉, frost line={:.2}AU)",
         star_name, luminosity_solar, frost_line_au
     );

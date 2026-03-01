@@ -121,7 +121,7 @@
         "dwarf": [
             // Dwarf planets and KBOs. Add textures to
             // assets/textures/celestial/planets/dwarf/ and register them here.
-            "textures/celestial/planets/ceres_4k.png",
+            "textures/celestial/planets/dwarf/4k_ceres.jpg",
             "textures/celestial/planets/haumea_4k.jpg",
             "textures/celestial/planets/makemake_4k.jpg",
             "textures/celestial/planets/eris_4k.jpg",
