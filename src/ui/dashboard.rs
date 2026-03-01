@@ -325,14 +325,18 @@ fn render_fleet_ledger_tree(
 
     for (entity, fleet, maybe_orbit, maybe_maneuver) in fleets {
         let is_selected = fleet_ui_state.selected_fleet == Some(entity);
+        let in_transit = maybe_maneuver.is_some();
 
-        let status_icon = if maybe_maneuver.is_some() { "✈" } else { "🛰" };
+        let status_icon = if in_transit { "✈" } else { "🛰" };
         let display_name = format!("{} {}", status_icon, fleet.name);
 
+        // Colour scheme matching the fleet-menu panel list.
         let row_color = if is_selected {
-            theme::GREEN
+            theme::ACCENT
+        } else if in_transit {
+            theme::RP_BLUE
         } else {
-            theme::TEXT_DIM
+            theme::EP_TEAL
         };
 
         let sub_status = if let Some(maneuver) = maybe_maneuver {
@@ -360,59 +364,109 @@ fn render_fleet_ledger_tree(
             if fleet.ships.len() == 1 { "ship" } else { "ships" }
         );
 
-        let row_response = ui.selectable_label(
-            is_selected,
-            egui::RichText::new(&display_name).color(row_color).size(13.0),
-        );
+        // ── Clickable fleet-name row with themed background + marquee ─────
+        {
+            let font_id = egui::FontId::proportional(13.0);
+            let available_w = ui.available_width().max(1.0);
+            let row_height = ui.text_style_height(&egui::TextStyle::Body);
+            let full_text_w = ui
+                .painter()
+                .layout_no_wrap(display_name.clone(), font_id.clone(), row_color)
+                .size()
+                .x;
 
-        if row_response.clicked() {
+            let (rect, resp) = ui.allocate_exact_size(
+                egui::Vec2::new(available_w, row_height),
+                egui::Sense::click(),
+            );
+
+            // Selection / hover background — identical to fleet-panel list rows.
+            let rounding = egui::CornerRadius::same(3);
             if is_selected {
-                fleet_ui_state.selected_fleet = None;
+                ui.painter().rect_filled(rect.expand(1.0), rounding, egui::Color32::from_rgb(0, 55, 70));
+                ui.painter().rect_stroke(
+                    rect.expand(1.0), rounding,
+                    egui::Stroke::new(1.0, theme::ACCENT),
+                    egui::StrokeKind::Inside,
+                );
+            } else if resp.hovered() {
+                ui.painter().rect_filled(rect.expand(1.0), rounding, theme::SURFACE_RAISED);
+                ui.painter().rect_stroke(
+                    rect.expand(1.0), rounding,
+                    egui::Stroke::new(1.0, theme::BORDER),
+                    egui::StrokeKind::Inside,
+                );
+            }
+
+            // Draw text (marquee when too wide).
+            let text_rect = rect.shrink2(egui::Vec2::new(4.0, 0.0));
+            if full_text_w <= text_rect.width() {
+                ui.painter().text(
+                    text_rect.left_center(),
+                    egui::Align2::LEFT_CENTER,
+                    &display_name,
+                    font_id,
+                    row_color,
+                );
             } else {
-                // Clear body selection
+                // Continuous marquee: two copies loop seamlessly.
+                let gap = 48.0_f32;
+                let cycle = full_text_w + gap;
+                let speed = 40.0_f64;
+                let t = ui.ctx().input(|i| i.time);
+                let offset_x = ((t * speed) % cycle as f64) as f32;
+                let painter = ui.painter().with_clip_rect(text_rect);
+                let galley = painter.layout_no_wrap(display_name.clone(), font_id.clone(), row_color);
+                let y = text_rect.top() + (text_rect.height() - galley.size().y) * 0.5;
+                let x0 = text_rect.left() - offset_x;
+                painter.galley(egui::pos2(x0, y), galley.clone(), row_color);
+                let x1 = x0 + cycle;
+                if x1 < text_rect.right() + full_text_w {
+                    painter.galley(egui::pos2(x1, y), galley, row_color);
+                }
+                ui.ctx().request_repaint();
+            }
+
+            // Click handling.
+            if resp.clicked() {
+                if is_selected {
+                    fleet_ui_state.selected_fleet = None;
+                } else {
+                    for e in selected_query.iter() {
+                        commands.entity(e).remove::<Selected>();
+                    }
+                    selection.clear();
+                    fleet_ui_state.selected_fleet = Some(entity);
+                    fleet_ui_state.clear_target();
+                }
+            }
+
+            if resp.double_clicked() {
                 for e in selected_query.iter() {
                     commands.entity(e).remove::<Selected>();
                 }
                 selection.clear();
                 fleet_ui_state.selected_fleet = Some(entity);
                 fleet_ui_state.clear_target();
-            }
-        }
 
-        if row_response.double_clicked() {
-            // Select the fleet
-            for e in selected_query.iter() {
-                commands.entity(e).remove::<Selected>();
-            }
-            selection.clear();
-            fleet_ui_state.selected_fleet = Some(entity);
-            fleet_ui_state.clear_target();
-
-            // Camera anchor behaviour:
-            // - Orbiting  → anchor to the body being orbited.
-            // - In transit → anchor to the fleet dot itself so the camera follows
-            //   the ship along its arc.  A separate system (switch_anchor_on_arrival)
-            //   will redirect the anchor to the destination body once the maneuver
-            //   completes.
-            if let Ok(mut anchor) = anchor_query.single_mut() {
-                if let Some(orbit) = maybe_orbit {
-                    anchor.0 = Some(orbit.body);
-                } else if maybe_maneuver.is_some() {
-                    // Follow the moving fleet dot
-                    anchor.0 = Some(entity);
+                if let Ok(mut anchor) = anchor_query.single_mut() {
+                    if let Some(orbit) = maybe_orbit {
+                        anchor.0 = Some(orbit.body);
+                    } else if maybe_maneuver.is_some() {
+                        anchor.0 = Some(entity);
+                    }
                 }
             }
         }
 
-        // Sub-status line
-        ui.horizontal(|ui| {
-            ui.add_space(18.0);
-            ui.label(
-                egui::RichText::new(format!("{sub_status}  {ships_txt}"))
-                    .size(10.0)
-                    .color(theme::TEXT_DIM),
+        // Sub-status line — marquee-scrolled when too narrow.
+        {
+            let sub_full = format!("  {sub_status}  {ships_txt}");
+            let sub_color = if in_transit { theme::RP_BLUE } else { theme::TEXT_DIM };
+            super::fleets_panel::render_marquee_line(
+                ui, &sub_full, sub_color, egui::FontId::proportional(10.0),
             );
-        });
+        }
 
         // Progress bar + ETA for actively-transiting fleets
         if let Some(maneuver) = maybe_maneuver {
@@ -672,7 +726,7 @@ pub(super) fn ui_dashboard(
                                 ui.label(
                                     egui::RichText::new(format!("🚀 Fleets ({n})"))
                                         .strong()
-                                        .color(theme::GREEN),
+                                        .color(theme::EP_TEAL),
                                 );
                             })
                             .body(|ui| {
@@ -860,7 +914,7 @@ pub(super) fn ui_time_controls(
                 let pause_btn = egui::Button::new(pause_label)
                     .stroke(pause_stroke)
                     .fill(pause_fill);
-                if ui.add(pause_btn).clicked() {
+                if ui.add_sized([80.0, 36.0], pause_btn).clicked() {
                     if is_paused {
                         time_scale.resume();
                     } else {
@@ -877,25 +931,25 @@ pub(super) fn ui_time_controls(
 
                 for i in 0..5 {
                     let is_active = !is_paused && (active_scale - SPEED_VALUES[i]).abs() < 1.0;
-                    let label_text = format!("{}\n{}", SPEED_HOTKEYS[i], SPEED_LABELS[i]);
                     let btn = if is_active {
                         egui::Button::new(
-                            egui::RichText::new(&label_text)
+                            egui::RichText::new(SPEED_LABELS[i])
                                 .color(theme::ACCENT)
-                                .small(),
+                                .strong(),
                         )
                         .stroke(egui::Stroke::new(1.5, theme::ACCENT))
                         .fill(theme::SURFACE_RAISED)
                     } else {
                         egui::Button::new(
-                            egui::RichText::new(&label_text)
-                                .color(theme::TEXT_DIM)
-                                .small(),
+                            egui::RichText::new(SPEED_LABELS[i])
+                                .color(theme::TEXT)
+                                .strong(),
                         )
                         .stroke(egui::Stroke::new(0.5, theme::BORDER))
                         .fill(theme::SURFACE)
                     };
-                    if ui.add_sized([56.0, 36.0], btn).clicked() {
+                    let tooltip = format!("{} (hotkey {})", SPEED_LABELS[i], SPEED_HOTKEYS[i]);
+                    if ui.add_sized([60.0, 36.0], btn).on_hover_text(tooltip).clicked() {
                         time_scale.set_speed(SPEED_VALUES[i]);
                     }
                 }
@@ -906,14 +960,13 @@ pub(super) fn ui_time_controls(
                 ui.vertical(|ui| {
                     ui.label(
                         egui::RichText::new(format!("Date: {}", sim_time.format_date_time()))
-                            .color(theme::TEXT)
-                            .small(),
+                            .color(theme::TEXT),
                     );
                     let (view_label, view_color) = match *view_mode {
                         ViewMode::System => ("🔭 System View", theme::RP_BLUE),
                         ViewMode::Starmap => ("🌌 Starmap View", theme::STAR_GOLD),
                     };
-                    ui.colored_label(view_color, egui::RichText::new(view_label).small());
+                    ui.colored_label(view_color, egui::RichText::new(view_label));
                 });
             });
         });

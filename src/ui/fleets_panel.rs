@@ -481,12 +481,23 @@ fn render_fleet_list(
                     egui::Sense::click_and_drag(),
                 );
 
-                // Selection / hover background — mirrors selectable_label visuals.
-                if is_primary || resp.hovered() {
-                    let vis = ui.style().interact_selectable(&resp, is_primary);
-                    let rounding = vis.rounding();
-                    ui.painter().rect_filled(rect.expand(1.0), rounding, vis.bg_fill);
-                    ui.painter().rect_stroke(rect.expand(1.0), rounding, vis.bg_stroke, egui::StrokeKind::Inside);
+                // Selection / hover background — themed to match the detail panel palette.
+                let row_rounding = egui::CornerRadius::same(3);
+                if is_primary {
+                    // Dark teal fill so the bright ACCENT text is easy to read.
+                    ui.painter().rect_filled(rect.expand(1.0), row_rounding, egui::Color32::from_rgb(0, 55, 70));
+                    ui.painter().rect_stroke(
+                        rect.expand(1.0), row_rounding,
+                        egui::Stroke::new(1.0, theme::ACCENT),
+                        egui::StrokeKind::Inside,
+                    );
+                } else if resp.hovered() {
+                    ui.painter().rect_filled(rect.expand(1.0), row_rounding, theme::SURFACE_RAISED);
+                    ui.painter().rect_stroke(
+                        rect.expand(1.0), row_rounding,
+                        egui::Stroke::new(1.0, theme::BORDER),
+                        egui::StrokeKind::Inside,
+                    );
                 }
 
                 // Narrow the draw region slightly so text doesn't touch the edge.
@@ -501,29 +512,22 @@ fn render_fleet_list(
                         row_color,
                     );
                 } else {
-                    // Marquee: slide left at 40 px/s with 1.5 s pauses at each end.
-                    let scroll_range = full_text_width - text_rect.width();
-                    let scroll_speed = 40.0_f32;
-                    let pause = 1.5_f32;
-                    let scroll_dur = scroll_range / scroll_speed;
-                    let cycle = pause + scroll_dur + pause;
-                    let t = (ui.ctx().input(|i| i.time) as f32) % cycle;
-                    let offset_x = if t < pause {
-                        0.0
-                    } else if t < pause + scroll_dur {
-                        (t - pause) * scroll_speed
-                    } else {
-                        scroll_range
-                    };
+                    // Continuous marquee: two copies separated by a gap loop seamlessly.
+                    let gap = 48.0_f32;
+                    let cycle = full_text_width + gap;
+                    let speed = 40.0_f64;
+                    let t = ui.ctx().input(|i| i.time);
+                    let offset_x = ((t * speed) % cycle as f64) as f32;
                     let painter = ui.painter().with_clip_rect(text_rect);
-                    painter.text(
-                        text_rect.left_center() - egui::Vec2::new(offset_x, 0.0),
-                        egui::Align2::LEFT_CENTER,
-                        &row_text,
-                        font_id,
-                        row_color,
-                    );
-                    ui.ctx().request_repaint(); // keep animation running
+                    let galley = painter.layout_no_wrap(row_text.clone(), font_id.clone(), row_color);
+                    let y = text_rect.top() + (text_rect.height() - galley.size().y) * 0.5;
+                    let x0 = text_rect.left() - offset_x;
+                    painter.galley(egui::pos2(x0, y), galley.clone(), row_color);
+                    let x1 = x0 + cycle;
+                    if x1 < text_rect.right() + full_text_width {
+                        painter.galley(egui::pos2(x1, y), galley, row_color);
+                    }
+                    ui.ctx().request_repaint();
                 }
 
                 if resp.clicked() {
@@ -573,26 +577,25 @@ fn render_fleet_list(
             }
         });
 
-        // ── Sub-status line ───────────────────────────────────────────────────
-        let sub = if let Some(wait_str) = &entry.waiting_depart {
-            egui::RichText::new(format!("    Waiting — T-minus {wait_str}"))
-                .size(11.0)
-                .color(theme::AMBER)
-        } else if let Some((prog, rem)) = &entry.transit_progress {
-            egui::RichText::new(format!(
-                "    ✈ {} — {}% done, {} left",
-                entry.location_text, prog, rem
-            ))
-            .size(11.0)
-            .color(theme::TEXT_VALUE)
-        } else {
-            egui::RichText::new(format!("    {} — fuel {}%", entry.location_text, entry.fuel_pct))
-                .size(11.0)
-                .color(theme::TEXT_DIM)
-        };
-        // Prevent the sub-status line from wrapping (a truncated single line is
-        // cleaner than a surprise second line breaking the list layout).
-        ui.add(egui::Label::new(sub).truncate());
+        // ── Sub-status line — marquee-scrolls when the text is too wide ───────
+        let (sub_text, sub_color): (String, egui::Color32) =
+            if let Some(wait_str) = &entry.waiting_depart {
+                (format!("    Waiting — T-minus {wait_str}"), theme::AMBER)
+            } else if let Some((prog, rem)) = &entry.transit_progress {
+                (
+                    format!(
+                        "    ✈ {} — {}% done, {} left",
+                        entry.location_text, prog, rem
+                    ),
+                    theme::TEXT_VALUE,
+                )
+            } else {
+                (
+                    format!("    {} — fuel {}%", entry.location_text, entry.fuel_pct),
+                    theme::TEXT_DIM,
+                )
+            };
+        render_marquee_line(ui, &sub_text, sub_color, egui::FontId::proportional(11.0));
     }
 
     // ── Multi-select action bar ───────────────────────────────────────────────
@@ -660,6 +663,55 @@ fn render_fleet_list(
             .italics()
             .color(theme::TEXT_DIM),
     );
+}
+
+/// Render a single-line label that marquee-scrolls (pause → slide left → pause) when the
+/// text is wider than the available width.  Clips the text to a clean rectangle so adjacent
+/// rows are never disturbed.  Uses real-time `ui.input(|i| i.time)` so the animation runs
+/// regardless of simulation speed.
+pub(super) fn render_marquee_line(ui: &mut egui::Ui, text: &str, color: egui::Color32, font_id: egui::FontId) {
+    let available_w = ui.available_width().max(1.0);
+    // Calculate text height from the font so the allocated rect is exactly right.
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.to_string(), font_id.clone(), color);
+    let text_size = galley.size();
+    let row_h = text_size.y.max(14.0);
+
+    let (rect, _) = ui.allocate_exact_size(
+        egui::Vec2::new(available_w, row_h),
+        egui::Sense::hover(),
+    );
+    // Narrow slightly so the text never clips hard against the panel border.
+    let clip = rect.shrink2(egui::Vec2::new(4.0, 0.0));
+    let painter = ui.painter().with_clip_rect(clip);
+
+    if text_size.x <= clip.width() {
+        // Fits — draw statically.
+        painter.text(
+            clip.left_center(),
+            egui::Align2::LEFT_CENTER,
+            text,
+            font_id,
+            color,
+        );
+    } else {
+        // Continuous marquee: two copies separated by a gap scroll left seamlessly.
+        let gap = 48.0_f32;
+        let cycle = text_size.x + gap;
+        let speed = 40.0_f64; // px / real-second
+        let t = ui.ctx().input(|i| i.time);
+        let offset_x = ((t * speed) % cycle as f64) as f32;
+        let galley = painter.layout_no_wrap(text.to_string(), font_id.clone(), color);
+        let y = clip.top() + (clip.height() - text_size.y) * 0.5;
+        let x0 = clip.left() - offset_x;
+        painter.galley(egui::pos2(x0, y), galley.clone(), color);
+        let x1 = x0 + cycle;
+        if x1 < clip.right() + text_size.x {
+            painter.galley(egui::pos2(x1, y), galley, color);
+        }
+        ui.ctx().request_repaint();
+    }
 }
 
 /// Render the fleet name with a marquee (ticker) scroll effect when the name is

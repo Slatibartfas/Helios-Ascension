@@ -233,6 +233,7 @@ impl Default for SimulationTime {
 
 /// Format a time scale multiplier as a human-readable rate string.
 /// Examples: "Real time", "2.5 min/s", "1.0 day/s", "1.0 wk/s"
+#[allow(dead_code)]
 pub(super) fn format_time_rate(scale: f32) -> String {
     if scale <= 0.0 {
         "Paused".to_string()
