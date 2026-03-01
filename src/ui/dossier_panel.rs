@@ -1128,15 +1128,28 @@ fn draw_resource_tile(
     if has_deposit {
         let d = deposit.unwrap();
 
-        // Fill level based on concentration — partial fill from bottom
-        let fill_frac = d.reserve.concentration.clamp(0.0, 1.0);
+        // Fill level: blend of log-scaled concentration and log-scaled mass.
+        // This ensures both ore quality AND deposit size contribute, so a
+        // huge low-concentration deposit is still visually distinct from a
+        // tiny high-concentration one.
+
+        // Concentration axis:  1e-10 → 0.0  …  1.0 → 1.0
+        let conc = d.reserve.concentration.clamp(1e-10, 1.0) as f64;
+        let conc_norm = (conc.log10() + 10.0) / 10.0; // 0..1
+
+        // Mass axis (Mt):  0.001 Mt (1 kt) → 0.0  …  1e6 Mt (1 Tt) → 1.0
+        let mass = d.reserve.total_mass().clamp(0.001, 1e6);
+        let mass_norm = (mass.log10() + 3.0) / 9.0; // log10(0.001)=-3, log10(1e6)=6 → 9 decades
+
+        // Weighted blend: 40 % concentration, 60 % mass
+        let fill_frac = (0.4 * conc_norm + 0.6 * mass_norm).clamp(0.05, 1.0) as f32;
         let fill_height = rect.height() * fill_frac;
         let fill_rect = egui::Rect::from_min_max(
             egui::Pos2::new(rect.left(), rect.bottom() - fill_height),
             rect.max,
         );
 
-        // Fill colour: blend from dim to accent based on concentration
+        // Fill colour: blend from dim to accent based on combined fill
         let fill_alpha = (60.0 + 140.0 * fill_frac) as u8;
         let fill_color = egui::Color32::from_rgba_premultiplied(
             0,
