@@ -18,11 +18,6 @@ const SELECTION_CLICK_RADIUS: f32 = 45.0;
 /// Padding for the hover ring around celestial bodies (in Bevy units)
 const HOVER_RING_PADDING: f32 = 8.0;
 
-/// Pixel distance within which the hover cursor "locks" to a body's center.
-const CURSOR_SNAP_LOCK_PX: f32 = 18.0;
-/// Pixel distance beyond which an existing lock is released (hysteresis).
-const CURSOR_SNAP_RELEASE_PX: f32 = 26.0;
-
 #[derive(Default)]
 pub struct SelectionState {
     pub last_click_time: f64,
@@ -191,7 +186,7 @@ pub fn handle_body_selection(
 /// System that handles celestial body hover detection via mouse position
 pub fn handle_body_hover(
     view_mode: Res<ViewMode>,
-    mut windows: Query<&mut Window, With<PrimaryWindow>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
     camera_query: Query<(&Camera, &GlobalTransform), With<GameCamera>>,
     body_query: Query<(Entity, &GlobalTransform, &CelestialBody, Option<&SystemId>, &Visibility), Without<ClickExcluded>>,
     current_system: Res<CurrentStarSystem>,
@@ -201,7 +196,6 @@ pub fn handle_body_hover(
     active_menu: Res<ActiveMenu>,
     panel_bounds: Res<EguiPanelBounds>,
     fleet_ui_state: Res<FleetUiState>,
-    mut snap_locked_entity: Local<Option<Entity>>,
 ) {
     // Disable hover when a full-screen menu overlay is active (Research, etc.)
     if active_menu.current.blocks_world_interaction() {
@@ -237,7 +231,7 @@ pub fn handle_body_hover(
         }
     }
 
-    let Ok(mut window) = windows.single_mut() else {
+    let Ok(window) = windows.single() else {
         return;
     };
 
@@ -262,7 +256,7 @@ pub fn handle_body_hover(
     // Find the body whose center is closest to the mouse ray.
     // Using ray-distance (not camera-distance) prevents large bodies like
     // stars from stealing hovers away from smaller planets orbiting nearby.
-    let mut closest_body: Option<(Entity, f32, f32, Vec3)> = None;
+    let mut closest_body: Option<(Entity, f32, f32)> = None;
 
     for (entity, transform, body, system_id, visibility) in body_query.iter() {
         // Only interact with bodies in the current star system
@@ -294,12 +288,12 @@ pub fn handle_body_hover(
         let selection_radius = body.visual_radius + SELECTION_CLICK_RADIUS;
         if distance < selection_radius {
             match closest_body {
-                None => closest_body = Some((entity, distance, projection, body_pos)),
-                Some((_, prev_ray_dist, prev_proj, _))
+                None => closest_body = Some((entity, distance, projection)),
+                Some((_, prev_ray_dist, prev_proj))
                     if distance < prev_ray_dist
                         || (distance == prev_ray_dist && projection < prev_proj) =>
                 {
-                    closest_body = Some((entity, distance, projection, body_pos));
+                    closest_body = Some((entity, distance, projection));
                 }
                 _ => {}
             }
@@ -310,39 +304,10 @@ pub fn handle_body_hover(
     // Unconditionally removing+re-inserting every frame triggers Added<Hovered>
     // each frame, which spawns a fresh marker at Transform::default() (the star's
     // origin position) before scale_markers_with_zoom can reposition it.
-    let new_hover = closest_body.map(|(e, _, _, _)| e);
+    let new_hover = closest_body.map(|(e, _, _)| e);
     let hover_is_body = new_hover.is_some();
     let planner_mode_active = fleet_ui_state.show_transfer_popup || fleet_ui_state.selected_fleet.is_some();
     let currently_hovered: Vec<Entity> = hovered_query.iter().collect();
-
-    // Snap the cursor to the hovered body's screen center when very close.
-    // This gives small moons/asteroids a "lock-on" feel without stealing control.
-    if !planner_mode_active {
-        if let Some((entity, _dist, _proj, body_pos)) = closest_body {
-            if let Ok(center_px) = camera.world_to_viewport(camera_transform, body_pos) {
-                let pixel_distance = cursor_position.distance(center_px);
-                let was_locked = *snap_locked_entity == Some(entity);
-                let should_lock = if was_locked {
-                    pixel_distance <= CURSOR_SNAP_RELEASE_PX
-                } else {
-                    pixel_distance <= CURSOR_SNAP_LOCK_PX
-                };
-
-                if should_lock {
-                    let _ = window.set_cursor_position(Some(center_px));
-                    *snap_locked_entity = Some(entity);
-                } else if was_locked {
-                    *snap_locked_entity = None;
-                }
-            } else {
-                *snap_locked_entity = None;
-            }
-        } else {
-            *snap_locked_entity = None;
-        }
-    } else {
-        *snap_locked_entity = None;
-    }
 
     // Remove Hovered from entities no longer under the cursor
     for entity in &currently_hovered {

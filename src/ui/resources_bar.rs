@@ -229,7 +229,6 @@ pub(super) fn ui_resources_bar(
                     let interact = response.interact(egui::Sense::click());
                     if interact.hovered() || is_rp_open {
                         ui.painter().rect_stroke(interact.rect, 2.0, egui::Stroke::new(1.0, rp_color), egui::StrokeKind::Outside);
-                        interact.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
                     }
 
                     if interact.double_clicked() {
@@ -301,7 +300,6 @@ pub(super) fn ui_resources_bar(
                     let interact = response.interact(egui::Sense::click());
                     if interact.hovered() || is_ep_open {
                         ui.painter().rect_stroke(interact.rect, 2.0, egui::Stroke::new(1.0, ep_color), egui::StrokeKind::Outside);
-                        interact.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
                     }
                     
                     if interact.double_clicked() {
