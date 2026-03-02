@@ -452,18 +452,28 @@ fn section_divider(ui: &mut egui::Ui) {
 // ─── Habitability Radar ──────────────────────────────────────────────────
 
 /// Scores: [gravity, temperature, pressure, breathability, hydrosphere] all 0..=1.
+///
+/// Each axis uses a "both too low and too high are bad" model so the score
+/// is 100% at the human-ideal value and falls symmetrically toward 0% at
+/// the extremes.
 fn compute_habitability_scores(
     body: &CelestialBody,
     temp: Option<&SurfaceTemperature>,
     atmo: Option<&AtmosphereComposition>,
     ocean: Option<&OceanProperties>,
 ) -> [f32; 5] {
+    let is_gas_giant = body.body_type == BodyType::GasGiant;
+    if is_gas_giant {
+        return [0.0; 5];
+    }
+
     let gravity_g = body.surface_gravity();
 
-    // Gravity: 1.0 at Earth, drops linearly toward 0 and 2g
-    let gravity_score = (1.0 - (gravity_g - 1.0).abs().min(2.0) / 2.0).clamp(0.0, 1.0);
+    // Gravity: 100% at 1 g, drops linearly to 0% at 0 g and at 2 g+.
+    let gravity_score = (1.0 - (gravity_g - 1.0).abs()).clamp(0.0, 1.0);
 
-    // Temperature: use colony cost details
+    // Temperature: ideal band 0–40 °C. Cold/heat deviations reduce score
+    // symmetrically; at ≥100 °C deviation from the band the score reaches 0%.
     let (min_t, max_t) = temp
         .map(|t| (t.min_celsius, t.max_celsius))
         .or_else(|| {
@@ -471,15 +481,25 @@ fn compute_habitability_scores(
         })
         .unwrap_or((-273.15, -273.15));
 
-    let cost = calculate_colony_cost_details(gravity_g, min_t, max_t, atmo);
-    let temp_score =
-        (1.0 - (cost.cold_cost + cost.heat_cost).min(10.0) / 10.0).clamp(0.0, 1.0);
+    let cold_penalty = (0.0_f32 - min_t).max(0.0); // degrees below 0 °C
+    let heat_penalty = (max_t - 40.0_f32).max(0.0); // degrees above 40 °C
+    let temp_deviation = cold_penalty + heat_penalty;
+    let temp_score = (1.0 - temp_deviation / 100.0).clamp(0.0, 1.0);
 
-    // Pressure
-    let pressure_score = if atmo.is_none() {
-        0.15 // vacuum penalty
-    } else {
-        (1.0 - cost.pressure_cost.min(4.0) / 4.0).clamp(0.0, 1.0)
+    // Pressure: ideal at 1 bar. Both vacuum and crushing pressure are bad.
+    // Uses log₁₀ scale so the distance from 1 bar is symmetric in orders of
+    // magnitude.  Score reaches 0% at ≤0.01 bar or ≥100 bar.
+    let pressure_score = match atmo {
+        None => 0.0, // hard vacuum — completely uninhabitable
+        Some(a) => {
+            let pressure_bar = a.surface_pressure_mbar / 1000.0;
+            if pressure_bar < 0.001 {
+                0.0
+            } else {
+                let log_dist = pressure_bar.log10().abs(); // 0 at 1 bar
+                (1.0 - log_dist / 2.0).clamp(0.0, 1.0)
+            }
+        }
     };
 
     // Breathability
@@ -535,6 +555,7 @@ fn draw_habitability_section(
 
     // Colony cost summary
     let gravity_g = body.surface_gravity();
+    let is_gas_giant = body.body_type == BodyType::GasGiant;
     let (min_t, max_t) = surface_temp
         .map(|t| (t.min_celsius, t.max_celsius))
         .or_else(|| {
@@ -542,7 +563,7 @@ fn draw_habitability_section(
         })
         .unwrap_or((-273.15, -273.15));
 
-    let details = calculate_colony_cost_details(gravity_g, min_t, max_t, atmosphere);
+    let details = calculate_colony_cost_details(gravity_g, min_t, max_t, atmosphere, is_gas_giant);
 
     ui.horizontal(|ui| {
         ui.label(
@@ -550,7 +571,7 @@ fn draw_habitability_section(
                 .font(mono_font(10.0))
                 .color(TEXT_DIM),
         );
-        let (color, text) = if details.heavy_gravity_limit_exceeded {
+        let (color, text) = if details.is_gas_giant || details.heavy_gravity_limit_exceeded {
             (RED_ACCENT, "UNINHABITABLE".to_string())
         } else if details.total_cost <= 0.0 {
             (GREEN_ACCENT, "0.00 \u{2014} IDEAL".to_string())
@@ -612,7 +633,9 @@ fn draw_habitability_section(
         );
     })
     .body(|ui| {
-        if details.heavy_gravity_limit_exceeded {
+        if details.is_gas_giant {
+            ui.colored_label(RED_ACCENT, "Gas Giant \u{2014} uninhabitable (no solid surface)");
+        } else if details.heavy_gravity_limit_exceeded {
             ui.colored_label(RED_ACCENT, "Gravity exceeds 1.7g \u{2014} uninhabitable");
         } else {
             if details.base_cost > 0.0 {
@@ -707,10 +730,21 @@ fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
         })
         .collect();
 
-    // Filled polygon
-    painter.add(egui::Shape::convex_polygon(
+    // Filled polygon — use a triangle fan from the centre so the fill is
+    // correct even when the radar shape is concave (which is common when
+    // some axes are near 0% and others are high).
+    let fill_color = egui::Color32::from_rgba_premultiplied(0, 242, 255, 40);
+    for i in 0..5 {
+        let j = (i + 1) % 5;
+        painter.add(egui::Shape::convex_polygon(
+            vec![center, player_pts[i], player_pts[j]],
+            fill_color,
+            egui::Stroke::NONE,
+        ));
+    }
+    // Outline
+    painter.add(egui::Shape::closed_line(
         player_pts.clone(),
-        egui::Color32::from_rgba_premultiplied(0, 242, 255, 40),
         egui::Stroke::new(1.5, ACCENT),
     ));
 

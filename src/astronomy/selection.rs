@@ -33,6 +33,8 @@ const RING_PULSE_AMPLITUDE: f32 = 0.35;
 /// restore the original emissive when the highlight ends.
 #[derive(Component, Debug, Clone)]
 pub struct RingHighlight {
+    /// Original base color before we modified it.
+    pub original_base_color: Color,
     /// Original emissive value before we modified it.
     pub original_emissive: LinearRgba,
     /// Base emissive strength applied (before pulse modulation).
@@ -668,16 +670,21 @@ pub fn apply_ring_highlight(
 
         if let Some(mat) = materials.get_mut(&mat_handle.0) {
             // Only store the original if we haven't already (hover→select upgrade)
-            let original = if let Ok(prev) = existing_highlight.get(entity) {
-                prev.original_emissive
+            let (original_base, original_emissive) = if let Ok(prev) = existing_highlight.get(entity) {
+                (prev.original_base_color, prev.original_emissive)
             } else {
-                mat.emissive
+                (mat.base_color, mat.emissive)
             };
 
-            mat.emissive = RING_HIGHLIGHT_COLOR * strength;
+            let highlight_lin = RING_HIGHLIGHT_COLOR * strength;
+            
+            // Unlit materials use base_color, PBR use emissive. Set both.
+            mat.base_color = Color::from(highlight_lin);
+            mat.emissive = highlight_lin;
 
             commands.entity(entity).insert(RingHighlight {
-                original_emissive: original,
+                original_base_color: original_base,
+                original_emissive,
                 base_strength: strength,
                 is_selected,
             });
@@ -704,9 +711,12 @@ pub fn remove_ring_highlight(
             // If this was a selection removal but we're still hovered, downgrade.
             if highlight.is_selected && hovered_check.get(entity).is_ok() {
                 if let Some(mat) = materials.get_mut(&mat_handle.0) {
-                    mat.emissive = RING_HIGHLIGHT_COLOR * RING_HOVERED_EMISSIVE;
+                    let highlight_lin = RING_HIGHLIGHT_COLOR * RING_HOVERED_EMISSIVE;
+                    mat.base_color = Color::from(highlight_lin);
+                    mat.emissive = highlight_lin;
                 }
                 commands.entity(entity).insert(RingHighlight {
+                    original_base_color: highlight.original_base_color,
                     original_emissive: highlight.original_emissive,
                     base_strength: RING_HOVERED_EMISSIVE,
                     is_selected: false,
@@ -715,6 +725,7 @@ pub fn remove_ring_highlight(
             }
 
             if let Some(mat) = materials.get_mut(&mat_handle.0) {
+                mat.base_color = highlight.original_base_color;
                 mat.emissive = highlight.original_emissive;
             }
             commands.entity(entity).remove::<RingHighlight>();
@@ -751,7 +762,9 @@ pub fn animate_ring_highlight(
         }
         let pulse = 1.0 + RING_PULSE_AMPLITUDE * (t * RING_PULSE_SPEED).sin();
         if let Some(mat) = materials.get_mut(&mat_handle.0) {
-            mat.emissive = RING_HIGHLIGHT_COLOR * (highlight.base_strength * pulse);
+            let highlight_lin = RING_HIGHLIGHT_COLOR * (highlight.base_strength * pulse);
+            mat.base_color = Color::from(highlight_lin);
+            mat.emissive = highlight_lin;
         }
     }
 }

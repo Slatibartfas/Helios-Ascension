@@ -764,7 +764,7 @@ impl AtmosphereComposition {
     /// Returns the colony cost factor (0.0 = Earth-like/Ideal).
     /// Returns f32::INFINITY if the body is uninhabitable for standard humans (e.g. extreme gravity).
     pub fn calculate_colony_cost(&self, gravity_g: f32, min_temp_c: f32, max_temp_c: f32) -> f32 {
-        calculate_general_colony_cost(gravity_g, min_temp_c, max_temp_c, Some(self))
+        calculate_general_colony_cost(gravity_g, min_temp_c, max_temp_c, Some(self), self.is_reference_pressure)
     }
 
     /// Calculate harvest yield multiplier based on harvest altitude vs reference pressure.
@@ -812,6 +812,7 @@ pub struct ColonyCostDetails {
     pub total_cost: f32,
     pub base_cost: f32,
     pub heavy_gravity_limit_exceeded: bool,
+    pub is_gas_giant: bool,
     pub heat_cost: f32,
     pub cold_cost: f32,
     pub pressure_cost: f32,
@@ -824,6 +825,7 @@ pub fn calculate_colony_cost_details(
     min_temp_c: f32,
     max_temp_c: f32,
     atmosphere: Option<&AtmosphereComposition>,
+    is_gas_giant: bool,
 ) -> ColonyCostDetails {
     // Standard Human Tolerances
     const MIN_GRAVITY: f32 = 0.1;
@@ -832,6 +834,13 @@ pub fn calculate_colony_cost_details(
     const MAX_BREATHABLE_TEMP: f32 = 40.0;
 
     let mut details = ColonyCostDetails::default();
+    
+    // 0. Gas Giant Check (Hard Limit - no solid surface)
+    if is_gas_giant {
+        details.is_gas_giant = true;
+        details.total_cost = f32::INFINITY;
+        return details;
+    }
 
     // 1. Gravity Check (Hard Limit)
     if gravity_g > MAX_GRAVITY {
@@ -884,7 +893,7 @@ pub fn calculate_colony_cost_details(
 ///
 /// Returns the colony cost factor (0.0 = Earth-like/Ideal).
 /// Returns f32::INFINITY if the body is uninhabitable for standard humans (e.g. extreme gravity).
-pub fn calculate_general_colony_cost(gravity_g: f32, min_temp_c: f32, max_temp_c: f32, atmosphere: Option<&AtmosphereComposition>) -> f32 {
-    let details = calculate_colony_cost_details(gravity_g, min_temp_c, max_temp_c, atmosphere);
+pub fn calculate_general_colony_cost(gravity_g: f32, min_temp_c: f32, max_temp_c: f32, atmosphere: Option<&AtmosphereComposition>, is_gas_giant: bool) -> f32 {
+    let details = calculate_colony_cost_details(gravity_g, min_temp_c, max_temp_c, atmosphere, is_gas_giant);
     details.total_cost
 }

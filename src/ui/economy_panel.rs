@@ -716,6 +716,26 @@ fn render_econ_resources(
                                         }
                                     }
 
+                                    // Food production from agricultural buildings
+                                    let farm_count: f64 = colony.buildings.iter()
+                                        .find(|(bt, _)| *bt == crate::colony::BuildingType::Farm)
+                                        .map(|(_, n)| *n as f64)
+                                        .unwrap_or(0.0);
+                                    let agri_count: f64 = colony.buildings.iter()
+                                        .find(|(bt, _)| *bt == crate::colony::BuildingType::AgriDome)
+                                        .map(|(_, n)| *n as f64)
+                                        .unwrap_or(0.0);
+                                    let food_production_monthly = (farm_count * 100.0 + agri_count * 0.4) / 12.0;
+                                    if food_production_monthly > 0.0 {
+                                        production_rows.push(("Agriculture".to_string(), ResourceType::Food, food_production_monthly));
+                                    }
+
+                                    // Population food consumption
+                                    let food_consumption_monthly = colony.population * 0.0001 / 12.0;
+                                    if food_consumption_monthly > 0.0 {
+                                        consumption_rows.push(("Population".to_string(), ResourceType::Food, food_consumption_monthly));
+                                    }
+
                                     if !production_rows.is_empty() {
                                         ui.label(egui::RichText::new("Production (/mo):").strong().size(11.0).color(theme::GREEN));
                                         egui::Grid::new(format!("econ_prod_{}", body_entry.body_name))

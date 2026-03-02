@@ -867,7 +867,7 @@ pub fn setup_solar_system(
             // Add initial infrastructure
             let base_buildings = [
                  (BuildingType::Housing, 33000),    // Housing (250k each -> 8.25B)
-                 (BuildingType::Farm, 8500),        // Food (1M each -> 8.5B)
+                 (BuildingType::Farm, 8200),        // Food (1M each → 1 farm/1M people for 8.2B pop)
                  (BuildingType::Factory, 2000),     // Production (Increased for Earth)
                  (BuildingType::Mine, 3000),        // Mining (Increased for realism)
                  (BuildingType::Refinery, 800),     // Refining

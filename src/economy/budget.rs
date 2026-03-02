@@ -95,7 +95,7 @@ impl GlobalBudget {
         stockpiles.insert(ResourceType::Phosphorus, 60.0);   // ~2 yr (28.5 Mt/yr: farms + chem plants)
         stockpiles.insert(ResourceType::Lithium, 0.35);      // ~2 yr (0.17 Mt/yr: factories + labs)
         stockpiles.insert(ResourceType::Sulfur, 150.0);      // ~2 yr (74.4 Mt/yr: chem plants + farms + factories)
-        stockpiles.insert(ResourceType::Food, 500.0);        // ~2 yr food reserve (farms produce ~250 Mt/yr)
+        stockpiles.insert(ResourceType::Food, 500.0);        // Starting buffer; Earth farms (~8200) produce ~820 kt/yr balanced against population consumption
         stockpiles.insert(ResourceType::Chromium, 90.0);     // ~2 yr (44 Mt/yr alloy production)
         stockpiles.insert(ResourceType::Magnesium, 3.0);     // Construction reserve (lightweight alloys)
         stockpiles.insert(ResourceType::Cobalt, 0.5);        // ~2 yr (0.22 Mt/yr: batteries + superalloys)
