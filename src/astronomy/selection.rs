@@ -9,7 +9,7 @@ use super::systems::SCALING_FACTOR;
 use crate::game_state::ActiveMenu;
 use crate::plugins::camera::{CameraAnchor, EguiPanelBounds, GameCamera, OrbitCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, ClickExcluded, LogicalParent, Moon, Star};
-use crate::plugins::solar_system_data::calculate_visual_radius;
+use crate::plugins::solar_system_data::{calculate_visual_radius, BodyType};
 use crate::ui::FleetUiState;
 
 /// Click radius for body selection (in Bevy units)
@@ -17,6 +17,13 @@ const SELECTION_CLICK_RADIUS: f32 = 45.0;
 
 /// Padding for the hover ring around celestial bodies (in Bevy units)
 const HOVER_RING_PADDING: f32 = 8.0;
+
+/// Selection-marker scale controls for ring bodies.
+/// Ring `visual_radius` often encodes orbital span and can be much larger than planet radii,
+/// so marker sizing uses a dedicated clamped range.
+const RING_MARKER_RADIUS_SCALE: f32 = 0.28;
+const RING_MARKER_RADIUS_MIN: f32 = 45.0;
+const RING_MARKER_RADIUS_MAX: f32 = 140.0;
 
 #[derive(Default)]
 pub struct SelectionState {
@@ -361,7 +368,7 @@ pub fn spawn_selection_markers(
             }
         }
 
-        let marker_radius = body.visual_radius + HOVER_RING_PADDING;
+        let marker_radius = marker_radius_for_body(body);
         spawn_marker(
             &mut commands,
             &mut meshes,
@@ -371,6 +378,7 @@ pub fn spawn_selection_markers(
             camera_pos,
             zoom_scale,
             marker_radius,
+            body.body_type == BodyType::Ring,
             true,
         );
     }
@@ -401,7 +409,7 @@ pub fn despawn_selection_markers(
 
         // If still hovered, add a hover marker
         if let Ok((body, Some(_), gtransform)) = body_query.get(entity) {
-            let marker_radius = body.visual_radius + HOVER_RING_PADDING;
+            let marker_radius = marker_radius_for_body(body);
             spawn_marker(
                 &mut commands,
                 &mut meshes,
@@ -411,6 +419,7 @@ pub fn despawn_selection_markers(
                 camera_pos,
                 zoom_scale,
                 marker_radius,
+                body.body_type == BodyType::Ring,
                 false,
             );
         }
@@ -432,7 +441,7 @@ pub fn spawn_hover_markers(
         .unwrap_or(1.0);
 
     for (entity, body, gtransform) in hovered_query.iter() {
-        let marker_radius = body.visual_radius + HOVER_RING_PADDING;
+        let marker_radius = marker_radius_for_body(body);
         spawn_marker(
             &mut commands,
             &mut meshes,
@@ -442,6 +451,7 @@ pub fn spawn_hover_markers(
             camera_pos,
             zoom_scale,
             marker_radius,
+            body.body_type == BodyType::Ring,
             false,
         );
     }
@@ -490,6 +500,7 @@ fn spawn_marker(
     camera_position: Vec3,
     zoom_scale: f32,
     radius: f32,
+    is_ring: bool,
     is_selected: bool,
 ) {
     // Make hovered markers slightly brighter; selected/anchored markers a bit darker
@@ -545,61 +556,124 @@ fn spawn_marker(
     // manually sync its position every frame in `scale_markers_with_zoom`.
     // commands.entity(marker_entity).set_parent(owner);
 
-    // Create corner brackets using boxes
-    // Each corner has two bars forming an L-shape
-    let bracket_thickness = (radius * 0.08).max(2.0); // Scale with body size, minimum 2.0
-    let bracket_length = radius * 0.30; // Length of each bracket arm
-    // Corner sits at exactly the ring radius so arms are always outside the body sphere:
-    // the perpendicular distance of each arm from center equals `radius` > visual_radius.
-    let bracket_offset = radius;
+    if is_ring {
+        spawn_ring_glow_marker(commands, meshes, bracket_material.clone(), marker_entity, radius, is_selected);
+    } else {
+        // Create corner brackets using boxes
+        // Each corner has two bars forming an L-shape
+        let bracket_thickness = (radius * 0.08).max(2.0); // Scale with body size, minimum 2.0
+        let bracket_length = radius * 0.30; // Length of each bracket arm
+        // Corner sits at exactly the ring radius so arms are always outside the body sphere:
+        // the perpendicular distance of each arm from center equals `radius` > visual_radius.
+        let bracket_offset = radius;
 
-    // Define four corners and create L-shaped brackets at each
-    let corners = [
-        // Top-right (positive X, positive Z)
-        (1.0, 1.0),
-        // Top-left (negative X, positive Z)
-        (-1.0, 1.0),
-        // Bottom-left (negative X, negative Z)
-        (-1.0, -1.0),
-        // Bottom-right (positive X, negative Z)
-        (1.0, -1.0),
-    ];
+        // Define four corners and create L-shaped brackets at each
+        let corners = [
+            // Top-right (positive X, positive Z)
+            (1.0, 1.0),
+            // Top-left (negative X, positive Z)
+            (-1.0, 1.0),
+            // Bottom-left (negative X, negative Z)
+            (-1.0, -1.0),
+            // Bottom-right (positive X, negative Z)
+            (1.0, -1.0),
+        ];
 
-    for (x_sign, z_sign) in corners {
-        let corner_x = bracket_offset * x_sign;
-        let corner_z = bracket_offset * z_sign;
+        for (x_sign, z_sign) in corners {
+            let corner_x = bracket_offset * x_sign;
+            let corner_z = bracket_offset * z_sign;
 
-        // Horizontal bar extending inward from corner (along X axis)
-        // Add bracket_thickness so the bar extends half-a-thickness past the
-        // corner point, filling the outer-corner gap where the two arms meet.
-        let h_bar_mesh = meshes.add(Cuboid::new(
-            bracket_length + bracket_thickness,
-            bracket_thickness,
-            bracket_thickness,
-        ));
-        let h_bar_pos = Vec3::new(corner_x - x_sign * bracket_length * 0.5, 0.0, corner_z);
+            // Horizontal bar extending inward from corner (along X axis)
+            // Add bracket_thickness so the bar extends half-a-thickness past the
+            // corner point, filling the outer-corner gap where the two arms meet.
+            let h_bar_mesh = meshes.add(Cuboid::new(
+                bracket_length + bracket_thickness,
+                bracket_thickness,
+                bracket_thickness,
+            ));
+            let h_bar_pos = Vec3::new(corner_x - x_sign * bracket_length * 0.5, 0.0, corner_z);
 
+            commands.entity(marker_entity).with_children(|parent| {
+                parent.spawn((
+                    Mesh3d(h_bar_mesh),
+                    MeshMaterial3d(bracket_material.clone()),
+                    Transform::from_translation(h_bar_pos),
+                ));
+            });
+
+            // Vertical bar extending inward from corner (along Z axis)
+            let v_bar_mesh = meshes.add(Cuboid::new(
+                bracket_thickness,
+                bracket_thickness,
+                bracket_length + bracket_thickness,
+            ));
+            let v_bar_pos = Vec3::new(corner_x, 0.0, corner_z - z_sign * bracket_length * 0.5);
+
+            commands.entity(marker_entity).with_children(|parent| {
+                parent.spawn((
+                    Mesh3d(v_bar_mesh),
+                    MeshMaterial3d(bracket_material.clone()),
+                    Transform::from_translation(v_bar_pos),
+                ));
+            });
+        }
+    }
+}
+
+fn marker_radius_for_body(body: &CelestialBody) -> f32 {
+    if body.body_type == BodyType::Ring {
+        (body.visual_radius * RING_MARKER_RADIUS_SCALE)
+            .clamp(RING_MARKER_RADIUS_MIN, RING_MARKER_RADIUS_MAX)
+    } else {
+        body.visual_radius + HOVER_RING_PADDING
+    }
+}
+
+fn spawn_ring_glow_marker(
+    commands: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    ring_material: Handle<StandardMaterial>,
+    marker_entity: Entity,
+    radius: f32,
+    is_selected: bool,
+) {
+    let segment_count = 20;
+    let segment_thickness = (radius * 0.045).max(1.8);
+    let segment_length = (radius * 0.18).max(7.0);
+
+    for index in 0..segment_count {
+        let angle = (index as f32 / segment_count as f32) * std::f32::consts::TAU;
+        let pos = Vec3::new(radius * angle.cos(), 0.0, radius * angle.sin());
+        let rot = Quat::from_rotation_y(-angle + std::f32::consts::FRAC_PI_2);
+
+        let seg_mesh = meshes.add(Cuboid::new(segment_length, segment_thickness, segment_thickness));
         commands.entity(marker_entity).with_children(|parent| {
             parent.spawn((
-                Mesh3d(h_bar_mesh),
-                MeshMaterial3d(bracket_material.clone()),
-                Transform::from_translation(h_bar_pos),
+                Mesh3d(seg_mesh),
+                MeshMaterial3d(ring_material.clone()),
+                Transform {
+                    translation: pos,
+                    rotation: rot,
+                    ..default()
+                },
             ));
         });
+    }
 
-        // Vertical bar extending inward from corner (along Z axis)
-        let v_bar_mesh = meshes.add(Cuboid::new(
-            bracket_thickness,
-            bracket_thickness,
-            bracket_length + bracket_thickness,
-        ));
-        let v_bar_pos = Vec3::new(corner_x, 0.0, corner_z - z_sign * bracket_length * 0.5);
+    if is_selected {
+        let dot_radius = (radius * 0.11).max(2.8);
+        let dot_mesh = meshes.add(Sphere::new(dot_radius).mesh().uv(16, 8));
 
         commands.entity(marker_entity).with_children(|parent| {
             parent.spawn((
-                Mesh3d(v_bar_mesh),
-                MeshMaterial3d(bracket_material.clone()),
-                Transform::from_translation(v_bar_pos),
+                Mesh3d(dot_mesh),
+                MeshMaterial3d(ring_material),
+                Transform::from_translation(Vec3::new(radius, 0.0, 0.0)),
+                MarkerDot {
+                    angle: 0.0,
+                    angular_speed: 1.8,
+                    radius,
+                },
             ));
         });
     }

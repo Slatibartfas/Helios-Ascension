@@ -299,16 +299,17 @@ fn draw_dossier_header(
         // Right: orbital elements
         if let Some(orbit) = orbit {
             ui.add_space(10.0);
-            ui.separator();
+            // Draw a fixed-height vertical divider instead of ui.separator(),
+            // which would expand to fill all available panel height.
+            let (_, divider_rect) = ui.allocate_space(egui::Vec2::new(1.0, 60.0));
+            ui.painter().vline(
+                divider_rect.center().x,
+                divider_rect.y_range(),
+                egui::Stroke::new(1.0, BORDER),
+            );
             ui.add_space(10.0);
 
             ui.vertical(|ui| {
-                ui.label(
-                    egui::RichText::new("ORBITAL ELEMENTS")
-                        .font(heading_font())
-                        .color(TEXT_DIM),
-                );
-
                 egui::Grid::new("header_stats_orbital")
                     .num_columns(2)
                     .spacing([12.0, 2.0])
