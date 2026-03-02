@@ -27,7 +27,7 @@ use crate::economy::components::{OrbitsBody, SpectralClass, StarSystem};
 use crate::economy::generation::generate_solar_system_resources;
 use crate::game_state::GameSeed;
 use crate::plugins::solar_system::{
-    Asteroid, CelestialBody, ClickExcluded, Comet, LogicalParent, Moon, Planet, Ring, Star,
+    Asteroid, CelestialBody, ClickExcluded, Comet, DwarfPlanet, LogicalParent, Moon, Planet, Ring, Star,
     create_ring_mesh,
 };
 use crate::plugins::solar_system_data::{calculate_visual_radius, system_visual_scale, AsteroidClass, BodyType};
@@ -319,6 +319,18 @@ fn populate_nearby_systems(
                 );
             }
 
+            // Spawn dwarf planets in the trans-Neptunian region
+            if !architecture.dwarf_planets.is_empty() {
+                spawn_dwarf_planets(
+                    &mut commands,
+                    &architecture.dwarf_planets,
+                    star_entity,
+                    system_id,
+                    primary_star.luminosity_sol,
+                    vis_scale,
+                );
+            }
+
             // Compute and store bounding radius for this system
             let mut max_radius_au: f64 = 10.0;
             for (_, sma_au, _, _, _) in &all_planet_entities {
@@ -329,6 +341,9 @@ fn populate_nearby_systems(
             }
             if let Some(cloud) = &architecture.cometary_cloud {
                 max_radius_au = max_radius_au.max(cloud.outer_au * 1.1);
+            }
+            for dp in &architecture.dwarf_planets {
+                max_radius_au = max_radius_au.max(dp.semi_major_axis_au * 1.3);
             }
             system_metadata.set_bounding_radius(system_id, max_radius_au);
         }
@@ -680,6 +695,65 @@ pub fn spawn_procedural_planet(
     entity
 }
 
+/// Spawn procedural dwarf planets in the trans-Neptunian region.
+///
+/// Dwarf planets are spawned with `BodyType::DwarfPlanet` and the `DwarfPlanet`
+/// marker component. Their orbits are hidden by default (matching Sol behaviour).
+fn spawn_dwarf_planets(
+    commands: &mut Commands,
+    dwarf_planets: &[ProceduralPlanet],
+    parent_star: Entity,
+    system_id: usize,
+    star_luminosity_sol: f32,
+    vis_scale: f32,
+) {
+    for planet in dwarf_planets {
+        let orbit = planet.to_kepler_orbit();
+        let mass_kg = planet.mass_kg();
+        let radius_km = planet.radius_km();
+
+        let (avg_temp, min_temp, max_temp) =
+            calculate_temperature_from_star(planet.semi_major_axis_au, star_luminosity_sol);
+
+        let visual_radius = calculate_visual_radius(BodyType::DwarfPlanet, radius_km) * vis_scale;
+
+        debug!(
+            "Spawning dwarf planet '{}': a={:.1}AU, e={:.2}, i={:.1}°, M={:.4}M⊕, R={:.0}km",
+            planet.name,
+            planet.semi_major_axis_au,
+            planet.eccentricity,
+            planet.inclination.to_degrees(),
+            planet.mass_earth,
+            radius_km,
+        );
+
+        commands.spawn((
+            DwarfPlanet,
+            CelestialBody {
+                name: planet.name.clone(),
+                mass: mass_kg,
+                radius: radius_km,
+                body_type: BodyType::DwarfPlanet,
+                visual_radius,
+                asteroid_class: None,
+            },
+            SurfaceTemperature {
+                average_celsius: avg_temp,
+                min_celsius: min_temp,
+                max_celsius: max_temp,
+            },
+            orbit,
+            OrbitPath::new(Color::srgba(0.5, 0.5, 0.7, 0.5)), // Dim blue — matches Sol dwarf planet palette
+            SpaceCoordinates::default(),
+            OrbitCenter(parent_star),
+            OrbitsBody::new(parent_star),
+            LogicalParent(parent_star),
+            SystemId(system_id),
+            Visibility::Hidden,
+        ));
+    }
+}
+
 /// Spawn asteroids in a belt
 pub fn spawn_asteroid_belt(
     commands: &mut Commands,
@@ -708,8 +782,17 @@ pub fn spawn_asteroid_belt(
     for i in 0..belt.count {
         // Random orbital parameters within the belt
         let semi_major_axis = rng.random_range(belt.inner_au..belt.outer_au);
-        let eccentricity = rng.random_range(0.0..0.2);
-        let inclination = belt.inclination + rng.random_range(-0.05..0.05);
+
+        // Eccentricity: most main-belt asteroids 0.0-0.3, median ~0.15
+        // Power-law bias toward lower values
+        let eccentricity = rng.random_range(0.0_f64..1.0).powf(1.5) * 0.35;
+
+        // Inclination: real belt has 0-30° with most <15°
+        // Rayleigh-like distribution centred on belt average
+        let base_incl = belt.inclination;
+        let incl_spread = rng.random_range(0.0_f64..1.0).powf(0.7) * 0.52; // up to ~30°
+        let incl_sign = if rng.random_bool(0.5) { 1.0 } else { -1.0 };
+        let inclination = base_incl + incl_sign * incl_spread;
 
         // Calculate orbital period using Kepler's third law
         let period_years = semi_major_axis.powf(1.5);
@@ -726,19 +809,61 @@ pub fn spawn_asteroid_belt(
             mean_motion,
         );
 
-        // Determine asteroid class (MType, SType, VType for inner belt)
-        let asteroid_class = if rng.random_bool(0.3) {
-            AsteroidClass::MType // Metal-rich
-        } else if rng.random_bool(0.6) {
-            AsteroidClass::SType // Silicate-rich
+        // Determine asteroid class with realistic distribution:
+        // C-type (carbonaceous): ~75% of all asteroids (dominant in outer belt)
+        // S-type (silicate): ~17% of all asteroids (dominant in inner belt)
+        // M-type (metallic): ~5% (scattered)
+        // V-type (basaltic): ~3% (associated with Vesta family)
+        let belt_midpoint = (belt.inner_au + belt.outer_au) * 0.5;
+        let asteroid_class = if semi_major_axis > belt_midpoint {
+            // Outer belt: C-type dominant
+            let roll = rng.random_range(0.0..1.0_f64);
+            if roll < 0.80 {
+                AsteroidClass::CType
+            } else if roll < 0.92 {
+                AsteroidClass::SType
+            } else if roll < 0.97 {
+                AsteroidClass::MType
+            } else {
+                AsteroidClass::VType
+            }
         } else {
-            AsteroidClass::VType // Basaltic
+            // Inner belt: S-type more common
+            let roll = rng.random_range(0.0..1.0_f64);
+            if roll < 0.45 {
+                AsteroidClass::SType
+            } else if roll < 0.80 {
+                AsteroidClass::CType
+            } else if roll < 0.93 {
+                AsteroidClass::MType
+            } else {
+                AsteroidClass::VType
+            }
         };
 
-        // Random size (radius 0.1 - 15 km); most belt asteroids are small
-        let radius = rng.random_range(0.1..15.0);
-        // Rough mass estimate (density ~2500 kg/m³)
-        let mass = (4.0 / 3.0) * std::f64::consts::PI * (radius as f64 * 1000.0).powi(3) * 2500.0;
+        // Power-law size distribution: N(>D) ∝ D^-2.5
+        // Most asteroids are tiny, a few are large (Ceres 473km, Vesta 263km)
+        // Inverse CDF: r = r_min × (1 - U)^(-1/(q-1)) where q = 3.5
+        let u: f64 = rng.random_range(0.001..1.0); // avoid zero
+        let r_min = 0.1_f64; // minimum radius in km
+        let r_max = 250.0_f64; // maximum radius (Ceres-scale)
+        let q = 3.5; // power-law exponent
+        let radius_raw = r_min * (1.0 - u).powf(-1.0 / (q - 1.0));
+        let radius = radius_raw.min(r_max);
+
+        // Density varies by class (kg/m³)
+        // C-type: 1300-2100 (porous, carbonaceous, like Mathilde ~1300)
+        // S-type: 2400-3200 (rocky, stony, like Eros ~2670)
+        // M-type: 3500-5500 (metallic, like Psyche ~3400-4100)
+        // V-type: 2800-3500 (basaltic, like Vesta ~3456)
+        let density = match asteroid_class {
+            AsteroidClass::CType => rng.random_range(1300.0..2100.0_f64),
+            AsteroidClass::SType => rng.random_range(2400.0..3200.0_f64),
+            AsteroidClass::MType => rng.random_range(3500.0..5500.0_f64),
+            AsteroidClass::VType => rng.random_range(2800.0..3500.0_f64),
+            _ => rng.random_range(2000.0..3000.0_f64),
+        };
+        let mass = (4.0 / 3.0) * std::f64::consts::PI * (radius * 1000.0).powi(3) * density;
 
         // Calculate asteroid temperature based on its distance from the star
         let (avg_temp, min_temp, max_temp) = calculate_temperature_from_star(semi_major_axis, star_luminosity_sol);
@@ -748,7 +873,7 @@ pub fn spawn_asteroid_belt(
             CelestialBody {
                 name: format!("{} Belt Asteroid {}", star_name, i + 1),
                 mass,
-                radius,
+                radius: radius as f32,
                 body_type: BodyType::Asteroid,
                 visual_radius: calculate_visual_radius(BodyType::Asteroid, radius as f32) * vis_scale,
                 asteroid_class: Some(asteroid_class),
@@ -797,8 +922,28 @@ pub fn spawn_cometary_cloud(
     for i in 0..cloud.count {
         // Random orbital parameters within the cloud (spherical distribution)
         let semi_major_axis = rng.random_range(cloud.inner_au..cloud.outer_au);
-        let eccentricity = rng.random_range(0.3..0.9); // Highly eccentric
-        let inclination = rng.random_range(0.0..std::f64::consts::PI); // Any inclination
+
+        // Eccentricity: short-period comets 0.2-0.7, long-period comets 0.9-0.999
+        // Mix of populations: ~70% short/intermediate period, ~30% near-parabolic
+        let eccentricity = if rng.random_range(0.0..1.0_f64) < 0.3 {
+            // Long-period / near-parabolic comets (Oort cloud origin)
+            rng.random_range(0.90..0.999_f64)
+        } else {
+            // Short/intermediate period comets (scattered disk/Kuiper belt origin)
+            rng.random_range(0.2..0.75_f64)
+        };
+
+        // Inclination: isotropic for long-period, concentrated for short-period
+        // Short-period (Jupiter family): mostly <30°
+        // Long-period: isotropic (0-180°)
+        let inclination = if eccentricity > 0.85 {
+            // Near-isotropic: uniform in cos(i)
+            let cos_i = rng.random_range(-1.0..1.0_f64);
+            cos_i.acos()
+        } else {
+            // Jupiter-family-like: concentrated near ecliptic
+            rng.random_range(0.0_f64..1.0).powf(0.6) * 0.52 // up to ~30°, biased low
+        };
 
         // Calculate orbital period using Kepler's third law
         let period_years = semi_major_axis.powf(1.5);
@@ -815,10 +960,20 @@ pub fn spawn_cometary_cloud(
             mean_motion,
         );
 
-        // Comets are small (0.5-10 km radius)
-        let radius = rng.random_range(0.5..10.0);
-        // Low density ice/rock (density ~500 kg/m³)
-        let mass = (4.0 / 3.0) * std::f64::consts::PI * (radius as f64 * 1000.0).powi(3) * 500.0;
+        // Power-law size distribution for comets (steeper than asteroids)
+        // Most comets are 0.5-5 km, a few reach 30+ km (Hale-Bopp ~30km, Chiron ~100km)
+        let u: f64 = rng.random_range(0.001..1.0);
+        let r_min = 0.3_f64;
+        let r_max = 40.0_f64;
+        let q = 4.0; // steeper than asteroids
+        let radius_raw = r_min * (1.0 - u).powf(-1.0 / (q - 1.0));
+        let radius = radius_raw.min(r_max);
+
+        // Density: cometary nuclei are porous ice/rock mixtures
+        // 67P/Churyumov–Gerasimenko: 533 kg/m³, Halley: ~600 kg/m³
+        // Range: 200-800 kg/m³
+        let density = rng.random_range(200.0..800.0_f64);
+        let mass = (4.0 / 3.0) * std::f64::consts::PI * (radius * 1000.0).powi(3) * density;
 
         // Calculate comet temperature based on its distance from the star
         let (avg_temp, min_temp, max_temp) = calculate_temperature_from_star(semi_major_axis, star_luminosity_sol);
@@ -828,7 +983,7 @@ pub fn spawn_cometary_cloud(
             CelestialBody {
                 name: format!("{} Cloud Comet {}", star_name, i + 1),
                 mass,
-                radius,
+                radius: radius as f32,
                 body_type: BodyType::Comet,
                 visual_radius: calculate_visual_radius(BodyType::Comet, radius as f32) * vis_scale,
                 asteroid_class: Some(AsteroidClass::PType), // P-type (volatile-rich)
