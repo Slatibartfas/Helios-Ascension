@@ -513,13 +513,16 @@ fn compute_habitability_scores(
         None => 0.0,
     };
 
-    // Hydrosphere
+    // Hydrosphere — score reflects habitability value of surface water,
+    // not raw coverage fraction.  Any liquid-water ocean covering ≥30% of
+    // the surface is ideal (100%); below that, score scales linearly.
     let hydro_score = ocean
         .map(|o| {
             if o.is_subsurface {
                 0.3 // subsurface oceans contribute partial score
             } else if o.ocean_type == OceanType::Water {
-                o.surface_fraction.clamp(0.0, 1.0)
+                // 30%+ surface water => ideal (1.0)
+                (o.surface_fraction / 0.3).clamp(0.0, 1.0)
             } else {
                 0.15 // exotic liquids
             }
@@ -552,8 +555,14 @@ fn draw_habitability_section(
     );
     ui.add_space(4.0);
 
-    // Radar chart
-    draw_radar_chart(ui, scores);
+    // Radar chart — centred horizontally
+    ui.horizontal(|ui| {
+        let avail = ui.available_width();
+        const CHART_SIZE: f32 = 190.0;
+        let padding = ((avail - CHART_SIZE) / 2.0).max(0.0);
+        ui.add_space(padding);
+        draw_radar_chart(ui, scores);
+    });
 
     ui.add_space(6.0);
 
@@ -682,8 +691,6 @@ fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
     const LABELS: [&str; 5] = ["Gravity", "Temp", "Pressure", "Air", "Water"];
     const SIZE: f32 = 190.0;
     const MAX_R: f32 = 65.0;
-    /// Minimum display radius so even 0%-score bodies show a thin polygon.
-    const MIN_DISPLAY_R: f32 = 4.0;
     const LABEL_R: f32 = 82.0;
 
     let (response, painter) =
@@ -727,13 +734,14 @@ fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
         ),
     ));
 
-    // Player polygon — use a minimum display radius so low-score bodies
-    // still render a visible thin shape rather than collapsing to dots.
+    // Player polygon — compute vertex positions from scores.
+    // Use a small minimum radius (3px) so even all-zero scores produce a
+    // faintly visible mini-polygon rather than an invisible centre point.
     let player_pts: Vec<egui::Pos2> = scores
         .iter()
         .zip(angles.iter())
         .map(|(&s, &a)| {
-            let r = (MAX_R * s.clamp(0.0, 1.0)).max(MIN_DISPLAY_R);
+            let r = (MAX_R * s.clamp(0.0, 1.0)).max(3.0);
             center + egui::Vec2::new(a.cos() * r, a.sin() * r)
         })
         .collect();
@@ -755,15 +763,12 @@ fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
         egui::Stroke::new(1.5, ACCENT),
     ));
 
-    // Vertex dots + score labels
+    // Score labels (no vertex dots — the filled area is enough)
     for (i, (&s, &a)) in scores.iter().zip(angles.iter()).enumerate() {
-        let pt = player_pts[i];
-        painter.circle_filled(pt, 3.0, ACCENT);
-
-        // Score text near vertex (avoid overlap with label)
+        // Score text near vertex (avoid overlap with axis label)
         if s > 0.05 && s < 0.88 {
             let score_text = format!("{:.0}%", s * 100.0);
-            let score_r = (MAX_R * s.clamp(0.0, 1.0)).max(MIN_DISPLAY_R) + 10.0;
+            let score_r = (MAX_R * s.clamp(0.0, 1.0)).max(3.0) + 10.0;
             let score_pos = center + egui::Vec2::new(a.cos() * score_r, a.sin() * score_r);
             painter.text(
                 score_pos,
@@ -778,13 +783,13 @@ fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
         // never extends beyond the widget boundary.
         let label_pos = center + egui::Vec2::new(a.cos() * LABEL_R, a.sin() * LABEL_R);
         let align = if label_pos.x < center.x - 5.0 {
-            egui::Align2::RIGHT_CENTER // left-side labels: text extends inward (right)
+            egui::Align2::RIGHT_CENTER
         } else if label_pos.x > center.x + 5.0 {
-            egui::Align2::LEFT_CENTER  // right-side labels: text extends inward (left)
+            egui::Align2::LEFT_CENTER
         } else if label_pos.y < center.y {
-            egui::Align2::CENTER_BOTTOM // top label: text above point
+            egui::Align2::CENTER_BOTTOM
         } else {
-            egui::Align2::CENTER_TOP    // bottom label: text below point
+            egui::Align2::CENTER_TOP
         };
         painter.text(
             label_pos,
