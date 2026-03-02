@@ -859,10 +859,12 @@ pub fn spawn_cometary_cloud(
 /// Universe Sandbox-style approach used for Sol-system moons.
 /// Spawn a procedural ring system around a gas/ice giant.
 ///
-/// Generates a 1-D radial RGBA texture with distinct ring bands, gaps, and a
-/// colour gradient — mimicking the approach used by the Sol system’s real
-/// Saturn / Uranus ring textures.  The texture is mapped across the U
-/// coordinate of the ring mesh (0 = inner edge, 1 = outer edge).
+/// Generates a 1-D radial RGBA texture with multi-scale ring structure:
+/// broad regions (analogous to Saturn's A/B/C rings), dozens of fine ringlets,
+/// and multiple gaps of varying widths.  Colours are muted and realistic —
+/// icy greys, warm beiges, and cool slate tones — matching Cassini/Voyager
+/// imagery.  The texture is mapped across the U coordinate of the ring mesh
+/// (0 = inner edge, 1 = outer edge).
 fn spawn_procedural_ring(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
@@ -876,112 +878,174 @@ fn spawn_procedural_ring(
     rng: &mut impl Rng,
 ) {
     // ── Geometry ──────────────────────────────────────────────────────────
-    let outer_scale: f32 = rng.random_range(1.5_f32..2.5);
-    let inner_frac:  f32 = rng.random_range(0.40_f32..0.70);
+    let outer_scale: f32 = rng.random_range(1.6_f32..2.4);
+    let inner_frac:  f32 = rng.random_range(0.45_f32..0.65);
     let outer_radius = planet_visual_radius * outer_scale;
     let inner_radius = outer_radius * inner_frac;
 
     // ── Ring flavor (base colour palette) ─────────────────────────────────
+    // All palettes are muted and desaturated — real ring particles are
+    // predominantly water ice (grey-white) with silicate/tholin impurities
+    // adding subtle warm or cool tints.
     let flavor: u32 = rng.random_range(0..100);
-    // (inner_rgb, outer_rgb) – the colour lerps from inner to outer
-    let (inner_rgb, outer_rgb, flavor_label): ([f32; 3], [f32; 3], &str) = if flavor < 35 {
-        // Saturn-like: warm cream-to-tan gradient
-        ([0.92, 0.86, 0.70], [0.72, 0.58, 0.38], "Saturn-tan")
-    } else if flavor < 58 {
-        // Uranus-like: pale blue-grey → slate
-        ([0.72, 0.82, 0.88], [0.45, 0.55, 0.62], "Uranus-blue")
-    } else if flavor < 76 {
-        // Icy white (Neptune-like): almost white → cool grey
-        ([0.92, 0.94, 0.96], [0.68, 0.72, 0.78], "Icy-white")
-    } else if flavor < 92 {
-        // Dusty reddish-brown: warm rust gradient
-        ([0.78, 0.52, 0.36], [0.55, 0.32, 0.20], "Dusty-red")
+    // (inner_rgb, outer_rgb) — colour lerps from inner to outer
+    let (inner_rgb, outer_rgb, flavor_label): ([f32; 3], [f32; 3], &str) = if flavor < 30 {
+        // Saturn-like: warm cream to muted tan (Cassini imagery)
+        ([0.88, 0.84, 0.76], [0.76, 0.70, 0.58], "Saturn-warm")
+    } else if flavor < 55 {
+        // Uranus-like: pale blue-grey to cool slate
+        ([0.72, 0.76, 0.80], [0.50, 0.55, 0.60], "Uranus-slate")
+    } else if flavor < 75 {
+        // Icy white: bright ice to cool grey (fresh ice-dominated rings)
+        ([0.90, 0.91, 0.92], [0.72, 0.74, 0.78], "Icy-white")
+    } else if flavor < 90 {
+        // Dusty warm: very subtle warm grey with a hint of tan (tholin-stained)
+        ([0.80, 0.76, 0.70], [0.62, 0.58, 0.52], "Dusty-warm")
     } else {
-        // Near-transparent sooty dark (faint Jupiter-like)
-        ([0.35, 0.30, 0.25], [0.18, 0.15, 0.12], "Dark-faint")
+        // Dark tenuous: barely-visible sooty particles (Jupiter-like)
+        ([0.40, 0.38, 0.35], [0.25, 0.23, 0.20], "Dark-faint")
     };
 
-    // Per-ring jitter so no two look identical
-    let jitter_r = rng.random_range(-0.05_f32..0.05);
-    let jitter_g = rng.random_range(-0.05_f32..0.05);
-    let jitter_b = rng.random_range(-0.05_f32..0.05);
+    // Per-ring colour jitter (very subtle — keeps neighbouring rings unique)
+    let jitter_r = rng.random_range(-0.03_f32..0.03);
+    let jitter_g = rng.random_range(-0.03_f32..0.03);
+    let jitter_b = rng.random_range(-0.03_f32..0.03);
 
     // ── Generate procedural ring texture ─────────────────────────────────
-    // 512 pixels wide (U direction = radial), 1 pixel tall.
-    // This is replicated around the ring via UV mapping.
-    const TEX_W: u32 = 512;
+    // 1024 pixels wide (U direction = radial), 1 pixel tall.
+    // Higher resolution captures the fine ringlet structure.
+    const TEX_W: u32 = 1024;
     const TEX_H: u32 = 1;
 
-    // Decide how many ring bands and gaps this system has
-    let num_bands: usize = rng.random_range(3..=8);
-    let num_gaps:  usize = rng.random_range(1..=num_bands.saturating_sub(1).max(1));
+    // ── Multi-scale structure ─────────────────────────────────────────────
+    // Level 1: Major regions (like Saturn's C/B/A rings) — 2-4 broad zones
+    // that define the coarse opacity envelope.
+    let num_major_regions: usize = rng.random_range(2..=4);
+    struct MajorRegion { center: f32, half_width: f32, base_opacity: f32 }
+    let major_regions: Vec<MajorRegion> = {
+        // Place regions roughly evenly across the radial range with some randomness
+        let spacing = 1.0 / (num_major_regions as f32 + 1.0);
+        (0..num_major_regions)
+            .map(|i| {
+                let nominal = spacing * (i as f32 + 1.0);
+                MajorRegion {
+                    center: nominal + rng.random_range(-0.06_f32..0.06),
+                    half_width: rng.random_range(0.10_f32..0.22),
+                    base_opacity: rng.random_range(0.30_f32..0.90),
+                }
+            })
+            .collect()
+    };
 
-    // Pre-generate gap locations (as fractions 0..1 across the radial extent)
-    // and widths.  Gaps are narrow transparent slots between bands.
-    struct GapInfo {
-        center: f32, // 0..1
-        half_w: f32, // half-width in 0..1
-    }
-    let gaps: Vec<GapInfo> = (0..num_gaps)
-        .map(|_| GapInfo {
-            center: rng.random_range(0.08_f32..0.92),
-            half_w: rng.random_range(0.01_f32..0.06),
+    // Level 2: Fine ringlets — 25-60 narrow bands within the major regions
+    let num_ringlets: usize = rng.random_range(25..=60);
+    struct Ringlet { center: f32, sigma: f32, peak: f32 }
+    let ringlets: Vec<Ringlet> = (0..num_ringlets)
+        .map(|_| Ringlet {
+            center: rng.random_range(0.02_f32..0.98),
+            sigma:  rng.random_range(0.004_f32..0.030),
+            peak:   rng.random_range(0.15_f32..0.70),
         })
         .collect();
 
-    // Pre-generate band density peaks.  Each band is a smooth bump that
-    // contributes opacity; overlapping bumps create the rich layered look.
-    struct BandInfo {
-        center: f32,
-        sigma:  f32, // gaussian width
-        peak:   f32, // peak alpha
+    // Level 3: Gaps — mix of major divisions and narrow gaps
+    let num_major_gaps: usize = rng.random_range(1..=3);
+    let num_narrow_gaps: usize = rng.random_range(3..=10);
+
+    struct GapInfo { center: f32, half_w: f32, sharpness: f32 }
+    let mut gaps: Vec<GapInfo> = Vec::with_capacity(num_major_gaps + num_narrow_gaps);
+    // Major gaps — wider divisions with sharp edges (Cassini Division analog)
+    for _ in 0..num_major_gaps {
+        gaps.push(GapInfo {
+            center: rng.random_range(0.15_f32..0.85),
+            half_w: rng.random_range(0.02_f32..0.06),
+            sharpness: rng.random_range(0.7_f32..1.0),
+        });
     }
-    let bands: Vec<BandInfo> = (0..num_bands)
-        .map(|_| BandInfo {
+    // Narrow gaps — hairline splits (Encke Gap analog)
+    for _ in 0..num_narrow_gaps {
+        gaps.push(GapInfo {
             center: rng.random_range(0.05_f32..0.95),
-            sigma:  rng.random_range(0.04_f32..0.20),
-            peak:   rng.random_range(0.35_f32..0.85),
-        })
-        .collect();
+            half_w: rng.random_range(0.002_f32..0.012),
+            sharpness: rng.random_range(0.5_f32..0.9),
+        });
+    }
+
+    // Deterministic fine noise for density variations (no RNG per pixel)
+    #[inline]
+    fn fine_noise(x: u32, seed: u32) -> f32 {
+        let h = x.wrapping_mul(2654435761).wrapping_add(seed.wrapping_mul(2246822519));
+        let h = ((h >> 13) ^ h).wrapping_mul(1597334677);
+        (h & 0xFFFF) as f32 / 32768.0 - 1.0
+    }
+    let noise_seed: u32 = rng.random_range(0..u32::MAX);
 
     let mut pixels = Vec::with_capacity((TEX_W as usize) * 4);
     for x in 0..TEX_W {
-        let u = x as f32 / (TEX_W - 1) as f32; // 0 = inner, 1 = outer
+        let u = x as f32 / (TEX_W - 1) as f32; // 0 = inner, 1 = outer
 
-        // Colour: lerp inner → outer + jitter
-        let cr = ((inner_rgb[0] + (outer_rgb[0] - inner_rgb[0]) * u) + jitter_r).clamp(0.0, 1.0);
-        let cg = ((inner_rgb[1] + (outer_rgb[1] - inner_rgb[1]) * u) + jitter_g).clamp(0.0, 1.0);
-        let cb = ((inner_rgb[2] + (outer_rgb[2] - inner_rgb[2]) * u) + jitter_b).clamp(0.0, 1.0);
+        // ── Colour ───────────────────────────────────────────────────────
+        let mut cr = (inner_rgb[0] + (outer_rgb[0] - inner_rgb[0]) * u) + jitter_r;
+        let mut cg = (inner_rgb[1] + (outer_rgb[1] - inner_rgb[1]) * u) + jitter_g;
+        let mut cb = (inner_rgb[2] + (outer_rgb[2] - inner_rgb[2]) * u) + jitter_b;
 
-        // Alpha: sum of band contributions
-        let mut alpha: f32 = 0.0;
-        for band in &bands {
-            let d = (u - band.center) / band.sigma;
-            alpha += band.peak * (-0.5 * d * d).exp();
+        // Subtle per-pixel colour variation (tholin/silicate patches)
+        let colour_noise = fine_noise(x, noise_seed.wrapping_add(7)) * 0.04;
+        cr = (cr + colour_noise).clamp(0.0, 1.0);
+        cg = (cg + colour_noise * 0.7).clamp(0.0, 1.0);
+        cb = (cb + colour_noise * 0.3).clamp(0.0, 1.0);
+
+        // ── Alpha: composite from major regions + fine ringlets ──────────
+        // Start with the major region envelope
+        let mut region_alpha: f32 = 0.0;
+        for region in &major_regions {
+            let d = (u - region.center) / region.half_width;
+            // Soft-edged trapezoid: flat top (|d| < 0.6), smooth falloff beyond
+            let contribution = if d.abs() < 0.6 {
+                region.base_opacity
+            } else {
+                let falloff = ((1.0 - d.abs()) / 0.4).clamp(0.0, 1.0);
+                region.base_opacity * falloff * falloff
+            };
+            region_alpha = region_alpha.max(contribution);
         }
 
-        // Cut gaps: anywhere inside a gap, drive alpha to zero
+        // Add fine ringlet structure on top
+        let mut ringlet_alpha: f32 = 0.0;
+        for ringlet in &ringlets {
+            let d = (u - ringlet.center) / ringlet.sigma;
+            ringlet_alpha += ringlet.peak * (-0.5 * d * d).exp();
+        }
+
+        // Combine: ringlets modulate within the region envelope
+        let mut alpha = region_alpha * 0.4 + ringlet_alpha * 0.55
+            + (region_alpha * ringlet_alpha) * 0.3;
+
+        // ── Cut gaps ─────────────────────────────────────────────────────
         for gap in &gaps {
-            if (u - gap.center).abs() < gap.half_w {
-                // Smooth edge: fade linearly over the outer 30% of the gap
-                let edge_dist = gap.half_w - (u - gap.center).abs();
-                let edge_zone = gap.half_w * 0.3;
-                let gap_factor = if edge_dist > edge_zone {
-                    0.0 // deep inside gap
+            let dist = (u - gap.center).abs();
+            if dist < gap.half_w {
+                let edge_zone = gap.half_w * (1.0 - gap.sharpness);
+                let edge_dist = gap.half_w - dist;
+                let gap_factor = if edge_zone > 0.0001 && edge_dist > edge_zone {
+                    0.0
+                } else if edge_zone > 0.0001 {
+                    (edge_dist / edge_zone).clamp(0.0, 1.0)
                 } else {
-                    edge_dist / edge_zone // smooth ramp at edge
+                    0.0
                 };
                 alpha *= gap_factor;
             }
         }
 
-        // Soft fade at inner and outer edges so the ring doesn't end abruptly
-        let edge_fade = (u * 8.0).min(1.0) * ((1.0 - u) * 8.0).min(1.0);
-        alpha *= edge_fade;
+        // ── Edge fade (soft inner/outer boundaries) ──────────────────────
+        let inner_fade = (u * 12.0).min(1.0);
+        let outer_fade = ((1.0 - u) * 12.0).min(1.0);
+        alpha *= inner_fade * outer_fade;
 
-        // Add a touch of fine-grain noise for texture
-        let noise = rng.random_range(-0.04_f32..0.04);
-        alpha = (alpha + noise).clamp(0.0, 1.0);
+        // ── Fine-grain density noise ─────────────────────────────────────
+        let density_noise = fine_noise(x, noise_seed) * 0.06;
+        alpha = (alpha + density_noise).clamp(0.0, 1.0);
 
         pixels.push((cr * 255.0) as u8);
         pixels.push((cg * 255.0) as u8);
@@ -1043,8 +1107,9 @@ fn spawn_procedural_ring(
     ));
 
     debug!(
-        "  Spawned rings for '{}' (outer={:.1}, inner={:.1}, bands={}, gaps={}, flavor={})",
-        planet_name, outer_radius, inner_radius, num_bands, num_gaps, flavor_label,
+        "  Spawned rings for '{}' (outer={:.1}, inner={:.1}, regions={}, ringlets={}, gaps={}, flavor={})",
+        planet_name, outer_radius, inner_radius, num_major_regions, num_ringlets,
+        gaps.len(), flavor_label,
     );
 }
 

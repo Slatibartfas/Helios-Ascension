@@ -462,7 +462,11 @@ fn compute_habitability_scores(
     atmo: Option<&AtmosphereComposition>,
     ocean: Option<&OceanProperties>,
 ) -> [f32; 5] {
-    let is_gas_giant = body.body_type == BodyType::GasGiant;
+    // Gas giants have no solid surface — completely uninhabitable.
+    // Detect via BodyType OR atmosphere is_reference_pressure (gas giants
+    // in solar_system.ron use body_type: Planet with is_reference_pressure: true).
+    let is_gas_giant = body.body_type == BodyType::GasGiant
+        || atmo.map_or(false, |a| a.is_reference_pressure);
     if is_gas_giant {
         return [0.0; 5];
     }
@@ -555,7 +559,8 @@ fn draw_habitability_section(
 
     // Colony cost summary
     let gravity_g = body.surface_gravity();
-    let is_gas_giant = body.body_type == BodyType::GasGiant;
+    let is_gas_giant = body.body_type == BodyType::GasGiant
+        || atmosphere.map_or(false, |a| a.is_reference_pressure);
     let (min_t, max_t) = surface_temp
         .map(|t| (t.min_celsius, t.max_celsius))
         .or_else(|| {
@@ -675,9 +680,11 @@ fn draw_habitability_section(
 /// 5-point radar / pentagon chart rendered with `egui::Painter`.
 fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
     const LABELS: [&str; 5] = ["Gravity", "Temp", "Pressure", "Air", "Water"];
-    const SIZE: f32 = 170.0;
+    const SIZE: f32 = 190.0;
     const MAX_R: f32 = 65.0;
-    const LABEL_R: f32 = 80.0;
+    /// Minimum display radius so even 0%-score bodies show a thin polygon.
+    const MIN_DISPLAY_R: f32 = 4.0;
+    const LABEL_R: f32 = 82.0;
 
     let (response, painter) =
         ui.allocate_painter(egui::Vec2::splat(SIZE), egui::Sense::hover());
@@ -720,19 +727,19 @@ fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
         ),
     ));
 
-    // Player polygon
+    // Player polygon — use a minimum display radius so low-score bodies
+    // still render a visible thin shape rather than collapsing to dots.
     let player_pts: Vec<egui::Pos2> = scores
         .iter()
         .zip(angles.iter())
         .map(|(&s, &a)| {
-            let r = MAX_R * s.clamp(0.0, 1.0);
+            let r = (MAX_R * s.clamp(0.0, 1.0)).max(MIN_DISPLAY_R);
             center + egui::Vec2::new(a.cos() * r, a.sin() * r)
         })
         .collect();
 
-    // Filled polygon — use a triangle fan from the centre so the fill is
-    // correct even when the radar shape is concave (which is common when
-    // some axes are near 0% and others are high).
+    // Filled polygon — triangle fan from the centre so fill is correct
+    // even when the radar shape is concave.
     let fill_color = egui::Color32::from_rgba_premultiplied(0, 242, 255, 40);
     for i in 0..5 {
         let j = (i + 1) % 5;
@@ -756,11 +763,8 @@ fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
         // Score text near vertex (avoid overlap with label)
         if s > 0.05 && s < 0.88 {
             let score_text = format!("{:.0}%", s * 100.0);
-            let score_pos = center
-                + egui::Vec2::new(
-                    a.cos() * (MAX_R * s.clamp(0.0, 1.0) + 10.0),
-                    a.sin() * (MAX_R * s.clamp(0.0, 1.0) + 10.0),
-                );
+            let score_r = (MAX_R * s.clamp(0.0, 1.0)).max(MIN_DISPLAY_R) + 10.0;
+            let score_pos = center + egui::Vec2::new(a.cos() * score_r, a.sin() * score_r);
             painter.text(
                 score_pos,
                 egui::Align2::CENTER_CENTER,
@@ -770,11 +774,21 @@ fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
             );
         }
 
-        // Axis label
+        // Axis label — anchor based on position relative to centre so text
+        // never extends beyond the widget boundary.
         let label_pos = center + egui::Vec2::new(a.cos() * LABEL_R, a.sin() * LABEL_R);
+        let align = if label_pos.x < center.x - 5.0 {
+            egui::Align2::RIGHT_CENTER // left-side labels: text extends inward (right)
+        } else if label_pos.x > center.x + 5.0 {
+            egui::Align2::LEFT_CENTER  // right-side labels: text extends inward (left)
+        } else if label_pos.y < center.y {
+            egui::Align2::CENTER_BOTTOM // top label: text above point
+        } else {
+            egui::Align2::CENTER_TOP    // bottom label: text below point
+        };
         painter.text(
             label_pos,
-            egui::Align2::CENTER_CENTER,
+            align,
             LABELS[i],
             mono_font(9.0),
             TEXT_DIM,

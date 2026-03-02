@@ -135,7 +135,7 @@ fn render_body_tree(
                 if let Some(child_body) = body_map.get(&child) {
                     match child_body.body_type {
                         BodyType::Ring => child_rings.push(child),
-                        BodyType::Planet => child_planets.push(child),
+                        BodyType::Planet | BodyType::GasGiant => child_planets.push(child),
                         BodyType::Moon => child_moons.push(child),
                         BodyType::Asteroid => child_asteroids.push(child),
                         BodyType::Comet => child_comets.push(child),
@@ -1078,7 +1078,7 @@ fn render_star_system_panel(
                     .count();
                 let planets = bodies
                     .iter()
-                    .filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Planet))
+                    .filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Planet | BodyType::GasGiant))
                     .count();
                 let dwarf_planets = bodies
                     .iter()
