@@ -140,17 +140,13 @@ pub(super) fn ui_planet_dossier(
                         ui,
                         body,
                         category_opt,
+                        orbit,
                         population,
                         opt_coords,
                         logical_parent,
                         &parent_coords_query,
                         &all_bodies_query,
                     );
-
-                    // ── Orbital Elements ────────────────────────────
-                    if let Some(orbit) = orbit {
-                        draw_orbital_stats(ui, orbit);
-                    }
 
                     // ── Ring body special case ──────────────────────
                     if body.body_type == BodyType::Ring {
@@ -217,6 +213,7 @@ fn draw_dossier_header(
     ui: &mut egui::Ui,
     body: &CelestialBody,
     category: Option<&crate::plugins::starmap::PlanetCategory>,
+    orbit: Option<&KeplerOrbit>,
     population: Option<&Population>,
     coords: Option<&SpaceCoordinates>,
     logical_parent: Option<&LogicalParent>,
@@ -238,45 +235,146 @@ fn draw_dossier_header(
 
     // Category caption
     if let Some(cat) = category {
-        let mut label = cat.0.clone();
-        if let Some(first) = label.get_mut(..1) {
-            first.make_ascii_uppercase();
-        }
+        let label = title_case_words(&cat.0);
         ui.label(egui::RichText::new(label).small().color(TEXT_DIM));
     }
 
     ui.add_space(6.0);
 
-    // Key stats grid
-    egui::Grid::new("header_stats")
-        .num_columns(2)
-        .spacing([16.0, 2.0])
-        .show(ui, |ui| {
-            // Distance from star
-            if !matches!(body.body_type, BodyType::Star) {
-                if let Some(c) = coords {
-                    let star_pos = find_star_position(
-                        logical_parent,
-                        parent_coords_query,
-                        all_bodies_query,
-                    );
-                    let distance_au = (c.position - star_pos).length();
-                    stat_row(ui, "DISTANCE", &format!("{distance_au:.3} AU"));
+    ui.horizontal_top(|ui| {
+        // Left: core physical stats
+        egui::Grid::new("header_stats_physical")
+            .num_columns(2)
+            .spacing([16.0, 2.0])
+            .show(ui, |ui| {
+                // Distance from system star
+                if !matches!(body.body_type, BodyType::Star) {
+                    if let Some(c) = coords {
+                        let star_pos = find_star_position(
+                            logical_parent,
+                            parent_coords_query,
+                            all_bodies_query,
+                        );
+                        let distance_au = (c.position - star_pos).length();
+                        stat_row_with_tooltip(
+                            ui,
+                            "DISTANCE",
+                            &format!("{distance_au:.3} AU"),
+                            "Current distance from the system's primary star.",
+                        );
+                    }
                 }
-            }
 
-            stat_row(ui, "RADIUS", &format!("{:.1} km", body.radius));
-            stat_row(ui, "MASS", &format!("{:.2e} kg", body.mass));
-            stat_row(ui, "GRAVITY", &format!("{:.2} g", body.surface_gravity()));
+                stat_row_with_tooltip(
+                    ui,
+                    "RADIUS",
+                    &format!("{:.1} km", body.radius),
+                    "Mean body radius in kilometers.",
+                );
+                stat_row_with_tooltip(
+                    ui,
+                    "MASS",
+                    &format!("{:.2e} kg", body.mass),
+                    "Total mass of the body in kilograms.",
+                );
+                stat_row_with_tooltip(
+                    ui,
+                    "GRAVITY",
+                    &format!("{:.2} g", body.surface_gravity()),
+                    "Surface gravity relative to Earth gravity (1.0 g).",
+                );
 
-            if let Some(pop) = population {
-                if pop.count > 0.0 {
-                    stat_row(ui, "POP", &format_population(pop.count));
+                if let Some(pop) = population {
+                    if pop.count > 0.0 {
+                        stat_row_with_tooltip(
+                            ui,
+                            "POP",
+                            &format_population(pop.count),
+                            "Estimated resident population.",
+                        );
+                    }
                 }
-            }
-        });
+            });
+
+        // Right: orbital elements
+        if let Some(orbit) = orbit {
+            ui.add_space(10.0);
+            ui.separator();
+            ui.add_space(10.0);
+
+            ui.vertical(|ui| {
+                ui.label(
+                    egui::RichText::new("ORBITAL ELEMENTS")
+                        .font(heading_font())
+                        .color(TEXT_DIM),
+                );
+
+                egui::Grid::new("header_stats_orbital")
+                    .num_columns(2)
+                    .spacing([12.0, 2.0])
+                    .show(ui, |ui| {
+                        stat_row_with_tooltip(
+                            ui,
+                            "SMA",
+                            &format!("{:.4} AU", orbit.semi_major_axis),
+                            "Semi-major axis: average orbital distance from the parent body.",
+                        );
+                        stat_row_with_tooltip(
+                            ui,
+                            "ECC",
+                            &format!("{:.5}", orbit.eccentricity),
+                            "Eccentricity: 0 is circular; higher values are more elongated.",
+                        );
+                        stat_row_with_tooltip(
+                            ui,
+                            "INC",
+                            &format!("{:.2}\u{00B0}", orbit.inclination.to_degrees()),
+                            "Inclination: orbital tilt relative to the reference plane.",
+                        );
+
+                        let period_s =
+                            crate::astronomy::KeplerOrbit::period_from_mean_motion(orbit.mean_motion);
+                        let period_d = period_s / 86400.0;
+                        if period_d < 365.0 {
+                            stat_row_with_tooltip(
+                                ui,
+                                "PERIOD",
+                                &format!("{period_d:.1} d"),
+                                "Time required to complete one full orbit.",
+                            );
+                        } else {
+                            stat_row_with_tooltip(
+                                ui,
+                                "PERIOD",
+                                &format!("{:.2} yr", period_d / 365.25),
+                                "Time required to complete one full orbit.",
+                            );
+                        }
+                    });
+            });
+        }
+    });
 
     ui.add_space(4.0);
+}
+
+fn title_case_words(value: &str) -> String {
+    value
+        .split(['_', '-', ' '])
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => format!(
+                    "{}{}",
+                    first.to_ascii_uppercase(),
+                    chars.as_str().to_ascii_lowercase()
+                ),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Walk up the LogicalParent chain to find the system star position.
@@ -323,6 +421,21 @@ fn stat_row(ui: &mut egui::Ui, label: &str, value: &str) {
     ui.end_row();
 }
 
+fn stat_row_with_tooltip(ui: &mut egui::Ui, label: &str, value: &str, tooltip: &str) {
+    let label_response = ui.label(
+        egui::RichText::new(label)
+            .font(mono_font(10.0))
+            .color(TEXT_DIM),
+    );
+    label_response.on_hover_text(tooltip);
+    ui.label(
+        egui::RichText::new(value)
+            .font(mono_font(12.0))
+            .color(TEXT_VALUE),
+    );
+    ui.end_row();
+}
+
 /// Thin horizontal tactical divider.
 fn section_divider(ui: &mut egui::Ui) {
     ui.add_space(6.0);
@@ -334,38 +447,6 @@ fn section_divider(ui: &mut egui::Ui) {
 }
 
 // ─── Orbital Stats ───────────────────────────────────────────────────────
-
-fn draw_orbital_stats(ui: &mut egui::Ui, orbit: &KeplerOrbit) {
-    section_divider(ui);
-    ui.label(
-        egui::RichText::new("ORBITAL ELEMENTS")
-            .font(heading_font())
-            .color(TEXT_DIM),
-    );
-    ui.add_space(4.0);
-
-    egui::Grid::new("orbital_stats")
-        .num_columns(2)
-        .spacing([16.0, 2.0])
-        .show(ui, |ui| {
-            stat_row(ui, "SMA", &format!("{:.4} AU", orbit.semi_major_axis));
-            stat_row(ui, "ECC", &format!("{:.5}", orbit.eccentricity));
-            stat_row(
-                ui,
-                "INC",
-                &format!("{:.2}\u{00B0}", orbit.inclination.to_degrees()),
-            );
-
-            let period_s =
-                crate::astronomy::KeplerOrbit::period_from_mean_motion(orbit.mean_motion);
-            let period_d = period_s / 86400.0;
-            if period_d < 365.0 {
-                stat_row(ui, "PERIOD", &format!("{period_d:.1} d"));
-            } else {
-                stat_row(ui, "PERIOD", &format!("{:.2} yr", period_d / 365.25));
-            }
-        });
-}
 
 // ─── Habitability Radar ──────────────────────────────────────────────────
 
