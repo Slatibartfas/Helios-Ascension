@@ -58,7 +58,7 @@ fn render_construction_panel(
     if debug_settings.enabled {
         ui.group(|ui| {
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("🐛 DEBUG MODE").strong().color(egui::Color32::RED));
+                ui.label(egui::RichText::new("🐛 DEBUG MODE").strong().color(theme::RED));
                 ui.label(egui::RichText::new("(Press F12 to toggle)").italics().small());
             });
             ui.separator();
@@ -70,7 +70,7 @@ fn render_construction_panel(
             ui.label(egui::RichText::new("⚠ Debug features are for development only")
                 .small()
                 .italics()
-                .color(egui::Color32::YELLOW));
+                .color(theme::AMBER));
         });
         ui.separator();
     }
@@ -80,14 +80,14 @@ fn render_construction_panel(
         ui.label(
             egui::RichText::new(format!("💰 Treasury: {}", format_currency(budget.treasury)))
                 .size(13.0)
-                .color(egui::Color32::from_rgb(255, 215, 0)),
+                .color(theme::GOLD),
         );
         ui.separator();
         let balance = budget.balance_per_year();
         let balance_color = if balance >= 0.0 {
-            egui::Color32::GREEN
+            theme::GREEN
         } else {
-            egui::Color32::RED
+            theme::RED
         };
         let sign = if balance >= 0.0 { "+" } else { "" };
         ui.label(
@@ -105,7 +105,7 @@ fn render_construction_panel(
         ui.label(
             egui::RichText::new("No colonies established yet.")
                 .size(14.0)
-                .color(egui::Color32::from_rgb(180, 180, 180)),
+                .color(theme::TEXT_DIM),
         );
         ui.add_space(10.0);
         ui.label("Send a colony ship to a celestial body to establish a colony.");
@@ -139,11 +139,11 @@ fn render_construction_panel(
             // Workforce status
             let workforce_eff = colony.workforce_efficiency();
             let wf_color = if workforce_eff >= 1.0 {
-                egui::Color32::from_rgb(100, 200, 100)
+                theme::GREEN
             } else if workforce_eff >= 0.5 {
-                egui::Color32::from_rgb(200, 200, 100)
+                theme::AMBER
             } else {
-                egui::Color32::from_rgb(200, 100, 100)
+                theme::RED
             };
             ui.horizontal(|ui| {
                 ui.label(format!(
@@ -159,7 +159,7 @@ fn render_construction_panel(
                     ui.label(
                         egui::RichText::new("understaffed")
                             .size(11.0)
-                            .color(egui::Color32::from_rgb(200, 100, 100)),
+                            .color(theme::RED),
                     );
                 }
             });
@@ -167,11 +167,11 @@ fn render_construction_panel(
             // Logistics status
             let efficiency = colony.logistics_efficiency();
             let eff_color = if efficiency >= 1.0 {
-                egui::Color32::from_rgb(100, 200, 100)
+                theme::GREEN
             } else if efficiency >= 0.5 {
-                egui::Color32::from_rgb(200, 200, 100)
+                theme::AMBER
             } else {
-                egui::Color32::from_rgb(200, 100, 100)
+                theme::RED
             };
             ui.horizontal(|ui| {
                 ui.label("Logistics:");
@@ -183,7 +183,7 @@ fn render_construction_panel(
                     ui.label(
                         egui::RichText::new("(build Mass Drivers / Orbital Lifts)")
                             .size(11.0)
-                            .color(egui::Color32::GRAY),
+                            .color(theme::TEXT_DIM),
                     );
                 }
             });
@@ -205,7 +205,7 @@ fn render_construction_panel(
             });
 
             // Growth
-            let growth = colony.population_growth_per_year();
+            let growth = colony.population_growth_per_year(1.0);
             if growth.abs() > 0.1 {
                 ui.horizontal(|ui| {
                     ui.label(format!(
@@ -221,9 +221,9 @@ fn render_construction_panel(
             if income > 0.0 || cost > 0.0 {
                 let colony_balance = income - cost;
                 let cb_color = if colony_balance >= 0.0 {
-                    egui::Color32::GREEN
+                    theme::GREEN
                 } else {
-                    egui::Color32::RED
+                    theme::RED
                 };
                 ui.horizontal(|ui| {
                     ui.label(format!("💰 Income: {}/yr", format_currency(income)));
@@ -334,7 +334,7 @@ fn render_construction_panel(
                     ui.horizontal(|ui| {
                         ui.label(
                             egui::RichText::new(format!("Construction Output: {:.1} BP/year", bp_rate))
-                                .color(egui::Color32::from_rgb(100, 200, 100))
+                                .color(theme::GREEN)
                                 .strong(),
                         );
                         ui.label(egui::RichText::new("ℹ").small())
@@ -440,7 +440,7 @@ fn render_construction_panel(
                                     ui.label(
                                         egui::RichText::new("⚠ insufficient resources")
                                             .size(10.0)
-                                            .color(egui::Color32::from_rgb(200, 100, 100)),
+                                            .color(theme::RED),
                                     );
                                 }
 
@@ -475,7 +475,7 @@ fn render_construction_panel(
                             ui.label(
                                 egui::RichText::new("🔒 Locked (requires research)")
                                     .size(12.0)
-                                    .color(egui::Color32::GRAY),
+                                    .color(theme::TEXT_DIM),
                             );
                             for building in locked {
                                 let tech_id = buildings_data
@@ -490,7 +490,7 @@ fn render_construction_panel(
                                             tech_name
                                         ))
                                         .size(11.0)
-                                        .color(egui::Color32::from_rgb(120, 120, 120)),
+                                        .color(theme::TEXT_HINT),
                                     );
                                 }
                             }

@@ -614,7 +614,7 @@ pub fn setup_solar_system(
         // Check for multi-layer textures first, then single texture, then generic
         let (
             base_color_texture,
-            _normal_map_texture,
+            normal_map_texture,
             clouds_texture,
             clouds_blend_mode,
             night_texture,
@@ -741,9 +741,7 @@ pub fn setup_solar_system(
             Some(materials.add(StandardMaterial {
                 base_color: material_color,
                 base_color_texture: base_color_texture.clone(),
-                // Note: normal_map_texture is loaded but not applied yet
-                // TODO: Enable once multi-layer rendering is fully implemented
-                // normal_map_texture,
+                normal_map_texture,
                 // Subtle uniform ambient glow so the dark side isn't pitch-black.
                 // Do NOT set emissive_texture here — reusing base_color_texture as an
                 // emissive map causes visual artifacts and is conceptually incorrect.
@@ -869,7 +867,7 @@ pub fn setup_solar_system(
             // Add initial infrastructure
             let base_buildings = [
                  (BuildingType::Housing, 33000),    // Housing (250k each -> 8.25B)
-                 (BuildingType::Farm, 8500),        // Food (1M each -> 8.5B)
+                 (BuildingType::Farm, 8200),        // Food (1M each → 1 farm/1M people for 8.2B pop)
                  (BuildingType::Factory, 2000),     // Production (Increased for Earth)
                  (BuildingType::Mine, 3000),        // Mining (Increased for realism)
                  (BuildingType::Refinery, 800),     // Refining
@@ -1413,8 +1411,8 @@ pub fn setup_solar_system(
                     (Color::srgba(0.3, 0.5, 0.8, 0.6), false)
                 }
                 BodyType::Moon => {
-                    // Moons: softer green-cyan
-                    (Color::srgba(0.3, 0.8, 0.7, 0.7), true)
+                    // Moons: subtle grey — matches procedural moon palette
+                    (Color::srgba(0.7, 0.7, 0.7, 0.5), true)
                 }
                 BodyType::Asteroid | BodyType::Comet => {
                     // Asteroids/Comets: amber/yellow when selected

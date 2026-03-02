@@ -21,6 +21,7 @@ pub use interaction::Selection;
 
 pub mod time;
 pub mod icons;
+pub mod cursors;
 mod resources_bar;
 mod dashboard;
 mod research_panel;
@@ -29,6 +30,8 @@ mod construction_panel;
 mod economy_panel;
 mod fleets_panel;
 mod transfer_planner;
+mod dossier_panel;
+pub(super) mod theme;
 
 pub use time::{TimeScale, SimulationTime};
 pub use icons::{MenuIcons, ResearchIcons};
@@ -78,9 +81,6 @@ use crate::fleets::orbital_mechanics::{
     hohmann_transfer, plane_change_angle, GravityAssistOption,
     course_correction_transfer_options, keplerian_velocity_vector,
 };
-
-/// Maximum time scale: 1 year per second (365.25 * 86400 ≈ 31,557,600)
-const MAX_TIME_SCALE: f32 = 31_557_600.0;
 
 /// Semi-major axis threshold (AU) below which a body's orbit is considered
 /// non-heliocentric (e.g. a moon orbiting a planet rather than the star).
@@ -355,6 +355,7 @@ fn setup_egui_fonts(mut contexts: EguiContexts) {
         
     if let Ok(ctx) = contexts.ctx_mut() {
         ctx.set_fonts(fonts);
+        theme::apply_global_visuals(ctx);
     }
 }
 
@@ -362,6 +363,7 @@ impl Plugin for UIPlugin {
     fn build(&self, app: &mut App) {
         app
             // Egui plugin is added in `main.rs` (explicit bevy_egui integration)
+            .add_plugins(cursors::CursorPlugin)
             // Resources
             .init_resource::<Selection>()
             .init_resource::<TimeScale>()
@@ -396,6 +398,7 @@ impl Plugin for UIPlugin {
                     .in_set(UiSystemSet::TopBar),
             )
             .add_systems(EguiPrimaryContextPass, ui_dashboard.in_set(UiSystemSet::MainPanels))
+            .add_systems(EguiPrimaryContextPass, dossier_panel::ui_planet_dossier.in_set(UiSystemSet::MainPanels))
             .add_systems(EguiPrimaryContextPass, ui_research_panels.in_set(UiSystemSet::MainPanels))
             .add_systems(EguiPrimaryContextPass, ui_construction_panels.in_set(UiSystemSet::MainPanels))
             .add_systems(EguiPrimaryContextPass, ui_economy_panels.in_set(UiSystemSet::MainPanels))
@@ -544,33 +547,37 @@ fn ui_top_menu_bar(
                 ui.add_space(10.0);
                 
                 // Add each menu button
-                for &menu in GameMenu::all() {
+                for (idx, &menu) in GameMenu::all().iter().enumerate() {
                     let is_active = active_menu.current == menu;
-                    
+
+                    // compute tooltip with corresponding F-key
+                    let hotkey_label = format!("F{}", idx + 1);
+                    let tooltip_text = format!("{} (hotkey {})", menu.name(), hotkey_label);
+
                     if let Some(map) = texture_map.as_ref() {
                         if let Some(texture_id) = map.get(&menu) {
                             let size = egui::vec2(80.0, 80.0);
-                            
+
                             // Tint the icon:
-                            // Blue/Cyan for active, White/Gray for inactive
+                            // Cyan for active, clearly visible light-grey for inactive
                             let tint = if is_active {
-                                egui::Color32::from_rgb(100, 200, 255)
+                                theme::ACCENT
                             } else {
-                                egui::Color32::from_rgb(200, 200, 200)
+                                theme::ICON_INACTIVE
                             };
 
                             let mut img = egui::Image::new((*texture_id, size));
                             img = img.tint(tint);
-                            
+
                             let resp = ui.add(egui::Button::image(img));
 
                             // Highlight active menu by drawing a subtle stroke around the widget
                             if is_active {
                                 let rect = resp.rect;
-                                ui.painter().rect_stroke(rect, 4.0, egui::Stroke::new(2.0, egui::Color32::from_rgb(100, 200, 255)), egui::StrokeKind::Outside);
+                                ui.painter().rect_stroke(rect, 4.0, egui::Stroke::new(2.0, theme::ACCENT), egui::StrokeKind::Outside);
                             }
 
-                            let resp = resp.on_hover_text(menu.name());
+                            let resp = resp.on_hover_text(tooltip_text.clone());
                             if resp.clicked() {
                                 active_menu.current = menu;
                                 match menu {
@@ -605,18 +612,18 @@ fn ui_top_menu_bar(
                                 egui::Button::new(
                                     egui::RichText::new(button_text)
                                         .size(14.0)
-                                        .color(egui::Color32::from_rgb(100, 200, 255))
+                                        .color(theme::ACCENT)
                                 )
-                                .fill(egui::Color32::from_rgb(40, 60, 80))
+                                .fill(theme::SURFACE_RAISED)
                             } else {
                                 egui::Button::new(
                                     egui::RichText::new(button_text)
                                         .size(14.0)
                                 )
-                                .fill(egui::Color32::from_rgb(30, 30, 35))
+                                .fill(theme::SURFACE)
                             };
 
-                            if ui.add(button).clicked() {
+                            if ui.add(button).on_hover_text(tooltip_text.clone()).clicked() {
                                 active_menu.current = menu;
                                 match menu {
                                     GameMenu::Starmap => {
@@ -649,18 +656,18 @@ fn ui_top_menu_bar(
                             egui::Button::new(
                                 egui::RichText::new(button_text)
                                     .size(14.0)
-                                    .color(egui::Color32::from_rgb(100, 200, 255))
+                                    .color(theme::ACCENT)
                             )
-                            .fill(egui::Color32::from_rgb(40, 60, 80))
+                            .fill(theme::SURFACE_RAISED)
                         } else {
                             egui::Button::new(
                                 egui::RichText::new(button_text)
                                     .size(14.0)
                             )
-                            .fill(egui::Color32::from_rgb(30, 30, 35))
+                            .fill(theme::SURFACE)
                         };
 
-                        if ui.add(button).clicked() {
+                        if ui.add(button).on_hover_text(tooltip_text.clone()).clicked() {
                             active_menu.current = menu;
                             match menu {
                                 GameMenu::Starmap => {
@@ -691,6 +698,78 @@ fn ui_top_menu_bar(
                 }
             });
         });
+
+    // ── Keyboard hotkeys ──────────────────────────────────────────────────────
+    // Skip hotkeys while a text widget has focus (e.g. fleet-name editor).
+    let has_keyboard_focus = ctx.memory(|m| m.focused().is_some());
+    if !has_keyboard_focus {
+        enum HotkeyIntent {
+            SetMenu(usize),
+            Escape,
+        }
+        let fkeys = [
+            egui::Key::F1,  egui::Key::F2,  egui::Key::F3,  egui::Key::F4,
+            egui::Key::F5,  egui::Key::F6,  egui::Key::F7,  egui::Key::F8,
+            egui::Key::F9,  egui::Key::F10, egui::Key::F11,
+        ];
+        let intent: Option<HotkeyIntent> = ctx.input_mut(|i| {
+            for (idx, &fkey) in fkeys.iter().enumerate() {
+                if i.consume_key(egui::Modifiers::NONE, fkey) {
+                    return Some(HotkeyIntent::SetMenu(idx));
+                }
+            }
+            if i.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+                return Some(HotkeyIntent::Escape);
+            }
+            None
+        });
+        if let Some(intent) = intent {
+            match intent {
+                HotkeyIntent::SetMenu(idx) => {
+                    if let Some(&target_menu) = GameMenu::all().get(idx) {
+                        active_menu.current = target_menu;
+                        match target_menu {
+                            GameMenu::Starmap => {
+                                *view_mode = ViewMode::Starmap;
+                                if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
+                                    orbit.radius = starmap_radius;
+                                    orbit.target_center = Vec3::ZERO;
+                                    anchor.0 = None;
+                                }
+                            }
+                            GameMenu::Survey => {
+                                *view_mode = ViewMode::System;
+                                if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
+                                    if anchor.0.is_none() {
+                                        if let Some((sel_entity, _)) =
+                                            star_icon_query.iter().find(|(_, sel)| sel.is_some())
+                                        {
+                                            anchor.0 = Some(sel_entity);
+                                        }
+                                    }
+                                    orbit.radius = 150_000.0;
+                                }
+                            }
+                            _ => *view_mode = ViewMode::System,
+                        }
+                    }
+                }
+                HotkeyIntent::Escape => {
+                    // If we're on the neutral Survey / Starmap view, ESC opens the main menu.
+                    // If a menu panel is open, ESC dismisses it and returns to the base view.
+                    let base_view = match *view_mode {
+                        ViewMode::Starmap => GameMenu::Starmap,
+                        ViewMode::System  => GameMenu::Survey,
+                    };
+                    if matches!(active_menu.current, GameMenu::Survey | GameMenu::Starmap) {
+                        active_menu.current = GameMenu::Main;
+                    } else {
+                        active_menu.current = base_view;
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Render floating labels next to star system icons in starmap view
@@ -745,9 +824,9 @@ fn ui_starmap_labels(
             }
 
             let color = if is_selected.is_some() {
-                egui::Color32::from_rgb(100, 200, 255) // Bright blue for selected
+                theme::ACCENT
             } else {
-                egui::Color32::from_rgb(200, 200, 200) // Light gray for others
+                theme::TEXT_DIM
             };
 
             painter.text(
@@ -808,21 +887,21 @@ fn ui_hover_tooltip(
                 .show(ctx, |ui| {
                     ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                     egui::Frame::NONE
-                        .fill(egui::Color32::from_rgba_unmultiplied(20, 25, 35, 240))
-                        .stroke(egui::Stroke::new(2.0, egui::Color32::from_rgb(80, 180, 255)))
+                        .fill(egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245))
+                        .stroke(egui::Stroke::new(2.0, theme::ACCENT_DIM))
                         .inner_margin(12.0)
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 ui.label(
                                     egui::RichText::new(format!("L{}", m.point))
                                         .size(16.0)
-                                        .color(egui::Color32::from_rgb(100, 200, 255))
+                                        .color(theme::ACCENT)
                                         .strong(),
                                 );
                                 ui.label(
                                     egui::RichText::new(format!(" \u{2013} {}", m.planet_name))
                                         .size(16.0)
-                                        .color(egui::Color32::from_rgb(200, 220, 255))
+                                        .color(theme::TEXT_VALUE)
                                         .strong(),
                                 );
                             });
@@ -830,7 +909,7 @@ fn ui_hover_tooltip(
                                 ui.label(
                                     egui::RichText::new(lp_qualifier(m.point))
                                         .size(12.0)
-                                        .color(egui::Color32::from_rgb(150, 180, 210)),
+                                        .color(theme::TEXT_DIM),
                                 );
                             });
                             // Distance from parent planet (more intuitive than heliocentric radius).
@@ -847,14 +926,14 @@ fn ui_hover_tooltip(
                                 format!("{:.3} AU from {}", dist_from_planet_au, m.planet_name)
                             };
                             let stability = match m.point {
-                                4 | 5 => ("Stable", egui::Color32::from_rgb(100, 210, 130)),
-                                _ => ("Unstable", egui::Color32::from_rgb(220, 160, 80)),
+                                4 | 5 => ("Stable", theme::GREEN),
+                                _ => ("Unstable", theme::AMBER),
                             };
                             ui.horizontal(|ui| {
                                 ui.label(
                                     egui::RichText::new(dist_str)
                                         .size(11.0)
-                                        .color(egui::Color32::from_rgb(130, 160, 190)),
+                                        .color(theme::TEXT_DIM),
                                 );
                             });
                             ui.horizontal(|ui| {
@@ -869,7 +948,7 @@ fn ui_hover_tooltip(
                                     egui::RichText::new("Click to select as fleet target")
                                         .size(10.0)
                                         .italics()
-                                        .color(egui::Color32::from_rgb(120, 140, 160)),
+                                        .color(theme::TEXT_HINT),
                                 );
                             });
                         });
@@ -895,10 +974,10 @@ fn ui_hover_tooltip(
             .show(ctx, |ui| {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                 egui::Frame::NONE
-                    .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 30, 240))
+                    .fill(egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245))
                     .stroke(egui::Stroke::new(
                         2.0,
-                        egui::Color32::from_rgb(100, 180, 255),
+                        theme::ACCENT_DIM,
                     ))
                     .inner_margin(12.0)
                     .show(ui, |ui| {
@@ -907,7 +986,7 @@ fn ui_hover_tooltip(
                             ui.label(
                                 egui::RichText::new(&body.name)
                                     .size(16.0)
-                                    .color(egui::Color32::from_rgb(150, 220, 255))
+                                    .color(theme::ACCENT)
                                     .strong(),
                             );
                         });
@@ -927,7 +1006,7 @@ fn ui_hover_tooltip(
                             ui.label(
                                 egui::RichText::new(format!("Type: {}", type_label))
                                     .size(12.0)
-                                    .color(egui::Color32::from_rgb(180, 180, 180)),
+                                    .color(theme::TEXT_DIM),
                             );
                         });
 
@@ -1030,10 +1109,10 @@ fn ui_starmap_hover_tooltip(
             .show(ctx, |ui| {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                 egui::Frame::NONE
-                    .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 30, 240))
+                    .fill(egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245))
                     .stroke(egui::Stroke::new(
                         2.0,
-                        egui::Color32::from_rgb(255, 180, 100),
+                        theme::AMBER,
                     ))
                     .inner_margin(12.0)
                     .show(ui, |ui| {
@@ -1041,7 +1120,7 @@ fn ui_starmap_hover_tooltip(
                             ui.label(
                                 egui::RichText::new(&icon.name)
                                     .size(16.0)
-                                    .color(egui::Color32::from_rgb(255, 220, 150))
+                                    .color(theme::STAR_GOLD)
                                     .strong(),
                             );
                         });
@@ -1050,7 +1129,7 @@ fn ui_starmap_hover_tooltip(
                             ui.label(
                                 egui::RichText::new(format!("Distance: {:.2} ly", distance_ly))
                                     .size(12.0)
-                                    .color(egui::Color32::from_rgb(180, 180, 180)),
+                                    .color(theme::TEXT_DIM),
                             );
                         });
 
@@ -1059,7 +1138,7 @@ fn ui_starmap_hover_tooltip(
                                 ui.label(
                                     egui::RichText::new(format!("Bodies: {}", body_count))
                                         .size(12.0)
-                                        .color(egui::Color32::from_rgb(180, 180, 180)),
+                                        .color(theme::TEXT_DIM),
                                 );
                             });
                         }

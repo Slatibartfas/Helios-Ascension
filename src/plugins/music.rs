@@ -191,24 +191,28 @@ fn show_music_controls(mut contexts: EguiContexts, mut playlist: ResMut<MusicPla
                 .inner_margin(egui::Margin::symmetric(6, 3))
                 .show(ui, |ui| {
                     // Both rows right-aligned (Align::Max in a top-down layout).
+                    // Each row targets ~18 px tall so the two rows together match
+                    // the 36 px height of the speed-preset buttons in the time bar.
                     ui.with_layout(egui::Layout::top_down(egui::Align::Max), |ui| {
                         // Row 1: playback controls
                         ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = 2.0;
-                            ui.spacing_mut().button_padding = egui::vec2(3.0, 1.0);
+                            ui.spacing_mut().item_spacing.x = 4.0;
+                            ui.spacing_mut().button_padding = egui::vec2(5.0, 2.0);
                             let play_label = if playlist.paused { "▶" } else { "⏸" };
-                            if ui.add(egui::Button::new(
-                                egui::RichText::new(play_label).small()
-                            )).clicked() {
+                            if ui.add_sized(
+                                [26.0, 18.0],
+                                egui::Button::new(egui::RichText::new(play_label)),
+                            ).clicked() {
                                 playlist.paused = !playlist.paused;
                             }
-                            if ui.add(egui::Button::new(
-                                egui::RichText::new("⏭").small()
-                            )).clicked() {
+                            if ui.add_sized(
+                                [26.0, 18.0],
+                                egui::Button::new(egui::RichText::new("⏭")),
+                            ).clicked() {
                                 playlist.skip_requested = true;
                             }
                             ui.add_sized(
-                                [50.0, 10.0],
+                                [80.0, 14.0],
                                 egui::Slider::new(&mut playlist.volume, 0.0..=1.0)
                                     .show_value(false),
                             );
@@ -220,7 +224,6 @@ fn show_music_controls(mut contexts: EguiContexts, mut playlist: ResMut<MusicPla
                                 "♪  '{}' by Scott Buckley — CC-BY 4.0 · www.scottbuckley.com.au",
                                 track_title
                             ))
-                            .small()
                             .color(egui::Color32::from_rgba_unmultiplied(190, 190, 190, 150)),
                         );
                     });

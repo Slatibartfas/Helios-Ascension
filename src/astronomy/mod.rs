@@ -40,8 +40,10 @@ pub use systems::{
     update_tail_transforms, SCALING_FACTOR,
 };
 pub use selection::{
-    animate_marker_dots, despawn_hover_markers, despawn_selection_markers,
-    handle_body_hover, handle_body_selection, scale_markers_with_zoom,
+    animate_marker_dots, animate_ring_highlight, apply_ring_highlight,
+    despawn_hover_markers, despawn_selection_markers,
+    handle_body_hover, handle_body_selection, remove_ring_highlight,
+    RingHighlight, scale_markers_with_zoom,
     spawn_hover_markers, spawn_selection_markers, zoom_camera_to_anchored_body,
 };
 pub use lagrange::{draw_lagrange_point_rings, handle_lp_hover};
@@ -70,6 +72,10 @@ impl Plugin for AstronomyPlugin {
                     despawn_hover_markers,
                     animate_marker_dots,
                     scale_markers_with_zoom,
+                    // Ring highlight (emissive glow on actual mesh)
+                    apply_ring_highlight,
+                    remove_ring_highlight,
+                    animate_ring_highlight,
                     // Camera zoom
                     zoom_camera_to_anchored_body,
                     // Visibility / LOD

@@ -15,13 +15,14 @@ Complete reference for the resource and economy system in Helios: Ascension.
 
 ## Resource Types
 
-The game features **20 resource types** organized into **7 categories**:
+The game features **31 resource types** organized into **8 categories**:
 
 ### Volatiles
 - **Water (H2O):** Life support, terraforming
 - **Hydrogen (H2):** Fuel, industrial use
 - **Ammonia (NH3):** Terraforming, fertilizer
 - **Methane (CH4):** Fuel, chemical feedstock
+- **Phosphorus (P):** Fertilizer, biological essential (~1000 ppm in crust)
 
 ### Atmospheric Gases
 - **Nitrogen (N2):** Breathable atmospheres
@@ -34,9 +35,13 @@ The game features **20 resource types** organized into **7 categories**:
 - **Aluminum (Al):** Lightweight construction (5-12% of crust)
 - **Titanium (Ti):** High-strength applications (0.3-1% of crust)
 - **Silicates (SiO2):** Glass, ceramics, major rock component (25-45%)
+- **Nickel (Ni):** Alloying metal, common in iron meteorites (~80 ppm in crust)
+- **Tungsten (W):** Refractory metal, armour, tooling (~1 ppm in crust)
+- **Carbon (C):** Structural composites, nanotubes, steel (~200 ppm in crust)
 
 ### Fusion Fuel
 - **Helium-3 (He3):** Rare fusion fuel (found in gas giants, lunar regolith)
+- **Deuterium (D):** Heavy hydrogen, primary fusion fuel (~156 ppm in water)
 
 ### Fissiles
 - **Uranium (U):** Nuclear fission fuel (~3 ppm in crust)
@@ -47,9 +52,17 @@ The game features **20 resource types** organized into **7 categories**:
 - **Silver (Ag):** Electronics, currency (~0.08 ppm in crust)
 - **Platinum (Pt):** Catalysts, high-tech (~0.005 ppb in crust)
 
-### Specialty Materials
+### Strategic Materials
 - **Copper (Cu):** Electronics, conductors (~60 ppm in crust)
 - **Rare Earths (REE):** Advanced technology, magnets (~200 ppm combined)
+- **Lithium (Li):** Batteries, fusion blankets (~20 ppm in crust)
+- **Sulfur (S):** Chemical industry, fertilizer (~350 ppm in crust)
+
+### Exotic Materials
+- **Antimatter (Am̄):** Produced in particle accelerators; fuel for antimatter drives
+- **Exotic Matter (Xm):** Negative-energy-density matter for warp drives and wormholes
+- **Metamaterials (Mm):** Engineered composites for cloaking, shielding, and sensors
+- **Computronium (Qb):** Optimised computational substrate for Culture-level AI minds
 
 ---
 
@@ -80,23 +93,51 @@ Resource abundances are based on real-world planetary compositions to support fu
 **Gas Giants (Jupiter-like):**
 - Hydrogen: 89-90% (atmospheric only)
 - Helium: 10-11% (atmospheric only)
+- Deuterium: Trace (~25 ppm of H₂, atmospheric D/H ratio)
 - No solid resources (atmospheric harvesting only)
 
-**M-type Asteroids:**
-- Iron: 75-90%
-- Nickel: 20-25%
-- Platinum Group: High concentrations
-- Water: Negligible (<0.1%)
+### Asteroid Spectral Classes
 
-**S-type Asteroids:**
+Asteroid type determines which resources are richly available versus absent. Not every asteroid of a given type has every resource — the spectral class sets probabilities and concentration ranges.
+
+**C-type (Carbonaceous) — most common in outer belt:**
+- Carbon: 3-8% (primary game source)
+- Water: 4-7% (hydrated minerals)
+- Phosphorus: 0.1-0.3%
+- Sulfur: 1-3%
+- Nickel: 1-2%
+- Deuterium: trace
+
+**S-type (Silicaceous) — common in inner belt:**
 - Silicates: 60-70%
 - Iron: 15-25%
-- Water: Very low (<1%)
+- Nickel: 0.5-2%
+- Sulfur: minor
+- Carbon/Tungsten: trace only
 
-**C-type Asteroids:**
-- Silicates: 50-60%
-- Water: 4-7% (hydrated minerals)
-- Organics: 2-5%
+**M-type (Metallic) — primary Nickel source:**
+- Iron: 75-90%
+- Nickel: 5-15% (highest concentration in solar system)
+- Tungsten: 0.01-0.1%
+- Platinum group metals: high concentrations
+
+**V-type (Basaltic/Vestoid):**
+- Silicates: 55-65%
+- Iron: 15-20%
+- Nickel: 1-3%
+- Tungsten: trace
+
+**D-type (Dark/Organic-rich) — outer solar system:**
+- Carbon: 5-12%
+- Water: 5-10%
+- Phosphorus: 0.1-0.3%
+- Sulfur: 2-5%
+
+**P-type (Primitive) — trans-Neptunian influenced:**
+- Carbon: 4-10%
+- Water: 3-8%
+- Phosphorus: 0.05-0.2%
+- Sulfur: 1.5-4%
 
 ---
 

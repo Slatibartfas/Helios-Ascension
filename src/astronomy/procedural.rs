@@ -29,6 +29,9 @@ pub struct SystemArchitecture {
 
     /// Cometary cloud (P and D type bodies high in Volatiles)
     pub cometary_cloud: Option<CometaryCloud>,
+
+    /// Dwarf planets in the outer system (Pluto-like trans-Neptunian objects)
+    pub dwarf_planets: Vec<ProceduralPlanet>,
 }
 
 /// Procedurally generated planet parameters
@@ -145,7 +148,7 @@ pub fn map_star_to_system_architecture(
     // Calculate frost line
     let frost_line_au = calculate_frost_line(luminosity_solar);
 
-    info!(
+    debug!(
         "Generating system architecture for {} (L={:.3}L☉, frost line={:.2}AU)",
         star_name, luminosity_solar, frost_line_au
     );
@@ -220,12 +223,27 @@ pub fn map_star_to_system_architecture(
         None
     };
 
+    // Generate dwarf planets in the trans-Neptunian region
+    // Most systems with outer planets likely have a Kuiper belt analog
+    // with a few dwarf-planet-scale bodies
+    let dwarf_planets = if rng.random_bool(0.75) {
+        // Combine all orbits for collision avoidance
+        let mut all_orbits = existing_orbits_au.to_vec();
+        all_orbits.extend(rocky_planets.iter().map(|p| p.semi_major_axis_au));
+        all_orbits.extend(gas_giants.iter().map(|p| p.semi_major_axis_au));
+        let name_offset = existing_orbits_au.len() + rocky_planets.len() + gas_giants.len();
+        generate_dwarf_planets(star_name, frost_line_au, &all_orbits, name_offset, rng)
+    } else {
+        Vec::new()
+    };
+
     SystemArchitecture {
         frost_line_au,
         rocky_planets,
         asteroid_belt,
         gas_giants,
         cometary_cloud,
+        dwarf_planets,
     }
 }
 
@@ -315,15 +333,33 @@ fn generate_rocky_planets(
                     .unwrap_or('?')
             ),
             semi_major_axis_au: semi_major_axis,
-            eccentricity: rng.random_range(0.0..0.12),
-            inclination: rng.random_range(-0.05..0.05),
+            // Eccentricity: most rocky planets are near-circular, but a few
+            // can be quite eccentric (Mercury 0.206, HD 80606 b 0.93).
+            // Use a power-law-biased distribution: low values common, high rare.
+            eccentricity: rng.random_range(0.0_f64..1.0).powf(2.5) * 0.25,
+            // Inclination: real planets 0-7° (Mercury 7°, Venus 3.4°, Mars 1.85°)
+            inclination: rng.random_range(-0.13..0.13), // ±~7.5°
             longitude_ascending_node: rng.random_range(0.0..std::f64::consts::TAU),
             argument_of_periapsis: rng.random_range(0.0..std::f64::consts::TAU),
             mean_anomaly_epoch: rng.random_range(0.0..std::f64::consts::TAU),
             period_days,
-            mass_earth: rng.random_range(0.3..3.5),
-            radius_earth: rng.random_range(0.7..1.8),
+            // Mass-radius correlation (Chen & Kipping 2017):
+            // For rocky planets, R ∝ M^0.28 (Terran regime)
+            mass_earth: {
+                // Log-uniform from 0.05 (sub-Mercury) to 5.0 (super-Earth)
+                let log_mass = rng.random_range((-1.3_f64)..(0.7_f64)); // 10^-1.3 ≈ 0.05, 10^0.7 ≈ 5.0
+                10.0_f64.powf(log_mass) as f32
+            },
+            radius_earth: 0.0, // placeholder, set below
             planet_type: PlanetType::Rocky,
+        };
+
+        // Derive radius from mass using empirical power law + scatter
+        // R ≈ M^0.28 for rocky planets (Chen & Kipping 2017)
+        let radius = (planet.mass_earth as f64).powf(0.28) * rng.random_range(0.90..1.10_f64);
+        let planet = ProceduralPlanet {
+            radius_earth: radius as f32,
+            ..planet
         };
 
         all_orbits.push(semi_major_axis);
@@ -402,16 +438,46 @@ fn generate_gas_giants(
         let period_days = period_years * 365.25;
 
         // Determine if this is a gas giant or ice giant
-        // Ice giants are more common at moderate distances, gas giants further out
-        let planet_type = if semi_major_axis < frost_line_au * 3.0 && rng.random_bool(0.6) {
-            PlanetType::IceGiant
+        // Gas giants form closer to frost line where more material is available;
+        // ice giants dominate further out where accretion is slower.
+        // Jupiter (5.2AU ≈ 1.07× frost line), Saturn (9.5AU ≈ 1.96×),
+        // Uranus (19.2AU ≈ 3.96×), Neptune (30.0AU ≈ 6.19×)
+        let distance_ratio = semi_major_axis / frost_line_au;
+        let planet_type = if distance_ratio < 2.5 && rng.random_bool(0.7) {
+            PlanetType::GasGiant // More likely near frost line
+        } else if distance_ratio > 4.0 {
+            PlanetType::IceGiant // Dominant far out
         } else {
-            PlanetType::GasGiant
+            // Transition zone: either type
+            if rng.random_bool(0.4) {
+                PlanetType::GasGiant
+            } else {
+                PlanetType::IceGiant
+            }
         };
 
-        let (mass_range, radius_range) = match planet_type {
-            PlanetType::IceGiant => ((10.0, 25.0), (3.5, 4.5)), // Neptune-like
-            PlanetType::GasGiant => ((50.0, 400.0), (8.0, 12.0)), // Jupiter-like
+        // Mass-radius with realistic variance
+        // Gas giants: Jupiter 317.8 M⊕ / 11.2 R⊕, Saturn 95.2 M⊕ / 9.4 R⊕
+        // Ice giants: Uranus 14.5 M⊕ / 4.0 R⊕, Neptune 17.1 M⊕ / 3.9 R⊕
+        let (mass_earth, radius_earth) = match planet_type {
+            PlanetType::IceGiant => {
+                // Log-uniform mass: 8-30 M⊕ (Uranus 14.5, Neptune 17.1)
+                let log_mass = rng.random_range(0.9_f64..1.48); // 10^0.9 ≈ 8, 10^1.48 ≈ 30
+                let mass = 10.0_f64.powf(log_mass) as f32;
+                // R ∝ M^0.06 for Neptunian regime (Chen & Kipping 2017) + scatter
+                let radius = 3.5 + (mass / 15.0 - 1.0) * 0.5 * rng.random_range(0.8..1.2);
+                (mass, radius.clamp(3.0, 5.0))
+            }
+            PlanetType::GasGiant => {
+                // Log-uniform mass: 30-800 M⊕ (Saturn 95, Jupiter 318, some up to 2× Jupiter)
+                let log_mass = rng.random_range(1.48_f64..2.9); // 10^1.48 ≈ 30, 10^2.9 ≈ 800
+                let mass = 10.0_f64.powf(log_mass) as f32;
+                // Gas giants have roughly constant radius (~9-12 R⊕)
+                // due to degeneracy pressure; more massive ones can be smaller (hot/dense)
+                let base_radius = 9.0 + rng.random_range(-1.0..2.5_f32);
+                let radius = base_radius * rng.random_range(0.9..1.1);
+                (mass, radius.clamp(7.0, 13.0))
+            }
             _ => unreachable!(),
         };
 
@@ -423,14 +489,17 @@ fn generate_gas_giants(
                     .unwrap_or('?')
             ),
             semi_major_axis_au: semi_major_axis,
-            eccentricity: rng.random_range(0.0..0.25), // Giants can have moderate eccentricity
-            inclination: rng.random_range(-0.08..0.08), // Moderate inclination
+            // Gas giants: most near-circular but some significantly eccentric
+            // Jupiter 0.049, Saturn 0.054, HD 80606 b 0.93 (extreme)
+            eccentricity: rng.random_range(0.0_f64..1.0).powf(2.0) * 0.35,
+            // Inclination: Jupiter 1.3°, Saturn 2.5°, up to ~5-10° for exoplanets
+            inclination: rng.random_range(-0.15..0.15), // ±~8.6°
             longitude_ascending_node: rng.random_range(0.0..std::f64::consts::TAU),
             argument_of_periapsis: rng.random_range(0.0..std::f64::consts::TAU),
             mean_anomaly_epoch: rng.random_range(0.0..std::f64::consts::TAU),
             period_days,
-            mass_earth: rng.random_range(mass_range.0..mass_range.1),
-            radius_earth: rng.random_range(radius_range.0..radius_range.1),
+            mass_earth,
+            radius_earth,
             planet_type,
         };
 
@@ -526,6 +595,102 @@ fn is_too_close_to_existing(
         }
     }
     false
+}
+
+/// Generate dwarf planets in the trans-Neptunian region.
+///
+/// Models bodies like Pluto (39.5 AU, e=0.25, i=17°), Eris (67.7 AU, e=0.44, i=44°),
+/// Makemake (45.4 AU, e=0.16, i=29°), Haumea (43.1 AU, e=0.19, i=28°).
+/// These bodies occupy high-eccentricity, high-inclination orbits in the
+/// Kuiper belt and scattered disk.
+fn generate_dwarf_planets(
+    star_name: &str,
+    frost_line_au: f64,
+    existing_orbits_au: &[f64],
+    name_offset: usize,
+    rng: &mut impl Rng,
+) -> Vec<ProceduralPlanet> {
+    let mut planets = Vec::new();
+
+    // Trans-Neptunian region: 6× frost line to 100 AU
+    // (For Sol, this is ~30-100 AU, matching the Kuiper belt + scattered disk)
+    let inner = (frost_line_au * 6.0).max(10.0);
+    let outer = (frost_line_au * 20.0).max(inner * 3.0).min(150.0);
+
+    // 1-4 dwarf planets (Sol has ~5 officially, likely hundreds undiscovered)
+    let count = rng.random_range(1..=4_usize);
+
+    let mut all_orbits = existing_orbits_au.to_vec();
+
+    for i in 0..count {
+        // Log-uniform distribution across the region
+        let log_inner = inner.ln();
+        let log_outer = outer.ln();
+        let semi_major_axis = (log_inner + rng.random_range(0.0..1.0_f64) * (log_outer - log_inner)).exp();
+
+        // Check spacing
+        let min_sep = semi_major_axis * 0.1;
+        if is_too_close_to_existing(semi_major_axis, &all_orbits, min_sep) {
+            continue;
+        }
+
+        // Eccentricity: wide range, many TNOs have significant eccentricity
+        // Pluto 0.25, Eris 0.44, Makemake 0.16, Sedna 0.84
+        // Biased toward moderate values with some high-e scattered disk bodies
+        let eccentricity = if rng.random_range(0.0..1.0_f64) < 0.2 {
+            // Scattered disk: high eccentricity (Sedna-like)
+            rng.random_range(0.5..0.85_f64)
+        } else {
+            // Classical/resonant Kuiper belt
+            rng.random_range(0.03..0.35_f64)
+        };
+
+        // Inclination: TNOs have wide range
+        // Classical belt: 0-5°, hot population: up to 30°+
+        // Scattered disk: up to 45°+
+        // Pluto 17°, Eris 44°, Makemake 29°, Haumea 28°
+        let inclination = rng.random_range(0.0_f64..1.0).powf(0.5) * 0.87; // up to ~50°, biased toward moderate
+
+        let period_years = semi_major_axis.powf(1.5);
+        let period_days = period_years * 365.25;
+
+        // Mass: dwarf planets range from ~0.00015 M⊕ (Ceres) to ~0.003 M⊕ (Eris)
+        // Log-uniform distribution
+        let log_mass = rng.random_range(-4.0..-2.5_f64); // 10^-4 to 10^-2.5 M⊕
+        let mass_earth = 10.0_f64.powf(log_mass) as f32;
+
+        // Radius from mass using icy body density (~1800-2200 kg/m³)
+        // R ∝ M^(1/3) for constant density
+        let density = rng.random_range(1600.0..2400.0_f64);
+        let mass_kg = (mass_earth as f64) * 5.972e24;
+        let volume_m3 = mass_kg / density;
+        let radius_m = (volume_m3 * 3.0 / (4.0 * PI)).powf(1.0 / 3.0);
+        let radius_earth = (radius_m / 6.371e6) as f32;
+
+        let planet = ProceduralPlanet {
+            name: format!(
+                "{} {}",
+                star_name,
+                char::from_u32('b' as u32 + name_offset as u32 + i as u32)
+                    .unwrap_or('?')
+            ),
+            semi_major_axis_au: semi_major_axis,
+            eccentricity,
+            inclination,
+            longitude_ascending_node: rng.random_range(0.0..std::f64::consts::TAU),
+            argument_of_periapsis: rng.random_range(0.0..std::f64::consts::TAU),
+            mean_anomaly_epoch: rng.random_range(0.0..std::f64::consts::TAU),
+            period_days,
+            mass_earth,
+            radius_earth,
+            planet_type: PlanetType::Rocky, // Dwarf planets are rocky/icy
+        };
+
+        all_orbits.push(semi_major_axis);
+        planets.push(planet);
+    }
+
+    planets
 }
 
 impl ProceduralPlanet {

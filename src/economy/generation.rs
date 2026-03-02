@@ -90,7 +90,7 @@ pub fn generate_solar_system_resources(
             (coords.position.length(), DEFAULT_FROST_LINE_AU, 1.0)
         };
 
-        info!(
+        debug!(
             "Generating resources for {} at {:.2} AU (frost line: {:.2} AU, metallicity mult: {:.2}x)",
             body.name, distance_from_star, frost_line, metallicity_multiplier
         );
@@ -176,6 +176,11 @@ fn generate_resources_for_body(
 
     // Generate each resource type
     for resource_type in ResourceType::all() {
+        // Skip manufactured/biological resources — never naturally occurring as deposits
+        if resource_type.is_biological() || matches!(resource_type, ResourceType::Polymers) {
+            continue;
+        }
+
         // Skip some resources randomly for variation (30-50% chance to skip non-critical resources)
         if !resource_type.is_critical() && rng.random_bool(0.4) {
             continue;
@@ -482,7 +487,7 @@ fn apply_asteroid_specialization(
                 scale_deposit(&mut deposit, 10.0);
                 cap_deposit_conc(&mut deposit, 0.005);
             }
-            _ if !resource.is_precious_metal() && !resource.is_specialty() => {
+            _ if !resource.is_precious_metal() && !resource.is_strategic() => {
                 scale_deposit(&mut deposit, 0.2);
             }
             _ => {}
@@ -492,6 +497,16 @@ fn apply_asteroid_specialization(
             ResourceType::Iron => {
                 min_deposit_conc(&mut deposit, 0.70);
                 deposit.accessibility = (deposit.accessibility * 1.3).min(0.98);
+            }
+            ResourceType::Nickel => {
+                // Nickel-iron alloy: Nickel gets major boost
+                min_deposit_conc(&mut deposit, 0.10);
+                deposit.accessibility = (deposit.accessibility * 1.3).min(0.98);
+            }
+            ResourceType::Tungsten => {
+                // Refractory siderophile concentrated in metallic bodies
+                scale_deposit(&mut deposit, 8.0);
+                cap_deposit_conc(&mut deposit, 0.005);
             }
             ResourceType::Platinum | ResourceType::Gold | ResourceType::Silver => {
                 scale_deposit(&mut deposit, 15.0);
@@ -516,6 +531,21 @@ fn apply_asteroid_specialization(
             }
             ResourceType::CarbonDioxide | ResourceType::Nitrogen => {
                 scale_deposit(&mut deposit, 3.0);
+            }
+            ResourceType::Carbon => {
+                // Carbonaceous asteroids are Carbon-rich
+                min_deposit_conc(&mut deposit, 0.05);
+                deposit.accessibility = (deposit.accessibility * 1.3).min(0.90);
+            }
+            ResourceType::Phosphorus => {
+                // Key Phosphorus source
+                scale_deposit(&mut deposit, 5.0);
+                cap_deposit_conc(&mut deposit, 0.01);
+            }
+            ResourceType::Sulfur => {
+                // Sulfide-rich organic material
+                scale_deposit(&mut deposit, 3.0);
+                cap_deposit_conc(&mut deposit, 0.02);
             }
             _ => {}
         },
@@ -551,14 +581,22 @@ fn generate_resource_deposit(
     // Values represent fraction of body composition, not absolute amounts
     let (base_abundance, base_accessibility) = match (resource, is_inner) {
         // Volatiles - HIGH in outer system, VERY LOW in inner system
-        (r, false) if r.is_volatile() => (
-            rng.random_range(0.3..0.7), // Realistic ice composition
-            rng.random_range(0.5..0.9), // Good accessibility (ice on surface)
-        ),
-        (r, true) if r.is_volatile() => (
-            rng.random_range(0.0..0.02), // Almost none in inner system
-            rng.random_range(0.0..0.1),  // Poor accessibility if any
-        ),
+        (r, false) if r.is_volatile() => {
+            let abundance = match resource {
+                // Phosphorus is moderately available in carbonaceous outer system material
+                ResourceType::Phosphorus => rng.random_range(0.001..0.005),
+                _ => rng.random_range(0.3..0.7), // Realistic ice composition
+            };
+            (abundance, rng.random_range(0.5..0.9)) // Good accessibility (ice on surface)
+        }
+        (r, true) if r.is_volatile() => {
+            let abundance = match resource {
+                // Phosphorus is scarce on rocky planets — the hard limit on population growth
+                ResourceType::Phosphorus => rng.random_range(0.00005..0.0003),
+                _ => rng.random_range(0.0..0.02), // Almost none in inner system
+            };
+            (abundance, rng.random_range(0.0..0.1)) // Poor accessibility if any
+        }
 
         // Atmospheric gases - Present in atmospheres and trapped in ice
         // Outer system: gases trapped as ices in body composition (significant fraction)
@@ -582,24 +620,43 @@ fn generate_resource_deposit(
                 ResourceType::Silicates => rng.random_range(0.25..0.45), // Major component
                 ResourceType::Aluminum => rng.random_range(0.05..0.12), // ~8% of crust
                 ResourceType::Titanium => rng.random_range(0.003..0.01), // ~0.6% of crust
+                ResourceType::Nickel => rng.random_range(0.01..0.03),   // ~1.8% of Earth (mostly core)
+                ResourceType::Tungsten => rng.random_range(0.0001..0.001), // ~1.3 ppm crustal
+                ResourceType::Carbon => rng.random_range(0.0001..0.001),   // Low on rocky worlds
+                ResourceType::Chromium => rng.random_range(0.0005..0.003), // ~100 ppm crustal
+                ResourceType::Magnesium => rng.random_range(0.02..0.06),   // ~2.3% of crust
                 _ => rng.random_range(0.1..0.3),
             };
             (abundance, rng.random_range(0.6..0.95)) // Good accessibility (near surface)
         }
-        (r, false) if r.is_construction() => (
-            rng.random_range(0.05..0.2), // Present but less concentrated
-            rng.random_range(0.1..0.3),  // Poor accessibility (buried under ice)
-        ),
+        (r, false) if r.is_construction() => {
+            let abundance = match resource {
+                // Carbon is abundant in carbonaceous outer system material
+                ResourceType::Carbon => rng.random_range(0.01..0.05),
+                // Magnesium in silicate ices
+                ResourceType::Magnesium => rng.random_range(0.005..0.02),
+                _ => rng.random_range(0.05..0.2), // Present but less concentrated
+            };
+            (abundance, rng.random_range(0.1..0.3)) // Poor accessibility (buried under ice)
+        }
 
-        // Noble gases - He3 is very rare but valuable for fusion
-        (r, false) if r.is_noble_gas() => (
-            rng.random_range(0.00001..0.0001), // Extremely rare He3
-            rng.random_range(0.3..0.7),        // Moderate accessibility
-        ),
-        (r, true) if r.is_noble_gas() => (
-            rng.random_range(0.000001..0.00001), // Trace He3 in inner system
-            rng.random_range(0.1..0.3),          // Poor accessibility
-        ),
+        // Fusion fuel - He3 and Deuterium are very rare but valuable
+        (r, false) if r.is_fusion_fuel() => {
+            let abundance = match resource {
+                ResourceType::Deuterium => rng.random_range(0.00001..0.0001), // D/H ratio in water ice
+                ResourceType::Helium3 => rng.random_range(0.00001..0.0001),  // Extremely rare
+                _ => rng.random_range(0.00001..0.0001),
+            };
+            (abundance, rng.random_range(0.3..0.7)) // Moderate accessibility
+        }
+        (r, true) if r.is_fusion_fuel() => {
+            let abundance = match resource {
+                ResourceType::Deuterium => rng.random_range(0.000001..0.00001), // Trace in inner system
+                ResourceType::Helium3 => rng.random_range(0.000001..0.00001),  // Trace He3
+                _ => rng.random_range(0.000001..0.00001),
+            };
+            (abundance, rng.random_range(0.1..0.3)) // Poor accessibility
+        }
 
         // Fissile materials - Rare everywhere, more realistic abundances
         (r, true) if r.is_fissile() => {
@@ -630,19 +687,31 @@ fn generate_resource_deposit(
             rng.random_range(0.1..0.3),            // Poor accessibility
         ),
 
-        // Specialty materials - Moderate rarity
-        (r, true) if r.is_specialty() => {
+        // Strategic materials - Moderate rarity
+        (r, true) if r.is_strategic() => {
             let abundance = match resource {
-                ResourceType::Copper => rng.random_range(0.00003..0.0001), // ~60 ppm in crust
+                ResourceType::Copper => rng.random_range(0.00003..0.0001),     // ~60 ppm in crust
                 ResourceType::RareEarths => rng.random_range(0.00005..0.0002), // Variable, ~200 ppm combined
+                ResourceType::Lithium => rng.random_range(0.00001..0.00005),   // ~20 ppm crustal
+                ResourceType::Sulfur => rng.random_range(0.0001..0.001),       // ~350 ppm crustal
+                ResourceType::Cobalt => rng.random_range(0.00001..0.00005),    // ~25 ppm crustal
+                ResourceType::Fluorine => rng.random_range(0.0003..0.001),     // ~585 ppm crustal (in fluorite)
+                ResourceType::Polymers => return MineralDeposit::default(),     // Manufactured, never mined
                 _ => rng.random_range(0.0001..0.001),
             };
             (abundance, rng.random_range(0.3..0.7)) // Moderate accessibility
         }
-        (r, false) if r.is_specialty() => (
-            rng.random_range(0.00001..0.0001), // Lower abundance
-            rng.random_range(0.2..0.5),        // Harder to access
-        ),
+        (r, false) if r.is_strategic() => {
+            let abundance = match resource {
+                // Sulfur is relatively abundant in outer system (volcanic moons, ices)
+                ResourceType::Sulfur => rng.random_range(0.001..0.005),
+                // Fluorine in fluorite/fluorapatite ices (outer system)
+                ResourceType::Fluorine => rng.random_range(0.0001..0.0005),
+                ResourceType::Polymers => return MineralDeposit::default(), // Manufactured, never mined
+                _ => rng.random_range(0.00001..0.0001), // Lower abundance
+            };
+            (abundance, rng.random_range(0.2..0.5)) // Harder to access
+        }
 
         // Fallback (shouldn't happen)
         _ => (0.0, 0.0),
@@ -650,8 +719,8 @@ fn generate_resource_deposit(
 
     // Apply distance modifiers for more nuanced distribution
     let distance_factor = calculate_distance_modifier(resource, distance_au, frost_line_au);
-    let mut final_abundance = (base_abundance * distance_factor).clamp(0.0, 1.0);
-    let final_accessibility = (base_accessibility * distance_factor as f32).clamp(0.0, 1.0);
+    let mut final_abundance: f64 = (base_abundance * distance_factor).clamp(0.0, 1.0);
+    let final_accessibility: f32 = (base_accessibility * distance_factor as f32).clamp(0.0, 1.0);
 
     // Cap volatile abundances to reasonable maximums to avoid unrealistic 100%+ volatiles
     if resource.is_volatile() {
@@ -680,7 +749,7 @@ fn generate_resource_deposit(
     // On airless bodies (asteroids, small moons) this is the primary source.
     // On larger bodies with atmospheres, the atmosphere shields the surface,
     // so He-3 is negligible (handled by special profiles or skipped).
-    if resource.is_noble_gas() {
+    if resource.is_fusion_fuel() {
         let total_mass_mt = (body_mass * final_abundance) / 1e9;
         return create_solar_wind_deposit(total_mass_mt, final_accessibility);
     }
@@ -729,7 +798,7 @@ fn calculate_distance_modifier(
         }
 
         // Noble gases (He3) favor outer system but very rare
-        r if r.is_noble_gas() => {
+        r if r.is_fusion_fuel() => {
             if distance_au > frost_line_au {
                 1.0 + (distance_au - frost_line_au) * 0.1
             } else {
@@ -754,13 +823,16 @@ fn calculate_distance_modifier(
             1.0 - (distance_diff * 0.1).min(0.5) // Less penalty for distance
         }
 
-        // Specialty materials have complex distribution
-        r if r.is_specialty() => {
+        // Strategic materials have complex distribution
+        r if r.is_strategic() => {
             // Peak around optimal distance (scaled by frost line)
             // For Sun-like stars (frost_line ~2.5), optimal is ~1.5 AU
             let optimal_distance = frost_line_au * 0.6;
             1.0 - ((distance_au - optimal_distance).abs() * 0.15).min(0.6)
         }
+
+        // Exotic materials are never naturally occurring
+        r if r.is_exotic() => 0.0,
 
         _ => 1.0,
     }
@@ -812,8 +884,11 @@ pub fn generate_ring_resources(
         resources.add_deposit(ResourceType::Ammonia,   make_deposit(ammonia_fraction));
         resources.add_deposit(ResourceType::Methane,   make_deposit(methane_fraction));
 
+        // Trace carbon from micrometeorite contamination (darkening agent)
+        resources.add_deposit(ResourceType::Carbon, make_deposit(0.005));
+
         commands.entity(entity).insert(resources);
-        info!(
+        debug!(
             "Generated ring resources for '{}' (profile: {}, total {:.2e} Mt)",
             body.name, profile_name, total_mass_mt
         );
@@ -1375,6 +1450,36 @@ mod tests {
         assert!(he3.reserve.proven_crustal > 0.5, "He-3 should be mostly surface");
         assert!(he3.reserve.planetary_bulk < 0.01, "He-3 should have no deep bulk deposits");
         assert!(!he3.is_atmospheric, "He-3 on Moon is not atmospheric");
+    }
+
+    #[test]
+    fn test_moon_deuterium_not_solar_wind() {
+        let mut rng = rand::rng();
+        let moon_mass = 7.342e22;
+        let moon_resources = generate_resources_for_body(
+            "Moon",
+            crate::plugins::solar_system_data::BodyType::Moon,
+            moon_mass,
+            None,
+            1.0,
+            2.5,
+            &mut rng,
+        );
+
+        let deut = moon_resources
+            .get_deposit(&ResourceType::Deuterium)
+            .expect("Moon should have some deuterium");
+
+        let total = deut.reserve.proven_crustal
+            + deut.reserve.deep_deposits
+            + deut.reserve.planetary_bulk;
+        // deuterium should not be a tiny solar‑wind trace amount
+        assert!(total > 1.0, "Moon deuterium should be more than trivial solar-wind mass (found {:.2} Mt)", total);
+        // bulk > 0 indicates legacy/ice generation rather than pure surface implantation
+        assert!(
+            deut.reserve.planetary_bulk > 0.0,
+            "Deuterium deposit should include bulk material, not be a pure surface solar-wind layer"
+        );
     }
 
     #[test]

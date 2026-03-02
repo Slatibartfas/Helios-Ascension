@@ -39,20 +39,20 @@ pub(super) fn render_transfer_planner(
             egui::RichText::new("🔄 Course Correction")
                 .strong()
                 .size(15.0)
-                .color(egui::Color32::from_rgb(255, 200, 80)),
+                .color(theme::AMBER),
         );
         ui.label(
             egui::RichText::new("Select a new target and execute to redirect immediately. Use Abort Mission to cancel and return to origin orbit.")
                 .size(11.0)
                 .italics()
-                .color(egui::Color32::GRAY),
+                .color(theme::TEXT_DIM),
         );
     } else {
         ui.label(
             egui::RichText::new("📡 Orbital Transfer Planner")
                 .strong()
                 .size(15.0)
-                .color(egui::Color32::from_rgb(200, 220, 255)),
+                .color(theme::TEXT_VALUE),
         );
     }
     ui.separator();
@@ -511,7 +511,7 @@ pub(super) fn render_transfer_planner(
                                         egui::RichText::new(label.as_str())
                                             .strong()
                                             .size(11.0)
-                                            .color(egui::Color32::from_rgb(180, 180, 100)),
+                                            .color(theme::AMBER),
                                     );
                                 }
                                 DestEntry::Body { entity, name } => {
@@ -569,7 +569,7 @@ pub(super) fn render_transfer_planner(
                                         is_sel,
                                         egui::RichText::new(label)
                                             .size(12.0)
-                                            .color(egui::Color32::from_rgb(100, 210, 240)),
+                                            .color(theme::ACCENT),
                                     ).clicked() && !is_sel {
                                         fleet_ui_state.target_fleet = Some(*entity);
                                         fleet_ui_state.target_body = None;
@@ -590,7 +590,7 @@ pub(super) fn render_transfer_planner(
                                         is_sel,
                                         egui::RichText::new(format!("  {name}"))
                                             .size(12.0)
-                                            .color(egui::Color32::from_rgb(200, 180, 255)),
+                                            .color(theme::GRAVITY_ASSIST),
                                     ).clicked() && !is_sel {
                                         fleet_ui_state.target_star_system = Some((*system_id, name.clone(), *distance_ly));
                                         fleet_ui_state.target_body = None;
@@ -617,7 +617,7 @@ pub(super) fn render_transfer_planner(
                 egui::RichText::new("⚔ Intercept Parameters")
                     .strong()
                     .size(13.0)
-                    .color(egui::Color32::from_rgb(220, 160, 80)),
+                    .color(theme::AMBER),
             );
             ui.add_space(4.0);
 
@@ -663,7 +663,7 @@ pub(super) fn render_transfer_planner(
                 )
                 .size(11.0)
                 .italics()
-                .color(egui::Color32::from_rgb(160, 200, 160)),
+                .color(theme::GREEN),
             );
         });
     }
@@ -1360,58 +1360,58 @@ pub(super) fn render_transfer_planner(
                             ui.label(
                                 egui::RichText::new("⟳ Co-orbital Phasing")
                                     .strong().size(12.0)
-                                    .color(egui::Color32::from_rgb(160, 210, 255)),
+                                    .color(theme::RP_BLUE),
                             );
                             ui.add_space(3.0);
                             ui.label(
                                 egui::RichText::new("Depart any time")
                                     .size(12.0).strong()
-                                    .color(egui::Color32::from_rgb(80, 220, 80)),
+                                    .color(theme::GREEN),
                             );
                             ui.label(
                                 egui::RichText::new("Fleet drifts in a slightly\nlower orbit to cover the\nphase gap over N laps.")
-                                    .size(10.0).color(egui::Color32::GRAY),
+                                    .size(10.0).color(theme::TEXT_DIM),
                             );
                         } else if is_l12_direct {
                             ui.label(
                                 egui::RichText::new("🎯 Direct LP Transfer")
                                     .strong().size(12.0)
-                                    .color(egui::Color32::from_rgb(160, 210, 255)),
+                                    .color(theme::RP_BLUE),
                             );
                             ui.add_space(3.0);
                             ui.label(
                                 egui::RichText::new(format!("L{}: {}", lp.point, lp.qualifier()))
                                     .size(12.0).strong()
-                                    .color(egui::Color32::from_rgb(200, 200, 200)),
+                                    .color(theme::TEXT),
                             );
                             ui.label(
                                 egui::RichText::new(format!("r = {:.4} AU", lp.radius_au))
-                                    .size(11.0).color(egui::Color32::GRAY),
+                                    .size(11.0).color(theme::TEXT_DIM),
                             );
                             ui.label(
                                 egui::RichText::new("Low-energy manifold trajectory\nto the Lagrange equilibrium.")
-                                    .size(10.0).color(egui::Color32::GRAY),
+                                    .size(10.0).color(theme::TEXT_DIM),
                             );
                         } else {
                             // L3/L4/L5 cross-orbit (fleet not co-orbital): Hohmann
                             ui.label(
                                 egui::RichText::new("⬆ Hohmann Transfer")
                                     .strong().size(12.0)
-                                    .color(egui::Color32::from_rgb(160, 210, 255)),
+                                    .color(theme::RP_BLUE),
                             );
                             ui.add_space(3.0);
                             ui.label(
                                 egui::RichText::new(format!("L{}: {}", lp.point, lp.qualifier()))
                                     .size(12.0).strong()
-                                    .color(egui::Color32::from_rgb(200, 200, 200)),
+                                    .color(theme::TEXT),
                             );
                             ui.label(
                                 egui::RichText::new(format!("r = {:.4} AU", lp.radius_au))
-                                    .size(11.0).color(egui::Color32::GRAY),
+                                    .size(11.0).color(theme::TEXT_DIM),
                             );
                             ui.label(
                                 egui::RichText::new("Keplerian transfer arc,\nthen phase into the LP.")
-                                    .size(10.0).color(egui::Color32::GRAY),
+                                    .size(10.0).color(theme::TEXT_DIM),
                             );
                         }
                     });
@@ -1425,7 +1425,7 @@ pub(super) fn render_transfer_planner(
                         ui.label(
                             egui::RichText::new("\u{1f680} Fleet")
                                 .strong().size(12.0)
-                                .color(egui::Color32::from_rgb(160, 210, 255)),
+                                .color(theme::RP_BLUE),
                         );
                         ui.add_space(3.0);
                         let dv_kms = fleet.max_delta_v_ms() / 1_000.0;
@@ -1436,25 +1436,25 @@ pub(super) fn render_transfer_planner(
                             format!("{:.0} kN", thrust_kn)
                         };
                         let accel_g = fleet.min_accel_ms2() / 9.80665;
-                        ui.label(egui::RichText::new("ΔV avail.").size(10.0).color(egui::Color32::GRAY));
+                        ui.label(egui::RichText::new("ΔV avail.").size(10.0).color(theme::TEXT_DIM));
                         ui.label(
                             egui::RichText::new(format!("{:.2} km/s", dv_kms))
                                 .size(11.0).strong()
-                                .color(egui::Color32::from_rgb(200, 230, 255)),
+                                .color(theme::TEXT_VALUE),
                         );
                         ui.add_space(4.0);
-                        ui.label(egui::RichText::new("Thrust").size(10.0).color(egui::Color32::GRAY));
+                        ui.label(egui::RichText::new("Thrust").size(10.0).color(theme::TEXT_DIM));
                         ui.label(
                             egui::RichText::new(thrust_str)
                                 .size(11.0).strong()
-                                .color(egui::Color32::from_rgb(200, 230, 255)),
+                                .color(theme::TEXT_VALUE),
                         );
                         ui.add_space(4.0);
-                        ui.label(egui::RichText::new("Accel.").size(10.0).color(egui::Color32::GRAY));
+                        ui.label(egui::RichText::new("Accel.").size(10.0).color(theme::TEXT_DIM));
                         ui.label(
                             egui::RichText::new(format!("{:.3} g", accel_g))
                                 .size(11.0).strong()
-                                .color(egui::Color32::from_rgb(200, 230, 255)),
+                                .color(theme::TEXT_VALUE),
                         );
                     });
                 });
@@ -1493,7 +1493,7 @@ pub(super) fn render_transfer_planner(
                             egui::RichText::new("⏱ Transfer Window")
                                 .strong()
                                 .size(12.0)
-                                .color(egui::Color32::from_rgb(160, 210, 255)),
+                                .color(theme::RP_BLUE),
                         );
                         ui.add_space(3.0);
 
@@ -1507,13 +1507,13 @@ pub(super) fn render_transfer_planner(
                                         egui::RichText::new("NOW  ✓")
                                             .size(12.0)
                                             .strong()
-                                            .color(egui::Color32::from_rgb(80, 220, 80)),
+                                            .color(theme::GREEN),
                                     );
                                 } else {
                                     ui.label(
                                         egui::RichText::new(format!("{}", format_duration(window.time_to_window_s)))
                                             .size(12.0)
-                                            .color(egui::Color32::from_rgb(200, 200, 200)),
+                                            .color(theme::TEXT),
                                     );
                                 }
                                 ui.end_row();
@@ -1524,7 +1524,7 @@ pub(super) fn render_transfer_planner(
                                 } else {
                                     "∞ (same orbit)".to_owned()
                                 };
-                                ui.label(egui::RichText::new(syn_str).size(12.0).color(egui::Color32::GRAY));
+                                ui.label(egui::RichText::new(syn_str).size(12.0).color(theme::TEXT_DIM));
                                 ui.end_row();
                             });
                     });
@@ -1539,7 +1539,7 @@ pub(super) fn render_transfer_planner(
                             egui::RichText::new("🕐 Planned Departure")
                                 .strong()
                                 .size(12.0)
-                                .color(egui::Color32::from_rgb(160, 210, 255)),
+                                .color(theme::RP_BLUE),
                         );
 
                         // Row 2: slider
@@ -1564,7 +1564,7 @@ pub(super) fn render_transfer_planner(
                                 ui.label(
                                     egui::RichText::new(format!("× {} orbits (waiting)", fleet_ui_state.waiting_orbit_count))
                                         .size(10.5)
-                                        .color(egui::Color32::from_rgb(160, 80, 220)),
+                                        .color(theme::GRAVITY_ASSIST),
                                 );
                             });
                         }
@@ -1577,13 +1577,13 @@ pub(super) fn render_transfer_planner(
                         };
                         let factor = crate::fleets::orbital_mechanics::phase_dv_factor(phase_at.abs());
                         let (quality_str, quality_color) = if factor < 1.05 {
-                            ("● Optimal", egui::Color32::from_rgb(80, 220, 80))
+                            ("● Optimal", theme::GREEN)
                         } else if factor < 1.40 {
-                            ("◑ Good", egui::Color32::from_rgb(180, 220, 80))
+                            ("◑ Good", theme::GREEN)
                         } else if factor < 1.80 {
-                            ("◔ Fair", egui::Color32::from_rgb(220, 180, 60))
+                            ("◔ Fair", theme::AMBER)
                         } else {
-                            ("○ Poor", egui::Color32::from_rgb(220, 80, 60))
+                            ("○ Poor", theme::RED)
                         };
                         ui.label(egui::RichText::new(quality_str).size(11.0).color(quality_color))
                             .on_hover_text("Indicates how well the planets are aligned for a transfer at the planned departure time. Poor alignment requires significantly more ΔV.");
@@ -1608,7 +1608,7 @@ pub(super) fn render_transfer_planner(
                             egui::RichText::new("🚀 Fleet")
                                 .strong()
                                 .size(12.0)
-                                .color(egui::Color32::from_rgb(160, 210, 255)),
+                                .color(theme::RP_BLUE),
                         );
                         ui.add_space(3.0);
 
@@ -1623,28 +1623,28 @@ pub(super) fn render_transfer_planner(
                         let accel_g = accel_ms2 / 9.80665;
                         let accel_str = format!("{:.3} g", accel_g);
 
-                        ui.label(egui::RichText::new("ΔV avail.").size(10.0).color(egui::Color32::GRAY));
+                        ui.label(egui::RichText::new("ΔV avail.").size(10.0).color(theme::TEXT_DIM));
                         ui.label(
                             egui::RichText::new(format!("{:.2} km/s", dv_kms))
                                 .size(11.0)
                                 .strong()
-                                .color(egui::Color32::from_rgb(200, 230, 255)),
+                                .color(theme::TEXT_VALUE),
                         );
                         ui.add_space(4.0);
-                        ui.label(egui::RichText::new("Thrust").size(10.0).color(egui::Color32::GRAY));
+                        ui.label(egui::RichText::new("Thrust").size(10.0).color(theme::TEXT_DIM));
                         ui.label(
                             egui::RichText::new(thrust_str)
                                 .size(11.0)
                                 .strong()
-                                .color(egui::Color32::from_rgb(200, 230, 255)),
+                                .color(theme::TEXT_VALUE),
                         );
                         ui.add_space(4.0);
-                        ui.label(egui::RichText::new("Accel.").size(10.0).color(egui::Color32::GRAY));
+                        ui.label(egui::RichText::new("Accel.").size(10.0).color(theme::TEXT_DIM));
                         ui.label(
                             egui::RichText::new(accel_str)
                                 .size(11.0)
                                 .strong()
-                                .color(egui::Color32::from_rgb(200, 230, 255)),
+                                .color(theme::TEXT_VALUE),
                         );
                     });
                 });
@@ -1686,21 +1686,21 @@ pub(super) fn render_transfer_planner(
                     ui.group(|ui| {
                         ui.label(
                             egui::RichText::new(format!("\u{1F30C} Interstellar Mission: {}", sys_name))
-                                .strong().size(13.0).color(egui::Color32::from_rgb(200, 180, 255)),
+                                .strong().size(13.0).color(theme::GRAVITY_ASSIST),
                         );
                         ui.label(
                             egui::RichText::new(format!(
                                 "Distance: {:.2} ly = {:.0} AU",
                                 dist_ly,
                                 dist_ly as f64 * 63_241.077
-                            )).size(11.0).color(egui::Color32::GRAY),
+                            )).size(11.0).color(theme::TEXT_DIM),
                         );
                         ui.label(
                             egui::RichText::new(
                                 "\u{26A0} Interstellar navigation is point-and-burn. \
                                  Transfer windows do not apply. \
                                  Ensure adequate \u{394}V and life-support reserves."
-                            ).size(11.0).italics().color(egui::Color32::from_rgb(220, 180, 80)),
+                            ).size(11.0).italics().color(theme::AMBER),
                         );
                     });
                     ui.add_space(4.0);
@@ -1730,7 +1730,7 @@ pub(super) fn render_transfer_planner(
                     ))
                     .size(11.0)
                     .italics()
-                    .color(egui::Color32::from_rgb(220, 160, 60)),
+                    .color(theme::AMBER),
                 );
             }
 
@@ -1898,7 +1898,7 @@ pub(super) fn render_transfer_planner(
                     ui.label(
                         egui::RichText::new(format!("ETA  {}", format_duration(total_eta_s)))
                             .size(12.0)
-                            .color(egui::Color32::from_rgb(160, 220, 160)),
+                            .color(theme::GREEN),
                     );
                 }
             });
@@ -1912,7 +1912,7 @@ pub(super) fn render_transfer_planner(
                         format_timestamp_date_time(arrival_ts)
                     ))
                     .size(11.0)
-                    .color(egui::Color32::from_rgb(130, 190, 220)),
+                    .color(theme::RP_BLUE),
                 );
             }
             if !is_interstellar && !sel_affordable_with_abort {
@@ -1926,7 +1926,7 @@ pub(super) fn render_transfer_planner(
                     )
                     .size(11.0)
                     .italics()
-                    .color(egui::Color32::from_rgb(200, 100, 60)),
+                    .color(theme::RED),
                 );
             }
         }
@@ -1941,7 +1941,7 @@ pub(super) fn render_transfer_planner(
                 egui::RichText::new(header_text)
                     .size(12.0)
                     .strong()
-                    .color(egui::Color32::from_rgb(120, 220, 255)),
+                    .color(theme::ACCENT),
             )
             .default_open(true)
             .show(ui, |ui| {
@@ -1964,11 +1964,11 @@ pub(super) fn render_transfer_planner(
                     let is_sel = fleet_ui_state.selected_gravity_assist == Some(idx);
                     let beneficial = savings > 100.0;
                     let header_color = if is_sel {
-                        egui::Color32::from_rgb(80, 255, 180)
+                        theme::EP_TEAL
                     } else if beneficial {
-                        egui::Color32::from_rgb(160, 255, 100)
+                        theme::GREEN
                     } else {
-                        egui::Color32::GRAY
+                        theme::TEXT_DIM
                     };
 
                     ui.group(|ui| {
@@ -1989,14 +1989,14 @@ pub(super) fn render_transfer_planner(
                                         egui::RichText::new(format_delta_v(savings))
                                             .size(11.0)
                                             .strong()
-                                            .color(egui::Color32::from_rgb(80, 220, 80)),
+                                            .color(theme::GREEN),
                                     );
                                 } else {
                                     ui.label(egui::RichText::new("Extra ΔV:").size(11.0));
                                     ui.label(
                                         egui::RichText::new(format_delta_v(-savings))
                                             .size(11.0)
-                                            .color(egui::Color32::GRAY),
+                                            .color(theme::TEXT_DIM),
                                     );
                                 }
                                 ui.end_row();
@@ -2008,7 +2008,7 @@ pub(super) fn render_transfer_planner(
                                         format!("{sign}{}", format_duration(extra_t.abs()))
                                     )
                                     .size(11.0)
-                                    .color(egui::Color32::LIGHT_GRAY),
+                                    .color(theme::TEXT),
                                 );
                                 ui.end_row();
 
@@ -2021,7 +2021,7 @@ pub(super) fn render_transfer_planner(
                                 ui.label(
                                     egui::RichText::new(win_str)
                                         .size(11.0)
-                                        .color(egui::Color32::GRAY),
+                                        .color(theme::TEXT_DIM),
                                 );
                                 ui.end_row();
 
@@ -2029,7 +2029,7 @@ pub(super) fn render_transfer_planner(
                                 ui.label(
                                     egui::RichText::new(format_delta_v(v_inf))
                                         .size(11.0)
-                                        .color(egui::Color32::GRAY),
+                                        .color(theme::TEXT_DIM),
                                 );
                                 ui.end_row();
                             });
@@ -2077,11 +2077,11 @@ pub(super) fn render_transfer_planner(
 
                 let is_selected = fleet_ui_state.selected_option == idx;
                 let row_color = if !affordable {
-                    egui::Color32::from_rgb(180, 80, 80)
+                    theme::RED
                 } else if is_selected {
-                    egui::Color32::from_rgb(100, 180, 255)
+                    theme::RP_BLUE
                 } else {
-                    egui::Color32::from_rgb(200, 200, 200)
+                    theme::TEXT
                 };
 
                 ui.group(|ui| {
@@ -2123,9 +2123,9 @@ pub(super) fn render_transfer_planner(
 
                             ui.label(egui::RichText::new("Est. fuel:").size(12.0));
                             let fuel_color = if affordable {
-                                egui::Color32::from_rgb(220, 180, 60)
+                                theme::AMBER
                             } else {
-                                egui::Color32::from_rgb(220, 80, 60)
+                                theme::RED
                             };
                             ui.label(
                                 egui::RichText::new(format!("{:.0} t ({fuel_pct}%)", fuel_cost))
@@ -2145,7 +2145,7 @@ pub(super) fn render_transfer_planner(
                                 ui.label(
                                     egui::RichText::new(format_delta_v(option.plane_change_dv_ms))
                                         .size(12.0)
-                                        .color(egui::Color32::from_rgb(180, 200, 255)),
+                                        .color(theme::TEXT_VALUE),
                                 );
                                 ui.label(egui::RichText::new("").size(12.0));
                                 ui.label(egui::RichText::new("").size(12.0));
@@ -2158,20 +2158,20 @@ pub(super) fn render_transfer_planner(
                                 let (profile_label, profile_color) =
                                     if option.is_thrust_limited {
                                         // Burn time >= Hohmann time: impulsive assumption invalid.
-                                        ("⚠ Thrust-limited", egui::Color32::from_rgb(220, 100, 40))
+                                        ("⚠ Thrust-limited", theme::RED)
                                     } else if option.label == "Full Thrust" {
                                         // Entire trip is a burn
-                                        ("⚡ Full thrust", egui::Color32::from_rgb(255, 180, 60))
+                                        ("⚡ Full thrust", theme::AMBER)
                                     } else {
                                         let ratio = option.burn_time_s / option.transfer_time_s.max(1.0);
                                         if option.burn_time_s < 3_600.0 {
-                                            ("Impulsive", egui::Color32::from_rgb(120, 200, 120))
+                                            ("Impulsive", theme::GREEN)
                                         } else if ratio < 0.05 {
-                                            ("Short burn", egui::Color32::from_rgb(140, 210, 140))
+                                            ("Short burn", theme::GREEN)
                                         } else if ratio < 0.25 {
-                                            ("Extended burn", egui::Color32::from_rgb(220, 200, 80))
+                                            ("Extended burn", theme::AMBER)
                                         } else {
-                                            ("Continuous thrust", egui::Color32::from_rgb(220, 140, 60))
+                                            ("Continuous thrust", theme::AMBER)
                                         }
                                     };
                                 ui.label(egui::RichText::new("Burn time:").size(12.0));
@@ -2204,7 +2204,7 @@ pub(super) fn render_transfer_planner(
                                         egui::RichText::new("  Low-thrust spiral — travel time ≥ burn time")
                                             .size(11.0)
                                             .italics()
-                                            .color(egui::Color32::from_rgb(180, 130, 80)),
+                                            .color(theme::AMBER),
                                     );
                                     ui.end_row();
                                 }
@@ -2214,7 +2214,7 @@ pub(super) fn render_transfer_planner(
                                 ui.label(
                                     egui::RichText::new("⚠ Insufficient ΔV capacity")
                                         .size(11.0)
-                                        .color(egui::Color32::from_rgb(220, 80, 60)),
+                                        .color(theme::RED),
                                 );
                             }
                         });

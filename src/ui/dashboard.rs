@@ -1,6 +1,4 @@
 use super::*;
-use super::time::format_time_rate;
-use super::resources_bar::format_population;
 
 fn render_selectable_label(ui: &mut egui::Ui, is_selected: bool, name: &str) -> egui::Response {
     if is_selected {
@@ -137,7 +135,7 @@ fn render_body_tree(
                 if let Some(child_body) = body_map.get(&child) {
                     match child_body.body_type {
                         BodyType::Ring => child_rings.push(child),
-                        BodyType::Planet => child_planets.push(child),
+                        BodyType::Planet | BodyType::GasGiant => child_planets.push(child),
                         BodyType::Moon => child_moons.push(child),
                         BodyType::Asteroid => child_asteroids.push(child),
                         BodyType::Comet => child_comets.push(child),
@@ -319,7 +317,7 @@ fn render_fleet_ledger_tree(
         ui.label(
             egui::RichText::new("  No fleets deployed")
                 .size(12.0)
-                .color(egui::Color32::GRAY)
+                .color(theme::TEXT_DIM)
                 .italics(),
         );
         return;
@@ -327,14 +325,18 @@ fn render_fleet_ledger_tree(
 
     for (entity, fleet, maybe_orbit, maybe_maneuver) in fleets {
         let is_selected = fleet_ui_state.selected_fleet == Some(entity);
+        let in_transit = maybe_maneuver.is_some();
 
-        let status_icon = if maybe_maneuver.is_some() { "✈" } else { "🛰" };
+        let status_icon = if in_transit { "✈" } else { "🛰" };
         let display_name = format!("{} {}", status_icon, fleet.name);
 
+        // Colour scheme matching the fleet-menu panel list.
         let row_color = if is_selected {
-            egui::Color32::from_rgb(100, 220, 100)
+            theme::ACCENT
+        } else if in_transit {
+            theme::RP_BLUE
         } else {
-            egui::Color32::from_rgb(170, 200, 170)
+            theme::EP_TEAL
         };
 
         let sub_status = if let Some(maneuver) = maybe_maneuver {
@@ -362,59 +364,109 @@ fn render_fleet_ledger_tree(
             if fleet.ships.len() == 1 { "ship" } else { "ships" }
         );
 
-        let row_response = ui.selectable_label(
-            is_selected,
-            egui::RichText::new(&display_name).color(row_color).size(13.0),
-        );
+        // ── Clickable fleet-name row with themed background + marquee ─────
+        {
+            let font_id = egui::FontId::proportional(13.0);
+            let available_w = ui.available_width().max(1.0);
+            let row_height = ui.text_style_height(&egui::TextStyle::Body);
+            let full_text_w = ui
+                .painter()
+                .layout_no_wrap(display_name.clone(), font_id.clone(), row_color)
+                .size()
+                .x;
 
-        if row_response.clicked() {
+            let (rect, resp) = ui.allocate_exact_size(
+                egui::Vec2::new(available_w, row_height),
+                egui::Sense::click(),
+            );
+
+            // Selection / hover background — identical to fleet-panel list rows.
+            let rounding = egui::CornerRadius::same(3);
             if is_selected {
-                fleet_ui_state.selected_fleet = None;
+                ui.painter().rect_filled(rect.expand(1.0), rounding, egui::Color32::from_rgb(0, 55, 70));
+                ui.painter().rect_stroke(
+                    rect.expand(1.0), rounding,
+                    egui::Stroke::new(1.0, theme::ACCENT),
+                    egui::StrokeKind::Inside,
+                );
+            } else if resp.hovered() {
+                ui.painter().rect_filled(rect.expand(1.0), rounding, theme::SURFACE_RAISED);
+                ui.painter().rect_stroke(
+                    rect.expand(1.0), rounding,
+                    egui::Stroke::new(1.0, theme::BORDER),
+                    egui::StrokeKind::Inside,
+                );
+            }
+
+            // Draw text (marquee when too wide).
+            let text_rect = rect.shrink2(egui::Vec2::new(4.0, 0.0));
+            if full_text_w <= text_rect.width() {
+                ui.painter().text(
+                    text_rect.left_center(),
+                    egui::Align2::LEFT_CENTER,
+                    &display_name,
+                    font_id,
+                    row_color,
+                );
             } else {
-                // Clear body selection
+                // Continuous marquee: two copies loop seamlessly.
+                let gap = 48.0_f32;
+                let cycle = full_text_w + gap;
+                let speed = 40.0_f64;
+                let t = ui.ctx().input(|i| i.time);
+                let offset_x = ((t * speed) % cycle as f64) as f32;
+                let painter = ui.painter().with_clip_rect(text_rect);
+                let galley = painter.layout_no_wrap(display_name.clone(), font_id.clone(), row_color);
+                let y = text_rect.top() + (text_rect.height() - galley.size().y) * 0.5;
+                let x0 = text_rect.left() - offset_x;
+                painter.galley(egui::pos2(x0, y), galley.clone(), row_color);
+                let x1 = x0 + cycle;
+                if x1 < text_rect.right() + full_text_w {
+                    painter.galley(egui::pos2(x1, y), galley, row_color);
+                }
+                ui.ctx().request_repaint();
+            }
+
+            // Click handling.
+            if resp.clicked() {
+                if is_selected {
+                    fleet_ui_state.selected_fleet = None;
+                } else {
+                    for e in selected_query.iter() {
+                        commands.entity(e).remove::<Selected>();
+                    }
+                    selection.clear();
+                    fleet_ui_state.selected_fleet = Some(entity);
+                    fleet_ui_state.clear_target();
+                }
+            }
+
+            if resp.double_clicked() {
                 for e in selected_query.iter() {
                     commands.entity(e).remove::<Selected>();
                 }
                 selection.clear();
                 fleet_ui_state.selected_fleet = Some(entity);
                 fleet_ui_state.clear_target();
-            }
-        }
 
-        if row_response.double_clicked() {
-            // Select the fleet
-            for e in selected_query.iter() {
-                commands.entity(e).remove::<Selected>();
-            }
-            selection.clear();
-            fleet_ui_state.selected_fleet = Some(entity);
-            fleet_ui_state.clear_target();
-
-            // Camera anchor behaviour:
-            // - Orbiting  → anchor to the body being orbited.
-            // - In transit → anchor to the fleet dot itself so the camera follows
-            //   the ship along its arc.  A separate system (switch_anchor_on_arrival)
-            //   will redirect the anchor to the destination body once the maneuver
-            //   completes.
-            if let Ok(mut anchor) = anchor_query.single_mut() {
-                if let Some(orbit) = maybe_orbit {
-                    anchor.0 = Some(orbit.body);
-                } else if maybe_maneuver.is_some() {
-                    // Follow the moving fleet dot
-                    anchor.0 = Some(entity);
+                if let Ok(mut anchor) = anchor_query.single_mut() {
+                    if let Some(orbit) = maybe_orbit {
+                        anchor.0 = Some(orbit.body);
+                    } else if maybe_maneuver.is_some() {
+                        anchor.0 = Some(entity);
+                    }
                 }
             }
         }
 
-        // Sub-status line
-        ui.horizontal(|ui| {
-            ui.add_space(18.0);
-            ui.label(
-                egui::RichText::new(format!("{sub_status}  {ships_txt}"))
-                    .size(10.0)
-                    .color(egui::Color32::GRAY),
+        // Sub-status line — marquee-scrolled when too narrow.
+        {
+            let sub_full = format!("  {sub_status}  {ships_txt}");
+            let sub_color = if in_transit { theme::RP_BLUE } else { theme::TEXT_DIM };
+            super::fleets_panel::render_marquee_line(
+                ui, &sub_full, sub_color, egui::FontId::proportional(10.0),
             );
-        });
+        }
 
         // Progress bar + ETA for actively-transiting fleets
         if let Some(maneuver) = maybe_maneuver {
@@ -431,7 +483,7 @@ fn render_fleet_ledger_tree(
                     ui.label(
                         egui::RichText::new(format!("ETA {eta_str}"))
                             .size(10.0)
-                            .color(egui::Color32::from_rgb(100, 180, 255)),
+                            .color(theme::RP_BLUE),
                     );
                 });
             }
@@ -487,12 +539,12 @@ pub(super) fn format_mass(megatons: f64) -> String {
 /// Returns (formatted_string, color).
 pub(super) fn format_rate_monthly(value: f64) -> (String, egui::Color32) {
     if value.abs() < 1e-9 {
-        return ("+0/mo".to_string(), egui::Color32::GRAY);
+        return ("+0/mo".to_string(), theme::TEXT_DIM);
     }
     if value > 0.0 {
-        (format!("+{}/mo", format_mass(value)), egui::Color32::from_rgb(100, 255, 100))
+        (format!("+{}/mo", format_mass(value)), theme::GREEN)
     } else {
-        (format!("{}/mo", format_mass(value)), egui::Color32::from_rgb(255, 100, 100))
+        (format!("{}/mo", format_mass(value)), theme::RED)
     }
 }
 
@@ -508,22 +560,6 @@ pub(super) fn ui_dashboard(
     active_menu: Res<ActiveMenu>,
     mut fleet_ui_state: ResMut<FleetUiState>,
     fleet_query: Query<(Entity, &Fleet, Option<&FleetOrbit>, Option<&ActiveManeuver>)>,
-    // Query for selected body information
-    mut body_query: Query<(
-        &CelestialBody,
-        Option<&SpaceCoordinates>,
-        Option<&KeplerOrbit>,
-        Option<&PlanetResources>,
-        Option<&AtmosphereComposition>,
-        Option<&crate::plugins::starmap::PlanetCategory>,
-        Option<&mut SurveyLevel>,
-        Option<&Population>,
-        Option<&crate::astronomy::SurfaceTemperature>,
-        Option<&LogicalParent>,
-        Option<&crate::astronomy::OceanProperties>,
-    )>,
-    // Read-only lookup for parent body coordinates
-    parent_coords_query: Query<&SpaceCoordinates>,
     // Resource query for system totals
     resource_query: Query<(&SystemId, &PlanetResources)>,
     // Ledger queries
@@ -690,7 +726,7 @@ pub(super) fn ui_dashboard(
                                 ui.label(
                                     egui::RichText::new(format!("🚀 Fleets ({n})"))
                                         .strong()
-                                        .color(egui::Color32::from_rgb(120, 210, 140)),
+                                        .color(theme::EP_TEAL),
                                 );
                             })
                             .body(|ui| {
@@ -717,7 +753,7 @@ pub(super) fn ui_dashboard(
                     ui.label(
                         egui::RichText::new("Coming Soon")
                             .size(16.0)
-                            .color(egui::Color32::from_rgb(180, 180, 180))
+                            .color(theme::TEXT_DIM)
                     );
                     
                     ui.add_space(10.0);
@@ -787,525 +823,8 @@ pub(super) fn ui_dashboard(
             &resource_query,
             &nearby_stars,
         );
-    } else if selection.has_selection() {
-        // Show selected celestial body details
-        egui::SidePanel::right("selection_panel")
-            .min_width(300.0)
-            .max_width(400.0)
-            .show(ctx, |ui| {
-                ui.heading("Selected Body");
-                ui.separator();
-
-                if let Some(entity) = selection.get() {
-                    if let Ok((body, opt_coords, orbit, resources, atmosphere, category_opt, mut survey_level, population, surface_temp, logical_parent, ocean_props)) = body_query.get_mut(entity) {
-                        // Body name and basic info
-                        ui.label(egui::RichText::new(&body.name).size(18.0).strong());
-                        // show category string below the name if available
-                        if let Some(cat) = category_opt {
-                            let mut label = cat.0.clone();
-                            if let Some(first) = label.get_mut(..1) {
-                                first.make_ascii_uppercase();
-                            }
-                            ui.label(
-                                egui::RichText::new(label)
-                                    .small()
-                                    .color(egui::Color32::GRAY),
-                            );
-                        }
-                        ui.add_space(10.0);
-
-                        // Position information
-                        ui.group(|ui| {
-                            ui.label(egui::RichText::new("Position").strong());
-                            // For non-star bodies, compute distance relative to
-                            // the system primary (star) using the absolute position.
-                            if !matches!(body.body_type, crate::plugins::solar_system_data::BodyType::Star) {
-                                if let Some(coords) = opt_coords {
-                                    // Walk up the LogicalParent chain to find the system star,
-                                    // then subtract its absolute universe position so we get the
-                                    // true orbital distance regardless of the star's distance from Sol.
-                                    let star_pos = {
-                                        let mut current = logical_parent.map(|lp| lp.0);
-                                        let mut found = bevy::math::DVec3::ZERO;
-                                        while let Some(parent_entity) = current {
-                                            if let Ok((_, parent_body, grandparent, _, _)) = all_bodies_query.get(parent_entity) {
-                                                if matches!(parent_body.body_type, crate::plugins::solar_system_data::BodyType::Star) {
-                                                    if let Ok(star_coords) = parent_coords_query.get(parent_entity) {
-                                                        found = star_coords.position;
-                                                    }
-                                                    break;
-                                                }
-                                                current = grandparent.map(|gp| gp.0);
-                                            } else {
-                                                break;
-                                            }
-                                        }
-                                        found
-                                    };
-                                    let distance = (coords.position - star_pos).length();
-                                    ui.label(format!("Distance from Star: {:.3} AU", distance));
-                                } else {
-                                    ui.label("Position: co-orbiting parent body");
-                                }
-                            }
-                            ui.label(format!("Radius: {:.1} km", body.radius));
-                            ui.label(format!("Mass: {:.2e} kg", body.mass));
-                            ui.label(format!("Gravity: {:.2} g", body.surface_gravity()));
-                            if let Some(pop) = population {
-                                if pop.count > 0.0 {
-                                    ui.label(format!("Population: {}", format_population(pop.count)));
-                                }
-                            }
-                        });
-
-                        ui.add_space(10.0);
-
-                        // Orbital data if available
-                        if let Some(orbit) = orbit {
-                            ui.group(|ui| {
-                                ui.label(egui::RichText::new("Orbital Elements").strong());
-                                ui.label(format!("Semi-major axis: {:.3} AU", orbit.semi_major_axis));
-                                ui.label(format!("Eccentricity: {:.4}", orbit.eccentricity));
-                                ui.label(format!("Inclination: {:.2}°", orbit.inclination.to_degrees()));
-                                
-                                // Calculate and show orbital period
-                                let period_seconds = crate::astronomy::KeplerOrbit::period_from_mean_motion(orbit.mean_motion);
-                                let period_days = period_seconds / 86400.0;
-                                if period_days < 365.0 {
-                                    ui.label(format!("Period: {:.1} days", period_days));
-                                } else {
-                                    ui.label(format!("Period: {:.2} years", period_days / 365.25));
-                                }
-                            });
-
-                            ui.add_space(10.0);
-                        }
-
-                        // Rings cannot be colonised or have buildings — show a concise note
-                        // instead of the full habitability / colony-cost section.
-                        if body.body_type == crate::plugins::solar_system_data::BodyType::Ring {
-                            ui.group(|ui| {
-                                ui.label(
-                                    egui::RichText::new("⚠ Orbital Mining Only")
-                                        .strong()
-                                        .color(egui::Color32::from_rgb(255, 165, 0)),
-                                );
-                                ui.label("Ring systems consist of free-floating ice and dust.");
-                                ui.label("They cannot be colonised or have buildings constructed.");
-                                ui.label("Resources must be harvested by mining ships in orbit.");
-                            });
-                        } else {
-                        // Show Colony Cost for all bodies
-                        ui.group(|ui| {
-                            ui.label(egui::RichText::new("Habitability").strong());
-                            
-                            let mut temp_c = -273.15;
-                            let mut min_temp_c = -273.15;
-                            let mut max_temp_c = -273.15;
-
-                            // Try to get temperature from SurfaceTemperature component, then Atmosphere
-                            if let Some(comp) = surface_temp {
-                                temp_c = comp.average_celsius;
-                                min_temp_c = comp.min_celsius;
-                                max_temp_c = comp.max_celsius;
-                            } else if let Some(atm) = atmosphere {
-                                temp_c = atm.surface_temperature_celsius;
-                                min_temp_c = temp_c;
-                                max_temp_c = temp_c;
-                            }
-
-                            // Colony Cost
-                            ui.horizontal(|ui| {
-                                ui.label("Colony Cost:");
-                                let gravity = body.surface_gravity();
-                                let cost_details = crate::astronomy::components::calculate_colony_cost_details(
-                                    gravity, 
-                                    min_temp_c, 
-                                    max_temp_c,
-                                    atmosphere.as_deref()
-                                );
-                                let cost = cost_details.total_cost;
-                                
-                                let cost_tooltip = |ui: &mut egui::Ui| {
-                                    if cost_details.heavy_gravity_limit_exceeded {
-                                        ui.colored_label(egui::Color32::RED, "Uninhabitable: Gravity > 1.7g");
-                                    } else {
-                                        ui.label(egui::RichText::new("Colony Cost Factors").strong());
-                                        ui.separator();
-                                        
-                                        if cost_details.base_cost > 0.0 {
-                                            ui.label(format!("Base Cost (Unbreathable): +{:.2}", cost_details.base_cost));
-                                        }
-                                        if cost_details.cold_cost > 0.0 {
-                                            ui.label(format!("Cold Penalty (Heating): +{:.2}", cost_details.cold_cost));
-                                        }
-                                        if cost_details.heat_cost > 0.0 {
-                                            ui.label(format!("Heat Penalty (Cooling): +{:.2}", cost_details.heat_cost));
-                                        }
-                                        if cost_details.pressure_cost > 0.0 {
-                                            ui.label(format!("High Pressure Penalty: +{:.2}", cost_details.pressure_cost));
-                                        }
-                                        if cost_details.low_gravity_penalty > 0.0 {
-                                            ui.label(format!("Low Gravity Penalty: +{:.2}", cost_details.low_gravity_penalty));
-                                        }
-                                    }
-                                };
-
-                                if cost.is_infinite() {
-                                    ui.colored_label(egui::Color32::RED, "Uninhabitable (Gravity)")
-                                        .on_hover_ui(cost_tooltip);
-                                } else {
-                                    let cost_color = if cost <= 0.0 {
-                                        egui::Color32::GREEN
-                                    } else if cost <= 2.0 {
-                                        egui::Color32::YELLOW
-                                    } else if cost <= 5.0 {
-                                        egui::Color32::from_rgb(255, 165, 0) // Orange
-                                    } else {
-                                        egui::Color32::RED
-                                    };
-                                    ui.colored_label(cost_color, format!("{:.2}", cost))
-                                        .on_hover_ui(cost_tooltip);
-                                }
-                            });
-                            
-                            // Temperature display (moved out of Atmosphere section so it shows for everyone)
-                            ui.horizontal(|ui| {
-                                ui.label("Temperature:");
-                                ui.label(format!("{:.1}°C", temp_c));
-                            });
-                        }); // end Habitability group
-                        } // end else (non-ring body)
-                        
-                        ui.add_space(5.0);
-
-                        // Atmosphere data if available
-                        if let Some(atmosphere) = atmosphere {
-                            ui.group(|ui| {
-                                let id = ui.make_persistent_id(("atmosphere_header", entity));
-                                egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
-                                    .show_header(ui, |ui| {
-                                        ui.label(egui::RichText::new("🌍 Atmosphere").strong());
-                                    })
-                                    .body(|ui| {
-                                        // Basic atmosphere properties
-                                        ui.horizontal(|ui| {
-                                            // Display appropriate label based on whether this is reference or surface pressure
-                                            if atmosphere.is_reference_pressure {
-                                                ui.label("Pressure (at 1 bar ref):");
-                                            } else {
-                                                ui.label("Surface Pressure:");
-                                            }
-                                            let pressure_bar = atmosphere.surface_pressure_mbar / 1000.0;
-                                            if pressure_bar >= 1.0 {
-                                                ui.label(format!("{:.2} bar", pressure_bar));
-                                            } else {
-                                                ui.label(format!("{:.0} mbar", atmosphere.surface_pressure_mbar));
-                                            }
-                                        });
-                                        
-                                        // Show harvest altitude for gas giants
-                                        if atmosphere.is_reference_pressure && atmosphere.harvest_altitude_bar > 0.0 {
-                                            ui.horizontal(|ui| {
-                                                ui.label("Harvest Altitude:");
-                                                let yield_mult = atmosphere.harvest_yield_multiplier();
-                                                ui.label(format!("{:.1} bar ({:.1}× yield)", 
-                                                    atmosphere.harvest_altitude_bar, yield_mult));
-                                            });
-                                            
-                                            ui.horizontal(|ui| {
-                                                ui.label("Max Harvest Depth:");
-                                                ui.label(format!("{:.1} bar (tech-limited)", 
-                                                    atmosphere.max_harvest_altitude_bar));
-                                            });
-                                        }
-                                        
-                                        ui.horizontal(|ui| {
-                                            ui.label("Breathable:");
-                                            if atmosphere.breathable {
-                                                ui.colored_label(egui::Color32::GREEN, "✓ Yes");
-                                            } else {
-                                                ui.colored_label(egui::Color32::RED, "✗ No");
-                                            }
-                                        });
-                                        
-                                        ui.add_space(5.0);
-                                        
-                                        // Gas composition in collapsible section
-                                        let gas_id = ui.make_persistent_id(("gas_composition", entity));
-                                        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), gas_id, false)
-                                            .show_header(ui, |ui| {
-                                                ui.label(egui::RichText::new("Gas Composition").size(12.0));
-                                            })
-                                            .body(|ui| {
-                                                for gas in &atmosphere.gases {
-                                                    ui.horizontal(|ui| {
-                                                        ui.label(format!("  {}:", gas.name));
-                                                        ui.label(format!("{:.2}%", gas.percentage));
-                                                    });
-                                                }
-                                            });
-
-                                    });
-                            });
-
-                            ui.add_space(10.0);
-                        }
-
-                        // Ocean section
-                        if let Some(ocean) = ocean_props {
-                            ui.group(|ui| {
-                                let id = ui.make_persistent_id(("ocean_header", entity));
-                                egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
-                                    .show_header(ui, |ui| {
-                                        let icon = if ocean.is_subsurface { "🧊" } else { "🌊" };
-                                        let label = if ocean.is_subsurface {
-                                            "Subsurface Ocean"
-                                        } else {
-                                            match ocean.ocean_type {
-                                                crate::astronomy::OceanType::Water => "Ocean (Water)",
-                                                crate::astronomy::OceanType::Methane => "Ocean (Methane)",
-                                                crate::astronomy::OceanType::Hydrocarbon => "Lakes (Hydrocarbon)",
-                                                crate::astronomy::OceanType::Ammonia => "Ocean (Ammonia)",
-                                                crate::astronomy::OceanType::Subsurface => "Subsurface Ocean",
-                                            }
-                                        };
-                                        let color = match ocean.ocean_type {
-                                            crate::astronomy::OceanType::Water => egui::Color32::from_rgb(64, 164, 223),
-                                            crate::astronomy::OceanType::Methane | crate::astronomy::OceanType::Hydrocarbon => egui::Color32::from_rgb(180, 140, 60),
-                                            crate::astronomy::OceanType::Ammonia => egui::Color32::from_rgb(160, 120, 200),
-                                            crate::astronomy::OceanType::Subsurface => egui::Color32::from_rgb(100, 180, 220),
-                                        };
-                                        ui.colored_label(color, format!("{} {}", icon, label));
-                                    })
-                                    .body(|ui| {
-                                        if ocean.is_subsurface {
-                                            ui.horizontal(|ui| {
-                                                ui.label("Location:");
-                                                ui.colored_label(egui::Color32::from_rgb(100, 180, 220), "Beneath ice crust");
-                                            });
-                                        } else {
-                                            ui.horizontal(|ui| {
-                                                ui.label("Surface Coverage:");
-                                                ui.label(format!("{:.0}%", ocean.surface_fraction * 100.0));
-                                            });
-                                        }
-                                        ui.horizontal(|ui| {
-                                            ui.label("Mean Depth:");
-                                            if ocean.mean_depth_km >= 1.0 {
-                                                ui.label(format!("{:.1} km", ocean.mean_depth_km));
-                                            } else {
-                                                ui.label(format!("{:.0} m", ocean.mean_depth_km * 1000.0));
-                                            }
-                                        });
-                                        let hab = ocean.habitability_modifier();
-                                        ui.horizontal(|ui| {
-                                            ui.label("Colony Growth:");
-                                            let (color, text) = if hab > 1.2 {
-                                                (egui::Color32::GREEN, format!("+{:.0}% growth bonus", (hab - 1.0) * 100.0))
-                                            } else if hab > 1.0 {
-                                                (egui::Color32::from_rgb(100, 220, 100), format!("+{:.0}% growth bonus", (hab - 1.0) * 100.0))
-                                            } else if hab < 1.0 {
-                                                (egui::Color32::from_rgb(255, 140, 0), format!("{:.0}% growth penalty", (1.0 - hab) * 100.0))
-                                            } else {
-                                                (egui::Color32::GRAY, "Neutral".to_string())
-                                            };
-                                            ui.colored_label(color, text)
-                                                .on_hover_text(if ocean.is_subsurface {
-                                                    "Subsurface oceans are not directly accessible for surface colonies."
-                                                } else {
-                                                    match ocean.ocean_type {
-                                                        crate::astronomy::OceanType::Water => "Liquid water boosts climate stability and colony growth.",
-                                                        crate::astronomy::OceanType::Methane | crate::astronomy::OceanType::Hydrocarbon => "Flammable hydrocarbon environment limits colony operations.",
-                                                        crate::astronomy::OceanType::Ammonia => "Ammonia is toxic — requires full environmental protection.",
-                                                        _ => "",
-                                                    }
-                                                });
-                                        });
-                                        // Resource note
-                                        let resource_note = match ocean.ocean_type {
-                                            crate::astronomy::OceanType::Water => "💧 Liquid water deposits have boosted extraction accessibility.",
-                                            crate::astronomy::OceanType::Methane | crate::astronomy::OceanType::Hydrocarbon => "⛽ Liquid hydrocarbon deposits have boosted extraction accessibility.",
-                                            crate::astronomy::OceanType::Ammonia => "⚗️ Liquid ammonia deposits have boosted extraction accessibility.",
-                                            crate::astronomy::OceanType::Subsurface => "🔬 Subsurface ocean confirmed. Deep drilling required for access.",
-                                        };
-                                        ui.add_space(4.0);
-                                        ui.colored_label(egui::Color32::LIGHT_GRAY, egui::RichText::new(resource_note).small());
-                                    });
-                            });
-                            ui.add_space(5.0);
-                        }
-
-                        // Resources if available
-                        if let Some(resources) = resources {
-                            ui.group(|ui| {
-                                ui.label(egui::RichText::new("Resources").strong());
-                                ui.label(format!("Body mass: {:.2e} kg", body.mass));
-                                ui.add_space(5.0);
-                                
-                                // Survey Controls
-                                let current_level = survey_level.as_deref().copied().unwrap_or(SurveyLevel::Unsurveyed);
-                                
-                                ui.group(|ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.label("Survey Status:");
-                                        let status_color = match current_level {
-                                            SurveyLevel::Unsurveyed => egui::Color32::GRAY,
-                                            SurveyLevel::OrbitalScan => egui::Color32::LIGHT_BLUE,
-                                            SurveyLevel::SeismicSurvey => egui::Color32::YELLOW,
-                                            SurveyLevel::CoreSample => egui::Color32::GREEN,
-                                        };
-                                        ui.label(egui::RichText::new(format!("{:?}", current_level)).strong().color(status_color));
-                                    });
-                                    
-                                    if let Some(survey) = survey_level.as_deref_mut() {
-                                        if *survey != SurveyLevel::CoreSample {
-                                            if ui.button("Upgrade Survey").clicked() {
-                                                *survey = match *survey {
-                                                    SurveyLevel::Unsurveyed => SurveyLevel::OrbitalScan,
-                                                    SurveyLevel::OrbitalScan => SurveyLevel::SeismicSurvey,
-                                                    SurveyLevel::SeismicSurvey => SurveyLevel::CoreSample,
-                                                    _ => SurveyLevel::CoreSample,
-                                                };
-                                            }
-                                        }
-                                    } else {
-                                        if ui.button("Initialize Survey System").clicked() {
-                                            commands.entity(entity).insert(SurveyLevel::OrbitalScan);
-                                        }
-                                    }
-                                });
-                                
-                                ui.add_space(5.0);
-
-                                if current_level != SurveyLevel::Unsurveyed {
-                                    egui::ScrollArea::vertical()
-                                        .max_height(400.0)
-                                        .show(ui, |ui| {
-                                            // Group resources by category
-                                            for (category_name, category_resources) in ResourceType::by_category() {
-                                                ui.label(egui::RichText::new(category_name).strong().color(egui::Color32::LIGHT_BLUE));
-                                                
-                                                for resource_type in &category_resources {
-                                                    if let Some(deposit) = resources.get_deposit(resource_type) {
-                                                        // Calculate discovered amount
-                                                        let discovered_mt = current_level.discovered_amount(&deposit.reserve);
-                                                        
-                                                        // Skip resources with negligible amounts
-                                                        // Threshold of 0.001 Mt (= 1 kt) prevents showing "0.0 kt" entries
-                                                        if discovered_mt < 0.001 && !deposit.is_viable() {
-                                                             continue;
-                                                        }
-
-                                                        ui.horizontal(|ui| {
-                                                            ui.label(format!("  {} ({})", 
-                                                                resource_type.display_name(),
-                                                                resource_type.symbol()
-                                                            ));
-                                                        });
-                                                        
-                                                        // Tiered Display
-                                                        ui.horizontal(|ui| {
-                                                            ui.label("    Total Discovered:");
-                                                            ui.label(egui::RichText::new(format_mass(discovered_mt)).strong());
-                                                        });
-                                                        
-                                                        // Use the deposit's is_atmospheric flag to decide labels
-                                                        // Atmospheric gases show: Atmospheric / Trapped-Dissolved / Chemically Bound
-                                                        // Mineral deposits show: Proven Reserves / Deep Deposits / Planetary Bulk
-                                                        let is_atm = deposit.is_atmospheric;
-                                                        let proven_label = if is_atm { "    Atmospheric:" } else { "    Proven Reserves:" };
-                                                        let deep_label = if is_atm { "    Trapped/Dissolved:" } else { "    Deep Deposits:" };
-                                                        let bulk_label = if is_atm { "    Chemically Bound:" } else { "    Planetary Bulk:" };
-                                                        
-                                                        // Proven / Atmospheric (Always visible if Orbital+)
-                                                        ui.horizontal(|ui| {
-                                                            ui.label(proven_label);
-                                                            if deposit.reserve.proven_crustal < 0.001 {
-                                                                ui.label(egui::RichText::new("Depleted").color(egui::Color32::RED).strong());
-                                                            } else {
-                                                                ui.add(egui::ProgressBar::new(1.0)
-                                                                    .text(format_mass(deposit.reserve.proven_crustal)));
-                                                            }
-                                                        });
-                                                        
-                                                        // Deep / Trapped
-                                                        if matches!(current_level, SurveyLevel::SeismicSurvey | SurveyLevel::CoreSample) {
-                                                            ui.horizontal(|ui| {
-                                                                ui.label(deep_label);
-                                                                if deposit.reserve.deep_deposits < 0.001 {
-                                                                    ui.label(egui::RichText::new("Depleted").color(egui::Color32::RED).strong());
-                                                                } else {
-                                                                    ui.add(egui::ProgressBar::new(1.0)
-                                                                        .text(format_mass(deposit.reserve.deep_deposits)));
-                                                                }
-                                                            });
-                                                        } else {
-                                                             ui.label(format!("    {}: ???", if is_atm { "Trapped/Dissolved" } else { "Deep Deposits" }));
-                                                        }
-                                                        
-                                                        // Bulk / Chemically Bound
-                                                        if current_level == SurveyLevel::CoreSample {
-                                                            ui.horizontal(|ui| {
-                                                                ui.label(bulk_label);
-                                                                if deposit.reserve.planetary_bulk < 0.001 {
-                                                                    ui.label(egui::RichText::new("Depleted").color(egui::Color32::RED).strong());
-                                                                } else {
-                                                                    ui.add(egui::ProgressBar::new(1.0)
-                                                                        .text(format_mass(deposit.reserve.planetary_bulk)));
-                                                                }
-                                                            });
-                                                        } else {
-                                                            ui.label(format!("    {}: ???", if is_atm { "Chemically Bound" } else { "Planetary Bulk" }));
-                                                        }
-                                                        
-                                                        // Only show concentration for non-atmospheric deposits
-                                                        // Concentration is meaningless for gas in an atmosphere
-                                                        if !is_atm {
-                                                            ui.horizontal(|ui| {
-                                                                ui.label("    Concentration:");
-                                                                let conc = deposit.reserve.concentration;
-                                                                let conc_text = if conc >= 0.01 {
-                                                                    format!("{:.1}%", conc * 100.0)
-                                                                } else if conc >= 0.000_01 {
-                                                                    format!("{:.1} ppm", conc * 1_000_000.0)
-                                                                } else if conc >= 0.000_000_01 {
-                                                                    format!("{:.2} ppb", conc * 1_000_000_000.0)
-                                                                } else {
-                                                                    format!("{:.2e}", conc)
-                                                                };
-                                                                ui.add(egui::ProgressBar::new(conc.min(1.0))
-                                                                    .text(conc_text));
-                                                            });
-                                                        }
-                                                        
-                                                        ui.add_space(3.0);
-                                                    }
-                                                }
-                                                
-                                                ui.add_space(8.0);
-                                            }
-
-                                            // Summary
-                                            ui.separator();
-                                            ui.label(format!("Total viable deposits: {}", resources.viable_count()));
-                                            ui.label(format!("Total resource value estimates: {:.2}", resources.total_value()));
-                                        });
-                                } else {
-                                    ui.label("Perform orbital scan to detect resources.");
-                                }
-                            });
-                        } else {
-                            ui.label("No resource data available");
-                        }
-                    } else {
-                        ui.label("Selected entity not found");
-                    }
-                } else {
-                    ui.label("No selection");
-                }
-            });
     }
+    // Body dossier panel is now rendered by `dossier_panel::ui_planet_dossier`
 }
 
 /// Always-visible bottom panel for time controls.
@@ -1314,79 +833,141 @@ pub(super) fn ui_dashboard(
 /// **before** any side panel (Research, Construction, Economy, etc.) is
 /// rendered. This ensures the panel is never occluded regardless of the
 /// active menu.
+///
+/// Keyboard shortcuts:
+/// - **Space** — toggle pause / resume
+/// - **1–5** — set speed (1 hr/s … 1 yr/s)
 pub(super) fn ui_time_controls(
     mut contexts: EguiContexts,
     mut time_scale: ResMut<TimeScale>,
     sim_time: Res<SimulationTime>,
     view_mode: Res<ViewMode>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    real_time: Res<Time<Real>>,
 ) {
+    // ── Keyboard shortcuts (skip when egui is consuming input) ────────────
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
         Err(_) => return,
     };
 
+    if !ctx.wants_keyboard_input() {
+        if keyboard_input.just_pressed(KeyCode::Space) {
+            if time_scale.is_paused() {
+                time_scale.resume();
+            } else {
+                time_scale.pause();
+            }
+        }
+        // Keys 1-5 set speeds (and un-pause if currently paused)
+        const SPEED_PRESETS: [f32; 5] = [3_600.0, 86_400.0, 604_800.0, 2_592_000.0, 31_557_600.0];
+        let speed_keys = [
+            KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3,
+            KeyCode::Digit4, KeyCode::Digit5,
+        ];
+        for (key, &preset) in speed_keys.iter().zip(SPEED_PRESETS.iter()) {
+            if keyboard_input.just_pressed(*key) {
+                time_scale.set_speed(preset);
+                break;
+            }
+        }
+    }
+
+    // ── Blink factor for pause button (0.0 → 1.0, ~1.5 Hz) ──────────────
+    let blink = if time_scale.is_paused() {
+        (real_time.elapsed_secs() * std::f32::consts::TAU * 1.5).sin() * 0.5 + 0.5
+    } else {
+        0.0
+    };
+
+    // ── Helper: render a speed preset button with active highlight ────────
+    let active_scale = time_scale.scale;
+    let is_paused = time_scale.is_paused();
+
     egui::TopBottomPanel::bottom("time_controls")
-        .min_height(80.0)
+        .min_height(54.0)
         .show(ctx, |ui| {
-            ui.heading("Time Controls");
-            ui.separator();
-
             ui.horizontal(|ui| {
-                // Pause/Resume button
-                if time_scale.is_paused() {
-                    if ui.button("▶ Resume").clicked() {
-                        time_scale.resume();
-                    }
-                } else if ui.button("⏸ Pause").clicked() {
-                    time_scale.pause();
-                }
-
-                ui.separator();
-
-                // Preset speed buttons with meaningful labels
-                if ui.button("1 hr/s").clicked() {
-                    time_scale.scale = 3_600.0;
-                }
-                if ui.button("1 day/s").clicked() {
-                    time_scale.scale = 86_400.0;
-                }
-                if ui.button("1 wk/s").clicked() {
-                    time_scale.scale = 604_800.0;
-                }
-                if ui.button("1 mo/s").clicked() {
-                    time_scale.scale = 2_592_000.0;
-                }
-                if ui.button("1 yr/s").clicked() {
-                    time_scale.scale = 31_557_600.0;
-                }
-
-                ui.separator();
-
-                // Logarithmic slider for fine control
-                ui.label("Speed:");
-                ui.add(
-                    egui::Slider::new(&mut time_scale.scale, 1.0..=MAX_TIME_SCALE)
-                        .logarithmic(true)
-                        .text("")
-                        .custom_formatter(|v, _| format_time_rate(v as f32)),
-                );
-            });
-
-            ui.horizontal(|ui| {
-                ui.label(format!("Speed: {}", format_time_rate(time_scale.scale)));
-                if time_scale.is_paused() {
-                    ui.colored_label(egui::Color32::RED, "⏸ PAUSED");
-                }
-                ui.separator();
-                ui.label(format!("Date: {}", sim_time.format_date_time()));
-                ui.separator();
-                let (view_label, view_color) = match *view_mode {
-                    ViewMode::System => ("🔭 System View", egui::Color32::from_rgb(120, 180, 255)),
-                    ViewMode::Starmap => {
-                        ("🌌 Starmap View", egui::Color32::from_rgb(255, 200, 100))
-                    }
+                // ── Pause button ──────────────────────────────────────────
+                let pause_fill = if is_paused {
+                    // Blend surface → red based on blink
+                    let r = (13.0 + 100.0 * blink) as u8;
+                    let g = (17.0f32 * (1.0 - blink * 0.8)) as u8;
+                    let b = (23.0f32 * (1.0 - blink * 0.9)) as u8;
+                    egui::Color32::from_rgb(r, g, b)
+                } else {
+                    theme::SURFACE
                 };
-                ui.colored_label(view_color, view_label);
+                let pause_stroke = if is_paused {
+                    let alpha = (120.0 + 135.0 * blink) as u8;
+                    egui::Stroke::new(1.5, egui::Color32::from_rgba_unmultiplied(231, 76, 60, alpha))
+                } else {
+                    egui::Stroke::new(0.5, theme::BORDER)
+                };
+                let pause_label = if is_paused {
+                    egui::RichText::new("⏸ PAUSED").color(
+                        egui::Color32::from_rgba_unmultiplied(255, 90, 70, (180.0 + 75.0 * blink) as u8)
+                    )
+                } else {
+                    egui::RichText::new("▶ Running").color(theme::TEXT_DIM)
+                };
+                let pause_btn = egui::Button::new(pause_label)
+                    .stroke(pause_stroke)
+                    .fill(pause_fill);
+                if ui.add_sized([80.0, 36.0], pause_btn).clicked() {
+                    if is_paused {
+                        time_scale.resume();
+                    } else {
+                        time_scale.pause();
+                    }
+                }
+
+                ui.separator();
+
+                // ── Speed preset buttons [1]–[5] with active highlight ────
+                const SPEED_LABELS: [&str; 5] = ["1 hr/s", "1 day/s", "1 wk/s", "1 mo/s", "1 yr/s"];
+                const SPEED_VALUES: [f32; 5] = [3_600.0, 86_400.0, 604_800.0, 2_592_000.0, 31_557_600.0];
+                const SPEED_HOTKEYS: [&str; 5] = ["[1]", "[2]", "[3]", "[4]", "[5]"];
+
+                for i in 0..5 {
+                    let is_active = !is_paused && (active_scale - SPEED_VALUES[i]).abs() < 1.0;
+                    let btn = if is_active {
+                        egui::Button::new(
+                            egui::RichText::new(SPEED_LABELS[i])
+                                .color(theme::ACCENT)
+                                .strong(),
+                        )
+                        .stroke(egui::Stroke::new(1.5, theme::ACCENT))
+                        .fill(theme::SURFACE_RAISED)
+                    } else {
+                        egui::Button::new(
+                            egui::RichText::new(SPEED_LABELS[i])
+                                .color(theme::TEXT)
+                                .strong(),
+                        )
+                        .stroke(egui::Stroke::new(0.5, theme::BORDER))
+                        .fill(theme::SURFACE)
+                    };
+                    let tooltip = format!("{} (hotkey {})", SPEED_LABELS[i], SPEED_HOTKEYS[i]);
+                    if ui.add_sized([60.0, 36.0], btn).on_hover_text(tooltip).clicked() {
+                        time_scale.set_speed(SPEED_VALUES[i]);
+                    }
+                }
+
+                ui.separator();
+
+                // ── Status info ───────────────────────────────────────────
+                ui.vertical(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!("Date: {}", sim_time.format_date_time()))
+                            .color(theme::TEXT),
+                    );
+                    let (view_label, view_color) = match *view_mode {
+                        ViewMode::System => ("🔭 System View", theme::RP_BLUE),
+                        ViewMode::Starmap => ("🌌 Starmap View", theme::STAR_GOLD),
+                    };
+                    ui.colored_label(view_color, egui::RichText::new(view_label));
+                });
             });
         });
 }
@@ -1440,12 +1021,12 @@ fn render_star_system_panel(
                                     star_idx + 1,
                                     &star_data.name
                                 ))
-                                .color(egui::Color32::from_rgb(200, 200, 255)),
+                                .color(theme::TEXT_VALUE),
                             );
                         } else {
                             ui.label(
                                 egui::RichText::new(&star_data.name)
-                                    .color(egui::Color32::from_rgb(200, 200, 255)),
+                                    .color(theme::TEXT_VALUE),
                             );
                         }
 
@@ -1457,11 +1038,11 @@ fn render_star_system_panel(
 
                         if let Some(metallicity) = star_data.metallicity {
                             let metallicity_color = if metallicity > 0.0 {
-                                egui::Color32::from_rgb(255, 220, 100)
+                                theme::STAR_GOLD
                             } else if metallicity < 0.0 {
-                                egui::Color32::from_rgb(150, 150, 200)
+                                theme::TEXT_DIM
                             } else {
-                                egui::Color32::from_rgb(200, 200, 200)
+                                theme::TEXT_VALUE
                             };
 
                             ui.label(
@@ -1497,7 +1078,7 @@ fn render_star_system_panel(
                     .count();
                 let planets = bodies
                     .iter()
-                    .filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Planet))
+                    .filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Planet | BodyType::GasGiant))
                     .count();
                 let dwarf_planets = bodies
                     .iter()

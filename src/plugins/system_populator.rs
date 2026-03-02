@@ -27,7 +27,7 @@ use crate::economy::components::{OrbitsBody, SpectralClass, StarSystem};
 use crate::economy::generation::generate_solar_system_resources;
 use crate::game_state::GameSeed;
 use crate::plugins::solar_system::{
-    Asteroid, CelestialBody, ClickExcluded, Comet, LogicalParent, Moon, Planet, Ring, Star,
+    Asteroid, CelestialBody, ClickExcluded, Comet, DwarfPlanet, LogicalParent, Moon, Planet, Ring, Star,
     create_ring_mesh,
 };
 use crate::plugins::solar_system_data::{calculate_visual_radius, system_visual_scale, AsteroidClass, BodyType};
@@ -93,7 +93,7 @@ fn populate_nearby_systems(
             id
         };
 
-        info!(
+        debug!(
             "Populating system '{}' at {:.2} ly with {} stars",
             system_data.system_name,
             system_data.distance_ly,
@@ -108,7 +108,7 @@ fn populate_nearby_systems(
 
         if let Some(pos_ly) = NearbyStarsData::get_position_by_name(&system_data.system_name) {
              star_position = DVec3::new(pos_ly[0], pos_ly[1], pos_ly[2]) * 63241.077;
-             info!("  Using 3D coordinates for '{}': {:?}", system_data.system_name, star_position);
+             debug!("  Using 3D coordinates for '{}': {:?}", system_data.system_name, star_position);
         } else {
              warn!("  No 3D coordinates found for '{}', using fallback X-axis placement", system_data.system_name);
         }
@@ -122,7 +122,7 @@ fn populate_nearby_systems(
             // Use real metallicity if available, otherwise generate random
             let metallicity = primary_star.metallicity.unwrap_or_else(|| {
                 let random_value = rng.random_range(-0.5..0.5);
-                info!(
+                debug!(
                     "  No metallicity data for '{}', using random: {:.2}",
                     primary_star.name, random_value
                 );
@@ -130,7 +130,7 @@ fn populate_nearby_systems(
             });
 
             if primary_star.metallicity.is_some() {
-                info!(
+                debug!(
                     "  Using real metallicity data for '{}': [Fe/H]={:.2}",
                     primary_star.name, metallicity
                 );
@@ -141,7 +141,7 @@ fn populate_nearby_systems(
             // meshes so they don't overwhelm their tiny orbits.
             let vis_scale = system_visual_scale(primary_star.luminosity_sol);
             if vis_scale < 1.0 {
-                info!(
+                debug!(
                     "  Visual scale for '{}': {:.2}x (L={:.2e})",
                     system_data.system_name, vis_scale, primary_star.luminosity_sol
                 );
@@ -212,7 +212,7 @@ fn populate_nearby_systems(
                 &mut rng,
             );
 
-            info!(
+            debug!(
                 "  Generated {} rocky planets, {} gas giants for '{}'",
                 architecture.rocky_planets.len(),
                 architecture.gas_giants.len(),
@@ -319,6 +319,18 @@ fn populate_nearby_systems(
                 );
             }
 
+            // Spawn dwarf planets in the trans-Neptunian region
+            if !architecture.dwarf_planets.is_empty() {
+                spawn_dwarf_planets(
+                    &mut commands,
+                    &architecture.dwarf_planets,
+                    star_entity,
+                    system_id,
+                    primary_star.luminosity_sol,
+                    vis_scale,
+                );
+            }
+
             // Compute and store bounding radius for this system
             let mut max_radius_au: f64 = 10.0;
             for (_, sma_au, _, _, _) in &all_planet_entities {
@@ -329,6 +341,9 @@ fn populate_nearby_systems(
             }
             if let Some(cloud) = &architecture.cometary_cloud {
                 max_radius_au = max_radius_au.max(cloud.outer_au * 1.1);
+            }
+            for dp in &architecture.dwarf_planets {
+                max_radius_au = max_radius_au.max(dp.semi_major_axis_au * 1.3);
             }
             system_metadata.set_bounding_radius(system_id, max_radius_au);
         }
@@ -390,7 +405,7 @@ pub fn spawn_star_entity_with_metallicity(
 
     let star_system = StarSystem::with_metallicity(frost_line_au, spectral_class, metallicity);
 
-    info!(
+    debug!(
         "Spawning star '{}' ({}): L={:.3}L☉, frost_line={:.2}AU, [Fe/H]={:.2}",
         star_data.name,
         star_data.spectral_type,
@@ -488,7 +503,7 @@ pub fn spawn_confirmed_planet(
         (equilibrium_temp_c, false)
     };
 
-    info!(
+    debug!(
         "Spawning confirmed planet '{}': a={:.2}AU, M={:.1}M⊕, type={}, T={:.1}°C{}",
         planet_data.name,
         planet_data.semi_major_axis_au,
@@ -534,6 +549,11 @@ pub fn spawn_confirmed_planet(
         OrbitsBody::new(parent_star),
         LogicalParent(parent_star),
         SystemId(system_id),
+        Transform::default(), // Required so ring ChildOf relationships have a valid parent transform
+        // Visibility required so that child entities (rings, atmosphere shells) have a
+        // valid InheritedVisibility propagation chain — prevents Bevy B0004 warnings.
+        // Hidden by default since these bodies are in distant systems and have no mesh yet.
+        Visibility::Hidden,
     ));
 
     // Extract ocean-relevant info before consuming atmosphere_result
@@ -593,7 +613,7 @@ pub fn spawn_procedural_planet(
         (equilibrium_temp_c, false)
     };
 
-    info!(
+    debug!(
         "Spawning procedural planet '{}': a={:.2}AU, M={:.1}M⊕, R={:.1}R⊕, type={:?}, T={:.1}°C{}",
         planet.name,
         planet.semi_major_axis_au,
@@ -639,6 +659,11 @@ pub fn spawn_procedural_planet(
         OrbitsBody::new(parent_star),
         LogicalParent(parent_star),
         SystemId(system_id),
+        Transform::default(), // Required so ring ChildOf relationships have a valid parent transform
+        // Visibility required so that child entities (rings, atmosphere shells) have a
+        // valid InheritedVisibility propagation chain — prevents Bevy B0004 warnings.
+        // Hidden by default since these bodies are in distant systems and have no mesh yet.
+        Visibility::Hidden,
     ));
 
     // Extract ocean-relevant info before consuming atmosphere_result
@@ -670,6 +695,65 @@ pub fn spawn_procedural_planet(
     entity
 }
 
+/// Spawn procedural dwarf planets in the trans-Neptunian region.
+///
+/// Dwarf planets are spawned with `BodyType::DwarfPlanet` and the `DwarfPlanet`
+/// marker component. Their orbits are hidden by default (matching Sol behaviour).
+fn spawn_dwarf_planets(
+    commands: &mut Commands,
+    dwarf_planets: &[ProceduralPlanet],
+    parent_star: Entity,
+    system_id: usize,
+    star_luminosity_sol: f32,
+    vis_scale: f32,
+) {
+    for planet in dwarf_planets {
+        let orbit = planet.to_kepler_orbit();
+        let mass_kg = planet.mass_kg();
+        let radius_km = planet.radius_km();
+
+        let (avg_temp, min_temp, max_temp) =
+            calculate_temperature_from_star(planet.semi_major_axis_au, star_luminosity_sol);
+
+        let visual_radius = calculate_visual_radius(BodyType::DwarfPlanet, radius_km) * vis_scale;
+
+        debug!(
+            "Spawning dwarf planet '{}': a={:.1}AU, e={:.2}, i={:.1}°, M={:.4}M⊕, R={:.0}km",
+            planet.name,
+            planet.semi_major_axis_au,
+            planet.eccentricity,
+            planet.inclination.to_degrees(),
+            planet.mass_earth,
+            radius_km,
+        );
+
+        commands.spawn((
+            DwarfPlanet,
+            CelestialBody {
+                name: planet.name.clone(),
+                mass: mass_kg,
+                radius: radius_km,
+                body_type: BodyType::DwarfPlanet,
+                visual_radius,
+                asteroid_class: None,
+            },
+            SurfaceTemperature {
+                average_celsius: avg_temp,
+                min_celsius: min_temp,
+                max_celsius: max_temp,
+            },
+            orbit,
+            OrbitPath::new(Color::srgba(0.5, 0.5, 0.7, 0.5)), // Dim blue — matches Sol dwarf planet palette
+            SpaceCoordinates::default(),
+            OrbitCenter(parent_star),
+            OrbitsBody::new(parent_star),
+            LogicalParent(parent_star),
+            SystemId(system_id),
+            Visibility::Hidden,
+        ));
+    }
+}
+
 /// Spawn asteroids in a belt
 pub fn spawn_asteroid_belt(
     commands: &mut Commands,
@@ -690,7 +774,7 @@ pub fn spawn_asteroid_belt(
         ^ belt.outer_au.to_bits();
     let mut rng = StdRng::seed_from_u64(seed);
 
-    info!(
+    debug!(
         "Spawning asteroid belt: {:.2}-{:.2} AU, {} asteroids",
         belt.inner_au, belt.outer_au, belt.count
     );
@@ -698,8 +782,17 @@ pub fn spawn_asteroid_belt(
     for i in 0..belt.count {
         // Random orbital parameters within the belt
         let semi_major_axis = rng.random_range(belt.inner_au..belt.outer_au);
-        let eccentricity = rng.random_range(0.0..0.2);
-        let inclination = belt.inclination + rng.random_range(-0.05..0.05);
+
+        // Eccentricity: most main-belt asteroids 0.0-0.3, median ~0.15
+        // Power-law bias toward lower values
+        let eccentricity = rng.random_range(0.0_f64..1.0).powf(1.5) * 0.35;
+
+        // Inclination: real belt has 0-30° with most <15°
+        // Rayleigh-like distribution centred on belt average
+        let base_incl = belt.inclination;
+        let incl_spread = rng.random_range(0.0_f64..1.0).powf(0.7) * 0.52; // up to ~30°
+        let incl_sign = if rng.random_bool(0.5) { 1.0 } else { -1.0 };
+        let inclination = base_incl + incl_sign * incl_spread;
 
         // Calculate orbital period using Kepler's third law
         let period_years = semi_major_axis.powf(1.5);
@@ -716,19 +809,61 @@ pub fn spawn_asteroid_belt(
             mean_motion,
         );
 
-        // Determine asteroid class (MType, SType, VType for inner belt)
-        let asteroid_class = if rng.random_bool(0.3) {
-            AsteroidClass::MType // Metal-rich
-        } else if rng.random_bool(0.6) {
-            AsteroidClass::SType // Silicate-rich
+        // Determine asteroid class with realistic distribution:
+        // C-type (carbonaceous): ~75% of all asteroids (dominant in outer belt)
+        // S-type (silicate): ~17% of all asteroids (dominant in inner belt)
+        // M-type (metallic): ~5% (scattered)
+        // V-type (basaltic): ~3% (associated with Vesta family)
+        let belt_midpoint = (belt.inner_au + belt.outer_au) * 0.5;
+        let asteroid_class = if semi_major_axis > belt_midpoint {
+            // Outer belt: C-type dominant
+            let roll = rng.random_range(0.0..1.0_f64);
+            if roll < 0.80 {
+                AsteroidClass::CType
+            } else if roll < 0.92 {
+                AsteroidClass::SType
+            } else if roll < 0.97 {
+                AsteroidClass::MType
+            } else {
+                AsteroidClass::VType
+            }
         } else {
-            AsteroidClass::VType // Basaltic
+            // Inner belt: S-type more common
+            let roll = rng.random_range(0.0..1.0_f64);
+            if roll < 0.45 {
+                AsteroidClass::SType
+            } else if roll < 0.80 {
+                AsteroidClass::CType
+            } else if roll < 0.93 {
+                AsteroidClass::MType
+            } else {
+                AsteroidClass::VType
+            }
         };
 
-        // Random size (radius 0.1 - 15 km); most belt asteroids are small
-        let radius = rng.random_range(0.1..15.0);
-        // Rough mass estimate (density ~2500 kg/m³)
-        let mass = (4.0 / 3.0) * std::f64::consts::PI * (radius as f64 * 1000.0).powi(3) * 2500.0;
+        // Power-law size distribution: N(>D) ∝ D^-2.5
+        // Most asteroids are tiny, a few are large (Ceres 473km, Vesta 263km)
+        // Inverse CDF: r = r_min × (1 - U)^(-1/(q-1)) where q = 3.5
+        let u: f64 = rng.random_range(0.001..1.0); // avoid zero
+        let r_min = 0.1_f64; // minimum radius in km
+        let r_max = 250.0_f64; // maximum radius (Ceres-scale)
+        let q = 3.5; // power-law exponent
+        let radius_raw = r_min * (1.0 - u).powf(-1.0 / (q - 1.0));
+        let radius = radius_raw.min(r_max);
+
+        // Density varies by class (kg/m³)
+        // C-type: 1300-2100 (porous, carbonaceous, like Mathilde ~1300)
+        // S-type: 2400-3200 (rocky, stony, like Eros ~2670)
+        // M-type: 3500-5500 (metallic, like Psyche ~3400-4100)
+        // V-type: 2800-3500 (basaltic, like Vesta ~3456)
+        let density = match asteroid_class {
+            AsteroidClass::CType => rng.random_range(1300.0..2100.0_f64),
+            AsteroidClass::SType => rng.random_range(2400.0..3200.0_f64),
+            AsteroidClass::MType => rng.random_range(3500.0..5500.0_f64),
+            AsteroidClass::VType => rng.random_range(2800.0..3500.0_f64),
+            _ => rng.random_range(2000.0..3000.0_f64),
+        };
+        let mass = (4.0 / 3.0) * std::f64::consts::PI * (radius * 1000.0).powi(3) * density;
 
         // Calculate asteroid temperature based on its distance from the star
         let (avg_temp, min_temp, max_temp) = calculate_temperature_from_star(semi_major_axis, star_luminosity_sol);
@@ -738,7 +873,7 @@ pub fn spawn_asteroid_belt(
             CelestialBody {
                 name: format!("{} Belt Asteroid {}", star_name, i + 1),
                 mass,
-                radius,
+                radius: radius as f32,
                 body_type: BodyType::Asteroid,
                 visual_radius: calculate_visual_radius(BodyType::Asteroid, radius as f32) * vis_scale,
                 asteroid_class: Some(asteroid_class),
@@ -779,7 +914,7 @@ pub fn spawn_cometary_cloud(
         ^ cloud.outer_au.to_bits();
     let mut rng = StdRng::seed_from_u64(seed);
 
-    info!(
+    debug!(
         "Spawning cometary cloud: {:.2}-{:.2} AU, {} comets",
         cloud.inner_au, cloud.outer_au, cloud.count
     );
@@ -787,8 +922,28 @@ pub fn spawn_cometary_cloud(
     for i in 0..cloud.count {
         // Random orbital parameters within the cloud (spherical distribution)
         let semi_major_axis = rng.random_range(cloud.inner_au..cloud.outer_au);
-        let eccentricity = rng.random_range(0.3..0.9); // Highly eccentric
-        let inclination = rng.random_range(0.0..std::f64::consts::PI); // Any inclination
+
+        // Eccentricity: short-period comets 0.2-0.7, long-period comets 0.9-0.999
+        // Mix of populations: ~70% short/intermediate period, ~30% near-parabolic
+        let eccentricity = if rng.random_range(0.0..1.0_f64) < 0.3 {
+            // Long-period / near-parabolic comets (Oort cloud origin)
+            rng.random_range(0.90..0.999_f64)
+        } else {
+            // Short/intermediate period comets (scattered disk/Kuiper belt origin)
+            rng.random_range(0.2..0.75_f64)
+        };
+
+        // Inclination: isotropic for long-period, concentrated for short-period
+        // Short-period (Jupiter family): mostly <30°
+        // Long-period: isotropic (0-180°)
+        let inclination = if eccentricity > 0.85 {
+            // Near-isotropic: uniform in cos(i)
+            let cos_i = rng.random_range(-1.0..1.0_f64);
+            cos_i.acos()
+        } else {
+            // Jupiter-family-like: concentrated near ecliptic
+            rng.random_range(0.0_f64..1.0).powf(0.6) * 0.52 // up to ~30°, biased low
+        };
 
         // Calculate orbital period using Kepler's third law
         let period_years = semi_major_axis.powf(1.5);
@@ -805,10 +960,20 @@ pub fn spawn_cometary_cloud(
             mean_motion,
         );
 
-        // Comets are small (0.5-10 km radius)
-        let radius = rng.random_range(0.5..10.0);
-        // Low density ice/rock (density ~500 kg/m³)
-        let mass = (4.0 / 3.0) * std::f64::consts::PI * (radius as f64 * 1000.0).powi(3) * 500.0;
+        // Power-law size distribution for comets (steeper than asteroids)
+        // Most comets are 0.5-5 km, a few reach 30+ km (Hale-Bopp ~30km, Chiron ~100km)
+        let u: f64 = rng.random_range(0.001..1.0);
+        let r_min = 0.3_f64;
+        let r_max = 40.0_f64;
+        let q = 4.0; // steeper than asteroids
+        let radius_raw = r_min * (1.0 - u).powf(-1.0 / (q - 1.0));
+        let radius = radius_raw.min(r_max);
+
+        // Density: cometary nuclei are porous ice/rock mixtures
+        // 67P/Churyumov–Gerasimenko: 533 kg/m³, Halley: ~600 kg/m³
+        // Range: 200-800 kg/m³
+        let density = rng.random_range(200.0..800.0_f64);
+        let mass = (4.0 / 3.0) * std::f64::consts::PI * (radius * 1000.0).powi(3) * density;
 
         // Calculate comet temperature based on its distance from the star
         let (avg_temp, min_temp, max_temp) = calculate_temperature_from_star(semi_major_axis, star_luminosity_sol);
@@ -818,7 +983,7 @@ pub fn spawn_cometary_cloud(
             CelestialBody {
                 name: format!("{} Cloud Comet {}", star_name, i + 1),
                 mass,
-                radius,
+                radius: radius as f32,
                 body_type: BodyType::Comet,
                 visual_radius: calculate_visual_radius(BodyType::Comet, radius as f32) * vis_scale,
                 asteroid_class: Some(AsteroidClass::PType), // P-type (volatile-rich)
@@ -849,10 +1014,12 @@ pub fn spawn_cometary_cloud(
 /// Universe Sandbox-style approach used for Sol-system moons.
 /// Spawn a procedural ring system around a gas/ice giant.
 ///
-/// Generates a 1-D radial RGBA texture with distinct ring bands, gaps, and a
-/// colour gradient — mimicking the approach used by the Sol system’s real
-/// Saturn / Uranus ring textures.  The texture is mapped across the U
-/// coordinate of the ring mesh (0 = inner edge, 1 = outer edge).
+/// Generates a 1-D radial RGBA texture with multi-scale ring structure:
+/// broad regions (analogous to Saturn's A/B/C rings), dozens of fine ringlets,
+/// and multiple gaps of varying widths.  Colours are muted and realistic —
+/// icy greys, warm beiges, and cool slate tones — matching Cassini/Voyager
+/// imagery.  The texture is mapped across the U coordinate of the ring mesh
+/// (0 = inner edge, 1 = outer edge).
 fn spawn_procedural_ring(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
@@ -866,112 +1033,174 @@ fn spawn_procedural_ring(
     rng: &mut impl Rng,
 ) {
     // ── Geometry ──────────────────────────────────────────────────────────
-    let outer_scale: f32 = rng.random_range(1.5_f32..2.5);
-    let inner_frac:  f32 = rng.random_range(0.40_f32..0.70);
+    let outer_scale: f32 = rng.random_range(1.6_f32..2.4);
+    let inner_frac:  f32 = rng.random_range(0.45_f32..0.65);
     let outer_radius = planet_visual_radius * outer_scale;
     let inner_radius = outer_radius * inner_frac;
 
     // ── Ring flavor (base colour palette) ─────────────────────────────────
+    // All palettes are muted and desaturated — real ring particles are
+    // predominantly water ice (grey-white) with silicate/tholin impurities
+    // adding subtle warm or cool tints.
     let flavor: u32 = rng.random_range(0..100);
-    // (inner_rgb, outer_rgb) – the colour lerps from inner to outer
-    let (inner_rgb, outer_rgb, flavor_label): ([f32; 3], [f32; 3], &str) = if flavor < 35 {
-        // Saturn-like: warm cream-to-tan gradient
-        ([0.92, 0.86, 0.70], [0.72, 0.58, 0.38], "Saturn-tan")
-    } else if flavor < 58 {
-        // Uranus-like: pale blue-grey → slate
-        ([0.72, 0.82, 0.88], [0.45, 0.55, 0.62], "Uranus-blue")
-    } else if flavor < 76 {
-        // Icy white (Neptune-like): almost white → cool grey
-        ([0.92, 0.94, 0.96], [0.68, 0.72, 0.78], "Icy-white")
-    } else if flavor < 92 {
-        // Dusty reddish-brown: warm rust gradient
-        ([0.78, 0.52, 0.36], [0.55, 0.32, 0.20], "Dusty-red")
+    // (inner_rgb, outer_rgb) — colour lerps from inner to outer
+    let (inner_rgb, outer_rgb, flavor_label): ([f32; 3], [f32; 3], &str) = if flavor < 30 {
+        // Saturn-like: warm cream to muted tan (Cassini imagery)
+        ([0.88, 0.84, 0.76], [0.76, 0.70, 0.58], "Saturn-warm")
+    } else if flavor < 55 {
+        // Uranus-like: pale blue-grey to cool slate
+        ([0.72, 0.76, 0.80], [0.50, 0.55, 0.60], "Uranus-slate")
+    } else if flavor < 75 {
+        // Icy white: bright ice to cool grey (fresh ice-dominated rings)
+        ([0.90, 0.91, 0.92], [0.72, 0.74, 0.78], "Icy-white")
+    } else if flavor < 90 {
+        // Dusty warm: very subtle warm grey with a hint of tan (tholin-stained)
+        ([0.80, 0.76, 0.70], [0.62, 0.58, 0.52], "Dusty-warm")
     } else {
-        // Near-transparent sooty dark (faint Jupiter-like)
-        ([0.35, 0.30, 0.25], [0.18, 0.15, 0.12], "Dark-faint")
+        // Dark tenuous: barely-visible sooty particles (Jupiter-like)
+        ([0.40, 0.38, 0.35], [0.25, 0.23, 0.20], "Dark-faint")
     };
 
-    // Per-ring jitter so no two look identical
-    let jitter_r = rng.random_range(-0.05_f32..0.05);
-    let jitter_g = rng.random_range(-0.05_f32..0.05);
-    let jitter_b = rng.random_range(-0.05_f32..0.05);
+    // Per-ring colour jitter (very subtle — keeps neighbouring rings unique)
+    let jitter_r = rng.random_range(-0.03_f32..0.03);
+    let jitter_g = rng.random_range(-0.03_f32..0.03);
+    let jitter_b = rng.random_range(-0.03_f32..0.03);
 
     // ── Generate procedural ring texture ─────────────────────────────────
-    // 512 pixels wide (U direction = radial), 1 pixel tall.
-    // This is replicated around the ring via UV mapping.
-    const TEX_W: u32 = 512;
+    // 1024 pixels wide (U direction = radial), 1 pixel tall.
+    // Higher resolution captures the fine ringlet structure.
+    const TEX_W: u32 = 1024;
     const TEX_H: u32 = 1;
 
-    // Decide how many ring bands and gaps this system has
-    let num_bands: usize = rng.random_range(3..=8);
-    let num_gaps:  usize = rng.random_range(1..=num_bands.saturating_sub(1).max(1));
+    // ── Multi-scale structure ─────────────────────────────────────────────
+    // Level 1: Major regions (like Saturn's C/B/A rings) — 2-4 broad zones
+    // that define the coarse opacity envelope.
+    let num_major_regions: usize = rng.random_range(2..=4);
+    struct MajorRegion { center: f32, half_width: f32, base_opacity: f32 }
+    let major_regions: Vec<MajorRegion> = {
+        // Place regions roughly evenly across the radial range with some randomness
+        let spacing = 1.0 / (num_major_regions as f32 + 1.0);
+        (0..num_major_regions)
+            .map(|i| {
+                let nominal = spacing * (i as f32 + 1.0);
+                MajorRegion {
+                    center: nominal + rng.random_range(-0.06_f32..0.06),
+                    half_width: rng.random_range(0.10_f32..0.22),
+                    base_opacity: rng.random_range(0.30_f32..0.90),
+                }
+            })
+            .collect()
+    };
 
-    // Pre-generate gap locations (as fractions 0..1 across the radial extent)
-    // and widths.  Gaps are narrow transparent slots between bands.
-    struct GapInfo {
-        center: f32, // 0..1
-        half_w: f32, // half-width in 0..1
-    }
-    let gaps: Vec<GapInfo> = (0..num_gaps)
-        .map(|_| GapInfo {
-            center: rng.random_range(0.08_f32..0.92),
-            half_w: rng.random_range(0.01_f32..0.06),
+    // Level 2: Fine ringlets — 25-60 narrow bands within the major regions
+    let num_ringlets: usize = rng.random_range(25..=60);
+    struct Ringlet { center: f32, sigma: f32, peak: f32 }
+    let ringlets: Vec<Ringlet> = (0..num_ringlets)
+        .map(|_| Ringlet {
+            center: rng.random_range(0.02_f32..0.98),
+            sigma:  rng.random_range(0.004_f32..0.030),
+            peak:   rng.random_range(0.15_f32..0.70),
         })
         .collect();
 
-    // Pre-generate band density peaks.  Each band is a smooth bump that
-    // contributes opacity; overlapping bumps create the rich layered look.
-    struct BandInfo {
-        center: f32,
-        sigma:  f32, // gaussian width
-        peak:   f32, // peak alpha
+    // Level 3: Gaps — mix of major divisions and narrow gaps
+    let num_major_gaps: usize = rng.random_range(1..=3);
+    let num_narrow_gaps: usize = rng.random_range(3..=10);
+
+    struct GapInfo { center: f32, half_w: f32, sharpness: f32 }
+    let mut gaps: Vec<GapInfo> = Vec::with_capacity(num_major_gaps + num_narrow_gaps);
+    // Major gaps — wider divisions with sharp edges (Cassini Division analog)
+    for _ in 0..num_major_gaps {
+        gaps.push(GapInfo {
+            center: rng.random_range(0.15_f32..0.85),
+            half_w: rng.random_range(0.02_f32..0.06),
+            sharpness: rng.random_range(0.7_f32..1.0),
+        });
     }
-    let bands: Vec<BandInfo> = (0..num_bands)
-        .map(|_| BandInfo {
+    // Narrow gaps — hairline splits (Encke Gap analog)
+    for _ in 0..num_narrow_gaps {
+        gaps.push(GapInfo {
             center: rng.random_range(0.05_f32..0.95),
-            sigma:  rng.random_range(0.04_f32..0.20),
-            peak:   rng.random_range(0.35_f32..0.85),
-        })
-        .collect();
+            half_w: rng.random_range(0.002_f32..0.012),
+            sharpness: rng.random_range(0.5_f32..0.9),
+        });
+    }
+
+    // Deterministic fine noise for density variations (no RNG per pixel)
+    #[inline]
+    fn fine_noise(x: u32, seed: u32) -> f32 {
+        let h = x.wrapping_mul(2654435761).wrapping_add(seed.wrapping_mul(2246822519));
+        let h = ((h >> 13) ^ h).wrapping_mul(1597334677);
+        (h & 0xFFFF) as f32 / 32768.0 - 1.0
+    }
+    let noise_seed: u32 = rng.random_range(0..u32::MAX);
 
     let mut pixels = Vec::with_capacity((TEX_W as usize) * 4);
     for x in 0..TEX_W {
-        let u = x as f32 / (TEX_W - 1) as f32; // 0 = inner, 1 = outer
+        let u = x as f32 / (TEX_W - 1) as f32; // 0 = inner, 1 = outer
 
-        // Colour: lerp inner → outer + jitter
-        let cr = ((inner_rgb[0] + (outer_rgb[0] - inner_rgb[0]) * u) + jitter_r).clamp(0.0, 1.0);
-        let cg = ((inner_rgb[1] + (outer_rgb[1] - inner_rgb[1]) * u) + jitter_g).clamp(0.0, 1.0);
-        let cb = ((inner_rgb[2] + (outer_rgb[2] - inner_rgb[2]) * u) + jitter_b).clamp(0.0, 1.0);
+        // ── Colour ───────────────────────────────────────────────────────
+        let mut cr = (inner_rgb[0] + (outer_rgb[0] - inner_rgb[0]) * u) + jitter_r;
+        let mut cg = (inner_rgb[1] + (outer_rgb[1] - inner_rgb[1]) * u) + jitter_g;
+        let mut cb = (inner_rgb[2] + (outer_rgb[2] - inner_rgb[2]) * u) + jitter_b;
 
-        // Alpha: sum of band contributions
-        let mut alpha: f32 = 0.0;
-        for band in &bands {
-            let d = (u - band.center) / band.sigma;
-            alpha += band.peak * (-0.5 * d * d).exp();
+        // Subtle per-pixel colour variation (tholin/silicate patches)
+        let colour_noise = fine_noise(x, noise_seed.wrapping_add(7)) * 0.04;
+        cr = (cr + colour_noise).clamp(0.0, 1.0);
+        cg = (cg + colour_noise * 0.7).clamp(0.0, 1.0);
+        cb = (cb + colour_noise * 0.3).clamp(0.0, 1.0);
+
+        // ── Alpha: composite from major regions + fine ringlets ──────────
+        // Start with the major region envelope
+        let mut region_alpha: f32 = 0.0;
+        for region in &major_regions {
+            let d = (u - region.center) / region.half_width;
+            // Soft-edged trapezoid: flat top (|d| < 0.6), smooth falloff beyond
+            let contribution = if d.abs() < 0.6 {
+                region.base_opacity
+            } else {
+                let falloff = ((1.0 - d.abs()) / 0.4).clamp(0.0, 1.0);
+                region.base_opacity * falloff * falloff
+            };
+            region_alpha = region_alpha.max(contribution);
         }
 
-        // Cut gaps: anywhere inside a gap, drive alpha to zero
+        // Add fine ringlet structure on top
+        let mut ringlet_alpha: f32 = 0.0;
+        for ringlet in &ringlets {
+            let d = (u - ringlet.center) / ringlet.sigma;
+            ringlet_alpha += ringlet.peak * (-0.5 * d * d).exp();
+        }
+
+        // Combine: ringlets modulate within the region envelope
+        let mut alpha = region_alpha * 0.4 + ringlet_alpha * 0.55
+            + (region_alpha * ringlet_alpha) * 0.3;
+
+        // ── Cut gaps ─────────────────────────────────────────────────────
         for gap in &gaps {
-            if (u - gap.center).abs() < gap.half_w {
-                // Smooth edge: fade linearly over the outer 30% of the gap
-                let edge_dist = gap.half_w - (u - gap.center).abs();
-                let edge_zone = gap.half_w * 0.3;
-                let gap_factor = if edge_dist > edge_zone {
-                    0.0 // deep inside gap
+            let dist = (u - gap.center).abs();
+            if dist < gap.half_w {
+                let edge_zone = gap.half_w * (1.0 - gap.sharpness);
+                let edge_dist = gap.half_w - dist;
+                let gap_factor = if edge_zone > 0.0001 && edge_dist > edge_zone {
+                    0.0
+                } else if edge_zone > 0.0001 {
+                    (edge_dist / edge_zone).clamp(0.0, 1.0)
                 } else {
-                    edge_dist / edge_zone // smooth ramp at edge
+                    0.0
                 };
                 alpha *= gap_factor;
             }
         }
 
-        // Soft fade at inner and outer edges so the ring doesn't end abruptly
-        let edge_fade = (u * 8.0).min(1.0) * ((1.0 - u) * 8.0).min(1.0);
-        alpha *= edge_fade;
+        // ── Edge fade (soft inner/outer boundaries) ──────────────────────
+        let inner_fade = (u * 12.0).min(1.0);
+        let outer_fade = ((1.0 - u) * 12.0).min(1.0);
+        alpha *= inner_fade * outer_fade;
 
-        // Add a touch of fine-grain noise for texture
-        let noise = rng.random_range(-0.04_f32..0.04);
-        alpha = (alpha + noise).clamp(0.0, 1.0);
+        // ── Fine-grain density noise ─────────────────────────────────────
+        let density_noise = fine_noise(x, noise_seed) * 0.06;
+        alpha = (alpha + density_noise).clamp(0.0, 1.0);
 
         pixels.push((cr * 255.0) as u8);
         pixels.push((cg * 255.0) as u8);
@@ -1032,9 +1261,10 @@ fn spawn_procedural_ring(
         LogicalParent(planet_entity),
     ));
 
-    info!(
-        "  Spawned rings for '{}' (outer={:.1}, inner={:.1}, bands={}, gaps={}, flavor={})",
-        planet_name, outer_radius, inner_radius, num_bands, num_gaps, flavor_label,
+    debug!(
+        "  Spawned rings for '{}' (outer={:.1}, inner={:.1}, regions={}, ringlets={}, gaps={}, flavor={})",
+        planet_name, outer_radius, inner_radius, num_major_regions, num_ringlets,
+        gaps.len(), flavor_label,
     );
 }
 
@@ -1105,41 +1335,119 @@ fn spawn_procedural_moons(
         .min(hill_sphere_cap)
         .max(inner_display * 1.5);
 
-    for i in 0..moon_count {
-        // Moon orbital distance scales with planet mass (Hill sphere proxy)
-        // Typical range: 0.001 - 0.01 AU from planet
-        let base_distance = 0.001 + (i as f64) * 0.002;
-        let orbital_distance_au = base_distance * (1.0 + rng.random_range(-0.3..0.3_f64));
+    // Approximate Hill sphere radius in AU: r_H ≈ a × (M_planet / 3·M_star)^(1/3)
+    // Use 1 M☉ as a reasonable default for the parent star.
+    let hill_radius_au = planet_sma_au
+        * ((planet_mass_earth as f64) * 5.972e24 / (3.0 * 1.989e30)).powf(1.0 / 3.0);
 
-        // Moon mass: tiny fraction of planet mass, scaled by planet type
-        // Real examples: Ganymede ~0.025% of Jupiter, Titan ~0.024% of Saturn,
-        //                Earth's Moon ~1.2% of Earth
-        let mass_fraction = if planet_mass_earth > 10.0 {
-            // Gas/ice giants: moons are a much smaller fraction (0.001% - 0.05%)
-            rng.random_range(0.00001..0.0005_f64)
+    // Regular moons orbit within ~0.05 Hill radii (like Galilean system),
+    // irregular moons extend to ~0.4 Hill radii (like Jupiter's outer groups).
+    let regular_outer_au = (hill_radius_au * 0.05).max(0.0005);
+    let irregular_outer_au = (hill_radius_au * 0.40).max(regular_outer_au * 3.0);
+
+    for i in 0..moon_count {
+        // Classify moon population: inner ~60% are regular, rest irregular.
+        let regular_fraction = 0.6;
+        let is_regular = (i as f64) < (moon_count as f64 * regular_fraction);
+
+        // --- Orbital distance ---
+        // Geometric (Titius-Bode-like) spacing with random jitter.
+        // Regular moons: packed inside regular_outer_au with resonance-like gaps.
+        // Irregular moons: scattered through the outer Hill sphere region.
+        let orbital_distance_au = if is_regular {
+            // Logarithmic spacing: inner_au × ratio^i, like Galilean resonances
+            let inner_au = regular_outer_au * 0.15; // innermost at ~15% of regular zone
+            let ratio = if moon_count > 1 {
+                (regular_outer_au / inner_au).powf(1.0 / (moon_count as f64 - 1.0).max(1.0))
+            } else {
+                1.0
+            };
+            let base = inner_au * ratio.powf(i as f64);
+            // ±25% jitter around the geometric position
+            base * rng.random_range(0.75..1.25_f64)
         } else {
-            // Rocky planets: moons can be a larger fraction (0.01% - 1.5%)
-            rng.random_range(0.0001..0.015_f64)
+            // Irregular moons: log-uniform scatter in the outer Hill sphere
+            let log_inner = regular_outer_au.ln();
+            let log_outer = irregular_outer_au.ln();
+            (log_inner + rng.random_range(0.3..1.0_f64) * (log_outer - log_inner)).exp()
         };
+
+        // --- Mass (log-uniform for realistic spread across orders of magnitude) ---
+        // Real examples: Ganymede 0.025% of Jupiter, Deimos 0.000000025% of Mars,
+        //                Earth's Moon 1.2% of Earth, Phobos 0.00000018% of Mars
+        let log_mass_fraction = if planet_mass_earth > 10.0 {
+            // Gas/ice giants: 10^-6 to 10^-3 of planet mass
+            // Covers everything from tiny captured rocks to Ganymede-class moons
+            rng.random_range(-6.0..-3.0_f64)
+        } else {
+            // Rocky planets: 10^-4.5 to 10^-1.5 (wider range)
+            // From Phobos-like specks to Luna-class companions
+            rng.random_range(-4.5..-1.5_f64)
+        };
+        let mass_fraction = 10.0_f64.powf(log_mass_fraction);
+
+        // Irregular moons tend to be smaller (captured bodies)
+        let mass_fraction = if is_regular {
+            mass_fraction
+        } else {
+            mass_fraction * rng.random_range(0.01..0.3_f64)
+        };
+
         let moon_mass_earth = (planet_mass_earth as f64) * mass_fraction;
         let moon_mass_kg = moon_mass_earth * 5.972e24;
 
-        // Estimate radius from mass (assume rocky density ~3500 kg/m³)
-        let volume_m3 = moon_mass_kg / 3500.0;
+        // --- Density varies with composition ---
+        // Inner moons: rocky/metallic (Io: 3528, Europa: 3013, Moon: 3346)
+        // Outer moons: increasingly icy (Ganymede: 1936, Callisto: 1834, Enceladus: 1609)
+        // Irregulars: low-density captured bodies (~1300-2000)
+        let density_kg_m3 = if is_regular {
+            let t = i as f64 / (moon_count as f64).max(1.0);
+            // Blend from rocky-inner (~3400) to icy-outer (~1800)
+            let base_density = 3400.0 - t * 1600.0;
+            base_density * rng.random_range(0.85..1.15_f64)
+        } else {
+            // Irregular: predominantly icy/porous (1100-2000)
+            rng.random_range(1100.0..2000.0_f64)
+        };
+
+        let volume_m3 = moon_mass_kg / density_kg_m3;
         let radius_m = (volume_m3 * 3.0 / (4.0 * std::f64::consts::PI)).powf(1.0 / 3.0);
         let radius_km = (radius_m / 1000.0) as f32;
 
-        // Orbital period from parent planet's mass
+        // Orbital period from parent planet's mass (Kepler's third law)
         let parent_mass_kg = (planet_mass_earth as f64) * 5.972e24;
         let g = 6.674e-11;
         let sma_m = orbital_distance_au * 1.496e11;
         let period_s = std::f64::consts::TAU * (sma_m.powi(3) / (g * parent_mass_kg)).sqrt();
         let mean_motion = std::f64::consts::TAU / period_s;
 
+        // --- Inclination ---
+        // Regular moons: near-coplanar (<5°), like Io 0.05°, Europa 0.47°, Titan 0.35°
+        // Irregular moons: highly inclined, some retrograde
+        //   - Jupiter's Himalia group ~28°, Carme group ~165° (retrograde)
+        let inclination_rad = if is_regular {
+            rng.random_range(-0.09..0.09_f64) // ±~5°
+        } else if rng.random_range(0.0..1.0_f64) < 0.3 {
+            // ~30% of irregulars are retrograde (130-170°)
+            rng.random_range(2.27..2.97_f64)
+        } else {
+            // Prograde irregular: 15-55°
+            rng.random_range(0.26..0.96_f64)
+        };
+
+        // --- Eccentricity ---
+        // Regular: very circular (Io 0.004, Europa 0.009, Titan 0.029)
+        // Irregular: moderate to high (Himalia 0.16, Pasiphae 0.41, Nereid 0.75)
+        let eccentricity = if is_regular {
+            rng.random_range(0.0..0.03_f64)
+        } else {
+            rng.random_range(0.1..0.55_f64)
+        };
+
         let orbit = KeplerOrbit::new(
-            rng.random_range(0.0..0.05_f64),       // Low eccentricity
-            orbital_distance_au,                 // SMA in AU
-            rng.random_range(-0.05..0.05_f64),     // Near-coplanar
+            eccentricity,
+            orbital_distance_au,
+            inclination_rad,
             rng.random_range(0.0..std::f64::consts::TAU),
             rng.random_range(0.0..std::f64::consts::TAU),
             rng.random_range(0.0..std::f64::consts::TAU),
@@ -1189,7 +1497,7 @@ fn spawn_procedural_moons(
                 max_celsius: max_temp,
             },
             orbit,
-            OrbitPath::new(Color::srgba(0.7, 0.7, 0.7, 0.3)),
+            OrbitPath::new(Color::srgba(0.7, 0.7, 0.7, 0.5)),
             SpaceCoordinates::default(),
             OrbitCenter(planet_entity),
             OrbitsBody::new(planet_entity),
@@ -1200,7 +1508,7 @@ fn spawn_procedural_moons(
     }
 
     if moon_count > 0 {
-        info!(
+        debug!(
             "  Spawned {} moons for {} at {:.2} AU (orbit amp: {:.1}x-{:.1}x)",
             moon_count, planet_name, planet_sma_au,
             (inner_display / (0.001 * SCALING_FACTOR)).max(1.0),

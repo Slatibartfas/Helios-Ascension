@@ -9,7 +9,7 @@ use super::systems::SCALING_FACTOR;
 use crate::game_state::ActiveMenu;
 use crate::plugins::camera::{CameraAnchor, EguiPanelBounds, GameCamera, OrbitCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, ClickExcluded, LogicalParent, Moon, Star};
-use crate::plugins::solar_system_data::calculate_visual_radius;
+use crate::plugins::solar_system_data::{calculate_visual_radius, BodyType};
 use crate::ui::FleetUiState;
 
 /// Click radius for body selection (in Bevy units)
@@ -17,6 +17,31 @@ const SELECTION_CLICK_RADIUS: f32 = 45.0;
 
 /// Padding for the hover ring around celestial bodies (in Bevy units)
 const HOVER_RING_PADDING: f32 = 8.0;
+
+/// Emissive highlight colour applied to ring meshes when selected or hovered.
+const RING_HIGHLIGHT_COLOR: LinearRgba = LinearRgba::new(0.35, 0.75, 1.0, 1.0);
+/// Emissive multiplier for a selected ring (brighter).
+const RING_SELECTED_EMISSIVE: f32 = 3.5;
+/// Emissive multiplier for a hovered ring (subtler).
+const RING_HOVERED_EMISSIVE: f32 = 2.0;
+/// Pulse speed (radians/sec) for the selected-ring glow animation.
+const RING_PULSE_SPEED: f32 = 3.0;
+/// Pulse amplitude (fraction of base emissive strength that oscillates ±).
+const RING_PULSE_AMPLITUDE: f32 = 0.35;
+
+/// Stored on a ring entity when it gains a selection/hover highlight so we can
+/// restore the original emissive when the highlight ends.
+#[derive(Component, Debug, Clone)]
+pub struct RingHighlight {
+    /// Original base color before we modified it.
+    pub original_base_color: Color,
+    /// Original emissive value before we modified it.
+    pub original_emissive: LinearRgba,
+    /// Base emissive strength applied (before pulse modulation).
+    pub base_strength: f32,
+    /// Whether this is a selection highlight (true) or hover highlight (false).
+    pub is_selected: bool,
+}
 
 #[derive(Default)]
 pub struct SelectionState {
@@ -195,6 +220,7 @@ pub fn handle_body_hover(
     mut egui_contexts: bevy_egui::EguiContexts,
     active_menu: Res<ActiveMenu>,
     panel_bounds: Res<EguiPanelBounds>,
+    fleet_ui_state: Res<FleetUiState>,
 ) {
     // Disable hover when a full-screen menu overlay is active (Research, etc.)
     if active_menu.current.blocks_world_interaction() {
@@ -304,6 +330,10 @@ pub fn handle_body_hover(
     // each frame, which spawns a fresh marker at Transform::default() (the star's
     // origin position) before scale_markers_with_zoom can reposition it.
     let new_hover = closest_body.map(|(e, _, _)| e);
+    let hover_is_body = new_hover.is_some();
+    // Use crosshair only while the transfer planner popup is open.
+    // A selected fleet that is merely being inspected (no active planning) keeps the default cursor.
+    let planner_mode_active = fleet_ui_state.show_transfer_popup;
     let currently_hovered: Vec<Entity> = hovered_query.iter().collect();
 
     // Remove Hovered from entities no longer under the cursor
@@ -318,6 +348,18 @@ pub fn handle_body_hover(
         if !currently_hovered.contains(&entity) {
             commands.entity(entity).insert(Hovered);
         }
+    }
+
+    if let Ok(ctx) = egui_contexts.ctx_mut() {
+        ctx.output_mut(|o| {
+            o.cursor_icon = if planner_mode_active {
+                bevy_egui::egui::CursorIcon::Crosshair
+            } else if hover_is_body {
+                bevy_egui::egui::CursorIcon::PointingHand
+            } else {
+                bevy_egui::egui::CursorIcon::Default
+            };
+        });
     }
 }
 
@@ -342,6 +384,12 @@ pub fn spawn_selection_markers(
             if owner.0 == entity {
                 commands.entity(marker_entity).despawn();
             }
+        }
+
+        // Rings are highlighted by modifying their own material emissive
+        // (handled by `apply_ring_highlight` system) — no 3D marker needed.
+        if body.body_type == BodyType::Ring {
+            continue;
         }
 
         let marker_radius = body.visual_radius + HOVER_RING_PADDING;
@@ -382,8 +430,11 @@ pub fn despawn_selection_markers(
             }
         }
 
-        // If still hovered, add a hover marker
+        // If still hovered, add a hover marker (rings are handled separately)
         if let Ok((body, Some(_), gtransform)) = body_query.get(entity) {
+            if body.body_type == BodyType::Ring {
+                continue;
+            }
             let marker_radius = body.visual_radius + HOVER_RING_PADDING;
             spawn_marker(
                 &mut commands,
@@ -415,6 +466,11 @@ pub fn spawn_hover_markers(
         .unwrap_or(1.0);
 
     for (entity, body, gtransform) in hovered_query.iter() {
+        // Rings are highlighted via material emissive, not a 3D marker.
+        if body.body_type == BodyType::Ring {
+            continue;
+        }
+
         let marker_radius = body.visual_radius + HOVER_RING_PADDING;
         spawn_marker(
             &mut commands,
@@ -528,63 +584,188 @@ fn spawn_marker(
     // manually sync its position every frame in `scale_markers_with_zoom`.
     // commands.entity(marker_entity).set_parent(owner);
 
-    // Create corner brackets using boxes
-    // Each corner has two bars forming an L-shape
-    let bracket_thickness = (radius * 0.08).max(2.0); // Scale with body size, minimum 2.0
-    let bracket_length = radius * 0.30; // Length of each bracket arm
-    // Corner sits at exactly the ring radius so arms are always outside the body sphere:
-    // the perpendicular distance of each arm from center equals `radius` > visual_radius.
-    let bracket_offset = radius;
+    {
+        // Create corner brackets using boxes
+        // Each corner has two bars forming an L-shape
+        let bracket_thickness = (radius * 0.08).max(2.0); // Scale with body size, minimum 2.0
+        let bracket_length = radius * 0.30; // Length of each bracket arm
+        // Corner sits at exactly the ring radius so arms are always outside the body sphere:
+        // the perpendicular distance of each arm from center equals `radius` > visual_radius.
+        let bracket_offset = radius;
 
-    // Define four corners and create L-shaped brackets at each
-    let corners = [
-        // Top-right (positive X, positive Z)
-        (1.0, 1.0),
-        // Top-left (negative X, positive Z)
-        (-1.0, 1.0),
-        // Bottom-left (negative X, negative Z)
-        (-1.0, -1.0),
-        // Bottom-right (positive X, negative Z)
-        (1.0, -1.0),
-    ];
+        // Define four corners and create L-shaped brackets at each
+        let corners = [
+            // Top-right (positive X, positive Z)
+            (1.0, 1.0),
+            // Top-left (negative X, positive Z)
+            (-1.0, 1.0),
+            // Bottom-left (negative X, negative Z)
+            (-1.0, -1.0),
+            // Bottom-right (positive X, negative Z)
+            (1.0, -1.0),
+        ];
 
-    for (x_sign, z_sign) in corners {
-        let corner_x = bracket_offset * x_sign;
-        let corner_z = bracket_offset * z_sign;
+        for (x_sign, z_sign) in corners {
+            let corner_x = bracket_offset * x_sign;
+            let corner_z = bracket_offset * z_sign;
 
-        // Horizontal bar extending inward from corner (along X axis)
-        // Add bracket_thickness so the bar extends half-a-thickness past the
-        // corner point, filling the outer-corner gap where the two arms meet.
-        let h_bar_mesh = meshes.add(Cuboid::new(
-            bracket_length + bracket_thickness,
-            bracket_thickness,
-            bracket_thickness,
-        ));
-        let h_bar_pos = Vec3::new(corner_x - x_sign * bracket_length * 0.5, 0.0, corner_z);
-
-        commands.entity(marker_entity).with_children(|parent| {
-            parent.spawn((
-                Mesh3d(h_bar_mesh),
-                MeshMaterial3d(bracket_material.clone()),
-                Transform::from_translation(h_bar_pos),
+            // Horizontal bar extending inward from corner (along X axis)
+            // Add bracket_thickness so the bar extends half-a-thickness past the
+            // corner point, filling the outer-corner gap where the two arms meet.
+            let h_bar_mesh = meshes.add(Cuboid::new(
+                bracket_length + bracket_thickness,
+                bracket_thickness,
+                bracket_thickness,
             ));
-        });
+            let h_bar_pos = Vec3::new(corner_x - x_sign * bracket_length * 0.5, 0.0, corner_z);
 
-        // Vertical bar extending inward from corner (along Z axis)
-        let v_bar_mesh = meshes.add(Cuboid::new(
-            bracket_thickness,
-            bracket_thickness,
-            bracket_length + bracket_thickness,
-        ));
-        let v_bar_pos = Vec3::new(corner_x, 0.0, corner_z - z_sign * bracket_length * 0.5);
+            commands.entity(marker_entity).with_children(|parent| {
+                parent.spawn((
+                    Mesh3d(h_bar_mesh),
+                    MeshMaterial3d(bracket_material.clone()),
+                    Transform::from_translation(h_bar_pos),
+                ));
+            });
 
-        commands.entity(marker_entity).with_children(|parent| {
-            parent.spawn((
-                Mesh3d(v_bar_mesh),
-                MeshMaterial3d(bracket_material.clone()),
-                Transform::from_translation(v_bar_pos),
+            // Vertical bar extending inward from corner (along Z axis)
+            let v_bar_mesh = meshes.add(Cuboid::new(
+                bracket_thickness,
+                bracket_thickness,
+                bracket_length + bracket_thickness,
             ));
-        });
+            let v_bar_pos = Vec3::new(corner_x, 0.0, corner_z - z_sign * bracket_length * 0.5);
+
+            commands.entity(marker_entity).with_children(|parent| {
+                parent.spawn((
+                    Mesh3d(v_bar_mesh),
+                    MeshMaterial3d(bracket_material.clone()),
+                    Transform::from_translation(v_bar_pos),
+                ));
+            });
+        }
+    }
+}
+
+// ── Ring highlight via material emissive ──────────────────────────────────────
+
+/// Applies an emissive glow to a ring's own `StandardMaterial` when it gains
+/// `Selected` or `Hovered`.  Stores the original emissive in a [`RingHighlight`]
+/// component so it can be restored later.
+pub fn apply_ring_highlight(
+    mut commands: Commands,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    selected_rings: Query<
+        (Entity, &MeshMaterial3d<StandardMaterial>),
+        (Added<Selected>, With<crate::plugins::solar_system::Ring>),
+    >,
+    hovered_rings: Query<
+        (Entity, &MeshMaterial3d<StandardMaterial>),
+        (Added<Hovered>, Without<Selected>, With<crate::plugins::solar_system::Ring>),
+    >,
+    existing_highlight: Query<&RingHighlight>,
+) {
+    for (entity, mat_handle) in selected_rings.iter().chain(hovered_rings.iter()) {
+        let is_selected = selected_rings.get(entity).is_ok();
+        let strength = if is_selected { RING_SELECTED_EMISSIVE } else { RING_HOVERED_EMISSIVE };
+
+        if let Some(mat) = materials.get_mut(&mat_handle.0) {
+            // Only store the original if we haven't already (hover→select upgrade)
+            let (original_base, original_emissive) = if let Ok(prev) = existing_highlight.get(entity) {
+                (prev.original_base_color, prev.original_emissive)
+            } else {
+                (mat.base_color, mat.emissive)
+            };
+
+            let highlight_lin = RING_HIGHLIGHT_COLOR * strength;
+            
+            // Unlit materials use base_color, PBR use emissive. Set both.
+            mat.base_color = Color::from(highlight_lin);
+            mat.emissive = highlight_lin;
+
+            commands.entity(entity).insert(RingHighlight {
+                original_base_color: original_base,
+                original_emissive,
+                base_strength: strength,
+                is_selected,
+            });
+        }
+    }
+}
+
+/// Removes the emissive glow from a ring when `Selected` / `Hovered` is removed,
+/// restoring the original emissive value.
+pub fn remove_ring_highlight(
+    mut commands: Commands,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut removed_selected: RemovedComponents<Selected>,
+    mut removed_hovered: RemovedComponents<Hovered>,
+    ring_query: Query<
+        (&MeshMaterial3d<StandardMaterial>, &RingHighlight),
+        With<crate::plugins::solar_system::Ring>,
+    >,
+    // If the ring just lost Selected but is still Hovered, downgrade to hover glow.
+    hovered_check: Query<(), With<Hovered>>,
+) {
+    let mut restore = |entity: Entity| {
+        if let Ok((mat_handle, highlight)) = ring_query.get(entity) {
+            // If this was a selection removal but we're still hovered, downgrade.
+            if highlight.is_selected && hovered_check.get(entity).is_ok() {
+                if let Some(mat) = materials.get_mut(&mat_handle.0) {
+                    let highlight_lin = RING_HIGHLIGHT_COLOR * RING_HOVERED_EMISSIVE;
+                    mat.base_color = Color::from(highlight_lin);
+                    mat.emissive = highlight_lin;
+                }
+                commands.entity(entity).insert(RingHighlight {
+                    original_base_color: highlight.original_base_color,
+                    original_emissive: highlight.original_emissive,
+                    base_strength: RING_HOVERED_EMISSIVE,
+                    is_selected: false,
+                });
+                return;
+            }
+
+            if let Some(mat) = materials.get_mut(&mat_handle.0) {
+                mat.base_color = highlight.original_base_color;
+                mat.emissive = highlight.original_emissive;
+            }
+            commands.entity(entity).remove::<RingHighlight>();
+        }
+    };
+
+    for entity in removed_selected.read() {
+        restore(entity);
+    }
+    for entity in removed_hovered.read() {
+        // Only fully restore if not still selected.
+        if ring_query.get(entity).is_ok() {
+            let is_sel = ring_query.get(entity).map(|(_, h)| h.is_selected).unwrap_or(false);
+            if !is_sel {
+                restore(entity);
+            }
+        }
+    }
+}
+
+/// Gentle pulsing glow on selected rings so the highlight feels alive.
+pub fn animate_ring_highlight(
+    time: Res<Time>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    query: Query<
+        (&MeshMaterial3d<StandardMaterial>, &RingHighlight),
+        With<crate::plugins::solar_system::Ring>,
+    >,
+) {
+    let t = time.elapsed_secs();
+    for (mat_handle, highlight) in query.iter() {
+        if !highlight.is_selected {
+            continue; // Only pulse for selection, hover is static.
+        }
+        let pulse = 1.0 + RING_PULSE_AMPLITUDE * (t * RING_PULSE_SPEED).sin();
+        if let Some(mat) = materials.get_mut(&mat_handle.0) {
+            let highlight_lin = RING_HIGHLIGHT_COLOR * (highlight.base_strength * pulse);
+            mat.base_color = Color::from(highlight_lin);
+            mat.emissive = highlight_lin;
+        }
     }
 }
 

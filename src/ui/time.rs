@@ -10,12 +10,18 @@ pub struct TimeScale {
 }
 
 impl TimeScale {
-    /// Create a new time scale with default value
+    /// Create a new time scale with default value (1 hr/s).
     pub fn new() -> Self {
         Self {
-            scale: 1.0,
-            last_active_scale: 1.0,
+            scale: 3_600.0,
+            last_active_scale: 3_600.0,
         }
+    }
+
+    /// Set a new simulation speed, updating the resume-target and unpausing.
+    pub fn set_speed(&mut self, new_scale: f32) {
+        self.scale = new_scale;
+        self.last_active_scale = new_scale;
     }
 
     /// Pause the simulation
@@ -227,6 +233,7 @@ impl Default for SimulationTime {
 
 /// Format a time scale multiplier as a human-readable rate string.
 /// Examples: "Real time", "2.5 min/s", "1.0 day/s", "1.0 wk/s"
+#[allow(dead_code)]
 pub(super) fn format_time_rate(scale: f32) -> String {
     if scale <= 0.0 {
         "Paused".to_string()

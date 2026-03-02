@@ -158,7 +158,7 @@ fn build_economy_hierarchy(
         let colony_snap = colony_opt.map(|c| ColonySnapshot {
             name: c.name.clone(),
             population: c.population,
-            growth_per_year: c.population_growth_per_year(),
+            growth_per_year: c.population_growth_per_year(1.0),
             housing_capacity: c.housing_capacity(),
             total_buildings: c.total_buildings(),
             workforce_efficiency: c.workforce_efficiency(),
@@ -225,14 +225,14 @@ fn build_economy_hierarchy(
 /// Format a rate value with sign and color helper.
 fn rate_text(rate: f64, suffix: &str) -> (String, egui::Color32) {
     if rate.abs() < 1e-9 {
-        return (format!("0{}", suffix), egui::Color32::from_rgb(150, 150, 150));
+        return (format!("0{}", suffix), theme::TEXT_DIM);
     }
     let sign = if rate > 0.0 { "+" } else { "" };
     let text = format!("{}{}{}", sign, format_mass(rate), suffix);
     let color = if rate > 0.0 {
-        egui::Color32::from_rgb(100, 255, 100)
+        theme::GREEN
     } else {
-        egui::Color32::from_rgb(255, 100, 100)
+        theme::RED
     };
     (text, color)
 }
@@ -340,29 +340,29 @@ fn render_econ_overview(
                     ui.label(
                         egui::RichText::new(format_currency(budget.treasury))
                             .strong()
-                            .color(egui::Color32::from_rgb(255, 215, 0)),
+                            .color(theme::GOLD),
                     );
                     ui.end_row();
 
                     ui.label("Income:");
                     ui.label(
                         egui::RichText::new(format!("{}/yr", format_currency(budget.income_per_year)))
-                            .color(egui::Color32::from_rgb(100, 255, 100)),
+                            .color(theme::GREEN),
                     );
                     ui.end_row();
 
                     ui.label("Expenses:");
                     ui.label(
                         egui::RichText::new(format!("{}/yr", format_currency(budget.expenses_per_year)))
-                            .color(egui::Color32::from_rgb(255, 140, 140)),
+                            .color(theme::RED),
                     );
                     ui.end_row();
 
                     let balance = budget.balance_per_year();
                     let (sign, color) = if balance >= 0.0 {
-                        ("+", egui::Color32::GREEN)
+                        ("+", theme::GREEN)
                     } else {
-                        ("", egui::Color32::RED)
+                        ("", theme::RED)
                     };
                     ui.label("Balance:");
                     ui.label(
@@ -392,17 +392,17 @@ fn render_econ_overview(
                     .spacing([12.0, 3.0])
                     .show(ui, |ui| {
                         ui.label("Production:");
-                        ui.label(egui::RichText::new(format_power(grid.produced)).color(egui::Color32::from_rgb(100, 255, 100)));
+                        ui.label(egui::RichText::new(format_power(grid.produced)).color(theme::GREEN));
                         ui.end_row();
                         ui.label("Consumption:");
-                        ui.label(egui::RichText::new(format_power(grid.consumed)).color(egui::Color32::from_rgb(255, 180, 100)));
+                        ui.label(egui::RichText::new(format_power(grid.consumed)).color(theme::AMBER));
                         ui.end_row();
                         ui.label("Surplus:");
-                        let sc = if surplus >= 0.0 { egui::Color32::GREEN } else { egui::Color32::RED };
+                        let sc = if surplus >= 0.0 { theme::GREEN } else { theme::RED };
                         ui.label(egui::RichText::new(format_power(surplus)).strong().color(sc));
                         ui.end_row();
                         ui.label("Load:");
-                        let lc = if utilization < 0.8 { egui::Color32::GREEN } else if utilization < 1.0 { egui::Color32::YELLOW } else { egui::Color32::RED };
+                        let lc = if utilization < 0.8 { theme::GREEN } else if utilization < 1.0 { theme::AMBER } else { theme::RED };
                         ui.label(egui::RichText::new(format!("{:.1}%", utilization * 100.0)).color(lc));
                         ui.end_row();
                     });
@@ -428,7 +428,7 @@ fn render_econ_overview(
                     .spacing([12.0, 3.0])
                     .show(ui, |ui| {
                         ui.label("Score:");
-                        ui.label(egui::RichText::new(format!("{:.0}", budget.civilization_score)).strong().color(egui::Color32::from_rgb(255, 215, 0)));
+                        ui.label(egui::RichText::new(format!("{:.0}", budget.civilization_score)).strong().color(theme::GOLD));
                         ui.end_row();
                         ui.label("Colonies:");
                         ui.label(egui::RichText::new(format!("{}", total_colonies)).strong());
@@ -470,7 +470,7 @@ fn render_econ_overview(
                 }
             }
             if !has_critical {
-                ui.label(egui::RichText::new("All resources at healthy levels").italics().color(egui::Color32::from_rgb(100, 255, 100)));
+                ui.label(egui::RichText::new("All resources at healthy levels").italics().color(theme::GREEN));
             }
         });
 
@@ -482,7 +482,7 @@ fn render_econ_overview(
             ui.separator();
 
             if hierarchy.is_empty() {
-                ui.label(egui::RichText::new("No economic activity").italics().color(egui::Color32::GRAY));
+                ui.label(egui::RichText::new("No economic activity").italics().color(theme::TEXT_DIM));
             } else {
                 for group in hierarchy {
                     let sys_colonies: usize = group.bodies.iter().filter(|b| b.colony.is_some()).count();
@@ -490,7 +490,7 @@ fn render_econ_overview(
                     let sys_income: f64 = group.bodies.iter().filter_map(|b| b.colony.as_ref()).map(|c| c.income_per_year).sum();
                     let sys_cost: f64 = group.bodies.iter().filter_map(|b| b.colony.as_ref()).map(|c| c.operating_cost_per_year).sum();
                     let sys_net = sys_income - sys_cost;
-                    let net_color = if sys_net >= 0.0 { egui::Color32::GREEN } else { egui::Color32::RED };
+                    let net_color = if sys_net >= 0.0 { theme::GREEN } else { theme::RED };
 
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(&group.system_name).strong());
@@ -514,7 +514,7 @@ fn render_econ_resources(
     hierarchy: &[StarSystemGroup],
     buildings_data: Option<&BuildingsData>,
 ) {
-    ui.label(egui::RichText::new("Rates are net monthly. Units scale automatically (t, kt, Mt, Gt).").size(11.0).color(egui::Color32::GRAY));
+    ui.label(egui::RichText::new("Rates are net monthly. Units scale automatically (t, kt, Mt, Gt).").size(11.0).color(theme::TEXT_DIM));
     ui.separator();
 
     egui::ScrollArea::vertical().show(ui, |ui| {
@@ -542,14 +542,14 @@ fn render_econ_resources(
                             let rate = rate_tracker.get_resource_rate(resource);
 
                             ui.label(resource.display_name());
-                            ui.label(egui::RichText::new(resource.symbol()).monospace().color(egui::Color32::from_rgb(180, 180, 200)));
+                            ui.label(egui::RichText::new(resource.symbol()).monospace().color(theme::TEXT_DIM));
 
                             let stock_color = if stockpile <= 0.0 {
-                                egui::Color32::from_rgb(255, 80, 80)
+                                theme::RED
                             } else if stockpile < 100.0 && resource.is_critical() {
-                                egui::Color32::from_rgb(255, 200, 80)
+                                theme::AMBER
                             } else {
-                                egui::Color32::from_rgb(200, 200, 200)
+                                theme::TEXT
                             };
                             ui.label(egui::RichText::new(format_mass(stockpile)).monospace().color(stock_color));
 
@@ -572,10 +572,10 @@ fn render_econ_resources(
                 .spacing([20.0, 4.0])
                 .show(ui, |ui| {
                     ui.label("Research Points:");
-                    ui.label(egui::RichText::new(format!("{:.1} RP/mo", rate_tracker.research_rate_per_month)).color(egui::Color32::from_rgb(100, 180, 255)));
+                    ui.label(egui::RichText::new(format!("{:.1} RP/mo", rate_tracker.research_rate_per_month)).color(theme::RP_BLUE));
                     ui.end_row();
                     ui.label("Engineering Points:");
-                    ui.label(egui::RichText::new(format!("{:.1} EP/mo", rate_tracker.engineering_rate_per_month)).color(egui::Color32::from_rgb(100, 255, 180)));
+                    ui.label(egui::RichText::new(format!("{:.1} EP/mo", rate_tracker.engineering_rate_per_month)).color(theme::EP_TEAL));
                     ui.end_row();
                 });
         });
@@ -588,7 +588,7 @@ fn render_econ_resources(
             ui.separator();
 
             if hierarchy.is_empty() {
-                ui.label(egui::RichText::new("No economic activity detected").italics().color(egui::Color32::GRAY));
+                ui.label(egui::RichText::new("No economic activity detected").italics().color(theme::TEXT_DIM));
                 return;
             }
 
@@ -716,8 +716,28 @@ fn render_econ_resources(
                                         }
                                     }
 
+                                    // Food production from agricultural buildings
+                                    let farm_count: f64 = colony.buildings.iter()
+                                        .find(|(bt, _)| *bt == crate::colony::BuildingType::Farm)
+                                        .map(|(_, n)| *n as f64)
+                                        .unwrap_or(0.0);
+                                    let agri_count: f64 = colony.buildings.iter()
+                                        .find(|(bt, _)| *bt == crate::colony::BuildingType::AgriDome)
+                                        .map(|(_, n)| *n as f64)
+                                        .unwrap_or(0.0);
+                                    let food_production_monthly = (farm_count * 100.0 + agri_count * 0.4) / 12.0;
+                                    if food_production_monthly > 0.0 {
+                                        production_rows.push(("Agriculture".to_string(), ResourceType::Food, food_production_monthly));
+                                    }
+
+                                    // Population food consumption
+                                    let food_consumption_monthly = colony.population * 0.0001 / 12.0;
+                                    if food_consumption_monthly > 0.0 {
+                                        consumption_rows.push(("Population".to_string(), ResourceType::Food, food_consumption_monthly));
+                                    }
+
                                     if !production_rows.is_empty() {
-                                        ui.label(egui::RichText::new("Production (/mo):").strong().size(11.0).color(egui::Color32::from_rgb(100, 255, 100)));
+                                        ui.label(egui::RichText::new("Production (/mo):").strong().size(11.0).color(theme::GREEN));
                                         egui::Grid::new(format!("econ_prod_{}", body_entry.body_name))
                                             .num_columns(3)
                                             .spacing([10.0, 2.0])
@@ -726,14 +746,14 @@ fn render_econ_resources(
                                                 for (source, rt, monthly) in &production_rows {
                                                     ui.label(egui::RichText::new(source).size(11.0));
                                                     ui.label(egui::RichText::new(rt.display_name()).size(11.0));
-                                                    ui.label(egui::RichText::new(format!("+{}", format_mass(*monthly))).monospace().size(11.0).color(egui::Color32::from_rgb(100, 255, 100)));
+                                                    ui.label(egui::RichText::new(format!("+{}", format_mass(*monthly))).monospace().size(11.0).color(theme::GREEN));
                                                     ui.end_row();
                                                 }
                                             });
                                     }
 
                                     if !consumption_rows.is_empty() {
-                                        ui.label(egui::RichText::new("Consumption (/mo):").strong().size(11.0).color(egui::Color32::from_rgb(255, 140, 140)));
+                                        ui.label(egui::RichText::new("Consumption (/mo):").strong().size(11.0).color(theme::RED));
                                         egui::Grid::new(format!("econ_cons_{}", body_entry.body_name))
                                             .num_columns(3)
                                             .spacing([10.0, 2.0])
@@ -742,17 +762,17 @@ fn render_econ_resources(
                                                 for (source, rt, monthly) in &consumption_rows {
                                                     ui.label(egui::RichText::new(source).size(11.0));
                                                     ui.label(egui::RichText::new(rt.display_name()).size(11.0));
-                                                    ui.label(egui::RichText::new(format!("-{}", format_mass(*monthly))).monospace().size(11.0).color(egui::Color32::from_rgb(255, 140, 140)));
+                                                    ui.label(egui::RichText::new(format!("-{}", format_mass(*monthly))).monospace().size(11.0).color(theme::RED));
                                                     ui.end_row();
                                                 }
                                             });
                                     }
 
                                     if production_rows.is_empty() && consumption_rows.is_empty() {
-                                        ui.label(egui::RichText::new("No resource flows").italics().size(11.0).color(egui::Color32::GRAY));
+                                        ui.label(egui::RichText::new("No resource flows").italics().size(11.0).color(theme::TEXT_DIM));
                                     }
                                 } else {
-                                    ui.label(egui::RichText::new("Building data not loaded").italics().size(11.0).color(egui::Color32::GRAY));
+                                    ui.label(egui::RichText::new("Building data not loaded").italics().size(11.0).color(theme::TEXT_DIM));
                                 }
                             }
 
@@ -773,8 +793,8 @@ fn render_econ_resources(
         // Placeholder for future sources
         ui.add_space(8.0);
         ui.group(|ui| {
-            ui.label(egui::RichText::new("🚧 Future Sources").size(12.0).color(egui::Color32::from_rgb(150, 150, 150)));
-            ui.label(egui::RichText::new("Stations and mining ships will appear here when implemented.").italics().size(11.0).color(egui::Color32::from_rgb(120, 120, 120)));
+            ui.label(egui::RichText::new("🚧 Future Sources").size(12.0).color(theme::TEXT_DIM));
+            ui.label(egui::RichText::new("Stations and mining ships will appear here when implemented.").italics().size(11.0).color(theme::TEXT_HINT));
         });
     });
 }
@@ -796,27 +816,27 @@ fn render_econ_colonies(
     let total_income: f64 = all_colonies.iter().map(|c| c.income_per_year).sum();
     let total_cost: f64 = all_colonies.iter().map(|c| c.operating_cost_per_year).sum();
     let net = total_income - total_cost;
-    let net_color = if net >= 0.0 { egui::Color32::GREEN } else { egui::Color32::RED };
+    let net_color = if net >= 0.0 { theme::GREEN } else { theme::RED };
 
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(format!("{} colonies", all_colonies.len())).strong());
         ui.separator();
         ui.label(egui::RichText::new(format!("Pop: {}", Colony::format_population(total_pop))));
         ui.separator();
-        ui.label(egui::RichText::new(format!("Income: {}/yr", format_currency(total_income))).color(egui::Color32::from_rgb(100, 255, 100)));
+        ui.label(egui::RichText::new(format!("Income: {}/yr", format_currency(total_income))).color(theme::GREEN));
         ui.separator();
-        ui.label(egui::RichText::new(format!("Costs: {}/yr", format_currency(total_cost))).color(egui::Color32::from_rgb(255, 140, 140)));
+        ui.label(egui::RichText::new(format!("Costs: {}/yr", format_currency(total_cost))).color(theme::RED));
         ui.separator();
         let sign = if net >= 0.0 { "+" } else { "" };
         ui.label(egui::RichText::new(format!("Net: {}{}/yr", sign, format_currency(net))).strong().color(net_color));
         ui.separator();
-        ui.label(egui::RichText::new(format!("💰 {}", format_currency(budget.treasury))).color(egui::Color32::from_rgb(255, 215, 0)));
+        ui.label(egui::RichText::new(format!("💰 {}", format_currency(budget.treasury))).color(theme::GOLD));
     });
     ui.separator();
 
     if all_colonies.is_empty() {
         ui.add_space(20.0);
-        ui.label(egui::RichText::new("No colonies established yet").size(14.0).italics().color(egui::Color32::GRAY));
+        ui.label(egui::RichText::new("No colonies established yet").size(14.0).italics().color(theme::TEXT_DIM));
         ui.label("Establish a colony to see economic breakdowns here.");
         return;
     }
@@ -831,7 +851,7 @@ fn render_econ_colonies(
             let sys_income: f64 = sys_colonies.iter().filter_map(|b| b.colony.as_ref()).map(|c| c.income_per_year).sum();
             let sys_cost: f64 = sys_colonies.iter().filter_map(|b| b.colony.as_ref()).map(|c| c.operating_cost_per_year).sum();
             let sys_net = sys_income - sys_cost;
-            let sys_net_color = if sys_net >= 0.0 { egui::Color32::GREEN } else { egui::Color32::RED };
+            let sys_net_color = if sys_net >= 0.0 { theme::GREEN } else { theme::RED };
             let sys_sign = if sys_net >= 0.0 { "+" } else { "" };
 
             egui::CollapsingHeader::new(
@@ -847,7 +867,7 @@ fn render_econ_colonies(
                     let income = colony.income_per_year;
                     let cost = colony.operating_cost_per_year;
                     let colony_net = income - cost;
-                    let cn_color = if colony_net >= 0.0 { egui::Color32::GREEN } else { egui::Color32::RED };
+                    let cn_color = if colony_net >= 0.0 { theme::GREEN } else { theme::RED };
                     let cn_sign = if colony_net >= 0.0 { "+" } else { "" };
 
                     let body_icon = match body_entry.body_type {
@@ -890,21 +910,21 @@ fn render_econ_colonies(
                                 ui.end_row();
 
                                 ui.label("Workforce:");
-                                let wf_color = if colony.workforce_efficiency >= 1.0 { egui::Color32::GREEN } else if colony.workforce_efficiency >= 0.5 { egui::Color32::YELLOW } else { egui::Color32::RED };
+                                let wf_color = if colony.workforce_efficiency >= 1.0 { theme::GREEN } else if colony.workforce_efficiency >= 0.5 { theme::AMBER } else { theme::RED };
                                 ui.label(egui::RichText::new(format!("{:.0}%", colony.workforce_efficiency * 100.0)).color(wf_color));
                                 ui.end_row();
 
                                 ui.label("Logistics:");
-                                let log_color = if colony.logistics_efficiency >= 1.0 { egui::Color32::GREEN } else if colony.logistics_efficiency >= 0.5 { egui::Color32::YELLOW } else { egui::Color32::RED };
+                                let log_color = if colony.logistics_efficiency >= 1.0 { theme::GREEN } else if colony.logistics_efficiency >= 0.5 { theme::AMBER } else { theme::RED };
                                 ui.label(egui::RichText::new(format!("{:.0}%", colony.logistics_efficiency * 100.0)).color(log_color));
                                 ui.end_row();
 
                                 ui.label("Income:");
-                                ui.label(egui::RichText::new(format!("{}/yr", format_currency(income))).color(egui::Color32::from_rgb(100, 255, 100)));
+                                ui.label(egui::RichText::new(format!("{}/yr", format_currency(income))).color(theme::GREEN));
                                 ui.end_row();
 
                                 ui.label("Operating Cost:");
-                                ui.label(egui::RichText::new(format!("{}/yr", format_currency(cost))).color(egui::Color32::from_rgb(255, 140, 140)));
+                                ui.label(egui::RichText::new(format!("{}/yr", format_currency(cost))).color(theme::RED));
                                 ui.end_row();
 
                                 ui.label("Net:");
@@ -942,8 +962,8 @@ fn render_econ_colonies(
         // Future: Stations section placeholder
         ui.add_space(8.0);
         ui.group(|ui| {
-            ui.label(egui::RichText::new("🛸 Stations").size(12.0).color(egui::Color32::from_rgb(150, 150, 150)));
-            ui.label(egui::RichText::new("Space stations will appear here when implemented.").italics().size(11.0).color(egui::Color32::from_rgb(120, 120, 120)));
+            ui.label(egui::RichText::new("🛸 Stations").size(12.0).color(theme::TEXT_DIM));
+            ui.label(egui::RichText::new("Space stations will appear here when implemented.").italics().size(11.0).color(theme::TEXT_HINT));
         });
     });
 }
@@ -954,13 +974,13 @@ fn render_econ_mining(
     ui: &mut egui::Ui,
     hierarchy: &[StarSystemGroup],
 ) {
-    ui.label(egui::RichText::new("Mining operations and resource deposits by location").size(11.0).color(egui::Color32::GRAY));
+    ui.label(egui::RichText::new("Mining operations and resource deposits by location").size(11.0).color(theme::TEXT_DIM));
     ui.separator();
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         if hierarchy.is_empty() {
             ui.add_space(20.0);
-            ui.label(egui::RichText::new("No mining activity or surveyed deposits").size(14.0).italics().color(egui::Color32::GRAY));
+            ui.label(egui::RichText::new("No mining activity or surveyed deposits").size(14.0).italics().color(theme::TEXT_DIM));
             return;
         }
 
@@ -1021,7 +1041,7 @@ fn render_econ_mining(
                                     for op in &body_entry.mining_ops {
                                         ui.label(egui::RichText::new(op.resource_type.display_name()).size(11.0));
                                         ui.label(egui::RichText::new(format!("{:.2}", op.rate_mt_per_year)).monospace().size(11.0));
-                                        let (st, sc) = if op.active { ("Active", egui::Color32::GREEN) } else { ("Idle", egui::Color32::GRAY) };
+                                        let (st, sc) = if op.active { ("Active", theme::GREEN) } else { ("Idle", theme::TEXT_DIM) };
                                         ui.label(egui::RichText::new(st).size(11.0).color(sc));
                                         ui.end_row();
                                     }
@@ -1059,10 +1079,10 @@ fn render_econ_mining(
                                         ui.label(egui::RichText::new(rt.display_name()).size(11.0));
                                         ui.label(egui::RichText::new(format!("{:.1}", deposit.reserve.proven_crustal)).monospace().size(11.0));
                                         ui.label(egui::RichText::new(format!("{:.1}", deposit.reserve.deep_deposits)).monospace().size(11.0));
-                                        let acc_color = if deposit.accessibility > 0.7 { egui::Color32::GREEN } else if deposit.accessibility > 0.3 { egui::Color32::YELLOW } else { egui::Color32::RED };
+                                        let acc_color = if deposit.accessibility > 0.7 { theme::GREEN } else if deposit.accessibility > 0.3 { theme::AMBER } else { theme::RED };
                                         ui.label(egui::RichText::new(format!("{:.0}%", deposit.accessibility * 100.0)).size(11.0).color(acc_color));
                                         let type_label = if deposit.is_atmospheric { "Atmo" } else { "Surface" };
-                                        ui.label(egui::RichText::new(type_label).size(10.0).color(egui::Color32::from_rgb(180, 180, 200)));
+                                        ui.label(egui::RichText::new(type_label).size(10.0).color(theme::TEXT_DIM));
                                         ui.end_row();
                                     }
                                 });
@@ -1075,14 +1095,14 @@ fn render_econ_mining(
         // Future mining ships section
         ui.add_space(10.0);
         ui.group(|ui| {
-            ui.label(egui::RichText::new("🚀 Mining Ships").size(12.0).color(egui::Color32::from_rgb(150, 150, 150)));
-            ui.label(egui::RichText::new("Automated mining ships will appear here when implemented.").italics().size(11.0).color(egui::Color32::from_rgb(120, 120, 120)));
+            ui.label(egui::RichText::new("🚀 Mining Ships").size(12.0).color(theme::TEXT_DIM));
+            ui.label(egui::RichText::new("Automated mining ships will appear here when implemented.").italics().size(11.0).color(theme::TEXT_HINT));
         });
 
         ui.add_space(5.0);
         ui.group(|ui| {
-            ui.label(egui::RichText::new("🛸 Mining Stations").size(12.0).color(egui::Color32::from_rgb(150, 150, 150)));
-            ui.label(egui::RichText::new("Orbital mining stations will appear here when implemented.").italics().size(11.0).color(egui::Color32::from_rgb(120, 120, 120)));
+            ui.label(egui::RichText::new("🛸 Mining Stations").size(12.0).color(theme::TEXT_DIM));
+            ui.label(egui::RichText::new("Orbital mining stations will appear here when implemented.").italics().size(11.0).color(theme::TEXT_HINT));
         });
     });
 }
@@ -1101,13 +1121,13 @@ fn render_econ_power_grid(
     // Grid status header
     ui.group(|ui| {
         let (status_text, status_color) = if utilization < 0.5 {
-            ("Abundant Power", egui::Color32::from_rgb(100, 255, 100))
+            ("Abundant Power", theme::GREEN)
         } else if utilization < 0.8 {
-            ("Healthy", egui::Color32::from_rgb(200, 255, 100))
+            ("Healthy", theme::GREEN)
         } else if utilization < 1.0 {
-            ("Strained", egui::Color32::YELLOW)
+            ("Strained", theme::AMBER)
         } else {
-            ("DEFICIT — Build more power!", egui::Color32::RED)
+            ("DEFICIT — Build more power!", theme::RED)
         };
 
         ui.horizontal(|ui| {
@@ -1127,7 +1147,7 @@ fn render_econ_power_grid(
                 .desired_width(ui.available_width().min(600.0)),
         );
 
-        let surplus_color = if surplus >= 0.0 { egui::Color32::GREEN } else { egui::Color32::RED };
+        let surplus_color = if surplus >= 0.0 { theme::GREEN } else { theme::RED };
         ui.label(egui::RichText::new(format!("Surplus: {}", format_power(surplus))).color(surplus_color));
     });
 
@@ -1147,7 +1167,7 @@ fn render_econ_power_grid(
                     .show(ui, |ui| {
                         for (source_type, wattage) in &budget.power_breakdown {
                             ui.label(format!("{}", source_type));
-                            ui.label(egui::RichText::new(format_power(*wattage)).monospace().color(egui::Color32::from_rgb(100, 255, 100)));
+                            ui.label(egui::RichText::new(format_power(*wattage)).monospace().color(theme::GREEN));
                             ui.end_row();
                         }
                     });
@@ -1161,7 +1181,7 @@ fn render_econ_power_grid(
             ui.separator();
 
             if hierarchy.is_empty() {
-                ui.label(egui::RichText::new("No power sources detected").italics().color(egui::Color32::GRAY));
+                ui.label(egui::RichText::new("No power sources detected").italics().color(theme::TEXT_DIM));
                 return;
             }
 
@@ -1194,14 +1214,14 @@ fn render_econ_power_grid(
 
                             // Generators on this body
                             for gen in &body_entry.generators {
-                                ui.label(egui::RichText::new(format!("| {} {}", format!("{}", gen.source_type), format_power(gen.output_watts))).size(11.0).color(egui::Color32::from_rgb(100, 255, 100)));
+                                ui.label(egui::RichText::new(format!("| {} {}", format!("{}", gen.source_type), format_power(gen.output_watts))).size(11.0).color(theme::GREEN));
                             }
 
                             // Colony estimated consumption
                             if let Some(colony) = &body_entry.colony {
                                 // Assume ~400MW per mega-structure building to match ~18TW total consumption
                                 let est_load = colony.total_buildings as f64 * 400_000_000.0;
-                                ui.label(egui::RichText::new(format!("| Load ~{}", format_power(est_load))).size(11.0).color(egui::Color32::from_rgb(255, 180, 100)));
+                                ui.label(egui::RichText::new(format!("| Load ~{}", format_power(est_load))).size(11.0).color(theme::AMBER));
                             }
                         });
                     }
@@ -1212,8 +1232,8 @@ fn render_econ_power_grid(
         // Future sources
         ui.add_space(8.0);
         ui.group(|ui| {
-            ui.label(egui::RichText::new("🚧 Future Power Sources").size(12.0).color(egui::Color32::from_rgb(150, 150, 150)));
-            ui.label(egui::RichText::new("Station and ship power grids will appear here when implemented.").italics().size(11.0).color(egui::Color32::from_rgb(120, 120, 120)));
+            ui.label(egui::RichText::new("🚧 Future Power Sources").size(12.0).color(theme::TEXT_DIM));
+            ui.label(egui::RichText::new("Station and ship power grids will appear here when implemented.").italics().size(11.0).color(theme::TEXT_HINT));
         });
     });
 }

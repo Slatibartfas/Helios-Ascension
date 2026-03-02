@@ -228,7 +228,7 @@ When adding new UI icons (menus, research categories, etc.), applying the follow
 - Debug menu (F12) for free construction, instant build, and tech bypass
 
 #### Economy & Resources
-- **20 resource types** (defined in `src/economy/types.rs` as `ResourceType` enum): Volatiles (Water, Hydrogen, Ammonia, Methane), Atmospheric Gases (Nitrogen, Oxygen, CarbonDioxide, Argon), Construction Materials (Iron, Aluminum, Titanium, Silicates), Fusion Fuel (Helium3), Fissiles (Uranium, Thorium), Precious Metals (Gold, Silver, Platinum), Specialty Materials (Copper, RareEarths)
+- **31 resource types** (defined in `src/economy/types.rs` as `ResourceType` enum): Volatiles (Water, Hydrogen, Ammonia, Methane, Phosphorus), Atmospheric Gases (Nitrogen, Oxygen, CarbonDioxide, Argon), Construction Materials (Iron, Aluminum, Titanium, Silicates, Nickel, Tungsten, Carbon), Fusion Fuel (Helium3, Deuterium), Fissiles (Uranium, Thorium), Precious Metals (Gold, Silver, Platinum), Strategic Materials (Copper, RareEarths, Lithium, Sulfur), Exotic Materials (Antimatter, ExoticMatter, Metamaterials, Computronium)
 - Resource stockpiles with capacity limits
 - Mining operations extract resources from mineral deposits
 - Refining and processing buildings convert raw materials

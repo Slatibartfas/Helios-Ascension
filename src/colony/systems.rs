@@ -6,6 +6,7 @@ use super::types::BuildingType;
 use super::ConstructionDebugSettings;
 use crate::astronomy::OceanProperties;
 use crate::economy::budget::SECONDS_PER_YEAR;
+use crate::economy::types::ResourceType;
 use crate::ui::SimulationTime;
 
 /// System that advances construction projects based on factory output.
@@ -150,9 +151,17 @@ pub fn process_construction_actions(
 /// Uses `SimulationTime` to calculate elapsed time and applies the
 /// growth calculated by `Colony::population_growth_per_year`.
 /// Bodies with liquid-water oceans receive a habitability bonus.
+///
+/// Food economy:
+/// - Farm/AgriDome buildings produce Food into the global stockpile
+/// - Population consumes Food proportional to colony population
+/// - `food_factor` (0.5–1.0) is derived from stockpile adequacy:
+///   - Stockpile ≥ 1 year of consumption → food_factor = 1.0
+///   - Stockpile = 0 → food_factor = 0.5 (ship-supplied minimum)
 pub fn update_colony_growth(
     mut colonies: Query<(Entity, &mut Colony)>,
     ocean_query: Query<&OceanProperties>,
+    mut budget: ResMut<crate::economy::GlobalBudget>,
     sim_time: Res<SimulationTime>,
     mut last_elapsed: Local<f64>,
 ) {
@@ -169,8 +178,45 @@ pub fn update_colony_growth(
         return;
     }
 
+    // --- Food production: add Food from agricultural buildings ---
+    let mut total_food_production = 0.0_f64;
+    let mut total_food_consumption = 0.0_f64;
+
+    for (_entity, colony) in colonies.iter() {
+        total_food_production += colony.food_production_per_year();
+        total_food_consumption += colony.food_consumption_per_year();
+    }
+
+    // Add produced food to stockpile
+    let food_produced = total_food_production * years_elapsed;
+    if food_produced > 0.0 {
+        budget.add_resource(ResourceType::Food, food_produced);
+    }
+
+    // Consume food from stockpile
+    let food_to_consume = total_food_consumption * years_elapsed;
+    if food_to_consume > 0.0 {
+        let available = budget.get_stockpile(&ResourceType::Food);
+        let consumed = food_to_consume.min(available);
+        if consumed > 0.0 {
+            budget.consume_resource(ResourceType::Food, consumed);
+        }
+    }
+
+    // Compute global food_factor: how adequate is the food supply?
+    // Stockpile measured against 1 year of consumption.
+    // food_factor ranges from 0.5 (starvation) to 1.0 (fully fed).
+    let food_stockpile = budget.get_stockpile(&ResourceType::Food);
+    let food_factor = if total_food_consumption > 0.0 {
+        let years_of_reserve = food_stockpile / total_food_consumption;
+        // 0 reserves → 0.5, 1+ year reserves → 1.0 (linear interpolation)
+        (0.5 + 0.5 * years_of_reserve.min(1.0)).min(1.0)
+    } else {
+        1.0 // No population to feed
+    };
+
     for (entity, mut colony) in colonies.iter_mut() {
-        let base_growth = colony.population_growth_per_year() * years_elapsed;
+        let base_growth = colony.population_growth_per_year(food_factor) * years_elapsed;
         let ocean_modifier = ocean_query
             .get(entity)
             .map(|o| o.habitability_modifier())
@@ -277,7 +323,7 @@ mod tests {
         colony.add_building(BuildingType::HabitatDome); // 50k capacity
         colony.add_building(BuildingType::AgriDome); // food
 
-        let growth = colony.population_growth_per_year();
+        let growth = colony.population_growth_per_year(1.0);
         assert!(
             growth > 0.0,
             "Colony with housing and food should grow: {}",

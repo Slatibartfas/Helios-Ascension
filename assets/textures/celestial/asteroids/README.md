@@ -6,7 +6,7 @@ Textures for different asteroid spectral types based on composition.
 
 - **C-type (Carbonaceous):** `generic_c_type_2k.jpg` - Dark, carbon-rich asteroids
 - **S-type (Silicaceous):** `generic_s_type_2k.jpg` - Stony asteroids
-- **Ceres:** `ceres_4k.png` - Largest C-type asteroid (dwarf planet)
+- **Ceres:** `4k_ceres.jpg` - Largest C-type asteroid (dwarf planet)
 - **Vesta:** `vesta_4k.png` - Largest V-type asteroid (basaltic)
 
 ## Spectral Type Mapping

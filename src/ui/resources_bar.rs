@@ -5,13 +5,15 @@ use super::research_panel::{ActiveProjectInfo, render_research_tech_tooltip_cont
 
 fn get_resource_category_icon(category: &str) -> &'static str {
     match category {
+        "Biological" => "\u{1F35E}",          // 🍞
         "Volatiles" => "\u{1F4A7}",          // 💧
         "Atmospheric Gases" => "\u{2601}",   // ☁
         "Construction" => "\u{1F9F1}",       // 🧱
         "Fusion Fuel" => "\u{1F50B}",        // 🔋
         "Fissiles" => "\u{2622}",            // ☢
         "Precious Metals" => "\u{1F48E}",    // 💎
-        "Specialty" => "\u{2728}",           // ✨
+        "Strategic" => "\u{2699}",           // ⚙
+        "Exotic" => "\u{1F52E}",              // 🔮
         _ => "\u{1F4E6}",                    // 📦
     }
 }
@@ -19,11 +21,15 @@ fn get_resource_category_icon(category: &str) -> &'static str {
 /// Get the icon for a specific resource type
 fn get_resource_icon(resource: &ResourceType) -> &'static str {
     match resource {
+        // Biological
+        ResourceType::Food => "\u{1F35E}",           // 🍞
+
         // Volatiles
         ResourceType::Water => "\u{1F4A7}",          // 💧
         ResourceType::Hydrogen => "\u{1F388}",       // 🎈
         ResourceType::Ammonia => "\u{1F9FC}",        // 🧼
         ResourceType::Methane => "\u{1F525}",        // 🔥
+        ResourceType::Phosphorus => "\u{1F331}",     // 🌱
         
         // Atmospheric
         ResourceType::Nitrogen => "\u{1F32C}",       // 🌬
@@ -36,9 +42,15 @@ fn get_resource_icon(resource: &ResourceType) -> &'static str {
         ResourceType::Aluminum => "\u{2708}",        // ✈
         ResourceType::Titanium => "\u{1F6E1}",       // 🛡
         ResourceType::Silicates => "\u{1FAA8}",      // 🪨
+        ResourceType::Nickel => "\u{1F9F2}",         // 🧲
+        ResourceType::Tungsten => "\u{1F3AF}",       // 🎯
+        ResourceType::Carbon => "\u{2666}",          // ♦
+        ResourceType::Chromium => "\u{1F6E0}",       // 🛠
+        ResourceType::Magnesium => "\u{2728}",       // ✨
         
         // Energy
         ResourceType::Helium3 => "\u{2600}",         // ☀
+        ResourceType::Deuterium => "\u{269B}",       // ⚛
         
         // Fissiles
         ResourceType::Uranium => "\u{2622}",         // ☢
@@ -49,24 +61,26 @@ fn get_resource_icon(resource: &ResourceType) -> &'static str {
         ResourceType::Silver => "\u{1F948}",         // 🥈
         ResourceType::Platinum => "\u{1F48D}",       // 💍
 
-        // Specialty
+        // Strategic
         ResourceType::Copper => "\u{1F50C}",         // 🔌
         ResourceType::RareEarths => "\u{1F4F1}",     // 📱
+        ResourceType::Lithium => "\u{1F50B}",        // 🔋
+        ResourceType::Sulfur => "\u{1F9EA}",         // 🧪
+        ResourceType::Cobalt => "\u{1F535}",         // 🔵
+        ResourceType::Fluorine => "\u{1F4A0}",       // 💠
+        ResourceType::Polymers => "\u{1F9F4}",       // 🧴
+
+        // Exotic
+        ResourceType::Antimatter => "\u{2604}",       // ☄
+        ResourceType::ExoticMatter => "\u{1F300}",    // 🌀
+        ResourceType::Metamaterials => "\u{1F52C}",   // 🔬
+        ResourceType::Computronium => "\u{1F9E0}",    // 🧠
     }
 }
 
 /// Get color for resource category
 fn get_category_color(category: &str) -> egui::Color32 {
-    match category {
-        "Volatiles" => egui::Color32::from_rgb(100, 200, 255),       // Water Blue
-        "Atmospheric Gases" => egui::Color32::from_rgb(200, 230, 255), // Air White/Blue
-        "Construction" => egui::Color32::from_rgb(205, 127, 50),     // Bronze/Rust property
-        "Fusion Fuel" => egui::Color32::from_rgb(255, 100, 200),     // Plasma/Energy Pink
-        "Fissiles" => egui::Color32::from_rgb(100, 255, 100),        // Radioactive Green
-        "Precious Metals" => egui::Color32::from_rgb(255, 215, 0),   // Gold
-        "Specialty" => egui::Color32::from_rgb(200, 100, 255),       // Exotic Purple
-        _ => egui::Color32::LIGHT_GRAY,
-    }
+    theme::category_color(category)
 }
 
 /// Resource popup that is currently open (if any)
@@ -117,21 +131,21 @@ pub(super) fn ui_resources_bar(
 
                     let icon = get_resource_category_icon(category_name);
                     let color = get_category_color(category_name);
-                    let text_color = egui::Color32::from_rgb(220, 220, 220);
+                    let text_color = theme::TEXT;
 
                     let is_this_open = open_popup.open.as_ref().map_or(false, |(n, _)| n == category_name);
 
                     // Use a Frame for the category display
                     let response = egui::Frame::NONE
-                        .inner_margin(egui::Margin::symmetric(3, 2))
+                        .inner_margin(egui::Margin::symmetric(1, 2))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
-                                ui.add(egui::Label::new(egui::RichText::new(icon).size(20.0).color(color)).selectable(false));
+                                ui.add(egui::Label::new(egui::RichText::new(icon).size(16.0).color(color)).selectable(false));
                                 ui.add_space(1.0);
                                 ui.vertical(|ui| {
-                                    ui.set_min_width(72.0);  // Fixed width to prevent wiggling
-                                    ui.set_max_width(72.0);
-                                    ui.add(egui::Label::new(egui::RichText::new(format_mass(category_total)).size(14.0).color(text_color)).selectable(false));
+                                    ui.set_min_width(68.0);  // Fixed width to prevent wiggling
+                                    ui.set_max_width(68.0);
+                                    ui.add(egui::Label::new(egui::RichText::new(format_mass(category_total)).size(13.0).color(text_color)).selectable(false));
                                     let (rate_text, rate_color) = format_rate_monthly(category_rate);
                                     ui.add(egui::Label::new(egui::RichText::new(rate_text).size(10.0).color(rate_color)).selectable(false));
                                 });
@@ -143,7 +157,6 @@ pub(super) fn ui_resources_bar(
                     // Hover and open-state border effect
                     if interact.hovered() || is_this_open {
                         ui.painter().rect_stroke(interact.rect, 2.0, egui::Stroke::new(1.0, color), egui::StrokeKind::Outside);
-                        interact.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
                     }
 
                     // Toggle popup on click
@@ -155,14 +168,14 @@ pub(super) fn ui_resources_bar(
                         }
                     }
 
-                    ui.add_space(8.0);
+                    ui.add_space(4.0);
                 }
 
                 // Research Points display
                 {
-                    let rp_color = egui::Color32::from_rgb(100, 200, 255);
-                    let text_color = egui::Color32::from_rgb(220, 220, 220);
-                    let warning_color = egui::Color32::from_rgb(255, 50, 50);
+                    let rp_color = theme::RP_BLUE;
+                    let text_color = theme::TEXT;
+                    let warning_color = theme::RED;
                     let is_rp_open = open_popup.open.as_ref().map_or(false, |(n, _)| n == "ResearchPoints");
 
                     // Find active research projects
@@ -182,7 +195,7 @@ pub(super) fn ui_resources_bar(
                     let border_color = if flash > 0.5 { warning_color } else { egui::Color32::TRANSPARENT };
 
                     let response = egui::Frame::NONE
-                        .inner_margin(egui::Margin::symmetric(3, 2))
+                        .inner_margin(egui::Margin::symmetric(1, 2))
                         .stroke(egui::Stroke::new(if flash > 0.0 { 2.0 } else { 0.0 }, border_color))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
@@ -200,7 +213,7 @@ pub(super) fn ui_resources_bar(
                                             ui.add(egui::ProgressBar::new(progress_fraction)
                                                 .desired_width(100.0)
                                                 .desired_height(4.0)
-                                                .fill(egui::Color32::from_rgb(50, 150, 255)));
+                                                .fill(theme::RP_BLUE));
                                         } else {
                                             ui.add(egui::Label::new(egui::RichText::new("Unknown Project").size(10.0).color(text_color)).selectable(false));
                                         }
@@ -216,7 +229,6 @@ pub(super) fn ui_resources_bar(
                     let interact = response.interact(egui::Sense::click());
                     if interact.hovered() || is_rp_open {
                         ui.painter().rect_stroke(interact.rect, 2.0, egui::Stroke::new(1.0, rp_color), egui::StrokeKind::Outside);
-                        interact.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
                     }
 
                     if interact.double_clicked() {
@@ -234,9 +246,9 @@ pub(super) fn ui_resources_bar(
 
                 // Engineering Points display
                 {
-                    let ep_color = egui::Color32::from_rgb(100, 255, 200);
-                    let text_color = egui::Color32::from_rgb(220, 220, 220);
-                    let warning_color = egui::Color32::from_rgb(255, 50, 50);
+                    let ep_color = theme::EP_TEAL;
+                    let text_color = theme::TEXT;
+                    let warning_color = theme::RED;
                     let is_ep_open = open_popup.open.as_ref().map_or(false, |(n, _)| n == "EngineeringPoints");
 
                     // Find active engineering projects
@@ -256,7 +268,7 @@ pub(super) fn ui_resources_bar(
                     let border_color = if flash > 0.5 { warning_color } else { egui::Color32::TRANSPARENT };
 
                     let response = egui::Frame::NONE
-                        .inner_margin(egui::Margin::symmetric(3, 2))
+                        .inner_margin(egui::Margin::symmetric(1, 2))
                         .stroke(egui::Stroke::new(if flash > 0.0 { 2.0 } else { 0.0 }, border_color))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
@@ -274,7 +286,7 @@ pub(super) fn ui_resources_bar(
                                         ui.add(egui::ProgressBar::new(progress_fraction)
                                             .desired_width(100.0)
                                             .desired_height(4.0)
-                                            .fill(egui::Color32::from_rgb(50, 150, 255)));
+                                            .fill(theme::RP_BLUE));
 
                                     } else {
                                          let warning_text = if !has_active_ep { "No Active Eng.!" } else { "Idle" };
@@ -288,7 +300,6 @@ pub(super) fn ui_resources_bar(
                     let interact = response.interact(egui::Sense::click());
                     if interact.hovered() || is_ep_open {
                         ui.painter().rect_stroke(interact.rect, 2.0, egui::Stroke::new(1.0, ep_color), egui::StrokeKind::Outside);
-                        interact.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
                     }
                     
                     if interact.double_clicked() {
@@ -316,9 +327,7 @@ pub(super) fn ui_resources_bar(
                     ui.add(egui::Label::new(egui::RichText::new(format!(
                         "Type {:.3}",
                         kardashev.max(0.0)
-                    )).size(14.0).color(egui::Color32::from_rgb(200, 100, 255))).selectable(false));
-                    
-                    ui.add(egui::Label::new(egui::RichText::new("Kardashev:").size(14.0).color(egui::Color32::LIGHT_GRAY)).selectable(false));
+                    )).size(14.0).color(theme::CAT_STRATEGIC)).selectable(false));
 
                     ui.separator();
 
@@ -326,9 +335,9 @@ pub(super) fn ui_resources_bar(
                     // Color code power: Green if surplus, Red if deficit
                     let net_power = budget.net_power();
                     let power_color = if net_power >= 0.0 {
-                        egui::Color32::GREEN
+                        theme::GREEN
                     } else {
-                        egui::Color32::RED
+                        theme::RED
                     };
 
                     let is_power_open = open_popup
@@ -338,7 +347,7 @@ pub(super) fn ui_resources_bar(
 
                     // Power generation display (clickable with tooltip)
                     let response = egui::Frame::NONE
-                        .inner_margin(egui::Margin::symmetric(3, 2))
+                        .inner_margin(egui::Margin::symmetric(1, 2))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
                                 ui.set_min_width(82.0);  // Fixed width to prevent wiggling
@@ -382,9 +391,9 @@ pub(super) fn ui_resources_bar(
                     // Treasury / Financial status
                     let balance = budget.balance_per_year();
                     let treasury_color = if balance >= 0.0 {
-                        egui::Color32::from_rgb(255, 215, 0) // Gold
+                        theme::GOLD
                     } else {
-                        egui::Color32::RED
+                        theme::RED
                     };
 
                     let is_treasury_open = open_popup
@@ -393,7 +402,7 @@ pub(super) fn ui_resources_bar(
                         .map_or(false, |(n, _)| n == "Treasury");
 
                     let treasury_response = egui::Frame::NONE
-                        .inner_margin(egui::Margin::symmetric(3, 2))
+                        .inner_margin(egui::Margin::symmetric(1, 2))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
                                 ui.add(
@@ -422,9 +431,9 @@ pub(super) fn ui_resources_bar(
                                         let balance_sign = if balance >= 0.0 { "+" } else { "" };
                                         let balance_text = format!("{}{}/yr", balance_sign, format_currency(balance));
                                         let balance_color = if balance >= 0.0 {
-                                            egui::Color32::GREEN
+                                            theme::GREEN
                                         } else {
-                                            egui::Color32::RED
+                                            theme::RED
                                         };
                                         ui.add(
                                             egui::Label::new(
@@ -473,7 +482,7 @@ pub(super) fn ui_resources_bar(
 
                     // Use a Frame for the population display
                     let pop_response = egui::Frame::NONE
-                        .inner_margin(egui::Margin::symmetric(3, 2))
+                        .inner_margin(egui::Margin::symmetric(1, 2))
                         .show(ui, |ui| {
                             ui.horizontal_centered(|ui| {
                                 ui.set_min_width(68.0);  // Fixed width to prevent wiggling
@@ -490,7 +499,7 @@ pub(super) fn ui_resources_bar(
                                     egui::Label::new(
                                         egui::RichText::new("👥")
                                             .size(20.0)
-                                            .color(egui::Color32::WHITE),
+                                            .color(theme::TEXT),
                                     )
                                     .selectable(false),
                                 );
@@ -504,7 +513,7 @@ pub(super) fn ui_resources_bar(
                         ui.painter().rect_stroke(
                             pop_interact.rect,
                             2.0,
-                            egui::Stroke::new(1.0, egui::Color32::WHITE),
+                            egui::Stroke::new(1.0, theme::TEXT),
                             egui::StrokeKind::Outside,
                         );
                         pop_interact
@@ -531,9 +540,9 @@ pub(super) fn ui_resources_bar(
             // Determine color from budget - recalculate here
             let net_power = budget.net_power();
             let power_color = if net_power >= 0.0 {
-                egui::Color32::GREEN
+                theme::GREEN
             } else {
-                egui::Color32::RED
+                theme::RED
             };
 
             let window_response = egui::Window::new("Power Breakdown")
@@ -604,9 +613,9 @@ pub(super) fn ui_resources_bar(
             let mut still_open = true;
             let balance = budget.balance_per_year();
             let balance_color = if balance >= 0.0 {
-                egui::Color32::GREEN
+                theme::GREEN
             } else {
-                egui::Color32::RED
+                theme::RED
             };
 
             let window_response = egui::Window::new("Treasury Breakdown")
@@ -620,7 +629,7 @@ pub(super) fn ui_resources_bar(
                 .show(ctx, |ui| {
                     ui.set_min_width(220.0);
                     ui.horizontal(|ui| {
-                        ui.add(egui::Label::new(egui::RichText::new("💰").size(18.0).color(egui::Color32::from_rgb(255, 215, 0))).selectable(false));
+                        ui.add(egui::Label::new(egui::RichText::new("💰").size(18.0).color(theme::GOLD)).selectable(false));
                         ui.add(egui::Label::new(egui::RichText::new("Financial Overview").size(16.0).strong()).selectable(false));
                     });
                     ui.separator();
@@ -635,14 +644,14 @@ pub(super) fn ui_resources_bar(
                     ui.horizontal(|ui| {
                         ui.add(egui::Label::new("Income/yr:").selectable(false));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.add(egui::Label::new(egui::RichText::new(format_currency(budget.income_per_year)).color(egui::Color32::GREEN)).selectable(false));
+                            ui.add(egui::Label::new(egui::RichText::new(format_currency(budget.income_per_year)).color(theme::GREEN)).selectable(false));
                         });
                     });
 
                     ui.horizontal(|ui| {
                         ui.add(egui::Label::new("Expenses/yr:").selectable(false));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.add(egui::Label::new(egui::RichText::new(format_currency(budget.expenses_per_year)).color(egui::Color32::RED)).selectable(false));
+                            ui.add(egui::Label::new(egui::RichText::new(format_currency(budget.expenses_per_year)).color(theme::RED)).selectable(false));
                         });
                     });
 
@@ -681,7 +690,7 @@ pub(super) fn ui_resources_bar(
                 .show(ctx, |ui| {
                     ui.set_min_width(250.0);
                     ui.horizontal(|ui| {
-                         ui.add(egui::Label::new(egui::RichText::new("🔬").size(18.0).color(egui::Color32::from_rgb(100, 200, 255))).selectable(false));
+                         ui.add(egui::Label::new(egui::RichText::new("🔬").size(18.0).color(theme::RP_BLUE)).selectable(false));
                          ui.add(egui::Label::new(egui::RichText::new("Active Research Projects").size(16.0).strong()).selectable(false));
                     });
                     ui.separator();
@@ -775,7 +784,7 @@ pub(super) fn ui_resources_bar(
                 .show(ctx, |ui| {
                     ui.set_min_width(250.0);
                     ui.horizontal(|ui| {
-                         ui.add(egui::Label::new(egui::RichText::new("⚙").size(18.0).color(egui::Color32::from_rgb(100, 255, 200))).selectable(false));
+                         ui.add(egui::Label::new(egui::RichText::new("⚙").size(18.0).color(theme::EP_TEAL)).selectable(false));
                          ui.add(egui::Label::new(egui::RichText::new("Active Engineering Projects").size(16.0).strong()).selectable(false));
                     });
                     ui.separator();
@@ -842,8 +851,8 @@ pub(super) fn ui_resources_bar(
                 .show(ctx, |ui| {
                     ui.set_min_width(220.0);
                     ui.horizontal(|ui| {
-                        ui.add(egui::Label::new(egui::RichText::new("👥").size(18.0).color(egui::Color32::WHITE)).selectable(false));
-                        ui.add(egui::Label::new(egui::RichText::new("Population").size(16.0).strong().color(egui::Color32::WHITE)).selectable(false));
+                        ui.add(egui::Label::new(egui::RichText::new("👥").size(18.0).color(theme::TEXT)).selectable(false));
+                        ui.add(egui::Label::new(egui::RichText::new("Population").size(16.0).strong().color(theme::TEXT)).selectable(false));
                     });
                     ui.separator();
 
@@ -890,7 +899,7 @@ pub(super) fn ui_resources_bar(
                     ui.horizontal(|ui| {
                         ui.add(egui::Label::new(egui::RichText::new("Total").strong()).selectable(false));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.add(egui::Label::new(egui::RichText::new(format_population(total_population)).strong().color(egui::Color32::WHITE)).selectable(false));
+                            ui.add(egui::Label::new(egui::RichText::new(format_population(total_population)).strong().color(theme::TEXT)).selectable(false));
                         });
                     });
                 });
@@ -933,33 +942,48 @@ pub(super) fn ui_resources_bar(
                     });
                     ui.separator();
 
-                    // Header row
-                    ui.horizontal(|ui| {
-                        ui.add_space(24.0); // icon space
-                        ui.add(egui::Label::new(egui::RichText::new("Resource").strong()).selectable(false));
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.add(egui::Label::new(egui::RichText::new("  /mo").strong().size(11.0)).selectable(false));
-                            ui.add_space(10.0);
+                    // Header + data rows in a single grid so columns stay aligned
+                    egui::Grid::new(format!("res_popup_{}", cat_name))
+                        .num_columns(3)
+                        .spacing([20.0, 4.0])
+                        .striped(true)
+                        .show(ui, |ui| {
+                            // Header
+                            ui.add(egui::Label::new(egui::RichText::new("Resource").strong().size(11.0)).selectable(false));
                             ui.add(egui::Label::new(egui::RichText::new("Stockpile").strong().size(11.0)).selectable(false));
-                        });
-                    });
-
-                    for resource in &resources {
-                        let amount = budget.get_stockpile(resource);
-                        let rate = rate_tracker.get_resource_rate(resource);
-                        ui.horizontal(|ui| {
-                            ui.add(egui::Label::new(egui::RichText::new(get_resource_icon(resource)).size(16.0)).selectable(false));
-                            ui.add(egui::Label::new(resource.display_name()).selectable(false));
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                // Monthly rate
-                                let (rt, rc) = format_rate_monthly(rate);
-                                ui.add(egui::Label::new(egui::RichText::new(rt).size(11.0).color(rc)).selectable(false));
-                                ui.add_space(10.0);
-                                // Stockpile
-                                ui.add(egui::Label::new(egui::RichText::new(format_mass(amount)).strong()).selectable(false));
+                                ui.add(egui::Label::new(egui::RichText::new("/mo").strong().size(11.0)).selectable(false));
                             });
+                            ui.end_row();
+
+                            for resource in &resources {
+                                let amount = budget.get_stockpile(resource);
+                                let rate = rate_tracker.get_resource_rate(resource);
+
+                                // Icon + Name in one cell
+                                ui.horizontal(|ui| {
+                                    ui.add(egui::Label::new(egui::RichText::new(get_resource_icon(resource)).size(14.0)).selectable(false));
+                                    ui.add(egui::Label::new(egui::RichText::new(resource.display_name()).size(12.0)).selectable(false));
+                                });
+                                // Stockpile — left-aligned
+                                {
+                                    let stock_color = if amount <= 0.0 {
+                                        theme::RED
+                                    } else if amount < 100.0 && resource.is_critical() {
+                                        theme::AMBER
+                                    } else {
+                                        theme::TEXT
+                                    };
+                                    ui.add(egui::Label::new(egui::RichText::new(format_mass(amount)).monospace().size(12.0).color(stock_color)).selectable(false));
+                                }
+                                // Rate — right-aligned
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    let (rt, rc) = format_rate_monthly(rate);
+                                    ui.add(egui::Label::new(egui::RichText::new(rt).monospace().size(11.0).color(rc)).selectable(false));
+                                });
+                                ui.end_row();
+                            }
                         });
-                    }
                 });
 
             // Close if clicked outside
