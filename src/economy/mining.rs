@@ -246,10 +246,10 @@ pub fn extract_resources(
 /// System that computes **net** monthly rates for all resources and
 /// research/engineering points, writing them into [`ResourceRateTracker`].
 ///
-/// Production comes from `MiningOperation` components and colony mining
-/// buildings. Consumption comes from building maintenance costs (the same
-/// costs deducted by `deduct_maintenance_resources`). The displayed rate
-/// is production − maintenance so the UI shows the true net balance.
+/// Production comes from `MiningOperation` components, colony mining
+/// buildings, and colony food production. Consumption comes from building
+/// maintenance costs plus colony food consumption. The displayed rate is
+/// production − consumption so the UI shows the true net balance.
 ///
 /// RP/EP rates include the base generation rates defined in
 /// `research::systems` (`BASE_RP_PER_YEAR`, `BASE_EP_PER_YEAR`) so the
@@ -392,7 +392,17 @@ pub fn update_resource_rates(
         warn!("BuildingsData missing in update_resource_rates");
     }
 
-    // 3. Subtract maintenance consumption so rates show NET balance
+    // 3. Add net colony food rate (production - population consumption)
+    let total_food_net_per_year: f64 = colony_query
+        .iter()
+        .map(|(colony, _)| colony.food_production_per_year() - colony.food_consumption_per_year())
+        .sum();
+    let total_food_net_per_month = total_food_net_per_year * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
+    if total_food_net_per_month.abs() > f64::EPSILON {
+        *rates.entry(ResourceType::Food).or_insert(0.0) += total_food_net_per_month;
+    }
+
+    // 4. Subtract maintenance consumption so rates show NET balance
     if let Some(data) = &buildings_data {
         for (colony, _) in colony_query.iter() {
             for (building_type, &count) in &colony.buildings {
