@@ -1411,8 +1411,8 @@ pub fn setup_solar_system(
                     (Color::srgba(0.3, 0.5, 0.8, 0.6), false)
                 }
                 BodyType::Moon => {
-                    // Moons: softer green-cyan
-                    (Color::srgba(0.3, 0.8, 0.7, 0.7), true)
+                    // Moons: subtle grey — matches procedural moon palette
+                    (Color::srgba(0.7, 0.7, 0.7, 0.5), true)
                 }
                 BodyType::Asteroid | BodyType::Comet => {
                     // Asteroids/Comets: amber/yellow when selected

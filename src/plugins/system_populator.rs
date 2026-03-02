@@ -1180,41 +1180,119 @@ fn spawn_procedural_moons(
         .min(hill_sphere_cap)
         .max(inner_display * 1.5);
 
-    for i in 0..moon_count {
-        // Moon orbital distance scales with planet mass (Hill sphere proxy)
-        // Typical range: 0.001 - 0.01 AU from planet
-        let base_distance = 0.001 + (i as f64) * 0.002;
-        let orbital_distance_au = base_distance * (1.0 + rng.random_range(-0.3..0.3_f64));
+    // Approximate Hill sphere radius in AU: r_H ≈ a × (M_planet / 3·M_star)^(1/3)
+    // Use 1 M☉ as a reasonable default for the parent star.
+    let hill_radius_au = planet_sma_au
+        * ((planet_mass_earth as f64) * 5.972e24 / (3.0 * 1.989e30)).powf(1.0 / 3.0);
 
-        // Moon mass: tiny fraction of planet mass, scaled by planet type
-        // Real examples: Ganymede ~0.025% of Jupiter, Titan ~0.024% of Saturn,
-        //                Earth's Moon ~1.2% of Earth
-        let mass_fraction = if planet_mass_earth > 10.0 {
-            // Gas/ice giants: moons are a much smaller fraction (0.001% - 0.05%)
-            rng.random_range(0.00001..0.0005_f64)
+    // Regular moons orbit within ~0.05 Hill radii (like Galilean system),
+    // irregular moons extend to ~0.4 Hill radii (like Jupiter's outer groups).
+    let regular_outer_au = (hill_radius_au * 0.05).max(0.0005);
+    let irregular_outer_au = (hill_radius_au * 0.40).max(regular_outer_au * 3.0);
+
+    for i in 0..moon_count {
+        // Classify moon population: inner ~60% are regular, rest irregular.
+        let regular_fraction = 0.6;
+        let is_regular = (i as f64) < (moon_count as f64 * regular_fraction);
+
+        // --- Orbital distance ---
+        // Geometric (Titius-Bode-like) spacing with random jitter.
+        // Regular moons: packed inside regular_outer_au with resonance-like gaps.
+        // Irregular moons: scattered through the outer Hill sphere region.
+        let orbital_distance_au = if is_regular {
+            // Logarithmic spacing: inner_au × ratio^i, like Galilean resonances
+            let inner_au = regular_outer_au * 0.15; // innermost at ~15% of regular zone
+            let ratio = if moon_count > 1 {
+                (regular_outer_au / inner_au).powf(1.0 / (moon_count as f64 - 1.0).max(1.0))
+            } else {
+                1.0
+            };
+            let base = inner_au * ratio.powf(i as f64);
+            // ±25% jitter around the geometric position
+            base * rng.random_range(0.75..1.25_f64)
         } else {
-            // Rocky planets: moons can be a larger fraction (0.01% - 1.5%)
-            rng.random_range(0.0001..0.015_f64)
+            // Irregular moons: log-uniform scatter in the outer Hill sphere
+            let log_inner = regular_outer_au.ln();
+            let log_outer = irregular_outer_au.ln();
+            (log_inner + rng.random_range(0.3..1.0_f64) * (log_outer - log_inner)).exp()
         };
+
+        // --- Mass (log-uniform for realistic spread across orders of magnitude) ---
+        // Real examples: Ganymede 0.025% of Jupiter, Deimos 0.000000025% of Mars,
+        //                Earth's Moon 1.2% of Earth, Phobos 0.00000018% of Mars
+        let log_mass_fraction = if planet_mass_earth > 10.0 {
+            // Gas/ice giants: 10^-6 to 10^-3 of planet mass
+            // Covers everything from tiny captured rocks to Ganymede-class moons
+            rng.random_range(-6.0..-3.0_f64)
+        } else {
+            // Rocky planets: 10^-4.5 to 10^-1.5 (wider range)
+            // From Phobos-like specks to Luna-class companions
+            rng.random_range(-4.5..-1.5_f64)
+        };
+        let mass_fraction = 10.0_f64.powf(log_mass_fraction);
+
+        // Irregular moons tend to be smaller (captured bodies)
+        let mass_fraction = if is_regular {
+            mass_fraction
+        } else {
+            mass_fraction * rng.random_range(0.01..0.3_f64)
+        };
+
         let moon_mass_earth = (planet_mass_earth as f64) * mass_fraction;
         let moon_mass_kg = moon_mass_earth * 5.972e24;
 
-        // Estimate radius from mass (assume rocky density ~3500 kg/m³)
-        let volume_m3 = moon_mass_kg / 3500.0;
+        // --- Density varies with composition ---
+        // Inner moons: rocky/metallic (Io: 3528, Europa: 3013, Moon: 3346)
+        // Outer moons: increasingly icy (Ganymede: 1936, Callisto: 1834, Enceladus: 1609)
+        // Irregulars: low-density captured bodies (~1300-2000)
+        let density_kg_m3 = if is_regular {
+            let t = i as f64 / (moon_count as f64).max(1.0);
+            // Blend from rocky-inner (~3400) to icy-outer (~1800)
+            let base_density = 3400.0 - t * 1600.0;
+            base_density * rng.random_range(0.85..1.15_f64)
+        } else {
+            // Irregular: predominantly icy/porous (1100-2000)
+            rng.random_range(1100.0..2000.0_f64)
+        };
+
+        let volume_m3 = moon_mass_kg / density_kg_m3;
         let radius_m = (volume_m3 * 3.0 / (4.0 * std::f64::consts::PI)).powf(1.0 / 3.0);
         let radius_km = (radius_m / 1000.0) as f32;
 
-        // Orbital period from parent planet's mass
+        // Orbital period from parent planet's mass (Kepler's third law)
         let parent_mass_kg = (planet_mass_earth as f64) * 5.972e24;
         let g = 6.674e-11;
         let sma_m = orbital_distance_au * 1.496e11;
         let period_s = std::f64::consts::TAU * (sma_m.powi(3) / (g * parent_mass_kg)).sqrt();
         let mean_motion = std::f64::consts::TAU / period_s;
 
+        // --- Inclination ---
+        // Regular moons: near-coplanar (<5°), like Io 0.05°, Europa 0.47°, Titan 0.35°
+        // Irregular moons: highly inclined, some retrograde
+        //   - Jupiter's Himalia group ~28°, Carme group ~165° (retrograde)
+        let inclination_rad = if is_regular {
+            rng.random_range(-0.09..0.09_f64) // ±~5°
+        } else if rng.random_range(0.0..1.0_f64) < 0.3 {
+            // ~30% of irregulars are retrograde (130-170°)
+            rng.random_range(2.27..2.97_f64)
+        } else {
+            // Prograde irregular: 15-55°
+            rng.random_range(0.26..0.96_f64)
+        };
+
+        // --- Eccentricity ---
+        // Regular: very circular (Io 0.004, Europa 0.009, Titan 0.029)
+        // Irregular: moderate to high (Himalia 0.16, Pasiphae 0.41, Nereid 0.75)
+        let eccentricity = if is_regular {
+            rng.random_range(0.0..0.03_f64)
+        } else {
+            rng.random_range(0.1..0.55_f64)
+        };
+
         let orbit = KeplerOrbit::new(
-            rng.random_range(0.0..0.05_f64),       // Low eccentricity
-            orbital_distance_au,                 // SMA in AU
-            rng.random_range(-0.05..0.05_f64),     // Near-coplanar
+            eccentricity,
+            orbital_distance_au,
+            inclination_rad,
             rng.random_range(0.0..std::f64::consts::TAU),
             rng.random_range(0.0..std::f64::consts::TAU),
             rng.random_range(0.0..std::f64::consts::TAU),
@@ -1264,7 +1342,7 @@ fn spawn_procedural_moons(
                 max_celsius: max_temp,
             },
             orbit,
-            OrbitPath::new(Color::srgba(0.7, 0.7, 0.7, 0.3)),
+            OrbitPath::new(Color::srgba(0.7, 0.7, 0.7, 0.5)),
             SpaceCoordinates::default(),
             OrbitCenter(planet_entity),
             OrbitsBody::new(planet_entity),
