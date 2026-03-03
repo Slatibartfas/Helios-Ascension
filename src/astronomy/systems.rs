@@ -196,6 +196,14 @@ pub fn propagate_orbits(
         entries.push((entity, *orbit, orbit_center.map(|oc| oc.0)));
     }
 
+    // Sort so that entities WITHOUT an OrbitCenter (planets, top-level bodies)
+    // are processed first, then entities WITH an OrbitCenter (moons, children).
+    // This ensures that when a child reads its parent's SpaceCoordinates, the
+    // parent has already been updated for the current frame — preventing the
+    // one-frame positional lag that causes moons to visually "detach" from
+    // their parent at high simulation speeds.
+    entries.sort_by_key(|(_, _, oc)| oc.is_some() as u8);
+
     // Second pass: perform lookups and mutation without holding the p0 iterator borrow
     for (entity, orbit, orbit_center_entity) in entries {
         // Calculate current mean anomaly: M = M₀ + n*t

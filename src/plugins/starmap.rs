@@ -904,10 +904,10 @@ fn spawn_system_bodies(
 
             let material = materials.add(StandardMaterial {
                 base_color,
-                // Subtle uniform ambient glow so the dark side isn't pitch-black.
-                // Do NOT set emissive_texture — reusing base_color_texture as an
-                // emissive map over-brightens the night side unrealistically.
-                emissive: LinearRgba::WHITE * 0.02,
+                // No emissive — bodies should only be lit by their star's
+                // PointLight.  Any residual emissive brightens the night side
+                // unrealistically.
+                emissive: LinearRgba::BLACK,
                 base_color_texture,
                 perceptual_roughness: roughness,
                 metallic,

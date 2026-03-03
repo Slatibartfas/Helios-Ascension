@@ -87,7 +87,7 @@ fn test_asteroid_classification_deserializes() {
     for (name, expected) in &[
         ("Haumea", "textures/celestial/planets/dwarf/haumea_4k.jpg"),
         ("Makemake", "textures/celestial/planets/dwarf/makemake_4k.jpg"),
-        ("Eris", "textures/celestial/planets/dwarf/eris_4k.jpg"),
+        ("Eris", "textures/celestial/planets/dwarf/eris_2k.jpg"),
     ] {
         let body = data.get_body(name).expect(&format!("{} should exist", name));
         assert!(body.texture.is_some(), "{} needs a dedicated texture", name);

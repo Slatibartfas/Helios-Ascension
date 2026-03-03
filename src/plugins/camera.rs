@@ -4,7 +4,7 @@ use bevy::render::view::Hdr;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass, EguiStartupSet};
 
 use crate::astronomy::components::{CurrentStarSystem, SystemId};
-use crate::astronomy::SCALING_FACTOR;
+use crate::astronomy::{update_render_transform, SCALING_FACTOR};
 use crate::game_state::ActiveMenu;
 use crate::plugins::solar_system::CelestialBody;
 use crate::plugins::solar_system_data::BodyType;
@@ -66,7 +66,7 @@ impl Plugin for CameraPlugin {
             .add_systems(
                 Update,
                 (
-                    update_camera_transform,
+                    update_camera_transform.after(update_render_transform),
                     update_view_mode,
                     update_min_zoom,
                     save_restore_zoom_on_menu_change,
@@ -197,26 +197,41 @@ fn orbit_camera_controls(
 }
 
 fn update_camera_transform(
-    mut camera_query: Query<(&mut Transform, &mut OrbitCamera, &CameraAnchor)>,
-    target_query: Query<&GlobalTransform, Without<GameCamera>>,
+    // ParamSet is required because both queries access `Transform`:
+    // - p0 mutably (camera) and p1 immutably (target body).
+    // Read the target body's Transform (not GlobalTransform) so we see the
+    // current frame's position written by update_render_transform.
+    // GlobalTransform is only flushed in PostUpdate, so it lags one frame.
+    mut param_set: ParamSet<(
+        Query<(&mut Transform, &mut OrbitCamera, &CameraAnchor)>,
+        Query<&Transform, Without<GameCamera>>,
+    )>,
 ) {
-    let (mut transform, mut orbit, anchor) = camera_query.single_mut().unwrap();
+    // Step 1: extract the anchor entity while holding the camera borrow.
+    let anchor_entity: Option<Entity> = param_set
+        .p0()
+        .single()
+        .map(|(_, _, a)| a.0)
+        .unwrap_or(None);
 
-    // Update target center if anchored
-    if let Some(entity) = anchor.0 {
-        if let Ok(target_transform) = target_query.get(entity) {
-            orbit.target_center = target_transform.translation();
+    // Step 2: look up the target's current world position via p1 (no conflicts).
+    let target_pos: Option<Vec3> = anchor_entity
+        .and_then(|e| param_set.p1().get(e).ok().map(|t| t.translation));
+
+    // Step 3: update the camera using the positions gathered above.
+    if let Ok((mut transform, mut orbit, _)) = param_set.p0().single_mut() {
+        if let Some(pos) = target_pos {
+            orbit.target_center = pos;
         }
+
+        let rot = Quat::from_axis_angle(Vec3::Y, orbit.yaw)
+            * Quat::from_axis_angle(Vec3::X, orbit.pitch);
+        let offset = rot * Vec3::Z * orbit.radius;
+        let position = orbit.target_center + offset;
+
+        transform.translation = position;
+        transform.look_at(orbit.target_center, Vec3::Y);
     }
-
-    // Calculate camera position
-    let rot =
-        Quat::from_axis_angle(Vec3::Y, orbit.yaw) * Quat::from_axis_angle(Vec3::X, orbit.pitch);
-    let offset = rot * Vec3::Z * orbit.radius;
-    let position = orbit.target_center + offset;
-
-    transform.translation = position;
-    transform.look_at(orbit.target_center, Vec3::Y);
 }
 
 /// Dynamically adjusts the camera's `min_radius` based on what's currently anchored.

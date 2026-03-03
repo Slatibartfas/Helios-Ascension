@@ -82,8 +82,8 @@ impl Plugin for AstronomyPlugin {
                     update_orbit_visibility,
                     update_body_lod_visibility,
                     // Rendering
-                    draw_orbit_paths.after(update_orbit_visibility),
-                    draw_lagrange_point_rings.after(update_orbit_visibility),
+                    draw_orbit_paths.after(update_orbit_visibility).after(propagate_orbits),
+                    draw_lagrange_point_rings.after(update_orbit_visibility).after(propagate_orbits),
                     
                     // Comet Visuals
                     manage_comet_tail_meshes,

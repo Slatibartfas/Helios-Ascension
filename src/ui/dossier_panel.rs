@@ -8,7 +8,7 @@
 //! - Dark tactical palette (#0A0F1E + #00F2FF accents)
 
 use super::*;
-use super::dashboard::format_mass;
+use super::dashboard::{format_mass, format_mass_compact};
 use super::resources_bar::format_population;
 use super::theme::{
     self, BG, ACCENT, ACCENT_DIM, BORDER, TEXT_DIM, TEXT_VALUE,
@@ -472,15 +472,11 @@ fn compute_habitability_scores(
 
     let gravity_g = body.surface_gravity();
 
-    // ── Gravity (ideal 0.8–1.2 g) ─────────────────────────────────────
-    let gravity_score = if gravity_g >= 0.8 && gravity_g <= 1.2 {
-        1.0
-    } else if gravity_g < 0.8 {
-        (gravity_g / 0.8).clamp(0.0, 1.0)
-    } else {
-        // 1.2 → 1.0,  3.0 → 0.0
-        (1.0 - (gravity_g - 1.2) / 1.8).clamp(0.0, 1.0)
-    };
+    // ── Gravity (Earth-centered, smooth) ───────────────────────────────
+    // Gaussian around 1.0 g so Venus (0.90 g) reads near 95% instead of
+    // snapping to 100% across a wide flat band.
+    let gravity_delta = gravity_g - 1.0;
+    let gravity_score = (-(gravity_delta * gravity_delta) / (2.0 * 0.22 * 0.22)).exp();
 
     // ── Temperature (ideal 0–30 °C mean) ──────────────────────────────
     let mean_t = temp
@@ -578,7 +574,7 @@ fn draw_habitability_section(
     // Radar chart — centred horizontally
     ui.horizontal(|ui| {
         let avail = ui.available_width();
-        const CHART_SIZE: f32 = 220.0;
+        const CHART_SIZE: f32 = 200.0;
         let padding = ((avail - CHART_SIZE) / 2.0).max(0.0);
         ui.add_space(padding);
         draw_radar_chart(ui, scores);
@@ -723,10 +719,10 @@ fn draw_habitability_section(
 /// 5-point radar / pentagon chart rendered with `egui::Painter`.
 fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
     const LABELS: [&str; 5] = ["Gravity", "Temp", "Pressure", "Air", "Water"];
-    const SIZE: f32 = 220.0;
+    const SIZE: f32 = 200.0;
     // These are fallbacks; actual radii are computed from the painter rect
-    const FALLBACK_MAX_R: f32 = 60.0;
-    const FALLBACK_LABEL_R: f32 = 78.0;
+    const FALLBACK_MAX_R: f32 = 56.0;
+    const FALLBACK_LABEL_R: f32 = 72.0;
 
     let (response, painter) =
         ui.allocate_painter(egui::Vec2::splat(SIZE), egui::Sense::hover());
@@ -736,8 +732,8 @@ fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
     let half_w = response.rect.width() / 2.0;
     let half_h = response.rect.height() / 2.0;
     let max_possible = half_w.min(half_h);
-    let max_r = (max_possible - 12.0).max(10.0).min(FALLBACK_MAX_R);
-    let label_r = (max_r + 18.0).min(FALLBACK_LABEL_R + 20.0);
+    let max_r = (max_possible - 14.0).max(10.0).min(FALLBACK_MAX_R);
+    let label_r = (max_r + 14.0).min(FALLBACK_LABEL_R + 16.0);
 
     // Axis angles — start top (-PI/2), go clockwise
     let angles: Vec<f32> = (0..5)
@@ -783,8 +779,8 @@ fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
         .iter()
         .zip(angles.iter())
         .map(|(&s, &a)| {
-            // Cap at max_r - 1.5 so the 1.5px stroke sits inside the outer ring
-            let r = (max_r * s.clamp(0.0, 1.0)).min(max_r - 1.5).max(3.0);
+            // Cap well inside the outer ring so anti-aliased stroke never bleeds outside.
+            let r = (max_r * s.clamp(0.0, 1.0)).min(max_r - 3.0).max(3.0);
             center + egui::Vec2::new(a.cos() * r, a.sin() * r)
         })
         .collect();
@@ -803,18 +799,20 @@ fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
     // Outline
     painter.add(egui::Shape::closed_line(
         player_pts.clone(),
-        egui::Stroke::new(1.5, ACCENT),
+        egui::Stroke::new(1.0, ACCENT),
     ));
 
     // Score labels — always shown, positioned just outside the vertex
     for (i, (&s, &a)) in scores.iter().zip(angles.iter()).enumerate() {
-        // For high scores (≥88%) the label would overlap the axis label,
-        // so skip it — the vertex touching the outer ring is self-evident.
-        if s < 0.88 {
+        // Always show score text; clamp placement to a readable band so
+        // low percentages (0–5%) don't collapse near the center.
+        {
             let score_text = format!("{:.0}%", s * 100.0);
-            // Place label at least 22px from centre so low scores stay readable
+            // Keep score labels in a readable annulus between 34% and 78% of radius.
             let vertex_r = (max_r * s.clamp(0.0, 1.0)).max(3.0);
-            let score_r = (vertex_r + 10.0).max(22.0);
+            let score_r = (vertex_r + 8.0)
+                .max(max_r * 0.34)
+                .min(max_r * 0.78);
             let score_pos = center + egui::Vec2::new(a.cos() * score_r, a.sin() * score_r);
             painter.text(
                 score_pos,
@@ -1262,18 +1260,43 @@ fn draw_resource_section(
     );
 }
 
+/// Determine deposit magnitude tier (0–5) from total mass in megatons.
+/// Each tier spans ~3 orders of magnitude.
+fn magnitude_tier(megatons: f64) -> (u8, &'static str) {
+    if megatons < 1.0 {
+        (0, "Trace")      // < 1 Mt
+    } else if megatons < 1_000.0 {
+        (1, "Minor")      // Mt-range
+    } else if megatons < 1_000_000.0 {
+        (2, "Moderate")   // Gt-range
+    } else if megatons < 1_000_000_000.0 {
+        (3, "Rich")       // Tt-range
+    } else if megatons < 1_000_000_000_000.0 {
+        (4, "Vast")       // Pt-range
+    } else {
+        (5, "Planetary")  // Et-range and beyond
+    }
+}
+
 /// Resource periodic grid: tiles laid out by category, each showing a chemical
-/// symbol with a fill level representing concentration.
+/// symbol with magnitude pips and compact value.
 fn draw_resource_grid(ui: &mut egui::Ui, resources: &PlanetResources, survey_level: SurveyLevel) {
-    let tile_size = 42.0_f32;
+    let tile_size = 44.0_f32;
     let tile_spacing = 3.0_f32;
 
     for (category_name, category_resources) in ResourceType::by_category() {
-        // Category header
+        // Skip biological resources — food is produced by colonies, never mined
+        if category_name == "Biological" {
+            continue;
+        }
+
+        let cat_color = theme::category_color(category_name);
+
+        // Category header with coloured label
         ui.label(
             egui::RichText::new(category_name)
                 .font(mono_font(9.0))
-                .color(ACCENT_DIM),
+                .color(cat_color),
         );
 
         ui.horizontal_wrapped(|ui| {
@@ -1281,7 +1304,7 @@ fn draw_resource_grid(ui: &mut egui::Ui, resources: &PlanetResources, survey_lev
 
             for resource_type in &category_resources {
                 let deposit = resources.get_deposit(resource_type);
-                draw_resource_tile(ui, *resource_type, deposit, survey_level, tile_size);
+                draw_resource_tile(ui, *resource_type, deposit, survey_level, tile_size, cat_color);
             }
         });
 
@@ -1289,13 +1312,16 @@ fn draw_resource_grid(ui: &mut egui::Ui, resources: &PlanetResources, survey_lev
     }
 }
 
-/// Single resource tile: square with symbol, fill-level background, and hover tooltip.
+/// Single resource tile: symbol, compact mass value, magnitude pips, and
+/// concentration-driven colour brightness.  Category colour tints the tile
+/// so different resource families are visually distinct.
 fn draw_resource_tile(
     ui: &mut egui::Ui,
     resource: ResourceType,
     deposit: Option<&MineralDeposit>,
     survey_level: SurveyLevel,
     size: f32,
+    cat_color: egui::Color32,
 ) {
     let (response, painter) =
         ui.allocate_painter(egui::Vec2::splat(size), egui::Sense::hover());
@@ -1308,60 +1334,102 @@ fn draw_resource_tile(
 
     if has_deposit {
         let d = deposit.unwrap();
+        let total = d.reserve.total_mass();
+        let discovered = survey_level.discovered_amount(&d.reserve);
 
-        // Fill level: blend of log-scaled concentration and log-scaled mass.
-        // This ensures both ore quality AND deposit size contribute, so a
-        // huge low-concentration deposit is still visually distinct from a
-        // tiny high-concentration one.
+        // ── Magnitude tier (0–5) ────────────────────────────────
+        let (tier, _tier_label) = magnitude_tier(discovered);
 
-        // Concentration axis:  1e-10 → 0.0  …  1.0 → 1.0
+        // ── Concentration → brightness multiplier (0.3 … 1.0) ──
         let conc = d.reserve.concentration.clamp(1e-10, 1.0) as f64;
-        let conc_norm = (conc.log10() + 10.0) / 10.0; // 0..1
+        let conc_norm = ((conc.log10() + 10.0) / 10.0).clamp(0.0, 1.0) as f32;
+        let brightness = 0.3 + 0.7 * conc_norm; // dim for trace, bright for rich
 
-        // Mass axis (Mt):  0.001 Mt (1 kt) → 0.0  …  1e6 Mt (1 Tt) → 1.0
-        let mass = d.reserve.total_mass().clamp(0.001, 1e6);
-        let mass_norm = (mass.log10() + 3.0) / 9.0; // log10(0.001)=-3, log10(1e6)=6 → 9 decades
-
-        // Weighted blend: 40 % concentration, 60 % mass
-        let fill_frac = (0.4 * conc_norm + 0.6 * mass_norm).clamp(0.05, 1.0) as f32;
+        // ── Tile fill: discrete tier bands ──────────────────────
+        // Fill fraction proportional to tier (0→8%, 1→20%, …, 5→100%)
+        let fill_frac = match tier {
+            0 => 0.08,
+            1 => 0.25,
+            2 => 0.42,
+            3 => 0.60,
+            4 => 0.80,
+            _ => 1.00,
+        };
         let fill_height = rect.height() * fill_frac;
         let fill_rect = egui::Rect::from_min_max(
             egui::Pos2::new(rect.left(), rect.bottom() - fill_height),
             rect.max,
         );
 
-        // Fill colour: blend from dim to accent based on combined fill
-        let fill_alpha = (60.0 + 140.0 * fill_frac) as u8;
+        // Tint with category colour, modulated by concentration brightness
+        let fill_alpha = (40.0 + 120.0 * brightness) as u8;
         let fill_color = egui::Color32::from_rgba_premultiplied(
-            0,
-            (180.0 * fill_frac + 40.0) as u8,
-            (200.0 * fill_frac + 50.0) as u8,
+            (cat_color.r() as f32 * brightness * 0.5) as u8,
+            (cat_color.g() as f32 * brightness * 0.5) as u8,
+            (cat_color.b() as f32 * brightness * 0.5) as u8,
             fill_alpha,
         );
         painter.rect_filled(fill_rect, 0.0, fill_color);
 
-        // Proven reserve mini-bar at bottom (3px)
-        let proven = d.reserve.proven_crustal;
-        let total = d.reserve.total_mass();
-        if total > 0.0 {
-            let bar_frac = (proven / total).clamp(0.0, 1.0) as f32;
-            let bar_rect = egui::Rect::from_min_size(
-                egui::Pos2::new(rect.left() + 1.0, rect.bottom() - 3.0),
-                egui::Vec2::new((rect.width() - 2.0) * bar_frac, 2.0),
-            );
-            painter.rect_filled(bar_rect, 0.0, ACCENT);
-        }
-
-        // Symbol text
+        // ── Symbol text (upper area) ────────────────────────────
         painter.text(
-            rect.center() - egui::Vec2::new(0.0, 1.0),
+            egui::Pos2::new(rect.center().x, rect.top() + size * 0.32),
             egui::Align2::CENTER_CENTER,
             resource.symbol(),
             mono_font(11.0),
             egui::Color32::WHITE,
         );
+
+        // ── Compact mass value (below symbol) ───────────────────
+        let compact = format_mass_compact(discovered);
+        painter.text(
+            egui::Pos2::new(rect.center().x, rect.top() + size * 0.58),
+            egui::Align2::CENTER_CENTER,
+            &compact,
+            mono_font(7.0),
+            egui::Color32::from_rgba_premultiplied(
+                220, 230, 240,
+                (180.0 * brightness) as u8,
+            ),
+        );
+
+        // ── Magnitude pip dots (bottom of tile) ─────────────────
+        let pip_y = rect.bottom() - 5.0;
+        let pip_r = 2.0_f32;
+        let pip_spacing = 6.0_f32;
+        let total_pip_w = 5.0 * pip_spacing - pip_spacing + pip_r * 2.0;
+        let pip_start_x = rect.center().x - total_pip_w * 0.5 + pip_r;
+        for i in 0..5u8 {
+            let cx = pip_start_x + i as f32 * pip_spacing;
+            if i < tier {
+                // Filled pip — category colour
+                painter.circle_filled(
+                    egui::Pos2::new(cx, pip_y),
+                    pip_r,
+                    cat_color,
+                );
+            } else {
+                // Empty pip — dim outline
+                painter.circle_stroke(
+                    egui::Pos2::new(cx, pip_y),
+                    pip_r,
+                    egui::Stroke::new(0.5, egui::Color32::from_rgb(40, 45, 55)),
+                );
+            }
+        }
+
+        // ── Proven-reserve mini-bar (above pips) ────────────────
+        if total > 0.0 {
+            let proven = d.reserve.proven_crustal;
+            let bar_frac = (proven / total).clamp(0.0, 1.0) as f32;
+            let bar_rect = egui::Rect::from_min_size(
+                egui::Pos2::new(rect.left() + 1.0, rect.bottom() - 9.0),
+                egui::Vec2::new((rect.width() - 2.0) * bar_frac, 1.5),
+            );
+            painter.rect_filled(bar_rect, 0.0, ACCENT);
+        }
     } else {
-        // No deposit — dim symbol
+        // No deposit — dim symbol, centred
         painter.text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
@@ -1392,12 +1460,22 @@ fn draw_resource_tile(
                         .color(ACCENT),
                 );
 
-                // Phase badge
-                ui.label(
-                    egui::RichText::new(format!("{}", d.phase))
-                        .font(mono_font(9.0))
-                        .color(TEXT_DIM),
-                );
+                // Phase badge + magnitude tier
+                let (tier, tier_label) = magnitude_tier(discovered);
+                let tier_dots: String = "\u{25CF}".repeat(tier as usize)
+                    + &"\u{25CB}".repeat(5 - tier as usize);
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!("{}", d.phase))
+                            .font(mono_font(9.0))
+                            .color(TEXT_DIM),
+                    );
+                    ui.label(
+                        egui::RichText::new(format!("{tier_dots} {tier_label}"))
+                            .font(mono_font(9.0))
+                            .color(cat_color),
+                    );
+                });
                 ui.add_space(4.0);
 
                 egui::Grid::new(format!("tooltip_{}", resource.symbol()))

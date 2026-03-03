@@ -74,11 +74,12 @@ fn main() {
 fn setup(mut commands: Commands) {
     // Add ambient light for space atmosphere
     // In Bevy 0.14, brightness is measured in lux (default: 80.0).
-    // 5 lux provides just enough fill so geometry is faintly visible on the
-    // night side, while the Sun's point-light dominates day/night contrast.
+    // 0.5 lux — the faintest starlight fill.  In real space the dark side
+    // of a body is essentially black; this tiny fill just keeps geometry
+    // from vanishing completely while preserving realistic day/night contrast.
     commands.insert_resource(GlobalAmbientLight {
-        color: Color::srgb(0.85, 0.88, 1.0), // Neutral to slightly blue for space
-        brightness: 5.0,
+        color: Color::srgb(0.7, 0.75, 1.0), // Cool blue-white starlight tint
+        brightness: 0.5,
         ..default()
     });
 
