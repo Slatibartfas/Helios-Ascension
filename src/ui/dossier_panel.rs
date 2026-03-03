@@ -15,7 +15,7 @@ use super::theme::{
     SURFACE, AMBER, RED, GREEN,
 };
 use crate::astronomy::components::{
-    calculate_colony_cost_details, AtmosphericGas, OceanType, SurfaceTemperature,
+    AtmosphericGas, OceanType, SurfaceTemperature,
     OceanProperties,
 };
 use std::f32::consts::TAU;
@@ -177,6 +177,7 @@ pub(super) fn ui_planet_dossier(
                             &scores,
                             surface_temp,
                             atmosphere,
+                            ocean_props,
                         );
 
                         // ── Atmosphere Bar ──────────────────────────
@@ -451,20 +452,18 @@ fn section_divider(ui: &mut egui::Ui) {
 
 // ─── Habitability Radar ──────────────────────────────────────────────────
 
-/// Scores: [gravity, temperature, pressure, breathability, hydrosphere] all 0..=1.
+/// Scores: [gravity, temperature, pressure, air_quality, hydrosphere] all 0..=1.
 ///
-/// Each axis uses a "both too low and too high are bad" model so the score
-/// is 100% at the human-ideal value and falls symmetrically toward 0% at
-/// the extremes.
+/// Each axis mirrors the colony-cost formula so the radar chart is a
+/// direct visual inverse of the terraforming effort.  A perfect pentagon
+/// (all 100%) means Earth-like conditions.
 fn compute_habitability_scores(
     body: &CelestialBody,
     temp: Option<&SurfaceTemperature>,
     atmo: Option<&AtmosphereComposition>,
     ocean: Option<&OceanProperties>,
 ) -> [f32; 5] {
-    // Gas giants have no solid surface — completely uninhabitable.
-    // Detect via BodyType OR atmosphere is_reference_pressure (gas giants
-    // in solar_system.ron use body_type: Planet with is_reference_pressure: true).
+    // Gas giants — no solid surface, completely uninhabitable.
     let is_gas_giant = body.body_type == BodyType::GasGiant
         || atmo.map_or(false, |a| a.is_reference_pressure);
     if is_gas_giant {
@@ -473,58 +472,78 @@ fn compute_habitability_scores(
 
     let gravity_g = body.surface_gravity();
 
-    // Gravity: 100% at 1 g, drops linearly to 0% at 0 g and at 2 g+.
-    let gravity_score = (1.0 - (gravity_g - 1.0).abs()).clamp(0.0, 1.0);
+    // ── Gravity (ideal 0.8–1.2 g) ─────────────────────────────────────
+    let gravity_score = if gravity_g >= 0.8 && gravity_g <= 1.2 {
+        1.0
+    } else if gravity_g < 0.8 {
+        (gravity_g / 0.8).clamp(0.0, 1.0)
+    } else {
+        // 1.2 → 1.0,  3.0 → 0.0
+        (1.0 - (gravity_g - 1.2) / 1.8).clamp(0.0, 1.0)
+    };
 
-    // Temperature: ideal band 0–40 °C. Cold/heat deviations reduce score
-    // symmetrically; at ≥100 °C deviation from the band the score reaches 0%.
-    let (min_t, max_t) = temp
-        .map(|t| (t.min_celsius, t.max_celsius))
-        .or_else(|| {
-            atmo.map(|a| (a.surface_temperature_celsius, a.surface_temperature_celsius))
-        })
-        .unwrap_or((-273.15, -273.15));
+    // ── Temperature (ideal 0–30 °C mean) ──────────────────────────────
+    let mean_t = temp
+        .map(|t| t.average_celsius)
+        .or_else(|| atmo.map(|a| a.surface_temperature_celsius))
+        .unwrap_or(-273.15);
+    let temp_dev = if mean_t < 0.0 {
+        -mean_t
+    } else if mean_t > 30.0 {
+        mean_t - 30.0
+    } else {
+        0.0
+    };
+    // Smooth exponential decay — mirrors the cost curve.
+    let temp_score = (-temp_dev / 120.0).exp();
 
-    let cold_penalty = (0.0_f32 - min_t).max(0.0); // degrees below 0 °C
-    let heat_penalty = (max_t - 40.0_f32).max(0.0); // degrees above 40 °C
-    let temp_deviation = cold_penalty + heat_penalty;
-    let temp_score = (1.0 - temp_deviation / 100.0).clamp(0.0, 1.0);
-
-    // Pressure: ideal at 1 bar. Both vacuum and crushing pressure are bad.
-    // Uses log₁₀ scale so the distance from 1 bar is symmetric in orders of
-    // magnitude.  Score reaches 0% at ≤0.01 bar or ≥100 bar.
+    // ── Pressure (ideal 0.5–2.0 bar) ─────────────────────────────────
     let pressure_score = match atmo {
-        None => 0.0, // hard vacuum — completely uninhabitable
+        None => 0.0,
         Some(a) => {
-            let pressure_bar = a.surface_pressure_mbar / 1000.0;
-            if pressure_bar < 0.001 {
+            let p = a.surface_pressure_mbar / 1000.0;
+            if p < 0.0001 {
                 0.0
+            } else if p >= 0.5 && p <= 2.0 {
+                1.0
             } else {
-                let log_dist = pressure_bar.log10().abs(); // 0 at 1 bar
-                (1.0 - log_dist / 2.0).clamp(0.0, 1.0)
+                let log_dev = if p < 0.5 {
+                    (0.5 / p).log10()
+                } else {
+                    (p / 2.0).log10()
+                };
+                (1.0 - log_dev / 2.5).clamp(0.0, 1.0)
             }
         }
     };
 
-    // Breathability
-    let breath_score = match atmo {
+    // ── Air quality / breathability ───────────────────────────────────
+    let air_score = match atmo {
         Some(a) if a.breathable => 1.0,
-        Some(_) => 0.3,
+        Some(a) => {
+            let has_o2 = a.get_gas_percentage("O2").unwrap_or(0.0) > 0.1;
+            let has_n2 = a.get_gas_percentage("N2").unwrap_or(0.0) > 1.0;
+            let has_co2 = a.get_gas_percentage("CO2").unwrap_or(0.0) > 1.0;
+            if has_o2 {
+                0.6 // some O₂ present
+            } else if has_n2 || has_co2 {
+                0.3 // useful feedstock
+            } else {
+                0.15 // exotic/inert
+            }
+        }
         None => 0.0,
     };
 
-    // Hydrosphere — score reflects habitability value of surface water,
-    // not raw coverage fraction.  Any liquid-water ocean covering ≥30% of
-    // the surface is ideal (100%); below that, score scales linearly.
+    // ── Hydrosphere ───────────────────────────────────────────────────
     let hydro_score = ocean
         .map(|o| {
             if o.is_subsurface {
-                0.3 // subsurface oceans contribute partial score
+                0.3
             } else if o.ocean_type == OceanType::Water {
-                // 30%+ surface water => ideal (1.0)
                 (o.surface_fraction / 0.3).clamp(0.0, 1.0)
             } else {
-                0.15 // exotic liquids
+                0.15
             }
         })
         .unwrap_or(0.0);
@@ -533,7 +552,7 @@ fn compute_habitability_scores(
         gravity_score,
         temp_score,
         pressure_score,
-        breath_score,
+        air_score,
         hydro_score,
     ]
 }
@@ -547,6 +566,7 @@ fn draw_habitability_section(
     scores: &[f32; 5],
     surface_temp: Option<&SurfaceTemperature>,
     atmosphere: Option<&AtmosphereComposition>,
+    ocean: Option<&OceanProperties>,
 ) {
     ui.label(
         egui::RichText::new("HABITABILITY")
@@ -558,7 +578,7 @@ fn draw_habitability_section(
     // Radar chart — centred horizontally
     ui.horizontal(|ui| {
         let avail = ui.available_width();
-        const CHART_SIZE: f32 = 190.0;
+        const CHART_SIZE: f32 = 220.0;
         let padding = ((avail - CHART_SIZE) / 2.0).max(0.0);
         ui.add_space(padding);
         draw_radar_chart(ui, scores);
@@ -577,7 +597,22 @@ fn draw_habitability_section(
         })
         .unwrap_or((-273.15, -273.15));
 
-    let details = calculate_colony_cost_details(gravity_g, min_t, max_t, atmosphere, is_gas_giant);
+    // Compute water bonus from ocean data
+    let water_bonus = ocean
+        .map(|o| {
+            if o.is_subsurface {
+                -0.2
+            } else if o.ocean_type == OceanType::Water {
+                -0.5 * (o.surface_fraction / 0.3).clamp(0.0, 1.0)
+            } else {
+                -0.1
+            }
+        })
+        .unwrap_or(0.0_f32);
+
+    let details = crate::astronomy::components::calculate_colony_cost_with_water(
+        gravity_g, min_t, max_t, atmosphere, is_gas_giant, water_bonus,
+    );
 
     ui.horizontal(|ui| {
         ui.label(
@@ -585,20 +620,30 @@ fn draw_habitability_section(
                 .font(mono_font(10.0))
                 .color(TEXT_DIM),
         );
-        let (color, text) = if details.is_gas_giant || details.heavy_gravity_limit_exceeded {
-            (RED_ACCENT, "UNINHABITABLE".to_string())
-        } else if details.total_cost <= 0.0 {
-            (GREEN_ACCENT, "0.00 \u{2014} IDEAL".to_string())
+        let (color, label, text) = if details.is_gas_giant || details.heavy_gravity_limit_exceeded {
+            (RED_ACCENT, "", "UNINHABITABLE".to_string())
+        } else if details.total_cost <= 0.01 {
+            (GREEN_ACCENT, "", "IDEAL".to_string())
         } else if details.total_cost <= 2.0 {
+            (GREEN_ACCENT, "Easy ", format!("{:.1}/10", details.total_cost))
+        } else if details.total_cost <= 4.0 {
             (
                 egui::Color32::from_rgb(200, 200, 50),
-                format!("{:.2}", details.total_cost),
+                "Moderate ",
+                format!("{:.1}/10", details.total_cost),
             )
-        } else if details.total_cost <= 5.0 {
-            (AMBER, format!("{:.2}", details.total_cost))
+        } else if details.total_cost <= 7.0 {
+            (AMBER, "Hard ", format!("{:.1}/10", details.total_cost))
         } else {
-            (RED_ACCENT, format!("{:.2}", details.total_cost))
+            (RED_ACCENT, "Extreme ", format!("{:.1}/10", details.total_cost))
         };
+        if !label.is_empty() {
+            ui.label(
+                egui::RichText::new(label)
+                    .font(mono_font(10.0))
+                    .color(color),
+            );
+        }
         ui.label(
             egui::RichText::new(text)
                 .font(mono_font(13.0))
@@ -648,38 +693,27 @@ fn draw_habitability_section(
     })
     .body(|ui| {
         if details.is_gas_giant {
-            ui.colored_label(RED_ACCENT, "Gas Giant \u{2014} uninhabitable (no solid surface)");
+            ui.colored_label(RED_ACCENT, "Gas Giant \u{2014} uninhabitable (no surface)");
         } else if details.heavy_gravity_limit_exceeded {
-            ui.colored_label(RED_ACCENT, "Gravity exceeds 1.7g \u{2014} uninhabitable");
+            ui.colored_label(RED_ACCENT, "Gravity > 3g \u{2014} uninhabitable");
         } else {
-            if details.base_cost > 0.0 {
+            let line = |ui: &mut egui::Ui, color: egui::Color32, name: &str, val: f32, max: f32| {
+                if val > 0.005 {
+                    ui.colored_label(
+                        color,
+                        format!("  {} +{:.1} / {:.0}", name, val, max),
+                    );
+                }
+            };
+            line(ui, egui::Color32::from_rgb(100, 180, 255), "Cold", details.cold_cost, 3.0);
+            line(ui, RED_ACCENT, "Heat", details.heat_cost, 3.0);
+            line(ui, AMBER, "Atmosphere", details.atmosphere_cost, 3.0);
+            line(ui, AMBER, "Pressure", details.pressure_cost, 2.0);
+            line(ui, AMBER, "Gravity", details.gravity_cost, 1.5);
+            if details.water_bonus < -0.005 {
                 ui.colored_label(
-                    AMBER,
-                    format!("  Unbreathable +{:.2}", details.base_cost),
-                );
-            }
-            if details.cold_cost > 0.0 {
-                ui.colored_label(
-                    egui::Color32::from_rgb(100, 180, 255),
-                    format!("  Cold penalty +{:.2}", details.cold_cost),
-                );
-            }
-            if details.heat_cost > 0.0 {
-                ui.colored_label(
-                    RED_ACCENT,
-                    format!("  Heat penalty +{:.2}", details.heat_cost),
-                );
-            }
-            if details.pressure_cost > 0.0 {
-                ui.colored_label(
-                    AMBER,
-                    format!("  Pressure +{:.2}", details.pressure_cost),
-                );
-            }
-            if details.low_gravity_penalty > 0.0 {
-                ui.colored_label(
-                    AMBER,
-                    format!("  Low gravity +{:.2}", details.low_gravity_penalty),
+                    GREEN_ACCENT,
+                    format!("  Water {:.1}", details.water_bonus),
                 );
             }
         }
@@ -689,9 +723,9 @@ fn draw_habitability_section(
 /// 5-point radar / pentagon chart rendered with `egui::Painter`.
 fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
     const LABELS: [&str; 5] = ["Gravity", "Temp", "Pressure", "Air", "Water"];
-    const SIZE: f32 = 190.0;
-    const MAX_R: f32 = 65.0;
-    const LABEL_R: f32 = 82.0;
+    const SIZE: f32 = 220.0;
+    const MAX_R: f32 = 60.0;
+    const LABEL_R: f32 = 78.0;
 
     let (response, painter) =
         ui.allocate_painter(egui::Vec2::splat(SIZE), egui::Sense::hover());

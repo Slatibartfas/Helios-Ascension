@@ -46,7 +46,7 @@ fn test_atmosphere_ui_formatting() {
 
     let pressure_bar = venus.surface_pressure_mbar / 1000.0;
     assert!(pressure_bar >= 1.0); // Should display as "bar"
-    assert!(venus.calculate_colony_cost(0.904, 465.0, 465.0) > 20.0); // Venus should have high cost (2.0 Base + 42.5 Temp + 44 Pressure)
+    assert!(venus.calculate_colony_cost(0.904, 465.0, 465.0) > 4.0); // Venus: high cost on 0-10 scale
 
     // Mars - low pressure
     let mars = AtmosphereComposition::new(
@@ -90,8 +90,8 @@ fn test_colony_cost_colors() {
 
     // Verify we have a range of costs
     assert!(costs[0] <= 0.01); // Earth-like
-    assert!(costs[1] > 2.0); // Moderate
-    assert!(costs[2] > 20.0); // Extreme
+    assert!(costs[1] > 1.0); // Moderate
+    assert!(costs[2] > 4.0); // Extreme (bounded 0-10 scale)
 }
 
 #[test]

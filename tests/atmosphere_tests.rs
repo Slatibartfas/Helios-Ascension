@@ -133,10 +133,10 @@ fn test_colony_cost_calculation_mars() {
     );
 
     let cost = mars_atmosphere.calculate_colony_cost(0.379, -63.0, -63.0);
-    // Mars should have colony cost > 2.0 (Base 2.0 + Temp)
+    // Mars: atmosphere cost ~1.2 + temp cost ~1.0 + pressure ~1.5 + gravity ~0.8 ≈ 4.5
     assert!(
-        cost > 2.0,
-        "Mars should have high colony cost (got {})",
+        cost > 2.0 && cost < 8.0,
+        "Mars should have moderate colony cost (got {})",
         cost
     );
 }
@@ -153,8 +153,8 @@ fn test_colony_cost_calculation_venus() {
     );
 
     let cost = venus_atmosphere.calculate_colony_cost(0.904, 465.0, 465.0);
-    // Venus should have high colony cost > 20.0
-    assert!(cost > 20.0, "Venus should have very high colony cost");
+    // Venus: atmosphere ~1.2 + temp ~2.9 + pressure ~1.3 ≈ 5.4  (bounded 0–10 scale)
+    assert!(cost > 4.0 && cost <= 10.0, "Venus should have high colony cost (got {})", cost);
 }
 
 #[test]

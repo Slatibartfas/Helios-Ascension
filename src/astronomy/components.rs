@@ -806,20 +806,55 @@ impl AtmosphereComposition {
     }
 }
 
-/// Detailed breakdown of colony cost factors
+/// Detailed breakdown of colony cost factors.
+///
+/// Uses a balanced 0–10 scale where each physical parameter contributes
+/// proportionally to the real-world terraforming effort required.
+/// The asymptotic curves ensure no single factor dominates.
+///
+/// | Category    | Max cost | What it measures                        |
+/// |-------------|----------|-----------------------------------------|
+/// | Temperature | 3.0      | Heating / cooling infrastructure        |
+/// | Atmosphere  | 3.0      | Life-support & gas processing           |
+/// | Pressure    | 2.0      | Pressurisation / depressurisation       |
+/// | Gravity     | 1.5      | Structural adaptation (cannot terraform) |
+/// | Water bonus | −0.5     | Liquid water reduces other costs         |
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ColonyCostDetails {
     pub total_cost: f32,
-    pub base_cost: f32,
+    /// Atmosphere composition cost (0 = breathable, up to 3.0 = vacuum).
+    pub atmosphere_cost: f32,
     pub heavy_gravity_limit_exceeded: bool,
     pub is_gas_giant: bool,
+    /// Temperature cost from extreme heat (0–3.0).
     pub heat_cost: f32,
+    /// Temperature cost from extreme cold (0–3.0).
     pub cold_cost: f32,
+    /// Surface pressure deviation cost (0–2.0).
     pub pressure_cost: f32,
-    pub low_gravity_penalty: f32,
+    /// Gravity deviation cost (0–1.5).
+    pub gravity_cost: f32,
+    /// Water availability bonus (0 to −0.5).
+    pub water_bonus: f32,
 }
 
-/// Calculate detailed colony cost breakdown
+impl ColonyCostDetails {
+    /// Back-compat alias: returns the old `base_cost` (atmosphere cost).
+    pub fn base_cost(&self) -> f32 {
+        self.atmosphere_cost
+    }
+
+    /// Back-compat alias: returns the old `low_gravity_penalty`.
+    pub fn low_gravity_penalty(&self) -> f32 {
+        self.gravity_cost
+    }
+}
+
+/// Calculate detailed colony cost breakdown.
+///
+/// The cost uses bounded asymptotic curves so every axis contributes
+/// on a comparable scale, making the total a reliable terraforming
+/// difficulty indicator.
 pub fn calculate_colony_cost_details(
     gravity_g: f32,
     min_temp_c: f32,
@@ -827,73 +862,144 @@ pub fn calculate_colony_cost_details(
     atmosphere: Option<&AtmosphereComposition>,
     is_gas_giant: bool,
 ) -> ColonyCostDetails {
-    // Standard Human Tolerances
-    const MIN_GRAVITY: f32 = 0.1;
-    const MAX_GRAVITY: f32 = 1.7;
-    const MIN_BREATHABLE_TEMP: f32 = 0.0;
-    const MAX_BREATHABLE_TEMP: f32 = 40.0;
+    // Ideal-band boundaries
+    const IDEAL_TEMP_LOW: f32 = 0.0;   // °C
+    const IDEAL_TEMP_HIGH: f32 = 40.0;  // °C
+    const IDEAL_G_LOW: f32 = 0.8;
+    const IDEAL_G_HIGH: f32 = 1.2;
+    const MAX_GRAVITY: f32 = 3.0;       // hard uninhabitable limit
 
     let mut details = ColonyCostDetails::default();
-    
-    // 0. Gas Giant Check (Hard Limit - no solid surface)
+
+    // ── Hard limits ──────────────────────────────────────────────────
     if is_gas_giant {
         details.is_gas_giant = true;
         details.total_cost = f32::INFINITY;
         return details;
     }
-
-    // 1. Gravity Check (Hard Limit)
     if gravity_g > MAX_GRAVITY {
         details.heavy_gravity_limit_exceeded = true;
         details.total_cost = f32::INFINITY;
         return details;
     }
 
-    // 2. Base Infrastructure Cost
-    // If no atmosphere or not breathable, base cost is 2.0 (Closed Cycle/Pressurized)
-    let breathable = atmosphere.map_or(false, |a| a.breathable);
-    if !breathable {
-        details.base_cost = 2.0;
-        details.total_cost += 2.0;
+    // ── Temperature (0–3.0) ──────────────────────────────────────────
+    // Asymptotic curve: cost = 3 × (1 − e^(−deviation / 150))
+    // Gives smooth, bounded behaviour:
+    //   10 °C off → 0.19,  50 °C → 0.91,  100 °C → 1.46,
+    //  200 °C → 2.24, 500 °C → 2.93
+    let cold_dev = (IDEAL_TEMP_LOW - min_temp_c).max(0.0);
+    let hot_dev  = (max_temp_c - IDEAL_TEMP_HIGH).max(0.0);
+    let total_temp_dev = cold_dev + hot_dev;
+    let temp_cost = 3.0 * (1.0 - (-total_temp_dev / 150.0).exp());
+    // Split into cold/heat for the breakdown display
+    if total_temp_dev > 0.0 {
+        details.cold_cost = temp_cost * (cold_dev / total_temp_dev);
+        details.heat_cost = temp_cost * (hot_dev / total_temp_dev);
     }
 
-    // 3. Temperature Cost
-    // Deviation below minimum (Heating required)
-    if min_temp_c < MIN_BREATHABLE_TEMP {
-        details.cold_cost = (MIN_BREATHABLE_TEMP - min_temp_c).abs() / 10.0;
-        details.total_cost += details.cold_cost;
-    }
+    // ── Atmosphere composition (0–3.0) ──────────────────────────────
+    // Breathable → 0.  Has atmosphere → 1.0–2.0 depending on
+    // usefulness.  Vacuum → 3.0 (entire life-support system needed).
+    details.atmosphere_cost = match atmosphere {
+        Some(atm) if atm.breathable => 0.0,
+        Some(atm) => {
+            // Check for useful feedstock gases
+            let has_n2 = atm.get_gas_percentage("N2").unwrap_or(0.0) > 1.0;
+            let has_o2 = atm.get_gas_percentage("O2").unwrap_or(0.0) > 0.1;
+            let has_co2 = atm.get_gas_percentage("CO2").unwrap_or(0.0) > 1.0;
+            let pressure_bar = atm.surface_pressure_mbar / 1000.0;
 
-    // Deviation above maximum (Cooling required)
-    if max_temp_c > MAX_BREATHABLE_TEMP {
-        details.heat_cost = (max_temp_c - MAX_BREATHABLE_TEMP).abs() / 10.0;
-        details.total_cost += details.heat_cost;
-    }
+            if has_o2 {
+                // Some O₂ present but not breathable (wrong mix / partial pressure)
+                0.8
+            } else if has_n2 || has_co2 {
+                // Useful buffer / feedstock gas available
+                if pressure_bar > 0.01 {
+                    1.2
+                } else {
+                    2.0 // Very thin — limited raw material
+                }
+            } else {
+                // Exotic / inert atmosphere with no useful gases
+                1.8
+            }
+        }
+        None => 3.0, // Hard vacuum — full pressurised habitats needed
+    };
 
-    // 4. Pressure Cost (only if atmosphere exists)
-    if let Some(atm) = atmosphere {
-        let pressure_bar = atm.surface_pressure_mbar / 1000.0;
-        if pressure_bar > 4.0 {
-             // High pressure penalty
-             details.pressure_cost = (pressure_bar - 4.0) * 0.5;
-             details.total_cost += details.pressure_cost;
+    // ── Pressure (0–2.0) ────────────────────────────────────────────
+    // Uses log₁₀ deviation from ideal 0.5–2.0 bar band.
+    // cost = min(2, |log₁₀(deviation_ratio)| × 0.8)
+    details.pressure_cost = match atmosphere {
+        None => 0.0, // already covered by atmosphere_cost = 3.0
+        Some(atm) => {
+            let p = atm.surface_pressure_mbar / 1000.0;
+            if p < 0.0001 {
+                0.0 // effectively vacuum — handled by atmosphere_cost
+            } else if p >= 0.5 && p <= 2.0 {
+                0.0 // within ideal band
+            } else if p < 0.5 {
+                (0.5_f32 / p).log10().abs().min(2.5) * 0.8
+            } else {
+                // p > 2.0
+                (p / 2.0_f32).log10().abs().min(2.5) * 0.8
+            }
         }
     }
+    .min(2.0);
 
-    // 5. Low Gravity Penalty
-    if gravity_g < MIN_GRAVITY {
-        details.low_gravity_penalty = 1.0;
-        details.total_cost += 1.0;
-    }
+    // ── Gravity (0–1.5) ─────────────────────────────────────────────
+    // Linear ramp outside the 0.8–1.2 g ideal band.
+    details.gravity_cost = if gravity_g < IDEAL_G_LOW {
+        1.5 * (IDEAL_G_LOW - gravity_g) / IDEAL_G_LOW
+    } else if gravity_g > IDEAL_G_HIGH {
+        1.5 * (gravity_g - IDEAL_G_HIGH) / (MAX_GRAVITY - IDEAL_G_HIGH)
+    } else {
+        0.0
+    };
+
+    // ── Total ────────────────────────────────────────────────────────
+    details.total_cost = (details.cold_cost
+        + details.heat_cost
+        + details.atmosphere_cost
+        + details.pressure_cost
+        + details.gravity_cost
+        + details.water_bonus)
+        .max(0.0);
 
     details
 }
 
 /// Calculate colony cost for any body, even without atmosphere.
 ///
-/// Returns the colony cost factor (0.0 = Earth-like/Ideal).
-/// Returns f32::INFINITY if the body is uninhabitable for standard humans (e.g. extreme gravity).
-pub fn calculate_general_colony_cost(gravity_g: f32, min_temp_c: f32, max_temp_c: f32, atmosphere: Option<&AtmosphereComposition>, is_gas_giant: bool) -> f32 {
+/// Returns the colony cost factor (0.0 = Earth-like/Ideal, up to ~10).
+/// Returns `f32::INFINITY` if the body is uninhabitable (gas giant, >3 g).
+pub fn calculate_general_colony_cost(
+    gravity_g: f32,
+    min_temp_c: f32,
+    max_temp_c: f32,
+    atmosphere: Option<&AtmosphereComposition>,
+    is_gas_giant: bool,
+) -> f32 {
     let details = calculate_colony_cost_details(gravity_g, min_temp_c, max_temp_c, atmosphere, is_gas_giant);
     details.total_cost
+}
+
+/// Calculate colony cost with an optional water bonus applied.
+///
+/// `water_bonus` should be 0.0 (no water) to −0.5 (ideal ocean world).
+pub fn calculate_colony_cost_with_water(
+    gravity_g: f32,
+    min_temp_c: f32,
+    max_temp_c: f32,
+    atmosphere: Option<&AtmosphereComposition>,
+    is_gas_giant: bool,
+    water_bonus: f32,
+) -> ColonyCostDetails {
+    let mut details =
+        calculate_colony_cost_details(gravity_g, min_temp_c, max_temp_c, atmosphere, is_gas_giant);
+    details.water_bonus = water_bonus;
+    details.total_cost = (details.total_cost + water_bonus).max(0.0);
+    details
 }
