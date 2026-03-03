@@ -142,6 +142,14 @@ fn generate_resources_for_body(
         return special_resources;
     }
 
+    // Gas/ice giants that aren't named Sol bodies get a procedural profile
+    // based on their mass (>30 M⊕ = gas giant, 8-30 M⊕ = ice giant).
+    if matches!(body_type, crate::plugins::solar_system_data::BodyType::GasGiant) {
+        const EARTH_MASS_KG: f64 = 5.972e24;
+        let mass_earth = (body_mass / EARTH_MASS_KG) as f32;
+        return super::profiles::apply_procedural_gas_giant_profile(body_mass, mass_earth, rng);
+    }
+
     // For asteroids with known spectral class, apply scientific resource mapping
     if matches!(
         body_type,
@@ -268,6 +276,20 @@ pub(super) fn create_deposit_legacy(
                 1.0e-7 + access_factor * 5.0e-7,
             )
         }
+        BodyType::GasGiant => {
+            // Gas/ice giants: only the upper atmosphere is accessible.
+            // The harvestable atmospheric shell (~top 100-200 km) is a tiny
+            // fraction of the total planetary mass.  The rest sits under
+            // millions of bars of pressure (deep + bulk tiers).
+            //
+            // Proven ≈ upper troposphere/stratosphere  (~Gt-range for Jupiter)
+            // Deep   ≈ deeper convective envelope       (~Tt-range)
+            // Bulk   ≈ metallic-H / superionic interior  (everything else)
+            (
+                1.0e-10 + access_factor * 3.0e-10,
+                1.0e-8 + access_factor * 5.0e-8,
+            )
+        }
         BodyType::Asteroid | BodyType::Comet => {
             // Asteroids are accessible throughout (can be fully stripped).
             // A large portion is considered "Proven" or "Deep" immediately.
@@ -306,6 +328,10 @@ pub(super) fn create_deposit_from_absolute_mass(
             // For known measured deposits, use higher accessibility factors
             // Scientific estimates already account for extractable amounts
             (0.1 + access_factor * 0.3, 0.2 + access_factor * 0.4)
+        }
+        BodyType::GasGiant => {
+            // Gas giants: only the upper atmosphere is harvestable
+            (0.001 + access_factor * 0.01, 0.01 + access_factor * 0.05)
         }
         BodyType::Asteroid | BodyType::Comet => {
             // Asteroids are accessible throughout
@@ -1269,14 +1295,14 @@ mod tests {
     }
 
     #[test]
-    fn test_gas_giants_no_solid_ice() {
+    fn test_gas_giants_composition() {
         let mut rng = rand::rng();
 
-        // Test Jupiter - should NOT have water deposits (only atmospheric hydrogen/helium)
+        // ── Jupiter ──────────────────────────────────────────────
         let jupiter_mass = 1.8982e27; // kg
         let jupiter_resources = generate_resources_for_body(
             "Jupiter",
-            crate::plugins::solar_system_data::BodyType::Planet,
+            crate::plugins::solar_system_data::BodyType::GasGiant,
             jupiter_mass,
             None,
             5.2,
@@ -1284,31 +1310,34 @@ mod tests {
             &mut rng,
         );
 
-        // Jupiter should have hydrogen but NO water (gas giant, not ice giant)
-        let jupiter_water = jupiter_resources.get_abundance(&ResourceType::Water);
         let jupiter_hydrogen = jupiter_resources.get_abundance(&ResourceType::Hydrogen);
-        let jupiter_total_mt = jupiter_mass / 1e9; // Convert kg to Mt
+        let jupiter_total_mt = jupiter_mass / 1e9;
 
-        assert_eq!(
-            jupiter_water, 0.0,
-            "Jupiter should have NO solid water deposits (gas giant)"
-        );
-
-        // Hydrogen should be a large fraction of Jupiter's mass
+        // Hydrogen should be ~71% of Jupiter's mass (by mass, not volume)
         if jupiter_hydrogen > 0.0 {
             let hydrogen_fraction = jupiter_hydrogen / jupiter_total_mt;
             assert!(
-                hydrogen_fraction > 0.5,
-                "Jupiter should have hydrogen (>50% of mass), found: {:.1}%",
+                hydrogen_fraction > 0.60 && hydrogen_fraction < 0.80,
+                "Jupiter hydrogen should be 60-80% of mass, found: {:.1}%",
                 hydrogen_fraction * 100.0
             );
         }
 
-        // Test Saturn
+        // Jupiter should have trace water (deep atmospheric), methane, ammonia
+        let jupiter_methane = jupiter_resources.get_abundance(&ResourceType::Methane);
+        assert!(jupiter_methane > 0.0, "Jupiter should have methane");
+
+        let jupiter_he3 = jupiter_resources.get_abundance(&ResourceType::Helium3);
+        assert!(jupiter_he3 > 0.0, "Jupiter should have He-3");
+
+        let jupiter_deuterium = jupiter_resources.get_abundance(&ResourceType::Deuterium);
+        assert!(jupiter_deuterium > 0.0, "Jupiter should have deuterium");
+
+        // ── Saturn ───────────────────────────────────────────────
         let saturn_mass = 5.6834e26; // kg
         let saturn_resources = generate_resources_for_body(
             "Saturn",
-            crate::plugins::solar_system_data::BodyType::Planet,
+            crate::plugins::solar_system_data::BodyType::GasGiant,
             saturn_mass,
             None,
             9.5,
@@ -1316,22 +1345,54 @@ mod tests {
             &mut rng,
         );
 
-        let saturn_water = saturn_resources.get_abundance(&ResourceType::Water);
         let saturn_hydrogen = saturn_resources.get_abundance(&ResourceType::Hydrogen);
-        let saturn_total_mt = saturn_mass / 1e9; // Convert kg to Mt
+        let saturn_total_mt = saturn_mass / 1e9;
 
-        assert_eq!(
-            saturn_water, 0.0,
-            "Saturn should have NO solid water deposits (gas giant)"
-        );
-
-        // Hydrogen should be a large fraction of Saturn's mass
+        // Hydrogen should be ~69% of Saturn's mass
         if saturn_hydrogen > 0.0 {
             let hydrogen_fraction = saturn_hydrogen / saturn_total_mt;
             assert!(
-                hydrogen_fraction > 0.5,
-                "Saturn should have hydrogen (>50% of mass), found: {:.1}%",
+                hydrogen_fraction > 0.55 && hydrogen_fraction < 0.80,
+                "Saturn hydrogen should be 55-80% of mass, found: {:.1}%",
                 hydrogen_fraction * 100.0
+            );
+        }
+
+        // Saturn should have methane (enriched ~10× solar)
+        let saturn_methane = saturn_resources.get_abundance(&ResourceType::Methane);
+        assert!(saturn_methane > 0.0, "Saturn should have methane");
+
+        // ── Uranus (ice giant) ───────────────────────────────────
+        let uranus_mass = 8.681e25; // kg
+        let uranus_resources = generate_resources_for_body(
+            "Uranus",
+            crate::plugins::solar_system_data::BodyType::GasGiant,
+            uranus_mass,
+            None,
+            19.2,
+            2.5,
+            &mut rng,
+        );
+
+        let uranus_hydrogen = uranus_resources.get_abundance(&ResourceType::Hydrogen);
+        let uranus_water = uranus_resources.get_abundance(&ResourceType::Water);
+        let uranus_total_mt = uranus_mass / 1e9;
+
+        // Ice giants have much less hydrogen (~15%) and huge water reserves (~50%)
+        if uranus_hydrogen > 0.0 {
+            let h_frac = uranus_hydrogen / uranus_total_mt;
+            assert!(
+                h_frac < 0.30,
+                "Uranus hydrogen should be <30% of mass (ice giant), found: {:.1}%",
+                h_frac * 100.0
+            );
+        }
+        if uranus_water > 0.0 {
+            let w_frac = uranus_water / uranus_total_mt;
+            assert!(
+                w_frac > 0.30,
+                "Uranus water should be >30% of mass (ice giant interior), found: {:.1}%",
+                w_frac * 100.0
             );
         }
     }

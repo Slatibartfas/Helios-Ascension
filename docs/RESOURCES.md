@@ -91,10 +91,24 @@ Resource abundances are based on real-world planetary compositions to support fu
 - Ammonia/Methane: 1-5% (trace volatiles)
 
 **Gas Giants (Jupiter-like):**
-- Hydrogen: 89-90% (atmospheric only)
-- Helium: 10-11% (atmospheric only)
-- Deuterium: Trace (~25 ppm of H₂, atmospheric D/H ratio)
-- No solid resources (atmospheric harvesting only)
+- Hydrogen: 65-75% *by mass* (commonly misquoted as ~90%, which is volume fraction)
+- Helium: 20-26% by mass (not tracked as a game resource)
+- Helium-3: 20-35 ppm (He × He3/He4 × 3/4; protosolar He3/He4 ≈ 1.66×10⁻⁴)
+- Deuterium: 25-40 ppm (D/H ~2.5×10⁻⁵, scaled by H mass fraction × 2)
+- Methane: 0.05-0.3% by mass (enriched above solar C/H)
+- Ammonia: 0.01-0.05% by mass (below NH₃ cloud deck)
+- Water: 0.1-1% by mass (deep interior; supercritical fluid)
+- Nitrogen: trace (~0.001%)
+- No solid resources — atmospheric harvesting only
+
+**Ice Giants (Uranus/Neptune-like):**
+- Hydrogen: 12-22% by mass (thin H₂/He envelope)
+- Water: 40-60% by mass (superionic/ionic interior mantle)
+- Methane: 2-5% by mass (atmospheric + interior; source of blue/teal colour)
+- Ammonia: 2-5% by mass (interior ices)
+- Helium-3: 3-7 ppm (much less total He)
+- Deuterium: 35-55 ppm (enriched D/H ~4.4×10⁻⁵ from accreted ices)
+- Nitrogen: ~0.1-0.3% by mass
 
 ### Asteroid Spectral Classes
 
@@ -199,21 +213,42 @@ Asteroid type determines which resources are richly available versus absent. Not
 
 ### Outer System
 
-**Jupiter:**
-- Hydrogen: 89% (atmospheric only)
-- Helium: 10% (atmospheric only)
-- Helium-3: 0.01% (valuable fusion fuel)
+**Jupiter:**  (mass 1.898×10²⁷ kg)
+- Hydrogen: 71% by mass (Guillot 2005, Galileo probe)
+- Helium: 24% by mass (not tracked)
+- He-3: 30 ppm (Mahaffy et al. 1998)
+- Deuterium: 37 ppm (D/H 2.6×10⁻⁵, Lellouch 2001)
+- Methane: ~0.1% by mass (4× solar C/H)
+- Ammonia: ~0.05% by mass
+- Water: ~0.5% by mass (Juno MWR deep estimate)
+- Nitrogen: trace
 - No solid deposits
 
-**Saturn:**
-- Similar to Jupiter (H2 + He atmosphere)
-- Helium-3: Present but lower than Jupiter
+**Saturn:**  (mass 5.683×10²⁶ kg)
+- Hydrogen: 69% by mass
+- Helium: 25% by mass (outer atmosphere depleted by He rain-out)
+- He-3: 25 ppm (outer envelope depleted)
+- Deuterium: 29 ppm (D/H 2.1×10⁻⁵)
+- Methane: ~0.3% by mass (enriched ~10× solar)
+- Ammonia: ~0.02% by mass
+- Water: ~0.5% by mass (deep interior)
+- No solid deposits
 
-**Uranus & Neptune (Ice Giants):**
-- Water: 40-50% (interior mantle)
-- Methane: 10-15%
-- Ammonia: 5-10%
-- No solid extractable deposits
+**Uranus:**  (mass 8.681×10²⁵ kg, ice giant)
+- Hydrogen: 15% by mass (thin envelope)
+- Water: 50% by mass (superionic interior mantle)
+- Methane: 3% by mass (teal colour source)
+- Ammonia: 3% by mass
+- He-3: 5 ppm
+- Deuterium: 44 ppm (enriched D/H 4.4×10⁻⁵)
+
+**Neptune:**  (mass 1.024×10²⁶ kg, ice giant)
+- Hydrogen: 18% by mass
+- Water: 50% by mass (superionic interior mantle)
+- Methane: 3% by mass (deep blue colour source)
+- Ammonia: 3% by mass
+- He-3: 5 ppm
+- Deuterium: 41 ppm (D/H 4.1×10⁻⁵)
 
 ### Major Moons
 

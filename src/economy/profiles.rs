@@ -24,133 +24,278 @@ pub(super) fn apply_special_body_profile(
     let mut resources = PlanetResources::new();
 
     match body_name {
-        // GAS GIANTS - Atmospheric composition only, NO solid ice reserves
-        // Jupiter: 0.25% atmospheric water vapor (NOT mineable ice)
+        // ═══════════════════════════════════════════════════════════════════
+        // GAS GIANTS — Atmospheric composition only, NO solid ice reserves
+        // Mass fractions from NASA/Galileo probe data (not volume fractions)
+        // ═══════════════════════════════════════════════════════════════════
+
+        // Jupiter  (mass 1.898×10²⁷ kg)
+        // Bulk composition by mass (Guillot 2005, Galileo probe):
+        //   H  71%  |  He 24%  |  heavy elements ~5%
+        // He-3/He-4 number ratio: 1.66×10⁻⁴ (Mahaffy et al. 1998)
+        //   → He-3 mass fraction ≈ 24% × 1.66e-4 × (3/4) ≈ 30 ppm
+        // D/H number ratio: 2.6×10⁻⁵ (Lellouch et al. 2001)
+        //   → D mass fraction ≈ 71% × 2.6e-5 × 2 ≈ 37 ppm
+        // CH₄: ~0.2% by volume → ~0.1% by mass (4× solar C/H, Niemann 1998)
+        // NH₃: ~700 ppm by volume → ~0.05% by mass (Galileo, below NH₃ cloud deck)
+        // H₂O: 0.25% at 1 bar (Juno MWR equatorial); deep interior likely 0.5-2%
+        // N₂:  trace (most nitrogen as NH₃)
         "Jupiter" => {
-            // Jupiter is a gas giant - only atmospheric hydrogen and helium
-            // Small amounts of other gases, but NO solid ice deposits
+            // Hydrogen: 71% by mass (NOT 90% — that's volume fraction)
             resources.add_deposit(
                 ResourceType::Hydrogen,
-                create_deposit_legacy(0.90, 0.02, body_mass, BodyType::Planet),
-            ); // 90% H2, but very low accessibility
+                create_deposit_legacy(0.71, 0.02, body_mass, BodyType::GasGiant),
+            );
+            // Helium-3: 30 ppm by mass
             resources.add_deposit(
                 ResourceType::Helium3,
                 create_atmospheric_deposit(
-                    (body_mass * 0.00002) / 1e9, // Trace He3 in atmosphere
-                    0.1,  // small dissolved fraction
-                    0.0,  // no bound fraction
+                    (body_mass * 0.000030) / 1e9,
+                    0.1,  // small dissolved fraction in metallic-H layer
+                    0.0,  // no chemically bound fraction
                     0.05, // very low accessibility (deep atmosphere)
                 ),
             );
-            // Deuterium: D/H ratio ~2.5×10⁻⁵ in Jupiter's hydrogen
+            // Deuterium: 37 ppm by mass
             resources.add_deposit(
                 ResourceType::Deuterium,
                 create_atmospheric_deposit(
-                    (body_mass * 0.000025) / 1e9,
+                    (body_mass * 0.000037) / 1e9,
                     0.1,
                     0.0,
-                    0.03, // very hard to extract from deep atmosphere
+                    0.03, // extremely hard to extract
                 ),
             );
-               // Note: Water exists as atmospheric vapor (~0.25%), not as mineable solid ice
-            debug!("Applied Jupiter special profile: gas giant atmosphere (no solid resources)");
+            // Methane: ~0.1% by mass (enriched 4× solar)
+            resources.add_deposit(
+                ResourceType::Methane,
+                create_deposit_legacy(0.001, 0.03, body_mass, BodyType::GasGiant),
+            );
+            // Ammonia: ~0.05% by mass (below NH₃ cloud deck)
+            resources.add_deposit(
+                ResourceType::Ammonia,
+                create_deposit_legacy(0.0005, 0.02, body_mass, BodyType::GasGiant),
+            );
+            // Water: ~0.5% by mass (Juno MWR, deep interior estimate)
+            // Exists as vapour/supercritical fluid at depth, NOT mineable ice
+            resources.add_deposit(
+                ResourceType::Water,
+                create_atmospheric_deposit(
+                    (body_mass * 0.005) / 1e9,
+                    0.0,
+                    0.0,
+                    0.01, // essentially inaccessible (hundreds of bars pressure)
+                ),
+            );
+            // Nitrogen: trace (~0.001% by mass, mostly as NH₃)
+            resources.add_deposit(
+                ResourceType::Nitrogen,
+                create_atmospheric_deposit(
+                    (body_mass * 0.00001) / 1e9,
+                    0.0,
+                    0.0,
+                    0.02,
+                ),
+            );
+            debug!("Applied Jupiter special profile: gas giant (71% H₂ by mass, no solid resources)");
             Some(resources)
         }
 
-        // Saturn: Similar to Jupiter but slightly less massive atmosphere
+        // Saturn  (mass 5.683×10²⁶ kg)
+        // Bulk composition by mass (Guillot 2005, Cassini):
+        //   H  69%  |  He 25%  |  heavy elements ~6%
+        // Outer-atmosphere helium is depleted (~3% by volume) due to He rain-out
+        // into the metallic-H interior; bulk He remains ~25% by mass.
+        // He-3: He fraction × He3/He4 (1.5e-4, protosolar) × 3/4 ≈ 28 ppm
+        //   Outer envelope depleted → effective accessible ~25 ppm
+        // D/H: 2.1×10⁻⁵ (Cassini CIRS, Lellouch 2001) → D ≈ 29 ppm
+        // CH₄: 0.45% by volume → ~0.3% by mass (enriched ~10× solar)
+        // NH₃: ~0.02% by mass (Cassini RADAR, below NH₃ cloud)
+        // H₂O: deep interior, uncertain; ~0.5% by mass estimated
         "Saturn" => {
+            // Hydrogen: 69% by mass
             resources.add_deposit(
                 ResourceType::Hydrogen,
-                create_deposit_legacy(0.96, 0.02, body_mass, BodyType::Planet),
-            ); // 96% H2
+                create_deposit_legacy(0.69, 0.02, body_mass, BodyType::GasGiant),
+            );
+            // Helium-3: 25 ppm (outer envelope depleted by He rain-out)
             resources.add_deposit(
                 ResourceType::Helium3,
                 create_atmospheric_deposit(
-                    (body_mass * 0.00001) / 1e9, // Trace He3
+                    (body_mass * 0.000025) / 1e9,
                     0.1,
                     0.0,
                     0.05,
                 ),
             );
-            // Deuterium: D/H ratio ~2.25×10⁻⁵ in Saturn's hydrogen
+            // Deuterium: 29 ppm
             resources.add_deposit(
                 ResourceType::Deuterium,
                 create_atmospheric_deposit(
-                    (body_mass * 0.0000225) / 1e9,
+                    (body_mass * 0.000029) / 1e9,
                     0.1,
                     0.0,
                     0.03,
                 ),
             );
-            debug!("Applied Saturn special profile: gas giant atmosphere (no solid resources)");
+            // Methane: ~0.3% by mass (enriched ~10× solar, Cassini CIRS)
+            resources.add_deposit(
+                ResourceType::Methane,
+                create_deposit_legacy(0.003, 0.03, body_mass, BodyType::GasGiant),
+            );
+            // Ammonia: ~0.02% by mass
+            resources.add_deposit(
+                ResourceType::Ammonia,
+                create_deposit_legacy(0.0002, 0.02, body_mass, BodyType::GasGiant),
+            );
+            // Water: ~0.5% by mass (deep interior, supercritical)
+            resources.add_deposit(
+                ResourceType::Water,
+                create_atmospheric_deposit(
+                    (body_mass * 0.005) / 1e9,
+                    0.0,
+                    0.0,
+                    0.01,
+                ),
+            );
+            // Nitrogen: trace
+            resources.add_deposit(
+                ResourceType::Nitrogen,
+                create_atmospheric_deposit(
+                    (body_mass * 0.000008) / 1e9,
+                    0.0,
+                    0.0,
+                    0.02,
+                ),
+            );
+            debug!("Applied Saturn special profile: gas giant (69% H₂ by mass, He rain-out)");
             Some(resources)
         }
 
-        // Uranus: Ice giant with more volatiles than Jupiter/Saturn
+        // Uranus  (mass 8.681×10²⁵ kg)  — ICE GIANT
+        // Fundamentally different from gas giants: mostly ices, thin H/He envelope.
+        // Bulk composition by mass (Helled et al. 2011, Voyager 2):
+        //   H₂+He envelope: ~15%  |  Ices (H₂O, CH₄, NH₃): ~65%  |  Rock: ~20%
+        // Atmospheric composition by volume: H₂ 82.5%, He 15.2%, CH₄ 2.3%
+        // D/H: 4.4×10⁻⁵ (Feuchtgruber 1999) — enriched over protosolar by
+        //   incorporation of deuterium-rich ices
+        // He-3: low total He → ~5 ppm of planet mass
+        // Interior "ices" are actually superionic/ionic fluids at extreme P/T.
         "Uranus" => {
+            // Hydrogen: ~15% by mass (thin envelope only)
             resources.add_deposit(
                 ResourceType::Hydrogen,
-                create_deposit_legacy(0.83, 0.02, body_mass, BodyType::Planet),
+                create_deposit_legacy(0.15, 0.03, body_mass, BodyType::GasGiant),
             );
+            // Helium-3: 5 ppm (much less total He than gas giants)
             resources.add_deposit(
                 ResourceType::Helium3,
                 create_atmospheric_deposit(
-                    (body_mass * 0.000015) / 1e9,
+                    (body_mass * 0.000005) / 1e9,
                     0.1,
                     0.0,
-                    0.05,
+                    0.06,
                 ),
             );
-            // Deuterium in ice giant hydrogen
+            // Deuterium: 44 ppm (enriched D/H from accreted ices)
             resources.add_deposit(
                 ResourceType::Deuterium,
                 create_atmospheric_deposit(
-                    (body_mass * 0.000022) / 1e9,
-                    0.1,
+                    (body_mass * 0.000044) / 1e9,
+                    0.15,
                     0.0,
                     0.04,
                 ),
             );
+            // Water: ~50% by mass (interior mantle — superionic/ionic fluid)
+            // Enormous reservoir but at millions of atmospheres pressure
+            resources.add_deposit(
+                ResourceType::Water,
+                create_deposit_legacy(0.50, 0.01, body_mass, BodyType::GasGiant),
+            );
+            // Methane: ~3% by mass (atmospheric + interior; teal colour source)
             resources.add_deposit(
                 ResourceType::Methane,
-                create_deposit_legacy(0.02, 0.03, body_mass, BodyType::Planet),
-            ); // Atmospheric methane
-            debug!("Applied Uranus special profile: ice giant atmosphere (minimal solid resources)");
+                create_deposit_legacy(0.03, 0.04, body_mass, BodyType::GasGiant),
+            );
+            // Ammonia: ~3% by mass (interior ices)
+            resources.add_deposit(
+                ResourceType::Ammonia,
+                create_deposit_legacy(0.03, 0.02, body_mass, BodyType::GasGiant),
+            );
+            // Nitrogen: ~0.2% by mass (from NH₃ dissociation + primordial)
+            resources.add_deposit(
+                ResourceType::Nitrogen,
+                create_atmospheric_deposit(
+                    (body_mass * 0.002) / 1e9,
+                    0.2,
+                    0.0,
+                    0.03,
+                ),
+            );
+            debug!("Applied Uranus special profile: ice giant (15% H₂, 50% H₂O interior)");
             Some(resources)
         }
 
-        // Neptune: Similar to Uranus
+        // Neptune  (mass 1.024×10²⁶ kg)  — ICE GIANT
+        // Similar interior to Uranus but warmer (stronger internal heat source).
+        // Bulk composition by mass (Helled et al. 2011, Voyager 2):
+        //   H₂+He envelope: ~20%  |  Ices: ~60%  |  Rock: ~20%
+        // Atmospheric composition by volume: H₂ 80%, He 19%, CH₄ 1.5%
+        // D/H: 4.1×10⁻⁵ (Feuchtgruber 1999) — similar to Uranus
+        // He-3: ~5 ppm of planet mass
         "Neptune" => {
+            // Hydrogen: ~18% by mass (slightly larger envelope than Uranus)
             resources.add_deposit(
                 ResourceType::Hydrogen,
-                create_deposit_legacy(0.80, 0.02, body_mass, BodyType::Planet),
+                create_deposit_legacy(0.18, 0.03, body_mass, BodyType::GasGiant),
             );
+            // Helium-3: 5 ppm
             resources.add_deposit(
                 ResourceType::Helium3,
                 create_atmospheric_deposit(
-                    (body_mass * 0.000019) / 1e9,
+                    (body_mass * 0.000005) / 1e9,
                     0.1,
                     0.0,
-                    0.05,
+                    0.06,
                 ),
             );
-            // Deuterium in ice giant hydrogen
+            // Deuterium: 41 ppm (enriched D/H from ices)
             resources.add_deposit(
                 ResourceType::Deuterium,
                 create_atmospheric_deposit(
-                    (body_mass * 0.000025) / 1e9,
-                    0.1,
+                    (body_mass * 0.000041) / 1e9,
+                    0.15,
                     0.0,
                     0.04,
                 ),
             );
+            // Water: ~50% by mass (interior mantle — superionic fluid)
+            resources.add_deposit(
+                ResourceType::Water,
+                create_deposit_legacy(0.50, 0.01, body_mass, BodyType::GasGiant),
+            );
+            // Methane: ~3% by mass (deep blue colour from CH₄ absorption)
             resources.add_deposit(
                 ResourceType::Methane,
-                create_deposit_legacy(0.025, 0.03, body_mass, BodyType::Planet),
+                create_deposit_legacy(0.03, 0.04, body_mass, BodyType::GasGiant),
             );
-            info!(
-                "Applied Neptune special profile: ice giant atmosphere (minimal solid resources)"
+            // Ammonia: ~3% by mass
+            resources.add_deposit(
+                ResourceType::Ammonia,
+                create_deposit_legacy(0.03, 0.02, body_mass, BodyType::GasGiant),
             );
+            // Nitrogen: ~0.2% by mass
+            resources.add_deposit(
+                ResourceType::Nitrogen,
+                create_atmospheric_deposit(
+                    (body_mass * 0.002) / 1e9,
+                    0.2,
+                    0.0,
+                    0.03,
+                ),
+            );
+            debug!("Applied Neptune special profile: ice giant (18% H₂, 50% H₂O interior)");
             Some(resources)
         }
 
@@ -1754,4 +1899,157 @@ pub(super) fn apply_spectral_class_profile(
     }
 
     Some(resources)
+}
+
+/// Generate scientifically-grounded resources for procedural gas/ice giants.
+///
+/// Gas giants (>30 M⊕): H₂-dominated with trace volatiles (Jupiter/Saturn analogues)
+/// Ice giants (8-30 M⊕):  H₂O/CH₄/NH₃-dominated with thin H/He envelope (Uranus/Neptune analogues)
+///
+/// Called by `generate_resources_for_body` for any `GasGiant` body that didn't match
+/// a named special profile (i.e. procedurally generated exoplanets).
+pub(super) fn apply_procedural_gas_giant_profile(
+    body_mass: f64,
+    body_mass_earth: f32,
+    rng: &mut impl Rng,
+) -> PlanetResources {
+    let mut resources = PlanetResources::new();
+
+    // Threshold: bodies >30 M⊕ are gas giants, ≤30 M⊕ are ice giants
+    // (Chen & Kipping 2017 transition)
+    let is_gas_giant = body_mass_earth > 30.0;
+
+    if is_gas_giant {
+        // ── Gas giant (Jupiter/Saturn analogue) ──────────────────────
+        // Bulk composition: ~70% H₂, ~25% He, ~5% heavy elements (Z)
+        // Variance: H₂ 65-75%, He-3 20-35 ppm, D 25-40 ppm
+
+        let h2_frac = rng.random_range(0.65..0.75);
+        resources.add_deposit(
+            ResourceType::Hydrogen,
+            create_deposit_legacy(h2_frac, 0.02, body_mass, BodyType::GasGiant),
+        );
+
+        // He-3: protosolar He3/He4 ≈ 1.66e-4; He mass frac ~24%
+        let he3_ppm = rng.random_range(20.0e-6..35.0e-6);
+        resources.add_deposit(
+            ResourceType::Helium3,
+            create_atmospheric_deposit(
+                (body_mass * he3_ppm) / 1e9,
+                0.1, 0.0, 0.05,
+            ),
+        );
+
+        // Deuterium: D/H 2-3 × 10⁻⁵, scaled by H mass fraction
+        let d_ppm = rng.random_range(25.0e-6..40.0e-6);
+        resources.add_deposit(
+            ResourceType::Deuterium,
+            create_atmospheric_deposit(
+                (body_mass * d_ppm) / 1e9,
+                0.1, 0.0, 0.03,
+            ),
+        );
+
+        // CH₄: 0.05-0.3% by mass (enrichment varies by metallicity)
+        let ch4_frac = rng.random_range(0.0005..0.003);
+        resources.add_deposit(
+            ResourceType::Methane,
+            create_deposit_legacy(ch4_frac, 0.03, body_mass, BodyType::GasGiant),
+        );
+
+        // NH₃: 0.01-0.05% by mass
+        let nh3_frac = rng.random_range(0.0001..0.0005);
+        resources.add_deposit(
+            ResourceType::Ammonia,
+            create_deposit_legacy(nh3_frac, 0.02, body_mass, BodyType::GasGiant),
+        );
+
+        // H₂O: 0.1-1% by mass (deep interior)
+        let h2o_frac = rng.random_range(0.001..0.01);
+        resources.add_deposit(
+            ResourceType::Water,
+            create_atmospheric_deposit(
+                (body_mass * h2o_frac) / 1e9,
+                0.0, 0.0, 0.01,
+            ),
+        );
+
+        // N₂: trace
+        resources.add_deposit(
+            ResourceType::Nitrogen,
+            create_atmospheric_deposit(
+                (body_mass * rng.random_range(5.0e-6..20.0e-6)) / 1e9,
+                0.0, 0.0, 0.02,
+            ),
+        );
+
+        debug!("Applied procedural gas giant profile: {:.0}% H₂", h2_frac * 100.0);
+    } else {
+        // ── Ice giant (Uranus/Neptune analogue) ──────────────────────
+        // Bulk composition: ~15-20% H₂+He, ~55-65% ices, ~15-25% rock
+        // Large interior water/ammonia/methane reservoirs at extreme P/T
+        // Enriched D/H (4-5 × 10⁻⁵) from accreted deuterium-rich ices
+
+        let h2_frac = rng.random_range(0.12..0.22);
+        resources.add_deposit(
+            ResourceType::Hydrogen,
+            create_deposit_legacy(h2_frac, 0.03, body_mass, BodyType::GasGiant),
+        );
+
+        // He-3: much less total He → ~3-7 ppm
+        let he3_ppm = rng.random_range(3.0e-6..7.0e-6);
+        resources.add_deposit(
+            ResourceType::Helium3,
+            create_atmospheric_deposit(
+                (body_mass * he3_ppm) / 1e9,
+                0.1, 0.0, 0.06,
+            ),
+        );
+
+        // Deuterium: enriched D/H from ices → 35-55 ppm
+        let d_ppm = rng.random_range(35.0e-6..55.0e-6);
+        resources.add_deposit(
+            ResourceType::Deuterium,
+            create_atmospheric_deposit(
+                (body_mass * d_ppm) / 1e9,
+                0.15, 0.0, 0.04,
+            ),
+        );
+
+        // H₂O: 40-60% by mass (superionic/ionic interior mantle)
+        let h2o_frac = rng.random_range(0.40..0.60);
+        resources.add_deposit(
+            ResourceType::Water,
+            create_deposit_legacy(h2o_frac, 0.01, body_mass, BodyType::GasGiant),
+        );
+
+        // CH₄: 2-5% by mass
+        let ch4_frac = rng.random_range(0.02..0.05);
+        resources.add_deposit(
+            ResourceType::Methane,
+            create_deposit_legacy(ch4_frac, 0.04, body_mass, BodyType::GasGiant),
+        );
+
+        // NH₃: 2-5% by mass
+        let nh3_frac = rng.random_range(0.02..0.05);
+        resources.add_deposit(
+            ResourceType::Ammonia,
+            create_deposit_legacy(nh3_frac, 0.02, body_mass, BodyType::GasGiant),
+        );
+
+        // N₂: ~0.1-0.3% by mass
+        let n2_frac = rng.random_range(0.001..0.003);
+        resources.add_deposit(
+            ResourceType::Nitrogen,
+            create_atmospheric_deposit(
+                (body_mass * n2_frac) / 1e9,
+                0.2, 0.0, 0.03,
+            ),
+        );
+
+        debug!("Applied procedural ice giant profile: {:.0}% H₂, {:.0}% H₂O",
+            h2_frac * 100.0, h2o_frac * 100.0);
+    }
+
+    resources
 }

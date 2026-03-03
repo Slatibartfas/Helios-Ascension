@@ -193,14 +193,14 @@ fn populate_nearby_systems(
 
             // Spawn confirmed planets first
             let mut existing_orbits = Vec::new();
-            let mut all_planet_entities: Vec<(Entity, f64, f32, f32, String)> = Vec::new(); // (entity, sma_au, mass_earth, visual_radius, name)
+            let mut all_planet_entities: Vec<(Entity, f64, f32, f32, f32, String)> = Vec::new(); // (entity, sma_au, mass_earth, visual_radius, radius_km, name)
             for planet_data in &primary_star.planets {
                 let planet_entity = spawn_confirmed_planet(&mut commands, planet_data, star_entity, system_id, primary_star.luminosity_sol, vis_scale, &mut rng);
                 existing_orbits.push(planet_data.semi_major_axis_au as f64);
                 let radius_earth = planet_data.radius_earth.unwrap_or(1.0);
                 let radius_km = radius_earth * 6371.0;
                 let vis_r = capped_visual_radius(BodyType::Planet, radius_km, planet_data.semi_major_axis_au as f64, vis_scale);
-                all_planet_entities.push((planet_entity, planet_data.semi_major_axis_au as f64, planet_data.mass_earth, vis_r, planet_data.name.clone()));
+                all_planet_entities.push((planet_entity, planet_data.semi_major_axis_au as f64, planet_data.mass_earth, vis_r, radius_km, planet_data.name.clone()));
             }
 
             // Generate procedural architecture to fill gaps
@@ -232,7 +232,7 @@ fn populate_nearby_systems(
                     &mut rng,
                 );
                 let vis_r = capped_visual_radius(planet.body_type(), planet.radius_km(), planet.semi_major_axis_au, vis_scale);
-                all_planet_entities.push((planet_entity, planet.semi_major_axis_au, planet.mass_earth as f32, vis_r, planet.name.clone()));
+                all_planet_entities.push((planet_entity, planet.semi_major_axis_au, planet.mass_earth as f32, vis_r, planet.radius_km() as f32, planet.name.clone()));
             }
 
             for planet in &architecture.gas_giants {
@@ -247,18 +247,19 @@ fn populate_nearby_systems(
                     &mut rng,
                 );
                 let vis_r = capped_visual_radius(planet.body_type(), planet.radius_km(), planet.semi_major_axis_au, vis_scale);
-                all_planet_entities.push((planet_entity, planet.semi_major_axis_au, planet.mass_earth as f32, vis_r, planet.name.clone()));
+                all_planet_entities.push((planet_entity, planet.semi_major_axis_au, planet.mass_earth as f32, vis_r, planet.radius_km() as f32, planet.name.clone()));
             }
 
             // Generate moons and possibly rings for planets massive enough to retain them
-            for (planet_entity, sma_au, mass_earth, vis_r, planet_name) in &all_planet_entities {
-                let (planet_entity, sma_au, mass_earth, vis_r) = (*planet_entity, *sma_au, *mass_earth, *vis_r);
+            for (planet_entity, sma_au, mass_earth, vis_r, radius_km, planet_name) in &all_planet_entities {
+                let (planet_entity, sma_au, mass_earth, vis_r, radius_km) = (*planet_entity, *sma_au, *mass_earth, *vis_r, *radius_km);
                 spawn_procedural_moons(
                     &mut commands,
                     planet_entity,
                     planet_name,
                     sma_au,
                     mass_earth as f32,
+                    radius_km,
                     vis_r,
                     system_id,
                     primary_star.luminosity_sol,
@@ -333,7 +334,7 @@ fn populate_nearby_systems(
 
             // Compute and store bounding radius for this system
             let mut max_radius_au: f64 = 10.0;
-            for (_, sma_au, _, _, _) in &all_planet_entities {
+            for (_, sma_au, _, _, _, _) in &all_planet_entities {
                 max_radius_au = max_radius_au.max(sma_au * 1.5);
             }
             if let Some(belt) = &architecture.asteroid_belt {
@@ -1033,10 +1034,15 @@ fn spawn_procedural_ring(
     rng: &mut impl Rng,
 ) {
     // ── Geometry ──────────────────────────────────────────────────────────
-    let outer_scale: f32 = rng.random_range(1.6_f32..2.4);
-    let inner_frac:  f32 = rng.random_range(0.45_f32..0.65);
-    let outer_radius = planet_visual_radius * outer_scale;
-    let inner_radius = outer_radius * inner_frac;
+    // Inner edge: 1.2–1.6× planet radius — guarantees a visible gap from the
+    // planet surface (Saturn's main rings start at ~1.23 R, Uranus at ~1.60 R).
+    // Previously inner_radius was derived from outer_radius × fraction, which
+    // could place the inner edge inside the planet (0.45 × 1.6 = 0.72 R).
+    let inner_scale: f32 = rng.random_range(1.2_f32..1.6);
+    let inner_radius = planet_visual_radius * inner_scale;
+    // Outer edge: 1.5–2.5× the inner radius → total span ~1.8–4.0× planet radius.
+    let outer_scale: f32 = rng.random_range(1.5_f32..2.5);
+    let outer_radius = inner_radius * outer_scale;
 
     // ── Ring flavor (base colour palette) ─────────────────────────────────
     // All palettes are muted and desaturated — real ring particles are
@@ -1291,6 +1297,7 @@ fn spawn_procedural_moons(
     planet_name: &str,
     planet_sma_au: f64,
     planet_mass_earth: f32,
+    planet_radius_km: f32,
     parent_visual_radius: f32,
     system_id: usize,
     star_luminosity_sol: f32,
@@ -1480,6 +1487,17 @@ fn spawn_procedural_moons(
         let max_moon_ratio = if planet_mass_earth > 10.0 { 0.15 } else { 0.25 };
         let moon_visual_radius = (calculate_visual_radius(BodyType::Moon, radius_km) * vis_scale)
             .min(parent_visual_radius * max_moon_ratio);
+
+        // Ensure the moon radius isn't absurdly large relative to the parent
+        // A moon should not be larger than a small fraction of the parent's actual physical radius (e.g. Ganymede is small compared to Jupiter)
+        // Earth's moon is an outlier but it's generated differently
+        let physical_max_moon_ratio = if planet_mass_earth > 10.0 { 0.10 } else { 0.35 };
+        let radius_km = radius_km.min(planet_radius_km * physical_max_moon_ratio);
+        
+        // Recompute mass based on the clamped radius, so density remains somewhat consistent
+        let volume_m3_clamped = 4.0 / 3.0 * std::f64::consts::PI * (radius_km as f64 * 1000.0).powi(3);
+        let moon_mass_kg = volume_m3_clamped * density_kg_m3;
+
 
         commands.spawn((
             Moon,
