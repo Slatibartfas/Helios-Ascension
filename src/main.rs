@@ -56,7 +56,9 @@ fn main() {
         .add_plugins(BackdropPlugin)
         .add_plugins(VisualEffectsPlugin)
         .add_plugins(AtmospherePlugin)
-        .add_plugins(plugins::ocean::OceanPlugin)
+        // OceanPlugin disabled — the shader doesn't account for sun direction,
+        // causing uniform brightening on both day and night sides.  Ocean data
+        // (OceanProperties component) is still inserted for UI display.
         .add_plugins(SolarSystemPlugin)
         .add_plugins(StarmapPlugin)
         .add_plugins(EconomyPlugin)

@@ -1564,50 +1564,17 @@ fn apply_linear_to_images_system(
 ///   1. Spin by `angle` around local Y (body’s day/night cycle)
 ///   2. Tilt by `obliquity` around X (lean the pole)
 ///   3. Rotate by `north_pole_ra` around Y (orient the lean direction)
-///
-/// At extreme simulation speeds the effective rotation rate for fast bodies
-/// (moons, inner planets) can exceed what is visually meaningful — the surface
-/// becomes an unintelligible blur or, worse, exhibits stroboscopic aliasing
-/// (wagon-wheel effect). To address this:
-///   - The effective real-time angular rate is capped at `MAX_VISUAL_ROT_RATE`
-///     (≈ 1 rev/s). Beyond that, bodies rotate at the cap instead.
-///   - The raw simulation angle is *not* used directly when the cap is active
-///     because at extreme sim speeds `rotation_speed * t` can overflow f32
-///     precision. Instead, the angle uses real-world elapsed time, yielding a
-///     smooth visual rotation that remains stable at any sim speed.
 fn rotate_bodies(
     sim_time: Res<SimulationTime>,
-    real_time: Res<Time<Real>>,
-    time_scale: Res<crate::ui::TimeScale>,
     // Stars are excluded: their granulation texture spinning at high game speed
     // creates unnatural strobing / sparkle artefacts. Star orientation has no
     // gameplay significance (unlike planetary day/night cycles).
     mut query: Query<(&mut Transform, &RotationSpeed, Option<&AxialTilt>), Without<Star>>,
 ) {
-    // Maximum visual rotation rate in rad/real-second.
-    // ~TAU rad/s = 1 revolution per second — fast enough to convey spin,
-    // slow enough to avoid stroboscopic aliasing on textured surfaces.
-    const MAX_VISUAL_ROT_RATE: f32 = std::f32::consts::TAU;
-
     let t = sim_time.elapsed_seconds() as f32;
-    let scale = time_scale.scale;
-    let real_elapsed = real_time.elapsed_secs();
-
     for (mut transform, rotation_speed, axial_tilt) in query.iter_mut() {
-        // Effective rotation rate in rad/real-second
-        let effective_rate = (rotation_speed.0 * scale).abs();
-
-        let angle = if effective_rate > MAX_VISUAL_ROT_RATE {
-            // Cap: switch to real-time-based rotation at the capped rate,
-            // preserving the sign (spin direction).
-            let sign = rotation_speed.0.signum();
-            sign * MAX_VISUAL_ROT_RATE * real_elapsed
-        } else {
-            // Normal: use simulation time for accurate rotation.
-            // Wrap to [0, TAU) to avoid f32 precision loss at large elapsed times.
-            (rotation_speed.0 * t).rem_euclid(std::f32::consts::TAU)
-        };
-
+        // Preserve existing translation and scale, only replace rotation
+        let angle = rotation_speed.0 * t;
         let spin = Quat::from_rotation_y(angle);
 
         transform.rotation = if let Some(tilt) = axial_tilt {

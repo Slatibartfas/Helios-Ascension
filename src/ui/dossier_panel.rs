@@ -1285,8 +1285,8 @@ fn draw_resource_grid(ui: &mut egui::Ui, resources: &PlanetResources, survey_lev
     let tile_spacing = 3.0_f32;
 
     for (category_name, category_resources) in ResourceType::by_category() {
-        // Skip biological resources — food is produced by colonies, never mined
-        if category_name == "Biological" {
+        // Skip categories that are produced, not mined
+        if category_name == "Biological" || category_name == "Exotic" {
             continue;
         }
 
@@ -1334,7 +1334,6 @@ fn draw_resource_tile(
 
     if has_deposit {
         let d = deposit.unwrap();
-        let total = d.reserve.total_mass();
         let discovered = survey_level.discovered_amount(&d.reserve);
 
         // ── Magnitude tier (0–5) ────────────────────────────────
@@ -1343,10 +1342,9 @@ fn draw_resource_tile(
         // ── Concentration → brightness multiplier (0.3 … 1.0) ──
         let conc = d.reserve.concentration.clamp(1e-10, 1.0) as f64;
         let conc_norm = ((conc.log10() + 10.0) / 10.0).clamp(0.0, 1.0) as f32;
-        let brightness = 0.3 + 0.7 * conc_norm; // dim for trace, bright for rich
+        let brightness = 0.3 + 0.7 * conc_norm;
 
         // ── Tile fill: discrete tier bands ──────────────────────
-        // Fill fraction proportional to tier (0→8%, 1→20%, …, 5→100%)
         let fill_frac = match tier {
             0 => 0.08,
             1 => 0.25,
@@ -1402,31 +1400,18 @@ fn draw_resource_tile(
         for i in 0..5u8 {
             let cx = pip_start_x + i as f32 * pip_spacing;
             if i < tier {
-                // Filled pip — category colour
                 painter.circle_filled(
                     egui::Pos2::new(cx, pip_y),
                     pip_r,
                     cat_color,
                 );
             } else {
-                // Empty pip — dim outline
                 painter.circle_stroke(
                     egui::Pos2::new(cx, pip_y),
                     pip_r,
                     egui::Stroke::new(0.5, egui::Color32::from_rgb(40, 45, 55)),
                 );
             }
-        }
-
-        // ── Proven-reserve mini-bar (above pips) ────────────────
-        if total > 0.0 {
-            let proven = d.reserve.proven_crustal;
-            let bar_frac = (proven / total).clamp(0.0, 1.0) as f32;
-            let bar_rect = egui::Rect::from_min_size(
-                egui::Pos2::new(rect.left() + 1.0, rect.bottom() - 9.0),
-                egui::Vec2::new((rect.width() - 2.0) * bar_frac, 1.5),
-            );
-            painter.rect_filled(bar_rect, 0.0, ACCENT);
         }
     } else {
         // No deposit — dim symbol, centred
@@ -1446,7 +1431,11 @@ fn draw_resource_tile(
     if response.hovered() && has_deposit {
         let d = deposit.unwrap();
         let discovered = survey_level.discovered_amount(&d.reserve);
-        response.clone().on_hover_ui(|ui: &mut egui::Ui| {
+        response.clone().on_hover_ui(|ui| {
+            // Override the default tooltip frame to prevent double-framing
+            ui.style_mut().visuals.widgets.noninteractive.bg_fill = egui::Color32::TRANSPARENT;
+            ui.style_mut().visuals.window_stroke = egui::Stroke::NONE;
+
             ui.set_min_width(180.0);
             let tip_frame = egui::Frame::NONE
                 .fill(BG_FILL)
@@ -1461,7 +1450,29 @@ fn draw_resource_tile(
                 );
 
                 // Phase badge + magnitude tier
-                let (tier, tier_label) = magnitude_tier(discovered);
+                let tier: u8 = match discovered {
+                    x if x >= 1e12 => 5,
+                    x if x >= 1e9  => 4,
+                    x if x >= 1e6  => 3,
+                    x if x >= 1e3  => 2,
+                    x if x > 0.0   => 1,
+                    _              => 0,
+                };
+                let tier_label = match tier {
+                    5 => "Massive",
+                    4 => "Major",
+                    3 => "Moderate",
+                    2 => "Minor",
+                    1 => "Trace",
+                    _ => "None",
+                };
+                let tier_color = match tier {
+                    5 => ACCENT,
+                    4 => egui::Color32::from_rgb(120, 200, 255),
+                    3 => egui::Color32::from_rgb(180, 200, 220),
+                    2 => TEXT_DIM,
+                    _ => egui::Color32::from_rgb(80, 90, 100),
+                };
                 let tier_dots: String = "\u{25CF}".repeat(tier as usize)
                     + &"\u{25CB}".repeat(5 - tier as usize);
                 ui.horizontal(|ui| {
@@ -1473,7 +1484,7 @@ fn draw_resource_tile(
                     ui.label(
                         egui::RichText::new(format!("{tier_dots} {tier_label}"))
                             .font(mono_font(9.0))
-                            .color(cat_color),
+                            .color(tier_color),
                     );
                 });
                 ui.add_space(4.0);
