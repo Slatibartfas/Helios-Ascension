@@ -742,10 +742,10 @@ pub fn setup_solar_system(
                 base_color: material_color,
                 base_color_texture: base_color_texture.clone(),
                 normal_map_texture,
-                // No emissive — bodies should only be lit by their star's
-                // PointLight.  Any residual emissive brightens the night side
-                // unrealistically.
-                emissive: LinearRgba::BLACK,
+                // Minimal emissive floor so planets in dim/distant star systems
+                // aren't pitch black on the night side.  Intentionally very low
+                // so day/night contrast is still strong.
+                emissive: LinearRgba::WHITE * 0.006,
                 perceptual_roughness: roughness,
                 metallic,
                 reflectance: 0.3,

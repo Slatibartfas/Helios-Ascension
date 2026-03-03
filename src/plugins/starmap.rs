@@ -904,10 +904,9 @@ fn spawn_system_bodies(
 
             let material = materials.add(StandardMaterial {
                 base_color,
-                // No emissive — bodies should only be lit by their star's
-                // PointLight.  Any residual emissive brightens the night side
-                // unrealistically.
-                emissive: LinearRgba::BLACK,
+                // Minimal emissive floor so planets in dim/distant star systems
+                // aren't pitch black on the night side.
+                emissive: LinearRgba::WHITE * 0.006,
                 base_color_texture,
                 perceptual_roughness: roughness,
                 metallic,

@@ -76,12 +76,12 @@ fn main() {
 fn setup(mut commands: Commands) {
     // Add ambient light for space atmosphere
     // In Bevy 0.14, brightness is measured in lux (default: 80.0).
-    // 4 lux — enough to faintly reveal surface detail on the night side
-    // without washing out day/night contrast (full moon ≈ 0.2 lux, urban
-    // skyglow ≈ 1–10 lux for reference).
+    // 8 lux provides enough fill that night sides of distant/dim-star
+    // planets are faintly visible rather than pitch black, while still
+    // being dominated by the star's PointLight on the day side.
     commands.insert_resource(GlobalAmbientLight {
         color: Color::srgb(0.7, 0.75, 1.0), // Cool blue-white starlight tint
-        brightness: 4.0,
+        brightness: 8.0,
         ..default()
     });
 

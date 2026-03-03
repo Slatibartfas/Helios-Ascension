@@ -1303,10 +1303,6 @@ fn draw_resource_grid(ui: &mut egui::Ui, resources: &PlanetResources, survey_lev
             ui.spacing_mut().item_spacing = egui::Vec2::splat(tile_spacing);
 
             for resource_type in &category_resources {
-                // Skip individually manufactured resources that are never mined
-                if matches!(resource_type, ResourceType::Polymers) {
-                    continue;
-                }
                 let deposit = resources.get_deposit(resource_type);
                 draw_resource_tile(ui, *resource_type, deposit, survey_level, tile_size, cat_color);
             }
@@ -1436,15 +1432,18 @@ fn draw_resource_tile(
         let d = deposit.unwrap();
         let discovered = survey_level.discovered_amount(&d.reserve);
         response.clone().on_hover_ui(|ui| {
-            // Override the egui popup frame to match our design (prevents double-frame).
-            ui.style_mut().visuals.window_fill =
-                egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245);
-            ui.style_mut().visuals.window_stroke =
-                egui::Stroke::new(1.5, ACCENT_DIM);
-            ui.style_mut().visuals.window_shadow = egui::Shadow::NONE;
-            ui.set_min_width(180.0);
+            // Override the default tooltip frame to prevent double-framing
+            ui.style_mut().visuals.widgets.noninteractive.bg_fill = egui::Color32::TRANSPARENT;
+            ui.style_mut().visuals.window_stroke = egui::Stroke::NONE;
 
-            ui.label(
+            ui.set_min_width(180.0);
+            let tip_frame = egui::Frame::NONE
+                .fill(BG_FILL)
+                .stroke(egui::Stroke::new(1.0, ACCENT_DIM))
+                .inner_margin(egui::Margin::same(8));
+
+            tip_frame.show(ui, |ui| {
+                ui.label(
                     egui::RichText::new(resource.display_name())
                         .font(mono_font(13.0))
                         .color(ACCENT),
@@ -1547,6 +1546,7 @@ fn draw_resource_tile(
                             &format!("{:.0}%", d.accessibility * 100.0),
                         );
                     });
+            });
         });
     }
 }
