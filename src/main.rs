@@ -74,11 +74,11 @@ fn main() {
 fn setup(mut commands: Commands) {
     // Add ambient light for space atmosphere
     // In Bevy 0.14, brightness is measured in lux (default: 80.0).
-    // 30 lux provides enough fill light so textures are visible on all bodies,
-    // while still allowing the Sun's point-light to create clear day/night contrast.
+    // 5 lux provides just enough fill so geometry is faintly visible on the
+    // night side, while the Sun's point-light dominates day/night contrast.
     commands.insert_resource(GlobalAmbientLight {
-        color: Color::srgb(0.9, 0.92, 1.0), // Neutral to slightly blue for space
-        brightness: 30.0,
+        color: Color::srgb(0.85, 0.88, 1.0), // Neutral to slightly blue for space
+        brightness: 5.0,
         ..default()
     });
 

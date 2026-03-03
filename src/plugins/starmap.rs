@@ -791,13 +791,16 @@ fn spawn_system_bodies(
             let (cr, cg, cb) = (linear.red, linear.green, linear.blue);
 
             // Luminosity-based scaling: brighter/hotter stars get a wider, more intense corona.
+            // Tighter clamp (0.7..2.0) prevents extremely luminous stars from overwhelming
+            // the scene with unrealistic bloom.
             let luminosity = stellar_props.map(|p| p.luminosity_sol).unwrap_or(1.0);
-            let lum_factor = luminosity.powf(0.3).clamp(0.6, 4.0);
+            let lum_factor = luminosity.powf(0.3).clamp(0.7, 2.0);
 
             // Center colour: hot HDR white derived from spectral colour (triggers bloom)
-            let center_col = Vec4::new(cr * 90.0, cg * 90.0, cb * 90.0, 1.0);
+            // Using the same ×9 scale as the Sol star to keep realistic brightness.
+            let center_col = Vec4::new(cr * 9.0, cg * 9.0, cb * 9.0, 1.0);
             // Limb colour: cooler shift — red is retained, green/blue sharply attenuated
-            let limb_col   = Vec4::new(cr * 55.0, cg * 28.0, cb * 8.0, 1.0);
+            let limb_col   = Vec4::new(cr * 5.5, cg * 2.8, cb * 0.8, 1.0);
 
             commands.entity(entity).insert((
                 Mesh3d(mesh),
@@ -823,8 +826,8 @@ fn spawn_system_bodies(
             // causes visible colour banding on cool (M/K) stars.
             let halo_col = Vec4::new(cr * 4.5 * lum_factor, cg * 4.0 * lum_factor, cb * 3.0 * lum_factor, 1.0);
 
-            // Shell radii
-            let corona_shell_r = visual_radius * 2.5;
+            // Shell radii — match Sol's proportions for realistic corona sizing
+            let corona_shell_r = visual_radius * 1.75;
             let halo_shell_r   = visual_radius * 4.0;
 
             commands.entity(entity).with_children(|parent| {
@@ -901,8 +904,10 @@ fn spawn_system_bodies(
 
             let material = materials.add(StandardMaterial {
                 base_color,
+                // Subtle uniform ambient glow so the dark side isn't pitch-black.
+                // Do NOT set emissive_texture — reusing base_color_texture as an
+                // emissive map over-brightens the night side unrealistically.
                 emissive: LinearRgba::WHITE * 0.02,
-                emissive_texture: base_color_texture.clone(),
                 base_color_texture,
                 perceptual_roughness: roughness,
                 metallic,
