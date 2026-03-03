@@ -612,9 +612,11 @@ fn spawn_comet_tail_meshes(
     }
 
     // === ION TAIL (Type I): narrow, bluish-white ===
-    // Taper from a point at the comet body outward to avoid visible circular base
-    let ion_base_radius = 0.0;
-    let ion_tip_radius = 1.5;
+    // Scale radii with comet size so tails visually wrap the rear hemisphere.
+    // Keep a moderate widening toward the tip for a physically plausible plume.
+    let comet_radius = body.visual_radius.max(0.5);
+    let ion_base_radius = comet_radius * 0.55;
+    let ion_tip_radius = ion_base_radius * 1.45;
     let ion_base_color = Color::srgba(0.7, 0.85, 1.0, brightness * 0.6);
     let ion_tip_color = Color::srgba(0.5, 0.75, 1.0, 0.0);
 
@@ -646,9 +648,9 @@ fn spawn_comet_tail_meshes(
     ));
 
     // === DUST TAIL (Type II): wider, yellowish ===
-    // Taper from a point at the comet body outward to avoid visible circular base
-    let dust_base_radius = 0.0;
-    let dust_tip_radius = 2.5;
+    // Dust coma is broader and should almost engulf the comet's dark side.
+    let dust_base_radius = comet_radius * 0.95;
+    let dust_tip_radius = dust_base_radius * 1.9;
     let dust_base_color = Color::srgba(1.0, 0.85, 0.4, brightness * 0.5);
     let dust_tip_color = Color::srgba(1.0, 0.7, 0.2, 0.0);
 
@@ -704,10 +706,9 @@ pub fn update_tail_transforms(
             }
             let anti_sun_dir = -to_sun.normalize();
 
-            // Offset tail to start at comet surface
-            // Both tails start at the same point to avoid dual-cone effect
-            // Move start point slightly inside the body (0.9) to avoid gaps with irregular meshes
-            let surface_offset = (body.visual_radius * 0.9) * anti_sun_dir;
+            // Start tail slightly inside the body so the base blends with the nucleus rear side.
+            // This avoids a detached seam and gives the "engulfed backside" look up close.
+            let surface_offset = (body.visual_radius * 0.35) * anti_sun_dir;
 
             transform.translation = comet_pos + surface_offset;
 
