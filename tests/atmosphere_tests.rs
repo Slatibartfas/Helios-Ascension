@@ -154,7 +154,11 @@ fn test_colony_cost_calculation_venus() {
 
     let cost = venus_atmosphere.calculate_colony_cost(0.904, 465.0, 465.0);
     // Venus: atmosphere ~1.2 + temp ~2.9 + pressure ~1.3 ≈ 5.4  (bounded 0–10 scale)
-    assert!(cost > 4.0 && cost <= 10.0, "Venus should have high colony cost (got {})", cost);
+    assert!(
+        cost > 4.0 && cost <= 10.0,
+        "Venus should have high colony cost (got {})",
+        cost
+    );
 }
 
 #[test]
@@ -592,13 +596,13 @@ fn test_derive_scattering_overrides() {
     // Override all parameters
     earth.derive_scattering_params(
         1.0,
-        Some(10.0),              // scale height override
-        Some((1.0, 0.0, 0.0)),   // pure red rayleigh
-        Some(5.0),               // strong rayleigh
-        Some(0.1),               // mie override
-        Some(0.9),               // mie_g override
-        Some((0.5, 0.5, 0.5)),   // grey haze
-        Some(2.0),               // double intensity
+        Some(10.0),            // scale height override
+        Some((1.0, 0.0, 0.0)), // pure red rayleigh
+        Some(5.0),             // strong rayleigh
+        Some(0.1),             // mie override
+        Some(0.9),             // mie_g override
+        Some((0.5, 0.5, 0.5)), // grey haze
+        Some(2.0),             // double intensity
     );
 
     assert!((earth.scale_height_km - 10.0).abs() < 0.01);
@@ -651,14 +655,29 @@ fn test_ron_optional_scattering_fields_deserialize() {
 
     // Earth should have scattering overrides
     let earth = data.get_body("Earth").expect("Earth should exist");
-    let atmo = earth.atmosphere.as_ref().expect("Earth should have atmosphere");
-    assert!(atmo.scale_height_km.is_some(), "Earth should have scale_height_km override");
-    assert!(atmo.rayleigh_rgb.is_some(), "Earth should have rayleigh_rgb override");
+    let atmo = earth
+        .atmosphere
+        .as_ref()
+        .expect("Earth should have atmosphere");
+    assert!(
+        atmo.scale_height_km.is_some(),
+        "Earth should have scale_height_km override"
+    );
+    assert!(
+        atmo.rayleigh_rgb.is_some(),
+        "Earth should have rayleigh_rgb override"
+    );
 
     // Mars should have scattering overrides
     let mars = data.get_body("Mars").expect("Mars should exist");
-    let mars_atmo = mars.atmosphere.as_ref().expect("Mars should have atmosphere");
-    assert!(mars_atmo.atmosphere_intensity.is_some(), "Mars should have atmosphere_intensity override");
+    let mars_atmo = mars
+        .atmosphere
+        .as_ref()
+        .expect("Mars should have atmosphere");
+    assert!(
+        mars_atmo.atmosphere_intensity.is_some(),
+        "Mars should have atmosphere_intensity override"
+    );
 
     // Moon should have no atmosphere
     let moon = data.get_body("Moon").expect("Moon should exist");
@@ -666,6 +685,12 @@ fn test_ron_optional_scattering_fields_deserialize() {
 
     // Jupiter — atmosphere without overrides should still work
     let jupiter = data.get_body("Jupiter").expect("Jupiter should exist");
-    let jup_atmo = jupiter.atmosphere.as_ref().expect("Jupiter should have atmosphere");
-    assert!(jup_atmo.scale_height_km.is_none(), "Jupiter should have no scale_height override (uses defaults)");
+    let jup_atmo = jupiter
+        .atmosphere
+        .as_ref()
+        .expect("Jupiter should have atmosphere");
+    assert!(
+        jup_atmo.scale_height_km.is_none(),
+        "Jupiter should have no scale_height override (uses defaults)"
+    );
 }

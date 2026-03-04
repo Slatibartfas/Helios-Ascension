@@ -188,11 +188,11 @@ pub fn map_star_to_system_architecture(
         // Generate outer system gas/ice giants
         // Offset the name index past confirmed + rocky-procedural planets
         let gas_name_offset = existing_orbits_au.len() + rocky_planets.len();
-        
+
         // Combine existing orbits with newly generated rocky planets so gas giants avoid them
         let mut all_orbits = existing_orbits_au.to_vec();
         all_orbits.extend(rocky_planets.iter().map(|p| p.semi_major_axis_au));
-        
+
         gas_giants = generate_gas_giants(
             star_name,
             outer_count,
@@ -485,8 +485,7 @@ fn generate_gas_giants(
             name: format!(
                 "{} {}",
                 star_name,
-                char::from_u32('b' as u32 + name_offset as u32 + i as u32)
-                    .unwrap_or('?')
+                char::from_u32('b' as u32 + name_offset as u32 + i as u32).unwrap_or('?')
             ),
             semi_major_axis_au: semi_major_axis,
             // Gas giants: most near-circular but some significantly eccentric
@@ -626,7 +625,8 @@ fn generate_dwarf_planets(
         // Log-uniform distribution across the region
         let log_inner = inner.ln();
         let log_outer = outer.ln();
-        let semi_major_axis = (log_inner + rng.random_range(0.0..1.0_f64) * (log_outer - log_inner)).exp();
+        let semi_major_axis =
+            (log_inner + rng.random_range(0.0..1.0_f64) * (log_outer - log_inner)).exp();
 
         // Check spacing
         let min_sep = semi_major_axis * 0.1;
@@ -671,8 +671,7 @@ fn generate_dwarf_planets(
             name: format!(
                 "{} {}",
                 star_name,
-                char::from_u32('b' as u32 + name_offset as u32 + i as u32)
-                    .unwrap_or('?')
+                char::from_u32('b' as u32 + name_offset as u32 + i as u32).unwrap_or('?')
             ),
             semi_major_axis_au: semi_major_axis,
             eccentricity,
@@ -788,69 +787,70 @@ pub fn generate_procedural_atmosphere(
     }
 
     // Generate atmospheric composition based on temperature and distance
-    let (gases, pressure_mbar, greenhouse_factor) = if in_habitable_zone && equilibrium_temp_k > 250.0 && equilibrium_temp_k < 320.0 {
-        // Earth-like atmosphere (20-50% chance for breathable)
-        if rng.random::<f32>() < 0.35 {
-            // Breathable atmosphere (Earth-like)
-            (
-                vec![
-                    AtmosphericGas::new("N2", 78.0 + rng.random_range(-3.0..3.0)),
-                    AtmosphericGas::new("O2", 21.0 + rng.random_range(-2.0..2.0)),
-                    AtmosphericGas::new("Ar", 0.93),
-                    AtmosphericGas::new("CO2", 0.04 + rng.random_range(-0.02..0.1)),
-                ],
-                rng.random_range(800.0..1200.0), // Near Earth pressure
-                1.3, // Moderate greenhouse effect (~33K warming)
-            )
-        } else {
-            // Thin atmosphere (Mars-like) or thick (Venus-lite)
-            let is_thick = rng.random::<f32>() > 0.6;
-            if is_thick {
-                // Thick CO2 atmosphere
+    let (gases, pressure_mbar, greenhouse_factor) =
+        if in_habitable_zone && equilibrium_temp_k > 250.0 && equilibrium_temp_k < 320.0 {
+            // Earth-like atmosphere (20-50% chance for breathable)
+            if rng.random::<f32>() < 0.35 {
+                // Breathable atmosphere (Earth-like)
                 (
                     vec![
-                        AtmosphericGas::new("CO2", 95.0 + rng.random_range(-5.0..3.0)),
-                        AtmosphericGas::new("N2", 3.0 + rng.random_range(-1.0..2.0)),
-                        AtmosphericGas::new("Ar", 1.6),
+                        AtmosphericGas::new("N2", 78.0 + rng.random_range(-3.0..3.0)),
+                        AtmosphericGas::new("O2", 21.0 + rng.random_range(-2.0..2.0)),
+                        AtmosphericGas::new("Ar", 0.93),
+                        AtmosphericGas::new("CO2", 0.04 + rng.random_range(-0.02..0.1)),
                     ],
-                    rng.random_range(2000.0..10000.0), // Thick atmosphere
-                    1.8, // Strong greenhouse effect
+                    rng.random_range(800.0..1200.0), // Near Earth pressure
+                    1.3,                             // Moderate greenhouse effect (~33K warming)
                 )
             } else {
-                // Thin CO2 atmosphere (Mars-like)
-                (
-                    vec![
-                        AtmosphericGas::new("CO2", 95.0),
-                        AtmosphericGas::new("N2", 2.7),
-                        AtmosphericGas::new("Ar", 1.6),
-                    ],
-                    rng.random_range(5.0..15.0), // Very thin
-                    1.05, // Minimal greenhouse effect
-                )
+                // Thin atmosphere (Mars-like) or thick (Venus-lite)
+                let is_thick = rng.random::<f32>() > 0.6;
+                if is_thick {
+                    // Thick CO2 atmosphere
+                    (
+                        vec![
+                            AtmosphericGas::new("CO2", 95.0 + rng.random_range(-5.0..3.0)),
+                            AtmosphericGas::new("N2", 3.0 + rng.random_range(-1.0..2.0)),
+                            AtmosphericGas::new("Ar", 1.6),
+                        ],
+                        rng.random_range(2000.0..10000.0), // Thick atmosphere
+                        1.8,                               // Strong greenhouse effect
+                    )
+                } else {
+                    // Thin CO2 atmosphere (Mars-like)
+                    (
+                        vec![
+                            AtmosphericGas::new("CO2", 95.0),
+                            AtmosphericGas::new("N2", 2.7),
+                            AtmosphericGas::new("Ar", 1.6),
+                        ],
+                        rng.random_range(5.0..15.0), // Very thin
+                        1.05,                        // Minimal greenhouse effect
+                    )
+                }
             }
-        }
-    } else if equilibrium_temp_k > 320.0 {
-        // Hot planet - thick CO2/sulfur atmosphere
-        (
-            vec![
-                AtmosphericGas::new("CO2", 96.5),
-                AtmosphericGas::new("N2", 3.5),
-            ],
-            rng.random_range(5000.0..50000.0), // Very thick (Venus-like possible)
-            2.0, // Very strong greenhouse effect
-        )
-    } else {
-        // Cold planet - thin atmosphere
-        (
-            vec![
-                AtmosphericGas::new("N2", 80.0),
-                AtmosphericGas::new("CH4", 15.0 + rng.random_range(-5.0..5.0)),
-                AtmosphericGas::new("Ar", 5.0),
-            ],
-            rng.random_range(10.0..100.0), // Thin
-            1.1, // Small greenhouse effect
-        )
-    };
+        } else if equilibrium_temp_k > 320.0 {
+            // Hot planet - thick CO2/sulfur atmosphere
+            (
+                vec![
+                    AtmosphericGas::new("CO2", 96.5),
+                    AtmosphericGas::new("N2", 3.5),
+                ],
+                rng.random_range(5000.0..50000.0), // Very thick (Venus-like possible)
+                2.0,                               // Very strong greenhouse effect
+            )
+        } else {
+            // Cold planet - thin atmosphere
+            (
+                vec![
+                    AtmosphericGas::new("N2", 80.0),
+                    AtmosphericGas::new("CH4", 15.0 + rng.random_range(-5.0..5.0)),
+                    AtmosphericGas::new("Ar", 5.0),
+                ],
+                rng.random_range(10.0..100.0), // Thin
+                1.1,                           // Small greenhouse effect
+            )
+        };
 
     // Calculate surface temperature with greenhouse effect
     let surface_temp_k = equilibrium_temp_k * greenhouse_factor;
@@ -1005,7 +1005,7 @@ mod tests {
     #[test]
     fn test_atmosphere_retention_failure() {
         let mut rng = StdRng::seed_from_u64(42);
-        
+
         // Small planet that cannot retain atmosphere (< 2.0 km/s escape velocity)
         // Mars-like: 0.107 M⊕, 0.53 R⊕ → escape velocity ~5 km/s (can retain)
         // Mercury-like: 0.055 M⊕, 0.38 R⊕ → escape velocity ~4.3 km/s (can retain)
@@ -1019,7 +1019,7 @@ mod tests {
             300.0, // Equilibrium temp
             &mut rng,
         );
-        
+
         // Should return None for bodies too small to retain atmosphere
         assert!(result.is_none(), "Small body should not retain atmosphere");
     }
@@ -1027,7 +1027,7 @@ mod tests {
     #[test]
     fn test_atmosphere_outside_mass_range() {
         let mut rng = StdRng::seed_from_u64(123);
-        
+
         // Too small: below 0.3 M⊕
         let result_small = generate_procedural_atmosphere(
             0.2,   // Below 0.3 M⊕ threshold
@@ -1037,8 +1037,11 @@ mod tests {
             300.0, // Equilibrium temp
             &mut rng,
         );
-        assert!(result_small.is_none(), "Planet below 0.3 M⊕ should not get atmosphere");
-        
+        assert!(
+            result_small.is_none(),
+            "Planet below 0.3 M⊕ should not get atmosphere"
+        );
+
         // Too large: above 3.0 M⊕
         let result_large = generate_procedural_atmosphere(
             3.5,   // Above 3.0 M⊕ threshold
@@ -1048,7 +1051,10 @@ mod tests {
             300.0, // Equilibrium temp
             &mut rng,
         );
-        assert!(result_large.is_none(), "Planet above 3.0 M⊕ should not get atmosphere");
+        assert!(
+            result_large.is_none(),
+            "Planet above 3.0 M⊕ should not get atmosphere"
+        );
     }
 
     #[test]
@@ -1056,7 +1062,7 @@ mod tests {
         // Test that same seed produces same result
         let mut rng1 = StdRng::seed_from_u64(999);
         let mut rng2 = StdRng::seed_from_u64(999);
-        
+
         let result1 = generate_procedural_atmosphere(
             1.0,   // Earth-like mass
             1.0,   // Earth-like radius
@@ -1065,7 +1071,7 @@ mod tests {
             288.0, // Earth-like temp
             &mut rng1,
         );
-        
+
         let result2 = generate_procedural_atmosphere(
             1.0,   // Earth-like mass
             1.0,   // Earth-like radius
@@ -1074,10 +1080,14 @@ mod tests {
             288.0, // Earth-like temp
             &mut rng2,
         );
-        
+
         // Both should produce the same result (either both Some or both None)
-        assert_eq!(result1.is_some(), result2.is_some(), "RNG should be deterministic");
-        
+        assert_eq!(
+            result1.is_some(),
+            result2.is_some(),
+            "RNG should be deterministic"
+        );
+
         if let (Some((atm1, temp1)), Some((atm2, temp2))) = (result1, result2) {
             assert_eq!(atm1.surface_pressure_mbar, atm2.surface_pressure_mbar);
             assert_eq!(temp1, temp2);
@@ -1088,7 +1098,7 @@ mod tests {
     #[test]
     fn test_atmosphere_has_valid_composition() {
         let mut rng = StdRng::seed_from_u64(456);
-        
+
         // Earth-like planet in habitable zone
         let result = generate_procedural_atmosphere(
             1.0,   // Earth mass
@@ -1098,7 +1108,7 @@ mod tests {
             288.0, // Earth-like equilibrium temp
             &mut rng,
         );
-        
+
         // May or may not have atmosphere due to probability, but if it does:
         if let Some((atmosphere, _temp)) = result {
             // Check that gases sum to approximately 100%
@@ -1108,10 +1118,13 @@ mod tests {
                 "Gas percentages should sum to ~100%, got {}",
                 total_percentage
             );
-            
+
             // Check that at least one gas is present
-            assert!(!atmosphere.gases.is_empty(), "Atmosphere should have at least one gas");
-            
+            assert!(
+                !atmosphere.gases.is_empty(),
+                "Atmosphere should have at least one gas"
+            );
+
             // Pressure should be reasonable (not negative or absurdly high)
             assert!(atmosphere.surface_pressure_mbar > 0.0);
             assert!(atmosphere.surface_pressure_mbar < 100000.0); // Less than 100 bar

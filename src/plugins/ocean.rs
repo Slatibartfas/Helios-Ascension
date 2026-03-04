@@ -12,10 +12,7 @@ pub struct OceanPlugin;
 impl Plugin for OceanPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(MaterialPlugin::<OceanMaterial>::default())
-            .add_systems(
-                Update,
-                (spawn_ocean_shell_reactive, update_ocean_shell),
-            );
+            .add_systems(Update, (spawn_ocean_shell_reactive, update_ocean_shell));
     }
 }
 
@@ -81,9 +78,9 @@ impl OceanMaterial {
         Self {
             ocean_color: Vec4::new(r, g, b, effective_opacity),
             ocean_params: Vec4::new(
-                0.02,  // Fresnel bias
-                1.0,   // Fresnel scale
-                3.0,   // Fresnel power
+                0.02,                                        // Fresnel bias
+                1.0,                                         // Fresnel scale
+                3.0,                                         // Fresnel power
                 if ocean.is_subsurface { 0.1 } else { 0.8 }, // specular intensity
             ),
         }
@@ -121,7 +118,9 @@ fn spawn_ocean_shell_reactive(
                     Mesh3d(meshes.add(Sphere::new(ocean_radius).mesh().uv(64, 32))),
                     MeshMaterial3d(materials.add(mat)),
                     Transform::default(),
-                    OceanShell { body_entity: entity },
+                    OceanShell {
+                        body_entity: entity,
+                    },
                 ));
             });
     }

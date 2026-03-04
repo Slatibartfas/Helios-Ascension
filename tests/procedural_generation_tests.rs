@@ -378,68 +378,76 @@ fn test_dim_star_system_generation() {
 #[test]
 fn test_moon_uses_parent_star_frost_line() {
     use bevy::math::DVec3;
+    use helios_ascension::astronomy::SpaceCoordinates;
+    use helios_ascension::economy::components::{OrbitsBody, SpectralClass, StarSystem};
     use helios_ascension::economy::generation::generate_solar_system_resources;
-    use helios_ascension::economy::components::{OrbitsBody, StarSystem, SpectralClass};
     use helios_ascension::economy::types::ResourceType;
     use helios_ascension::plugins::solar_system::{CelestialBody, Moon, Planet, Star};
     use helios_ascension::plugins::solar_system_data::BodyType;
-    use helios_ascension::astronomy::SpaceCoordinates;
 
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
 
     // Spawn star with a non-default frost line (10 AU)
     let mut world = app.world_mut();
-    let star_entity = world.spawn((
-        Star,
-        CelestialBody {
-            name: "TS".into(),
-            mass: 1.989e30,
-            radius: 695700.0,
-            body_type: BodyType::Star,
-            visual_radius: 10.0,
-            asteroid_class: None,
-        },
-        SpaceCoordinates::new(DVec3::ZERO),
-        StarSystem::with_metallicity(10.0, SpectralClass::G, 0.0),
-    )).id();
+    let star_entity = world
+        .spawn((
+            Star,
+            CelestialBody {
+                name: "TS".into(),
+                mass: 1.989e30,
+                radius: 695700.0,
+                body_type: BodyType::Star,
+                visual_radius: 10.0,
+                asteroid_class: None,
+            },
+            SpaceCoordinates::new(DVec3::ZERO),
+            StarSystem::with_metallicity(10.0, SpectralClass::G, 0.0),
+        ))
+        .id();
 
     // Planet at 5.0 AU (inside star frost line)
-    let planet_entity = world.spawn((
-        Planet,
-        CelestialBody {
-            name: "TS Planet at 5.00AU".into(),
-            mass: 5.972e24,
-            radius: 6371.0,
-            body_type: BodyType::Planet,
-            visual_radius: 2.0,
-            asteroid_class: None,
-        },
-        SpaceCoordinates::new(DVec3::new(5.0, 0.0, 0.0)),
-        OrbitsBody::new(star_entity),
-    )).id();
+    let planet_entity = world
+        .spawn((
+            Planet,
+            CelestialBody {
+                name: "TS Planet at 5.00AU".into(),
+                mass: 5.972e24,
+                radius: 6371.0,
+                body_type: BodyType::Planet,
+                visual_radius: 2.0,
+                asteroid_class: None,
+            },
+            SpaceCoordinates::new(DVec3::new(5.0, 0.0, 0.0)),
+            OrbitsBody::new(star_entity),
+        ))
+        .id();
 
     // Moon at 5.1 AU (should be inside same star frost line)
-    let moon_entity = world.spawn((
-        Moon,
-        CelestialBody {
-            name: "TS Planet at 5.00AU Moon 1".into(),
-            mass: 1.0e20,
-            radius: 100.0,
-            body_type: BodyType::Moon,
-            visual_radius: 1.0,
-            asteroid_class: None,
-        },
-        SpaceCoordinates::new(DVec3::new(5.1, 0.0, 0.0)),
-        OrbitsBody::new(planet_entity),
-    )).id();
+    let moon_entity = world
+        .spawn((
+            Moon,
+            CelestialBody {
+                name: "TS Planet at 5.00AU Moon 1".into(),
+                mass: 1.0e20,
+                radius: 100.0,
+                body_type: BodyType::Moon,
+                visual_radius: 1.0,
+                asteroid_class: None,
+            },
+            SpaceCoordinates::new(DVec3::new(5.1, 0.0, 0.0)),
+            OrbitsBody::new(planet_entity),
+        ))
+        .id();
 
     app.add_systems(Update, generate_solar_system_resources);
 
     // Run one update to generate resources
     app.update();
 
-    let res = app.world().get::<helios_ascension::economy::components::PlanetResources>(moon_entity)
+    let res = app
+        .world()
+        .get::<helios_ascension::economy::components::PlanetResources>(moon_entity)
         .expect("moon should have resources after generation");
 
     let water = res.get_abundance(&ResourceType::Water);

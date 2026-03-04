@@ -137,18 +137,17 @@ pub fn divider(ui: &mut egui::Ui) {
     ui.add_space(6.0);
     let rect = ui.available_rect_before_wrap();
     let y = rect.top();
-    ui.painter()
-        .hline(rect.left()..=rect.right(), y, egui::Stroke::new(1.0, BORDER));
+    ui.painter().hline(
+        rect.left()..=rect.right(),
+        y,
+        egui::Stroke::new(1.0, BORDER),
+    );
     ui.add_space(8.0);
 }
 
 /// Draw a dim-label + value row in a grid.
 pub fn stat_row(ui: &mut egui::Ui, label: &str, value: &str) {
-    ui.label(
-        egui::RichText::new(label)
-            .font(mono(10.0))
-            .color(TEXT_DIM),
-    );
+    ui.label(egui::RichText::new(label).font(mono(10.0)).color(TEXT_DIM));
     ui.label(
         egui::RichText::new(value)
             .font(mono(12.0))

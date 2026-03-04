@@ -6,80 +6,88 @@
 //! - Selected celestial body information
 //! - Time controls for simulation speed
 
+use bevy::asset::AssetServer;
+use bevy::asset::Handle;
+use bevy::image::Image;
 use bevy::prelude::*;
 use bevy::time::Real;
 use bevy::window::PrimaryWindow;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
-use bevy::asset::AssetServer;
-use bevy::asset::Handle;
-use bevy::image::Image;
 use std::collections::HashMap;
 
 pub mod interaction;
 
 pub use interaction::Selection;
 
-pub mod time;
-pub mod icons;
-pub mod cursors;
-mod resources_bar;
-mod dashboard;
-mod research_panel;
-mod tech_tree;
 mod construction_panel;
+pub mod cursors;
+mod dashboard;
+mod dossier_panel;
 mod economy_panel;
 mod fleets_panel;
-mod transfer_planner;
-mod dossier_panel;
+pub mod icons;
+mod research_panel;
+mod resources_bar;
+mod tech_tree;
 pub(super) mod theme;
+pub mod time;
+mod transfer_planner;
 
-pub use time::{TimeScale, SimulationTime};
 pub use icons::{MenuIcons, ResearchIcons};
+pub use time::{SimulationTime, TimeScale};
 
-use time::advance_simulation_time;
-use icons::{load_menu_icons, load_research_icons, process_menu_icons, process_research_icons};
-use resources_bar::ui_resources_bar;
-use dashboard::{ui_dashboard, ui_time_controls};
-use research_panel::ui_research_panels;
 use construction_panel::ui_construction_panels;
+use dashboard::{ui_dashboard, ui_time_controls};
 use economy_panel::ui_economy_panels;
-use fleets_panel::{ui_fleets_panel, ui_fleet_action_bar, ui_transfer_planner_popup, switch_anchor_on_arrival};
+use fleets_panel::{
+    switch_anchor_on_arrival, ui_fleet_action_bar, ui_fleets_panel, ui_transfer_planner_popup,
+};
+use icons::{load_menu_icons, load_research_icons, process_menu_icons, process_research_icons};
+use research_panel::ui_research_panels;
+use resources_bar::ui_resources_bar;
+use time::advance_simulation_time;
 
 use crate::astronomy::components::{CurrentStarSystem, SystemId};
 use crate::astronomy::nearby_stars::NearbyStarsData;
-use crate::astronomy::{AtmosphereComposition, Hovered, KeplerOrbit, LagrangePointMarkers, LastLpClick, Selected, SpaceCoordinates};
+use crate::astronomy::{
+    AtmosphereComposition, Hovered, KeplerOrbit, LagrangePointMarkers, LastLpClick, Selected,
+    SpaceCoordinates,
+};
+use crate::colony::data::can_afford_resources;
 use crate::colony::{
     BuildingCategory, BuildingType, BuildingsData, Colony, ConstructionDebugSettings,
     ConstructionProject, PendingConstructionActions,
 };
-use crate::colony::data::can_afford_resources;
 use crate::economy::components::{MineralDeposit, Population, SurveyLevel};
 use crate::economy::{
-    format_currency, format_power, GlobalBudget, MiningOperation, PlanetResources,
-    PowerSourceType, ResourceRateTracker, ResourceType,
+    format_currency, format_power, GlobalBudget, MiningOperation, PlanetResources, PowerSourceType,
+    ResourceRateTracker, ResourceType,
 };
-use crate::game_state::{ActiveMenu, GameMenu};
-use crate::plugins::camera::{capture_egui_panel_bounds, CameraAnchor, GameCamera, OrbitCamera, ViewMode, STARMAP_THRESHOLD_MULTIPLIER, MIN_STARMAP_THRESHOLD};
-use crate::plugins::solar_system::{CelestialBody, LogicalParent};
-use crate::plugins::solar_system_data::BodyType;
-use crate::plugins::starmap::{HoveredStarSystem, SelectedStarSystem, StarSystemIcon, SystemMetadata};
-use crate::research::{
-    EngineeringProject, PendingResearchActions, ResearchProject, ResearchState, ResearchTeam, ResearchTeamCapacity,
-    TechnologiesData, TechCategory, TechTreeEditState, TechEditData, ContextMenuState,
-    Technology, ModifierType, TechModifierDef,
+use crate::fleets::orbital_mechanics::{
+    apply_thrust_limits, calculate_transfer_options, calculate_transfer_options_phased,
+    co_orbital_phasing_options, compute_burn_time_s, compute_transfer_window,
+    course_correction_transfer_options, direct_lp_transfer_options, find_gravity_assist_options,
+    format_delta_v, format_duration, hohmann_transfer, keplerian_velocity_vector,
+    kinematic_transfer_options, plane_change_angle, GravityAssistOption,
 };
 use crate::fleets::{
     ActiveManeuver, Fleet, FleetOrbit, MergeFleetAction, PendingFleetActions, PlannedTransfer,
-    StartTransferAction, TransferOption, TransferWindowInfo,
-    AU_IN_METERS, G_CONST, GM_SUN,
+    StartTransferAction, TransferOption, TransferWindowInfo, AU_IN_METERS, GM_SUN, G_CONST,
 };
-use crate::fleets::orbital_mechanics::{
-    apply_thrust_limits, kinematic_transfer_options, calculate_transfer_options,
-    calculate_transfer_options_phased, co_orbital_phasing_options, direct_lp_transfer_options,
-    compute_burn_time_s, compute_transfer_window,
-    find_gravity_assist_options, format_delta_v, format_duration,
-    hohmann_transfer, plane_change_angle, GravityAssistOption,
-    course_correction_transfer_options, keplerian_velocity_vector,
+use crate::game_state::{ActiveMenu, GameMenu};
+use crate::plugins::camera::{
+    capture_egui_panel_bounds, CameraAnchor, GameCamera, OrbitCamera, ViewMode,
+    MIN_STARMAP_THRESHOLD, STARMAP_THRESHOLD_MULTIPLIER,
+};
+use crate::plugins::solar_system::{CelestialBody, LogicalParent};
+use crate::plugins::solar_system_data::BodyType;
+use crate::plugins::starmap::{
+    HoveredStarSystem, SelectedStarSystem, StarSystemIcon, SystemMetadata,
+};
+use crate::research::{
+    ContextMenuState, EngineeringProject, ModifierType, PendingResearchActions, ResearchProject,
+    ResearchState, ResearchTeam, ResearchTeamCapacity, TechCategory, TechEditData, TechModifierDef,
+    TechTreeEditState, TechnologiesData, Technology,
 };
 
 /// Semi-major axis threshold (AU) below which a body's orbit is considered
@@ -249,11 +257,10 @@ enum UiSystemSet {
     Overlays,
 }
 
-
 pub struct UIPlugin;
 
 /// Setup custom fonts for better Unicode and emoji/icon support
-/// 
+///
 /// Font Stack:
 /// - **Inter** (Regular/SemiBold/Bold): Primary UI font with excellent Unicode coverage
 /// - **GeistMono** (Medium): Monospace font for numbers, code, and resource rates
@@ -262,7 +269,7 @@ pub struct UIPlugin;
 /// - **Noto Sans Symbols 2**: Astronomical, geometric, and miscellaneous symbols
 fn setup_egui_fonts(mut contexts: EguiContexts) {
     let mut fonts = egui::FontDefinitions::default();
-    
+
     // Load primary fonts
     fonts.font_data.insert(
         "Inter-Regular".to_owned(),
@@ -278,30 +285,44 @@ fn setup_egui_fonts(mut contexts: EguiContexts) {
     );
     fonts.font_data.insert(
         "GeistMono-Medium".to_owned(),
-        egui::FontData::from_static(include_bytes!("../../assets/fonts/GeistMono-Medium.ttf")).into(),
+        egui::FontData::from_static(include_bytes!("../../assets/fonts/GeistMono-Medium.ttf"))
+            .into(),
     );
     fonts.font_data.insert(
         "HackNerdFont".to_owned(),
-        egui::FontData::from_static(include_bytes!("../../assets/fonts/HackNerdFont-Regular.ttf")).into(),
+        egui::FontData::from_static(include_bytes!(
+            "../../assets/fonts/HackNerdFont-Regular.ttf"
+        ))
+        .into(),
     );
     // Hubot Sans for Headers
     fonts.font_data.insert(
         "Hubot-Sans-ExtraBoldExpanded".to_owned(),
-        egui::FontData::from_static(include_bytes!("../../assets/fonts/Hubot-Sans-ExtraBoldExpanded.ttf")).into(),
+        egui::FontData::from_static(include_bytes!(
+            "../../assets/fonts/Hubot-Sans-ExtraBoldExpanded.ttf"
+        ))
+        .into(),
     );
     fonts.font_data.insert(
         "Hubot-Sans-SemiBoldCondensed".to_owned(),
-        egui::FontData::from_static(include_bytes!("../../assets/fonts/Hubot-Sans-SemiBoldCondensed.ttf")).into(),
+        egui::FontData::from_static(include_bytes!(
+            "../../assets/fonts/Hubot-Sans-SemiBoldCondensed.ttf"
+        ))
+        .into(),
     );
     // Noto Emoji for broad monochrome emoji coverage (Unicode 15+)
     fonts.font_data.insert(
         "NotoEmoji".to_owned(),
-        egui::FontData::from_static(include_bytes!("../../assets/fonts/NotoEmoji-Regular.ttf")).into(),
+        egui::FontData::from_static(include_bytes!("../../assets/fonts/NotoEmoji-Regular.ttf"))
+            .into(),
     );
     // Noto Sans Symbols 2 for astronomical (☉), geometric, and misc symbols
     fonts.font_data.insert(
         "NotoSansSymbols2".to_owned(),
-        egui::FontData::from_static(include_bytes!("../../assets/fonts/NotoSansSymbols2-Regular.ttf")).into(),
+        egui::FontData::from_static(include_bytes!(
+            "../../assets/fonts/NotoSansSymbols2-Regular.ttf"
+        ))
+        .into(),
     );
 
     // Setup font families with Inter as primary, HackNerdFont as fallback for icons
@@ -310,10 +331,10 @@ fn setup_egui_fonts(mut contexts: EguiContexts) {
         egui::FontFamily::Proportional,
         vec![
             "Inter-Regular".to_owned(),
-            "HackNerdFont".to_owned(), // Fallback for developer icons
-            "NotoEmoji".to_owned(),    // Broad emoji coverage
+            "HackNerdFont".to_owned(),     // Fallback for developer icons
+            "NotoEmoji".to_owned(),        // Broad emoji coverage
             "NotoSansSymbols2".to_owned(), // Astronomical & geometric symbols
-            "emoji-icon-font".to_owned(), // egui built-in (last resort)
+            "emoji-icon-font".to_owned(),  // egui built-in (last resort)
         ],
     );
 
@@ -352,7 +373,7 @@ fn setup_egui_fonts(mut contexts: EguiContexts) {
             "emoji-icon-font".to_owned(),
         ],
     );
-        
+
     if let Ok(ctx) = contexts.ctx_mut() {
         ctx.set_fonts(fonts);
         theme::apply_global_visuals(ctx);
@@ -374,7 +395,15 @@ impl Plugin for UIPlugin {
             // ActiveMenu is now initialized in GameStatePlugin
             // to allow access in camera/starmap plugins
             // Load menu icons at startup
-            .add_systems(Startup, (load_menu_icons, load_research_icons, setup_egui_fonts, check_window_resolution))
+            .add_systems(
+                Startup,
+                (
+                    load_menu_icons,
+                    load_research_icons,
+                    setup_egui_fonts,
+                    check_window_resolution,
+                ),
+            )
             // UI rendering systems
             // Ordered sequence to ensure correct layout stacking:
             // 1. Top bars (Resources -> Menu)
@@ -397,13 +426,34 @@ impl Plugin for UIPlugin {
                     .chain()
                     .in_set(UiSystemSet::TopBar),
             )
-            .add_systems(EguiPrimaryContextPass, ui_dashboard.in_set(UiSystemSet::MainPanels))
-            .add_systems(EguiPrimaryContextPass, dossier_panel::ui_planet_dossier.in_set(UiSystemSet::MainPanels))
-            .add_systems(EguiPrimaryContextPass, ui_research_panels.in_set(UiSystemSet::MainPanels))
-            .add_systems(EguiPrimaryContextPass, ui_construction_panels.in_set(UiSystemSet::MainPanels))
-            .add_systems(EguiPrimaryContextPass, ui_economy_panels.in_set(UiSystemSet::MainPanels))
-            .add_systems(EguiPrimaryContextPass, ui_fleets_panel.in_set(UiSystemSet::MainPanels))
-            .add_systems(EguiPrimaryContextPass, ui_fleet_action_bar.in_set(UiSystemSet::MainPanels))
+            .add_systems(
+                EguiPrimaryContextPass,
+                ui_dashboard.in_set(UiSystemSet::MainPanels),
+            )
+            .add_systems(
+                EguiPrimaryContextPass,
+                dossier_panel::ui_planet_dossier.in_set(UiSystemSet::MainPanels),
+            )
+            .add_systems(
+                EguiPrimaryContextPass,
+                ui_research_panels.in_set(UiSystemSet::MainPanels),
+            )
+            .add_systems(
+                EguiPrimaryContextPass,
+                ui_construction_panels.in_set(UiSystemSet::MainPanels),
+            )
+            .add_systems(
+                EguiPrimaryContextPass,
+                ui_economy_panels.in_set(UiSystemSet::MainPanels),
+            )
+            .add_systems(
+                EguiPrimaryContextPass,
+                ui_fleets_panel.in_set(UiSystemSet::MainPanels),
+            )
+            .add_systems(
+                EguiPrimaryContextPass,
+                ui_fleet_action_bar.in_set(UiSystemSet::MainPanels),
+            )
             .add_systems(
                 EguiPrimaryContextPass,
                 (
@@ -437,7 +487,7 @@ impl Plugin for UIPlugin {
                 capture_egui_panel_bounds.after(UiSystemSet::Overlays),
             );
     }
-} 
+}
 
 /// System that syncs the UI selection with the astronomy Selected component
 fn sync_selection_with_astronomy(
@@ -460,10 +510,7 @@ fn sync_selection_with_astronomy(
 ///
 /// - `ViewMode::Starmap` → `GameMenu::Starmap`
 /// - `ViewMode::System` → `GameMenu::Survey` (unless already on a system-compatible menu)
-fn sync_active_menu_with_view_mode(
-    view_mode: Res<ViewMode>,
-    mut active_menu: ResMut<ActiveMenu>,
-) {
+fn sync_active_menu_with_view_mode(view_mode: Res<ViewMode>, mut active_menu: ResMut<ActiveMenu>) {
     if !view_mode.is_changed() {
         return;
     }
@@ -483,7 +530,6 @@ fn sync_active_menu_with_view_mode(
         }
     }
 }
-
 
 /// Render the top menu bar with pictograms
 fn ui_top_menu_bar(
@@ -507,9 +553,9 @@ fn ui_top_menu_bar(
             // Populate the cache lazily: only create a TextureId the first time
             // we see a given GameMenu.
             for (mkey, handle) in menu_icons.handles.iter() {
-                icon_textures
-                    .entry(*mkey)
-                    .or_insert_with(|| contexts.add_image(bevy_egui::EguiTextureHandle::Strong(handle.clone())));
+                icon_textures.entry(*mkey).or_insert_with(|| {
+                    contexts.add_image(bevy_egui::EguiTextureHandle::Strong(handle.clone()))
+                });
             }
             // Clone the cached map so the rest of the UI code can use an owned
             // HashMap just like before.
@@ -541,130 +587,90 @@ fn ui_top_menu_bar(
         *view_mode = ViewMode::System;
     }
 
-    egui::TopBottomPanel::top("top_menu_bar")
-        .show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.add_space(10.0);
-                
-                // Add each menu button
-                for (idx, &menu) in GameMenu::all().iter().enumerate() {
-                    let is_active = active_menu.current == menu;
+    egui::TopBottomPanel::top("top_menu_bar").show(ctx, |ui| {
+        ui.horizontal(|ui| {
+            ui.add_space(10.0);
 
-                    // compute tooltip with corresponding F-key
-                    let hotkey_label = format!("F{}", idx + 1);
-                    let tooltip_text = format!("{} (hotkey {})", menu.name(), hotkey_label);
+            // Add each menu button
+            for (idx, &menu) in GameMenu::all().iter().enumerate() {
+                let is_active = active_menu.current == menu;
 
-                    if let Some(map) = texture_map.as_ref() {
-                        if let Some(texture_id) = map.get(&menu) {
-                            let size = egui::vec2(80.0, 80.0);
+                // compute tooltip with corresponding F-key
+                let hotkey_label = format!("F{}", idx + 1);
+                let tooltip_text = format!("{} (hotkey {})", menu.name(), hotkey_label);
 
-                            // Tint the icon:
-                            // Cyan for active, clearly visible light-grey for inactive
-                            let tint = if is_active {
-                                theme::ACCENT
-                            } else {
-                                theme::ICON_INACTIVE
-                            };
+                if let Some(map) = texture_map.as_ref() {
+                    if let Some(texture_id) = map.get(&menu) {
+                        let size = egui::vec2(80.0, 80.0);
 
-                            let mut img = egui::Image::new((*texture_id, size));
-                            img = img.tint(tint);
-
-                            let resp = ui.add(egui::Button::image(img));
-
-                            // Highlight active menu by drawing a subtle stroke around the widget
-                            if is_active {
-                                let rect = resp.rect;
-                                ui.painter().rect_stroke(rect, 4.0, egui::Stroke::new(2.0, theme::ACCENT), egui::StrokeKind::Outside);
-                            }
-
-                            let resp = resp.on_hover_text(tooltip_text.clone());
-                            if resp.clicked() {
-                                active_menu.current = menu;
-                                match menu {
-                                    GameMenu::Starmap => {
-                                        *view_mode = ViewMode::Starmap;
-                                        if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
-                                            orbit.radius = starmap_radius;
-                                            orbit.target_center = Vec3::ZERO;
-                                            anchor.0 = None;
-                                        }
-                                    }
-                                    GameMenu::Survey => {
-                                        *view_mode = ViewMode::System;
-                                        if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
-                                            // If not anchored, try anchoring to the selected star system
-                                            if anchor.0.is_none() {
-                                                if let Some((sel_entity, _)) = star_icon_query.iter().find(|(_, sel)| sel.is_some()) {
-                                                    anchor.0 = Some(sel_entity);
-                                                }
-                                            }
-                                            // Zoom into system-view range (mirrors double-click behaviour)
-                                            orbit.radius = 150_000.0;
-                                        }
-                                    }
-                                    _ => *view_mode = ViewMode::System,
-                                }
-                            }
+                        // Tint the icon:
+                        // Cyan for active, clearly visible light-grey for inactive
+                        let tint = if is_active {
+                            theme::ACCENT
                         } else {
-                            // Fallback to text button when the texture is not available
-                            let button_text = format!("{} {}", menu.icon(), menu.name());
-                            let button = if is_active {
-                                egui::Button::new(
-                                    egui::RichText::new(button_text)
-                                        .size(14.0)
-                                        .color(theme::ACCENT)
-                                )
-                                .fill(theme::SURFACE_RAISED)
-                            } else {
-                                egui::Button::new(
-                                    egui::RichText::new(button_text)
-                                        .size(14.0)
-                                )
-                                .fill(theme::SURFACE)
-                            };
+                            theme::ICON_INACTIVE
+                        };
 
-                            if ui.add(button).on_hover_text(tooltip_text.clone()).clicked() {
-                                active_menu.current = menu;
-                                match menu {
-                                    GameMenu::Starmap => {
-                                        *view_mode = ViewMode::Starmap;
-                                        if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
-                                            orbit.radius = starmap_radius;
-                                            orbit.target_center = Vec3::ZERO;
-                                            anchor.0 = None;
-                                        }
+                        let mut img = egui::Image::new((*texture_id, size));
+                        img = img.tint(tint);
+
+                        let resp = ui.add(egui::Button::image(img));
+
+                        // Highlight active menu by drawing a subtle stroke around the widget
+                        if is_active {
+                            let rect = resp.rect;
+                            ui.painter().rect_stroke(
+                                rect,
+                                4.0,
+                                egui::Stroke::new(2.0, theme::ACCENT),
+                                egui::StrokeKind::Outside,
+                            );
+                        }
+
+                        let resp = resp.on_hover_text(tooltip_text.clone());
+                        if resp.clicked() {
+                            active_menu.current = menu;
+                            match menu {
+                                GameMenu::Starmap => {
+                                    *view_mode = ViewMode::Starmap;
+                                    if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
+                                        orbit.radius = starmap_radius;
+                                        orbit.target_center = Vec3::ZERO;
+                                        anchor.0 = None;
                                     }
-                                    GameMenu::Survey => {
-                                        *view_mode = ViewMode::System;
-                                        if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
-                                            if anchor.0.is_none() {
-                                                if let Some((sel_entity, _)) = star_icon_query.iter().find(|(_, sel)| sel.is_some()) {
-                                                    anchor.0 = Some(sel_entity);
-                                                }
-                                            }
-                                            orbit.radius = 150_000.0;
-                                        }
-                                    }
-                                    _ => *view_mode = ViewMode::System,
                                 }
+                                GameMenu::Survey => {
+                                    *view_mode = ViewMode::System;
+                                    if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
+                                        // If not anchored, try anchoring to the selected star system
+                                        if anchor.0.is_none() {
+                                            if let Some((sel_entity, _)) = star_icon_query
+                                                .iter()
+                                                .find(|(_, sel)| sel.is_some())
+                                            {
+                                                anchor.0 = Some(sel_entity);
+                                            }
+                                        }
+                                        // Zoom into system-view range (mirrors double-click behaviour)
+                                        orbit.radius = 150_000.0;
+                                    }
+                                }
+                                _ => *view_mode = ViewMode::System,
                             }
                         }
                     } else {
-                        // No icons loaded yet - use existing emoji+text button
+                        // Fallback to text button when the texture is not available
                         let button_text = format!("{} {}", menu.icon(), menu.name());
                         let button = if is_active {
                             egui::Button::new(
                                 egui::RichText::new(button_text)
                                     .size(14.0)
-                                    .color(theme::ACCENT)
+                                    .color(theme::ACCENT),
                             )
                             .fill(theme::SURFACE_RAISED)
                         } else {
-                            egui::Button::new(
-                                egui::RichText::new(button_text)
-                                    .size(14.0)
-                            )
-                            .fill(theme::SURFACE)
+                            egui::Button::new(egui::RichText::new(button_text).size(14.0))
+                                .fill(theme::SURFACE)
                         };
 
                         if ui.add(button).on_hover_text(tooltip_text.clone()).clicked() {
@@ -682,7 +688,10 @@ fn ui_top_menu_bar(
                                     *view_mode = ViewMode::System;
                                     if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
                                         if anchor.0.is_none() {
-                                            if let Some((sel_entity, _)) = star_icon_query.iter().find(|(_, sel)| sel.is_some()) {
+                                            if let Some((sel_entity, _)) = star_icon_query
+                                                .iter()
+                                                .find(|(_, sel)| sel.is_some())
+                                            {
                                                 anchor.0 = Some(sel_entity);
                                             }
                                         }
@@ -693,11 +702,54 @@ fn ui_top_menu_bar(
                             }
                         }
                     }
-                    
-                    ui.add_space(5.0);
+                } else {
+                    // No icons loaded yet - use existing emoji+text button
+                    let button_text = format!("{} {}", menu.icon(), menu.name());
+                    let button = if is_active {
+                        egui::Button::new(
+                            egui::RichText::new(button_text)
+                                .size(14.0)
+                                .color(theme::ACCENT),
+                        )
+                        .fill(theme::SURFACE_RAISED)
+                    } else {
+                        egui::Button::new(egui::RichText::new(button_text).size(14.0))
+                            .fill(theme::SURFACE)
+                    };
+
+                    if ui.add(button).on_hover_text(tooltip_text.clone()).clicked() {
+                        active_menu.current = menu;
+                        match menu {
+                            GameMenu::Starmap => {
+                                *view_mode = ViewMode::Starmap;
+                                if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
+                                    orbit.radius = starmap_radius;
+                                    orbit.target_center = Vec3::ZERO;
+                                    anchor.0 = None;
+                                }
+                            }
+                            GameMenu::Survey => {
+                                *view_mode = ViewMode::System;
+                                if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
+                                    if anchor.0.is_none() {
+                                        if let Some((sel_entity, _)) =
+                                            star_icon_query.iter().find(|(_, sel)| sel.is_some())
+                                        {
+                                            anchor.0 = Some(sel_entity);
+                                        }
+                                    }
+                                    orbit.radius = 150_000.0;
+                                }
+                            }
+                            _ => *view_mode = ViewMode::System,
+                        }
+                    }
                 }
-            });
+
+                ui.add_space(5.0);
+            }
         });
+    });
 
     // ── Keyboard hotkeys ──────────────────────────────────────────────────────
     // Skip hotkeys while a text widget has focus (e.g. fleet-name editor).
@@ -708,9 +760,17 @@ fn ui_top_menu_bar(
             Escape,
         }
         let fkeys = [
-            egui::Key::F1,  egui::Key::F2,  egui::Key::F3,  egui::Key::F4,
-            egui::Key::F5,  egui::Key::F6,  egui::Key::F7,  egui::Key::F8,
-            egui::Key::F9,  egui::Key::F10, egui::Key::F11,
+            egui::Key::F1,
+            egui::Key::F2,
+            egui::Key::F3,
+            egui::Key::F4,
+            egui::Key::F5,
+            egui::Key::F6,
+            egui::Key::F7,
+            egui::Key::F8,
+            egui::Key::F9,
+            egui::Key::F10,
+            egui::Key::F11,
         ];
         let intent: Option<HotkeyIntent> = ctx.input_mut(|i| {
             for (idx, &fkey) in fkeys.iter().enumerate() {
@@ -759,7 +819,7 @@ fn ui_top_menu_bar(
                     // If a menu panel is open, ESC dismisses it and returns to the base view.
                     let base_view = match *view_mode {
                         ViewMode::Starmap => GameMenu::Starmap,
-                        ViewMode::System  => GameMenu::Survey,
+                        ViewMode::System => GameMenu::Survey,
                     };
                     if matches!(active_menu.current, GameMenu::Survey | GameMenu::Starmap) {
                         active_menu.current = GameMenu::Main;
@@ -844,7 +904,14 @@ fn ui_starmap_labels(
 
 fn ui_hover_tooltip(
     mut contexts: EguiContexts,
-    hovered_query: Query<(&CelestialBody, Option<&crate::plugins::starmap::PlanetCategory>, Option<&crate::astronomy::OceanProperties>), With<Hovered>>,
+    hovered_query: Query<
+        (
+            &CelestialBody,
+            Option<&crate::plugins::starmap::PlanetCategory>,
+            Option<&crate::astronomy::OceanProperties>,
+        ),
+        With<Hovered>,
+    >,
     lp_markers: Res<LagrangePointMarkers>,
     active_menu: Res<ActiveMenu>,
 ) {
@@ -921,7 +988,11 @@ fn ui_hover_tooltip(
                             };
                             const AU_KM: f64 = 149_597_870.7;
                             let dist_str = if dist_from_planet_au < 0.01 {
-                                format!("{:.0} km from {}", dist_from_planet_au * AU_KM, m.planet_name)
+                                format!(
+                                    "{:.0} km from {}",
+                                    dist_from_planet_au * AU_KM,
+                                    m.planet_name
+                                )
                             } else {
                                 format!("{:.3} AU from {}", dist_from_planet_au, m.planet_name)
                             };
@@ -975,10 +1046,7 @@ fn ui_hover_tooltip(
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                 egui::Frame::NONE
                     .fill(egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245))
-                    .stroke(egui::Stroke::new(
-                        2.0,
-                        theme::ACCENT_DIM,
-                    ))
+                    .stroke(egui::Stroke::new(2.0, theme::ACCENT_DIM))
                     .inner_margin(12.0)
                     .show(ui, |ui| {
                         // Use horizontal layout to prevent narrow wrapping
@@ -1013,19 +1081,38 @@ fn ui_hover_tooltip(
                         // Ocean indicator
                         if let Some(ocean) = ocean_props {
                             let (icon, text, color) = if ocean.is_subsurface {
-                                ("\u{1F9CA}", "Subsurface Ocean", egui::Color32::from_rgb(100, 180, 220))
+                                (
+                                    "\u{1F9CA}",
+                                    "Subsurface Ocean",
+                                    egui::Color32::from_rgb(100, 180, 220),
+                                )
                             } else {
                                 match ocean.ocean_type {
-                                    crate::astronomy::OceanType::Water =>
-                                        ("\u{1F30A}", "Water Ocean", egui::Color32::from_rgb(64, 164, 223)),
-                                    crate::astronomy::OceanType::Methane =>
-                                        ("\u{1F7E0}", "Methane Ocean", egui::Color32::from_rgb(200, 150, 50)),
-                                    crate::astronomy::OceanType::Hydrocarbon =>
-                                        ("\u{26FD}", "Hydrocarbon Lakes", egui::Color32::from_rgb(180, 140, 60)),
-                                    crate::astronomy::OceanType::Ammonia =>
-                                        ("\u{1F7E3}", "Ammonia Ocean", egui::Color32::from_rgb(160, 120, 200)),
-                                    crate::astronomy::OceanType::Subsurface =>
-                                        ("\u{1F9CA}", "Subsurface Ocean", egui::Color32::from_rgb(100, 180, 220)),
+                                    crate::astronomy::OceanType::Water => (
+                                        "\u{1F30A}",
+                                        "Water Ocean",
+                                        egui::Color32::from_rgb(64, 164, 223),
+                                    ),
+                                    crate::astronomy::OceanType::Methane => (
+                                        "\u{1F7E0}",
+                                        "Methane Ocean",
+                                        egui::Color32::from_rgb(200, 150, 50),
+                                    ),
+                                    crate::astronomy::OceanType::Hydrocarbon => (
+                                        "\u{26FD}",
+                                        "Hydrocarbon Lakes",
+                                        egui::Color32::from_rgb(180, 140, 60),
+                                    ),
+                                    crate::astronomy::OceanType::Ammonia => (
+                                        "\u{1F7E3}",
+                                        "Ammonia Ocean",
+                                        egui::Color32::from_rgb(160, 120, 200),
+                                    ),
+                                    crate::astronomy::OceanType::Subsurface => (
+                                        "\u{1F9CA}",
+                                        "Subsurface Ocean",
+                                        egui::Color32::from_rgb(100, 180, 220),
+                                    ),
                                 }
                             };
                             ui.horizontal(|ui| {
@@ -1048,10 +1135,7 @@ fn ui_hover_tooltip(
 /// planning is working correctly. Currently LP markers are display-only; clicking
 /// one does not open the transfer planner.
 
-fn ui_lp_click_handler(
-    mut last_click: ResMut<LastLpClick>,
-    _fleet_ui_state: ResMut<FleetUiState>,
-) {
+fn ui_lp_click_handler(mut last_click: ResMut<LastLpClick>, _fleet_ui_state: ResMut<FleetUiState>) {
     // Consume the click so it doesn't accumulate, but don't act on it.
     let _ = last_click.info.take();
     // TODO(lagrange-transfers): When re-enabling, restore the body below:
@@ -1110,10 +1194,7 @@ fn ui_starmap_hover_tooltip(
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                 egui::Frame::NONE
                     .fill(egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245))
-                    .stroke(egui::Stroke::new(
-                        2.0,
-                        theme::AMBER,
-                    ))
+                    .stroke(egui::Stroke::new(2.0, theme::AMBER))
                     .inner_margin(12.0)
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
@@ -1177,7 +1258,7 @@ fn ui_resolution_warning(
         Ok(ctx) => ctx,
         Err(_) => return,
     };
-    
+
     // Get current window size for display
     let (current_width, current_height) = if let Ok(window) = windows.single() {
         (window.width(), window.height())

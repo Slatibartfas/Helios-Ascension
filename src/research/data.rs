@@ -57,7 +57,7 @@ pub fn load_technologies(mut commands: Commands) {
     info!("Loading technology definitions...");
 
     let path = "assets/data/technologies.ron";
-    
+
     match fs::read_to_string(path) {
         Ok(contents) => {
             match ron::from_str::<TechnologiesFile>(&contents) {
@@ -119,7 +119,7 @@ pub fn load_technologies(mut commands: Commands) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::research::types::{TechCategory, TechModifierDef, ModifierType};
+    use crate::research::types::{ModifierType, TechCategory, TechModifierDef};
 
     #[test]
     fn test_technologies_data_get_tech() {
@@ -146,7 +146,7 @@ mod tests {
     #[test]
     fn test_check_prerequisites() {
         let mut data = TechnologiesData::default();
-        
+
         let tech1 = Technology {
             id: "tech1".to_string(),
             name: "Tech 1".to_string(),

@@ -2,9 +2,11 @@ use bevy::prelude::*;
 use rand::Rng;
 
 use super::components::{MineralDeposit, OrbitsBody, PlanetResources, StarSystem};
-use super::types::{ResourceType, ResourcePhase, determine_resource_phase};
-use crate::astronomy::{SpaceCoordinates, SurfaceTemperature, AtmosphereComposition};
-use crate::plugins::solar_system::{Asteroid, CelestialBody, Comet, DwarfPlanet, Moon, Planet, Ring};
+use super::types::{determine_resource_phase, ResourcePhase, ResourceType};
+use crate::astronomy::{AtmosphereComposition, SpaceCoordinates, SurfaceTemperature};
+use crate::plugins::solar_system::{
+    Asteroid, CelestialBody, Comet, DwarfPlanet, Moon, Planet, Ring,
+};
 use crate::plugins::solar_system_data::{AsteroidClass, BodyType};
 
 /// Default frost line distance in Astronomical Units (for backwards compatibility)
@@ -138,13 +140,18 @@ fn generate_resources_for_body(
     let mut resources = PlanetResources::new();
 
     // Check for special body-specific resource profiles
-    if let Some(special_resources) = super::profiles::apply_special_body_profile(body_name, body_mass, rng) {
+    if let Some(special_resources) =
+        super::profiles::apply_special_body_profile(body_name, body_mass, rng)
+    {
         return special_resources;
     }
 
     // Gas/ice giants that aren't named Sol bodies get a procedural profile
     // based on their mass (>30 M⊕ = gas giant, 8-30 M⊕ = ice giant).
-    if matches!(body_type, crate::plugins::solar_system_data::BodyType::GasGiant) {
+    if matches!(
+        body_type,
+        crate::plugins::solar_system_data::BodyType::GasGiant
+    ) {
         const EARTH_MASS_KG: f64 = 5.972e24;
         let mass_earth = (body_mass / EARTH_MASS_KG) as f32;
         return super::profiles::apply_procedural_gas_giant_profile(body_mass, mass_earth, rng);
@@ -212,7 +219,8 @@ fn generate_resources_for_body(
         // physical presence are represented.
         let total_mt = deposit.reserve.total_mass();
         if deposit.is_viable()
-            || (total_mt > 0.0 && (resource_type.is_volatile() || resource_type.is_atmospheric_gas()))
+            || (total_mt > 0.0
+                && (resource_type.is_volatile() || resource_type.is_atmospheric_gas()))
         {
             resources.add_deposit(*resource_type, deposit);
         }
@@ -383,10 +391,7 @@ pub(super) fn create_atmospheric_deposit(
 /// Helper to create a deposit for trace atmospheric gases (very small amounts)
 /// Used for gases present at ppb/ppm levels in an atmosphere
 #[cfg(test)]
-fn create_trace_atmospheric_deposit(
-    mass_mt: f64,
-    accessibility: f32,
-) -> MineralDeposit {
+fn create_trace_atmospheric_deposit(mass_mt: f64, accessibility: f32) -> MineralDeposit {
     // Trace gases are entirely atmospheric, no significant trapped/bound amounts
     let concentration = (accessibility * 0.3).clamp(0.001, 0.1);
     let mut deposit = MineralDeposit::new(mass_mt, 0.0, 0.0, concentration, accessibility);
@@ -401,10 +406,7 @@ fn create_trace_atmospheric_deposit(
 /// # Arguments
 /// * `total_mass_mt` - Total implanted mass in Megatons
 /// * `accessibility` - How easy to harvest (0.0 to 1.0)
-pub(super) fn create_solar_wind_deposit(
-    total_mass_mt: f64,
-    accessibility: f32,
-) -> MineralDeposit {
+pub(super) fn create_solar_wind_deposit(total_mass_mt: f64, accessibility: f32) -> MineralDeposit {
     // 90% in proven (surface regolith, directly harvestable)
     // 10% in deep (slightly deeper regolith layers)
     // 0% bulk (solar wind doesn't penetrate deep)
@@ -423,7 +425,6 @@ enum AsteroidSpecialization {
     IronNickel,   // Metallic asteroid with iron/nickel
     Carbonaceous, // High volatiles even in inner system
 }
-
 
 /// Determine if an asteroid should have specialized resources
 fn determine_asteroid_specialization(
@@ -646,11 +647,11 @@ fn generate_resource_deposit(
                 ResourceType::Silicates => rng.random_range(0.25..0.45), // Major component
                 ResourceType::Aluminum => rng.random_range(0.05..0.12), // ~8% of crust
                 ResourceType::Titanium => rng.random_range(0.003..0.01), // ~0.6% of crust
-                ResourceType::Nickel => rng.random_range(0.01..0.03),   // ~1.8% of Earth (mostly core)
+                ResourceType::Nickel => rng.random_range(0.01..0.03), // ~1.8% of Earth (mostly core)
                 ResourceType::Tungsten => rng.random_range(0.0001..0.001), // ~1.3 ppm crustal
-                ResourceType::Carbon => rng.random_range(0.0001..0.001),   // Low on rocky worlds
+                ResourceType::Carbon => rng.random_range(0.0001..0.001), // Low on rocky worlds
                 ResourceType::Chromium => rng.random_range(0.0005..0.003), // ~100 ppm crustal
-                ResourceType::Magnesium => rng.random_range(0.02..0.06),   // ~2.3% of crust
+                ResourceType::Magnesium => rng.random_range(0.02..0.06), // ~2.3% of crust
                 _ => rng.random_range(0.1..0.3),
             };
             (abundance, rng.random_range(0.6..0.95)) // Good accessibility (near surface)
@@ -670,7 +671,7 @@ fn generate_resource_deposit(
         (r, false) if r.is_fusion_fuel() => {
             let abundance = match resource {
                 ResourceType::Deuterium => rng.random_range(0.00001..0.0001), // D/H ratio in water ice
-                ResourceType::Helium3 => rng.random_range(0.00001..0.0001),  // Extremely rare
+                ResourceType::Helium3 => rng.random_range(0.00001..0.0001),   // Extremely rare
                 _ => rng.random_range(0.00001..0.0001),
             };
             (abundance, rng.random_range(0.3..0.7)) // Moderate accessibility
@@ -678,7 +679,7 @@ fn generate_resource_deposit(
         (r, true) if r.is_fusion_fuel() => {
             let abundance = match resource {
                 ResourceType::Deuterium => rng.random_range(0.000001..0.00001), // Trace in inner system
-                ResourceType::Helium3 => rng.random_range(0.000001..0.00001),  // Trace He3
+                ResourceType::Helium3 => rng.random_range(0.000001..0.00001),   // Trace He3
                 _ => rng.random_range(0.000001..0.00001),
             };
             (abundance, rng.random_range(0.1..0.3)) // Poor accessibility
@@ -716,13 +717,13 @@ fn generate_resource_deposit(
         // Strategic materials - Moderate rarity
         (r, true) if r.is_strategic() => {
             let abundance = match resource {
-                ResourceType::Copper => rng.random_range(0.00003..0.0001),     // ~60 ppm in crust
+                ResourceType::Copper => rng.random_range(0.00003..0.0001), // ~60 ppm in crust
                 ResourceType::RareEarths => rng.random_range(0.00005..0.0002), // Variable, ~200 ppm combined
                 ResourceType::Lithium => rng.random_range(0.00001..0.00005),   // ~20 ppm crustal
                 ResourceType::Sulfur => rng.random_range(0.0001..0.001),       // ~350 ppm crustal
                 ResourceType::Cobalt => rng.random_range(0.00001..0.00005),    // ~25 ppm crustal
-                ResourceType::Fluorine => rng.random_range(0.0003..0.001),     // ~585 ppm crustal (in fluorite)
-                ResourceType::Polymers => return MineralDeposit::default(),     // Manufactured, never mined
+                ResourceType::Fluorine => rng.random_range(0.0003..0.001), // ~585 ppm crustal (in fluorite)
+                ResourceType::Polymers => return MineralDeposit::default(), // Manufactured, never mined
                 _ => rng.random_range(0.0001..0.001),
             };
             (abundance, rng.random_range(0.3..0.7)) // Moderate accessibility
@@ -734,7 +735,7 @@ fn generate_resource_deposit(
                 // Fluorine in fluorite/fluorapatite ices (outer system)
                 ResourceType::Fluorine => rng.random_range(0.0001..0.0005),
                 ResourceType::Polymers => return MineralDeposit::default(), // Manufactured, never mined
-                _ => rng.random_range(0.00001..0.0001), // Lower abundance
+                _ => rng.random_range(0.00001..0.0001),                     // Lower abundance
             };
             (abundance, rng.random_range(0.2..0.5)) // Harder to access
         }
@@ -759,7 +760,10 @@ fn generate_resource_deposit(
     // Bodies below ~10²¹ kg (smaller than Ceres) cannot hold gases — any O2/CO2/Ar
     // would be chemically bound in minerals, not atmospheric.
     if resource.is_atmospheric_gas()
-        && matches!(body_type, BodyType::Planet | BodyType::Moon | BodyType::DwarfPlanet)
+        && matches!(
+            body_type,
+            BodyType::Planet | BodyType::Moon | BodyType::DwarfPlanet
+        )
         && body_mass > 1.0e21
     {
         let atmospheric_mass_mt = (body_mass * final_abundance) / 1e9;
@@ -767,7 +771,12 @@ fn generate_resource_deposit(
         // Outer system: gas is mostly trapped in ice ("dissolved" fraction is higher)
         let dissolved_frac = if is_inner { 0.1 } else { 0.5 };
         let bound_frac = if is_inner { 0.0 } else { 0.2 };
-        return create_atmospheric_deposit(atmospheric_mass_mt, dissolved_frac, bound_frac, final_accessibility);
+        return create_atmospheric_deposit(
+            atmospheric_mass_mt,
+            dissolved_frac,
+            bound_frac,
+            final_accessibility,
+        );
     }
 
     // Noble gases (He-3) on solid bodies: solar wind implantation model.
@@ -878,37 +887,43 @@ pub fn generate_ring_resources(
         // Ring composition profile selected by ring name:
         // - Uranus Rings: darker/volatile-rich mix
         // - Otherwise: Saturn-style (and generic) ice-dominant mix
-        let (profile_name, water_fraction, silicate_fraction, methane_fraction, ammonia_fraction, nitrogen_fraction) =
-            if body.name == "Uranus Rings" {
-                ("Uranus", 0.55_f64, 0.25_f64, 0.10_f64, 0.06_f64, 0.04_f64)
-            } else {
-                (
-                    "Saturn/Generic",
-                    0.90_f64,
-                    0.07_f64,
-                    0.005_f64,
-                    0.01_f64,
-                    0.01_f64,
-                )
-            };
+        let (
+            profile_name,
+            water_fraction,
+            silicate_fraction,
+            methane_fraction,
+            ammonia_fraction,
+            nitrogen_fraction,
+        ) = if body.name == "Uranus Rings" {
+            ("Uranus", 0.55_f64, 0.25_f64, 0.10_f64, 0.06_f64, 0.04_f64)
+        } else {
+            (
+                "Saturn/Generic",
+                0.90_f64,
+                0.07_f64,
+                0.005_f64,
+                0.01_f64,
+                0.01_f64,
+            )
+        };
 
         // Rings are diffuse free-floating particles — there is no "buried" material.
         // All resources sit in the proven/surface tier, with zero deep deposits or bulk.
         let accessibility = 0.85_f32;
 
         let make_deposit = |frac: f64| -> MineralDeposit {
-            let mass_mt       = total_mass_mt * frac;
+            let mass_mt = total_mass_mt * frac;
             let concentration = (accessibility as f64 * 0.8).clamp(0.001, 1.0) as f32;
             // proven = full mass, deep = 0, bulk = 0
             MineralDeposit::new(mass_mt, 0.0, 0.0, concentration, accessibility)
         };
 
         let mut resources = PlanetResources::new();
-        resources.add_deposit(ResourceType::Water,    make_deposit(water_fraction));
+        resources.add_deposit(ResourceType::Water, make_deposit(water_fraction));
         resources.add_deposit(ResourceType::Silicates, make_deposit(silicate_fraction));
-        resources.add_deposit(ResourceType::Nitrogen,  make_deposit(nitrogen_fraction));
-        resources.add_deposit(ResourceType::Ammonia,   make_deposit(ammonia_fraction));
-        resources.add_deposit(ResourceType::Methane,   make_deposit(methane_fraction));
+        resources.add_deposit(ResourceType::Nitrogen, make_deposit(nitrogen_fraction));
+        resources.add_deposit(ResourceType::Ammonia, make_deposit(ammonia_fraction));
+        resources.add_deposit(ResourceType::Methane, make_deposit(methane_fraction));
 
         // Trace carbon from micrometeorite contamination (darkening agent)
         resources.add_deposit(ResourceType::Carbon, make_deposit(0.005));
@@ -935,9 +950,7 @@ pub fn stamp_resource_phases(
     )>,
 ) {
     for (mut planet, temp, maybe_atmo) in resources_query.iter_mut() {
-        let pressure_mbar = maybe_atmo
-            .map(|a| a.surface_pressure_mbar)
-            .unwrap_or(0.0);
+        let pressure_mbar = maybe_atmo.map(|a| a.surface_pressure_mbar).unwrap_or(0.0);
 
         for (resource_type, deposit) in planet.deposits.iter_mut() {
             let phase =
@@ -1503,13 +1516,24 @@ mod tests {
         let he3 = he3.unwrap();
 
         // He-3 is solar-wind implanted in surface regolith only (~1 Mt total)
-        let total = he3.reserve.proven_crustal + he3.reserve.deep_deposits + he3.reserve.planetary_bulk;
-        assert!(total < 10.0, "Moon He-3 should be ~1 Mt, not {:.1} Mt", total);
+        let total =
+            he3.reserve.proven_crustal + he3.reserve.deep_deposits + he3.reserve.planetary_bulk;
+        assert!(
+            total < 10.0,
+            "Moon He-3 should be ~1 Mt, not {:.1} Mt",
+            total
+        );
         assert!(total > 0.1, "Moon He-3 should exist");
 
         // Almost all should be in proven (surface regolith), no bulk
-        assert!(he3.reserve.proven_crustal > 0.5, "He-3 should be mostly surface");
-        assert!(he3.reserve.planetary_bulk < 0.01, "He-3 should have no deep bulk deposits");
+        assert!(
+            he3.reserve.proven_crustal > 0.5,
+            "He-3 should be mostly surface"
+        );
+        assert!(
+            he3.reserve.planetary_bulk < 0.01,
+            "He-3 should have no deep bulk deposits"
+        );
         assert!(!he3.is_atmospheric, "He-3 on Moon is not atmospheric");
     }
 
@@ -1531,11 +1555,14 @@ mod tests {
             .get_deposit(&ResourceType::Deuterium)
             .expect("Moon should have some deuterium");
 
-        let total = deut.reserve.proven_crustal
-            + deut.reserve.deep_deposits
-            + deut.reserve.planetary_bulk;
+        let total =
+            deut.reserve.proven_crustal + deut.reserve.deep_deposits + deut.reserve.planetary_bulk;
         // deuterium should not be a tiny solar‑wind trace amount
-        assert!(total > 1.0, "Moon deuterium should be more than trivial solar-wind mass (found {:.2} Mt)", total);
+        assert!(
+            total > 1.0,
+            "Moon deuterium should be more than trivial solar-wind mass (found {:.2} Mt)",
+            total
+        );
         // bulk > 0 indicates legacy/ice generation rather than pure surface implantation
         assert!(
             deut.reserve.planetary_bulk > 0.0,
@@ -1562,9 +1589,11 @@ mod tests {
         for resource_type in ResourceType::all() {
             if resource_type.is_atmospheric_gas() {
                 if let Some(deposit) = resources.get_deposit(resource_type) {
-                    assert!(!deposit.is_atmospheric,
+                    assert!(
+                        !deposit.is_atmospheric,
                         "Small moon should not have atmospheric {} - too small to hold atmosphere",
-                        resource_type.display_name());
+                        resource_type.display_name()
+                    );
                 }
             }
         }
@@ -1749,8 +1778,6 @@ mod tests {
             0.0
         };
 
-
-
         if water_fraction > 0.0 {
             assert!(
                 water_fraction >= 0.3 && water_fraction <= 0.7,
@@ -1884,10 +1911,7 @@ mod tests {
 
         // Earth should NOT have ammonia (essentially zero in nature)
         let ammonia = resources.get_deposit(&ResourceType::Ammonia);
-        assert!(
-            ammonia.is_none(),
-            "Earth should NOT have ammonia deposits"
-        );
+        assert!(ammonia.is_none(), "Earth should NOT have ammonia deposits");
 
         // Earth should have water (oceans) - mostly surface accessible
         let water = resources.get_deposit(&ResourceType::Water);
@@ -1895,14 +1919,23 @@ mod tests {
         if let Some(w) = water {
             let total_water = w.total_megatons();
             // ~1.4 billion Mt (oceans + freshwater)
-            assert!(total_water > 1e9 && total_water < 2e9,
-                "Earth water should be ~1.4 billion Mt, found: {:.2e}", total_water);
+            assert!(
+                total_water > 1e9 && total_water < 2e9,
+                "Earth water should be ~1.4 billion Mt, found: {:.2e}",
+                total_water
+            );
             // Water should be overwhelmingly in proven (oceans), not deep/bulk
             let proven_fraction = w.reserve.proven_crustal / total_water;
-            assert!(proven_fraction > 0.95,
-                "Earth water should be >95% proven (oceans), found: {:.1}%", proven_fraction * 100.0);
+            assert!(
+                proven_fraction > 0.95,
+                "Earth water should be >95% proven (oceans), found: {:.1}%",
+                proven_fraction * 100.0
+            );
             // Water is NOT atmospheric
-            assert!(!w.is_atmospheric, "Earth water should not be flagged as atmospheric");
+            assert!(
+                !w.is_atmospheric,
+                "Earth water should not be flagged as atmospheric"
+            );
         }
 
         // Earth should have nitrogen (atmospheric)
@@ -1911,41 +1944,77 @@ mod tests {
         if let Some(n) = n2 {
             let total_n2 = n.total_megatons();
             // ~4.02×10^9 Mt atmospheric + small dissolved
-            assert!(total_n2 > 3e9 && total_n2 < 5e9,
-                "Earth N2 should be ~4 billion Mt, found: {:.2e}", total_n2);
+            assert!(
+                total_n2 > 3e9 && total_n2 < 5e9,
+                "Earth N2 should be ~4 billion Mt, found: {:.2e}",
+                total_n2
+            );
             // For atmospheric gases, proven (atmospheric) should be the dominant tier
             let atm_fraction = n.reserve.proven_crustal / total_n2;
-            assert!(atm_fraction > 0.9,
-                "Earth N2 should be >90% atmospheric, found: {:.1}%", atm_fraction * 100.0);
+            assert!(
+                atm_fraction > 0.9,
+                "Earth N2 should be >90% atmospheric, found: {:.1}%",
+                atm_fraction * 100.0
+            );
             // N2 IS atmospheric
-            assert!(n.is_atmospheric, "Earth N2 should be flagged as atmospheric");
+            assert!(
+                n.is_atmospheric,
+                "Earth N2 should be flagged as atmospheric"
+            );
         }
 
         // Earth should have all major metals
-        assert!(resources.get_deposit(&ResourceType::Iron).is_some(), "Earth should have iron");
-        assert!(resources.get_deposit(&ResourceType::Aluminum).is_some(), "Earth should have aluminum");
-        assert!(resources.get_deposit(&ResourceType::Titanium).is_some(), "Earth should have titanium");
+        assert!(
+            resources.get_deposit(&ResourceType::Iron).is_some(),
+            "Earth should have iron"
+        );
+        assert!(
+            resources.get_deposit(&ResourceType::Aluminum).is_some(),
+            "Earth should have aluminum"
+        );
+        assert!(
+            resources.get_deposit(&ResourceType::Titanium).is_some(),
+            "Earth should have titanium"
+        );
 
         // Precious metals should have visible proven reserves (USGS data)
         let gold = resources.get_deposit(&ResourceType::Gold);
         assert!(gold.is_some(), "Earth should have gold");
         if let Some(g) = gold {
-            assert!(g.reserve.proven_crustal > 0.01,
-                "Earth gold proven should be >0.01 Mt (~54kt USGS), found: {:.4}", g.reserve.proven_crustal);
+            assert!(
+                g.reserve.proven_crustal > 0.01,
+                "Earth gold proven should be >0.01 Mt (~54kt USGS), found: {:.4}",
+                g.reserve.proven_crustal
+            );
             assert!(!g.is_atmospheric, "Gold should not be atmospheric");
         }
 
         let platinum = resources.get_deposit(&ResourceType::Platinum);
         assert!(platinum.is_some(), "Earth should have platinum");
         if let Some(p) = platinum {
-            assert!(p.reserve.proven_crustal > 0.01,
-                "Earth platinum proven should be >0.01 Mt (~69kt USGS), found: {:.4}", p.reserve.proven_crustal);
+            assert!(
+                p.reserve.proven_crustal > 0.01,
+                "Earth platinum proven should be >0.01 Mt (~69kt USGS), found: {:.4}",
+                p.reserve.proven_crustal
+            );
         }
 
-        assert!(resources.get_deposit(&ResourceType::Silver).is_some(), "Earth should have silver");
-        assert!(resources.get_deposit(&ResourceType::Copper).is_some(), "Earth should have copper");
-        assert!(resources.get_deposit(&ResourceType::RareEarths).is_some(), "Earth should have rare earths");
-        assert!(resources.get_deposit(&ResourceType::Uranium).is_some(), "Earth should have uranium");
+        assert!(
+            resources.get_deposit(&ResourceType::Silver).is_some(),
+            "Earth should have silver"
+        );
+        assert!(
+            resources.get_deposit(&ResourceType::Copper).is_some(),
+            "Earth should have copper"
+        );
+        assert!(
+            resources.get_deposit(&ResourceType::RareEarths).is_some(),
+            "Earth should have rare earths"
+        );
+        assert!(
+            resources.get_deposit(&ResourceType::Uranium).is_some(),
+            "Earth should have uranium"
+        );
     }
 
     #[test]
@@ -1968,8 +2037,11 @@ mod tests {
         assert!(co2.is_some(), "Venus should have CO2");
         if let Some(c) = co2 {
             let total_co2 = c.total_megatons();
-            assert!(total_co2 > 4e11,
-                "Venus CO2 should be >400 billion Mt, found: {:.2e}", total_co2);
+            assert!(
+                total_co2 > 4e11,
+                "Venus CO2 should be >400 billion Mt, found: {:.2e}",
+                total_co2
+            );
         }
 
         // Venus should NOT have water
@@ -2000,12 +2072,17 @@ mod tests {
         let water = resources.get_deposit(&ResourceType::Water);
         assert!(water.is_some(), "Mercury should have polar ice");
         if let Some(w) = water {
-            assert!(w.total_megatons() < 2000.0,
-                "Mercury water should be <2000 Mt (polar craters only)");
+            assert!(
+                w.total_megatons() < 2000.0,
+                "Mercury water should be <2000 Mt (polar craters only)"
+            );
         }
 
         // Mercury should have He-3 (solar wind implanted)
-        assert!(resources.get_deposit(&ResourceType::Helium3).is_some(), "Mercury should have He-3");
+        assert!(
+            resources.get_deposit(&ResourceType::Helium3).is_some(),
+            "Mercury should have He-3"
+        );
     }
 
     #[test]
@@ -2014,23 +2091,38 @@ mod tests {
         // (proven tier is dominant, not deep/bulk)
         let deposit = create_atmospheric_deposit(1000.0, 0.1, 0.0, 0.9);
 
-        assert_eq!(deposit.reserve.proven_crustal, 1000.0,
-            "Atmospheric tier should equal input atmospheric mass");
-        assert!((deposit.reserve.deep_deposits - 100.0).abs() < 0.01,
-            "Trapped/dissolved should be 10% of atmospheric");
-        assert_eq!(deposit.reserve.planetary_bulk, 0.0,
-            "No chemically bound tier when bound_fraction is 0");
-        assert!(deposit.is_atmospheric, "Atmospheric deposit should have is_atmospheric = true");
+        assert_eq!(
+            deposit.reserve.proven_crustal, 1000.0,
+            "Atmospheric tier should equal input atmospheric mass"
+        );
+        assert!(
+            (deposit.reserve.deep_deposits - 100.0).abs() < 0.01,
+            "Trapped/dissolved should be 10% of atmospheric"
+        );
+        assert_eq!(
+            deposit.reserve.planetary_bulk, 0.0,
+            "No chemically bound tier when bound_fraction is 0"
+        );
+        assert!(
+            deposit.is_atmospheric,
+            "Atmospheric deposit should have is_atmospheric = true"
+        );
 
         // Verify trace deposit
         let trace = create_trace_atmospheric_deposit(50.0, 0.3);
         assert_eq!(trace.reserve.proven_crustal, 50.0);
         assert_eq!(trace.reserve.deep_deposits, 0.0);
         assert_eq!(trace.reserve.planetary_bulk, 0.0);
-        assert!(trace.is_atmospheric, "Trace atmospheric deposit should have is_atmospheric = true");
+        assert!(
+            trace.is_atmospheric,
+            "Trace atmospheric deposit should have is_atmospheric = true"
+        );
 
         // Verify mineral deposit does NOT have is_atmospheric
         let mineral = create_deposit_legacy(0.1, 0.5, 1e20, BodyType::Planet);
-        assert!(!mineral.is_atmospheric, "Mineral deposit should have is_atmospheric = false");
+        assert!(
+            !mineral.is_atmospheric,
+            "Mineral deposit should have is_atmospheric = false"
+        );
     }
 }

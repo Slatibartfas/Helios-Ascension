@@ -166,4 +166,3 @@ fn advance_playlist(
         }
     }
 }
-

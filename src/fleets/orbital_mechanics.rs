@@ -260,7 +260,11 @@ pub fn compute_gravity_assist(
     // ── Maximum gravity-assist kick ───────────────────────────────────────────
     // Deflection angle limited by minimum flyby periapsis:
     //   sin(δ/2) = 1 / (1 + r_peri × v_inf² / GM_planet)
-    let term = if gm_planet > 0.0 { r_peri * v_inf * v_inf / gm_planet } else { 1e9 };
+    let term = if gm_planet > 0.0 {
+        r_peri * v_inf * v_inf / gm_planet
+    } else {
+        1e9
+    };
     let sin_half = 1.0 / (1.0 + term);
     let max_dv_assist = 2.0 * v_inf * sin_half;
 
@@ -302,7 +306,11 @@ pub fn compute_gravity_assist(
     let n1 = (gm / r1.powi(3)).sqrt();
     let n_fly = (gm / r_fly.powi(3)).sqrt();
     let dn = (n1 - n_fly).abs();
-    let window_period_s = if dn > 1e-25 { std::f64::consts::TAU / dn } else { f64::INFINITY };
+    let window_period_s = if dn > 1e-25 {
+        std::f64::consts::TAU / dn
+    } else {
+        f64::INFINITY
+    };
 
     GravityAssistOption {
         body_name: flyby_body_name,
@@ -395,11 +403,9 @@ pub fn calculate_transfer_options_phased(
     // Phase angle at the chosen departure time:
     // phase(t) = phase_now + phase_rate · t
     // ⟹ phase_error(t) = phase_error_now + phase_rate · t
-    let phase_at_dep = window.phase_error_now_rad
-        + window.phase_rate_rad_s * departure_offset_s;
+    let phase_at_dep = window.phase_error_now_rad + window.phase_rate_rad_s * departure_offset_s;
     // Normalise to [−π, π]
-    let phase_at_dep = ((phase_at_dep + std::f64::consts::PI)
-        .rem_euclid(std::f64::consts::TAU))
+    let phase_at_dep = ((phase_at_dep + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU))
         - std::f64::consts::PI;
 
     // Full correction factor (for the Efficient option)
@@ -454,7 +460,12 @@ pub fn calculate_transfer_options_phased(
 /// Returns options ordered from least to most Δv.
 /// **Prefer [`calculate_transfer_options_phased`] when actual body positions
 /// are available**, as this version ignores launch-window geometry.
-pub fn calculate_transfer_options(r1_au: f64, r2_au: f64, gm: f64, delta_i_rad: f64) -> Vec<TransferOption> {
+pub fn calculate_transfer_options(
+    r1_au: f64,
+    r2_au: f64,
+    gm: f64,
+    delta_i_rad: f64,
+) -> Vec<TransferOption> {
     // Degenerate case — same orbit
     if (r1_au - r2_au).abs() < 1e-9 {
         return vec![TransferOption {
@@ -628,11 +639,7 @@ pub fn direct_lp_transfer_options(r1_au: f64, r2_au: f64, gm: f64) -> Vec<Transf
 
 /// Three [`TransferOption`]s ordered Efficient → Moderate → Fast
 /// (3-orbit, 2-orbit, 1-orbit phasing).
-pub fn co_orbital_phasing_options(
-    r_au: f64,
-    gm: f64,
-    delta_phi_rad: f64,
-) -> Vec<TransferOption> {
+pub fn co_orbital_phasing_options(r_au: f64, gm: f64, delta_phi_rad: f64) -> Vec<TransferOption> {
     let r_m = r_au * AU_IN_METERS;
     if r_m <= 0.0 || gm <= 0.0 || delta_phi_rad <= 0.0 {
         return Vec::new();
@@ -733,20 +740,24 @@ pub fn keplerian_velocity_vector(
     // Solve Kepler's equation E − e·sin(E) = M  (Newton–Raphson, 50 iters max)
     let mut ea = mean_anomaly;
     for _ in 0..50 {
-        let f  = ea - e * ea.sin() - mean_anomaly;
+        let f = ea - e * ea.sin() - mean_anomaly;
         let df = 1.0 - e * ea.cos();
-        if df.abs() < 1e-15 { break; }
-        let d  = f / df;
+        if df.abs() < 1e-15 {
+            break;
+        }
+        let d = f / df;
         ea -= d;
-        if d.abs() < 1e-12 { break; }
+        if d.abs() < 1e-12 {
+            break;
+        }
     }
 
     // True anomaly ν from eccentric anomaly E
     let nu = 2.0 * ((((1.0 + e) / (1.0 - e).max(1e-15)).sqrt() * (ea / 2.0).tan()).atan());
 
     // Semi-latus rectum in metres
-    let a_m  = orbit.semi_major_axis * AU_IN_METERS;
-    let p_m  = a_m * (1.0 - e * e).max(0.0);
+    let a_m = orbit.semi_major_axis * AU_IN_METERS;
+    let p_m = a_m * (1.0 - e * e).max(0.0);
     if p_m < 1e3 {
         return DVec3::ZERO;
     }
@@ -757,17 +768,17 @@ pub fn keplerian_velocity_vector(
     //   vx = −√(GM/p)·sin(ν)
     //   vy =  √(GM/p)·(e + cos(ν))
     let vx_orb = -vc * nu.sin();
-    let vy_orb =  vc * (e + nu.cos());
+    let vy_orb = vc * (e + nu.cos());
 
     // Rotate by argument of periapsis ω (matches position code)
-    let cos_w  = orbit.argument_of_periapsis.cos();
-    let sin_w  = orbit.argument_of_periapsis.sin();
+    let cos_w = orbit.argument_of_periapsis.cos();
+    let sin_w = orbit.argument_of_periapsis.sin();
     let vx_peri = vx_orb * cos_w - vy_orb * sin_w;
     let vy_peri = vx_orb * sin_w + vy_orb * cos_w;
 
     // Rotate by inclination i and longitude of ascending node Ω
-    let cos_i  = orbit.inclination.cos();
-    let sin_i  = orbit.inclination.sin();
+    let cos_i = orbit.inclination.cos();
+    let sin_i = orbit.inclination.sin();
     let cos_om = orbit.longitude_ascending_node.cos();
     let sin_om = orbit.longitude_ascending_node.sin();
 
@@ -823,22 +834,19 @@ pub fn course_correction_transfer_options(
     // Base Hohmann for timing / SMA / eccentricity reference
     let (dv1_h, dv2_h, t_h, sma_h, ecc_h) = hohmann_transfer(r1_au, r_dest_au, gm);
 
-    let v_circ_r2  = (gm / r2).sqrt();
+    let v_circ_r2 = (gm / r2).sqrt();
 
     // Departure direction is always PROGRADE (CCW tangent at current position).
     // For outward Hohmann: speed up → faster than circular, still prograde.
     // For inward Hohmann: slow down → slower than circular, still prograde.
-    let r_hat    = r_vec_au.normalize_or_zero();
-    let z_north  = bevy::math::DVec3::Z;
+    let r_hat = r_vec_au.normalize_or_zero();
+    let z_north = bevy::math::DVec3::Z;
     let prograde = z_north.cross(r_hat).normalize_or_zero();
 
     let outward = r2 > r1;
 
-    let energy_levels: &[(&'static str, f64)] = &[
-        ("Efficient", 1.0),
-        ("Moderate",  1.5),
-        ("Fast",      2.5),
-    ];
+    let energy_levels: &[(&'static str, f64)] =
+        &[("Efficient", 1.0), ("Moderate", 1.5), ("Fast", 2.5)];
 
     let mut options = Vec::new();
     for &(label, energy_mult) in energy_levels {
@@ -909,8 +917,8 @@ pub fn course_correction_transfer_options(
 /// Given inclination `i` and longitude of ascending node `Ω` for each orbit:
 ///   cos(Δi) = sin(i₁)·sin(i₂)·cos(Ω₂−Ω₁) + cos(i₁)·cos(i₂)
 pub fn plane_change_angle(i1_rad: f64, lan1_rad: f64, i2_rad: f64, lan2_rad: f64) -> f64 {
-    let dot = i1_rad.sin() * i2_rad.sin() * (lan2_rad - lan1_rad).cos()
-        + i1_rad.cos() * i2_rad.cos();
+    let dot =
+        i1_rad.sin() * i2_rad.sin() * (lan2_rad - lan1_rad).cos() + i1_rad.cos() * i2_rad.cos();
     dot.clamp(-1.0, 1.0).acos()
 }
 
@@ -936,7 +944,7 @@ fn combined_burn_dv(v_a: f64, v_b: f64, delta_i_rad: f64) -> f64 {
 fn hohmann_burns_inclined(r1_au: f64, r2_au: f64, gm: f64, delta_i_rad: f64) -> (f64, f64, f64) {
     let r1 = r1_au * AU_IN_METERS;
     let r2 = r2_au * AU_IN_METERS;
-    let a  = (r1 + r2) / 2.0;
+    let a = (r1 + r2) / 2.0;
     let v1_c = (gm / r1).sqrt();
     let v2_c = (gm / r2).sqrt();
     let v1_t = (gm * (2.0 / r1 - 1.0 / a)).sqrt(); // transfer velocity at r1
@@ -963,7 +971,11 @@ fn hohmann_burns_inclined(r1_au: f64, r2_au: f64, gm: f64, delta_i_rad: f64) -> 
 /// the Hohmann Δv budget by `energy_multiplier`.
 ///
 /// Transfer time decreases approximately as `multiplier^(−2/3)`.
-fn scaled_transfer(base: &TransferOption, energy_multiplier: f64, label: &'static str) -> TransferOption {
+fn scaled_transfer(
+    base: &TransferOption,
+    energy_multiplier: f64,
+    label: &'static str,
+) -> TransferOption {
     let dv1 = base.delta_v1_ms * energy_multiplier;
     let dv2 = base.delta_v2_ms * energy_multiplier;
 
@@ -1103,16 +1115,24 @@ pub fn kinematic_transfer_options(
     const KINEMATIC_MIN_DV_FACTOR: f64 = 5.0;
 
     let make_option = |dv: f64, label: &'static str| -> TransferOption {
-        let half_dv  = dv / 2.0;
-        let t_accel  = half_dv / fleet_accel_ms2;
-        let d_accel  = 0.5 * fleet_accel_ms2 * t_accel * t_accel;
-        let d_coast  = (distance_m - 2.0 * d_accel).max(0.0);
+        let half_dv = dv / 2.0;
+        let t_accel = half_dv / fleet_accel_ms2;
+        let d_accel = 0.5 * fleet_accel_ms2 * t_accel * t_accel;
+        let d_coast = (distance_m - 2.0 * d_accel).max(0.0);
         let v_cruise = half_dv;
-        let t_coast  = if v_cruise > 0.0 { d_coast / v_cruise } else { 0.0 };
+        let t_coast = if v_cruise > 0.0 {
+            d_coast / v_cruise
+        } else {
+            0.0
+        };
         let trip_time = 2.0 * t_accel + t_coast;
-        
+
         let thrust_limited = d_coast <= 0.0;
-        let energy_multiplier = if hohmann_dv > 0.0 { dv / hohmann_dv } else { dv / fleet_max_dv_ms };
+        let energy_multiplier = if hohmann_dv > 0.0 {
+            dv / hohmann_dv
+        } else {
+            dv / fleet_max_dv_ms
+        };
 
         TransferOption {
             label,
@@ -1130,7 +1150,7 @@ pub fn kinematic_transfer_options(
     };
 
     let dv_brach = 2.0 * (fleet_accel_ms2 * distance_m).sqrt();
-    let t_brach  = 2.0 * (distance_m / fleet_accel_ms2).sqrt();
+    let t_brach = 2.0 * (distance_m / fleet_accel_ms2).sqrt();
 
     let min_coast_dv = hohmann_dv * KINEMATIC_MIN_DV_FACTOR;
 
@@ -1148,8 +1168,12 @@ pub fn kinematic_transfer_options(
         if hohmann_dv <= 0.0 || moderate.total_delta_v_ms >= min_coast_dv {
             options.push(moderate);
         }
-        
-        let energy_multiplier = if hohmann_dv > 0.0 { dv_brach / hohmann_dv } else { dv_brach / fleet_max_dv_ms };
+
+        let energy_multiplier = if hohmann_dv > 0.0 {
+            dv_brach / hohmann_dv
+        } else {
+            dv_brach / fleet_max_dv_ms
+        };
         // Full Thrust uses a lower threshold than coast options.  The flat-space
         // brachistochrone formula ignores gravity, so `dv_brach` can fall below the
         // Hohmann minimum — which is physically impossible (you can't arrive with
@@ -1183,7 +1207,14 @@ pub fn kinematic_transfer_options(
         if hohmann_dv <= 0.0 || moderate.total_delta_v_ms >= min_coast_dv {
             options.push(moderate);
         }
-        let fast = make_option(fleet_max_dv_ms, if is_interstellar { "Max Speed" } else { "Fast Coast" });
+        let fast = make_option(
+            fleet_max_dv_ms,
+            if is_interstellar {
+                "Max Speed"
+            } else {
+                "Fast Coast"
+            },
+        );
         if hohmann_dv <= 0.0 || fast.total_delta_v_ms >= min_coast_dv {
             options.push(fast);
         }
@@ -1454,10 +1485,18 @@ mod tests {
         let f_pi = phase_dv_factor(std::f64::consts::PI);
         let f_tau = phase_dv_factor(std::f64::consts::TAU);
 
-        assert!((f0 - 1.0).abs() < 1e-10, "factor at 0 should be 1.0, got {}", f0);
+        assert!(
+            (f0 - 1.0).abs() < 1e-10,
+            "factor at 0 should be 1.0, got {}",
+            f0
+        );
         assert!(f_half > f0, "factor increases from 0 to π/2");
         assert!(f_pi > f_half, "factor increases from π/2 to π");
-        assert!((f_tau - 1.0).abs() < 1e-6, "factor at 2π should be ~1.0, got {}", f_tau);
+        assert!(
+            (f_tau - 1.0).abs() < 1e-6,
+            "factor at 2π should be ~1.0, got {}",
+            f_tau
+        );
     }
 
     /// At optimal window (departure at time_to_window), phased Efficient option
@@ -1477,7 +1516,14 @@ mod tests {
 
         let window = compute_transfer_window(r1, r2, GM_SUN, 0.0, phi_req);
         // Depart at time_to_window (should be ≈ 0 since we set the exact angle)
-        let phased = calculate_transfer_options_phased(r1, r2, GM_SUN, window.time_to_window_s, &window, 0.0);
+        let phased = calculate_transfer_options_phased(
+            r1,
+            r2,
+            GM_SUN,
+            window.time_to_window_s,
+            &window,
+            0.0,
+        );
         let base = calculate_transfer_options(r1, r2, GM_SUN, 0.0);
 
         assert!(
@@ -1503,7 +1549,9 @@ mod tests {
             assert!(
                 p.total_delta_v_ms >= b.total_delta_v_ms - 1.0,
                 "Phased {} should cost ≥ base ({:.0} vs {:.0})",
-                p.label, p.total_delta_v_ms, b.total_delta_v_ms
+                p.label,
+                p.total_delta_v_ms,
+                b.total_delta_v_ms
             );
         }
     }
@@ -1513,16 +1561,21 @@ mod tests {
     /// Earth → Saturn with a Jupiter flyby should save significant ΔV.
     #[test]
     fn test_earth_saturn_via_jupiter_saves_dv() {
-        let r_earth   = 1.000_f64;
-        let r_saturn  = 9.537_f64;
+        let r_earth = 1.000_f64;
+        let r_saturn = 9.537_f64;
         let r_jupiter = 5.204_f64;
         let gm_jup = 1.267e17_f64;
         // Minimum flyby periapsis ≈ 3 × Jupiter radius (71,492 km)
         let r_peri = 3.0 * 71_492.0e3 / AU_IN_METERS;
 
         let opt = compute_gravity_assist(
-            r_earth, r_saturn, r_jupiter, GM_SUN, gm_jup,
-            "Jupiter".to_string(), r_peri,
+            r_earth,
+            r_saturn,
+            r_jupiter,
+            GM_SUN,
+            gm_jup,
+            "Jupiter".to_string(),
+            r_peri,
         );
 
         // Jupiter slingshot should save at least 1 km/s vs direct Hohmann
@@ -1541,7 +1594,9 @@ mod tests {
         assert!(
             (opt.leg1_time_s + opt.leg2_time_s - opt.total_time_s).abs() < 1.0,
             "leg1 + leg2 should equal total time: {:.0} + {:.0} ≠ {:.0}",
-            opt.leg1_time_s, opt.leg2_time_s, opt.total_time_s
+            opt.leg1_time_s,
+            opt.leg2_time_s,
+            opt.total_time_s
         );
     }
 
@@ -1551,38 +1606,78 @@ mod tests {
     fn test_find_gravity_assist_earth_to_saturn() {
         let r_peri_jup = 3.0 * 71_492.0e3 / AU_IN_METERS;
         let bodies = vec![
-            ("Venus".to_string(),   0.723, 3.248e14, 3.0 * 6_051.0e3 / AU_IN_METERS),
-            ("Earth".to_string(),   1.000, 3.986e14, 3.0 * 6_371.0e3 / AU_IN_METERS),
-            ("Mars".to_string(),    1.524, 4.282e13, 3.0 * 3_390.0e3 / AU_IN_METERS),
+            (
+                "Venus".to_string(),
+                0.723,
+                3.248e14,
+                3.0 * 6_051.0e3 / AU_IN_METERS,
+            ),
+            (
+                "Earth".to_string(),
+                1.000,
+                3.986e14,
+                3.0 * 6_371.0e3 / AU_IN_METERS,
+            ),
+            (
+                "Mars".to_string(),
+                1.524,
+                4.282e13,
+                3.0 * 3_390.0e3 / AU_IN_METERS,
+            ),
             ("Jupiter".to_string(), 5.204, 1.267e17, r_peri_jup),
         ];
 
         let opts = find_gravity_assist_options(1.0, 9.537, GM_SUN, &bodies);
 
-        assert!(opts.iter().any(|o| o.body_name == "Jupiter"),
-            "Jupiter should be a candidate for Earth→Saturn");
-        assert!(opts.iter().any(|o| o.body_name == "Mars"),
-            "Mars should be a candidate for Earth→Saturn");
-        assert!(!opts.iter().any(|o| o.body_name == "Venus"),
-            "Venus should NOT be a candidate (outside range 1.0–9.537 AU)");
-        assert!(!opts.iter().any(|o| o.body_name == "Earth"),
-            "Earth should NOT be a candidate (origin body)");
+        assert!(
+            opts.iter().any(|o| o.body_name == "Jupiter"),
+            "Jupiter should be a candidate for Earth→Saturn"
+        );
+        assert!(
+            opts.iter().any(|o| o.body_name == "Mars"),
+            "Mars should be a candidate for Earth→Saturn"
+        );
+        assert!(
+            !opts.iter().any(|o| o.body_name == "Venus"),
+            "Venus should NOT be a candidate (outside range 1.0–9.537 AU)"
+        );
+        assert!(
+            !opts.iter().any(|o| o.body_name == "Earth"),
+            "Earth should NOT be a candidate (origin body)"
+        );
     }
 
     /// Earth → Mars: no gravity-assist candidates (no planets between 1 and 1.524 AU).
     #[test]
     fn test_no_gravity_assist_earth_to_mars() {
         let bodies = vec![
-            ("Venus".to_string(),   0.723, 3.248e14, 3.0 * 6_051.0e3 / AU_IN_METERS),
-            ("Earth".to_string(),   1.000, 3.986e14, 3.0 * 6_371.0e3 / AU_IN_METERS),
-            ("Jupiter".to_string(), 5.204, 1.267e17, 3.0 * 71_492.0e3 / AU_IN_METERS),
+            (
+                "Venus".to_string(),
+                0.723,
+                3.248e14,
+                3.0 * 6_051.0e3 / AU_IN_METERS,
+            ),
+            (
+                "Earth".to_string(),
+                1.000,
+                3.986e14,
+                3.0 * 6_371.0e3 / AU_IN_METERS,
+            ),
+            (
+                "Jupiter".to_string(),
+                5.204,
+                1.267e17,
+                3.0 * 71_492.0e3 / AU_IN_METERS,
+            ),
         ];
 
         let opts = find_gravity_assist_options(1.0, 1.524, GM_SUN, &bodies);
         assert!(
             opts.is_empty(),
             "No candidates between Earth and Mars, but got: {:?}",
-            opts.iter().map(|o| o.body_name.as_str()).collect::<Vec<_>>()
+            opts.iter()
+                .map(|o| o.body_name.as_str())
+                .collect::<Vec<_>>()
         );
     }
 
@@ -1644,8 +1739,10 @@ mod tests {
         // Provide a large max_dv so only the accel check fires.
         let d = (1.524 - 1.0) * AU_IN_METERS;
         let result = kinematic_transfer_options(d, 0.0054, 1_000_000_000.0, 0.0, 0.0, 0.0, false);
-        assert!(result.is_empty(),
-            "Ion drive should not produce kinematic options");
+        assert!(
+            result.is_empty(),
+            "Ion drive should not produce kinematic options"
+        );
     }
 
     /// kinematic_transfer_options produces a valid option for high-thrust, high-Isp ships.
@@ -1653,12 +1750,14 @@ mod tests {
     #[test]
     fn test_brachistochrone_high_thrust() {
         let accel = 10.0_f64; // m/s²
-        // Antimatter Frigate: Isp=1 000 000 s, fuel_frac=0.45, wet=3636t
-        // ΔV_max = 1_000_000 × 9.81 × ln(1.818) ≈ 5 866 km/s  (plenty)
+                              // Antimatter Frigate: Isp=1 000 000 s, fuel_frac=0.45, wet=3636t
+                              // ΔV_max = 1_000_000 × 9.81 × ln(1.818) ≈ 5 866 km/s  (plenty)
         let max_dv = 1_000_000.0_f64 * 9.806_65 * (3636.0_f64 / 2000.0_f64).ln();
         let d = (1.524 - 1.0) * AU_IN_METERS;
         let opts = kinematic_transfer_options(d, accel, max_dv, 0.0, 0.0, 0.0, false);
-        let opt = opts.into_iter().find(|o| o.label == "Full Thrust")
+        let opt = opts
+            .into_iter()
+            .find(|o| o.label == "Full Thrust")
             .expect("High-thrust, high-Isp fleet should get Full Thrust option");
         assert_eq!(opt.label, "Full Thrust");
         // ΔV should be far above Hohmann
@@ -1667,13 +1766,15 @@ mod tests {
         assert!(
             opt.total_delta_v_ms > hohmann_dv * 5.0,
             "Full Thrust ΔV ({:.0} m/s) should >> Hohmann ({:.0} m/s)",
-            opt.total_delta_v_ms, hohmann_dv
+            opt.total_delta_v_ms,
+            hohmann_dv
         );
         // Transfer time should be less than Hohmann
         assert!(
             opt.transfer_time_s < t_h,
             "Full Thrust time ({:.1} d) should be < Hohmann ({:.1} d)",
-            opt.transfer_time_s / 86_400.0, t_h / 86_400.0
+            opt.transfer_time_s / 86_400.0,
+            t_h / 86_400.0
         );
         // burn_time_s should equal transfer_time_s (always thrusting)
         assert!(
@@ -1732,8 +1833,12 @@ mod tests {
             opts.is_empty(),
             "Chemical fleet (ΔV {:.0} m/s ≈ {:.1}× Hohmann {:.0} m/s) should have \
              NO kinematic options — cruise speed far below escape velocity, but got: {:?}",
-            max_dv, max_dv / hohmann_dv, hohmann_dv,
-            opts.iter().map(|o| (o.label, o.total_delta_v_ms)).collect::<Vec<_>>()
+            max_dv,
+            max_dv / hohmann_dv,
+            hohmann_dv,
+            opts.iter()
+                .map(|o| (o.label, o.total_delta_v_ms))
+                .collect::<Vec<_>>()
         );
     }
 
@@ -1756,7 +1861,8 @@ mod tests {
         assert!(
             !opts.is_empty(),
             "Fusion fleet (ΔV {:.0} m/s >> Hohmann {:.0} m/s) should have kinematic options",
-            max_dv, hohmann_dv
+            max_dv,
+            hohmann_dv
         );
         // Full Thrust (brachistochrone) should be present — dv_brach >> hohmann_dv
         // at interplanetary distances with 0.01 g.
@@ -1770,7 +1876,8 @@ mod tests {
             assert!(
                 ft.total_delta_v_ms >= hohmann_dv,
                 "Full Thrust ΔV ({:.0}) must be >= Hohmann ({:.0})",
-                ft.total_delta_v_ms, hohmann_dv
+                ft.total_delta_v_ms,
+                hohmann_dv
             );
         }
         // Coast options (if any) should have ΔV >= 5× Hohmann.
@@ -1779,7 +1886,9 @@ mod tests {
                 assert!(
                     opt.total_delta_v_ms >= hohmann_dv * 5.0,
                     "Coast '{}' ΔV ({:.0} m/s) should be >= 5× Hohmann ({:.0} m/s)",
-                    opt.label, opt.total_delta_v_ms, hohmann_dv * 5.0
+                    opt.label,
+                    opt.total_delta_v_ms,
+                    hohmann_dv * 5.0
                 );
             }
         }
@@ -1790,8 +1899,8 @@ mod tests {
     #[test]
     fn test_brachistochrone_fusion_mars_17days() {
         let accel = 0.098_1_f64; // 0.01 g
-        // Fusion torch Frigate: Isp=50 000 s, fuel_frac=0.45
-        //   ΔV_max ≈ 50 000 × 9.81 × 0.598 ≈ 293 km/s
+                                 // Fusion torch Frigate: Isp=50 000 s, fuel_frac=0.45
+                                 //   ΔV_max ≈ 50 000 × 9.81 × 0.598 ≈ 293 km/s
         let dry = 2_000.0_f64;
         let wet = dry / (1.0 - 0.45_f64);
         let max_dv = 50_000.0_f64 * G0 * (wet / dry).ln(); // ≈ 293 km/s
@@ -1799,7 +1908,9 @@ mod tests {
         // Use r2 = 1.38 AU so |r2-r1| × AU ≈ 0.38 AU = minimum Earth–Mars distance
         let d = (1.38 - 1.0) * AU_IN_METERS;
         let opts = kinematic_transfer_options(d, accel, max_dv, 0.0, 0.0, 0.0, false);
-        let opt = opts.into_iter().find(|o| o.label == "Full Thrust")
+        let opt = opts
+            .into_iter()
+            .find(|o| o.label == "Full Thrust")
             .expect("0.01 g fusion should produce a Full Thrust option for Mars min approach");
         let days = opt.transfer_time_s / 86_400.0;
         assert!(
@@ -1811,7 +1922,8 @@ mod tests {
         assert!(
             opt.total_delta_v_ms <= max_dv,
             "Required ΔV ({:.0} m/s) must not exceed fleet capacity ({:.0} m/s)",
-            opt.total_delta_v_ms, max_dv
+            opt.total_delta_v_ms,
+            max_dv
         );
     }
 
@@ -1820,15 +1932,17 @@ mod tests {
     #[test]
     fn test_brachistochrone_antimatter_mars_17days() {
         let accel = 9.81_f64; // 1 g
-        // Antimatter Frigate: Isp=1 000 000 s, fuel_frac=0.45
-        //   ΔV_max ≈ 1 000 000 × 9.81 × 0.598 ≈ 5 866 km/s
+                              // Antimatter Frigate: Isp=1 000 000 s, fuel_frac=0.45
+                              //   ΔV_max ≈ 1 000 000 × 9.81 × 0.598 ≈ 5 866 km/s
         let dry = 2_000.0_f64;
         let wet = dry / (1.0 - 0.45_f64);
         let max_dv = 1_000_000.0_f64 * G0 * (wet / dry).ln(); // ≈ 5 866 km/s
 
         let d = (1.38 - 1.0) * AU_IN_METERS;
         let opts = kinematic_transfer_options(d, accel, max_dv, 0.0, 0.0, 0.0, false);
-        let opt = opts.into_iter().find(|o| o.label == "Full Thrust")
+        let opt = opts
+            .into_iter()
+            .find(|o| o.label == "Full Thrust")
             .expect("1 g antimatter should produce a Full Thrust option for Mars min approach");
         let days = opt.transfer_time_s / 86_400.0;
         assert!(
@@ -1863,14 +1977,19 @@ mod tests {
         let isp = 5_000.0_f32;
 
         // Verify the fleet's acceleration is below the brachistochrone threshold but >0
-        assert!(accel > 0.0 && accel < 0.05, "Ion accel should be ~0.0054 m/s²");
+        assert!(
+            accel > 0.0 && accel < 0.05,
+            "Ion accel should be ~0.0054 m/s²"
+        );
 
         let mut opts = calculate_transfer_options(r_leo_au, r_moon_au, gm_earth, 0.0);
         apply_thrust_limits(&mut opts, accel, isp);
 
         // All standard options should be thrust-limited (ion burns > Hohmann time)
         for opt in &opts {
-            if opt.label == "Same orbit" { continue; }
+            if opt.label == "Same orbit" {
+                continue;
+            }
             assert!(
                 opt.is_thrust_limited,
                 "Ion drive Earth-Moon '{}' option should be thrust-limited \
@@ -1925,7 +2044,13 @@ mod tests {
         }];
         // Even with tiny accel, Full Thrust should be untouched
         apply_thrust_limits(&mut opts, 0.0001, 5_000.0);
-        assert!(!opts[0].is_thrust_limited, "Full Thrust should not be marked thrust-limited");
-        assert_eq!(opts[0].transfer_time_s, 50_000.0, "Full Thrust transfer time should be unchanged");
+        assert!(
+            !opts[0].is_thrust_limited,
+            "Full Thrust should not be marked thrust-limited"
+        );
+        assert_eq!(
+            opts[0].transfer_time_s, 50_000.0,
+            "Full Thrust transfer time should be unchanged"
+        );
     }
 }

@@ -7,16 +7,14 @@
 //! - Resource periodic grid with depth-fill tiles
 //! - Dark tactical palette (#0A0F1E + #00F2FF accents)
 
-use super::*;
 use super::dashboard::{format_mass, format_mass_compact, format_rate_monthly};
 use super::resources_bar::format_population;
 use super::theme::{
-    self, BG, ACCENT, ACCENT_DIM, BORDER, TEXT_DIM, TEXT_VALUE,
-    SURFACE, AMBER, RED, GREEN,
+    self, ACCENT, ACCENT_DIM, AMBER, BG, BORDER, GREEN, RED, SURFACE, TEXT_DIM, TEXT_VALUE,
 };
+use super::*;
 use crate::astronomy::components::{
-    AtmosphericGas, OceanType, SurfaceTemperature,
-    OceanProperties,
+    AtmosphericGas, OceanProperties, OceanType, SurfaceTemperature,
 };
 use std::f32::consts::TAU;
 
@@ -32,13 +30,19 @@ const RED_ACCENT: egui::Color32 = RED;
 const GREEN_ACCENT: egui::Color32 = GREEN;
 
 /// Section header font
-fn heading_font() -> egui::FontId { theme::heading() }
+fn heading_font() -> egui::FontId {
+    theme::heading()
+}
 
 /// Body name font
-fn title_font() -> egui::FontId { theme::title() }
+fn title_font() -> egui::FontId {
+    theme::title()
+}
 
 /// Monospace value font
-fn mono_font(size: f32) -> egui::FontId { theme::mono(size) }
+fn mono_font(size: f32) -> egui::FontId {
+    theme::mono(size)
+}
 
 // ─── Main System ─────────────────────────────────────────────────────────
 
@@ -71,11 +75,7 @@ pub(super) fn ui_planet_dossier(
         Option<&KeplerOrbit>,
         Option<&crate::astronomy::components::SystemId>,
     )>,
-    star_system_query: Query<(
-        Entity,
-        &StarSystemIcon,
-        Option<&SelectedStarSystem>,
-    )>,
+    star_system_query: Query<(Entity, &StarSystemIcon, Option<&SelectedStarSystem>)>,
     rate_tracker: Res<ResourceRateTracker>,
 ) {
     // Don't show when full-screen menus are active
@@ -336,8 +336,9 @@ fn draw_dossier_header(
                             "Inclination: orbital tilt relative to the reference plane.",
                         );
 
-                        let period_s =
-                            crate::astronomy::KeplerOrbit::period_from_mean_motion(orbit.mean_motion);
+                        let period_s = crate::astronomy::KeplerOrbit::period_from_mean_motion(
+                            orbit.mean_motion,
+                        );
                         let period_d = period_s / 86400.0;
                         if period_d < 365.0 {
                             stat_row_with_tooltip(
@@ -445,8 +446,11 @@ fn section_divider(ui: &mut egui::Ui) {
     ui.add_space(6.0);
     let rect = ui.available_rect_before_wrap();
     let y = rect.top();
-    ui.painter()
-        .hline(rect.left()..=rect.right(), y, egui::Stroke::new(1.0, BORDER));
+    ui.painter().hline(
+        rect.left()..=rect.right(),
+        y,
+        egui::Stroke::new(1.0, BORDER),
+    );
     ui.add_space(8.0);
 }
 
@@ -466,8 +470,8 @@ fn compute_habitability_scores(
     ocean: Option<&OceanProperties>,
 ) -> [f32; 5] {
     // Gas giants — no solid surface, completely uninhabitable.
-    let is_gas_giant = body.body_type == BodyType::GasGiant
-        || atmo.map_or(false, |a| a.is_reference_pressure);
+    let is_gas_giant =
+        body.body_type == BodyType::GasGiant || atmo.map_or(false, |a| a.is_reference_pressure);
     if is_gas_giant {
         return [0.0; 5];
     }
@@ -607,9 +611,7 @@ fn draw_habitability_section(
             // Button is disabled until the terraforming system is implemented
             ui.add_enabled(
                 false,
-                egui::Button::new(
-                    egui::RichText::new("Open Menu").font(mono_font(10.0)),
-                ),
+                egui::Button::new(egui::RichText::new("Open Menu").font(mono_font(10.0))),
             );
         });
     });
@@ -641,7 +643,12 @@ fn draw_habitability_section(
         .unwrap_or(0.0_f32);
 
     let details = crate::astronomy::components::calculate_colony_cost_with_water(
-        gravity_g, min_t, max_t, atmosphere, is_gas_giant, water_bonus,
+        gravity_g,
+        min_t,
+        max_t,
+        atmosphere,
+        is_gas_giant,
+        water_bonus,
     );
 
     ui.horizontal(|ui| {
@@ -655,7 +662,11 @@ fn draw_habitability_section(
         } else if details.total_cost <= 0.01 {
             (GREEN_ACCENT, "", "IDEAL".to_string())
         } else if details.total_cost <= 2.0 {
-            (GREEN_ACCENT, "Easy ", format!("{:.1}/10", details.total_cost))
+            (
+                GREEN_ACCENT,
+                "Easy ",
+                format!("{:.1}/10", details.total_cost),
+            )
         } else if details.total_cost <= 4.0 {
             (
                 egui::Color32::from_rgb(200, 200, 50),
@@ -665,7 +676,11 @@ fn draw_habitability_section(
         } else if details.total_cost <= 7.0 {
             (AMBER, "Hard ", format!("{:.1}/10", details.total_cost))
         } else {
-            (RED_ACCENT, "Extreme ", format!("{:.1}/10", details.total_cost))
+            (
+                RED_ACCENT,
+                "Extreme ",
+                format!("{:.1}/10", details.total_cost),
+            )
         };
         if !label.is_empty() {
             ui.label(
@@ -674,11 +689,7 @@ fn draw_habitability_section(
                     .color(color),
             );
         }
-        ui.label(
-            egui::RichText::new(text)
-                .font(mono_font(13.0))
-                .color(color),
-        );
+        ui.label(egui::RichText::new(text).font(mono_font(13.0)).color(color));
     });
 
     // Temperature line
@@ -729,22 +740,22 @@ fn draw_habitability_section(
         } else {
             let line = |ui: &mut egui::Ui, color: egui::Color32, name: &str, val: f32, max: f32| {
                 if val > 0.005 {
-                    ui.colored_label(
-                        color,
-                        format!("  {} +{:.1} / {:.0}", name, val, max),
-                    );
+                    ui.colored_label(color, format!("  {} +{:.1} / {:.0}", name, val, max));
                 }
             };
-            line(ui, egui::Color32::from_rgb(100, 180, 255), "Cold", details.cold_cost, 3.0);
+            line(
+                ui,
+                egui::Color32::from_rgb(100, 180, 255),
+                "Cold",
+                details.cold_cost,
+                3.0,
+            );
             line(ui, RED_ACCENT, "Heat", details.heat_cost, 3.0);
             line(ui, AMBER, "Atmosphere", details.atmosphere_cost, 3.0);
             line(ui, AMBER, "Pressure", details.pressure_cost, 2.0);
             line(ui, AMBER, "Gravity", details.gravity_cost, 1.5);
             if details.water_bonus < -0.005 {
-                ui.colored_label(
-                    GREEN_ACCENT,
-                    format!("  Water {:.1}", details.water_bonus),
-                );
+                ui.colored_label(GREEN_ACCENT, format!("  Water {:.1}", details.water_bonus));
             }
         }
     });
@@ -757,8 +768,7 @@ fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
     // These are fallbacks; actual radii are computed from the painter rect
     const FALLBACK_MAX_R: f32 = 65.0;
 
-    let (response, painter) =
-        ui.allocate_painter(egui::Vec2::splat(SIZE), egui::Sense::hover());
+    let (response, painter) = ui.allocate_painter(egui::Vec2::splat(SIZE), egui::Sense::hover());
     let center = response.rect.center();
     // Compute a safe maximum radius based on the actual painter rect so the
     // radar never draws outside its bounds even when available space is small.
@@ -799,10 +809,7 @@ fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
         .collect();
     painter.add(egui::Shape::closed_line(
         earth_pts,
-        egui::Stroke::new(
-            1.0,
-            egui::Color32::from_rgba_premultiplied(0, 242, 255, 60),
-        ),
+        egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(0, 242, 255, 60)),
     ));
 
     // Player polygon — compute vertex positions from scores.
@@ -851,13 +858,7 @@ fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
         } else {
             egui::Align2::CENTER_TOP
         };
-        painter.text(
-            label_pos,
-            align,
-            LABELS[i],
-            mono_font(9.0),
-            TEXT_DIM,
-        );
+        painter.text(label_pos, align, LABELS[i], mono_font(9.0), TEXT_DIM);
 
         // % value always shown directly below the axis name.
         // For a top-anchored label (CENTER_BOTTOM) the text sits above
@@ -912,11 +913,7 @@ fn gas_color(name: &str) -> egui::Color32 {
     }
 }
 
-fn draw_atmosphere_section(
-    ui: &mut egui::Ui,
-    entity: Entity,
-    atmo: &AtmosphereComposition,
-) {
+fn draw_atmosphere_section(ui: &mut egui::Ui, entity: Entity, atmo: &AtmosphereComposition) {
     ui.label(
         egui::RichText::new("ATMOSPHERE")
             .font(heading_font())
@@ -1084,10 +1081,9 @@ fn draw_atmosphere_bar(ui: &mut egui::Ui, gases: &[AtmosphericGas]) {
             for (rect, name) in &segment_rects {
                 if rect.contains(pointer) {
                     if let Some(gas) = gases.iter().find(|g| &g.name == name) {
-                        bar_response.clone().on_hover_text(format!(
-                            "{}: {:.3}%",
-                            gas.name, gas.percentage
-                        ));
+                        bar_response
+                            .clone()
+                            .on_hover_text(format!("{}: {:.3}%", gas.name, gas.percentage));
                     }
                     break;
                 }
@@ -1096,7 +1092,12 @@ fn draw_atmosphere_bar(ui: &mut egui::Ui, gases: &[AtmosphericGas]) {
     }
 
     // Rounded border overlay
-    painter.rect_stroke(bar_rect, 3.0, egui::Stroke::new(1.0, BORDER), egui::StrokeKind::Outside);
+    painter.rect_stroke(
+        bar_rect,
+        3.0,
+        egui::Stroke::new(1.0, BORDER),
+        egui::StrokeKind::Outside,
+    );
 }
 
 // ─── Ocean Section ───────────────────────────────────────────────────────
@@ -1140,11 +1141,7 @@ fn draw_ocean_section(ui: &mut egui::Ui, ocean: &OceanProperties) {
 
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(icon).color(color));
-        ui.label(
-            egui::RichText::new(label)
-                .font(heading_font())
-                .color(color),
-        );
+        ui.label(egui::RichText::new(label).font(heading_font()).color(color));
     });
 
     ui.add_space(4.0);
@@ -1174,20 +1171,14 @@ fn draw_ocean_section(ui: &mut egui::Ui, ocean: &OceanProperties) {
     // Habitability modifier
     let hab = ocean.habitability_modifier();
     let (hab_color, hab_text) = if hab > 1.2 {
-        (
-            GREEN_ACCENT,
-            format!("+{:.0}% growth", (hab - 1.0) * 100.0),
-        )
+        (GREEN_ACCENT, format!("+{:.0}% growth", (hab - 1.0) * 100.0))
     } else if hab > 1.0 {
         (
             egui::Color32::from_rgb(100, 220, 100),
             format!("+{:.0}% growth", (hab - 1.0) * 100.0),
         )
     } else if hab < 1.0 {
-        (
-            AMBER,
-            format!("-{:.0}% penalty", (1.0 - hab) * 100.0),
-        )
+        (AMBER, format!("-{:.0}% penalty", (1.0 - hab) * 100.0))
     } else {
         (TEXT_DIM, "Neutral".to_string())
     };
@@ -1304,23 +1295,28 @@ fn draw_resource_section(
 /// Each tier spans ~3 orders of magnitude.
 fn magnitude_tier(megatons: f64) -> (u8, &'static str) {
     if megatons < 1.0 {
-        (0, "Trace")      // < 1 Mt
+        (0, "Trace") // < 1 Mt
     } else if megatons < 1_000.0 {
-        (1, "Minor")      // Mt-range
+        (1, "Minor") // Mt-range
     } else if megatons < 1_000_000.0 {
-        (2, "Moderate")   // Gt-range
+        (2, "Moderate") // Gt-range
     } else if megatons < 1_000_000_000.0 {
-        (3, "Rich")       // Tt-range
+        (3, "Rich") // Tt-range
     } else if megatons < 1_000_000_000_000.0 {
-        (4, "Vast")       // Pt-range
+        (4, "Vast") // Pt-range
     } else {
-        (5, "Planetary")  // Et-range and beyond
+        (5, "Planetary") // Et-range and beyond
     }
 }
 
 /// Resource periodic grid: tiles laid out by category, each showing a chemical
 /// symbol with magnitude pips and compact value.
-fn draw_resource_grid(ui: &mut egui::Ui, resources: &PlanetResources, survey_level: SurveyLevel, rate_tracker: &ResourceRateTracker) {
+fn draw_resource_grid(
+    ui: &mut egui::Ui,
+    resources: &PlanetResources,
+    survey_level: SurveyLevel,
+    rate_tracker: &ResourceRateTracker,
+) {
     let tile_size = 44.0_f32;
     let tile_spacing = 3.0_f32;
 
@@ -1348,7 +1344,15 @@ fn draw_resource_grid(ui: &mut egui::Ui, resources: &PlanetResources, survey_lev
 
             for resource_type in &mineable {
                 let deposit = resources.get_deposit(resource_type);
-                draw_resource_tile(ui, *resource_type, deposit, survey_level, tile_size, cat_color, rate_tracker);
+                draw_resource_tile(
+                    ui,
+                    *resource_type,
+                    deposit,
+                    survey_level,
+                    tile_size,
+                    cat_color,
+                    rate_tracker,
+                );
             }
         });
 
@@ -1368,8 +1372,7 @@ fn draw_resource_tile(
     cat_color: egui::Color32,
     rate_tracker: &ResourceRateTracker,
 ) {
-    let (response, painter) =
-        ui.allocate_painter(egui::Vec2::splat(size), egui::Sense::hover());
+    let (response, painter) = ui.allocate_painter(egui::Vec2::splat(size), egui::Sense::hover());
     let rect = response.rect;
 
     // Background
@@ -1430,10 +1433,7 @@ fn draw_resource_tile(
             egui::Align2::CENTER_CENTER,
             &compact,
             mono_font(7.0),
-            egui::Color32::from_rgba_premultiplied(
-                220, 230, 240,
-                (180.0 * brightness) as u8,
-            ),
+            egui::Color32::from_rgba_premultiplied(220, 230, 240, (180.0 * brightness) as u8),
         );
 
         // ── Magnitude pip dots (bottom of tile) ─────────────────
@@ -1445,11 +1445,7 @@ fn draw_resource_tile(
         for i in 0..5u8 {
             let cx = pip_start_x + i as f32 * pip_spacing;
             if i < tier {
-                painter.circle_filled(
-                    egui::Pos2::new(cx, pip_y),
-                    pip_r,
-                    cat_color,
-                );
+                painter.circle_filled(egui::Pos2::new(cx, pip_y), pip_r, cat_color);
             } else {
                 painter.circle_stroke(
                     egui::Pos2::new(cx, pip_y),
@@ -1470,7 +1466,12 @@ fn draw_resource_tile(
     }
 
     // Border
-    painter.rect_stroke(rect, 3.0, egui::Stroke::new(1.0, BORDER), egui::StrokeKind::Outside);
+    painter.rect_stroke(
+        rect,
+        3.0,
+        egui::Stroke::new(1.0, BORDER),
+        egui::StrokeKind::Outside,
+    );
 
     // Hover tooltip
     if response.hovered() && has_deposit {
@@ -1500,11 +1501,11 @@ fn draw_resource_tile(
                 // Phase badge + magnitude tier
                 let tier: u8 = match discovered {
                     x if x >= 1e12 => 5,
-                    x if x >= 1e9  => 4,
-                    x if x >= 1e6  => 3,
-                    x if x >= 1e3  => 2,
-                    x if x > 0.0   => 1,
-                    _              => 0,
+                    x if x >= 1e9 => 4,
+                    x if x >= 1e6 => 3,
+                    x if x >= 1e3 => 2,
+                    x if x > 0.0 => 1,
+                    _ => 0,
                 };
                 let tier_label = match tier {
                     5 => "Massive",
@@ -1521,8 +1522,8 @@ fn draw_resource_tile(
                     2 => TEXT_DIM,
                     _ => egui::Color32::from_rgb(80, 90, 100),
                 };
-                let tier_dots: String = "\u{25CF}".repeat(tier as usize)
-                    + &"\u{25CB}".repeat(5 - tier as usize);
+                let tier_dots: String =
+                    "\u{25CF}".repeat(tier as usize) + &"\u{25CB}".repeat(5 - tier as usize);
                 ui.horizontal(|ui| {
                     ui.label(
                         egui::RichText::new(format!("{}", d.phase))
@@ -1549,29 +1550,17 @@ fn draw_resource_tile(
                         let deep_label = if is_atm { "Trapped" } else { "Deep" };
                         let bulk_label = if is_atm { "Bound" } else { "Bulk" };
 
-                        tooltip_row(
-                            ui,
-                            proven_label,
-                            &format_mass(d.reserve.proven_crustal),
-                        );
+                        tooltip_row(ui, proven_label, &format_mass(d.reserve.proven_crustal));
 
                         if matches!(
                             survey_level,
                             SurveyLevel::SeismicSurvey | SurveyLevel::CoreSample
                         ) {
-                            tooltip_row(
-                                ui,
-                                deep_label,
-                                &format_mass(d.reserve.deep_deposits),
-                            );
+                            tooltip_row(ui, deep_label, &format_mass(d.reserve.deep_deposits));
                         }
 
                         if matches!(survey_level, SurveyLevel::CoreSample) {
-                            tooltip_row(
-                                ui,
-                                bulk_label,
-                                &format_mass(d.reserve.planetary_bulk),
-                            );
+                            tooltip_row(ui, bulk_label, &format_mass(d.reserve.planetary_bulk));
                         }
 
                         if !is_atm {
@@ -1588,11 +1577,7 @@ fn draw_resource_tile(
                             tooltip_row(ui, "Conc.", &conc_text);
                         }
 
-                        tooltip_row(
-                            ui,
-                            "Access",
-                            &format!("{:.0}%", d.accessibility * 100.0),
-                        );
+                        tooltip_row(ui, "Access", &format!("{:.0}%", d.accessibility * 100.0));
                     });
 
                 // Balance (current production rate)

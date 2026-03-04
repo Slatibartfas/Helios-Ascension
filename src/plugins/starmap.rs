@@ -13,23 +13,20 @@
 
 use bevy::math::DVec3;
 use bevy::prelude::*;
-use bevy_egui::EguiPrimaryContextPass;
 use bevy::window::PrimaryWindow;
 use bevy_egui::egui;
+use bevy_egui::EguiPrimaryContextPass;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::camera::{CameraAnchor, EguiPanelBounds, GameCamera, OrbitCamera, ViewMode};
-use super::solar_system::{
-    Billboard, CelestialBody, Ring, StarSurfaceMaterial, StarGlowMaterial,
-};
+use super::solar_system::{Billboard, CelestialBody, Ring, StarGlowMaterial, StarSurfaceMaterial};
 use super::solar_system_data::{AsteroidClass, BodyType};
 use crate::astronomy::components::{
     CurrentStarSystem, FloatingOrigin, SpaceCoordinates, SurfaceTemperature, SystemId,
 };
 use crate::astronomy::SCALING_FACTOR;
 use crate::game_state::{ActiveMenu, GameMenu};
-
 
 // Constants replaced by solar_system_data import
 
@@ -108,39 +105,88 @@ impl PlanetTextureManifest {
     /// Built-in fallback used when `planet_textures.ron` cannot be read.
     fn default_fallback() -> Self {
         let entries: &[(&str, &[&str])] = &[
-            ("barren",    &["textures/celestial/planets/mercury_8k.jpg"]),
-            ("desert",    &["textures/celestial/planets/mars_8k.jpg",
-                            "textures/celestial/planets/venus_surface_8k.jpg"]),
+            ("barren", &["textures/celestial/planets/mercury_8k.jpg"]),
+            (
+                "desert",
+                &[
+                    "textures/celestial/planets/mars_8k.jpg",
+                    "textures/celestial/planets/venus_surface_8k.jpg",
+                ],
+            ),
             ("temperate", &["textures/celestial/planets/earth_8k.jpg"]),
-            ("jungle",    &["textures/celestial/planets/earth_8k.jpg"]),
-            ("ocean",     &["textures/celestial/planets/earth_8k.jpg"]),
-            ("alpine",    &["textures/celestial/planets/earth_8k.jpg"]),
-            ("savannah",  &["textures/celestial/planets/earth_8k.jpg"]),
-            ("swamp",     &["textures/celestial/planets/earth_8k.jpg"]),
-            ("tundra",    &["textures/celestial/planets/pluto_8k.png",
-                            "textures/celestial/planets/mars_8k.jpg"]),
-            ("ice",       &["textures/celestial/planets/pluto_8k.png",
-                            "textures/celestial/planets/eris_2k.jpg"]),
-            ("lava",      &["textures/celestial/planets/mercury_8k.jpg",
-                            "textures/celestial/planets/venus_surface_8k.jpg"]),
-            ("gas_giant", &["textures/celestial/planets/jupiter_8k.jpg",
-                            "textures/celestial/planets/saturn_8k.jpg"]),
-            ("ice_giant", &["textures/celestial/planets/neptune_2k.jpg",
-                            "textures/celestial/planets/uranus_2k.jpg"]),
-            ("dwarf",     &["textures/celestial/planets/pluto_8k.png",
-                            "textures/celestial/planets/eris_2k.jpg",
-                            "textures/celestial/asteroids/generic_s_type_2k.jpg",
-                            "textures/celestial/asteroids/generic_c_type_2k.jpg"]),
-            ("moon",      &["textures/celestial/moons/moon_8k.jpg",
-                            "textures/celestial/moons/europa_4k.png",
-                            "textures/celestial/moons/ganymede_4k.jpg",
-                            "textures/celestial/moons/callisto_4k.jpg",
-                            // titan_4k.jpg excluded — it is a Cassini RADAR/SAR map
-                            // (monochromatic/dark), not a colour image.
-                            "textures/celestial/moons/triton_4k.jpg"]),
-            ("asteroid_s",&["textures/celestial/asteroids/generic_s_type_2k.jpg"]),
-            ("asteroid_c",&["textures/celestial/asteroids/generic_c_type_2k.jpg"]),
-            ("comet",     &["textures/celestial/comets/generic_nucleus_2k.jpg"]),
+            ("jungle", &["textures/celestial/planets/earth_8k.jpg"]),
+            ("ocean", &["textures/celestial/planets/earth_8k.jpg"]),
+            ("alpine", &["textures/celestial/planets/earth_8k.jpg"]),
+            ("savannah", &["textures/celestial/planets/earth_8k.jpg"]),
+            ("swamp", &["textures/celestial/planets/earth_8k.jpg"]),
+            (
+                "tundra",
+                &[
+                    "textures/celestial/planets/pluto_8k.png",
+                    "textures/celestial/planets/mars_8k.jpg",
+                ],
+            ),
+            (
+                "ice",
+                &[
+                    "textures/celestial/planets/pluto_8k.png",
+                    "textures/celestial/planets/eris_2k.jpg",
+                ],
+            ),
+            (
+                "lava",
+                &[
+                    "textures/celestial/planets/mercury_8k.jpg",
+                    "textures/celestial/planets/venus_surface_8k.jpg",
+                ],
+            ),
+            (
+                "gas_giant",
+                &[
+                    "textures/celestial/planets/jupiter_8k.jpg",
+                    "textures/celestial/planets/saturn_8k.jpg",
+                ],
+            ),
+            (
+                "ice_giant",
+                &[
+                    "textures/celestial/planets/neptune_2k.jpg",
+                    "textures/celestial/planets/uranus_2k.jpg",
+                ],
+            ),
+            (
+                "dwarf",
+                &[
+                    "textures/celestial/planets/pluto_8k.png",
+                    "textures/celestial/planets/eris_2k.jpg",
+                    "textures/celestial/asteroids/generic_s_type_2k.jpg",
+                    "textures/celestial/asteroids/generic_c_type_2k.jpg",
+                ],
+            ),
+            (
+                "moon",
+                &[
+                    "textures/celestial/moons/moon_8k.jpg",
+                    "textures/celestial/moons/europa_4k.png",
+                    "textures/celestial/moons/ganymede_4k.jpg",
+                    "textures/celestial/moons/callisto_4k.jpg",
+                    // titan_4k.jpg excluded — it is a Cassini RADAR/SAR map
+                    // (monochromatic/dark), not a colour image.
+                    "textures/celestial/moons/triton_4k.jpg",
+                ],
+            ),
+            (
+                "asteroid_s",
+                &["textures/celestial/asteroids/generic_s_type_2k.jpg"],
+            ),
+            (
+                "asteroid_c",
+                &["textures/celestial/asteroids/generic_c_type_2k.jpg"],
+            ),
+            (
+                "comet",
+                &["textures/celestial/comets/generic_nucleus_2k.jpg"],
+            ),
         ];
         let categories = entries
             .iter()
@@ -198,10 +244,7 @@ impl Plugin for StarmapPlugin {
             // Starmap hover/selection systems use EguiContexts — must run in EguiPrimaryContextPass
             .add_systems(
                 EguiPrimaryContextPass,
-                (
-                    handle_starmap_hover,
-                    handle_starmap_selection,
-                ),
+                (handle_starmap_hover, handle_starmap_selection),
             );
     }
 }
@@ -234,7 +277,6 @@ pub struct HoveredStarSystem;
 #[derive(Component)]
 pub struct SelectedStarSystem;
 
-
 // ── Startup ─────────────────────────────────────────────────────────────────
 
 // 1 Light Year in Astronomical Units
@@ -257,14 +299,14 @@ fn star_icon_glow_params(spectral_class: char, r: f32, g: f32, b: f32) -> (Vec4,
     // Cool dwarfs: dim ember, tight corona barely hiding the disk.
     let (cb, hb, gs) = match spectral_class {
         'O' => (18.0, 10.0, 14.0), // Blue giants: blinding, huge corona
-        'B' => (12.0,  7.0, 12.0), // Blue-white
-        'A' => ( 7.0,  4.5, 10.0), // White
-        'F' => ( 4.5,  3.0,  9.0), // Yellow-white
-        'G' => ( 3.5,  2.5,  8.0), // Sol-like
-        'K' => ( 3.0,  2.2,  7.5), // Orange
-        'M' => ( 2.2,  1.8,  7.0), // Red
-        'L' => ( 1.5,  1.0,  6.0), // Brown dwarf
-        _   => ( 1.0,  0.7,  5.0), // T, Y, unknown — cold brown dwarfs
+        'B' => (12.0, 7.0, 12.0),  // Blue-white
+        'A' => (7.0, 4.5, 10.0),   // White
+        'F' => (4.5, 3.0, 9.0),    // Yellow-white
+        'G' => (3.5, 2.5, 8.0),    // Sol-like
+        'K' => (3.0, 2.2, 7.5),    // Orange
+        'M' => (2.2, 1.8, 7.0),    // Red
+        'L' => (1.5, 1.0, 6.0),    // Brown dwarf
+        _ => (1.0, 0.7, 5.0),      // T, Y, unknown — cold brown dwarfs
     };
     // Core: blend 60 % spectral + 40 % white so hot blue stars trend to
     // white-blue and cool red stars stay warm-orange rather than pure white.
@@ -448,14 +490,10 @@ pub fn classify_exoplanet(
         }
         BodyType::DwarfPlanet => "dwarf",
         BodyType::Moon => "moon",
-        BodyType::Asteroid => {
-            match asteroid_class.unwrap_or(AsteroidClass::CType) {
-                AsteroidClass::SType | AsteroidClass::VType | AsteroidClass::MType => {
-                    "asteroid_s"
-                }
-                _ => "asteroid_c",
-            }
-        }
+        BodyType::Asteroid => match asteroid_class.unwrap_or(AsteroidClass::CType) {
+            AsteroidClass::SType | AsteroidClass::VType | AsteroidClass::MType => "asteroid_s",
+            _ => "asteroid_c",
+        },
         BodyType::Comet => "comet",
         BodyType::Planet => {
             if avg_temp_c > 500.0 {
@@ -522,11 +560,7 @@ fn category_tint(category: &str, r1: f32, r2: f32, r3: f32) -> (Color, f32, f32)
             // Deep green tint — dense vegetation
             let b = 0.80 + r1 * 0.12;
             (
-                Color::srgb(
-                    (b * 0.68).min(1.0),
-                    b,
-                    (b * 0.65).min(1.0),
-                ),
+                Color::srgb((b * 0.68).min(1.0), b, (b * 0.65).min(1.0)),
                 0.70 + r2 * 0.18,
                 0.0 + r3 * 0.05,
             )
@@ -535,11 +569,7 @@ fn category_tint(category: &str, r1: f32, r2: f32, r3: f32) -> (Color, f32, f32)
             // Deep blue — ocean-dominated
             let b = 0.80 + r1 * 0.12;
             (
-                Color::srgb(
-                    (b * 0.50).min(1.0),
-                    (b * 0.72).min(1.0),
-                    b,
-                ),
+                Color::srgb((b * 0.50).min(1.0), (b * 0.72).min(1.0), b),
                 0.60 + r2 * 0.15,
                 0.0 + r3 * 0.05,
             )
@@ -548,11 +578,7 @@ fn category_tint(category: &str, r1: f32, r2: f32, r3: f32) -> (Color, f32, f32)
             // Blue-grey — cold, partially frozen
             let b = 0.78 + r1 * 0.14;
             (
-                Color::srgb(
-                    (b * 0.86).min(1.0),
-                    (b * 0.91).min(1.0),
-                    b,
-                ),
+                Color::srgb((b * 0.86).min(1.0), (b * 0.91).min(1.0), b),
                 0.78 + r2 * 0.12,
                 0.0 + r3 * 0.05,
             )
@@ -561,11 +587,7 @@ fn category_tint(category: &str, r1: f32, r2: f32, r3: f32) -> (Color, f32, f32)
             // Pale blue-white — deeply frozen
             let b = 0.85 + r1 * 0.12;
             (
-                Color::srgb(
-                    (b * 0.88).min(1.0),
-                    (b * 0.93).min(1.0),
-                    b,
-                ),
+                Color::srgb((b * 0.88).min(1.0), (b * 0.93).min(1.0), b),
                 0.72 + r2 * 0.15,
                 0.0 + r3 * 0.05,
             )
@@ -592,11 +614,7 @@ fn category_tint(category: &str, r1: f32, r2: f32, r3: f32) -> (Color, f32, f32)
             // Blue-cyan — methane-dominated
             let b = 0.78 + r1 * 0.12;
             (
-                Color::srgb(
-                    (b * 0.76).min(1.0),
-                    (b * 0.90).min(1.0),
-                    b,
-                ),
+                Color::srgb((b * 0.76).min(1.0), (b * 0.90).min(1.0), b),
                 0.62 + r2 * 0.15,
                 0.0 + r3 * 0.05,
             )
@@ -650,11 +668,7 @@ fn category_tint(category: &str, r1: f32, r2: f32, r3: f32) -> (Color, f32, f32)
             // Cool grey-blue with white snow caps
             let b = 0.82 + r1 * 0.12;
             (
-                Color::srgb(
-                    (b * 0.85).min(1.0),
-                    (b * 0.90).min(1.0),
-                    b,
-                ),
+                Color::srgb((b * 0.85).min(1.0), (b * 0.90).min(1.0), b),
                 0.72 + r2 * 0.15,
                 0.0 + r3 * 0.05,
             )
@@ -735,7 +749,9 @@ fn spawn_system_bodies(
     let origin_offset = floating_origin.position;
 
     // Find all data-only entities for this system and add visual components
-    for (entity, body, space_coords, _system_id, stellar_props, surface_temp) in bodies_without_visuals.iter() {
+    for (entity, body, space_coords, _system_id, stellar_props, surface_temp) in
+        bodies_without_visuals.iter()
+    {
         if _system_id.0 != sys_id {
             continue;
         }
@@ -775,8 +791,7 @@ fn spawn_system_bodies(
         };
 
         // Compute the correct initial transform position using floating origin
-        let scaled_position =
-            (space_coords.position - origin_offset) * SCALING_FACTOR;
+        let scaled_position = (space_coords.position - origin_offset) * SCALING_FACTOR;
         let p_vec = Vec3::new(
             scaled_position.x as f32,
             scaled_position.y as f32,
@@ -800,14 +815,14 @@ fn spawn_system_bodies(
             // Using the same ×9 scale as the Sol star to keep realistic brightness.
             let center_col = Vec4::new(cr * 9.0, cg * 9.0, cb * 9.0, 1.0);
             // Limb colour: cooler shift — red is retained, green/blue sharply attenuated
-            let limb_col   = Vec4::new(cr * 5.5, cg * 2.8, cb * 0.8, 1.0);
+            let limb_col = Vec4::new(cr * 5.5, cg * 2.8, cb * 0.8, 1.0);
 
             commands.entity(entity).insert((
                 Mesh3d(mesh),
                 MeshMaterial3d(materials_surface.add(StarSurfaceMaterial {
                     color_center: center_col,
-                    color_limb:   limb_col,
-                    star_texture:  None,
+                    color_limb: limb_col,
+                    star_texture: None,
                 })),
                 initial_transform,
             ));
@@ -824,11 +839,16 @@ fn spawn_system_bodies(
             );
             // Gentle warm shift — avoid extreme channel suppression that
             // causes visible colour banding on cool (M/K) stars.
-            let halo_col = Vec4::new(cr * 4.5 * lum_factor, cg * 4.0 * lum_factor, cb * 3.0 * lum_factor, 1.0);
+            let halo_col = Vec4::new(
+                cr * 4.5 * lum_factor,
+                cg * 4.0 * lum_factor,
+                cb * 3.0 * lum_factor,
+                1.0,
+            );
 
             // Shell radii — match Sol's proportions for realistic corona sizing
             let corona_shell_r = visual_radius * 1.75;
-            let halo_shell_r   = visual_radius * 4.0;
+            let halo_shell_r = visual_radius * 4.0;
 
             commands.entity(entity).with_children(|parent| {
                 parent.spawn((
@@ -846,12 +866,14 @@ fn spawn_system_bodies(
                 // Inner volumetric corona shell
                 parent.spawn((
                     Mesh3d(meshes.add(Sphere::new(corona_shell_r).mesh().uv(64, 32))),
-                    MeshMaterial3d(materials_corona_3d.add(super::solar_system::StarCorona3dMaterial {
-                        color_core: Vec4::ZERO, // LOD system drives it
-                        color_halo: Vec4::ZERO,
-                        time_phase: 0.0,
-                        corona_params: Vec4::new(visual_radius, corona_shell_r, 0.0, 0.0),
-                    })),
+                    MeshMaterial3d(materials_corona_3d.add(
+                        super::solar_system::StarCorona3dMaterial {
+                            color_core: Vec4::ZERO, // LOD system drives it
+                            color_halo: Vec4::ZERO,
+                            time_phase: 0.0,
+                            corona_params: Vec4::new(visual_radius, corona_shell_r, 0.0, 0.0),
+                        },
+                    )),
                     Transform::default(),
                     super::solar_system::StarCoronaShell {
                         base_core_color: core_col,
@@ -864,11 +886,13 @@ fn spawn_system_bodies(
                 // Outer diffuse halo shell
                 parent.spawn((
                     Mesh3d(meshes.add(Sphere::new(halo_shell_r).mesh().uv(32, 16))),
-                    MeshMaterial3d(materials_halo_3d.add(super::solar_system::StarHalo3dMaterial {
-                        color_halo: Vec4::ZERO, // LOD system drives it
-                        time_phase: 0.0,
-                        halo_params: Vec4::new(visual_radius, halo_shell_r, 0.0, 0.0),
-                    })),
+                    MeshMaterial3d(materials_halo_3d.add(
+                        super::solar_system::StarHalo3dMaterial {
+                            color_halo: Vec4::ZERO, // LOD system drives it
+                            time_phase: 0.0,
+                            halo_params: Vec4::new(visual_radius, halo_shell_r, 0.0, 0.0),
+                        },
+                    )),
                     Transform::default(),
                     super::solar_system::StarHaloShell {
                         base_halo_color: halo_col,
@@ -880,12 +904,19 @@ fn spawn_system_bodies(
         } else {
             // Classify body into a texture category, then look up the manifest
             let avg_temp = avg_temp_c.unwrap_or(-100.0);
-            let seed: u32 = body.name
+            let seed: u32 = body
+                .name
                 .bytes()
                 .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
 
-            let category = classify_exoplanet(body.body_type, body.asteroid_class, avg_temp, seed, false, false);
-
+            let category = classify_exoplanet(
+                body.body_type,
+                body.asteroid_class,
+                avg_temp,
+                seed,
+                false,
+                false,
+            );
 
             let r1 = ((seed % 1000) as f32) / 1000.0;
             let r2 = (((seed / 1000) % 1000) as f32) / 1000.0;
@@ -973,7 +1004,10 @@ fn toggle_system_view_entities(
                 let id = if let Some(s) = sys_id {
                     s.0
                 } else if let Some(parent) = parent {
-                    parent_sys_query.get(parent.parent()).map(|s| s.0).unwrap_or(0)
+                    parent_sys_query
+                        .get(parent.parent())
+                        .map(|s| s.0)
+                        .unwrap_or(0)
                 } else {
                     0
                 };
@@ -1422,7 +1456,7 @@ fn handle_system_transition(
                 // So target_center should be (0,0,0).
                 // And OrbitCamera will naturally look at (0,0,0).
                 anchor.0 = None;
-                
+
                 // Reset OrbitCamera target center to (0,0,0) explicitly
                 // This ensures we are looking at the star (which is at local 0,0,0)
                 // disregarding any previous starmap-space offset
@@ -1461,20 +1495,38 @@ mod tests {
 
     #[test]
     fn test_classify_lava() {
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 600.0, 0, false, false), "lava");
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 501.0, 0, false, false), "lava");
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, 600.0, 0, false, false),
+            "lava"
+        );
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, 501.0, 0, false, false),
+            "lava"
+        );
         // exactly 500.0 is desert (condition is > 500.0)
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 500.0, 0, false, false), "desert");
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, 500.0, 0, false, false),
+            "desert"
+        );
     }
 
     #[test]
     fn test_classify_desert() {
         // very hot worlds outside the habitable zone (<= 60) now fall into
         // the savannah category; only temps above 60.0 are desert now.
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 200.0, 0, false, false), "desert");
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 60.1, 0, false, false), "desert");
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, 200.0, 0, false, false),
+            "desert"
+        );
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, 60.1, 0, false, false),
+            "desert"
+        );
         // exactly 60.0 sits at the hot habitable band and should be savannah
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 60.0, 0, false, false), "savannah");
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, 60.0, 0, false, false),
+            "savannah"
+        );
     }
 
     #[test]
@@ -1482,90 +1534,190 @@ mod tests {
         // Temperatures inside habitable band (-20.0..=60.0).
         // Four-category distribution controlled by seed % 4.
         // Seed 0 → 0 % 4 == 0 → "jungle"
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 15.0, 0, false, false), "jungle");
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, 15.0, 0, false, false),
+            "jungle"
+        );
         // Seed 1 → 1 % 4 == 1 → "ocean"
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 15.0, 1, false, false), "ocean");
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, 15.0, 1, false, false),
+            "ocean"
+        );
         // Seed 2 → 2 % 4 == 2 → "temperate"
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 15.0, 2, false, false), "temperate");
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, 15.0, 2, false, false),
+            "temperate"
+        );
         // Seed 3 → 3 % 4 == 3 → "swamp"
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 15.0, 3, false, false), "swamp");
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, 15.0, 3, false, false),
+            "swamp"
+        );
     }
 
     #[test]
     fn test_classify_tundra() {
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, -50.0, 0, false, false), "tundra");
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, -50.0, 0, false, false),
+            "tundra"
+        );
         // -20.0 is the habitable lower bound (inclusive), so just below it is tundra
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, -20.1, 0, false, false), "tundra");
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, -99.9, 0, false, false), "tundra");
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, -20.1, 0, false, false),
+            "tundra"
+        );
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, -99.9, 0, false, false),
+            "tundra"
+        );
         // exactly -100.0 is tundra (>= -100.0)
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, -100.0, 0, false, false), "tundra");
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, -100.0, 0, false, false),
+            "tundra"
+        );
         // -10.0 is cold but still in habitable band and should classify as alpine
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, -10.0, 0, false, false), "alpine");
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, -10.0, 0, false, false),
+            "alpine"
+        );
         // exactly -20.0 lies on the cold edge of the habitable band and
         // is classified as alpine under the new rules.
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, -20.0, 0, false, false), "alpine");
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, -20.0, 0, false, false),
+            "alpine"
+        );
     }
 
     #[test]
     fn test_classify_alpine() {
         // Temperatures well inside the habitable window but coldend (< -5°C) are alpine.
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, -20.0, 0, false, false), "alpine");
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, -10.0, 0, false, false), "alpine");
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, -20.0, 0, false, false),
+            "alpine"
+        );
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, -10.0, 0, false, false),
+            "alpine"
+        );
     }
 
     #[test]
     fn test_boundary_minus_five() {
         // The boundary temp -5°C should no longer count as alpine; it maps to jungle.
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, -5.0, 0, false, false), "jungle");
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, -5.0, 0, false, false),
+            "jungle"
+        );
     }
 
     #[test]
     fn test_classify_savannah() {
         // Very hot worlds above habitable band but below lava, and hot
         // habitable-zone worlds (>45°C) should be labelled "savannah".
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 46.0, 0, false, false), "savannah");
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 60.0, 0, false, false), "savannah");
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, 46.0, 0, false, false),
+            "savannah"
+        );
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, 60.0, 0, false, false),
+            "savannah"
+        );
     }
 
     #[test]
     fn test_classify_ice() {
         // -100.0 is tundra (>= -100.0); strictly below -100.0 is ice
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, -100.1, 0, false, false), "ice");
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, -250.0, 0, false, false), "ice");
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, -100.1, 0, false, false),
+            "ice"
+        );
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, -250.0, 0, false, false),
+            "ice"
+        );
     }
 
     #[test]
     fn test_classify_gas_and_ice_giants() {
-        assert_eq!(classify_exoplanet(BodyType::GasGiant, None, -200.0, 0, false, false), "ice_giant");
+        assert_eq!(
+            classify_exoplanet(BodyType::GasGiant, None, -200.0, 0, false, false),
+            "ice_giant"
+        );
         // strictly below -80.0 is ice_giant; -80.0 itself is gas_giant
-        assert_eq!(classify_exoplanet(BodyType::GasGiant, None, -80.1, 0, false, false), "ice_giant");
-        assert_eq!(classify_exoplanet(BodyType::GasGiant, None, -80.0, 0, false, false), "gas_giant");
-        assert_eq!(classify_exoplanet(BodyType::GasGiant, None, 100.0, 0, false, false), "gas_giant");
+        assert_eq!(
+            classify_exoplanet(BodyType::GasGiant, None, -80.1, 0, false, false),
+            "ice_giant"
+        );
+        assert_eq!(
+            classify_exoplanet(BodyType::GasGiant, None, -80.0, 0, false, false),
+            "gas_giant"
+        );
+        assert_eq!(
+            classify_exoplanet(BodyType::GasGiant, None, 100.0, 0, false, false),
+            "gas_giant"
+        );
     }
 
     #[test]
     fn test_classify_small_bodies() {
-        assert_eq!(classify_exoplanet(BodyType::DwarfPlanet, None, -200.0, 0, false, false), "dwarf");
-        assert_eq!(classify_exoplanet(BodyType::Moon, None, 0.0, 0, false, false), "moon");
-        assert_eq!(classify_exoplanet(BodyType::Comet, None, -50.0, 0, false, false), "comet");
+        assert_eq!(
+            classify_exoplanet(BodyType::DwarfPlanet, None, -200.0, 0, false, false),
+            "dwarf"
+        );
+        assert_eq!(
+            classify_exoplanet(BodyType::Moon, None, 0.0, 0, false, false),
+            "moon"
+        );
+        assert_eq!(
+            classify_exoplanet(BodyType::Comet, None, -50.0, 0, false, false),
+            "comet"
+        );
     }
 
     #[test]
     fn test_classify_asteroids() {
         assert_eq!(
-            classify_exoplanet(BodyType::Asteroid, Some(AsteroidClass::SType), 0.0, 0, false, false),
+            classify_exoplanet(
+                BodyType::Asteroid,
+                Some(AsteroidClass::SType),
+                0.0,
+                0,
+                false,
+                false
+            ),
             "asteroid_s"
         );
         assert_eq!(
-            classify_exoplanet(BodyType::Asteroid, Some(AsteroidClass::MType), 0.0, 0, false, false),
+            classify_exoplanet(
+                BodyType::Asteroid,
+                Some(AsteroidClass::MType),
+                0.0,
+                0,
+                false,
+                false
+            ),
             "asteroid_s"
         );
         assert_eq!(
-            classify_exoplanet(BodyType::Asteroid, Some(AsteroidClass::CType), 0.0, 0, false, false),
+            classify_exoplanet(
+                BodyType::Asteroid,
+                Some(AsteroidClass::CType),
+                0.0,
+                0,
+                false,
+                false
+            ),
             "asteroid_c"
         );
         assert_eq!(
-            classify_exoplanet(BodyType::Asteroid, Some(AsteroidClass::DType), 0.0, 0, false, false),
+            classify_exoplanet(
+                BodyType::Asteroid,
+                Some(AsteroidClass::DType),
+                0.0,
+                0,
+                false,
+                false
+            ),
             "asteroid_c"
         );
     }
@@ -1574,13 +1726,28 @@ mod tests {
     fn test_classify_ocean_override() {
         // With has_surface_ocean=true and ocean_is_water=true, habitable-zone planets
         // should always classify as "ocean" regardless of seed.
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 15.0, 0, true, true), "ocean");
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 15.0, 2, true, true), "ocean");
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 15.0, 3, true, true), "ocean");
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, 15.0, 0, true, true),
+            "ocean"
+        );
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, 15.0, 2, true, true),
+            "ocean"
+        );
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, 15.0, 3, true, true),
+            "ocean"
+        );
         // Non-water oceans should NOT force the "ocean" category
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 15.0, 0, true, false), "jungle");
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, 15.0, 0, true, false),
+            "jungle"
+        );
         // Outside habitable zone, ocean flag has no effect
-        assert_eq!(classify_exoplanet(BodyType::Planet, None, 600.0, 0, true, true), "lava");
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, 600.0, 0, true, true),
+            "lava"
+        );
     }
 
     // ── PlanetTextureManifest::pick ──────────────────────────────────────────
@@ -1612,9 +1779,21 @@ mod tests {
     fn test_manifest_fallback_has_all_expected_categories() {
         let manifest = PlanetTextureManifest::default_fallback();
         for cat in &[
-            "barren", "desert", "temperate", "jungle", "ocean",
-            "tundra", "ice", "lava", "gas_giant", "ice_giant",
-            "dwarf", "moon", "asteroid_s", "asteroid_c", "comet",
+            "barren",
+            "desert",
+            "temperate",
+            "jungle",
+            "ocean",
+            "tundra",
+            "ice",
+            "lava",
+            "gas_giant",
+            "ice_giant",
+            "dwarf",
+            "moon",
+            "asteroid_s",
+            "asteroid_c",
+            "comet",
         ] {
             assert!(
                 manifest.categories.contains_key(*cat),
@@ -1627,9 +1806,16 @@ mod tests {
     #[test]
     fn test_manifest_loads_from_ron_file() {
         let result = PlanetTextureManifest::load_from_file("assets/data/planet_textures.ron");
-        assert!(result.is_ok(), "Failed to load planet_textures.ron: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to load planet_textures.ron: {:?}",
+            result.err()
+        );
         let manifest = result.unwrap();
-        assert!(manifest.categories.len() >= 14, "expected at least 14 categories");
+        assert!(
+            manifest.categories.len() >= 14,
+            "expected at least 14 categories"
+        );
         assert!(manifest.pick("desert", 0).is_some());
         assert!(manifest.pick("jungle", 0).is_some());
         assert!(manifest.pick("lava", 0).is_some());
@@ -1640,20 +1826,47 @@ mod tests {
     #[test]
     fn test_category_tint_values_in_range() {
         let categories = [
-            "lava", "desert", "temperate", "jungle", "ocean",
-            "tundra", "ice", "barren", "gas_giant", "ice_giant",
-            "dwarf", "moon", "asteroid_s", "asteroid_c", "comet",
+            "lava",
+            "desert",
+            "temperate",
+            "jungle",
+            "ocean",
+            "tundra",
+            "ice",
+            "barren",
+            "gas_giant",
+            "ice_giant",
+            "dwarf",
+            "moon",
+            "asteroid_s",
+            "asteroid_c",
+            "comet",
         ];
         // Test with extreme r values to catch clamping issues
         for cat in &categories {
             for &r in &[0.0f32, 0.5, 0.999] {
                 let (color, roughness, metallic) = category_tint(cat, r, r, r);
                 let srgba = color.to_srgba();
-                assert!(srgba.red   >= 0.0 && srgba.red   <= 1.0, "{cat} red out of range");
-                assert!(srgba.green >= 0.0 && srgba.green <= 1.0, "{cat} green out of range");
-                assert!(srgba.blue  >= 0.0 && srgba.blue  <= 1.0, "{cat} blue out of range");
-                assert!(roughness >= 0.0 && roughness <= 1.0, "{cat} roughness out of range");
-                assert!(metallic  >= 0.0 && metallic  <= 1.0, "{cat} metallic out of range");
+                assert!(
+                    srgba.red >= 0.0 && srgba.red <= 1.0,
+                    "{cat} red out of range"
+                );
+                assert!(
+                    srgba.green >= 0.0 && srgba.green <= 1.0,
+                    "{cat} green out of range"
+                );
+                assert!(
+                    srgba.blue >= 0.0 && srgba.blue <= 1.0,
+                    "{cat} blue out of range"
+                );
+                assert!(
+                    roughness >= 0.0 && roughness <= 1.0,
+                    "{cat} roughness out of range"
+                );
+                assert!(
+                    metallic >= 0.0 && metallic <= 1.0,
+                    "{cat} metallic out of range"
+                );
             }
         }
     }

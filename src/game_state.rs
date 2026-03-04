@@ -173,7 +173,7 @@ impl Plugin for GameStatePlugin {
     fn build(&self, app: &mut App) {
         // Initialize the game seed at startup
         app.init_resource::<GameSeed>()
-           .init_resource::<ActiveMenu>();
+            .init_resource::<ActiveMenu>();
     }
 }
 

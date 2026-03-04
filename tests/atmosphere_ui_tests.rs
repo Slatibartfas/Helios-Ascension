@@ -20,7 +20,12 @@ fn test_atmosphere_ui_data_available() {
     assert_eq!(earth_atmosphere.surface_pressure_mbar, 1013.0);
     assert_eq!(earth_atmosphere.surface_temperature_celsius, 15.0);
     assert!(earth_atmosphere.breathable);
-    assert!(earth_atmosphere.calculate_colony_cost(1.0, 15.0, 15.0).abs() < 0.01);
+    assert!(
+        earth_atmosphere
+            .calculate_colony_cost(1.0, 15.0, 15.0)
+            .abs()
+            < 0.01
+    );
 
     // Verify gas composition can be iterated
     assert_eq!(earth_atmosphere.gases.len(), 4);
@@ -85,7 +90,13 @@ fn test_colony_cost_colors() {
 
     let costs: Vec<f32> = test_atmospheres
         .iter()
-        .map(|a| a.calculate_colony_cost(1.0, a.surface_temperature_celsius, a.surface_temperature_celsius))
+        .map(|a| {
+            a.calculate_colony_cost(
+                1.0,
+                a.surface_temperature_celsius,
+                a.surface_temperature_celsius,
+            )
+        })
         .collect();
 
     // Verify we have a range of costs

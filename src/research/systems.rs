@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
 
+use crate::colony::{BuildingsData, Colony};
 use crate::ui::SimulationTime;
-use crate::colony::{Colony, BuildingsData};
 
 use super::components::{
     ComponentDesign, EngineeringFacility, EngineeringProject, ResearchBuilding, ResearchProject,
@@ -106,22 +106,24 @@ pub fn update_research_points(
     if delta_time <= 0.0 {
         return;
     }
-    
+
     let seconds_per_month = SECONDS_PER_YEAR / 12.0;
 
     // Compute RP rate (for display; actual distribution is in advance_research_projects)
     let base_rp_rate = BASE_RP_PER_YEAR / SECONDS_PER_YEAR;
     let mut building_rp: f64 = research_buildings.iter().map(|b| b.points_per_second).sum();
-    
+
     // Add colony RP
     if let Some(data) = &buildings_data {
         for colony in colony_query.iter() {
-             for (building_type, &count) in &colony.buildings {
-                if count == 0 { continue; }
+            for (building_type, &count) in &colony.buildings {
+                if count == 0 {
+                    continue;
+                }
                 if let Some(def) = data.get(building_type) {
                     for modifier in &def.modifiers {
                         if modifier.modifier_type == "ResearchSpeed" {
-                             // Value is RP/month -> RP/sec
+                            // Value is RP/month -> RP/sec
                             let val = (modifier.value * count as f64) / seconds_per_month;
                             building_rp += val;
                             // info!("Added RP from {}: {} * {} = {}", def.display_name, count, modifier.value, val * seconds_per_month);
@@ -139,13 +141,18 @@ pub fn update_research_points(
 
     // Compute and accumulate engineering points
     let base_ep_rate = BASE_EP_PER_YEAR / SECONDS_PER_YEAR;
-    let mut building_ep: f64 = engineering_facilities.iter().map(|f| f.points_per_second).sum();
-    
+    let mut building_ep: f64 = engineering_facilities
+        .iter()
+        .map(|f| f.points_per_second)
+        .sum();
+
     // Add colony EP
     if let Some(data) = &buildings_data {
         for colony in colony_query.iter() {
-             for (building_type, &count) in &colony.buildings {
-                if count == 0 { continue; }
+            for (building_type, &count) in &colony.buildings {
+                if count == 0 {
+                    continue;
+                }
                 if let Some(def) = data.get(building_type) {
                     for modifier in &def.modifiers {
                         if modifier.modifier_type == "EngineeringSpeed" {
@@ -160,8 +167,7 @@ pub fn update_research_points(
 
     let ep_multiplier = research_state.engineering_speed_multiplier();
     research_state.ep_rate_per_second = (base_ep_rate + building_ep) * ep_multiplier;
-    research_state.engineering_points_available +=
-        research_state.ep_rate_per_second * delta_time;
+    research_state.engineering_points_available += research_state.ep_rate_per_second * delta_time;
 }
 
 /// System to advance active research projects using RP income.
@@ -269,9 +275,7 @@ pub fn advance_research_projects(
 }
 
 /// Evenly redistribute allocation percentages among all active, incomplete projects.
-fn redistribute_allocations(
-    projects: &mut Query<(Entity, &mut ResearchProject, &ResearchTeam)>,
-) {
+fn redistribute_allocations(projects: &mut Query<(Entity, &mut ResearchProject, &ResearchTeam)>) {
     let active_count = projects
         .iter()
         .filter(|(_, p, _)| !p.is_complete() && p.active)
@@ -423,7 +427,11 @@ pub fn process_pending_research(
         };
 
         // Verify prerequisites are met.
-        let unlocked: Vec<_> = research_state.unlocked_technologies.iter().cloned().collect();
+        let unlocked: Vec<_> = research_state
+            .unlocked_technologies
+            .iter()
+            .cloned()
+            .collect();
         if !tech_data.check_prerequisites(&tech_id, &unlocked) {
             warn!(
                 "Cannot start research on '{}': prerequisites not met",
@@ -441,10 +449,10 @@ pub fn process_pending_research(
     }
 
     let new_active_count = existing_projects
-            .iter()
-            .filter(|(_, p, _)| p.active && !p.is_complete())
-            .count()
-            + startable_tech_ids.len();
+        .iter()
+        .filter(|(_, p, _)| p.active && !p.is_complete())
+        .count()
+        + startable_tech_ids.len();
 
     let equal_share = if new_active_count > 0 {
         1.0 / new_active_count as f64
@@ -491,7 +499,10 @@ pub fn process_stop_research(
         let cancel_ids: HashSet<String> = pending.cancel_research.drain(..).collect();
         for (entity, project, _) in projects.iter() {
             if cancel_ids.contains(&project.tech_id) {
-                info!("Cancelled research on: {} (entity despawned)", project.tech_id);
+                info!(
+                    "Cancelled research on: {} (entity despawned)",
+                    project.tech_id
+                );
                 commands.entity(entity).despawn();
             }
         }
@@ -566,25 +577,25 @@ pub fn initialize_baseline_technology(
     tech_data: Res<TechnologiesData>,
 ) {
     let mut unlocked_count = 0;
-    
+
     for tech in tech_data.technologies.values() {
         // Skip if already unlocked (though this runs once at start)
         if research_state.is_unlocked(&tech.id) {
             continue;
         }
-        
+
         if tech.research_cost <= 0.0 && tech.prerequisites.is_empty() {
             research_state.unlock_tech(tech.id.clone());
-            
+
             // Apply modifiers
             for modifier in &tech.modifiers {
                 research_state.add_modifier(modifier.modifier_type.clone(), modifier.value);
             }
-            
+
             unlocked_count += 1;
         }
     }
-    
+
     if unlocked_count > 0 {
         info!("Initialized {} baseline technologies", unlocked_count);
     }
@@ -644,7 +655,10 @@ pub fn apply_debug_modifiers(
 ) {
     // Remove whatever we injected last frame
     for (modifier_type, value) in prev_applied.iter() {
-        *research_state.active_modifiers.entry(modifier_type.clone()).or_insert(0.0) -= value;
+        *research_state
+            .active_modifiers
+            .entry(modifier_type.clone())
+            .or_insert(0.0) -= value;
     }
     prev_applied.clear();
 

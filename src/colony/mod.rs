@@ -18,7 +18,9 @@ pub mod types;
 
 pub use components::{Colony, ConstructionProject, PendingConstructionActions};
 pub use data::{BuildingDefinition, BuildingsData};
-pub use systems::{advance_construction, process_construction_actions, update_colony_growth, update_treasury};
+pub use systems::{
+    advance_construction, process_construction_actions, update_colony_growth, update_treasury,
+};
 pub use types::{BuildingCategory, BuildingType};
 
 /// Debug settings for construction system (toggled with F12 on Construction menu)

@@ -21,10 +21,18 @@ fn test_solar_system_data_loads() {
 
     // Verify body types
     let planets = data.get_bodies_by_type(BodyType::Planet);
-    assert_eq!(planets.len(), 4, "Should have 4 rocky planets (Mercury, Venus, Earth, Mars)");
+    assert_eq!(
+        planets.len(),
+        4,
+        "Should have 4 rocky planets (Mercury, Venus, Earth, Mars)"
+    );
 
     let gas_giants = data.get_bodies_by_type(BodyType::GasGiant);
-    assert_eq!(gas_giants.len(), 4, "Should have 4 gas giants (Jupiter, Saturn, Uranus, Neptune)");
+    assert_eq!(
+        gas_giants.len(),
+        4,
+        "Should have 4 gas giants (Jupiter, Saturn, Uranus, Neptune)"
+    );
 
     let stars = data.get_bodies_by_type(BodyType::Star);
     assert_eq!(stars.len(), 1, "Should have 1 star");

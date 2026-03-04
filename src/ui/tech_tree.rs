@@ -1,6 +1,5 @@
+use super::research_panel::{render_research_tech_tooltip_content, ActiveProjectInfo};
 use super::*;
-use super::research_panel::{ActiveProjectInfo, render_research_tech_tooltip_content};
-
 
 /// Render the Tech Tree tab
 pub(super) fn render_tech_tree_tab(
@@ -18,31 +17,29 @@ pub(super) fn render_tech_tree_tab(
     ui.label("Pan: Middle mouse drag | Zoom: Mouse wheel | Click: Select tech & highlight path");
     if debug_enabled {
         ui.label(
-            egui::RichText::new("Right-click: Edit/delete node | Right-click empty space: Add new tech")
-                .small()
-                .color(theme::AMBER),
+            egui::RichText::new(
+                "Right-click: Edit/delete node | Right-click empty space: Add new tech",
+            )
+            .small()
+            .color(theme::AMBER),
         );
     }
     ui.separator();
-    
+
     // Local state for pan, zoom, and selected tech (using unique ID for persistence)
     let pan_id = ui.id().with("tech_tree_pan");
     let zoom_id = ui.id().with("tech_tree_zoom");
     let sel_persist_id = ui.id().with("tech_tree_selected");
-    
+
     let mut pan_offset: egui::Vec2 = ui.data_mut(|data| {
         data.get_persisted(pan_id)
             .unwrap_or(egui::Vec2::new(50.0, 50.0))
     });
-    
-    let mut zoom: f32 = ui.data_mut(|data| {
-        data.get_persisted(zoom_id).unwrap_or(1.0)
-    });
-    
-    let mut selected_tech: Option<String> = ui.data_mut(|data| {
-        data.get_persisted(sel_persist_id)
-    });
-    
+
+    let mut zoom: f32 = ui.data_mut(|data| data.get_persisted(zoom_id).unwrap_or(1.0));
+
+    let mut selected_tech: Option<String> = ui.data_mut(|data| data.get_persisted(sel_persist_id));
+
     // ---------- layout constants ----------
     let tier_spacing = 310.0 * zoom;
     let node_gap_y = 14.0 * zoom;
@@ -50,11 +47,11 @@ pub(super) fn render_tech_tree_tab(
     let pane_pad = (10.0 * zoom).round();
     let pane_rounding = 6.0 * zoom;
     let label_width = (140.0 * zoom).round();
-    
+
     // ---------- status line (fixed height, drawn FIRST so it reserves space at the bottom) ----------
     // We draw it at the end but must reserve its height now.
     let status_height = 26.0;
-    
+
     // ---------- canvas: allocate ALL remaining space minus status ----------
     let avail = ui.available_rect_before_wrap();
     if avail.height() <= status_height + 10.0 {
@@ -65,33 +62,41 @@ pub(super) fn render_tech_tree_tab(
         avail.min,
         egui::Pos2::new(avail.max.x, avail.max.y - status_height),
     );
-    
+
     // Single response for the whole canvas – handles pan / zoom / click
     let response = ui.allocate_rect(canvas_rect, egui::Sense::click_and_drag());
-    
+
     // Zoom – use pointer position directly so zooming works even when a tooltip is shown
-    if ui.input(|i| i.pointer.hover_pos().map_or(false, |pos| canvas_rect.contains(pos))) {
+    if ui.input(|i| {
+        i.pointer
+            .hover_pos()
+            .map_or(false, |pos| canvas_rect.contains(pos))
+    }) {
         let scroll_delta = ui.input(|i| i.smooth_scroll_delta.y);
         if scroll_delta != 0.0 {
             zoom = (zoom + scroll_delta * 0.001).clamp(0.3, 3.0);
         }
     }
     // Pan (middle-click drag) – read raw pointer delta so pan works even when a tooltip is shown
-    let pointer_in_canvas = ui.input(|i| i.pointer.hover_pos().map_or(false, |pos| canvas_rect.contains(pos)));
+    let pointer_in_canvas = ui.input(|i| {
+        i.pointer
+            .hover_pos()
+            .map_or(false, |pos| canvas_rect.contains(pos))
+    });
     if pointer_in_canvas && ui.input(|i| i.pointer.button_down(egui::PointerButton::Middle)) {
         pan_offset += ui.input(|i| i.pointer.delta());
     }
-    
+
     // Persist pan / zoom immediately
     ui.data_mut(|data| {
         data.insert_persisted(pan_id, pan_offset);
         data.insert_persisted(zoom_id, zoom);
     });
-    
+
     // Clipped painter so nothing bleeds outside the canvas
     let clip = ui.clip_rect().intersect(canvas_rect);
     let painter = ui.painter().with_clip_rect(clip);
-    
+
     // ---------- compute uniform node size ----------
     // Use a fixed node size based on zoom so all boxes are identical.
     // Two rows: row 1 = icon + name, row 2 = research cost
@@ -125,18 +130,21 @@ pub(super) fn render_tech_tree_tab(
     // tiers run left-to-right as columns.  Multiple techs in the same
     // (category, tier) cell are stacked vertically within that band.
     let mut node_positions: HashMap<String, egui::Pos2> = HashMap::new();
-    
+
     // Collect unique tiers (sorted)
     let mut tier_set: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
     for (_, tech) in &tech_data.technologies {
         tier_set.insert(tech.tier);
     }
     let tiers: Vec<u32> = tier_set.into_iter().collect();
-    let tier_index_map: HashMap<u32, usize> = tiers.iter().enumerate().map(|(i, &t)| (t, i)).collect();
-    
+    let tier_index_map: HashMap<u32, usize> =
+        tiers.iter().enumerate().map(|(i, &t)| (t, i)).collect();
+
     // Group techs: category -> tier -> Vec<tech>
-    let mut techs_by_cat_tier: std::collections::BTreeMap<u8, std::collections::BTreeMap<u32, Vec<&crate::research::types::Technology>>> =
-        std::collections::BTreeMap::new();
+    let mut techs_by_cat_tier: std::collections::BTreeMap<
+        u8,
+        std::collections::BTreeMap<u32, Vec<&crate::research::types::Technology>>,
+    > = std::collections::BTreeMap::new();
     for (_, tech) in &tech_data.technologies {
         techs_by_cat_tier
             .entry(tech.category as u8)
@@ -151,7 +159,7 @@ pub(super) fn render_tech_tree_tab(
             cell_techs.sort_by_key(|t| &t.name);
         }
     }
-    
+
     // Compute height of each category band (max stacked techs across all tiers)
     // and record category row Y start positions
     struct CategoryBand {
@@ -162,7 +170,7 @@ pub(super) fn render_tech_tree_tab(
     let mut category_bands: Vec<CategoryBand> = Vec::new();
     let origin_x = canvas_rect.left() + pan_offset.x + label_width;
     let mut current_y = canvas_rect.top() + pan_offset.y;
-    
+
     let categories = TechCategory::all();
     for &cat in categories {
         let cat_key = cat as u8;
@@ -174,9 +182,10 @@ pub(super) fn render_tech_tree_tab(
         if max_stack == 0 {
             continue; // skip empty categories
         }
-        let band_content_h = max_stack as f32 * node_h + (max_stack as f32 - 1.0).max(0.0) * node_gap_y;
+        let band_content_h =
+            max_stack as f32 * node_h + (max_stack as f32 - 1.0).max(0.0) * node_gap_y;
         let band_h = band_content_h + pane_pad * 2.0;
-        
+
         category_bands.push(CategoryBand {
             category: cat,
             y_start: current_y,
@@ -184,7 +193,7 @@ pub(super) fn render_tech_tree_tab(
         });
         current_y += band_h + category_gap;
     }
-    
+
     // Place nodes within each category band
     for band in &category_bands {
         let cat_key = band.category as u8;
@@ -193,9 +202,11 @@ pub(super) fn render_tech_tree_tab(
                 let tier_idx = tier_index_map.get(&tier).copied().unwrap_or(0);
                 let col_x = origin_x + (tier_idx as f32) * tier_spacing;
                 // Center the stack vertically within the band
-                let stack_h = cell_techs.len() as f32 * node_h + (cell_techs.len() as f32 - 1.0).max(0.0) * node_gap_y;
-                let stack_y_start = band.y_start + pane_pad + (band.height - pane_pad * 2.0 - stack_h) / 2.0;
-                
+                let stack_h = cell_techs.len() as f32 * node_h
+                    + (cell_techs.len() as f32 - 1.0).max(0.0) * node_gap_y;
+                let stack_y_start =
+                    band.y_start + pane_pad + (band.height - pane_pad * 2.0 - stack_h) / 2.0;
+
                 for (i, tech) in cell_techs.iter().enumerate() {
                     let node_top = stack_y_start + i as f32 * (node_h + node_gap_y);
                     let center_x = col_x + node_w / 2.0;
@@ -205,53 +216,56 @@ pub(super) fn render_tech_tree_tab(
             }
         }
     }
-    
+
     // Compute total width spanned by tier columns for pane drawing
     let total_tier_width = if tiers.is_empty() {
         node_w
     } else {
         (tiers.len() as f32 - 1.0) * tier_spacing + node_w
     };
-    
+
     // ---------- draw category background panes (horizontal bands) ----------
     for band in &category_bands {
         let cat_color = tech_category_color(band.category);
-        let bg_color = egui::Color32::from_rgba_unmultiplied(
-            cat_color.r(), cat_color.g(), cat_color.b(), 18,
-        );
-        let border_color = egui::Color32::from_rgba_unmultiplied(
-            cat_color.r(), cat_color.g(), cat_color.b(), 40,
-        );
+        let bg_color =
+            egui::Color32::from_rgba_unmultiplied(cat_color.r(), cat_color.g(), cat_color.b(), 18);
+        let border_color =
+            egui::Color32::from_rgba_unmultiplied(cat_color.r(), cat_color.g(), cat_color.b(), 40);
         let pane_rect = egui::Rect::from_min_size(
             egui::Pos2::new(origin_x - pane_pad, band.y_start),
             egui::Vec2::new(total_tier_width + pane_pad * 2.0, band.height),
         );
         painter.rect_filled(pane_rect, pane_rounding, bg_color);
-        painter.rect_stroke(pane_rect, pane_rounding, egui::Stroke::new(1.0 * zoom, border_color), egui::StrokeKind::Outside);
-        
+        painter.rect_stroke(
+            pane_rect,
+            pane_rounding,
+            egui::Stroke::new(1.0 * zoom, border_color),
+            egui::StrokeKind::Outside,
+        );
+
         // Category label on the left: icon + stacked word lines
         let cat_icon = band.category.icon();
         let cat_name = band.category.display_name().to_uppercase();
-        
+
         // Fixed icon size for consistency across variable-height category panes
         let icon_font_size = (22.0 * zoom).round();
         let font_icon_large = egui::FontId::proportional(icon_font_size);
         let font_cat_word = egui::FontId::proportional((11.0 * zoom).round());
-        
+
         // Split name into words, one per line
         let words: Vec<&str> = cat_name.split_whitespace().collect();
         let line_spacing = font_cat_word.size * 1.25;
         let text_block_h = words.len() as f32 * line_spacing;
         let gap_between = (4.0 * zoom).round();
-        
+
         // Total height of the content block
         let total_h = icon_font_size + gap_between + text_block_h;
-        
+
         // Center within the band
         let band_center_y = band.y_start + band.height / 2.0;
         let block_top = band_center_y - total_h / 2.0;
         let label_center_x = origin_x - pane_pad - label_width / 2.0;
-        
+
         // Icon
         painter.text(
             egui::Pos2::new(label_center_x, block_top + icon_font_size / 2.0),
@@ -260,22 +274,28 @@ pub(super) fn render_tech_tree_tab(
             font_icon_large,
             cat_color,
         );
-        
+
         // Word-per-line text
         let text_top = block_top + icon_font_size + gap_between;
         for (i, word) in words.iter().enumerate() {
             painter.text(
-                egui::Pos2::new(label_center_x, text_top + i as f32 * line_spacing + line_spacing / 2.0),
+                egui::Pos2::new(
+                    label_center_x,
+                    text_top + i as f32 * line_spacing + line_spacing / 2.0,
+                ),
                 egui::Align2::CENTER_CENTER,
                 *word,
                 font_cat_word.clone(),
                 egui::Color32::from_rgba_unmultiplied(
-                    cat_color.r(), cat_color.g(), cat_color.b(), 200,
+                    cat_color.r(),
+                    cat_color.g(),
+                    cat_color.b(),
+                    200,
                 ),
             );
         }
     }
-    
+
     // ---------- draw tier column headers ----------
     let header_y = canvas_rect.top() + pan_offset.y - (22.0 * zoom);
     let font_header = egui::FontId::proportional((15.0 * zoom).round());
@@ -289,7 +309,7 @@ pub(super) fn render_tech_tree_tab(
             theme::TEXT_DIM,
         );
     }
-    
+
     // ---------- prerequisite highlight path ----------
     let mut path_techs = std::collections::HashSet::new();
     if let Some(ref sel_id) = selected_tech {
@@ -305,7 +325,7 @@ pub(super) fn render_tech_tree_tab(
             }
         }
     }
-    
+
     // ---------- draw connection lines (cubic bezier) ----------
     // Connect right edge of prerequisite to left edge of dependent
     for (_, tech) in &tech_data.technologies {
@@ -344,7 +364,7 @@ pub(super) fn render_tech_tree_tab(
             }
         }
     }
-    
+
     // ---------- draw nodes & collect hit-test rects ----------
     // We do NOT call ui.allocate_rect for each node (that was the bug).
     // Instead we paint directly and do manual hit-testing against the pointer.
@@ -356,19 +376,26 @@ pub(super) fn render_tech_tree_tab(
     let mut right_clicked_tech_id: Option<String> = None;
     // We need to collect hovered rect for tooltip
     let mut hovered_rect: Option<egui::Rect> = None;
-    
-    let unlocked_ids: Vec<_> = research_state.unlocked_technologies.iter().cloned().collect();
-    
+
+    let unlocked_ids: Vec<_> = research_state
+        .unlocked_technologies
+        .iter()
+        .cloned()
+        .collect();
+
     for (tech_id, center) in &node_positions {
         if let Some(tech) = tech_data.technologies.get(tech_id) {
             let is_unlocked = research_state.is_unlocked(&tech.id);
             let is_researching = active_research.contains_key(&tech.id);
-            let research_progress = active_research.get(&tech.id).map(|info| info.progress_percent);
-            let can_research =
-                !is_unlocked && !is_researching && tech_data.check_prerequisites(&tech.id, &unlocked_ids);
+            let research_progress = active_research
+                .get(&tech.id)
+                .map(|info| info.progress_percent);
+            let can_research = !is_unlocked
+                && !is_researching
+                && tech_data.check_prerequisites(&tech.id, &unlocked_ids);
             let is_in_path = path_techs.contains(&tech.id);
             let is_selected = selected_tech.as_ref() == Some(&tech.id);
-            
+
             // Node fill color — use darker/muted tones so white text is always readable
             let node_color = if is_in_path {
                 if is_unlocked {
@@ -389,19 +416,19 @@ pub(super) fn render_tech_tree_tab(
             } else {
                 egui::Color32::from_rgb(45, 45, 50)
             };
-            
+
             let category_color = tech_category_color(tech.category);
-            
+
             // Build node rect from center
             let node_rect = egui::Rect::from_center_size(
                 egui::Pos2::new(center.x.round(), center.y.round()),
                 egui::Vec2::new(node_w, node_h),
             );
-            
+
             // --- paint background ---
             let rounding = 4.0 * zoom;
             painter.rect_filled(node_rect, rounding, node_color);
-            
+
             // Border — thicker if selected or in path
             let border_w = if is_selected {
                 3.5 * zoom
@@ -416,7 +443,7 @@ pub(super) fn render_tech_tree_tab(
                 egui::Stroke::new(border_w, category_color),
                 egui::StrokeKind::Outside,
             );
-            
+
             // --- row 1: icon + name (left-aligned) ---
             let text_color = if is_in_path {
                 egui::Color32::WHITE
@@ -427,10 +454,10 @@ pub(super) fn render_tech_tree_tab(
             } else {
                 theme::TEXT_DIM
             };
-            
+
             let row1_y = (node_rect.top() + v_pad + name_row_h / 2.0).round();
             let content_x = (node_rect.left() + h_pad).round();
-            
+
             // Icon
             if let Some(tex) = icon_textures.get(&tech.category) {
                 let ir = egui::Rect::from_min_size(
@@ -444,7 +471,7 @@ pub(super) fn render_tech_tree_tab(
                     category_color,
                 );
             }
-            
+
             // Name text
             let name_x = (content_x + icon_sz + icon_pad).round();
             painter.text(
@@ -454,9 +481,10 @@ pub(super) fn render_tech_tree_tab(
                 font_name.clone(),
                 text_color,
             );
-            
+
             // --- row 2: research cost / progress (left-aligned, dimmer) ---
-            let row2_y = (node_rect.top() + v_pad + name_row_h + row_gap + cost_row_h / 2.0).round();
+            let row2_y =
+                (node_rect.top() + v_pad + name_row_h + row_gap + cost_row_h / 2.0).round();
             let (cost_text, cost_color) = if is_unlocked {
                 ("✔ Researched".to_string(), theme::GREEN)
             } else if let Some(pct) = research_progress {
@@ -485,12 +513,15 @@ pub(super) fn render_tech_tree_tab(
                 painter.rect_filled(bar_rect, 0.0, theme::RP_BLUE);
                 // bg track
                 let track_rect = egui::Rect::from_min_size(
-                    egui::Pos2::new(node_rect.left() + 2.0 + (node_rect.width() - 4.0) * pct, node_rect.bottom() - bar_h - 1.0),
+                    egui::Pos2::new(
+                        node_rect.left() + 2.0 + (node_rect.width() - 4.0) * pct,
+                        node_rect.bottom() - bar_h - 1.0,
+                    ),
                     egui::Vec2::new((node_rect.width() - 4.0) * (1.0 - pct), bar_h),
                 );
                 painter.rect_filled(track_rect, 0.0, theme::SURFACE);
             }
-            
+
             // --- hit-test ---
             if let Some(pp) = pointer_pos {
                 if node_rect.contains(pp) && canvas_rect.contains(pp) {
@@ -506,7 +537,7 @@ pub(super) fn render_tech_tree_tab(
             }
         }
     }
-    
+
     // Handle click – toggle selection
     if let Some(cid) = clicked_tech_id {
         if selected_tech.as_ref() == Some(&cid) {
@@ -546,7 +577,11 @@ pub(super) fn render_tech_tree_tab(
                             ui.set_min_width(160.0);
                             if let Some(ref tid) = ctx_menu.tech_id {
                                 // Right-clicked on a node
-                                ui.label(egui::RichText::new(format!("Tech: {}", tid)).strong().small());
+                                ui.label(
+                                    egui::RichText::new(format!("Tech: {}", tid))
+                                        .strong()
+                                        .small(),
+                                );
                                 ui.separator();
                                 if ui.button("✏ Edit Technology").clicked() {
                                     if let Some(tech) = tech_data.technologies.get(tid) {
@@ -574,13 +609,12 @@ pub(super) fn render_tech_tree_tab(
                 });
 
             // Close menu if clicked elsewhere
-            let any_click = ui.input(|i| {
-                i.pointer.any_pressed()
-            });
+            let any_click = ui.input(|i| i.pointer.any_pressed());
             if any_click && !close_menu {
                 // Check if the click was outside the menu area (approximate)
                 if let Some(pp) = pointer_pos {
-                    let menu_rect = egui::Rect::from_min_size(menu_pos, egui::Vec2::new(170.0, 100.0));
+                    let menu_rect =
+                        egui::Rect::from_min_size(menu_pos, egui::Vec2::new(170.0, 100.0));
                     if !menu_rect.contains(pp) {
                         close_menu = true;
                     }
@@ -607,9 +641,11 @@ pub(super) fn render_tech_tree_tab(
                 .show(ui.ctx(), |ui| {
                     ui.label(format!("Delete technology \"{}\" ({})?", tech_name, del_id));
                     ui.label(
-                        egui::RichText::new("This will also remove it from all prerequisite lists.")
-                            .small()
-                            .color(theme::AMBER),
+                        egui::RichText::new(
+                            "This will also remove it from all prerequisite lists.",
+                        )
+                        .small()
+                        .color(theme::AMBER),
                     );
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
@@ -646,7 +682,7 @@ pub(super) fn render_tech_tree_tab(
         // ---------- Add Technology dialog ----------
         render_tech_edit_dialog(ui, tech_data, edit_state, true);
     }
-    
+
     // Show tooltip for hovered or selected node
     // Use a tooltip Window instead of show_tooltip_at so the user can interact with it
     let tooltip_hold_id = ui.id().with("tech_tooltip_hold");
@@ -661,8 +697,8 @@ pub(super) fn render_tech_tree_tab(
             egui::pos2(held_tooltip_pos.x - 2.0, held_tooltip_pos.y - 2.0),
             egui::pos2(held_tooltip_pos.x + 390.0, held_tooltip_pos.y + 430.0),
         );
-        let pointer_inside_held_tooltip = pointer_hover_pos
-            .map_or(false, |pos| held_tooltip_rect.contains(pos));
+        let pointer_inside_held_tooltip =
+            pointer_hover_pos.map_or(false, |pos| held_tooltip_rect.contains(pos));
 
         if pointer_inside_held_tooltip {
             hovered_tech_id = None;
@@ -704,7 +740,8 @@ pub(super) fn render_tech_tree_tab(
                 egui::pos2(held_rect.right() - 8.0, held_rect.top() - 20.0),
                 egui::pos2(tooltip_pos.x + 390.0, tooltip_pos.y + 430.0),
             );
-            let pointer_in_bridge = pointer_hover_pos.map_or(false, |pos| hover_bridge.contains(pos));
+            let pointer_in_bridge =
+                pointer_hover_pos.map_or(false, |pos| hover_bridge.contains(pos));
 
             if now <= hold_until || pointer_in_bridge {
                 if pointer_in_bridge {
@@ -722,17 +759,16 @@ pub(super) fn render_tech_tree_tab(
             }
         }
     }
-    
+
     if let (Some(ref tid), Some(tr)) = (&tooltip_tech_id, tooltip_rect) {
         if let Some(tech) = tech_data.technologies.get(tid) {
             let is_researching = active_research.contains_key(&tech.id);
-            let can_research =
-                !research_state.is_unlocked(&tech.id)
-                    && !is_researching
-                    && tech_data.check_prerequisites(&tech.id, &unlocked_ids);
-            
+            let can_research = !research_state.is_unlocked(&tech.id)
+                && !is_researching
+                && tech_data.check_prerequisites(&tech.id, &unlocked_ids);
+
             let tooltip_pos = egui::pos2(tr.right() + 4.0, tr.top());
-            
+
             egui::Window::new("tech_node_tooltip")
                 .id(ui.id().with("tech_tooltip_win"))
                 .fixed_pos(tooltip_pos)
@@ -818,7 +854,7 @@ pub(super) fn render_tech_tree_tab(
                 });
         }
     }
-    
+
     // Persist selection
     ui.data_mut(|data| {
         if let Some(ref sel) = selected_tech {
@@ -827,7 +863,7 @@ pub(super) fn render_tech_tree_tab(
             data.remove::<String>(sel_persist_id);
         }
     });
-    
+
     // ---------- status bar ----------
     let status_rect = egui::Rect::from_min_max(
         egui::Pos2::new(avail.min.x, avail.max.y - status_height),
@@ -843,10 +879,7 @@ pub(super) fn render_tech_tree_tab(
             ui.label(format!("| Zoom: {:.1}x", zoom));
             if debug_enabled {
                 ui.separator();
-                ui.colored_label(
-                    theme::RED,
-                    "Right-click: edit/add techs",
-                );
+                ui.colored_label(theme::RED, "Right-click: edit/add techs");
             }
             ui.separator();
             if let Some(ref sel_id) = selected_tech {
@@ -971,11 +1004,7 @@ pub(super) fn render_tech_edit_dialog(
                             for (i, prereq) in edit_data.prerequisites.iter().enumerate() {
                                 ui.horizontal(|ui| {
                                     let exists = tech_data.technologies.contains_key(prereq);
-                                    let color = if exists {
-                                        theme::GREEN
-                                    } else {
-                                        theme::RED
-                                    };
+                                    let color = if exists { theme::GREEN } else { theme::RED };
                                     ui.colored_label(color, prereq);
                                     if ui.small_button("✖").clicked() {
                                         remove_idx = Some(i);
@@ -1018,8 +1047,7 @@ pub(super) fn render_tech_edit_dialog(
                                             );
                                         }
                                     });
-                                if ui.button("➕ Add").clicked()
-                                    && !edit_data.new_prereq.is_empty()
+                                if ui.button("➕ Add").clicked() && !edit_data.new_prereq.is_empty()
                                 {
                                     edit_data.prerequisites.push(edit_data.new_prereq.clone());
                                     edit_data.new_prereq.clear();
@@ -1030,7 +1058,9 @@ pub(super) fn render_tech_edit_dialog(
                         ui.add_space(10.0);
 
                         // Modifiers section
-                        ui.label(egui::RichText::new("Modifiers (granted when researched):").strong());
+                        ui.label(
+                            egui::RichText::new("Modifiers (granted when researched):").strong(),
+                        );
                         ui.group(|ui| {
                             let mut remove_idx: Option<usize> = None;
                             if edit_data.modifiers.is_empty() {
@@ -1048,7 +1078,11 @@ pub(super) fn render_tech_edit_dialog(
                                         } else {
                                             theme::RED
                                         },
-                                        format!("{}: {:+.1}%", m.modifier_type.display_name(), m.value),
+                                        format!(
+                                            "{}: {:+.1}%",
+                                            m.modifier_type.display_name(),
+                                            m.value
+                                        ),
                                     );
                                     if ui.small_button("✖").clicked() {
                                         remove_idx = Some(i);
@@ -1083,8 +1117,11 @@ pub(super) fn render_tech_edit_dialog(
                                         .desired_width(70.0),
                                 );
                                 if ui.button("➕ Add").clicked() {
-                                    if let Ok(val) = edit_data.new_modifier_value.trim().parse::<f64>() {
-                                        let mtype = all_mods[edit_data.new_modifier_type_index].clone();
+                                    if let Ok(val) =
+                                        edit_data.new_modifier_value.trim().parse::<f64>()
+                                    {
+                                        let mtype =
+                                            all_mods[edit_data.new_modifier_type_index].clone();
                                         edit_data.modifiers.push(TechModifierDef {
                                             modifier_type: mtype,
                                             value: val,
@@ -1207,7 +1244,13 @@ pub(super) fn save_technologies_to_file(tech_data: &TechnologiesData) {
     }
 
     let mut techs: Vec<_> = tech_data.technologies.values().cloned().collect();
-    techs.sort_by(|a, b| a.tier.cmp(&b.tier).then_with(|| a.category.cmp(&b.category).then_with(|| a.name.cmp(&b.name))));
+    techs.sort_by(|a, b| {
+        a.tier.cmp(&b.tier).then_with(|| {
+            a.category
+                .cmp(&b.category)
+                .then_with(|| a.name.cmp(&b.name))
+        })
+    });
 
     let mut comps: Vec<_> = tech_data.components.values().cloned().collect();
     comps.sort_by(|a, b| a.id.cmp(&b.id));

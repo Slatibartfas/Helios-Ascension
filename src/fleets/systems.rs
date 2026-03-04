@@ -28,14 +28,15 @@ const VISUAL_ORBIT_RATE: f64 = std::f64::consts::TAU / 40.0;
 pub fn update_fleet_orbit_positions(
     real_time: Res<Time<Real>>,
     time_scale: Res<TimeScale>,
-    mut fleet_query: Query<
-        (&mut SpaceCoordinates, &mut FleetOrbit),
-        With<Fleet>,
-    >,
+    mut fleet_query: Query<(&mut SpaceCoordinates, &mut FleetOrbit), With<Fleet>>,
     body_coords: Query<(&SpaceCoordinates, Option<&LogicalParent>), Without<Fleet>>,
 ) {
     // Freeze the visual orbit when the player has paused the simulation.
-    let real_delta = if time_scale.is_paused() { 0.0 } else { real_time.delta_secs_f64() };
+    let real_delta = if time_scale.is_paused() {
+        0.0
+    } else {
+        real_time.delta_secs_f64()
+    };
 
     for (mut fleet_sc, mut orbit) in fleet_query.iter_mut() {
         // Advance the visual orbital angle at a slow, legible rate.
@@ -59,7 +60,8 @@ pub fn update_fleet_orbit_positions(
             // heliocentric position so the fleet's SpaceCoordinates are heliocentric,
             // which is required for correct departure-direction and range queries.
             let body_helio_pos = if let Some(lp) = maybe_lp {
-                body_coords.get(lp.0)
+                body_coords
+                    .get(lp.0)
                     .map(|(sc, _)| sc.position)
                     .unwrap_or(DVec3::ZERO)
                     + body_sc.position
@@ -101,20 +103,26 @@ pub fn update_fleet_maneuver_positions(
         if elapsed < maneuver.departure_time {
             continue;
         }
-        
+
         if maneuver.is_kinematic() {
             let progress = maneuver.progress(elapsed);
-            
+
             // Get origin position at departure
             let origin_pos = maneuver.start_position_au.unwrap_or_else(|| {
-                center_coords.get(maneuver.origin_body).map(|sc| sc.position).unwrap_or(DVec3::ZERO)
+                center_coords
+                    .get(maneuver.origin_body)
+                    .map(|sc| sc.position)
+                    .unwrap_or(DVec3::ZERO)
             });
-            
+
             // Get destination position at arrival
             let dest_pos = maneuver.end_position_au.unwrap_or_else(|| {
-                center_coords.get(maneuver.destination_body).map(|sc| sc.position).unwrap_or(DVec3::ZERO)
+                center_coords
+                    .get(maneuver.destination_body)
+                    .map(|sc| sc.position)
+                    .unwrap_or(DVec3::ZERO)
             });
-            
+
             fleet_sc.position = origin_pos + (dest_pos - origin_pos) * progress;
         } else {
             let dt = elapsed - maneuver.departure_time;
@@ -123,8 +131,8 @@ pub fn update_fleet_maneuver_positions(
             // follow transfer_orbit until leg2_start_s, then switch to leg2_orbit.
             let (active_orbit, dt_in_orbit) = active_orbit_at(maneuver, dt);
 
-            let mean_anomaly = active_orbit.mean_anomaly_epoch
-                + active_orbit.mean_motion * dt_in_orbit;
+            let mean_anomaly =
+                active_orbit.mean_anomaly_epoch + active_orbit.mean_motion * dt_in_orbit;
 
             let orbit_pos_au = orbit_position_from_mean_anomaly(active_orbit, mean_anomaly);
 
@@ -173,7 +181,8 @@ pub fn complete_fleet_maneuvers(
         // For L3/L4/L5 transfers the destination is the star (always at DVec3::ZERO);
         // for L1/L2 transfers it is the parent planet (has real SpaceCoordinates).
         let (initial_angle, orbit_direction) = {
-            let center_pos = center_coords.get(destination)
+            let center_pos = center_coords
+                .get(destination)
                 .map(|sc| sc.position)
                 .unwrap_or(DVec3::ZERO); // star sits at the heliocentric origin
             let rel = fleet_sc.position - center_pos;
@@ -184,26 +193,31 @@ pub fn complete_fleet_maneuvers(
                 let end_pos = maneuver.end_position_au.unwrap_or(DVec3::ZERO);
                 let vel_dir = end_pos - start_pos;
                 let cross_z = rel.x * vel_dir.y - rel.y * vel_dir.x;
-                if cross_z >= 0.0 { 1.0 } else { -1.0 }
+                if cross_z >= 0.0 {
+                    1.0
+                } else {
+                    -1.0
+                }
             } else {
                 // Determine whether the arrival was prograde (CCW) or retrograde (CW)
                 // by computing the Keplerian velocity direction at the moment of arrival.
                 // For gravity-assist transfers, use the Leg-2 orbit at arrival (if present).
                 let dt = elapsed - maneuver.departure_time;
                 let (arrival_orbit, dt_in_orbit) = active_orbit_at(maneuver, dt);
-                let mean_anomaly_arrival = arrival_orbit.mean_anomaly_epoch
-                    + arrival_orbit.mean_motion * dt_in_orbit;
+                let mean_anomaly_arrival =
+                    arrival_orbit.mean_anomaly_epoch + arrival_orbit.mean_motion * dt_in_orbit;
                 let small_dt = 1.0_f64; // 1 second step
-                let ma_before = mean_anomaly_arrival
-                    - arrival_orbit.mean_motion * small_dt;
-                let pos_before = orbit_position_from_mean_anomaly(
-                    arrival_orbit, ma_before);
-                let pos_now = orbit_position_from_mean_anomaly(
-                    arrival_orbit, mean_anomaly_arrival);
+                let ma_before = mean_anomaly_arrival - arrival_orbit.mean_motion * small_dt;
+                let pos_before = orbit_position_from_mean_anomaly(arrival_orbit, ma_before);
+                let pos_now = orbit_position_from_mean_anomaly(arrival_orbit, mean_anomaly_arrival);
                 let vel_dir = pos_now - pos_before; // proportional to velocity
-                // 2-D cross product (z-component): rel × vel_dir
+                                                    // 2-D cross product (z-component): rel × vel_dir
                 let cross_z = rel.x * vel_dir.y - rel.y * vel_dir.x;
-                if cross_z >= 0.0 { 1.0 } else { -1.0 }
+                if cross_z >= 0.0 {
+                    1.0
+                } else {
+                    -1.0
+                }
             };
 
             (pos_angle, direction)
@@ -213,7 +227,8 @@ pub fn complete_fleet_maneuvers(
         // position (star destination) should freeze the fleet at the Lagrange-point
         // angular position instead of freely orbiting the Sun at 1 AU every 40 s.
         let orbit_direction = if maneuver.is_kinematic()
-            && body_type_query.get(destination)
+            && body_type_query
+                .get(destination)
                 .map(|b| b.body_type == BodyType::Star)
                 .unwrap_or(false)
         {
@@ -229,7 +244,10 @@ pub fn complete_fleet_maneuvers(
             angle_rad: initial_angle,
             direction: orbit_direction,
         };
-        commands.entity(entity).remove::<ActiveManeuver>().insert(new_orbit);
+        commands
+            .entity(entity)
+            .remove::<ActiveManeuver>()
+            .insert(new_orbit);
     }
 }
 
@@ -260,7 +278,8 @@ pub fn activate_scheduled_departures(
         // SpaceCoordinates: moons only store a local offset from their parent planet, so
         // querying the moon entity directly would give the wrong departure direction.
         {
-            let center_pos = body_coords.get(maneuver.orbit_center)
+            let center_pos = body_coords
+                .get(maneuver.orbit_center)
                 .map(|sc| sc.position)
                 .unwrap_or(DVec3::ZERO);
 
@@ -275,12 +294,12 @@ pub fn activate_scheduled_departures(
             if rel_pos.length_squared() > 1e-30 {
                 let lan = maneuver.transfer_orbit.longitude_ascending_node;
                 let incl = maneuver.transfer_orbit.inclination;
-                
+
                 if incl > 1e-10 {
                     let n = bevy::math::DVec3::new(
                         incl.sin() * lan.sin(),
                         -incl.sin() * lan.cos(),
-                        incl.cos()
+                        incl.cos(),
                     );
                     let node = bevy::math::DVec3::new(lan.cos(), lan.sin(), 0.0);
                     let peri_dir = rel_pos.normalize_or_zero();
@@ -362,10 +381,11 @@ pub fn process_fleet_actions(
         let t = &action.transfer;
         let departure_s = elapsed + action.departure_offset_s;
         let arrival_s = departure_s + t.duration_s;
-        let departure_angle = orbit_query.get(action.fleet)
+        let departure_angle = orbit_query
+            .get(action.fleet)
             .map(|o| o.angle_rad as f32)
             .unwrap_or(0.0);
-            
+
         // Course corrections (is_in_transit) for truly kinematic option types still use
         // kinematic interpolation.  Efficient/Moderate/Fast Hohmann-style options now use
         // proper Keplerian arcs — the transfer orbit elements are computed from the
@@ -379,44 +399,56 @@ pub fn process_fleet_actions(
             // physics position as departure — the pre-computed start from the planner may
             // reference a planet body (e.g. Jupiter) rather than where the fleet actually is.
             let start_pos = if is_in_transit {
-                fleet_sc_query.get(action.fleet)
+                fleet_sc_query
+                    .get(action.fleet)
                     .map(|sc| sc.position)
                     .unwrap_or_else(|_| {
                         // Fallback: predict origin body
-                        predict_body_physics_pos(t.origin_body, departure_s, &body_query, &kepler_query)
-                            .unwrap_or_else(|| center_coords.get(t.origin_body).map(|sc| sc.position).unwrap_or(DVec3::ZERO))
+                        predict_body_physics_pos(
+                            t.origin_body,
+                            departure_s,
+                            &body_query,
+                            &kepler_query,
+                        )
+                        .unwrap_or_else(|| {
+                            center_coords
+                                .get(t.origin_body)
+                                .map(|sc| sc.position)
+                                .unwrap_or(DVec3::ZERO)
+                        })
                     })
             } else {
                 t.start_position_au.unwrap_or_else(|| {
-                    predict_body_physics_pos(
-                        t.origin_body,
-                        departure_s,
-                        &body_query,
-                        &kepler_query,
-                    ).unwrap_or_else(|| {
-                        center_coords.get(t.origin_body).map(|sc| sc.position).unwrap_or(DVec3::ZERO)
-                    })
+                    predict_body_physics_pos(t.origin_body, departure_s, &body_query, &kepler_query)
+                        .unwrap_or_else(|| {
+                            center_coords
+                                .get(t.origin_body)
+                                .map(|sc| sc.position)
+                                .unwrap_or(DVec3::ZERO)
+                        })
                 })
             };
-            
+
             let end_pos = t.end_position_au.unwrap_or_else(|| {
-                predict_body_physics_pos(
-                    t.destination_body,
-                    arrival_s,
-                    &body_query,
-                    &kepler_query,
-                ).unwrap_or_else(|| {
-                    center_coords.get(t.destination_body).map(|sc| sc.position).unwrap_or(DVec3::ZERO)
-                })
+                predict_body_physics_pos(t.destination_body, arrival_s, &body_query, &kepler_query)
+                    .unwrap_or_else(|| {
+                        center_coords
+                            .get(t.destination_body)
+                            .map(|sc| sc.position)
+                            .unwrap_or(DVec3::ZERO)
+                    })
             });
-            
+
             (Some(start_pos), Some(end_pos))
         } else {
             (None, None)
         };
-            
+
         let start_visual_pos = if is_in_transit {
-            fleet_transform_query.get(action.fleet).ok().map(|t| t.translation)
+            fleet_transform_query
+                .get(action.fleet)
+                .ok()
+                .map(|t| t.translation)
         } else {
             None
         };
@@ -497,23 +529,25 @@ pub fn process_fleet_actions(
         // Ensure both fleets exist and are in the same location
         let source_orbit = orbit_query.get(action.source_fleet).ok().cloned();
         let dest_orbit = orbit_query.get(action.destination_fleet).ok().cloned();
-        
+
         // Only allow transfer if both are parked at the same body
         if let (Some(src_orbit), Some(dst_orbit)) = (source_orbit, dest_orbit) {
             if src_orbit.body == dst_orbit.body {
                 let mut despawn_source = false;
-                if let Ok([mut src_fleet, mut dst_fleet]) = fleet_query.get_many_mut([action.source_fleet, action.destination_fleet]) {
+                if let Ok([mut src_fleet, mut dst_fleet]) =
+                    fleet_query.get_many_mut([action.source_fleet, action.destination_fleet])
+                {
                     // Sort indices in descending order so we can remove them without shifting issues
                     let mut indices = action.ship_indices.clone();
                     indices.sort_unstable_by(|a, b| b.cmp(a));
-                    
+
                     for idx in indices {
                         if idx < src_fleet.ships.len() {
                             let ship = src_fleet.ships.remove(idx);
                             dst_fleet.ships.push(ship);
                         }
                     }
-                    
+
                     if src_fleet.ships.is_empty() {
                         despawn_source = true;
                     }
@@ -542,7 +576,10 @@ pub fn process_fleet_actions(
         };
         // Verify every source is in orbit at the same body.
         let all_valid = action.source_fleets.iter().all(|&src| {
-            orbit_query.get(src).map(|o| o.body == target_body).unwrap_or(false)
+            orbit_query
+                .get(src)
+                .map(|o| o.body == target_body)
+                .unwrap_or(false)
         });
         if !all_valid {
             continue;
@@ -582,18 +619,31 @@ pub fn spawn_initial_fleet(
 ) {
     // Helper: find a body by name, log a warning if missing.
     let find_body = |name: &str| -> Option<Entity> {
-        body_query.iter().find(|(_, b)| b.name == name).map(|(e, _)| e)
+        body_query
+            .iter()
+            .find(|(_, b)| b.name == name)
+            .map(|(e, _)| e)
     };
 
     // ── Earth Defense Squadron (Nuclear Thermal, Earth orbit) ─────────────────
     if let Some(earth) = find_body("Earth") {
         let radius_au = 6_771.0_f64 * 1_000.0 / AU_IN_METERS;
         let mut fleet = Fleet::new("Earth Defense Squadron".to_string());
-        fleet.ships.push(ShipInfo::new("EDS Helios".to_string(),
-            ShipClass::Frigate, PropulsionType::NuclearThermal));
-        fleet.ships.push(ShipInfo::new("EDS Aurora".to_string(),
-            ShipClass::Destroyer, PropulsionType::NuclearThermal));
-        commands.spawn((fleet, FleetOrbit::new(earth, radius_au), SpaceCoordinates::default()));
+        fleet.ships.push(ShipInfo::new(
+            "EDS Helios".to_string(),
+            ShipClass::Frigate,
+            PropulsionType::NuclearThermal,
+        ));
+        fleet.ships.push(ShipInfo::new(
+            "EDS Aurora".to_string(),
+            ShipClass::Destroyer,
+            PropulsionType::NuclearThermal,
+        ));
+        commands.spawn((
+            fleet,
+            FleetOrbit::new(earth, radius_au),
+            SpaceCoordinates::default(),
+        ));
     } else {
         bevy::log::warn!("spawn_initial_fleet: Earth not found");
     }
@@ -603,13 +653,26 @@ pub fn spawn_initial_fleet(
         // Venus radius ≈ 6052 km; 400 km altitude orbit
         let radius_au = 6_452.0_f64 * 1_000.0 / AU_IN_METERS;
         let mut fleet = Fleet::new("Chemical Strike Force".to_string());
-        fleet.ships.push(ShipInfo::new("CSV Pyrrhus".to_string(),
-            ShipClass::Frigate, PropulsionType::Chemical));
-        fleet.ships.push(ShipInfo::new("CSV Ares".to_string(),
-            ShipClass::Frigate, PropulsionType::Chemical));
-        fleet.ships.push(ShipInfo::new("CSV Hammer".to_string(),
-            ShipClass::Destroyer, PropulsionType::Chemical));
-        commands.spawn((fleet, FleetOrbit::new(venus, radius_au), SpaceCoordinates::default()));
+        fleet.ships.push(ShipInfo::new(
+            "CSV Pyrrhus".to_string(),
+            ShipClass::Frigate,
+            PropulsionType::Chemical,
+        ));
+        fleet.ships.push(ShipInfo::new(
+            "CSV Ares".to_string(),
+            ShipClass::Frigate,
+            PropulsionType::Chemical,
+        ));
+        fleet.ships.push(ShipInfo::new(
+            "CSV Hammer".to_string(),
+            ShipClass::Destroyer,
+            PropulsionType::Chemical,
+        ));
+        commands.spawn((
+            fleet,
+            FleetOrbit::new(venus, radius_au),
+            SpaceCoordinates::default(),
+        ));
     } else {
         bevy::log::warn!("spawn_initial_fleet: Venus not found");
     }
@@ -619,11 +682,21 @@ pub fn spawn_initial_fleet(
         // Mars radius ≈ 3390 km; 400 km altitude orbit
         let radius_au = 3_790.0_f64 * 1_000.0 / AU_IN_METERS;
         let mut fleet = Fleet::new("Ion Research Fleet".to_string());
-        fleet.ships.push(ShipInfo::new("IRS Odyssey".to_string(),
-            ShipClass::ResearchVessel, PropulsionType::IonDrive));
-        fleet.ships.push(ShipInfo::new("IRS Pathfinder".to_string(),
-            ShipClass::Freighter, PropulsionType::IonDrive));
-        commands.spawn((fleet, FleetOrbit::new(mars, radius_au), SpaceCoordinates::default()));
+        fleet.ships.push(ShipInfo::new(
+            "IRS Odyssey".to_string(),
+            ShipClass::ResearchVessel,
+            PropulsionType::IonDrive,
+        ));
+        fleet.ships.push(ShipInfo::new(
+            "IRS Pathfinder".to_string(),
+            ShipClass::Freighter,
+            PropulsionType::IonDrive,
+        ));
+        commands.spawn((
+            fleet,
+            FleetOrbit::new(mars, radius_au),
+            SpaceCoordinates::default(),
+        ));
     } else {
         bevy::log::warn!("spawn_initial_fleet: Mars not found");
     }
@@ -633,11 +706,21 @@ pub fn spawn_initial_fleet(
         // Jupiter radius ≈ 71 492 km; 5 000 km altitude orbit
         let radius_au = 76_492.0_f64 * 1_000.0 / AU_IN_METERS;
         let mut fleet = Fleet::new("Fusion Expeditionary Corps".to_string());
-        fleet.ships.push(ShipInfo::new("FEC Prometheus".to_string(),
-            ShipClass::Frigate, PropulsionType::FusionTorch));
-        fleet.ships.push(ShipInfo::new("FEC Titan".to_string(),
-            ShipClass::Cruiser, PropulsionType::FusionTorch));
-        commands.spawn((fleet, FleetOrbit::new(jupiter, radius_au), SpaceCoordinates::default()));
+        fleet.ships.push(ShipInfo::new(
+            "FEC Prometheus".to_string(),
+            ShipClass::Frigate,
+            PropulsionType::FusionTorch,
+        ));
+        fleet.ships.push(ShipInfo::new(
+            "FEC Titan".to_string(),
+            ShipClass::Cruiser,
+            PropulsionType::FusionTorch,
+        ));
+        commands.spawn((
+            fleet,
+            FleetOrbit::new(jupiter, radius_au),
+            SpaceCoordinates::default(),
+        ));
     } else {
         bevy::log::warn!("spawn_initial_fleet: Jupiter not found");
     }
@@ -647,11 +730,21 @@ pub fn spawn_initial_fleet(
         // Saturn radius ≈ 60 268 km; 5 000 km altitude orbit
         let radius_au = 65_268.0_f64 * 1_000.0 / AU_IN_METERS;
         let mut fleet = Fleet::new("Antimatter Vanguard".to_string());
-        fleet.ships.push(ShipInfo::new("AMV Singularity".to_string(),
-            ShipClass::Destroyer, PropulsionType::AntimatterDrive));
-        fleet.ships.push(ShipInfo::new("AMV Horizon".to_string(),
-            ShipClass::Frigate, PropulsionType::AntimatterDrive));
-        commands.spawn((fleet, FleetOrbit::new(saturn, radius_au), SpaceCoordinates::default()));
+        fleet.ships.push(ShipInfo::new(
+            "AMV Singularity".to_string(),
+            ShipClass::Destroyer,
+            PropulsionType::AntimatterDrive,
+        ));
+        fleet.ships.push(ShipInfo::new(
+            "AMV Horizon".to_string(),
+            ShipClass::Frigate,
+            PropulsionType::AntimatterDrive,
+        ));
+        commands.spawn((
+            fleet,
+            FleetOrbit::new(saturn, radius_au),
+            SpaceCoordinates::default(),
+        ));
     } else {
         bevy::log::warn!("spawn_initial_fleet: Saturn not found");
     }

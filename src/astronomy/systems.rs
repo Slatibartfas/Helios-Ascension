@@ -2,14 +2,11 @@ use bevy::math::DVec3;
 use bevy::prelude::*;
 
 use super::components::{
-    CometTail, CurrentStarSystem, Destroyed, KeplerOrbit,
-    LocalOrbitAmplification, OrbitCenter, OrbitPath, Selected,
-    SpaceCoordinates, SystemId,
+    CometTail, CurrentStarSystem, Destroyed, KeplerOrbit, LocalOrbitAmplification, OrbitCenter,
+    OrbitPath, Selected, SpaceCoordinates, SystemId,
 };
 use crate::plugins::camera::{CameraAnchor, GameCamera, ViewMode};
-use crate::plugins::solar_system::{
-    CelestialBody, Comet, LogicalParent, Moon, Planet,
-};
+use crate::plugins::solar_system::{CelestialBody, Comet, LogicalParent, Moon, Planet};
 use crate::ui::SimulationTime;
 
 /// Scaling factor for converting astronomical units to Bevy rendering units
@@ -248,15 +245,13 @@ pub fn propagate_orbits(
 ///   Subtract the parent's position first, amplify the remainder, then add the
 ///   parent world position without amplification.
 pub fn update_render_transform(
-    mut query: Query<
-        (
-            &SpaceCoordinates,
-            &mut Transform,
-            Option<&LocalOrbitAmplification>,
-            Option<&LogicalParent>,
-            Option<&OrbitCenter>,
-        ),
-    >,
+    mut query: Query<(
+        &SpaceCoordinates,
+        &mut Transform,
+        Option<&LocalOrbitAmplification>,
+        Option<&LogicalParent>,
+        Option<&OrbitCenter>,
+    )>,
     parent_coords: Query<&SpaceCoordinates>,
     floating_origin: Option<Res<crate::astronomy::components::FloatingOrigin>>,
 ) {
@@ -450,8 +445,8 @@ fn create_tail_cone_mesh(
     base_color: Color,
     tip_color: Color,
 ) -> Mesh {
-    use bevy::mesh::{Indices, PrimitiveTopology};
     use bevy::asset::RenderAssetUsages;
+    use bevy::mesh::{Indices, PrimitiveTopology};
 
     let mut positions = Vec::new();
     let mut normals = Vec::new();
@@ -536,7 +531,13 @@ pub fn manage_comet_tail_meshes(
     mut materials: ResMut<Assets<StandardMaterial>>,
     current_system: Res<CurrentStarSystem>,
     comet_query: Query<
-        (Entity, &CelestialBody, &KeplerOrbit, &SpaceCoordinates, Option<&SystemId>),
+        (
+            Entity,
+            &CelestialBody,
+            &KeplerOrbit,
+            &SpaceCoordinates,
+            Option<&SystemId>,
+        ),
         (With<Comet>, Without<Destroyed>),
     >,
     tail_query: Query<(Entity, &CometTail)>,
@@ -716,13 +717,13 @@ pub fn update_tail_transforms(
             // Tail should be small/invisible near onset and grow larger near sun
             let distance_au = coords.position.length() as f32;
             let onset_au = COMET_TAIL_ONSET_AU as f32;
-            
+
             // Normalized intensity (0.0 at onset, 1.0 at sun)
-            let intensity = ((1.0 - distance_au / onset_au)).clamp(0.0, 1.0);
-            
+            let intensity = (1.0 - distance_au / onset_au).clamp(0.0, 1.0);
+
             // Scale factor: start small (0.1) and grow to full size (1.0)
             let dynamic_scale = (0.1 + intensity * 0.9).max(0.01);
-            
+
             // Apply scale to length (Z) and width (X, Y)
             transform.scale = Vec3::splat(dynamic_scale);
 
@@ -758,7 +759,12 @@ pub fn draw_comet_tails(
     mut gizmos: Gizmos,
     current_system: Res<CurrentStarSystem>,
     query: Query<
-        (&CelestialBody, &KeplerOrbit, &SpaceCoordinates, Option<&SystemId>),
+        (
+            &CelestialBody,
+            &KeplerOrbit,
+            &SpaceCoordinates,
+            Option<&SystemId>,
+        ),
         (With<Comet>, Without<Destroyed>),
     >,
 ) {
@@ -1102,8 +1108,8 @@ pub fn update_orbit_visibility(
             let parent_entity = logical_parent.map(|lp| lp.0);
             // Show moon orbits when the parent planet is:
             // 1. the camera anchor
-            let parent_anchored = anchor.0.is_some()
-                && parent_entity.map(|e| Some(e) == anchor.0).unwrap_or(false);
+            let parent_anchored =
+                anchor.0.is_some() && parent_entity.map(|e| Some(e) == anchor.0).unwrap_or(false);
             // 2. selected
             let parent_selected = parent_entity
                 .map(|e| selected_query.contains(e))
@@ -1118,12 +1124,18 @@ pub fn update_orbit_visibility(
                 .map(|(o, d)| o == entity || d == entity)
                 .unwrap_or(false);
             let fleet_transits_parent = parent_entity
-                .map(|pe| selected_fleet_transit_bodies
-                    .map(|(o, d)| o == pe || d == pe)
-                    .unwrap_or(false))
+                .map(|pe| {
+                    selected_fleet_transit_bodies
+                        .map(|(o, d)| o == pe || d == pe)
+                        .unwrap_or(false)
+                })
                 .unwrap_or(false);
-            orbit_path.visible = parent_anchored || parent_selected || fleet_orbits_parent
-                || fleet_orbits_self || fleet_transits_self || fleet_transits_parent;
+            orbit_path.visible = parent_anchored
+                || parent_selected
+                || fleet_orbits_parent
+                || fleet_orbits_self
+                || fleet_transits_self
+                || fleet_transits_parent;
         } else {
             // Asteroids, Comets, DwarfPlanets are hidden by default
             orbit_path.visible = false;
@@ -1173,7 +1185,8 @@ pub fn update_body_lod_visibility(
         .and_then(|fe| fleet_maneuver_query.get(fe).ok())
         .map(|m| (m.origin_body, m.destination_body));
 
-    for (entity, mut visibility, logical_parent, moon, selected, system_id) in body_query.iter_mut() {
+    for (entity, mut visibility, logical_parent, moon, selected, system_id) in body_query.iter_mut()
+    {
         // Bodies from other star systems must stay hidden, regardless of
         // selection or anchor state.
         let body_system = system_id.map(|s| s.0).unwrap_or(0);
@@ -1193,8 +1206,8 @@ pub fn update_body_lod_visibility(
             // the parent planet is selected, or the selected fleet orbits the
             // parent planet or the moon itself.
             let parent_entity = logical_parent.map(|lp| lp.0);
-            let parent_anchored = anchor.0.is_some()
-                && parent_entity.map(|e| Some(e) == anchor.0).unwrap_or(false);
+            let parent_anchored =
+                anchor.0.is_some() && parent_entity.map(|e| Some(e) == anchor.0).unwrap_or(false);
             let parent_selected = parent_entity
                 .map(|e| selected_bodies.contains(e))
                 .unwrap_or(false);
@@ -1207,12 +1220,19 @@ pub fn update_body_lod_visibility(
                 .map(|(o, d)| o == entity || d == entity)
                 .unwrap_or(false);
             let fleet_transits_parent = parent_entity
-                .map(|pe| selected_fleet_transit_bodies
-                    .map(|(o, d)| o == pe || d == pe)
-                    .unwrap_or(false))
+                .map(|pe| {
+                    selected_fleet_transit_bodies
+                        .map(|(o, d)| o == pe || d == pe)
+                        .unwrap_or(false)
+                })
                 .unwrap_or(false);
-            *visibility = if parent_anchored || parent_selected || fleet_orbits_parent
-                || fleet_orbits_self || fleet_transits_self || fleet_transits_parent {
+            *visibility = if parent_anchored
+                || parent_selected
+                || fleet_orbits_parent
+                || fleet_orbits_self
+                || fleet_transits_self
+                || fleet_transits_parent
+            {
                 Visibility::Inherited
             } else {
                 Visibility::Hidden

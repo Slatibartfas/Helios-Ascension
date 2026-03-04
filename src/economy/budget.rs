@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::types::ResourceType;
+use crate::colony::{BuildingsData, Colony};
 use crate::economy::{PowerGenerator, PowerSourceType};
-use crate::colony::{Colony, BuildingsData};
 
 /// Tracks per-month income/production rates for all resources
 /// and research/engineering points for display in the resource bar.
@@ -79,28 +79,28 @@ impl GlobalBudget {
         //   Sulfur ~74.4, Phosphorus ~28.5, RareEarths ~0.25
         //
         // All values in Megatons (Mt).
-        stockpiles.insert(ResourceType::Water, 800.0);       // ~2 yr (400 Mt/yr from Refineries)
-        stockpiles.insert(ResourceType::Oxygen, 200.0);      // Construction buffer; easily harvested
-        stockpiles.insert(ResourceType::Iron, 520.0);        // ~2 yr (259 Mt/yr aggregate)
-        stockpiles.insert(ResourceType::Copper, 50.0);       // ~2 yr (26 Mt/yr)
-        stockpiles.insert(ResourceType::Silicates, 50_000.0);// Construction reserve; extremely abundant
-        stockpiles.insert(ResourceType::Aluminum, 100.0);    // Construction buffer (5 Mt/yr maintenance)
-        stockpiles.insert(ResourceType::RareEarths, 0.5);    // ~2 yr (0.25 Mt/yr from ResearchLabs)
-        stockpiles.insert(ResourceType::Uranium, 0.12);      // Fissile construction reserve
-        stockpiles.insert(ResourceType::Thorium, 0.02);      // Fissile construction reserve
-        stockpiles.insert(ResourceType::Deuterium, 5.0);     // Fusion fuel reserve (FusionReactor: 5 Mt/yr)
-        stockpiles.insert(ResourceType::Nickel, 7.0);        // ~2 yr (3.2 Mt/yr: factories + refineries + mines)
-        stockpiles.insert(ResourceType::Tungsten, 0.17);     // ~2 yr (0.084 Mt/yr: factories + refineries)
-        stockpiles.insert(ResourceType::Carbon, 20.0);       // Construction reserve (OrbitalLift, Shipyard)
-        stockpiles.insert(ResourceType::Phosphorus, 60.0);   // ~2 yr (28.5 Mt/yr: farms + chem plants)
-        stockpiles.insert(ResourceType::Lithium, 0.35);      // ~2 yr (0.17 Mt/yr: factories + labs)
-        stockpiles.insert(ResourceType::Sulfur, 150.0);      // ~2 yr (74.4 Mt/yr: chem plants + farms + factories)
-        stockpiles.insert(ResourceType::Food, 500.0);        // Starting buffer; Earth farms (~8200) produce ~820 kt/yr balanced against population consumption
-        stockpiles.insert(ResourceType::Chromium, 90.0);     // ~2 yr (44 Mt/yr alloy production)
-        stockpiles.insert(ResourceType::Magnesium, 3.0);     // Construction reserve (lightweight alloys)
-        stockpiles.insert(ResourceType::Cobalt, 0.5);        // ~2 yr (0.22 Mt/yr: batteries + superalloys)
-        stockpiles.insert(ResourceType::Fluorine, 17.0);     // ~2 yr (8.5 Mt/yr: enrichment + chem industry)
-        stockpiles.insert(ResourceType::Polymers, 100.0);    // Manufactured reserve (chem plants produce)
+        stockpiles.insert(ResourceType::Water, 800.0); // ~2 yr (400 Mt/yr from Refineries)
+        stockpiles.insert(ResourceType::Oxygen, 200.0); // Construction buffer; easily harvested
+        stockpiles.insert(ResourceType::Iron, 520.0); // ~2 yr (259 Mt/yr aggregate)
+        stockpiles.insert(ResourceType::Copper, 50.0); // ~2 yr (26 Mt/yr)
+        stockpiles.insert(ResourceType::Silicates, 50_000.0); // Construction reserve; extremely abundant
+        stockpiles.insert(ResourceType::Aluminum, 100.0); // Construction buffer (5 Mt/yr maintenance)
+        stockpiles.insert(ResourceType::RareEarths, 0.5); // ~2 yr (0.25 Mt/yr from ResearchLabs)
+        stockpiles.insert(ResourceType::Uranium, 0.12); // Fissile construction reserve
+        stockpiles.insert(ResourceType::Thorium, 0.02); // Fissile construction reserve
+        stockpiles.insert(ResourceType::Deuterium, 5.0); // Fusion fuel reserve (FusionReactor: 5 Mt/yr)
+        stockpiles.insert(ResourceType::Nickel, 7.0); // ~2 yr (3.2 Mt/yr: factories + refineries + mines)
+        stockpiles.insert(ResourceType::Tungsten, 0.17); // ~2 yr (0.084 Mt/yr: factories + refineries)
+        stockpiles.insert(ResourceType::Carbon, 20.0); // Construction reserve (OrbitalLift, Shipyard)
+        stockpiles.insert(ResourceType::Phosphorus, 60.0); // ~2 yr (28.5 Mt/yr: farms + chem plants)
+        stockpiles.insert(ResourceType::Lithium, 0.35); // ~2 yr (0.17 Mt/yr: factories + labs)
+        stockpiles.insert(ResourceType::Sulfur, 150.0); // ~2 yr (74.4 Mt/yr: chem plants + farms + factories)
+        stockpiles.insert(ResourceType::Food, 500.0); // Starting buffer; Earth farms (~8200) produce ~820 kt/yr balanced against population consumption
+        stockpiles.insert(ResourceType::Chromium, 90.0); // ~2 yr (44 Mt/yr alloy production)
+        stockpiles.insert(ResourceType::Magnesium, 3.0); // Construction reserve (lightweight alloys)
+        stockpiles.insert(ResourceType::Cobalt, 0.5); // ~2 yr (0.22 Mt/yr: batteries + superalloys)
+        stockpiles.insert(ResourceType::Fluorine, 17.0); // ~2 yr (8.5 Mt/yr: enrichment + chem industry)
+        stockpiles.insert(ResourceType::Polymers, 100.0); // Manufactured reserve (chem plants produce)
 
         Self {
             stockpiles,
@@ -308,7 +308,10 @@ mod tests {
     fn test_global_budget_creation() {
         let budget = GlobalBudget::new();
         assert!(budget.get_stockpile(&ResourceType::Water) > 0.0);
-        assert!(budget.get_stockpile(&ResourceType::Uranium) > 0.0, "Uranium should have starting stockpile");
+        assert!(
+            budget.get_stockpile(&ResourceType::Uranium) > 0.0,
+            "Uranium should have starting stockpile"
+        );
     }
 
     #[test]
@@ -468,8 +471,10 @@ pub fn update_power_grid(
     if let Some(data) = buildings_data {
         for colony in colonies.iter() {
             for (building_type, &count) in &colony.buildings {
-                if count == 0 { continue; }
-                
+                if count == 0 {
+                    continue;
+                }
+
                 if let Some(def) = data.get(building_type) {
                     for modifier in &def.modifiers {
                         if modifier.modifier_type == "PowerGeneration" {
@@ -477,7 +482,7 @@ pub fn update_power_grid(
                             let power_gw = modifier.value * count as f64;
                             let power_watts = power_gw * 1_000_000_000.0;
                             total_produced += power_watts;
-                            
+
                             // Categorize based on PowerSourceType
                             *breakdown.entry(PowerSourceType::Planet).or_insert(0.0) += power_watts;
                         }

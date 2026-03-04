@@ -1,8 +1,8 @@
-use bevy::prelude::*;
-use bevy::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
 use bevy::asset::RenderAssetUsages;
+use bevy::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
+use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use image::{ImageBuffer, RgbaImage, imageops::FilterType};
+use image::{imageops::FilterType, ImageBuffer, RgbaImage};
 use rand::prelude::*;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
@@ -11,26 +11,25 @@ use std::hash::{Hash, Hasher};
 use super::solar_system_data::{
     calculate_visual_radius, AsteroidClass, BodyType, SolarSystemData, MIN_VISUAL_RADIUS,
 };
-use crate::economy::components::{Population, PowerGenerator, PowerSourceType};
+use crate::astronomy::AtmosphereComposition;
 use crate::astronomy::{
-    orbit_position_from_mean_anomaly, KeplerOrbit, LocalOrbitAmplification, OrbitPath,
-    SpaceCoordinates, SCALING_FACTOR, StellarProperties, SurfaceTemperature,
-    OceanProperties, OceanType,
+    orbit_position_from_mean_anomaly, KeplerOrbit, LocalOrbitAmplification, OceanProperties,
+    OceanType, OrbitPath, SpaceCoordinates, StellarProperties, SurfaceTemperature, SCALING_FACTOR,
 };
+use crate::colony::{BuildingType, Colony};
+use crate::economy::components::{Population, PowerGenerator, PowerSourceType};
 use crate::plugins::camera::{CameraAnchor, GameCamera};
 use crate::ui::SimulationTime;
-use crate::colony::{Colony, BuildingType};
-use crate::astronomy::AtmosphereComposition;
 
-pub use super::star_materials::{
-    Billboard, StarCoronaShell, StarCorona3dMaterial, StarDiffraction, StarDiffractionMaterial,
-    StarGlare, StarGlowMaterial, StarHalo3dMaterial, StarHaloShell, StarSurfaceMaterial,
-};
-use super::starmap::PlanetCategory;
 use super::star_materials::{
     update_billboards, update_body_visibility, update_corona_3d_time, update_glow_time,
     update_star_corona_3d_lod, update_star_diffraction_lod, update_star_glare_lod,
 };
+pub use super::star_materials::{
+    Billboard, StarCorona3dMaterial, StarCoronaShell, StarDiffraction, StarDiffractionMaterial,
+    StarGlare, StarGlowMaterial, StarHalo3dMaterial, StarHaloShell, StarSurfaceMaterial,
+};
+use super::starmap::PlanetCategory;
 
 pub struct SolarSystemPlugin;
 
@@ -60,10 +59,10 @@ impl Plugin for SolarSystemPlugin {
             // System to convert loaded normal/specular textures to linear formats
             .add_systems(Update, apply_linear_to_images_system)
             .add_systems(Update, combine_ring_alpha_textures)
-            .add_systems(Update, (
-                spawn_atmosphere_shell_reactive,
-                update_atmosphere_shell,
-            ));
+            .add_systems(
+                Update,
+                (spawn_atmosphere_shell_reactive, update_atmosphere_shell),
+            );
     }
 }
 
@@ -75,7 +74,12 @@ fn spawn_atmosphere_shell_reactive(
     mut materials_atmosphere: ResMut<Assets<crate::plugins::atmosphere::AtmosphereMaterial>>,
     atmosphere_settings: Res<crate::plugins::atmosphere::AtmosphereSettings>,
     query: Query<
-        (Entity, &AtmosphereComposition, &CelestialBody, &GlobalTransform),
+        (
+            Entity,
+            &AtmosphereComposition,
+            &CelestialBody,
+            &GlobalTransform,
+        ),
         (
             Added<AtmosphereComposition>,
             Without<crate::plugins::atmosphere::HasAtmosphereShell>,
@@ -106,7 +110,9 @@ fn spawn_atmosphere_shell_reactive(
                     Mesh3d(meshes.add(Sphere::new(body.visual_radius * 1.05).mesh().uv(64, 32))),
                     MeshMaterial3d(materials_atmosphere.add(atmo_mat)),
                     Transform::default(),
-                    AtmosphereShell { body_entity: entity },
+                    AtmosphereShell {
+                        body_entity: entity,
+                    },
                 ));
             });
     }
@@ -118,7 +124,13 @@ fn update_atmosphere_shell(
     mut materials: ResMut<Assets<crate::plugins::atmosphere::AtmosphereMaterial>>,
     atmosphere_settings: Res<crate::plugins::atmosphere::AtmosphereSettings>,
     changed_bodies: Query<
-        (Entity, &AtmosphereComposition, &CelestialBody, &GlobalTransform, Option<&Children>),
+        (
+            Entity,
+            &AtmosphereComposition,
+            &CelestialBody,
+            &GlobalTransform,
+            Option<&Children>,
+        ),
         (
             Changed<AtmosphereComposition>,
             With<crate::plugins::atmosphere::HasAtmosphereShell>,
@@ -136,7 +148,9 @@ fn update_atmosphere_shell(
         if body.body_type == BodyType::Star {
             continue;
         }
-        let Some(children): Option<&Children> = maybe_children else { continue; };
+        let Some(children): Option<&Children> = maybe_children else {
+            continue;
+        };
         for child in children.iter() {
             if let Ok((shell, mat_handle)) = shells.get(child) {
                 if shell.body_entity == entity {
@@ -177,13 +191,13 @@ impl CelestialBody {
         if self.radius <= 0.0 {
             return 0.0;
         }
-        
+
         const G: f64 = 6.674e-11; // Gravitational constant
         const G_EARTH: f64 = 9.80665; // Earth gravity
-        
+
         let radius_m = self.radius as f64 * 1000.0;
         let surface_gravity_m_s2 = G * self.mass / (radius_m * radius_m);
-        
+
         (surface_gravity_m_s2 / G_EARTH) as f32
     }
 }
@@ -562,28 +576,28 @@ pub fn setup_solar_system(
 
     // Pre-calculate distance to sun for all bodies to ensure correct temperature calculation for moons
     let mut distance_to_sun: HashMap<&String, f32> = HashMap::new();
-    
+
     // Pass 1: Add Sol and direct children (planets)
     for body in &data.bodies {
         if body.name == "Sol" {
             distance_to_sun.insert(&body.name, 0.0);
         } else if let Some(orbit) = &body.orbit {
-             if let Some(parent) = &body.parent {
-                 if parent == "Sol" {
-                     distance_to_sun.insert(&body.name, orbit.semi_major_axis);
-                 }
-             }
+            if let Some(parent) = &body.parent {
+                if parent == "Sol" {
+                    distance_to_sun.insert(&body.name, orbit.semi_major_axis);
+                }
+            }
         }
     }
 
     // Pass 2: Add moons (children of planets around Sol)
     for body in &data.bodies {
         if !distance_to_sun.contains_key(&body.name) {
-             if let Some(parent) = &body.parent {
-                 if let Some(parent_dist) = distance_to_sun.get(parent) {
-                     distance_to_sun.insert(&body.name, *parent_dist);
-                 }
-             }
+            if let Some(parent) = &body.parent {
+                if let Some(parent_dist) = distance_to_sun.get(parent) {
+                    distance_to_sun.insert(&body.name, *parent_dist);
+                }
+            }
         }
     }
 
@@ -653,7 +667,14 @@ pub fn setup_solar_system(
             // Night needs to be linear? Probably sRGB for emissive, but if it behaves as data, maybe linear.
             // Usually diffuse/emissive maps are sRGB.
 
-            (base_tex, normal_tex, clouds_tex, clouds_blend, night_tex, true)
+            (
+                base_tex,
+                normal_tex,
+                clouds_tex,
+                clouds_blend,
+                night_tex,
+                true,
+            )
         } else if let Some(ref texture) = body_data.texture {
             // Single dedicated texture
             (
@@ -699,11 +720,11 @@ pub fn setup_solar_system(
             // the limb shifts cooler by strongly attenuating green and blue.
             let (er, eg, eb) = body_data.emissive;
             let center_col = Vec4::new(er * 9.0, eg * 9.0, eb * 9.0, 1.0);
-            let limb_col   = Vec4::new(er * 5.5, eg * 2.8, eb * 0.8, 1.0);
+            let limb_col = Vec4::new(er * 5.5, eg * 2.8, eb * 0.8, 1.0);
             Some(materials_surface.add(StarSurfaceMaterial {
                 color_center: center_col,
-                color_limb:   limb_col,
-                star_texture:  base_color_texture.clone(),
+                color_limb: limb_col,
+                star_texture: base_color_texture.clone(),
             }))
         } else {
             None
@@ -764,10 +785,10 @@ pub fn setup_solar_system(
             // edge inside the parent's rendered sphere. Instead we derive the inner
             // edge from the parent planet's actual visual radius, plus a ~15% gap
             // for a realistic Cassini-gap breathing room.
-            let parent_visual_radius = body_data.parent.as_deref()
-                .and_then(|parent_name| {
-                    data.bodies.iter().find(|b| b.name == parent_name)
-                })
+            let parent_visual_radius = body_data
+                .parent
+                .as_deref()
+                .and_then(|parent_name| data.bodies.iter().find(|b| b.name == parent_name))
                 .map(|parent| calculate_visual_radius(parent.body_type, parent.radius))
                 .unwrap_or(visual_radius * 0.55); // fallback: 55% of outer
 
@@ -792,7 +813,9 @@ pub fn setup_solar_system(
 
         // Stars use the limb-darkening StarSurfaceMaterial; all other bodies use PbrBundle.
         // compute classification string based on data; helper defined below
-        fn classify_for_spawn(body_data: &super::solar_system_data::CelestialBodyData) -> &'static str {
+        fn classify_for_spawn(
+            body_data: &super::solar_system_data::CelestialBodyData,
+        ) -> &'static str {
             // mimic the logic used in starmap classification so categories agree
             let avg_temp = body_data
                 .atmosphere
@@ -863,29 +886,29 @@ pub fn setup_solar_system(
         // Initialize Earth as a colony
         if body_data.name == "Earth" {
             let mut colony = Colony::new("Earth".to_string(), 8.2e9); // 8.2 Billion
-            
+
             // Add initial infrastructure
             let base_buildings = [
-                 (BuildingType::Housing, 33000),    // Housing (250k each -> 8.25B)
-                 (BuildingType::Farm, 8200),        // Food (1M each → 1 farm/1M people for 8.2B pop)
-                 (BuildingType::Factory, 2000),     // Production (Increased for Earth)
-                 (BuildingType::Mine, 3000),        // Mining (Increased for realism)
-                 (BuildingType::Refinery, 800),     // Refining
-                 (BuildingType::ChemicalPlant, 1000), // Chemicals & Volatiles
-                 (BuildingType::HydrocarbonExtractor, 500), // Oil & Gas
-                 (BuildingType::AtmosphericProcessor, 500), // Gas harvesting
-                 (BuildingType::ResearchLab, 500),  // Research
-                 (BuildingType::LaunchSite, 50),    // Space Access
-                 (BuildingType::FinancialCenter, 100), // Economy
-                 (BuildingType::CommercialHub, 500),   // Economy
+                (BuildingType::Housing, 33000),      // Housing (250k each -> 8.25B)
+                (BuildingType::Farm, 8200), // Food (1M each → 1 farm/1M people for 8.2B pop)
+                (BuildingType::Factory, 2000), // Production (Increased for Earth)
+                (BuildingType::Mine, 3000), // Mining (Increased for realism)
+                (BuildingType::Refinery, 800), // Refining
+                (BuildingType::ChemicalPlant, 1000), // Chemicals & Volatiles
+                (BuildingType::HydrocarbonExtractor, 500), // Oil & Gas
+                (BuildingType::AtmosphericProcessor, 500), // Gas harvesting
+                (BuildingType::ResearchLab, 500), // Research
+                (BuildingType::LaunchSite, 50), // Space Access
+                (BuildingType::FinancialCenter, 100), // Economy
+                (BuildingType::CommercialHub, 500), // Economy
             ];
-            
+
             for (b_type, count) in base_buildings {
                 for _ in 0..count {
                     colony.add_building(b_type);
                 }
             }
-            
+
             entity_commands.insert(colony);
             info!("Established Earth colony with 8.2B population");
         }
@@ -931,15 +954,15 @@ pub fn setup_solar_system(
             use crate::astronomy::{AtmosphereComposition, AtmosphericGas};
 
             surface_temperature_celsius = atmo_data.surface_temperature_celsius;
-            
+
             // Atmosphere moderates temperature swings.
             // Thick atmospheres (pressure > 0.5 bar) have smaller diurnal variations.
             let swing = if atmo_data.surface_pressure_mbar > 500.0 {
                 // Earth/Venus like (Venus varies very little, <1C, but Earth ~10-20C)
-                15.0 
+                15.0
             } else {
                 // Thin atmosphere (Mars) - Large swings (-125C to +20C)
-                80.0 
+                80.0
             };
             min_temp_c = surface_temperature_celsius - swing;
             max_temp_c = surface_temperature_celsius + swing;
@@ -989,28 +1012,30 @@ pub fn setup_solar_system(
             // Spawn atmospheric scattering shell (translucent child sphere)
             // Deferred to after entity_commands scope — collect data for second pass
         } else if let Some(ref orbit_data) = body_data.orbit {
-             // If no atmosphere, approximate temperature based on distance from Sun.
-             // For moons, we must use the parent planet's distance to the Sun, NOT the moon's distance to the planet.
-             let effective_distance = *distance_to_sun.get(&body_data.name).unwrap_or(&orbit_data.semi_major_axis);
+            // If no atmosphere, approximate temperature based on distance from Sun.
+            // For moons, we must use the parent planet's distance to the Sun, NOT the moon's distance to the planet.
+            let effective_distance = *distance_to_sun
+                .get(&body_data.name)
+                .unwrap_or(&orbit_data.semi_major_axis);
 
-             // Sol Effective Temp ~ 5778 K
-             // Simplified black body approximation: T = 255 K / sqrt(r_au)
-             // Using 255 K (Earth equilibrium temp) instead of 278 K (Earth surface temp with greenhouse)
-             // to better represent airless bodies like the Moon (Mean -20C to -50C)
-             if effective_distance > 0.0 {
-                 let temp_k = 255.0 / effective_distance.sqrt();
-                 surface_temperature_celsius = temp_k - 273.15;
-                 
-                 // Airless bodies have extreme day/night differentials
-                 // Moon: Avg ~250K (-23C), Max ~390K (117C), Min ~100K (-173C)
-                 let max_k = temp_k * 1.55; 
-                 let min_k = temp_k * 0.40; 
-                 
-                 min_temp_c = min_k - 273.15;
-                 max_temp_c = max_k - 273.15;
-             }
+            // Sol Effective Temp ~ 5778 K
+            // Simplified black body approximation: T = 255 K / sqrt(r_au)
+            // Using 255 K (Earth equilibrium temp) instead of 278 K (Earth surface temp with greenhouse)
+            // to better represent airless bodies like the Moon (Mean -20C to -50C)
+            if effective_distance > 0.0 {
+                let temp_k = 255.0 / effective_distance.sqrt();
+                surface_temperature_celsius = temp_k - 273.15;
+
+                // Airless bodies have extreme day/night differentials
+                // Moon: Avg ~250K (-23C), Max ~390K (117C), Min ~100K (-173C)
+                let max_k = temp_k * 1.55;
+                let min_k = temp_k * 0.40;
+
+                min_temp_c = min_k - 273.15;
+                max_temp_c = max_k - 273.15;
+            }
         }
-        
+
         // Override for Stars
         if body_data.body_type == BodyType::Star {
             surface_temperature_celsius = 5500.0;
@@ -1142,14 +1167,17 @@ pub fn setup_solar_system(
                 );
 
                 let atmo_shell_radius = visual_radius * 1.05;
-                commands.entity(entity)
+                commands
+                    .entity(entity)
                     .insert(crate::plugins::atmosphere::HasAtmosphereShell)
                     .with_children(|parent| {
                         parent.spawn((
                             Mesh3d(meshes.add(Sphere::new(atmo_shell_radius).mesh().uv(64, 32))),
                             MeshMaterial3d(materials_atmosphere.add(atmo_mat)),
                             Transform::default(),
-                            AtmosphereShell { body_entity: entity },
+                            AtmosphereShell {
+                                body_entity: entity,
+                            },
                         ));
                     });
             }
@@ -1162,7 +1190,9 @@ pub fn setup_solar_system(
         } else {
             0.0
         };
-        commands.entity(entity).insert(Population { count: population_count });
+        commands.entity(entity).insert(Population {
+            count: population_count,
+        });
 
         // Initialize power generation
         // Earth starts with ~20 TW (Type 0.73 civilization)
@@ -1218,7 +1248,7 @@ pub fn setup_solar_system(
 
                 // Shell radii
                 let corona_shell_r = visual_radius * 1.75;
-                let halo_shell_r   = visual_radius * 4.0;
+                let halo_shell_r = visual_radius * 4.0;
 
                 // Spawn light and 3D corona shells as children of the star
                 commands.entity(*entity).with_children(|parent| {
@@ -1480,15 +1510,21 @@ fn combine_ring_alpha_textures(
             }
         };
 
-        let Some((Some((color_w, color_h, color_bytes)), Some((alpha_w, alpha_h, alpha_bytes)))) = prepared else {
+        let Some((Some((color_w, color_h, color_bytes)), Some((alpha_w, alpha_h, alpha_bytes)))) =
+            prepared
+        else {
             pending.push(entry);
             continue;
         };
 
-        let Some(color_rgba): Option<RgbaImage> = ImageBuffer::from_raw(color_w, color_h, color_bytes) else {
+        let Some(color_rgba): Option<RgbaImage> =
+            ImageBuffer::from_raw(color_w, color_h, color_bytes)
+        else {
             continue;
         };
-        let Some(alpha_rgba): Option<RgbaImage> = ImageBuffer::from_raw(alpha_w, alpha_h, alpha_bytes) else {
+        let Some(alpha_rgba): Option<RgbaImage> =
+            ImageBuffer::from_raw(alpha_w, alpha_h, alpha_bytes)
+        else {
             continue;
         };
 

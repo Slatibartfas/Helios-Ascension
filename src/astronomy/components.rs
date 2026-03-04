@@ -340,8 +340,8 @@ impl OceanProperties {
         }
         match self.ocean_type {
             OceanType::Water => 1.0 + (self.surface_fraction as f64) * 0.5, // Up to +50%
-            OceanType::Ammonia => 0.9,  // Mildly hostile
-            OceanType::Methane | OceanType::Hydrocarbon => 0.85, // Hostile
+            OceanType::Ammonia => 0.9,                                      // Mildly hostile
+            OceanType::Methane | OceanType::Hydrocarbon => 0.85,            // Hostile
             OceanType::Subsurface => 1.0,
         }
     }
@@ -359,8 +359,7 @@ pub fn infer_ocean_properties(
     radius_km: f32,
 ) -> Option<OceanProperties> {
     // Water ocean: requires liquid-water temperature range and sufficient pressure
-    if has_water_deposits && avg_temp_c > 0.0 && avg_temp_c < 100.0 && surface_pressure_mbar > 6.1
-    {
+    if has_water_deposits && avg_temp_c > 0.0 && avg_temp_c < 100.0 && surface_pressure_mbar > 6.1 {
         let fraction = if avg_temp_c > 10.0 && avg_temp_c < 50.0 {
             0.6 // Temperate → large ocean coverage
         } else {
@@ -375,11 +374,7 @@ pub fn infer_ocean_properties(
     }
 
     // Methane/hydrocarbon lakes (Titan-like): very cold, thick atmosphere with CH4
-    if has_methane
-        && avg_temp_c > -183.0
-        && avg_temp_c < -161.0
-        && surface_pressure_mbar > 100.0
-    {
+    if has_methane && avg_temp_c > -183.0 && avg_temp_c < -161.0 && surface_pressure_mbar > 100.0 {
         return Some(OceanProperties {
             ocean_type: OceanType::Hydrocarbon,
             surface_fraction: 0.02, // Titan has ~1.6% lake coverage
@@ -499,7 +494,6 @@ pub struct AtmosphereComposition {
     pub max_harvest_altitude_bar: f32,
 
     // --- Derived / cached scattering parameters ---
-
     /// Scale height in km (how quickly density drops with altitude).
     pub scale_height_km: f32,
 
@@ -671,7 +665,11 @@ impl AtmosphereComposition {
             };
             total += mw * gas.percentage / 100.0;
         }
-        if total <= 0.0 { 28.97 } else { total }
+        if total <= 0.0 {
+            28.97
+        } else {
+            total
+        }
     }
 
     /// Derive and set all scattering parameters from physical properties.
@@ -695,32 +693,33 @@ impl AtmosphereComposition {
         let t_kelvin = self.surface_temperature_celsius + 273.15;
         let mmw = self.mean_molecular_weight();
         let gravity = surface_gravity_g.max(0.01);
-        let scale_height = override_scale_height.unwrap_or_else(|| {
-            8.5 * (t_kelvin / 288.15) * (1.0 / gravity) * (28.97 / mmw)
-        });
+        let scale_height = override_scale_height
+            .unwrap_or_else(|| 8.5 * (t_kelvin / 288.15) * (1.0 / gravity) * (28.97 / mmw));
         self.scale_height_km = scale_height.clamp(1.0, 1000.0);
 
         // 2. Rayleigh RGB tint — choose base colour from dominant composition
-        let base_rayleigh = override_rayleigh_rgb.map(|c| [c.0, c.1, c.2]).unwrap_or_else(|| {
-            // CO2 dominant → warm red-orange sky
-            if self.get_gas_percentage("CO2").unwrap_or(0.0) > 50.0 {
-                [1.0, 0.5, 0.2]
-            }
-            // H2/He dominant (ice & gas giants) → blue/cyan; checked BEFORE CH4
-            // so Uranus (H2 83%, CH4 2%) and Neptune (H2 80%, CH4 1.5%) are not
-            // misclassified as Titan-like orange.
-            else if self.get_gas_percentage("H2").unwrap_or(0.0) > 50.0 {
-                [0.35, 0.55, 1.0]
-            }
-            // CH4 rich in a non-H2 atmosphere (Titan-like) → blue-muted
-            else if self.get_gas_percentage("CH4").unwrap_or(0.0) > 1.0 {
-                [0.3, 0.5, 0.9]
-            }
-            // N2/O2 dominant (Earth-like) → classic blue
-            else {
-                [0.175, 0.41, 1.0]
-            }
-        });
+        let base_rayleigh = override_rayleigh_rgb
+            .map(|c| [c.0, c.1, c.2])
+            .unwrap_or_else(|| {
+                // CO2 dominant → warm red-orange sky
+                if self.get_gas_percentage("CO2").unwrap_or(0.0) > 50.0 {
+                    [1.0, 0.5, 0.2]
+                }
+                // H2/He dominant (ice & gas giants) → blue/cyan; checked BEFORE CH4
+                // so Uranus (H2 83%, CH4 2%) and Neptune (H2 80%, CH4 1.5%) are not
+                // misclassified as Titan-like orange.
+                else if self.get_gas_percentage("H2").unwrap_or(0.0) > 50.0 {
+                    [0.35, 0.55, 1.0]
+                }
+                // CH4 rich in a non-H2 atmosphere (Titan-like) → blue-muted
+                else if self.get_gas_percentage("CH4").unwrap_or(0.0) > 1.0 {
+                    [0.3, 0.5, 0.9]
+                }
+                // N2/O2 dominant (Earth-like) → classic blue
+                else {
+                    [0.175, 0.41, 1.0]
+                }
+            });
         self.rayleigh_rgb = base_rayleigh;
 
         // 3. Rayleigh strength — proportional to pressure / Earth reference
@@ -741,20 +740,22 @@ impl AtmosphereComposition {
         self.mie_g = override_mie_g.unwrap_or(0.76);
 
         // 5. Haze colour
-        self.haze_color = override_haze_color.map(|c| [c.0, c.1, c.2]).unwrap_or_else(|| {
-            let h2_pct  = self.get_gas_percentage("H2").unwrap_or(0.0);
-            let co2_pct = self.get_gas_percentage("CO2").unwrap_or(0.0);
-            let ch4_pct = self.get_gas_percentage("CH4").unwrap_or(0.0);
-            if co2_pct > 50.0 {
-                [1.0, 0.6, 0.3]   // warm brown/orange (Mars, Venus)
-            } else if h2_pct > 50.0 {
-                [0.85, 0.92, 1.0]  // pale blue-white (H2/He ice & gas giants — Uranus, Neptune, etc.)
-            } else if ch4_pct > 1.0 {
-                [1.0, 0.7, 0.3]   // amber/orange (N2+CH4 atmosphere — Titan organics)
-            } else {
-                [1.0, 0.95, 0.88] // near-white (Earth clean aerosol)
-            }
-        });
+        self.haze_color = override_haze_color
+            .map(|c| [c.0, c.1, c.2])
+            .unwrap_or_else(|| {
+                let h2_pct = self.get_gas_percentage("H2").unwrap_or(0.0);
+                let co2_pct = self.get_gas_percentage("CO2").unwrap_or(0.0);
+                let ch4_pct = self.get_gas_percentage("CH4").unwrap_or(0.0);
+                if co2_pct > 50.0 {
+                    [1.0, 0.6, 0.3] // warm brown/orange (Mars, Venus)
+                } else if h2_pct > 50.0 {
+                    [0.85, 0.92, 1.0] // pale blue-white (H2/He ice & gas giants — Uranus, Neptune, etc.)
+                } else if ch4_pct > 1.0 {
+                    [1.0, 0.7, 0.3] // amber/orange (N2+CH4 atmosphere — Titan organics)
+                } else {
+                    [1.0, 0.95, 0.88] // near-white (Earth clean aerosol)
+                }
+            });
 
         // 6. Overall intensity
         self.atmosphere_intensity = override_intensity.unwrap_or(1.0);
@@ -764,7 +765,13 @@ impl AtmosphereComposition {
     /// Returns the colony cost factor (0.0 = Earth-like/Ideal).
     /// Returns f32::INFINITY if the body is uninhabitable for standard humans (e.g. extreme gravity).
     pub fn calculate_colony_cost(&self, gravity_g: f32, min_temp_c: f32, max_temp_c: f32) -> f32 {
-        calculate_general_colony_cost(gravity_g, min_temp_c, max_temp_c, Some(self), self.is_reference_pressure)
+        calculate_general_colony_cost(
+            gravity_g,
+            min_temp_c,
+            max_temp_c,
+            Some(self),
+            self.is_reference_pressure,
+        )
     }
 
     /// Calculate harvest yield multiplier based on harvest altitude vs reference pressure.
@@ -863,11 +870,11 @@ pub fn calculate_colony_cost_details(
     is_gas_giant: bool,
 ) -> ColonyCostDetails {
     // Ideal-band boundaries
-    const IDEAL_TEMP_LOW: f32 = 0.0;   // °C
-    const IDEAL_TEMP_HIGH: f32 = 40.0;  // °C
+    const IDEAL_TEMP_LOW: f32 = 0.0; // °C
+    const IDEAL_TEMP_HIGH: f32 = 40.0; // °C
     const IDEAL_G_LOW: f32 = 0.8;
     const IDEAL_G_HIGH: f32 = 1.2;
-    const MAX_GRAVITY: f32 = 3.0;       // hard uninhabitable limit
+    const MAX_GRAVITY: f32 = 3.0; // hard uninhabitable limit
 
     let mut details = ColonyCostDetails::default();
 
@@ -889,7 +896,7 @@ pub fn calculate_colony_cost_details(
     //   10 °C off → 0.19,  50 °C → 0.91,  100 °C → 1.46,
     //  200 °C → 2.24, 500 °C → 2.93
     let cold_dev = (IDEAL_TEMP_LOW - min_temp_c).max(0.0);
-    let hot_dev  = (max_temp_c - IDEAL_TEMP_HIGH).max(0.0);
+    let hot_dev = (max_temp_c - IDEAL_TEMP_HIGH).max(0.0);
     let total_temp_dev = cold_dev + hot_dev;
     let temp_cost = 3.0 * (1.0 - (-total_temp_dev / 150.0).exp());
     // Split into cold/heat for the breakdown display
@@ -982,7 +989,8 @@ pub fn calculate_general_colony_cost(
     atmosphere: Option<&AtmosphereComposition>,
     is_gas_giant: bool,
 ) -> f32 {
-    let details = calculate_colony_cost_details(gravity_g, min_temp_c, max_temp_c, atmosphere, is_gas_giant);
+    let details =
+        calculate_colony_cost_details(gravity_g, min_temp_c, max_temp_c, atmosphere, is_gas_giant);
     details.total_cost
 }
 

@@ -1,5 +1,5 @@
-use super::*;
 use super::dashboard::format_mass;
+use super::*;
 
 /// Persisted state for the economy panel's selected tab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -114,33 +114,42 @@ fn build_economy_hierarchy(
     // Map system_id → star name
     let mut system_names: BTreeMap<usize, String> = BTreeMap::new();
     for (body, sys_id) in star_query.iter() {
-        system_names.entry(sys_id.0).or_insert_with(|| body.name.clone());
+        system_names
+            .entry(sys_id.0)
+            .or_insert_with(|| body.name.clone());
     }
 
     // Group bodies by star system
     let mut system_bodies: BTreeMap<usize, Vec<BodyEconomyEntry>> = BTreeMap::new();
 
-    for (_entity, body, sys_id_opt, colony_opt, resources_opt, gen_opt, mining_opt) in body_query.iter() {
+    for (_entity, body, sys_id_opt, colony_opt, resources_opt, gen_opt, mining_opt) in
+        body_query.iter()
+    {
         let sys_id = sys_id_opt.map(|s| s.0).unwrap_or(0);
 
         // Skip stars themselves in the body list
         if body.body_type == BodyType::Star {
             // Ensure system exists even if star has no economic children
-            system_names.entry(sys_id).or_insert_with(|| body.name.clone());
+            system_names
+                .entry(sys_id)
+                .or_insert_with(|| body.name.clone());
             // But still record power generators on stars
             if let Some(gen) = gen_opt {
-                system_bodies.entry(sys_id).or_default().push(BodyEconomyEntry {
-                    body_name: body.name.clone(),
-                    body_type: body.body_type,
-                    source_kind: EconomySourceKind::MiningOp,
-                    colony: None,
-                    mining_ops: Vec::new(),
-                    deposits: Vec::new(),
-                    generators: vec![PowerGenSnapshot {
-                        source_type: gen.source_type,
-                        output_watts: gen.output,
-                    }],
-                });
+                system_bodies
+                    .entry(sys_id)
+                    .or_default()
+                    .push(BodyEconomyEntry {
+                        body_name: body.name.clone(),
+                        body_type: body.body_type,
+                        source_kind: EconomySourceKind::MiningOp,
+                        colony: None,
+                        mining_ops: Vec::new(),
+                        deposits: Vec::new(),
+                        generators: vec![PowerGenSnapshot {
+                            source_type: gen.source_type,
+                            output_watts: gen.output,
+                        }],
+                    });
             }
             continue;
         }
@@ -148,7 +157,9 @@ fn build_economy_hierarchy(
         // Only include bodies with economic activity
         let has_colony = colony_opt.is_some();
         let has_mining = mining_opt.is_some();
-        let has_deposits = resources_opt.map(|r| !r.deposits.is_empty()).unwrap_or(false);
+        let has_deposits = resources_opt
+            .map(|r| !r.deposits.is_empty())
+            .unwrap_or(false);
         let has_power = gen_opt.is_some();
 
         if !has_colony && !has_mining && !has_deposits && !has_power {
@@ -165,7 +176,12 @@ fn build_economy_hierarchy(
             logistics_efficiency: c.logistics_efficiency(),
             income_per_year: c.wealth_generation_per_year(),
             operating_cost_per_year: c.operating_cost_per_year(),
-            buildings: c.buildings.iter().filter(|(_, &n)| n > 0).map(|(b, &n)| (*b, n)).collect(),
+            buildings: c
+                .buildings
+                .iter()
+                .filter(|(_, &n)| n > 0)
+                .map(|(b, &n)| (*b, n))
+                .collect(),
         });
 
         let mut mining_ops = Vec::new();
@@ -195,15 +211,18 @@ fn build_economy_hierarchy(
             EconomySourceKind::MiningOp
         };
 
-        system_bodies.entry(sys_id).or_default().push(BodyEconomyEntry {
-            body_name: body.name.clone(),
-            body_type: body.body_type,
-            source_kind,
-            colony: colony_snap,
-            mining_ops,
-            deposits,
-            generators,
-        });
+        system_bodies
+            .entry(sys_id)
+            .or_default()
+            .push(BodyEconomyEntry {
+                body_name: body.name.clone(),
+                body_type: body.body_type,
+                source_kind,
+                colony: colony_snap,
+                mining_ops,
+                deposits,
+                generators,
+            });
     }
 
     // Build final groups
@@ -229,11 +248,7 @@ fn rate_text(rate: f64, suffix: &str) -> (String, egui::Color32) {
     }
     let sign = if rate > 0.0 { "+" } else { "" };
     let text = format!("{}{}{}", sign, format_mass(rate), suffix);
-    let color = if rate > 0.0 {
-        theme::GREEN
-    } else {
-        theme::RED
-    };
+    let color = if rate > 0.0 { theme::GREEN } else { theme::RED };
     (text, color)
 }
 
@@ -274,9 +289,9 @@ pub(super) fn ui_economy_panels(
     egui::CentralPanel::default().show(ctx, |ui| {
         // Tab state (persisted across frames)
         let tab_id = ui.id().with("economy_tab");
-        let mut current_tab: EconomyTab = ui.data_mut(|data| {
-            data.get_persisted(tab_id).unwrap_or(0u8)
-        }).into();
+        let mut current_tab: EconomyTab = ui
+            .data_mut(|data| data.get_persisted(tab_id).unwrap_or(0u8))
+            .into();
 
         ui.heading("Economy");
         ui.separator();
@@ -310,7 +325,13 @@ pub(super) fn ui_economy_panels(
 
         match current_tab {
             EconomyTab::Overview => render_econ_overview(ui, &budget, &rate_tracker, &hierarchy),
-            EconomyTab::Resources => render_econ_resources(ui, &budget, &rate_tracker, &hierarchy, buildings_data.as_deref()),
+            EconomyTab::Resources => render_econ_resources(
+                ui,
+                &budget,
+                &rate_tracker,
+                &hierarchy,
+                buildings_data.as_deref(),
+            ),
             EconomyTab::Colonies => render_econ_colonies(ui, &budget, &hierarchy),
             EconomyTab::Mining => render_econ_mining(ui, &hierarchy),
             EconomyTab::PowerGrid => render_econ_power_grid(ui, &budget, &hierarchy),
@@ -329,7 +350,11 @@ fn render_econ_overview(
     egui::ScrollArea::vertical().show(ui, |ui| {
         // Treasury & Balance
         ui.group(|ui| {
-            ui.label(egui::RichText::new("💰 Treasury & Budget").strong().size(16.0));
+            ui.label(
+                egui::RichText::new("💰 Treasury & Budget")
+                    .strong()
+                    .size(16.0),
+            );
             ui.separator();
 
             egui::Grid::new("econ_ov_treasury")
@@ -346,15 +371,21 @@ fn render_econ_overview(
 
                     ui.label("Income:");
                     ui.label(
-                        egui::RichText::new(format!("{}/yr", format_currency(budget.income_per_year)))
-                            .color(theme::GREEN),
+                        egui::RichText::new(format!(
+                            "{}/yr",
+                            format_currency(budget.income_per_year)
+                        ))
+                        .color(theme::GREEN),
                     );
                     ui.end_row();
 
                     ui.label("Expenses:");
                     ui.label(
-                        egui::RichText::new(format!("{}/yr", format_currency(budget.expenses_per_year)))
-                            .color(theme::RED),
+                        egui::RichText::new(format!(
+                            "{}/yr",
+                            format_currency(budget.expenses_per_year)
+                        ))
+                        .color(theme::RED),
                     );
                     ui.end_row();
 
@@ -392,18 +423,38 @@ fn render_econ_overview(
                     .spacing([12.0, 3.0])
                     .show(ui, |ui| {
                         ui.label("Production:");
-                        ui.label(egui::RichText::new(format_power(grid.produced)).color(theme::GREEN));
+                        ui.label(
+                            egui::RichText::new(format_power(grid.produced)).color(theme::GREEN),
+                        );
                         ui.end_row();
                         ui.label("Consumption:");
-                        ui.label(egui::RichText::new(format_power(grid.consumed)).color(theme::AMBER));
+                        ui.label(
+                            egui::RichText::new(format_power(grid.consumed)).color(theme::AMBER),
+                        );
                         ui.end_row();
                         ui.label("Surplus:");
-                        let sc = if surplus >= 0.0 { theme::GREEN } else { theme::RED };
-                        ui.label(egui::RichText::new(format_power(surplus)).strong().color(sc));
+                        let sc = if surplus >= 0.0 {
+                            theme::GREEN
+                        } else {
+                            theme::RED
+                        };
+                        ui.label(
+                            egui::RichText::new(format_power(surplus))
+                                .strong()
+                                .color(sc),
+                        );
                         ui.end_row();
                         ui.label("Load:");
-                        let lc = if utilization < 0.8 { theme::GREEN } else if utilization < 1.0 { theme::AMBER } else { theme::RED };
-                        ui.label(egui::RichText::new(format!("{:.1}%", utilization * 100.0)).color(lc));
+                        let lc = if utilization < 0.8 {
+                            theme::GREEN
+                        } else if utilization < 1.0 {
+                            theme::AMBER
+                        } else {
+                            theme::RED
+                        };
+                        ui.label(
+                            egui::RichText::new(format!("{:.1}%", utilization * 100.0)).color(lc),
+                        );
                         ui.end_row();
                     });
             });
@@ -413,12 +464,14 @@ fn render_econ_overview(
                 ui.label(egui::RichText::new("🏆 Civilization").strong().size(14.0));
                 ui.separator();
 
-                let total_pop: f64 = hierarchy.iter()
+                let total_pop: f64 = hierarchy
+                    .iter()
                     .flat_map(|g| g.bodies.iter())
                     .filter_map(|b| b.colony.as_ref())
                     .map(|c| c.population)
                     .sum();
-                let total_colonies: usize = hierarchy.iter()
+                let total_colonies: usize = hierarchy
+                    .iter()
                     .flat_map(|g| g.bodies.iter())
                     .filter(|b| b.colony.is_some())
                     .count();
@@ -428,13 +481,19 @@ fn render_econ_overview(
                     .spacing([12.0, 3.0])
                     .show(ui, |ui| {
                         ui.label("Score:");
-                        ui.label(egui::RichText::new(format!("{:.0}", budget.civilization_score)).strong().color(theme::GOLD));
+                        ui.label(
+                            egui::RichText::new(format!("{:.0}", budget.civilization_score))
+                                .strong()
+                                .color(theme::GOLD),
+                        );
                         ui.end_row();
                         ui.label("Colonies:");
                         ui.label(egui::RichText::new(format!("{}", total_colonies)).strong());
                         ui.end_row();
                         ui.label("Population:");
-                        ui.label(egui::RichText::new(Colony::format_population(total_pop)).strong());
+                        ui.label(
+                            egui::RichText::new(Colony::format_population(total_pop)).strong(),
+                        );
                         ui.end_row();
                         ui.label("Systems:");
                         ui.label(egui::RichText::new(format!("{}", hierarchy.len())).strong());
@@ -447,7 +506,11 @@ fn render_econ_overview(
 
         // Critical resources
         ui.group(|ui| {
-            ui.label(egui::RichText::new("⚠ Critical Resources").strong().size(14.0));
+            ui.label(
+                egui::RichText::new("⚠ Critical Resources")
+                    .strong()
+                    .size(14.0),
+            );
             ui.separator();
 
             let mut has_critical = false;
@@ -470,7 +533,11 @@ fn render_econ_overview(
                 }
             }
             if !has_critical {
-                ui.label(egui::RichText::new("All resources at healthy levels").italics().color(theme::GREEN));
+                ui.label(
+                    egui::RichText::new("All resources at healthy levels")
+                        .italics()
+                        .color(theme::GREEN),
+                );
             }
         });
 
@@ -478,25 +545,64 @@ fn render_econ_overview(
 
         // Per-star-system summary
         ui.group(|ui| {
-            ui.label(egui::RichText::new("🌟 Per-System Summary").strong().size(14.0));
+            ui.label(
+                egui::RichText::new("🌟 Per-System Summary")
+                    .strong()
+                    .size(14.0),
+            );
             ui.separator();
 
             if hierarchy.is_empty() {
-                ui.label(egui::RichText::new("No economic activity").italics().color(theme::TEXT_DIM));
+                ui.label(
+                    egui::RichText::new("No economic activity")
+                        .italics()
+                        .color(theme::TEXT_DIM),
+                );
             } else {
                 for group in hierarchy {
-                    let sys_colonies: usize = group.bodies.iter().filter(|b| b.colony.is_some()).count();
-                    let sys_pop: f64 = group.bodies.iter().filter_map(|b| b.colony.as_ref()).map(|c| c.population).sum();
-                    let sys_income: f64 = group.bodies.iter().filter_map(|b| b.colony.as_ref()).map(|c| c.income_per_year).sum();
-                    let sys_cost: f64 = group.bodies.iter().filter_map(|b| b.colony.as_ref()).map(|c| c.operating_cost_per_year).sum();
+                    let sys_colonies: usize =
+                        group.bodies.iter().filter(|b| b.colony.is_some()).count();
+                    let sys_pop: f64 = group
+                        .bodies
+                        .iter()
+                        .filter_map(|b| b.colony.as_ref())
+                        .map(|c| c.population)
+                        .sum();
+                    let sys_income: f64 = group
+                        .bodies
+                        .iter()
+                        .filter_map(|b| b.colony.as_ref())
+                        .map(|c| c.income_per_year)
+                        .sum();
+                    let sys_cost: f64 = group
+                        .bodies
+                        .iter()
+                        .filter_map(|b| b.colony.as_ref())
+                        .map(|c| c.operating_cost_per_year)
+                        .sum();
                     let sys_net = sys_income - sys_cost;
-                    let net_color = if sys_net >= 0.0 { theme::GREEN } else { theme::RED };
+                    let net_color = if sys_net >= 0.0 {
+                        theme::GREEN
+                    } else {
+                        theme::RED
+                    };
 
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(&group.system_name).strong());
-                        ui.label(format!("— {} colonies, Pop: {}", sys_colonies, Colony::format_population(sys_pop)));
+                        ui.label(format!(
+                            "— {} colonies, Pop: {}",
+                            sys_colonies,
+                            Colony::format_population(sys_pop)
+                        ));
                         let sign = if sys_net >= 0.0 { "+" } else { "" };
-                        ui.label(egui::RichText::new(format!("Net: {}{}/yr", sign, format_currency(sys_net))).color(net_color));
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "Net: {}{}/yr",
+                                sign,
+                                format_currency(sys_net)
+                            ))
+                            .color(net_color),
+                        );
                     });
                 }
             }
@@ -514,7 +620,11 @@ fn render_econ_resources(
     hierarchy: &[StarSystemGroup],
     buildings_data: Option<&BuildingsData>,
 ) {
-    ui.label(egui::RichText::new("Rates are net monthly. Units scale automatically (t, kt, Mt, Gt).").size(11.0).color(theme::TEXT_DIM));
+    ui.label(
+        egui::RichText::new("Rates are net monthly. Units scale automatically (t, kt, Mt, Gt).")
+            .size(11.0)
+            .color(theme::TEXT_DIM),
+    );
     ui.separator();
 
     egui::ScrollArea::vertical().show(ui, |ui| {
@@ -522,7 +632,9 @@ fn render_econ_resources(
         let categories = ResourceType::by_category();
         for (category_name, resources) in &categories {
             egui::CollapsingHeader::new(
-                egui::RichText::new(format!("📦 {}", category_name)).strong().size(14.0),
+                egui::RichText::new(format!("📦 {}", category_name))
+                    .strong()
+                    .size(14.0),
             )
             .default_open(true)
             .show(ui, |ui| {
@@ -542,7 +654,11 @@ fn render_econ_resources(
                             let rate = rate_tracker.get_resource_rate(resource);
 
                             ui.label(resource.display_name());
-                            ui.label(egui::RichText::new(resource.symbol()).monospace().color(theme::TEXT_DIM));
+                            ui.label(
+                                egui::RichText::new(resource.symbol())
+                                    .monospace()
+                                    .color(theme::TEXT_DIM),
+                            );
 
                             let stock_color = if stockpile <= 0.0 {
                                 theme::RED
@@ -551,7 +667,11 @@ fn render_econ_resources(
                             } else {
                                 theme::TEXT
                             };
-                            ui.label(egui::RichText::new(format_mass(stockpile)).monospace().color(stock_color));
+                            ui.label(
+                                egui::RichText::new(format_mass(stockpile))
+                                    .monospace()
+                                    .color(stock_color),
+                            );
 
                             let (txt, col) = rate_text(rate, "/mo");
                             ui.label(egui::RichText::new(txt).monospace().color(col));
@@ -565,17 +685,33 @@ fn render_econ_resources(
 
         // Research & Engineering rates
         ui.group(|ui| {
-            ui.label(egui::RichText::new("🔬 Research & Engineering Output").strong().size(14.0));
+            ui.label(
+                egui::RichText::new("🔬 Research & Engineering Output")
+                    .strong()
+                    .size(14.0),
+            );
             ui.separator();
             egui::Grid::new("econ_res_rp_ep")
                 .num_columns(2)
                 .spacing([20.0, 4.0])
                 .show(ui, |ui| {
                     ui.label("Research Points:");
-                    ui.label(egui::RichText::new(format!("{:.1} RP/mo", rate_tracker.research_rate_per_month)).color(theme::RP_BLUE));
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{:.1} RP/mo",
+                            rate_tracker.research_rate_per_month
+                        ))
+                        .color(theme::RP_BLUE),
+                    );
                     ui.end_row();
                     ui.label("Engineering Points:");
-                    ui.label(egui::RichText::new(format!("{:.1} EP/mo", rate_tracker.engineering_rate_per_month)).color(theme::EP_TEAL));
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{:.1} EP/mo",
+                            rate_tracker.engineering_rate_per_month
+                        ))
+                        .color(theme::EP_TEAL),
+                    );
                     ui.end_row();
                 });
         });
@@ -584,17 +720,27 @@ fn render_econ_resources(
 
         // Per-system resource production breakdown
         ui.group(|ui| {
-            ui.label(egui::RichText::new("🌟 Production & Consumption by Location").strong().size(14.0));
+            ui.label(
+                egui::RichText::new("🌟 Production & Consumption by Location")
+                    .strong()
+                    .size(14.0),
+            );
             ui.separator();
 
             if hierarchy.is_empty() {
-                ui.label(egui::RichText::new("No economic activity detected").italics().color(theme::TEXT_DIM));
+                ui.label(
+                    egui::RichText::new("No economic activity detected")
+                        .italics()
+                        .color(theme::TEXT_DIM),
+                );
                 return;
             }
 
             for group in hierarchy {
                 egui::CollapsingHeader::new(
-                    egui::RichText::new(format!("⭐ {}", group.system_name)).strong().size(13.0),
+                    egui::RichText::new(format!("⭐ {}", group.system_name))
+                        .strong()
+                        .size(13.0),
                 )
                 .default_open(true)
                 .show(ui, |ui| {
@@ -613,24 +759,35 @@ fn render_econ_resources(
                         };
 
                         egui::CollapsingHeader::new(
-                            egui::RichText::new(format!("{} {}", body_icon, body_entry.body_name)).size(12.0),
+                            egui::RichText::new(format!("{} {}", body_icon, body_entry.body_name))
+                                .size(12.0),
                         )
                         .default_open(false)
                         .show(ui, |ui| {
                             // Colony building production/consumption
                             if let Some(colony) = &body_entry.colony {
                                 if let Some(data) = buildings_data {
-                                    let mut production_rows: Vec<(String, ResourceType, f64)> = Vec::new();
-                                    let mut consumption_rows: Vec<(String, ResourceType, f64)> = Vec::new();
+                                    let mut production_rows: Vec<(String, ResourceType, f64)> =
+                                        Vec::new();
+                                    let mut consumption_rows: Vec<(String, ResourceType, f64)> =
+                                        Vec::new();
 
                                     for (building_type, count) in &colony.buildings {
-                                        if *count == 0 { continue; }
+                                        if *count == 0 {
+                                            continue;
+                                        }
                                         // Maintenance consumption
                                         let maint = data.maintenance_resources(building_type);
                                         for (res_name, annual_amt) in maint {
-                                            if let Some(rt) = crate::colony::data::parse_resource_type(res_name) {
+                                            if let Some(rt) =
+                                                crate::colony::data::parse_resource_type(res_name)
+                                            {
                                                 consumption_rows.push((
-                                                    format!("{} ×{}", building_type.display_name(), count),
+                                                    format!(
+                                                        "{} ×{}",
+                                                        building_type.display_name(),
+                                                        count
+                                                    ),
                                                     rt,
                                                     annual_amt * (*count as f64) / 12.0,
                                                 ));
@@ -641,18 +798,32 @@ fn render_econ_resources(
                                     // Mining production (estimate from colony's deposits)
                                     // Show which resources the colony's mines/atmo processors extract
                                     let mut ui_surface_rate = 0.0_f64;
-                                    let mut ui_deep_rate    = 0.0_f64;
-                                    let mut ui_bulk_rate    = 0.0_f64;
+                                    let mut ui_deep_rate = 0.0_f64;
+                                    let mut ui_bulk_rate = 0.0_f64;
                                     let mut total_atmo_rate = 0.0_f64;
                                     for (bt, count) in &colony.buildings {
-                                        if *count == 0 { continue; }
+                                        if *count == 0 {
+                                            continue;
+                                        }
                                         if let Some(def) = data.get(bt) {
                                             for modifier in &def.modifiers {
                                                 match modifier.modifier_type.as_str() {
-                                                    "MiningEfficiency"      => ui_surface_rate += modifier.value * *count as f64,
-                                                    "DeepMiningEfficiency"  => ui_deep_rate    += modifier.value * *count as f64,
-                                                    "BulkMiningEfficiency"  => ui_bulk_rate    += modifier.value * *count as f64,
-                                                    "AtmosphericHarvesting" => total_atmo_rate += modifier.value * *count as f64,
+                                                    "MiningEfficiency" => {
+                                                        ui_surface_rate +=
+                                                            modifier.value * *count as f64
+                                                    }
+                                                    "DeepMiningEfficiency" => {
+                                                        ui_deep_rate +=
+                                                            modifier.value * *count as f64
+                                                    }
+                                                    "BulkMiningEfficiency" => {
+                                                        ui_bulk_rate +=
+                                                            modifier.value * *count as f64
+                                                    }
+                                                    "AtmosphericHarvesting" => {
+                                                        total_atmo_rate +=
+                                                            modifier.value * *count as f64
+                                                    }
                                                     _ => {}
                                                 }
                                             }
@@ -661,118 +832,230 @@ fn render_econ_resources(
 
                                     // Solid mining production breakdown — three tiers, no overflow
                                     if ui_surface_rate > 0.0 {
-                                        let eligible: Vec<(ResourceType, f64)> = body_entry.deposits.iter()
-                                            .filter(|(_, d)| !d.is_atmospheric && d.reserve.proven_crustal > 0.001)
-                                            .map(|(rt, d)| (*rt, (d.reserve.concentration as f64).max(1e-10)))
+                                        let eligible: Vec<(ResourceType, f64)> = body_entry
+                                            .deposits
+                                            .iter()
+                                            .filter(|(_, d)| {
+                                                !d.is_atmospheric
+                                                    && d.reserve.proven_crustal > 0.001
+                                            })
+                                            .map(|(rt, d)| {
+                                                (*rt, (d.reserve.concentration as f64).max(1e-10))
+                                            })
                                             .collect();
-                                        let total_weight: f64 = eligible.iter().map(|(_, w)| w).sum();
+                                        let total_weight: f64 =
+                                            eligible.iter().map(|(_, w)| w).sum();
                                         if total_weight > 0.0 {
                                             let monthly = ui_surface_rate / 12.0;
                                             for (rt, weight) in &eligible {
-                                                production_rows.push(("Mining".to_string(), *rt, monthly * weight / total_weight));
+                                                production_rows.push((
+                                                    "Mining".to_string(),
+                                                    *rt,
+                                                    monthly * weight / total_weight,
+                                                ));
                                             }
                                         }
                                     }
                                     if ui_deep_rate > 0.0 {
-                                        let eligible: Vec<(ResourceType, f64)> = body_entry.deposits.iter()
-                                            .filter(|(_, d)| !d.is_atmospheric && d.reserve.deep_deposits > 0.001)
-                                            .map(|(rt, d)| (*rt, (d.reserve.concentration as f64).max(1e-10)))
+                                        let eligible: Vec<(ResourceType, f64)> = body_entry
+                                            .deposits
+                                            .iter()
+                                            .filter(|(_, d)| {
+                                                !d.is_atmospheric && d.reserve.deep_deposits > 0.001
+                                            })
+                                            .map(|(rt, d)| {
+                                                (*rt, (d.reserve.concentration as f64).max(1e-10))
+                                            })
                                             .collect();
-                                        let total_weight: f64 = eligible.iter().map(|(_, w)| w).sum();
+                                        let total_weight: f64 =
+                                            eligible.iter().map(|(_, w)| w).sum();
                                         if total_weight > 0.0 {
                                             let monthly = ui_deep_rate / 12.0;
                                             for (rt, weight) in &eligible {
-                                                production_rows.push(("Deep Mining".to_string(), *rt, monthly * weight / total_weight));
+                                                production_rows.push((
+                                                    "Deep Mining".to_string(),
+                                                    *rt,
+                                                    monthly * weight / total_weight,
+                                                ));
                                             }
                                         }
                                     }
                                     if ui_bulk_rate > 0.0 {
-                                        let eligible: Vec<(ResourceType, f64)> = body_entry.deposits.iter()
-                                            .filter(|(_, d)| !d.is_atmospheric && d.reserve.planetary_bulk > 0.001)
-                                            .map(|(rt, d)| (*rt, (d.reserve.concentration as f64).max(1e-10)))
+                                        let eligible: Vec<(ResourceType, f64)> = body_entry
+                                            .deposits
+                                            .iter()
+                                            .filter(|(_, d)| {
+                                                !d.is_atmospheric
+                                                    && d.reserve.planetary_bulk > 0.001
+                                            })
+                                            .map(|(rt, d)| {
+                                                (*rt, (d.reserve.concentration as f64).max(1e-10))
+                                            })
                                             .collect();
-                                        let total_weight: f64 = eligible.iter().map(|(_, w)| w).sum();
+                                        let total_weight: f64 =
+                                            eligible.iter().map(|(_, w)| w).sum();
                                         if total_weight > 0.0 {
                                             let monthly = ui_bulk_rate / 12.0;
                                             for (rt, weight) in &eligible {
-                                                production_rows.push(("Bulk Mining".to_string(), *rt, monthly * weight / total_weight));
+                                                production_rows.push((
+                                                    "Bulk Mining".to_string(),
+                                                    *rt,
+                                                    monthly * weight / total_weight,
+                                                ));
                                             }
                                         }
                                     }
 
                                     // Atmospheric harvesting production breakdown
                                     if total_atmo_rate > 0.0 {
-                                        let harvestable: Vec<(ResourceType, f64)> = body_entry.deposits.iter()
-                                            .filter(|(_, d)| d.is_atmospheric && (d.reserve.proven_crustal > 0.001 || d.reserve.deep_deposits > 0.001))
-                                            .map(|(rt, d)| (*rt, (d.reserve.concentration as f64).max(1e-10)))
+                                        let harvestable: Vec<(ResourceType, f64)> = body_entry
+                                            .deposits
+                                            .iter()
+                                            .filter(|(_, d)| {
+                                                d.is_atmospheric
+                                                    && (d.reserve.proven_crustal > 0.001
+                                                        || d.reserve.deep_deposits > 0.001)
+                                            })
+                                            .map(|(rt, d)| {
+                                                (*rt, (d.reserve.concentration as f64).max(1e-10))
+                                            })
                                             .collect();
-                                        let total_weight: f64 = harvestable.iter().map(|(_, w)| w).sum();
+                                        let total_weight: f64 =
+                                            harvestable.iter().map(|(_, w)| w).sum();
                                         if total_weight > 0.0 {
                                             let monthly_total = total_atmo_rate / 12.0;
                                             for (rt, weight) in &harvestable {
                                                 let share = weight / total_weight;
-                                                production_rows.push(("Atmo Harvesting".to_string(), *rt, monthly_total * share));
+                                                production_rows.push((
+                                                    "Atmo Harvesting".to_string(),
+                                                    *rt,
+                                                    monthly_total * share,
+                                                ));
                                             }
                                         }
                                     }
 
                                     // Food production from agricultural buildings
-                                    let farm_count: f64 = colony.buildings.iter()
+                                    let farm_count: f64 = colony
+                                        .buildings
+                                        .iter()
                                         .find(|(bt, _)| *bt == crate::colony::BuildingType::Farm)
                                         .map(|(_, n)| *n as f64)
                                         .unwrap_or(0.0);
-                                    let agri_count: f64 = colony.buildings.iter()
-                                        .find(|(bt, _)| *bt == crate::colony::BuildingType::AgriDome)
+                                    let agri_count: f64 = colony
+                                        .buildings
+                                        .iter()
+                                        .find(|(bt, _)| {
+                                            *bt == crate::colony::BuildingType::AgriDome
+                                        })
                                         .map(|(_, n)| *n as f64)
                                         .unwrap_or(0.0);
-                                    let food_production_monthly = (farm_count * 100.0 + agri_count * 0.4) / 12.0;
+                                    let food_production_monthly =
+                                        (farm_count * 100.0 + agri_count * 0.4) / 12.0;
                                     if food_production_monthly > 0.0 {
-                                        production_rows.push(("Agriculture".to_string(), ResourceType::Food, food_production_monthly));
+                                        production_rows.push((
+                                            "Agriculture".to_string(),
+                                            ResourceType::Food,
+                                            food_production_monthly,
+                                        ));
                                     }
 
                                     // Population food consumption
-                                    let food_consumption_monthly = colony.population * 0.0001 / 12.0;
+                                    let food_consumption_monthly =
+                                        colony.population * 0.0001 / 12.0;
                                     if food_consumption_monthly > 0.0 {
-                                        consumption_rows.push(("Population".to_string(), ResourceType::Food, food_consumption_monthly));
+                                        consumption_rows.push((
+                                            "Population".to_string(),
+                                            ResourceType::Food,
+                                            food_consumption_monthly,
+                                        ));
                                     }
 
                                     if !production_rows.is_empty() {
-                                        ui.label(egui::RichText::new("Production (/mo):").strong().size(11.0).color(theme::GREEN));
-                                        egui::Grid::new(format!("econ_prod_{}", body_entry.body_name))
-                                            .num_columns(3)
-                                            .spacing([10.0, 2.0])
-                                            .striped(true)
-                                            .show(ui, |ui| {
-                                                for (source, rt, monthly) in &production_rows {
-                                                    ui.label(egui::RichText::new(source).size(11.0));
-                                                    ui.label(egui::RichText::new(rt.display_name()).size(11.0));
-                                                    ui.label(egui::RichText::new(format!("+{}", format_mass(*monthly))).monospace().size(11.0).color(theme::GREEN));
-                                                    ui.end_row();
-                                                }
-                                            });
+                                        ui.label(
+                                            egui::RichText::new("Production (/mo):")
+                                                .strong()
+                                                .size(11.0)
+                                                .color(theme::GREEN),
+                                        );
+                                        egui::Grid::new(format!(
+                                            "econ_prod_{}",
+                                            body_entry.body_name
+                                        ))
+                                        .num_columns(3)
+                                        .spacing([10.0, 2.0])
+                                        .striped(true)
+                                        .show(ui, |ui| {
+                                            for (source, rt, monthly) in &production_rows {
+                                                ui.label(egui::RichText::new(source).size(11.0));
+                                                ui.label(
+                                                    egui::RichText::new(rt.display_name())
+                                                        .size(11.0),
+                                                );
+                                                ui.label(
+                                                    egui::RichText::new(format!(
+                                                        "+{}",
+                                                        format_mass(*monthly)
+                                                    ))
+                                                    .monospace()
+                                                    .size(11.0)
+                                                    .color(theme::GREEN),
+                                                );
+                                                ui.end_row();
+                                            }
+                                        });
                                     }
 
                                     if !consumption_rows.is_empty() {
-                                        ui.label(egui::RichText::new("Consumption (/mo):").strong().size(11.0).color(theme::RED));
-                                        egui::Grid::new(format!("econ_cons_{}", body_entry.body_name))
-                                            .num_columns(3)
-                                            .spacing([10.0, 2.0])
-                                            .striped(true)
-                                            .show(ui, |ui| {
-                                                for (source, rt, monthly) in &consumption_rows {
-                                                    ui.label(egui::RichText::new(source).size(11.0));
-                                                    ui.label(egui::RichText::new(rt.display_name()).size(11.0));
-                                                    ui.label(egui::RichText::new(format!("-{}", format_mass(*monthly))).monospace().size(11.0).color(theme::RED));
-                                                    ui.end_row();
-                                                }
-                                            });
+                                        ui.label(
+                                            egui::RichText::new("Consumption (/mo):")
+                                                .strong()
+                                                .size(11.0)
+                                                .color(theme::RED),
+                                        );
+                                        egui::Grid::new(format!(
+                                            "econ_cons_{}",
+                                            body_entry.body_name
+                                        ))
+                                        .num_columns(3)
+                                        .spacing([10.0, 2.0])
+                                        .striped(true)
+                                        .show(ui, |ui| {
+                                            for (source, rt, monthly) in &consumption_rows {
+                                                ui.label(egui::RichText::new(source).size(11.0));
+                                                ui.label(
+                                                    egui::RichText::new(rt.display_name())
+                                                        .size(11.0),
+                                                );
+                                                ui.label(
+                                                    egui::RichText::new(format!(
+                                                        "-{}",
+                                                        format_mass(*monthly)
+                                                    ))
+                                                    .monospace()
+                                                    .size(11.0)
+                                                    .color(theme::RED),
+                                                );
+                                                ui.end_row();
+                                            }
+                                        });
                                     }
 
                                     if production_rows.is_empty() && consumption_rows.is_empty() {
-                                        ui.label(egui::RichText::new("No resource flows").italics().size(11.0).color(theme::TEXT_DIM));
+                                        ui.label(
+                                            egui::RichText::new("No resource flows")
+                                                .italics()
+                                                .size(11.0)
+                                                .color(theme::TEXT_DIM),
+                                        );
                                     }
                                 } else {
-                                    ui.label(egui::RichText::new("Building data not loaded").italics().size(11.0).color(theme::TEXT_DIM));
+                                    ui.label(
+                                        egui::RichText::new("Building data not loaded")
+                                            .italics()
+                                            .size(11.0)
+                                            .color(theme::TEXT_DIM),
+                                    );
                                 }
                             }
 
@@ -781,7 +1064,15 @@ fn render_econ_resources(
                                 let status = if op.active { "Active" } else { "Idle" };
                                 let monthly = op.rate_mt_per_year / 12.0;
                                 ui.horizontal(|ui| {
-                                    ui.label(egui::RichText::new(format!("⛏ {} — {}/mo [{}]", op.resource_type.display_name(), format_mass(monthly), status)).size(11.0));
+                                    ui.label(
+                                        egui::RichText::new(format!(
+                                            "⛏ {} — {}/mo [{}]",
+                                            op.resource_type.display_name(),
+                                            format_mass(monthly),
+                                            status
+                                        ))
+                                        .size(11.0),
+                                    );
                                 });
                             }
                         });
@@ -793,21 +1084,27 @@ fn render_econ_resources(
         // Placeholder for future sources
         ui.add_space(8.0);
         ui.group(|ui| {
-            ui.label(egui::RichText::new("🚧 Future Sources").size(12.0).color(theme::TEXT_DIM));
-            ui.label(egui::RichText::new("Stations and mining ships will appear here when implemented.").italics().size(11.0).color(theme::TEXT_HINT));
+            ui.label(
+                egui::RichText::new("🚧 Future Sources")
+                    .size(12.0)
+                    .color(theme::TEXT_DIM),
+            );
+            ui.label(
+                egui::RichText::new("Stations and mining ships will appear here when implemented.")
+                    .italics()
+                    .size(11.0)
+                    .color(theme::TEXT_HINT),
+            );
         });
     });
 }
 
 // ---- Economy Tab: Colonies ----
 
-fn render_econ_colonies(
-    ui: &mut egui::Ui,
-    budget: &GlobalBudget,
-    hierarchy: &[StarSystemGroup],
-) {
+fn render_econ_colonies(ui: &mut egui::Ui, budget: &GlobalBudget, hierarchy: &[StarSystemGroup]) {
     // Summary bar
-    let all_colonies: Vec<&ColonySnapshot> = hierarchy.iter()
+    let all_colonies: Vec<&ColonySnapshot> = hierarchy
+        .iter()
         .flat_map(|g| g.bodies.iter())
         .filter_map(|b| b.colony.as_ref())
         .collect();
@@ -821,44 +1118,84 @@ fn render_econ_colonies(
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(format!("{} colonies", all_colonies.len())).strong());
         ui.separator();
-        ui.label(egui::RichText::new(format!("Pop: {}", Colony::format_population(total_pop))));
+        ui.label(egui::RichText::new(format!(
+            "Pop: {}",
+            Colony::format_population(total_pop)
+        )));
         ui.separator();
-        ui.label(egui::RichText::new(format!("Income: {}/yr", format_currency(total_income))).color(theme::GREEN));
+        ui.label(
+            egui::RichText::new(format!("Income: {}/yr", format_currency(total_income)))
+                .color(theme::GREEN),
+        );
         ui.separator();
-        ui.label(egui::RichText::new(format!("Costs: {}/yr", format_currency(total_cost))).color(theme::RED));
+        ui.label(
+            egui::RichText::new(format!("Costs: {}/yr", format_currency(total_cost)))
+                .color(theme::RED),
+        );
         ui.separator();
         let sign = if net >= 0.0 { "+" } else { "" };
-        ui.label(egui::RichText::new(format!("Net: {}{}/yr", sign, format_currency(net))).strong().color(net_color));
+        ui.label(
+            egui::RichText::new(format!("Net: {}{}/yr", sign, format_currency(net)))
+                .strong()
+                .color(net_color),
+        );
         ui.separator();
-        ui.label(egui::RichText::new(format!("💰 {}", format_currency(budget.treasury))).color(theme::GOLD));
+        ui.label(
+            egui::RichText::new(format!("💰 {}", format_currency(budget.treasury)))
+                .color(theme::GOLD),
+        );
     });
     ui.separator();
 
     if all_colonies.is_empty() {
         ui.add_space(20.0);
-        ui.label(egui::RichText::new("No colonies established yet").size(14.0).italics().color(theme::TEXT_DIM));
+        ui.label(
+            egui::RichText::new("No colonies established yet")
+                .size(14.0)
+                .italics()
+                .color(theme::TEXT_DIM),
+        );
         ui.label("Establish a colony to see economic breakdowns here.");
         return;
     }
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         for group in hierarchy {
-            let sys_colonies: Vec<&BodyEconomyEntry> = group.bodies.iter().filter(|b| b.colony.is_some()).collect();
+            let sys_colonies: Vec<&BodyEconomyEntry> =
+                group.bodies.iter().filter(|b| b.colony.is_some()).collect();
             if sys_colonies.is_empty() {
                 continue;
             }
 
-            let sys_income: f64 = sys_colonies.iter().filter_map(|b| b.colony.as_ref()).map(|c| c.income_per_year).sum();
-            let sys_cost: f64 = sys_colonies.iter().filter_map(|b| b.colony.as_ref()).map(|c| c.operating_cost_per_year).sum();
+            let sys_income: f64 = sys_colonies
+                .iter()
+                .filter_map(|b| b.colony.as_ref())
+                .map(|c| c.income_per_year)
+                .sum();
+            let sys_cost: f64 = sys_colonies
+                .iter()
+                .filter_map(|b| b.colony.as_ref())
+                .map(|c| c.operating_cost_per_year)
+                .sum();
             let sys_net = sys_income - sys_cost;
-            let sys_net_color = if sys_net >= 0.0 { theme::GREEN } else { theme::RED };
+            let sys_net_color = if sys_net >= 0.0 {
+                theme::GREEN
+            } else {
+                theme::RED
+            };
             let sys_sign = if sys_net >= 0.0 { "+" } else { "" };
 
             egui::CollapsingHeader::new(
                 egui::RichText::new(format!(
                     "⭐ {} — {} colonies, Net: {}{}/yr",
-                    group.system_name, sys_colonies.len(), sys_sign, format_currency(sys_net),
-                )).strong().size(14.0).color(sys_net_color),
+                    group.system_name,
+                    sys_colonies.len(),
+                    sys_sign,
+                    format_currency(sys_net),
+                ))
+                .strong()
+                .size(14.0)
+                .color(sys_net_color),
             )
             .default_open(true)
             .show(ui, |ui| {
@@ -867,7 +1204,11 @@ fn render_econ_colonies(
                     let income = colony.income_per_year;
                     let cost = colony.operating_cost_per_year;
                     let colony_net = income - cost;
-                    let cn_color = if colony_net >= 0.0 { theme::GREEN } else { theme::RED };
+                    let cn_color = if colony_net >= 0.0 {
+                        theme::GREEN
+                    } else {
+                        theme::RED
+                    };
                     let cn_sign = if colony_net >= 0.0 { "+" } else { "" };
 
                     let body_icon = match body_entry.body_type {
@@ -881,9 +1222,14 @@ fn render_econ_colonies(
                     egui::CollapsingHeader::new(
                         egui::RichText::new(format!(
                             "{} {} ({}) — Net: {}{}/yr",
-                            body_icon, colony.name, body_entry.body_name,
-                            cn_sign, format_currency(colony_net),
-                        )).strong().color(cn_color),
+                            body_icon,
+                            colony.name,
+                            body_entry.body_name,
+                            cn_sign,
+                            format_currency(colony_net),
+                        ))
+                        .strong()
+                        .color(cn_color),
                     )
                     .default_open(true)
                     .show(ui, |ui| {
@@ -897,12 +1243,24 @@ fn render_econ_colonies(
                                 ui.end_row();
 
                                 ui.label("Growth:");
-                                ui.label(format!("+{}/yr", Colony::format_population(colony.growth_per_year)));
+                                ui.label(format!(
+                                    "+{}/yr",
+                                    Colony::format_population(colony.growth_per_year)
+                                ));
                                 ui.end_row();
 
                                 ui.label("Housing:");
-                                let util = if colony.housing_capacity > 0.0 { colony.population / colony.housing_capacity * 100.0 } else { 0.0 };
-                                ui.label(format!("{} / {} ({:.0}%)", Colony::format_population(colony.population), Colony::format_population(colony.housing_capacity), util));
+                                let util = if colony.housing_capacity > 0.0 {
+                                    colony.population / colony.housing_capacity * 100.0
+                                } else {
+                                    0.0
+                                };
+                                ui.label(format!(
+                                    "{} / {} ({:.0}%)",
+                                    Colony::format_population(colony.population),
+                                    Colony::format_population(colony.housing_capacity),
+                                    util
+                                ));
                                 ui.end_row();
 
                                 ui.label("Buildings:");
@@ -910,25 +1268,63 @@ fn render_econ_colonies(
                                 ui.end_row();
 
                                 ui.label("Workforce:");
-                                let wf_color = if colony.workforce_efficiency >= 1.0 { theme::GREEN } else if colony.workforce_efficiency >= 0.5 { theme::AMBER } else { theme::RED };
-                                ui.label(egui::RichText::new(format!("{:.0}%", colony.workforce_efficiency * 100.0)).color(wf_color));
+                                let wf_color = if colony.workforce_efficiency >= 1.0 {
+                                    theme::GREEN
+                                } else if colony.workforce_efficiency >= 0.5 {
+                                    theme::AMBER
+                                } else {
+                                    theme::RED
+                                };
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "{:.0}%",
+                                        colony.workforce_efficiency * 100.0
+                                    ))
+                                    .color(wf_color),
+                                );
                                 ui.end_row();
 
                                 ui.label("Logistics:");
-                                let log_color = if colony.logistics_efficiency >= 1.0 { theme::GREEN } else if colony.logistics_efficiency >= 0.5 { theme::AMBER } else { theme::RED };
-                                ui.label(egui::RichText::new(format!("{:.0}%", colony.logistics_efficiency * 100.0)).color(log_color));
+                                let log_color = if colony.logistics_efficiency >= 1.0 {
+                                    theme::GREEN
+                                } else if colony.logistics_efficiency >= 0.5 {
+                                    theme::AMBER
+                                } else {
+                                    theme::RED
+                                };
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "{:.0}%",
+                                        colony.logistics_efficiency * 100.0
+                                    ))
+                                    .color(log_color),
+                                );
                                 ui.end_row();
 
                                 ui.label("Income:");
-                                ui.label(egui::RichText::new(format!("{}/yr", format_currency(income))).color(theme::GREEN));
+                                ui.label(
+                                    egui::RichText::new(format!("{}/yr", format_currency(income)))
+                                        .color(theme::GREEN),
+                                );
                                 ui.end_row();
 
                                 ui.label("Operating Cost:");
-                                ui.label(egui::RichText::new(format!("{}/yr", format_currency(cost))).color(theme::RED));
+                                ui.label(
+                                    egui::RichText::new(format!("{}/yr", format_currency(cost)))
+                                        .color(theme::RED),
+                                );
                                 ui.end_row();
 
                                 ui.label("Net:");
-                                ui.label(egui::RichText::new(format!("{}{}/yr", cn_sign, format_currency(colony_net))).strong().color(cn_color));
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "{}{}/yr",
+                                        cn_sign,
+                                        format_currency(colony_net)
+                                    ))
+                                    .strong()
+                                    .color(cn_color),
+                                );
                                 ui.end_row();
                             });
 
@@ -939,15 +1335,26 @@ fn render_econ_colonies(
                                 .default_open(false)
                                 .show(ui, |ui| {
                                     for category in BuildingCategory::all() {
-                                        let in_cat: Vec<(BuildingType, u32)> = colony.buildings.iter()
+                                        let in_cat: Vec<(BuildingType, u32)> = colony
+                                            .buildings
+                                            .iter()
                                             .filter(|(bt, _)| category.buildings().contains(bt))
                                             .map(|(bt, n)| (*bt, *n))
                                             .collect();
 
                                         if !in_cat.is_empty() {
-                                            ui.label(egui::RichText::new(category.display_name()).size(12.0).strong());
+                                            ui.label(
+                                                egui::RichText::new(category.display_name())
+                                                    .size(12.0)
+                                                    .strong(),
+                                            );
                                             for (building, count) in in_cat {
-                                                ui.label(format!("  {} {} × {}", building.icon(), building.display_name(), count));
+                                                ui.label(format!(
+                                                    "  {} {} × {}",
+                                                    building.icon(),
+                                                    building.display_name(),
+                                                    count
+                                                ));
                                             }
                                         }
                                     }
@@ -962,30 +1369,48 @@ fn render_econ_colonies(
         // Future: Stations section placeholder
         ui.add_space(8.0);
         ui.group(|ui| {
-            ui.label(egui::RichText::new("🛸 Stations").size(12.0).color(theme::TEXT_DIM));
-            ui.label(egui::RichText::new("Space stations will appear here when implemented.").italics().size(11.0).color(theme::TEXT_HINT));
+            ui.label(
+                egui::RichText::new("🛸 Stations")
+                    .size(12.0)
+                    .color(theme::TEXT_DIM),
+            );
+            ui.label(
+                egui::RichText::new("Space stations will appear here when implemented.")
+                    .italics()
+                    .size(11.0)
+                    .color(theme::TEXT_HINT),
+            );
         });
     });
 }
 
 // ---- Economy Tab: Mining ----
 
-fn render_econ_mining(
-    ui: &mut egui::Ui,
-    hierarchy: &[StarSystemGroup],
-) {
-    ui.label(egui::RichText::new("Mining operations and resource deposits by location").size(11.0).color(theme::TEXT_DIM));
+fn render_econ_mining(ui: &mut egui::Ui, hierarchy: &[StarSystemGroup]) {
+    ui.label(
+        egui::RichText::new("Mining operations and resource deposits by location")
+            .size(11.0)
+            .color(theme::TEXT_DIM),
+    );
     ui.separator();
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         if hierarchy.is_empty() {
             ui.add_space(20.0);
-            ui.label(egui::RichText::new("No mining activity or surveyed deposits").size(14.0).italics().color(theme::TEXT_DIM));
+            ui.label(
+                egui::RichText::new("No mining activity or surveyed deposits")
+                    .size(14.0)
+                    .italics()
+                    .color(theme::TEXT_DIM),
+            );
             return;
         }
 
         for group in hierarchy {
-            let has_mining = group.bodies.iter().any(|b| !b.mining_ops.is_empty() || b.colony.is_some());
+            let has_mining = group
+                .bodies
+                .iter()
+                .any(|b| !b.mining_ops.is_empty() || b.colony.is_some());
             let has_deposits = group.bodies.iter().any(|b| !b.deposits.is_empty());
 
             if !has_mining && !has_deposits {
@@ -993,12 +1418,17 @@ fn render_econ_mining(
             }
 
             egui::CollapsingHeader::new(
-                egui::RichText::new(format!("⭐ {}", group.system_name)).strong().size(14.0),
+                egui::RichText::new(format!("⭐ {}", group.system_name))
+                    .strong()
+                    .size(14.0),
             )
             .default_open(true)
             .show(ui, |ui| {
                 for body_entry in &group.bodies {
-                    if body_entry.mining_ops.is_empty() && body_entry.deposits.is_empty() && body_entry.colony.is_none() {
+                    if body_entry.mining_ops.is_empty()
+                        && body_entry.deposits.is_empty()
+                        && body_entry.colony.is_none()
+                    {
                         continue;
                     }
 
@@ -1013,35 +1443,71 @@ fn render_econ_mining(
 
                     let deposit_count = body_entry.deposits.len();
                     let op_count = body_entry.mining_ops.len();
-                    let has_colony_mining = body_entry.colony.as_ref().map(|c| c.total_buildings > 0).unwrap_or(false);
+                    let has_colony_mining = body_entry
+                        .colony
+                        .as_ref()
+                        .map(|c| c.total_buildings > 0)
+                        .unwrap_or(false);
 
                     let mut header_parts = Vec::new();
-                    if deposit_count > 0 { header_parts.push(format!("{} deposits", deposit_count)); }
-                    if op_count > 0 { header_parts.push(format!("{} ops", op_count)); }
-                    if has_colony_mining { header_parts.push("colony mining".to_string()); }
+                    if deposit_count > 0 {
+                        header_parts.push(format!("{} deposits", deposit_count));
+                    }
+                    if op_count > 0 {
+                        header_parts.push(format!("{} ops", op_count));
+                    }
+                    if has_colony_mining {
+                        header_parts.push("colony mining".to_string());
+                    }
 
                     egui::CollapsingHeader::new(
-                        egui::RichText::new(format!("{} {} ({})", body_icon, body_entry.body_name, header_parts.join(", "))).size(13.0),
+                        egui::RichText::new(format!(
+                            "{} {} ({})",
+                            body_icon,
+                            body_entry.body_name,
+                            header_parts.join(", ")
+                        ))
+                        .size(13.0),
                     )
                     .default_open(false)
                     .show(ui, |ui| {
                         // Active mining operations
                         if !body_entry.mining_ops.is_empty() {
-                            ui.label(egui::RichText::new("⛏ Active Operations").strong().size(12.0));
+                            ui.label(
+                                egui::RichText::new("⛏ Active Operations")
+                                    .strong()
+                                    .size(12.0),
+                            );
                             egui::Grid::new(format!("econ_mine_ops_{}", body_entry.body_name))
                                 .num_columns(3)
                                 .spacing([12.0, 2.0])
                                 .striped(true)
                                 .show(ui, |ui| {
                                     ui.label(egui::RichText::new("Resource").strong().size(11.0));
-                                    ui.label(egui::RichText::new("Rate (Mt/yr)").strong().size(11.0));
+                                    ui.label(
+                                        egui::RichText::new("Rate (Mt/yr)").strong().size(11.0),
+                                    );
                                     ui.label(egui::RichText::new("Status").strong().size(11.0));
                                     ui.end_row();
 
                                     for op in &body_entry.mining_ops {
-                                        ui.label(egui::RichText::new(op.resource_type.display_name()).size(11.0));
-                                        ui.label(egui::RichText::new(format!("{:.2}", op.rate_mt_per_year)).monospace().size(11.0));
-                                        let (st, sc) = if op.active { ("Active", theme::GREEN) } else { ("Idle", theme::TEXT_DIM) };
+                                        ui.label(
+                                            egui::RichText::new(op.resource_type.display_name())
+                                                .size(11.0),
+                                        );
+                                        ui.label(
+                                            egui::RichText::new(format!(
+                                                "{:.2}",
+                                                op.rate_mt_per_year
+                                            ))
+                                            .monospace()
+                                            .size(11.0),
+                                        );
+                                        let (st, sc) = if op.active {
+                                            ("Active", theme::GREEN)
+                                        } else {
+                                            ("Idle", theme::TEXT_DIM)
+                                        };
                                         ui.label(egui::RichText::new(st).size(11.0).color(sc));
                                         ui.end_row();
                                     }
@@ -1052,21 +1518,33 @@ fn render_econ_mining(
                         // Colony mining indicator
                         if let Some(colony) = &body_entry.colony {
                             if colony.total_buildings > 0 {
-                                ui.label(egui::RichText::new(format!("🏠 Colony: {} ({} buildings)", colony.name, colony.total_buildings)).size(11.0));
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "🏠 Colony: {} ({} buildings)",
+                                        colony.name, colony.total_buildings
+                                    ))
+                                    .size(11.0),
+                                );
                                 ui.add_space(2.0);
                             }
                         }
 
                         // Resource deposits
                         if !body_entry.deposits.is_empty() {
-                            ui.label(egui::RichText::new("🌍 Resource Deposits").strong().size(12.0));
+                            ui.label(
+                                egui::RichText::new("🌍 Resource Deposits")
+                                    .strong()
+                                    .size(12.0),
+                            );
                             egui::Grid::new(format!("econ_deposits_{}", body_entry.body_name))
                                 .num_columns(5)
                                 .spacing([10.0, 2.0])
                                 .striped(true)
                                 .show(ui, |ui| {
                                     ui.label(egui::RichText::new("Resource").strong().size(11.0));
-                                    ui.label(egui::RichText::new("Proven (Mt)").strong().size(11.0));
+                                    ui.label(
+                                        egui::RichText::new("Proven (Mt)").strong().size(11.0),
+                                    );
                                     ui.label(egui::RichText::new("Deep (Mt)").strong().size(11.0));
                                     ui.label(egui::RichText::new("Access").strong().size(11.0));
                                     ui.label(egui::RichText::new("Type").strong().size(11.0));
@@ -1077,12 +1555,47 @@ fn render_econ_mining(
 
                                     for (rt, deposit) in &sorted {
                                         ui.label(egui::RichText::new(rt.display_name()).size(11.0));
-                                        ui.label(egui::RichText::new(format!("{:.1}", deposit.reserve.proven_crustal)).monospace().size(11.0));
-                                        ui.label(egui::RichText::new(format!("{:.1}", deposit.reserve.deep_deposits)).monospace().size(11.0));
-                                        let acc_color = if deposit.accessibility > 0.7 { theme::GREEN } else if deposit.accessibility > 0.3 { theme::AMBER } else { theme::RED };
-                                        ui.label(egui::RichText::new(format!("{:.0}%", deposit.accessibility * 100.0)).size(11.0).color(acc_color));
-                                        let type_label = if deposit.is_atmospheric { "Atmo" } else { "Surface" };
-                                        ui.label(egui::RichText::new(type_label).size(10.0).color(theme::TEXT_DIM));
+                                        ui.label(
+                                            egui::RichText::new(format!(
+                                                "{:.1}",
+                                                deposit.reserve.proven_crustal
+                                            ))
+                                            .monospace()
+                                            .size(11.0),
+                                        );
+                                        ui.label(
+                                            egui::RichText::new(format!(
+                                                "{:.1}",
+                                                deposit.reserve.deep_deposits
+                                            ))
+                                            .monospace()
+                                            .size(11.0),
+                                        );
+                                        let acc_color = if deposit.accessibility > 0.7 {
+                                            theme::GREEN
+                                        } else if deposit.accessibility > 0.3 {
+                                            theme::AMBER
+                                        } else {
+                                            theme::RED
+                                        };
+                                        ui.label(
+                                            egui::RichText::new(format!(
+                                                "{:.0}%",
+                                                deposit.accessibility * 100.0
+                                            ))
+                                            .size(11.0)
+                                            .color(acc_color),
+                                        );
+                                        let type_label = if deposit.is_atmospheric {
+                                            "Atmo"
+                                        } else {
+                                            "Surface"
+                                        };
+                                        ui.label(
+                                            egui::RichText::new(type_label)
+                                                .size(10.0)
+                                                .color(theme::TEXT_DIM),
+                                        );
                                         ui.end_row();
                                     }
                                 });
@@ -1095,25 +1608,39 @@ fn render_econ_mining(
         // Future mining ships section
         ui.add_space(10.0);
         ui.group(|ui| {
-            ui.label(egui::RichText::new("🚀 Mining Ships").size(12.0).color(theme::TEXT_DIM));
-            ui.label(egui::RichText::new("Automated mining ships will appear here when implemented.").italics().size(11.0).color(theme::TEXT_HINT));
+            ui.label(
+                egui::RichText::new("🚀 Mining Ships")
+                    .size(12.0)
+                    .color(theme::TEXT_DIM),
+            );
+            ui.label(
+                egui::RichText::new("Automated mining ships will appear here when implemented.")
+                    .italics()
+                    .size(11.0)
+                    .color(theme::TEXT_HINT),
+            );
         });
 
         ui.add_space(5.0);
         ui.group(|ui| {
-            ui.label(egui::RichText::new("🛸 Mining Stations").size(12.0).color(theme::TEXT_DIM));
-            ui.label(egui::RichText::new("Orbital mining stations will appear here when implemented.").italics().size(11.0).color(theme::TEXT_HINT));
+            ui.label(
+                egui::RichText::new("🛸 Mining Stations")
+                    .size(12.0)
+                    .color(theme::TEXT_DIM),
+            );
+            ui.label(
+                egui::RichText::new("Orbital mining stations will appear here when implemented.")
+                    .italics()
+                    .size(11.0)
+                    .color(theme::TEXT_HINT),
+            );
         });
     });
 }
 
 // ---- Economy Tab: Power Grid ----
 
-fn render_econ_power_grid(
-    ui: &mut egui::Ui,
-    budget: &GlobalBudget,
-    hierarchy: &[StarSystemGroup],
-) {
+fn render_econ_power_grid(ui: &mut egui::Ui, budget: &GlobalBudget, hierarchy: &[StarSystemGroup]) {
     let grid = &budget.energy_grid;
     let surplus = grid.surplus();
     let utilization = grid.load_factor();
@@ -1132,7 +1659,12 @@ fn render_econ_power_grid(
 
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("⚡ Grid Status:").strong().size(14.0));
-            ui.label(egui::RichText::new(status_text).strong().size(14.0).color(status_color));
+            ui.label(
+                egui::RichText::new(status_text)
+                    .strong()
+                    .size(14.0)
+                    .color(status_color),
+            );
         });
 
         let bar_pct = utilization.min(1.0) as f32;
@@ -1147,8 +1679,14 @@ fn render_econ_power_grid(
                 .desired_width(ui.available_width().min(600.0)),
         );
 
-        let surplus_color = if surplus >= 0.0 { theme::GREEN } else { theme::RED };
-        ui.label(egui::RichText::new(format!("Surplus: {}", format_power(surplus))).color(surplus_color));
+        let surplus_color = if surplus >= 0.0 {
+            theme::GREEN
+        } else {
+            theme::RED
+        };
+        ui.label(
+            egui::RichText::new(format!("Surplus: {}", format_power(surplus))).color(surplus_color),
+        );
     });
 
     ui.separator();
@@ -1157,7 +1695,11 @@ fn render_econ_power_grid(
         // Power breakdown by source type
         if !budget.power_breakdown.is_empty() {
             ui.group(|ui| {
-                ui.label(egui::RichText::new("🔋 Production by Source Type").strong().size(14.0));
+                ui.label(
+                    egui::RichText::new("🔋 Production by Source Type")
+                        .strong()
+                        .size(14.0),
+                );
                 ui.separator();
 
                 egui::Grid::new("econ_pwr_breakdown")
@@ -1167,7 +1709,11 @@ fn render_econ_power_grid(
                     .show(ui, |ui| {
                         for (source_type, wattage) in &budget.power_breakdown {
                             ui.label(format!("{}", source_type));
-                            ui.label(egui::RichText::new(format_power(*wattage)).monospace().color(theme::GREEN));
+                            ui.label(
+                                egui::RichText::new(format_power(*wattage))
+                                    .monospace()
+                                    .color(theme::GREEN),
+                            );
                             ui.end_row();
                         }
                     });
@@ -1177,22 +1723,35 @@ fn render_econ_power_grid(
 
         // Per-system power breakdown
         ui.group(|ui| {
-            ui.label(egui::RichText::new("🌟 Power by Location").strong().size(14.0));
+            ui.label(
+                egui::RichText::new("🌟 Power by Location")
+                    .strong()
+                    .size(14.0),
+            );
             ui.separator();
 
             if hierarchy.is_empty() {
-                ui.label(egui::RichText::new("No power sources detected").italics().color(theme::TEXT_DIM));
+                ui.label(
+                    egui::RichText::new("No power sources detected")
+                        .italics()
+                        .color(theme::TEXT_DIM),
+                );
                 return;
             }
 
             for group in hierarchy {
-                let has_power_data = group.bodies.iter().any(|b| !b.generators.is_empty() || b.colony.is_some());
+                let has_power_data = group
+                    .bodies
+                    .iter()
+                    .any(|b| !b.generators.is_empty() || b.colony.is_some());
                 if !has_power_data {
                     continue;
                 }
 
                 egui::CollapsingHeader::new(
-                    egui::RichText::new(format!("⭐ {}", group.system_name)).strong().size(13.0),
+                    egui::RichText::new(format!("⭐ {}", group.system_name))
+                        .strong()
+                        .size(13.0),
                 )
                 .default_open(true)
                 .show(ui, |ui| {
@@ -1210,18 +1769,40 @@ fn render_econ_power_grid(
                         };
 
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(format!("{} {}", body_icon, body_entry.body_name)).strong().size(12.0));
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "{} {}",
+                                    body_icon, body_entry.body_name
+                                ))
+                                .strong()
+                                .size(12.0),
+                            );
 
                             // Generators on this body
                             for gen in &body_entry.generators {
-                                ui.label(egui::RichText::new(format!("| {} {}", format!("{}", gen.source_type), format_power(gen.output_watts))).size(11.0).color(theme::GREEN));
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "| {} {}",
+                                        format!("{}", gen.source_type),
+                                        format_power(gen.output_watts)
+                                    ))
+                                    .size(11.0)
+                                    .color(theme::GREEN),
+                                );
                             }
 
                             // Colony estimated consumption
                             if let Some(colony) = &body_entry.colony {
                                 // Assume ~400MW per mega-structure building to match ~18TW total consumption
                                 let est_load = colony.total_buildings as f64 * 400_000_000.0;
-                                ui.label(egui::RichText::new(format!("| Load ~{}", format_power(est_load))).size(11.0).color(theme::AMBER));
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "| Load ~{}",
+                                        format_power(est_load)
+                                    ))
+                                    .size(11.0)
+                                    .color(theme::AMBER),
+                                );
                             }
                         });
                     }
@@ -1232,9 +1813,19 @@ fn render_econ_power_grid(
         // Future sources
         ui.add_space(8.0);
         ui.group(|ui| {
-            ui.label(egui::RichText::new("🚧 Future Power Sources").size(12.0).color(theme::TEXT_DIM));
-            ui.label(egui::RichText::new("Station and ship power grids will appear here when implemented.").italics().size(11.0).color(theme::TEXT_HINT));
+            ui.label(
+                egui::RichText::new("🚧 Future Power Sources")
+                    .size(12.0)
+                    .color(theme::TEXT_DIM),
+            );
+            ui.label(
+                egui::RichText::new(
+                    "Station and ship power grids will appear here when implemented.",
+                )
+                .italics()
+                .size(11.0)
+                .color(theme::TEXT_HINT),
+            );
         });
     });
 }
-

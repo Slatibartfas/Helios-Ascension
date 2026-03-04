@@ -2,8 +2,8 @@ use bevy::prelude::*;
 use bevy::render::render_resource::AsBindGroup;
 use bevy::shader::ShaderRef;
 
-use crate::astronomy::components::{CurrentStarSystem, SystemId};
 use super::solar_system::CelestialBody;
+use crate::astronomy::components::{CurrentStarSystem, SystemId};
 
 /// Material for the star glow/corona effect (billboard)
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
@@ -238,7 +238,11 @@ pub(super) fn update_body_visibility(
 /// the transition feels consistent regardless of star size.
 pub(super) fn update_star_glare_lod(
     camera_query: Query<&GlobalTransform, With<Camera3d>>,
-    mut glare_query: Query<(&GlobalTransform, &MeshMaterial3d<StarGlowMaterial>, &StarGlare)>,
+    mut glare_query: Query<(
+        &GlobalTransform,
+        &MeshMaterial3d<StarGlowMaterial>,
+        &StarGlare,
+    )>,
     mut materials: ResMut<Assets<StarGlowMaterial>>,
 ) {
     if let Ok(cam_transform) = camera_query.single() {
@@ -254,8 +258,8 @@ pub(super) fn update_star_glare_lod(
             // (min=200, max=1500) divided by Sun visual_radius ~104:
             //   min ≈ 2.0×, max ≈ 14.5× visual_radius
             let r = glare_data.visual_radius.max(1.0);
-            let min_dist = r * 2.0;   // fully transparent (surface visible)
-            let max_dist = r * 14.5;  // fully opaque (glow dominates)
+            let min_dist = r * 2.0; // fully transparent (surface visible)
+            let max_dist = r * 14.5; // fully opaque (glow dominates)
 
             let t = ((distance - min_dist) / (max_dist - min_dist)).clamp(0.0, 1.0);
             let t_eased = t * t * (3.0 - 2.0 * t); // smoothstep
@@ -274,7 +278,11 @@ pub(super) fn update_star_glare_lod(
 /// Distances scale with the star's visual radius for size-consistent behaviour.
 pub(super) fn update_star_diffraction_lod(
     camera_query: Query<&GlobalTransform, With<Camera3d>>,
-    mut diffraction_query: Query<(&GlobalTransform, &MeshMaterial3d<StarDiffractionMaterial>, &StarDiffraction)>,
+    mut diffraction_query: Query<(
+        &GlobalTransform,
+        &MeshMaterial3d<StarDiffractionMaterial>,
+        &StarDiffraction,
+    )>,
     mut materials: ResMut<Assets<StarDiffractionMaterial>>,
 ) {
     if let Ok(cam_transform) = camera_query.single() {
@@ -333,8 +341,16 @@ pub(super) fn update_corona_3d_time(
 /// glare LOD so the limb-darkened sphere is visible up close.
 pub(super) fn update_star_corona_3d_lod(
     camera_query: Query<&GlobalTransform, With<Camera3d>>,
-    corona_query: Query<(&GlobalTransform, &MeshMaterial3d<StarCorona3dMaterial>, &StarCoronaShell)>,
-    halo_query: Query<(&GlobalTransform, &MeshMaterial3d<StarHalo3dMaterial>, &StarHaloShell)>,
+    corona_query: Query<(
+        &GlobalTransform,
+        &MeshMaterial3d<StarCorona3dMaterial>,
+        &StarCoronaShell,
+    )>,
+    halo_query: Query<(
+        &GlobalTransform,
+        &MeshMaterial3d<StarHalo3dMaterial>,
+        &StarHaloShell,
+    )>,
     mut corona_materials: ResMut<Assets<StarCorona3dMaterial>>,
     mut halo_materials: ResMut<Assets<StarHalo3dMaterial>>,
 ) {

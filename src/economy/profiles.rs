@@ -90,14 +90,11 @@ pub(super) fn apply_special_body_profile(
             // Nitrogen: trace (~0.001% by mass, mostly as NH₃)
             resources.add_deposit(
                 ResourceType::Nitrogen,
-                create_atmospheric_deposit(
-                    (body_mass * 0.00001) / 1e9,
-                    0.0,
-                    0.0,
-                    0.02,
-                ),
+                create_atmospheric_deposit((body_mass * 0.00001) / 1e9, 0.0, 0.0, 0.02),
             );
-            debug!("Applied Jupiter special profile: gas giant (71% H₂ by mass, no solid resources)");
+            debug!(
+                "Applied Jupiter special profile: gas giant (71% H₂ by mass, no solid resources)"
+            );
             Some(resources)
         }
 
@@ -121,22 +118,12 @@ pub(super) fn apply_special_body_profile(
             // Helium-3: 25 ppm (outer envelope depleted by He rain-out)
             resources.add_deposit(
                 ResourceType::Helium3,
-                create_atmospheric_deposit(
-                    (body_mass * 0.000025) / 1e9,
-                    0.1,
-                    0.0,
-                    0.05,
-                ),
+                create_atmospheric_deposit((body_mass * 0.000025) / 1e9, 0.1, 0.0, 0.05),
             );
             // Deuterium: 29 ppm
             resources.add_deposit(
                 ResourceType::Deuterium,
-                create_atmospheric_deposit(
-                    (body_mass * 0.000029) / 1e9,
-                    0.1,
-                    0.0,
-                    0.03,
-                ),
+                create_atmospheric_deposit((body_mass * 0.000029) / 1e9, 0.1, 0.0, 0.03),
             );
             // Methane: ~0.3% by mass (enriched ~10× solar, Cassini CIRS)
             resources.add_deposit(
@@ -151,22 +138,12 @@ pub(super) fn apply_special_body_profile(
             // Water: ~0.5% by mass (deep interior, supercritical)
             resources.add_deposit(
                 ResourceType::Water,
-                create_atmospheric_deposit(
-                    (body_mass * 0.005) / 1e9,
-                    0.0,
-                    0.0,
-                    0.01,
-                ),
+                create_atmospheric_deposit((body_mass * 0.005) / 1e9, 0.0, 0.0, 0.01),
             );
             // Nitrogen: trace
             resources.add_deposit(
                 ResourceType::Nitrogen,
-                create_atmospheric_deposit(
-                    (body_mass * 0.000008) / 1e9,
-                    0.0,
-                    0.0,
-                    0.02,
-                ),
+                create_atmospheric_deposit((body_mass * 0.000008) / 1e9, 0.0, 0.0, 0.02),
             );
             debug!("Applied Saturn special profile: gas giant (69% H₂ by mass, He rain-out)");
             Some(resources)
@@ -190,22 +167,12 @@ pub(super) fn apply_special_body_profile(
             // Helium-3: 5 ppm (much less total He than gas giants)
             resources.add_deposit(
                 ResourceType::Helium3,
-                create_atmospheric_deposit(
-                    (body_mass * 0.000005) / 1e9,
-                    0.1,
-                    0.0,
-                    0.06,
-                ),
+                create_atmospheric_deposit((body_mass * 0.000005) / 1e9, 0.1, 0.0, 0.06),
             );
             // Deuterium: 44 ppm (enriched D/H from accreted ices)
             resources.add_deposit(
                 ResourceType::Deuterium,
-                create_atmospheric_deposit(
-                    (body_mass * 0.000044) / 1e9,
-                    0.15,
-                    0.0,
-                    0.04,
-                ),
+                create_atmospheric_deposit((body_mass * 0.000044) / 1e9, 0.15, 0.0, 0.04),
             );
             // Water: ~50% by mass (interior mantle — superionic/ionic fluid)
             // Enormous reservoir but at millions of atmospheres pressure
@@ -226,12 +193,7 @@ pub(super) fn apply_special_body_profile(
             // Nitrogen: ~0.2% by mass (from NH₃ dissociation + primordial)
             resources.add_deposit(
                 ResourceType::Nitrogen,
-                create_atmospheric_deposit(
-                    (body_mass * 0.002) / 1e9,
-                    0.2,
-                    0.0,
-                    0.03,
-                ),
+                create_atmospheric_deposit((body_mass * 0.002) / 1e9, 0.2, 0.0, 0.03),
             );
             debug!("Applied Uranus special profile: ice giant (15% H₂, 50% H₂O interior)");
             Some(resources)
@@ -253,22 +215,12 @@ pub(super) fn apply_special_body_profile(
             // Helium-3: 5 ppm
             resources.add_deposit(
                 ResourceType::Helium3,
-                create_atmospheric_deposit(
-                    (body_mass * 0.000005) / 1e9,
-                    0.1,
-                    0.0,
-                    0.06,
-                ),
+                create_atmospheric_deposit((body_mass * 0.000005) / 1e9, 0.1, 0.0, 0.06),
             );
             // Deuterium: 41 ppm (enriched D/H from ices)
             resources.add_deposit(
                 ResourceType::Deuterium,
-                create_atmospheric_deposit(
-                    (body_mass * 0.000041) / 1e9,
-                    0.15,
-                    0.0,
-                    0.04,
-                ),
+                create_atmospheric_deposit((body_mass * 0.000041) / 1e9, 0.15, 0.0, 0.04),
             );
             // Water: ~50% by mass (interior mantle — superionic fluid)
             resources.add_deposit(
@@ -288,12 +240,7 @@ pub(super) fn apply_special_body_profile(
             // Nitrogen: ~0.2% by mass
             resources.add_deposit(
                 ResourceType::Nitrogen,
-                create_atmospheric_deposit(
-                    (body_mass * 0.002) / 1e9,
-                    0.2,
-                    0.0,
-                    0.03,
-                ),
+                create_atmospheric_deposit((body_mass * 0.002) / 1e9, 0.2, 0.0, 0.03),
             );
             debug!("Applied Neptune special profile: ice giant (18% H₂, 50% H₂O interior)");
             Some(resources)
@@ -609,7 +556,9 @@ pub(super) fn apply_special_body_profile(
                 ResourceType::Nickel,
                 create_deposit_legacy(0.005, 0.1, body_mass, BodyType::Moon),
             );
-            debug!("Applied Europa special profile: massive subsurface ocean (2-3× Earth's oceans)");
+            debug!(
+                "Applied Europa special profile: massive subsurface ocean (2-3× Earth's oceans)"
+            );
             Some(resources)
         }
 
@@ -647,7 +596,7 @@ pub(super) fn apply_special_body_profile(
                 ResourceType::Nitrogen,
                 create_deposit_legacy(0.02, 0.4, body_mass, BodyType::Planet),
             ); // Thin atmosphere
-            // Nickel: meteoritic enrichment of regolith (~1.5% from meteorites)
+               // Nickel: meteoritic enrichment of regolith (~1.5% from meteorites)
             resources.add_deposit(
                 ResourceType::Nickel,
                 create_deposit_legacy(0.01, 0.5, body_mass, BodyType::Planet),
@@ -734,9 +683,9 @@ pub(super) fn apply_special_body_profile(
                 ResourceType::Titanium,
                 create_deposit_legacy(0.04, 0.5, body_mass, BodyType::Moon),
             ); // ~4% titanium (generous)
-            // He-3: Solar wind implanted into surface regolith only (top 2-3 meters)
-            // Estimated ~1 million metric tons total (Wittenberg et al. 1986)
-            // 1 Mt in game units. Entirely surface — no deep deposits.
+               // He-3: Solar wind implanted into surface regolith only (top 2-3 meters)
+               // Estimated ~1 million metric tons total (Wittenberg et al. 1986)
+               // 1 Mt in game units. Entirely surface — no deep deposits.
             resources.add_deposit(
                 ResourceType::Helium3,
                 MineralDeposit::new(0.9, 0.1, 0.0, 0.8, 0.8),
@@ -904,8 +853,6 @@ pub(super) fn apply_special_body_profile(
             Some(resources)
         }
 
-
-
         // Venus: Dense CO2 atmosphere, volcanic surface, no water
         // Venus mass: 4.867×10^24 kg
         // Atmosphere mass: 4.8×10^20 kg (100× Earth's, 96.5% CO2, 3.5% N2)
@@ -1010,7 +957,9 @@ pub(super) fn apply_special_body_profile(
                 create_deposit_legacy(0.0003, 0.15, body_mass, BodyType::Planet),
             );
 
-            debug!("Applied Venus special profile: massive CO2 atmosphere, no water, extreme surface");
+            debug!(
+                "Applied Venus special profile: massive CO2 atmosphere, no water, extreme surface"
+            );
             Some(resources)
         }
 
@@ -1114,7 +1063,9 @@ pub(super) fn apply_special_body_profile(
                 create_deposit_legacy(0.0005, 0.4, body_mass, BodyType::Planet),
             );
 
-            debug!("Applied Mercury special profile: massive iron core, polar ice, solar wind He-3");
+            debug!(
+                "Applied Mercury special profile: massive iron core, polar ice, solar wind He-3"
+            );
             Some(resources)
         }
 
@@ -1934,20 +1885,14 @@ pub(super) fn apply_procedural_gas_giant_profile(
         let he3_ppm = rng.random_range(20.0e-6..35.0e-6);
         resources.add_deposit(
             ResourceType::Helium3,
-            create_atmospheric_deposit(
-                (body_mass * he3_ppm) / 1e9,
-                0.1, 0.0, 0.05,
-            ),
+            create_atmospheric_deposit((body_mass * he3_ppm) / 1e9, 0.1, 0.0, 0.05),
         );
 
         // Deuterium: D/H 2-3 × 10⁻⁵, scaled by H mass fraction
         let d_ppm = rng.random_range(25.0e-6..40.0e-6);
         resources.add_deposit(
             ResourceType::Deuterium,
-            create_atmospheric_deposit(
-                (body_mass * d_ppm) / 1e9,
-                0.1, 0.0, 0.03,
-            ),
+            create_atmospheric_deposit((body_mass * d_ppm) / 1e9, 0.1, 0.0, 0.03),
         );
 
         // CH₄: 0.05-0.3% by mass (enrichment varies by metallicity)
@@ -1968,10 +1913,7 @@ pub(super) fn apply_procedural_gas_giant_profile(
         let h2o_frac = rng.random_range(0.001..0.01);
         resources.add_deposit(
             ResourceType::Water,
-            create_atmospheric_deposit(
-                (body_mass * h2o_frac) / 1e9,
-                0.0, 0.0, 0.01,
-            ),
+            create_atmospheric_deposit((body_mass * h2o_frac) / 1e9, 0.0, 0.0, 0.01),
         );
 
         // N₂: trace
@@ -1979,11 +1921,16 @@ pub(super) fn apply_procedural_gas_giant_profile(
             ResourceType::Nitrogen,
             create_atmospheric_deposit(
                 (body_mass * rng.random_range(5.0e-6..20.0e-6)) / 1e9,
-                0.0, 0.0, 0.02,
+                0.0,
+                0.0,
+                0.02,
             ),
         );
 
-        debug!("Applied procedural gas giant profile: {:.0}% H₂", h2_frac * 100.0);
+        debug!(
+            "Applied procedural gas giant profile: {:.0}% H₂",
+            h2_frac * 100.0
+        );
     } else {
         // ── Ice giant (Uranus/Neptune analogue) ──────────────────────
         // Bulk composition: ~15-20% H₂+He, ~55-65% ices, ~15-25% rock
@@ -2000,20 +1947,14 @@ pub(super) fn apply_procedural_gas_giant_profile(
         let he3_ppm = rng.random_range(3.0e-6..7.0e-6);
         resources.add_deposit(
             ResourceType::Helium3,
-            create_atmospheric_deposit(
-                (body_mass * he3_ppm) / 1e9,
-                0.1, 0.0, 0.06,
-            ),
+            create_atmospheric_deposit((body_mass * he3_ppm) / 1e9, 0.1, 0.0, 0.06),
         );
 
         // Deuterium: enriched D/H from ices → 35-55 ppm
         let d_ppm = rng.random_range(35.0e-6..55.0e-6);
         resources.add_deposit(
             ResourceType::Deuterium,
-            create_atmospheric_deposit(
-                (body_mass * d_ppm) / 1e9,
-                0.15, 0.0, 0.04,
-            ),
+            create_atmospheric_deposit((body_mass * d_ppm) / 1e9, 0.15, 0.0, 0.04),
         );
 
         // H₂O: 40-60% by mass (superionic/ionic interior mantle)
@@ -2041,14 +1982,14 @@ pub(super) fn apply_procedural_gas_giant_profile(
         let n2_frac = rng.random_range(0.001..0.003);
         resources.add_deposit(
             ResourceType::Nitrogen,
-            create_atmospheric_deposit(
-                (body_mass * n2_frac) / 1e9,
-                0.2, 0.0, 0.03,
-            ),
+            create_atmospheric_deposit((body_mass * n2_frac) / 1e9, 0.2, 0.0, 0.03),
         );
 
-        debug!("Applied procedural ice giant profile: {:.0}% H₂, {:.0}% H₂O",
-            h2_frac * 100.0, h2o_frac * 100.0);
+        debug!(
+            "Applied procedural ice giant profile: {:.0}% H₂, {:.0}% H₂O",
+            h2_frac * 100.0,
+            h2o_frac * 100.0
+        );
     }
 
     resources

@@ -1,5 +1,5 @@
-use super::*;
 use super::time::format_timestamp_date_time;
+use super::*;
 
 pub(super) fn render_transfer_planner(
     ui: &mut egui::Ui,
@@ -7,8 +7,23 @@ pub(super) fn render_transfer_planner(
     fleet: &Fleet,
     orbit: &FleetOrbit,
     current_maneuver: Option<&ActiveManeuver>,
-    body_query: &Query<(Entity, &CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>, Option<&LogicalParent>)>,
-    all_fleets_query: &Query<(Entity, &Fleet, &SpaceCoordinates, Option<&FleetOrbit>, Option<&ActiveManeuver>), Without<CelestialBody>>,
+    body_query: &Query<(
+        Entity,
+        &CelestialBody,
+        &SpaceCoordinates,
+        Option<&KeplerOrbit>,
+        Option<&LogicalParent>,
+    )>,
+    all_fleets_query: &Query<
+        (
+            Entity,
+            &Fleet,
+            &SpaceCoordinates,
+            Option<&FleetOrbit>,
+            Option<&ActiveManeuver>,
+        ),
+        Without<CelestialBody>,
+    >,
     fleet_ui_state: &mut FleetUiState,
     pending_actions: &mut PendingFleetActions,
     current_system_id: usize,
@@ -68,15 +83,31 @@ pub(super) fn render_transfer_planner(
     #[derive(Clone)]
     enum DestEntry {
         Header(String),
-        Body { entity: Entity, name: String },
+        Body {
+            entity: Entity,
+            name: String,
+        },
         // Rings are treated like regular bodies for selection; the extra
         // parent/radius information used to be stored here but never read.
-        Ring { entity: Entity, name: String },
+        Ring {
+            entity: Entity,
+            name: String,
+        },
         // TODO(lagrange-transfers): variant kept so the match arm compiles; re-enable construction when ready.
         #[allow(dead_code)]
-        Lagrange { lp: LagrangeTarget },
-        FleetTarget { entity: Entity, name: String, in_transit: bool },
-        StarSystem { system_id: usize, name: String, distance_ly: f32 },
+        Lagrange {
+            lp: LagrangeTarget,
+        },
+        FleetTarget {
+            entity: Entity,
+            name: String,
+            in_transit: bool,
+        },
+        StarSystem {
+            system_id: usize,
+            name: String,
+            distance_ly: f32,
+        },
     }
 
     let mut dest_entries: Vec<DestEntry> = Vec::new();
@@ -86,9 +117,18 @@ pub(super) fn render_transfer_planner(
     let candidates: Vec<(Entity, String, BodyType, Option<f64>, Option<Entity>)> = body_query
         .iter()
         .filter_map(|(e, body, _, maybe_ko, maybe_lp)| {
-            if e == orbit.body { return None; }
-            if body.body_type == BodyType::Star { return None; }
-            if !body_system_ids.get(e).ok().map(|s| s.0 == current_system_id).unwrap_or(false) {
+            if e == orbit.body {
+                return None;
+            }
+            if body.body_type == BodyType::Star {
+                return None;
+            }
+            if !body_system_ids
+                .get(e)
+                .ok()
+                .map(|s| s.0 == current_system_id)
+                .unwrap_or(false)
+            {
                 return None;
             }
             let sma = maybe_ko.map(|ko| ko.semi_major_axis);
@@ -101,8 +141,15 @@ pub(super) fn render_transfer_planner(
     let ring_candidates: Vec<(Entity, String, Option<Entity>, f64)> = body_query
         .iter()
         .filter_map(|(e, body, _, _, maybe_lp)| {
-            if body.body_type != BodyType::Ring { return None; }
-            if !body_system_ids.get(e).ok().map(|s| s.0 == current_system_id).unwrap_or(false) {
+            if body.body_type != BodyType::Ring {
+                return None;
+            }
+            if !body_system_ids
+                .get(e)
+                .ok()
+                .map(|s| s.0 == current_system_id)
+                .unwrap_or(false)
+            {
                 return None;
             }
             let parent = maybe_lp.map(|lp| lp.0)?;
@@ -114,24 +161,32 @@ pub(super) fn render_transfer_planner(
 
     // ── Group 1: bodies that directly orbit the fleet's current body ──────────
     {
-        let orbit_body_name = body_query.get(orbit.body)
-            .map(|(_, b, _, _, _)| b.name.clone()).unwrap_or_default();
-        let mut local: Vec<(Entity, String, f64)> = candidates.iter()
+        let orbit_body_name = body_query
+            .get(orbit.body)
+            .map(|(_, b, _, _, _)| b.name.clone())
+            .unwrap_or_default();
+        let mut local: Vec<(Entity, String, f64)> = candidates
+            .iter()
             .filter(|(_, _, btype, _, parent)| {
                 *parent == Some(orbit.body) && *btype != BodyType::Ring
             })
             .filter_map(|(e, name, _, sma, _)| sma.map(|s| (*e, name.clone(), s)))
             .collect();
         // Rings around the current orbit body
-        let mut local_rings: Vec<(Entity, String, Option<Entity>, f64)> = ring_candidates.iter()
+        let mut local_rings: Vec<(Entity, String, Option<Entity>, f64)> = ring_candidates
+            .iter()
             .filter(|(_, _, parent, _)| *parent == Some(orbit.body))
-            .cloned().collect();
+            .cloned()
+            .collect();
         if !local.is_empty() || !local_rings.is_empty() {
             local.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
             local_rings.sort_by(|a, b| a.3.partial_cmp(&b.3).unwrap_or(std::cmp::Ordering::Equal));
             dest_entries.push(DestEntry::Header(format!("{orbit_body_name} System")));
             for (e, name, _) in &local {
-                dest_entries.push(DestEntry::Body { entity: *e, name: name.clone() });
+                dest_entries.push(DestEntry::Body {
+                    entity: *e,
+                    name: name.clone(),
+                });
             }
             for (e, name, parent, _radius_au) in local_rings {
                 if parent.is_some() {
@@ -146,39 +201,65 @@ pub(super) fn render_transfer_planner(
     }
 
     // ── Groups 2+: planet systems (moons/rings orbiting a planet that isn't fleet's body) ──
-    let mut planet_map: std::collections::BTreeMap<String, (Entity, f64, Vec<(Entity, String, f64, bool)>)> =
-        std::collections::BTreeMap::new();
+    let mut planet_map: std::collections::BTreeMap<
+        String,
+        (Entity, f64, Vec<(Entity, String, f64, bool)>),
+    > = std::collections::BTreeMap::new();
 
     // Regular moons / small bodies orbiting a planet
     for (e, name, btype, sma, parent) in &candidates {
-        if *btype == BodyType::Ring { continue; }
-        let parent_e = match parent { Some(p) => *p, None => continue };
-        if parent_e == orbit.body { continue; }
+        if *btype == BodyType::Ring {
+            continue;
+        }
+        let parent_e = match parent {
+            Some(p) => *p,
+            None => continue,
+        };
+        if parent_e == orbit.body {
+            continue;
+        }
         if let Ok((_, pb, _, parent_ko, _)) = body_query.get(parent_e) {
-            if pb.body_type == BodyType::Star { continue; }
+            if pb.body_type == BodyType::Star {
+                continue;
+            }
             let parent_sma = parent_ko.map(|ko| ko.semi_major_axis).unwrap_or(0.0);
             if let Some(s) = sma {
-                planet_map.entry(pb.name.clone())
+                planet_map
+                    .entry(pb.name.clone())
                     .or_insert_with(|| (parent_e, parent_sma, vec![]))
-                    .2.push((*e, name.clone(), *s, false)); // false = not a ring
+                    .2
+                    .push((*e, name.clone(), *s, false)); // false = not a ring
             }
         }
     }
     // Rings orbiting a planet that isn't the fleet's body
     for (e, name, parent_opt, radius_au) in &ring_candidates {
-        let parent_e = match parent_opt { Some(p) => *p, None => continue };
-        if parent_e == orbit.body { continue; }
+        let parent_e = match parent_opt {
+            Some(p) => *p,
+            None => continue,
+        };
+        if parent_e == orbit.body {
+            continue;
+        }
         if let Ok((_, pb, _, parent_ko, _)) = body_query.get(parent_e) {
-            if pb.body_type == BodyType::Star { continue; }
+            if pb.body_type == BodyType::Star {
+                continue;
+            }
             let parent_sma = parent_ko.map(|ko| ko.semi_major_axis).unwrap_or(0.0);
-            planet_map.entry(pb.name.clone())
+            planet_map
+                .entry(pb.name.clone())
                 .or_insert_with(|| (parent_e, parent_sma, vec![]))
-                .2.push((*e, name.clone(), *radius_au, true)); // true = ring
+                .2
+                .push((*e, name.clone(), *radius_au, true)); // true = ring
         }
     }
 
     let mut sorted_planet_systems: Vec<_> = planet_map.into_iter().collect();
-    sorted_planet_systems.sort_by(|a, b| a.1.1.partial_cmp(&b.1.1).unwrap_or(std::cmp::Ordering::Equal));
+    sorted_planet_systems.sort_by(|a, b| {
+        a.1 .1
+            .partial_cmp(&b.1 .1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let mut planets_shown = std::collections::HashSet::<Entity>::new();
     for (planet_name, (parent_e, _parent_sma, mut children)) in sorted_planet_systems {
@@ -186,7 +267,10 @@ pub(super) fn render_transfer_planner(
         children.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
         dest_entries.push(DestEntry::Header(format!("{planet_name} System")));
         if orbit.body != parent_e {
-            dest_entries.push(DestEntry::Body { entity: parent_e, name: planet_name.clone() });
+            dest_entries.push(DestEntry::Body {
+                entity: parent_e,
+                name: planet_name.clone(),
+            });
         }
         for (e, name, _sma, is_ring) in &children {
             if *is_ring {
@@ -195,7 +279,10 @@ pub(super) fn render_transfer_planner(
                     name: name.clone(),
                 });
             } else {
-                dest_entries.push(DestEntry::Body { entity: *e, name: name.clone() });
+                dest_entries.push(DestEntry::Body {
+                    entity: *e,
+                    name: name.clone(),
+                });
             }
         }
         // TODO(lagrange-transfers): Re-enable planet and moon Lagrange point
@@ -203,17 +290,21 @@ pub(super) fn render_transfer_planner(
     }
 
     // ── Group: Planets/GasGiants not yet shown (no children found in data) ───
-    let already_listed: std::collections::HashSet<Entity> = dest_entries.iter()
+    let already_listed: std::collections::HashSet<Entity> = dest_entries
+        .iter()
         .filter_map(|de| match de {
             DestEntry::Body { entity, .. } | DestEntry::Ring { entity, .. } => Some(*entity),
             _ => None,
         })
         .collect();
 
-    let mut standalone: Vec<(Entity, String, f64)> = candidates.iter()
+    let mut standalone: Vec<(Entity, String, f64)> = candidates
+        .iter()
         .filter(|(e, _, btype, sma, _)| {
-            matches!(btype, BodyType::Planet | BodyType::GasGiant | BodyType::DwarfPlanet)
-                && sma.is_some()
+            matches!(
+                btype,
+                BodyType::Planet | BodyType::GasGiant | BodyType::DwarfPlanet
+            ) && sma.is_some()
                 && !planets_shown.contains(e)
                 && !already_listed.contains(e)
                 && orbit.body != *e
@@ -229,13 +320,15 @@ pub(super) fn render_transfer_planner(
     }
 
     // ── Group: Small bodies ─────────────────────────────────────────────────
-    let already_listed2: std::collections::HashSet<Entity> = dest_entries.iter()
+    let already_listed2: std::collections::HashSet<Entity> = dest_entries
+        .iter()
         .filter_map(|de| match de {
             DestEntry::Body { entity, .. } | DestEntry::Ring { entity, .. } => Some(*entity),
             _ => None,
         })
         .collect();
-    let mut small_bodies: Vec<(Entity, String, f64)> = candidates.iter()
+    let mut small_bodies: Vec<(Entity, String, f64)> = candidates
+        .iter()
         .filter(|(e, _, btype, sma, _)| {
             matches!(btype, BodyType::Asteroid | BodyType::Comet)
                 && sma.is_some()
@@ -261,10 +354,15 @@ pub(super) fn render_transfer_planner(
     // Always offer a direct solar-approach destination so the player can plot
     // an inward heliocentric transfer toward the star.  Filter by current_system_id
     // to find Sol, not Alpha Centauri or another star from a different system.
-    let star_entity = body_query.iter()
+    let star_entity = body_query
+        .iter()
         .find(|(e, b, _, _, _)| {
             b.body_type == BodyType::Star
-                && body_system_ids.get(*e).ok().map(|s| s.0 == current_system_id).unwrap_or(false)
+                && body_system_ids
+                    .get(*e)
+                    .ok()
+                    .map(|s| s.0 == current_system_id)
+                    .unwrap_or(false)
         })
         .map(|(e, _, _, _, _)| e);
     if let Some(star_e) = star_entity {
@@ -279,24 +377,27 @@ pub(super) fn render_transfer_planner(
     // List every other star system from NearbyStarsData as an interstellar target.
     // The current system is identified by its numeric id; Sol = id 0 by convention.
     {
-        let mut interstellar_entries: Vec<DestEntry> = nearby_stars.systems
+        let mut interstellar_entries: Vec<DestEntry> = nearby_stars
+            .systems
             .iter()
             .filter(|sys| {
                 // Exclude the current system (id comparison via name match is a fallback)
                 // NearbyStarsData systems use 0-based index ordering; system_id 0 = Sol.
                 // We exclude any system whose name matches current system's star name.
-                let this_star_name = body_query.iter()
+                let this_star_name = body_query
+                    .iter()
                     .find(|(e, b, _, _, _)| {
                         b.body_type == BodyType::Star
-                            && body_system_ids.get(*e).ok()
+                            && body_system_ids
+                                .get(*e)
+                                .ok()
                                 .map(|s| s.0 == current_system_id)
                                 .unwrap_or(false)
                     })
                     .map(|(_, b, _, _, _)| b.name.as_str())
                     .unwrap_or("Sol");
                 // Each StarSystemData has stars[0].name; compare to current star
-                !sys.stars.iter().any(|s| s.name == this_star_name)
-                    && sys.distance_ly > 0.0
+                !sys.stars.iter().any(|s| s.name == this_star_name) && sys.distance_ly > 0.0
             })
             .enumerate()
             .map(|(idx, sys)| {
@@ -312,8 +413,16 @@ pub(super) fn render_transfer_planner(
 
         if !interstellar_entries.is_empty() {
             interstellar_entries.sort_by(|a, b| {
-                let da = if let DestEntry::StarSystem { distance_ly, .. } = a { *distance_ly } else { 0.0 };
-                let db = if let DestEntry::StarSystem { distance_ly, .. } = b { *distance_ly } else { 0.0 };
+                let da = if let DestEntry::StarSystem { distance_ly, .. } = a {
+                    *distance_ly
+                } else {
+                    0.0
+                };
+                let db = if let DestEntry::StarSystem { distance_ly, .. } = b {
+                    *distance_ly
+                } else {
+                    0.0
+                };
                 da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
             });
             dest_entries.push(DestEntry::Header("Interstellar".to_string()));
@@ -350,7 +459,10 @@ pub(super) fn render_transfer_planner(
                 }
                 _ => unreachable!(),
             };
-            groups.push(DestGroup { name, entries: Vec::new() });
+            groups.push(DestGroup {
+                name,
+                entries: Vec::new(),
+            });
         } else if let Some(g) = groups.last_mut() {
             g.entries.push(entry);
         }
@@ -364,7 +476,10 @@ pub(super) fn render_transfer_planner(
             .map(|(e, f, _, _, maybe_ma)| (e, f.name.clone(), maybe_ma.is_some()))
             .collect();
         if !other_fleets.is_empty() {
-            let mut fleet_group = DestGroup { name: "Fleets".to_string(), entries: Vec::new() };
+            let mut fleet_group = DestGroup {
+                name: "Fleets".to_string(),
+                entries: Vec::new(),
+            };
             // In-orbit fleets first
             for (e, name, in_transit) in &other_fleets {
                 fleet_group.entries.push(DestEntry::FleetTarget {
@@ -382,7 +497,9 @@ pub(super) fn render_transfer_planner(
     if let Some(target) = fleet_ui_state.target_body {
         for group in &groups {
             if group.entries.iter().any(|e| match e {
-                DestEntry::Body { entity, .. } | DestEntry::Ring { entity, .. } => *entity == target,
+                DestEntry::Body { entity, .. } | DestEntry::Ring { entity, .. } => {
+                    *entity == target
+                }
                 _ => false,
             }) {
                 correct_category = Some(group.name.clone());
@@ -392,7 +509,9 @@ pub(super) fn render_transfer_planner(
     } else if let Some(ref lp) = fleet_ui_state.target_lagrange {
         for group in &groups {
             if group.entries.iter().any(|e| match e {
-                DestEntry::Lagrange { lp: entry_lp } => entry_lp.point == lp.point && entry_lp.planet_entity == lp.planet_entity,
+                DestEntry::Lagrange { lp: entry_lp } => {
+                    entry_lp.point == lp.point && entry_lp.planet_entity == lp.planet_entity
+                }
                 _ => false,
             }) {
                 correct_category = Some(group.name.clone());
@@ -430,10 +549,20 @@ pub(super) fn render_transfer_planner(
 
     // ── Render the two-level selector ────────────────────────────────────────
     // Step 1: category (planet system / small bodies / fleets)
-    let cat_label = groups.iter().find(|g| {
-        let sel = fleet_ui_state.selected_dest_category.as_deref();
-        sel == Some(&g.name) || (sel == Some("Small Bodies") && g.name.starts_with("Small Bodies"))
-    }).map(|g| g.name.clone()).unwrap_or_else(|| fleet_ui_state.selected_dest_category.clone().unwrap_or_else(|| "— System —".to_owned()));
+    let cat_label = groups
+        .iter()
+        .find(|g| {
+            let sel = fleet_ui_state.selected_dest_category.as_deref();
+            sel == Some(&g.name)
+                || (sel == Some("Small Bodies") && g.name.starts_with("Small Bodies"))
+        })
+        .map(|g| g.name.clone())
+        .unwrap_or_else(|| {
+            fleet_ui_state
+                .selected_dest_category
+                .clone()
+                .unwrap_or_else(|| "— System —".to_owned())
+        });
 
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("System:").size(13.0));
@@ -443,11 +572,13 @@ pub(super) fn render_transfer_planner(
             .show_ui(ui, |ui| {
                 for group in &groups {
                     let sel = fleet_ui_state.selected_dest_category.as_deref();
-                    let cat_is_sel = sel == Some(&group.name) || (sel == Some("Small Bodies") && group.name.starts_with("Small Bodies"));
-                    if ui.selectable_label(
-                        cat_is_sel,
-                        egui::RichText::new(&group.name).size(13.0),
-                    ).clicked() && !cat_is_sel {
+                    let cat_is_sel = sel == Some(&group.name)
+                        || (sel == Some("Small Bodies") && group.name.starts_with("Small Bodies"));
+                    if ui
+                        .selectable_label(cat_is_sel, egui::RichText::new(&group.name).size(13.0))
+                        .clicked()
+                        && !cat_is_sel
+                    {
                         fleet_ui_state.selected_dest_category = Some(group.name.clone());
                         // Clear the specific target so the second step is re-selected
                         fleet_ui_state.target_body = None;
@@ -472,7 +603,8 @@ pub(super) fn render_transfer_planner(
     let target_label = if let Some(ref lp) = fleet_ui_state.target_lagrange {
         format!("L{} {} — {}", lp.point, lp.planet_name, lp.qualifier())
     } else if let Some(tf) = fleet_ui_state.target_fleet {
-        all_fleets_query.get(tf)
+        all_fleets_query
+            .get(tf)
             .map(|(_, f, _, _, ma)| {
                 let status = if ma.is_some() { "✈" } else { "🛰" };
                 format!("{status} {}", f.name)
@@ -481,7 +613,8 @@ pub(super) fn render_transfer_planner(
     } else if let Some((_, ref name, _)) = fleet_ui_state.target_star_system {
         name.clone()
     } else {
-        fleet_ui_state.target_body
+        fleet_ui_state
+            .target_body
             .and_then(|e| body_query.get(e).ok())
             .map(|(_, b, _, _, _)| {
                 if b.body_type == BodyType::Ring {
@@ -505,7 +638,9 @@ pub(super) fn render_transfer_planner(
                         for entry in &group.entries {
                             match entry {
                                 DestEntry::Header(label) => {
-                                    if !first_sub { ui.add_space(4.0); }
+                                    if !first_sub {
+                                        ui.add_space(4.0);
+                                    }
                                     first_sub = false;
                                     ui.label(
                                         egui::RichText::new(label.as_str())
@@ -519,10 +654,14 @@ pub(super) fn render_transfer_planner(
                                     let selected = fleet_ui_state.target_body == Some(*entity)
                                         && fleet_ui_state.target_lagrange.is_none()
                                         && fleet_ui_state.target_fleet.is_none();
-                                    if ui.selectable_label(
-                                        selected,
-                                        egui::RichText::new(format!("  {name}")).size(12.0),
-                                    ).clicked() && !selected {
+                                    if ui
+                                        .selectable_label(
+                                            selected,
+                                            egui::RichText::new(format!("  {name}")).size(12.0),
+                                        )
+                                        .clicked()
+                                        && !selected
+                                    {
                                         fleet_ui_state.target_body = Some(*entity);
                                         fleet_ui_state.target_lagrange = None;
                                         fleet_ui_state.target_fleet = None;
@@ -537,10 +676,14 @@ pub(super) fn render_transfer_planner(
                                     let selected = fleet_ui_state.target_body == Some(*entity)
                                         && fleet_ui_state.target_lagrange.is_none()
                                         && fleet_ui_state.target_fleet.is_none();
-                                    if ui.selectable_label(
-                                        selected,
-                                        egui::RichText::new(format!("  {name} 💍")).size(12.0),
-                                    ).clicked() && !selected {
+                                    if ui
+                                        .selectable_label(
+                                            selected,
+                                            egui::RichText::new(format!("  {name} 💍")).size(12.0),
+                                        )
+                                        .clicked()
+                                        && !selected
+                                    {
                                         fleet_ui_state.target_body = Some(*entity);
                                         fleet_ui_state.target_lagrange = None;
                                         fleet_ui_state.target_fleet = None;
@@ -559,18 +702,30 @@ pub(super) fn render_transfer_planner(
                                     // the DestEntry::Lagrange branch here and in
                                     // ui_lp_click_handler / astronomy::systems::hover_lagrange_points.
                                 }
-                                DestEntry::FleetTarget { entity, name, in_transit } => {
+                                DestEntry::FleetTarget {
+                                    entity,
+                                    name,
+                                    in_transit,
+                                } => {
                                     first_sub = false;
                                     let is_sel = fleet_ui_state.target_fleet == Some(*entity);
                                     let icon = if *in_transit { "✈" } else { "🛰" };
-                                    let status = if *in_transit { "In transit" } else { "In orbit" };
+                                    let status = if *in_transit {
+                                        "In transit"
+                                    } else {
+                                        "In orbit"
+                                    };
                                     let label = format!("  {icon} {name}  ({status})");
-                                    if ui.selectable_label(
-                                        is_sel,
-                                        egui::RichText::new(label)
-                                            .size(12.0)
-                                            .color(theme::ACCENT),
-                                    ).clicked() && !is_sel {
+                                    if ui
+                                        .selectable_label(
+                                            is_sel,
+                                            egui::RichText::new(label)
+                                                .size(12.0)
+                                                .color(theme::ACCENT),
+                                        )
+                                        .clicked()
+                                        && !is_sel
+                                    {
                                         fleet_ui_state.target_fleet = Some(*entity);
                                         fleet_ui_state.target_body = None;
                                         fleet_ui_state.target_lagrange = None;
@@ -581,18 +736,29 @@ pub(super) fn render_transfer_planner(
                                         fleet_ui_state.selected_gravity_assist = None;
                                     }
                                 }
-                                DestEntry::StarSystem { system_id, name, distance_ly } => {
+                                DestEntry::StarSystem {
+                                    system_id,
+                                    name,
+                                    distance_ly,
+                                } => {
                                     first_sub = false;
-                                    let is_sel = fleet_ui_state.target_star_system
-                                        .as_ref().map(|(id, _, _)| *id == *system_id)
+                                    let is_sel = fleet_ui_state
+                                        .target_star_system
+                                        .as_ref()
+                                        .map(|(id, _, _)| *id == *system_id)
                                         .unwrap_or(false);
-                                    if ui.selectable_label(
-                                        is_sel,
-                                        egui::RichText::new(format!("  {name}"))
-                                            .size(12.0)
-                                            .color(theme::GRAVITY_ASSIST),
-                                    ).clicked() && !is_sel {
-                                        fleet_ui_state.target_star_system = Some((*system_id, name.clone(), *distance_ly));
+                                    if ui
+                                        .selectable_label(
+                                            is_sel,
+                                            egui::RichText::new(format!("  {name}"))
+                                                .size(12.0)
+                                                .color(theme::GRAVITY_ASSIST),
+                                        )
+                                        .clicked()
+                                        && !is_sel
+                                    {
+                                        fleet_ui_state.target_star_system =
+                                            Some((*system_id, name.clone(), *distance_ly));
                                         fleet_ui_state.target_body = None;
                                         fleet_ui_state.target_lagrange = None;
                                         fleet_ui_state.target_fleet = None;
@@ -625,12 +791,15 @@ pub(super) fn render_transfer_planner(
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("Passing distance:").size(12.0));
                 let mut pd = fleet_ui_state.intercept_passing_km as f32;
-                if ui.add(
-                    egui::Slider::new(&mut pd, 0.0_f32..=1_000.0_f32)
-                        .suffix(" km")
-                        .text("0 = rendezvous")
-                        .step_by(10.0),
-                ).changed() {
+                if ui
+                    .add(
+                        egui::Slider::new(&mut pd, 0.0_f32..=1_000.0_f32)
+                            .suffix(" km")
+                            .text("0 = rendezvous")
+                            .step_by(10.0),
+                    )
+                    .changed()
+                {
                     fleet_ui_state.intercept_passing_km = pd as f64;
                     fleet_ui_state.computed_options.clear();
                 }
@@ -640,12 +809,15 @@ pub(super) fn render_transfer_planner(
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("Encounter speed:").size(12.0));
                 let mut spd_kms = (fleet_ui_state.intercept_speed_ms / 1_000.0) as f32;
-                if ui.add(
-                    egui::Slider::new(&mut spd_kms, 0.0_f32..=30.0_f32)
-                        .suffix(" km/s")
-                        .text("0 = match velocity")
-                        .step_by(0.5),
-                ).changed() {
+                if ui
+                    .add(
+                        egui::Slider::new(&mut spd_kms, 0.0_f32..=30.0_f32)
+                            .suffix(" km/s")
+                            .text("0 = match velocity")
+                            .step_by(0.5),
+                    )
+                    .changed()
+                {
                     fleet_ui_state.intercept_speed_ms = spd_kms as f64 * 1_000.0;
                     fleet_ui_state.computed_options.clear();
                 }
@@ -653,13 +825,17 @@ pub(super) fn render_transfer_planner(
 
             ui.label(
                 egui::RichText::new(
-                    if fleet_ui_state.intercept_passing_km < 1.0 && fleet_ui_state.intercept_speed_ms < 100.0 {
+                    if fleet_ui_state.intercept_passing_km < 1.0
+                        && fleet_ui_state.intercept_speed_ms < 100.0
+                    {
                         "Mode: Rendezvous / docking approach"
-                    } else if fleet_ui_state.intercept_passing_km > 100.0 || fleet_ui_state.intercept_speed_ms > 5_000.0 {
+                    } else if fleet_ui_state.intercept_passing_km > 100.0
+                        || fleet_ui_state.intercept_speed_ms > 5_000.0
+                    {
                         "Mode: High-speed flyby (combat pass)"
                     } else {
                         "Mode: Close approach (boarding range)"
-                    }
+                    },
                 )
                 .size(11.0)
                 .italics()
@@ -692,18 +868,24 @@ pub(super) fn render_transfer_planner(
         if let Some(target_fleet_entity) = fleet_target_snap {
             // Use the target fleet's current heliocentric position as the intercept radius.
             // r2 = distance from origin (0,0,0) to target fleet position in AU.
-            let target_sc = all_fleets_query.get(target_fleet_entity)
+            let target_sc = all_fleets_query
+                .get(target_fleet_entity)
                 .map(|(_, _, sc, _, _)| sc.position)
                 .unwrap_or(bevy::math::DVec3::ZERO);
             let r2_au = target_sc.length().max(0.001);
 
             // r1: heliocentric distance of the departing fleet
             let r1_au = {
-                let own_ko = body_query.get(orbit.body).ok()
+                let own_ko = body_query
+                    .get(orbit.body)
+                    .ok()
                     .and_then(|(_, _, _, ko, _)| ko)
                     .map(|ko| ko.semi_major_axis);
-                let origin_parent = body_query.get(orbit.body).ok()
-                    .and_then(|(_, _, _, _, lp)| lp).map(|lp| lp.0);
+                let origin_parent = body_query
+                    .get(orbit.body)
+                    .ok()
+                    .and_then(|(_, _, _, _, lp)| lp)
+                    .map(|lp| lp.0);
                 if own_ko.map(|s| s < MIN_HELIOCENTRIC_SMA_AU).unwrap_or(true) {
                     origin_parent
                         .and_then(|pe| body_query.get(pe).ok())
@@ -723,13 +905,30 @@ pub(super) fn render_transfer_planner(
                 fleet.average_isp_s(),
             );
             // Add kinematic options for high-thrust fleets intercepting other fleets.
-            let hohmann_dv = fleet_ui_state.computed_options.first().map(|o| o.total_delta_v_ms).unwrap_or(0.0);
-            let sma_h = fleet_ui_state.computed_options.first().map(|o| o.sma_au).unwrap_or(0.0);
-            let ecc_h = fleet_ui_state.computed_options.first().map(|o| o.eccentricity).unwrap_or(0.0);
+            let hohmann_dv = fleet_ui_state
+                .computed_options
+                .first()
+                .map(|o| o.total_delta_v_ms)
+                .unwrap_or(0.0);
+            let sma_h = fleet_ui_state
+                .computed_options
+                .first()
+                .map(|o| o.sma_au)
+                .unwrap_or(0.0);
+            let ecc_h = fleet_ui_state
+                .computed_options
+                .first()
+                .map(|o| o.eccentricity)
+                .unwrap_or(0.0);
             let d = (r2_au - r1_au).abs() * crate::fleets::orbital_mechanics::AU_IN_METERS;
             let mut kinematics = kinematic_transfer_options(
-                d, fleet.min_accel_ms2(), fleet.max_delta_v_ms(),
-                hohmann_dv, sma_h, ecc_h, false
+                d,
+                fleet.min_accel_ms2(),
+                fleet.max_delta_v_ms(),
+                hohmann_dv,
+                sma_h,
+                ecc_h,
+                false,
             );
             fleet_ui_state.computed_options.append(&mut kinematics);
         } else if let Some(target_entity) = body_target_snap {
@@ -743,14 +942,25 @@ pub(super) fn render_transfer_planner(
             //       r1 = fleet's heliocentric SMA, r2 = 0.3 AU, GM = GM_SUN
             //   - Heliocentric transfer (both in heliocentric orbits):
             //       r1 = origin body heliocentric SMA, r2 = dest heliocentric SMA, GM_SUN
-            let dest_body_type = body_query.get(target_entity).ok()
+            let dest_body_type = body_query
+                .get(target_entity)
+                .ok()
                 .map(|(_, b, _, _, _)| b.body_type);
-            let dest_has_orbit = body_query.get(target_entity).ok()
-                .and_then(|(_, _, _, ko, _)| ko).is_some();
-            let dest_parent = body_query.get(target_entity).ok()
-                .and_then(|(_, _, _, _, lp)| lp).map(|lp| lp.0);
-            let origin_parent = body_query.get(orbit.body).ok()
-                .and_then(|(_, _, _, _, lp)| lp).map(|lp| lp.0);
+            let dest_has_orbit = body_query
+                .get(target_entity)
+                .ok()
+                .and_then(|(_, _, _, ko, _)| ko)
+                .is_some();
+            let dest_parent = body_query
+                .get(target_entity)
+                .ok()
+                .and_then(|(_, _, _, _, lp)| lp)
+                .map(|lp| lp.0);
+            let origin_parent = body_query
+                .get(orbit.body)
+                .ok()
+                .and_then(|(_, _, _, _, lp)| lp)
+                .map(|lp| lp.0);
 
             // Target solar approach orbit (AU from star).  Inside Mercury's orbit so the
             // transfer is always clearly "inward".  Requires advanced propulsion (~10–20 km/s).
@@ -760,7 +970,9 @@ pub(super) fn render_transfer_planner(
                 // Heliocentric inward transfer: plot a Hohmann from the fleet's heliocentric
                 // distance to SOLAR_APPROACH_AU using GM_SUN as the central-body parameter.
                 // Walk up the parent chain to find the fleet's heliocentric SMA.
-                let own_sma = body_query.get(orbit.body).ok()
+                let own_sma = body_query
+                    .get(orbit.body)
+                    .ok()
                     .and_then(|(_, _, _, ko, _)| ko)
                     .map(|ko| ko.semi_major_axis);
                 let r1_au = if own_sma.map(|s| s < MIN_HELIOCENTRIC_SMA_AU).unwrap_or(true) {
@@ -779,59 +991,98 @@ pub(super) fn render_transfer_planner(
                 (r1_au, r2_au, GM_SUN)
             } else if !dest_has_orbit && dest_parent == Some(orbit.body) {
                 // Ring around current orbit body
-                let parent_mass = body_query.get(orbit.body).ok()
-                    .map(|(_, b, _, _, _)| b.mass).unwrap_or(5.972e24);
-                let r2 = body_query.get(target_entity).ok()
+                let parent_mass = body_query
+                    .get(orbit.body)
+                    .ok()
+                    .map(|(_, b, _, _, _)| b.mass)
+                    .unwrap_or(5.972e24);
+                let r2 = body_query
+                    .get(target_entity)
+                    .ok()
                     .map(|(_, b, _, _, _)| (b.radius as f64 * 1_000.0) / AU_IN_METERS)
                     .unwrap_or(0.001);
                 (orbit.radius_au, r2, G_CONST * parent_mass)
             } else if !dest_has_orbit && dest_parent.is_some() && dest_parent == origin_parent {
                 // Ring around another planet (dest_parent is a planet, not fleet's body)
                 let shared = dest_parent.unwrap();
-                let parent_mass = body_query.get(shared).ok()
-                    .map(|(_, b, _, _, _)| b.mass).unwrap_or(5.972e24);
-                let r1 = body_query.get(orbit.body).ok()
+                let parent_mass = body_query
+                    .get(shared)
+                    .ok()
+                    .map(|(_, b, _, _, _)| b.mass)
+                    .unwrap_or(5.972e24);
+                let r1 = body_query
+                    .get(orbit.body)
+                    .ok()
                     .and_then(|(_, _, _, ko, _)| ko)
-                    .map(|ko| ko.semi_major_axis).unwrap_or(0.00257);
-                let r2 = body_query.get(target_entity).ok()
+                    .map(|ko| ko.semi_major_axis)
+                    .unwrap_or(0.00257);
+                let r2 = body_query
+                    .get(target_entity)
+                    .ok()
                     .map(|(_, b, _, _, _)| (b.radius as f64 * 1_000.0) / AU_IN_METERS)
                     .unwrap_or(0.001);
                 (r1, r2, G_CONST * parent_mass)
             } else if dest_parent == Some(orbit.body) {
                 // Local: destination orbits the fleet's current body
-                let parent_mass = body_query.get(orbit.body).ok()
-                    .map(|(_, b, _, _, _)| b.mass).unwrap_or(5.972e24);
-                let r2 = body_query.get(target_entity).ok()
+                let parent_mass = body_query
+                    .get(orbit.body)
+                    .ok()
+                    .map(|(_, b, _, _, _)| b.mass)
+                    .unwrap_or(5.972e24);
+                let r2 = body_query
+                    .get(target_entity)
+                    .ok()
                     .and_then(|(_, _, _, ko, _)| ko)
-                    .map(|ko| ko.semi_major_axis).unwrap_or(0.00257);
+                    .map(|ko| ko.semi_major_axis)
+                    .unwrap_or(0.00257);
                 (orbit.radius_au, r2, G_CONST * parent_mass)
             } else if dest_parent.is_some() && dest_parent == origin_parent {
                 // Both orbit the same central body (moon-to-moon, OR interplanetary e.g. Earth→Mars)
                 let shared = dest_parent.unwrap();
                 // NOTE: The Sun lacks SpaceCoordinates, so body_query.get(Sun) fails.
                 // Fall back to GM_SUN so interplanetary transfers compute correctly.
-                let gm = body_query.get(shared).ok()
+                let gm = body_query
+                    .get(shared)
+                    .ok()
                     .map(|(_, b, _, _, _)| {
-                        if b.body_type == BodyType::Star { GM_SUN } else { G_CONST * b.mass }
+                        if b.body_type == BodyType::Star {
+                            GM_SUN
+                        } else {
+                            G_CONST * b.mass
+                        }
                     })
                     .unwrap_or(GM_SUN);
-                let r1 = body_query.get(orbit.body).ok()
+                let r1 = body_query
+                    .get(orbit.body)
+                    .ok()
                     .and_then(|(_, _, _, ko, _)| ko)
-                    .map(|ko| ko.semi_major_axis).unwrap_or(0.00257);
-                let r2 = body_query.get(target_entity).ok()
+                    .map(|ko| ko.semi_major_axis)
+                    .unwrap_or(0.00257);
+                let r2 = body_query
+                    .get(target_entity)
+                    .ok()
                     .and_then(|(_, _, _, ko, _)| ko)
-                    .map(|ko| ko.semi_major_axis).unwrap_or(0.00257);
+                    .map(|ko| ko.semi_major_axis)
+                    .unwrap_or(0.00257);
                 (r1, r2, gm)
             } else if Some(target_entity) == origin_parent {
                 // Downward transfer: fleet is at a moon, destination is the parent planet.
                 // e.g. Moon → Earth: r1 = Moon SMA around Earth, r2 = low parking orbit, gm = planet GM.
-                let parent_mass = body_query.get(target_entity).ok()
-                    .map(|(_, b, _, _, _)| b.mass).unwrap_or(5.972e24);
-                let r1 = body_query.get(orbit.body).ok()
+                let parent_mass = body_query
+                    .get(target_entity)
+                    .ok()
+                    .map(|(_, b, _, _, _)| b.mass)
+                    .unwrap_or(5.972e24);
+                let r1 = body_query
+                    .get(orbit.body)
+                    .ok()
                     .and_then(|(_, _, _, ko, _)| ko)
-                    .map(|ko| ko.semi_major_axis).unwrap_or(0.00257);
+                    .map(|ko| ko.semi_major_axis)
+                    .unwrap_or(0.00257);
                 // Park at ~3× destination body surface radius (low orbit).
-                let r2 = body_query.get(target_entity).ok()
+                let r2 = body_query
+                    .get(target_entity)
+                    .ok()
                     .map(|(_, b, _, _, _)| (b.radius as f64 * 3_000.0) / AU_IN_METERS)
                     .unwrap_or(4.26e-5);
                 (r1, r2.min(r1 * 0.5), G_CONST * parent_mass)
@@ -839,7 +1090,9 @@ pub(super) fn render_transfer_planner(
                 // Heliocentric: fleet is at a body that is not in the same parent chain as dest.
                 // If fleet is parked at a moon, its KeplerOrbit SMA is Earth-relative, NOT
                 // heliocentric. Walk up one level to get the heliocentric SMA.
-                let own_sma = body_query.get(orbit.body).ok()
+                let own_sma = body_query
+                    .get(orbit.body)
+                    .ok()
                     .and_then(|(_, _, _, ko, _)| ko)
                     .map(|ko| ko.semi_major_axis);
                 let r1 = if own_sma.map(|s| s < MIN_HELIOCENTRIC_SMA_AU).unwrap_or(true) {
@@ -853,10 +1106,15 @@ pub(super) fn render_transfer_planner(
                 } else {
                     own_sma.unwrap_or(1.0)
                 };
-                let dest_sma = body_query.get(target_entity).ok()
+                let dest_sma = body_query
+                    .get(target_entity)
+                    .ok()
                     .and_then(|(_, _, _, ko, _)| ko)
                     .map(|ko| ko.semi_major_axis);
-                let r2 = if dest_sma.map(|s| s < MIN_HELIOCENTRIC_SMA_AU).unwrap_or(true) {
+                let r2 = if dest_sma
+                    .map(|s| s < MIN_HELIOCENTRIC_SMA_AU)
+                    .unwrap_or(true)
+                {
                     // Small SMA → likely a moon; use its parent's heliocentric SMA
                     dest_parent
                         .and_then(|pe| body_query.get(pe).ok())
@@ -919,30 +1177,44 @@ pub(super) fn render_transfer_planner(
                     }
                 };
 
-                let get_local_pos = |entity: Entity, central_body: Entity| -> Option<bevy::math::DVec3> {
-                    if entity == central_body {
-                        Some(bevy::math::DVec3::ZERO)
-                    } else {
-                        let entry = body_query.get(entity).ok()?;
-                        Some(entry.2.position)
-                    }
-                };
+                let get_local_pos =
+                    |entity: Entity, central_body: Entity| -> Option<bevy::math::DVec3> {
+                        if entity == central_body {
+                            Some(bevy::math::DVec3::ZERO)
+                        } else {
+                            let entry = body_query.get(entity).ok()?;
+                            Some(entry.2.position)
+                        }
+                    };
 
                 let (pos1, pos2) = if is_moon_to_parent {
                     // Moon→parent: use Moon's position relative to the parent planet.
                     // The parent planet is at the centre of the local frame.
-                    let moon_helio = body_query.get(orbit.body).ok()
+                    let moon_helio = body_query
+                        .get(orbit.body)
+                        .ok()
                         .map(|(_, _, sc, _, _)| sc.position)
                         .unwrap_or(bevy::math::DVec3::ZERO);
-                    let planet_helio = body_query.get(target_entity).ok()
+                    let planet_helio = body_query
+                        .get(target_entity)
+                        .ok()
                         .map(|(_, _, sc, _, _)| sc.position)
                         .unwrap_or(bevy::math::DVec3::ZERO);
-                    (Some(moon_helio - planet_helio), Some(bevy::math::DVec3::ZERO))
+                    (
+                        Some(moon_helio - planet_helio),
+                        Some(bevy::math::DVec3::ZERO),
+                    )
                 } else if is_heliocentric {
-                    (get_heliocentric_pos(orbit.body), get_heliocentric_pos(target_entity))
+                    (
+                        get_heliocentric_pos(orbit.body),
+                        get_heliocentric_pos(target_entity),
+                    )
                 } else {
                     let central_body = dest_parent.unwrap_or(orbit.body);
-                    (get_local_pos(orbit.body, central_body), get_local_pos(target_entity, central_body))
+                    (
+                        get_local_pos(orbit.body, central_body),
+                        get_local_pos(target_entity, central_body),
+                    )
                 };
                 // For course corrections, override pos1 with the fleet's actual current
                 // position in the correct local frame so the transfer-window phase angle
@@ -974,10 +1246,18 @@ pub(super) fn render_transfer_planner(
                 // Mirrors the (r1, r2, gm) case logic above so the right pair of
                 // KeplerOrbits is diffed in the correct reference frame.
                 let delta_i: f64 = {
-                    let origin_ko = body_query.get(orbit.body).ok().and_then(|(_, _, _, ko, _)| ko);
-                    let dest_ko   = body_query.get(target_entity).ok().and_then(|(_, _, _, ko, _)| ko);
+                    let origin_ko = body_query
+                        .get(orbit.body)
+                        .ok()
+                        .and_then(|(_, _, _, ko, _)| ko);
+                    let dest_ko = body_query
+                        .get(target_entity)
+                        .ok()
+                        .and_then(|(_, _, _, ko, _)| ko);
 
-                    if dest_body_type == Some(BodyType::Star) || Some(target_entity) == origin_parent {
+                    if dest_body_type == Some(BodyType::Star)
+                        || Some(target_entity) == origin_parent
+                    {
                         // Inward heliocentric or moon→parent: report inclination of the
                         // departure body's orbit (fleet is already in that plane).
                         // Plane change equals what is needed to depart the current orbital plane.
@@ -989,27 +1269,41 @@ pub(super) fn render_transfer_planner(
                         // Both share a parent (moon-to-moon, OR interplanetary Earth→Mars).
                         match (origin_ko, dest_ko) {
                             (Some(o), Some(d)) => plane_change_angle(
-                                o.inclination, o.longitude_ascending_node,
-                                d.inclination, d.longitude_ascending_node,
+                                o.inclination,
+                                o.longitude_ascending_node,
+                                d.inclination,
+                                d.longitude_ascending_node,
                             ),
                             _ => 0.0,
                         }
                     } else {
                         // Heliocentric: walk up from moons to their heliocentric parents.
-                        let helio_origin_ko = if origin_ko.map(|ko| ko.semi_major_axis < MIN_HELIOCENTRIC_SMA_AU).unwrap_or(true) {
-                            origin_parent.and_then(|pe| body_query.get(pe).ok().and_then(|(_, _, _, ko, _)| ko))
+                        let helio_origin_ko = if origin_ko
+                            .map(|ko| ko.semi_major_axis < MIN_HELIOCENTRIC_SMA_AU)
+                            .unwrap_or(true)
+                        {
+                            origin_parent.and_then(|pe| {
+                                body_query.get(pe).ok().and_then(|(_, _, _, ko, _)| ko)
+                            })
                         } else {
                             origin_ko
                         };
-                        let helio_dest_ko = if dest_ko.map(|ko| ko.semi_major_axis < MIN_HELIOCENTRIC_SMA_AU).unwrap_or(true) {
-                            dest_parent.and_then(|pe| body_query.get(pe).ok().and_then(|(_, _, _, ko, _)| ko))
+                        let helio_dest_ko = if dest_ko
+                            .map(|ko| ko.semi_major_axis < MIN_HELIOCENTRIC_SMA_AU)
+                            .unwrap_or(true)
+                        {
+                            dest_parent.and_then(|pe| {
+                                body_query.get(pe).ok().and_then(|(_, _, _, ko, _)| ko)
+                            })
                         } else {
                             dest_ko
                         };
                         match (helio_origin_ko, helio_dest_ko) {
                             (Some(o), Some(d)) => plane_change_angle(
-                                o.inclination, o.longitude_ascending_node,
-                                d.inclination, d.longitude_ascending_node,
+                                o.inclination,
+                                o.longitude_ascending_node,
+                                d.inclination,
+                                d.longitude_ascending_node,
                             ),
                             _ => 0.0,
                         }
@@ -1028,11 +1322,13 @@ pub(super) fn render_transfer_planner(
                             // Kinematic (straight-line) transfer: velocity is constant in
                             // direction along (end − start); magnitude follows a symmetric
                             // brachistochrone profile (0 → peak → 0).
-                            if let (Some(start), Some(end)) = (man.start_position_au, man.end_position_au) {
-                                let dir   = (end - start).normalize_or_zero();
+                            if let (Some(start), Some(end)) =
+                                (man.start_position_au, man.end_position_au)
+                            {
+                                let dir = (end - start).normalize_or_zero();
                                 let dist_m = (end - start).length()
                                     * crate::fleets::orbital_mechanics::AU_IN_METERS;
-                                let dur_s  = (man.arrival_time - man.departure_time).max(1.0);
+                                let dur_s = (man.arrival_time - man.departure_time).max(1.0);
                                 // Brachistochrone peak speed (at midpoint) = 2 × distance / duration
                                 let v_peak = 2.0 * dist_m / dur_s;
                                 let speed = if man.option_label == "Full Thrust" {
@@ -1060,8 +1356,8 @@ pub(super) fn render_transfer_planner(
                     // r_vec: fleet's current position relative to the central body (AU).
                     // cc_local_pos is already in the correct local frame for both heliocentric
                     // and planetary-system transfers. Fall back to r1 on the x-axis.
-                    let r_vec = cc_local_pos
-                        .unwrap_or_else(|| bevy::math::DVec3::new(r1, 0.0, 0.0));
+                    let r_vec =
+                        cc_local_pos.unwrap_or_else(|| bevy::math::DVec3::new(r1, 0.0, 0.0));
                     course_correction_transfer_options(r_vec, r2, gm, v_current_ms, delta_i)
                 } else {
                     calculate_transfer_options_phased(r1, r2, gm, departure_s, &window, delta_i)
@@ -1080,13 +1376,30 @@ pub(super) fn render_transfer_planner(
                 // the fleet is already in free-flight and the redirect cost is captured by
                 // `course_correction_transfer_options`.
                 if !is_course_correction {
-                    let hohmann_dv = fleet_ui_state.computed_options.first().map(|o| o.total_delta_v_ms).unwrap_or(0.0);
-                    let sma_h = fleet_ui_state.computed_options.first().map(|o| o.sma_au).unwrap_or(0.0);
-                    let ecc_h = fleet_ui_state.computed_options.first().map(|o| o.eccentricity).unwrap_or(0.0);
+                    let hohmann_dv = fleet_ui_state
+                        .computed_options
+                        .first()
+                        .map(|o| o.total_delta_v_ms)
+                        .unwrap_or(0.0);
+                    let sma_h = fleet_ui_state
+                        .computed_options
+                        .first()
+                        .map(|o| o.sma_au)
+                        .unwrap_or(0.0);
+                    let ecc_h = fleet_ui_state
+                        .computed_options
+                        .first()
+                        .map(|o| o.eccentricity)
+                        .unwrap_or(0.0);
                     let d = (r2 - r1).abs() * crate::fleets::orbital_mechanics::AU_IN_METERS;
                     let mut kinematics = kinematic_transfer_options(
-                        d, accel, fleet.max_delta_v_ms(),
-                        hohmann_dv, sma_h, ecc_h, false
+                        d,
+                        accel,
+                        fleet.max_delta_v_ms(),
+                        hohmann_dv,
+                        sma_h,
+                        ecc_h,
+                        false,
                     );
                     fleet_ui_state.computed_options.append(&mut kinematics);
                 }
@@ -1098,17 +1411,24 @@ pub(super) fn render_transfer_planner(
                 let ga_bodies: Vec<(String, f64, f64, f64)> = body_query
                     .iter()
                     .filter_map(|(e, body, _, maybe_ko, _)| {
-                        if !matches!(body.body_type,
-                            BodyType::Planet | BodyType::GasGiant | BodyType::DwarfPlanet)
-                        { return None; }
+                        if !matches!(
+                            body.body_type,
+                            BodyType::Planet | BodyType::GasGiant | BodyType::DwarfPlanet
+                        ) {
+                            return None;
+                        }
                         // Exclude the fleet's current body and the chosen destination
-                        if e == orbit.body || Some(e) == body_target_snap { return None; }
+                        if e == orbit.body || Some(e) == body_target_snap {
+                            return None;
+                        }
                         // Only consider planets/bodies in the current star system
                         if body_system_ids.get(e).map(|s| s.0).unwrap_or(0) != current_system_id {
                             return None;
                         }
                         let sma = maybe_ko?.semi_major_axis;
-                        if sma < MIN_HELIOCENTRIC_SMA_AU { return None; }
+                        if sma < MIN_HELIOCENTRIC_SMA_AU {
+                            return None;
+                        }
                         let gm_p = G_CONST * body.mass;
                         // Safe flyby periapsis: 3 × body radius (km → m → AU)
                         let min_peri = (body.radius as f64 * 3_000.0) / AU_IN_METERS;
@@ -1118,21 +1438,25 @@ pub(super) fn render_transfer_planner(
 
                 let new_candidates: Vec<GravityAssistEntry> =
                     find_gravity_assist_options(r1, r2, gm, &ga_bodies)
-                    .into_iter()
-                    .filter_map(|opt| {
-                        // Resolve each candidate to its ECS entity by name
-                        let entity = body_query
-                            .iter()
-                            .find(|(_, b, _, _, _)| b.name == opt.body_name)
-                            .map(|(e, _, _, _, _)| e)?;
-                        Some(GravityAssistEntry { option: opt, flyby_entity: entity })
-                    })
-                    .collect();
+                        .into_iter()
+                        .filter_map(|opt| {
+                            // Resolve each candidate to its ECS entity by name
+                            let entity = body_query
+                                .iter()
+                                .find(|(_, b, _, _, _)| b.name == opt.body_name)
+                                .map(|(e, _, _, _, _)| e)?;
+                            Some(GravityAssistEntry {
+                                option: opt,
+                                flyby_entity: entity,
+                            })
+                        })
+                        .collect();
 
                 fleet_ui_state.gravity_assist_candidates = new_candidates;
 
                 // Validate selected index is still in-range (target may have changed)
-                if fleet_ui_state.selected_gravity_assist
+                if fleet_ui_state
+                    .selected_gravity_assist
                     .map(|i| i >= fleet_ui_state.gravity_assist_candidates.len())
                     .unwrap_or(false)
                 {
@@ -1146,14 +1470,18 @@ pub(super) fn render_transfer_planner(
             // If a gravity assist is selected, prepend it as option 0 so the
             // regular execute/select logic treats it uniformly.
             if let Some(sel_ga) = fleet_ui_state.selected_gravity_assist {
-                let ga_data = fleet_ui_state.gravity_assist_candidates.get(sel_ga)
-                    .map(|e| (
-                        e.option.total_dv_ms,
-                        e.option.total_time_s,
-                        e.option.flyby_radius_au,
-                        e.option.dv_depart_ms + e.option.dv_mid_ms, // departure + mid-course
-                        e.option.dv_arrive_ms,
-                    ));
+                let ga_data = fleet_ui_state
+                    .gravity_assist_candidates
+                    .get(sel_ga)
+                    .map(|e| {
+                        (
+                            e.option.total_dv_ms,
+                            e.option.total_time_s,
+                            e.option.flyby_radius_au,
+                            e.option.dv_depart_ms + e.option.dv_mid_ms, // departure + mid-course
+                            e.option.dv_arrive_ms,
+                        )
+                    });
                 if let Some((total_dv, total_time, fly_r, dv1, dv2)) = ga_data {
                     // Use Leg-1 Hohmann parameters (origin → flyby body) for the
                     // transfer-orbit Keplerian arc.  This makes the purple active-orbit
@@ -1162,22 +1490,24 @@ pub(super) fn render_transfer_planner(
                     // and build_planned_transfer is passed the flyby entity as its orbital
                     // target so the departure/arrival plane vectors are consistent.
                     let (_, _, _, ga_sma, ga_ecc) = hohmann_transfer(r1, fly_r, gm);
-                    let burn_t = compute_burn_time_s(total_dv, fleet.min_accel_ms2(), fleet.average_isp_s());
+                    let burn_t =
+                        compute_burn_time_s(total_dv, fleet.min_accel_ms2(), fleet.average_isp_s());
                     // Gravity-assist options use multi-leg patched-conic timing; the burn
                     // is spread across two legs so we apply the thrust-limit check here.
-                    let (ga_transfer_time, ga_thrust_limited) = if burn_t > 0.0 && burn_t > total_time {
-                        (burn_t, true)
-                    } else {
-                        (total_time, false)
-                    };
+                    let (ga_transfer_time, ga_thrust_limited) =
+                        if burn_t > 0.0 && burn_t > total_time {
+                            (burn_t, true)
+                        } else {
+                            (total_time, false)
+                        };
                     let ga_option = TransferOption {
                         label: "Gravity Assist",
                         total_delta_v_ms: total_dv,
-                        delta_v1_ms: dv1,   // actual departure + any mid-course burn
-                        delta_v2_ms: dv2,   // actual arrival circularisation
+                        delta_v1_ms: dv1, // actual departure + any mid-course burn
+                        delta_v2_ms: dv2, // actual arrival circularisation
                         plane_change_dv_ms: 0.0, // gravity-assist paths are heliocentric (ecliptic)
                         transfer_time_s: ga_transfer_time,
-                        sma_au: ga_sma,     // Leg-1 ellipse SMA (origin → flyby body)
+                        sma_au: ga_sma, // Leg-1 ellipse SMA (origin → flyby body)
                         eccentricity: ga_ecc,
                         energy_multiplier: 1.0,
                         burn_time_s: burn_t,
@@ -1186,122 +1516,178 @@ pub(super) fn render_transfer_planner(
                     fleet_ui_state.computed_options.insert(0, ga_option);
                 }
             }
-            } else if let Some(ref lp) = lp_target_snap {
-                // Lagrange-point transfer.
-                // Determine the fleet's current heliocentric SMA, walking up to
-                // the planet's SMA when the fleet is parked at a moon/sub-body.
-                // When orbiting the star directly (e.g. after a previous LP transfer),
-                // use the fleet's parking radius if available, otherwise the LP planet's SMA.
-                let r1_lp = body_query.get(orbit.body).ok()
-                    .and_then(|(_, body, _, ko, _)| {
-                        if body.body_type == BodyType::Star {
-                            // Fleet parked around the star — use its parking orbit radius
-                            // or fall back to the target LP's planet SMA.
-                            if orbit.radius_au > 0.01 {
-                                Some(orbit.radius_au)
-                            } else {
-                                Some(lp.planet_sma_au)
-                            }
+        } else if let Some(ref lp) = lp_target_snap {
+            // Lagrange-point transfer.
+            // Determine the fleet's current heliocentric SMA, walking up to
+            // the planet's SMA when the fleet is parked at a moon/sub-body.
+            // When orbiting the star directly (e.g. after a previous LP transfer),
+            // use the fleet's parking radius if available, otherwise the LP planet's SMA.
+            let r1_lp = body_query
+                .get(orbit.body)
+                .ok()
+                .and_then(|(_, body, _, ko, _)| {
+                    if body.body_type == BodyType::Star {
+                        // Fleet parked around the star — use its parking orbit radius
+                        // or fall back to the target LP's planet SMA.
+                        if orbit.radius_au > 0.01 {
+                            Some(orbit.radius_au)
                         } else {
-                            ko.map(|ko| ko.semi_major_axis)
+                            Some(lp.planet_sma_au)
                         }
-                    })
-                    .or_else(|| {
-                        body_query.get(orbit.body).ok()
-                            .and_then(|(_, _, _, _, parent)| parent)
-                            .and_then(|lpp| body_query.get(lpp.0).ok()
-                                .and_then(|(_, _, _, ko, _)| ko)
-                                .map(|ko| ko.semi_major_axis))
-                    })
-                    .unwrap_or(lp.planet_sma_au);
-
-                // L3/L4/L5 are co-orbital with the planet (same heliocentric radius,
-                // different phase angle).  A Hohmann gives 0 Delta-V in this case.
-                // Use a phasing-orbit maneuver instead: lower into a shorter-period
-                // orbit and drift the 60 deg (L4/L5) or 180 deg (L3) phase gap in N laps.
-                let co_orbital = matches!(lp.point, 3 | 4 | 5)
-                    && (r1_lp - lp.planet_sma_au).abs() < 0.02;
-
-                if co_orbital {
-                    let delta_phi = if lp.point == 3 {
-                        std::f64::consts::PI           // L3: 180 deg opposition
                     } else {
-                        std::f64::consts::FRAC_PI_3    // L4/L5: 60 deg
-                    };
-                    fleet_ui_state.computed_options =
-                        co_orbital_phasing_options(lp.planet_sma_au, lp.gm, delta_phi);
-                    apply_thrust_limits(
-                        &mut fleet_ui_state.computed_options,
-                        fleet.min_accel_ms2(),
-                        fleet.average_isp_s(),
-                    );
-                    // Kinematic options: arc-length of the phase drift as proxy distance.
-                    let hohmann_dv = fleet_ui_state.computed_options.first().map(|o| o.total_delta_v_ms).unwrap_or(0.0);
-                    let sma_h = fleet_ui_state.computed_options.first().map(|o| o.sma_au).unwrap_or(r1_lp);
-                    let d = lp.planet_sma_au * delta_phi * crate::fleets::orbital_mechanics::AU_IN_METERS;
-                    let mut kinematics = kinematic_transfer_options(
-                        d, fleet.min_accel_ms2(), fleet.max_delta_v_ms(),
-                        hohmann_dv, sma_h, 0.0, false
-                    );
-                    fleet_ui_state.computed_options.append(&mut kinematics);
-                } else if matches!(lp.point, 1 | 2) {
-                    // L1/L2: small radial offset from planet (~r_hill ≈ 0.01 AU).
-                    // Use a direct manifold-like trajectory (realistic ~1–3 month travel
-                    // time) instead of a Hohmann half-orbit that takes 6 months and arrives
-                    // 180° away from the LP.
-                    fleet_ui_state.computed_options =
-                        direct_lp_transfer_options(r1_lp, lp.radius_au, lp.gm);
-                    apply_thrust_limits(
-                        &mut fleet_ui_state.computed_options,
-                        fleet.min_accel_ms2(),
-                        fleet.average_isp_s(),
-                    );
-                    let hohmann_dv = fleet_ui_state.computed_options.first().map(|o| o.total_delta_v_ms).unwrap_or(0.0);
-                    let sma_h = fleet_ui_state.computed_options.first().map(|o| o.sma_au).unwrap_or(0.0);
-                    let ecc_h = fleet_ui_state.computed_options.first().map(|o| o.eccentricity).unwrap_or(0.0);
-                    let d = (lp.radius_au - r1_lp).abs() * crate::fleets::orbital_mechanics::AU_IN_METERS;
-                    let mut kinematics = kinematic_transfer_options(
-                        d, fleet.min_accel_ms2(), fleet.max_delta_v_ms(),
-                        hohmann_dv, sma_h, ecc_h, false
-                    );
-                    fleet_ui_state.computed_options.append(&mut kinematics);
+                        ko.map(|ko| ko.semi_major_axis)
+                    }
+                })
+                .or_else(|| {
+                    body_query
+                        .get(orbit.body)
+                        .ok()
+                        .and_then(|(_, _, _, _, parent)| parent)
+                        .and_then(|lpp| {
+                            body_query
+                                .get(lpp.0)
+                                .ok()
+                                .and_then(|(_, _, _, ko, _)| ko)
+                                .map(|ko| ko.semi_major_axis)
+                        })
+                })
+                .unwrap_or(lp.planet_sma_au);
+
+            // L3/L4/L5 are co-orbital with the planet (same heliocentric radius,
+            // different phase angle).  A Hohmann gives 0 Delta-V in this case.
+            // Use a phasing-orbit maneuver instead: lower into a shorter-period
+            // orbit and drift the 60 deg (L4/L5) or 180 deg (L3) phase gap in N laps.
+            let co_orbital =
+                matches!(lp.point, 3 | 4 | 5) && (r1_lp - lp.planet_sma_au).abs() < 0.02;
+
+            if co_orbital {
+                let delta_phi = if lp.point == 3 {
+                    std::f64::consts::PI // L3: 180 deg opposition
                 } else {
-                    // L3/L4/L5 cross-orbit (fleet NOT co-orbital with the planet):
-                    // standard Hohmann Keplerian transfer to the planet's SMA.
-                    fleet_ui_state.computed_options =
-                        calculate_transfer_options(r1_lp, lp.radius_au, lp.gm, 0.0);
-                    apply_thrust_limits(
-                        &mut fleet_ui_state.computed_options,
-                        fleet.min_accel_ms2(),
-                        fleet.average_isp_s(),
-                    );
-                    let hohmann_dv = fleet_ui_state.computed_options.first().map(|o| o.total_delta_v_ms).unwrap_or(0.0);
-                    let sma_h = fleet_ui_state.computed_options.first().map(|o| o.sma_au).unwrap_or(0.0);
-                    let ecc_h = fleet_ui_state.computed_options.first().map(|o| o.eccentricity).unwrap_or(0.0);
-                    let d = (lp.radius_au - r1_lp).abs() * crate::fleets::orbital_mechanics::AU_IN_METERS;
-                    let mut kinematics = kinematic_transfer_options(
-                        d, fleet.min_accel_ms2(), fleet.max_delta_v_ms(),
-                        hohmann_dv, sma_h, ecc_h, false
-                    );
-                    fleet_ui_state.computed_options.append(&mut kinematics);
-                }
+                    std::f64::consts::FRAC_PI_3 // L4/L5: 60 deg
+                };
+                fleet_ui_state.computed_options =
+                    co_orbital_phasing_options(lp.planet_sma_au, lp.gm, delta_phi);
+                apply_thrust_limits(
+                    &mut fleet_ui_state.computed_options,
+                    fleet.min_accel_ms2(),
+                    fleet.average_isp_s(),
+                );
+                // Kinematic options: arc-length of the phase drift as proxy distance.
+                let hohmann_dv = fleet_ui_state
+                    .computed_options
+                    .first()
+                    .map(|o| o.total_delta_v_ms)
+                    .unwrap_or(0.0);
+                let sma_h = fleet_ui_state
+                    .computed_options
+                    .first()
+                    .map(|o| o.sma_au)
+                    .unwrap_or(r1_lp);
+                let d =
+                    lp.planet_sma_au * delta_phi * crate::fleets::orbital_mechanics::AU_IN_METERS;
+                let mut kinematics = kinematic_transfer_options(
+                    d,
+                    fleet.min_accel_ms2(),
+                    fleet.max_delta_v_ms(),
+                    hohmann_dv,
+                    sma_h,
+                    0.0,
+                    false,
+                );
+                fleet_ui_state.computed_options.append(&mut kinematics);
+            } else if matches!(lp.point, 1 | 2) {
+                // L1/L2: small radial offset from planet (~r_hill ≈ 0.01 AU).
+                // Use a direct manifold-like trajectory (realistic ~1–3 month travel
+                // time) instead of a Hohmann half-orbit that takes 6 months and arrives
+                // 180° away from the LP.
+                fleet_ui_state.computed_options =
+                    direct_lp_transfer_options(r1_lp, lp.radius_au, lp.gm);
+                apply_thrust_limits(
+                    &mut fleet_ui_state.computed_options,
+                    fleet.min_accel_ms2(),
+                    fleet.average_isp_s(),
+                );
+                let hohmann_dv = fleet_ui_state
+                    .computed_options
+                    .first()
+                    .map(|o| o.total_delta_v_ms)
+                    .unwrap_or(0.0);
+                let sma_h = fleet_ui_state
+                    .computed_options
+                    .first()
+                    .map(|o| o.sma_au)
+                    .unwrap_or(0.0);
+                let ecc_h = fleet_ui_state
+                    .computed_options
+                    .first()
+                    .map(|o| o.eccentricity)
+                    .unwrap_or(0.0);
+                let d =
+                    (lp.radius_au - r1_lp).abs() * crate::fleets::orbital_mechanics::AU_IN_METERS;
+                let mut kinematics = kinematic_transfer_options(
+                    d,
+                    fleet.min_accel_ms2(),
+                    fleet.max_delta_v_ms(),
+                    hohmann_dv,
+                    sma_h,
+                    ecc_h,
+                    false,
+                );
+                fleet_ui_state.computed_options.append(&mut kinematics);
+            } else {
+                // L3/L4/L5 cross-orbit (fleet NOT co-orbital with the planet):
+                // standard Hohmann Keplerian transfer to the planet's SMA.
+                fleet_ui_state.computed_options =
+                    calculate_transfer_options(r1_lp, lp.radius_au, lp.gm, 0.0);
+                apply_thrust_limits(
+                    &mut fleet_ui_state.computed_options,
+                    fleet.min_accel_ms2(),
+                    fleet.average_isp_s(),
+                );
+                let hohmann_dv = fleet_ui_state
+                    .computed_options
+                    .first()
+                    .map(|o| o.total_delta_v_ms)
+                    .unwrap_or(0.0);
+                let sma_h = fleet_ui_state
+                    .computed_options
+                    .first()
+                    .map(|o| o.sma_au)
+                    .unwrap_or(0.0);
+                let ecc_h = fleet_ui_state
+                    .computed_options
+                    .first()
+                    .map(|o| o.eccentricity)
+                    .unwrap_or(0.0);
+                let d =
+                    (lp.radius_au - r1_lp).abs() * crate::fleets::orbital_mechanics::AU_IN_METERS;
+                let mut kinematics = kinematic_transfer_options(
+                    d,
+                    fleet.min_accel_ms2(),
+                    fleet.max_delta_v_ms(),
+                    hohmann_dv,
+                    sma_h,
+                    ecc_h,
+                    false,
+                );
+                fleet_ui_state.computed_options.append(&mut kinematics);
             }
+        }
 
         // ── Interstellar transfer computation ───────────────────────────────
         if let Some((_, _, distance_ly)) = star_system_snap {
-            use crate::fleets::orbital_mechanics::{AU_IN_METERS, TransferOption};
+            use crate::fleets::orbital_mechanics::{TransferOption, AU_IN_METERS};
             // 1 ly = 63 241.077 AU
             const AU_PER_LY: f64 = 63_241.077;
-            let distance_m  = distance_ly as f64 * AU_PER_LY * AU_IN_METERS;
-            let accel       = fleet.min_accel_ms2();
-            let max_dv      = fleet.max_delta_v_ms();
+            let distance_m = distance_ly as f64 * AU_PER_LY * AU_IN_METERS;
+            let accel = fleet.min_accel_ms2();
+            let max_dv = fleet.max_delta_v_ms();
 
             fleet_ui_state.computed_options.clear();
 
-            let mut kinematics = kinematic_transfer_options(
-                distance_m, accel, max_dv,
-                0.0, 0.0, 0.0, true
-            );
+            let mut kinematics =
+                kinematic_transfer_options(distance_m, accel, max_dv, 0.0, 0.0, 0.0, true);
             fleet_ui_state.computed_options.append(&mut kinematics);
 
             if fleet_ui_state.computed_options.is_empty() {
@@ -1325,11 +1711,10 @@ pub(super) fn render_transfer_planner(
         // ── Transfer Window / Departure slider — hidden for course corrections ────
         // Course corrections execute immediately; no departure window or delay needed.
         if !is_course_correction {
-
-        // Show a co-orbital / L-point info section for Lagrange targets.
-        if window_this_frame.is_none() && lp_target_snap.is_some() {
-            ui.add_space(6.0);
-            ui.horizontal_top(|ui| {
+            // Show a co-orbital / L-point info section for Lagrange targets.
+            if window_this_frame.is_none() && lp_target_snap.is_some() {
+                ui.add_space(6.0);
+                ui.horizontal_top(|ui| {
                 // Left: Lagrange transfer info
                 ui.group(|ui| {
                     ui.vertical(|ui| {
@@ -1459,32 +1844,32 @@ pub(super) fn render_transfer_planner(
                     });
                 });
             });
-        }
-        if let Some(ref window) = window_this_frame {
-            let syn_days = if window.synodic_period_s.is_finite() {
-                window.synodic_period_s / 86_400.0
-            } else {
-                f64::INFINITY
-            };
-            let window_days = window.time_to_window_s / 86_400.0;
+            }
+            if let Some(ref window) = window_this_frame {
+                let syn_days = if window.synodic_period_s.is_finite() {
+                    window.synodic_period_s / 86_400.0
+                } else {
+                    f64::INFINITY
+                };
+                let window_days = window.time_to_window_s / 86_400.0;
 
-            ui.add_space(6.0);
+                ui.add_space(6.0);
 
-            let max_days = window_max_slider_days.min(1_825.0); // cap at 5 years
-            let step_size = if max_days <= 1.0 {
-                0.01 // ~14 mins
-            } else if max_days <= 10.0 {
-                0.05 // ~1.2 hours
-            } else if max_days <= 50.0 {
-                0.1 // ~2.4 hours
-            } else if max_days <= 200.0 {
-                0.5 // 12 hours
-            } else {
-                1.0 // 1 day
-            };
+                let max_days = window_max_slider_days.min(1_825.0); // cap at 5 years
+                let step_size = if max_days <= 1.0 {
+                    0.01 // ~14 mins
+                } else if max_days <= 10.0 {
+                    0.05 // ~1.2 hours
+                } else if max_days <= 50.0 {
+                    0.1 // ~2.4 hours
+                } else if max_days <= 200.0 {
+                    0.5 // 12 hours
+                } else {
+                    1.0 // 1 day
+                };
 
-            // ── Transfer Window (left) + Planned Departure (right) side by side ──
-            ui.horizontal_top(|ui| {
+                // ── Transfer Window (left) + Planned Departure (right) side by side ──
+                ui.horizontal_top(|ui| {
                 // Left: Transfer Window box
                 ui.group(|ui| {
                     ui.vertical(|ui| {
@@ -1649,8 +2034,7 @@ pub(super) fn render_transfer_planner(
                     });
                 });
             });
-        }
-
+            }
         } // end !is_course_correction (Transfer Window / Departure slider section)
 
         if !fleet_ui_state.computed_options.is_empty() {
@@ -1664,7 +2048,8 @@ pub(super) fn render_transfer_planner(
             }
 
             // Pre-compute execute button state
-            let sel_option = fleet_ui_state.computed_options[fleet_ui_state.selected_option].clone();
+            let sel_option =
+                fleet_ui_state.computed_options[fleet_ui_state.selected_option].clone();
             let abort_cost_t: f32 = if let Some(maneuver) = current_maneuver {
                 let progress = maneuver.progress(elapsed) as f32;
                 let abort_factor = 4.0 * progress * (1.0 - progress);
@@ -1685,22 +2070,32 @@ pub(super) fn render_transfer_planner(
                 if let Some((_, ref sys_name, dist_ly)) = star_system_snap {
                     ui.group(|ui| {
                         ui.label(
-                            egui::RichText::new(format!("\u{1F30C} Interstellar Mission: {}", sys_name))
-                                .strong().size(13.0).color(theme::GRAVITY_ASSIST),
+                            egui::RichText::new(format!(
+                                "\u{1F30C} Interstellar Mission: {}",
+                                sys_name
+                            ))
+                            .strong()
+                            .size(13.0)
+                            .color(theme::GRAVITY_ASSIST),
                         );
                         ui.label(
                             egui::RichText::new(format!(
                                 "Distance: {:.2} ly = {:.0} AU",
                                 dist_ly,
                                 dist_ly as f64 * 63_241.077
-                            )).size(11.0).color(theme::TEXT_DIM),
+                            ))
+                            .size(11.0)
+                            .color(theme::TEXT_DIM),
                         );
                         ui.label(
                             egui::RichText::new(
                                 "\u{26A0} Interstellar navigation is point-and-burn. \
                                  Transfer windows do not apply. \
-                                 Ensure adequate \u{394}V and life-support reserves."
-                            ).size(11.0).italics().color(theme::AMBER),
+                                 Ensure adequate \u{394}V and life-support reserves.",
+                            )
+                            .size(11.0)
+                            .italics()
+                            .color(theme::AMBER),
                         );
                     });
                     ui.add_space(4.0);
@@ -1712,7 +2107,10 @@ pub(super) fn render_transfer_planner(
             } else if is_course_correction {
                 if abort_cost_t > 0.01 {
                     let abort_dv_kms = (fleet_max_dv - dv_after_abort) / 1_000.0;
-                    format!("\u{1F504} Execute Course Correction (+{:.2} km/s abort burn)", abort_dv_kms)
+                    format!(
+                        "\u{1F504} Execute Course Correction (+{:.2} km/s abort burn)",
+                        abort_dv_kms
+                    )
                 } else {
                     "\u{1F504} Execute Course Correction".to_string()
                 }
@@ -1917,13 +2315,11 @@ pub(super) fn render_transfer_planner(
             }
             if !is_interstellar && !sel_affordable_with_abort {
                 ui.label(
-                    egui::RichText::new(
-                        if abort_cost_t > 0.0 {
-                            "Insufficient \u{394}V remaining after abort burn."
-                        } else {
-                            "Selected option requires more \u{394}V than this fleet can provide."
-                        },
-                    )
+                    egui::RichText::new(if abort_cost_t > 0.0 {
+                        "Insufficient \u{394}V remaining after abort burn."
+                    } else {
+                        "Selected option requires more \u{394}V than this fleet can provide."
+                    })
                     .size(11.0)
                     .italics()
                     .color(theme::RED),
@@ -1946,19 +2342,21 @@ pub(super) fn render_transfer_planner(
             .default_open(true)
             .show(ui, |ui| {
                 // Snapshot data before mut-borrowing fleet_ui_state below
-                let snapped: Vec<(usize, String, f64, f64, f64, f64)> =
-                    fleet_ui_state.gravity_assist_candidates
-                        .iter()
-                        .enumerate()
-                        .map(|(i, e)| (
+                let snapped: Vec<(usize, String, f64, f64, f64, f64)> = fleet_ui_state
+                    .gravity_assist_candidates
+                    .iter()
+                    .enumerate()
+                    .map(|(i, e)| {
+                        (
                             i,
                             e.option.body_name.clone(),
                             e.option.dv_savings_ms,
                             e.option.extra_time_s,
                             e.option.window_period_s,
                             e.option.v_inf_ms,
-                        ))
-                        .collect();
+                        )
+                    })
+                    .collect();
 
                 for (idx, body_name, savings, extra_t, win_period, v_inf) in snapped {
                     let is_sel = fleet_ui_state.selected_gravity_assist == Some(idx);
@@ -2004,9 +2402,10 @@ pub(super) fn render_transfer_planner(
                                 ui.label(egui::RichText::new("Extra time:").size(11.0));
                                 let sign = if extra_t >= 0.0 { "+" } else { "" };
                                 ui.label(
-                                    egui::RichText::new(
-                                        format!("{sign}{}", format_duration(extra_t.abs()))
-                                    )
+                                    egui::RichText::new(format!(
+                                        "{sign}{}",
+                                        format_duration(extra_t.abs())
+                                    ))
                                     .size(11.0)
                                     .color(theme::TEXT),
                                 );
@@ -2043,7 +2442,11 @@ pub(super) fn render_transfer_planner(
                                     fleet_ui_state.planned_transfer = None;
                                 }
                             } else {
-                                let label = if beneficial { "⚡ Use Gravity Assist" } else { "Use Suboptimal Assist" };
+                                let label = if beneficial {
+                                    "⚡ Use Gravity Assist"
+                                } else {
+                                    "Use Suboptimal Assist"
+                                };
                                 if ui.small_button(label).clicked() {
                                     fleet_ui_state.selected_gravity_assist = Some(idx);
                                     fleet_ui_state.selected_option = 0; // GA is option 0
@@ -2122,11 +2525,7 @@ pub(super) fn render_transfer_planner(
                             ui.end_row();
 
                             ui.label(egui::RichText::new("Est. fuel:").size(12.0));
-                            let fuel_color = if affordable {
-                                theme::AMBER
-                            } else {
-                                theme::RED
-                            };
+                            let fuel_color = if affordable { theme::AMBER } else { theme::RED };
                             ui.label(
                                 egui::RichText::new(format!("{:.0} t ({fuel_pct}%)", fuel_cost))
                                     .size(12.0)
@@ -2134,8 +2533,7 @@ pub(super) fn render_transfer_planner(
                             );
                             ui.label(egui::RichText::new("Departure burn:").size(12.0));
                             ui.label(
-                                egui::RichText::new(format_delta_v(option.delta_v1_ms))
-                                    .size(12.0),
+                                egui::RichText::new(format_delta_v(option.delta_v1_ms)).size(12.0),
                             );
                             ui.end_row();
 
@@ -2155,25 +2553,25 @@ pub(super) fn render_transfer_planner(
                             // Burn time row — shows how long the fleet's engines fire.
                             if option.burn_time_s > 0.0 {
                                 // Classify burn profile based on burn/transfer time ratio.
-                                let (profile_label, profile_color) =
-                                    if option.is_thrust_limited {
-                                        // Burn time >= Hohmann time: impulsive assumption invalid.
-                                        ("⚠ Thrust-limited", theme::RED)
-                                    } else if option.label == "Full Thrust" {
-                                        // Entire trip is a burn
-                                        ("⚡ Full thrust", theme::AMBER)
+                                let (profile_label, profile_color) = if option.is_thrust_limited {
+                                    // Burn time >= Hohmann time: impulsive assumption invalid.
+                                    ("⚠ Thrust-limited", theme::RED)
+                                } else if option.label == "Full Thrust" {
+                                    // Entire trip is a burn
+                                    ("⚡ Full thrust", theme::AMBER)
+                                } else {
+                                    let ratio =
+                                        option.burn_time_s / option.transfer_time_s.max(1.0);
+                                    if option.burn_time_s < 3_600.0 {
+                                        ("Impulsive", theme::GREEN)
+                                    } else if ratio < 0.05 {
+                                        ("Short burn", theme::GREEN)
+                                    } else if ratio < 0.25 {
+                                        ("Extended burn", theme::AMBER)
                                     } else {
-                                        let ratio = option.burn_time_s / option.transfer_time_s.max(1.0);
-                                        if option.burn_time_s < 3_600.0 {
-                                            ("Impulsive", theme::GREEN)
-                                        } else if ratio < 0.05 {
-                                            ("Short burn", theme::GREEN)
-                                        } else if ratio < 0.25 {
-                                            ("Extended burn", theme::AMBER)
-                                        } else {
-                                            ("Continuous thrust", theme::AMBER)
-                                        }
-                                    };
+                                        ("Continuous thrust", theme::AMBER)
+                                    }
+                                };
                                 ui.label(egui::RichText::new("Burn time:").size(12.0));
                                 ui.label(
                                     egui::RichText::new(format_duration(option.burn_time_s))
@@ -2201,10 +2599,12 @@ pub(super) fn render_transfer_planner(
                                 // Extra warning row for thrust-limited options.
                                 if option.is_thrust_limited {
                                     ui.label(
-                                        egui::RichText::new("  Low-thrust spiral — travel time ≥ burn time")
-                                            .size(11.0)
-                                            .italics()
-                                            .color(theme::AMBER),
+                                        egui::RichText::new(
+                                            "  Low-thrust spiral — travel time ≥ burn time",
+                                        )
+                                        .size(11.0)
+                                        .italics()
+                                        .color(theme::AMBER),
                                     );
                                     ui.end_row();
                                 }
@@ -2221,7 +2621,6 @@ pub(super) fn render_transfer_planner(
                 });
                 ui.add_space(2.0);
             }
-
         }
     }
 }
@@ -2232,7 +2631,13 @@ fn build_planned_transfer(
     fleet: &Fleet,
     orbit: &FleetOrbit,
     target_entity: Entity,
-    body_query: &Query<(Entity, &CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>, Option<&LogicalParent>)>,
+    body_query: &Query<(
+        Entity,
+        &CelestialBody,
+        &SpaceCoordinates,
+        Option<&KeplerOrbit>,
+        Option<&LogicalParent>,
+    )>,
     option: &TransferOption,
     // For course corrections: the fleet's actual current position (in whatever
     // frame matches the central-body coordinates, typically heliocentric AU).
@@ -2241,7 +2646,7 @@ fn build_planned_transfer(
     course_correction_pos: Option<bevy::math::DVec3>,
 ) -> Option<PlannedTransfer> {
     use crate::astronomy::KeplerOrbit;
-    use crate::fleets::orbital_mechanics::{AU_IN_METERS, G_CONST, GM_SUN};
+    use crate::fleets::orbital_mechanics::{AU_IN_METERS, GM_SUN, G_CONST};
 
     let (_, origin_body, origin_sc, origin_ko, origin_lp) = body_query.get(orbit.body).ok()?;
     let (_, dest_body, _dest_sc, dest_ko, dest_lp) = body_query.get(target_entity).ok()?;
@@ -2259,29 +2664,58 @@ fn build_planned_transfer(
         let parent_mass = origin_body.mass;
         let planet_sma_au = origin_ko.map(|ko| ko.semi_major_axis).unwrap_or(1.0);
         let soi_au = planet_sma_au * (parent_mass / 1.989e30_f64).powf(0.4);
-        (orbit.radius_au, soi_au.max(orbit.radius_au * 50.0), G_CONST * parent_mass, target_entity, target_entity)
+        (
+            orbit.radius_au,
+            soi_au.max(orbit.radius_au * 50.0),
+            G_CONST * parent_mass,
+            target_entity,
+            target_entity,
+        )
     } else if dest_is_ring {
         // Ring: resolve to orbiting the ring's parent planet at ring.radius altitude
         let ring_parent = dest_parent.unwrap_or(orbit.body);
-        let parent_mass = body_query.get(ring_parent).ok()
-            .map(|(_, b, _, _, _)| b.mass).unwrap_or(5.972e24);
+        let parent_mass = body_query
+            .get(ring_parent)
+            .ok()
+            .map(|(_, b, _, _, _)| b.mass)
+            .unwrap_or(5.972e24);
         let ring_radius_au = (dest_body.radius as f64 * 1_000.0) / AU_IN_METERS;
         let r1 = if ring_parent == orbit.body {
             orbit.radius_au
         } else {
             origin_ko.map(|ko| ko.semi_major_axis).unwrap_or(0.01)
         };
-        (r1, ring_radius_au, G_CONST * parent_mass, ring_parent, ring_parent)
+        (
+            r1,
+            ring_radius_au,
+            G_CONST * parent_mass,
+            ring_parent,
+            ring_parent,
+        )
     } else if dest_parent == Some(orbit.body) {
         // Local (e.g., Earth → Moon)
         let r2 = dest_ko.map(|ko| ko.semi_major_axis).unwrap_or(0.00257);
-        (orbit.radius_au, r2, G_CONST * origin_body.mass, orbit.body, target_entity)
+        (
+            orbit.radius_au,
+            r2,
+            G_CONST * origin_body.mass,
+            orbit.body,
+            target_entity,
+        )
     } else if dest_parent.is_some() && dest_parent == origin_parent {
         // Both orbit the same central body (moon-to-moon OR interplanetary, e.g. Earth→Mars).
         // NOTE: The Sun lacks SpaceCoordinates so body_query.get(Sun) fails — fall back to GM_SUN.
         let shared = dest_parent.unwrap();
-        let gm = body_query.get(shared).ok()
-            .map(|(_, b, _, _, _)| if b.body_type == BodyType::Star { GM_SUN } else { G_CONST * b.mass })
+        let gm = body_query
+            .get(shared)
+            .ok()
+            .map(|(_, b, _, _, _)| {
+                if b.body_type == BodyType::Star {
+                    GM_SUN
+                } else {
+                    G_CONST * b.mass
+                }
+            })
             .unwrap_or(GM_SUN);
         let r1 = origin_ko.map(|ko| ko.semi_major_axis).unwrap_or(0.00257);
         let r2 = dest_ko.map(|ko| ko.semi_major_axis).unwrap_or(0.00257);
@@ -2292,10 +2726,19 @@ fn build_planned_transfer(
         let parent_mass = dest_body.mass;
         let r1 = origin_ko.map(|ko| ko.semi_major_axis).unwrap_or(0.00257);
         let r2 = (dest_body.radius as f64 * 3_000.0) / AU_IN_METERS;
-        (r1, r2.min(r1 * 0.5), G_CONST * parent_mass, target_entity, target_entity)
+        (
+            r1,
+            r2.min(r1 * 0.5),
+            G_CONST * parent_mass,
+            target_entity,
+            target_entity,
+        )
     } else {
         // Heliocentric: if fleet is at a moon, its own SMA is Earth-relative — use parent's SMA.
-        let r1 = if origin_ko.map(|ko| ko.semi_major_axis < MIN_HELIOCENTRIC_SMA_AU).unwrap_or(true) {
+        let r1 = if origin_ko
+            .map(|ko| ko.semi_major_axis < MIN_HELIOCENTRIC_SMA_AU)
+            .unwrap_or(true)
+        {
             origin_parent
                 .and_then(|pe| body_query.get(pe).ok())
                 .and_then(|(_, _, _, ko, _)| ko)
@@ -2305,7 +2748,10 @@ fn build_planned_transfer(
         } else {
             origin_ko.map(|ko| ko.semi_major_axis).unwrap_or(1.0)
         };
-        let r2 = if dest_ko.map(|ko| ko.semi_major_axis < MIN_HELIOCENTRIC_SMA_AU).unwrap_or(true) {
+        let r2 = if dest_ko
+            .map(|ko| ko.semi_major_axis < MIN_HELIOCENTRIC_SMA_AU)
+            .unwrap_or(true)
+        {
             dest_parent
                 .and_then(|pe| body_query.get(pe).ok())
                 .and_then(|(_, _, _, ko, _)| ko)
@@ -2317,8 +2763,11 @@ fn build_planned_transfer(
         };
         // Require the star to be close to the heliocentric origin (< 1 AU) so that nearby
         // star catalog entities with large SpaceCoordinates are not mistakenly selected.
-        let star = body_query.iter()
-            .find(|(_, b, sc, ko, _)| ko.is_none() && b.body_type == BodyType::Star && sc.position.length_squared() < 1.0)
+        let star = body_query
+            .iter()
+            .find(|(_, b, sc, ko, _)| {
+                ko.is_none() && b.body_type == BodyType::Star && sc.position.length_squared() < 1.0
+            })
             .map(|(e, _, _, _, _)| e)
             .unwrap_or(orbit.body);
         (r1, r2, GM_SUN, star, target_entity)
@@ -2327,7 +2776,10 @@ fn build_planned_transfer(
     // For course corrections, determine outward/inward from the fleet's actual distance vs
     // the destination distance.  The body SMAs may not reflect the fleet's position mid-transit.
     // (Computed after rel_pos and dest_rel are available below; use a closure to defer.)
-    let center_pos = body_query.get(orbit_center).map(|(_, _, sc, _, _)| sc.position).unwrap_or(bevy::math::DVec3::ZERO);
+    let center_pos = body_query
+        .get(orbit_center)
+        .map(|(_, _, sc, _, _)| sc.position)
+        .unwrap_or(bevy::math::DVec3::ZERO);
     // For course corrections use the fleet's actual position; otherwise use the origin body.
     let rel_pos = if let Some(fleet_pos) = course_correction_pos {
         // fleet_pos is already in the correct frame (heliocentric or planet-relative).
@@ -2341,14 +2793,15 @@ fn build_planned_transfer(
         // SpaceCoordinates stores only a local offset from its parent planet — not a
         // heliocentric position.  Use the parent planet's heliocentric SC so that the
         // departure direction (argument_of_periapsis) points in the correct direction.
-        let origin_helio_pos = if origin_body.body_type == BodyType::Moon && center_pos.length_squared() < 1e-20 {
-            origin_parent
-                .and_then(|pe| body_query.get(pe).ok())
-                .map(|(_, _, sc, _, _)| sc.position)
-                .unwrap_or(origin_sc.position)
-        } else {
-            origin_sc.position
-        };
+        let origin_helio_pos =
+            if origin_body.body_type == BodyType::Moon && center_pos.length_squared() < 1e-20 {
+                origin_parent
+                    .and_then(|pe| body_query.get(pe).ok())
+                    .map(|(_, _, sc, _, _)| sc.position)
+                    .unwrap_or(origin_sc.position)
+            } else {
+                origin_sc.position
+            };
         origin_helio_pos - center_pos
     };
 
@@ -2358,7 +2811,9 @@ fn build_planned_transfer(
     // so the propagated green-dot position and the displayed preview arc match.
     // For heliocentric transfers where the destination is a moon, its SpaceCoordinates
     // also stores only a local offset — use the parent planet's position instead.
-    let dest_sc_pos = body_query.get(target_entity).ok()
+    let dest_sc_pos = body_query
+        .get(target_entity)
+        .ok()
         .map(|(_, b, sc, _, lp)| {
             if b.body_type == BodyType::Moon && center_pos.length_squared() < 1e-20 {
                 lp.and_then(|lp| body_query.get(lp.0).ok())
@@ -2375,7 +2830,7 @@ fn build_planned_transfer(
     // the destination distance.  The body SMAs may not reflect the fleet's position mid-transit.
     let outward = if course_correction_pos.is_some() {
         let fleet_r = rel_pos.length();
-        let dest_r  = dest_rel.length();
+        let dest_r = dest_rel.length();
         dest_r >= fleet_r
     } else {
         dest_sma_au >= origin_sma_au
@@ -2405,16 +2860,28 @@ fn build_planned_transfer(
             let cos_w = node.dot(peri_dir);
             let sin_w = n.dot(node.cross(peri_dir));
             let omega = sin_w.atan2(cos_w);
-            if outward { omega } else { omega + std::f64::consts::PI }
+            if outward {
+                omega
+            } else {
+                omega + std::f64::consts::PI
+            }
         } else {
             let departure_angle = rel_pos.y.atan2(rel_pos.x);
-            if outward { departure_angle } else { departure_angle - std::f64::consts::PI }
+            if outward {
+                departure_angle
+            } else {
+                departure_angle - std::f64::consts::PI
+            }
         };
         (incl, lan, aop)
     } else {
         // Degenerate (origin and destination collinear with center): ecliptic-flat.
         let departure_angle = rel_pos.y.atan2(rel_pos.x);
-        let aop = if outward { departure_angle } else { departure_angle - std::f64::consts::PI };
+        let aop = if outward {
+            departure_angle
+        } else {
+            departure_angle - std::f64::consts::PI
+        };
         (0.0, 0.0, aop)
     };
 
@@ -2467,7 +2934,13 @@ fn build_planned_transfer_lp(
     fleet: &Fleet,
     orbit: &FleetOrbit,
     lp: &LagrangeTarget,
-    body_query: &Query<(Entity, &CelestialBody, &SpaceCoordinates, Option<&KeplerOrbit>, Option<&LogicalParent>)>,
+    body_query: &Query<(
+        Entity,
+        &CelestialBody,
+        &SpaceCoordinates,
+        Option<&KeplerOrbit>,
+        Option<&LogicalParent>,
+    )>,
     option: &TransferOption,
 ) -> Option<PlannedTransfer> {
     use crate::astronomy::KeplerOrbit;
@@ -2475,8 +2948,11 @@ fn build_planned_transfer_lp(
 
     // LP transfers are heliocentric – find the star as orbit center.
     // Use the proximity guard to skip distant nearby-star catalog entities.
-    let star_entity = body_query.iter()
-        .find(|(_, b, sc, ko, _)| ko.is_none() && b.body_type == BodyType::Star && sc.position.length_squared() < 1.0)
+    let star_entity = body_query
+        .iter()
+        .find(|(_, b, sc, ko, _)| {
+            ko.is_none() && b.body_type == BodyType::Star && sc.position.length_squared() < 1.0
+        })
         .map(|(e, _, _, _, _)| e)
         .unwrap_or(orbit.body);
 
@@ -2485,7 +2961,8 @@ fn build_planned_transfer_lp(
     // SpaceCoordinates are at the heliocentric origin → rel_pos would be
     // (0,0,0) and departure_angle 0.  In that case use the L-point's parent
     // planet position instead so the orbit geometry is meaningful.
-    let center_pos = body_query.get(star_entity)
+    let center_pos = body_query
+        .get(star_entity)
         .map(|(_, _, sc, _, _)| sc.position)
         .unwrap_or(bevy::math::DVec3::ZERO);
 
@@ -2494,7 +2971,8 @@ fn build_planned_transfer_lp(
         if body_data.body_type == BodyType::Star {
             // Fleet is parked around the star — use the planet's current position
             // as the departure reference instead.
-            body_query.get(lp.planet_entity)
+            body_query
+                .get(lp.planet_entity)
                 .map(|(_, _, sc, _, _)| sc.position)
                 .unwrap_or(origin_sc.position)
         } else {
@@ -2510,15 +2988,16 @@ fn build_planned_transfer_lp(
     // rings around the Sun (which previously looked like "multiple orbit rings").
     let option_label: &'static str = match option.label {
         "Efficient" => "Direct Efficient",
-        "Moderate"  => "Direct Moderate",
-        "Fast"      => "Direct Fast",
-        other       => other, // kinematic labels (Full Thrust, Coast, Max Speed, Direct *) pass through
+        "Moderate" => "Direct Moderate",
+        "Fast" => "Direct Fast",
+        other => other, // kinematic labels (Full Thrust, Coast, Max Speed, Direct *) pass through
     };
 
     // Pre-compute the heliocentric LP position for kinematic arc rendering.
     // Every LP transfer sets start/end positions so the fleet flies to the correct
     // Lagrange-point location rather than the star origin (0,0,0).
-    let planet_pos = body_query.get(lp.planet_entity)
+    let planet_pos = body_query
+        .get(lp.planet_entity)
         .map(|(_, _, sc, _, _)| sc.position)
         .unwrap_or(origin_pos);
     let planet_rel = planet_pos - center_pos;
@@ -2529,13 +3008,14 @@ fn build_planned_transfer_lp(
         5 => planet_angle - std::f64::consts::FRAC_PI_3,
         _ => planet_angle, // L1/L2: on the Sun-planet radial
     };
-    let lp_pos_au = center_pos + bevy::math::DVec3::new(
-        lp.radius_au * lp_angle.cos(),
-        lp.radius_au * lp_angle.sin(),
-        0.0,
-    );
+    let lp_pos_au = center_pos
+        + bevy::math::DVec3::new(
+            lp.radius_au * lp_angle.cos(),
+            lp.radius_au * lp_angle.sin(),
+            0.0,
+        );
     let start_pos = Some(origin_pos);
-    let end_pos   = Some(lp_pos_au);
+    let end_pos = Some(lp_pos_au);
 
     // L1/L2: the LP is physically near the planet (±r_hill from the planet's
     // heliocentric position).  Park the fleet around the planet at r_hill so it

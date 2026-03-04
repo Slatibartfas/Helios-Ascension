@@ -1,11 +1,11 @@
 use bevy::prelude::*;
 use helios_ascension::astronomy::KeplerOrbit;
 use helios_ascension::fleets::{
-    ActiveManeuver, Fleet, FleetOrbit, PlannedTransfer, PendingFleetActions, StartTransferAction,
+    ActiveManeuver, Fleet, FleetOrbit, PendingFleetActions, PlannedTransfer, StartTransferAction,
 };
-use helios_ascension::ui::SimulationTime;
 use helios_ascension::plugins::solar_system::CelestialBody;
 use helios_ascension::plugins::solar_system_data::BodyType;
+use helios_ascension::ui::SimulationTime;
 
 /// Simple sanity check that the `PlannedTransfer` struct has a flyby field
 /// and that it can be assigned and read back.
@@ -42,7 +42,10 @@ fn test_active_maneuver_inherits_flyby() {
     // systems and gizmconfig dependencies), we only insert the resources
     // needed by `process_fleet_actions` and add that system directly.
     app.insert_resource(PendingFleetActions::default());
-    app.add_systems(Update, helios_ascension::fleets::systems::process_fleet_actions);
+    app.add_systems(
+        Update,
+        helios_ascension::fleets::systems::process_fleet_actions,
+    );
     // simulation time resource required by the fleet systems
     app.insert_resource(SimulationTime::new());
 
@@ -50,25 +53,31 @@ fn test_active_maneuver_inherits_flyby() {
     // in `process_fleet_actions`.
     let origin = app
         .world_mut()
-        .spawn((Transform::default(), CelestialBody {
-            name: "origin".to_string(),
-            radius: 1.0,
-            mass: 1.0,
-            body_type: BodyType::Planet,
-            visual_radius: 1.0,
-            asteroid_class: None,
-        },))
+        .spawn((
+            Transform::default(),
+            CelestialBody {
+                name: "origin".to_string(),
+                radius: 1.0,
+                mass: 1.0,
+                body_type: BodyType::Planet,
+                visual_radius: 1.0,
+                asteroid_class: None,
+            },
+        ))
         .id();
     let destination = app
         .world_mut()
-        .spawn((Transform::default(), CelestialBody {
-            name: "dest".to_string(),
-            radius: 1.0,
-            mass: 1.0,
-            body_type: BodyType::Planet,
-            visual_radius: 1.0,
-            asteroid_class: None,
-        },))
+        .spawn((
+            Transform::default(),
+            CelestialBody {
+                name: "dest".to_string(),
+                radius: 1.0,
+                mass: 1.0,
+                body_type: BodyType::Planet,
+                visual_radius: 1.0,
+                asteroid_class: None,
+            },
+        ))
         .id();
 
     // create a fleet parked around the origin body

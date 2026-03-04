@@ -1,10 +1,10 @@
-use bevy::prelude::*;
+use bevy::camera::visibility::RenderLayers;
 use bevy::mesh::MeshVertexBufferLayoutRef;
+use bevy::prelude::*;
 use bevy::render::render_resource::{
     AsBindGroup, Face, RenderPipelineDescriptor, SpecializedMeshPipelineError,
 };
 use bevy::shader::ShaderRef;
-use bevy::camera::visibility::RenderLayers;
 
 // Backdrop configuration constants
 // Keep backdrop radius below camera far plane (1_500_000.0) to avoid clipping
@@ -108,7 +108,10 @@ fn spawn_backdrop_sphere(
 
 /// Update backdrop sphere to always center on the camera
 fn update_backdrop_position(
-    mut backdrop_query: Query<(&mut Transform, &MeshMaterial3d<SkyboxMaterial>), With<BackdropSphere>>,
+    mut backdrop_query: Query<
+        (&mut Transform, &MeshMaterial3d<SkyboxMaterial>),
+        With<BackdropSphere>,
+    >,
     camera_query: Query<
         (&Transform, &crate::plugins::camera::OrbitCamera),
         (With<Camera3d>, Without<BackdropSphere>),

@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use super::components::{Colony, ConstructionProject, PendingConstructionActions};
-use super::data::{BuildingsData, deduct_resources};
+use super::data::{deduct_resources, BuildingsData};
 use super::types::BuildingType;
 use super::ConstructionDebugSettings;
 use crate::astronomy::OceanProperties;
@@ -133,10 +133,7 @@ pub fn process_construction_actions(
             }
         } else {
             commands.spawn(ConstructionProject::new(building_type, colony_entity));
-            info!(
-                "Started construction: {}",
-                building_type.display_name()
-            );
+            info!("Started construction: {}", building_type.display_name());
         }
     }
 
@@ -332,11 +329,7 @@ mod tests {
 
         // Growth should be reasonable (< 10% per year for small colony)
         let rate = growth / colony.population;
-        assert!(
-            rate < 0.10,
-            "Growth rate should be < 10%: {}",
-            rate
-        );
+        assert!(rate < 0.10, "Growth rate should be < 10%: {}", rate);
     }
 
     #[test]
@@ -350,7 +343,10 @@ mod tests {
             colony.add_building(BuildingType::Mine);
         }
         let without_logistics = colony.mining_output_multiplier();
-        assert!(without_logistics < 1.0, "Should be penalised without logistics");
+        assert!(
+            without_logistics < 1.0,
+            "Should be penalised without logistics"
+        );
 
         // Add mass driver
         colony.add_building(BuildingType::MassDriver);

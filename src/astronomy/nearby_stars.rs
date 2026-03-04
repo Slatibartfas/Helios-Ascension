@@ -429,7 +429,8 @@ pub const NEARBY_STARS_POSITIONS: &[StarPositionData] = &[
 
 impl NearbyStarsData {
     pub fn get_position_by_name(name: &str) -> Option<[f64; 3]> {
-        NEARBY_STARS_POSITIONS.iter()
+        NEARBY_STARS_POSITIONS
+            .iter()
             .find(|star| star.name == name)
             .map(|star| star.pos_ly)
     }
@@ -441,7 +442,8 @@ impl NearbyStarsData {
     /// the starmap icon IDs, ensuring the floating origin is set correctly
     /// when transitioning between systems.
     pub fn get_system_id_by_name(name: &str) -> Option<usize> {
-        NEARBY_STARS_POSITIONS.iter()
+        NEARBY_STARS_POSITIONS
+            .iter()
             .position(|star| star.name == name)
             .map(|idx| idx + 1) // 0 = Sol
     }

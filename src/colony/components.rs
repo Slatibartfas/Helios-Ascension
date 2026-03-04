@@ -51,7 +51,7 @@ impl Colony {
     /// - Cargo Terminal: 2,000 units
     ///
     /// The starting colony (Earth) has effectively infinite logistics capacity
-    /// as it represents a fully developed planetary economy that doesn't 
+    /// as it represents a fully developed planetary economy that doesn't
     /// primarily rely on space-based logistics for surface operations.
     pub fn logistics_capacity(&self) -> f64 {
         if self.name == "Earth" {
@@ -76,7 +76,8 @@ impl Colony {
             + self.building_count(BuildingType::Factory)
             + self.building_count(BuildingType::DeepDrill)
             + self.building_count(BuildingType::LaserDrill)
-            + self.building_count(BuildingType::StripMine)) as f64;
+            + self.building_count(BuildingType::StripMine))
+            as f64;
 
         // 1,000 units of logistics demand per industrial building
         industrial_buildings * 1_000.0
@@ -154,8 +155,7 @@ impl Colony {
         let base_rate = 0.05;
 
         // Medical centres add 1% each
-        let medical_bonus =
-            self.building_count(BuildingType::MedicalCenter) as f64 * 0.01;
+        let medical_bonus = self.building_count(BuildingType::MedicalCenter) as f64 * 0.01;
 
         // Housing utilisation factor – growth slows as housing fills
         let utilisation = (self.population / housing).min(1.0);
@@ -164,8 +164,11 @@ impl Colony {
         // Logistics efficiency penalty
         let logistics = self.logistics_efficiency();
 
-        let effective_rate =
-            (base_rate + medical_bonus) * food_factor * housing_factor * logistics * self.growth_rate_modifier;
+        let effective_rate = (base_rate + medical_bonus)
+            * food_factor
+            * housing_factor
+            * logistics
+            * self.growth_rate_modifier;
 
         self.population * effective_rate
     }
@@ -362,7 +365,7 @@ mod tests {
         let mut colony = Colony::new("Test".to_string(), 1_000_000.0);
         colony.add_building(BuildingType::Mine); // demand: 1000
         colony.add_building(BuildingType::MassDriver); // capacity: 5000
-        // 5000 / 1000 > 1.0 → clamped to 1.0
+                                                       // 5000 / 1000 > 1.0 → clamped to 1.0
         assert_eq!(colony.logistics_efficiency(), 1.0);
     }
 

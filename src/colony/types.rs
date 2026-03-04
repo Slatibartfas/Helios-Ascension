@@ -81,7 +81,7 @@ pub enum BuildingType {
     MissileSilo,
     /// Rocket launch site for orbital access
     LaunchSite,
-    
+
     // Advanced Industry
     /// Chemical plant for synthesizing volatiles and polymers
     ChemicalPlant,
@@ -174,7 +174,9 @@ impl BuildingType {
             BuildingType::Refinery => "Refines raw ores into usable materials",
             BuildingType::Factory => "Manufactures goods and components",
             BuildingType::ChemicalPlant => "Processes volatiles into useful chemical products",
-            BuildingType::HydrocarbonExtractor => "Extracts hydrocarbons (oil/gas) from crustal deposits",
+            BuildingType::HydrocarbonExtractor => {
+                "Extracts hydrocarbons (oil/gas) from crustal deposits"
+            }
             BuildingType::AtmosphericProcessor => "Harvests gases from the atmosphere",
             BuildingType::DeepDrill => "Deep drilling into planetary crust for hidden deposits",
             BuildingType::LaserDrill => "Laser-based deep mining for maximum extraction",
@@ -259,16 +261,18 @@ impl BuildingType {
             BuildingType::SolarPower
             | BuildingType::FissionReactor
             | BuildingType::FusionReactor => BuildingCategory::Power,
-            BuildingType::AgriDome | BuildingType::Farm | BuildingType::MedicalCenter => BuildingCategory::Population,
-            BuildingType::ResearchLab
-            | BuildingType::EngineeringBay
-            | BuildingType::AiCluster => BuildingCategory::Research,
+            BuildingType::AgriDome | BuildingType::Farm | BuildingType::MedicalCenter => {
+                BuildingCategory::Population
+            }
+            BuildingType::ResearchLab | BuildingType::EngineeringBay | BuildingType::AiCluster => {
+                BuildingCategory::Research
+            }
             BuildingType::CommercialHub
             | BuildingType::FinancialCenter
             | BuildingType::TradePort => BuildingCategory::Financial,
-            BuildingType::Shipyard
-            | BuildingType::MissileSilo
-            | BuildingType::LaunchSite => BuildingCategory::Military,
+            BuildingType::Shipyard | BuildingType::MissileSilo | BuildingType::LaunchSite => {
+                BuildingCategory::Military
+            }
         }
     }
 
@@ -329,7 +333,7 @@ impl BuildingType {
             BuildingType::Factory => 12_000,
             BuildingType::ChemicalPlant => 4_000,
             BuildingType::HydrocarbonExtractor => 2_500,
-            BuildingType::AtmosphericProcessor => 3_000,            // Advanced mining – mid/late game scale
+            BuildingType::AtmosphericProcessor => 3_000, // Advanced mining – mid/late game scale
             BuildingType::DeepDrill => 10_000,
             BuildingType::LaserDrill => 4_000,
             BuildingType::StripMine => 50_000,
@@ -529,15 +533,19 @@ mod tests {
         // A starting colony (100K pop, 40K workers) should be able to run
         // several basic buildings without hitting workforce limits immediately.
         let early_buildings = [
-            BuildingType::LifeSupport,  // 2,000
-            BuildingType::HabitatDome,  // 1,000
-            BuildingType::SolarPower,   // 500
-            BuildingType::Mine,         // 5,000
-            BuildingType::Mine,         // 5,000
-            BuildingType::AgriDome,     // 4,000
+            BuildingType::LifeSupport, // 2,000
+            BuildingType::HabitatDome, // 1,000
+            BuildingType::SolarPower,  // 500
+            BuildingType::Mine,        // 5,000
+            BuildingType::Mine,        // 5,000
+            BuildingType::AgriDome,    // 4,000
         ];
         let total: u32 = early_buildings.iter().map(|b| b.workforce_required()).sum();
-        assert!(total <= 40_000, "Early colony buildings should fit in 40,000 workers, got {}", total);
+        assert!(
+            total <= 40_000,
+            "Early colony buildings should fit in 40,000 workers, got {}",
+            total
+        );
     }
 
     #[test]
@@ -547,25 +555,61 @@ mod tests {
         assert!(BuildingType::Factory.required_tech().is_none());
 
         // Advanced buildings require tech
-        assert_eq!(BuildingType::DeepDrill.required_tech(), Some("deep_drilling"));
-        assert_eq!(BuildingType::LaserDrill.required_tech(), Some("laser_drilling"));
-        assert_eq!(BuildingType::StripMine.required_tech(), Some("strip_mining"));
-        assert_eq!(BuildingType::AiCluster.required_tech(), Some("neural_networks"));
-        assert_eq!(BuildingType::Shipyard.required_tech(), Some("orbital_construction"));
-        assert_eq!(BuildingType::MissileSilo.required_tech(), Some("missile_systems"));
+        assert_eq!(
+            BuildingType::DeepDrill.required_tech(),
+            Some("deep_drilling")
+        );
+        assert_eq!(
+            BuildingType::LaserDrill.required_tech(),
+            Some("laser_drilling")
+        );
+        assert_eq!(
+            BuildingType::StripMine.required_tech(),
+            Some("strip_mining")
+        );
+        assert_eq!(
+            BuildingType::AiCluster.required_tech(),
+            Some("neural_networks")
+        );
+        assert_eq!(
+            BuildingType::Shipyard.required_tech(),
+            Some("orbital_construction")
+        );
+        assert_eq!(
+            BuildingType::MissileSilo.required_tech(),
+            Some("missile_systems")
+        );
     }
 
     #[test]
     fn test_financial_category() {
-        assert_eq!(BuildingType::CommercialHub.category(), BuildingCategory::Financial);
-        assert_eq!(BuildingType::FinancialCenter.category(), BuildingCategory::Financial);
-        assert_eq!(BuildingType::TradePort.category(), BuildingCategory::Financial);
+        assert_eq!(
+            BuildingType::CommercialHub.category(),
+            BuildingCategory::Financial
+        );
+        assert_eq!(
+            BuildingType::FinancialCenter.category(),
+            BuildingCategory::Financial
+        );
+        assert_eq!(
+            BuildingType::TradePort.category(),
+            BuildingCategory::Financial
+        );
     }
 
     #[test]
     fn test_military_category() {
-        assert_eq!(BuildingType::Shipyard.category(), BuildingCategory::Military);
-        assert_eq!(BuildingType::MissileSilo.category(), BuildingCategory::Military);
-        assert_eq!(BuildingType::LaunchSite.category(), BuildingCategory::Military);
+        assert_eq!(
+            BuildingType::Shipyard.category(),
+            BuildingCategory::Military
+        );
+        assert_eq!(
+            BuildingType::MissileSilo.category(),
+            BuildingCategory::Military
+        );
+        assert_eq!(
+            BuildingType::LaunchSite.category(),
+            BuildingCategory::Military
+        );
     }
 }

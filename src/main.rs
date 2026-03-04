@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy::window::{WindowResolution, WindowResizeConstraints};
+use bevy::window::{WindowResizeConstraints, WindowResolution};
 use bevy_egui::EguiPlugin;
 
 pub mod astronomy;
@@ -17,13 +17,13 @@ use colony::ColonyPlugin;
 use economy::EconomyPlugin;
 use fleets::FleetPlugin;
 use game_state::GameStatePlugin;
-use research::ResearchPlugin;
 use plugins::{
     atmosphere::AtmospherePlugin, camera::CameraPlugin, music::MusicPlugin,
     solar_system::SolarSystemPlugin, starmap::StarmapPlugin,
     system_populator::SystemPopulatorPlugin, visual_effects::VisualEffectsPlugin,
 };
 use render::backdrop::BackdropPlugin;
+use research::ResearchPlugin;
 use ui::UIPlugin;
 
 /// Minimum supported window dimensions to prevent UI overlap

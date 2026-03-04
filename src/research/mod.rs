@@ -21,8 +21,9 @@ pub use components::{
 };
 pub use data::{load_technologies, TechnologiesData};
 pub use systems::{
-    advance_engineering_projects, advance_research_projects, check_unlocked_technologies,
-    initialize_baseline_technology, update_research_points, ResearchState, apply_debug_modifiers,
+    advance_engineering_projects, advance_research_projects, apply_debug_modifiers,
+    check_unlocked_technologies, initialize_baseline_technology, update_research_points,
+    ResearchState,
 };
 pub use types::{ModifierType, TechCategory, TechModifierDef, Technology, TechnologyId};
 
@@ -207,7 +208,8 @@ impl Plugin for ResearchPlugin {
                     advance_engineering_projects,
                     check_unlocked_technologies,
                     systems::apply_debug_modifiers, // Apply debug modifiers after other systems
-                ).chain(),
+                )
+                    .chain(),
             );
     }
 }

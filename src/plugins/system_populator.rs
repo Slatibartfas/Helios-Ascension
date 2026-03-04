@@ -6,17 +6,18 @@
 //! 3. Spawning asteroid belts and cometary clouds
 //! 4. Applying resource generation with metallicity bonuses
 
+use bevy::asset::RenderAssetUsages;
 use bevy::math::DVec3;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use bevy::asset::RenderAssetUsages;
 use rand::prelude::*;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 
 use crate::astronomy::components::{CurrentStarSystem, OrbitCenter, SystemId};
-use crate::astronomy::nearby_stars::load_nearby_stars_data;
 use crate::astronomy::exoplanets::RealPlanet;
+use crate::astronomy::infer_ocean_properties;
+use crate::astronomy::nearby_stars::load_nearby_stars_data;
 use crate::astronomy::nearby_stars::{NearbyStarsData, PlanetData, StarData};
 use crate::astronomy::{
     calculate_frost_line, generate_procedural_atmosphere, map_star_to_system_architecture,
@@ -27,12 +28,13 @@ use crate::economy::components::{OrbitsBody, SpectralClass, StarSystem};
 use crate::economy::generation::generate_solar_system_resources;
 use crate::game_state::GameSeed;
 use crate::plugins::solar_system::{
-    Asteroid, CelestialBody, ClickExcluded, Comet, DwarfPlanet, LogicalParent, Moon, Planet, Ring, Star,
-    create_ring_mesh,
+    create_ring_mesh, Asteroid, CelestialBody, ClickExcluded, Comet, DwarfPlanet, LogicalParent,
+    Moon, Planet, Ring, Star,
 };
-use crate::plugins::solar_system_data::{calculate_visual_radius, system_visual_scale, AsteroidClass, BodyType};
-use crate::plugins::starmap::{PlanetCategory, SystemMetadata, classify_exoplanet};
-use crate::astronomy::infer_ocean_properties;
+use crate::plugins::solar_system_data::{
+    calculate_visual_radius, system_visual_scale, AsteroidClass, BodyType,
+};
+use crate::plugins::starmap::{classify_exoplanet, PlanetCategory, SystemMetadata};
 
 pub struct SystemPopulatorPlugin;
 
@@ -84,14 +86,15 @@ fn populate_nearby_systems(
         // This MUST match the ID the starmap icon was spawned with
         // (index in NEARBY_STARS_POSITIONS + 1) so that the floating
         // origin is set to the correct position on system transition.
-        let system_id = if let Some(id) = NearbyStarsData::get_system_id_by_name(&system_data.system_name) {
-            id
-        } else {
-            // System is not on the starmap — assign a unique high ID
-            let id = next_fallback_id;
-            next_fallback_id += 1;
-            id
-        };
+        let system_id =
+            if let Some(id) = NearbyStarsData::get_system_id_by_name(&system_data.system_name) {
+                id
+            } else {
+                // System is not on the starmap — assign a unique high ID
+                let id = next_fallback_id;
+                next_fallback_id += 1;
+                id
+            };
 
         debug!(
             "Populating system '{}' at {:.2} ly with {} stars",
@@ -103,21 +106,26 @@ fn populate_nearby_systems(
         // Use 3D coordinates from the static data if available
         // Each light year = 63,241.077 AU
         let distance_au = (system_data.distance_ly as f64) * 63241.077;
-        
+
         let mut star_position = DVec3::new(distance_au, 0.0, 0.0);
 
         if let Some(pos_ly) = NearbyStarsData::get_position_by_name(&system_data.system_name) {
-             star_position = DVec3::new(pos_ly[0], pos_ly[1], pos_ly[2]) * 63241.077;
-             debug!("  Using 3D coordinates for '{}': {:?}", system_data.system_name, star_position);
+            star_position = DVec3::new(pos_ly[0], pos_ly[1], pos_ly[2]) * 63241.077;
+            debug!(
+                "  Using 3D coordinates for '{}': {:?}",
+                system_data.system_name, star_position
+            );
         } else {
-             warn!("  No 3D coordinates found for '{}', using fallback X-axis placement", system_data.system_name);
+            warn!(
+                "  No 3D coordinates found for '{}', using fallback X-axis placement",
+                system_data.system_name
+            );
         }
 
         // Spawn the primary star (first star in the list)
         if let Some(primary_star) = system_data.stars.first() {
             // Use calculated position
             // let star_position is already defined above
-
 
             // Use real metallicity if available, otherwise generate random
             let metallicity = primary_star.metallicity.unwrap_or_else(|| {
@@ -157,7 +165,9 @@ fn populate_nearby_systems(
 
             // Cap stellar visual radius so the star mesh doesn't swallow
             // the innermost planets in compact systems.
-            if let Some(inner_sma) = primary_star.planets.iter()
+            if let Some(inner_sma) = primary_star
+                .planets
+                .iter()
                 .map(|p| p.semi_major_axis_au)
                 .reduce(f32::min)
             {
@@ -195,12 +205,32 @@ fn populate_nearby_systems(
             let mut existing_orbits = Vec::new();
             let mut all_planet_entities: Vec<(Entity, f64, f32, f32, f32, String)> = Vec::new(); // (entity, sma_au, mass_earth, visual_radius, radius_km, name)
             for planet_data in &primary_star.planets {
-                let planet_entity = spawn_confirmed_planet(&mut commands, planet_data, star_entity, system_id, primary_star.luminosity_sol, vis_scale, &mut rng);
+                let planet_entity = spawn_confirmed_planet(
+                    &mut commands,
+                    planet_data,
+                    star_entity,
+                    system_id,
+                    primary_star.luminosity_sol,
+                    vis_scale,
+                    &mut rng,
+                );
                 existing_orbits.push(planet_data.semi_major_axis_au as f64);
                 let radius_earth = planet_data.radius_earth.unwrap_or(1.0);
                 let radius_km = radius_earth * 6371.0;
-                let vis_r = capped_visual_radius(BodyType::Planet, radius_km, planet_data.semi_major_axis_au as f64, vis_scale);
-                all_planet_entities.push((planet_entity, planet_data.semi_major_axis_au as f64, planet_data.mass_earth, vis_r, radius_km, planet_data.name.clone()));
+                let vis_r = capped_visual_radius(
+                    BodyType::Planet,
+                    radius_km,
+                    planet_data.semi_major_axis_au as f64,
+                    vis_scale,
+                );
+                all_planet_entities.push((
+                    planet_entity,
+                    planet_data.semi_major_axis_au as f64,
+                    planet_data.mass_earth,
+                    vis_r,
+                    radius_km,
+                    planet_data.name.clone(),
+                ));
             }
 
             // Generate procedural architecture to fill gaps
@@ -231,8 +261,20 @@ fn populate_nearby_systems(
                     vis_scale,
                     &mut rng,
                 );
-                let vis_r = capped_visual_radius(planet.body_type(), planet.radius_km(), planet.semi_major_axis_au, vis_scale);
-                all_planet_entities.push((planet_entity, planet.semi_major_axis_au, planet.mass_earth as f32, vis_r, planet.radius_km() as f32, planet.name.clone()));
+                let vis_r = capped_visual_radius(
+                    planet.body_type(),
+                    planet.radius_km(),
+                    planet.semi_major_axis_au,
+                    vis_scale,
+                );
+                all_planet_entities.push((
+                    planet_entity,
+                    planet.semi_major_axis_au,
+                    planet.mass_earth as f32,
+                    vis_r,
+                    planet.radius_km() as f32,
+                    planet.name.clone(),
+                ));
             }
 
             for planet in &architecture.gas_giants {
@@ -246,13 +288,28 @@ fn populate_nearby_systems(
                     vis_scale,
                     &mut rng,
                 );
-                let vis_r = capped_visual_radius(planet.body_type(), planet.radius_km(), planet.semi_major_axis_au, vis_scale);
-                all_planet_entities.push((planet_entity, planet.semi_major_axis_au, planet.mass_earth as f32, vis_r, planet.radius_km() as f32, planet.name.clone()));
+                let vis_r = capped_visual_radius(
+                    planet.body_type(),
+                    planet.radius_km(),
+                    planet.semi_major_axis_au,
+                    vis_scale,
+                );
+                all_planet_entities.push((
+                    planet_entity,
+                    planet.semi_major_axis_au,
+                    planet.mass_earth as f32,
+                    vis_r,
+                    planet.radius_km() as f32,
+                    planet.name.clone(),
+                ));
             }
 
             // Generate moons and possibly rings for planets massive enough to retain them
-            for (planet_entity, sma_au, mass_earth, vis_r, radius_km, planet_name) in &all_planet_entities {
-                let (planet_entity, sma_au, mass_earth, vis_r, radius_km) = (*planet_entity, *sma_au, *mass_earth, *vis_r, *radius_km);
+            for (planet_entity, sma_au, mass_earth, vis_r, radius_km, planet_name) in
+                &all_planet_entities
+            {
+                let (planet_entity, sma_au, mass_earth, vis_r, radius_km) =
+                    (*planet_entity, *sma_au, *mass_earth, *vis_r, *radius_km);
                 spawn_procedural_moons(
                     &mut commands,
                     planet_entity,
@@ -269,7 +326,8 @@ fn populate_nearby_systems(
 
                 // Possibly add a ring system around large gas/ice giants.
                 // Only bodies outside ~half the frost line can retain stable rings (no tidal disruption).
-                let ring_chance = if mass_earth > 30.0 && sma_au > architecture.frost_line_au * 0.5 {
+                let ring_chance = if mass_earth > 30.0 && sma_au > architecture.frost_line_au * 0.5
+                {
                     0.42 // Large gas giants: ~42% chance
                 } else if mass_earth > 10.0 && sma_au > architecture.frost_line_au * 0.5 {
                     0.20 // Ice giants / sub-giants: ~20% chance
@@ -352,7 +410,11 @@ fn populate_nearby_systems(
 
     info!(
         "Completed procedural population of {} star systems",
-        stars_data.systems.iter().filter(|s| s.system_name != "Sol").count()
+        stars_data
+            .systems
+            .iter()
+            .filter(|s| s.system_name != "Sol")
+            .count()
     );
 }
 
@@ -377,7 +439,10 @@ fn calculate_temperature_from_star(distance_au: f64, luminosity_sol: f32) -> (f3
     // Equilibrium temperature formula: T_eq = 278.5 K * sqrt(L/d²)^0.25
     // Where 278.5 K is Earth's equilibrium temperature (without greenhouse effect)
     // Actually using 255 K for better representation of airless bodies
-    let temp_k = 255.0 * ((luminosity_sol as f64) / (distance_au * distance_au)).sqrt().sqrt();
+    let temp_k = 255.0
+        * ((luminosity_sol as f64) / (distance_au * distance_au))
+            .sqrt()
+            .sqrt();
     let avg_temp_c = (temp_k - 273.15) as f32;
 
     // Airless bodies have extreme day/night differentials
@@ -482,10 +547,8 @@ pub fn spawn_confirmed_planet(
     let radius_km = radius_earth * EARTH_RADIUS_KM;
 
     // Calculate equilibrium temperature based on stellar luminosity
-    let (equilibrium_temp_c, min_temp, max_temp) = calculate_temperature_from_star(
-        planet_data.semi_major_axis_au as f64,
-        star_luminosity_sol,
-    );
+    let (equilibrium_temp_c, min_temp, max_temp) =
+        calculate_temperature_from_star(planet_data.semi_major_axis_au as f64, star_luminosity_sol);
     let equilibrium_temp_k = (equilibrium_temp_c as f64) + 273.15;
 
     // Try to generate procedural atmosphere
@@ -522,7 +585,9 @@ pub fn spawn_confirmed_planet(
     let visual_radius = base_visual_radius.min(max_orbit_fraction).max(2.0);
 
     // Classify the planet based on temperature for texture/UI display
-    let cat_seed: u32 = planet_data.name.bytes()
+    let cat_seed: u32 = planet_data
+        .name
+        .bytes()
         .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
     let category = classify_exoplanet(BodyType::Planet, None, avg_temp, cat_seed, false, false);
 
@@ -545,7 +610,7 @@ pub fn spawn_confirmed_planet(
         PlanetCategory(category.to_string()),
         orbit,
         OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.7)), // Cyan/blue — matches Sol palette
-        SpaceCoordinates::default(),                      // Will be updated by propagate_orbits
+        SpaceCoordinates::default(),                       // Will be updated by propagate_orbits
         OrbitCenter(parent_star), // Link to parent star for orbital hierarchy
         OrbitsBody::new(parent_star),
         LogicalParent(parent_star),
@@ -592,10 +657,8 @@ pub fn spawn_procedural_planet(
     let radius_km = planet.radius_km();
 
     // Calculate equilibrium temperature based on stellar luminosity
-    let (equilibrium_temp_c, min_temp, max_temp) = calculate_temperature_from_star(
-        planet.semi_major_axis_au,
-        star_luminosity_sol,
-    );
+    let (equilibrium_temp_c, min_temp, max_temp) =
+        calculate_temperature_from_star(planet.semi_major_axis_au, star_luminosity_sol);
     let equilibrium_temp_k = (equilibrium_temp_c as f64) + 273.15;
 
     // Try to generate procedural atmosphere for terrestrial planets
@@ -633,7 +696,9 @@ pub fn spawn_procedural_planet(
     let visual_radius = base_visual_radius.min(max_orbit_fraction).max(2.0);
 
     // Classify the planet based on temperature for texture/UI display
-    let cat_seed: u32 = planet.name.bytes()
+    let cat_seed: u32 = planet
+        .name
+        .bytes()
         .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
     let category = classify_exoplanet(planet.body_type(), None, avg_temp, cat_seed, false, false);
 
@@ -655,8 +720,8 @@ pub fn spawn_procedural_planet(
         PlanetCategory(category.to_string()),
         orbit,
         OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.6)), // Cyan/blue — procedural planets
-        SpaceCoordinates::default(), // Will be updated by propagate_orbits
-        OrbitCenter(parent_star),    // Link to parent star for orbital hierarchy
+        SpaceCoordinates::default(),                       // Will be updated by propagate_orbits
+        OrbitCenter(parent_star), // Link to parent star for orbital hierarchy
         OrbitsBody::new(parent_star),
         LogicalParent(parent_star),
         SystemId(system_id),
@@ -684,7 +749,9 @@ pub fn spawn_procedural_planet(
     }
 
     // Infer ocean from temperature and atmosphere
-    if let Some(ocean) = infer_ocean_properties(avg_temp, pressure_mbar, true, has_methane, radius_km) {
+    if let Some(ocean) =
+        infer_ocean_properties(avg_temp, pressure_mbar, true, has_methane, radius_km)
+    {
         entity_commands.insert(ocean);
     }
 
@@ -867,7 +934,8 @@ pub fn spawn_asteroid_belt(
         let mass = (4.0 / 3.0) * std::f64::consts::PI * (radius * 1000.0).powi(3) * density;
 
         // Calculate asteroid temperature based on its distance from the star
-        let (avg_temp, min_temp, max_temp) = calculate_temperature_from_star(semi_major_axis, star_luminosity_sol);
+        let (avg_temp, min_temp, max_temp) =
+            calculate_temperature_from_star(semi_major_axis, star_luminosity_sol);
 
         commands.spawn((
             Asteroid,
@@ -876,7 +944,8 @@ pub fn spawn_asteroid_belt(
                 mass,
                 radius: radius as f32,
                 body_type: BodyType::Asteroid,
-                visual_radius: calculate_visual_radius(BodyType::Asteroid, radius as f32) * vis_scale,
+                visual_radius: calculate_visual_radius(BodyType::Asteroid, radius as f32)
+                    * vis_scale,
                 asteroid_class: Some(asteroid_class),
             },
             SurfaceTemperature {
@@ -977,7 +1046,8 @@ pub fn spawn_cometary_cloud(
         let mass = (4.0 / 3.0) * std::f64::consts::PI * (radius * 1000.0).powi(3) * density;
 
         // Calculate comet temperature based on its distance from the star
-        let (avg_temp, min_temp, max_temp) = calculate_temperature_from_star(semi_major_axis, star_luminosity_sol);
+        let (avg_temp, min_temp, max_temp) =
+            calculate_temperature_from_star(semi_major_axis, star_luminosity_sol);
 
         commands.spawn((
             Comet,
@@ -1082,7 +1152,11 @@ fn spawn_procedural_ring(
     // Level 1: Major regions (like Saturn's C/B/A rings) — 2-4 broad zones
     // that define the coarse opacity envelope.
     let num_major_regions: usize = rng.random_range(2..=4);
-    struct MajorRegion { center: f32, half_width: f32, base_opacity: f32 }
+    struct MajorRegion {
+        center: f32,
+        half_width: f32,
+        base_opacity: f32,
+    }
     let major_regions: Vec<MajorRegion> = {
         // Place regions roughly evenly across the radial range with some randomness
         let spacing = 1.0 / (num_major_regions as f32 + 1.0);
@@ -1100,12 +1174,16 @@ fn spawn_procedural_ring(
 
     // Level 2: Fine ringlets — 25-60 narrow bands within the major regions
     let num_ringlets: usize = rng.random_range(25..=60);
-    struct Ringlet { center: f32, sigma: f32, peak: f32 }
+    struct Ringlet {
+        center: f32,
+        sigma: f32,
+        peak: f32,
+    }
     let ringlets: Vec<Ringlet> = (0..num_ringlets)
         .map(|_| Ringlet {
             center: rng.random_range(0.02_f32..0.98),
-            sigma:  rng.random_range(0.004_f32..0.030),
-            peak:   rng.random_range(0.15_f32..0.70),
+            sigma: rng.random_range(0.004_f32..0.030),
+            peak: rng.random_range(0.15_f32..0.70),
         })
         .collect();
 
@@ -1113,7 +1191,11 @@ fn spawn_procedural_ring(
     let num_major_gaps: usize = rng.random_range(1..=3);
     let num_narrow_gaps: usize = rng.random_range(3..=10);
 
-    struct GapInfo { center: f32, half_w: f32, sharpness: f32 }
+    struct GapInfo {
+        center: f32,
+        half_w: f32,
+        sharpness: f32,
+    }
     let mut gaps: Vec<GapInfo> = Vec::with_capacity(num_major_gaps + num_narrow_gaps);
     // Major gaps — wider divisions with sharp edges (Cassini Division analog)
     for _ in 0..num_major_gaps {
@@ -1135,7 +1217,9 @@ fn spawn_procedural_ring(
     // Deterministic fine noise for density variations (no RNG per pixel)
     #[inline]
     fn fine_noise(x: u32, seed: u32) -> f32 {
-        let h = x.wrapping_mul(2654435761).wrapping_add(seed.wrapping_mul(2246822519));
+        let h = x
+            .wrapping_mul(2654435761)
+            .wrapping_add(seed.wrapping_mul(2246822519));
         let h = ((h >> 13) ^ h).wrapping_mul(1597334677);
         (h & 0xFFFF) as f32 / 32768.0 - 1.0
     }
@@ -1179,8 +1263,8 @@ fn spawn_procedural_ring(
         }
 
         // Combine: ringlets modulate within the region envelope
-        let mut alpha = region_alpha * 0.4 + ringlet_alpha * 0.55
-            + (region_alpha * ringlet_alpha) * 0.3;
+        let mut alpha =
+            region_alpha * 0.4 + ringlet_alpha * 0.55 + (region_alpha * ringlet_alpha) * 0.3;
 
         // ── Cut gaps ─────────────────────────────────────────────────────
         for gap in &gaps {
@@ -1237,7 +1321,7 @@ fn spawn_procedural_ring(
 
     // ── Build mesh + material ─────────────────────────────────────────────
     let mesh_handle = meshes.add(create_ring_mesh(outer_radius, inner_radius, 128));
-    let mat_handle  = materials.add(StandardMaterial {
+    let mat_handle = materials.add(StandardMaterial {
         base_color: Color::WHITE,
         base_color_texture: Some(texture_handle),
         alpha_mode: AlphaMode::Blend,
@@ -1344,8 +1428,8 @@ fn spawn_procedural_moons(
 
     // Approximate Hill sphere radius in AU: r_H ≈ a × (M_planet / 3·M_star)^(1/3)
     // Use 1 M☉ as a reasonable default for the parent star.
-    let hill_radius_au = planet_sma_au
-        * ((planet_mass_earth as f64) * 5.972e24 / (3.0 * 1.989e30)).powf(1.0 / 3.0);
+    let hill_radius_au =
+        planet_sma_au * ((planet_mass_earth as f64) * 5.972e24 / (3.0 * 1.989e30)).powf(1.0 / 3.0);
 
     // Regular moons orbit within ~0.05 Hill radii (like Galilean system),
     // irregular moons extend to ~0.4 Hill radii (like Jupiter's outer groups).
@@ -1476,7 +1560,8 @@ fn spawn_procedural_moons(
 
         // Calculate moon temperature using parent planet's distance from star
         // (moons orbit the planet, but their temperature depends on their distance from the star)
-        let (avg_temp, min_temp, max_temp) = calculate_temperature_from_star(planet_sma_au, star_luminosity_sol);
+        let (avg_temp, min_temp, max_temp) =
+            calculate_temperature_from_star(planet_sma_au, star_luminosity_sol);
 
         // Cap moon visual radius relative to the parent planet's visual size.
         // Gas/ice giant moons are capped tighter (15%) because real moons like
@@ -1493,11 +1578,11 @@ fn spawn_procedural_moons(
         // Earth's moon is an outlier but it's generated differently
         let physical_max_moon_ratio = if planet_mass_earth > 10.0 { 0.10 } else { 0.35 };
         let radius_km = radius_km.min(planet_radius_km * physical_max_moon_ratio);
-        
-        // Recompute mass based on the clamped radius, so density remains somewhat consistent
-        let volume_m3_clamped = 4.0 / 3.0 * std::f64::consts::PI * (radius_km as f64 * 1000.0).powi(3);
-        let moon_mass_kg = volume_m3_clamped * density_kg_m3;
 
+        // Recompute mass based on the clamped radius, so density remains somewhat consistent
+        let volume_m3_clamped =
+            4.0 / 3.0 * std::f64::consts::PI * (radius_km as f64 * 1000.0).powi(3);
+        let moon_mass_kg = volume_m3_clamped * density_kg_m3;
 
         commands.spawn((
             Moon,
@@ -1528,9 +1613,12 @@ fn spawn_procedural_moons(
     if moon_count > 0 {
         debug!(
             "  Spawned {} moons for {} at {:.2} AU (orbit amp: {:.1}x-{:.1}x)",
-            moon_count, planet_name, planet_sma_au,
+            moon_count,
+            planet_name,
+            planet_sma_au,
             (inner_display / (0.001 * SCALING_FACTOR)).max(1.0),
-            (outer_display / ((0.001 + (moon_count as f64 - 1.0) * 0.002) * SCALING_FACTOR)).max(1.0),
+            (outer_display / ((0.001 + (moon_count as f64 - 1.0) * 0.002) * SCALING_FACTOR))
+                .max(1.0),
         );
     }
 }

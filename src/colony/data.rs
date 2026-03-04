@@ -321,8 +321,7 @@ mod tests {
 
         assert!(deduct_resources(&mut budget, &costs));
         assert!(
-            (budget.get_stockpile(&crate::economy::ResourceType::Iron)
-                - (initial_iron - 5.0))
+            (budget.get_stockpile(&crate::economy::ResourceType::Iron) - (initial_iron - 5.0))
                 .abs()
                 < 0.001
         );

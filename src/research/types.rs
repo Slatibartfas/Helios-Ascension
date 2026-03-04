@@ -175,12 +175,12 @@ impl ModifierType {
             ModifierType::ShipMaintenance,
             ModifierType::PopulationGrowth,
         ];
-        
+
         // Add category-specific research bonuses
         for category in TechCategory::all() {
             types.push(ModifierType::CategoryResearchBonus(*category));
         }
-        
+
         types
     }
 }

@@ -86,10 +86,15 @@ fn test_asteroid_classification_deserializes() {
     // Haumea, Makemake and Eris each have explicit textures as well
     for (name, expected) in &[
         ("Haumea", "textures/celestial/planets/dwarf/haumea_4k.jpg"),
-        ("Makemake", "textures/celestial/planets/dwarf/makemake_4k.jpg"),
+        (
+            "Makemake",
+            "textures/celestial/planets/dwarf/makemake_4k.jpg",
+        ),
         ("Eris", "textures/celestial/planets/dwarf/eris_2k.jpg"),
     ] {
-        let body = data.get_body(name).expect(&format!("{} should exist", name));
+        let body = data
+            .get_body(name)
+            .expect(&format!("{} should exist", name));
         assert!(body.texture.is_some(), "{} needs a dedicated texture", name);
         assert_eq!(body.texture.as_ref().unwrap(), expected);
     }

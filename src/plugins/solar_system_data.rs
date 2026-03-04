@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
-use bevy::prelude::*;
 use crate::astronomy::OceanType;
+use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
 /// Type of celestial body
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -67,7 +67,6 @@ pub struct AtmosphereData {
     pub is_reference_pressure: bool,
 
     // --- Atmospheric scattering parameters (all optional, derived from composition if absent) ---
-
     /// Scale height in km (how quickly density drops with altitude).
     /// If absent, derived from temperature, gravity, and mean molecular weight.
     #[serde(default)]
@@ -241,13 +240,13 @@ impl SolarSystemData {
 
 // Visualization scale factors
 // Increased scale for planets to be easily visible and clickable
-pub const RADIUS_SCALE: f32 = 0.01; 
+pub const RADIUS_SCALE: f32 = 0.01;
 // Minimum size to ensure small moons are visible and clickable
 pub const MIN_VISUAL_RADIUS: f32 = 5.0;
 // Smaller minimum for asteroids/comets so belts don't look like dense clumps
 pub const MIN_VISUAL_RADIUS_ASTEROID: f32 = 0.12;
 // Sun needs a separate, smaller scale to not engulf the inner system when planets are oversized
-pub const STAR_RADIUS_SCALE: f32 = 0.00015; 
+pub const STAR_RADIUS_SCALE: f32 = 0.00015;
 
 /// Calculates the visual radius of a celestial body based on its type and physical radius (km).
 /// Applies non-linear scaling to ensure visibility of smaller bodies without making large ones overwhelming.
@@ -309,25 +308,25 @@ pub fn system_visual_scale(star_luminosity_sol: f32) -> f32 {
 /// Based on Tanner Helland's algorithm.
 pub fn kelvin_to_color(temperature: f32) -> Color {
     let t = temperature.clamp(1000.0, 40000.0) / 100.0;
-    
+
     let r;
     let g;
     let b;
-    
+
     // Red
     if t <= 66.0 {
         r = 255.0;
     } else {
         r = 329.698727446 * (t - 60.0).powf(-0.1332047592);
     }
-    
+
     // Green
     if t <= 66.0 {
         g = 99.4708025861 * t.ln() - 161.1195681661;
     } else {
         g = 288.1221695283 * (t - 60.0).powf(-0.0755148492);
     }
-    
+
     // Blue
     if t >= 66.0 {
         b = 255.0;
@@ -336,7 +335,7 @@ pub fn kelvin_to_color(temperature: f32) -> Color {
     } else {
         b = 138.5177312231 * (t - 10.0).ln() - 305.0447927307;
     }
-    
+
     Color::srgb(
         (r / 255.0).clamp(0.0, 1.0),
         (g / 255.0).clamp(0.0, 1.0),

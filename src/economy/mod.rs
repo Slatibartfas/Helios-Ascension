@@ -44,10 +44,7 @@ impl Plugin for EconomyPlugin {
                     .chain()
                     .before(generation::stamp_resource_phases),
             )
-            .add_systems(
-                PostStartup,
-                generation::stamp_resource_phases,
-            )
+            .add_systems(PostStartup, generation::stamp_resource_phases)
             // Update systems
             .add_systems(
                 Update,

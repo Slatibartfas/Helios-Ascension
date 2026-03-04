@@ -153,7 +153,10 @@ pub(super) fn format_timestamp_date_time(timestamp: i64) -> String {
 
     let day = days_remaining + 1;
 
-    format!("{:02}.{:02}.{} {:02}:{:02}", day, month, year, hours, minutes)
+    format!(
+        "{:02}.{:02}.{} {:02}:{:02}",
+        day, month, year, hours, minutes
+    )
 }
 
 pub(super) fn estimate_research_project_end_timestamp(
@@ -172,7 +175,8 @@ pub(super) fn estimate_research_project_end_timestamp(
         return None;
     }
 
-    let base_rate = research_state.rp_rate_per_second * (project.rp_allocation_percent / total_allocation);
+    let base_rate =
+        research_state.rp_rate_per_second * (project.rp_allocation_percent / total_allocation);
     if base_rate <= 0.0 {
         return None;
     }
@@ -183,7 +187,10 @@ pub(super) fn estimate_research_project_end_timestamp(
         .unwrap_or(1.0);
 
     let team_efficiency = technology
-        .map(|tech| team.map(|entry| entry.category_efficiency(tech.category) as f64).unwrap_or(1.0))
+        .map(|tech| {
+            team.map(|entry| entry.category_efficiency(tech.category) as f64)
+                .unwrap_or(1.0)
+        })
         .unwrap_or(1.0);
 
     let effective_rate = base_rate * category_bonus * team_efficiency;

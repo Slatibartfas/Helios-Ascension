@@ -1,9 +1,11 @@
-use crate::economy::budget::{GlobalBudget, ResourceRateTracker, SECONDS_PER_MONTH, SECONDS_PER_YEAR};
+use crate::colony::{BuildingsData, Colony};
+use crate::economy::budget::{
+    GlobalBudget, ResourceRateTracker, SECONDS_PER_MONTH, SECONDS_PER_YEAR,
+};
 use crate::economy::components::PlanetResources;
 use crate::economy::types::ResourceType;
 use crate::plugins::solar_system::CelestialBody;
 use crate::ui::SimulationTime;
-use crate::colony::{Colony, BuildingsData};
 use bevy::prelude::*;
 
 #[derive(Component, Debug, Clone)]
@@ -90,7 +92,7 @@ pub fn extract_resources(
                 }
             }
         }
-    
+
         // 2. Process Colony Mining & Atmospheric Harvesting
         if let Some(colony) = colony_opt {
             if let Some(data) = &buildings_data {
@@ -99,20 +101,30 @@ pub fn extract_resources(
                 // DeepMiningEfficiency→ Deep Deposits   (DeepDrill, LaserDrill)
                 // BulkMiningEfficiency→ Planetary Bulk  (StripMine, BulkExcavator)
                 let mut surface_rate = 0.0_f64;
-                let mut deep_rate    = 0.0_f64;
-                let mut bulk_rate    = 0.0_f64;
+                let mut deep_rate = 0.0_f64;
+                let mut bulk_rate = 0.0_f64;
                 // Calculate total atmospheric harvesting capacity (Mt/year)
                 let mut total_atmo_rate = 0.0;
 
                 for (building_type, &count) in &colony.buildings {
-                    if count == 0 { continue; }
+                    if count == 0 {
+                        continue;
+                    }
                     if let Some(def) = data.get(building_type) {
                         for modifier in &def.modifiers {
                             match modifier.modifier_type.as_str() {
-                                "MiningEfficiency"     => { surface_rate  += modifier.value * count as f64; }
-                                "DeepMiningEfficiency" => { deep_rate     += modifier.value * count as f64; }
-                                "BulkMiningEfficiency" => { bulk_rate     += modifier.value * count as f64; }
-                                "AtmosphericHarvesting"=> { total_atmo_rate += modifier.value * count as f64; }
+                                "MiningEfficiency" => {
+                                    surface_rate += modifier.value * count as f64;
+                                }
+                                "DeepMiningEfficiency" => {
+                                    deep_rate += modifier.value * count as f64;
+                                }
+                                "BulkMiningEfficiency" => {
+                                    bulk_rate += modifier.value * count as f64;
+                                }
+                                "AtmosphericHarvesting" => {
+                                    total_atmo_rate += modifier.value * count as f64;
+                                }
                                 _ => {}
                             }
                         }
@@ -125,13 +137,16 @@ pub fn extract_resources(
 
                 // --- Tier 1: Proven Crustal ---
                 if surface_rate > 0.0 {
-                    let eligible: Vec<(ResourceType, f32)> = resources.deposits.iter()
+                    let eligible: Vec<(ResourceType, f32)> = resources
+                        .deposits
+                        .iter()
                         .filter(|(_, d)| !d.is_atmospheric && d.reserve.proven_crustal > 0.001)
                         .map(|(t, d)| (*t, d.reserve.concentration))
                         .collect();
 
                     if !eligible.is_empty() {
-                        let total_weight: f64 = eligible.iter().map(|(_, c)| (*c as f64).max(1e-10)).sum();
+                        let total_weight: f64 =
+                            eligible.iter().map(|(_, c)| (*c as f64).max(1e-10)).sum();
                         for (r_type, concentration) in &eligible {
                             let share = (*concentration as f64).max(1e-10) / total_weight;
                             let demand = surface_rate * share * years_elapsed;
@@ -149,13 +164,16 @@ pub fn extract_resources(
 
                 // --- Tier 2: Deep Deposits ---
                 if deep_rate > 0.0 {
-                    let eligible: Vec<(ResourceType, f32)> = resources.deposits.iter()
+                    let eligible: Vec<(ResourceType, f32)> = resources
+                        .deposits
+                        .iter()
                         .filter(|(_, d)| !d.is_atmospheric && d.reserve.deep_deposits > 0.001)
                         .map(|(t, d)| (*t, d.reserve.concentration))
                         .collect();
 
                     if !eligible.is_empty() {
-                        let total_weight: f64 = eligible.iter().map(|(_, c)| (*c as f64).max(1e-10)).sum();
+                        let total_weight: f64 =
+                            eligible.iter().map(|(_, c)| (*c as f64).max(1e-10)).sum();
                         for (r_type, concentration) in &eligible {
                             let share = (*concentration as f64).max(1e-10) / total_weight;
                             let demand = deep_rate * share * years_elapsed;
@@ -173,13 +191,16 @@ pub fn extract_resources(
 
                 // --- Tier 3: Planetary Bulk ---
                 if bulk_rate > 0.0 {
-                    let eligible: Vec<(ResourceType, f32)> = resources.deposits.iter()
+                    let eligible: Vec<(ResourceType, f32)> = resources
+                        .deposits
+                        .iter()
                         .filter(|(_, d)| !d.is_atmospheric && d.reserve.planetary_bulk > 0.001)
                         .map(|(t, d)| (*t, d.reserve.concentration))
                         .collect();
 
                     if !eligible.is_empty() {
-                        let total_weight: f64 = eligible.iter().map(|(_, c)| (*c as f64).max(1e-10)).sum();
+                        let total_weight: f64 =
+                            eligible.iter().map(|(_, c)| (*c as f64).max(1e-10)).sum();
                         for (r_type, concentration) in &eligible {
                             let share = (*concentration as f64).max(1e-10) / total_weight;
                             let demand = bulk_rate * share * years_elapsed;
@@ -197,14 +218,20 @@ pub fn extract_resources(
 
                 // --- Atmospheric gas harvesting (AtmosphericProcessor) ---
                 if total_atmo_rate > 0.0 {
-                    let harvestable: Vec<(ResourceType, f32)> = resources.deposits.iter()
-                        .filter(|(_, d)| d.is_atmospheric
-                            && (d.reserve.proven_crustal > 0.001 || d.reserve.deep_deposits > 0.001))
+                    let harvestable: Vec<(ResourceType, f32)> = resources
+                        .deposits
+                        .iter()
+                        .filter(|(_, d)| {
+                            d.is_atmospheric
+                                && (d.reserve.proven_crustal > 0.001
+                                    || d.reserve.deep_deposits > 0.001)
+                        })
                         .map(|(t, d)| (*t, d.reserve.concentration))
                         .collect();
 
                     if !harvestable.is_empty() {
-                        let total_weight: f64 = harvestable.iter()
+                        let total_weight: f64 = harvestable
+                            .iter()
                             .map(|(_, c)| (*c as f64).max(1e-10))
                             .sum();
 
@@ -265,7 +292,7 @@ pub fn update_resource_rates(
 ) {
     // --- Resource rates from mining (production) ---
     let mut rates = std::collections::HashMap::new();
-    
+
     // 1. MiningOperation components
     for (op, resources_opt) in mining_ops.iter() {
         if !op.active {
@@ -286,25 +313,35 @@ pub fn update_resource_rates(
         let monthly = op.base_rate_mt_per_year * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
         *rates.entry(op.resource_type).or_insert(0.0) += monthly;
     }
-    
+
     // 2. Colony mining & atmospheric harvesting
     if let Some(data) = &buildings_data {
         for (colony, resources_opt) in colony_query.iter() {
             if let Some(resources) = resources_opt {
-                let mut surface_rate    = 0.0_f64;
-                let mut deep_rate       = 0.0_f64;
-                let mut bulk_rate       = 0.0_f64;
+                let mut surface_rate = 0.0_f64;
+                let mut deep_rate = 0.0_f64;
+                let mut bulk_rate = 0.0_f64;
                 let mut total_atmo_rate = 0.0_f64;
 
                 for (building_type, &count) in &colony.buildings {
-                    if count == 0 { continue; }
+                    if count == 0 {
+                        continue;
+                    }
                     if let Some(def) = data.get(building_type) {
                         for modifier in &def.modifiers {
                             match modifier.modifier_type.as_str() {
-                                "MiningEfficiency"      => { surface_rate    += modifier.value * count as f64; }
-                                "DeepMiningEfficiency"  => { deep_rate       += modifier.value * count as f64; }
-                                "BulkMiningEfficiency"  => { bulk_rate       += modifier.value * count as f64; }
-                                "AtmosphericHarvesting" => { total_atmo_rate += modifier.value * count as f64; }
+                                "MiningEfficiency" => {
+                                    surface_rate += modifier.value * count as f64;
+                                }
+                                "DeepMiningEfficiency" => {
+                                    deep_rate += modifier.value * count as f64;
+                                }
+                                "BulkMiningEfficiency" => {
+                                    bulk_rate += modifier.value * count as f64;
+                                }
+                                "AtmosphericHarvesting" => {
+                                    total_atmo_rate += modifier.value * count as f64;
+                                }
                                 _ => {}
                             }
                         }
@@ -316,7 +353,9 @@ pub fn update_resource_rates(
                 if surface_rate > 0.0 {
                     let monthly_surface = surface_rate * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
 
-                    let eligible: Vec<(ResourceType, f64)> = resources.deposits.iter()
+                    let eligible: Vec<(ResourceType, f64)> = resources
+                        .deposits
+                        .iter()
                         .filter(|(_, d)| !d.is_atmospheric && d.reserve.proven_crustal > 0.001)
                         .map(|(t, d)| (*t, (d.reserve.concentration as f64).max(1e-10)))
                         .collect();
@@ -334,7 +373,9 @@ pub fn update_resource_rates(
                 if deep_rate > 0.0 {
                     let monthly_deep = deep_rate * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
 
-                    let eligible: Vec<(ResourceType, f64)> = resources.deposits.iter()
+                    let eligible: Vec<(ResourceType, f64)> = resources
+                        .deposits
+                        .iter()
                         .filter(|(_, d)| !d.is_atmospheric && d.reserve.deep_deposits > 0.001)
                         .map(|(t, d)| (*t, (d.reserve.concentration as f64).max(1e-10)))
                         .collect();
@@ -352,7 +393,9 @@ pub fn update_resource_rates(
                 if bulk_rate > 0.0 {
                     let monthly_bulk = bulk_rate * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
 
-                    let eligible: Vec<(ResourceType, f64)> = resources.deposits.iter()
+                    let eligible: Vec<(ResourceType, f64)> = resources
+                        .deposits
+                        .iter()
                         .filter(|(_, d)| !d.is_atmospheric && d.reserve.planetary_bulk > 0.001)
                         .map(|(t, d)| (*t, (d.reserve.concentration as f64).max(1e-10)))
                         .collect();
@@ -370,9 +413,14 @@ pub fn update_resource_rates(
                 if total_atmo_rate > 0.0 {
                     let monthly_total = total_atmo_rate * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
 
-                    let harvestable: Vec<(ResourceType, f64)> = resources.deposits.iter()
-                        .filter(|(_, d)| d.is_atmospheric
-                            && (d.reserve.proven_crustal > 0.001 || d.reserve.deep_deposits > 0.001))
+                    let harvestable: Vec<(ResourceType, f64)> = resources
+                        .deposits
+                        .iter()
+                        .filter(|(_, d)| {
+                            d.is_atmospheric
+                                && (d.reserve.proven_crustal > 0.001
+                                    || d.reserve.deep_deposits > 0.001)
+                        })
                         .map(|(t, d)| (*t, (d.reserve.concentration as f64).max(1e-10)))
                         .collect();
 
@@ -406,20 +454,22 @@ pub fn update_resource_rates(
     if let Some(data) = &buildings_data {
         for (colony, _) in colony_query.iter() {
             for (building_type, &count) in &colony.buildings {
-                if count == 0 { continue; }
+                if count == 0 {
+                    continue;
+                }
                 let maintenance = data.maintenance_resources(building_type);
                 for (resource_name, annual_amount) in maintenance {
                     if let Some(rt) = crate::colony::data::parse_resource_type(resource_name) {
                         // annual → monthly
-                        let monthly_cost = annual_amount * (count as f64)
-                            * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
+                        let monthly_cost =
+                            annual_amount * (count as f64) * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
                         *rates.entry(rt).or_insert(0.0) -= monthly_cost;
                     }
                 }
             }
         }
     }
-    
+
     tracker.resource_rates = rates;
 
     // --- Research point rate (include base rate) ---
@@ -428,18 +478,17 @@ pub fn update_resource_rates(
     let base_rp_monthly = BASE_RP_PER_YEAR * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
 
     // From ResearchBuilding components (per second → per month)
-    let research_per_second: f64 = research_buildings
-        .iter()
-        .map(|b| b.points_per_second)
-        .sum();
+    let research_per_second: f64 = research_buildings.iter().map(|b| b.points_per_second).sum();
     let research_multiplier = research_state.research_speed_multiplier();
     let mut total_research_monthly = base_rp_monthly + research_per_second * SECONDS_PER_MONTH;
-    
+
     // From colony buildings
     if let Some(data) = &buildings_data {
         for (colony, _) in colony_query.iter() {
-             for (building_type, &count) in &colony.buildings {
-                if count == 0 { continue; }
+            for (building_type, &count) in &colony.buildings {
+                if count == 0 {
+                    continue;
+                }
                 if let Some(def) = data.get(building_type) {
                     for modifier in &def.modifiers {
                         if modifier.modifier_type == "ResearchSpeed" {
@@ -450,7 +499,7 @@ pub fn update_resource_rates(
             }
         }
     }
-    
+
     tracker.research_rate_per_month = total_research_monthly * research_multiplier;
 
     // --- Engineering point rate (include base rate) ---
@@ -463,16 +512,19 @@ pub fn update_resource_rates(
         .map(|f| f.points_per_second)
         .sum();
     let engineering_multiplier = research_state.engineering_speed_multiplier();
-    let mut total_engineering_monthly = base_ep_monthly + engineering_per_second * SECONDS_PER_MONTH;
-    
+    let mut total_engineering_monthly =
+        base_ep_monthly + engineering_per_second * SECONDS_PER_MONTH;
+
     // From colony buildings
     if let Some(data) = &buildings_data {
         for (colony, _) in colony_query.iter() {
-             for (building_type, &count) in &colony.buildings {
-                if count == 0 { continue; }
+            for (building_type, &count) in &colony.buildings {
+                if count == 0 {
+                    continue;
+                }
                 if let Some(def) = data.get(building_type) {
                     for modifier in &def.modifiers {
-                         if modifier.modifier_type == "EngineeringSpeed" {
+                        if modifier.modifier_type == "EngineeringSpeed" {
                             total_engineering_monthly += modifier.value * count as f64;
                         }
                     }
@@ -480,7 +532,7 @@ pub fn update_resource_rates(
             }
         }
     }
-    
+
     tracker.engineering_rate_per_month = total_engineering_monthly * engineering_multiplier;
 }
 
@@ -491,7 +543,13 @@ mod tests {
     use crate::economy::types::ResourceType;
 
     /// Helper: create a deposit with specific proven/deep/bulk, concentration, and atmospheric flag
-    fn make_deposit(proven: f64, deep: f64, bulk: f64, concentration: f32, atmo: bool) -> MineralDeposit {
+    fn make_deposit(
+        proven: f64,
+        deep: f64,
+        bulk: f64,
+        concentration: f32,
+        atmo: bool,
+    ) -> MineralDeposit {
         let mut d = MineralDeposit::new(proven, deep, bulk, concentration, 0.8);
         d.is_atmospheric = atmo;
         d
@@ -501,63 +559,114 @@ mod tests {
     fn test_mines_only_extract_non_atmospheric() {
         // Iron (solid) and O2 (atmospheric) both present
         let mut resources = PlanetResources::new();
-        resources.add_deposit(ResourceType::Iron, make_deposit(1000.0, 500.0, 0.0, 0.5, false));
-        resources.add_deposit(ResourceType::Oxygen, make_deposit(2000.0, 100.0, 0.0, 0.9, true));
+        resources.add_deposit(
+            ResourceType::Iron,
+            make_deposit(1000.0, 500.0, 0.0, 0.5, false),
+        );
+        resources.add_deposit(
+            ResourceType::Oxygen,
+            make_deposit(2000.0, 100.0, 0.0, 0.9, true),
+        );
 
         // Simulate what mining does: only mine non-atmospheric
-        let minable: Vec<ResourceType> = resources.deposits.iter()
+        let minable: Vec<ResourceType> = resources
+            .deposits
+            .iter()
             .filter(|(_, d)| !d.is_atmospheric && d.reserve.proven_crustal > 0.001)
             .map(|(t, _)| *t)
             .collect();
 
-        assert!(minable.contains(&ResourceType::Iron), "Iron should be minable");
-        assert!(!minable.contains(&ResourceType::Oxygen), "Atmospheric O2 should NOT be minable");
+        assert!(
+            minable.contains(&ResourceType::Iron),
+            "Iron should be minable"
+        );
+        assert!(
+            !minable.contains(&ResourceType::Oxygen),
+            "Atmospheric O2 should NOT be minable"
+        );
     }
 
     #[test]
     fn test_atmo_processor_only_extracts_atmospheric() {
         let mut resources = PlanetResources::new();
-        resources.add_deposit(ResourceType::Iron, make_deposit(1000.0, 500.0, 0.0, 0.5, false));
-        resources.add_deposit(ResourceType::Nitrogen, make_deposit(5000.0, 200.0, 0.0, 0.7, true));
-        resources.add_deposit(ResourceType::Oxygen, make_deposit(2000.0, 100.0, 0.0, 0.9, true));
+        resources.add_deposit(
+            ResourceType::Iron,
+            make_deposit(1000.0, 500.0, 0.0, 0.5, false),
+        );
+        resources.add_deposit(
+            ResourceType::Nitrogen,
+            make_deposit(5000.0, 200.0, 0.0, 0.7, true),
+        );
+        resources.add_deposit(
+            ResourceType::Oxygen,
+            make_deposit(2000.0, 100.0, 0.0, 0.9, true),
+        );
 
-        let harvestable: Vec<ResourceType> = resources.deposits.iter()
+        let harvestable: Vec<ResourceType> = resources
+            .deposits
+            .iter()
             .filter(|(_, d)| d.is_atmospheric && d.reserve.proven_crustal > 0.001)
             .map(|(t, _)| *t)
             .collect();
 
-        assert!(!harvestable.contains(&ResourceType::Iron), "Iron should NOT be harvestable");
-        assert!(harvestable.contains(&ResourceType::Nitrogen), "N2 should be harvestable");
-        assert!(harvestable.contains(&ResourceType::Oxygen), "O2 should be harvestable");
+        assert!(
+            !harvestable.contains(&ResourceType::Iron),
+            "Iron should NOT be harvestable"
+        );
+        assert!(
+            harvestable.contains(&ResourceType::Nitrogen),
+            "N2 should be harvestable"
+        );
+        assert!(
+            harvestable.contains(&ResourceType::Oxygen),
+            "O2 should be harvestable"
+        );
     }
 
     #[test]
     fn test_concentration_weights_mining_distribution() {
         let mut resources = PlanetResources::new();
         // Iron: 50% concentration, Titanium: 10% concentration
-        resources.add_deposit(ResourceType::Iron, make_deposit(1000.0, 0.0, 0.0, 0.5, false));
-        resources.add_deposit(ResourceType::Titanium, make_deposit(1000.0, 0.0, 0.0, 0.1, false));
+        resources.add_deposit(
+            ResourceType::Iron,
+            make_deposit(1000.0, 0.0, 0.0, 0.5, false),
+        );
+        resources.add_deposit(
+            ResourceType::Titanium,
+            make_deposit(1000.0, 0.0, 0.0, 0.1, false),
+        );
 
-        let minable: Vec<(ResourceType, f64)> = resources.deposits.iter()
+        let minable: Vec<(ResourceType, f64)> = resources
+            .deposits
+            .iter()
             .filter(|(_, d)| !d.is_atmospheric && d.reserve.proven_crustal > 0.001)
             .map(|(t, d)| (*t, (d.reserve.concentration as f64).max(1e-10)))
             .collect();
 
         let total_weight: f64 = minable.iter().map(|(_, w)| w).sum();
-        assert!((total_weight - 0.6).abs() < 0.01, "Total weight should be 0.6");
+        assert!(
+            (total_weight - 0.6).abs() < 0.01,
+            "Total weight should be 0.6"
+        );
 
         for (r_type, weight) in &minable {
             let share = weight / total_weight;
             match r_type {
                 ResourceType::Iron => {
                     // Iron gets 0.5/0.6 ≈ 83% of mining effort
-                    assert!(share > 0.8 && share < 0.9,
-                        "Iron (50% conc.) should get ~83% share, got {:.1}%", share * 100.0);
+                    assert!(
+                        share > 0.8 && share < 0.9,
+                        "Iron (50% conc.) should get ~83% share, got {:.1}%",
+                        share * 100.0
+                    );
                 }
                 ResourceType::Titanium => {
                     // Titanium gets 0.1/0.6 ≈ 17%
-                    assert!(share > 0.15 && share < 0.2,
-                        "Titanium (10% conc.) should get ~17% share, got {:.1}%", share * 100.0);
+                    assert!(
+                        share > 0.15 && share < 0.2,
+                        "Titanium (10% conc.) should get ~17% share, got {:.1}%",
+                        share * 100.0
+                    );
                 }
                 _ => panic!("Unexpected resource type"),
             }
@@ -568,11 +677,18 @@ mod tests {
     fn test_trace_deposits_not_extracted() {
         let mut resources = PlanetResources::new();
         // Sub-kiloton deposit should be filtered out
-        resources.add_deposit(ResourceType::Gold, make_deposit(0.0005, 0.0, 0.0, 0.01, false));
+        resources.add_deposit(
+            ResourceType::Gold,
+            make_deposit(0.0005, 0.0, 0.0, 0.01, false),
+        );
 
-        let minable: Vec<ResourceType> = resources.deposits.iter()
-            .filter(|(_, d)| !d.is_atmospheric
-                && (d.reserve.proven_crustal > 0.001 || d.reserve.deep_deposits > 0.001))
+        let minable: Vec<ResourceType> = resources
+            .deposits
+            .iter()
+            .filter(|(_, d)| {
+                !d.is_atmospheric
+                    && (d.reserve.proven_crustal > 0.001 || d.reserve.deep_deposits > 0.001)
+            })
             .map(|(t, _)| *t)
             .collect();
 

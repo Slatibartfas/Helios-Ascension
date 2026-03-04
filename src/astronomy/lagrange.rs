@@ -7,7 +7,7 @@ use super::components::{
     LocalOrbitAmplification, LpMarkerInfo, SpaceCoordinates, SystemId,
 };
 use super::systems::SCALING_FACTOR;
-use crate::fleets::orbital_mechanics::{G_CONST as ORBIT_G, GM_SUN};
+use crate::fleets::orbital_mechanics::{GM_SUN, G_CONST as ORBIT_G};
 use crate::game_state::ActiveMenu;
 use crate::plugins::camera::{CameraAnchor, EguiPanelBounds, GameCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, LogicalParent, Moon};
@@ -67,7 +67,8 @@ pub fn draw_lagrange_point_rings(
         anchored_sys,
         is_moon,
         anchored_amp,
-    )) = body_query.get(anchored) else {
+    )) = body_query.get(anchored)
+    else {
         return;
     };
 
@@ -112,8 +113,8 @@ pub fn draw_lagrange_point_rings(
         && matches!(
             anchored_body.body_type,
             crate::plugins::solar_system_data::BodyType::Planet
-            | crate::plugins::solar_system_data::BodyType::GasGiant
-            | crate::plugins::solar_system_data::BodyType::DwarfPlanet
+                | crate::plugins::solar_system_data::BodyType::GasGiant
+                | crate::plugins::solar_system_data::BodyType::DwarfPlanet
         )
     {
         let Some(ko) = anchored_ko else { return };
@@ -127,7 +128,9 @@ pub fn draw_lagrange_point_rings(
         // markers appearing to "float" above/below the planet in perspective).
         let p3d = anchored_sc.position;
         let p_mag = p3d.length();
-        if p_mag < 1e-10 { return; }
+        if p_mag < 1e-10 {
+            return;
+        }
         let p_dir = p3d / p_mag; // unit vector from star toward planet
 
         // L4/L5: rotate p_dir by ±60° around the Z axis (ecliptic normal is a
@@ -138,19 +141,21 @@ pub fn draw_lagrange_point_rings(
         let (px, py, pz) = (p_dir.x, p_dir.y, p_dir.z);
 
         let lp_positions: [DVec3; 5] = [
-            p_dir * (a_au - r_hill),                              // L1: inner
-            p_dir * (a_au + r_hill),                              // L2: outer
-            -p_dir * a_au,                                        // L3: opposition
-            DVec3::new(a_au * (px * cos60 - py * sin60),          // L4: leading +60°
-                       a_au * (px * sin60 + py * cos60),
-                       pz * a_au),
-            DVec3::new(a_au * (px * cos60 + py * sin60),          // L5: trailing −60°
-                       a_au * (-px * sin60 + py * cos60),
-                       pz * a_au),
+            p_dir * (a_au - r_hill), // L1: inner
+            p_dir * (a_au + r_hill), // L2: outer
+            -p_dir * a_au,           // L3: opposition
+            DVec3::new(
+                a_au * (px * cos60 - py * sin60), // L4: leading +60°
+                a_au * (px * sin60 + py * cos60),
+                pz * a_au,
+            ),
+            DVec3::new(
+                a_au * (px * cos60 + py * sin60), // L5: trailing −60°
+                a_au * (-px * sin60 + py * cos60),
+                pz * a_au,
+            ),
         ];
-        let lp_radii: [f64; 5] = [
-            a_au - r_hill, a_au + r_hill, a_au, a_au, a_au,
-        ];
+        let lp_radii: [f64; 5] = [a_au - r_hill, a_au + r_hill, a_au, a_au, a_au];
 
         // Minimum render-space distance from the planet's visual centre so that
         // LP markers (especially L1 on inner planets) don't appear inside the
@@ -191,8 +196,8 @@ pub fn draw_lagrange_point_rings(
         let l2_dist = r_hill_render.max(min_lp_dist);
 
         let mut render_positions: [Vec3; 5] = [
-            planet_render - p_dir_render * l1_dist,  // L1: toward star (inner)
-            planet_render + p_dir_render * l2_dist,  // L2: away from star (outer)
+            planet_render - p_dir_render * l1_dist, // L1: toward star (inner)
+            planet_render + p_dir_render * l2_dist, // L2: away from star (outer)
             clamp_one(lp_positions[2]),
             clamp_one(lp_positions[3]),
             clamp_one(lp_positions[4]),
@@ -249,7 +254,9 @@ pub fn draw_lagrange_point_rings(
     // ─────────────────────────────────────────────────────────────────────────
     else if is_moon.is_some() {
         let Some(ko) = anchored_ko else { return };
-        let Some(parent_lp) = anchored_parent else { return };
+        let Some(parent_lp) = anchored_parent else {
+            return;
+        };
 
         let Ok((parent_body, parent_sc, _, _, _, _, _)) = body_query.get(parent_lp.0) else {
             return;
@@ -284,19 +291,34 @@ pub fn draw_lagrange_point_rings(
         let l2_r = ((a_moon + r_hill) * amp * SCALING_FACTOR as f64).max(l1_r + 10.0);
 
         // LP heliocentric radii (for hover/select metadata)
-        let lp_radii_b: [f64; 5] = [
-            a_moon - r_hill, a_moon + r_hill, a_moon, a_moon, a_moon,
-        ];
+        let lp_radii_b: [f64; 5] = [a_moon - r_hill, a_moon + r_hill, a_moon, a_moon, a_moon];
         // L-point offsets from planet center in render units
         let lp_offsets: [Vec3; 5] = [
-            Vec3::new((l1_r * theta.cos()) as f32,      (l1_r * theta.sin()) as f32,      0.0),
-            Vec3::new((l2_r * theta.cos()) as f32,      (l2_r * theta.sin()) as f32,      0.0),
-            Vec3::new((sma_render * (theta + std::f64::consts::PI).cos()) as f32,
-                       (sma_render * (theta + std::f64::consts::PI).sin()) as f32,      0.0),
-            Vec3::new((sma_render * (theta + std::f64::consts::FRAC_PI_3).cos()) as f32,
-                       (sma_render * (theta + std::f64::consts::FRAC_PI_3).sin()) as f32, 0.0),
-            Vec3::new((sma_render * (theta - std::f64::consts::FRAC_PI_3).cos()) as f32,
-                       (sma_render * (theta - std::f64::consts::FRAC_PI_3).sin()) as f32, 0.0),
+            Vec3::new(
+                (l1_r * theta.cos()) as f32,
+                (l1_r * theta.sin()) as f32,
+                0.0,
+            ),
+            Vec3::new(
+                (l2_r * theta.cos()) as f32,
+                (l2_r * theta.sin()) as f32,
+                0.0,
+            ),
+            Vec3::new(
+                (sma_render * (theta + std::f64::consts::PI).cos()) as f32,
+                (sma_render * (theta + std::f64::consts::PI).sin()) as f32,
+                0.0,
+            ),
+            Vec3::new(
+                (sma_render * (theta + std::f64::consts::FRAC_PI_3).cos()) as f32,
+                (sma_render * (theta + std::f64::consts::FRAC_PI_3).sin()) as f32,
+                0.0,
+            ),
+            Vec3::new(
+                (sma_render * (theta - std::f64::consts::FRAC_PI_3).cos()) as f32,
+                (sma_render * (theta - std::f64::consts::FRAC_PI_3).sin()) as f32,
+                0.0,
+            ),
         ];
 
         // Dot markers + circle for each L-point (no orbit rings drawn).
@@ -361,27 +383,37 @@ pub fn handle_lp_hover(
         let hover_pos = ctx.input(|i| i.pointer.hover_pos());
         let over_panel = if let Some(available) = panel_bounds.available_rect {
             hover_pos.map_or(false, |p| !available.contains(p))
-        } else { false };
+        } else {
+            false
+        };
         if ctx.is_pointer_over_area() || ctx.is_using_pointer() || over_panel {
             lp_markers.hovered_index = None;
             return;
         }
     }
 
-    let Ok(window) = windows.single() else { return; };
-    let Ok((camera, camera_transform)) = camera_query.single() else { return; };
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let Ok((camera, camera_transform)) = camera_query.single() else {
+        return;
+    };
     let Some(cursor_pos) = window.cursor_position() else {
         lp_markers.hovered_index = None;
         return;
     };
-    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) else { return; };
+    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) else {
+        return;
+    };
 
     // Find the nearest LP marker whose hit-sphere the ray passes through.
     let mut best: Option<(usize, f32)> = None; // (index, ray-projection distance)
     for (i, m) in lp_markers.markers.iter().enumerate() {
         let to_marker = m.render_pos - ray.origin;
         let proj = to_marker.dot(*ray.direction);
-        if proj <= 0.0 { continue; }
+        if proj <= 0.0 {
+            continue;
+        }
         let closest = ray.origin + *ray.direction * proj;
         let dist = (m.render_pos - closest).length();
         if dist < m.hit_radius {

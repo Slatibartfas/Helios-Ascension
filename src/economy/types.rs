@@ -51,7 +51,8 @@ pub fn determine_resource_phase(
                 } else {
                     ResourcePhase::Solid
                 }
-            } else if temp_celsius >= 0.0 && temp_celsius <= 100.0 + (pressure_mbar - 1013.0) * 0.03 {
+            } else if temp_celsius >= 0.0 && temp_celsius <= 100.0 + (pressure_mbar - 1013.0) * 0.03
+            {
                 ResourcePhase::Liquid
             } else if temp_celsius > 100.0 + (pressure_mbar - 1013.0) * 0.03 {
                 ResourcePhase::Vapor
@@ -485,12 +486,7 @@ impl ResourceType {
     /// Returns all resources by category
     pub fn by_category() -> Vec<(&'static str, Vec<ResourceType>)> {
         vec![
-            (
-                "Biological",
-                vec![
-                    ResourceType::Food,
-                ],
-            ),
+            ("Biological", vec![ResourceType::Food]),
             (
                 "Volatiles",
                 vec![
@@ -668,12 +664,27 @@ mod tests {
     #[test]
     fn test_is_mineable() {
         // Manufactured resources must NOT be mineable
-        assert!(!ResourceType::Polymers.is_mineable(), "Polymers are manufactured");
+        assert!(
+            !ResourceType::Polymers.is_mineable(),
+            "Polymers are manufactured"
+        );
         assert!(!ResourceType::Food.is_mineable(), "Food is grown/produced");
-        assert!(!ResourceType::Antimatter.is_mineable(), "Antimatter is accelerator-made");
-        assert!(!ResourceType::ExoticMatter.is_mineable(), "ExoticMatter is engineered");
-        assert!(!ResourceType::Metamaterials.is_mineable(), "Metamaterials are engineered");
-        assert!(!ResourceType::Computronium.is_mineable(), "Computronium is engineered");
+        assert!(
+            !ResourceType::Antimatter.is_mineable(),
+            "Antimatter is accelerator-made"
+        );
+        assert!(
+            !ResourceType::ExoticMatter.is_mineable(),
+            "ExoticMatter is engineered"
+        );
+        assert!(
+            !ResourceType::Metamaterials.is_mineable(),
+            "Metamaterials are engineered"
+        );
+        assert!(
+            !ResourceType::Computronium.is_mineable(),
+            "Computronium is engineered"
+        );
 
         // Naturally occurring deposits should be mineable
         assert!(ResourceType::Water.is_mineable());

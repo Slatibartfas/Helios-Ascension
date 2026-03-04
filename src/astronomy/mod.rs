@@ -21,32 +21,29 @@ pub mod selection;
 pub mod systems;
 
 pub use components::{
-    AtmosphereComposition, AtmosphericGas, CometTail, Destroyed, FloatingOrigin, Hovered,
-    KeplerOrbit, LagrangePointMarkers, LastLpClick, LocalOrbitAmplification, LpMarkerInfo,
-    OceanProperties, OceanType, infer_ocean_properties,
-    OrbitCenter, OrbitPath, Selected, SpaceCoordinates, StellarProperties, SurfaceTemperature,
-    calculate_general_colony_cost,
+    calculate_general_colony_cost, infer_ocean_properties, AtmosphereComposition, AtmosphericGas,
+    CometTail, Destroyed, FloatingOrigin, Hovered, KeplerOrbit, LagrangePointMarkers, LastLpClick,
+    LocalOrbitAmplification, LpMarkerInfo, OceanProperties, OceanType, OrbitCenter, OrbitPath,
+    Selected, SpaceCoordinates, StellarProperties, SurfaceTemperature,
 };
 pub use ephemeris::{calculate_position_for_body, calculate_positions_at_timestamp};
 pub use exoplanets::{ConfirmedPlanet, RealPlanet};
+pub use lagrange::{draw_lagrange_point_rings, handle_lp_hover};
 pub use procedural::{
     calculate_frost_line, generate_procedural_atmosphere, map_star_to_system_architecture,
     AsteroidBelt, CometaryCloud, PlanetType, ProceduralPlanet, SystemArchitecture,
 };
-pub use systems::{
-    check_natural_destruction, draw_orbit_paths,
-    fade_destroyed_bodies, manage_comet_tail_meshes, orbit_position_from_mean_anomaly,
-    propagate_orbits, update_body_lod_visibility, update_orbit_visibility, update_render_transform,
-    update_tail_transforms, SCALING_FACTOR,
-};
 pub use selection::{
-    animate_marker_dots, animate_ring_highlight, apply_ring_highlight,
-    despawn_hover_markers, despawn_selection_markers,
-    handle_body_hover, handle_body_selection, remove_ring_highlight,
-    RingHighlight, scale_markers_with_zoom,
-    spawn_hover_markers, spawn_selection_markers, zoom_camera_to_anchored_body,
+    animate_marker_dots, animate_ring_highlight, apply_ring_highlight, despawn_hover_markers,
+    despawn_selection_markers, handle_body_hover, handle_body_selection, remove_ring_highlight,
+    scale_markers_with_zoom, spawn_hover_markers, spawn_selection_markers,
+    zoom_camera_to_anchored_body, RingHighlight,
 };
-pub use lagrange::{draw_lagrange_point_rings, handle_lp_hover};
+pub use systems::{
+    check_natural_destruction, draw_orbit_paths, fade_destroyed_bodies, manage_comet_tail_meshes,
+    orbit_position_from_mean_anomaly, propagate_orbits, update_body_lod_visibility,
+    update_orbit_visibility, update_render_transform, update_tail_transforms, SCALING_FACTOR,
+};
 
 /// Plugin that adds astronomy systems to the Bevy app
 pub struct AstronomyPlugin;
@@ -82,9 +79,12 @@ impl Plugin for AstronomyPlugin {
                     update_orbit_visibility,
                     update_body_lod_visibility,
                     // Rendering
-                    draw_orbit_paths.after(update_orbit_visibility).after(propagate_orbits),
-                    draw_lagrange_point_rings.after(update_orbit_visibility).after(propagate_orbits),
-                    
+                    draw_orbit_paths
+                        .after(update_orbit_visibility)
+                        .after(propagate_orbits),
+                    draw_lagrange_point_rings
+                        .after(update_orbit_visibility)
+                        .after(propagate_orbits),
                     // Comet Visuals
                     manage_comet_tail_meshes,
                     update_tail_transforms.after(propagate_orbits),

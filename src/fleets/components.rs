@@ -1,9 +1,8 @@
-
 //! ECS components for the fleet management and orbital transfer system.
 
-use bevy::prelude::*;
-use super::types::{PropulsionType, ShipClass, FleetRole};
+use super::types::{FleetRole, PropulsionType, ShipClass};
 use crate::astronomy::KeplerOrbit;
+use bevy::prelude::*;
 
 /// Summary information about a single ship within a fleet.
 #[derive(Debug, Clone)]
@@ -85,7 +84,11 @@ pub struct Fleet {
 impl Fleet {
     /// Create an empty fleet with the given name.
     pub fn new(name: String) -> Self {
-        Self { name, role: FleetRole::default(), ships: Vec::new() }
+        Self {
+            name,
+            role: FleetRole::default(),
+            ships: Vec::new(),
+        }
     }
 
     /// Total dry mass of all ships (tonnes).
@@ -109,7 +112,11 @@ impl Fleet {
         if total_thrust <= 0.0 {
             return 450.0;
         }
-        self.ships.iter().map(|s| s.thrust_kn * s.isp_s).sum::<f32>() / total_thrust
+        self.ships
+            .iter()
+            .map(|s| s.thrust_kn * s.isp_s)
+            .sum::<f32>()
+            / total_thrust
     }
 
     /// Minimum thrust of any ship in the fleet (kilonewtons).
@@ -196,7 +203,11 @@ impl Fleet {
             .iter()
             .map(|s| {
                 let wm = s.wet_mass_t();
-                if wm <= 0.0 { 0.0_f64 } else { (s.thrust_kn / wm) as f64 }
+                if wm <= 0.0 {
+                    0.0_f64
+                } else {
+                    (s.thrust_kn / wm) as f64
+                }
             })
             .reduce(f64::min)
             .unwrap_or(0.0)
@@ -225,7 +236,12 @@ pub struct FleetOrbit {
 impl FleetOrbit {
     /// Create a prograde (CCW) circular orbit around `body` at `radius_au` astronomical units.
     pub fn new(body: Entity, radius_au: f64) -> Self {
-        Self { body, radius_au, angle_rad: 0.0, direction: 1.0 }
+        Self {
+            body,
+            radius_au,
+            angle_rad: 0.0,
+            direction: 1.0,
+        }
     }
 }
 
@@ -280,12 +296,14 @@ pub struct ActiveManeuver {
     pub leg2_orbit: Option<KeplerOrbit>,
     /// Seconds after departure when the Leg-2 orbit begins (= Leg-1 half-period).
     /// Only meaningful when `leg2_orbit` is `Some`.
-    pub leg2_start_s: f64,    /// For gravity-assist transfers, the body that will be used for the flyby.
+    pub leg2_start_s: f64,
+    /// For gravity-assist transfers, the body that will be used for the flyby.
     ///
     /// This is set when a `PlannedTransfer` containing a two‑leg assist is built,
     /// and propagated into the corresponding `ActiveManeuver`.  The render
     /// systems use it to reconstruct the two‑leg trajectory after execution.
-    pub flyby_body: Option<Entity>,}
+    pub flyby_body: Option<Entity>,
+}
 
 impl ActiveManeuver {
     /// Whether this transfer uses kinematic (straight-line) interpolation rather
