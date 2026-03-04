@@ -1081,82 +1081,75 @@ pub(super) fn ui_time_controls(
                 });
 
                 // Push music controls to the far right edge of the window
-                ui.add_space(ui.available_width() - 280.0);
+                ui.add_space(ui.available_width() - 260.0);
 
-                // ── Music controls (frameless two-row, right-aligned) ───
-                // Visual order: [♪ Title (fixed)] | [⏸] [⏭] [═══ vol]
-                // In right_to_left layout items are added in reverse order.
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.vertical(|ui| {
-                        // Row 1: title | pause | skip | volume
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = 4.0;
-                            ui.spacing_mut().button_padding = egui::vec2(4.0, 2.0);
-                            const BTN: [f32; 2] = [24.0, 22.0];
+                // ── Music controls ─────────────────────────────────────────────
+                // Layout: [♪ Title] ................. [⏸] [⏭] [═══ vol]
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    ui.spacing_mut().button_padding = egui::vec2(4.0, 2.0);
+                    const BTN: [f32; 2] = [24.0, 22.0];
 
-                            // Volume (rightmost) — added first in RTL
-                            ui.add_sized(
-                                [64.0, BTN[1]],
-                                egui::Slider::new(&mut playlist.volume, 0.0..=1.0)
-                                    .show_value(false),
-                            );
+                    // Title — fixed width, left side
+                    let track_title = playlist.tracks[playlist.current_index].title;
+                    ui.add_sized(
+                        [160.0, BTN[1]],
+                        egui::Label::new(
+                            egui::RichText::new(format!("♪ {}", track_title))
+                                .font(egui::FontId::proportional(11.0))
+                                .color(theme::TEXT_DIM),
+                        )
+                        .truncate(),
+                    );
 
-                            // Skip button
-                            let skip_btn =
-                                egui::Button::new(egui::RichText::new("⏭").color(theme::TEXT_DIM))
-                                    .stroke(egui::Stroke::new(0.5, theme::BORDER))
-                                    .fill(theme::SURFACE);
-                            if ui.add_sized(BTN, skip_btn).clicked() {
-                                playlist.skip_requested = true;
-                            }
+                    // Flexible space between title and controls
+                    ui.add_space(ui.available_width() * 0.15);
 
-                            // Pause / play button (same size as skip)
-                            let play_label = if playlist.paused { "▶" } else { "⏸" };
-                            let play_color = if playlist.paused {
-                                theme::ACCENT
-                            } else {
-                                theme::TEXT_DIM
-                            };
-                            let play_stroke = if playlist.paused {
-                                egui::Stroke::new(1.0, theme::ACCENT)
-                            } else {
-                                egui::Stroke::new(0.5, theme::BORDER)
-                            };
-                            let play_btn = egui::Button::new(
-                                egui::RichText::new(play_label).color(play_color),
-                            )
-                            .stroke(play_stroke)
+                    // Pause / play button
+                    let play_label = if playlist.paused { "▶" } else { "⏸" };
+                    let play_color = if playlist.paused {
+                        theme::ACCENT
+                    } else {
+                        theme::TEXT_DIM
+                    };
+                    let play_stroke = if playlist.paused {
+                        egui::Stroke::new(1.0, theme::ACCENT)
+                    } else {
+                        egui::Stroke::new(0.5, theme::BORDER)
+                    };
+                    let play_btn = egui::Button::new(
+                        egui::RichText::new(play_label).color(play_color),
+                    )
+                    .stroke(play_stroke)
+                    .fill(theme::SURFACE);
+                    if ui.add_sized(BTN, play_btn).clicked() {
+                        playlist.paused = !playlist.paused;
+                    }
+
+                    // Skip button
+                    let skip_btn =
+                        egui::Button::new(egui::RichText::new("⏭").color(theme::TEXT_DIM))
+                            .stroke(egui::Stroke::new(0.5, theme::BORDER))
                             .fill(theme::SURFACE);
-                            if ui.add_sized(BTN, play_btn).clicked() {
-                                playlist.paused = !playlist.paused;
-                            }
+                    if ui.add_sized(BTN, skip_btn).clicked() {
+                        playlist.skip_requested = true;
+                    }
 
-                            ui.separator();
+                    // Volume slider
+                    ui.add_sized(
+                        [64.0, BTN[1]],
+                        egui::Slider::new(&mut playlist.volume, 0.0..=1.0)
+                            .show_value(false),
+                    );
+                });
 
-                            // Title — fixed 150 px width so buttons never shift
-                            let track_title = playlist.tracks[playlist.current_index].title;
-                            ui.add_sized(
-                                [150.0, BTN[1]],
-                                egui::Label::new(
-                                    egui::RichText::new(format!("♪ {}", track_title))
-                                        .font(egui::FontId::proportional(11.0))
-                                        .color(theme::TEXT_DIM),
-                                )
-                                .truncate(),
-                            );
-                        });
-
-                        // Row 2: CC-BY attribution (right-aligned)
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(
-                                egui::RichText::new(
-                                    "Scott Buckley — CC-BY 4.0 · scottbuckley.com.au",
-                                )
-                                .font(egui::FontId::proportional(9.0))
-                                .color(theme::TEXT_HINT),
-                            );
-                        });
-                    });
+                // Row 2: CC-BY attribution (right-aligned)
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(
+                        egui::RichText::new("Scott Buckley — CC-BY 4.0 · scottbuckley.com.au")
+                            .font(egui::FontId::proportional(9.0))
+                            .color(theme::TEXT_HINT),
+                    );
                 });
             });
         });

@@ -222,7 +222,9 @@ fn orbit_camera_controls(
         // Rotate pan direction to match camera yaw orientation (for A/D)
         let rot = Quat::from_axis_angle(Vec3::Y, camera.yaw);
         let world_pan = rot * pan_direction.normalize();
-        let pan_amount = world_pan * camera.pan_sensitivity * dt;
+        // Scale pan speed with zoom level (radius) for consistent feel at any distance
+        let zoom_scale = (camera.radius / 1000.0).max(0.1);
+        let pan_amount = world_pan * camera.pan_sensitivity * zoom_scale * dt;
         camera.pan_offset += pan_amount;
     }
 
