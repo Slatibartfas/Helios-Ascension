@@ -393,23 +393,26 @@ fn compute_transfer_arc(
     } else {
         (dp - op).normalize_or_zero()
     };
-    // Arrival ring point: use the orbital radial direction (from orbit centre to
-    // destination) so the arc arrives **tangent** to the destination orbit,
-    // matching Hohmann transfer geometry.
+    // Arrival ring point: offset along the radial axis so that the prograde
+    // arrival tangent is geometrically tangent to the parking ring circle.
+    // The ring tangent at any point is perpendicular to (p3 − dp), so
+    // arr_ring_dir must be perpendicular to tang_dest (prograde).  Using the
+    // radial direction satisfies this (radial ⊥ prograde).
+    //
+    // • Outward (orbit-raising): fleet approaches from inside the destination
+    //   orbit → entry on the inner (sunward) side of the ring.
+    // • Inward (orbit-lowering): fleet approaches from outside the destination
+    //   orbit → entry on the outer side of the ring.
     let arr_ring_dir = if is_inward {
-        // Inward transfer: fleet arrives from the prograde direction
-        Vec3::new(-radial_dest.y, radial_dest.x, 0.0)
+        radial_dest // outer side — fleet arrives from higher orbit
     } else {
-        // Outward transfer: fleet arrives from the retrograde (trailing) direction
-        Vec3::new(radial_dest.y, -radial_dest.x, 0.0)
+        -radial_dest // inner side — fleet arrives from lower orbit
     };
     let p3 = dp + arr_ring_dir * dest_ring_r;
     // Arrival tangent: always prograde (CCW rotation of radial).
     // Hohmann transfers arrive tangent to the destination orbit for both inward
-    // and outward transfers — inward arrives prograde-fast, outward arrives
-    // prograde-slow.  The previous `tang_d_a.dot(tang_origin)` heuristic was
-    // unstable for ~180° arcs (dot product near zero) and frequently flipped
-    // the tangent to retrograde, causing the perpendicular-looking approach.
+    // and outward transfers.  Because arr_ring_dir is radial (⊥ prograde),
+    // this tangent is also tangent to the parking ring at p3.
     let tang_dest = Vec3::new(-radial_dest.y, radial_dest.x, 0.0);
 
     let ctrl_len = (p3 - p0).length() * 0.40;

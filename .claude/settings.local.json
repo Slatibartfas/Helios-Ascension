@@ -4,7 +4,10 @@
       "Bash(cargo check)",
       "WebFetch(domain:minimax-algeng-chat-tts-us.oss-us-east-1.aliyuncs.com)",
       "Bash(cargo build --profile fast)",
-      "mcp__MiniMax__understand_image"
+      "mcp__MiniMax__understand_image",
+      "WebFetch(domain:ssd.jpl.nasa.gov)",
+      "mcp__MiniMax__web_search",
+      "WebFetch(domain:en.wikipedia.org)"
     ]
   }
 }
