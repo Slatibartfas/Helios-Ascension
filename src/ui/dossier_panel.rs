@@ -250,44 +250,40 @@ fn draw_dossier_header(
             .num_columns(2)
             .spacing([16.0, 2.0])
             .show(ui, |ui| {
-                // Distance: for moons show distance to parent; for others show distance to star
+                // Distance: for moons show orbital distance to parent; for others show distance to star
                 if !matches!(body.body_type, BodyType::Star) {
-                    if let Some(c) = coords {
-                        if body.body_type == BodyType::Moon {
-                            // Show distance to parent body
-                            if let Some(parent_coords) = logical_parent
-                                .and_then(|lp| parent_coords_query.get(lp.0).ok())
-                            {
-                                let dist_au = (c.position - parent_coords.position).length();
-                                // Express in km when < 0.01 AU for readability
-                                const AU_KM: f64 = 149_597_870.7;
-                                let (value_str, tooltip) = if dist_au < 0.01 {
-                                    (
-                                        format!("{:.0} km", dist_au * AU_KM),
-                                        "Current distance from the parent body.",
-                                    )
-                                } else {
-                                    (
-                                        format!("{dist_au:.4} AU"),
-                                        "Current distance from the parent body.",
-                                    )
-                                };
-                                stat_row_with_tooltip(ui, "DISTANCE", &value_str, tooltip);
-                            }
-                        } else {
-                            let star_pos = find_star_position(
-                                logical_parent,
-                                parent_coords_query,
-                                all_bodies_query,
-                            );
-                            let distance_au = (c.position - star_pos).length();
-                            stat_row_with_tooltip(
-                                ui,
-                                "DISTANCE",
-                                &format!("{distance_au:.3} AU"),
-                                "Current distance from the system's primary star.",
-                            );
+                    if body.body_type == BodyType::Moon {
+                        // Use the KeplerOrbit semi-major axis which is always the orbital
+                        // distance from the parent body, regardless of coordinate system.
+                        if let Some(orb) = orbit {
+                            const AU_KM: f64 = 149_597_870.7;
+                            let sma_au = orb.semi_major_axis;
+                            let (value_str, tooltip) = if sma_au < 0.01 {
+                                (
+                                    format!("{:.0} km", sma_au * AU_KM),
+                                    "Semi-major axis: average orbital distance from the parent body.",
+                                )
+                            } else {
+                                (
+                                    format!("{sma_au:.4} AU"),
+                                    "Semi-major axis: average orbital distance from the parent body.",
+                                )
+                            };
+                            stat_row_with_tooltip(ui, "DISTANCE", &value_str, tooltip);
                         }
+                    } else if let Some(c) = coords {
+                        let star_pos = find_star_position(
+                            logical_parent,
+                            parent_coords_query,
+                            all_bodies_query,
+                        );
+                        let distance_au = (c.position - star_pos).length();
+                        stat_row_with_tooltip(
+                            ui,
+                            "DISTANCE",
+                            &format!("{distance_au:.3} AU"),
+                            "Current distance from the system's primary star.",
+                        );
                     }
                 }
 

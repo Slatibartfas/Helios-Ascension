@@ -95,7 +95,7 @@ fn setup(mut commands: Commands) {
             // Low intensity - just enough to give distant bodies visibility.
             // Combined with GlobalAmbientLight (8 lux) this should keep
             // inner planets well-lit while making outer planets visible.
-            illuminance: 50.0,
+            illuminance: 100.0,
             ..default()
         },
         // Point away from the system plane for natural-looking fill
