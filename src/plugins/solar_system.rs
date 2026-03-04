@@ -763,10 +763,10 @@ pub fn setup_solar_system(
                 base_color: material_color,
                 base_color_texture: base_color_texture.clone(),
                 normal_map_texture,
-                // Minimal emissive floor so planets in dim/distant star systems
-                // aren't pitch black on the night side.  Intentionally very low
-                // so day/night contrast is still strong.
-                emissive: LinearRgba::WHITE * 0.006,
+                // Emissive floor so planets in dim/distant star systems
+                // aren't pitch black on the night side. Higher value (0.05)
+                // ensures dwarf planets and distant bodies remain visible.
+                emissive: LinearRgba::WHITE * 0.05,
                 perceptual_roughness: roughness,
                 metallic,
                 reflectance: 0.3,

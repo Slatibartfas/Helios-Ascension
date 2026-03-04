@@ -4,7 +4,7 @@ use bevy::window::PrimaryWindow;
 
 use super::components::{
     CurrentStarSystem, FloatingOrigin, KeplerOrbit, LagrangePointMarkers, LastLpClick,
-    LocalOrbitAmplification, LpMarkerInfo, Selected, SpaceCoordinates, SystemId,
+    LocalOrbitAmplification, LpMarkerInfo, OrbitCenter, Selected, SpaceCoordinates, SystemId,
 };
 use super::systems::SCALING_FACTOR;
 use crate::fleets::orbital_mechanics::{GM_SUN, G_CONST as ORBIT_G};
@@ -38,6 +38,7 @@ pub fn draw_lagrange_point_rings(
         Option<&SystemId>,
         Option<&Moon>,
         Option<&LocalOrbitAmplification>,
+        Option<&OrbitCenter>,
     )>,
     floating_origin: Option<Res<FloatingOrigin>>,
     mut lp_markers: ResMut<LagrangePointMarkers>,
@@ -71,6 +72,7 @@ pub fn draw_lagrange_point_rings(
         anchored_sys,
         is_moon,
         anchored_amp,
+        anchored_orbit_center,
     )) = body_query.get(anchored)
     else {
         return;
@@ -262,7 +264,7 @@ pub fn draw_lagrange_point_rings(
             return;
         };
 
-        let Ok((parent_body, parent_sc, _, _, _, _, _)) = body_query.get(parent_lp.0) else {
+        let Ok((parent_body, parent_sc, _, _, _, _, _, _)) = body_query.get(parent_lp.0) else {
             return;
         };
 
@@ -284,8 +286,15 @@ pub fn draw_lagrange_point_rings(
         // Render-space center of the planet (marker reference point)
         let parent_render = to_render(parent_sc.position);
 
-        // Moon's 3D orbital position around the planet
-        let moon_rel = anchored_sc.position - parent_sc.position;
+        // Moon's 3D orbital position around the planet.
+        // Sol-system moons (no OrbitCenter) store their local orbital offset
+        // in SpaceCoordinates directly; procedural moons (with OrbitCenter)
+        // store absolute heliocentric position and need the parent subtracted.
+        let moon_rel = if anchored_orbit_center.is_some() {
+            anchored_sc.position - parent_sc.position
+        } else {
+            anchored_sc.position
+        };
         let moon_dir = moon_rel.normalize_or_zero();
 
         // Use the moon's actual 3D direction for L-point orientation

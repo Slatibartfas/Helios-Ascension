@@ -392,15 +392,28 @@ pub fn handle_body_hover(
 }
 
 /// System that spawns glossy selection markers for newly selected bodies.
+///
+/// Also performs defensive cleanup: when a new selection is detected, any
+/// existing `SelectionMarker` whose owner is NOT the newly selected body
+/// is despawned immediately. This prevents stale markers from remaining
+/// visible when `RemovedComponents<Selected>` misses an event (e.g. due
+/// to same-frame remove+re-add across different schedules).
 pub fn spawn_selection_markers(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     selected_query: Query<(Entity, &CelestialBody, &GlobalTransform), Added<Selected>>,
     hover_markers: Query<(Entity, &MarkerOwner), With<HoverMarker>>,
+    existing_selection_markers: Query<(Entity, &MarkerOwner), With<SelectionMarker>>,
+    all_selected: Query<(), With<Selected>>,
     camera_query: Query<&GlobalTransform, With<GameCamera>>,
     orbit_camera_query: Query<&OrbitCamera, With<GameCamera>>,
 ) {
+    // Early exit: nothing newly selected
+    if selected_query.is_empty() {
+        return;
+    }
+
     let camera_pos = camera_query
         .single()
         .ok()
@@ -412,9 +425,26 @@ pub fn spawn_selection_markers(
         .map(|oc| (oc.radius / 1000.0_f32).clamp(1.0, 3.0))
         .unwrap_or(1.0);
 
+    // Defensive cleanup: despawn any existing selection markers whose owner
+    // no longer has Selected. This catches stale markers that
+    // despawn_selection_markers might miss due to schedule timing.
+    for (marker_entity, owner) in existing_selection_markers.iter() {
+        if all_selected.get(owner.0).is_err() {
+            commands.entity(marker_entity).despawn();
+        }
+    }
+
     for (entity, body, gtransform) in selected_query.iter() {
         // Remove hover marker if it exists
         for (marker_entity, owner) in hover_markers.iter() {
+            if owner.0 == entity {
+                commands.entity(marker_entity).despawn();
+            }
+        }
+
+        // Also remove any existing selection marker for this entity
+        // to avoid duplicates if Selected was removed and re-added.
+        for (marker_entity, owner) in existing_selection_markers.iter() {
             if owner.0 == entity {
                 commands.entity(marker_entity).despawn();
             }
