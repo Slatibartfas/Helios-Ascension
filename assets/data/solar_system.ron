@@ -7441,7 +7441,7 @@
             rotation_period: 1.8971112125391614,
         ),
         
-        // 109P/Swift-Tuttle
+        // 109P/Swift-Tuttle (last perihelion Dec 1992, next Jul 2126)
         (
             name: "109P/Swift-Tuttle",
             body_type: Comet,
@@ -7455,12 +7455,12 @@
                 eccentricity: 0.963,
                 inclination: 113.5,
                 orbital_period: 48700.0,
-                initial_angle: 180.0,
+                initial_angle: 5.0,
             )),
             rotation_period: 0.9383938912835585,
         ),
         
-        // Comet Hale-Bopp
+        // Comet Hale-Bopp (perihelion 1.25 AU, last perihelion Apr 1997)
         (
             name: "Comet Hale-Bopp",
             body_type: Comet,
@@ -7474,12 +7474,12 @@
                 eccentricity: 0.995,
                 inclination: 89.4,
                 orbital_period: 144650.0,
-                initial_angle: 198.0,
+                initial_angle: 0.2,
             )),
             rotation_period: 1.2916386661225756,
         ),
         
-        // Comet Hyakutake
+        // Comet Hyakutake (perihelion 0.23 AU, approaching)
         (
             name: "Comet Hyakutake",
             body_type: Comet,
@@ -7493,12 +7493,12 @@
                 eccentricity: 0.9998,
                 inclination: 124.9,
                 orbital_period: 75545.0,
-                initial_angle: 216.0,
+                initial_angle: 359.7,
             )),
             rotation_period: 1.0074636859223471,
         ),
         
-        // Comet McNaught
+        // Comet McNaught (C/2006 P1, perihelion 0.17 AU, outbound from periapsis)
         (
             name: "Comet McNaught",
             body_type: Comet,
@@ -7509,15 +7509,15 @@
             parent: Some("Sol"),
             orbit: Some((
                 semi_major_axis: 42.1,
-                eccentricity: 1.00019,
+                eccentricity: 0.996,
                 inclination: 77.8,
                 orbital_period: 100000.0,
-                initial_angle: 234.0,
+                initial_angle: 0.5,
             )),
             rotation_period: 0.9980704678113919,
         ),
         
-        // Comet ISON
+        // Comet ISON (approaching periapsis at 0.004 AU, will disintegrate near the Sun)
         (
             name: "Comet ISON",
             body_type: Comet,
@@ -7531,12 +7531,12 @@
                 eccentricity: 0.99996,
                 inclination: 62.4,
                 orbital_period: 365000.0,
-                initial_angle: 252.0,
+                initial_angle: 359.8,
             )),
             rotation_period: 1.83963415636642,
         ),
         
-        // Comet Lovejoy C/2011
+        // Comet Lovejoy C/2011 (outbound from periapsis)
         (
             name: "Comet Lovejoy C/2011",
             body_type: Comet,
@@ -7550,12 +7550,12 @@
                 eccentricity: 0.99989,
                 inclination: 134.0,
                 orbital_period: 227000.0,
-                initial_angle: 270.0,
+                initial_angle: 0.3,
             )),
             rotation_period: 0.9558631242544007,
         ),
         
-        // Comet NEOWISE
+        // Comet NEOWISE (outbound, recently past periapsis)
         (
             name: "Comet NEOWISE",
             body_type: Comet,
@@ -7569,7 +7569,7 @@
                 eccentricity: 0.9992,
                 inclination: 128.9,
                 orbital_period: 2445000.0,
-                initial_angle: 288.0,
+                initial_angle: 0.15,
             )),
             rotation_period: 0.3765117011521818,
         ),
@@ -7612,7 +7612,7 @@
             rotation_period: 0.6119775434161664,
         ),
         
-        // Comet West
+        // Comet West (perihelion 0.20 AU, approaching)
         (
             name: "Comet West",
             body_type: Comet,
@@ -7626,7 +7626,7 @@
                 eccentricity: 0.9898,
                 inclination: 43.1,
                 orbital_period: 31000.0,
-                initial_angle: 342.0,
+                initial_angle: 358.0,
             )),
             rotation_period: 1.1876172667919174,
         ),

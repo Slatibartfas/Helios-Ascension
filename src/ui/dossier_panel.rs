@@ -1021,6 +1021,30 @@ fn draw_atmosphere_section(ui: &mut egui::Ui, entity: Entity, atmo: &AtmosphereC
 }
 
 /// Stacked horizontal bar: each gas gets a proportional segment with its colour.
+/// Returns a high-contrast label colour (dark or white) for the given background.
+/// Uses the WCAG relative-luminance formula so we always stay readable.
+fn label_color_for_bg(bg: egui::Color32) -> egui::Color32 {
+    // Convert sRGB bytes to linear light
+    let linearize = |c: u8| -> f32 {
+        let s = c as f32 / 255.0;
+        if s <= 0.04045 {
+            s / 12.92
+        } else {
+            ((s + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    let r = linearize(bg.r());
+    let g = linearize(bg.g());
+    let b = linearize(bg.b());
+    let lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    // Dark text on bright backgrounds, white on dark ones
+    if lum > 0.35 {
+        egui::Color32::from_rgba_premultiplied(20, 20, 30, 230)
+    } else {
+        egui::Color32::from_rgba_premultiplied(255, 255, 255, 220)
+    }
+}
+
 fn draw_atmosphere_bar(ui: &mut egui::Ui, gases: &[AtmosphericGas]) {
     let bar_height = 18.0;
     let available_width = ui.available_width().max(100.0);
@@ -1062,12 +1086,27 @@ fn draw_atmosphere_bar(ui: &mut egui::Ui, gases: &[AtmosphericGas]) {
             } else {
                 gas.name.clone()
             };
+            let text_color = label_color_for_bg(color);
+            let center = seg_rect.center();
+            // Shadow pass – offset by 1 px, semi-transparent opposite of text colour
+            let shadow_color = if text_color.r() < 128 {
+                egui::Color32::from_rgba_premultiplied(255, 255, 255, 60)
+            } else {
+                egui::Color32::from_rgba_premultiplied(0, 0, 0, 80)
+            };
             painter.text(
-                seg_rect.center(),
+                center + egui::Vec2::new(1.0, 1.0),
+                egui::Align2::CENTER_CENTER,
+                &label_text,
+                mono_font(9.0),
+                shadow_color,
+            );
+            painter.text(
+                center,
                 egui::Align2::CENTER_CENTER,
                 label_text,
                 mono_font(9.0),
-                egui::Color32::from_rgba_premultiplied(255, 255, 255, 200),
+                text_color,
             );
         }
 

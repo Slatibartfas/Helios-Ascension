@@ -232,6 +232,7 @@ impl Plugin for StarmapPlugin {
                 (
                     tag_sol_bodies,
                     handle_system_transition,
+                    handle_starmap_transition,
                     spawn_system_bodies.after(handle_system_transition),
                     toggle_system_view_entities
                         .after(handle_system_transition)
@@ -1479,6 +1480,26 @@ fn handle_system_transition(
     // Clear all starmap selections (visual rings etc)
     for entity in selected_query.iter() {
         commands.entity(entity).remove::<SelectedStarSystem>();
+    }
+}
+
+/// Handle transition from System to Starmap view.
+/// Clears the body anchor so the previous body's moons/LP markers don't stay visible.
+fn handle_starmap_transition(
+    view_mode: Res<ViewMode>,
+    mut anchor_query: Query<&mut CameraAnchor, With<GameCamera>>,
+) {
+    if !view_mode.is_changed() || *view_mode != ViewMode::Starmap {
+        return;
+    }
+
+    // Clear the body anchor when leaving system view
+    // This ensures moons and Lagrange points from the old system are hidden
+    if let Ok(mut anchor) = anchor_query.single_mut() {
+        if anchor.0.is_some() {
+            info!("Clearing body anchor on starmap transition");
+            anchor.0 = None;
+        }
     }
 }
 

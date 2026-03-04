@@ -9,23 +9,26 @@ use super::components::{
 use super::systems::SCALING_FACTOR;
 use crate::fleets::orbital_mechanics::{GM_SUN, G_CONST as ORBIT_G};
 use crate::game_state::ActiveMenu;
-use crate::plugins::camera::{EguiPanelBounds, GameCamera, ViewMode};
+use crate::plugins::camera::{CameraAnchor, EguiPanelBounds, GameCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, LogicalParent, Moon};
 
 /// Approximate solar mass (kg) used for Hill-sphere and L-point calculations.
 const SOLAR_MASS_KG: f64 = 1.989e30;
 
 /// Draws blue Lagrange-point orbit rings and point markers for the currently
-/// **selected** body.  Replaces the old anchor-based behaviour so markers only
-/// appear when the player explicitly selects a body (not just when the camera
-/// happens to be anchored to it).
+/// **anchored** body. If no anchor exists, falls back to the selected body.
 ///
-/// * **Planet/GasGiant/DwarfPlanet selected** → draw the 5 Sun–Planet Lagrange rings.
-/// * **Moon selected** → draw the 5 Planet–Moon Lagrange rings.
+/// Anchoring takes priority over selection - if a body is anchored (double-clicked),
+/// its Lagrange points will be shown. If there's no anchor but a body is selected,
+/// that body's Lagrange points are shown.
+///
+/// * **Planet/GasGiant/DwarfPlanet anchored** → draw the 5 Sun–Planet Lagrange rings.
+/// * **Moon anchored** → draw the 5 Planet–Moon Lagrange rings.
 pub fn draw_lagrange_point_rings(
     mut gizmos: Gizmos,
     view_mode: Res<ViewMode>,
     current_system: Res<CurrentStarSystem>,
+    camera_query: Query<&CameraAnchor, With<GameCamera>>,
     selected_bodies: Query<Entity, With<Selected>>,
     body_query: Query<(
         &CelestialBody,
@@ -48,7 +51,15 @@ pub fn draw_lagrange_point_rings(
         return;
     }
 
-    let Some(anchored) = selected_bodies.iter().next() else {
+    // Check for anchor first (double-clicked body), then fall back to selection
+    // This allows Lagrange points to be shown when either anchor OR selection exists
+    let anchor_entity = camera_query
+        .single()
+        .ok()
+        .and_then(|a| a.0);
+
+    // Use anchor if available, otherwise use selection
+    let Some(anchored) = anchor_entity.or_else(|| selected_bodies.iter().next()) else {
         return;
     };
 

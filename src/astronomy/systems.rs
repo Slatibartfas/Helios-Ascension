@@ -20,8 +20,15 @@ const MAX_KEPLER_ITERATIONS: u32 = 50;
 /// Convergence tolerance for Kepler solver
 const KEPLER_TOLERANCE: f64 = 1e-10;
 
+/// Maximum eccentricity for the elliptical Kepler solver.
+/// Orbits with e >= this are clamped to avoid numerical singularities.
+const MAX_ELLIPTICAL_ECCENTRICITY: f64 = 0.99999;
+
 /// Solves Kepler's equation: M = E - e*sin(E) for eccentric anomaly E
-/// Uses Newton-Raphson iteration for high accuracy
+/// Uses Newton-Raphson iteration for high accuracy.
+///
+/// For near-parabolic or hyperbolic orbits (e >= 0.99999), eccentricity is
+/// clamped to avoid numerical singularities in the elliptical solver.
 ///
 /// # Arguments
 /// * `mean_anomaly` - Mean anomaly M in radians
@@ -35,16 +42,29 @@ pub fn solve_kepler(mean_anomaly: f64, eccentricity: f64) -> f64 {
         return mean_anomaly;
     }
 
-    // Initial guess: mean anomaly is a good starting point
-    let mut eccentric_anomaly = mean_anomaly;
+    // Clamp eccentricity to avoid numerical singularities
+    let e = eccentricity.min(MAX_ELLIPTICAL_ECCENTRICITY);
+
+    // For high eccentricity, use a better initial guess
+    let mut eccentric_anomaly = if e > 0.8 {
+        // For high eccentricity, M + e is a better starting point
+        mean_anomaly + e * mean_anomaly.sin()
+    } else {
+        mean_anomaly
+    };
 
     // Newton-Raphson iteration
     for _ in 0..MAX_KEPLER_ITERATIONS {
         // f(E) = E - e*sin(E) - M
-        let f = eccentric_anomaly - eccentricity * eccentric_anomaly.sin() - mean_anomaly;
+        let f = eccentric_anomaly - e * eccentric_anomaly.sin() - mean_anomaly;
 
         // f'(E) = 1 - e*cos(E)
-        let f_prime = 1.0 - eccentricity * eccentric_anomaly.cos();
+        let f_prime = 1.0 - e * eccentric_anomaly.cos();
+
+        // Prevent division by near-zero
+        if f_prime.abs() < 1e-15 {
+            break;
+        }
 
         // Newton-Raphson step: E_new = E_old - f(E)/f'(E)
         let delta = f / f_prime;
@@ -103,6 +123,9 @@ pub fn orbit_position_from_mean_anomaly(orbit: &KeplerOrbit, mean_anomaly: f64) 
 /// Calculate true anomaly from eccentric anomaly
 /// Uses the relationship: tan(ν/2) = sqrt((1+e)/(1-e)) * tan(E/2)
 ///
+/// For near-parabolic/hyperbolic orbits, eccentricity is clamped to avoid
+/// taking sqrt of a negative number.
+///
 /// # Arguments
 /// * `eccentric_anomaly` - Eccentric anomaly E in radians
 /// * `eccentricity` - Orbital eccentricity e
@@ -115,8 +138,11 @@ fn eccentric_to_true_anomaly(eccentric_anomaly: f64, eccentricity: f64) -> f64 {
         return eccentric_anomaly;
     }
 
+    // Clamp eccentricity to keep the sqrt term valid (1-e must be > 0)
+    let e = eccentricity.min(MAX_ELLIPTICAL_ECCENTRICITY);
+
     // Calculate true anomaly using the formula
-    let sqrt_term = ((1.0 + eccentricity) / (1.0 - eccentricity)).sqrt();
+    let sqrt_term = ((1.0 + e) / (1.0 - e)).sqrt();
     2.0 * (sqrt_term * (eccentric_anomaly / 2.0).tan()).atan()
 }
 
@@ -130,10 +156,20 @@ fn eccentric_to_true_anomaly(eccentric_anomaly: f64, eccentricity: f64) -> f64 {
 /// # Returns
 /// Orbital radius r in AU
 fn orbital_radius(semi_major_axis: f64, eccentricity: f64, true_anomaly: f64) -> f64 {
+    // Clamp eccentricity for safety
+    let e = eccentricity.min(MAX_ELLIPTICAL_ECCENTRICITY);
+
     // r = a(1 - e²) / (1 + e*cos(ν))
-    let numerator = semi_major_axis * (1.0 - eccentricity * eccentricity);
-    let denominator = 1.0 + eccentricity * true_anomaly.cos();
-    numerator / denominator
+    let numerator = semi_major_axis * (1.0 - e * e);
+    let denominator = 1.0 + e * true_anomaly.cos();
+
+    // Prevent division by zero or negative radius
+    if denominator.abs() < 1e-10 {
+        return semi_major_axis; // Fall back to semi-major axis
+    }
+
+    let r = numerator / denominator;
+    r.max(0.0) // Ensure non-negative
 }
 
 /// Calculate the 3D orbital position directly from a true anomaly.
@@ -367,6 +403,20 @@ pub fn draw_orbit_paths(
             path.segments
         };
 
+        // For highly eccentric orbits (e > 0.9), limit the arc drawn.
+        // The full ellipse extends to enormous distances at apoapsis, creating
+        // ugly near-parallel lines spanning hundreds of AU. Instead, draw only
+        // the portion of the orbit within a maximum distance from the focus.
+        // This max distance is perihelion-adaptive: we show the "interesting"
+        // part of the orbit near the Sun.
+        let max_trail_distance_au = if orbit.eccentricity > 0.9 {
+            // Show orbit out to ~60 AU (beyond Neptune) or apoapsis, whichever is smaller
+            let apoapsis = orbit.semi_major_axis * (1.0 + orbit.eccentricity);
+            apoapsis.min(60.0)
+        } else {
+            f64::INFINITY
+        };
+
         let true_anomaly_step = std::f64::consts::TAU / (segments as f64);
 
         // Extract base color channels from path color
@@ -381,6 +431,13 @@ pub fn draw_orbit_paths(
             // Walk backwards from the current position in true anomaly
             let true_anomaly = current_true_anomaly - (i as f64) * true_anomaly_step;
             let position_au = orbit_position_from_true_anomaly(orbit, true_anomaly);
+
+            // For high-eccentricity orbits, skip segments beyond the max distance
+            let distance_au = position_au.length();
+            if distance_au > max_trail_distance_au {
+                prev_point = None; // Break the trail
+                continue;
+            }
 
             let scaled_x = (position_au.x * SCALING_FACTOR * amp) as f32;
             let scaled_y = (position_au.y * SCALING_FACTOR * amp) as f32;
@@ -987,9 +1044,14 @@ pub fn draw_comet_tails(
 /// Historical: ISON broke apart around 730,000 km from sun surface (0.0049 AU from center)
 const ISON_DESTRUCTION_DISTANCE_AU: f64 = 0.005;
 
+/// Distance (in AU) below which any comet would be destroyed by solar heating.
+/// The Roche limit for a low-density body near the Sun is roughly 0.009 AU (about 2
+/// solar radii from the center). Bodies reaching this distance are tidally disrupted.
+const COMET_GENERAL_DESTRUCTION_AU: f64 = 0.009;
+
 /// System that checks for natural destruction events (e.g., Comet ISON solar disintegration).
 /// This system monitors comets approaching the sun and triggers destruction for historically
-/// accurate events like ISON's breakup.
+/// accurate events like ISON's breakup, as well as any comet reaching the solar Roche limit.
 pub fn check_natural_destruction(
     mut commands: Commands,
     sim_time: Res<SimulationTime>,
@@ -1007,6 +1069,19 @@ pub fn check_natural_destruction(
             commands.entity(entity).insert(Destroyed::new(
                 sim_time.elapsed_seconds(),
                 2.0, // 2 second fade-out
+            ));
+            continue;
+        }
+
+        // Any comet reaching the solar Roche limit is tidally disrupted
+        if distance_au < COMET_GENERAL_DESTRUCTION_AU {
+            info!(
+                "{} destroyed by tidal forces at {:.4} AU from the Sun",
+                body.name, distance_au
+            );
+            commands.entity(entity).insert(Destroyed::new(
+                sim_time.elapsed_seconds(),
+                1.5,
             ));
         }
 
@@ -1079,6 +1154,8 @@ pub fn update_orbit_visibility(
     fleet_orbit_query: Query<&crate::fleets::FleetOrbit, With<crate::fleets::Fleet>>,
     fleet_maneuver_query: Query<&crate::fleets::ActiveManeuver, With<crate::fleets::Fleet>>,
     expanded_groups: Res<crate::ui::ExpandedLedgerGroups>,
+    // Read-only pre-pass to detect which category groups have a selected body.
+    selected_category_query: Query<(&CelestialBody, Option<&LogicalParent>), With<Selected>>,
 ) {
     let Ok(anchor) = camera_query.single() else {
         return;
@@ -1095,6 +1172,24 @@ pub fn update_orbit_visibility(
         .selected_fleet
         .and_then(|fe| fleet_maneuver_query.get(fe).ok())
         .map(|m| (m.origin_body, m.destination_body));
+
+    // Pre-pass: build a set of (parent_entity, group_name) pairs whose category
+    // currently has a selected member.  When such a pair is in this set, all
+    // OTHER bodies in the same group should hide their orbit so only the
+    // selected/highlighted body stands out.
+    let mut groups_with_selection: std::collections::HashSet<(Entity, &'static str)> =
+        std::collections::HashSet::new();
+    for (cb, lp) in selected_category_query.iter() {
+        let group: Option<&'static str> = match cb.body_type {
+            BodyType::DwarfPlanet => Some("Dwarf Planets"),
+            BodyType::Asteroid => Some("Asteroids"),
+            BodyType::Comet => Some("Comets"),
+            _ => None,
+        };
+        if let (Some(group), Some(parent_e)) = (group, lp.map(|l| l.0)) {
+            groups_with_selection.insert((parent_e, group));
+        }
+    }
 
     for (entity, mut orbit_path, selected, planet, moon, logical_parent, celestial_body) in
         orbit_query.iter_mut()
@@ -1145,20 +1240,28 @@ pub fn update_orbit_visibility(
                 || fleet_transits_parent;
         } else {
             // Asteroids, Comets, DwarfPlanets: show orbits when their ledger
-            // category group is currently expanded in the left panel.
-            let group_name: Option<&str> = match celestial_body.map(|cb| &cb.body_type) {
+            // category group is currently expanded in the left panel — BUT only
+            // when no sibling in that group is selected.  Once one is selected
+            // it stands out via the `selected.is_some()` branch above; all
+            // others are suppressed so the view isn't cluttered.
+            let group_name: Option<&'static str> = match celestial_body.map(|cb| &cb.body_type) {
                 Some(BodyType::DwarfPlanet) => Some("Dwarf Planets"),
                 Some(BodyType::Asteroid) => Some("Asteroids"),
                 Some(BodyType::Comet) => Some("Comets"),
                 _ => None,
             };
-            orbit_path.visible = match (
-                group_name,
-                logical_parent.map(|lp| lp.0),
-            ) {
-                (Some(group), Some(parent_e)) => expanded_groups
-                    .groups
-                    .contains(&(parent_e, group.to_string())),
+            orbit_path.visible = match (group_name, logical_parent.map(|lp| lp.0)) {
+                (Some(group), Some(parent_e)) => {
+                    // Hide if a sibling is selected (they are handled by the
+                    // `selected.is_some()` branch and already shown).
+                    if groups_with_selection.contains(&(parent_e, group)) {
+                        false
+                    } else {
+                        expanded_groups
+                            .groups
+                            .contains(&(parent_e, group.to_string()))
+                    }
+                }
                 _ => false,
             };
         }

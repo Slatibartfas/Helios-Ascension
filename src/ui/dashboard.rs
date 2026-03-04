@@ -1,4 +1,5 @@
 use super::*;
+use std::cell::RefCell;
 
 fn render_selectable_label(ui: &mut egui::Ui, is_selected: bool, name: &str) -> egui::Response {
     if is_selected {
@@ -29,38 +30,45 @@ fn render_body_row(
     selection: &mut Selection,
     commands: &mut Commands,
     selected_query: &Query<Entity, With<Selected>>,
-    anchor_query: &mut Query<&mut CameraAnchor, With<GameCamera>>,
+    anchored_entity: Option<Entity>,
+    pending_anchor: &RefCell<Option<Entity>>,
 ) {
     let is_selected = selection.is_selected(entity);
+    let is_anchored = anchored_entity == Some(entity);
     let type_icon = body_type_icon(&body.body_type);
     ui.horizontal(|ui| {
         ui.add_space(20.0);
-        if ui
-            .small_button("⚓")
-            .on_hover_text("Anchor Camera")
-            .clicked()
-        {
-            // Select the body when anchoring
-            for e in selected_query.iter() {
-                commands.entity(e).remove::<Selected>();
-            }
-            commands.entity(entity).insert(Selected);
-            selection.select(entity);
-
-            // Anchor the camera
-            if let Ok(mut anchor) = anchor_query.single_mut() {
-                anchor.0 = Some(entity);
-            }
+        // Show anchor indicator (⚓) when anchored - not clickable, just informational
+        if is_anchored {
+            ui.add(egui::Label::new(egui::RichText::new("⚓").color(egui::Color32::from_rgb(255, 200, 100))));
+        } else {
+            ui.add_space(20.0); // Keep consistent spacing
         }
 
         // Use a visually distinct style for selected items
         let display_name = format!("{} {}", type_icon, body.name);
-        if render_selectable_label(ui, is_selected, &display_name).clicked() {
+        let response = render_selectable_label(ui, is_selected, &display_name);
+
+        // Single click: select only
+        if response.clicked() {
             for e in selected_query.iter() {
                 commands.entity(e).remove::<Selected>();
             }
             commands.entity(entity).insert(Selected);
             selection.select(entity);
+        }
+
+        // Double click: select AND anchor
+        if response.double_clicked() {
+            // First select
+            for e in selected_query.iter() {
+                commands.entity(e).remove::<Selected>();
+            }
+            commands.entity(entity).insert(Selected);
+            selection.select(entity);
+
+            // Then set pending anchor (to be applied after UI)
+            *pending_anchor.borrow_mut() = Some(entity);
         }
     });
 }
@@ -76,7 +84,8 @@ fn render_grouped_children(
     selection: &mut Selection,
     commands: &mut Commands,
     selected_query: &Query<Entity, With<Selected>>,
-    anchor_query: &mut Query<&mut CameraAnchor, With<GameCamera>>,
+    anchored_entity: Option<Entity>,
+    pending_anchor: &RefCell<Option<Entity>>,
     expanded_groups: &mut std::collections::HashSet<(Entity, String)>,
 ) {
     if children.is_empty() {
@@ -107,7 +116,8 @@ fn render_grouped_children(
                     selection,
                     commands,
                     selected_query,
-                    anchor_query,
+                    anchored_entity,
+                    pending_anchor,
                     expanded_groups,
                 );
             }
@@ -123,11 +133,13 @@ fn render_body_tree(
     selection: &mut Selection,
     commands: &mut Commands,
     selected_query: &Query<Entity, With<Selected>>,
-    anchor_query: &mut Query<&mut CameraAnchor, With<GameCamera>>,
+    anchored_entity: Option<Entity>,
+    pending_anchor: &RefCell<Option<Entity>>,
     expanded_groups: &mut std::collections::HashSet<(Entity, String)>,
 ) {
     if let Some(body) = body_map.get(&entity) {
         let is_selected = selection.is_selected(entity);
+        let is_anchored = anchored_entity == Some(entity);
         let id = ui.make_persistent_id(entity);
 
         // Group children by type
@@ -165,33 +177,38 @@ fn render_body_tree(
                 body.body_type == BodyType::Star,
             )
             .show_header(ui, |ui| {
-                if ui
-                    .small_button("⚓")
-                    .on_hover_text("Anchor Camera")
-                    .clicked()
-                {
-                    // Select the body when anchoring
-                    for e in selected_query.iter() {
-                        commands.entity(e).remove::<Selected>();
-                    }
-                    commands.entity(entity).insert(Selected);
-                    selection.select(entity);
-
-                    // Anchor the camera
-                    if let Ok(mut anchor) = anchor_query.single_mut() {
-                        anchor.0 = Some(entity);
-                    }
+                // Show anchor indicator (⚓) when anchored - not clickable, just informational
+                if is_anchored {
+                    ui.add(egui::Label::new(egui::RichText::new("⚓").color(egui::Color32::from_rgb(255, 200, 100))));
+                } else {
+                    ui.add_space(20.0); // Keep consistent spacing
                 }
 
                 // Use a visually distinct style for selected items
                 let type_icon = body_type_icon(&body.body_type);
                 let display_name = format!("{} {}", type_icon, body.name);
-                if render_selectable_label(ui, is_selected, &display_name).clicked() {
+                let response = render_selectable_label(ui, is_selected, &display_name);
+
+                // Single click: select only
+                if response.clicked() {
                     for e in selected_query.iter() {
                         commands.entity(e).remove::<Selected>();
                     }
                     commands.entity(entity).insert(Selected);
                     selection.select(entity);
+                }
+
+                // Double click: select AND anchor
+                if response.double_clicked() {
+                    // First select
+                    for e in selected_query.iter() {
+                        commands.entity(e).remove::<Selected>();
+                    }
+                    commands.entity(entity).insert(Selected);
+                    selection.select(entity);
+
+                    // Then set pending anchor (to be applied after UI)
+                    *pending_anchor.borrow_mut() = Some(entity);
                 }
             })
             .body(|ui| {
@@ -205,7 +222,8 @@ fn render_body_tree(
                         selection,
                         commands,
                         selected_query,
-                        anchor_query,
+                        anchored_entity,
+                        pending_anchor,
                         expanded_groups,
                     );
                 }
@@ -219,7 +237,8 @@ fn render_body_tree(
                         selection,
                         commands,
                         selected_query,
-                        anchor_query,
+                        anchored_entity,
+                        pending_anchor,
                         expanded_groups,
                     );
                 }
@@ -234,7 +253,8 @@ fn render_body_tree(
                     selection,
                     commands,
                     selected_query,
-                    anchor_query,
+                    anchored_entity,
+                    pending_anchor,
                     expanded_groups,
                 );
                 // 3. Moons — listed directly under the parent (no collapsible group)
@@ -247,7 +267,8 @@ fn render_body_tree(
                         selection,
                         commands,
                         selected_query,
-                        anchor_query,
+                        anchored_entity,
+                        pending_anchor,
                         expanded_groups,
                     );
                 }
@@ -262,7 +283,8 @@ fn render_body_tree(
                     selection,
                     commands,
                     selected_query,
-                    anchor_query,
+                    anchored_entity,
+                    pending_anchor,
                     expanded_groups,
                 );
                 // 5. Comets
@@ -276,7 +298,8 @@ fn render_body_tree(
                     selection,
                     commands,
                     selected_query,
-                    anchor_query,
+                    anchored_entity,
+                    pending_anchor,
                     expanded_groups,
                 );
                 // 6. Others
@@ -289,7 +312,8 @@ fn render_body_tree(
                         selection,
                         commands,
                         selected_query,
-                        anchor_query,
+                        anchored_entity,
+                        pending_anchor,
                         expanded_groups,
                     );
                 }
@@ -302,7 +326,8 @@ fn render_body_tree(
                 selection,
                 commands,
                 selected_query,
-                anchor_query,
+                anchored_entity,
+                pending_anchor,
             );
         }
     }
@@ -814,6 +839,21 @@ pub(super) fn ui_dashboard(
                                 sort_entities(children);
                             }
 
+                            // Get anchor entity for display only
+                            let anchored_entity = anchor_query
+                                .single()
+                                .ok()
+                                .and_then(|a| a.0);
+
+                            // Use a RefCell to allow interior mutability for anchor setting
+                            use std::cell::RefCell;
+                            thread_local! {
+                                static PENDING_ANCHOR: RefCell<Option<Entity>> = const { RefCell::new(None) };
+                            }
+
+                            // Store pending anchor to set after UI is done
+                            let pending_anchor = RefCell::new(None);
+
                             for root in roots {
                                 render_body_tree(
                                     ui,
@@ -823,9 +863,17 @@ pub(super) fn ui_dashboard(
                                     &mut selection,
                                     &mut commands,
                                     &selected_query,
-                                    &mut anchor_query,
+                                    anchored_entity,
+                                    &pending_anchor,
                                     &mut expanded_groups.groups,
                                 );
+                            }
+
+                            // Apply pending anchor after UI is done
+                            if let Some(entity) = *pending_anchor.borrow() {
+                                if let Ok(mut anchor) = anchor_query.single_mut() {
+                                    anchor.0 = Some(entity);
+                                }
                             }
 
                             // ── Fleet section ─────────────────────────────
@@ -1140,18 +1188,22 @@ pub(super) fn ui_time_controls(
 
                     let track_title = playlist.tracks[playlist.current_index].title;
                     ui.vertical(|ui| {
-                        ui.label(
-                            egui::RichText::new(format!("♪ {}", track_title))
-                                .font(egui::FontId::proportional(11.0))
-                                .color(theme::TEXT_DIM),
-                        );
-                        ui.label(
-                            egui::RichText::new(
-                                "Scott Buckley — CC-BY 4.0 · scottbuckley.com.au",
-                            )
-                            .font(egui::FontId::proportional(9.0))
-                            .color(theme::TEXT_HINT),
-                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(
+                                egui::RichText::new(format!("♪ {}", track_title))
+                                    .font(egui::FontId::proportional(11.0))
+                                    .color(theme::TEXT_DIM),
+                            );
+                        });
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(
+                                egui::RichText::new(
+                                    "Scott Buckley — CC-BY 4.0 · scottbuckley.com.au",
+                                )
+                                .font(egui::FontId::proportional(9.0))
+                                .color(theme::TEXT_HINT),
+                            );
+                        });
                     });
                 });
             });
