@@ -16,7 +16,21 @@ use super::*;
 use crate::astronomy::components::{
     AtmosphericGas, OceanProperties, OceanType, SurfaceTemperature,
 };
+use crate::plugins::solar_system_data::{AsteroidClass, BodyType};
 use std::f32::consts::TAU;
+
+/// Format asteroid class for display with description
+fn format_asteroid_class(class: AsteroidClass) -> String {
+    match class {
+        AsteroidClass::SType => "S-Type Asteroid (Silicaceous - rocky, metal-rich)".to_string(),
+        AsteroidClass::CType => "C-Type Asteroid (Carbonaceous - dark, volatile-rich)".to_string(),
+        AsteroidClass::MType => "M-Type Asteroid (Metallic - iron-nickel core)".to_string(),
+        AsteroidClass::VType => "V-Type Asteroid (Vestoid - basaltic crust)".to_string(),
+        AsteroidClass::DType => "D-Type Asteroid (Dark - outer belt, organic-rich)".to_string(),
+        AsteroidClass::PType => "P-Type Asteroid (Primitive - icy, carbon-rich)".to_string(),
+        AsteroidClass::Unknown => "Asteroid (Unknown type)".to_string(),
+    }
+}
 
 // ─── Tactical Palette (re-exports from theme) ───────────────────────────
 
@@ -236,9 +250,19 @@ fn draw_dossier_header(
             .color(ACCENT),
     );
 
-    // Category caption
+    // Category caption - with special formatting for asteroid spectral types
     if let Some(cat) = category {
-        let label = title_case_words(&cat.0);
+        let label = if body.body_type == BodyType::Asteroid {
+            // Show detailed asteroid type from the body's asteroid_class field
+            if let Some(class) = body.asteroid_class {
+                format_asteroid_class(class)
+            } else {
+                // Fallback to category string
+                title_case_words(&cat.0)
+            }
+        } else {
+            title_case_words(&cat.0)
+        };
         ui.label(egui::RichText::new(label).small().color(TEXT_DIM));
     }
 

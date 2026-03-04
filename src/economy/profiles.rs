@@ -1144,10 +1144,13 @@ pub(super) fn apply_spectral_class_profile(
             );
 
             // Moderate metals and silicates
+            // Note: Silicate minerals (olivine, pyroxene, serpentine) already contain
+            // bound Mg and Fe. The separate Iron/Magnesium fractions below represent
+            // *free* metal/sulfide phases, not the silicate-bound portion.
             resources.add_deposit(
                 ResourceType::Iron,
                 create_deposit_legacy(
-                    rng.random_range(0.10..0.20),
+                    rng.random_range(0.05..0.12),
                     rng.random_range(0.4..0.65),
                     body_mass,
                     BodyType::Asteroid,
@@ -1156,7 +1159,7 @@ pub(super) fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Silicates,
                 create_deposit_legacy(
-                    rng.random_range(0.40..0.60),
+                    rng.random_range(0.30..0.50),
                     rng.random_range(0.5..0.7),
                     body_mass,
                     BodyType::Asteroid,
@@ -1234,11 +1237,12 @@ pub(super) fn apply_spectral_class_profile(
                     BodyType::Asteroid,
                 ),
             );
-            // Magnesium: 5-15% in olivine and serpentine minerals
+            // Magnesium: free metal/sulfide phases only (olivine-bound Mg is part of Silicates)
+            // Free Mg is ~1-3% in CI chondrites
             resources.add_deposit(
                 ResourceType::Magnesium,
                 create_deposit_legacy(
-                    rng.random_range(0.05..0.15),
+                    rng.random_range(0.01..0.03),
                     rng.random_range(0.5..0.75),
                     body_mass,
                     BodyType::Asteroid,
@@ -1269,7 +1273,7 @@ pub(super) fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Silicates,
                 create_deposit_legacy(
-                    rng.random_range(0.45..0.65),
+                    rng.random_range(0.40..0.55),
                     rng.random_range(0.7..0.9),
                     body_mass,
                     BodyType::Asteroid,
@@ -1278,7 +1282,7 @@ pub(super) fn apply_spectral_class_profile(
             resources.add_deposit(
                 ResourceType::Iron,
                 create_deposit_legacy(
-                    rng.random_range(0.18..0.30),
+                    rng.random_range(0.12..0.22),
                     rng.random_range(0.7..0.9),
                     body_mass,
                     BodyType::Asteroid,
@@ -1363,11 +1367,12 @@ pub(super) fn apply_spectral_class_profile(
                     BodyType::Asteroid,
                 ),
             );
-            // Magnesium: 10-20% in olivine (Mg₂SiO₄) and pyroxene
+            // Magnesium: free metal/oxide not bound in silicates
+            // Olivine-bound Mg is already part of the Silicates fraction
             resources.add_deposit(
                 ResourceType::Magnesium,
                 create_deposit_legacy(
-                    rng.random_range(0.10..0.20),
+                    rng.random_range(0.02..0.05),
                     rng.random_range(0.7..0.9),
                     body_mass,
                     BodyType::Asteroid,
@@ -1616,11 +1621,11 @@ pub(super) fn apply_spectral_class_profile(
                     BodyType::Asteroid,
                 ),
             );
-            // Magnesium: 5-12% in pyroxene (MgSiO₃) basalt
+            // Magnesium: free metal/oxide not already in pyroxene silicates
             resources.add_deposit(
                 ResourceType::Magnesium,
                 create_deposit_legacy(
-                    rng.random_range(0.05..0.12),
+                    rng.random_range(0.01..0.04),
                     rng.random_range(0.7..0.85),
                     body_mass,
                     BodyType::Asteroid,

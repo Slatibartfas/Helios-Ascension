@@ -835,6 +835,11 @@ pub fn setup_solar_system(
         fn classify_for_spawn(
             body_data: &super::solar_system_data::CelestialBodyData,
         ) -> &'static str {
+            // Airless rocky planets (no atmosphere data) are "barren" — e.g. Mercury.
+            if body_data.body_type == BodyType::Planet && body_data.atmosphere.is_none() {
+                return "barren";
+            }
+
             // mimic the logic used in starmap classification so categories agree
             let avg_temp = body_data
                 .atmosphere
@@ -845,7 +850,7 @@ pub fn setup_solar_system(
             for byte in body_data.name.bytes() {
                 seed = seed.wrapping_mul(31).wrapping_add(byte as u32);
             }
-            crate::plugins::starmap::classify_exoplanet(
+            crate::plugins::starmap::classify_exoplanet_with_mass(
                 body_data.body_type,
                 body_data.asteroid_class,
                 avg_temp,
@@ -853,6 +858,7 @@ pub fn setup_solar_system(
                 body_data.ocean_fraction.unwrap_or(0.0) > 0.0
                     && body_data.ocean_type != Some(OceanType::Subsurface),
                 body_data.ocean_type == Some(OceanType::Water),
+                Some(body_data.mass),
             )
         }
 

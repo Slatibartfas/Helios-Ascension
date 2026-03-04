@@ -7279,25 +7279,6 @@
             rotation_period: 0.397583,
         ),
 
-        // 285 Regina
-        (
-            name: "285 Regina",
-            body_type: Asteroid,
-            asteroid_class: Some(SType),
-            mass: 1.3726e+08,
-            radius: 23.578,
-            color: (0.6, 0.58, 0.54),
-            emissive: (0.0, 0.0, 0.0),
-            parent: Some("Sol"),
-            orbit: Some((
-                semi_major_axis: 3.087,
-                eccentricity: 0.2034,
-                inclination: 17.61,
-                orbital_period: 1979.7,
-                initial_angle: 358.6,
-            )),
-            rotation_period: 0.397583,
-        ),
         // 80 Sappho
         (
             name: "80 Sappho",
@@ -12980,25 +12961,6 @@
             rotation_period: 0.184583,
         ),
 
-        // 80 Sappho
-        (
-            name: "80 Sappho",
-            body_type: Asteroid,
-            asteroid_class: Some(SType),
-            mass: 4.2190e+08,
-            radius: 34.2815,
-            color: (0.6, 0.58, 0.54),
-            emissive: (0.0, 0.0, 0.0),
-            parent: Some("Sol"),
-            orbit: Some((
-                semi_major_axis: 2.296,
-                eccentricity: 0.1997,
-                inclination: 8.68,
-                orbital_period: 1271.1,
-                initial_angle: 190.5,
-            )),
-            rotation_period: 0.584583,
-        ),
         (
             name: "1P/Halley",
             body_type: Comet,
@@ -13422,6 +13384,639 @@
                 initial_angle: 358.0,
             )),
             rotation_period: 1.1876172667919174,
+        ),
+
+        // NEW COMETS FROM JPL DATABASE (sorted by size)
+        // ============================================================
+
+        // 167P/CINEOS
+        (
+            name: "167P/CINEOS",
+            body_type: Comet,
+            mass: 7.5849e+07,
+            radius: 33.085,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 16.14,
+                eccentricity: 0.27,
+                inclination: 19.13,
+                longitude_ascending_node: 295.84,
+                argument_of_periapsis: 343.65,
+                orbital_period: 23704.725,
+                initial_angle: 86,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 28P/Neujmin 1
+        (
+            name: "28P/Neujmin 1",
+            body_type: Comet,
+            mass: 2.5657e+06,
+            radius: 10.7,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 6.982,
+                eccentricity: 0.7736,
+                inclination: 14.31,
+                longitude_ascending_node: 346.34,
+                argument_of_periapsis: 347.47,
+                orbital_period: 6720.6,
+                initial_angle: 291,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 65P/Gunn
+        (
+            name: "65P/Gunn",
+            body_type: Comet,
+            mass: 3.2979e+05,
+            radius: 5.4,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 3.884,
+                eccentricity: 0.2498,
+                inclination: 9.18,
+                longitude_ascending_node: 62.02,
+                argument_of_periapsis: 213.81,
+                orbital_period: 2797.815,
+                initial_angle: 126,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 10P/Tempel 2
+        (
+            name: "10P/Tempel 2",
+            body_type: Comet,
+            mass: 3.1181e+05,
+            radius: 5.3,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 3.065,
+                eccentricity: 0.5365,
+                inclination: 12.03,
+                longitude_ascending_node: 117.8,
+                argument_of_periapsis: 195.53,
+                orbital_period: 1961.3925,
+                initial_angle: 334,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 99P/Kowal 1
+        (
+            name: "99P/Kowal 1",
+            body_type: Comet,
+            mass: 2.7782e+05,
+            radius: 5.1,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 6.135,
+                eccentricity: 0.2297,
+                inclination: 4.34,
+                longitude_ascending_node: 28.18,
+                argument_of_periapsis: 174.19,
+                orbital_period: 5551.8,
+                initial_angle: 298,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 117P/Helin-Roman-Alu 1
+        (
+            name: "117P/Helin-Roman-Alu 1",
+            body_type: Comet,
+            mass: 1.9085e+05,
+            radius: 4.5,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 4.096,
+                eccentricity: 0.2538,
+                inclination: 8.7,
+                longitude_ascending_node: 58.9,
+                argument_of_periapsis: 222.69,
+                orbital_period: 3027.9225,
+                initial_angle: 147,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 49P/Arend-Rigaux
+        (
+            name: "49P/Arend-Rigaux",
+            body_type: Comet,
+            mass: 1.5965e+05,
+            radius: 4.24,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 3.567,
+                eccentricity: 0.6003,
+                inclination: 19.06,
+                longitude_ascending_node: 118.83,
+                argument_of_periapsis: 332.92,
+                orbital_period: 2461.785,
+                initial_angle: 266,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 32P/Comas Sola
+        (
+            name: "32P/Comas Sola",
+            body_type: Comet,
+            mass: 1.5517e+05,
+            radius: 4.2,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 4.499,
+                eccentricity: 0.5567,
+                inclination: 9.94,
+                longitude_ascending_node: 57.67,
+                argument_of_periapsis: 53.3,
+                orbital_period: 3484.485,
+                initial_angle: 204,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 151P/Helin
+        (
+            name: "151P/Helin",
+            body_type: Comet,
+            mass: 1.5517e+05,
+            radius: 4.2,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 5.807,
+                eccentricity: 0.5709,
+                inclination: 4.73,
+                longitude_ascending_node: 143.55,
+                argument_of_periapsis: 215.53,
+                orbital_period: 5113.5,
+                initial_angle: 213,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 77P/Longmore
+        (
+            name: "77P/Longmore",
+            body_type: Comet,
+            mass: 1.4435e+05,
+            radius: 4.1,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 3.613,
+                eccentricity: 0.3542,
+                inclination: 24.34,
+                longitude_ascending_node: 14.89,
+                argument_of_periapsis: 196.95,
+                orbital_period: 2509.2675,
+                initial_angle: 81,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 30P/Reinmuth 1
+        (
+            name: "30P/Reinmuth 1",
+            body_type: Comet,
+            mass: 1.2424e+05,
+            radius: 3.9,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 3.771,
+                eccentricity: 0.5023,
+                inclination: 8.13,
+                longitude_ascending_node: 119.72,
+                argument_of_periapsis: 13.25,
+                orbital_period: 2673.63,
+                initial_angle: 206,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 90P/Gehrels 1
+        (
+            name: "90P/Gehrels 1",
+            body_type: Comet,
+            mass: 1.2424e+05,
+            radius: 3.9,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 6.069,
+                eccentricity: 0.5098,
+                inclination: 9.64,
+                longitude_ascending_node: 13.25,
+                argument_of_periapsis: 29.27,
+                orbital_period: 5478.75,
+                initial_angle: 195,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 53P/Van Biesbroeck
+        (
+            name: "53P/Van Biesbroeck",
+            body_type: Comet,
+            mass: 7.7338e+04,
+            radius: 3.33,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 5.405,
+                eccentricity: 0.5511,
+                inclination: 6.61,
+                longitude_ascending_node: 148.9,
+                argument_of_periapsis: 134.26,
+                orbital_period: 4602.15,
+                initial_angle: 61,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 96P/Machholz 1
+        (
+            name: "96P/Machholz 1",
+            body_type: Comet,
+            mass: 6.8629e+04,
+            radius: 3.2,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 3.035,
+                eccentricity: 0.9592,
+                inclination: 58.14,
+                longitude_ascending_node: 94.25,
+                argument_of_periapsis: 14.79,
+                orbital_period: 1932.1725,
+                initial_angle: 43,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 31P/Schwassmann-Wachmann 2
+        (
+            name: "31P/Schwassmann-Wachmann 2",
+            body_type: Comet,
+            mass: 6.2394e+04,
+            radius: 3.1,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 4.243,
+                eccentricity: 0.193,
+                inclination: 4.55,
+                longitude_ascending_node: 114.19,
+                argument_of_periapsis: 17.93,
+                orbital_period: 3192.285,
+                initial_angle: 134,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 184P/Lovas 2
+        (
+            name: "184P/Lovas 2",
+            body_type: Comet,
+            mass: 6.2394e+04,
+            radius: 3.1,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 3.522,
+                eccentricity: 0.6043,
+                inclination: 1.55,
+                longitude_ascending_node: 277.74,
+                argument_of_periapsis: 78.06,
+                orbital_period: 2414.3025,
+                initial_angle: 288,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 137P/Shoemaker-Levy 2
+        (
+            name: "137P/Shoemaker-Levy 2",
+            body_type: Comet,
+            mass: 5.1080e+04,
+            radius: 2.9,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 4.518,
+                eccentricity: 0.5721,
+                inclination: 4.85,
+                longitude_ascending_node: 233.07,
+                argument_of_periapsis: 140.99,
+                orbital_period: 3506.4,
+                initial_angle: 300,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 48P/Johnson
+        (
+            name: "48P/Johnson",
+            body_type: Comet,
+            mass: 4.9511e+04,
+            radius: 2.87,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 3.499,
+                eccentricity: 0.4271,
+                inclination: 12.21,
+                longitude_ascending_node: 110.13,
+                argument_of_periapsis: 216.57,
+                orbital_period: 2388.735,
+                initial_angle: 282,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 47P/Ashbrook-Jackson
+        (
+            name: "47P/Ashbrook-Jackson",
+            body_type: Comet,
+            mass: 4.5976e+04,
+            radius: 2.8,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 4.124,
+                eccentricity: 0.3185,
+                inclination: 13.04,
+                longitude_ascending_node: 356.92,
+                argument_of_periapsis: 357.65,
+                orbital_period: 3057.1425,
+                initial_angle: 307,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 101P/Chernykh
+        (
+            name: "101P/Chernykh",
+            body_type: Comet,
+            mass: 4.5976e+04,
+            radius: 2.8,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 5.782,
+                eccentricity: 0.5977,
+                inclination: 5.03,
+                longitude_ascending_node: 116.59,
+                argument_of_periapsis: 277.43,
+                orbital_period: 5076.975,
+                initial_angle: 53,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 98P/Takamizawa
+        (
+            name: "98P/Takamizawa",
+            body_type: Comet,
+            mass: 4.1224e+04,
+            radius: 2.7,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 3.806,
+                eccentricity: 0.5606,
+                inclination: 10.55,
+                longitude_ascending_node: 114.75,
+                argument_of_periapsis: 157.95,
+                orbital_period: 2710.155,
+                initial_angle: 161,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 7P/Pons-Winnecke
+        (
+            name: "7P/Pons-Winnecke",
+            body_type: Comet,
+            mass: 3.6811e+04,
+            radius: 2.6,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 3.419,
+                eccentricity: 0.6376,
+                inclination: 22.33,
+                longitude_ascending_node: 93.42,
+                argument_of_periapsis: 172.51,
+                orbital_period: 2308.38,
+                initial_angle: 276,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 51P/Harrington
+        (
+            name: "51P/Harrington",
+            body_type: Comet,
+            mass: 2.8953e+04,
+            radius: 2.4,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 3.71,
+                eccentricity: 0.542,
+                inclination: 5.42,
+                longitude_ascending_node: 83.72,
+                argument_of_periapsis: 269.16,
+                orbital_period: 2611.5375,
+                initial_angle: 288,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 118P/Shoemaker-Levy 4
+        (
+            name: "118P/Shoemaker-Levy 4",
+            body_type: Comet,
+            mass: 2.8953e+04,
+            radius: 2.4,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 3.361,
+                eccentricity: 0.4551,
+                inclination: 10.09,
+                longitude_ascending_node: 142.11,
+                argument_of_periapsis: 314.44,
+                orbital_period: 2249.94,
+                initial_angle: 244,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 14P/Wolf
+        (
+            name: "14P/Wolf",
+            body_type: Comet,
+            mass: 2.6493e+04,
+            radius: 2.33,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 4.25,
+                eccentricity: 0.3566,
+                inclination: 27.94,
+                longitude_ascending_node: 202.12,
+                argument_of_periapsis: 159.25,
+                orbital_period: 3199.59,
+                initial_angle: 22,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 75D/Kohoutek
+        (
+            name: "75D/Kohoutek",
+            body_type: Comet,
+            mass: 2.5482e+04,
+            radius: 2.3,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 3.543,
+                eccentricity: 0.4963,
+                inclination: 5.91,
+                longitude_ascending_node: 269.69,
+                argument_of_periapsis: 175.8,
+                orbital_period: 2436.2175,
+                initial_angle: 283,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 36P/Whipple
+        (
+            name: "36P/Whipple",
+            body_type: Comet,
+            mass: 2.4823e+04,
+            radius: 2.28,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 4.165,
+                eccentricity: 0.2582,
+                inclination: 9.94,
+                longitude_ascending_node: 182.39,
+                argument_of_periapsis: 201.96,
+                orbital_period: 3104.625,
+                initial_angle: 125,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 8P/Tuttle
+        (
+            name: "8P/Tuttle",
+            body_type: Comet,
+            mass: 2.3856e+04,
+            radius: 2.25,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 5.7,
+                eccentricity: 0.8198,
+                inclination: 54.98,
+                longitude_ascending_node: 270.34,
+                argument_of_periapsis: 207.51,
+                orbital_period: 4967.4,
+                initial_angle: 249,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 74P/Smirnova-Chernykh
+        (
+            name: "74P/Smirnova-Chernykh",
+            body_type: Comet,
+            mass: 2.3226e+04,
+            radius: 2.23,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 4.165,
+                eccentricity: 0.1478,
+                inclination: 6.65,
+                longitude_ascending_node: 77.08,
+                argument_of_periapsis: 86.56,
+                orbital_period: 3104.625,
+                initial_angle: 224,
+            )),
+            rotation_period: 0.5,
+        ),
+
+        // 68P/Klemola
+        (
+            name: "68P/Klemola",
+            body_type: Comet,
+            mass: 2.2301e+04,
+            radius: 2.2,
+            color: (0.85, 0.88, 0.92),
+            emissive: (0.0, 0.0, 0.0),
+            parent: Some("Sol"),
+            orbit: Some((
+                semi_major_axis: 4.899,
+                eccentricity: 0.6403,
+                inclination: 11.18,
+                longitude_ascending_node: 175.3,
+                argument_of_periapsis: 153.84,
+                orbital_period: 3944.7,
+                initial_angle: 48,
+            )),
+            rotation_period: 0.5,
         ),
 
 // Asteroids: ~90, KBOs: 50, Trojans: 30, NEOs: 17, Comets: 20

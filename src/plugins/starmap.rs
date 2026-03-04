@@ -141,6 +141,13 @@ impl PlanetTextureManifest {
                 ],
             ),
             (
+                "scorched",
+                &[
+                    "textures/celestial/planets/venus_surface_8k.jpg",
+                    "textures/celestial/planets/mercury_8k.jpg",
+                ],
+            ),
+            (
                 "gas_giant",
                 &[
                     "textures/celestial/planets/jupiter_8k.jpg",
@@ -481,9 +488,36 @@ pub fn classify_exoplanet(
     has_surface_ocean: bool,
     ocean_is_water: bool,
 ) -> &'static str {
+    classify_exoplanet_with_mass(body_type, asteroid_class, avg_temp_c, seed, has_surface_ocean, ocean_is_water, None)
+}
+
+/// Extended classifier that also considers body mass (kg).
+///
+/// For `GasGiant` body types, mass distinguishes true gas giants (Jupiter/Saturn,
+/// dominated by H/He, mass > 2×10²⁶ kg) from ice giants (Uranus/Neptune,
+/// significant "ices" — water, ammonia, methane).
+pub fn classify_exoplanet_with_mass(
+    body_type: BodyType,
+    asteroid_class: Option<AsteroidClass>,
+    avg_temp_c: f32,
+    seed: u32,
+    has_surface_ocean: bool,
+    ocean_is_water: bool,
+    mass_kg: Option<f64>,
+) -> &'static str {
     match body_type {
         BodyType::GasGiant => {
-            if avg_temp_c < -80.0 {
+            // Distinguish gas giants (H/He dominated, like Jupiter/Saturn)
+            // from ice giants (significant ices, like Uranus/Neptune) by mass.
+            // Threshold: ~2×10²⁶ kg (~33 Earth masses) separates the two classes.
+            // Falls back to temperature heuristic only when mass is unavailable.
+            if let Some(mass) = mass_kg {
+                if mass > 2.0e26 {
+                    "gas_giant"
+                } else {
+                    "ice_giant"
+                }
+            } else if avg_temp_c < -80.0 {
                 "ice_giant"
             } else {
                 "gas_giant"
@@ -499,8 +533,11 @@ pub fn classify_exoplanet(
         BodyType::Planet => {
             if avg_temp_c > 500.0 {
                 "lava"
+            } else if avg_temp_c > 200.0 {
+                // Extreme heat (200–500 °C) — Venus-like greenhouse infernos
+                "scorched"
             } else if avg_temp_c > 60.0 {
-                // Very hot worlds above habitable band yet below lava
+                // Very hot worlds above habitable band
                 "desert"
             } else if avg_temp_c >= -20.0 {
                 // Habitable-zone planets: split by temperature into four archetypes
@@ -540,6 +577,15 @@ fn category_tint(category: &str, r1: f32, r2: f32, r3: f32) -> (Color, f32, f32)
             (
                 Color::srgb(b, (b * 0.32).min(1.0), (b * 0.06).min(1.0)),
                 0.70 + r2 * 0.15,
+                0.0 + r3 * 0.05,
+            )
+        }
+        "scorched" => {
+            // Dark red-orange — Venus-like extreme greenhouse worlds
+            let b = 0.82 + r1 * 0.12;
+            (
+                Color::srgb(b, (b * 0.45).min(1.0), (b * 0.15).min(1.0)),
+                0.72 + r2 * 0.15,
                 0.0 + r3 * 0.05,
             )
         }
@@ -1524,17 +1570,38 @@ mod tests {
             classify_exoplanet(BodyType::Planet, None, 501.0, 0, false, false),
             "lava"
         );
-        // exactly 500.0 is desert (condition is > 500.0)
+        // exactly 500.0 is scorched (condition is > 500.0 for lava)
         assert_eq!(
             classify_exoplanet(BodyType::Planet, None, 500.0, 0, false, false),
+            "scorched"
+        );
+    }
+
+    #[test]
+    fn test_classify_scorched() {
+        // Extreme-heat worlds (200–500 °C) — Venus-like greenhouse infernos
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, 465.0, 0, false, false),
+            "scorched"
+        );
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, 300.0, 0, false, false),
+            "scorched"
+        );
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, 201.0, 0, false, false),
+            "scorched"
+        );
+        // exactly 200.0 is desert (condition is > 200.0 for scorched)
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, 200.0, 0, false, false),
             "desert"
         );
     }
 
     #[test]
     fn test_classify_desert() {
-        // very hot worlds outside the habitable zone (<= 60) now fall into
-        // the savannah category; only temps above 60.0 are desert now.
+        // Hot worlds (60–200 °C)
         assert_eq!(
             classify_exoplanet(BodyType::Planet, None, 200.0, 0, false, false),
             "desert"
@@ -1659,7 +1726,41 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_gas_and_ice_giants() {
+    fn test_classify_gas_and_ice_giants_by_mass() {
+        // Jupiter-mass (1.9e27 kg) — gas giant regardless of temperature
+        assert_eq!(
+            classify_exoplanet_with_mass(BodyType::GasGiant, None, -108.0, 0, false, false, Some(1.9e27)),
+            "gas_giant"
+        );
+        // Saturn-mass (5.7e26 kg) — gas giant
+        assert_eq!(
+            classify_exoplanet_with_mass(BodyType::GasGiant, None, -133.0, 0, false, false, Some(5.7e26)),
+            "gas_giant"
+        );
+        // Uranus-mass (8.7e25 kg) — ice giant
+        assert_eq!(
+            classify_exoplanet_with_mass(BodyType::GasGiant, None, -197.0, 0, false, false, Some(8.7e25)),
+            "ice_giant"
+        );
+        // Neptune-mass (1.0e26 kg) — ice giant
+        assert_eq!(
+            classify_exoplanet_with_mass(BodyType::GasGiant, None, -201.0, 0, false, false, Some(1.0e26)),
+            "ice_giant"
+        );
+        // Mass threshold: > 2e26 is gas giant
+        assert_eq!(
+            classify_exoplanet_with_mass(BodyType::GasGiant, None, -200.0, 0, false, false, Some(2.01e26)),
+            "gas_giant"
+        );
+        assert_eq!(
+            classify_exoplanet_with_mass(BodyType::GasGiant, None, -200.0, 0, false, false, Some(2.0e26)),
+            "ice_giant"
+        );
+    }
+
+    #[test]
+    fn test_classify_gas_giants_no_mass_fallback() {
+        // Without mass, falls back to temperature heuristic
         assert_eq!(
             classify_exoplanet(BodyType::GasGiant, None, -200.0, 0, false, false),
             "ice_giant"

@@ -116,6 +116,57 @@ pub fn generate_solar_system_resources(
     }
 }
 
+/// Normalize resource deposits so the total mass does not exceed the body's mass.
+///
+/// When individual resource abundance fractions are drawn independently (e.g. Silicates
+/// 40-60%, Iron 10-20%, Magnesium 5-15%), their sum can exceed 100% of the body's mass.
+/// This function scales every deposit proportionally so the total equals at most
+/// `max_fraction` (default 95%) of the body mass, preserving relative proportions.
+///
+/// Gas giants are exempt because their profiles use carefully calibrated mass fractions
+/// that already account for the full composition.
+fn normalize_resources_to_body_mass(
+    resources: &mut PlanetResources,
+    body_mass_kg: f64,
+    body_type: BodyType,
+) {
+    // Gas giants have meticulously set abundance fractions — skip normalization.
+    // Their harvestable fractions are tiny and never approach the body mass.
+    if matches!(body_type, BodyType::GasGiant) {
+        return;
+    }
+
+    // Body mass in Megatons (1 Mt = 1e9 kg)
+    let body_mass_mt = body_mass_kg / 1e9;
+    if body_mass_mt <= 0.0 {
+        return;
+    }
+
+    // Sum total resource mass across all deposits
+    let total_resource_mt: f64 = resources
+        .deposits
+        .values()
+        .map(|d| d.reserve.total_mass())
+        .sum();
+
+    // Allow resources to fill at most 95% of body mass (remaining ~5% is untracked
+    // material: trace elements, oxygen in oxide form, interstitial voids, etc.)
+    let max_mt = body_mass_mt * 0.95;
+
+    if total_resource_mt > max_mt {
+        let scale = max_mt / total_resource_mt;
+        debug!(
+            "Resource mass ({:.2e} Mt) exceeds body mass budget ({:.2e} Mt) — scaling by {:.4}",
+            total_resource_mt, max_mt, scale
+        );
+        for deposit in resources.deposits.values_mut() {
+            deposit.reserve.proven_crustal *= scale;
+            deposit.reserve.deep_deposits *= scale;
+            deposit.reserve.planetary_bulk *= scale;
+        }
+    }
+}
+
 /// Generate resources for a celestial body based on its distance from parent star
 /// Implements the frost line rule, realistic accretion chemistry, body-specific profiles,
 /// and scientific spectral class mapping for asteroids
@@ -143,7 +194,9 @@ fn generate_resources_for_body(
     if let Some(special_resources) =
         super::profiles::apply_special_body_profile(body_name, body_mass, rng)
     {
-        return special_resources;
+        let mut result = special_resources;
+        normalize_resources_to_body_mass(&mut result, body_mass, body_type);
+        return result;
     }
 
     // Gas/ice giants that aren't named Sol bodies get a procedural profile
@@ -171,7 +224,9 @@ fn generate_resources_for_body(
                 frost_line_au,
                 rng,
             ) {
-                return spectral_resources;
+                let mut result = spectral_resources;
+                normalize_resources_to_body_mass(&mut result, body_mass, body_type);
+                return result;
             }
         }
     }
@@ -225,6 +280,9 @@ fn generate_resources_for_body(
             resources.add_deposit(*resource_type, deposit);
         }
     }
+
+    // Ensure total resource mass does not exceed the body's physical mass
+    normalize_resources_to_body_mass(&mut resources, body_mass, body_type);
 
     resources
 }
@@ -1049,10 +1107,13 @@ mod tests {
     #[test]
     fn test_mars_special_profile() {
         let mut rng = rand::rng();
+        // Mars special profile uses absolute mass values (e.g. 4.6 billion Mt water)
+        // so we must pass Mars's actual mass, not the tiny TEST_BODY_MASS
+        let mars_mass = 6.39e23; // kg
         let resources = generate_resources_for_body(
             "Mars",
             crate::plugins::solar_system_data::BodyType::Planet,
-            TEST_BODY_MASS,
+            mars_mass,
             None,
             1.52,
             2.5,
@@ -1779,9 +1840,12 @@ mod tests {
         };
 
         if water_fraction > 0.0 {
+            // After mass-budget normalization, the absolute water fraction may be
+            // lower than the raw draw (30-70%) because all resources are scaled
+            // to fit within 95% of body mass. Water should still be significant.
             assert!(
-                water_fraction >= 0.3 && water_fraction <= 0.7,
-                "Outer system body should have 30-70% water ice, found: {:.1}%",
+                water_fraction >= 0.10 && water_fraction <= 0.7,
+                "Outer system body should have 10-70% water ice, found: {:.1}%",
                 water_fraction * 100.0
             );
         }
@@ -2123,6 +2187,97 @@ mod tests {
         assert!(
             !mineral.is_atmospheric,
             "Mineral deposit should have is_atmospheric = false"
+        );
+    }
+
+    #[test]
+    fn test_resource_mass_never_exceeds_body_mass() {
+        // For every asteroid spectral class, generate resources many times and verify
+        // total resource mass never exceeds the body mass.
+        use crate::plugins::solar_system_data::AsteroidClass;
+
+        let classes = [
+            AsteroidClass::CType,
+            AsteroidClass::SType,
+            AsteroidClass::MType,
+            AsteroidClass::VType,
+            AsteroidClass::DType,
+            AsteroidClass::PType,
+        ];
+
+        let body_mass_kg = 7.5e18; // Fortuna-sized asteroid
+        let body_mass_mt = body_mass_kg / 1e9;
+        let mut rng = rand::rng();
+
+        for class in &classes {
+            for _ in 0..20 {
+                let resources = generate_resources_for_body(
+                    "TestAsteroid",
+                    BodyType::Asteroid,
+                    body_mass_kg,
+                    Some(*class),
+                    2.8,  // typical main belt distance
+                    2.5,  // frost line
+                    &mut rng,
+                );
+
+                let total_resource_mt: f64 = resources
+                    .deposits
+                    .values()
+                    .map(|d| d.reserve.total_mass())
+                    .sum();
+
+                assert!(
+                    total_resource_mt <= body_mass_mt * 1.01, // 1% tolerance for floating point
+                    "{:?} asteroid resources ({:.2e} Mt) exceed body mass ({:.2e} Mt) — ratio: {:.2}%",
+                    class,
+                    total_resource_mt,
+                    body_mass_mt,
+                    (total_resource_mt / body_mass_mt) * 100.0
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_normalization_preserves_relative_proportions() {
+        // Create resources that exceed body mass, normalize, verify ratios preserved
+        let mut resources = PlanetResources::new();
+        resources.add_deposit(
+            ResourceType::Iron,
+            MineralDeposit::new(100.0, 200.0, 700.0, 0.5, 0.6),
+        );
+        resources.add_deposit(
+            ResourceType::Silicates,
+            MineralDeposit::new(200.0, 400.0, 1400.0, 0.6, 0.7),
+        );
+
+        let body_mass_kg = 1e12; // 1e3 Mt body
+        let body_mass_mt = body_mass_kg / 1e9; // = 1000 Mt
+
+        // Total resources = 1000 + 2000 = 3000 Mt > 1000 Mt body
+        let iron_before = resources.get_abundance(&ResourceType::Iron);
+        let sio2_before = resources.get_abundance(&ResourceType::Silicates);
+        let ratio_before = iron_before / sio2_before;
+
+        normalize_resources_to_body_mass(&mut resources, body_mass_kg, BodyType::Asteroid);
+
+        let iron_after = resources.get_abundance(&ResourceType::Iron);
+        let sio2_after = resources.get_abundance(&ResourceType::Silicates);
+        let total_after = iron_after + sio2_after;
+        let ratio_after = iron_after / sio2_after;
+
+        assert!(
+            total_after <= body_mass_mt * 0.96,
+            "Normalized total ({:.2}) should be ≤ 95% of body mass ({:.2})",
+            total_after,
+            body_mass_mt
+        );
+        assert!(
+            (ratio_before - ratio_after).abs() < 0.001,
+            "Iron:Silicate ratio should be preserved. Before: {:.4}, After: {:.4}",
+            ratio_before,
+            ratio_after
         );
     }
 }

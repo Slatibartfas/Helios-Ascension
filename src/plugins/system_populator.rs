@@ -34,7 +34,7 @@ use crate::plugins::solar_system::{
 use crate::plugins::solar_system_data::{
     calculate_visual_radius, system_visual_scale, AsteroidClass, BodyType,
 };
-use crate::plugins::starmap::{classify_exoplanet, PlanetCategory, SystemMetadata};
+use crate::plugins::starmap::{classify_exoplanet_with_mass, PlanetCategory, SystemMetadata};
 
 pub struct SystemPopulatorPlugin;
 
@@ -589,7 +589,7 @@ pub fn spawn_confirmed_planet(
         .name
         .bytes()
         .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
-    let category = classify_exoplanet(BodyType::Planet, None, avg_temp, cat_seed, false, false);
+    let category = classify_exoplanet_with_mass(BodyType::Planet, None, avg_temp, cat_seed, false, false, Some(mass_kg));
 
     let mut entity_commands = commands.spawn((
         Planet,
@@ -700,7 +700,7 @@ pub fn spawn_procedural_planet(
         .name
         .bytes()
         .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
-    let category = classify_exoplanet(planet.body_type(), None, avg_temp, cat_seed, false, false);
+    let category = classify_exoplanet_with_mass(planet.body_type(), None, avg_temp, cat_seed, false, false, Some(mass_kg));
 
     let mut entity_commands = commands.spawn((
         Planet,

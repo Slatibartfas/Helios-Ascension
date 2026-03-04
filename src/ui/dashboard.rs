@@ -1,4 +1,5 @@
 use super::*;
+use crate::plugins::solar_system_data::AsteroidClass;
 use std::cell::RefCell;
 
 fn render_selectable_label(ui: &mut egui::Ui, is_selected: bool, name: &str) -> egui::Response {
@@ -20,6 +21,19 @@ fn body_type_icon(body_type: &BodyType) -> &'static str {
         BodyType::Comet => "\u{2604}",       // ☄
         BodyType::GasGiant => "\u{25C9}",    // ◉
         BodyType::Ring => "\u{25CB}",        // ○
+    }
+}
+
+/// Format asteroid class for display (short form for ledger)
+fn format_asteroid_type_short(class: AsteroidClass) -> String {
+    match class {
+        AsteroidClass::SType => "S-Type".to_string(),
+        AsteroidClass::CType => "C-Type".to_string(),
+        AsteroidClass::MType => "M-Type".to_string(),
+        AsteroidClass::VType => "V-Type".to_string(),
+        AsteroidClass::DType => "D-Type".to_string(),
+        AsteroidClass::PType => "P-Type".to_string(),
+        AsteroidClass::Unknown => "?".to_string(),
     }
 }
 
@@ -46,7 +60,16 @@ fn render_body_row(
         }
 
         // Use a visually distinct style for selected items
-        let display_name = format!("{} {}", type_icon, body.name);
+        // For asteroids, include the spectral type in the name
+        let display_name = if body.body_type == BodyType::Asteroid {
+            if let Some(class) = body.asteroid_class {
+                format!("{} {} [{}]", type_icon, body.name, format_asteroid_type_short(class))
+            } else {
+                format!("{} {}", type_icon, body.name)
+            }
+        } else {
+            format!("{} {}", type_icon, body.name)
+        };
         let response = render_selectable_label(ui, is_selected, &display_name);
 
         // Single click: select only
@@ -185,8 +208,17 @@ fn render_body_tree(
                 }
 
                 // Use a visually distinct style for selected items
+                // For asteroids, include the spectral type in the name
                 let type_icon = body_type_icon(&body.body_type);
-                let display_name = format!("{} {}", type_icon, body.name);
+                let display_name = if body.body_type == BodyType::Asteroid {
+                    if let Some(class) = body.asteroid_class {
+                        format!("{} {} [{}]", type_icon, body.name, format_asteroid_type_short(class))
+                    } else {
+                        format!("{} {}", type_icon, body.name)
+                    }
+                } else {
+                    format!("{} {}", type_icon, body.name)
+                };
                 let response = render_selectable_label(ui, is_selected, &display_name);
 
                 // Single click: select only

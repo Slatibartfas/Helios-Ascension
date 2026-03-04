@@ -28,15 +28,16 @@
 // CATEGORIES
 // ==========
 //   barren     — Cratered, airless rocky worlds (Mercury-like)
-//   desert     — Hot arid worlds: 60°C – 500°C  (Mars / Venus -like)
+//   scorched   — Extreme-heat greenhouse worlds: 200°C – 500°C (Venus-like)
+//   desert     — Hot arid worlds: 60°C – 200°C  (Mars-like)
 //   temperate  — Mixed biome Earth-like worlds: -20°C – 60°C
 //   jungle     — Lush, heavily-vegetated worlds: -20°C – 60°C
 //   ocean      — Global-ocean-dominated worlds:  -20°C – 60°C
 //   tundra     — Cold permafrost worlds: -100°C – -20°C
 //   ice        — Deeply-frozen worlds below -100°C (Pluto-like)
-//   lava       — Volcanically-active scorched worlds above 500°C
-//   gas_giant  — Warm gas giants (Jupiter / Saturn -like)
-//   ice_giant  — Cold ice giants (Neptune / Uranus -like)
+//   lava       — Volcanically-active molten worlds above 500°C
+//   gas_giant  — H/He dominated gas giants (Jupiter / Saturn -like)
+//   ice_giant  — Ice giants rich in water/ammonia/methane ices (Neptune / Uranus -like)
 //   dwarf      — Dwarf planets and Kuiper Belt Objects
 //   moon       — Natural satellites
 //   asteroid_s — Silicaceous / metallic / basaltic asteroids
@@ -52,10 +53,9 @@
             "textures/celestial/planets/mercury_8k.jpg",
         ],
         "desert": [
-            // Hot, arid worlds. Add desert planet textures to
+            // Hot, arid worlds (60–200 °C). Add desert planet textures to
             // assets/textures/celestial/planets/desert/ and register them here.
             "textures/celestial/planets/mars_8k.jpg",
-            "textures/celestial/planets/venus_surface_8k.jpg",
         ],
         "temperate": [
             // Earth-like mixed biome worlds. Add temperate planet textures to
@@ -96,11 +96,17 @@
             "textures/celestial/planets/eris_2k.jpg",
         ],
         "lava": [
-            // Volcanically active scorched worlds. Add lava planet textures to
-            // assets/textures/celestial/planets/lava/ and register them here.
+            // Volcanically active worlds with molten surfaces (>500°C).
             // Currently uses Mercury/Venus as placeholders — replace with dedicated textures.
             "textures/celestial/planets/mercury_8k.jpg",
             "textures/celestial/planets/venus_surface_8k.jpg",
+        ],
+        "scorched": [
+            // Extreme-heat greenhouse worlds (200–500°C, Venus-like).
+            // Add scorched planet textures to
+            // assets/textures/celestial/planets/scorched/ and register them here.
+            "textures/celestial/planets/venus_surface_8k.jpg",
+            "textures/celestial/planets/mercury_8k.jpg",
         ],
 
         // ── Giant planets ────────────────────────────────────────────────────
