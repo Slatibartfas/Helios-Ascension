@@ -1520,17 +1520,20 @@ fn draw_resource_tile(
         let d = deposit.unwrap();
         let discovered = survey_level.discovered_amount(&d.reserve);
         let tooltip_id = egui::Id::new("resource_tile_tooltip").with(resource.symbol());
-        egui::show_tooltip(ui.ctx(), ui.layer_id(), tooltip_id, |ui| {
-            // Disable the default tooltip frame entirely — we draw our own
-            let frame = ui.visuals_mut();
-            frame.widgets.noninteractive.bg_fill = egui::Color32::TRANSPARENT;
-            frame.widgets.noninteractive.bg_stroke = egui::Stroke::NONE;
-            frame.window_fill = egui::Color32::TRANSPARENT;
-            frame.window_stroke = egui::Stroke::NONE;
-            frame.window_shadow = egui::Shadow::NONE;
-            // Also clear the popup shadow that can cause a second border
-            frame.popup_shadow = egui::Shadow::NONE;
 
+        // Override the popup frame style on the ctx *before* show_tooltip is called.
+        // egui::show_tooltip wraps content in Frame::popup(ctx.style()) which is
+        // constructed outside our closure — visual overrides inside don't affect it.
+        let prev_visuals = ui.ctx().style().visuals.clone();
+        ui.ctx().set_visuals(egui::Visuals {
+            window_fill: egui::Color32::TRANSPARENT,
+            window_stroke: egui::Stroke::NONE,
+            window_shadow: egui::Shadow::NONE,
+            popup_shadow: egui::Shadow::NONE,
+            ..prev_visuals.clone()
+        });
+
+        egui::show_tooltip(ui.ctx(), ui.layer_id(), tooltip_id, |ui| {
             let tip_frame = egui::Frame::NONE
                 .fill(BG_FILL)
                 .stroke(egui::Stroke::new(1.0, ACCENT_DIM))
@@ -1642,6 +1645,9 @@ fn draw_resource_tile(
                 });
             });
         });
+
+        // Restore previous visuals now that the tooltip has been submitted
+        ui.ctx().set_visuals(prev_visuals);
     }
 }
 

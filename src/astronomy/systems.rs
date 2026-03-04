@@ -1157,6 +1157,8 @@ pub fn update_orbit_visibility(
     expanded_groups: Res<crate::ui::ExpandedLedgerGroups>,
     // Read-only pre-pass to detect which category groups have a selected body.
     selected_category_query: Query<(&CelestialBody, Option<&LogicalParent>), With<Selected>>,
+    // Used to look up body type and parent of any entity (e.g. parent of a selected moon).
+    all_body_parents: Query<(&CelestialBody, Option<&LogicalParent>)>,
 ) {
     let Ok(anchor) = camera_query.single() else {
         return;
@@ -1180,6 +1182,10 @@ pub fn update_orbit_visibility(
     // selected/highlighted body stands out.
     let mut groups_with_selection: std::collections::HashSet<(Entity, &'static str)> =
         std::collections::HashSet::new();
+    // Set of dwarf-planet entities that are the direct parent of a currently-selected moon.
+    // These should always show their orbit (like a "parent selected" rule).
+    let mut selected_moon_parent_dwarfs: std::collections::HashSet<Entity> =
+        std::collections::HashSet::new();
     for (cb, lp) in selected_category_query.iter() {
         let group: Option<&'static str> = match cb.body_type {
             BodyType::DwarfPlanet => Some("Dwarf Planets"),
@@ -1189,6 +1195,23 @@ pub fn update_orbit_visibility(
         };
         if let (Some(group), Some(parent_e)) = (group, lp.map(|l| l.0)) {
             groups_with_selection.insert((parent_e, group));
+        }
+        // If a Moon is selected whose parent is a DwarfPlanet, treat the parent
+        // dwarf planet like a "parent selected" body: show only its orbit and hide
+        // all other dwarf planet orbits in the same group.
+        if cb.body_type == BodyType::Moon {
+            if let Some(parent_e) = lp.map(|l| l.0) {
+                if let Ok((parent_cb, parent_lp)) = all_body_parents.get(parent_e) {
+                    if parent_cb.body_type == BodyType::DwarfPlanet {
+                        selected_moon_parent_dwarfs.insert(parent_e);
+                        // Suppress sibling dwarf planets by adding the grandparent
+                        // (the star) + group key to groups_with_selection.
+                        if let Some(star_e) = parent_lp.map(|l| l.0) {
+                            groups_with_selection.insert((star_e, "Dwarf Planets"));
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1256,9 +1279,13 @@ pub fn update_orbit_visibility(
             };
             orbit_path.visible = match (group_name, logical_parent.map(|lp| lp.0)) {
                 (Some(group), Some(parent_e)) => {
+                    // Always show the dwarf planet whose moon is currently selected
+                    // (mirrors the parent_selected rule used for regular moons).
+                    if selected_moon_parent_dwarfs.contains(&entity) {
+                        true
                     // Hide if a sibling is selected (they are handled by the
                     // `selected.is_some()` branch and already shown).
-                    if groups_with_selection.contains(&(parent_e, group)) {
+                    } else if groups_with_selection.contains(&(parent_e, group)) {
                         false
                     } else {
                         expanded_groups
