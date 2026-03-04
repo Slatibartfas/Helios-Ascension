@@ -556,6 +556,24 @@ pub fn despawn_hover_markers(
     }
 }
 
+/// Safety cleanup: despawn any `SelectionMarker` whose owner no longer has `Selected`.
+///
+/// `RemovedComponents` can miss stale markers when the same entity loses and regains
+/// `Selected` in one frame (e.g. the egui tree fires `clicked()` + `double_clicked()`
+/// simultaneously while `handle_body_selection` also deselects-then-reselects).  This
+/// system runs after `despawn_selection_markers` to catch any leftovers.
+pub fn cleanup_stale_selection_markers(
+    mut commands: Commands,
+    marker_query: Query<(Entity, &MarkerOwner), With<SelectionMarker>>,
+    selected_query: Query<(), With<Selected>>,
+) {
+    for (marker_entity, owner) in marker_query.iter() {
+        if selected_query.get(owner.0).is_err() {
+            commands.entity(marker_entity).despawn();
+        }
+    }
+}
+
 /// System that animates marker dots around selection/hover rings.
 pub fn animate_marker_dots(time: Res<Time>, mut query: Query<(&mut Transform, &mut MarkerDot)>) {
     for (mut transform, mut dot) in query.iter_mut() {

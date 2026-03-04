@@ -1134,7 +1134,8 @@ pub fn fade_destroyed_bodies(
 /// System that controls orbit visibility based on body type and camera anchor.
 ///
 /// Moon orbits are only shown when their parent planet is the camera's anchor,
-/// their parent planet is selected, or the selected fleet orbits their parent planet.
+/// the moon itself is the camera's anchor, their parent planet is selected,
+/// or the selected fleet orbits their parent planet.
 /// Asteroid/DwarfPlanet/Comet orbits are shown when their ledger category group
 /// is expanded in the left ledger panel.
 pub fn update_orbit_visibility(
@@ -1212,6 +1213,8 @@ pub fn update_orbit_visibility(
             // 1. the camera anchor
             let parent_anchored =
                 anchor.0.is_some() && parent_entity.map(|e| Some(e) == anchor.0).unwrap_or(false);
+            // Also show when the moon itself is the camera anchor
+            let self_anchored = anchor.0 == Some(entity);
             // 2. selected
             let parent_selected = parent_entity
                 .map(|e| selected_query.contains(e))
@@ -1233,6 +1236,7 @@ pub fn update_orbit_visibility(
                 })
                 .unwrap_or(false);
             orbit_path.visible = parent_anchored
+                || self_anchored
                 || parent_selected
                 || fleet_orbits_parent
                 || fleet_orbits_self
@@ -1270,8 +1274,10 @@ pub fn update_orbit_visibility(
 
 /// System that toggles moon mesh visibility based on camera anchor.
 ///
-/// Moons are only visible when their parent planet is the camera's anchor.
-/// This prevents overlapping moon systems from different planets.
+/// Moons are only visible when their parent planet is the camera's anchor,
+/// the moon itself is the camera's anchor, the parent is selected, or a
+/// selected fleet orbits the parent/moon. This prevents overlapping moon
+/// systems from different planets from cluttering the view.
 ///
 /// Also respects the current star system — bodies from other systems are
 /// left hidden even if selected or anchored.
@@ -1333,6 +1339,8 @@ pub fn update_body_lod_visibility(
             let parent_entity = logical_parent.map(|lp| lp.0);
             let parent_anchored =
                 anchor.0.is_some() && parent_entity.map(|e| Some(e) == anchor.0).unwrap_or(false);
+            // Also show when the moon itself is the camera anchor
+            let self_anchored = anchor.0 == Some(entity);
             let parent_selected = parent_entity
                 .map(|e| selected_bodies.contains(e))
                 .unwrap_or(false);
@@ -1352,6 +1360,7 @@ pub fn update_body_lod_visibility(
                 })
                 .unwrap_or(false);
             *visibility = if parent_anchored
+                || self_anchored
                 || parent_selected
                 || fleet_orbits_parent
                 || fleet_orbits_self

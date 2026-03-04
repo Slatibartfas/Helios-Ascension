@@ -12,8 +12,10 @@ use crate::economy::{PowerGenerator, PowerSourceType};
 /// Rates are stored as "amount per 30-day month" (2,592,000 seconds).
 #[derive(Resource, Debug, Clone, Default)]
 pub struct ResourceRateTracker {
-    /// Monthly production rate per resource type (Mt/month)
+    /// Monthly production rate per resource type (Mt/month) — global total
     pub resource_rates: HashMap<ResourceType, f64>,
+    /// Per-entity (body) monthly rates for resource tooltip breakdown
+    pub per_entity_rates: HashMap<Entity, HashMap<ResourceType, f64>>,
     /// Monthly research point generation
     pub research_rate_per_month: f64,
     /// Monthly engineering point generation
@@ -26,9 +28,18 @@ pub const SECONDS_PER_MONTH: f64 = 2_592_000.0;
 pub const SECONDS_PER_YEAR: f64 = 31_557_600.0;
 
 impl ResourceRateTracker {
-    /// Get the monthly rate for a resource type
+    /// Get the global monthly rate for a resource type
     pub fn get_resource_rate(&self, resource: &ResourceType) -> f64 {
         self.resource_rates.get(resource).copied().unwrap_or(0.0)
+    }
+
+    /// Get the monthly rate for a resource on a specific body
+    pub fn get_entity_resource_rate(&self, entity: Entity, resource: &ResourceType) -> f64 {
+        self.per_entity_rates
+            .get(&entity)
+            .and_then(|rates| rates.get(resource))
+            .copied()
+            .unwrap_or(0.0)
     }
 
     /// Get the total monthly rate for a category of resources

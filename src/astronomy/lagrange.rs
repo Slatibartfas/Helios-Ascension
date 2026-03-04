@@ -284,44 +284,61 @@ pub fn draw_lagrange_point_rings(
         // Render-space center of the planet (marker reference point)
         let parent_render = to_render(parent_sc.position);
 
-        // Moon's orbital angle around the planet (use physics angle; amp changes
-        // distance only, not direction).
+        // Moon's 3D orbital position around the planet
         let moon_rel = anchored_sc.position - parent_sc.position;
-        let theta = moon_rel.y.atan2(moon_rel.x);
+        let moon_dir = moon_rel.normalize_or_zero();
+
+        // Use the moon's actual 3D direction for L-point orientation
+        let lx = moon_dir.x;
+        let ly = moon_dir.y;
+        let lz = moon_dir.z;
 
         // L-point offsets from planet center in render units (amplified)
-        let sma_render = a_moon * amp * SCALING_FACTOR as f64;
+        // L1/L2 are along the moon-planet axis
         let l1_r = ((a_moon - r_hill) * amp * SCALING_FACTOR as f64).max(10.0);
         let l2_r = ((a_moon + r_hill) * amp * SCALING_FACTOR as f64).max(l1_r + 10.0);
+        let sma_render = a_moon * amp * SCALING_FACTOR as f64;
+
+        // For L4/L5, we need to create triangular points in the orbital plane
+        // Using the actual 3D moon direction
+        let cos60 = 0.5;
+        let sin60 = 0.8660254037845386;
 
         // LP heliocentric radii (for hover/select metadata)
         let lp_radii_b: [f64; 5] = [a_moon - r_hill, a_moon + r_hill, a_moon, a_moon, a_moon];
-        // L-point offsets from planet center in render units
+
+        // L-point offsets from planet center in 3D render units
+        // L1/L2 are along the moon-planet axis
         let lp_offsets: [Vec3; 5] = [
+            // L1: toward parent along moon direction
             Vec3::new(
-                (l1_r * theta.cos()) as f32,
-                (l1_r * theta.sin()) as f32,
-                0.0,
+                (l1_r * lx) as f32,
+                (l1_r * ly) as f32,
+                (l1_r * lz) as f32,
             ),
+            // L2: away from parent along moon direction
             Vec3::new(
-                (l2_r * theta.cos()) as f32,
-                (l2_r * theta.sin()) as f32,
-                0.0,
+                (l2_r * lx) as f32,
+                (l2_r * ly) as f32,
+                (l2_r * lz) as f32,
             ),
+            // L3: opposite to moon (around the parent)
             Vec3::new(
-                (sma_render * (theta + std::f64::consts::PI).cos()) as f32,
-                (sma_render * (theta + std::f64::consts::PI).sin()) as f32,
-                0.0,
+                (sma_render * -lx) as f32,
+                (sma_render * -ly) as f32,
+                (sma_render * -lz) as f32,
             ),
+            // L4: +60 degrees in orbital plane
             Vec3::new(
-                (sma_render * (theta + std::f64::consts::FRAC_PI_3).cos()) as f32,
-                (sma_render * (theta + std::f64::consts::FRAC_PI_3).sin()) as f32,
-                0.0,
+                (sma_render * (lx * cos60 - ly * sin60)) as f32,
+                (sma_render * (lx * sin60 + ly * cos60)) as f32,
+                (sma_render * lz) as f32,
             ),
+            // L5: -60 degrees in orbital plane
             Vec3::new(
-                (sma_render * (theta - std::f64::consts::FRAC_PI_3).cos()) as f32,
-                (sma_render * (theta - std::f64::consts::FRAC_PI_3).sin()) as f32,
-                0.0,
+                (sma_render * (lx * cos60 + ly * sin60)) as f32,
+                (sma_render * (-lx * sin60 + ly * cos60)) as f32,
+                (sma_render * lz) as f32,
             ),
         ];
 
