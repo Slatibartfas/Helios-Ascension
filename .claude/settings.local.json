@@ -3,7 +3,8 @@
     "allow": [
       "Bash(cargo check)",
       "WebFetch(domain:minimax-algeng-chat-tts-us.oss-us-east-1.aliyuncs.com)",
-      "Bash(cargo build --profile fast)"
+      "Bash(cargo build --profile fast)",
+      "mcp__MiniMax__understand_image"
     ]
   }
 }

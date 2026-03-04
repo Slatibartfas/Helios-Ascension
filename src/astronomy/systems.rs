@@ -1041,8 +1041,9 @@ pub fn draw_comet_tails(
 }
 
 /// Perihelion distance (in AU) at which ISON disintegrates
-/// Historical: ISON broke apart around 730,000 km from sun surface (0.0049 AU from center)
-const ISON_DESTRUCTION_DISTANCE_AU: f64 = 0.005;
+/// Historical: ISON broke apart at perihelion on Nov 28, 2013, at ~0.0124 AU from the Sun center.
+/// The nucleus was already fragmenting before perihelion passage.
+const ISON_DESTRUCTION_DISTANCE_AU: f64 = 0.0125;
 
 /// Distance (in AU) below which any comet would be destroyed by solar heating.
 /// The Roche limit for a low-density body near the Sun is roughly 0.009 AU (about 2

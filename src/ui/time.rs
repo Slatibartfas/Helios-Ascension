@@ -90,6 +90,11 @@ impl SimulationTime {
         self.elapsed
     }
 
+    /// Get the Unix timestamp at which the game started (simulation epoch, elapsed == 0)
+    pub fn start_timestamp(&self) -> i64 {
+        self.start_timestamp
+    }
+
     /// Get the current simulation date as Unix timestamp
     pub fn current_timestamp(&self) -> i64 {
         self.start_timestamp + self.elapsed as i64

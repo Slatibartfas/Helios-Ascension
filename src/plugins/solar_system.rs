@@ -559,18 +559,37 @@ pub fn setup_solar_system(
     atmosphere_settings: Res<crate::plugins::atmosphere::AtmosphereSettings>,
     asset_server: Res<AssetServer>,
     mut ring_alpha_queue: ResMut<RingAlphaCombineQueue>,
+    sim_time: Res<crate::ui::SimulationTime>,
 ) {
     // Queue to collect normal/specular handles that must be treated as linear textures
     let mut linear_handle_queue: Vec<Handle<Image>> = Vec::new();
 
     // Load solar system data
-    let data = match SolarSystemData::load_from_file("assets/data/solar_system.ron") {
+    let mut data = match SolarSystemData::load_from_file("assets/data/solar_system.ron") {
         Ok(data) => data,
         Err(e) => {
             error!("Failed to load solar system data: {}", e);
             return;
         }
     };
+
+    // Remove bodies that were permanently destroyed before the game's start date.
+    // This covers historically destroyed comets (e.g. ISON 2013, SL-9 1994) so they
+    // simply never appear when the game starts in an era after their destruction.
+    // Bodies with no `destroyed_at` (the vast majority) are always kept.
+    let start_ts = sim_time.start_timestamp();
+    let pre_load = data.bodies.len();
+    data.bodies
+        .retain(|body| body.destroyed_at.map_or(true, |t| start_ts < t));
+    let removed = pre_load - data.bodies.len();
+    if removed > 0 {
+        info!(
+            "Skipped {} bod{} already destroyed before game start (Unix {})",
+            removed,
+            if removed == 1 { "y" } else { "ies" },
+            start_ts
+        );
+    }
 
     info!("Loaded {} celestial bodies", data.bodies.len());
 

@@ -199,6 +199,13 @@ pub struct CelestialBodyData {
     /// Average depth of the ocean in km.
     #[serde(default)]
     pub ocean_depth_km: Option<f32>,
+    /// Unix timestamp (seconds since Jan 1 1970 UTC) at which this body was permanently
+    /// destroyed (e.g. a comet that disintegrated or impacted another body).
+    /// When set and the game start timestamp is >= this value, the body is skipped entirely
+    /// during loading so it never appears in the simulation.
+    /// Leave unset for bodies that are still present in the current era.
+    #[serde(default)]
+    pub destroyed_at: Option<i64>,
 }
 
 /// Complete solar system data

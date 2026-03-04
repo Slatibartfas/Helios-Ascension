@@ -277,42 +277,48 @@ pub fn activate_scheduled_departures(
         // Use the fleet's own (heliocentric) SpaceCoordinates rather than the origin body's
         // SpaceCoordinates: moons only store a local offset from their parent planet, so
         // querying the moon entity directly would give the wrong departure direction.
-        {
-            let center_pos = body_coords
+        // For local transfers (planet <-> moon), the orbit_center is the planet whose
+        // SpaceCoordinates are heliocentric, but we need planet-centric (DVec3::ZERO).
+        let is_local_transfer = maneuver.orbit_center == maneuver.origin_body
+            || maneuver.orbit_center == maneuver.destination_body;
+        let center_pos = if is_local_transfer {
+            DVec3::ZERO
+        } else {
+            body_coords
                 .get(maneuver.orbit_center)
                 .map(|sc| sc.position)
-                .unwrap_or(DVec3::ZERO);
+                .unwrap_or(DVec3::ZERO)
+        };
 
-            let rel_pos = if let Ok(fleet_sc) = fleet_sc_query.get(entity) {
-                fleet_sc.position - center_pos
-            } else if let Ok(origin_sc) = body_coords.get(maneuver.origin_body) {
-                origin_sc.position - center_pos
+        let rel_pos = if let Ok(fleet_sc) = fleet_sc_query.get(entity) {
+            fleet_sc.position - center_pos
+        } else if let Ok(origin_sc) = body_coords.get(maneuver.origin_body) {
+            origin_sc.position - center_pos
+        } else {
+            DVec3::ZERO
+        };
+
+        if rel_pos.length_squared() > 1e-30 {
+            let lan = maneuver.transfer_orbit.longitude_ascending_node;
+            let incl = maneuver.transfer_orbit.inclination;
+
+            if incl > 1e-10 {
+                let n = bevy::math::DVec3::new(
+                    incl.sin() * lan.sin(),
+                    -incl.sin() * lan.cos(),
+                    incl.cos(),
+                );
+                let node = bevy::math::DVec3::new(lan.cos(), lan.sin(), 0.0);
+                let peri_dir = rel_pos.normalize_or_zero();
+                let cos_w = node.dot(peri_dir);
+                let sin_w = n.dot(node.cross(peri_dir));
+                let omega = sin_w.atan2(cos_w);
+                maneuver.transfer_orbit.argument_of_periapsis =
+                    omega - maneuver.transfer_orbit.mean_anomaly_epoch;
             } else {
-                DVec3::ZERO
-            };
-
-            if rel_pos.length_squared() > 1e-30 {
-                let lan = maneuver.transfer_orbit.longitude_ascending_node;
-                let incl = maneuver.transfer_orbit.inclination;
-
-                if incl > 1e-10 {
-                    let n = bevy::math::DVec3::new(
-                        incl.sin() * lan.sin(),
-                        -incl.sin() * lan.cos(),
-                        incl.cos(),
-                    );
-                    let node = bevy::math::DVec3::new(lan.cos(), lan.sin(), 0.0);
-                    let peri_dir = rel_pos.normalize_or_zero();
-                    let cos_w = node.dot(peri_dir);
-                    let sin_w = n.dot(node.cross(peri_dir));
-                    let omega = sin_w.atan2(cos_w);
-                    maneuver.transfer_orbit.argument_of_periapsis =
-                        omega - maneuver.transfer_orbit.mean_anomaly_epoch;
-                } else {
-                    let theta = rel_pos.y.atan2(rel_pos.x);
-                    maneuver.transfer_orbit.argument_of_periapsis =
-                        theta - maneuver.transfer_orbit.mean_anomaly_epoch;
-                }
+                let theta = rel_pos.y.atan2(rel_pos.x);
+                maneuver.transfer_orbit.argument_of_periapsis =
+                    theta - maneuver.transfer_orbit.mean_anomaly_epoch;
             }
         }
 

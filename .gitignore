@@ -34,6 +34,4 @@
 Thumbs.db
 desktop.ini
 
-# Additional ignores (add as needed)
-# .env
-# local test databases, logs, etc.
+

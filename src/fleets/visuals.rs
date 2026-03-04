@@ -259,6 +259,45 @@ fn optimal_departure_angle(origin: Vec3, destination: Vec3) -> f32 {
     }
 }
 
+/// Return a **frame-stable** travel time for the transfer preview ghost body.
+///
+/// For *Moderate* and *Fast* transfer options the
+/// [`calculate_transfer_options_phased`](crate::fleets::orbital_mechanics::calculate_transfer_options_phased)
+/// function recalculates transfer times every frame because the phase-correction
+/// factor changes with the simulation clock.  For slow-orbiting bodies this is
+/// imperceptible, but for fast-orbiting moons (e.g. Amalthea,  period ≈ 12 h)
+/// the fluctuating `transfer_time_s` makes the ghost body visually spin faster
+/// than the actual body.
+///
+/// This helper uses the *Efficient* option's transfer time (`t_h`, the Hohmann
+/// half-period, which depends only on the orbit radii and GM — all constants)
+/// and re-derives the Moderate/Fast time with the **nominal** energy
+/// multiplier (1.5 / 2.5) instead of the phase-corrected value.
+fn stable_preview_travel_time(ui: &FleetUiState) -> f64 {
+    if ui.selected_option < ui.computed_options.len() {
+        let opt = &ui.computed_options[ui.selected_option];
+        // Options with inherently stable times (Efficient, kinematic, etc.)
+        // can be returned directly.
+        if opt.label != "Moderate" && opt.label != "Fast" {
+            return opt.transfer_time_s;
+        }
+        // Base Hohmann time from the Efficient option (index 0).
+        let base_time = ui
+            .computed_options
+            .first()
+            .map(|o| o.transfer_time_s)
+            .unwrap_or(opt.transfer_time_s);
+        // Use the tier's nominal multiplier, stripping the per-frame phase correction.
+        let nominal_mult: f64 = if opt.label == "Moderate" { 1.5 } else { 2.5 };
+        // Kepler scaling: time ∝ multiplier^(−2/3)
+        base_time * nominal_mult.powf(-2.0 / 3.0)
+    } else if let Some(pt) = &ui.planned_transfer {
+        pt.duration_s
+    } else {
+        0.0
+    }
+}
+
 // ── Shared transfer-arc geometry ──────────────────────────────────────────────
 
 /// Computed Bezier control points for a transfer arc.
@@ -346,32 +385,32 @@ fn compute_transfer_arc(
     let radial_dest_raw = dp - cv_ref;
     let radial_dest = if radial_dest_raw.length() > 1.0 {
         radial_dest_raw.normalize()
+    } else if dp.length() > 0.1 {
+        // cv_ref ≈ dp (heliocentric: orbit_center = target planet itself).
+        // In System view the star is always at Vec3::ZERO, so dp IS the orbital
+        // radial from the star to the body.
+        dp.normalize()
     } else {
         (dp - op).normalize_or_zero()
     };
-    // Arrival ring point: rotate inbound direction by 90° so the fleet arrives
-    // where prograde/retrograde aligns with the incoming trajectory.
-    let inbound = (dp - op).normalize_or_zero();
+    // Arrival ring point: use the orbital radial direction (from orbit centre to
+    // destination) so the arc arrives **tangent** to the destination orbit,
+    // matching Hohmann transfer geometry.
     let arr_ring_dir = if is_inward {
-        Vec3::new(-inbound.y, inbound.x, 0.0) // CCW rotation
+        // Inward transfer: fleet arrives from the prograde direction
+        Vec3::new(-radial_dest.y, radial_dest.x, 0.0)
     } else {
-        Vec3::new(inbound.y, -inbound.x, 0.0) // CW rotation
+        // Outward transfer: fleet arrives from the retrograde (trailing) direction
+        Vec3::new(radial_dest.y, -radial_dest.x, 0.0)
     };
     let p3 = dp + arr_ring_dir * dest_ring_r;
-    let tang_d_a = Vec3::new(-radial_dest.y, radial_dest.x, 0.0);
-    let tang_dest = if is_inward {
-        if tang_d_a.dot(tang_origin) < 0.0 {
-            tang_d_a
-        } else {
-            -tang_d_a
-        }
-    } else {
-        if tang_d_a.dot(tang_origin) >= 0.0 {
-            tang_d_a
-        } else {
-            -tang_d_a
-        }
-    };
+    // Arrival tangent: always prograde (CCW rotation of radial).
+    // Hohmann transfers arrive tangent to the destination orbit for both inward
+    // and outward transfers — inward arrives prograde-fast, outward arrives
+    // prograde-slow.  The previous `tang_d_a.dot(tang_origin)` heuristic was
+    // unstable for ~180° arcs (dot product near zero) and frequently flipped
+    // the tangent to retrograde, causing the perpendicular-looking approach.
+    let tang_dest = Vec3::new(-radial_dest.y, radial_dest.x, 0.0);
 
     let ctrl_len = (p3 - p0).length() * 0.40;
     let mut p1 = p0 + tang_origin * ctrl_len;
@@ -2024,14 +2063,7 @@ pub fn draw_fleet_transfer_preview(
             fleet_parking_visual_radius(origin_body_data.visual_radius)
         };
 
-        let travel_time_s =
-            if fleet_ui_state.selected_option < fleet_ui_state.computed_options.len() {
-                fleet_ui_state.computed_options[fleet_ui_state.selected_option].transfer_time_s
-            } else if let Some(pt) = &fleet_ui_state.planned_transfer {
-                pt.duration_s
-            } else {
-                0.0
-            };
+        let travel_time_s = stable_preview_travel_time(&fleet_ui_state);
 
         // Predict the LP's parent planet position to get LP direction.
         let planet_pos_now = body_query
@@ -2268,13 +2300,11 @@ pub fn draw_fleet_transfer_preview(
     let dest_ring_r = fleet_parking_visual_radius(dest_visual_r);
 
     // Travel time from selected transfer option (or 0 = show arc to current position).
-    let travel_time_s = if fleet_ui_state.selected_option < fleet_ui_state.computed_options.len() {
-        fleet_ui_state.computed_options[fleet_ui_state.selected_option].transfer_time_s
-    } else if let Some(pt) = &fleet_ui_state.planned_transfer {
-        pt.duration_s
-    } else {
-        0.0
-    };
+    // Uses `stable_preview_travel_time` which strips frame-varying phase corrections
+    // from Moderate/Fast options.  Without this, fast-orbiting moons (e.g. Amalthea)
+    // cause the ghost body to visually spin faster than the actual body because
+    // `d(travel_time)/dt ≠ 0` adds to the orbital angular rate.
+    let travel_time_s = stable_preview_travel_time(&fleet_ui_state);
 
     // Predict destination body position at planned departure + travel time so the
     // ghost mark moves when the player drags the departure slider.

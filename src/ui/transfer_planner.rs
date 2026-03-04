@@ -2776,10 +2776,20 @@ fn build_planned_transfer(
     // For course corrections, determine outward/inward from the fleet's actual distance vs
     // the destination distance.  The body SMAs may not reflect the fleet's position mid-transit.
     // (Computed after rel_pos and dest_rel are available below; use a closure to defer.)
-    let center_pos = body_query
-        .get(orbit_center)
-        .map(|(_, _, sc, _, _)| sc.position)
-        .unwrap_or(bevy::math::DVec3::ZERO);
+    // For local transfers (planet ↔ moon, or moon → parent planet), the orbit_center IS the
+    // planet and its SpaceCoordinates are heliocentric, but we need planet-centric coordinates
+    // (DVec3::ZERO) for the transfer orbit geometry. Only use heliocentric position for
+    // heliocentric transfers.
+    // Cases: (1) Earth → Moon: dest_parent == Some(orbit.body), (2) Moon → Earth: Some(target_entity) == origin_parent
+    let is_local_transfer = dest_parent == Some(orbit.body) || Some(target_entity) == origin_parent;
+    let center_pos = if is_local_transfer {
+        bevy::math::DVec3::ZERO
+    } else {
+        body_query
+            .get(orbit_center)
+            .map(|(_, _, sc, _, _)| sc.position)
+            .unwrap_or(bevy::math::DVec3::ZERO)
+    };
     // For course corrections use the fleet's actual position; otherwise use the origin body.
     let rel_pos = if let Some(fleet_pos) = course_correction_pos {
         // fleet_pos is already in the correct frame (heliocentric or planet-relative).
@@ -2789,20 +2799,23 @@ fn build_planned_transfer(
         // not the orbit_center entity.  Subtract center_pos for consistency.
         fleet_pos - center_pos
     } else {
+        // For local transfers (planet ↔ moon): origin_sc.position is already local
+        // (moon-relative), and center_pos is DVec3::ZERO, so rel_pos = origin_sc.position.
         // For heliocentric transfers where the fleet orbits a moon, the moon's
         // SpaceCoordinates stores only a local offset from its parent planet — not a
         // heliocentric position.  Use the parent planet's heliocentric SC so that the
         // departure direction (argument_of_periapsis) points in the correct direction.
-        let origin_helio_pos =
-            if origin_body.body_type == BodyType::Moon && center_pos.length_squared() < 1e-20 {
-                origin_parent
-                    .and_then(|pe| body_query.get(pe).ok())
-                    .map(|(_, _, sc, _, _)| sc.position)
-                    .unwrap_or(origin_sc.position)
-            } else {
-                origin_sc.position
-            };
-        origin_helio_pos - center_pos
+        let origin_pos = if is_local_transfer {
+            origin_sc.position
+        } else if origin_body.body_type == BodyType::Moon {
+            origin_parent
+                .and_then(|pe| body_query.get(pe).ok())
+                .map(|(_, _, sc, _, _)| sc.position)
+                .unwrap_or(origin_sc.position)
+        } else {
+            origin_sc.position
+        };
+        origin_pos - center_pos
     };
 
     // Derive the transfer-orbit plane from the 3D departure and arrival position
@@ -2815,7 +2828,21 @@ fn build_planned_transfer(
         .get(target_entity)
         .ok()
         .map(|(_, b, sc, _, lp)| {
-            if b.body_type == BodyType::Moon && center_pos.length_squared() < 1e-20 {
+            // For local transfers (planet ↔ moon or moon → parent planet):
+            // - origin is moon-relative (local coordinates)
+            // - destination should also be local (DVec3::ZERO for the planet center)
+            // For heliocentric: if destination is a moon, get parent's heliocentric position
+            if is_local_transfer {
+                // For downward transfer (Moon → Earth), destination is the planet itself
+                // For upward transfer (Earth → Moon), destination is moon-relative
+                if Some(target_entity) == origin_parent {
+                    // Downward: destination is the parent planet, use DVec3::ZERO
+                    bevy::math::DVec3::ZERO
+                } else {
+                    // Upward: destination is moon-relative
+                    sc.position
+                }
+            } else if b.body_type == BodyType::Moon {
                 lp.and_then(|lp| body_query.get(lp.0).ok())
                     .map(|(_, _, sc, _, _)| sc.position)
                     .unwrap_or(sc.position)
