@@ -7,6 +7,7 @@ use super::components::{
 };
 use crate::plugins::camera::{CameraAnchor, GameCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, Comet, LogicalParent, Moon, Planet};
+use crate::plugins::solar_system_data::BodyType;
 use crate::ui::SimulationTime;
 
 /// Scaling factor for converting astronomical units to Bevy rendering units
@@ -1059,6 +1060,8 @@ pub fn fade_destroyed_bodies(
 ///
 /// Moon orbits are only shown when their parent planet is the camera's anchor,
 /// their parent planet is selected, or the selected fleet orbits their parent planet.
+/// Asteroid/DwarfPlanet/Comet orbits are shown when their ledger category group
+/// is expanded in the left ledger panel.
 pub fn update_orbit_visibility(
     view_mode: Res<ViewMode>,
     camera_query: Query<&CameraAnchor, With<GameCamera>>,
@@ -1069,11 +1072,13 @@ pub fn update_orbit_visibility(
         Option<&Planet>,
         Option<&Moon>,
         Option<&LogicalParent>,
+        Option<&CelestialBody>,
     )>,
     selected_query: Query<(), With<Selected>>,
     fleet_ui_state: Res<crate::ui::FleetUiState>,
     fleet_orbit_query: Query<&crate::fleets::FleetOrbit, With<crate::fleets::Fleet>>,
     fleet_maneuver_query: Query<&crate::fleets::ActiveManeuver, With<crate::fleets::Fleet>>,
+    expanded_groups: Res<crate::ui::ExpandedLedgerGroups>,
 ) {
     let Ok(anchor) = camera_query.single() else {
         return;
@@ -1091,7 +1096,9 @@ pub fn update_orbit_visibility(
         .and_then(|fe| fleet_maneuver_query.get(fe).ok())
         .map(|m| (m.origin_body, m.destination_body));
 
-    for (entity, mut orbit_path, selected, planet, moon, logical_parent) in orbit_query.iter_mut() {
+    for (entity, mut orbit_path, selected, planet, moon, logical_parent, celestial_body) in
+        orbit_query.iter_mut()
+    {
         // Hide all orbits in starmap view
         if *view_mode == ViewMode::Starmap {
             orbit_path.visible = false;
@@ -1137,8 +1144,23 @@ pub fn update_orbit_visibility(
                 || fleet_transits_self
                 || fleet_transits_parent;
         } else {
-            // Asteroids, Comets, DwarfPlanets are hidden by default
-            orbit_path.visible = false;
+            // Asteroids, Comets, DwarfPlanets: show orbits when their ledger
+            // category group is currently expanded in the left panel.
+            let group_name: Option<&str> = match celestial_body.map(|cb| &cb.body_type) {
+                Some(BodyType::DwarfPlanet) => Some("Dwarf Planets"),
+                Some(BodyType::Asteroid) => Some("Asteroids"),
+                Some(BodyType::Comet) => Some("Comets"),
+                _ => None,
+            };
+            orbit_path.visible = match (
+                group_name,
+                logical_parent.map(|lp| lp.0),
+            ) {
+                (Some(group), Some(parent_e)) => expanded_groups
+                    .groups
+                    .contains(&(parent_e, group.to_string())),
+                _ => false,
+            };
         }
     }
 }

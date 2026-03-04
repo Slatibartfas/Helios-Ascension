@@ -100,6 +100,14 @@ const MIN_HELIOCENTRIC_SMA_AU: f64 = 0.05;
 const MIN_WINDOW_WIDTH: f32 = 1920.0;
 const MIN_WINDOW_HEIGHT: f32 = 1080.0;
 
+/// Tracks which ledger category groups are currently expanded in the bodies panel.
+/// Cleared at the start of each `ui_dashboard` frame, then repopulated as the
+/// tree is rendered.  Key: `(parent_entity, group_label)`.
+#[derive(Resource, Default)]
+pub struct ExpandedLedgerGroups {
+    pub groups: std::collections::HashSet<(Entity, String)>,
+}
+
 /// Resource to track if we should display the low resolution warning
 #[derive(Resource, Default)]
 pub struct ResolutionWarning {
@@ -392,6 +400,7 @@ impl Plugin for UIPlugin {
             .init_resource::<ResearchUiPreferences>()
             .init_resource::<FleetUiState>()
             .init_resource::<ResolutionWarning>()
+            .init_resource::<ExpandedLedgerGroups>()
             // ActiveMenu is now initialized in GameStatePlugin
             // to allow access in camera/starmap plugins
             // Load menu icons at startup

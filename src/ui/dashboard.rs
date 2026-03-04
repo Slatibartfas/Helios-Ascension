@@ -77,6 +77,7 @@ fn render_grouped_children(
     commands: &mut Commands,
     selected_query: &Query<Entity, With<Selected>>,
     anchor_query: &mut Query<&mut CameraAnchor, With<GameCamera>>,
+    expanded_groups: &mut std::collections::HashSet<(Entity, String)>,
 ) {
     if children.is_empty() {
         return;
@@ -84,7 +85,13 @@ fn render_grouped_children(
 
     // Make ID unique by including parent entity to avoid UI jumping bug
     let id = ui.make_persistent_id((group_name, parent_entity));
-    egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
+    let state =
+        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false);
+    // Record expansion state so orbit visibility can be driven from the ledger.
+    if state.is_open() {
+        expanded_groups.insert((parent_entity, group_name.to_string()));
+    }
+    state
         .show_header(ui, |ui| {
             ui.label(format!("{} ({})", group_name, children.len()));
         })
@@ -101,6 +108,7 @@ fn render_grouped_children(
                     commands,
                     selected_query,
                     anchor_query,
+                    expanded_groups,
                 );
             }
         });
@@ -116,6 +124,7 @@ fn render_body_tree(
     commands: &mut Commands,
     selected_query: &Query<Entity, With<Selected>>,
     anchor_query: &mut Query<&mut CameraAnchor, With<GameCamera>>,
+    expanded_groups: &mut std::collections::HashSet<(Entity, String)>,
 ) {
     if let Some(body) = body_map.get(&entity) {
         let is_selected = selection.is_selected(entity);
@@ -197,6 +206,7 @@ fn render_body_tree(
                         commands,
                         selected_query,
                         anchor_query,
+                        expanded_groups,
                     );
                 }
                 // 1. Planets (Recursive)
@@ -210,6 +220,7 @@ fn render_body_tree(
                         commands,
                         selected_query,
                         anchor_query,
+                        expanded_groups,
                     );
                 }
                 // 2. Dwarf Planets (Grouped, recursive so moons like Charon are shown)
@@ -224,6 +235,7 @@ fn render_body_tree(
                     commands,
                     selected_query,
                     anchor_query,
+                    expanded_groups,
                 );
                 // 3. Moons — listed directly under the parent (no collapsible group)
                 for child in child_moons {
@@ -236,6 +248,7 @@ fn render_body_tree(
                         commands,
                         selected_query,
                         anchor_query,
+                        expanded_groups,
                     );
                 }
                 // 4. Asteroids
@@ -250,6 +263,7 @@ fn render_body_tree(
                     commands,
                     selected_query,
                     anchor_query,
+                    expanded_groups,
                 );
                 // 5. Comets
                 render_grouped_children(
@@ -263,6 +277,7 @@ fn render_body_tree(
                     commands,
                     selected_query,
                     anchor_query,
+                    expanded_groups,
                 );
                 // 6. Others
                 for child in child_others {
@@ -275,6 +290,7 @@ fn render_body_tree(
                         commands,
                         selected_query,
                         anchor_query,
+                        expanded_groups,
                     );
                 }
             });
@@ -659,6 +675,7 @@ pub(super) fn ui_dashboard(
     mut anchor_query: Query<&mut CameraAnchor, With<GameCamera>>,
     sim_time: Res<SimulationTime>,
     mut orbit_query: Query<&mut OrbitCamera, With<GameCamera>>,
+    mut expanded_groups: ResMut<crate::ui::ExpandedLedgerGroups>,
 ) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
@@ -674,6 +691,9 @@ pub(super) fn ui_dashboard(
     }
 
     // Ledger Panel (Left)
+    // Clear expanded group tracking so it is repopulated fresh this frame.
+    expanded_groups.groups.clear();
+
     egui::SidePanel::left("ledger_panel")
         .min_width(200.0)
         .default_width(230.0)
@@ -804,6 +824,7 @@ pub(super) fn ui_dashboard(
                                     &mut commands,
                                     &selected_query,
                                     &mut anchor_query,
+                                    &mut expanded_groups.groups,
                                 );
                             }
 
@@ -1080,76 +1101,58 @@ pub(super) fn ui_time_controls(
                     ui.colored_label(view_color, egui::RichText::new(view_label));
                 });
 
-                // Push music controls to the far right edge of the window
-                ui.add_space(ui.available_width() - 260.0);
-
-                // ── Music controls ─────────────────────────────────────────────
-                // Layout: [♪ Title] ................. [⏸] [⏭] [═══ vol]
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 8.0;
-                    ui.spacing_mut().button_padding = egui::vec2(4.0, 2.0);
-                    const BTN: [f32; 2] = [24.0, 22.0];
-
-                    // Title — fixed width, left side
-                    let track_title = playlist.tracks[playlist.current_index].title;
+                // ── Music controls (right-aligned, inline with time controls) ──
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // RTL: items added right-to-left, so volume → skip → pause → sep → title
                     ui.add_sized(
-                        [160.0, BTN[1]],
-                        egui::Label::new(
-                            egui::RichText::new(format!("♪ {}", track_title))
-                                .font(egui::FontId::proportional(11.0))
-                                .color(theme::TEXT_DIM),
-                        )
-                        .truncate(),
+                        [64.0, 36.0],
+                        egui::Slider::new(&mut playlist.volume, 0.0..=1.0)
+                            .show_value(false),
                     );
 
-                    // Flexible space between title and controls
-                    ui.add_space(ui.available_width() * 0.15);
+                    let skip_btn = egui::Button::new(
+                        egui::RichText::new("⏭").size(16.0).color(theme::TEXT_DIM),
+                    )
+                    .stroke(egui::Stroke::new(0.5, theme::BORDER))
+                    .fill(theme::SURFACE);
+                    if ui.add_sized([36.0, 36.0], skip_btn).clicked() {
+                        playlist.skip_requested = true;
+                    }
 
-                    // Pause / play button
                     let play_label = if playlist.paused { "▶" } else { "⏸" };
-                    let play_color = if playlist.paused {
-                        theme::ACCENT
-                    } else {
-                        theme::TEXT_DIM
-                    };
+                    let play_color =
+                        if playlist.paused { theme::ACCENT } else { theme::TEXT_DIM };
                     let play_stroke = if playlist.paused {
                         egui::Stroke::new(1.0, theme::ACCENT)
                     } else {
                         egui::Stroke::new(0.5, theme::BORDER)
                     };
                     let play_btn = egui::Button::new(
-                        egui::RichText::new(play_label).color(play_color),
+                        egui::RichText::new(play_label).size(16.0).color(play_color),
                     )
                     .stroke(play_stroke)
                     .fill(theme::SURFACE);
-                    if ui.add_sized(BTN, play_btn).clicked() {
+                    if ui.add_sized([36.0, 36.0], play_btn).clicked() {
                         playlist.paused = !playlist.paused;
                     }
 
-                    // Skip button
-                    let skip_btn =
-                        egui::Button::new(egui::RichText::new("⏭").color(theme::TEXT_DIM))
-                            .stroke(egui::Stroke::new(0.5, theme::BORDER))
-                            .fill(theme::SURFACE);
-                    if ui.add_sized(BTN, skip_btn).clicked() {
-                        playlist.skip_requested = true;
-                    }
+                    ui.separator();
 
-                    // Volume slider
-                    ui.add_sized(
-                        [64.0, BTN[1]],
-                        egui::Slider::new(&mut playlist.volume, 0.0..=1.0)
-                            .show_value(false),
-                    );
-                });
-
-                // Row 2: CC-BY attribution (right-aligned)
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(
-                        egui::RichText::new("Scott Buckley — CC-BY 4.0 · scottbuckley.com.au")
+                    let track_title = playlist.tracks[playlist.current_index].title;
+                    ui.vertical(|ui| {
+                        ui.label(
+                            egui::RichText::new(format!("♪ {}", track_title))
+                                .font(egui::FontId::proportional(11.0))
+                                .color(theme::TEXT_DIM),
+                        );
+                        ui.label(
+                            egui::RichText::new(
+                                "Scott Buckley — CC-BY 4.0 · scottbuckley.com.au",
+                            )
                             .font(egui::FontId::proportional(9.0))
                             .color(theme::TEXT_HINT),
-                    );
+                        );
+                    });
                 });
             });
         });

@@ -4,33 +4,29 @@ use bevy::window::PrimaryWindow;
 
 use super::components::{
     CurrentStarSystem, FloatingOrigin, KeplerOrbit, LagrangePointMarkers, LastLpClick,
-    LocalOrbitAmplification, LpMarkerInfo, SpaceCoordinates, SystemId,
+    LocalOrbitAmplification, LpMarkerInfo, Selected, SpaceCoordinates, SystemId,
 };
 use super::systems::SCALING_FACTOR;
 use crate::fleets::orbital_mechanics::{GM_SUN, G_CONST as ORBIT_G};
 use crate::game_state::ActiveMenu;
-use crate::plugins::camera::{CameraAnchor, EguiPanelBounds, GameCamera, ViewMode};
+use crate::plugins::camera::{EguiPanelBounds, GameCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, LogicalParent, Moon};
 
 /// Approximate solar mass (kg) used for Hill-sphere and L-point calculations.
 const SOLAR_MASS_KG: f64 = 1.989e30;
 
 /// Draws blue Lagrange-point orbit rings and point markers for the currently
-/// anchored body, matching the moon-orbit ring visibility rule:
+/// **selected** body.  Replaces the old anchor-based behaviour so markers only
+/// appear when the player explicitly selects a body (not just when the camera
+/// happens to be anchored to it).
 ///
-/// * **Planet anchored** → draw the 5 Sun–Planet Lagrange rings (centered on the
-///   star, which is at the scene origin).
-/// * **Moon anchored** → draw the 5 Planet–Moon Lagrange rings (centered on the
-///   parent planet's rendered position).
-///
-/// Only drawn in `ViewMode::System` (not Starmap).
-/// Does nothing when no body is anchored or the anchored body type is a
-/// comet, asteroid, dwarf planet without moons, or star.
+/// * **Planet/GasGiant/DwarfPlanet selected** → draw the 5 Sun–Planet Lagrange rings.
+/// * **Moon selected** → draw the 5 Planet–Moon Lagrange rings.
 pub fn draw_lagrange_point_rings(
     mut gizmos: Gizmos,
     view_mode: Res<ViewMode>,
     current_system: Res<CurrentStarSystem>,
-    camera_query: Query<&CameraAnchor, With<GameCamera>>,
+    selected_bodies: Query<Entity, With<Selected>>,
     body_query: Query<(
         &CelestialBody,
         &SpaceCoordinates,
@@ -52,10 +48,7 @@ pub fn draw_lagrange_point_rings(
         return;
     }
 
-    let Ok(anchor) = camera_query.single() else {
-        return;
-    };
-    let Some(anchored) = anchor.0 else {
+    let Some(anchored) = selected_bodies.iter().next() else {
         return;
     };
 
