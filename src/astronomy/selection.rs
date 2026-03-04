@@ -2,8 +2,8 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
 use super::components::{
-    CurrentStarSystem, HoverMarker, Hovered, MarkerDot, MarkerOwner, Selected,
-    SelectionMarker, SystemId,
+    CurrentStarSystem, HoverMarker, Hovered, MarkerDot, MarkerOwner, Selected, SelectionMarker,
+    SystemId,
 };
 use super::systems::SCALING_FACTOR;
 use crate::game_state::ActiveMenu;
@@ -56,11 +56,22 @@ pub fn handle_body_selection(
     mouse_button: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     camera_query: Query<(&Camera, &GlobalTransform), With<GameCamera>>,
-    body_query: Query<(Entity, &GlobalTransform, &CelestialBody, Option<&SystemId>, Option<&crate::plugins::solar_system::LogicalParent>, &Visibility), Without<ClickExcluded>>,
+    body_query: Query<
+        (
+            Entity,
+            &GlobalTransform,
+            &CelestialBody,
+            Option<&SystemId>,
+            Option<&crate::plugins::solar_system::LogicalParent>,
+            &Visibility,
+        ),
+        Without<ClickExcluded>,
+    >,
     current_system: Res<CurrentStarSystem>,
     mut commands: Commands,
     selected_query: Query<Entity, With<Selected>>,
     mut anchor_query: Query<&mut CameraAnchor, With<GameCamera>>,
+    mut orbit_query: Query<&mut OrbitCamera, With<GameCamera>>,
     time: Res<Time>,
     mut selection_state: Local<SelectionState>,
     mut egui_contexts: bevy_egui::EguiContexts,
@@ -93,7 +104,11 @@ pub fn handle_body_selection(
         } else {
             false
         };
-        if ctx.is_pointer_over_area() || ctx.is_using_pointer() || ctx.wants_pointer_input() || over_panel {
+        if ctx.is_pointer_over_area()
+            || ctx.is_using_pointer()
+            || ctx.wants_pointer_input()
+            || over_panel
+        {
             return;
         }
     }
@@ -181,9 +196,13 @@ pub fn handle_body_selection(
             let current_time = time.elapsed_secs_f64();
             if let Some(last_entity) = selection_state.last_clicked_entity {
                 if last_entity == entity && (current_time - selection_state.last_click_time) < 0.5 {
-                    info!("Double click on {}, setting anchor.", name);
+                    info!("Double click on {}, setting anchor and recentering.", name);
                     if let Ok(mut anchor) = anchor_query.single_mut() {
                         anchor.0 = Some(entity);
+                    }
+                    // Also clear the pan offset to recenter the view
+                    if let Ok(mut orbit) = orbit_query.single_mut() {
+                        orbit.pan_offset = Vec3::ZERO;
                     }
                 }
             }
@@ -213,7 +232,16 @@ pub fn handle_body_hover(
     view_mode: Res<ViewMode>,
     windows: Query<&Window, With<PrimaryWindow>>,
     camera_query: Query<(&Camera, &GlobalTransform), With<GameCamera>>,
-    body_query: Query<(Entity, &GlobalTransform, &CelestialBody, Option<&SystemId>, &Visibility), Without<ClickExcluded>>,
+    body_query: Query<
+        (
+            Entity,
+            &GlobalTransform,
+            &CelestialBody,
+            Option<&SystemId>,
+            &Visibility,
+        ),
+        Without<ClickExcluded>,
+    >,
     current_system: Res<CurrentStarSystem>,
     mut commands: Commands,
     hovered_query: Query<Entity, With<Hovered>>,
@@ -373,8 +401,14 @@ pub fn spawn_selection_markers(
     camera_query: Query<&GlobalTransform, With<GameCamera>>,
     orbit_camera_query: Query<&OrbitCamera, With<GameCamera>>,
 ) {
-    let camera_pos = camera_query.single().ok().map(|t| t.translation()).unwrap_or(Vec3::ZERO);
-    let zoom_scale = orbit_camera_query.single().ok()
+    let camera_pos = camera_query
+        .single()
+        .ok()
+        .map(|t| t.translation())
+        .unwrap_or(Vec3::ZERO);
+    let zoom_scale = orbit_camera_query
+        .single()
+        .ok()
         .map(|oc| (oc.radius / 1000.0_f32).clamp(1.0, 3.0))
         .unwrap_or(1.0);
 
@@ -418,8 +452,14 @@ pub fn despawn_selection_markers(
     camera_query: Query<&GlobalTransform, With<GameCamera>>,
     orbit_camera_query: Query<&OrbitCamera, With<GameCamera>>,
 ) {
-    let camera_pos = camera_query.single().ok().map(|t| t.translation()).unwrap_or(Vec3::ZERO);
-    let zoom_scale = orbit_camera_query.single().ok()
+    let camera_pos = camera_query
+        .single()
+        .ok()
+        .map(|t| t.translation())
+        .unwrap_or(Vec3::ZERO);
+    let zoom_scale = orbit_camera_query
+        .single()
+        .ok()
         .map(|oc| (oc.radius / 1000.0_f32).clamp(1.0, 3.0))
         .unwrap_or(1.0);
 
@@ -456,12 +496,21 @@ pub fn spawn_hover_markers(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    hovered_query: Query<(Entity, &CelestialBody, &GlobalTransform), (Added<Hovered>, Without<Selected>)>,
+    hovered_query: Query<
+        (Entity, &CelestialBody, &GlobalTransform),
+        (Added<Hovered>, Without<Selected>),
+    >,
     camera_query: Query<&GlobalTransform, With<GameCamera>>,
     orbit_camera_query: Query<&OrbitCamera, With<GameCamera>>,
 ) {
-    let camera_pos = camera_query.single().ok().map(|t| t.translation()).unwrap_or(Vec3::ZERO);
-    let zoom_scale = orbit_camera_query.single().ok()
+    let camera_pos = camera_query
+        .single()
+        .ok()
+        .map(|t| t.translation())
+        .unwrap_or(Vec3::ZERO);
+    let zoom_scale = orbit_camera_query
+        .single()
+        .ok()
         .map(|oc| (oc.radius / 1000.0_f32).clamp(1.0, 3.0))
         .unwrap_or(1.0);
 
@@ -498,7 +547,7 @@ pub fn despawn_hover_markers(
         if selected_query.get(entity).is_ok() {
             continue;
         }
-        
+
         for (marker_entity, owner) in marker_query.iter() {
             if owner.0 == entity {
                 commands.entity(marker_entity).despawn();
@@ -510,8 +559,8 @@ pub fn despawn_hover_markers(
 /// System that animates marker dots around selection/hover rings.
 pub fn animate_marker_dots(time: Res<Time>, mut query: Query<(&mut Transform, &mut MarkerDot)>) {
     for (mut transform, mut dot) in query.iter_mut() {
-        dot.angle = (dot.angle + dot.angular_speed * time.delta_secs())
-            .rem_euclid(std::f32::consts::TAU);
+        dot.angle =
+            (dot.angle + dot.angular_speed * time.delta_secs()).rem_euclid(std::f32::consts::TAU);
         transform.translation = Vec3::new(
             dot.radius * dot.angle.cos(),
             0.0,
@@ -589,8 +638,8 @@ fn spawn_marker(
         // Each corner has two bars forming an L-shape
         let bracket_thickness = (radius * 0.08).max(2.0); // Scale with body size, minimum 2.0
         let bracket_length = radius * 0.30; // Length of each bracket arm
-        // Corner sits at exactly the ring radius so arms are always outside the body sphere:
-        // the perpendicular distance of each arm from center equals `radius` > visual_radius.
+                                            // Corner sits at exactly the ring radius so arms are always outside the body sphere:
+                                            // the perpendicular distance of each arm from center equals `radius` > visual_radius.
         let bracket_offset = radius;
 
         // Define four corners and create L-shaped brackets at each
@@ -660,24 +709,33 @@ pub fn apply_ring_highlight(
     >,
     hovered_rings: Query<
         (Entity, &MeshMaterial3d<StandardMaterial>),
-        (Added<Hovered>, Without<Selected>, With<crate::plugins::solar_system::Ring>),
+        (
+            Added<Hovered>,
+            Without<Selected>,
+            With<crate::plugins::solar_system::Ring>,
+        ),
     >,
     existing_highlight: Query<&RingHighlight>,
 ) {
     for (entity, mat_handle) in selected_rings.iter().chain(hovered_rings.iter()) {
         let is_selected = selected_rings.get(entity).is_ok();
-        let strength = if is_selected { RING_SELECTED_EMISSIVE } else { RING_HOVERED_EMISSIVE };
+        let strength = if is_selected {
+            RING_SELECTED_EMISSIVE
+        } else {
+            RING_HOVERED_EMISSIVE
+        };
 
         if let Some(mat) = materials.get_mut(&mat_handle.0) {
             // Only store the original if we haven't already (hover→select upgrade)
-            let (original_base, original_emissive) = if let Ok(prev) = existing_highlight.get(entity) {
-                (prev.original_base_color, prev.original_emissive)
-            } else {
-                (mat.base_color, mat.emissive)
-            };
+            let (original_base, original_emissive) =
+                if let Ok(prev) = existing_highlight.get(entity) {
+                    (prev.original_base_color, prev.original_emissive)
+                } else {
+                    (mat.base_color, mat.emissive)
+                };
 
             let highlight_lin = RING_HIGHLIGHT_COLOR * strength;
-            
+
             // Unlit materials use base_color, PBR use emissive. Set both.
             mat.base_color = Color::from(highlight_lin);
             mat.emissive = highlight_lin;
@@ -738,7 +796,10 @@ pub fn remove_ring_highlight(
     for entity in removed_hovered.read() {
         // Only fully restore if not still selected.
         if ring_query.get(entity).is_ok() {
-            let is_sel = ring_query.get(entity).map(|(_, h)| h.is_selected).unwrap_or(false);
+            let is_sel = ring_query
+                .get(entity)
+                .map(|(_, h)| h.is_selected)
+                .unwrap_or(false);
             if !is_sel {
                 restore(entity);
             }

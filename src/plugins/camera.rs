@@ -58,11 +58,11 @@ impl Plugin for CameraPlugin {
             // bevy_egui attaches its context to this camera entity. Without this,
             // EguiContexts::ctx_mut() returns Err during Startup and custom fonts
             // (including emoji fonts) are silently never applied.
-            .add_systems(PreStartup, spawn_camera.before(EguiStartupSet::InitContexts))
             .add_systems(
-                EguiPrimaryContextPass,
-                orbit_camera_controls,
+                PreStartup,
+                spawn_camera.before(EguiStartupSet::InitContexts),
             )
+            .add_systems(EguiPrimaryContextPass, orbit_camera_controls)
             .add_systems(
                 Update,
                 (
@@ -90,7 +90,10 @@ pub struct OrbitCamera {
     pub max_radius: f32,
     pub zoom_sensitivity: f32,
     pub rotate_sensitivity: f32,
+    pub pan_sensitivity: f32,
     pub target_center: Vec3,
+    /// Offset from the anchor position for panning (WASD movement)
+    pub pan_offset: Vec3,
 }
 
 impl Default for OrbitCamera {
@@ -103,7 +106,9 @@ impl Default for OrbitCamera {
             max_radius: 2_000_000.0, // Increased to exceed max threshold (Sol: 400*1500*2.5 = 1.5M)
             zoom_sensitivity: 100.0,
             rotate_sensitivity: 0.003,
+            pan_sensitivity: 500.0,
             target_center: Vec3::ZERO,
+            pan_offset: Vec3::ZERO,
         }
     }
 }
@@ -127,10 +132,7 @@ fn spawn_camera(mut commands: Commands) {
 /// Must be registered AFTER all egui panel systems so the rect is panel-aware.
 /// Registered by UIPlugin (not CameraPlugin) to ensure correct ordering within
 /// the Update schedule where egui context is valid.
-pub fn capture_egui_panel_bounds(
-    mut contexts: EguiContexts,
-    mut bounds: ResMut<EguiPanelBounds>,
-) {
+pub fn capture_egui_panel_bounds(mut contexts: EguiContexts, mut bounds: ResMut<EguiPanelBounds>) {
     if let Ok(ctx) = contexts.ctx_mut() {
         bounds.available_rect = Some(ctx.available_rect());
     }
@@ -140,6 +142,8 @@ fn orbit_camera_controls(
     mut contexts: EguiContexts,
     active_menu: Res<ActiveMenu>,
     mouse: Res<ButtonInput<MouseButton>>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    time: Res<Time>,
     mut motion_events: MessageReader<MouseMotion>,
     mut scroll_events: MessageReader<MouseWheel>,
     mut query: Query<&mut OrbitCamera>,
@@ -194,6 +198,38 @@ fn orbit_camera_controls(
         camera.radius -= zoom_amount;
         camera.radius = camera.radius.clamp(camera.min_radius, camera.max_radius);
     }
+
+    // WASD panning - W/S = up/down, A/D = left/right
+    let dt = time.delta_secs();
+    let mut pan_direction = Vec3::ZERO;
+
+    // W = up, S = down
+    if keyboard.pressed(KeyCode::KeyW) {
+        pan_direction += Vec3::Y;
+    }
+    if keyboard.pressed(KeyCode::KeyS) {
+        pan_direction -= Vec3::Y;
+    }
+    // A = left, D = right
+    if keyboard.pressed(KeyCode::KeyA) {
+        pan_direction -= Vec3::X;
+    }
+    if keyboard.pressed(KeyCode::KeyD) {
+        pan_direction += Vec3::X;
+    }
+
+    if pan_direction != Vec3::ZERO {
+        // Rotate pan direction to match camera yaw orientation (for A/D)
+        let rot = Quat::from_axis_angle(Vec3::Y, camera.yaw);
+        let world_pan = rot * pan_direction.normalize();
+        let pan_amount = world_pan * camera.pan_sensitivity * dt;
+        camera.pan_offset += pan_amount;
+    }
+
+    // Home key to recenter the view (clear pan offset)
+    if keyboard.just_pressed(KeyCode::Home) {
+        camera.pan_offset = Vec3::ZERO;
+    }
 }
 
 fn update_camera_transform(
@@ -208,15 +244,12 @@ fn update_camera_transform(
     )>,
 ) {
     // Step 1: extract the anchor entity while holding the camera borrow.
-    let anchor_entity: Option<Entity> = param_set
-        .p0()
-        .single()
-        .map(|(_, _, a)| a.0)
-        .unwrap_or(None);
+    let anchor_entity: Option<Entity> =
+        param_set.p0().single().map(|(_, _, a)| a.0).unwrap_or(None);
 
     // Step 2: look up the target's current world position via p1 (no conflicts).
-    let target_pos: Option<Vec3> = anchor_entity
-        .and_then(|e| param_set.p1().get(e).ok().map(|t| t.translation));
+    let target_pos: Option<Vec3> =
+        anchor_entity.and_then(|e| param_set.p1().get(e).ok().map(|t| t.translation));
 
     // Step 3: update the camera using the positions gathered above.
     if let Ok((mut transform, mut orbit, _)) = param_set.p0().single_mut() {
@@ -224,13 +257,13 @@ fn update_camera_transform(
             orbit.target_center = pos;
         }
 
-        let rot = Quat::from_axis_angle(Vec3::Y, orbit.yaw)
-            * Quat::from_axis_angle(Vec3::X, orbit.pitch);
+        let rot =
+            Quat::from_axis_angle(Vec3::Y, orbit.yaw) * Quat::from_axis_angle(Vec3::X, orbit.pitch);
         let offset = rot * Vec3::Z * orbit.radius;
-        let position = orbit.target_center + offset;
+        let position = orbit.target_center + orbit.pan_offset + offset;
 
         transform.translation = position;
-        transform.look_at(orbit.target_center, Vec3::Y);
+        transform.look_at(orbit.target_center + orbit.pan_offset, Vec3::Y);
     }
 }
 
@@ -286,8 +319,7 @@ fn update_min_zoom(
     let star_floor = body_query
         .iter()
         .filter(|(body, sid)| {
-            body.body_type == BodyType::Star
-                && sid.map_or(sys_id == 0, |s| s.0 == sys_id)
+            body.body_type == BodyType::Star && sid.map_or(sys_id == 0, |s| s.0 == sys_id)
         })
         .map(|(body, _)| (body.visual_radius * 2.5).max(250.0))
         .fold(0.0_f32, f32::max);

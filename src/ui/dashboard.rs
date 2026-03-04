@@ -11,14 +11,14 @@ fn render_selectable_label(ui: &mut egui::Ui, is_selected: bool, name: &str) -> 
 /// Returns a Unicode icon for each body type to distinguish entries in the ledger
 fn body_type_icon(body_type: &BodyType) -> &'static str {
     match body_type {
-        BodyType::Star => "\u{2605}",       // ★
-        BodyType::Planet => "\u{25CF}",     // ●
-        BodyType::Moon => "\u{25D1}",       // ◑
+        BodyType::Star => "\u{2605}",        // ★
+        BodyType::Planet => "\u{25CF}",      // ●
+        BodyType::Moon => "\u{25D1}",        // ◑
         BodyType::DwarfPlanet => "\u{25CC}", // ◌
-        BodyType::Asteroid => "\u{25C6}",   // ◆
-        BodyType::Comet => "\u{2604}",      // ☄
-        BodyType::GasGiant => "\u{25C9}",   // ◉
-        BodyType::Ring => "\u{25CB}",       // ○
+        BodyType::Asteroid => "\u{25C6}",    // ◆
+        BodyType::Comet => "\u{2604}",       // ☄
+        BodyType::GasGiant => "\u{25C9}",    // ◉
+        BodyType::Ring => "\u{25CB}",        // ○
     }
 }
 
@@ -310,7 +310,10 @@ fn render_fleet_ledger_tree(
     sim_time: &SimulationTime,
 ) {
     let mut fleets: Vec<(Entity, &Fleet, Option<&FleetOrbit>, Option<&ActiveManeuver>)> =
-        fleet_query.iter().map(|(e, f, o, m)| (e, f, o, m)).collect();
+        fleet_query
+            .iter()
+            .map(|(e, f, o, m)| (e, f, o, m))
+            .collect();
     fleets.sort_by(|a, b| a.1.name.cmp(&b.1.name));
 
     if fleets.is_empty() {
@@ -361,7 +364,11 @@ fn render_fleet_ledger_tree(
         let ships_txt = format!(
             "{} {}",
             fleet.ships.len(),
-            if fleet.ships.len() == 1 { "ship" } else { "ships" }
+            if fleet.ships.len() == 1 {
+                "ship"
+            } else {
+                "ships"
+            }
         );
 
         // ── Clickable fleet-name row with themed background + marquee ─────
@@ -383,16 +390,23 @@ fn render_fleet_ledger_tree(
             // Selection / hover background — identical to fleet-panel list rows.
             let rounding = egui::CornerRadius::same(3);
             if is_selected {
-                ui.painter().rect_filled(rect.expand(1.0), rounding, egui::Color32::from_rgb(0, 55, 70));
+                ui.painter().rect_filled(
+                    rect.expand(1.0),
+                    rounding,
+                    egui::Color32::from_rgb(0, 55, 70),
+                );
                 ui.painter().rect_stroke(
-                    rect.expand(1.0), rounding,
+                    rect.expand(1.0),
+                    rounding,
                     egui::Stroke::new(1.0, theme::ACCENT),
                     egui::StrokeKind::Inside,
                 );
             } else if resp.hovered() {
-                ui.painter().rect_filled(rect.expand(1.0), rounding, theme::SURFACE_RAISED);
+                ui.painter()
+                    .rect_filled(rect.expand(1.0), rounding, theme::SURFACE_RAISED);
                 ui.painter().rect_stroke(
-                    rect.expand(1.0), rounding,
+                    rect.expand(1.0),
+                    rounding,
                     egui::Stroke::new(1.0, theme::BORDER),
                     egui::StrokeKind::Inside,
                 );
@@ -416,7 +430,8 @@ fn render_fleet_ledger_tree(
                 let t = ui.ctx().input(|i| i.time);
                 let offset_x = ((t * speed) % cycle as f64) as f32;
                 let painter = ui.painter().with_clip_rect(text_rect);
-                let galley = painter.layout_no_wrap(display_name.clone(), font_id.clone(), row_color);
+                let galley =
+                    painter.layout_no_wrap(display_name.clone(), font_id.clone(), row_color);
                 let y = text_rect.top() + (text_rect.height() - galley.size().y) * 0.5;
                 let x0 = text_rect.left() - offset_x;
                 painter.galley(egui::pos2(x0, y), galley.clone(), row_color);
@@ -462,9 +477,16 @@ fn render_fleet_ledger_tree(
         // Sub-status line — marquee-scrolled when too narrow.
         {
             let sub_full = format!("  {sub_status}  {ships_txt}");
-            let sub_color = if in_transit { theme::RP_BLUE } else { theme::TEXT_DIM };
+            let sub_color = if in_transit {
+                theme::RP_BLUE
+            } else {
+                theme::TEXT_DIM
+            };
             super::fleets_panel::render_marquee_line(
-                ui, &sub_full, sub_color, egui::FontId::proportional(10.0),
+                ui,
+                &sub_full,
+                sub_color,
+                egui::FontId::proportional(10.0),
             );
         }
 
@@ -636,6 +658,7 @@ pub(super) fn ui_dashboard(
     star_system_query: Query<(Entity, &StarSystemIcon, Option<&SelectedStarSystem>)>,
     mut anchor_query: Query<&mut CameraAnchor, With<GameCamera>>,
     sim_time: Res<SimulationTime>,
+    mut orbit_query: Query<&mut OrbitCamera, With<GameCamera>>,
 ) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
@@ -689,7 +712,19 @@ pub(super) fn ui_dashboard(
                 }
                 GameMenu::Survey => {
                     // System view: show celestial body hierarchy
-                    ui.heading("Celestial Objects");
+                    ui.horizontal(|ui| {
+                        ui.heading("Celestial Objects");
+                        ui.add_space(10.0);
+                        if ui
+                            .button("⟲")
+                            .on_hover_text("Recenter Camera (also: Home key)")
+                            .clicked()
+                        {
+                            if let Ok(mut orbit) = orbit_query.single_mut() {
+                                orbit.pan_offset = Vec3::ZERO;
+                            }
+                        }
+                    });
                     ui.separator();
 
                     egui::ScrollArea::vertical()
@@ -924,8 +959,11 @@ pub(super) fn ui_time_controls(
         // Keys 1-5 set speeds (and un-pause if currently paused)
         const SPEED_PRESETS: [f32; 5] = [3_600.0, 86_400.0, 604_800.0, 2_592_000.0, 31_557_600.0];
         let speed_keys = [
-            KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3,
-            KeyCode::Digit4, KeyCode::Digit5,
+            KeyCode::Digit1,
+            KeyCode::Digit2,
+            KeyCode::Digit3,
+            KeyCode::Digit4,
+            KeyCode::Digit5,
         ];
         for (key, &preset) in speed_keys.iter().zip(SPEED_PRESETS.iter()) {
             if keyboard_input.just_pressed(*key) {
@@ -962,14 +1000,20 @@ pub(super) fn ui_time_controls(
                 };
                 let pause_stroke = if is_paused {
                     let alpha = (120.0 + 135.0 * blink) as u8;
-                    egui::Stroke::new(1.5, egui::Color32::from_rgba_unmultiplied(231, 76, 60, alpha))
+                    egui::Stroke::new(
+                        1.5,
+                        egui::Color32::from_rgba_unmultiplied(231, 76, 60, alpha),
+                    )
                 } else {
                     egui::Stroke::new(0.5, theme::BORDER)
                 };
                 let pause_label = if is_paused {
-                    egui::RichText::new("⏸ PAUSED").color(
-                        egui::Color32::from_rgba_unmultiplied(255, 90, 70, (180.0 + 75.0 * blink) as u8)
-                    )
+                    egui::RichText::new("⏸ PAUSED").color(egui::Color32::from_rgba_unmultiplied(
+                        255,
+                        90,
+                        70,
+                        (180.0 + 75.0 * blink) as u8,
+                    ))
                 } else {
                     egui::RichText::new("▶ Running").color(theme::TEXT_DIM)
                 };
@@ -988,7 +1032,8 @@ pub(super) fn ui_time_controls(
 
                 // ── Speed preset buttons [1]–[5] with active highlight ────
                 const SPEED_LABELS: [&str; 5] = ["1 hr/s", "1 day/s", "1 wk/s", "1 mo/s", "1 yr/s"];
-                const SPEED_VALUES: [f32; 5] = [3_600.0, 86_400.0, 604_800.0, 2_592_000.0, 31_557_600.0];
+                const SPEED_VALUES: [f32; 5] =
+                    [3_600.0, 86_400.0, 604_800.0, 2_592_000.0, 31_557_600.0];
                 const SPEED_HOTKEYS: [&str; 5] = ["[1]", "[2]", "[3]", "[4]", "[5]"];
 
                 for i in 0..5 {
@@ -1011,7 +1056,11 @@ pub(super) fn ui_time_controls(
                         .fill(theme::SURFACE)
                     };
                     let tooltip = format!("{} (hotkey {})", SPEED_LABELS[i], SPEED_HOTKEYS[i]);
-                    if ui.add_sized([60.0, 36.0], btn).on_hover_text(tooltip).clicked() {
+                    if ui
+                        .add_sized([60.0, 36.0], btn)
+                        .on_hover_text(tooltip)
+                        .clicked()
+                    {
                         time_scale.set_speed(SPEED_VALUES[i]);
                     }
                 }
@@ -1031,71 +1080,83 @@ pub(super) fn ui_time_controls(
                     ui.colored_label(view_color, egui::RichText::new(view_label));
                 });
 
+                // Push music controls to the far right edge of the window
+                ui.add_space(ui.available_width() - 280.0);
+
                 // ── Music controls (frameless two-row, right-aligned) ───
+                // Visual order: [♪ Title (fixed)] | [⏸] [⏭] [═══ vol]
+                // In right_to_left layout items are added in reverse order.
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let music_w = ui.available_width().min(300.0);
-                    ui.allocate_ui_with_layout(
-                        egui::vec2(music_w, 40.0),
-                        egui::Layout::top_down(egui::Align::RIGHT),
-                        |ui| {
-                            ui.spacing_mut().item_spacing = egui::vec2(5.0, 2.0);
+                    ui.vertical(|ui| {
+                        // Row 1: title | pause | skip | volume
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 4.0;
                             ui.spacing_mut().button_padding = egui::vec2(4.0, 2.0);
+                            const BTN: [f32; 2] = [24.0, 22.0];
 
-                            // Row 1: controls + track title
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                ui.add_sized(
-                                    [68.0, 18.0],
-                                    egui::Slider::new(&mut playlist.volume, 0.0..=1.0)
-                                        .show_value(false),
-                                );
+                            // Volume (rightmost) — added first in RTL
+                            ui.add_sized(
+                                [64.0, BTN[1]],
+                                egui::Slider::new(&mut playlist.volume, 0.0..=1.0)
+                                    .show_value(false),
+                            );
 
-                                let skip_btn = egui::Button::new(
-                                    egui::RichText::new("⏭").color(theme::TEXT_DIM),
-                                )
-                                .stroke(egui::Stroke::new(0.5, theme::BORDER))
-                                .fill(theme::SURFACE);
-                                if ui.add_sized([22.0, 18.0], skip_btn).clicked() {
-                                    playlist.skip_requested = true;
-                                }
+                            // Skip button
+                            let skip_btn =
+                                egui::Button::new(egui::RichText::new("⏭").color(theme::TEXT_DIM))
+                                    .stroke(egui::Stroke::new(0.5, theme::BORDER))
+                                    .fill(theme::SURFACE);
+                            if ui.add_sized(BTN, skip_btn).clicked() {
+                                playlist.skip_requested = true;
+                            }
 
-                                let play_label = if playlist.paused { "▶" } else { "⏸" };
-                                let play_color = if playlist.paused { theme::ACCENT } else { theme::TEXT_DIM };
-                                let play_stroke = if playlist.paused {
-                                    egui::Stroke::new(1.0, theme::ACCENT)
-                                } else {
-                                    egui::Stroke::new(0.5, theme::BORDER)
-                                };
-                                let play_btn = egui::Button::new(
-                                    egui::RichText::new(play_label).color(play_color),
-                                )
-                                .stroke(play_stroke)
-                                .fill(theme::SURFACE);
-                                if ui.add_sized([22.0, 18.0], play_btn).clicked() {
-                                    playlist.paused = !playlist.paused;
-                                }
+                            // Pause / play button (same size as skip)
+                            let play_label = if playlist.paused { "▶" } else { "⏸" };
+                            let play_color = if playlist.paused {
+                                theme::ACCENT
+                            } else {
+                                theme::TEXT_DIM
+                            };
+                            let play_stroke = if playlist.paused {
+                                egui::Stroke::new(1.0, theme::ACCENT)
+                            } else {
+                                egui::Stroke::new(0.5, theme::BORDER)
+                            };
+                            let play_btn = egui::Button::new(
+                                egui::RichText::new(play_label).color(play_color),
+                            )
+                            .stroke(play_stroke)
+                            .fill(theme::SURFACE);
+                            if ui.add_sized(BTN, play_btn).clicked() {
+                                playlist.paused = !playlist.paused;
+                            }
 
-                                ui.separator();
+                            ui.separator();
 
-                                let track_title = playlist.tracks[playlist.current_index].title;
-                                ui.label(
+                            // Title — fixed 150 px width so buttons never shift
+                            let track_title = playlist.tracks[playlist.current_index].title;
+                            ui.add_sized(
+                                [150.0, BTN[1]],
+                                egui::Label::new(
                                     egui::RichText::new(format!("♪ {}", track_title))
                                         .font(egui::FontId::proportional(11.0))
                                         .color(theme::TEXT_DIM),
-                                );
-                            });
+                                )
+                                .truncate(),
+                            );
+                        });
 
-                            // Row 2: CC-BY attribution
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                ui.label(
-                                    egui::RichText::new(
-                                        "Scott Buckley — CC-BY 4.0 · scottbuckley.com.au",
-                                    )
-                                    .font(egui::FontId::proportional(8.5))
-                                    .color(theme::TEXT_HINT),
-                                );
-                            });
-                        },
-                    );
+                        // Row 2: CC-BY attribution (right-aligned)
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(
+                                egui::RichText::new(
+                                    "Scott Buckley — CC-BY 4.0 · scottbuckley.com.au",
+                                )
+                                .font(egui::FontId::proportional(9.0))
+                                .color(theme::TEXT_HINT),
+                            );
+                        });
+                    });
                 });
             });
         });
@@ -1153,10 +1214,7 @@ fn render_star_system_panel(
                                 .color(theme::TEXT_VALUE),
                             );
                         } else {
-                            ui.label(
-                                egui::RichText::new(&star_data.name)
-                                    .color(theme::TEXT_VALUE),
-                            );
+                            ui.label(egui::RichText::new(&star_data.name).color(theme::TEXT_VALUE));
                         }
 
                         ui.label(format!("  Type: {}", star_data.spectral_type));
@@ -1207,7 +1265,9 @@ fn render_star_system_panel(
                     .count();
                 let planets = bodies
                     .iter()
-                    .filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Planet | BodyType::GasGiant))
+                    .filter(|(_, b, _, _, _)| {
+                        matches!(b.body_type, BodyType::Planet | BodyType::GasGiant)
+                    })
                     .count();
                 let dwarf_planets = bodies
                     .iter()
@@ -1298,4 +1358,3 @@ fn render_star_system_panel(
             });
         });
 }
-

@@ -128,7 +128,7 @@ When you launch the game, you'll see:
 - Track research progress with Research Points (RP)
 
 ### Economy Panel
-- Monitor 20 resource types
+- Monitor 37 resource types
 - Track production and consumption rates
 - View treasury and budget
 - Check energy grid status

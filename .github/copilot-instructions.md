@@ -220,7 +220,7 @@ When adding new UI icons (menus, research categories, etc.), applying the follow
 ### Game Systems Overview
 
 #### Colony Management
-- **29 building types** across 8 categories (Infrastructure, Industry, Logistics, Power, Population, Research, Financial, Military)
+- **32 building types** across 11 categories (Infrastructure, Mining & Industry, Atmospheric Harvesting, Advanced Mining, Logistics, Power, Population & Growth, Research, Financial & Commerce, Military & Shipbuilding, Advanced Industry)
 - Construction queue system with resource costs and workforce requirements
 - Population growth mechanics with housing capacity and food requirements
 - Buildings require maintenance resources and generate various effects
@@ -228,7 +228,7 @@ When adding new UI icons (menus, research categories, etc.), applying the follow
 - Debug menu (F12) for free construction, instant build, and tech bypass
 
 #### Economy & Resources
-- **31 resource types** (defined in `src/economy/types.rs` as `ResourceType` enum): Volatiles (Water, Hydrogen, Ammonia, Methane, Phosphorus), Atmospheric Gases (Nitrogen, Oxygen, CarbonDioxide, Argon), Construction Materials (Iron, Aluminum, Titanium, Silicates, Nickel, Tungsten, Carbon), Fusion Fuel (Helium3, Deuterium), Fissiles (Uranium, Thorium), Precious Metals (Gold, Silver, Platinum), Strategic Materials (Copper, RareEarths, Lithium, Sulfur), Exotic Materials (Antimatter, ExoticMatter, Metamaterials, Computronium)
+- **37 resource types** (defined in `src/economy/types.rs` as `ResourceType` enum): Volatiles (Water, Hydrogen, Ammonia, Methane, Phosphorus), Biological (Food), Atmospheric Gases (Nitrogen, Oxygen, CarbonDioxide, Argon), Construction Materials (Iron, Aluminum, Titanium, Silicates, Nickel, Tungsten, Carbon, Chromium, Magnesium), Fusion Fuel (Helium3, Deuterium), Fissiles (Uranium, Thorium), Precious Metals (Gold, Silver, Platinum), Strategic Materials (Copper, RareEarths, Lithium, Sulfur, Cobalt, Fluorine, Polymers), Exotic Materials (Antimatter, ExoticMatter, Metamaterials, Computronium)
 - Resource stockpiles with capacity limits
 - Mining operations extract resources from mineral deposits
 - Refining and processing buildings convert raw materials
@@ -328,10 +328,9 @@ When adding new UI icons (menus, research categories, etc.), applying the follow
 - Trail fades from the body's current position backwards around the orbit
 
 ### Camera System
-- Free-flight camera with WASD + Q/E controls
-- Right-click drag for rotation
-- Mouse wheel for zoom
-- Camera focuses on selected celestial bodies
+- Free-flight camera with WASD panning (W/S=up/down, A/D=left/right), right-click drag rotation, mouse wheel zoom
+- Home key to recenter view after panning
+- Camera focuses on selected celestial bodies via anchor (double-click to anchor)
 
 ### Ambient Lighting
 - Use `GlobalAmbientLight` (resource) for the default ambient light for the entire world
