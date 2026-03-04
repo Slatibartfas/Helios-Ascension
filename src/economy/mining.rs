@@ -283,18 +283,20 @@ pub fn extract_resources(
 /// bar always reflects actual accumulation.
 pub fn update_resource_rates(
     mut tracker: ResMut<ResourceRateTracker>,
-    mining_ops: Query<(&MiningOperation, Option<&PlanetResources>)>,
+    mining_ops: Query<(Entity, &MiningOperation, Option<&PlanetResources>)>,
     research_buildings: Query<&crate::research::components::ResearchBuilding>,
     engineering_facilities: Query<&crate::research::components::EngineeringFacility>,
-    colony_query: Query<(&Colony, Option<&PlanetResources>)>,
+    colony_query: Query<(Entity, &Colony, Option<&PlanetResources>)>,
     buildings_data: Option<Res<BuildingsData>>,
     research_state: Res<crate::research::ResearchState>,
 ) {
     // --- Resource rates from mining (production) ---
     let mut rates = std::collections::HashMap::new();
+    let mut per_entity: std::collections::HashMap<Entity, std::collections::HashMap<ResourceType, f64>> =
+        std::collections::HashMap::new();
 
     // 1. MiningOperation components
-    for (op, resources_opt) in mining_ops.iter() {
+    for (entity, op, resources_opt) in mining_ops.iter() {
         if !op.active {
             continue;
         }
@@ -312,11 +314,22 @@ pub fn update_resource_rates(
         // base_rate_mt_per_year → per month = rate * (month / year)
         let monthly = op.base_rate_mt_per_year * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
         *rates.entry(op.resource_type).or_insert(0.0) += monthly;
+        *per_entity.entry(entity).or_default().entry(op.resource_type).or_insert(0.0) += monthly;
     }
+
+    // Helper macro-like closure to add to both global and per-entity rates
+    let add_rate = |rates: &mut std::collections::HashMap<ResourceType, f64>,
+                    per_entity: &mut std::collections::HashMap<Entity, std::collections::HashMap<ResourceType, f64>>,
+                    entity: Entity,
+                    r_type: ResourceType,
+                    amount: f64| {
+        *rates.entry(r_type).or_insert(0.0) += amount;
+        *per_entity.entry(entity).or_default().entry(r_type).or_insert(0.0) += amount;
+    };
 
     // 2. Colony mining & atmospheric harvesting
     if let Some(data) = &buildings_data {
-        for (colony, resources_opt) in colony_query.iter() {
+        for (entity, colony, resources_opt) in colony_query.iter() {
             if let Some(resources) = resources_opt {
                 let mut surface_rate = 0.0_f64;
                 let mut deep_rate = 0.0_f64;
@@ -364,7 +377,7 @@ pub fn update_resource_rates(
                     if total_weight > 0.0 {
                         for (r_type, weight) in &eligible {
                             let share = weight / total_weight;
-                            *rates.entry(*r_type).or_insert(0.0) += monthly_surface * share;
+                            add_rate(&mut rates, &mut per_entity, entity, *r_type, monthly_surface * share);
                         }
                     }
                 }
@@ -384,7 +397,7 @@ pub fn update_resource_rates(
                     if total_weight > 0.0 {
                         for (r_type, weight) in &eligible {
                             let share = weight / total_weight;
-                            *rates.entry(*r_type).or_insert(0.0) += monthly_deep * share;
+                            add_rate(&mut rates, &mut per_entity, entity, *r_type, monthly_deep * share);
                         }
                     }
                 }
@@ -404,7 +417,7 @@ pub fn update_resource_rates(
                     if total_weight > 0.0 {
                         for (r_type, weight) in &eligible {
                             let share = weight / total_weight;
-                            *rates.entry(*r_type).or_insert(0.0) += monthly_bulk * share;
+                            add_rate(&mut rates, &mut per_entity, entity, *r_type, monthly_bulk * share);
                         }
                     }
                 }
@@ -428,7 +441,7 @@ pub fn update_resource_rates(
                     if total_weight > 0.0 {
                         for (r_type, weight) in &harvestable {
                             let share = weight / total_weight;
-                            *rates.entry(*r_type).or_insert(0.0) += monthly_total * share;
+                            add_rate(&mut rates, &mut per_entity, entity, *r_type, monthly_total * share);
                         }
                     }
                 }
@@ -441,18 +454,18 @@ pub fn update_resource_rates(
     }
 
     // 3. Add net colony food rate (production - population consumption)
-    let total_food_net_per_year: f64 = colony_query
-        .iter()
-        .map(|(colony, _)| colony.food_production_per_year() - colony.food_consumption_per_year())
-        .sum();
-    let total_food_net_per_month = total_food_net_per_year * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
-    if total_food_net_per_month.abs() > f64::EPSILON {
-        *rates.entry(ResourceType::Food).or_insert(0.0) += total_food_net_per_month;
+    for (entity, colony, _) in colony_query.iter() {
+        let food_net_per_year = colony.food_production_per_year() - colony.food_consumption_per_year();
+        let food_net_per_month = food_net_per_year * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
+        if food_net_per_month.abs() > f64::EPSILON {
+            *rates.entry(ResourceType::Food).or_insert(0.0) += food_net_per_month;
+            *per_entity.entry(entity).or_default().entry(ResourceType::Food).or_insert(0.0) += food_net_per_month;
+        }
     }
 
     // 4. Subtract maintenance consumption so rates show NET balance
     if let Some(data) = &buildings_data {
-        for (colony, _) in colony_query.iter() {
+        for (entity, colony, _) in colony_query.iter() {
             for (building_type, &count) in &colony.buildings {
                 if count == 0 {
                     continue;
@@ -464,6 +477,7 @@ pub fn update_resource_rates(
                         let monthly_cost =
                             annual_amount * (count as f64) * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
                         *rates.entry(rt).or_insert(0.0) -= monthly_cost;
+                        *per_entity.entry(entity).or_default().entry(rt).or_insert(0.0) -= monthly_cost;
                     }
                 }
             }
@@ -471,6 +485,7 @@ pub fn update_resource_rates(
     }
 
     tracker.resource_rates = rates;
+    tracker.per_entity_rates = per_entity;
 
     // --- Research point rate (include base rate) ---
     // Base RP per month (same constant used in research::systems)
@@ -484,7 +499,7 @@ pub fn update_resource_rates(
 
     // From colony buildings
     if let Some(data) = &buildings_data {
-        for (colony, _) in colony_query.iter() {
+        for (_entity, colony, _) in colony_query.iter() {
             for (building_type, &count) in &colony.buildings {
                 if count == 0 {
                     continue;
@@ -517,7 +532,7 @@ pub fn update_resource_rates(
 
     // From colony buildings
     if let Some(data) = &buildings_data {
-        for (colony, _) in colony_query.iter() {
+        for (_entity, colony, _) in colony_query.iter() {
             for (building_type, &count) in &colony.buildings {
                 if count == 0 {
                     continue;

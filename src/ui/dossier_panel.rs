@@ -1315,7 +1315,7 @@ fn draw_resource_section(
     }
 
     // Resource periodic grid
-    draw_resource_grid(ui, resources, current_level, rate_tracker);
+    draw_resource_grid(ui, resources, current_level, rate_tracker, entity);
 
     // Summary line
     ui.add_space(4.0);
@@ -1355,6 +1355,7 @@ fn draw_resource_grid(
     resources: &PlanetResources,
     survey_level: SurveyLevel,
     rate_tracker: &ResourceRateTracker,
+    entity: Entity,
 ) {
     let tile_size = 44.0_f32;
     let tile_spacing = 3.0_f32;
@@ -1391,6 +1392,7 @@ fn draw_resource_grid(
                     tile_size,
                     cat_color,
                     rate_tracker,
+                    entity,
                 );
             }
         });
@@ -1410,6 +1412,7 @@ fn draw_resource_tile(
     size: f32,
     cat_color: egui::Color32,
     rate_tracker: &ResourceRateTracker,
+    entity: Entity,
 ) {
     let (response, painter) = ui.allocate_painter(egui::Vec2::splat(size), egui::Sense::hover());
     let rect = response.rect;
@@ -1518,19 +1521,23 @@ fn draw_resource_tile(
         let discovered = survey_level.discovered_amount(&d.reserve);
         let tooltip_id = egui::Id::new("resource_tile_tooltip").with(resource.symbol());
         egui::show_tooltip(ui.ctx(), ui.layer_id(), tooltip_id, |ui| {
-            // Strip the default tooltip frame — we draw our own
-            ui.visuals_mut().widgets.noninteractive.bg_fill = egui::Color32::TRANSPARENT;
-            ui.visuals_mut().window_fill = egui::Color32::TRANSPARENT;
-            ui.visuals_mut().window_stroke = egui::Stroke::NONE;
-            ui.visuals_mut().window_shadow = egui::Shadow::NONE;
+            // Disable the default tooltip frame entirely — we draw our own
+            let frame = ui.visuals_mut();
+            frame.widgets.noninteractive.bg_fill = egui::Color32::TRANSPARENT;
+            frame.widgets.noninteractive.bg_stroke = egui::Stroke::NONE;
+            frame.window_fill = egui::Color32::TRANSPARENT;
+            frame.window_stroke = egui::Stroke::NONE;
+            frame.window_shadow = egui::Shadow::NONE;
+            // Also clear the popup shadow that can cause a second border
+            frame.popup_shadow = egui::Shadow::NONE;
 
-            ui.set_min_width(180.0);
             let tip_frame = egui::Frame::NONE
                 .fill(BG_FILL)
                 .stroke(egui::Stroke::new(1.0, ACCENT_DIM))
                 .inner_margin(egui::Margin::same(8));
 
             tip_frame.show(ui, |ui| {
+                ui.set_min_width(180.0);
                 ui.label(
                     egui::RichText::new(resource.display_name())
                         .font(mono_font(13.0))
@@ -1615,13 +1622,11 @@ fn draw_resource_tile(
                             };
                             tooltip_row(ui, "Conc.", &conc_text);
                         }
-
-                        tooltip_row(ui, "Access", &format!("{:.0}%", d.accessibility * 100.0));
                     });
 
-                // Balance (current production rate)
+                // Balance (per-body production rate for this resource)
                 ui.add_space(2.0);
-                let rate = rate_tracker.get_resource_rate(&resource);
+                let rate = rate_tracker.get_entity_resource_rate(entity, &resource);
                 let (rate_text, rate_color) = format_rate_monthly(rate);
                 ui.horizontal(|ui| {
                     ui.label(
