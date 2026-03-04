@@ -936,10 +936,9 @@ fn spawn_system_bodies(
 
             let material = materials.add(StandardMaterial {
                 base_color,
-                // Emissive floor so planets in dim/distant star systems
-                // aren't pitch black on the night side. Higher value (0.05)
-                // ensures dwarf planets and distant bodies remain visible.
-                emissive: LinearRgba::WHITE * 0.05,
+                // Minimal emissive floor so planets in dim/distant star systems
+                // aren't pitch black on the night side.
+                emissive: LinearRgba::WHITE * 0.006,
                 base_color_texture,
                 perceptual_roughness: roughness,
                 metallic,
