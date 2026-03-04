@@ -1,8 +1,8 @@
 //! Background music playlist system.
 //!
-//! Plays a looping playlist of ambient tracks during gameplay and shows a small
-//! CC-BY attribution overlay with play/pause, skip, and volume controls so we
-//! comply with the Scott Buckley license terms.
+//! Plays a looping playlist of ambient tracks during gameplay. Playback
+//! controls (play/pause, skip, volume) and the CC-BY attribution are rendered
+//! inside the time-controls bottom panel by `ui_time_controls`.
 //!
 //! ## Adding more tracks
 //! Push a new `TrackInfo` entry into the `Vec` inside `MusicPlaylist::default()`.
@@ -10,7 +10,6 @@
 
 use bevy::audio::{AudioPlugin, AudioSink, AudioSinkPlayback, PlaybackMode};
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 // ---------------------------------------------------------------------------
 // Plugin
@@ -27,8 +26,7 @@ impl Plugin for MusicPlugin {
 
         app.init_resource::<MusicPlaylist>()
             .add_systems(Startup, start_playlist)
-            .add_systems(Update, advance_playlist)
-            .add_systems(EguiPrimaryContextPass, show_music_controls);
+            .add_systems(Update, advance_playlist);
     }
 }
 
@@ -167,67 +165,5 @@ fn advance_playlist(
             sink.set_volume(bevy::audio::Volume::Linear(playlist.volume));
         }
     }
-}
-
-/// Update: render the music controls bar at the bottom-right corner.
-///
-/// Shows play/pause, next track, volume slider, then attribution below.
-/// `egui::Order::Foreground` ensures this is always drawn on top of all
-/// panels (including the time-controls bottom panel, side panels, etc.).
-/// The CC-BY 4.0 license requires visible attribution at all times.
-fn show_music_controls(mut contexts: EguiContexts, mut playlist: ResMut<MusicPlaylist>) {
-    let track_title = playlist.tracks[playlist.current_index].title;
-
-    let ctx = match contexts.ctx_mut() {
-        Ok(ctx) => ctx,
-        Err(_) => return,
-    };
-
-    egui::Area::new("music_controls".into())
-        .anchor(egui::Align2::RIGHT_BOTTOM, [-12.0, -12.0])
-        .order(egui::Order::Foreground)
-        .show(ctx, |ui| {
-            egui::Frame::NONE
-                .inner_margin(egui::Margin::symmetric(6, 3))
-                .show(ui, |ui| {
-                    // Both rows right-aligned (Align::Max in a top-down layout).
-                    // Each row targets ~18 px tall so the two rows together match
-                    // the 36 px height of the speed-preset buttons in the time bar.
-                    ui.with_layout(egui::Layout::top_down(egui::Align::Max), |ui| {
-                        // Row 1: playback controls
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = 4.0;
-                            ui.spacing_mut().button_padding = egui::vec2(5.0, 2.0);
-                            let play_label = if playlist.paused { "▶" } else { "⏸" };
-                            if ui.add_sized(
-                                [26.0, 18.0],
-                                egui::Button::new(egui::RichText::new(play_label)),
-                            ).clicked() {
-                                playlist.paused = !playlist.paused;
-                            }
-                            if ui.add_sized(
-                                [26.0, 18.0],
-                                egui::Button::new(egui::RichText::new("⏭")),
-                            ).clicked() {
-                                playlist.skip_requested = true;
-                            }
-                            ui.add_sized(
-                                [80.0, 14.0],
-                                egui::Slider::new(&mut playlist.volume, 0.0..=1.0)
-                                    .show_value(false),
-                            );
-                        });
-
-                        // Row 2: CC-BY attribution (required by license)
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "♪  '{}' by Scott Buckley — CC-BY 4.0 · www.scottbuckley.com.au",
-                                track_title
-                            ))
-                            .color(egui::Color32::from_rgba_unmultiplied(190, 190, 190, 150)),
-                        );
-                    });
-                });
-        });
 }
 

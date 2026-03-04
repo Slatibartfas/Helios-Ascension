@@ -8,7 +8,7 @@
 //! - Dark tactical palette (#0A0F1E + #00F2FF accents)
 
 use super::*;
-use super::dashboard::{format_mass, format_mass_compact};
+use super::dashboard::{format_mass, format_mass_compact, format_rate_monthly};
 use super::resources_bar::format_population;
 use super::theme::{
     self, BG, ACCENT, ACCENT_DIM, BORDER, TEXT_DIM, TEXT_VALUE,
@@ -76,6 +76,7 @@ pub(super) fn ui_planet_dossier(
         &StarSystemIcon,
         Option<&SelectedStarSystem>,
     )>,
+    rate_tracker: Res<ResourceRateTracker>,
 ) {
     // Don't show when full-screen menus are active
     if matches!(
@@ -202,6 +203,7 @@ pub(super) fn ui_planet_dossier(
                             res,
                             survey_level.as_deref_mut(),
                             &mut commands,
+                            &rate_tracker,
                         );
                     }
                 });
@@ -571,13 +573,45 @@ fn draw_habitability_section(
     );
     ui.add_space(4.0);
 
-    // Radar chart — centred horizontally
+    // Habitability row: radar (left, ~60 %) | vertical divider | terraforming placeholder (~40 %)
     ui.horizontal(|ui| {
-        let avail = ui.available_width();
-        const CHART_SIZE: f32 = 200.0;
-        let padding = ((avail - CHART_SIZE) / 2.0).max(0.0);
-        ui.add_space(padding);
-        draw_radar_chart(ui, scores);
+        // Left column — radar chart, left-aligned, no centering padding
+        ui.vertical(|ui| {
+            draw_radar_chart(ui, scores);
+        });
+
+        // Vertical divider line between the two columns
+        ui.separator();
+
+        // Right column — terraforming placeholder (system not yet implemented)
+        ui.vertical(|ui| {
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new("TERRAFORMING")
+                    .font(heading_font())
+                    .color(TEXT_DIM),
+            );
+            ui.add_space(6.0);
+            ui.label(
+                egui::RichText::new("Process: \u{2014}")
+                    .font(mono_font(10.0))
+                    .color(TEXT_DIM),
+            );
+            ui.add_space(3.0);
+            ui.label(
+                egui::RichText::new("ETA: \u{2014}")
+                    .font(mono_font(10.0))
+                    .color(TEXT_DIM),
+            );
+            ui.add_space(8.0);
+            // Button is disabled until the terraforming system is implemented
+            ui.add_enabled(
+                false,
+                egui::Button::new(
+                    egui::RichText::new("Open Menu").font(mono_font(10.0)),
+                ),
+            );
+        });
     });
 
     ui.add_space(6.0);
@@ -719,10 +753,9 @@ fn draw_habitability_section(
 /// 5-point radar / pentagon chart rendered with `egui::Painter`.
 fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
     const LABELS: [&str; 5] = ["Gravity", "Temp", "Pressure", "Air", "Water"];
-    const SIZE: f32 = 200.0;
+    const SIZE: f32 = 210.0;
     // These are fallbacks; actual radii are computed from the painter rect
-    const FALLBACK_MAX_R: f32 = 56.0;
-    const FALLBACK_LABEL_R: f32 = 72.0;
+    const FALLBACK_MAX_R: f32 = 65.0;
 
     let (response, painter) =
         ui.allocate_painter(egui::Vec2::splat(SIZE), egui::Sense::hover());
@@ -732,8 +765,8 @@ fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
     let half_w = response.rect.width() / 2.0;
     let half_h = response.rect.height() / 2.0;
     let max_possible = half_w.min(half_h);
-    let max_r = (max_possible - 14.0).max(10.0).min(FALLBACK_MAX_R);
-    let label_r = (max_r + 14.0).min(FALLBACK_LABEL_R + 16.0);
+    let max_r = (max_possible - 16.0).max(10.0).min(FALLBACK_MAX_R);
+    let label_r = (max_r + 14.0).min(82.0);
 
     // Axis angles — start top (-PI/2), go clockwise
     let angles: Vec<f32> = (0..5)
@@ -787,7 +820,7 @@ fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
 
     // Filled polygon — triangle fan from the centre so fill is correct
     // even when the radar shape is concave.
-    let fill_color = egui::Color32::from_rgba_premultiplied(0, 242, 255, 40);
+    let fill_color = egui::Color32::from_rgba_premultiplied(0, 242, 255, 18);
     for i in 0..5 {
         let j = (i + 1) % 5;
         painter.add(egui::Shape::convex_polygon(
@@ -802,27 +835,10 @@ fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
         egui::Stroke::new(1.0, ACCENT),
     ));
 
-    // Score labels — always shown, positioned just outside the vertex
+    // Axis labels + % score beneath each label.
+    // Score % is no longer rendered inside the polygon; it always appears
+    // directly under the axis name so it is never occluded by the fill.
     for (i, (&s, &a)) in scores.iter().zip(angles.iter()).enumerate() {
-        // Always show score text; clamp placement to a readable band so
-        // low percentages (0–5%) don't collapse near the center.
-        {
-            let score_text = format!("{:.0}%", s * 100.0);
-            // Keep score labels in a readable annulus between 34% and 78% of radius.
-            let vertex_r = (max_r * s.clamp(0.0, 1.0)).max(3.0);
-            let score_r = (vertex_r + 8.0)
-                .max(max_r * 0.34)
-                .min(max_r * 0.78);
-            let score_pos = center + egui::Vec2::new(a.cos() * score_r, a.sin() * score_r);
-            painter.text(
-                score_pos,
-                egui::Align2::CENTER_CENTER,
-                &score_text,
-                mono_font(8.0),
-                ACCENT_DIM,
-            );
-        }
-
         // Axis label — anchor based on position relative to centre so text
         // never extends beyond the widget boundary.
         let label_pos = center + egui::Vec2::new(a.cos() * label_r, a.sin() * label_r);
@@ -841,6 +857,29 @@ fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
             LABELS[i],
             mono_font(9.0),
             TEXT_DIM,
+        );
+
+        // % value always shown directly below the axis name.
+        // For a top-anchored label (CENTER_BOTTOM) the text sits above
+        // label_pos, so the % anchor is placed at label_pos + a small gap.
+        // For all other alignments we drop 11 px below the anchor point.
+        let (pct_pos, pct_align) = match align {
+            egui::Align2::CENTER_BOTTOM => (
+                label_pos + egui::Vec2::new(0.0, 2.0),
+                egui::Align2::CENTER_TOP,
+            ),
+            egui::Align2::CENTER_TOP => (
+                label_pos - egui::Vec2::new(0.0, 2.0),
+                egui::Align2::CENTER_BOTTOM,
+            ),
+            _ => (label_pos + egui::Vec2::new(0.0, 11.0), align),
+        };
+        painter.text(
+            pct_pos,
+            pct_align,
+            format!("{:.0}%", s * 100.0),
+            mono_font(8.0),
+            ACCENT_DIM,
         );
     }
 }
@@ -1174,6 +1213,7 @@ fn draw_resource_section(
     resources: &PlanetResources,
     survey_level: Option<&mut SurveyLevel>,
     commands: &mut Commands,
+    rate_tracker: &ResourceRateTracker,
 ) {
     ui.label(
         egui::RichText::new("RESOURCES")
@@ -1245,7 +1285,7 @@ fn draw_resource_section(
     }
 
     // Resource periodic grid
-    draw_resource_grid(ui, resources, current_level);
+    draw_resource_grid(ui, resources, current_level, rate_tracker);
 
     // Summary line
     ui.add_space(4.0);
@@ -1280,13 +1320,17 @@ fn magnitude_tier(megatons: f64) -> (u8, &'static str) {
 
 /// Resource periodic grid: tiles laid out by category, each showing a chemical
 /// symbol with magnitude pips and compact value.
-fn draw_resource_grid(ui: &mut egui::Ui, resources: &PlanetResources, survey_level: SurveyLevel) {
+fn draw_resource_grid(ui: &mut egui::Ui, resources: &PlanetResources, survey_level: SurveyLevel, rate_tracker: &ResourceRateTracker) {
     let tile_size = 44.0_f32;
     let tile_spacing = 3.0_f32;
 
     for (category_name, category_resources) in ResourceType::by_category() {
-        // Skip categories that are produced, not mined
-        if category_name == "Biological" || category_name == "Exotic" {
+        // Only show resources that can be mined from natural deposits
+        let mineable: Vec<ResourceType> = category_resources
+            .into_iter()
+            .filter(|r| r.is_mineable())
+            .collect();
+        if mineable.is_empty() {
             continue;
         }
 
@@ -1302,9 +1346,9 @@ fn draw_resource_grid(ui: &mut egui::Ui, resources: &PlanetResources, survey_lev
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = egui::Vec2::splat(tile_spacing);
 
-            for resource_type in &category_resources {
+            for resource_type in &mineable {
                 let deposit = resources.get_deposit(resource_type);
-                draw_resource_tile(ui, *resource_type, deposit, survey_level, tile_size, cat_color);
+                draw_resource_tile(ui, *resource_type, deposit, survey_level, tile_size, cat_color, rate_tracker);
             }
         });
 
@@ -1322,6 +1366,7 @@ fn draw_resource_tile(
     survey_level: SurveyLevel,
     size: f32,
     cat_color: egui::Color32,
+    rate_tracker: &ResourceRateTracker,
 ) {
     let (response, painter) =
         ui.allocate_painter(egui::Vec2::splat(size), egui::Sense::hover());
@@ -1431,10 +1476,13 @@ fn draw_resource_tile(
     if response.hovered() && has_deposit {
         let d = deposit.unwrap();
         let discovered = survey_level.discovered_amount(&d.reserve);
-        response.clone().on_hover_ui(|ui| {
-            // Override the default tooltip frame to prevent double-framing
-            ui.style_mut().visuals.widgets.noninteractive.bg_fill = egui::Color32::TRANSPARENT;
-            ui.style_mut().visuals.window_stroke = egui::Stroke::NONE;
+        let tooltip_id = egui::Id::new("resource_tile_tooltip").with(resource.symbol());
+        egui::show_tooltip(ui.ctx(), ui.layer_id(), tooltip_id, |ui| {
+            // Strip the default tooltip frame — we draw our own
+            ui.visuals_mut().widgets.noninteractive.bg_fill = egui::Color32::TRANSPARENT;
+            ui.visuals_mut().window_fill = egui::Color32::TRANSPARENT;
+            ui.visuals_mut().window_stroke = egui::Stroke::NONE;
+            ui.visuals_mut().window_shadow = egui::Shadow::NONE;
 
             ui.set_min_width(180.0);
             let tip_frame = egui::Frame::NONE
@@ -1546,6 +1594,23 @@ fn draw_resource_tile(
                             &format!("{:.0}%", d.accessibility * 100.0),
                         );
                     });
+
+                // Balance (current production rate)
+                ui.add_space(2.0);
+                let rate = rate_tracker.get_resource_rate(&resource);
+                let (rate_text, rate_color) = format_rate_monthly(rate);
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("Balance")
+                            .font(mono_font(9.0))
+                            .color(TEXT_DIM),
+                    );
+                    ui.label(
+                        egui::RichText::new(rate_text)
+                            .font(mono_font(10.0))
+                            .color(rate_color),
+                    );
+                });
             });
         });
     }

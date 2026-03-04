@@ -346,6 +346,17 @@ impl ResourceType {
         )
     }
 
+    /// Returns true if this resource can occur naturally as a mineable deposit.
+    ///
+    /// Returns `false` for resources that are manufactured or grown by colonies
+    /// (Food, Polymers) and for exotic engineered materials (Antimatter,
+    /// ExoticMatter, Metamaterials, Computronium) that are never found in the
+    /// ground.  Use this to filter planetary resource grids and deposit
+    /// generation loops instead of hardcoding individual variant names.
+    pub fn is_mineable(&self) -> bool {
+        !self.is_biological() && !self.is_exotic() && !matches!(self, ResourceType::Polymers)
+    }
+
     /// Returns the display name of the resource
     pub fn display_name(&self) -> &'static str {
         match self {
@@ -652,6 +663,45 @@ mod tests {
         assert_eq!(ResourceType::Polymers.category(), "Strategic");
         assert_eq!(ResourceType::Antimatter.category(), "Exotic");
         assert_eq!(ResourceType::ExoticMatter.category(), "Exotic");
+    }
+
+    #[test]
+    fn test_is_mineable() {
+        // Manufactured resources must NOT be mineable
+        assert!(!ResourceType::Polymers.is_mineable(), "Polymers are manufactured");
+        assert!(!ResourceType::Food.is_mineable(), "Food is grown/produced");
+        assert!(!ResourceType::Antimatter.is_mineable(), "Antimatter is accelerator-made");
+        assert!(!ResourceType::ExoticMatter.is_mineable(), "ExoticMatter is engineered");
+        assert!(!ResourceType::Metamaterials.is_mineable(), "Metamaterials are engineered");
+        assert!(!ResourceType::Computronium.is_mineable(), "Computronium is engineered");
+
+        // Naturally occurring deposits should be mineable
+        assert!(ResourceType::Water.is_mineable());
+        assert!(ResourceType::Iron.is_mineable());
+        assert!(ResourceType::Uranium.is_mineable());
+        assert!(ResourceType::Gold.is_mineable());
+        assert!(ResourceType::Copper.is_mineable());
+        assert!(ResourceType::Fluorine.is_mineable());
+        assert!(ResourceType::Helium3.is_mineable());
+        assert!(ResourceType::Nitrogen.is_mineable());
+
+        // All non-mineable resources
+        let non_mineable: Vec<ResourceType> = ResourceType::all()
+            .iter()
+            .copied()
+            .filter(|r| !r.is_mineable())
+            .collect();
+        assert_eq!(
+            non_mineable,
+            vec![
+                ResourceType::Food,
+                ResourceType::Polymers,
+                ResourceType::Antimatter,
+                ResourceType::ExoticMatter,
+                ResourceType::Metamaterials,
+                ResourceType::Computronium,
+            ]
+        );
     }
 
     #[test]

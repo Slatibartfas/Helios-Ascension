@@ -905,6 +905,7 @@ pub(super) fn ui_time_controls(
     view_mode: Res<ViewMode>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     real_time: Res<Time<Real>>,
+    mut playlist: ResMut<crate::plugins::music::MusicPlaylist>,
 ) {
     // ── Keyboard shortcuts (skip when egui is consuming input) ────────────
     let ctx = match contexts.ctx_mut() {
@@ -1028,6 +1029,73 @@ pub(super) fn ui_time_controls(
                         ViewMode::Starmap => ("🌌 Starmap View", theme::STAR_GOLD),
                     };
                     ui.colored_label(view_color, egui::RichText::new(view_label));
+                });
+
+                // ── Music controls (frameless two-row, right-aligned) ───
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let music_w = ui.available_width().min(300.0);
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(music_w, 40.0),
+                        egui::Layout::top_down(egui::Align::RIGHT),
+                        |ui| {
+                            ui.spacing_mut().item_spacing = egui::vec2(5.0, 2.0);
+                            ui.spacing_mut().button_padding = egui::vec2(4.0, 2.0);
+
+                            // Row 1: controls + track title
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.add_sized(
+                                    [68.0, 18.0],
+                                    egui::Slider::new(&mut playlist.volume, 0.0..=1.0)
+                                        .show_value(false),
+                                );
+
+                                let skip_btn = egui::Button::new(
+                                    egui::RichText::new("⏭").color(theme::TEXT_DIM),
+                                )
+                                .stroke(egui::Stroke::new(0.5, theme::BORDER))
+                                .fill(theme::SURFACE);
+                                if ui.add_sized([22.0, 18.0], skip_btn).clicked() {
+                                    playlist.skip_requested = true;
+                                }
+
+                                let play_label = if playlist.paused { "▶" } else { "⏸" };
+                                let play_color = if playlist.paused { theme::ACCENT } else { theme::TEXT_DIM };
+                                let play_stroke = if playlist.paused {
+                                    egui::Stroke::new(1.0, theme::ACCENT)
+                                } else {
+                                    egui::Stroke::new(0.5, theme::BORDER)
+                                };
+                                let play_btn = egui::Button::new(
+                                    egui::RichText::new(play_label).color(play_color),
+                                )
+                                .stroke(play_stroke)
+                                .fill(theme::SURFACE);
+                                if ui.add_sized([22.0, 18.0], play_btn).clicked() {
+                                    playlist.paused = !playlist.paused;
+                                }
+
+                                ui.separator();
+
+                                let track_title = playlist.tracks[playlist.current_index].title;
+                                ui.label(
+                                    egui::RichText::new(format!("♪ {}", track_title))
+                                        .font(egui::FontId::proportional(11.0))
+                                        .color(theme::TEXT_DIM),
+                                );
+                            });
+
+                            // Row 2: CC-BY attribution
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.label(
+                                    egui::RichText::new(
+                                        "Scott Buckley — CC-BY 4.0 · scottbuckley.com.au",
+                                    )
+                                    .font(egui::FontId::proportional(8.5))
+                                    .color(theme::TEXT_HINT),
+                                );
+                            });
+                        },
+                    );
                 });
             });
         });

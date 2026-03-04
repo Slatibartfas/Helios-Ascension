@@ -184,8 +184,8 @@ fn generate_resources_for_body(
 
     // Generate each resource type
     for resource_type in ResourceType::all() {
-        // Skip manufactured/biological resources — never naturally occurring as deposits
-        if resource_type.is_biological() || matches!(resource_type, ResourceType::Polymers) {
+        // Skip manufactured resources — never naturally occurring as deposits
+        if !resource_type.is_mineable() {
             continue;
         }
 
