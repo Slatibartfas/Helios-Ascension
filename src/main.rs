@@ -85,6 +85,23 @@ fn setup(mut commands: Commands) {
         ..default()
     });
 
+    // Add a subtle directional "galactic background" light that provides
+    // uniform fill illumination regardless of distance from the star.
+    // This simulates scattered interstellar starlight so distant bodies
+    // (dwarf planets, Kuiper belt objects) aren't pitch black.
+    commands.spawn((
+        DirectionalLight {
+            color: Color::srgb(0.6, 0.65, 0.8), // Slightly cool galactic tint
+            // Low intensity - just enough to give distant bodies visibility.
+            // Combined with GlobalAmbientLight (8 lux) this should keep
+            // inner planets well-lit while making outer planets visible.
+            illuminance: 50.0,
+            ..default()
+        },
+        // Point away from the system plane for natural-looking fill
+        Transform::from_xyz(1.0, 0.5, 0.0).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
+
     // Set clear color to deep black for space
     commands.insert_resource(ClearColor(Color::srgb(0.01, 0.01, 0.02)));
 }
