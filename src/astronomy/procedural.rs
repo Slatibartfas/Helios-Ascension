@@ -210,7 +210,7 @@ impl SystemType {
     pub fn typical_slots(&self) -> (usize, usize) {
         match self {
             SystemType::Standard => (4, 6),   // 4-6 planets
-            SystemType::Compact => (5, 10),  // 5-10 planets (crammed close)
+            SystemType::Compact => (5, 8),   // 5-8 planets (crammed close, TRAPPIST-1 has 7)
             SystemType::JovianHeavy => (3, 7), // 3-7 planets with gas giants
             SystemType::Sparse => (2, 4),     // 2-4 planets
         }
@@ -342,31 +342,11 @@ fn generate_log_spaced_orbits(
         // ========================================================================
         // HILL SPHERE STABILITY CHECK
         // Ensure each planet is separated by at least 10 * R_H of the larger neighbor
-        // R_H = a * (m/3M)^(1/3)
+        // Walk outward in small increments until the orbit is stable.
         // ========================================================================
-        let min_hill_sep = calculate_minimum_hill_separation(
-            semi_major_axis,
-            star_mass_kg,
-            &all_orbits,
-            10.0, // 10 Hill radii for stability
-        );
-
-        // Walk outward until we satisfy Hill sphere stability
         let mut attempts = 0;
-        while attempts < 20 {
-            let current_hill_sep = calculate_minimum_hill_separation(
-                semi_major_axis,
-                star_mass_kg,
-                &all_orbits,
-                10.0,
-            );
-
-            if semi_major_axis >= current_hill_sep || current_hill_sep < 0.001 {
-                break; // Satisfies stability or no neighbors
-            }
-
-            // Move outward to satisfy Hill sphere
-            semi_major_axis = (current_hill_sep * 1.1).min(max_au);
+        while attempts < 20 && !is_hill_stable(semi_major_axis, star_mass_kg, &all_orbits, 10.0) {
+            semi_major_axis *= 1.12; // nudge outward by 12%
             attempts += 1;
         }
 
@@ -395,42 +375,28 @@ fn generate_log_spaced_orbits(
     orbits
 }
 
-/// Calculate minimum separation based on Hill sphere stability
-fn calculate_minimum_hill_separation(
+/// Check whether the proposed orbit satisfies Hill sphere stability against all
+/// existing orbits.  Returns `true` if the orbit is stable (far enough from
+/// all neighbours), `false` otherwise.
+fn is_hill_stable(
     proposed_au: f64,
     star_mass_kg: f64,
     existing_orbits: &[f64],
     hill_multiplier: f64,
-) -> f64 {
-    let mut min_allowed = f64::MAX;
+) -> bool {
+    // Assume a representative planet mass for stability check
+    let planet_mass_kg = 10.0 * EARTH_MASS_KG;
 
     for &existing_au in existing_orbits {
-        // Calculate Hill sphere of the existing body (assuming 10 Earth masses for stability check)
-        let planet_mass_kg = 10.0 * EARTH_MASS_KG;
         let hill_radius_au = calculate_hill_sphere(planet_mass_kg, star_mass_kg, existing_au);
-
-        // Required separation = hill_multiplier * Hill radius of the larger body
         let required_sep = hill_multiplier * hill_radius_au;
-
-        // Calculate distance from proposed orbit to existing orbit
         let distance = (proposed_au - existing_au).abs();
 
-        // If proposed is inside the stability zone of existing, what's the minimum safe orbit?
         if distance < required_sep {
-            if proposed_au < existing_au {
-                // Proposed is inner - must move outward
-                min_allowed = min_allowed.min(existing_au - required_sep);
-            } else {
-                // Proposed is outer - this orbit is valid but we track it for later
-            }
+            return false;
         }
     }
-
-    if min_allowed == f64::MAX {
-        -1.0 // No constraints
-    } else {
-        min_allowed
-    }
+    true
 }
 
 /// Apply gravitational clearing: remove small planets within Hill sphere of gas giants

@@ -1495,7 +1495,7 @@ fn spawn_procedural_moons(
     const OUTER_MOON_MULTIPLIER: f64 = 10.0;
 
     // Determine moon count based on planet mass
-    let moon_count = if planet_mass_earth > 50.0 {
+    let mut moon_count: u32 = if planet_mass_earth > 50.0 {
         // Gas giants get many moons
         rng.random_range(3..=6)
     } else if planet_mass_earth > 10.0 {
@@ -1511,6 +1511,31 @@ fn spawn_procedural_moons(
 
     if moon_count == 0 {
         return;
+    }
+
+    // ========================================================================
+    // HILL SPHERE CAP: reduce moon count if the Hill sphere is too small to
+    // fit the requested number of moons without them overlapping or orbiting
+    // inside the planet.  The innermost regular moon must orbit beyond the
+    // planet's Roche limit (~2.5× planet radius).
+    // ========================================================================
+    let planet_radius_m = planet_radius_km as f64 * 1000.0;
+    let roche_limit_au = (2.5 * planet_radius_m) / 1.496e11; // ~2.5 R_planet
+    let hill_radius_au =
+        planet_sma_au * ((planet_mass_earth as f64) * 5.972e24 / (3.0 * 1.989e30)).powf(1.0 / 3.0);
+    let regular_outer_au = (hill_radius_au * 0.05).max(0.0005);
+
+    // If the regular moon zone can't even fit outside the Roche limit,
+    // reduce moon count drastically or skip moons entirely.
+    if regular_outer_au < roche_limit_au * 2.0 {
+        // Barely any room — at most 1 irregular moon
+        moon_count = moon_count.min(1);
+    } else {
+        // Estimate how many moons can fit with geometric spacing above the
+        // Roche limit.  Each moon needs ~1.3× radial separation from the next.
+        let usable_range = (regular_outer_au / roche_limit_au).max(1.0);
+        let max_fitting = (usable_range.ln() / 1.3_f64.ln()).floor() as u32 + 1;
+        moon_count = moon_count.min(max_fitting.max(1));
     }
 
     // Visual bounds for moon orbits (in Bevy units).
@@ -1534,35 +1559,48 @@ fn spawn_procedural_moons(
 
     // Regular moons orbit within ~0.05 Hill radii (like Galilean system),
     // irregular moons extend to ~0.4 Hill radii (like Jupiter's outer groups).
-    let regular_outer_au = (hill_radius_au * 0.05).max(0.0005);
+    // Ensure innermost moon is always beyond the Roche limit (~2.5 planet radii).
+    let regular_inner_au = roche_limit_au.max(regular_outer_au * 0.15);
     let irregular_outer_au = (hill_radius_au * 0.40).max(regular_outer_au * 3.0);
 
+    // Pre-compute all moon orbital distances, then sort & deduplicate to
+    // guarantee no crossing orbits.
+    let mut moon_distances: Vec<(f64, bool)> = Vec::with_capacity(moon_count as usize);
     for i in 0..moon_count {
         // Classify moon population: inner ~60% are regular, rest irregular.
         let regular_fraction = 0.6;
         let is_regular = (i as f64) < (moon_count as f64 * regular_fraction);
 
-        // --- Orbital distance ---
-        // Geometric (Titius-Bode-like) spacing with random jitter.
-        // Regular moons: packed inside regular_outer_au with resonance-like gaps.
-        // Irregular moons: scattered through the outer Hill sphere region.
         let orbital_distance_au = if is_regular {
             // Logarithmic spacing: inner_au × ratio^i, like Galilean resonances
-            let inner_au = regular_outer_au * 0.15; // innermost at ~15% of regular zone
             let ratio = if moon_count > 1 {
-                (regular_outer_au / inner_au).powf(1.0 / (moon_count as f64 - 1.0).max(1.0))
+                (regular_outer_au / regular_inner_au).powf(1.0 / (moon_count as f64 - 1.0).max(1.0))
             } else {
                 1.0
             };
-            let base = inner_au * ratio.powf(i as f64);
-            // ±25% jitter around the geometric position
-            base * rng.random_range(0.75..1.25_f64)
+            let base = regular_inner_au * ratio.powf(i as f64);
+            // ±15% jitter (reduced from 25% to prevent orbit crossings)
+            (base * rng.random_range(0.85..1.15_f64)).max(roche_limit_au)
         } else {
             // Irregular moons: log-uniform scatter in the outer Hill sphere
             let log_inner = regular_outer_au.ln();
             let log_outer = irregular_outer_au.ln();
             (log_inner + rng.random_range(0.3..1.0_f64) * (log_outer - log_inner)).exp()
         };
+        moon_distances.push((orbital_distance_au, is_regular));
+    }
+
+    // Sort by distance and enforce minimum separation (each moon must be at
+    // least 10% farther than the previous one to prevent visual overlap).
+    moon_distances.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    for i in 1..moon_distances.len() {
+        let min_distance = moon_distances[i - 1].0 * 1.10;
+        if moon_distances[i].0 < min_distance {
+            moon_distances[i].0 = min_distance;
+        }
+    }
+
+    for (i, &(orbital_distance_au, is_regular)) in moon_distances.iter().enumerate() {
 
         // --- Mass (log-uniform for realistic spread across orders of magnitude) ---
         // Real examples: Ganymede 0.025% of Jupiter, Deimos 0.000000025% of Mars,
@@ -1593,7 +1631,7 @@ fn spawn_procedural_moons(
         // Outer moons: increasingly icy (Ganymede: 1936, Callisto: 1834, Enceladus: 1609)
         // Irregulars: low-density captured bodies (~1300-2000)
         let density_kg_m3 = if is_regular {
-            let t = i as f64 / (moon_count as f64).max(1.0);
+            let t = i as f64 / (moon_distances.len() as f64).max(1.0);
             // Blend from rocky-inner (~3400) to icy-outer (~1800)
             let base_density = 3400.0 - t * 1600.0;
             base_density * rng.random_range(0.85..1.15_f64)
@@ -1648,16 +1686,17 @@ fn spawn_procedural_moons(
 
         // Compute orbit amplification so moons render outside the parent mesh
         let orbit_bevy = orbital_distance_au * SCALING_FACTOR;
-        let amp = if moon_count == 1 {
+        let total_moons = moon_distances.len();
+        let amp = if total_moons == 1 {
             let mid_display = (inner_display + outer_display) * 0.5;
             (mid_display / orbit_bevy).max(1.0) as f32
         } else {
-            let t = i as f64 / (moon_count - 1) as f64;
+            let t = i as f64 / (total_moons - 1) as f64;
             let display_distance = inner_display + t * (outer_display - inner_display);
             (display_distance / orbit_bevy).max(1.0) as f32
         };
 
-        let moon_name = format!("{} {}", planet_name, to_roman(i + 1));
+        let moon_name = format!("{} {}", planet_name, to_roman(i as u32 + 1));
 
         // Calculate moon temperature using parent planet's distance from star
         // (moons orbit the planet, but their temperature depends on their distance from the star)
@@ -1711,14 +1750,15 @@ fn spawn_procedural_moons(
         ));
     }
 
-    if moon_count > 0 {
+    if !moon_distances.is_empty() {
+        let spawned = moon_distances.len();
         debug!(
             "  Spawned {} moons for {} at {:.2} AU (orbit amp: {:.1}x-{:.1}x)",
-            moon_count,
+            spawned,
             planet_name,
             planet_sma_au,
             (inner_display / (0.001 * SCALING_FACTOR)).max(1.0),
-            (outer_display / ((0.001 + (moon_count as f64 - 1.0) * 0.002) * SCALING_FACTOR))
+            (outer_display / ((0.001 + (spawned as f64 - 1.0) * 0.002) * SCALING_FACTOR))
                 .max(1.0),
         );
     }
