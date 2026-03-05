@@ -7,7 +7,9 @@
       "mcp__MiniMax__understand_image",
       "WebFetch(domain:ssd.jpl.nasa.gov)",
       "mcp__MiniMax__web_search",
-      "WebFetch(domain:en.wikipedia.org)"
+      "WebFetch(domain:en.wikipedia.org)",
+      "Bash(cargo build)",
+      "Bash(cargo test --test procedural_generation_tests)"
     ]
   }
 }

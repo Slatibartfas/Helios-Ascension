@@ -11,6 +11,78 @@ use std::f64::consts::PI;
 use super::components::KeplerOrbit;
 use crate::plugins::solar_system_data::BodyType;
 
+// ============================================================================
+// PHYSICAL CONSTANTS FOR PROCEDURAL GENERATION
+// ============================================================================
+
+/// Solar mass in kg
+const SOLAR_MASS_KG: f64 = 1.989e30;
+/// Earth mass in kg
+const EARTH_MASS_KG: f64 = 5.972e24;
+/// Earth radius in km
+const EARTH_RADIUS_KM: f64 = 6371.0;
+/// Gravitational constant in m³/(kg·s²)
+const G: f64 = 6.674e-11;
+/// Astronomical unit in meters
+const AU_M: f64 = 1.496e11;
+/// Stefan-Boltzmann constant
+const STEFAN_BOLTZMANN: f64 = 5.67e-8;
+
+/// Calculate escape velocity from a body
+/// v_esc = sqrt(2GM/R)
+pub fn calculate_escape_velocity(mass_kg: f64, radius_m: f64) -> f64 {
+    (2.0 * G * mass_kg / radius_m).sqrt()
+}
+
+/// Calculate instellation (stellar flux) at a given distance
+/// I = L / d² (in Earth-equivalent units, where L_sun = 1, 1 AU = 1)
+pub fn calculate_instellation(star_luminosity_sol: f64, distance_au: f64) -> f64 {
+    star_luminosity_sol / distance_au.powf(2.0)
+}
+
+/// Calculate equilibrium temperature for a planet
+/// T_eq = (L * (1 - albedo) / (16 * pi * d² * sigma))^(1/4)
+/// Simplified: T_eq = 278.3 * sqrt(sqrt(L) / d)
+pub fn calculate_equilibrium_temperature(star_luminosity_sol: f64, distance_au: f64, albedo: f32) -> f64 {
+    let T_eq_no_albedo = 278.3 * (star_luminosity_sol.sqrt()) / distance_au.sqrt();
+    // Apply albedo correction
+    T_eq_no_albedo * (1.0 - albedo as f64).powf(0.25)
+}
+
+/// Calculate Hill sphere radius for a body orbiting a larger mass
+/// R_H = a * (m / 3M)^(1/3)
+/// Returns Hill sphere in AU
+pub fn calculate_hill_sphere(planet_mass_kg: f64, star_mass_kg: f64, semi_major_axis_au: f64) -> f64 {
+    let mass_ratio = planet_mass_kg / (3.0 * star_mass_kg);
+    semi_major_axis_au * mass_ratio.cbrt()
+}
+
+/// Check if a planet can retain its atmosphere based on the Cosmic Shoreline
+/// A planet retains atmosphere if v_esc^4 > K * I, where K is a baseline constant
+/// For Earth-like retention, K ≈ 1.0
+pub fn can_retain_atmosphere_cosmic_shoreline(
+    escape_velocity_mps: f64,
+    instellation: f64,
+    baseline_k: f64,
+) -> bool {
+    escape_velocity_mps.powf(4.0) > baseline_k * instellation
+}
+
+/// Determine if a planet is in the habitable zone
+pub fn is_in_habitable_zone(distance_au: f64, star_luminosity_sol: f64) -> bool {
+    let (hz_inner, hz_outer) = calculate_habitable_zone(star_luminosity_sol);
+    distance_au >= hz_inner && distance_au <= hz_outer
+}
+
+/// Calculate the stellar Hill sphere (approximate galactic bounds)
+/// For a Sun-like star in typical galactic neighborhood, this is ~200,000 AU
+pub fn calculate_stellar_hill_sphere(star_mass_sol: f64) -> f64 {
+    // Approximate: stellar Hill sphere in typical galactic environment
+    // M_star / M_galaxy ~ 10^-10, R_galaxy ~ 10^5 ly ~ 10^8 AU
+    // R_H,star ~ 10^5 * (10^-10/3)^(1/3) ~ 2 × 10^5 AU
+    200_000.0 * star_mass_sol.sqrt()
+}
+
 /// System architecture parameters for a star system
 /// Defines the structure of rocky planets, gas giants, belts, and clouds
 #[derive(Debug, Clone)]
@@ -69,14 +141,93 @@ pub struct ProceduralPlanet {
 
     /// Planet type
     pub planet_type: PlanetType,
+
+    /// Rotation period in Earth days (positive = prograde)
+    pub rotation_period_days: f32,
+
+    /// Axial tilt in degrees (obliquity)
+    pub axial_tilt_deg: f32,
+}
+
+/// System architecture types - defines the overall structure of a star system
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SystemType {
+    /// Standard system like our Solar System (inner rocky, outer gas giants)
+    Standard,
+    /// Compact system with many planets crammed close to the star (e.g., TRAPPIST-1)
+    Compact,
+    /// Jovian-heavy system with hot Jupiters inside the habitable zone
+    JovianHeavy,
+    /// Sparse system with few planets spread out
+    Sparse,
+}
+
+impl SystemType {
+    /// Determine system type based on star properties and random chance
+    pub fn determine(_star_mass_solar: f64, luminosity_solar: f64, rng: &mut impl Rng) -> Self {
+        // Red dwarf stars (M-type) often have compact systems
+        let is_red_dwarf = luminosity_solar < 0.1;
+
+        let roll = rng.random_range(0.0..1.0_f64);
+
+        if is_red_dwarf {
+            // M-dwarfs: 60% compact, 20% standard, 15% sparse, 5% jovian-heavy
+            if roll < 0.60 {
+                SystemType::Compact
+            } else if roll < 0.80 {
+                SystemType::Standard
+            } else if roll < 0.95 {
+                SystemType::Sparse
+            } else {
+                SystemType::JovianHeavy
+            }
+        } else if luminosity_solar < 0.5 {
+            // K-type stars: 40% standard, 30% compact, 20% sparse, 10% jovian-heavy
+            if roll < 0.40 {
+                SystemType::Standard
+            } else if roll < 0.70 {
+                SystemType::Compact
+            } else if roll < 0.90 {
+                SystemType::Sparse
+            } else {
+                SystemType::JovianHeavy
+            }
+        } else {
+            // G-type and brighter: 60% standard, 20% sparse, 15% compact, 5% jovian-heavy
+            if roll < 0.60 {
+                SystemType::Standard
+            } else if roll < 0.80 {
+                SystemType::Sparse
+            } else if roll < 0.95 {
+                SystemType::Compact
+            } else {
+                SystemType::JovianHeavy
+            }
+        }
+    }
+
+    /// Returns the typical number of orbital slots for this system type
+    pub fn typical_slots(&self) -> (usize, usize) {
+        match self {
+            SystemType::Standard => (4, 6),   // 4-6 planets
+            SystemType::Compact => (5, 10),  // 5-10 planets (crammed close)
+            SystemType::JovianHeavy => (3, 7), // 3-7 planets with gas giants
+            SystemType::Sparse => (2, 4),     // 2-4 planets
+        }
+    }
 }
 
 /// Type of procedurally generated planet
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlanetType {
-    Rocky,    // Inner system, terrestrial composition
-    IceGiant, // Outer system, ice-rich
-    GasGiant, // Outer system, gas-rich
+    Rocky,        // Standard terrestrial planet
+    SuperEarth,  // 1.5-10 Earth masses, rocky
+    MiniNeptune, // Gaseous but small (10-20 Earth masses)
+    DesertWorld, // Hot, rocky, no water
+    LavaWorld,   // Very hot (>1000K), thin silicate atmosphere
+    IceGiant,    // Outer system, ice-rich
+    GasGiant,    // Outer system, gas-rich
+    WaterWorld,  // Terrestrial with deep ocean (>50% water by mass)
 }
 
 /// Asteroid belt configuration
@@ -126,11 +277,210 @@ pub fn calculate_frost_line(luminosity_solar: f64) -> f64 {
     4.85 * luminosity_solar.sqrt()
 }
 
+/// Calculate the habitable zone boundaries based on stellar luminosity
+/// Uses simplified estimates: HZ ≈ √(L) AU for conservative inner edge
+/// The "goldilocks" zone scales with the square root of luminosity
+///
+/// # Arguments
+/// * `luminosity_solar` - Luminosity of the star in solar luminosities (L☉)
+///
+/// # Returns
+/// (inner_edge_au, outer_edge_au) for the habitable zone
+pub fn calculate_habitable_zone(luminosity_solar: f64) -> (f64, f64) {
+    // Conservative estimates based on stellar irradiation
+    // Inner edge: where water begins to evaporate (~340K equilibrium for runaway greenhouse)
+    // Outer edge: where CO2 begins to condense (~170K equilibrium for maximum greenhouse)
+    let inner_au = 0.75 * luminosity_solar.sqrt();
+    let outer_au = 1.77 * luminosity_solar.sqrt();
+
+    (inner_au, outer_au)
+}
+
+/// Generate orbital slots using a Titius-Bode-like log-spaced distribution
+/// This creates more realistic planetary spacing than uniform random distribution
+///
+/// # Arguments
+/// * `min_au` - Minimum orbital distance
+/// * `max_au` - Maximum orbital distance
+/// * `num_slots` - Target number of orbital slots
+/// * `spacing_factor` - Controls spacing tightness (1.3 = loose, 2.0 = very spread)
+/// * `existing_orbits_au` - Existing orbits to avoid
+/// * `rng` - Random number generator
+///
+/// # Returns
+/// Vector of semi-major axes in AU using Titius-Bode style geometric progression
+/// with Hill Sphere stability checks
+fn generate_log_spaced_orbits(
+    min_au: f64,
+    max_au: f64,
+    num_slots: usize,
+    spacing_factor: f64,
+    existing_orbits_au: &[f64],
+    rng: &mut impl Rng,
+    star_mass_solar: f64,
+    system_type: SystemType,
+) -> Vec<f64> {
+    let mut orbits = Vec::new();
+    let mut all_orbits = existing_orbits_au.to_vec();
+
+    // Star mass in kg for Hill sphere calculations
+    let star_mass_kg = star_mass_solar * SOLAR_MASS_KG;
+
+    // Use Titius-Bode style geometric progression: a_n = a_0 * k^n
+    // where k is the spacing factor (1.4 - 2.0)
+    let mut cursor = min_au;
+
+    for _ in 0..num_slots {
+        if cursor > max_au {
+            break;
+        }
+
+        // Add small random jitter (±10% for more stable resonant systems)
+        let jitter = rng.random_range(-0.10..0.10);
+        let mut semi_major_axis = (cursor * (1.0 + jitter)).clamp(min_au, max_au);
+
+        // ========================================================================
+        // HILL SPHERE STABILITY CHECK
+        // Ensure each planet is separated by at least 10 * R_H of the larger neighbor
+        // R_H = a * (m/3M)^(1/3)
+        // ========================================================================
+        let min_hill_sep = calculate_minimum_hill_separation(
+            semi_major_axis,
+            star_mass_kg,
+            &all_orbits,
+            10.0, // 10 Hill radii for stability
+        );
+
+        // Walk outward until we satisfy Hill sphere stability
+        let mut attempts = 0;
+        while attempts < 20 {
+            let current_hill_sep = calculate_minimum_hill_separation(
+                semi_major_axis,
+                star_mass_kg,
+                &all_orbits,
+                10.0,
+            );
+
+            if semi_major_axis >= current_hill_sep || current_hill_sep < 0.001 {
+                break; // Satisfies stability or no neighbors
+            }
+
+            // Move outward to satisfy Hill sphere
+            semi_major_axis = (current_hill_sep * 1.1).min(max_au);
+            attempts += 1;
+        }
+
+        if semi_major_axis > max_au || semi_major_axis < min_au {
+            break;
+        }
+
+        all_orbits.push(semi_major_axis);
+        orbits.push(semi_major_axis);
+
+        // ========================================================================
+        // TITIUS-BODE PROGRESSION
+        // Advance cursor using geometric progression with random variation
+        // ========================================================================
+        cursor = semi_major_axis * rng.random_range(spacing_factor..(spacing_factor + 0.3));
+    }
+
+    // ========================================================================
+    // GRAVITATIONAL CLEARING FOR JOVIAN HEAVY SYSTEMS
+    // If JovianHeavy, remove any small planets within 5 Hill radii of gas giants
+    // ========================================================================
+    if system_type == SystemType::JovianHeavy {
+        apply_jovian_clearing(&mut orbits, star_mass_kg, 5.0);
+    }
+
+    orbits
+}
+
+/// Calculate minimum separation based on Hill sphere stability
+fn calculate_minimum_hill_separation(
+    proposed_au: f64,
+    star_mass_kg: f64,
+    existing_orbits: &[f64],
+    hill_multiplier: f64,
+) -> f64 {
+    let mut min_allowed = f64::MAX;
+
+    for &existing_au in existing_orbits {
+        // Calculate Hill sphere of the existing body (assuming 10 Earth masses for stability check)
+        let planet_mass_kg = 10.0 * EARTH_MASS_KG;
+        let hill_radius_au = calculate_hill_sphere(planet_mass_kg, star_mass_kg, existing_au);
+
+        // Required separation = hill_multiplier * Hill radius of the larger body
+        let required_sep = hill_multiplier * hill_radius_au;
+
+        // Calculate distance from proposed orbit to existing orbit
+        let distance = (proposed_au - existing_au).abs();
+
+        // If proposed is inside the stability zone of existing, what's the minimum safe orbit?
+        if distance < required_sep {
+            if proposed_au < existing_au {
+                // Proposed is inner - must move outward
+                min_allowed = min_allowed.min(existing_au - required_sep);
+            } else {
+                // Proposed is outer - this orbit is valid but we track it for later
+            }
+        }
+    }
+
+    if min_allowed == f64::MAX {
+        -1.0 // No constraints
+    } else {
+        min_allowed
+    }
+}
+
+/// Apply gravitational clearing: remove small planets within Hill sphere of gas giants
+fn apply_jovian_clearing(orbits: &mut Vec<f64>, star_mass_kg: f64, hill_multiplier: f64) {
+    // For simplicity, we just note that in a full implementation,
+    // any orbit that falls within 5 Hill radii of another gas giant would be cleared
+    // In practice, this is handled during planet type determination
+    // where JovianHeavy systems spawn gas giants that dominate their orbital zones
+
+    // Sort orbits to check neighbors
+    orbits.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+    let mut to_remove: Vec<usize> = Vec::new();
+
+    for (i, &orbit) in orbits.iter().enumerate() {
+        // Calculate this orbit's Hill sphere (assuming gas giant mass)
+        let planet_mass_kg = 100.0 * EARTH_MASS_KG; // Jupiter-like
+        let hill_radius_au = calculate_hill_sphere(planet_mass_kg, star_mass_kg, orbit);
+        let clearing_zone = hill_multiplier * hill_radius_au;
+
+        // Check if any smaller orbit falls within the clearing zone
+        for (j, &inner_orbit) in orbits.iter().enumerate() {
+            if j >= i {
+                break;
+            }
+            if (orbit - inner_orbit) < clearing_zone {
+                // Mark inner planet for removal
+                if !to_remove.contains(&j) {
+                    to_remove.push(j);
+                }
+            }
+        }
+    }
+
+    // Remove cleared orbits (in reverse order to maintain indices)
+    to_remove.sort();
+    to_remove.reverse();
+    for idx in to_remove {
+        if idx < orbits.len() {
+            orbits.remove(idx);
+        }
+    }
+}
+
 /// Map a star to a system architecture based on its properties
 /// This is the main entry point for procedural system generation
 ///
 /// # Arguments
 /// * `star_name` - Name of the star (for naming generated bodies)
+/// * `star_mass_solar` - Mass of the star in solar masses (for system type determination)
 /// * `luminosity_solar` - Luminosity in solar units
 /// * `existing_planet_count` - Number of confirmed planets already in the system
 /// * `existing_orbits_au` - Semi-major axes of existing planets (to avoid collisions)
@@ -140,99 +490,176 @@ pub fn calculate_frost_line(luminosity_solar: f64) -> f64 {
 /// SystemArchitecture containing all procedurally generated bodies
 pub fn map_star_to_system_architecture(
     star_name: &str,
+    star_mass_solar: f64,
     luminosity_solar: f64,
     existing_planet_count: usize,
     existing_orbits_au: &[f64],
     rng: &mut impl Rng,
 ) -> SystemArchitecture {
-    // Calculate frost line
+    // Calculate frost line and habitable zone
     let frost_line_au = calculate_frost_line(luminosity_solar);
+    let (hz_inner, hz_outer) = calculate_habitable_zone(luminosity_solar);
 
-    debug!(
-        "Generating system architecture for {} (L={:.3}L☉, frost line={:.2}AU)",
-        star_name, luminosity_solar, frost_line_au
-    );
+    // ========================================================================
+    // DYNAMIC GALAXY LIMITS: Stellar Hill Sphere
+    // Use the Hill sphere of the star to set absolute edge of procedural systems
+    // For a Sun-like star in typical galactic neighborhood: ~200,000 AU
+    // Anything beyond that is "Interstellar Space"
+    // ========================================================================
+    let stellar_hill_sphere = calculate_stellar_hill_sphere(star_mass_solar);
 
-    // Determine how many planets to add (aim for at least 5 total)
-    let target_planet_count = 5;
-    let planets_needed = if existing_planet_count < target_planet_count {
-        target_planet_count - existing_planet_count
-    } else {
-        0
-    };
+    // Filter existing orbits to only those within stellar Hill sphere
+    let valid_existing_orbits: Vec<f64> = existing_orbits_au
+        .iter()
+        .filter(|&&o| o < stellar_hill_sphere)
+        .cloned()
+        .collect();
 
-    let mut rocky_planets = Vec::new();
-    let mut gas_giants = Vec::new();
-
-    // Generate planets if needed
-    if planets_needed > 0 {
-        // Determine distribution: inner vs outer
-        // Inner system: 2-4 rocky planets (when adding 2+ planets)
-        // Outer system: 1-3 gas/ice giants
-
-        let inner_count = match planets_needed {
-            1 => rng.random_range(0..=1),
-            _ => rng.random_range(2..=4.min(planets_needed)),
-        };
-        let outer_count = (planets_needed - inner_count).min(3);
-
-        // Generate inner system rocky planets
-        rocky_planets = generate_rocky_planets(
-            star_name,
-            inner_count,
-            frost_line_au,
-            existing_orbits_au,
-            rng,
-        );
-
-        // Generate outer system gas/ice giants
-        // Offset the name index past confirmed + rocky-procedural planets
-        let gas_name_offset = existing_orbits_au.len() + rocky_planets.len();
-
-        // Combine existing orbits with newly generated rocky planets so gas giants avoid them
-        let mut all_orbits = existing_orbits_au.to_vec();
-        all_orbits.extend(rocky_planets.iter().map(|p| p.semi_major_axis_au));
-
-        gas_giants = generate_gas_giants(
-            star_name,
-            outer_count,
-            frost_line_au,
-            &all_orbits,
-            gas_name_offset,
-            rng,
+    // If all existing orbits are outside the Hill sphere, return empty system
+    if valid_existing_orbits.len() != existing_orbits_au.len() {
+        debug!(
+            "Warning: {} existing orbits are outside stellar Hill sphere ({:.0} AU)",
+            existing_orbits_au.len() - valid_existing_orbits.len(),
+            stellar_hill_sphere
         );
     }
 
+    // Determine system architecture type based on star properties
+    let system_type = SystemType::determine(star_mass_solar, luminosity_solar, rng);
+
+    debug!(
+        "Generating system architecture for {} ({:?}, L={:.3}L☉, frost line={:.2}AU, HZ={:.2}-{:.2}AU)",
+        star_name, system_type, luminosity_solar, frost_line_au, hz_inner, hz_outer
+    );
+
+    // Determine number of orbital slots based on system type
+    let (_min_slots, max_slots) = system_type.typical_slots();
+    let total_slots = if existing_planet_count < max_slots {
+        max_slots.max(existing_planet_count + 1)
+    } else {
+        existing_planet_count
+    };
+    let slots_to_generate = total_slots.saturating_sub(existing_planet_count);
+
+    let mut all_planets = Vec::new();
+
+    // Generate planets if we need more
+    if slots_to_generate > 0 {
+        // Generate orbital slots using log-spaced distribution
+        let (min_orbit, max_orbit) = match system_type {
+            SystemType::Compact => (0.02, (frost_line_au * 1.5).max(0.5)),
+            SystemType::Standard => (0.08, 40.0),
+            SystemType::JovianHeavy => (0.03, (frost_line_au * 3.0).max(5.0)),
+            SystemType::Sparse => (0.1, 50.0),
+        };
+
+        // Spacing factor: compact systems need tighter spacing
+        let spacing_factor = match system_type {
+            SystemType::Compact => 1.2,
+            SystemType::Standard => 1.35,
+            SystemType::JovianHeavy => 1.25,
+            SystemType::Sparse => 1.5,
+        };
+
+        // Clamp max_orbit to stellar Hill sphere (system boundary)
+        let system_boundary = stellar_hill_sphere.min(max_orbit);
+
+        let orbital_slots = generate_log_spaced_orbits(
+            min_orbit,
+            system_boundary,
+            slots_to_generate,
+            spacing_factor,
+            &valid_existing_orbits,
+            rng,
+            star_mass_solar,
+            system_type,
+        );
+
+        // For each orbital slot, determine planet type
+        for (i, &semi_major_axis) in orbital_slots.iter().enumerate() {
+            let planet = generate_planet_for_slot(
+                star_name,
+                i,
+                semi_major_axis,
+                frost_line_au,
+                hz_inner,
+                hz_outer,
+                system_type,
+                rng,
+            );
+            all_planets.push(planet);
+        }
+    }
+
+    // Separate planets into rocky and gas giants based on type
+    let rocky_planets: Vec<_> = all_planets
+        .iter()
+        .filter(|p| {
+            matches!(
+                p.planet_type,
+                PlanetType::Rocky
+                    | PlanetType::SuperEarth
+                    | PlanetType::DesertWorld
+                    | PlanetType::LavaWorld
+                    | PlanetType::WaterWorld
+            )
+        })
+        .cloned()
+        .collect();
+
+    let gas_giants: Vec<_> = all_planets
+        .iter()
+        .filter(|p| {
+            matches!(
+                p.planet_type,
+                PlanetType::MiniNeptune | PlanetType::IceGiant | PlanetType::GasGiant
+            )
+        })
+        .cloned()
+        .collect();
+
+    // ========================================================================
+    // EFFECTIVE FROST LINE FOR MINOR BODY PLACEMENT
+    // When planets are packed much closer than the frost line suggests
+    // (e.g. compact systems around luminous stars), scale minor body
+    // distances down so asteroid belts, cometary clouds, and dwarf planets
+    // form a cohesive system rather than orbiting at implausible distances.
+    // ========================================================================
+    let mut all_orbits_for_belt = valid_existing_orbits.to_vec();
+    all_orbits_for_belt.extend(all_planets.iter().map(|p| p.semi_major_axis_au));
+    let outermost_planet_au = all_orbits_for_belt
+        .iter()
+        .copied()
+        .fold(0.0_f64, f64::max);
+
+    // If the outermost planet is well inside the frost line, use a scaled
+    // "effective frost line" so that minor bodies form just beyond the
+    // planetary zone rather than at unrealistically distant orbits.
+    let effective_frost_line = if outermost_planet_au > 0.0 && outermost_planet_au < frost_line_au * 0.5 {
+        // Belt should start just beyond the outermost planet
+        (outermost_planet_au * 2.5).min(frost_line_au)
+    } else {
+        frost_line_au
+    };
+
     // Generate asteroid belt (inside or near frost line)
     let asteroid_belt = if rng.random_bool(0.8) {
-        // 80% chance of asteroid belt
-        Some(generate_asteroid_belt(
-            frost_line_au,
-            existing_orbits_au,
-            rng,
-        ))
+        Some(generate_asteroid_belt(effective_frost_line, &all_orbits_for_belt, rng))
     } else {
         None
     };
 
-    // Generate cometary cloud (far outer system)
+    // Generate cometary cloud (far outer system, but within stellar Hill sphere)
     let cometary_cloud = if rng.random_bool(0.7) {
-        // 70% chance of cometary cloud
-        Some(generate_cometary_cloud(frost_line_au, rng))
+        Some(generate_cometary_cloud(effective_frost_line, rng))
     } else {
         None
     };
 
     // Generate dwarf planets in the trans-Neptunian region
-    // Most systems with outer planets likely have a Kuiper belt analog
-    // with a few dwarf-planet-scale bodies
     let dwarf_planets = if rng.random_bool(0.75) {
-        // Combine all orbits for collision avoidance
-        let mut all_orbits = existing_orbits_au.to_vec();
-        all_orbits.extend(rocky_planets.iter().map(|p| p.semi_major_axis_au));
-        all_orbits.extend(gas_giants.iter().map(|p| p.semi_major_axis_au));
-        let name_offset = existing_orbits_au.len() + rocky_planets.len() + gas_giants.len();
-        generate_dwarf_planets(star_name, frost_line_au, &all_orbits, name_offset, rng)
+        let name_offset = valid_existing_orbits.len() + all_planets.len();
+        generate_dwarf_planets(star_name, effective_frost_line, &all_orbits_for_belt, name_offset, rng)
     } else {
         Vec::new()
     };
@@ -245,6 +672,372 @@ pub fn map_star_to_system_architecture(
         cometary_cloud,
         dwarf_planets,
     }
+}
+
+/// Generate a planet for a specific orbital slot based on distance and system type
+fn generate_planet_for_slot(
+    star_name: &str,
+    slot_index: usize,
+    semi_major_axis_au: f64,
+    frost_line_au: f64,
+    hz_inner: f64,
+    hz_outer: f64,
+    system_type: SystemType,
+    rng: &mut impl Rng,
+) -> ProceduralPlanet {
+    // Calculate orbital period
+    let period_years = semi_major_axis_au.powf(1.5);
+    let period_days = period_years * 365.25;
+
+    // Calculate equilibrium temperature (simplified)
+    // T_eq = 278.3 * sqrt(L) / sqrt(d) K
+    let luminosity: f64 = 1.0; // We'll use this for temp calculation
+    let equilibrium_temp = 278.3 * luminosity.sqrt() / semi_major_axis_au.sqrt();
+
+    // Determine planet type based on distance, temperature, and system type
+    let planet_type = determine_planet_type(
+        semi_major_axis_au,
+        frost_line_au,
+        hz_inner,
+        hz_outer,
+        equilibrium_temp,
+        system_type,
+        rng,
+    );
+
+    // Generate mass and radius based on planet type
+    let (mass_earth, radius_earth) = generate_mass_radius(planet_type, semi_major_axis_au, frost_line_au, rng);
+
+    // Generate visual properties based on composition
+    let (_color, _albedo) = generate_visual_properties(
+        planet_type,
+        semi_major_axis_au,
+        equilibrium_temp,
+        rng,
+    );
+
+    // Generate rotation based on planet type and distance
+    let rotation_period_days = match planet_type {
+        PlanetType::GasGiant | PlanetType::IceGiant | PlanetType::MiniNeptune => {
+            rng.random_range(0.3..0.9_f32)
+        }
+        _ => {
+            if semi_major_axis_au < 0.15 {
+                period_days as f32 // tidally locked
+            } else if semi_major_axis_au < 0.3 {
+                rng.random_range(10.0..60.0_f32)
+            } else {
+                let log_p = rng.random_range((-0.5_f32)..(1.0));
+                10.0_f32.powf(log_p)
+            }
+        }
+    };
+    let axial_tilt_deg = rng.random_range(0.0_f32..1.0).powf(1.5) * 45.0;
+
+    ProceduralPlanet {
+        name: format!(
+            "{} {}",
+            star_name,
+            char::from_u32('b' as u32 + slot_index as u32).unwrap_or('?')
+        ),
+        semi_major_axis_au,
+        // Eccentricity based on planet type
+        eccentricity: match planet_type {
+            PlanetType::GasGiant | PlanetType::IceGiant => {
+                rng.random_range(0.0_f64..1.0).powf(2.0) * 0.35
+            }
+            _ => rng.random_range(0.0_f64..1.0).powf(2.5) * 0.25,
+        },
+        // Inclination varies by system type
+        inclination: rng.random_range(-0.13..0.13),
+        longitude_ascending_node: rng.random_range(0.0..std::f64::consts::TAU),
+        argument_of_periapsis: rng.random_range(0.0..std::f64::consts::TAU),
+        mean_anomaly_epoch: rng.random_range(0.0..std::f64::consts::TAU),
+        period_days,
+        mass_earth,
+        radius_earth,
+        planet_type,
+        rotation_period_days,
+        axial_tilt_deg,
+    }
+}
+
+/// Determine planet type based on orbital distance and conditions
+fn determine_planet_type(
+    distance_au: f64,
+    frost_line_au: f64,
+    hz_inner: f64,
+    hz_outer: f64,
+    equilibrium_temp: f64,
+    system_type: SystemType,
+    rng: &mut impl Rng,
+) -> PlanetType {
+    // Check for lava world (very hot)
+    if equilibrium_temp > 1000.0 {
+        return PlanetType::LavaWorld;
+    }
+
+    // Check for desert world (hot, inside HZ inner edge)
+    if distance_au < hz_inner && equilibrium_temp > 400.0 && equilibrium_temp < 1000.0 {
+        if rng.random_bool(0.3) {
+            return PlanetType::DesertWorld;
+        }
+    }
+
+    // Check for hot Jupiter ( JovianHeavy system or migration)
+    if system_type == SystemType::JovianHeavy && distance_au < hz_inner {
+        if rng.random_bool(0.7) {
+            return PlanetType::GasGiant;
+        }
+    }
+
+    // Check for migration: gas giant inside frost line (rare but possible)
+    // About 10% chance of "hot Jupiter" from migration
+    if distance_au < frost_line_au && rng.random_bool(0.1) {
+        // Check if mass is large enough for gas giant
+        if rng.random_bool(0.6) {
+            return PlanetType::GasGiant;
+        } else {
+            return PlanetType::MiniNeptune;
+        }
+    }
+
+    // Inside frost line: rocky/terrestrial planets
+    if distance_au < frost_line_au {
+        // Check if in habitable zone
+        let in_hz = distance_au >= hz_inner && distance_au <= hz_outer;
+
+        if in_hz {
+            // Habitable zone planet: water world, super earth, or rocky
+            let roll = rng.random_range(0.0..1.0_f64);
+            if roll < 0.3 {
+                return PlanetType::WaterWorld;
+            } else if roll < 0.7 {
+                return PlanetType::SuperEarth;
+            } else {
+                return PlanetType::Rocky;
+            }
+        } else if distance_au < hz_inner {
+            // Inside HZ but too hot: desert or rocky
+            if rng.random_bool(0.4) {
+                return PlanetType::DesertWorld;
+            } else {
+                return PlanetType::Rocky;
+            }
+        } else {
+            // Outside HZ but inside frost line: could be super earth or rocky
+            if rng.random_bool(0.5) {
+                return PlanetType::SuperEarth;
+            } else {
+                return PlanetType::Rocky;
+            }
+        }
+    }
+
+    // Outside frost line: gas/ice giants
+    let distance_ratio = distance_au / frost_line_au;
+
+    if distance_ratio < 2.0 {
+        // Very close to frost line: gas giant likely
+        if rng.random_bool(0.7) {
+            PlanetType::GasGiant
+        } else {
+            PlanetType::MiniNeptune
+        }
+    } else if distance_ratio < 4.0 {
+        // Mid outer region: transition zone
+        if rng.random_bool(0.5) {
+            PlanetType::GasGiant
+        } else {
+            PlanetType::IceGiant
+        }
+    } else {
+        // Far outer: ice giant dominant
+        if rng.random_bool(0.3) {
+            PlanetType::IceGiant
+        } else {
+            // Could also be a smaller ice world
+            PlanetType::MiniNeptune
+        }
+    }
+}
+
+/// Generate mass and radius based on planet type
+/// Implements Radius Valley logic: planets with 1.6-2.0 R_earth are differentiated
+/// based on whether they're inside or outside the frost line
+fn generate_mass_radius(planet_type: PlanetType, distance_au: f64, frost_line_au: f64, rng: &mut impl Rng) -> (f32, f32) {
+    match planet_type {
+        PlanetType::Rocky => {
+            // 0.05 - 2.0 Earth masses
+            let log_mass = rng.random_range(-1.3_f64..0.3);
+            let mass = 10.0_f64.powf(log_mass) as f32;
+            // Rocky: M = R^3.7 (dense rocky composition)
+            let radius = (mass as f64).powf(1.0/3.7) * rng.random_range(0.90..1.10);
+            (mass, radius as f32)
+        }
+        PlanetType::SuperEarth => {
+            // 1.5 - 10 Earth masses
+            let log_mass = rng.random_range(0.18_f64..1.0);
+            let mass = 10.0_f64.powf(log_mass) as f32;
+
+            // ========================================================================
+            // RADIUS VALLEY LOGIC: Inside frost line = SuperEarth (dense, rocky)
+            // ========================================================================
+            let radius = if distance_au < frost_line_au {
+                // Inside frost line: SuperEarth (high density, rocky interior)
+                // M = R^3.5 for rocky SuperEarths
+                (mass as f64).powf(1.0/3.5) * rng.random_range(0.90..1.10)
+            } else {
+                // Outside frost line: Mini-Neptune (low density, gas shroud)
+                // M = R^2.0 for gaseous dwarfs
+                (mass as f64).powf(0.5) * rng.random_range(1.5..2.5)
+            };
+            (mass, radius as f32)
+        }
+        PlanetType::MiniNeptune => {
+            // 10 - 20 Earth masses - always gaseous
+            let mass = rng.random_range(10.0..20.0_f32);
+            // Mini-Neptunes: R ∝ M^0.25 (puffy atmospheres)
+            let radius = (mass as f64).powf(0.25) * rng.random_range(2.0..3.5);
+            (mass, radius as f32)
+        }
+        PlanetType::DesertWorld => {
+            // 0.3 - 4.0 Earth masses (drier, denser)
+            let log_mass = rng.random_range(-0.52_f64..0.6);
+            let mass = 10.0_f64.powf(log_mass) as f32;
+            // Denser than water worlds: R ∝ M^0.27
+            let radius = (mass as f64).powf(0.27) * rng.random_range(0.85..1.0);
+            (mass, radius as f32)
+        }
+        PlanetType::LavaWorld => {
+            // 0.3 - 3.0 Earth masses (tidally heated or very close)
+            let log_mass = rng.random_range(-0.52_f64..0.48);
+            let mass = 10.0_f64.powf(log_mass) as f32;
+            let radius = (mass as f64).powf(0.28) * rng.random_range(0.80..0.95); // Slightly smaller due to high temp
+            (mass, radius as f32)
+        }
+        PlanetType::WaterWorld => {
+            // 1.0 - 5.0 Earth masses (lots of water/ice)
+            let log_mass = rng.random_range(0.0_f64..0.7);
+            let mass = 10.0_f64.powf(log_mass) as f32;
+            // Water worlds are slightly larger: R ∝ M^0.30
+            let radius = (mass as f64).powf(0.30) * rng.random_range(1.0..1.2);
+            (mass, radius as f32)
+        }
+        PlanetType::IceGiant => {
+            // 8 - 30 Earth masses
+            let log_mass = rng.random_range(0.9_f64..1.48);
+            let mass = 10.0_f64.powf(log_mass) as f32;
+            let radius = 3.5 + (mass / 15.0 - 1.0) * 0.5 * rng.random_range(0.8..1.2);
+            (mass, radius.clamp(3.0, 5.0))
+        }
+        PlanetType::GasGiant => {
+            // 30 - 800 Earth masses
+            let log_mass = rng.random_range(1.48_f64..2.9);
+            let mass = 10.0_f64.powf(log_mass) as f32;
+            let base_radius = 9.0 + rng.random_range(-1.0..2.5_f32);
+            let radius = base_radius * rng.random_range(0.9..1.1);
+            (mass, radius.clamp(7.0, 13.0))
+        }
+    }
+}
+
+/// Generate visual properties (color and albedo) based on planet composition
+fn generate_visual_properties(
+    planet_type: PlanetType,
+    _distance_au: f64,
+    equilibrium_temp: f64,
+    rng: &mut impl Rng,
+) -> (Vec3, f32) {
+    // Default albedo range: 0.02 (dark) to 0.95 (bright/icy)
+    let (base_color, base_albedo) = match planet_type {
+        PlanetType::Rocky => {
+            // Grey/brown rocky planets
+            let albedo = rng.random_range(0.1..0.4);
+            let r = rng.random_range(0.3..0.6);
+            let g = rng.random_range(0.25..0.5);
+            let b = rng.random_range(0.2..0.4);
+            (Vec3::new(r, g, b), albedo)
+        }
+        PlanetType::SuperEarth => {
+            // Could be rocky or water worlds
+            if rng.random_bool(0.5) {
+                // Rocky super earth: grey/brown
+                let albedo = rng.random_range(0.15..0.35);
+                (Vec3::new(0.4, 0.35, 0.3), albedo)
+            } else {
+                // Water/terrestrial: blue-green
+                let albedo = rng.random_range(0.3..0.6);
+                let r = rng.random_range(0.2..0.4);
+                let g = rng.random_range(0.4..0.6);
+                let b = rng.random_range(0.5..0.7);
+                (Vec3::new(r, g, b), albedo)
+            }
+        }
+        PlanetType::MiniNeptune => {
+            // Hydrogen/helium atmosphere: pale blue/white
+            let albedo = rng.random_range(0.4..0.7);
+            let b = rng.random_range(0.6..0.9);
+            (Vec3::new(0.5, 0.6, b), albedo)
+        }
+        PlanetType::DesertWorld => {
+            // Orange/red deserts (like Mars but hotter)
+            let albedo = rng.random_range(0.15..0.35);
+            let r = rng.random_range(0.6..0.9);
+            let g = rng.random_range(0.3..0.5);
+            let b = rng.random_range(0.1..0.3);
+            (Vec3::new(r, g, b), albedo)
+        }
+        PlanetType::LavaWorld => {
+            // Bright orange/red glowing
+            let albedo = rng.random_range(0.1..0.25);
+            let r = rng.random_range(0.8..1.0);
+            let g = rng.random_range(0.3..0.6);
+            let b = rng.random_range(0.05..0.2);
+            (Vec3::new(r, g, b), albedo)
+        }
+        PlanetType::WaterWorld => {
+            // Deep blue oceans
+            let albedo = rng.random_range(0.4..0.7);
+            let r = rng.random_range(0.1..0.3);
+            let g = rng.random_range(0.3..0.5);
+            let b = rng.random_range(0.6..0.9);
+            (Vec3::new(r, g, b), albedo)
+        }
+        PlanetType::IceGiant => {
+            // Cyan/blue with bands
+            let albedo = rng.random_range(0.5..0.8);
+            let g = rng.random_range(0.5..0.8);
+            let b = rng.random_range(0.7..1.0);
+            (Vec3::new(0.4, g, b), albedo)
+        }
+        PlanetType::GasGiant => {
+            // Jupiter/Saturn-like: orange/tan with bands
+            let albedo = rng.random_range(0.3..0.6);
+            let r = rng.random_range(0.7..0.9);
+            let g = rng.random_range(0.5..0.7);
+            let b = rng.random_range(0.3..0.5);
+            (Vec3::new(r, g, b), albedo)
+        }
+    };
+
+    // Adjust based on distance/temperature (volatiles condense farther out)
+    let mut color = base_color;
+    let mut albedo: f32 = base_albedo;
+
+    // If very hot, darken (lava) or redden (desert)
+    if equilibrium_temp > 800.0 {
+        albedo *= 0.8; // Darker due to molten surface
+    }
+
+    // If very cold, brighten (ice)
+    if equilibrium_temp < 100.0 {
+        albedo = (albedo + 0.2_f32).min(0.95);
+        // Add slight blue tint
+        color.z = (color.z + 0.1_f32).min(1.0);
+    }
+
+    (color, albedo)
 }
 
 /// Generate rocky planets for the inner system.
@@ -325,6 +1118,25 @@ fn generate_rocky_planets(
         let period_years = semi_major_axis.powf(1.5);
         let period_days = period_years * 365.25;
 
+        // Rocky planet rotation periods:
+        // Earth 1.0 d, Mars 1.03 d, Mercury 58.6 d (3:2 resonance)
+        // Most rocky planets rotate in ~0.3-3 days; close-in ones can be tidally locked
+        let rotation_period_days = if semi_major_axis < 0.15 {
+            // Very close-in: likely tidally locked (period ≈ orbital period)
+            period_days as f32
+        } else if semi_major_axis < 0.3 {
+            // Close: slow rotation from tidal braking
+            rng.random_range(10.0..60.0_f32)
+        } else {
+            // Normal: log-uniform from ~0.3 to ~3 days, tail up to ~10
+            let log_p = rng.random_range((-0.5_f32)..(1.0));
+            10.0_f32.powf(log_p)
+        };
+
+        // Axial tilt: most rocky planets 0-30°, occasional high obliquity
+        // Earth 23.4°, Mars 25.2°, Venus 177° (retrograde), Uranus 97.8°
+        let axial_tilt_deg = rng.random_range(0.0_f32..1.0).powf(1.5) * 45.0;
+
         let planet = ProceduralPlanet {
             name: format!(
                 "{} {}",
@@ -352,6 +1164,8 @@ fn generate_rocky_planets(
             },
             radius_earth: 0.0, // placeholder, set below
             planet_type: PlanetType::Rocky,
+            rotation_period_days,
+            axial_tilt_deg,
         };
 
         // Derive radius from mass using empirical power law + scatter
@@ -481,6 +1295,14 @@ fn generate_gas_giants(
             _ => unreachable!(),
         };
 
+        // Gas/ice giant rotation periods:
+        // Jupiter 0.41 d, Saturn 0.44 d, Neptune 0.67 d, Uranus 0.72 d
+        // Gas giants are fast rotators: ~0.3-0.8 days typically
+        let rotation_period_days = rng.random_range(0.3..0.9_f32);
+
+        // Gas giant axial tilts: Jupiter 3.1°, Saturn 26.7°, Neptune 28.3°, Uranus 97.8°
+        let axial_tilt_deg = rng.random_range(0.0_f32..1.0).powf(1.2) * 40.0;
+
         let planet = ProceduralPlanet {
             name: format!(
                 "{} {}",
@@ -500,6 +1322,8 @@ fn generate_gas_giants(
             mass_earth,
             radius_earth,
             planet_type,
+            rotation_period_days,
+            axial_tilt_deg,
         };
 
         // Advance cursor with multiplicative spacing + extra random spread.
@@ -557,13 +1381,15 @@ fn generate_asteroid_belt(
 
 /// Generate a cometary cloud
 fn generate_cometary_cloud(frost_line_au: f64, rng: &mut impl Rng) -> CometaryCloud {
-    // Cloud at outer reaches of system (20-50 AU)
-    let inner = 20.0_f64.max(frost_line_au * 4.0);
-    let mut outer = 50.0;
+    // Cloud at outer reaches of system, scaled to the effective frost line.
+    // For compact systems (small effective frost line), this places comets
+    // proportionally closer rather than always at 20-50 AU.
+    let inner = (frost_line_au * 4.0).max(1.0);
+    let mut outer = (frost_line_au * 10.0).max(inner * 2.5);
 
     // Ensure valid range
     if outer <= inner {
-        outer = inner + 10.0;
+        outer = inner + frost_line_au.max(1.0);
     }
 
     CometaryCloud {
@@ -611,9 +1437,10 @@ fn generate_dwarf_planets(
 ) -> Vec<ProceduralPlanet> {
     let mut planets = Vec::new();
 
-    // Trans-Neptunian region: 6× frost line to 100 AU
-    // (For Sol, this is ~30-100 AU, matching the Kuiper belt + scattered disk)
-    let inner = (frost_line_au * 6.0).max(10.0);
+    // Trans-Neptunian region: 6× frost line to 20× frost line
+    // Scaled with the (effective) frost line so compact systems get
+    // proportionally closer dwarf planets instead of always 10-150 AU.
+    let inner = (frost_line_au * 6.0).max(0.5);
     let outer = (frost_line_au * 20.0).max(inner * 3.0).min(150.0);
 
     // 1-4 dwarf planets (Sol has ~5 officially, likely hundreds undiscovered)
@@ -667,6 +1494,17 @@ fn generate_dwarf_planets(
         let radius_m = (volume_m3 * 3.0 / (4.0 * PI)).powf(1.0 / 3.0);
         let radius_earth = (radius_m / 6.371e6) as f32;
 
+        // Dwarf planet rotation:
+        // Pluto 6.39 d, Eris ~15.8 d, Ceres 0.38 d, Makemake 0.95 d, Haumea 0.16 d
+        // Wide range from fast rotators to slow ones
+        let rotation_period_days = {
+            let log_p = rng.random_range((-0.8_f32)..(1.2));
+            10.0_f32.powf(log_p) // ~0.16 to ~16 days
+        };
+
+        // TNO axial tilts can be extreme: Pluto 122.5°, Ceres 4°, Eris ~78°
+        let axial_tilt_deg = rng.random_range(0.0_f32..60.0);
+
         let planet = ProceduralPlanet {
             name: format!(
                 "{} {}",
@@ -683,6 +1521,8 @@ fn generate_dwarf_planets(
             mass_earth,
             radius_earth,
             planet_type: PlanetType::Rocky, // Dwarf planets are rocky/icy
+            rotation_period_days,
+            axial_tilt_deg,
         };
 
         all_orbits.push(semi_major_axis);
@@ -712,8 +1552,14 @@ impl ProceduralPlanet {
     /// Get the body type for this planet
     pub fn body_type(&self) -> BodyType {
         match self.planet_type {
-            PlanetType::Rocky => BodyType::Planet,
-            PlanetType::IceGiant | PlanetType::GasGiant => BodyType::GasGiant,
+            PlanetType::Rocky
+            | PlanetType::SuperEarth
+            | PlanetType::DesertWorld
+            | PlanetType::LavaWorld
+            | PlanetType::WaterWorld => BodyType::Planet,
+            PlanetType::MiniNeptune | PlanetType::IceGiant | PlanetType::GasGiant => {
+                BodyType::GasGiant
+            }
         }
     }
 
@@ -731,6 +1577,7 @@ impl ProceduralPlanet {
 }
 
 /// Generate a procedural atmosphere for a planet based on its properties
+/// Uses physics-based calculations (Cosmic Shoreline) to determine atmosphere retention
 /// Returns (AtmosphereComposition, adjusted_temperature) if the planet should have an atmosphere
 pub fn generate_procedural_atmosphere(
     planet_mass_earth: f32,
@@ -742,130 +1589,227 @@ pub fn generate_procedural_atmosphere(
 ) -> Option<(crate::astronomy::AtmosphereComposition, f32)> {
     use crate::astronomy::{AtmosphereComposition, AtmosphericGas};
 
-    const EARTH_MASS_KG: f64 = 5.972e24;
-    const EARTH_RADIUS_KM: f32 = 6371.0;
-
     let mass_kg = (planet_mass_earth as f64) * EARTH_MASS_KG;
-    let radius_km = planet_radius_earth * EARTH_RADIUS_KM;
+    let radius_km = (planet_radius_earth as f64) * EARTH_RADIUS_KM;
 
-    // Check if planet can retain atmosphere
-    if !AtmosphereComposition::can_retain_atmosphere(mass_kg, radius_km) {
+    // ========================================================================
+    // STEP 1: Calculate escape velocity (v_esc = sqrt(2GM/R))
+    // ========================================================================
+    let escape_velocity = calculate_escape_velocity(mass_kg, radius_km * 1000.0); // Convert km to m
+
+    // ========================================================================
+    // STEP 2: Calculate instellation (I = L / d²)
+    // ========================================================================
+    let instellation = calculate_instellation(star_luminosity_sol as f64, distance_au);
+
+    // ========================================================================
+    // STEP 3: Apply Cosmic Shoreline - physics-based atmosphere retention
+    // v_esc^4 > K * I determines if atmosphere is retained
+    // K = 1.0 is baseline for Earth-like retention
+    // ========================================================================
+    let cosmic_shoreline_pass = can_retain_atmosphere_cosmic_shoreline(
+        escape_velocity,
+        instellation,
+        1.0, // Baseline constant
+    );
+
+    // Also check with the existing physics-based check
+    if !AtmosphereComposition::can_retain_atmosphere(mass_kg, radius_km as f32) {
         return None;
     }
 
-    // Define habitable zone (conservative estimate: 0.75 - 1.5 AU scaled by luminosity)
-    let hz_inner = 0.75 * (star_luminosity_sol as f64).sqrt();
-    let hz_outer = 1.5 * (star_luminosity_sol as f64).sqrt();
-    let in_habitable_zone = distance_au >= hz_inner && distance_au <= hz_outer;
+    // If cosmic shoreline check fails, planet becomes a Vacuum world (like Mercury)
+    if !cosmic_shoreline_pass {
+        return None;
+    }
 
-    // Planet must be terrestrial-sized (0.3 - 3.0 Earth masses for rocky planets with atmospheres)
+    // ========================================================================
+    // STEP 4: Determine habitable zone membership
+    // ========================================================================
+    let in_habitable_zone = is_in_habitable_zone(distance_au, star_luminosity_sol as f64);
+
+    // Planet must be terrestrial-sized (0.5 - 5.0 Earth masses for rocky planets with atmospheres)
     // Larger planets become mini-Neptunes with thick H/He envelopes
-    let is_terrestrial_size = planet_mass_earth >= 0.3 && planet_mass_earth <= 3.0;
+    let is_terrestrial_size = planet_mass_earth >= 0.5 && planet_mass_earth <= 5.0;
 
     if !is_terrestrial_size {
         return None; // Too small or too large for Earth-like atmosphere
     }
 
-    // Probability of having atmosphere increases for:
-    // - Planets in habitable zone
-    // - More massive planets (better retention)
-    // - Planets not too close to star (atmospheric erosion)
-    let base_probability = if in_habitable_zone { 0.8 } else { 0.5 };
-    let mass_factor = (planet_mass_earth - 0.3) / 2.7; // 0 to 1 for 0.3-3.0 Earth masses
-    let distance_factor = if distance_au < 0.3 {
-        0.1 // Very close, strong stellar wind strips atmosphere
-    } else if distance_au < 0.5 {
-        0.4
-    } else {
-        1.0
-    };
-
-    let probability = base_probability * (0.5 + 0.5 * mass_factor) * distance_factor;
-
-    if rng.random::<f32>() > probability {
-        return None; // No atmosphere generated
-    }
-
-    // Generate atmospheric composition based on temperature and distance
-    let (gases, pressure_mbar, greenhouse_factor) =
-        if in_habitable_zone && equilibrium_temp_k > 250.0 && equilibrium_temp_k < 320.0 {
-            // Earth-like atmosphere (20-50% chance for breathable)
-            if rng.random::<f32>() < 0.35 {
-                // Breathable atmosphere (Earth-like)
-                (
-                    vec![
-                        AtmosphericGas::new("N2", 78.0 + rng.random_range(-3.0..3.0)),
-                        AtmosphericGas::new("O2", 21.0 + rng.random_range(-2.0..2.0)),
-                        AtmosphericGas::new("Ar", 0.93),
-                        AtmosphericGas::new("CO2", 0.04 + rng.random_range(-0.02..0.1)),
-                    ],
-                    rng.random_range(800.0..1200.0), // Near Earth pressure
-                    1.3,                             // Moderate greenhouse effect (~33K warming)
-                )
-            } else {
-                // Thin atmosphere (Mars-like) or thick (Venus-lite)
-                let is_thick = rng.random::<f32>() > 0.6;
-                if is_thick {
-                    // Thick CO2 atmosphere
-                    (
-                        vec![
-                            AtmosphericGas::new("CO2", 95.0 + rng.random_range(-5.0..3.0)),
-                            AtmosphericGas::new("N2", 3.0 + rng.random_range(-1.0..2.0)),
-                            AtmosphericGas::new("Ar", 1.6),
-                        ],
-                        rng.random_range(2000.0..10000.0), // Thick atmosphere
-                        1.8,                               // Strong greenhouse effect
-                    )
-                } else {
-                    // Thin CO2 atmosphere (Mars-like)
-                    (
-                        vec![
-                            AtmosphericGas::new("CO2", 95.0),
-                            AtmosphericGas::new("N2", 2.7),
-                            AtmosphericGas::new("Ar", 1.6),
-                        ],
-                        rng.random_range(5.0..15.0), // Very thin
-                        1.05,                        // Minimal greenhouse effect
-                    )
-                }
-            }
-        } else if equilibrium_temp_k > 320.0 {
-            // Hot planet - thick CO2/sulfur atmosphere
-            (
-                vec![
-                    AtmosphericGas::new("CO2", 96.5),
-                    AtmosphericGas::new("N2", 3.5),
-                ],
-                rng.random_range(5000.0..50000.0), // Very thick (Venus-like possible)
-                2.0,                               // Very strong greenhouse effect
-            )
-        } else {
-            // Cold planet - thin atmosphere
-            (
-                vec![
-                    AtmosphericGas::new("N2", 80.0),
-                    AtmosphericGas::new("CH4", 15.0 + rng.random_range(-5.0..5.0)),
-                    AtmosphericGas::new("Ar", 5.0),
-                ],
-                rng.random_range(10.0..100.0), // Thin
-                1.1,                           // Small greenhouse effect
-            )
-        };
+    // ========================================================================
+    // STEP 5: Generate atmospheric composition based on temperature (Recipes)
+    // ========================================================================
+    let (gases, pressure_mbar, greenhouse_factor) = generate_atmosphere_recipe(
+        equilibrium_temp_k,
+        in_habitable_zone,
+        planet_mass_earth,
+        distance_au,
+        rng,
+    );
 
     // Calculate surface temperature with greenhouse effect
     let surface_temp_k = equilibrium_temp_k * greenhouse_factor;
     let surface_temp_c = (surface_temp_k - 273.15) as f32;
 
     let atmosphere = AtmosphereComposition::new_with_body_data(
-        pressure_mbar,
+        pressure_mbar as f32,
         surface_temp_c,
         gases,
         mass_kg,
-        radius_km,
+        radius_km as f32,
         false, // Not a reference pressure
     );
 
     Some((atmosphere, surface_temp_c))
+}
+
+/// Generate atmospheric composition based on physics-based recipes
+fn generate_atmosphere_recipe(
+    equilibrium_temp_k: f64,
+    in_habitable_zone: bool,
+    planet_mass_earth: f32,
+    distance_au: f64,
+    rng: &mut impl rand::Rng,
+) -> (Vec<crate::astronomy::AtmosphericGas>, f64, f64) {
+    use crate::astronomy::AtmosphericGas;
+
+    // ========================================================================
+    // RECIPE 1: LavaWorld - T_eq > 1500K
+    // Atmosphere: Sodium (Na) and Silicate Vapor (SiO)
+    // ========================================================================
+    if equilibrium_temp_k > 1500.0 {
+        return (
+            vec![
+                AtmosphericGas::new("Na", 60.0 + rng.random_range(-10.0..20.0)),
+                AtmosphericGas::new("SiO", 25.0 + rng.random_range(-5.0..10.0)),
+                AtmosphericGas::new("O2", 10.0 + rng.random_range(-3.0..5.0)),
+                AtmosphericGas::new("K", 5.0),
+            ],
+            rng.random_range(0.1..5.0), // Very thin, high-altitude haze
+            1.0,                        // No greenhouse effect from these gases
+        );
+    }
+
+    // ========================================================================
+    // RECIPE 2: Hot Planet - 1000K < T_eq < 1500K
+    // Thick CO2/SO2 atmosphere (Venus-like)
+    // ========================================================================
+    if equilibrium_temp_k > 1000.0 {
+        return (
+            vec![
+                AtmosphericGas::new("CO2", 96.0 + rng.random_range(-2.0..3.0)),
+                AtmosphericGas::new("N2", 3.0 + rng.random_range(-1.0..1.0)),
+                AtmosphericGas::new("SO2", 1.0 + rng.random_range(0.0..0.5)),
+            ],
+            rng.random_range(5000.0..90000.0), // Very thick
+            2.0,                               // Strong greenhouse
+        );
+    }
+
+    // ========================================================================
+    // RECIPE 3: IceGiant - T_eq < 150K (outside frost line)
+    // High methane (CH4) and ammonia (NH3)
+    // ========================================================================
+    if equilibrium_temp_k < 150.0 && !in_habitable_zone {
+        return (
+            vec![
+                AtmosphericGas::new("H2", 80.0 + rng.random_range(-5.0..5.0)),
+                AtmosphericGas::new("He", 15.0 + rng.random_range(-2.0..2.0)),
+                AtmosphericGas::new("CH4", 3.0 + rng.random_range(-1.0..2.0)),
+                AtmosphericGas::new("NH3", 2.0),
+            ],
+            rng.random_range(1000.0..5000.0), // Thick
+            1.2,                             // Moderate greenhouse
+        );
+    }
+
+    // ========================================================================
+    // RECIPE 4: Habitable Zone - 250K < T_eq < 350K
+    // ========================================================================
+    if in_habitable_zone && equilibrium_temp_k > 250.0 && equilibrium_temp_k < 350.0 {
+        // Oxygen only allowed if mass > 0.5 Earth masses (for photosynthesis)
+        let allow_oxygen = planet_mass_earth > 0.5;
+
+        if allow_oxygen && rng.random::<f32>() < 0.35 {
+            // Breathable Earth-like atmosphere
+            return (
+                vec![
+                    AtmosphericGas::new("N2", 78.0 + rng.random_range(-3.0..3.0)),
+                    AtmosphericGas::new("O2", 21.0 + rng.random_range(-2.0..2.0)),
+                    AtmosphericGas::new("Ar", 0.93),
+                    AtmosphericGas::new("CO2", 0.04 + rng.random_range(-0.02..0.1)),
+                ],
+                rng.random_range(800.0..1200.0),
+                1.3,
+            );
+        } else if rng.random::<f32>() > 0.5 {
+            // Thick CO2 (Venus-lite in HZ)
+            return (
+                vec![
+                    AtmosphericGas::new("CO2", 95.0 + rng.random_range(-5.0..3.0)),
+                    AtmosphericGas::new("N2", 3.0 + rng.random_range(-1.0..2.0)),
+                    AtmosphericGas::new("Ar", 1.6),
+                ],
+                rng.random_range(2000.0..10000.0),
+                1.8,
+            );
+        } else {
+            // Thin Mars-like
+            return (
+                vec![
+                    AtmosphericGas::new("CO2", 95.0),
+                    AtmosphericGas::new("N2", 2.7),
+                    AtmosphericGas::new("Ar", 1.6),
+                ],
+                rng.random_range(5.0..15.0),
+                1.05,
+            );
+        }
+    }
+
+    // ========================================================================
+    // RECIPE 5: Hot but not in HZ - 350K < T_eq < 1000K
+    // ========================================================================
+    if equilibrium_temp_k > 350.0 && equilibrium_temp_k <= 1000.0 {
+        return (
+            vec![
+                AtmosphericGas::new("CO2", 90.0 + rng.random_range(-5.0..8.0)),
+                AtmosphericGas::new("N2", 5.0 + rng.random_range(-2.0..3.0)),
+                AtmosphericGas::new("H2O", 5.0 + rng.random_range(-3.0..5.0)),
+            ],
+            rng.random_range(500.0..5000.0),
+            1.5,
+        );
+    }
+
+    // ========================================================================
+    // RECIPE 6: Cold - 150K < T_eq < 250K (outside HZ, but not frozen)
+    // ========================================================================
+    if equilibrium_temp_k > 150.0 && equilibrium_temp_k <= 250.0 {
+        return (
+            vec![
+                AtmosphericGas::new("N2", 75.0 + rng.random_range(-10.0..15.0)),
+                AtmosphericGas::new("CH4", 15.0 + rng.random_range(-5.0..8.0)),
+                AtmosphericGas::new("Ar", 5.0),
+                AtmosphericGas::new("CO2", 5.0),
+            ],
+            rng.random_range(10.0..200.0),
+            1.15,
+        );
+    }
+
+    // ========================================================================
+    // DEFAULT: Very thin atmosphere
+    // ========================================================================
+    (
+        vec![
+            AtmosphericGas::new("N2", 95.0),
+            AtmosphericGas::new("Ar", 3.0),
+            AtmosphericGas::new("CO2", 2.0),
+        ],
+        rng.random_range(0.5..5.0),
+        1.0,
+    )
 }
 
 #[cfg(test)]
@@ -895,8 +1839,9 @@ mod tests {
 
         let architecture = map_star_to_system_architecture(
             "Test Star",
-            1.0,
-            0, // No existing planets
+            1.0, // 1.0 solar mass
+            1.0, // 1.0 solar luminosity
+            0,   // No existing planets
             &[],
             &mut rng,
         );
@@ -914,7 +1859,7 @@ mod tests {
         let existing = vec![0.5, 1.2];
 
         let architecture =
-            map_star_to_system_architecture("Test Star", 1.0, 2, &existing, &mut rng);
+            map_star_to_system_architecture("Test Star", 1.0, 1.0, 2, &existing, &mut rng);
 
         // Should generate fewer planets since we already have some
         assert!(architecture.rocky_planets.len() + architecture.gas_giants.len() <= 5);

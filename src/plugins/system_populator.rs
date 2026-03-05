@@ -28,8 +28,8 @@ use crate::economy::components::{OrbitsBody, SpectralClass, StarSystem};
 use crate::economy::generation::generate_solar_system_resources;
 use crate::game_state::GameSeed;
 use crate::plugins::solar_system::{
-    create_ring_mesh, Asteroid, CelestialBody, ClickExcluded, Comet, DwarfPlanet, LogicalParent,
-    Moon, Planet, Ring, Star,
+    create_ring_mesh, Asteroid, AxialTilt, CelestialBody, ClickExcluded, Comet, DwarfPlanet,
+    LogicalParent, Moon, Planet, Ring, RotationSpeed, Star,
 };
 use crate::plugins::solar_system_data::{
     calculate_visual_radius, system_visual_scale, AsteroidClass, BodyType,
@@ -163,34 +163,8 @@ fn populate_nearby_systems(
                 metallicity,
             );
 
-            // Cap stellar visual radius so the star mesh doesn't swallow
-            // the innermost planets in compact systems.
-            if let Some(inner_sma) = primary_star
-                .planets
-                .iter()
-                .map(|p| p.semi_major_axis_au)
-                .reduce(f32::min)
-            {
-                let max_star_vis = (inner_sma as f32) * (SCALING_FACTOR as f32) * 0.12;
-                if let Ok(mut body) = commands.get_entity(star_entity) {
-                    // We can't query components during command building, so
-                    // read back the visual_radius we just set and clamp it.
-                    let current = calculate_visual_radius(
-                        BodyType::Star,
-                        (primary_star.radius_sol * 695700.0) as f32,
-                    );
-                    if current > max_star_vis && max_star_vis > 2.0 {
-                        body.insert(CelestialBody {
-                            name: primary_star.name.clone(),
-                            mass: (primary_star.mass_sol * 1.989e30) as f64,
-                            radius: primary_star.radius_sol * 695700.0,
-                            body_type: BodyType::Star,
-                            visual_radius: max_star_vis,
-                            asteroid_class: None,
-                        });
-                    }
-                }
-            }
+            // Star visual radius capping is deferred until after procedural
+            // planets are generated, so it considers ALL inner planets.
 
             // Get the star's frost line and metallicity multiplier
             let frost_line = calculate_frost_line(primary_star.luminosity_sol as f64);
@@ -236,6 +210,7 @@ fn populate_nearby_systems(
             // Generate procedural architecture to fill gaps
             let architecture = map_star_to_system_architecture(
                 &system_data.system_name,
+                primary_star.mass_sol as f64,
                 primary_star.luminosity_sol as f64,
                 primary_star.planets.len(),
                 &existing_orbits,
@@ -390,6 +365,34 @@ fn populate_nearby_systems(
                 );
             }
 
+            // Cap stellar visual radius so the star mesh doesn't swallow
+            // the innermost planets. Uses all planets (confirmed + procedural).
+            if let Some(inner_sma_au) = all_planet_entities
+                .iter()
+                .map(|&(_, sma, _, _, _, _)| sma)
+                .reduce(f64::min)
+            {
+                // Planet should be visually outside the star surface.
+                // Allow 12% of orbit distance as max star visual radius.
+                let max_star_vis = (inner_sma_au as f32) * (SCALING_FACTOR as f32) * 0.12;
+                let current = calculate_visual_radius(
+                    BodyType::Star,
+                    (primary_star.radius_sol * 695700.0) as f32,
+                );
+                if current > max_star_vis && max_star_vis > 2.0 {
+                    if let Ok(mut body) = commands.get_entity(star_entity) {
+                        body.insert(CelestialBody {
+                            name: primary_star.name.clone(),
+                            mass: (primary_star.mass_sol * 1.989e30) as f64,
+                            radius: primary_star.radius_sol * 695700.0,
+                            body_type: BodyType::Star,
+                            visual_radius: max_star_vis,
+                            asteroid_class: None,
+                        });
+                    }
+                }
+            }
+
             // Compute and store bounding radius for this system
             let mut max_radius_au: f64 = 10.0;
             for (_, sma_au, _, _, _, _) in &all_planet_entities {
@@ -454,6 +457,39 @@ fn calculate_temperature_from_star(distance_au: f64, luminosity_sol: f32) -> (f3
     let max_temp_c = (max_k - 273.15) as f32;
 
     (avg_temp_c, min_temp_c, max_temp_c)
+}
+
+/// Adjust min/max temperature based on rotation period for airless bodies.
+/// Fast rotators distribute heat more evenly; tidally locked have extreme differentials.
+fn adjust_temperature_for_rotation(
+    rotation_period_days: f32,
+    _base_min: f32,
+    _base_max: f32,
+    avg_temp: f32,
+) -> (f32, f32) {
+    // Differential factor: how much the temperature deviates from average
+    // on the day/night sides. Based on rotation period:
+    //   - Very fast (<0.5 d): small differential (factor ~0.15)
+    //   - Earth-like (~1 d): moderate (factor ~0.25)
+    //   - Slow (>10 d): large (factor ~0.45)
+    //   - Tidally locked (>50 d): extreme (factor ~0.65)
+    let factor = if rotation_period_days < 0.3 {
+        0.12
+    } else if rotation_period_days < 2.0 {
+        0.15 + (rotation_period_days - 0.3) * 0.06 // ~0.15 to ~0.25
+    } else if rotation_period_days < 20.0 {
+        0.25 + (rotation_period_days - 2.0) * 0.011 // ~0.25 to ~0.45
+    } else if rotation_period_days < 100.0 {
+        0.45 + (rotation_period_days - 20.0) * 0.0025 // ~0.45 to ~0.65
+    } else {
+        0.65 // tidally locked / very slow
+    };
+
+    // Convert average temperature to Kelvin, apply factor, convert back
+    let avg_k = avg_temp + 273.15;
+    let min_k = avg_k * (1.0 - factor);
+    let max_k = avg_k * (1.0 + factor);
+    ((min_k - 273.15), (max_k - 273.15))
 }
 
 /// Spawn a star entity with its system properties and custom metallicity
@@ -591,6 +627,33 @@ pub fn spawn_confirmed_planet(
         .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
     let category = classify_exoplanet_with_mass(BodyType::Planet, None, avg_temp, cat_seed, false, false, Some(mass_kg));
 
+    // Generate a reasonable rotation period for confirmed exoplanets (no observational data)
+    let is_gas_giant = mass_earth > 10.0;
+    let sma = planet_data.semi_major_axis_au as f64;
+    let rotation_period_days = if is_gas_giant {
+        rng.random_range(0.3..0.9_f32)
+    } else if sma < 0.15 {
+        planet_data.period_days // tidally locked
+    } else if sma < 0.3 {
+        rng.random_range(10.0..60.0_f32)
+    } else {
+        let log_p = rng.random_range((-0.5_f32)..(1.0));
+        10.0_f32.powf(log_p)
+    };
+    let rotation_speed = if rotation_period_days != 0.0 {
+        (2.0 * std::f32::consts::PI) / (rotation_period_days.abs() * 86400.0)
+    } else {
+        0.0
+    };
+    let axial_tilt_deg = rng.random_range(0.0_f32..1.0).powf(1.5) * 45.0;
+
+    // Adjust temperature range based on rotation for airless bodies
+    let (adj_min, adj_max) = if has_atmosphere {
+        (min_temp, max_temp)
+    } else {
+        adjust_temperature_for_rotation(rotation_period_days, min_temp, max_temp, avg_temp)
+    };
+
     let mut entity_commands = commands.spawn((
         Planet,
         RealPlanet, // Mark as confirmed planet
@@ -604,11 +667,12 @@ pub fn spawn_confirmed_planet(
         },
         SurfaceTemperature {
             average_celsius: avg_temp,
-            min_celsius: min_temp,
-            max_celsius: max_temp,
+            min_celsius: adj_min,
+            max_celsius: adj_max,
         },
         PlanetCategory(category.to_string()),
         orbit,
+        RotationSpeed(rotation_speed),
         OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.7)), // Cyan/blue — matches Sol palette
         SpaceCoordinates::default(),                       // Will be updated by propagate_orbits
         OrbitCenter(parent_star), // Link to parent star for orbital hierarchy
@@ -621,6 +685,10 @@ pub fn spawn_confirmed_planet(
         // Hidden by default since these bodies are in distant systems and have no mesh yet.
         Visibility::Hidden,
     ));
+    entity_commands.insert(AxialTilt {
+        obliquity: axial_tilt_deg.to_radians(),
+        north_pole_ra: rng.random_range(0.0..std::f32::consts::TAU),
+    });
 
     // Extract ocean-relevant info before consuming atmosphere_result
     let pressure_mbar = atmosphere_result
@@ -702,6 +770,22 @@ pub fn spawn_procedural_planet(
         .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
     let category = classify_exoplanet_with_mass(planet.body_type(), None, avg_temp, cat_seed, false, false, Some(mass_kg));
 
+    // Calculate rotation speed from period (same formula as solar_system.rs)
+    let rotation_speed = if planet.rotation_period_days != 0.0 {
+        (2.0 * std::f32::consts::PI) / (planet.rotation_period_days.abs() * 86400.0)
+    } else {
+        0.0
+    };
+
+    // Adjust temperature range based on rotation:
+    // Fast rotators have smaller day/night differentials; tidally locked have extreme ones.
+    let (adj_min, adj_max) = if has_atmosphere {
+        // Atmospheres redistribute heat regardless of rotation
+        (min_temp, max_temp)
+    } else {
+        adjust_temperature_for_rotation(planet.rotation_period_days, min_temp, max_temp, avg_temp)
+    };
+
     let mut entity_commands = commands.spawn((
         Planet,
         CelestialBody {
@@ -714,11 +798,16 @@ pub fn spawn_procedural_planet(
         },
         SurfaceTemperature {
             average_celsius: avg_temp,
-            min_celsius: min_temp,
-            max_celsius: max_temp,
+            min_celsius: adj_min,
+            max_celsius: adj_max,
         },
         PlanetCategory(category.to_string()),
         orbit,
+        RotationSpeed(rotation_speed),
+        AxialTilt {
+            obliquity: planet.axial_tilt_deg.to_radians(),
+            north_pole_ra: rng.random_range(0.0..std::f32::consts::TAU),
+        },
         OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.6)), // Cyan/blue — procedural planets
         SpaceCoordinates::default(),                       // Will be updated by propagate_orbits
         OrbitCenter(parent_star), // Link to parent star for orbital hierarchy
@@ -795,6 +884,13 @@ fn spawn_dwarf_planets(
             radius_km,
         );
 
+        // Calculate rotation speed from period
+        let rotation_speed = if planet.rotation_period_days != 0.0 {
+            (2.0 * std::f32::consts::PI) / (planet.rotation_period_days.abs() * 86400.0)
+        } else {
+            0.0
+        };
+
         commands.spawn((
             DwarfPlanet,
             CelestialBody {
@@ -811,6 +907,11 @@ fn spawn_dwarf_planets(
                 max_celsius: max_temp,
             },
             orbit,
+            RotationSpeed(rotation_speed),
+            AxialTilt {
+                obliquity: planet.axial_tilt_deg.to_radians(),
+                north_pole_ra: 0.0,
+            },
             OrbitPath::new(Color::srgba(0.5, 0.5, 0.7, 0.5)), // Dim blue — matches Sol dwarf planet palette
             SpaceCoordinates::default(),
             OrbitCenter(parent_star),
