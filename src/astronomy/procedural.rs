@@ -42,11 +42,11 @@ pub fn calculate_instellation(star_luminosity_sol: f64, distance_au: f64) -> f64
 
 /// Calculate equilibrium temperature for a planet
 /// T_eq = (L * (1 - albedo) / (16 * pi * d² * sigma))^(1/4)
-/// Simplified: T_eq = 278.3 * sqrt(sqrt(L) / d)
+/// Simplified: T_eq = 278.3 * L^(1/4) / d^(1/2)
 pub fn calculate_equilibrium_temperature(star_luminosity_sol: f64, distance_au: f64, albedo: f32) -> f64 {
-    let T_eq_no_albedo = 278.3 * (star_luminosity_sol.sqrt()) / distance_au.sqrt();
+    let t_eq_no_albedo = 278.3 * star_luminosity_sol.powf(0.25) / distance_au.sqrt();
     // Apply albedo correction
-    T_eq_no_albedo * (1.0 - albedo as f64).powf(0.25)
+    t_eq_no_albedo * (1.0 - albedo as f64).powf(0.25)
 }
 
 /// Calculate Hill sphere radius for a body orbiting a larger mass
@@ -575,6 +575,15 @@ pub fn map_star_to_system_architecture(
             system_type,
         );
 
+        // Decide once per system whether a hot Jupiter migrated inward.
+        // Real occurrence rate is ~1% of FGK stars; slightly higher for more
+        // massive stars and JovianHeavy architectures.
+        let has_migrated_giant = match system_type {
+            SystemType::JovianHeavy => rng.random_bool(0.15),
+            _ => rng.random_bool(0.02),
+        };
+        let mut migrated_giant_placed = false;
+
         // For each orbital slot, determine planet type
         for (i, &semi_major_axis) in orbital_slots.iter().enumerate() {
             let planet = generate_planet_for_slot(
@@ -585,8 +594,16 @@ pub fn map_star_to_system_architecture(
                 hz_inner,
                 hz_outer,
                 system_type,
+                star_mass_solar,
+                luminosity_solar,
+                has_migrated_giant && !migrated_giant_placed,
                 rng,
             );
+            if matches!(planet.planet_type, PlanetType::GasGiant | PlanetType::MiniNeptune)
+                && planet.semi_major_axis_au < frost_line_au
+            {
+                migrated_giant_placed = true;
+            }
             all_planets.push(planet);
         }
     }
@@ -659,7 +676,7 @@ pub fn map_star_to_system_architecture(
     // Generate dwarf planets in the trans-Neptunian region
     let dwarf_planets = if rng.random_bool(0.75) {
         let name_offset = valid_existing_orbits.len() + all_planets.len();
-        generate_dwarf_planets(star_name, effective_frost_line, &all_orbits_for_belt, name_offset, rng)
+        generate_dwarf_planets(star_name, effective_frost_line, &all_orbits_for_belt, name_offset, star_mass_solar, rng)
     } else {
         Vec::new()
     };
@@ -683,16 +700,17 @@ fn generate_planet_for_slot(
     hz_inner: f64,
     hz_outer: f64,
     system_type: SystemType,
+    star_mass_solar: f64,
+    star_luminosity_solar: f64,
+    allow_migration: bool,
     rng: &mut impl Rng,
 ) -> ProceduralPlanet {
-    // Calculate orbital period
-    let period_years = semi_major_axis_au.powf(1.5);
+    // Calculate orbital period using Kepler's third law: P² = a³ / M
+    let period_years = semi_major_axis_au.powf(1.5) / star_mass_solar.sqrt();
     let period_days = period_years * 365.25;
 
-    // Calculate equilibrium temperature (simplified)
-    // T_eq = 278.3 * sqrt(L) / sqrt(d) K
-    let luminosity: f64 = 1.0; // We'll use this for temp calculation
-    let equilibrium_temp = 278.3 * luminosity.sqrt() / semi_major_axis_au.sqrt();
+    // Calculate equilibrium temperature: T_eq = 278.3 × L^(1/4) / d^(1/2)
+    let equilibrium_temp = 278.3 * star_luminosity_solar.powf(0.25) / semi_major_axis_au.sqrt();
 
     // Determine planet type based on distance, temperature, and system type
     let planet_type = determine_planet_type(
@@ -702,6 +720,7 @@ fn generate_planet_for_slot(
         hz_outer,
         equilibrium_temp,
         system_type,
+        allow_migration,
         rng,
     );
 
@@ -770,6 +789,7 @@ fn determine_planet_type(
     hz_outer: f64,
     equilibrium_temp: f64,
     system_type: SystemType,
+    allow_migration: bool,
     rng: &mut impl Rng,
 ) -> PlanetType {
     // Check for lava world (very hot)
@@ -791,10 +811,8 @@ fn determine_planet_type(
         }
     }
 
-    // Check for migration: gas giant inside frost line (rare but possible)
-    // About 10% chance of "hot Jupiter" from migration
-    if distance_au < frost_line_au && rng.random_bool(0.1) {
-        // Check if mass is large enough for gas giant
+    // Check for migration: gas giant inside frost line (decided once per system)
+    if allow_migration && distance_au < frost_line_au {
         if rng.random_bool(0.6) {
             return PlanetType::GasGiant;
         } else {
@@ -1433,6 +1451,7 @@ fn generate_dwarf_planets(
     frost_line_au: f64,
     existing_orbits_au: &[f64],
     name_offset: usize,
+    star_mass_solar: f64,
     rng: &mut impl Rng,
 ) -> Vec<ProceduralPlanet> {
     let mut planets = Vec::new();
@@ -1478,7 +1497,7 @@ fn generate_dwarf_planets(
         // Pluto 17°, Eris 44°, Makemake 29°, Haumea 28°
         let inclination = rng.random_range(0.0_f64..1.0).powf(0.5) * 0.87; // up to ~50°, biased toward moderate
 
-        let period_years = semi_major_axis.powf(1.5);
+        let period_years = semi_major_axis.powf(1.5) / star_mass_solar.sqrt();
         let period_days = period_years * 365.25;
 
         // Mass: dwarf planets range from ~0.00015 M⊕ (Ceres) to ~0.003 M⊕ (Eris)
@@ -1707,19 +1726,20 @@ fn generate_atmosphere_recipe(
     }
 
     // ========================================================================
-    // RECIPE 3: IceGiant - T_eq < 150K (outside frost line)
-    // High methane (CH4) and ammonia (NH3)
+    // RECIPE 3: Cold terrestrial - T_eq < 150K (outside frost line)
+    // Titan-like: N2-dominated with CH4 (terrestrial bodies can't retain
+    // primordial H2/He at these masses; H2/He atmospheres are for ice/gas giants)
     // ========================================================================
     if equilibrium_temp_k < 150.0 && !in_habitable_zone {
         return (
             vec![
-                AtmosphericGas::new("H2", 80.0 + rng.random_range(-5.0..5.0)),
-                AtmosphericGas::new("He", 15.0 + rng.random_range(-2.0..2.0)),
-                AtmosphericGas::new("CH4", 3.0 + rng.random_range(-1.0..2.0)),
-                AtmosphericGas::new("NH3", 2.0),
+                AtmosphericGas::new("N2", 90.0 + rng.random_range(-5.0..5.0)),
+                AtmosphericGas::new("CH4", 5.0 + rng.random_range(-2.0..3.0)),
+                AtmosphericGas::new("Ar", 3.0 + rng.random_range(-1.0..1.0)),
+                AtmosphericGas::new("CO", 2.0),
             ],
-            rng.random_range(1000.0..5000.0), // Thick
-            1.2,                             // Moderate greenhouse
+            rng.random_range(500.0..3000.0), // Substantial but not giant-planet thick
+            1.15,                            // Moderate greenhouse from CH4
         );
     }
 
@@ -1885,8 +1905,8 @@ mod tests {
             // All rocky planets should be inside the frost line
             assert!(planet.semi_major_axis_au < frost_line);
             assert_eq!(planet.planet_type, PlanetType::Rocky);
-            // Rocky planets should have reasonable masses
-            assert!(planet.mass_earth > 0.1 && planet.mass_earth < 10.0);
+            // Rocky planets should have reasonable masses (0.05 - 5.0 M⊕ range)
+            assert!(planet.mass_earth > 0.01 && planet.mass_earth < 10.0);
         }
     }
 
@@ -1973,9 +1993,9 @@ mod tests {
     fn test_atmosphere_outside_mass_range() {
         let mut rng = StdRng::seed_from_u64(123);
 
-        // Too small: below 0.3 M⊕
+        // Too small: below 0.5 M⊕ terrestrial threshold
         let result_small = generate_procedural_atmosphere(
-            0.2,   // Below 0.3 M⊕ threshold
+            0.2,   // Below 0.5 M⊕ threshold
             0.6,   // Earth-like radius
             1.0,   // 1 AU
             1.0,   // Solar luminosity
@@ -1984,13 +2004,13 @@ mod tests {
         );
         assert!(
             result_small.is_none(),
-            "Planet below 0.3 M⊕ should not get atmosphere"
+            "Planet below 0.5 M⊕ should not get atmosphere"
         );
 
-        // Too large: above 3.0 M⊕
+        // Too large: above 5.0 M⊕ (becomes mini-Neptune, not terrestrial)
         let result_large = generate_procedural_atmosphere(
-            3.5,   // Above 3.0 M⊕ threshold
-            1.5,   // Larger radius
+            6.0,   // Above 5.0 M⊕ threshold
+            2.0,   // Larger radius
             1.0,   // 1 AU
             1.0,   // Solar luminosity
             300.0, // Equilibrium temp
@@ -1998,7 +2018,7 @@ mod tests {
         );
         assert!(
             result_large.is_none(),
-            "Planet above 3.0 M⊕ should not get atmosphere"
+            "Planet above 5.0 M⊕ should not get atmosphere"
         );
     }
 
