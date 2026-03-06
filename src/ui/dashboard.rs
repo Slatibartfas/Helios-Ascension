@@ -3,11 +3,86 @@ use crate::plugins::solar_system_data::AsteroidClass;
 use std::cell::RefCell;
 
 fn render_selectable_label(ui: &mut egui::Ui, is_selected: bool, name: &str) -> egui::Response {
-    if is_selected {
-        ui.selectable_label(is_selected, name).highlight()
+    let desired_size = egui::vec2(ui.available_width(), 24.0);
+    let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
+
+    let fill = if response.hovered() {
+        theme::SURFACE_RAISED
+    } else if is_selected {
+        theme::SURFACE
     } else {
-        ui.selectable_label(is_selected, name)
-    }
+        egui::Color32::TRANSPARENT
+    };
+    let stroke = if response.hovered() {
+        egui::Stroke::new(1.0, theme::ACCENT)
+    } else if is_selected {
+        egui::Stroke::new(1.0, theme::ACCENT_DIM)
+    } else {
+        egui::Stroke::NONE
+    };
+    let text_color = if response.hovered() || is_selected {
+        theme::ACCENT
+    } else {
+        theme::TEXT
+    };
+
+    let row_rect = rect.shrink2(egui::vec2(0.0, 1.0));
+    ui.painter().rect(
+        row_rect,
+        3.0,
+        fill,
+        stroke,
+        egui::StrokeKind::Outside,
+    );
+    ui.painter().text(
+        row_rect.left_center() + egui::vec2(8.0, 0.0),
+        egui::Align2::LEFT_CENTER,
+        name,
+        theme::body(14.0),
+        text_color,
+    );
+
+    response
+}
+
+fn render_group_header(
+    ui: &mut egui::Ui,
+    label: &str,
+    count: usize,
+    is_open: bool,
+    color: egui::Color32,
+) {
+    let text = format!("{} ({})", label, count);
+    let desired_size = egui::vec2(ui.available_width(), 22.0);
+    let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::hover());
+
+    let fill = if response.hovered() || is_open {
+        theme::SURFACE
+    } else {
+        egui::Color32::TRANSPARENT
+    };
+    let stroke = if response.hovered() {
+        egui::Stroke::new(1.0, theme::ACCENT_DIM)
+    } else if is_open {
+        egui::Stroke::new(1.0, theme::BORDER)
+    } else {
+        egui::Stroke::NONE
+    };
+    let row_rect = rect.shrink2(egui::vec2(0.0, 1.0));
+    ui.painter().rect(
+        row_rect,
+        3.0,
+        fill,
+        stroke,
+        egui::StrokeKind::Outside,
+    );
+    ui.painter().text(
+        row_rect.left_center() + egui::vec2(8.0, 0.0),
+        egui::Align2::LEFT_CENTER,
+        text,
+        theme::heading(),
+        color,
+    );
 }
 
 /// Returns a Unicode icon for each body type to distinguish entries in the ledger
@@ -119,13 +194,14 @@ fn render_grouped_children(
     let id = ui.make_persistent_id((group_name, parent_entity));
     let state =
         egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false);
+    let is_open = state.is_open();
     // Record expansion state so orbit visibility can be driven from the ledger.
-    if state.is_open() {
+    if is_open {
         expanded_groups.insert((parent_entity, group_name.to_string()));
     }
     state
         .show_header(ui, |ui| {
-            ui.label(format!("{} ({})", group_name, children.len()));
+            render_group_header(ui, group_name, children.len(), is_open, theme::TEXT_DIM);
         })
         .body(|ui| {
             for &child_entity in children {
@@ -752,19 +828,43 @@ pub(super) fn ui_dashboard(
     expanded_groups.groups.clear();
 
     egui::SidePanel::left("ledger_panel")
-        .min_width(200.0)
-        .default_width(230.0)
+        .min_width(220.0)
+        .default_width(245.0)
+        .max_width(320.0)
+        .frame(theme::panel_frame())
         .show(ctx, |ui| {
             match active_menu.current {
                 GameMenu::Starmap => {
                     // Starmap view: show list of star systems
-                    ui.heading("Star Systems");
-                    ui.separator();
+                    ui.label(
+                        egui::RichText::new("NAVIGATION LEDGER")
+                            .font(theme::heading())
+                            .color(theme::TEXT_DIM),
+                    );
+                    ui.label(
+                        egui::RichText::new("Star Systems")
+                            .font(theme::title())
+                            .color(theme::ACCENT),
+                    );
+                    theme::divider(ui);
 
                     egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
                         .id_salt("starmap_ledger_scroll")
                         .show(ui, |ui| {
-                            for (entity, icon, is_selected) in star_system_query.iter() {
+                            ui.set_width(ui.available_width());
+
+                            let mut star_systems: Vec<_> = star_system_query.iter().collect();
+                            star_systems.sort_by(|a, b| {
+                                let dist_a = a.1.position.length();
+                                let dist_b = b.1.position.length();
+                                dist_a
+                                    .partial_cmp(&dist_b)
+                                    .unwrap_or(std::cmp::Ordering::Equal)
+                                    .then_with(|| a.1.name.cmp(&b.1.name))
+                            });
+
+                            for (entity, icon, is_selected) in star_systems {
                                 let response =
                                     render_selectable_label(ui, is_selected.is_some(), &icon.name);
 
@@ -790,7 +890,18 @@ pub(super) fn ui_dashboard(
                 GameMenu::Survey => {
                     // System view: show celestial body hierarchy
                     ui.horizontal(|ui| {
-                        ui.heading("Celestial Objects");
+                        ui.vertical(|ui| {
+                            ui.label(
+                                egui::RichText::new("SYSTEM LEDGER")
+                                    .font(theme::heading())
+                                    .color(theme::TEXT_DIM),
+                            );
+                            ui.label(
+                                egui::RichText::new("Celestial Objects")
+                                    .font(theme::title())
+                                    .color(theme::ACCENT),
+                            );
+                        });
                         ui.add_space(10.0);
                         if ui
                             .button("⟲")
@@ -802,11 +913,14 @@ pub(super) fn ui_dashboard(
                             }
                         }
                     });
-                    ui.separator();
+                    theme::divider(ui);
 
                     egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
                         .id_salt("ledger_scroll")
                         .show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+
                             let mut hierarchy: std::collections::HashMap<Entity, Vec<Entity>> =
                                 std::collections::HashMap::new();
                             let mut roots: Vec<Entity> = Vec::new();
@@ -910,7 +1024,7 @@ pub(super) fn ui_dashboard(
 
                             // ── Fleet section ─────────────────────────────
                             ui.add_space(4.0);
-                            ui.separator();
+                            theme::divider(ui);
 
                             let fleet_id = ui.make_persistent_id("survey_fleet_tree");
                             egui::collapsing_header::CollapsingState::load_with_default_open(
@@ -920,11 +1034,7 @@ pub(super) fn ui_dashboard(
                             )
                             .show_header(ui, |ui| {
                                 let n = fleet_query.iter().count();
-                                ui.label(
-                                    egui::RichText::new(format!("🚀 Fleets ({n})"))
-                                        .strong()
-                                        .color(theme::EP_TEAL),
-                                );
+                                render_group_header(ui, "🚀 Fleets", n, true, theme::EP_TEAL);
                             })
                             .body(|ui| {
                                 render_fleet_ledger_tree(
@@ -1256,185 +1366,249 @@ fn render_star_system_panel(
     resource_query: &Query<(&SystemId, &PlanetResources)>,
     nearby_stars: &Res<NearbyStarsData>,
 ) {
+    let panel_frame = theme::panel_frame();
+
     egui::SidePanel::right("star_system_panel")
-        .min_width(300.0)
-        .max_width(400.0)
+        .min_width(340.0)
+        .max_width(420.0)
+        .frame(panel_frame)
         .show(ctx, |ui| {
-            ui.heading("Selected Star System");
-            ui.separator();
+            egui::ScrollArea::vertical()
+                .id_salt("star_system_panel_scroll")
+                .show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new("SELECTED STAR SYSTEM")
+                            .font(theme::heading())
+                            .color(theme::TEXT_DIM),
+                    );
+                    ui.label(
+                        egui::RichText::new(&star_icon.name)
+                            .font(theme::title())
+                            .color(theme::ACCENT),
+                    );
+                    ui.add_space(6.0);
 
-            // System name
-            ui.label(egui::RichText::new(&star_icon.name).size(18.0).strong());
-            ui.add_space(10.0);
+                    let distance_ly = star_icon.position.length() / 63241.077;
+                    egui::Grid::new("star_system_info_grid")
+                        .num_columns(2)
+                        .spacing([16.0, 4.0])
+                        .show(ui, |ui| {
+                            theme::stat_row(ui, "DISTANCE", &format!("{distance_ly:.2} ly"));
+                            theme::stat_row(ui, "SYSTEM ID", &star_icon.id.to_string());
+                        });
 
-            // Distance from Sol
-            let distance_ly = star_icon.position.length() / 63241.077;
-            ui.group(|ui| {
-                ui.label(egui::RichText::new("System Info").strong());
-                ui.label(format!("Distance: {:.2} ly", distance_ly));
-                ui.label(format!("System ID: {}", star_icon.id));
-            });
+                    if let Some(system_data) = nearby_stars.get_by_id(star_icon.id) {
+                        theme::divider(ui);
+                        ui.label(
+                            egui::RichText::new("STAR PROPERTIES")
+                                .font(theme::heading())
+                                .color(theme::ACCENT),
+                        );
+                        ui.add_space(6.0);
 
-            ui.add_space(10.0);
-
-            // Try to find detailed system data
-            if let Some(system_data) = nearby_stars.get_by_id(star_icon.id) {
-                // Star properties
-                ui.group(|ui| {
-                    ui.label(egui::RichText::new("Star Properties").strong());
-
-                    for (star_idx, star_data) in system_data.stars.iter().enumerate() {
-                        if system_data.stars.len() > 1 {
-                            ui.label(
-                                egui::RichText::new(format!(
-                                    "Star {}: {}",
-                                    star_idx + 1,
-                                    &star_data.name
-                                ))
-                                .color(theme::TEXT_VALUE),
-                            );
-                        } else {
-                            ui.label(egui::RichText::new(&star_data.name).color(theme::TEXT_VALUE));
-                        }
-
-                        ui.label(format!("  Type: {}", star_data.spectral_type));
-                        ui.label(format!("  Mass: {:.2} M☉", star_data.mass_sol));
-                        ui.label(format!("  Radius: {:.2} R☉", star_data.radius_sol));
-                        ui.label(format!("  Luminosity: {:.3} L☉", star_data.luminosity_sol));
-                        ui.label(format!("  Temperature: {} K", star_data.temp_k));
-
-                        if let Some(metallicity) = star_data.metallicity {
-                            let metallicity_color = if metallicity > 0.0 {
-                                theme::STAR_GOLD
-                            } else if metallicity < 0.0 {
-                                theme::TEXT_DIM
+                        for (star_idx, star_data) in system_data.stars.iter().enumerate() {
+                            let star_label = if system_data.stars.len() > 1 {
+                                format!("STAR {}", star_idx + 1)
                             } else {
-                                theme::TEXT_VALUE
+                                "PRIMARY".to_string()
                             };
 
                             ui.label(
-                                egui::RichText::new(format!(
-                                    "  Metallicity: [Fe/H] = {:.2}",
-                                    metallicity
-                                ))
-                                .color(metallicity_color),
+                                egui::RichText::new(star_label)
+                                    .font(theme::heading())
+                                    .color(theme::TEXT_DIM),
                             );
-                        }
+                            ui.label(
+                                egui::RichText::new(&star_data.name)
+                                    .font(theme::body(16.0))
+                                    .color(theme::TEXT_VALUE),
+                            );
+                            ui.add_space(4.0);
 
-                        ui.add_space(5.0);
+                            egui::Grid::new(format!("star_properties_grid_{}", star_idx))
+                                .num_columns(2)
+                                .spacing([16.0, 4.0])
+                                .show(ui, |ui| {
+                                    theme::stat_row(ui, "TYPE", &star_data.spectral_type);
+                                    theme::stat_row(ui, "MASS", &format!("{:.2} M☉", star_data.mass_sol));
+                                    theme::stat_row(ui, "RADIUS", &format!("{:.2} R☉", star_data.radius_sol));
+                                    theme::stat_row(
+                                        ui,
+                                        "LUMINOSITY",
+                                        &format!("{:.3} L☉", star_data.luminosity_sol),
+                                    );
+                                    theme::stat_row(ui, "TEMP", &format!("{:.0} K", star_data.temp_k));
+                                    if let Some(metallicity) = star_data.metallicity {
+                                        ui.label(
+                                            egui::RichText::new("METALLICITY")
+                                                .font(theme::mono(10.0))
+                                                .color(theme::TEXT_DIM),
+                                        );
+                                        let metallicity_color = if metallicity > 0.0 {
+                                            theme::STAR_GOLD
+                                        } else if metallicity < 0.0 {
+                                            theme::TEXT_DIM
+                                        } else {
+                                            theme::TEXT_VALUE
+                                        };
+                                        ui.label(
+                                            egui::RichText::new(format!("[Fe/H] {metallicity:+.2}"))
+                                                .font(theme::mono(12.0))
+                                                .color(metallicity_color),
+                                        );
+                                        ui.end_row();
+                                    }
+                                });
+
+                            if star_idx + 1 < system_data.stars.len() {
+                                ui.add_space(4.0);
+                            }
+                        }
                     }
+
+                    let bodies: Vec<_> = bodies_query
+                        .iter()
+                        .filter(|(_, _, _, _, sys_id)| {
+                            sys_id.map(|s| s.0 == star_icon.id).unwrap_or(false)
+                        })
+                        .collect();
+
+                    theme::divider(ui);
+                    ui.label(
+                        egui::RichText::new("SYSTEM BODIES")
+                            .font(theme::heading())
+                            .color(theme::ACCENT),
+                    );
+                    ui.add_space(6.0);
+
+                    let stars = bodies
+                        .iter()
+                        .filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Star))
+                        .count();
+                    let planets = bodies
+                        .iter()
+                        .filter(|(_, b, _, _, _)| {
+                            matches!(b.body_type, BodyType::Planet | BodyType::GasGiant)
+                        })
+                        .count();
+                    let dwarf_planets = bodies
+                        .iter()
+                        .filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::DwarfPlanet))
+                        .count();
+                    let moons = bodies
+                        .iter()
+                        .filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Moon))
+                        .count();
+                    let asteroids = bodies
+                        .iter()
+                        .filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Asteroid))
+                        .count();
+                    let comets = bodies
+                        .iter()
+                        .filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Comet))
+                        .count();
+
+                    egui::Grid::new("star_system_bodies_grid")
+                        .num_columns(2)
+                        .spacing([16.0, 4.0])
+                        .show(ui, |ui| {
+                            theme::stat_row(ui, "TOTAL", &bodies.len().to_string());
+                            if stars > 0 {
+                                theme::stat_row(ui, "STARS", &stars.to_string());
+                            }
+                            if planets > 0 {
+                                theme::stat_row(ui, "PLANETS", &planets.to_string());
+                            }
+                            if dwarf_planets > 0 {
+                                theme::stat_row(ui, "DWARF", &dwarf_planets.to_string());
+                            }
+                            if moons > 0 {
+                                theme::stat_row(ui, "MOONS", &moons.to_string());
+                            }
+                            if asteroids > 0 {
+                                theme::stat_row(ui, "ASTEROIDS", &asteroids.to_string());
+                            }
+                            if comets > 0 {
+                                theme::stat_row(ui, "COMETS", &comets.to_string());
+                            }
+                        });
+
+                    theme::divider(ui);
+                    ui.label(
+                        egui::RichText::new("SYSTEM RESOURCES")
+                            .font(theme::heading())
+                            .color(theme::ACCENT),
+                    );
+                    ui.add_space(6.0);
+
+                    let mut total_resources: std::collections::HashMap<ResourceType, f64> =
+                        std::collections::HashMap::new();
+
+                    for (sys_id, resources) in resource_query.iter() {
+                        if sys_id.0 == star_icon.id {
+                            for (resource_type, deposit) in &resources.deposits {
+                                let total = deposit.total_megatons();
+                                *total_resources.entry(*resource_type).or_insert(0.0) += total;
+                            }
+                        }
+                    }
+
+                    if total_resources.is_empty() {
+                        ui.label(
+                            egui::RichText::new("No surveyed resources yet")
+                                .font(theme::body(13.0))
+                                .color(theme::TEXT_DIM),
+                        );
+                    } else {
+                        egui::Grid::new("star_system_resources_summary_grid")
+                            .num_columns(2)
+                            .spacing([16.0, 4.0])
+                            .show(ui, |ui| {
+                                theme::stat_row(
+                                    ui,
+                                    "SURVEYED TYPES",
+                                    &total_resources.len().to_string(),
+                                );
+                            });
+
+                        ui.add_space(4.0);
+                        ui.label(
+                            egui::RichText::new("TOP RESOURCES")
+                                .font(theme::heading())
+                                .color(theme::TEXT_DIM),
+                        );
+
+                        let mut sorted_resources: Vec<_> = total_resources.iter().collect();
+                        sorted_resources.sort_by(|a, b| {
+                            b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal)
+                        });
+
+                        egui::Grid::new("star_system_resources_grid")
+                            .num_columns(2)
+                            .spacing([16.0, 4.0])
+                            .show(ui, |ui| {
+                                for (resource_type, amount) in sorted_resources.iter().take(5) {
+                                    theme::stat_row(
+                                        ui,
+                                        resource_type.display_name(),
+                                        &format_mass(**amount),
+                                    );
+                                }
+                            });
+                    }
+
+                    theme::divider(ui);
+                    ui.label(
+                        egui::RichText::new("POPULATION")
+                            .font(theme::heading())
+                            .color(theme::ACCENT),
+                    );
+                    ui.add_space(6.0);
+                    ui.label(
+                        egui::RichText::new("Population management data is not yet available for starmap systems.")
+                            .font(theme::body(13.0))
+                            .color(theme::TEXT_DIM),
+                    );
                 });
-
-                ui.add_space(10.0);
-            }
-
-            // Count bodies in this system
-            let bodies: Vec<_> = bodies_query
-                .iter()
-                .filter(|(_, _, _, _, sys_id)| sys_id.map(|s| s.0 == star_icon.id).unwrap_or(false))
-                .collect();
-
-            ui.group(|ui| {
-                ui.label(egui::RichText::new("System Bodies").strong());
-                ui.label(format!("Total bodies: {}", bodies.len()));
-
-                // Count by type
-                let stars = bodies
-                    .iter()
-                    .filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Star))
-                    .count();
-                let planets = bodies
-                    .iter()
-                    .filter(|(_, b, _, _, _)| {
-                        matches!(b.body_type, BodyType::Planet | BodyType::GasGiant)
-                    })
-                    .count();
-                let dwarf_planets = bodies
-                    .iter()
-                    .filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::DwarfPlanet))
-                    .count();
-                let moons = bodies
-                    .iter()
-                    .filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Moon))
-                    .count();
-                let asteroids = bodies
-                    .iter()
-                    .filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Asteroid))
-                    .count();
-                let comets = bodies
-                    .iter()
-                    .filter(|(_, b, _, _, _)| matches!(b.body_type, BodyType::Comet))
-                    .count();
-
-                if stars > 0 {
-                    ui.label(format!("  Stars: {}", stars));
-                }
-                if planets > 0 {
-                    ui.label(format!("  Planets: {}", planets));
-                }
-                if dwarf_planets > 0 {
-                    ui.label(format!("  Dwarf Planets: {}", dwarf_planets));
-                }
-                if moons > 0 {
-                    ui.label(format!("  Moons: {}", moons));
-                }
-                if asteroids > 0 {
-                    ui.label(format!("  Asteroids: {}", asteroids));
-                }
-                if comets > 0 {
-                    ui.label(format!("  Comets: {}", comets));
-                }
-            });
-
-            ui.add_space(10.0);
-
-            // Calculate total resources
-            ui.group(|ui| {
-                ui.label(egui::RichText::new("System Resources").strong());
-
-                // Sum up all resources in this system
-                let mut total_resources: std::collections::HashMap<ResourceType, f64> =
-                    std::collections::HashMap::new();
-
-                for (sys_id, resources) in resource_query.iter() {
-                    if sys_id.0 == star_icon.id {
-                        for (resource_type, deposit) in &resources.deposits {
-                            let total = deposit.total_megatons();
-                            *total_resources.entry(*resource_type).or_insert(0.0) += total;
-                        }
-                    }
-                }
-
-                if total_resources.is_empty() {
-                    ui.label("No surveyed resources yet");
-                } else {
-                    ui.label(format!(
-                        "Surveyed resource types: {}",
-                        total_resources.len()
-                    ));
-
-                    // Show top 5 resources by abundance
-                    let mut sorted_resources: Vec<_> = total_resources.iter().collect();
-                    sorted_resources
-                        .sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
-
-                    ui.label(egui::RichText::new("Top resources:").italics());
-                    for (resource_type, amount) in sorted_resources.iter().take(5) {
-                        ui.label(format!(
-                            "  {}: {}",
-                            resource_type.display_name(),
-                            format_mass(**amount)
-                        ));
-                    }
-                }
-            });
-
-            ui.add_space(10.0);
-
-            // Population (placeholder for future)
-            ui.group(|ui| {
-                ui.label(egui::RichText::new("Population").strong());
-                ui.label("Coming soon: Population management");
-            });
         });
 }

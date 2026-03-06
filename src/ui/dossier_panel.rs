@@ -14,8 +14,10 @@ use super::theme::{
 };
 use super::*;
 use crate::astronomy::components::{
-    AtmosphericGas, OceanProperties, OceanType, SurfaceTemperature,
+    AtmosphericGas, OceanProperties, OceanType, StellarProperties, SurfaceTemperature,
 };
+use crate::astronomy::nearby_stars::NearbyStarsData;
+use crate::economy::components::{SpectralClass, StarSystem};
 use crate::plugins::solar_system_data::{AsteroidClass, BodyType};
 use std::f32::consts::TAU;
 
@@ -68,6 +70,7 @@ pub(super) fn ui_planet_dossier(
     mut contexts: EguiContexts,
     selection: Res<Selection>,
     active_menu: Res<ActiveMenu>,
+    nearby_stars: Res<NearbyStarsData>,
     mut body_query: Query<(
         &CelestialBody,
         Option<&SpaceCoordinates>,
@@ -78,6 +81,9 @@ pub(super) fn ui_planet_dossier(
         Option<&mut SurveyLevel>,
         Option<&Population>,
         Option<&SurfaceTemperature>,
+        Option<&StellarProperties>,
+        Option<&crate::astronomy::components::SystemId>,
+        Option<&StarSystem>,
         Option<&LogicalParent>,
         Option<&OceanProperties>,
     )>,
@@ -130,6 +136,9 @@ pub(super) fn ui_planet_dossier(
         mut survey_level,
         population,
         surface_temp,
+        stellar_props,
+        system_id,
+        star_system,
         logical_parent,
         ocean_props,
     )) = body_query.get_mut(entity)
@@ -162,6 +171,19 @@ pub(super) fn ui_planet_dossier(
                         &parent_coords_query,
                         &all_bodies_query,
                     );
+
+                    if body.body_type == BodyType::Star {
+                        section_divider(ui);
+                        draw_star_properties_section(
+                            ui,
+                            body,
+                            stellar_props,
+                            system_id,
+                            star_system,
+                            &nearby_stars,
+                        );
+                        return;
+                    }
 
                     // ── Ring body special case ──────────────────────
                     if body.body_type == BodyType::Ring {
@@ -495,6 +517,93 @@ fn section_divider(ui: &mut egui::Ui) {
         egui::Stroke::new(1.0, BORDER),
     );
     ui.add_space(8.0);
+}
+
+fn draw_star_properties_section(
+    ui: &mut egui::Ui,
+    body: &CelestialBody,
+    stellar_props: Option<&StellarProperties>,
+    system_id: Option<&crate::astronomy::components::SystemId>,
+    star_system: Option<&StarSystem>,
+    nearby_stars: &NearbyStarsData,
+) {
+    let star_data = system_id
+        .and_then(|id| nearby_stars.get_by_id(id.0))
+        .and_then(|system| system.stars.iter().find(|star| star.name == body.name));
+
+    let luminosity_sol = star_data
+        .map(|star| star.luminosity_sol)
+        .or_else(|| stellar_props.map(|props| props.luminosity_sol))
+        .unwrap_or(1.0);
+    let temperature_kelvin = star_data
+        .map(|star| star.temp_k)
+        .or_else(|| stellar_props.map(|props| props.temperature_kelvin))
+        .unwrap_or(5778.0);
+    let mass_sol = star_data
+        .map(|star| star.mass_sol)
+        .unwrap_or((body.mass / 1.989e30) as f32);
+    let radius_sol = star_data
+        .map(|star| star.radius_sol)
+        .unwrap_or(body.radius / 695_700.0);
+    let metallicity = star_data
+        .and_then(|star| star.metallicity)
+        .or_else(|| star_system.map(|system| system.metallicity));
+    let spectral_type = star_data
+        .map(|star| star.spectral_type.clone())
+        .unwrap_or_else(|| fallback_spectral_type(body, star_system));
+    let frost_line_au = star_system
+        .map(|system| system.frost_line_au)
+        .unwrap_or_else(|| 4.85 * (luminosity_sol as f64).sqrt());
+    let habitable_zone = (
+        0.75 * (luminosity_sol as f64).sqrt(),
+        1.77 * (luminosity_sol as f64).sqrt(),
+    );
+
+    ui.label(
+        egui::RichText::new("STAR PROPERTIES")
+            .font(heading_font())
+            .color(ACCENT),
+    );
+    ui.add_space(6.0);
+
+    egui::Grid::new("star_properties_grid")
+        .num_columns(2)
+        .spacing([16.0, 4.0])
+        .show(ui, |ui| {
+            stat_row(ui, "TYPE", &spectral_type);
+            stat_row(ui, "LUMINOSITY", &format!("{luminosity_sol:.3} L☉"));
+            stat_row(ui, "TEMP", &format!("{temperature_kelvin:.0} K"));
+            stat_row(ui, "MASS", &format!("{mass_sol:.2} M☉"));
+            stat_row(ui, "RADIUS", &format!("{radius_sol:.2} R☉"));
+            stat_row(ui, "FROST LINE", &format!("{frost_line_au:.2} AU"));
+            stat_row(
+                ui,
+                "HZ",
+                &format!("{:.2}-{:.2} AU", habitable_zone.0, habitable_zone.1),
+            );
+            if let Some(metallicity) = metallicity {
+                stat_row(ui, "METALLICITY", &format!("[Fe/H] {metallicity:+.2}"));
+            }
+        });
+}
+
+fn fallback_spectral_type(body: &CelestialBody, star_system: Option<&StarSystem>) -> String {
+    if body.name.eq_ignore_ascii_case("sun") || body.name.eq_ignore_ascii_case("sol") {
+        return "G2V".to_string();
+    }
+
+    star_system
+        .map(|system| match system.spectral_class {
+            SpectralClass::O => "O-type",
+            SpectralClass::B => "B-type",
+            SpectralClass::A => "A-type",
+            SpectralClass::F => "F-type",
+            SpectralClass::G => "G-type",
+            SpectralClass::K => "K-type",
+            SpectralClass::M => "M-type",
+        })
+        .unwrap_or("Star")
+        .to_string()
 }
 
 // ─── Orbital Stats ───────────────────────────────────────────────────────

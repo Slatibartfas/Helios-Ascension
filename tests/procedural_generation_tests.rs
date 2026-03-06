@@ -368,7 +368,7 @@ fn test_dim_star_system_generation() {
 
     let architecture = map_star_to_system_architecture(
         "Proxima",
-        0.12,  // ~0.12 solar masses (Proxima Centauri)
+        0.12,   // ~0.12 solar masses (Proxima Centauri)
         0.0017, // Very low luminosity
         0,
         &[],
@@ -487,8 +487,8 @@ fn test_bright_star_system_generation() {
 
     let architecture = map_star_to_system_architecture(
         "Sirius",
-        2.02,  // ~2.02 solar masses (Sirius A)
-        25.4,  // High luminosity
+        2.02, // ~2.02 solar masses (Sirius A)
+        25.4, // High luminosity
         0,
         &[],
         &mut rng,

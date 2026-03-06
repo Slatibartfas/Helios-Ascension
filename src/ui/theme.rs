@@ -11,8 +11,8 @@ use bevy_egui::egui;
 
 // ─── Core Palette ────────────────────────────────────────────────────────
 
-/// Deep navy background at ~85% alpha — used for panel fills.
-pub const BG: egui::Color32 = egui::Color32::from_rgba_premultiplied(8, 13, 26, 216);
+/// Deep navy background at high opacity — used for panel fills.
+pub const BG: egui::Color32 = egui::Color32::from_rgba_premultiplied(8, 13, 26, 244);
 /// Fully opaque version of the background for `CentralPanel` / `Visuals`.
 pub const BG_SOLID: egui::Color32 = egui::Color32::from_rgb(8, 13, 26);
 /// Slightly lighter panel surface (cards, tiles, sub-sections).
