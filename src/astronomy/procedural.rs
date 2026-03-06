@@ -23,11 +23,6 @@ const EARTH_MASS_KG: f64 = 5.972e24;
 const EARTH_RADIUS_KM: f64 = 6371.0;
 /// Gravitational constant in m³/(kg·s²)
 const G: f64 = 6.674e-11;
-/// Astronomical unit in meters
-const AU_M: f64 = 1.496e11;
-/// Stefan-Boltzmann constant
-const STEFAN_BOLTZMANN: f64 = 5.67e-8;
-
 /// Calculate escape velocity from a body
 /// v_esc = sqrt(2GM/R)
 pub fn calculate_escape_velocity(mass_kg: f64, radius_m: f64) -> f64 {
@@ -710,14 +705,27 @@ fn generate_planet_for_slot(
             if semi_major_axis_au < 0.15 {
                 period_days as f32 // tidally locked
             } else if semi_major_axis_au < 0.3 {
-                rng.random_range(10.0..60.0_f32)
+                // Tidal braking zone: 2-8 day rotations
+                rng.random_range(2.0..8.0_f32)
             } else {
-                let log_p = rng.random_range((-0.5_f32)..(1.0));
+                // Normal: log-uniform from ~0.3 to ~5 days
+                let log_p = rng.random_range((-0.5_f32)..(0.7));
                 10.0_f32.powf(log_p)
             }
         }
     };
-    let axial_tilt_deg = rng.random_range(0.0_f32..1.0).powf(1.5) * 45.0;
+    // Tidal forces damp obliquity for close-in planets (Mercury at 0.39 AU has 0.034°).
+    // Scale the maximum tilt by distance so tidally-locked / braked planets spin
+    // nearly upright instead of "rolling" along their orbits.
+    let max_tilt = if semi_major_axis_au < 0.1 {
+        2.0_f32 // essentially upright
+    } else if semi_major_axis_au < 0.3 {
+        // Linear ramp: 2° at 0.1 AU → 30° at 0.3 AU
+        2.0 + (semi_major_axis_au as f32 - 0.1) * (28.0 / 0.2)
+    } else {
+        45.0
+    };
+    let axial_tilt_deg = rng.random_range(0.0_f32..1.0).powf(1.5) * max_tilt;
 
     ProceduralPlanet {
         name: format!(
@@ -1030,6 +1038,7 @@ fn generate_visual_properties(
 /// position that is at least `MIN_SPACING_FACTOR` times greater than the
 /// previous orbit. This guarantees visually distinct, non-overlapping orbits
 /// across all system scales — including ultra-compact brown-dwarf systems.
+#[cfg(test)]
 fn generate_rocky_planets(
     star_name: &str,
     count: usize,
@@ -1121,7 +1130,15 @@ fn generate_rocky_planets(
 
         // Axial tilt: most rocky planets 0-30°, occasional high obliquity
         // Earth 23.4°, Mars 25.2°, Venus 177° (retrograde), Uranus 97.8°
-        let axial_tilt_deg = rng.random_range(0.0_f32..1.0).powf(1.5) * 45.0;
+        // Tidal forces damp obliquity for close-in planets (Mercury 0.034° at 0.39 AU).
+        let max_tilt = if semi_major_axis < 0.1 {
+            2.0_f32 // essentially upright
+        } else if semi_major_axis < 0.3 {
+            2.0 + (semi_major_axis as f32 - 0.1) * (28.0 / 0.2)
+        } else {
+            45.0
+        };
+        let axial_tilt_deg = rng.random_range(0.0_f32..1.0).powf(1.5) * max_tilt;
 
         let planet = ProceduralPlanet {
             name: format!(
@@ -1177,6 +1194,7 @@ fn generate_rocky_planets(
 ///
 /// Uses **sequential multiplicative spacing** (same principle as rocky planets)
 /// so orbits are guaranteed to be distinct at every system scale.
+#[cfg(test)]
 fn generate_gas_giants(
     star_name: &str,
     count: usize,
@@ -1574,7 +1592,7 @@ pub fn generate_procedural_atmosphere(
     equilibrium_temp_k: f64,
     rng: &mut impl rand::Rng,
 ) -> Option<(crate::astronomy::AtmosphereComposition, f32)> {
-    use crate::astronomy::{AtmosphereComposition, AtmosphericGas};
+    use crate::astronomy::AtmosphereComposition;
 
     let mass_kg = (planet_mass_earth as f64) * EARTH_MASS_KG;
     let radius_km = (planet_radius_earth as f64) * EARTH_RADIUS_KM;
@@ -1655,7 +1673,7 @@ fn generate_atmosphere_recipe(
     equilibrium_temp_k: f64,
     in_habitable_zone: bool,
     planet_mass_earth: f32,
-    distance_au: f64,
+    _distance_au: f64,
     rng: &mut impl rand::Rng,
 ) -> (Vec<crate::astronomy::AtmosphericGas>, f64, f64) {
     use crate::astronomy::AtmosphericGas;

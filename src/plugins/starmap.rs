@@ -860,7 +860,11 @@ fn spawn_system_bodies(
             // M-dwarf (L=0.01): lum_factor≈0.32 → ×4.2 center  (noticeably dimmer)
             // Brown dwarf (L=0.001): lum_factor≈0.18 → ×3.25 center
             let luminosity = stellar_props.map(|p| p.luminosity_sol).unwrap_or(1.0);
-            let lum_factor = luminosity.powf(0.25).clamp(0.2, 1.0);
+            // Steeper pow(0.4) so sub-solar stars drop off faster:
+            //   Sol (L=1.0):  lum_factor=1.0   → ×9 center (identical to Sol star)
+            //   K-type (L=0.34): lum_factor≈0.61 → ×6.3 center
+            //   M-dwarf (L=0.01): lum_factor≈0.16 → ×3.1 center (just above bloom threshold)
+            let lum_factor = luminosity.powf(0.4).clamp(0.15, 1.0);
 
             // Surface colours: scale HDR intensity by lum_factor so dim stars don't produce
             // the same bloom spreading radius as Sol.  At lum_factor=1.0 the formula gives

@@ -649,7 +649,15 @@ pub fn spawn_confirmed_planet(
     } else {
         0.0
     };
-    let axial_tilt_deg = rng.random_range(0.0_f32..1.0).powf(1.5) * 45.0;
+    // Tidal forces damp obliquity for close-in planets (Mercury 0.034° at 0.39 AU).
+    let max_tilt = if sma < 0.1 {
+        2.0_f32
+    } else if sma < 0.3 {
+        2.0 + (sma as f32 - 0.1) * (28.0 / 0.2)
+    } else {
+        45.0
+    };
+    let axial_tilt_deg = rng.random_range(0.0_f32..1.0).powf(1.5) * max_tilt;
 
     // Adjust temperature range based on rotation for airless bodies
     let (adj_min, adj_max) = if has_atmosphere {
