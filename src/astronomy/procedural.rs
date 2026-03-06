@@ -23,6 +23,7 @@ const EARTH_MASS_KG: f64 = 5.972e24;
 const EARTH_RADIUS_KM: f64 = 6371.0;
 /// Gravitational constant in m³/(kg·s²)
 const G: f64 = 6.674e-11;
+
 /// Calculate escape velocity from a body
 /// v_esc = sqrt(2GM/R)
 pub fn calculate_escape_velocity(mass_kg: f64, radius_m: f64) -> f64 {

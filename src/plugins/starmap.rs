@@ -893,9 +893,12 @@ fn spawn_system_bodies(
                 initial_transform,
             ));
 
-            // Scale point-light intensity by physical luminosity so dim stars
-            // don't over-illuminate very close planets.
-            let intensity = 2.8e11 * luminosity.max(1e-5) * lum_factor;
+            // Sub-linear (sqrt) intensity scaling compresses the dynamic range so
+            // super-luminous stars (Sirius at 25 L☉) don't create reflected-
+            // light bloom on very close-in planets, while dim stars still get
+            // proportionally less light.
+            // Sol (1.0): 1.0×, Sirius (25): ~5×, M-dwarf (0.01): ~0.1×
+            let intensity = 2.8e11 * luminosity.max(1e-5).sqrt() * lum_factor;
 
             // core_col: spectrally-tinted inner corona to match the star sphere surface.
             let core_col = Vec4::new(

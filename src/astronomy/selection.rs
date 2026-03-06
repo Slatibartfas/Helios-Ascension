@@ -1,16 +1,18 @@
+use bevy::math::DVec3;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
 use super::components::{
-    CurrentStarSystem, HoverMarker, Hovered, MarkerDot, MarkerOwner, Selected, SelectionMarker,
-    SystemId,
+    CurrentStarSystem, FloatingOrigin, HoverMarker, Hovered, KeplerOrbit,
+    LocalOrbitAmplification, MarkerDot, MarkerOwner, OrbitPath, Selected, SelectionMarker,
+    SpaceCoordinates, SystemId,
 };
-use super::systems::SCALING_FACTOR;
+use super::systems::{orbit_position_from_true_anomaly, SCALING_FACTOR, VISUAL_SPEED_BASE};
 use crate::game_state::ActiveMenu;
 use crate::plugins::camera::{CameraAnchor, EguiPanelBounds, GameCamera, OrbitCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, ClickExcluded, LogicalParent, Moon, Star};
 use crate::plugins::solar_system_data::{calculate_visual_radius, BodyType};
-use crate::ui::FleetUiState;
+use crate::ui::{FleetUiState, TimeScale};
 
 /// Click radius for body selection (in Bevy units)
 const SELECTION_CLICK_RADIUS: f32 = 45.0;
@@ -28,6 +30,13 @@ const RING_HOVERED_EMISSIVE: f32 = 2.0;
 const RING_PULSE_SPEED: f32 = 3.0;
 /// Pulse amplitude (fraction of base emissive strength that oscillates ±).
 const RING_PULSE_AMPLITUDE: f32 = 0.35;
+
+/// Base click tolerance for orbit ring selection (Bevy units).
+/// Scaled by camera distance so orbits remain clickable at any zoom level.
+const ORBIT_CLICK_RADIUS_BASE: f32 = 8.0;
+
+/// Number of sample points along each orbit for click detection.
+const ORBIT_CLICK_SAMPLES: u32 = 64;
 
 /// Stored on a ring entity when it gains a selection/hover highlight so we can
 /// restore the original emissive when the highlight ends.
@@ -49,6 +58,163 @@ pub struct SelectionState {
     pub last_clicked_entity: Option<Entity>,
 }
 
+/// Minimum distance from a point on the ray (in front of camera) to a point
+/// on the finite segment [A, B].  Returns `f32::MAX` if the segment is
+/// entirely behind the camera.
+fn ray_to_segment_distance(ray_origin: Vec3, ray_dir: Vec3, a: Vec3, b: Vec3) -> f32 {
+    // Project both endpoints onto the ray to reject behind-camera segments
+    let proj_a = (a - ray_origin).dot(ray_dir);
+    let proj_b = (b - ray_origin).dot(ray_dir);
+    if proj_a < 0.0 && proj_b < 0.0 {
+        return f32::MAX;
+    }
+
+    let ab = b - a;
+    let seg_len_sq = ab.dot(ab);
+
+    // Degenerate segment
+    if seg_len_sq < 1e-12 {
+        let to_a = a - ray_origin;
+        let t_ray = to_a.dot(ray_dir).max(0.0);
+        return (a - (ray_origin + ray_dir * t_ray)).length();
+    }
+
+    // Closest point on the segment to each candidate on the ray.
+    // Strategy: clamp segment param, recompute ray param, then distance.
+    let ao = ray_origin - a;
+    let dot_ab_dir = ab.dot(ray_dir);
+    let dot_ab_ab = seg_len_sq;
+    let dot_ao_ab = ao.dot(ab);
+    let dot_ao_dir = ao.dot(ray_dir);
+    let denom = dot_ab_ab - dot_ab_dir * dot_ab_dir;
+
+    let mut best = f32::MAX;
+
+    if denom.abs() > 1e-10 {
+        // Unclamped closest approach parameters
+        let t_seg_unc = (-dot_ao_ab * 1.0 + dot_ab_dir * dot_ao_dir) / denom;
+        let t_seg = t_seg_unc.clamp(0.0, 1.0);
+
+        // Re-derive ray param for the clamped segment point
+        let seg_pt = a + ab * t_seg;
+        let to_seg = seg_pt - ray_origin;
+        let t_ray = to_seg.dot(ray_dir).max(0.0);
+        let ray_pt = ray_origin + ray_dir * t_ray;
+        let d = (seg_pt - ray_pt).length();
+        if d < best {
+            best = d;
+        }
+    }
+
+    // Also check endpoints explicitly (covers edge cases)
+    for &endpoint in &[a, b] {
+        let to_ep = endpoint - ray_origin;
+        let t_ray = to_ep.dot(ray_dir).max(0.0);
+        let ray_pt = ray_origin + ray_dir * t_ray;
+        let d = (endpoint - ray_pt).length();
+        if d < best {
+            best = d;
+        }
+    }
+
+    best
+}
+
+/// Find the closest orbit ring to a camera ray.
+///
+/// Samples points along each visible orbit, transforms them into Bevy world
+/// coordinates (matching `draw_orbit_paths`), and returns the entity with
+/// the smallest ray-to-segment distance if within the click radius.
+///
+/// The click radius scales with `camera_distance` so orbits remain clickable
+/// at any zoom level.
+///
+/// Returns `(entity, ray_distance)`.
+fn find_closest_orbit_to_ray<'a>(
+    ray: &Ray3d,
+    camera_distance: f32,
+    bodies: impl Iterator<
+        Item = (
+            Entity,
+            &'a KeplerOrbit,
+            &'a OrbitPath,
+            Option<&'a LogicalParent>,
+            Option<&'a LocalOrbitAmplification>,
+            &'a Visibility,
+        ),
+    >,
+    get_parent_coords: impl Fn(Entity) -> Option<DVec3>,
+    origin_offset: DVec3,
+) -> Option<(Entity, f32)> {
+    let ray_origin = ray.origin;
+    let ray_dir = *ray.direction;
+
+    // Scale click radius with camera distance so orbits are always clickable.
+    // At 1000 Bevy units distance, radius ~8. At 10000, ~80.
+    let click_radius = ORBIT_CLICK_RADIUS_BASE * (camera_distance / 1000.0).max(1.0);
+
+    let mut closest: Option<(Entity, f32)> = None;
+
+    for (entity, orbit, path, logical_parent, amplification, visibility) in bodies {
+        if !path.visible {
+            continue;
+        }
+        if *visibility == Visibility::Hidden {
+            continue;
+        }
+
+        let amp = amplification.map(|a| a.0 as f64).unwrap_or(1.0);
+        let parent_offset = logical_parent
+            .and_then(|lp| get_parent_coords(lp.0))
+            .map(|pos| {
+                let scaled = (pos - origin_offset) * SCALING_FACTOR;
+                Vec3::new(scaled.x as f32, scaled.y as f32, scaled.z as f32)
+            })
+            .unwrap_or(Vec3::ZERO);
+
+        // Use more samples for eccentric orbits to avoid gaps
+        let samples = if orbit.eccentricity > 0.6 {
+            (ORBIT_CLICK_SAMPLES as f64 * (1.0 + orbit.eccentricity * 2.0)) as u32
+        } else {
+            ORBIT_CLICK_SAMPLES
+        };
+        let orbit_step = std::f64::consts::TAU / samples as f64;
+
+        let mut prev_point: Option<Vec3> = None;
+        let mut min_dist = f32::MAX;
+
+        for i in 0..=samples {
+            let true_anomaly = i as f64 * orbit_step;
+            let pos_au = orbit_position_from_true_anomaly(orbit, true_anomaly);
+
+            let scaled_x = (pos_au.x * SCALING_FACTOR * amp) as f32;
+            let scaled_y = (pos_au.y * SCALING_FACTOR * amp) as f32;
+            let scaled_z = (pos_au.z * SCALING_FACTOR * amp) as f32;
+            let point = Vec3::new(scaled_x, scaled_y, scaled_z) + parent_offset;
+
+            if let Some(prev) = prev_point {
+                let dist = ray_to_segment_distance(ray_origin, ray_dir, prev, point);
+                if dist < min_dist {
+                    min_dist = dist;
+                }
+            }
+            prev_point = Some(point);
+        }
+
+        if min_dist < click_radius {
+            match closest {
+                None => closest = Some((entity, min_dist)),
+                Some((_, prev_dist)) if min_dist < prev_dist => {
+                    closest = Some((entity, min_dist));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    closest
+}
+
 /// System that handles celestial body selection via mouse clicks
 #[allow(clippy::too_many_arguments)]
 pub fn handle_body_selection(
@@ -62,22 +228,26 @@ pub fn handle_body_selection(
             &GlobalTransform,
             &CelestialBody,
             Option<&SystemId>,
-            Option<&crate::plugins::solar_system::LogicalParent>,
+            Option<&LogicalParent>,
             &Visibility,
+            Option<&KeplerOrbit>,
+            Option<&OrbitPath>,
+            Option<&LocalOrbitAmplification>,
+            Option<&SpaceCoordinates>,
         ),
         Without<ClickExcluded>,
     >,
     current_system: Res<CurrentStarSystem>,
     mut commands: Commands,
     selected_query: Query<Entity, With<Selected>>,
-    mut anchor_query: Query<&mut CameraAnchor, With<GameCamera>>,
-    mut orbit_query: Query<&mut OrbitCamera, With<GameCamera>>,
+    mut anchor_query: Query<(&mut CameraAnchor, &mut OrbitCamera), With<GameCamera>>,
     time: Res<Time>,
     mut selection_state: Local<SelectionState>,
     mut egui_contexts: bevy_egui::EguiContexts,
     active_menu: Res<ActiveMenu>,
     panel_bounds: Res<EguiPanelBounds>,
     mut fleet_ui_state: ResMut<FleetUiState>,
+    floating_origin: Option<Res<FloatingOrigin>>,
 ) {
     // Disable body selection when a full-screen overlay menu is active
     if active_menu.current.blocks_world_interaction() {
@@ -137,7 +307,7 @@ pub fn handle_body_selection(
     // Stores: (Entity, ray_distance, body name)
     let mut closest_body: Option<(Entity, f32, f32, String)> = None;
 
-    for (entity, transform, body, system_id, _logical_parent, visibility) in body_query.iter() {
+    for (entity, transform, body, system_id, _logical_parent, visibility, _kepler, _orbit_path, _amp, _coords) in body_query.iter() {
         // Only interact with bodies in the current star system
         let body_system = system_id.map(|s| s.0).unwrap_or(0);
         if body_system != current_system.0 {
@@ -180,6 +350,37 @@ pub fn handle_body_selection(
         }
     }
 
+    // Fallback: if no body mesh was directly clicked, check orbit rings.
+    // Bodies always take priority over orbit ring clicks.
+    let selected_entity = if let Some((entity, _, _, name)) = closest_body {
+        Some((entity, name))
+    } else {
+        let origin_offset = floating_origin.as_ref().map(|fo| fo.position).unwrap_or(DVec3::ZERO);
+        let orbit_iter = body_query.iter().filter_map(
+            |(entity, _gt, _body, system_id, logical_parent, visibility, kepler, orbit_path, amp, _coords)| {
+                let body_system = system_id.map(|s| s.0).unwrap_or(0);
+                if body_system != current_system.0 {
+                    return None;
+                }
+                let orbit = kepler?;
+                let path = orbit_path?;
+                Some((entity, orbit, path, logical_parent, amp, visibility))
+            },
+        );
+        let get_parent_coords = |parent: Entity| -> Option<DVec3> {
+            body_query.get(parent).ok().and_then(|t| t.9.map(|sc| sc.position))
+        };
+        let camera_distance = camera_transform.translation().length();
+        find_closest_orbit_to_ray(&ray, camera_distance, orbit_iter, get_parent_coords, origin_offset).and_then(
+            |(entity, _dist)| {
+                body_query
+                    .get(entity)
+                    .ok()
+                    .map(|(_, _, body, _, _, _, _, _, _, _)| (entity, body.name.clone()))
+            },
+        )
+    };
+
     // Deselect all currently selected bodies if left clicking
     if left_click {
         for entity in selected_query.iter() {
@@ -188,7 +389,7 @@ pub fn handle_body_selection(
     }
 
     // Select the clicked body if any
-    if let Some((entity, _, _, name)) = closest_body {
+    if let Some((entity, name)) = selected_entity {
         if left_click {
             commands.entity(entity).insert(Selected);
             info!("Selected celestial body: {} (entity {:?})", name, entity);
@@ -197,12 +398,9 @@ pub fn handle_body_selection(
             if let Some(last_entity) = selection_state.last_clicked_entity {
                 if last_entity == entity && (current_time - selection_state.last_click_time) < 0.5 {
                     info!("Double click on {}, setting anchor and recentering.", name);
-                    if let Ok(mut anchor) = anchor_query.single_mut() {
+                    if let Ok((mut anchor, mut orbit_cam)) = anchor_query.single_mut() {
                         anchor.0 = Some(entity);
-                    }
-                    // Also clear the pan offset to recenter the view
-                    if let Ok(mut orbit) = orbit_query.single_mut() {
-                        orbit.pan_offset = Vec3::ZERO;
+                        orbit_cam.pan_offset = Vec3::ZERO;
                     }
                 }
             }
@@ -238,7 +436,12 @@ pub fn handle_body_hover(
             &GlobalTransform,
             &CelestialBody,
             Option<&SystemId>,
+            Option<&LogicalParent>,
             &Visibility,
+            Option<&KeplerOrbit>,
+            Option<&OrbitPath>,
+            Option<&LocalOrbitAmplification>,
+            Option<&SpaceCoordinates>,
         ),
         Without<ClickExcluded>,
     >,
@@ -249,6 +452,7 @@ pub fn handle_body_hover(
     active_menu: Res<ActiveMenu>,
     panel_bounds: Res<EguiPanelBounds>,
     fleet_ui_state: Res<FleetUiState>,
+    floating_origin: Option<Res<FloatingOrigin>>,
 ) {
     // Disable hover when a full-screen menu overlay is active (Research, etc.)
     if active_menu.current.blocks_world_interaction() {
@@ -311,7 +515,7 @@ pub fn handle_body_hover(
     // stars from stealing hovers away from smaller planets orbiting nearby.
     let mut closest_body: Option<(Entity, f32, f32)> = None;
 
-    for (entity, transform, body, system_id, visibility) in body_query.iter() {
+    for (entity, transform, body, system_id, _logical_parent, visibility, _kepler, _orbit_path, _amp, _coords) in body_query.iter() {
         // Only interact with bodies in the current star system
         let body_system = system_id.map(|s| s.0).unwrap_or(0);
         if body_system != current_system.0 {
@@ -353,11 +557,29 @@ pub fn handle_body_hover(
         }
     }
 
-    // Only change Hovered when the target entity actually changes.
-    // Unconditionally removing+re-inserting every frame triggers Added<Hovered>
-    // each frame, which spawns a fresh marker at Transform::default() (the star's
-    // origin position) before scale_markers_with_zoom can reposition it.
-    let new_hover = closest_body.map(|(e, _, _)| e);
+    // Fallback: if no body mesh is hovered, check orbit rings.
+    let new_hover = if let Some((e, _, _)) = closest_body {
+        Some(e)
+    } else {
+        let origin_offset = floating_origin.as_ref().map(|fo| fo.position).unwrap_or(DVec3::ZERO);
+        let orbit_iter = body_query.iter().filter_map(
+            |(entity, _gt, _body, system_id, logical_parent, visibility, kepler, orbit_path, amp, _coords)| {
+                let body_system = system_id.map(|s| s.0).unwrap_or(0);
+                if body_system != current_system.0 {
+                    return None;
+                }
+                let orbit = kepler?;
+                let path = orbit_path?;
+                Some((entity, orbit, path, logical_parent, amp, visibility))
+            },
+        );
+        let get_parent_coords = |parent: Entity| -> Option<DVec3> {
+            body_query.get(parent).ok().and_then(|t| t.9.map(|sc| sc.position))
+        };
+        let camera_distance = camera_transform.translation().length();
+        find_closest_orbit_to_ray(&ray, camera_distance, orbit_iter, get_parent_coords, origin_offset)
+            .map(|(entity, _dist)| entity)
+    };
     let hover_is_body = new_hover.is_some();
     // Use crosshair only while the transfer planner popup is open.
     // A selected fleet that is merely being inspected (no active planning) keeps the default cursor.
@@ -402,12 +624,16 @@ pub fn spawn_selection_markers(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    selected_query: Query<(Entity, &CelestialBody, &GlobalTransform), Added<Selected>>,
+    selected_query: Query<
+        (Entity, &CelestialBody, &GlobalTransform, Option<&KeplerOrbit>),
+        Added<Selected>,
+    >,
     hover_markers: Query<(Entity, &MarkerOwner), With<HoverMarker>>,
     existing_selection_markers: Query<(Entity, &MarkerOwner), With<SelectionMarker>>,
     all_selected: Query<(), With<Selected>>,
     camera_query: Query<&GlobalTransform, With<GameCamera>>,
     orbit_camera_query: Query<&OrbitCamera, With<GameCamera>>,
+    time_scale: Res<TimeScale>,
 ) {
     // Early exit: nothing newly selected
     if selected_query.is_empty() {
@@ -434,7 +660,7 @@ pub fn spawn_selection_markers(
         }
     }
 
-    for (entity, body, gtransform) in selected_query.iter() {
+    for (entity, body, gtransform, kepler) in selected_query.iter() {
         // Remove hover marker if it exists
         for (marker_entity, owner) in hover_markers.iter() {
             if owner.0 == entity {
@@ -454,6 +680,15 @@ pub fn spawn_selection_markers(
         // (handled by `apply_ring_highlight` system) — no 3D marker needed.
         if body.body_type == BodyType::Ring {
             continue;
+        }
+
+        // Skip bracket markers for speed-capped bodies — their orbit path
+        // is highlighted instead, avoiding strobing at high time-scales.
+        if let Some(orbit) = kepler {
+            let effective_speed = orbit.mean_motion.abs() * time_scale.scale as f64;
+            if effective_speed > VISUAL_SPEED_BASE {
+                continue;
+            }
         }
 
         let marker_radius = body.visual_radius + HOVER_RING_PADDING;
@@ -527,11 +762,12 @@ pub fn spawn_hover_markers(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     hovered_query: Query<
-        (Entity, &CelestialBody, &GlobalTransform),
+        (Entity, &CelestialBody, &GlobalTransform, Option<&KeplerOrbit>),
         (Added<Hovered>, Without<Selected>),
     >,
     camera_query: Query<&GlobalTransform, With<GameCamera>>,
     orbit_camera_query: Query<&OrbitCamera, With<GameCamera>>,
+    time_scale: Res<TimeScale>,
 ) {
     let camera_pos = camera_query
         .single()
@@ -544,10 +780,19 @@ pub fn spawn_hover_markers(
         .map(|oc| (oc.radius / 1000.0_f32).clamp(1.0, 3.0))
         .unwrap_or(1.0);
 
-    for (entity, body, gtransform) in hovered_query.iter() {
+    for (entity, body, gtransform, kepler) in hovered_query.iter() {
         // Rings are highlighted via material emissive, not a 3D marker.
         if body.body_type == BodyType::Ring {
             continue;
+        }
+
+        // Skip bracket markers for speed-capped bodies — orbit highlighting
+        // provides feedback instead, avoiding strobing at high time-scales.
+        if let Some(orbit) = kepler {
+            let effective_speed = orbit.mean_motion.abs() * time_scale.scale as f64;
+            if effective_speed > VISUAL_SPEED_BASE {
+                continue;
+            }
         }
 
         let marker_radius = body.visual_radius + HOVER_RING_PADDING;
@@ -601,6 +846,105 @@ pub fn cleanup_stale_selection_markers(
         if selected_query.get(owner.0).is_err() {
             commands.entity(marker_entity).despawn();
         }
+    }
+}
+
+/// Re-spawns bracket markers for selected/hovered bodies when the time scale
+/// drops back below the suppression threshold.
+///
+/// Markers are despawned in `scale_markers_with_zoom` when the effective orbital
+/// speed exceeds `VISUAL_SPEED_BASE`.  Once the user slows time back down the
+/// `Added<Selected>` / `Added<Hovered>` filters in the spawn systems no longer
+/// fire (the component was never removed), so this system fills the gap.
+pub fn restore_suppressed_markers(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    time_scale: Res<TimeScale>,
+    selected_query: Query<
+        (Entity, &CelestialBody, &GlobalTransform, Option<&KeplerOrbit>),
+        With<Selected>,
+    >,
+    hovered_query: Query<
+        (Entity, &CelestialBody, &GlobalTransform, Option<&KeplerOrbit>),
+        (With<Hovered>, Without<Selected>),
+    >,
+    selection_markers: Query<&MarkerOwner, With<SelectionMarker>>,
+    hover_markers: Query<&MarkerOwner, With<HoverMarker>>,
+    camera_query: Query<&GlobalTransform, With<GameCamera>>,
+    orbit_camera_query: Query<&OrbitCamera, With<GameCamera>>,
+) {
+    // Only run when TimeScale actually changed, to avoid per-frame cost.
+    if !time_scale.is_changed() {
+        return;
+    }
+
+    let camera_pos = camera_query
+        .single()
+        .ok()
+        .map(|t| t.translation())
+        .unwrap_or(Vec3::ZERO);
+    let zoom_scale = orbit_camera_query
+        .single()
+        .ok()
+        .map(|oc| (oc.radius / 1000.0_f32).clamp(1.0, 3.0))
+        .unwrap_or(1.0);
+
+    let scale = time_scale.scale as f64;
+
+    // Collect owners that already have markers to avoid duplicates.
+    let has_selection_marker: std::collections::HashSet<Entity> =
+        selection_markers.iter().map(|o| o.0).collect();
+    let has_hover_marker: std::collections::HashSet<Entity> =
+        hover_markers.iter().map(|o| o.0).collect();
+
+    for (entity, body, gtransform, kepler) in selected_query.iter() {
+        if body.body_type == BodyType::Ring {
+            continue;
+        }
+        // Only act when the body is now below the threshold and has no marker.
+        let speed_capped = kepler
+            .map(|o| o.mean_motion.abs() * scale > VISUAL_SPEED_BASE)
+            .unwrap_or(false);
+        if speed_capped || has_selection_marker.contains(&entity) {
+            continue;
+        }
+        let marker_radius = body.visual_radius + HOVER_RING_PADDING;
+        spawn_marker(
+            &mut commands,
+            &mut meshes,
+            &mut materials,
+            entity,
+            gtransform.translation(),
+            camera_pos,
+            zoom_scale,
+            marker_radius,
+            true,
+        );
+    }
+
+    for (entity, body, gtransform, kepler) in hovered_query.iter() {
+        if body.body_type == BodyType::Ring {
+            continue;
+        }
+        let speed_capped = kepler
+            .map(|o| o.mean_motion.abs() * scale > VISUAL_SPEED_BASE)
+            .unwrap_or(false);
+        if speed_capped || has_hover_marker.contains(&entity) {
+            continue;
+        }
+        let marker_radius = body.visual_radius + HOVER_RING_PADDING;
+        spawn_marker(
+            &mut commands,
+            &mut meshes,
+            &mut materials,
+            entity,
+            gtransform.translation(),
+            camera_pos,
+            zoom_scale,
+            marker_radius,
+            false,
+        );
     }
 }
 
@@ -936,7 +1280,8 @@ pub fn scale_markers_with_zoom(
         (Entity, &mut Transform, &MarkerOwner),
         Or<(With<SelectionMarker>, With<HoverMarker>)>,
     >,
-    owner_query: Query<&GlobalTransform, Without<MarkerOwner>>,
+    owner_query: Query<(&Transform, Option<&KeplerOrbit>), Without<MarkerOwner>>,
+    time_scale: Res<TimeScale>,
 ) {
     let Ok(orbit_camera) = orbit_camera_query.single() else {
         return;
@@ -955,9 +1300,19 @@ pub fn scale_markers_with_zoom(
     let zoom_scale = (orbit_camera.radius / reference_distance).clamp(1.0, 3.0);
 
     for (entity, mut transform, owner) in marker_query.iter_mut() {
-        if let Ok(owner_transform) = owner_query.get(owner.0) {
-            // 1. Match owner position
-            let owner_position = owner_transform.translation();
+        if let Ok((owner_transform, kepler)) = owner_query.get(owner.0) {
+            // Despawn markers for speed-capped bodies — orbit highlighting
+            // provides visual feedback instead, avoiding strobing.
+            if let Some(orbit) = kepler {
+                let effective_speed = orbit.mean_motion.abs() * time_scale.scale as f64;
+                if effective_speed > VISUAL_SPEED_BASE {
+                    commands.entity(entity).despawn();
+                    continue;
+                }
+            }
+
+            // 1. Match owner position (read from Transform, set in same Update schedule)
+            let owner_position = owner_transform.translation;
             transform.translation = owner_position;
 
             // 2. Apply zoom scaling

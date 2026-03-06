@@ -685,7 +685,7 @@ pub fn spawn_confirmed_planet(
         PlanetCategory(category.to_string()),
         orbit,
         RotationSpeed(rotation_speed),
-        OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.7)), // Cyan/blue — matches Sol palette
+        OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.85)), // Lighter blue — planets
         SpaceCoordinates::default(),                       // Will be updated by propagate_orbits
         OrbitCenter(parent_star), // Link to parent star for orbital hierarchy
         OrbitsBody::new(parent_star),
@@ -820,7 +820,7 @@ pub fn spawn_procedural_planet(
             obliquity: planet.axial_tilt_deg.to_radians(),
             north_pole_ra: rng.random_range(0.0..std::f32::consts::TAU),
         },
-        OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.6)), // Cyan/blue — procedural planets
+        OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.85)), // Lighter blue — planets
         SpaceCoordinates::default(),                       // Will be updated by propagate_orbits
         OrbitCenter(parent_star), // Link to parent star for orbital hierarchy
         OrbitsBody::new(parent_star),
@@ -924,7 +924,7 @@ fn spawn_dwarf_planets(
                 obliquity: planet.axial_tilt_deg.to_radians(),
                 north_pole_ra: 0.0,
             },
-            OrbitPath::new(Color::srgba(0.5, 0.5, 0.7, 0.5)), // Dim blue — matches Sol dwarf planet palette
+            OrbitPath::new(Color::srgba(0.25, 0.45, 0.75, 0.7)), // Darker blue — dwarf planets
             SpaceCoordinates::default(),
             OrbitCenter(parent_star),
             OrbitsBody::new(parent_star),
@@ -1067,7 +1067,7 @@ pub fn spawn_asteroid_belt(
                 max_celsius: max_temp,
             },
             orbit,
-            OrbitPath::new(Color::srgba(0.6, 0.6, 0.5, 0.2)),
+            OrbitPath::with_fade(Color::srgba(0.3, 0.55, 0.22, 0.45), 5.0), // Dark green, steep fade — asteroids
             SpaceCoordinates::default(), // Will be updated by propagate_orbits
             OrbitCenter(parent_star),    // Link to parent star for orbital hierarchy
             OrbitsBody::new(parent_star),
@@ -1178,7 +1178,7 @@ pub fn spawn_cometary_cloud(
                 max_celsius: max_temp,
             },
             orbit,
-            OrbitPath::new(Color::srgba(0.4, 0.6, 0.8, 0.3)),
+            OrbitPath::new(Color::srgba(1.0, 0.8, 0.3, 0.65)), // Yellow — comets
             SpaceCoordinates::default(), // Will be updated by propagate_orbits
             OrbitCenter(parent_star),    // Link to parent star for orbital hierarchy
             OrbitsBody::new(parent_star),
@@ -1752,7 +1752,7 @@ fn spawn_procedural_moons(
                 max_celsius: max_temp,
             },
             orbit,
-            OrbitPath::new(Color::srgba(0.7, 0.7, 0.7, 0.5)),
+            OrbitPath::new(Color::srgba(0.65, 0.65, 0.65, 0.5)), // Grey — moons
             SpaceCoordinates::default(),
             OrbitCenter(planet_entity),
             OrbitsBody::new(planet_entity),

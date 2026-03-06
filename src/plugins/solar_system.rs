@@ -1457,30 +1457,39 @@ pub fn setup_solar_system(
             // Determine orbit color and visibility based on body type
             // Orbit trail colors with higher alpha for bright trail heads
             let (orbit_color, should_show) = match body_data.body_type {
-                BodyType::Planet => {
-                    // Planets: bright cyan/blue, high alpha — trail head glows
+                BodyType::Planet | BodyType::GasGiant => {
+                    // Planets & gas/ice giants: lighter blue
                     (Color::srgba(0.4, 0.75, 1.0, 0.85), true)
                 }
                 BodyType::DwarfPlanet => {
-                    // Dwarf Planets: dimmer blue, hidden by default
-                    (Color::srgba(0.3, 0.5, 0.8, 0.6), false)
+                    // Dwarf Planets: darker blue, hidden by default
+                    (Color::srgba(0.25, 0.45, 0.75, 0.7), false)
                 }
                 BodyType::Moon => {
-                    // Moons: subtle grey — matches procedural moon palette
-                    (Color::srgba(0.7, 0.7, 0.7, 0.5), true)
+                    // Moons: subtle grey
+                    (Color::srgba(0.65, 0.65, 0.65, 0.5), true)
                 }
-                BodyType::Asteroid | BodyType::Comet => {
-                    // Asteroids/Comets: amber/yellow when selected
-                    (Color::srgba(1.0, 0.7, 0.2, 0.65), false)
+                BodyType::Asteroid => {
+                    // Asteroids: dark green, steep fade so individual trails are short
+                    // — prevents a thick opaque ring when many are visible at once.
+                    (Color::srgba(0.3, 0.55, 0.22, 0.45), false)
+                }
+                BodyType::Comet => {
+                    // Comets: yellow/amber
+                    (Color::srgba(1.0, 0.8, 0.3, 0.65), false)
                 }
                 BodyType::Ring => (Color::srgba(0.0, 0.0, 0.0, 0.0), false),
                 _ => (Color::srgba(0.5, 0.5, 0.5, 0.4), false),
             };
 
+            // Asteroids get a steep fade to avoid thick ring buildup at high speed
+            let fade_exponent = if body_data.body_type == BodyType::Asteroid { 5.0 } else { 1.8 };
+
             commands.entity(*entity).insert(OrbitPath {
                 color: orbit_color,
                 visible: should_show,
                 segments: 128, // High segment count for smooth fading trails
+                fade_exponent,
             });
         }
     }
@@ -1627,15 +1636,36 @@ fn apply_linear_to_images_system(
 ///   3. Rotate by `north_pole_ra` around Y (orient the lean direction)
 fn rotate_bodies(
     sim_time: Res<SimulationTime>,
+    time_scale: Res<crate::ui::TimeScale>,
+    real_time: Res<Time<Real>>,
     // Stars are excluded: their granulation texture spinning at high game speed
     // creates unnatural strobing / sparkle artefacts. Star orientation has no
     // gameplay significance (unlike planetary day/night cycles).
     mut query: Query<(&mut Transform, &RotationSpeed, Option<&AxialTilt>), Without<Star>>,
 ) {
-    let t = sim_time.elapsed_seconds() as f32;
+    /// Base visual rotation speed in rad/real-second.
+    /// Matches the orbital cap (2π ≈ 1 revolution per real second).
+    /// Above this, speed is logarithmically compressed.
+    const VISUAL_SPEED_BASE: f32 = std::f32::consts::TAU;
+
+    let sim_t = sim_time.elapsed_seconds() as f32;
+    let real_t = real_time.elapsed_secs();
+    let scale = time_scale.scale;
+
     for (mut transform, rotation_speed, axial_tilt) in query.iter_mut() {
-        // Preserve existing translation and scale, only replace rotation
-        let angle = rotation_speed.0 * t;
+        // Effective angular speed in rad/real-second
+        let effective_speed = rotation_speed.0.abs() * scale;
+
+        let angle = if effective_speed > VISUAL_SPEED_BASE {
+            // Logarithmic cap: faster at higher speeds, never strobes
+            let vis_speed = VISUAL_SPEED_BASE * (1.0 + (effective_speed / VISUAL_SPEED_BASE).ln());
+            let capped = vis_speed * rotation_speed.0.signum();
+            capped * real_t
+        } else {
+            // Normal: use analytical sim-time rotation
+            rotation_speed.0 * sim_t
+        };
+
         let spin = Quat::from_rotation_y(angle);
 
         transform.rotation = if let Some(tilt) = axial_tilt {

@@ -147,6 +147,10 @@ pub struct OrbitPath {
 
     /// Number of segments to use when drawing the orbit
     pub segments: u32,
+
+    /// Exponent for the trail fade curve. Higher = faster fade (shorter-looking trail).
+    /// Default 1.8 gives a smooth comet-like tail. Use ~5.0 for very short tails (asteroids).
+    pub fade_exponent: f32,
 }
 
 impl OrbitPath {
@@ -156,6 +160,7 @@ impl OrbitPath {
             color,
             visible: true,
             segments: 64,
+            fade_exponent: 1.8,
         }
     }
 
@@ -165,6 +170,17 @@ impl OrbitPath {
             color,
             visible: true,
             segments,
+            fade_exponent: 1.8,
+        }
+    }
+
+    /// Create an orbit path with a custom fade exponent (higher = shorter trail)
+    pub fn with_fade(color: Color, fade_exponent: f32) -> Self {
+        Self {
+            color,
+            visible: true,
+            segments: 64,
+            fade_exponent,
         }
     }
 }

@@ -1,14 +1,16 @@
+use std::collections::HashMap;
+
 use bevy::math::DVec3;
 use bevy::prelude::*;
 
 use super::components::{
-    CometTail, CurrentStarSystem, Destroyed, KeplerOrbit, LocalOrbitAmplification, OrbitCenter,
-    OrbitPath, Selected, SpaceCoordinates, SystemId,
+    CometTail, CurrentStarSystem, Destroyed, Hovered, KeplerOrbit, LocalOrbitAmplification,
+    OrbitCenter, OrbitPath, Selected, SpaceCoordinates, SystemId,
 };
 use crate::plugins::camera::{CameraAnchor, GameCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, Comet, LogicalParent, Moon, Planet};
 use crate::plugins::solar_system_data::BodyType;
-use crate::ui::SimulationTime;
+use crate::ui::{SimulationTime, TimeScale};
 
 /// Scaling factor for converting astronomical units to Bevy rendering units
 /// 1 AU = 1500.0 Bevy units ensures separation between planets and moons
@@ -175,7 +177,7 @@ fn orbital_radius(semi_major_axis: f64, eccentricity: f64, true_anomaly: f64) ->
 /// Calculate the 3D orbital position directly from a true anomaly.
 /// Unlike `orbit_position_from_mean_anomaly`, this skips the Kepler solver
 /// and is used for drawing orbit paths with uniform geometric spacing.
-fn orbit_position_from_true_anomaly(orbit: &KeplerOrbit, true_anomaly: f64) -> DVec3 {
+pub fn orbit_position_from_true_anomaly(orbit: &KeplerOrbit, true_anomaly: f64) -> DVec3 {
     let radius = orbital_radius(orbit.semi_major_axis, orbit.eccentricity, true_anomaly);
 
     let x_orbital = radius * true_anomaly.cos();
@@ -230,13 +232,34 @@ pub fn propagate_orbits(
         entries.push((entity, *orbit, orbit_center.map(|oc| oc.0)));
     }
 
-    // Sort so that entities WITHOUT an OrbitCenter (planets, top-level bodies)
-    // are processed first, then entities WITH an OrbitCenter (moons, children).
+    // Build a depth map so that entities are processed in hierarchy order:
+    //   depth 0 = no OrbitCenter (Sol-system planets, top-level bodies)
+    //   depth 1 = OrbitCenter whose parent has no OrbitCenter (procedural planets)
+    //   depth 2 = OrbitCenter whose parent also has an OrbitCenter (procedural moons)
     // This ensures that when a child reads its parent's SpaceCoordinates, the
     // parent has already been updated for the current frame — preventing the
     // one-frame positional lag that causes moons to visually "detach" from
     // their parent at high simulation speeds.
-    entries.sort_by_key(|(_, _, oc)| oc.is_some() as u8);
+    let orbit_center_set: HashMap<Entity, Option<Entity>> = entries
+        .iter()
+        .map(|(e, _, oc)| (*e, *oc))
+        .collect();
+
+    let depth_of = |_entity: Entity, oc: Option<Entity>| -> u8 {
+        match oc {
+            None => 0,
+            Some(parent) => {
+                // Check if parent itself has an OrbitCenter in this batch
+                if let Some(Some(_grandparent)) = orbit_center_set.get(&parent) {
+                    2 // moon of a procedural planet
+                } else {
+                    1 // direct child of a star or non-orbiting body
+                }
+            }
+        }
+    };
+
+    entries.sort_by_key(|(e, _, oc)| depth_of(*e, *oc));
 
     // Second pass: perform lookups and mutation without holding the p0 iterator borrow
     for (entity, orbit, orbit_center_entity) in entries {
@@ -267,11 +290,39 @@ pub fn propagate_orbits(
     }
 }
 
+/// Base visual speed threshold in rad/real-second.
+/// When effective orbital speed exceeds this, visual speed is compressed
+/// logarithmically so bodies spin faster at higher game speeds but never
+/// strobe. 2π ≈ 1 revolution per real second.
+pub const VISUAL_SPEED_BASE: f64 = std::f64::consts::TAU;
+
+/// Compress an effective angular speed (rad/real-sec) into a capped visual
+/// speed using logarithmic scaling.  Below [`VISUAL_SPEED_BASE`] the speed
+/// is returned unchanged.  Above it, `cap = BASE × (1 + ln(speed / BASE))`.
+///
+/// This gives faster motion at higher game speeds with diminishing returns:
+///   2× BASE  → ~1.7× BASE
+///   10× BASE → ~3.3× BASE
+///   100× BASE → ~5.6× BASE
+fn capped_visual_speed(effective_speed: f64) -> f64 {
+    if effective_speed <= VISUAL_SPEED_BASE {
+        effective_speed
+    } else {
+        VISUAL_SPEED_BASE * (1.0 + (effective_speed / VISUAL_SPEED_BASE).ln())
+    }
+}
+
 /// System that converts high-precision SpaceCoordinates to rendering Transform.
 /// Implements "floating origin" technique by scaling down coordinates and converting to f32.
 ///
 /// For moons with a [`LocalOrbitAmplification`] component the local position is
 /// additionally scaled so that the moon renders outside the parent's visual mesh.
+///
+/// When a body's effective orbital angular speed exceeds [`MAX_VISUAL_ORBITAL_RAD_PER_SEC`],
+/// the visual position is capped to orbit at a smooth perceivable rate using
+/// real time, while [`SpaceCoordinates`] retains the true analytical position
+/// for game logic. This makes fast-orbiting bodies clickable and prevents
+/// selection marker flickering.
 ///
 /// Two moon models are handled:
 /// - Sol-system moons (no `OrbitCenter`): `SpaceCoordinates` stores only the local
@@ -282,19 +333,50 @@ pub fn propagate_orbits(
 ///   Subtract the parent's position first, amplify the remainder, then add the
 ///   parent world position without amplification.
 pub fn update_render_transform(
+    time_scale: Res<TimeScale>,
+    real_time: Res<Time<Real>>,
     mut query: Query<(
         &SpaceCoordinates,
         &mut Transform,
         Option<&LocalOrbitAmplification>,
         Option<&LogicalParent>,
         Option<&OrbitCenter>,
+        Option<&KeplerOrbit>,
     )>,
     parent_coords: Query<&SpaceCoordinates>,
     floating_origin: Option<Res<crate::astronomy::components::FloatingOrigin>>,
 ) {
     let origin_offset = floating_origin.map(|fo| fo.position).unwrap_or(DVec3::ZERO);
+    let scale = time_scale.scale as f64;
+    let real_t = real_time.elapsed_secs() as f64;
 
-    for (coords, mut transform, amplification, logical_parent, orbit_center) in query.iter_mut() {
+    for (coords, mut transform, amplification, logical_parent, orbit_center, kepler_orbit) in query.iter_mut() {
+        // Determine which position to use for rendering.
+        // If the body has a KeplerOrbit and orbital speed is capped, compute
+        // a visual position from capped mean anomaly × real time.
+        let visual_coords = if let Some(orbit) = kepler_orbit {
+            let effective_speed = orbit.mean_motion.abs() * scale;
+            if effective_speed > VISUAL_SPEED_BASE {
+                // Capped visual orbit: logarithmically compressed speed
+                let vis_speed = capped_visual_speed(effective_speed) * orbit.mean_motion.signum();
+                let visual_mean_anomaly = orbit.mean_anomaly_epoch + vis_speed * real_t;
+                let visual_local_pos = orbit_position_from_mean_anomaly(orbit, visual_mean_anomaly);
+
+                // For bodies with OrbitCenter, add parent position to get absolute coords
+                let parent_pos = if let Some(oc_entity) = orbit_center.map(|oc| oc.0) {
+                    parent_coords.get(oc_entity).map(|sc| sc.position).unwrap_or(DVec3::ZERO)
+                } else {
+                    DVec3::ZERO
+                };
+
+                Some((visual_local_pos, parent_pos))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let final_translation = if let Some(amp) = amplification {
             let amp_f64 = amp.0 as f64;
 
@@ -302,7 +384,11 @@ pub fn update_render_transform(
             let parent_sc = logical_parent.and_then(|lp| parent_coords.get(lp.0).ok());
 
             let (local_pos, parent_world) = if let Some(psc) = parent_sc {
-                if orbit_center.is_some() {
+                if let Some((vis_local, _vis_parent)) = &visual_coords {
+                    // Speed-capped: use visual local position directly
+                    let pw = (psc.position - origin_offset) * SCALING_FACTOR;
+                    (*vis_local, pw)
+                } else if orbit_center.is_some() {
                     // coords.position is ABSOLUTE (parent + local) because
                     // propagate_orbits added the parent position via OrbitCenter.
                     // Strip parent position to recover the local orbit offset.
@@ -326,6 +412,11 @@ pub fn update_render_transform(
             // Amplify only the local orbit offset, position relative to parent
             let world = parent_world + local_pos * SCALING_FACTOR * amp_f64;
             Vec3::new(world.x as f32, world.y as f32, world.z as f32)
+        } else if let Some((vis_local, vis_parent)) = visual_coords {
+            // Speed-capped non-moon body: use visual position
+            let vis_abs = vis_parent + vis_local;
+            let scaled = (vis_abs - origin_offset) * SCALING_FACTOR;
+            Vec3::new(scaled.x as f32, scaled.y as f32, scaled.z as f32)
         } else {
             // Non-moon body: straightforward AU → Bevy-unit conversion
             let scaled = (coords.position - origin_offset) * SCALING_FACTOR;
@@ -340,12 +431,19 @@ pub fn update_render_transform(
 /// The trail is brightest at the body's current position and fades out
 /// behind it, creating a comet-tail effect along the orbit.
 ///
+/// At extreme game speeds, when a body completes more than one orbit per
+/// frame, the fading trail becomes meaningless. In that case, a solid
+/// full-orbit ring is drawn instead. A smooth blend transitions between
+/// the two modes.
+///
 /// Samples uniformly in **true anomaly** so that highly eccentric orbits
 /// (comets, long-period objects) get even point density along the geometric
 /// ellipse rather than clustering near apoapsis.
 pub fn draw_orbit_paths(
     mut gizmos: Gizmos,
     sim_time: Res<SimulationTime>,
+    time_scale: Res<TimeScale>,
+    real_time: Res<Time<Real>>,
     current_system: Res<CurrentStarSystem>,
     query: Query<(
         &KeplerOrbit,
@@ -354,14 +452,18 @@ pub fn draw_orbit_paths(
         Option<&LocalOrbitAmplification>,
         Option<&Visibility>,
         Option<&SystemId>,
+        Has<Selected>,
+        Has<Hovered>,
     )>,
     parent_coords: Query<&SpaceCoordinates>,
     floating_origin: Option<Res<crate::astronomy::components::FloatingOrigin>>,
 ) {
     let elapsed_time = sim_time.elapsed_seconds();
+    let scale = time_scale.scale as f64;
+    let real_t = real_time.elapsed_secs() as f64;
     let origin_offset = floating_origin.map(|fo| fo.position).unwrap_or(DVec3::ZERO);
 
-    for (orbit, path, logical_parent, amplification, visibility, system_id) in query.iter() {
+    for (orbit, path, logical_parent, amplification, visibility, system_id, is_selected, is_hovered) in query.iter() {
         if !path.visible {
             continue;
         }
@@ -396,6 +498,42 @@ pub fn draw_orbit_paths(
             orbit.eccentricity,
         );
 
+        // Effective orbital angular speed in rad/real-second.
+        // Uses the same threshold as the rotation cap so that
+        // orbit trails and body spin switch to "capped" visuals together.
+        let effective_orbital_speed = orbit.mean_motion.abs() * scale;
+        // Blend factor: 0.0 = normal fading trail, 1.0 = solid full ring
+        // Smooth transition between BASE/2 and BASE rad/real-second
+        let ring_blend = ((effective_orbital_speed - VISUAL_SPEED_BASE * 0.5)
+            / (VISUAL_SPEED_BASE * 0.5))
+            .clamp(0.0, 1.0) as f32;
+
+        // When speed is capped, compute the visual "head" position from the
+        // compressed orbit rate so the directional indicator matches the body's
+        // visual position (set by update_render_transform).
+        let visual_true_anomaly = if effective_orbital_speed > VISUAL_SPEED_BASE {
+            let vis_speed = capped_visual_speed(effective_orbital_speed) * orbit.mean_motion.signum();
+            let vis_ma = orbit.mean_anomaly_epoch + vis_speed * real_t;
+            mean_anomaly_to_true_anomaly(
+                vis_ma.rem_euclid(std::f64::consts::TAU),
+                orbit.eccentricity,
+            )
+        } else {
+            current_true_anomaly
+        };
+
+        // The trail/ring "head" uses the visual position so the bright spot
+        // coincides with where the body is rendered.
+        let head_true_anomaly = if ring_blend > 0.0 {
+            // Blend the head position between true and visual
+            // For full ring mode, head = visual position entirely
+            let diff = (visual_true_anomaly - current_true_anomaly).rem_euclid(std::f64::consts::TAU);
+            let adjusted_diff = if diff > std::f64::consts::PI { diff - std::f64::consts::TAU } else { diff };
+            current_true_anomaly + adjusted_diff * ring_blend as f64
+        } else {
+            current_true_anomaly
+        };
+
         // Use more segments for eccentric orbits to keep the periapsis region smooth
         let segments = if orbit.eccentricity > 0.6 {
             (path.segments as f64 * (1.0 + orbit.eccentricity * 2.0)) as u32
@@ -422,14 +560,44 @@ pub fn draw_orbit_paths(
         // Extract base color channels from path color
         let base = path.color.to_srgba();
 
+        // Orbit highlighting: selected bodies get a bright highlight,
+        // hovered bodies get a slightly brighter/more opaque orbit.
+        // The boost is multiplicative on the trail alpha (not additive) so
+        // the half-open fading trail shape is preserved.
+        let highlight_alpha_mult: f32 = if is_selected {
+            2.5
+        } else if is_hovered {
+            1.8
+        } else {
+            1.0
+        };
+        let highlight_color_boost: f32 = if is_selected {
+            0.3
+        } else if is_hovered {
+            0.15
+        } else {
+            0.0
+        };
+        // Minimum alpha floor for highlighted orbits so the faint tail
+        // remains visible even at the very back of the trail.
+        let highlight_alpha_floor: f32 = if is_selected {
+            0.15
+        } else if is_hovered {
+            0.08
+        } else {
+            0.0
+        };
+
         // Trail covers the full orbit but fades from current position backwards.
         // Segment 0 is the body's current position (brightest).
         // Segment N is the point just before the body (dimmest / invisible).
+        // In ring mode, a directional gradient centered on the visual head
+        // replaces the fading trail, showing orbital direction.
         let mut prev_point: Option<Vec3> = None;
 
         for i in 0..=segments {
-            // Walk backwards from the current position in true anomaly
-            let true_anomaly = current_true_anomaly - (i as f64) * true_anomaly_step;
+            // Walk backwards from the head position in true anomaly
+            let true_anomaly = head_true_anomaly - (i as f64) * true_anomaly_step;
             let position_au = orbit_position_from_true_anomaly(orbit, true_anomaly);
 
             // For high-eccentricity orbits, skip segments beyond the max distance
@@ -446,21 +614,38 @@ pub fn draw_orbit_paths(
             let point = Vec3::new(scaled_x, scaled_y, scaled_z) + parent_offset;
 
             if let Some(prev) = prev_point {
-                // t goes from 0.0 (at the body) to 1.0 (full orbit behind)
+                // t goes from 0.0 (at the body/head) to 1.0 (full orbit behind)
                 let t = i as f32 / segments as f32;
 
-                // Fade curve: bright near the body, fading to near-zero
-                // Use a smooth power curve for a natural look
-                let alpha = base.alpha * (1.0 - t).powf(1.8);
+                // Fading trail alpha: bright near the body, fading to near-zero.
+                // Higher fade_exponent = steeper fade = shorter-looking trail.
+                let trail_alpha = base.alpha * (1.0 - t).powf(path.fade_exponent);
 
-                // Glow boost near the head of the trail
-                let glow = if t < 0.08 { 1.3 } else { 1.0 };
+                // Ring mode: directional gradient centered on the visual head.
+                // Bright at the head (t=0), dimming to a base level at the
+                // opposite side (t≈0.5), then rising slightly as we approach
+                // the head again — creating a comet-like directional glow.
+                // Scale ring exponent proportionally so fast-faders stay consistent.
+                let ring_exponent = (path.fade_exponent * 0.8 / 1.8).max(0.4);
+                let ring_head_alpha = base.alpha * (0.35 + 0.65 * (1.0 - t).powf(ring_exponent));
+
+                // Blend between trail and ring based on speed
+                let alpha = trail_alpha * (1.0 - ring_blend) + ring_head_alpha * ring_blend;
+
+                // Apply highlight: multiplicative boost preserves the half-open
+                // trail shape; floor ensures the faint tail stays visible.
+                let alpha = (alpha * highlight_alpha_mult).max(highlight_alpha_floor).min(1.0);
+
+                // Glow boost near the head — visible in both modes but
+                // stronger in ring mode to act as a directional indicator.
+                let head_region = t < 0.08;
+                let glow = if head_region { 1.0 + 0.3 * (1.0 - ring_blend) + 0.5 * ring_blend } else { 1.0 };
 
                 if alpha > 0.01 {
                     let segment_color = Color::srgba(
-                        (base.red * glow).min(1.0),
-                        (base.green * glow).min(1.0),
-                        (base.blue * glow).min(1.0),
+                        ((base.red * glow) + highlight_color_boost).min(1.0),
+                        ((base.green * glow) + highlight_color_boost).min(1.0),
+                        ((base.blue * glow) + highlight_color_boost).min(1.0),
                         alpha,
                     );
                     gizmos.line(prev, point, segment_color);
@@ -1505,6 +1690,9 @@ mod tests {
     fn test_update_render_transform_scaling() {
         // Test that the transform system correctly scales coordinates
         let mut app = App::new();
+        app.add_plugins(bevy::time::TimePlugin);
+        app.init_resource::<crate::ui::SimulationTime>();
+        app.init_resource::<crate::ui::TimeScale>();
         app.add_systems(Update, update_render_transform);
 
         // Spawn entity with known space coordinates
