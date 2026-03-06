@@ -1,222 +1,204 @@
 # Helios Ascension - Development Roadmap
 
-## Current Status: v0.3.0 - Fleet & Orbital Transfer System Complete ✅
+## Current Status: v0.4.0 - Building System Overhaul & Logistics
+
+Major refactor in progress to transform the game from simple point-to-point resource management into a deep logistics simulation with AI competition and meaningful progression.
+
+## v0.3.0: Fleet & Orbital Transfer System Complete ✅
 
 The game has a fully implemented fleet management system with realistic orbital mechanics, transfer planning, gravity-assist routing, and Lagrange-point targeting. Core gameplay loop is functional and ships fly!
 
-## Phase 1: Core Mechanics ✅ COMPLETE
+---
 
-### 1.1 Resource System ✅
-- [x] Define resource types (20 types: minerals, energy, volatiles, gases, fissiles, specialty materials)
-- [x] Resource extraction mechanics (mining buildings)
-- [x] Resource storage and management (stockpiles with capacity limits)
-- [x] Resource transport and logistics (logistics buildings and efficiency system)
+## v0.4.0: Building System Overhaul & Localized Logistics (IN PROGRESS)
 
-### 1.2 Research System ✅
-- [x] Technology tree structure (15 categories)
-- [x] Research mechanics (time, resources, research points)
-- [x] Technology prerequisites (dependency chains)
-- [x] Technology effects on gameplay (tech modifiers, building unlocks)
+Transform the building system to offer much more variety and player choices, with resources now stored per-body rather than globally.
 
-### 1.3 Time System ✅
-- [x] Game time management (SimulationTime resource)
-- [x] Time acceleration controls (1 day/s to 1 year/s)
-- [x] Pause/resume functionality
-- [x] Event scheduling (construction, research progression)
+### 4.1 Building System Redesign
+- [ ] Expand building types for greater variety and specialization
+- [ ] Have buildings consume all resources by adding more and update the existing ones
+- [ ] Building tiers with upgrade paths
+- [ ] Unique building effects and strategic choices
+- [ ] Building synergies
+- [ ] Remove global resources — each body/ship/station has its own storage
 
-## Phase 2: Space Infrastructure ✅ COMPLETE
+### 4.2 Localized Resource Storage
+- [ ] Per-body resource stockpiles (planets, moons, asteroids)
+- [ ] Per-ship resource storage (cargo capacity)
+- [ ] Per-station resource storage
+- [ ] Resource transfer mechanics between locations
+- [ ] Storage capacity limits per location
 
-### 2.1 Colony Buildings ✅
-- [x] Building construction mechanics (29 building types)
-- [x] Building categories and specializations (8 categories)
-- [x] Construction queue system
-- [x] Building functionality (mining, research, habitation, industry, logistics, power, financial, military)
+### 4.3 Logistics Network
+- [ ] AI-controlled logistics ships (private company freighters)
+- [ ] Automated cargo routes between colonies
+- [ ] Logistics priority system (essential vs luxury goods)
+- [ ] Shipping costs and transit times
+- [ ] Supply and demand per location
 
-### 2.2 Spacecraft ✅
-- [x] Ship design system foundation
-- [x] **7 ship classes**: Courier, Frigate, Destroyer, Cruiser, Research Vessel, Freighter, Station
-- [x] **6 propulsion types**: Chemical, Nuclear Thermal, Ion Drive, Nuclear Pulse, Fusion Torch, Antimatter Drive
-- [x] Tsiolkovsky rocket-equation Δv and fuel calculations
-- [x] Fleet spawning from launch sites (Shipyard, Launch Site buildings)
-- [x] Fleet movement — orbital transfer arcs with Keplerian propagation
-- [x] **3 transfer options** per route (efficient Hohmann, moderate, fast)
-- [x] Transfer window planner with synodic-period countdown and phase-angle display
-- [x] Phased departure planning (departure-time slider)
-- [x] Gravity-assist flyby candidate computation
-- [x] Lagrange-point targeting (planetary L4/L5, Earth-Sun L1/L2/L3)
-- [x] Fleet intercept planning
-- [x] Mid-transit course correction and abort burns
-- [x] Refuelling from planetary stockpiles
-- [x] Trajectory visualisation (arcs, orbit rings, selection reticules, starmap icons)
+### 4.4 Ship & Station Designer
+- [ ] Modular ship design interface
+- [ ] Component selection (hulls, engines, cargo bays, weapons)
+- [ ] Station module builder
+- [ ] Design cost calculation
+- [ ] Ship/station naming
 
-### 2.3 Mining Operations ✅
-- [x] Mineral deposits on celestial bodies
-- [x] Mining buildings (Mine, Deep Drill, Laser Drill, Strip Mine)
-- [x] Mining efficiency mechanics (workforce, logistics)
-- [x] Resource processing (Refinery, Atmospheric Processor)
+---
 
-## Phase 3: Planetary Systems (Partially Complete)
+## v0.5.0: Exploration & Progression System
 
-### 3.1 Colonies ✅
-- [x] Colony establishment (starting colony on Earth)
-- [x] Population simulation (growth, workforce allocation)
-- [x] Colony infrastructure (29 building types)
-- [x] Colony growth mechanics (housing, food, logistics)
+Sequential exploration where you send probes first, then rovers, establish stations, then bases.
 
-### 3.2 Planetary Bodies ✅
-- [x] Moon systems (148 moons across all planets)
-- [x] Asteroid belts (145 asteroids catalogued)
-- [x] Comets and other objects (20 comets)
-- [x] Realistic orbital mechanics (Keplerian orbits with analytical propagation)
+### 5.1 Survey System Rework
+- [ ] Remove three-tier survey system
+- [ ] Progressive discovery with probes
+- [ ] Survey teams with scientist personnel
+- [ ] Gradually reveal resources, anomalies, landing sites
+- [ ] Survey data collection and analysis
 
-### 3.3 Terraforming (Planned)
-- [ ] Terraforming mechanics
-- [ ] Atmospheric manipulation
-- [ ] Temperature control
-- [ ] Biosphere development
+### 5.2 Personnel System
+- [ ] Scientists for survey missions and research
+- [ ] Generals for fleet operations
+- [ ] Governors for colony management
+- [ ] Personnel training and advancement
+- [ ] Mission assignment interface
 
-## Phase 4: Expansion & Exploration (Partially Complete)
+### 5.3 Progressive Expansion
+- [ ] Probe deployment (cheap, expendable)
+- [ ] Rover surface missions
+- [ ] Orbital stations around moons/planets
+- [ ] Surface bases (Mars, Moon, asteroids)
+- [ ] Asteroid mining operations
+- [ ] Fuel depots and refueling points
 
-### 4.1 Star Systems ✅
-- [x] Multiple star system generation (60 nearest star systems)
-- [x] Procedural planet generation for nearby systems
-- [x] System discovery mechanics (starmap view)
-- [ ] Interstellar travel (planned)
+### 5.4 Notification & Event System
+- [ ] In-game notification system
+- [ ] Story events and milestones
+- [ ] Random events (discoveries, disasters, opportunities)
+- [ ] Event log and history
+- [ ] Event-triggered missions
 
-### 4.2 Exploration (Planned)
-- [x] Survey mechanics (mineral deposit discovery)
-- [ ] Anomaly detection
-- [ ] Resource prospecting
-- [ ] System mapping
+---
 
-### 4.3 Kardashev Scale Progress (Planned)
-- [ ] Type I: Planetary civilization milestones
-- [ ] Type II: Dyson sphere/swarm mechanics
-- [ ] Type III: Galactic-scale projects
+## v0.6.0: AI Competition & Factions
+
+AI-controlled factions competing for resources and territory.
+
+### 6.1 AI Factions
+- [ ] Multiple AI factions with distinct behaviors
+- [ ] Resource management AI
+- [ ] Expansion priorities
+- [ ] Research focus AI
+- [ ] Military build-up AI
+
+### 6.2 Competition Mechanics
+- [ ] Territory influence system
+- [ ] Resource competition
+- [ ] Strategic location control
+- [ ] Faction relations (alliances, rivalries)
 - [ ] Victory conditions
 
-## Phase 5: Strategy Layer
+### 6.3 Diplomacy
+- [ ] Diplomatic interface
+- [ ] Trade agreements
+- [ ] Technology sharing
+- [ ] Military pacts
+- [ ] Negotiation mechanics
 
-### 5.1 Factions
-- [ ] AI factions
-- [ ] Faction relations
-- [ ] Diplomacy system
-- [ ] Alliance mechanics
+---
 
-### 5.2 Economy
-- [ ] Trade system
-- [ ] Market mechanics
-- [ ] Economic simulation
-- [ ] Supply and demand
+## v0.7.0: Financial System Overhaul
 
-### 5.3 Conflicts
-- [ ] Space combat system
-- [ ] Defense mechanics
-- [ ] Strategic objectives
-- [ ] War and peace mechanics
+Complete rework of economy and finances.
 
-## Phase 6: User Experience ✅ COMPLETE
+### 7.1 Corporate Finances
+- [ ] Budget management per colony/sector
+- [ ] Revenue and expenses tracking
+- [ ] Loan and credit system
+- [ ] Stockpile value calculations
+- [ ] Financial reports and analytics
 
-### 6.1 UI/UX ✅
-- [x] Main menu system
-- [x] HUD design and implementation (comprehensive dashboard)
-- [x] Information displays (tooltips, panels)
-- [x] Context-sensitive UI (body selection, star system details)
+### 7.2 Trade Economy
+- [ ] Local markets per location
+- [ ] Supply and demand pricing
+- [ ] Trade route profitability
+- [ ] Smuggling and black markets
+- [ ] Economic events (booms, recessions)
 
-### 6.2 Visualization ✅
-- [x] Improved graphics (PBR materials, bloom effects)
-- [x] Visual effects (comet trails, star glows)
-- [x] Information overlays (orbit paths, labels)
-- [x] Camera improvements (automatic view transitions)
+### 7.3 Taxation & Revenue
+- [ ] Tax rates per colony
+- [ ] Trade tariffs
+- [ ] Resource export fees
+- [ ] Colony upkeep costs
 
-### 6.3 Audio ✅
-- [x] Music system (sequential playlist with CC-BY attribution overlay)
-- [x] **3 ambient tracks** by Scott Buckley (CC-BY 4.0)
-- [ ] Sound effects
-- [ ] Ambient audio
-- [ ] Audio settings
+---
 
+## v0.8.0: Technology Tree Rework
 
-## Phase 7: Polish & Content
+Progression-locked tech tree aligned with exploration milestones.
 
-### 7.1 Game Balance
-- [ ] Economic balance
-- [ ] Technology pacing
-- [ ] Resource availability
-- [ ] Difficulty levels
+### 8.1 Tech Tree Restructure
+- [ ] Sequential tech unlocks tied to exploration
+- [ ] Probe → Rover → Station → Base progression
+- [ ] Technology prerequisites from gameplay milestones
+- [ ] Tech tiers that require reaching certain bodies
 
-### 7.2 Content
-- [ ] Event system
-- [ ] Mission system
-- [ ] Storyline elements
-- [ ] Random events
+### 8.2 Tech Categories
+- [ ] Exploration tech (probes, sensors, communications)
+- [ ] Propulsion tech (unlock better engines)
+- [ ] Colony tech (habitation, life support)
+- [ ] Military tech (weapons, defenses)
+- [ ] Economy tech (trade, mining efficiency)
 
-### 7.3 Quality of Life
-- [ ] Save/load system
-- [ ] Settings menu
-- [ ] Tutorials
-- [ ] Help system
+### 8.3 Tech Effects
+- [ ] Unlock new building types
+- [ ] Ship component unlocks
+- [ ] Efficiency bonuses
+- [ ] New personnel roles
 
-## Technical Improvements
+---
 
-### Performance
-- [ ] Multi-threading optimization
-- [ ] LOD system for distant objects
-- [ ] Culling optimization
-- [ ] Memory usage optimization
+## v0.9.0: Balance & Polish
 
-### Architecture
-- [ ] Data-driven design (JSON/RON configs)
-- [ ] Mod support foundation
-- [ ] Plugin hot-reloading
-- [ ] Save game serialization
+### 9.1 Game Balance
+- [ ] Mining rate balancing
+- [ ] Research speed tuning
+- [ ] Resource availability curves
+- [ ] AI difficulty scaling
+- [ ] Economy balancing
 
-### Tools
-- [ ] Level editor
-- [ ] Debug console
-- [ ] Performance profiling tools
-- [ ] Content pipeline tools
+### 9.2 UI/UX Improvements
+- [ ] Streamlined interfaces
+- [ ] Better information displays
+- [ ] Tooltip improvements
+- [ ] Keyboard shortcuts
+- [ ] Tutorial system
 
-## Community & Distribution
+### 9.3 Audio
+- [ ] Complete sound effects
+- [ ] Ambient space audio
+- [ ] UI sound feedback
+- [ ] Music expansion
+- [ ] Volume controls
 
-### Pre-Release
-- [ ] Internal playtesting
-- [ ] Bug fixing
-- [ ] Performance optimization
-- [ ] Documentation completion
+### 9.4 Performance
+- [ ] Optimization pass
+- [ ] Memory usage reduction
+- [ ] Frame rate improvements
+- [ ] Load time reduction
 
-### Alpha Release
-- [ ] Public alpha testing
-- [ ] Community feedback integration
-- [ ] Bug tracking system
-- [ ] Regular updates
+---
 
-### Beta Release
-- [ ] Feature complete
-- [ ] Balance refinement
-- [ ] Polish and optimization
-- [ ] Marketing materials
+## v1.0.0: Release
 
-### Release
-- [ ] Distribution platform setup
-- [ ] Release version packaging
-- [ ] Post-release support plan
-- [ ] Update roadmap
+- Feature complete
+- Balanced gameplay
+- Save/load system
+- Documentation
+- Bug fixing
+- Community feedback integration
 
-## Long-term Vision
-
-### Post-1.0
-- [ ] Multiplayer support
-- [ ] Procedural content generation
-- [ ] Mod support and workshop
-- [ ] Expansions and DLC
-- [ ] Mobile/console ports
-
-### Community Features
-- [ ] Mod tools
-- [ ] Scenario editor
-- [ ] Custom campaigns
-- [ ] Community content sharing
+---
 
 ## Milestones
 
@@ -235,7 +217,7 @@ The game has a fully implemented fleet management system with realistic orbital 
   - Comprehensive UI panels
   - Starmap with 60 nearby star systems
 
-- **v0.3.0** - Fleet & Orbital Transfer ✅ COMPLETE (Current)
+- **v0.3.0** - Fleet & Orbital Transfer ✅ COMPLETE
   - Fleet management system (7 ship classes, 5 propulsion types)
   - Keplerian transfer arc propagation
   - 3 transfer options per route (Hohmann / moderate / fast)
@@ -250,49 +232,60 @@ The game has a fully implemented fleet management system with realistic orbital 
   - Background music playlist (CC-BY, Scott Buckley)
   - Atmospheric scattering shader (Rayleigh + Mie)
 
-- **v0.4.0** - Expansion & Exploration (Next)
-  - Interstellar travel with realistic transit times
-  - Ship construction pipeline (Shipyard building integration)
-  - Advanced exploration mechanics
-  - Anomaly detection
+- **v0.4.0** - Building & Logistics Overhaul (IN PROGRESS)
+  - Building system redesign with more variety
+  - Per-body/ship/station resource storage (no more global resources)
+  - AI logistics ships from private companies
+  - Ship and station designer
 
-- **v0.5.0** - Factions & Diplomacy
-  - AI factions
-  - Diplomacy system
-  - Economy and trade
-  - Conflicts
+- **v0.5.0** - Exploration & Progression ✅ NEXT
+  - Survey system rework (progressive discovery)
+  - Personnel system (scientists, generals, governors)
+  - Sequential expansion (probes → rovers → stations → bases)
+  - Notification and event system
 
-- **v0.6.0** - Polish
-  - Audio system
-  - Balance refinement
-  - Quality of life improvements
+- **v0.6.0** - AI Competition ✅
+  - AI factions with distinct behaviors
+  - Competition for resources and territory
+  - Diplomatic system
+
+- **v0.7.0** - Financial System ✅
+  - Corporate budget management
+  - Trade economy with markets
+  - Taxation and revenue
+
+- **v0.8.0** - Technology Rework ✅
+  - Progression-locked tech tree
+  - Exploration milestones unlock tech
+  - New personnel roles
+
+- **v0.9.0** - Balance & Polish ✅
+  - Game balance (mining, research, economy)
+  - UI/UX improvements
+  - Audio completion
   - Performance optimization
 
-- **v1.0.0** - Release
+- **v1.0.0** - Release ✅
   - Feature complete
   - Balanced gameplay
   - Full documentation
   - Save/load system
+
+---
 
 ## Contributing
 
 Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute to the project.
 
 Priority areas for contribution:
-1. UI/UX design and implementation
-2. Game balance and mechanics design
-3. Performance optimization
-4. Documentation and tutorials
-5. Testing and bug reports
-
-## Stay Updated
-
-- GitHub: Watch the repository for updates
-- Issues: Track progress and discussions
-- Pull Requests: See what's being worked on
+1. Building system redesign
+2. Logistics and AI freighters
+3. Personnel system
+4. UI/UX design
+5. Game balance
 
 ---
 
-*This roadmap is subject to change based on community feedback and development priorities.*
+*This roadmap is subject to change based on development priorities.*
 
-Last Updated: 2026-02-21
+Last Updated: 2026-03-06

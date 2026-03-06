@@ -1109,11 +1109,13 @@ fn generate_rocky_planets(
             // Very close-in: likely tidally locked (period ≈ orbital period)
             period_days as f32
         } else if semi_major_axis < 0.3 {
-            // Close: slow rotation from tidal braking
-            rng.random_range(10.0..60.0_f32)
+            // Tidal braking zone: real planets here rotate in ~2-8 days, not 10-60.
+            // The previous 10-60 day range produced unrealistically extreme temperature
+            // differentials (±65% of average) via adjust_temperature_for_rotation.
+            rng.random_range(2.0..8.0_f32)
         } else {
-            // Normal: log-uniform from ~0.3 to ~3 days, tail up to ~10
-            let log_p = rng.random_range((-0.5_f32)..(1.0));
+            // Normal: log-uniform from ~0.3 to ~5 days
+            let log_p = rng.random_range((-0.5_f32)..(0.7));
             10.0_f32.powf(log_p)
         };
 

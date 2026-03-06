@@ -853,16 +853,31 @@ fn spawn_system_bodies(
             let (cr, cg, cb) = (linear.red, linear.green, linear.blue);
 
             // Luminosity-based scaling: brighter/hotter stars get a wider, more intense corona.
-            // Tighter clamp (0.7..2.0) prevents extremely luminous stars from overwhelming
-            // the scene with unrealistic bloom.
+            // lum_factor uses a steeper pow and a low floor (0.2) so dim M-dwarfs and brown
+            // dwarfs produce a proportionally smaller bloom halo than Sol, preventing the
+            // unnatural orange glow around close-in planets in compact systems.
+            // Sol (L=1.0): lum_factor=1.0  → ×9 center, ×5.5 limb (identical to previous)
+            // M-dwarf (L=0.01): lum_factor≈0.32 → ×4.2 center  (noticeably dimmer)
+            // Brown dwarf (L=0.001): lum_factor≈0.18 → ×3.25 center
             let luminosity = stellar_props.map(|p| p.luminosity_sol).unwrap_or(1.0);
-            let lum_factor = luminosity.powf(0.3).clamp(0.7, 2.0);
+            let lum_factor = luminosity.powf(0.25).clamp(0.2, 1.0);
 
-            // Center colour: hot HDR white derived from spectral colour (triggers bloom)
-            // Using the same ×9 scale as the Sol star to keep realistic brightness.
-            let center_col = Vec4::new(cr * 9.0, cg * 9.0, cb * 9.0, 1.0);
+            // Surface colours: scale HDR intensity by lum_factor so dim stars don't produce
+            // the same bloom spreading radius as Sol.  At lum_factor=1.0 the formula gives
+            // exactly ×9 and ×5.5 — identical to the Sol star in setup_solar_system.
+            let center_col = Vec4::new(
+                cr * (2.0 + 7.0 * lum_factor),
+                cg * (2.0 + 7.0 * lum_factor),
+                cb * (2.0 + 7.0 * lum_factor),
+                1.0,
+            );
             // Limb colour: cooler shift — red is retained, green/blue sharply attenuated
-            let limb_col = Vec4::new(cr * 5.5, cg * 2.8, cb * 0.8, 1.0);
+            let limb_col = Vec4::new(
+                cr * (1.5 + 4.0 * lum_factor),
+                cg * (1.5 + 4.0 * lum_factor) * 0.51,
+                cb * (1.5 + 4.0 * lum_factor) * 0.15,
+                1.0,
+            );
 
             commands.entity(entity).insert((
                 Mesh3d(mesh),
@@ -874,8 +889,9 @@ fn spawn_system_bodies(
                 initial_transform,
             ));
 
-            // Add light and 3D corona shells as children
-            let intensity = 2.8e11 * lum_factor;
+            // Scale point-light intensity by physical luminosity so dim stars
+            // don't over-illuminate very close planets.
+            let intensity = 2.8e11 * luminosity.max(1e-5) * lum_factor;
 
             // core_col: spectrally-tinted inner corona to match the star sphere surface.
             let core_col = Vec4::new(

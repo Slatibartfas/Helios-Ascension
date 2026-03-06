@@ -635,9 +635,13 @@ pub fn spawn_confirmed_planet(
     } else if sma < 0.15 {
         planet_data.period_days // tidally locked
     } else if sma < 0.3 {
-        rng.random_range(10.0..60.0_f32)
+        // Tidal braking zone: real planets here rotate in ~2-8 days, not 10-60.
+        // The previous 10-60 day range produced unrealistically extreme temperature
+        // differentials (±65% of average) via adjust_temperature_for_rotation.
+        rng.random_range(2.0..8.0_f32)
     } else {
-        let log_p = rng.random_range((-0.5_f32)..(1.0));
+        // Normal: log-uniform from ~0.3 to ~5 days
+        let log_p = rng.random_range((-0.5_f32)..(0.7));
         10.0_f32.powf(log_p)
     };
     let rotation_speed = if rotation_period_days != 0.0 {
