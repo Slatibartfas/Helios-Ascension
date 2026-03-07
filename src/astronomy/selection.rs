@@ -241,6 +241,7 @@ pub fn handle_body_selection(
         ),
         Without<ClickExcluded>,
     >,
+    space_coords_query: Query<&SpaceCoordinates>,
     current_system: Res<CurrentStarSystem>,
     mut commands: Commands,
     selected_query: Query<Entity, With<Selected>>,
@@ -372,7 +373,11 @@ pub fn handle_body_selection(
             },
         );
         let get_parent_coords = |parent: Entity| -> Option<DVec3> {
-            body_query.get(parent).ok().and_then(|t| t.10.map(|sc| sc.position))
+            match body_query.get(parent) {
+                Ok(t) => t.10.map(|sc| sc.position),
+                // Fallback for orbit-anchor entities that have SpaceCoordinates but no CelestialBody
+                Err(_) => space_coords_query.get(parent).ok().map(|sc| sc.position),
+            }
         };
         let camera_distance = camera_transform.translation().length();
         find_closest_orbit_to_ray(&ray, camera_distance, orbit_iter, &get_parent_coords, origin_offset).and_then(
@@ -450,6 +455,7 @@ pub fn handle_body_hover(
         ),
         Without<ClickExcluded>,
     >,
+    space_coords_query: Query<&SpaceCoordinates>,
     current_system: Res<CurrentStarSystem>,
     mut commands: Commands,
     hovered_query: Query<Entity, With<Hovered>>,
@@ -579,7 +585,11 @@ pub fn handle_body_hover(
             },
         );
         let get_parent_coords = |parent: Entity| -> Option<DVec3> {
-            body_query.get(parent).ok().and_then(|t| t.10.map(|sc| sc.position))
+            match body_query.get(parent) {
+                Ok(t) => t.10.map(|sc| sc.position),
+                // Fallback for orbit-anchor entities that have SpaceCoordinates but no CelestialBody
+                Err(_) => space_coords_query.get(parent).ok().map(|sc| sc.position),
+            }
         };
         let camera_distance = camera_transform.translation().length();
         find_closest_orbit_to_ray(&ray, camera_distance, orbit_iter, &get_parent_coords, origin_offset)

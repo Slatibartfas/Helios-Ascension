@@ -1581,7 +1581,7 @@ fn spawn_confirmed_planet(
         OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.85)), // Lighter blue — planets
         SpaceCoordinates::default(),                       // Will be updated by propagate_orbits
         OrbitCenter(parent.spatial_parent),
-        OrbitsBody::new(parent.spatial_parent),
+        OrbitsBody::new(parent.logical_parent),
         LogicalParent(parent.logical_parent),
         SystemId(system_id),
         Transform::default(), // Required so ring ChildOf relationships have a valid parent transform
@@ -1716,7 +1716,7 @@ fn spawn_procedural_planet(
         OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.85)), // Lighter blue — planets
         SpaceCoordinates::default(),                       // Will be updated by propagate_orbits
         OrbitCenter(parent.spatial_parent),
-        OrbitsBody::new(parent.spatial_parent),
+        OrbitsBody::new(parent.logical_parent),
         LogicalParent(parent.logical_parent),
         SystemId(system_id),
         Transform::default(), // Required so ring ChildOf relationships have a valid parent transform
@@ -1820,7 +1820,7 @@ fn spawn_dwarf_planets(
             OrbitPath::new(Color::srgba(0.25, 0.45, 0.75, 0.7)), // Darker blue — dwarf planets
             SpaceCoordinates::default(),
             OrbitCenter(parent.spatial_parent),
-            OrbitsBody::new(parent.spatial_parent),
+            OrbitsBody::new(parent.logical_parent),
             LogicalParent(parent.logical_parent),
             SystemId(system_id),
             Visibility::Hidden,
@@ -1963,7 +1963,7 @@ fn spawn_asteroid_belt(
             OrbitPath::with_fade(Color::srgba(0.3, 0.55, 0.22, 0.45), 5.0), // Dark green, steep fade — asteroids
             SpaceCoordinates::default(), // Will be updated by propagate_orbits
             OrbitCenter(parent.spatial_parent),
-            OrbitsBody::new(parent.spatial_parent),
+            OrbitsBody::new(parent.logical_parent),
             LogicalParent(parent.logical_parent),
             SystemId(system_id),
         ));
@@ -2074,7 +2074,7 @@ fn spawn_cometary_cloud(
             OrbitPath::new(Color::srgba(1.0, 0.8, 0.3, 0.65)), // Yellow — comets
             SpaceCoordinates::default(), // Will be updated by propagate_orbits
             OrbitCenter(parent.spatial_parent),
-            OrbitsBody::new(parent.spatial_parent),
+            OrbitsBody::new(parent.logical_parent),
             LogicalParent(parent.logical_parent),
             SystemId(system_id),
         ));
