@@ -1,6 +1,23 @@
 use super::time::format_timestamp_date_time;
 use super::*;
 
+/// Minimum gravitational parameter (m³ s⁻²) to distinguish a star from a planet.
+///
+/// Corresponds to roughly 0.01 M☉ — well above Jupiter (1.27 × 10¹⁷) and below
+/// even the smallest hydrogen-fusing stars (0.08 M☉ ≈ 1.06 × 10¹⁸).  We use a
+/// slightly lower bound so that massive sub-stellar objects do not fall through.
+const MIN_STELLAR_GM: f64 = 1.3e18; // ~0.01 M☉ in m³ s⁻²
+
+/// Returns `true` when `gm` is large enough to be a stellar-mass central body.
+///
+/// Used to decide whether transfer-window phase angles should be read from
+/// heliocentric (star-frame) coordinates or from a local planet-centric frame,
+/// and whether gravity-assist candidates should be offered.
+#[inline]
+fn is_stellar_gm(gm: f64) -> bool {
+    gm >= MIN_STELLAR_GM
+}
+
 pub(super) fn render_transfer_planner(
     ui: &mut egui::Ui,
     fleet_entity: Entity,
@@ -897,7 +914,21 @@ pub(super) fn render_transfer_planner(
                     own_ko.unwrap_or(1.0)
                 }
             };
-            fleet_ui_state.computed_options = calculate_transfer_options(r1_au, r2_au, GM_SUN, 0.0);
+            // Determine the host star's GM for the fleet intercept.  For non-Sol
+            // star systems the host star has a different mass than the Sun.
+            let fleet_intercept_gm = {
+                let origin_parent = body_query
+                    .get(orbit.body)
+                    .ok()
+                    .and_then(|(_, _, _, _, lp)| lp)
+                    .map(|lp| lp.0);
+                origin_parent
+                    .and_then(|pe| body_query.get(pe).ok())
+                    .filter(|(_, b, _, _, _)| b.body_type == BodyType::Star)
+                    .map(|(_, b, _, _, _)| G_CONST * b.mass)
+                    .unwrap_or(GM_SUN)
+            };
+            fleet_ui_state.computed_options = calculate_transfer_options(r1_au, r2_au, fleet_intercept_gm, 0.0);
             // Post-process: fill burn_time_s and flag thrust-limited options.
             apply_thrust_limits(
                 &mut fleet_ui_state.computed_options,
@@ -938,10 +969,10 @@ pub(super) fn render_transfer_planner(
             //       r1 = fleet's parking orbit radius, r2 = dest SMA, GM = parent mass * G
             //   - Moon-to-moon (both orbit the same planet):
             //       r1 = origin moon SMA, r2 = dest moon SMA, GM = shared planet mass * G
-            //   - Solar approach (dest is a star):
-            //       r1 = fleet's heliocentric SMA, r2 = 0.3 AU, GM = GM_SUN
-            //   - Heliocentric transfer (both in heliocentric orbits):
-            //       r1 = origin body heliocentric SMA, r2 = dest heliocentric SMA, GM_SUN
+            //   - Star approach (dest is a star):
+            //       r1 = fleet's stellar SMA, r2 = 0.3 AU, GM = G * target_star_mass
+            //   - Heliocentric transfer (both in stellar orbits, same or different host):
+            //       r1 = origin body stellar SMA, r2 = dest stellar SMA, GM = host_star_GM
             let dest_body_type = body_query
                 .get(target_entity)
                 .ok()
@@ -967,9 +998,9 @@ pub(super) fn render_transfer_planner(
             const SOLAR_APPROACH_AU: f64 = 0.3;
 
             let (r1, r2, gm) = if dest_body_type == Some(BodyType::Star) {
-                // Heliocentric inward transfer: plot a Hohmann from the fleet's heliocentric
-                // distance to SOLAR_APPROACH_AU using GM_SUN as the central-body parameter.
-                // Walk up the parent chain to find the fleet's heliocentric SMA.
+                // Star approach transfer: plot a Hohmann from the fleet's stellar-orbit
+                // distance to SOLAR_APPROACH_AU, using the target star's actual GM.
+                // Walk up the parent chain to find the fleet's stellar SMA.
                 let own_sma = body_query
                     .get(orbit.body)
                     .ok()
@@ -988,7 +1019,14 @@ pub(super) fn render_transfer_planner(
                 };
                 // Ensure r2 is strictly less than r1 (always an inward transfer).
                 let r2_au = SOLAR_APPROACH_AU.min(r1_au * 0.5);
-                (r1_au, r2_au, GM_SUN)
+                // Use the actual target star's GM, not a hardcoded GM_SUN.
+                // target_entity IS the star in this branch (dest_body_type == Star).
+                let star_gm = body_query
+                    .get(target_entity)
+                    .ok()
+                    .map(|(_, b, _, _, _)| G_CONST * b.mass)
+                    .unwrap_or(GM_SUN);
+                (r1_au, r2_au, star_gm)
             } else if !dest_has_orbit && dest_parent == Some(orbit.body) {
                 // Ring around current orbit body
                 let parent_mass = body_query
@@ -1039,18 +1077,13 @@ pub(super) fn render_transfer_planner(
             } else if dest_parent.is_some() && dest_parent == origin_parent {
                 // Both orbit the same central body (moon-to-moon, OR interplanetary e.g. Earth→Mars)
                 let shared = dest_parent.unwrap();
-                // NOTE: The Sun lacks SpaceCoordinates, so body_query.get(Sun) fails.
-                // Fall back to GM_SUN so interplanetary transfers compute correctly.
+                // Use G·mass for any central body — stars in non-Sol systems carry their
+                // actual mass in CelestialBody.mass (stored as kg), so G·M gives the
+                // correct GM.  GM_SUN is only the fallback when the query fails entirely.
                 let gm = body_query
                     .get(shared)
                     .ok()
-                    .map(|(_, b, _, _, _)| {
-                        if b.body_type == BodyType::Star {
-                            GM_SUN
-                        } else {
-                            G_CONST * b.mass
-                        }
-                    })
+                    .map(|(_, b, _, _, _)| G_CONST * b.mass)
                     .unwrap_or(GM_SUN);
                 let r1 = body_query
                     .get(orbit.body)
@@ -1125,14 +1158,33 @@ pub(super) fn render_transfer_planner(
                 } else {
                     dest_sma.unwrap_or(1.5)
                 };
-                (r1, r2, GM_SUN)
+                // Use the host star's actual GM rather than the hardcoded GM_SUN so that
+                // non-Sol systems (e.g. Alpha Centauri A at ~1.1 M☉, or a 0.5 M☉ K-dwarf)
+                // compute correct velocities and transfer times.
+                // Priority: (1) origin's logical parent if it is a Star, (2) dest's logical
+                // parent if it is a Star, (3) any nearby (< 1 AU from origin) star with no
+                // KeplerOrbit (single-star case), (4) fallback to GM_SUN.
+                let host_gm = origin_parent
+                    .and_then(|pe| body_query.get(pe).ok())
+                    .filter(|(_, b, _, _, _)| b.body_type == BodyType::Star)
+                    .map(|(_, b, _, _, _)| G_CONST * b.mass)
+                    .or_else(|| {
+                        dest_parent
+                            .and_then(|pe| body_query.get(pe).ok())
+                            .filter(|(_, b, _, _, _)| b.body_type == BodyType::Star)
+                            .map(|(_, b, _, _, _)| G_CONST * b.mass)
+                    })
+                    .unwrap_or(GM_SUN);
+                (r1, r2, host_gm)
             };
             // For course corrections, compute the fleet's position in the correct local frame.
             // For heliocentric transfers the position is already relative to the Sun.
             // For local transfers (e.g. moon-to-moon around Jupiter) we must subtract
             // the central body's heliocentric position so distances and phase angles
             // are Jupiter-centric, not Sun-centric.
-            let is_heliocentric_gm = (gm - GM_SUN).abs() < 1e10;
+            // Use is_stellar_gm() instead of exact equality with GM_SUN so that
+            // non-solar stars (which have different GM values) are treated correctly.
+            let is_heliocentric_gm = is_stellar_gm(gm);
             let cc_local_pos: Option<bevy::math::DVec3> = if is_course_correction {
                 if let Some(fleet_helio) = course_correction_sc {
                     if is_heliocentric_gm {
@@ -1161,7 +1213,8 @@ pub(super) fn render_transfer_planner(
             };
             fleet_ui_state.computed_options = {
                 // Extract angles of origin and destination bodies in the correct coordinate system.
-                let is_heliocentric = (gm - GM_SUN).abs() < 1e10;
+                // Use is_stellar_gm() so non-solar stars are treated as heliocentric frames.
+                let is_heliocentric = is_stellar_gm(gm);
                 // Moon → parent-planet case: target IS the body that origin orbits around.
                 let is_moon_to_parent = Some(target_entity) == origin_parent;
 
@@ -1406,8 +1459,8 @@ pub(super) fn render_transfer_planner(
             }
             // ── Gravity assist candidates (heliocentric transfers only) ─────────
             // Collect planets between r1 and r2, compute two-leg patched-conic options.
-            // Only meaningful when GM ≈ GM_SUN (genuinely heliocentric transfer).
-            if (gm - GM_SUN).abs() < 1e10 && !is_course_correction {
+            // Use is_stellar_gm() so this works for non-solar stars, not just GM_SUN.
+            if is_stellar_gm(gm) && !is_course_correction {
                 let ga_bodies: Vec<(String, f64, f64, f64)> = body_query
                     .iter()
                     .filter_map(|(e, body, _, maybe_ko, _)| {
@@ -2202,6 +2255,12 @@ pub(super) fn render_transfer_planner(
                                             let center_res = body_query.get(pt.orbit_center).ok().map(|(_, _, sc, _, _)| sc.position);
                                             let flyby_res  = body_query.get(flyby).ok().map(|(_, _, sc, _, _)| sc.position);
                                             let dest_res   = body_query.get(te).ok().map(|(_, _, sc, _, _)| sc.position);
+                                            // Resolve the central body's GM from its mass (works for any star).
+                                            let center_gm = body_query
+                                                .get(pt.orbit_center)
+                                                .ok()
+                                                .map(|(_, b, _, _, _)| G_CONST * b.mass)
+                                                .unwrap_or(GM_SUN);
 
                                             if let (Some(center_pos), Some(flyby_pos), Some(dest_pos)) =
                                                 (center_res, flyby_res, dest_res)
@@ -2213,7 +2272,7 @@ pub(super) fn render_transfer_planner(
                                             let dest_r    = dest_rel.length();
 
                                             let (.., leg2_sma, leg2_ecc) =
-                                                hohmann_transfer(flyby_r, dest_r, GM_SUN);
+                                                hohmann_transfer(flyby_r, dest_r, center_gm);
                                             let leg2_outward = dest_r >= flyby_r;
                                             let leg2_mae = if leg2_outward { 0.0 } else { std::f64::consts::PI };
 
@@ -2251,7 +2310,7 @@ pub(super) fn render_transfer_planner(
                                             };
 
                                             let sma_m = leg2_sma * AU_IN_METERS;
-                                            let leg2_mm = (GM_SUN / sma_m.powi(3)).sqrt();
+                                            let leg2_mm = (center_gm / sma_m.powi(3)).sqrt();
 
                                             pt.leg2_orbit = Some(KeplerOrbit {
                                                 semi_major_axis: leg2_sma,
@@ -2660,14 +2719,19 @@ fn build_planned_transfer(
     // For Rings: redirect the FleetOrbit destination to the ring's parent planet.
     // For Stars: Fleet will orbit the star at the planet SOI boundary; orbit_center = star entity.
     let (origin_sma_au, dest_sma_au, gm, orbit_center, actual_dest_body) = if dest_is_star {
-        // Heliocentric escape: orbit body = current body's parent star
-        let parent_mass = origin_body.mass;
+        // Transfer toward the destination star.
+        // The transfer orbit is centred on the destination star, so gm = G·M_star.
+        // The "arrival orbit" radius is approximated as the planet's sphere of influence:
+        //   r_SOI = a_planet × (M_planet / M_star)^(2/5)
+        // where M_star is the destination star's mass.
+        let star_mass = dest_body.mass; // destination IS the star
         let planet_sma_au = origin_ko.map(|ko| ko.semi_major_axis).unwrap_or(1.0);
-        let soi_au = planet_sma_au * (parent_mass / 1.989e30_f64).powf(0.4);
+        let planet_mass = origin_body.mass;
+        let soi_au = planet_sma_au * (planet_mass / star_mass.max(1.0)).powf(0.4);
         (
             orbit.radius_au,
             soi_au.max(orbit.radius_au * 50.0),
-            G_CONST * parent_mass,
+            G_CONST * star_mass,
             target_entity,
             target_entity,
         )
@@ -2704,18 +2768,13 @@ fn build_planned_transfer(
         )
     } else if dest_parent.is_some() && dest_parent == origin_parent {
         // Both orbit the same central body (moon-to-moon OR interplanetary, e.g. Earth→Mars).
-        // NOTE: The Sun lacks SpaceCoordinates so body_query.get(Sun) fails — fall back to GM_SUN.
+        // Use G·mass for any central body — non-Sol stars carry their actual mass in kg
+        // in CelestialBody.mass, so G·M gives the correct GM for any star.
         let shared = dest_parent.unwrap();
         let gm = body_query
             .get(shared)
             .ok()
-            .map(|(_, b, _, _, _)| {
-                if b.body_type == BodyType::Star {
-                    GM_SUN
-                } else {
-                    G_CONST * b.mass
-                }
-            })
+            .map(|(_, b, _, _, _)| G_CONST * b.mass)
             .unwrap_or(GM_SUN);
         let r1 = origin_ko.map(|ko| ko.semi_major_axis).unwrap_or(0.00257);
         let r2 = dest_ko.map(|ko| ko.semi_major_axis).unwrap_or(0.00257);
@@ -2761,16 +2820,46 @@ fn build_planned_transfer(
         } else {
             dest_ko.map(|ko| ko.semi_major_axis).unwrap_or(1.5)
         };
-        // Require the star to be close to the heliocentric origin (< 1 AU) so that nearby
-        // star catalog entities with large SpaceCoordinates are not mistakenly selected.
-        let star = body_query
-            .iter()
-            .find(|(_, b, sc, ko, _)| {
-                ko.is_none() && b.body_type == BodyType::Star && sc.position.length_squared() < 1.0
+        // Use the host star's actual GM rather than the hardcoded GM_SUN so that
+        // non-Sol systems (e.g. 1.1 M☉ Alpha Centauri A, or a 0.5 M☉ K-dwarf) produce
+        // correct velocities and transfer times.
+        //
+        // For single-star systems: origin_parent is the star entity → use its GM.
+        // For binary systems where origin and dest orbit different stars: fall back to
+        // the origin star's GM (best available single-body approximation).
+        // Final fallback: find any nearby Star with no KeplerOrbit (root star); last
+        // resort is GM_SUN.
+        let host_gm = origin_parent
+            .and_then(|pe| body_query.get(pe).ok())
+            .filter(|(_, b, _, _, _)| b.body_type == BodyType::Star)
+            .map(|(_, b, _, _, _)| G_CONST * b.mass)
+            .or_else(|| {
+                dest_parent
+                    .and_then(|pe| body_query.get(pe).ok())
+                    .filter(|(_, b, _, _, _)| b.body_type == BodyType::Star)
+                    .map(|(_, b, _, _, _)| G_CONST * b.mass)
             })
-            .map(|(e, _, _, _, _)| e)
+            .unwrap_or(GM_SUN);
+        // Find the orbit center: prefer the origin body's host star (LogicalParent),
+        // falling back to any nearby root star, then the fleet's current body.
+        let star = origin_parent
+            .filter(|&pe| {
+                body_query
+                    .get(pe)
+                    .ok()
+                    .map(|(_, b, _, _, _)| b.body_type == BodyType::Star)
+                    .unwrap_or(false)
+            })
+            .or_else(|| {
+                body_query
+                    .iter()
+                    .find(|(_, b, sc, _, _)| {
+                        b.body_type == BodyType::Star && sc.position.length_squared() < 1.0
+                    })
+                    .map(|(e, _, _, _, _)| e)
+            })
             .unwrap_or(orbit.body);
-        (r1, r2, GM_SUN, star, target_entity)
+        (r1, r2, host_gm, star, target_entity)
     };
 
     // For course corrections, determine outward/inward from the fleet's actual distance vs
@@ -2973,14 +3062,34 @@ fn build_planned_transfer_lp(
     use crate::astronomy::KeplerOrbit;
     use crate::fleets::orbital_mechanics::AU_IN_METERS;
 
-    // LP transfers are heliocentric – find the star as orbit center.
-    // Use the proximity guard to skip distant nearby-star catalog entities.
-    let star_entity = body_query
-        .iter()
-        .find(|(_, b, sc, ko, _)| {
-            ko.is_none() && b.body_type == BodyType::Star && sc.position.length_squared() < 1.0
+    // LP transfers are heliocentric – find the host star as orbit center.
+    // Prefer the LogicalParent of the fleet's current body if it is a Star (correct
+    // for circumstellar orbits around non-primary stars in binary systems).
+    // Fall back to any nearby star with small SpaceCoordinates magnitude, excluding
+    // distant catalog entries.  The `ko.is_none()` guard is intentionally dropped so
+    // that secondary stars that have a KeplerOrbit (orbiting the barycenter) can also
+    // be found as the host.
+    let orbit_body_parent = body_query
+        .get(orbit.body)
+        .ok()
+        .and_then(|(_, _, _, _, lp)| lp)
+        .map(|lp| lp.0);
+    let star_entity = orbit_body_parent
+        .filter(|&pe| {
+            body_query
+                .get(pe)
+                .ok()
+                .map(|(_, b, _, _, _)| b.body_type == BodyType::Star)
+                .unwrap_or(false)
         })
-        .map(|(e, _, _, _, _)| e)
+        .or_else(|| {
+            body_query
+                .iter()
+                .find(|(_, b, sc, _, _)| {
+                    b.body_type == BodyType::Star && sc.position.length_squared() < 1.0
+                })
+                .map(|(e, _, _, _, _)| e)
+        })
         .unwrap_or(orbit.body);
 
     // Determine departure position.  For fleets orbiting the star directly
