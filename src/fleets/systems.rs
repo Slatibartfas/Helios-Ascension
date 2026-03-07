@@ -516,6 +516,17 @@ pub fn process_fleet_actions(
         }
     }
 
+    // Refuel individual ships — only while in a stable orbit.
+    for (entity, ship_idx) in actions.refuel_ships.drain(..) {
+        if orbit_query.get(entity).is_ok() {
+            if let Ok(mut fleet) = fleet_query.get_mut(entity) {
+                if let Some(ship) = fleet.ships.get_mut(ship_idx) {
+                    ship.fuel_mass_t = ship.max_fuel_t;
+                }
+            }
+        }
+    }
+
     // Rename fleets
     for (entity, new_name) in actions.rename_fleets.drain(..) {
         if let Ok(mut fleet) = fleet_query.get_mut(entity) {
@@ -562,6 +573,20 @@ pub fn process_fleet_actions(
                     commands.entity(action.source_fleet).despawn();
                 }
             }
+        }
+    }
+
+    // Scrap individual ships. If the last ship is removed, despawn the fleet.
+    for (entity, ship_idx) in actions.scrap_ships.drain(..) {
+        let mut despawn_fleet = false;
+        if let Ok(mut fleet) = fleet_query.get_mut(entity) {
+            if ship_idx < fleet.ships.len() {
+                fleet.ships.remove(ship_idx);
+                despawn_fleet = fleet.ships.is_empty();
+            }
+        }
+        if despawn_fleet {
+            commands.entity(entity).despawn();
         }
     }
 

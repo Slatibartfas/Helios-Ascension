@@ -1,5 +1,238 @@
 use super::transfer_planner::render_transfer_planner;
 use super::*;
+use crate::fleets::components::ShipInfo;
+
+const SHIP_MANIFEST_ACTIONS_WIDTH: f32 = 128.0;
+const SHIP_MANIFEST_ROW_HEIGHT: f32 = 24.0;
+const SHIP_MANIFEST_INNER_PADDING_X: f32 = 8.0;
+const SHIP_MANIFEST_COLUMN_SPACING: f32 = 10.0;
+const SHIP_MANIFEST_COLUMN_WEIGHTS: [f32; 7] = [1.9, 1.3, 0.95, 0.8, 1.5, 1.0, 1.15];
+
+fn ship_manifest_text_column(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    text: &str,
+    align: egui::Align2,
+    color: egui::Color32,
+    _strong: bool,
+) {
+    let clipped = painter.with_clip_rect(rect);
+    let anchor = match align {
+        egui::Align2::LEFT_CENTER => rect.left_center(),
+        egui::Align2::CENTER_CENTER => rect.center(),
+        egui::Align2::RIGHT_CENTER => rect.right_center(),
+        _ => rect.left_center(),
+    };
+    clipped.text(anchor, align, text, egui::FontId::proportional(12.0), color);
+}
+
+fn ship_manifest_column_rects(row_rect: egui::Rect) -> [egui::Rect; 7] {
+    let content_rect = row_rect.shrink2(egui::vec2(SHIP_MANIFEST_INNER_PADDING_X, 0.0));
+    let total_spacing = SHIP_MANIFEST_COLUMN_SPACING * (SHIP_MANIFEST_COLUMN_WEIGHTS.len() - 1) as f32;
+    let total_weight: f32 = SHIP_MANIFEST_COLUMN_WEIGHTS.iter().sum();
+    let usable_width = (content_rect.width() - total_spacing).max(70.0);
+    let mut left = content_rect.left();
+
+    std::array::from_fn(|idx| {
+        let width = usable_width * SHIP_MANIFEST_COLUMN_WEIGHTS[idx] / total_weight;
+        let rect = egui::Rect::from_min_size(
+            egui::pos2(left, content_rect.top()),
+            egui::vec2(width, content_rect.height()),
+        );
+        left += width + SHIP_MANIFEST_COLUMN_SPACING;
+        rect
+    })
+}
+
+fn paint_ship_manifest_header(ui: &mut egui::Ui, drag_width: f32) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        let (rect, _) = ui.allocate_exact_size(
+            egui::vec2(drag_width, SHIP_MANIFEST_ROW_HEIGHT),
+            egui::Sense::hover(),
+        );
+        let painter = ui.painter();
+        let columns = ship_manifest_column_rects(rect);
+        let headers = [
+            ("Name", egui::Align2::LEFT_CENTER),
+            ("Class", egui::Align2::LEFT_CENTER),
+            ("Dry (t)", egui::Align2::RIGHT_CENTER),
+            ("Fuel", egui::Align2::CENTER_CENTER),
+            ("Drive", egui::Align2::LEFT_CENTER),
+            ("Thrust", egui::Align2::RIGHT_CENTER),
+            ("Max ΔV", egui::Align2::RIGHT_CENTER),
+        ];
+        for (idx, (label, align)) in headers.into_iter().enumerate() {
+            ship_manifest_text_column(
+                painter,
+                columns[idx],
+                label,
+                align,
+                theme::TEXT_VALUE,
+                true,
+            );
+        }
+
+        ui.allocate_ui_with_layout(
+            egui::vec2(SHIP_MANIFEST_ACTIONS_WIDTH, SHIP_MANIFEST_ROW_HEIGHT),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.label(egui::RichText::new("Actions").strong().size(12.0));
+            },
+        );
+    });
+}
+
+fn render_ship_manifest_row(
+    ui: &mut egui::Ui,
+    fleet_entity: Entity,
+    ship_idx: usize,
+    ship: &ShipInfo,
+    in_orbit_for_manifest: bool,
+    fleet_ui_state: &mut FleetUiState,
+    pending_actions: &mut PendingFleetActions,
+) {
+    let fuel_pct = (ship.fuel_fraction() * 100.0) as u32;
+    let fuel_color = if fuel_pct > 50 {
+        theme::GREEN
+    } else if fuel_pct > 20 {
+        theme::AMBER
+    } else {
+        theme::RED
+    };
+    let class_text = format!("{} {}", ship.class.icon(), ship.class.display_name());
+    let dry_text = format!("{:.0}", ship.dry_mass_t);
+    let fuel_text = format!("{fuel_pct}%");
+    let thrust_text = format!("{:.0} kN", ship.thrust_kn);
+    let delta_v_text = format_delta_v(ship.delta_v_ms());
+
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        let drag_width = (ui.available_width() - SHIP_MANIFEST_ACTIONS_WIDTH - 2.0).max(220.0);
+        let drag_id = egui::Id::new("drag_ship").with(fleet_entity).with(ship_idx);
+        ui.dnd_drag_source(drag_id, (fleet_entity, ship_idx), |ui| {
+            let (row_rect, response) = ui.allocate_exact_size(
+                egui::vec2(drag_width, SHIP_MANIFEST_ROW_HEIGHT),
+                egui::Sense::click_and_drag(),
+            );
+            let row_rounding = egui::CornerRadius::same(4);
+            let show_frame = response.hovered() || response.dragged();
+            let frame_rect = row_rect.expand2(egui::vec2(2.0, 0.0));
+            let fill = if response.dragged() {
+                egui::Color32::from_rgba_premultiplied(0, 140, 160, 42)
+            } else {
+                theme::SURFACE_RAISED
+            };
+            let stroke_color = if response.dragged() {
+                theme::ACCENT
+            } else {
+                theme::ACCENT_DIM
+            };
+
+            let painter = ui.painter();
+            if show_frame {
+                painter.rect_filled(frame_rect, row_rounding, fill);
+                painter.rect_stroke(
+                    frame_rect,
+                    row_rounding,
+                    egui::Stroke::new(if response.dragged() { 1.2 } else { 1.0 }, stroke_color),
+                    egui::StrokeKind::Inside,
+                );
+            }
+
+            let columns = ship_manifest_column_rects(row_rect);
+            ship_manifest_text_column(
+                painter,
+                columns[0],
+                &ship.name,
+                egui::Align2::LEFT_CENTER,
+                theme::TEXT_VALUE,
+                false,
+            );
+            ship_manifest_text_column(
+                painter,
+                columns[1],
+                &class_text,
+                egui::Align2::LEFT_CENTER,
+                theme::TEXT,
+                false,
+            );
+            ship_manifest_text_column(
+                painter,
+                columns[2],
+                &dry_text,
+                egui::Align2::RIGHT_CENTER,
+                theme::TEXT,
+                false,
+            );
+            ship_manifest_text_column(
+                painter,
+                columns[3],
+                &fuel_text,
+                egui::Align2::CENTER_CENTER,
+                fuel_color,
+                false,
+            );
+            ship_manifest_text_column(
+                painter,
+                columns[4],
+                ship.propulsion.display_name(),
+                egui::Align2::LEFT_CENTER,
+                theme::TEXT,
+                false,
+            );
+            ship_manifest_text_column(
+                painter,
+                columns[5],
+                &thrust_text,
+                egui::Align2::RIGHT_CENTER,
+                theme::TEXT,
+                false,
+            );
+            ship_manifest_text_column(
+                painter,
+                columns[6],
+                &delta_v_text,
+                egui::Align2::RIGHT_CENTER,
+                theme::ACCENT,
+                false,
+            );
+
+            if response.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+            }
+
+            response.on_hover_text("Drag this ship onto another fleet to transfer it")
+        });
+
+        let refuel_resp = ui.add_enabled(
+            in_orbit_for_manifest,
+            egui::Button::new(egui::RichText::new("⛽ Refuel").size(11.0))
+                .min_size(egui::vec2(60.0, 18.0)),
+        );
+        if refuel_resp
+            .on_hover_text(if in_orbit_for_manifest {
+                "Refuel this ship to full capacity (free — debug)"
+            } else {
+                "Cannot refuel while in transit"
+            })
+            .clicked()
+        {
+            pending_actions.refuel_ships.push((fleet_entity, ship_idx));
+        }
+
+        if ui
+            .add(
+                egui::Button::new(egui::RichText::new("🗑 Scrap").size(11.0).color(theme::RED))
+                    .min_size(egui::vec2(56.0, 18.0)),
+            )
+            .on_hover_text("Permanently scrap this ship")
+            .clicked()
+        {
+            fleet_ui_state.scrap_confirm_ship = Some((fleet_entity, ship_idx));
+        }
+    });
+}
 
 pub(super) fn ui_fleets_panel(
     mut contexts: EguiContexts,
@@ -362,6 +595,89 @@ pub(super) fn ui_fleets_panel(
         } else {
             // Fleet no longer exists
             fleet_ui_state.disband_confirm_fleet = None;
+        }
+    }
+
+    // ── Ship scrap confirmation popup ────────────────────────────────────────
+    if let Some((fleet_entity, ship_idx)) = fleet_ui_state.scrap_confirm_ship {
+        let ship_info = fleet_query.get(fleet_entity).ok().and_then(|(_, fleet, _, _, _)| {
+            fleet.ships.get(ship_idx).map(|ship| {
+                (
+                    fleet.name.clone(),
+                    fleet.ships.len(),
+                    ship.name.clone(),
+                    format!("{} {}", ship.class.icon(), ship.class.display_name()),
+                )
+            })
+        });
+        if let Some((fleet_name, fleet_ship_count, ship_name, ship_class)) = ship_info {
+            let mut do_scrap = false;
+            let mut cancel = false;
+            egui::Window::new("⚠ Confirm Scrap")
+                .id(egui::Id::new("fleet_ship_scrap_confirm"))
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    ui.set_min_width(380.0);
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(6.0);
+                        ui.label(egui::RichText::new("⚠").size(36.0).color(theme::AMBER));
+                    });
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new(format!("Scrap \"{}\"?", ship_name))
+                            .strong()
+                            .size(15.0)
+                            .color(theme::AMBER),
+                    );
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{} in fleet \"{}\" will be permanently destroyed.",
+                            ship_class, fleet_name
+                        ))
+                        .size(13.0)
+                        .color(theme::TEXT_VALUE),
+                    );
+                    if fleet_ship_count == 1 {
+                        ui.add_space(4.0);
+                        ui.label(
+                            egui::RichText::new(
+                                "This is the last ship in the fleet, so the fleet will also be removed.",
+                            )
+                            .size(13.0)
+                            .color(theme::RED),
+                        );
+                    }
+                    ui.add_space(10.0);
+                    ui.horizontal(|ui| {
+                        if ui.button(egui::RichText::new("Cancel").size(13.0)).clicked() {
+                            cancel = true;
+                        }
+                        ui.add_space(12.0);
+                        if ui
+                            .button(
+                                egui::RichText::new("🗑 Scrap")
+                                    .size(13.0)
+                                    .color(theme::RED),
+                            )
+                            .clicked()
+                        {
+                            do_scrap = true;
+                        }
+                    });
+                    ui.add_space(4.0);
+                });
+            if do_scrap {
+                pending_actions.scrap_ships.push((fleet_entity, ship_idx));
+                fleet_ui_state.scrap_confirm_ship = None;
+            }
+            if cancel {
+                fleet_ui_state.scrap_confirm_ship = None;
+            }
+        } else {
+            fleet_ui_state.scrap_confirm_ship = None;
         }
     }
 }
@@ -765,7 +1081,7 @@ fn render_fleet_list(
     ui.add_space(6.0);
     ui.label(
         egui::RichText::new(
-            "💡 Drag ship name → fleet to transfer  ·  Ctrl/⌘+click or Shift+click to multi-select",
+            "💡 Drag a ship row → fleet to transfer it  ·  Ctrl/⌘+click or Shift+click to multi-select",
         )
         .size(10.0)
         .italics()
@@ -1031,73 +1347,21 @@ fn render_fleet_detail(
     // ── Ship manifest ─────────────────────────────────────────────────────────
     ui.label(egui::RichText::new("Ship Manifest").strong().size(14.0));
     let in_orbit_for_manifest = maybe_orbit.is_some();
-    egui::Grid::new("ship_manifest")
-        .num_columns(8)
-        .spacing([12.0, 4.0])
-        .striped(true)
-        .show(ui, |ui| {
-            // Header row
-            ui.label(egui::RichText::new("Name").strong().size(12.0));
-            ui.label(egui::RichText::new("Class").strong().size(12.0));
-            ui.label(egui::RichText::new("Dry (t)").strong().size(12.0));
-            ui.label(egui::RichText::new("Fuel").strong().size(12.0));
-            ui.label(egui::RichText::new("Drive").strong().size(12.0));
-            ui.label(egui::RichText::new("Thrust").strong().size(12.0));
-            ui.label(egui::RichText::new("Max ΔV").strong().size(12.0));
-            ui.label(egui::RichText::new("Actions").strong().size(12.0));
-            ui.end_row();
-
-            for (idx, ship) in fleet.ships.iter().enumerate() {
-                let drag_id = egui::Id::new("drag_ship").with(fleet_entity).with(idx);
-                ui.dnd_drag_source(drag_id, (fleet_entity, idx), |ui| {
-                    ui.label(egui::RichText::new(&ship.name).size(12.0));
-                });
-                ui.label(
-                    egui::RichText::new(format!(
-                        "{} {}",
-                        ship.class.icon(),
-                        ship.class.display_name()
-                    ))
-                    .size(12.0),
-                );
-                ui.label(egui::RichText::new(format!("{:.0}", ship.dry_mass_t)).size(12.0));
-                let fuel_pct = (ship.fuel_fraction() * 100.0) as u32;
-                let fuel_color = if fuel_pct > 50 {
-                    theme::GREEN
-                } else if fuel_pct > 20 {
-                    theme::AMBER
-                } else {
-                    theme::RED
-                };
-                ui.label(
-                    egui::RichText::new(format!("{fuel_pct}%"))
-                        .size(12.0)
-                        .color(fuel_color),
-                );
-                ui.label(egui::RichText::new(ship.propulsion.display_name()).size(12.0));
-                ui.label(egui::RichText::new(format!("{:.0} kN", ship.thrust_kn)).size(12.0));
-                ui.label(egui::RichText::new(format_delta_v(ship.delta_v_ms())).size(12.0));
-                // Refuel button — enabled only while in a stable orbit.
-                // Currently fills to max for free (debug). In future will
-                // draw propellant from the orbited body's stockpile.
-                let refuel_resp = ui.add_enabled(
-                    in_orbit_for_manifest,
-                    egui::Button::new(egui::RichText::new("⛽ Refuel").size(11.0))
-                        .min_size(egui::Vec2::new(60.0, 18.0)),
-                );
-                if refuel_resp
-                    .on_hover_text(if in_orbit_for_manifest {
-                        "Refuel this ship to full capacity (free — debug)"
-                    } else {
-                        "Cannot refuel while in transit"
-                    })
-                    .clicked()
-                {
-                    pending_actions.refuel_fleets.push(fleet_entity);
-                }
-                ui.end_row();
-            }
-        });
+    let manifest_drag_width = (ui.available_width() - SHIP_MANIFEST_ACTIONS_WIDTH - 2.0).max(220.0);
+    paint_ship_manifest_header(ui, manifest_drag_width);
+    ui.add_space(2.0);
+    for (idx, ship) in fleet.ships.iter().enumerate() {
+        render_ship_manifest_row(
+            ui,
+            fleet_entity,
+            idx,
+            ship,
+            in_orbit_for_manifest,
+            fleet_ui_state,
+            pending_actions,
+        );
+        ui.add_space(2.0);
+    }
 
     // ── Fleet aggregate stats ─────────────────────────────────────────────────
     ui.add_space(6.0);

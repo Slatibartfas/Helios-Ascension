@@ -51,10 +51,10 @@ fn render_group_header(
     count: usize,
     is_open: bool,
     color: egui::Color32,
-) {
+) -> egui::Response {
     let text = format!("{} ({})", label, count);
     let desired_size = egui::vec2(ui.available_width(), 22.0);
-    let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::hover());
+    let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
 
     let fill = if response.hovered() || is_open {
         theme::SURFACE
@@ -83,6 +83,8 @@ fn render_group_header(
         theme::heading(),
         color,
     );
+
+    response
 }
 
 /// Returns a Unicode icon for each body type to distinguish entries in the ledger
@@ -199,11 +201,15 @@ fn render_grouped_children(
     if is_open {
         expanded_groups.insert((parent_entity, group_name.to_string()));
     }
-    state
-        .show_header(ui, |ui| {
-            render_group_header(ui, group_name, children.len(), is_open, theme::TEXT_DIM);
-        })
-        .body(|ui| {
+    let mut row_clicked = false;
+    let mut header = state.show_header(ui, |ui| {
+        row_clicked = render_group_header(ui, group_name, children.len(), is_open, theme::TEXT_DIM)
+            .clicked();
+    });
+    if row_clicked {
+        header.toggle();
+    }
+    header.body(|ui| {
             for &child_entity in children {
                 // Use render_body_tree so bodies with children (e.g. Pluto → Charon)
                 // are expanded recursively rather than shown as a flat row.
@@ -270,7 +276,8 @@ fn render_body_tree(
         };
 
         if has_children {
-            egui::collapsing_header::CollapsingState::load_with_default_open(
+            let mut row_clicked = false;
+            let mut header = egui::collapsing_header::CollapsingState::load_with_default_open(
                 ui.ctx(),
                 id,
                 body.body_type == BodyType::Star,
@@ -296,6 +303,7 @@ fn render_body_tree(
                     format!("{} {}", type_icon, body.name)
                 };
                 let response = render_selectable_label(ui, is_selected, &display_name);
+                row_clicked = response.clicked();
 
                 // Single click: select only
                 if response.clicked() {
@@ -318,8 +326,11 @@ fn render_body_tree(
                     // Then set pending anchor (to be applied after UI)
                     *pending_anchor.borrow_mut() = Some(entity);
                 }
-            })
-            .body(|ui| {
+            });
+            if row_clicked {
+                header.toggle();
+            }
+            header.body(|ui| {
                 // 0. Rings — shown first so they are never buried under 46+ moons
                 for child in child_rings {
                     render_body_tree(
@@ -1027,16 +1038,22 @@ pub(super) fn ui_dashboard(
                             theme::divider(ui);
 
                             let fleet_id = ui.make_persistent_id("survey_fleet_tree");
-                            egui::collapsing_header::CollapsingState::load_with_default_open(
+                            let mut fleet_header_clicked = false;
+                            let mut fleet_header = egui::collapsing_header::CollapsingState::load_with_default_open(
                                 ui.ctx(),
                                 fleet_id,
                                 true,
                             )
                             .show_header(ui, |ui| {
                                 let n = fleet_query.iter().count();
-                                render_group_header(ui, "🚀 Fleets", n, true, theme::EP_TEAL);
-                            })
-                            .body(|ui| {
+                                fleet_header_clicked =
+                                    render_group_header(ui, "🚀 Fleets", n, true, theme::EP_TEAL)
+                                        .clicked();
+                            });
+                            if fleet_header_clicked {
+                                fleet_header.toggle();
+                            }
+                            fleet_header.body(|ui| {
                                 render_fleet_ledger_tree(
                                     ui,
                                     &fleet_query,

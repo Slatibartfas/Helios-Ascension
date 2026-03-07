@@ -217,6 +217,8 @@ pub struct FleetUiState {
     pub selected_fleets: Vec<Entity>,
     /// Fleet pending disband confirmation popup.
     pub disband_confirm_fleet: Option<Entity>,
+    /// Ship pending scrap confirmation popup: (fleet_entity, ship_index).
+    pub scrap_confirm_ship: Option<(Entity, usize)>,
     /// Anchor for shift-range selection (the last plain-click entity).
     pub last_single_selected: Option<Entity>,
     /// Selected spawn location body for the "Create Fleet" picker.
@@ -517,8 +519,8 @@ fn sync_selection_with_astronomy(
 /// Keeps `ActiveMenu` in sync when `ViewMode` changes via camera zoom
 /// (as opposed to clicking a menu button which handles its own sync).
 ///
-/// - `ViewMode::Starmap` → `GameMenu::Starmap`
-/// - `ViewMode::System` → `GameMenu::Survey` (unless already on a system-compatible menu)
+/// - `ViewMode::Starmap` → `GameMenu::Starmap` when the neutral survey view is active
+/// - `ViewMode::System` → `GameMenu::Survey` when the neutral starmap ledger is active
 fn sync_active_menu_with_view_mode(view_mode: Res<ViewMode>, mut active_menu: ResMut<ActiveMenu>) {
     if !view_mode.is_changed() {
         return;
@@ -526,7 +528,7 @@ fn sync_active_menu_with_view_mode(view_mode: Res<ViewMode>, mut active_menu: Re
 
     match *view_mode {
         ViewMode::Starmap => {
-            if active_menu.current != GameMenu::Starmap {
+            if active_menu.current == GameMenu::Survey {
                 active_menu.current = GameMenu::Starmap;
             }
         }
@@ -537,6 +539,37 @@ fn sync_active_menu_with_view_mode(view_mode: Res<ViewMode>, mut active_menu: Re
                 active_menu.current = GameMenu::Survey;
             }
         }
+    }
+}
+
+fn switch_to_starmap_menu(
+    view_mode: &mut ResMut<ViewMode>,
+    camera_query: &mut Query<(&mut OrbitCamera, &mut CameraAnchor), With<GameCamera>>,
+    starmap_radius: f32,
+) {
+    **view_mode = ViewMode::Starmap;
+    if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
+        orbit.radius = starmap_radius;
+        orbit.target_center = Vec3::ZERO;
+        anchor.0 = None;
+    }
+}
+
+fn switch_to_survey_menu(
+    view_mode: &mut ResMut<ViewMode>,
+    camera_query: &mut Query<(&mut OrbitCamera, &mut CameraAnchor), With<GameCamera>>,
+    star_icon_query: &Query<(Entity, Option<&SelectedStarSystem>), With<StarSystemIcon>>,
+    survey_radius: f32,
+) {
+    **view_mode = ViewMode::System;
+    if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
+        if anchor.0.is_none() {
+            if let Some((sel_entity, _)) = star_icon_query.iter().find(|(_, sel)| sel.is_some()) {
+                anchor.0 = Some(sel_entity);
+            }
+        }
+
+        orbit.radius = survey_radius.clamp(orbit.min_radius, orbit.max_radius);
     }
 }
 
@@ -573,16 +606,17 @@ fn ui_top_menu_bar(
             None
         };
 
-    // Pre-compute the camera radius needed to be comfortably in starmap view.
-    // This is 1.5× the entry threshold so the camera is clearly above it and
-    // `update_view_mode` won't immediately revert back to System.
-    let starmap_radius = {
+    // Pre-compute camera radii for explicit navigation between the neutral
+    // survey and starmap views.
+    let starmap_threshold = {
         let bounding_radius_au = system_metadata.get_bounding_radius(current_system.0);
         let base_threshold = (bounding_radius_au
             * crate::astronomy::SCALING_FACTOR as f64
             * STARMAP_THRESHOLD_MULTIPLIER as f64) as f32;
-        base_threshold.max(MIN_STARMAP_THRESHOLD) * 1.5
+        base_threshold.max(MIN_STARMAP_THRESHOLD)
     };
+    let starmap_radius = starmap_threshold * 1.5;
+    let survey_radius = (starmap_threshold * 0.75).max(20_000.0);
 
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
@@ -593,7 +627,6 @@ fn ui_top_menu_bar(
         || pending_research.navigate_to_available_engineering_tab
     {
         active_menu.current = GameMenu::Research;
-        *view_mode = ViewMode::System;
     }
 
     egui::TopBottomPanel::top("top_menu_bar").show(ctx, |ui| {
@@ -640,31 +673,18 @@ fn ui_top_menu_bar(
                         if resp.clicked() {
                             active_menu.current = menu;
                             match menu {
-                                GameMenu::Starmap => {
-                                    *view_mode = ViewMode::Starmap;
-                                    if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
-                                        orbit.radius = starmap_radius;
-                                        orbit.target_center = Vec3::ZERO;
-                                        anchor.0 = None;
-                                    }
-                                }
-                                GameMenu::Survey => {
-                                    *view_mode = ViewMode::System;
-                                    if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
-                                        // If not anchored, try anchoring to the selected star system
-                                        if anchor.0.is_none() {
-                                            if let Some((sel_entity, _)) = star_icon_query
-                                                .iter()
-                                                .find(|(_, sel)| sel.is_some())
-                                            {
-                                                anchor.0 = Some(sel_entity);
-                                            }
-                                        }
-                                        // Zoom into system-view range (mirrors double-click behaviour)
-                                        orbit.radius = 150_000.0;
-                                    }
-                                }
-                                _ => *view_mode = ViewMode::System,
+                                GameMenu::Starmap => switch_to_starmap_menu(
+                                    &mut view_mode,
+                                    &mut camera_query,
+                                    starmap_radius,
+                                ),
+                                GameMenu::Survey => switch_to_survey_menu(
+                                    &mut view_mode,
+                                    &mut camera_query,
+                                    &star_icon_query,
+                                    survey_radius,
+                                ),
+                                _ => {}
                             }
                         }
                     } else {
@@ -685,29 +705,18 @@ fn ui_top_menu_bar(
                         if ui.add(button).on_hover_text(tooltip_text.clone()).clicked() {
                             active_menu.current = menu;
                             match menu {
-                                GameMenu::Starmap => {
-                                    *view_mode = ViewMode::Starmap;
-                                    if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
-                                        orbit.radius = starmap_radius;
-                                        orbit.target_center = Vec3::ZERO;
-                                        anchor.0 = None;
-                                    }
-                                }
-                                GameMenu::Survey => {
-                                    *view_mode = ViewMode::System;
-                                    if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
-                                        if anchor.0.is_none() {
-                                            if let Some((sel_entity, _)) = star_icon_query
-                                                .iter()
-                                                .find(|(_, sel)| sel.is_some())
-                                            {
-                                                anchor.0 = Some(sel_entity);
-                                            }
-                                        }
-                                        orbit.radius = 150_000.0;
-                                    }
-                                }
-                                _ => *view_mode = ViewMode::System,
+                                GameMenu::Starmap => switch_to_starmap_menu(
+                                    &mut view_mode,
+                                    &mut camera_query,
+                                    starmap_radius,
+                                ),
+                                GameMenu::Survey => switch_to_survey_menu(
+                                    &mut view_mode,
+                                    &mut camera_query,
+                                    &star_icon_query,
+                                    survey_radius,
+                                ),
+                                _ => {}
                             }
                         }
                     }
@@ -729,28 +738,18 @@ fn ui_top_menu_bar(
                     if ui.add(button).on_hover_text(tooltip_text.clone()).clicked() {
                         active_menu.current = menu;
                         match menu {
-                            GameMenu::Starmap => {
-                                *view_mode = ViewMode::Starmap;
-                                if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
-                                    orbit.radius = starmap_radius;
-                                    orbit.target_center = Vec3::ZERO;
-                                    anchor.0 = None;
-                                }
-                            }
-                            GameMenu::Survey => {
-                                *view_mode = ViewMode::System;
-                                if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
-                                    if anchor.0.is_none() {
-                                        if let Some((sel_entity, _)) =
-                                            star_icon_query.iter().find(|(_, sel)| sel.is_some())
-                                        {
-                                            anchor.0 = Some(sel_entity);
-                                        }
-                                    }
-                                    orbit.radius = 150_000.0;
-                                }
-                            }
-                            _ => *view_mode = ViewMode::System,
+                            GameMenu::Starmap => switch_to_starmap_menu(
+                                &mut view_mode,
+                                &mut camera_query,
+                                starmap_radius,
+                            ),
+                            GameMenu::Survey => switch_to_survey_menu(
+                                &mut view_mode,
+                                &mut camera_query,
+                                &star_icon_query,
+                                survey_radius,
+                            ),
+                            _ => {}
                         }
                     }
                 }
@@ -798,28 +797,18 @@ fn ui_top_menu_bar(
                     if let Some(&target_menu) = GameMenu::all().get(idx) {
                         active_menu.current = target_menu;
                         match target_menu {
-                            GameMenu::Starmap => {
-                                *view_mode = ViewMode::Starmap;
-                                if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
-                                    orbit.radius = starmap_radius;
-                                    orbit.target_center = Vec3::ZERO;
-                                    anchor.0 = None;
-                                }
-                            }
-                            GameMenu::Survey => {
-                                *view_mode = ViewMode::System;
-                                if let Ok((mut orbit, mut anchor)) = camera_query.single_mut() {
-                                    if anchor.0.is_none() {
-                                        if let Some((sel_entity, _)) =
-                                            star_icon_query.iter().find(|(_, sel)| sel.is_some())
-                                        {
-                                            anchor.0 = Some(sel_entity);
-                                        }
-                                    }
-                                    orbit.radius = 150_000.0;
-                                }
-                            }
-                            _ => *view_mode = ViewMode::System,
+                            GameMenu::Starmap => switch_to_starmap_menu(
+                                &mut view_mode,
+                                &mut camera_query,
+                                starmap_radius,
+                            ),
+                            GameMenu::Survey => switch_to_survey_menu(
+                                &mut view_mode,
+                                &mut camera_query,
+                                &star_icon_query,
+                                survey_radius,
+                            ),
+                            _ => {}
                         }
                     }
                 }
@@ -845,6 +834,7 @@ fn ui_top_menu_bar(
 fn ui_starmap_labels(
     mut contexts: EguiContexts,
     view_mode: Res<ViewMode>,
+    active_menu: Res<ActiveMenu>,
     camera_query: Query<(&Camera, &GlobalTransform), With<GameCamera>>,
     icon_query: Query<(
         &GlobalTransform,
@@ -853,6 +843,10 @@ fn ui_starmap_labels(
     )>,
 ) {
     if *view_mode != ViewMode::Starmap {
+        return;
+    }
+
+    if active_menu.current.blocks_world_interaction() {
         return;
     }
 

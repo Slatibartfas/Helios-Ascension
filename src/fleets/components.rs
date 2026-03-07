@@ -355,12 +355,16 @@ pub struct PendingFleetActions {
     /// Fleets to refuel — fills all ships to their maximum propellant capacity.
     /// In the future this will draw propellant from the location's resource stockpile.
     pub refuel_fleets: Vec<Entity>,
+    /// Individual ships to refuel to full capacity.
+    pub refuel_ships: Vec<(Entity, usize)>,
     /// Requests to rename a fleet.
     pub rename_fleets: Vec<(Entity, String)>,
     /// Requests to change a fleet's role.
     pub change_fleet_roles: Vec<(Entity, FleetRole)>,
     /// Requests to transfer ships between fleets.
     pub transfer_ships: Vec<TransferShipsAction>,
+    /// Requests to scrap individual ships.
+    pub scrap_ships: Vec<(Entity, usize)>,
     /// Requests to disband fleets (confirmed by the player).
     pub disband_fleets: Vec<Entity>,
     /// Requests to merge several fleets into one.
