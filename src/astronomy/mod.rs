@@ -30,7 +30,8 @@ pub use ephemeris::{calculate_position_for_body, calculate_positions_at_timestam
 pub use exoplanets::{ConfirmedPlanet, RealPlanet};
 pub use lagrange::{draw_lagrange_point_rings, handle_lp_hover};
 pub use procedural::{
-    calculate_frost_line, generate_procedural_atmosphere, map_star_to_system_architecture,
+    calculate_frost_line, generate_procedural_atmosphere,
+    map_star_to_system_architecture, map_star_to_system_architecture_with_orbit_limits,
     AsteroidBelt, CometaryCloud, PlanetType, ProceduralPlanet, SystemArchitecture,
 };
 pub use selection::{

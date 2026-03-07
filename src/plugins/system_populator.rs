@@ -21,9 +21,10 @@ use crate::astronomy::infer_ocean_properties;
 use crate::astronomy::nearby_stars::load_nearby_stars_data;
 use crate::astronomy::nearby_stars::{BinaryOrbitData, NearbyStarsData, PlanetData, StarData};
 use crate::astronomy::{
-    calculate_frost_line, generate_procedural_atmosphere, map_star_to_system_architecture,
-    AsteroidBelt, CometaryCloud, KeplerOrbit, LocalOrbitAmplification, OrbitPath,
-    ProceduralPlanet, SpaceCoordinates, StellarProperties, SurfaceTemperature, SCALING_FACTOR,
+    calculate_frost_line, generate_procedural_atmosphere,
+    map_star_to_system_architecture_with_orbit_limits, AsteroidBelt, CometaryCloud, KeplerOrbit,
+    LocalOrbitAmplification, OrbitPath, ProceduralPlanet, SpaceCoordinates, StellarProperties,
+    SurfaceTemperature, SCALING_FACTOR,
 };
 use crate::economy::components::{OrbitsBody, SpectralClass, StarSystem};
 use crate::economy::generation::generate_solar_system_resources;
@@ -406,6 +407,25 @@ fn populate_nearby_systems(
             }
         }
 
+        let orbit_anchor_offsets_au = compute_orbit_anchor_offsets_au(
+            &system_data.binary_orbits,
+            &orbit_defs_by_label,
+            &direct_orbit_parent,
+            &system_data.stars,
+            &star_metallicities,
+            &resolved_orbits,
+        );
+        let star_host_offsets_au = compute_star_host_offsets_au(
+            &system_data.system_name,
+            &system_data.stars,
+            &star_metallicities,
+            &resolved_orbits,
+            &orbit_defs_by_label,
+            &direct_star_parent,
+            &orbit_anchor_offsets_au,
+            &fallback_star_orbits,
+        );
+
         let mut confirmed_planets_by_star = vec![Vec::new(); system_data.stars.len()];
         for (owner_idx, star_data) in system_data.stars.iter().enumerate() {
             for planet in &star_data.planets {
@@ -464,7 +484,9 @@ fn populate_nearby_systems(
             let representative_star = star_entities[host_body.representative_star_idx];
             let representative_data = &system_data.stars[host_body.representative_star_idx];
             let vis_scale = system_visual_scale(host_body.luminosity_sol.max(0.0001));
-            system_max_radius_au = system_max_radius_au.max(populate_host_bodies(
+            let host_offset_au = orbit_anchor_offsets_au.get(&orbit.label).copied().unwrap_or(0.0);
+            system_max_radius_au = system_max_radius_au.max(host_offset_au);
+            system_max_radius_au = system_max_radius_au.max(host_offset_au + populate_host_bodies(
                 &mut commands,
                 &mut meshes,
                 &mut materials,
@@ -499,6 +521,7 @@ fn populate_nearby_systems(
         for (idx, star_data) in system_data.stars.iter().enumerate() {
             let confirmed_planets = &confirmed_planets_by_star[idx];
             let is_in_explicit_pair = paired_star_indices.contains(&idx);
+            let host_offset_au = star_host_offsets_au.get(idx).copied().unwrap_or(0.0);
 
             let maximum_stable_orbit_au = direct_star_parent.get(&idx).and_then(|parent_label| {
                 let orbit = orbit_defs_by_label.get(parent_label).copied()?;
@@ -531,10 +554,12 @@ fn populate_nearby_systems(
             };
             let should_populate_host = allow_procedural_generation || !confirmed_planets.is_empty();
             if !should_populate_host {
+                system_max_radius_au = system_max_radius_au.max(host_offset_au);
                 continue;
             }
 
-            system_max_radius_au = system_max_radius_au.max(populate_host_bodies(
+            system_max_radius_au = system_max_radius_au.max(host_offset_au);
+            system_max_radius_au = system_max_radius_au.max(host_offset_au + populate_host_bodies(
                 &mut commands,
                 &mut meshes,
                 &mut materials,
@@ -734,6 +759,146 @@ fn build_binary_component_orbits(
     )
 }
 
+fn orbit_apastron_au(orbit: &KeplerOrbit) -> f64 {
+    orbit.semi_major_axis * (1.0 + orbit.eccentricity.clamp(0.0, 0.99999))
+}
+
+fn compute_orbit_anchor_offsets_au(
+    binary_orbits: &[BinaryOrbitData],
+    orbit_defs_by_label: &HashMap<String, &BinaryOrbitData>,
+    direct_orbit_parent: &HashMap<String, String>,
+    stars: &[StarData],
+    star_metallicities: &[f32],
+    resolved_orbits: &HashMap<String, ResolvedOrbitBody>,
+) -> HashMap<String, f64> {
+    let mut anchor_offsets = HashMap::new();
+
+    loop {
+        let mut progressed = false;
+        for orbit in binary_orbits {
+            if anchor_offsets.contains_key(&orbit.label) {
+                continue;
+            }
+
+            let Some(parent_label) = direct_orbit_parent.get(&orbit.label) else {
+                anchor_offsets.insert(orbit.label.clone(), 0.0);
+                progressed = true;
+                continue;
+            };
+
+            let Some(parent_offset) = anchor_offsets.get(parent_label).copied() else {
+                continue;
+            };
+
+            let parent_orbit = orbit_defs_by_label
+                .get(parent_label)
+                .copied()
+                .expect("parent orbit label should resolve");
+            let parent_primary = orbit_primary_ref(parent_orbit).expect("valid primary orbit ref");
+            let parent_secondary = orbit_secondary_ref(parent_orbit).expect("valid secondary orbit ref");
+            let primary_body = resolve_orbit_body(
+                &parent_primary,
+                stars,
+                star_metallicities,
+                resolved_orbits,
+            )
+            .expect("parent primary body should resolve");
+            let secondary_body = resolve_orbit_body(
+                &parent_secondary,
+                stars,
+                star_metallicities,
+                resolved_orbits,
+            )
+            .expect("parent secondary body should resolve");
+            let (primary_orbit, secondary_orbit) = build_binary_component_orbits(
+                parent_orbit,
+                primary_body.mass_sol,
+                secondary_body.mass_sol,
+            );
+            let child_offset = if matches!(
+                &parent_primary,
+                OrbitBodyRef::OrbitLabel(label) if label == &orbit.label
+            ) {
+                orbit_apastron_au(&primary_orbit)
+            } else {
+                orbit_apastron_au(&secondary_orbit)
+            };
+
+            anchor_offsets.insert(orbit.label.clone(), parent_offset + child_offset);
+            progressed = true;
+        }
+
+        if anchor_offsets.len() == binary_orbits.len() || !progressed {
+            break;
+        }
+    }
+
+    anchor_offsets
+}
+
+fn compute_star_host_offsets_au(
+    system_name: &str,
+    stars: &[StarData],
+    star_metallicities: &[f32],
+    resolved_orbits: &HashMap<String, ResolvedOrbitBody>,
+    orbit_defs_by_label: &HashMap<String, &BinaryOrbitData>,
+    direct_star_parent: &HashMap<usize, String>,
+    orbit_anchor_offsets_au: &HashMap<String, f64>,
+    fallback_star_orbits: &HashMap<usize, (Entity, KeplerOrbit)>,
+) -> Vec<f64> {
+    stars
+        .iter()
+        .enumerate()
+        .map(|(idx, star_data)| {
+            if let Some(parent_label) = direct_star_parent.get(&idx) {
+                let parent_offset = orbit_anchor_offsets_au.get(parent_label).copied().unwrap_or(0.0);
+                let orbit_def = orbit_defs_by_label
+                    .get(parent_label)
+                    .copied()
+                    .expect("orbit label should resolve");
+                let primary_ref = orbit_primary_ref(orbit_def).expect("valid primary orbit ref");
+                let secondary_ref = orbit_secondary_ref(orbit_def).expect("valid secondary orbit ref");
+                let primary_body = resolve_orbit_body(
+                    &primary_ref,
+                    stars,
+                    star_metallicities,
+                    resolved_orbits,
+                )
+                .expect("primary orbit body should resolve");
+                let secondary_body = resolve_orbit_body(
+                    &secondary_ref,
+                    stars,
+                    star_metallicities,
+                    resolved_orbits,
+                )
+                .expect("secondary orbit body should resolve");
+                let (primary_orbit, secondary_orbit) = build_binary_component_orbits(
+                    orbit_def,
+                    primary_body.mass_sol,
+                    secondary_body.mass_sol,
+                );
+                let star_offset = if matches!(primary_ref, OrbitBodyRef::Star(primary_idx) if primary_idx == idx) {
+                    orbit_apastron_au(&primary_orbit)
+                } else {
+                    orbit_apastron_au(&secondary_orbit)
+                };
+                parent_offset + star_offset
+            } else if let Some((_, fallback_orbit)) = fallback_star_orbits.get(&idx) {
+                orbit_apastron_au(fallback_orbit)
+            } else if idx > 0 && stars.len() > 1 {
+                orbit_apastron_au(&build_fallback_star_orbit(
+                    system_name,
+                    idx,
+                    star_data.mass_sol as f64,
+                    stars[0].mass_sol as f64,
+                ))
+            } else {
+                0.0
+            }
+        })
+        .collect()
+}
+
 fn circumstellar_stability_limit(
     orbit: &BinaryOrbitData,
     host_mass_sol: f64,
@@ -904,13 +1069,15 @@ fn populate_host_bodies(
         .max()
         .unwrap_or(0);
     let architecture = allow_procedural_generation.then(|| {
-        map_star_to_system_architecture(
+        map_star_to_system_architecture_with_orbit_limits(
             host_name,
             host_mass_sol,
             host_luminosity_sol as f64,
             existing_orbits.len(),
             &existing_orbits,
             name_offset,
+            minimum_procedural_orbit_au,
+            maximum_stable_orbit_au,
             rng,
         )
     });
@@ -1254,7 +1421,10 @@ fn spawn_star_entity_with_metallicity(
 
     if let Some(star_orbit) = orbit {
         entity_commands.insert(star_orbit);
-        entity_commands.insert(OrbitPath::new(Color::srgba(1.0, 0.85, 0.4, 0.55)));
+        entity_commands.insert(OrbitPath::with_segments(
+            Color::srgba(1.0, 0.85, 0.4, 0.55),
+            192,
+        ));
         if let Some(parent) = orbit_center {
             entity_commands.insert(OrbitCenter(parent));
         }
@@ -2605,5 +2775,106 @@ mod tests {
 
         assert!(stable_radius > 0.0);
         assert!(stable_radius < orbit.semi_major_axis_au);
+    }
+
+    #[test]
+    fn test_compute_star_host_offsets_include_wide_companion_orbit() {
+        let stars = vec![
+            StarData {
+                name: "Alpha Centauri A".to_string(),
+                spectral_type: "G2V".to_string(),
+                mass_sol: 1.1,
+                radius_sol: 1.0,
+                luminosity_sol: 1.5,
+                temp_k: 5800.0,
+                metallicity: Some(0.2),
+                planets: vec![],
+            },
+            StarData {
+                name: "Alpha Centauri B".to_string(),
+                spectral_type: "K1V".to_string(),
+                mass_sol: 0.9,
+                radius_sol: 0.9,
+                luminosity_sol: 0.5,
+                temp_k: 5200.0,
+                metallicity: Some(0.2),
+                planets: vec![],
+            },
+            StarData {
+                name: "Proxima Centauri".to_string(),
+                spectral_type: "M5.5Ve".to_string(),
+                mass_sol: 0.12,
+                radius_sol: 0.15,
+                luminosity_sol: 0.0017,
+                temp_k: 3042.0,
+                metallicity: Some(0.2),
+                planets: vec![],
+            },
+        ];
+        let star_metallicities = vec![0.2, 0.2, 0.2];
+        let inner_body = combine_orbit_bodies(
+            &resolved_star_body(&stars[0], 0.2, 0),
+            &resolved_star_body(&stars[1], 0.2, 1),
+        );
+        let resolved_orbits = HashMap::from([("Alpha Centauri AB".to_string(), inner_body)]);
+        let orbit_defs = vec![BinaryOrbitData {
+            label: "Alpha Centauri AB".to_string(),
+            primary_idx: Some(0),
+            primary_orbit_label: None,
+            secondary_idx: Some(1),
+            secondary_orbit_label: None,
+            semi_major_axis_au: 23.0,
+            period_years: 79.0,
+            eccentricity: 0.52,
+            inclination_deg: 0.0,
+            longitude_ascending_node_deg: 0.0,
+            arg_periastron_deg: 0.0,
+        }];
+        let orbit_defs_by_label = orbit_defs
+            .iter()
+            .map(|orbit| (orbit.label.clone(), orbit))
+            .collect::<HashMap<_, _>>();
+        let direct_star_parent = HashMap::from([
+            (0usize, "Alpha Centauri AB".to_string()),
+            (1usize, "Alpha Centauri AB".to_string()),
+        ]);
+        let orbit_anchor_offsets = compute_orbit_anchor_offsets_au(
+            &orbit_defs,
+            &orbit_defs_by_label,
+            &HashMap::new(),
+            &stars,
+            &star_metallicities,
+            &resolved_orbits,
+        );
+
+        let mut fallback_star_orbits = HashMap::new();
+        fallback_star_orbits.insert(
+            2usize,
+            (
+                Entity::PLACEHOLDER,
+                estimate_outer_companion_orbits(
+                    "Alpha Centauri",
+                    orbit_defs[0].semi_major_axis_au * (1.0 + orbit_defs[0].eccentricity),
+                    resolved_orbits["Alpha Centauri AB"].mass_sol,
+                    stars[2].mass_sol as f64,
+                )
+                .1,
+            ),
+        );
+
+        let star_offsets = compute_star_host_offsets_au(
+            "Alpha Centauri",
+            &stars,
+            &star_metallicities,
+            &resolved_orbits,
+            &orbit_defs_by_label,
+            &direct_star_parent,
+            &orbit_anchor_offsets,
+            &fallback_star_orbits,
+        );
+
+        assert!(star_offsets[0] > 0.0);
+        assert!(star_offsets[1] > 0.0);
+        assert!(star_offsets[2] > 600.0);
     }
 }

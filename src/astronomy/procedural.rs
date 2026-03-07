@@ -459,6 +459,36 @@ pub fn map_star_to_system_architecture(
     name_offset: usize,
     rng: &mut impl Rng,
 ) -> SystemArchitecture {
+    map_star_to_system_architecture_with_orbit_limits(
+        star_name,
+        star_mass_solar,
+        luminosity_solar,
+        existing_planet_count,
+        existing_orbits_au,
+        name_offset,
+        None,
+        None,
+        rng,
+    )
+}
+
+/// Map a host body to a procedural architecture constrained to a stable orbit band.
+///
+/// This is used for binary-star hosts where planets may only exist either close to
+/// one component or far outside the pair. Unlike the default generator, this entry
+/// point places orbital slots directly inside the allowed band instead of generating
+/// a full star-centric architecture and filtering it afterward.
+pub fn map_star_to_system_architecture_with_orbit_limits(
+    star_name: &str,
+    star_mass_solar: f64,
+    luminosity_solar: f64,
+    existing_planet_count: usize,
+    existing_orbits_au: &[f64],
+    name_offset: usize,
+    minimum_orbit_au: Option<f64>,
+    maximum_orbit_au: Option<f64>,
+    rng: &mut impl Rng,
+) -> SystemArchitecture {
     // Calculate frost line and habitable zone
     let frost_line_au = calculate_frost_line(luminosity_solar);
     let (hz_inner, hz_outer) = calculate_habitable_zone(luminosity_solar);
@@ -470,11 +500,17 @@ pub fn map_star_to_system_architecture(
     // Anything beyond that is "Interstellar Space"
     // ========================================================================
     let stellar_hill_sphere = calculate_stellar_hill_sphere(star_mass_solar);
+    let minimum_orbit_au = minimum_orbit_au.filter(|value| value.is_finite() && *value > 0.0);
+    let maximum_orbit_au = maximum_orbit_au.filter(|value| value.is_finite() && *value > 0.0);
 
     // Filter existing orbits to only those within stellar Hill sphere
     let valid_existing_orbits: Vec<f64> = existing_orbits_au
         .iter()
-        .filter(|&&o| o < stellar_hill_sphere)
+        .filter(|&&o| {
+            o < stellar_hill_sphere
+                && minimum_orbit_au.is_none_or(|min_orbit| o >= min_orbit)
+                && maximum_orbit_au.is_none_or(|max_orbit| o <= max_orbit)
+        })
         .cloned()
         .collect();
 
@@ -509,7 +545,7 @@ pub fn map_star_to_system_architecture(
     // Generate planets if we need more
     if slots_to_generate > 0 {
         // Generate orbital slots using log-spaced distribution
-        let (min_orbit, max_orbit) = match system_type {
+        let (default_min_orbit, default_max_orbit) = match system_type {
             SystemType::Compact => (0.02, (frost_line_au * 1.5).max(0.5)),
             SystemType::Standard => (0.08, 40.0),
             SystemType::JovianHeavy => (0.03, (frost_line_au * 3.0).max(5.0)),
@@ -524,19 +560,35 @@ pub fn map_star_to_system_architecture(
             SystemType::Sparse => 1.5,
         };
 
+        let min_orbit = minimum_orbit_au.unwrap_or(default_min_orbit).max(default_min_orbit.min(
+            minimum_orbit_au.unwrap_or(default_min_orbit),
+        ));
+        let growth_factor: f64 = spacing_factor + 0.2;
+        let required_outer_span = min_orbit
+            * growth_factor.powi((slots_to_generate.max(1).saturating_sub(1)) as i32);
+        let unconstrained_max_orbit = default_max_orbit
+            .max(required_outer_span)
+            .max(min_orbit * 2.5);
+        let max_orbit = maximum_orbit_au
+            .map(|limit| unconstrained_max_orbit.min(limit))
+            .unwrap_or(unconstrained_max_orbit);
+
         // Clamp max_orbit to stellar Hill sphere (system boundary)
         let system_boundary = stellar_hill_sphere.min(max_orbit);
-
-        let orbital_slots = generate_log_spaced_orbits(
-            min_orbit,
-            system_boundary,
-            slots_to_generate,
-            spacing_factor,
-            &valid_existing_orbits,
-            rng,
-            star_mass_solar,
-            system_type,
-        );
+        let orbital_slots = if system_boundary > min_orbit {
+            generate_log_spaced_orbits(
+                min_orbit,
+                system_boundary,
+                slots_to_generate,
+                spacing_factor,
+                &valid_existing_orbits,
+                rng,
+                star_mass_solar,
+                system_type,
+            )
+        } else {
+            Vec::new()
+        };
 
         // Decide once per system whether a hot Jupiter migrated inward.
         // Real occurrence rate is ~1% of FGK stars; slightly higher for more
@@ -615,7 +667,12 @@ pub fn map_star_to_system_architecture(
     // If the outermost planet is well inside the frost line, use a scaled
     // "effective frost line" so that minor bodies form just beyond the
     // planetary zone rather than at unrealistically distant orbits.
-    let effective_frost_line = if outermost_planet_au > 0.0 && outermost_planet_au < frost_line_au * 0.5 {
+    let effective_frost_line = if minimum_orbit_au.is_some_and(|min_orbit| min_orbit > frost_line_au * 2.0) {
+        outermost_planet_au
+            .max(minimum_orbit_au.unwrap_or(frost_line_au))
+            .mul_add(0.75, 0.0)
+            .max(frost_line_au)
+    } else if outermost_planet_au > 0.0 && outermost_planet_au < frost_line_au * 0.5 {
         // Belt should start just beyond the outermost planet
         (outermost_planet_au * 2.5).min(frost_line_au)
     } else {
@@ -1878,6 +1935,49 @@ mod tests {
             for &existing_orbit in &existing {
                 assert!((planet.semi_major_axis_au - existing_orbit).abs() > 0.1);
             }
+        }
+    }
+
+    #[test]
+    fn test_outer_orbit_constraints_generate_circumbinary_bodies() {
+        let mut rng = StdRng::seed_from_u64(424424);
+
+        let architecture = map_star_to_system_architecture_with_orbit_limits(
+            "Wolf 424 AB",
+            0.1379 + 0.1258,
+            0.0007 + 0.0005,
+            0,
+            &[],
+            0,
+            Some(13.09),
+            None,
+            &mut rng,
+        );
+
+        let mut generated_major_orbits: Vec<f64> = architecture
+            .rocky_planets
+            .iter()
+            .chain(architecture.gas_giants.iter())
+            .map(|planet| planet.semi_major_axis_au)
+            .collect();
+
+        assert!(
+            !generated_major_orbits.is_empty(),
+            "Constrained circumbinary generator should place at least one major body"
+        );
+        assert!(
+            generated_major_orbits.iter().all(|orbit| *orbit >= 13.09),
+            "All generated circumbinary bodies should respect the minimum stable radius"
+        );
+
+        generated_major_orbits.sort_by(|left, right| left.partial_cmp(right).unwrap());
+        assert!(
+            generated_major_orbits.last().copied().unwrap_or_default() > 20.0,
+            "Circumbinary generation should expand beyond the immediate stability edge"
+        );
+
+        if let Some(belt) = architecture.asteroid_belt.as_ref() {
+            assert!(belt.inner_au >= 13.09);
         }
     }
 

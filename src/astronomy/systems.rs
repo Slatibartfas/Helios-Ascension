@@ -26,6 +26,13 @@ const KEPLER_TOLERANCE: f64 = 1e-10;
 /// Orbits with e >= this are clamped to avoid numerical singularities.
 const MAX_ELLIPTICAL_ECCENTRICITY: f64 = 0.99999;
 
+/// Desired approximate line-segment chord length for orbit gizmos, in render units.
+/// Large stellar orbits need more samples than planet-scale orbits to avoid a faceted look.
+const ORBIT_PATH_TARGET_CHORD_LENGTH: f64 = 300.0;
+
+/// Hard cap to keep orbit rendering cost bounded even for extremely wide systems.
+const MAX_ORBIT_PATH_SEGMENTS: u32 = 1536;
+
 /// Solves Kepler's equation: M = E - e*sin(E) for eccentric anomaly E
 /// Uses Newton-Raphson iteration for high accuracy.
 ///
@@ -204,6 +211,33 @@ pub fn orbit_position_from_true_anomaly(orbit: &KeplerOrbit, true_anomaly: f64) 
 fn mean_anomaly_to_true_anomaly(mean_anomaly: f64, eccentricity: f64) -> f64 {
     let e_anom = solve_kepler(mean_anomaly, eccentricity);
     eccentric_to_true_anomaly(e_anom, eccentricity)
+}
+
+fn orbit_path_segments(path: &OrbitPath, orbit: &KeplerOrbit, amplification: f64) -> u32 {
+    let eccentricity = orbit.eccentricity.min(MAX_ELLIPTICAL_ECCENTRICITY);
+    let eccentricity_segments = if eccentricity > 0.6 {
+        (path.segments as f64 * (1.0 + eccentricity * 2.0)).ceil() as u32
+    } else {
+        path.segments
+    };
+
+    let semi_major_render = orbit.semi_major_axis.abs() * SCALING_FACTOR * amplification.abs();
+    if semi_major_render <= 0.0 {
+        return eccentricity_segments.max(path.segments).min(MAX_ORBIT_PATH_SEGMENTS);
+    }
+
+    let semi_minor_render = semi_major_render * (1.0 - eccentricity * eccentricity).max(0.0).sqrt();
+    let h = ((semi_major_render - semi_minor_render) / (semi_major_render + semi_minor_render))
+        .powi(2);
+    let circumference = std::f64::consts::PI
+        * (semi_major_render + semi_minor_render)
+        * (1.0 + (3.0 * h) / (10.0 + (4.0 - 3.0 * h).sqrt()));
+    let size_segments = (circumference / ORBIT_PATH_TARGET_CHORD_LENGTH).ceil() as u32;
+
+    eccentricity_segments
+        .max(size_segments)
+        .max(path.segments)
+        .min(MAX_ORBIT_PATH_SEGMENTS)
 }
 
 /// System that propagates all orbits based on Keplerian mechanics
@@ -576,12 +610,9 @@ pub fn draw_orbit_paths(
             current_true_anomaly
         };
 
-        // Use more segments for eccentric orbits to keep the periapsis region smooth
-        let segments = if orbit.eccentricity > 0.6 {
-            (path.segments as f64 * (1.0 + orbit.eccentricity * 2.0)) as u32
-        } else {
-            path.segments
-        };
+        // Increase sampling for both eccentric and very large rendered orbits.
+        // This keeps wide stellar binaries from looking polygonal.
+        let segments = orbit_path_segments(path, orbit, amp);
 
         // For highly eccentric orbits (e > 0.9), limit the arc drawn.
         // The full ellipse extends to enormous distances at apoapsis, creating
@@ -1701,6 +1732,30 @@ mod tests {
         let apoapsis_distance = orbital_radius(semi_major_axis, eccentricity, std::f64::consts::PI);
         let expected_apoapsis = semi_major_axis * (1.0 + eccentricity);
         assert!((apoapsis_distance - expected_apoapsis).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_orbit_path_segments_scale_with_render_size() {
+        let path = OrbitPath::with_segments(Color::WHITE, 128);
+        let planet_scale_orbit = KeplerOrbit::circular(1.0, 0.0);
+        let wide_star_orbit = KeplerOrbit::circular(50.0, 0.0);
+
+        let small_segments = orbit_path_segments(&path, &planet_scale_orbit, 1.0);
+        let large_segments = orbit_path_segments(&path, &wide_star_orbit, 1.0);
+
+        assert_eq!(small_segments, 128);
+        assert!(large_segments > small_segments);
+    }
+
+    #[test]
+    fn test_orbit_path_segments_respect_upper_bound() {
+        let path = OrbitPath::with_segments(Color::WHITE, 128);
+        let huge_orbit = KeplerOrbit::circular(5_000.0, 0.0);
+
+        assert_eq!(
+            orbit_path_segments(&path, &huge_orbit, 1.0),
+            MAX_ORBIT_PATH_SEGMENTS
+        );
     }
 
     #[test]

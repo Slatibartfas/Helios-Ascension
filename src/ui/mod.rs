@@ -76,8 +76,8 @@ use crate::fleets::{
 };
 use crate::game_state::{ActiveMenu, GameMenu};
 use crate::plugins::camera::{
-    capture_egui_panel_bounds, CameraAnchor, GameCamera, OrbitCamera, ViewMode,
-    MIN_STARMAP_THRESHOLD, STARMAP_THRESHOLD_MULTIPLIER,
+    capture_egui_panel_bounds, starmap_transition_radius, CameraAnchor, GameCamera, OrbitCamera,
+    ViewMode,
 };
 use crate::plugins::solar_system::{CelestialBody, LogicalParent};
 use crate::plugins::solar_system_data::BodyType;
@@ -610,10 +610,7 @@ fn ui_top_menu_bar(
     // survey and starmap views.
     let starmap_threshold = {
         let bounding_radius_au = system_metadata.get_bounding_radius(current_system.0);
-        let base_threshold = (bounding_radius_au
-            * crate::astronomy::SCALING_FACTOR as f64
-            * STARMAP_THRESHOLD_MULTIPLIER as f64) as f32;
-        base_threshold.max(MIN_STARMAP_THRESHOLD)
+        starmap_transition_radius(bounding_radius_au)
     };
     let starmap_radius = starmap_threshold * 1.5;
     let survey_radius = (starmap_threshold * 0.75).max(20_000.0);

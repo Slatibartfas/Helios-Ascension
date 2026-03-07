@@ -17,8 +17,28 @@ use crate::plugins::starmap::SystemMetadata;
 /// outer orbits before transitioning to the starmap.
 pub const STARMAP_THRESHOLD_MULTIPLIER: f32 = 1.2;
 
+/// Systems with very distant companion stars need extra headroom before the
+/// survey view gives way to the starmap.
+const LARGE_SYSTEM_RADIUS_AU: f64 = 400.0;
+const LARGE_SYSTEM_THRESHOLD_BONUS_CAP: f32 = 1.55;
+
 /// Minimum zoom threshold in game units to ensure reasonable behavior for very small systems.
 pub const MIN_STARMAP_THRESHOLD: f32 = 75_000.0;
+
+pub fn starmap_transition_radius(bounding_radius_au: f64) -> f32 {
+    let large_system_bonus = if bounding_radius_au <= LARGE_SYSTEM_RADIUS_AU {
+        1.0
+    } else {
+        let normalized = (bounding_radius_au / LARGE_SYSTEM_RADIUS_AU).log10() as f32;
+        (1.0 + normalized * 0.35).clamp(1.0, LARGE_SYSTEM_THRESHOLD_BONUS_CAP)
+    };
+
+    let base_threshold = (bounding_radius_au
+        * SCALING_FACTOR
+        * STARMAP_THRESHOLD_MULTIPLIER as f64
+        * large_system_bonus as f64) as f32;
+    base_threshold.max(MIN_STARMAP_THRESHOLD)
+}
 
 /// The active view mode, driven by camera zoom level.
 ///
@@ -382,9 +402,7 @@ fn update_view_mode(
 
     // Convert bounding radius to game units and apply multiplier
     // SCALING_FACTOR = 1500.0 (1 AU = 1500 game units)
-    let base_threshold =
-        (bounding_radius_au * SCALING_FACTOR as f64 * STARMAP_THRESHOLD_MULTIPLIER as f64) as f32;
-    let enter_starmap = base_threshold.max(MIN_STARMAP_THRESHOLD);
+    let enter_starmap = starmap_transition_radius(bounding_radius_au);
 
     // Hysteresis: require crossing past the threshold by 15% in either direction
     let exit_starmap = enter_starmap * 0.85;
@@ -401,5 +419,24 @@ fn update_view_mode(
             *view_mode, new_mode, orbit.radius, enter_starmap, bounding_radius_au
         );
         *view_mode = new_mode;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_starmap_transition_radius_uses_minimum_for_small_systems() {
+        assert_eq!(starmap_transition_radius(10.0), MIN_STARMAP_THRESHOLD);
+    }
+
+    #[test]
+    fn test_starmap_transition_radius_grows_for_huge_systems() {
+        let moderate = starmap_transition_radius(400.0);
+        let huge = starmap_transition_radius(10_000.0);
+
+        assert!(huge > moderate);
+        assert!(huge > (10_000.0 * SCALING_FACTOR * STARMAP_THRESHOLD_MULTIPLIER as f64) as f32);
     }
 }
