@@ -906,10 +906,10 @@ fn generate_planet_for_slot(
     // Cap eccentricity so the orbit's apoastron stays within the stability zone.
     // Apoastron = a × (1 + e) ≤ limit  ⇒  e_cap = (limit / a) - 1.
     // The orbit generator only places planets within the stability limit, so
-    // semi_major_axis_au < stability_limit_au should always hold; the clamp
+    // semi_major_axis_au ≤ stability_limit_au should normally hold; the clamp
     // guards against floating-point edge cases producing a negative cap.
     let e_cap = stability_limit_au
-        .filter(|&limit| limit > semi_major_axis_au)
+        .filter(|&limit| limit >= semi_major_axis_au)
         .map(|limit| ((limit / semi_major_axis_au) - 1.0).clamp(0.0, MAX_ECCENTRICITY))
         .unwrap_or(MAX_ECCENTRICITY);
 
