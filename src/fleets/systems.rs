@@ -265,6 +265,7 @@ pub fn activate_scheduled_departures(
     sim_time: Res<SimulationTime>,
     mut query: Query<(Entity, &FleetOrbit, &mut ActiveManeuver), With<Fleet>>,
     body_coords: Query<&SpaceCoordinates, Without<Fleet>>,
+    body_types: Query<&CelestialBody, Without<Fleet>>,
     fleet_sc_query: Query<&SpaceCoordinates, With<Fleet>>,
 ) {
     let elapsed = sim_time.elapsed_seconds();
@@ -281,7 +282,11 @@ pub fn activate_scheduled_departures(
         // SpaceCoordinates are heliocentric, but we need planet-centric (DVec3::ZERO).
         let is_local_transfer = maneuver.orbit_center == maneuver.origin_body
             || maneuver.orbit_center == maneuver.destination_body;
-        let center_pos = if is_local_transfer {
+        let orbit_center_is_star = body_types
+            .get(maneuver.orbit_center)
+            .map(|body| body.body_type == BodyType::Star)
+            .unwrap_or(false);
+        let center_pos = if is_local_transfer && !orbit_center_is_star {
             DVec3::ZERO
         } else {
             body_coords
