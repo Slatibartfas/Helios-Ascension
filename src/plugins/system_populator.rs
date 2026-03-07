@@ -22,9 +22,9 @@ use crate::astronomy::nearby_stars::load_nearby_stars_data;
 use crate::astronomy::nearby_stars::{BinaryOrbitData, NearbyStarsData, PlanetData, StarData};
 use crate::astronomy::{
     calculate_frost_line, generate_procedural_atmosphere,
-    map_star_to_system_architecture_with_orbit_limits, AsteroidBelt, CometaryCloud, KeplerOrbit,
-    LocalOrbitAmplification, OrbitPath, ProceduralPlanet, SpaceCoordinates, StellarProperties,
-    SurfaceTemperature, SCALING_FACTOR,
+    map_star_to_system_architecture_with_orbit_limits, AsteroidBelt, BinaryCompanionContext,
+    CometaryCloud, KeplerOrbit, LocalOrbitAmplification, OrbitPath, ProceduralPlanet,
+    SpaceCoordinates, StellarProperties, SurfaceTemperature, SCALING_FACTOR,
 };
 use crate::economy::components::{OrbitsBody, SpectralClass, StarSystem};
 use crate::economy::generation::generate_solar_system_resources;
@@ -510,6 +510,7 @@ fn populate_nearby_systems(
                 true,
                 Some(min_circumbinary_au),
                 None,
+                None, // circumbinary planets: no single companion, perturbations already encoded in min orbit
                 None,
                 &mut rng,
                 game_seed.value,
@@ -547,6 +548,41 @@ fn populate_nearby_systems(
                 Some(circumstellar_stability_limit(orbit, host_mass, companion_mass))
             });
 
+            // Build binary companion context for circumstellar eccentricity perturbations.
+            // If this star is part of an explicit binary pair, the companion's gravity
+            // pumps planetary eccentricities via secular perturbations (Heppenheimer 1978).
+            let circumstellar_companion_context =
+                direct_star_parent.get(&idx).and_then(|parent_label| {
+                    let orbit = orbit_defs_by_label.get(parent_label).copied()?;
+                    let primary_ref = orbit_primary_ref(orbit)?;
+                    let secondary_ref = orbit_secondary_ref(orbit)?;
+                    let primary_body = resolve_orbit_body(
+                        &primary_ref,
+                        &system_data.stars,
+                        &star_metallicities,
+                        &resolved_orbits,
+                    )?;
+                    let secondary_body = resolve_orbit_body(
+                        &secondary_ref,
+                        &system_data.stars,
+                        &star_metallicities,
+                        &resolved_orbits,
+                    )?;
+                    let (host_mass, companion_mass) =
+                        if matches!(primary_ref, OrbitBodyRef::Star(primary_idx) if primary_idx == idx) {
+                            (primary_body.mass_sol, secondary_body.mass_sol)
+                        } else {
+                            (secondary_body.mass_sol, primary_body.mass_sol)
+                        };
+                    let total_mass = (host_mass + companion_mass).max(1e-10);
+                    Some(BinaryCompanionContext {
+                        binary_semi_major_axis_au: orbit.semi_major_axis_au,
+                        binary_eccentricity: orbit.eccentricity,
+                        companion_mass_fraction: companion_mass / total_mass,
+                        binary_inclination_rad: orbit.inclination_deg.to_radians(),
+                    })
+                });
+
             let allow_procedural_generation = if is_in_explicit_pair {
                 maximum_stable_orbit_au.map(|limit| limit >= 0.05).unwrap_or(false)
             } else {
@@ -581,6 +617,7 @@ fn populate_nearby_systems(
                 !is_in_explicit_pair,
                 None,
                 maximum_stable_orbit_au,
+                circumstellar_companion_context,
                 Some((star_entities[idx], star_data)),
                 &mut rng,
                 game_seed.value,
@@ -1000,6 +1037,7 @@ fn populate_host_bodies(
     allow_minor_bodies: bool,
     minimum_procedural_orbit_au: Option<f64>,
     maximum_stable_orbit_au: Option<f64>,
+    companion_context: Option<BinaryCompanionContext>,
     cap_star: Option<(Entity, &StarData)>,
     rng: &mut StdRng,
     game_seed: u64,
@@ -1078,6 +1116,7 @@ fn populate_host_bodies(
             name_offset,
             minimum_procedural_orbit_au,
             maximum_stable_orbit_au,
+            companion_context,
             rng,
         )
     });
@@ -1581,7 +1620,7 @@ fn spawn_confirmed_planet(
         OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.85)), // Lighter blue — planets
         SpaceCoordinates::default(),                       // Will be updated by propagate_orbits
         OrbitCenter(parent.spatial_parent),
-        OrbitsBody::new(parent.spatial_parent),
+        OrbitsBody::new(parent.logical_parent),
         LogicalParent(parent.logical_parent),
         SystemId(system_id),
         Transform::default(), // Required so ring ChildOf relationships have a valid parent transform
@@ -1716,7 +1755,7 @@ fn spawn_procedural_planet(
         OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.85)), // Lighter blue — planets
         SpaceCoordinates::default(),                       // Will be updated by propagate_orbits
         OrbitCenter(parent.spatial_parent),
-        OrbitsBody::new(parent.spatial_parent),
+        OrbitsBody::new(parent.logical_parent),
         LogicalParent(parent.logical_parent),
         SystemId(system_id),
         Transform::default(), // Required so ring ChildOf relationships have a valid parent transform
@@ -1820,7 +1859,7 @@ fn spawn_dwarf_planets(
             OrbitPath::new(Color::srgba(0.25, 0.45, 0.75, 0.7)), // Darker blue — dwarf planets
             SpaceCoordinates::default(),
             OrbitCenter(parent.spatial_parent),
-            OrbitsBody::new(parent.spatial_parent),
+            OrbitsBody::new(parent.logical_parent),
             LogicalParent(parent.logical_parent),
             SystemId(system_id),
             Visibility::Hidden,
@@ -1963,7 +2002,7 @@ fn spawn_asteroid_belt(
             OrbitPath::with_fade(Color::srgba(0.3, 0.55, 0.22, 0.45), 5.0), // Dark green, steep fade — asteroids
             SpaceCoordinates::default(), // Will be updated by propagate_orbits
             OrbitCenter(parent.spatial_parent),
-            OrbitsBody::new(parent.spatial_parent),
+            OrbitsBody::new(parent.logical_parent),
             LogicalParent(parent.logical_parent),
             SystemId(system_id),
         ));
@@ -2074,7 +2113,7 @@ fn spawn_cometary_cloud(
             OrbitPath::new(Color::srgba(1.0, 0.8, 0.3, 0.65)), // Yellow — comets
             SpaceCoordinates::default(), // Will be updated by propagate_orbits
             OrbitCenter(parent.spatial_parent),
-            OrbitsBody::new(parent.spatial_parent),
+            OrbitsBody::new(parent.logical_parent),
             LogicalParent(parent.logical_parent),
             SystemId(system_id),
         ));
