@@ -4,8 +4,8 @@ use bevy::math::DVec3;
 use bevy::prelude::*;
 
 use super::components::{
-    CometTail, CurrentStarSystem, Destroyed, Hovered, KeplerOrbit, LocalOrbitAmplification,
-    OrbitCenter, OrbitPath, Selected, SpaceCoordinates, SystemId,
+    CometTail, CurrentStarSystem, Destroyed, FloatingOrigin, Hovered, KeplerOrbit,
+    LocalOrbitAmplification, OrbitCenter, OrbitPath, Selected, SpaceCoordinates, SystemId,
 };
 use crate::plugins::camera::{CameraAnchor, GameCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, Comet, LogicalParent, Moon, Planet};
@@ -288,6 +288,44 @@ pub fn propagate_orbits(
             coords.position = parent_pos + orbit_pos;
         }
     }
+}
+
+/// Keep the floating origin centered on the currently anchored body while in
+/// system view.
+///
+/// This preserves f32 transform precision for planets and moons orbiting stars
+/// that are themselves far from the system barycenter, such as Proxima in Alpha
+/// Centauri. Without this recentering, a small local orbit can be added on top
+/// of a very large parent translation, producing visible wobble in render space.
+pub fn sync_floating_origin_to_anchor(
+    view_mode: Res<ViewMode>,
+    current_system: Res<CurrentStarSystem>,
+    camera_query: Query<&CameraAnchor, With<GameCamera>>,
+    anchor_query: Query<(&SpaceCoordinates, Option<&SystemId>)>,
+    mut floating_origin: ResMut<FloatingOrigin>,
+) {
+    if *view_mode != ViewMode::System {
+        return;
+    }
+
+    let Ok(anchor) = camera_query.single() else {
+        return;
+    };
+
+    let Some(anchor_entity) = anchor.0 else {
+        return;
+    };
+
+    let Ok((coords, system_id)) = anchor_query.get(anchor_entity) else {
+        return;
+    };
+
+    let anchor_system = system_id.map(|id| id.0).unwrap_or(0);
+    if anchor_system != current_system.0 {
+        return;
+    }
+
+    floating_origin.position = coords.position;
 }
 
 /// Base visual speed threshold in rad/real-second.
@@ -1718,5 +1756,31 @@ mod tests {
             (3.0 * SCALING_FACTOR) as f32,
         );
         assert!((transform.translation - expected).length() < 1e-5);
+    }
+
+    #[test]
+    fn test_sync_floating_origin_to_anchor_uses_anchor_position() {
+        let mut app = App::new();
+        app.init_resource::<CurrentStarSystem>();
+        app.init_resource::<FloatingOrigin>();
+        app.init_resource::<ViewMode>();
+        app.add_systems(Update, sync_floating_origin_to_anchor);
+
+        let anchor_entity = app
+            .world_mut()
+            .spawn((
+                SpaceCoordinates::new(DVec3::new(12345.0, -67.0, 8.5)),
+                SystemId(3),
+            ))
+            .id();
+
+        app.world_mut().spawn((GameCamera, CameraAnchor(Some(anchor_entity))));
+        app.world_mut().resource_mut::<CurrentStarSystem>().0 = 3;
+        *app.world_mut().resource_mut::<ViewMode>() = ViewMode::System;
+
+        app.update();
+
+        let origin = app.world().resource::<FloatingOrigin>();
+        assert_eq!(origin.position, DVec3::new(12345.0, -67.0, 8.5));
     }
 }

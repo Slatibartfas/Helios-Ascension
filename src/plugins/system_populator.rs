@@ -450,7 +450,11 @@ fn populate_nearby_systems(
 
             let min_circumbinary_au =
                 circumbinary_stability_limit(orbit, primary_body.mass_sol, secondary_body.mass_sol);
-            if min_circumbinary_au > 200.0 {
+            // Skip circumbinary generation for wide or eccentric binaries where
+            // stable circumbinary planets are extremely unlikely.  Known
+            // circumbinary planets (Kepler-16, -47, etc.) are all in compact,
+            // near-circular binaries with stability limits under ~5 AU.
+            if min_circumbinary_au > 30.0 || orbit.eccentricity > 0.45 {
                 continue;
             }
 
@@ -884,6 +888,21 @@ fn populate_host_bodies(
 
     let min_orbit_au = minimum_procedural_orbit_au.unwrap_or(0.0);
     let max_orbit_au = maximum_stable_orbit_au.unwrap_or(f64::INFINITY);
+    // Compute the naming offset: start after the highest letter index used
+    // by confirmed planets (e.g. if confirmed planets use 'b' and 'd', offset = 3
+    // so procedural names start from 'e').
+    let name_offset = confirmed_planets
+        .iter()
+        .filter_map(|p| {
+            let last_char = p.name.chars().last()?;
+            if last_char.is_ascii_lowercase() {
+                Some((last_char as usize) - ('b' as usize) + 1)
+            } else {
+                None
+            }
+        })
+        .max()
+        .unwrap_or(0);
     let architecture = allow_procedural_generation.then(|| {
         map_star_to_system_architecture(
             host_name,
@@ -891,6 +910,7 @@ fn populate_host_bodies(
             host_luminosity_sol as f64,
             existing_orbits.len(),
             &existing_orbits,
+            name_offset,
             rng,
         )
     });
@@ -1234,6 +1254,7 @@ fn spawn_star_entity_with_metallicity(
 
     if let Some(star_orbit) = orbit {
         entity_commands.insert(star_orbit);
+        entity_commands.insert(OrbitPath::new(Color::srgba(1.0, 0.85, 0.4, 0.55)));
         if let Some(parent) = orbit_center {
             entity_commands.insert(OrbitCenter(parent));
         }

@@ -456,6 +456,7 @@ pub fn map_star_to_system_architecture(
     luminosity_solar: f64,
     existing_planet_count: usize,
     existing_orbits_au: &[f64],
+    name_offset: usize,
     rng: &mut impl Rng,
 ) -> SystemArchitecture {
     // Calculate frost line and habitable zone
@@ -550,7 +551,7 @@ pub fn map_star_to_system_architecture(
         for (i, &semi_major_axis) in orbital_slots.iter().enumerate() {
             let planet = generate_planet_for_slot(
                 star_name,
-                i,
+                name_offset + i,
                 semi_major_axis,
                 frost_line_au,
                 hz_inner,
@@ -1850,6 +1851,7 @@ mod tests {
             1.0, // 1.0 solar luminosity
             0,   // No existing planets
             &[],
+            0,
             &mut rng,
         );
 
@@ -1866,7 +1868,7 @@ mod tests {
         let existing = vec![0.5, 1.2];
 
         let architecture =
-            map_star_to_system_architecture("Test Star", 1.0, 1.0, 2, &existing, &mut rng);
+            map_star_to_system_architecture("Test Star", 1.0, 1.0, 2, &existing, 2, &mut rng);
 
         // Should generate fewer planets since we already have some
         assert!(architecture.rocky_planets.len() + architecture.gas_giants.len() <= 5);

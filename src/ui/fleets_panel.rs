@@ -2,7 +2,7 @@ use super::transfer_planner::render_transfer_planner;
 use super::*;
 use crate::fleets::components::ShipInfo;
 
-const SHIP_MANIFEST_ACTIONS_WIDTH: f32 = 128.0;
+const SHIP_MANIFEST_ACTIONS_WIDTH: f32 = 122.0;
 const SHIP_MANIFEST_ROW_HEIGHT: f32 = 24.0;
 const SHIP_MANIFEST_INNER_PADDING_X: f32 = 8.0;
 const SHIP_MANIFEST_COLUMN_SPACING: f32 = 10.0;
@@ -109,106 +109,104 @@ fn render_ship_manifest_row(
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
         let drag_width = (ui.available_width() - SHIP_MANIFEST_ACTIONS_WIDTH - 2.0).max(220.0);
-        let drag_id = egui::Id::new("drag_ship").with(fleet_entity).with(ship_idx);
-        ui.dnd_drag_source(drag_id, (fleet_entity, ship_idx), |ui| {
-            let (row_rect, response) = ui.allocate_exact_size(
-                egui::vec2(drag_width, SHIP_MANIFEST_ROW_HEIGHT),
-                egui::Sense::click_and_drag(),
-            );
-            let row_rounding = egui::CornerRadius::same(4);
-            let show_frame = response.hovered() || response.dragged();
-            let frame_rect = row_rect.expand2(egui::vec2(2.0, 0.0));
-            let fill = if response.dragged() {
-                egui::Color32::from_rgba_premultiplied(0, 140, 160, 42)
-            } else {
-                theme::SURFACE_RAISED
-            };
-            let stroke_color = if response.dragged() {
-                theme::ACCENT
-            } else {
-                theme::ACCENT_DIM
-            };
+        let (row_rect, response) = ui.allocate_exact_size(
+            egui::vec2(drag_width, SHIP_MANIFEST_ROW_HEIGHT),
+            egui::Sense::click_and_drag(),
+        );
+        let response = response.on_hover_text("Drag this ship onto another fleet to transfer it");
+        response.dnd_set_drag_payload((fleet_entity, ship_idx));
 
-            let painter = ui.painter();
-            if show_frame {
-                painter.rect_filled(frame_rect, row_rounding, fill);
-                painter.rect_stroke(
-                    frame_rect,
-                    row_rounding,
-                    egui::Stroke::new(if response.dragged() { 1.2 } else { 1.0 }, stroke_color),
-                    egui::StrokeKind::Inside,
-                );
-            }
+        let row_rounding = egui::CornerRadius::same(4);
+        let show_frame = response.hovered() || response.dragged();
+        let frame_rect = row_rect.expand2(egui::vec2(4.0, 0.0));
+        let fill = if response.dragged() {
+            egui::Color32::from_rgba_premultiplied(0, 140, 160, 42)
+        } else {
+            theme::SURFACE_RAISED
+        };
+        let stroke_color = if response.dragged() {
+            theme::ACCENT
+        } else {
+            theme::ACCENT_DIM
+        };
 
-            let columns = ship_manifest_column_rects(row_rect);
-            ship_manifest_text_column(
-                painter,
-                columns[0],
-                &ship.name,
-                egui::Align2::LEFT_CENTER,
-                theme::TEXT_VALUE,
-                false,
+        let painter = ui.painter();
+        if show_frame {
+            painter.rect_filled(frame_rect, row_rounding, fill);
+            painter.rect_stroke(
+                frame_rect,
+                row_rounding,
+                egui::Stroke::new(if response.dragged() { 1.2 } else { 1.0 }, stroke_color),
+                egui::StrokeKind::Inside,
             );
-            ship_manifest_text_column(
-                painter,
-                columns[1],
-                &class_text,
-                egui::Align2::LEFT_CENTER,
-                theme::TEXT,
-                false,
-            );
-            ship_manifest_text_column(
-                painter,
-                columns[2],
-                &dry_text,
-                egui::Align2::RIGHT_CENTER,
-                theme::TEXT,
-                false,
-            );
-            ship_manifest_text_column(
-                painter,
-                columns[3],
-                &fuel_text,
-                egui::Align2::CENTER_CENTER,
-                fuel_color,
-                false,
-            );
-            ship_manifest_text_column(
-                painter,
-                columns[4],
-                ship.propulsion.display_name(),
-                egui::Align2::LEFT_CENTER,
-                theme::TEXT,
-                false,
-            );
-            ship_manifest_text_column(
-                painter,
-                columns[5],
-                &thrust_text,
-                egui::Align2::RIGHT_CENTER,
-                theme::TEXT,
-                false,
-            );
-            ship_manifest_text_column(
-                painter,
-                columns[6],
-                &delta_v_text,
-                egui::Align2::RIGHT_CENTER,
-                theme::ACCENT,
-                false,
-            );
+        }
 
-            if response.hovered() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
-            }
+        let columns = ship_manifest_column_rects(row_rect);
+        ship_manifest_text_column(
+            painter,
+            columns[0],
+            &ship.name,
+            egui::Align2::LEFT_CENTER,
+            theme::TEXT_VALUE,
+            false,
+        );
+        ship_manifest_text_column(
+            painter,
+            columns[1],
+            &class_text,
+            egui::Align2::LEFT_CENTER,
+            theme::TEXT,
+            false,
+        );
+        ship_manifest_text_column(
+            painter,
+            columns[2],
+            &dry_text,
+            egui::Align2::RIGHT_CENTER,
+            theme::TEXT,
+            false,
+        );
+        ship_manifest_text_column(
+            painter,
+            columns[3],
+            &fuel_text,
+            egui::Align2::CENTER_CENTER,
+            fuel_color,
+            false,
+        );
+        ship_manifest_text_column(
+            painter,
+            columns[4],
+            ship.propulsion.display_name(),
+            egui::Align2::LEFT_CENTER,
+            theme::TEXT,
+            false,
+        );
+        ship_manifest_text_column(
+            painter,
+            columns[5],
+            &thrust_text,
+            egui::Align2::RIGHT_CENTER,
+            theme::TEXT,
+            false,
+        );
+        ship_manifest_text_column(
+            painter,
+            columns[6],
+            &delta_v_text,
+            egui::Align2::RIGHT_CENTER,
+            theme::ACCENT,
+            false,
+        );
 
-            response.on_hover_text("Drag this ship onto another fleet to transfer it")
-        });
+        if response.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+        }
 
         let refuel_resp = ui.add_enabled(
             in_orbit_for_manifest,
             egui::Button::new(egui::RichText::new("⛽ Refuel").size(11.0))
-                .min_size(egui::vec2(60.0, 18.0)),
+                .min_size(egui::vec2(58.0, 18.0)),
         );
         if refuel_resp
             .on_hover_text(if in_orbit_for_manifest {
@@ -224,7 +222,7 @@ fn render_ship_manifest_row(
         if ui
             .add(
                 egui::Button::new(egui::RichText::new("🗑 Scrap").size(11.0).color(theme::RED))
-                    .min_size(egui::vec2(56.0, 18.0)),
+                    .min_size(egui::vec2(54.0, 18.0)),
             )
             .on_hover_text("Permanently scrap this ship")
             .clicked()
@@ -294,7 +292,7 @@ pub(super) fn ui_fleets_panel(
 
         // ── Main two-column layout ───────────────────────────────────────────
         let available = ui.available_size();
-        let left_width = (available.x * 0.42).max(380.0);
+        let left_width = (available.x * 0.38).max(340.0);
 
         ui.horizontal_top(|ui| {
             // ── Left column: fleet list ──────────────────────────────────────
