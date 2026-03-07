@@ -32,7 +32,8 @@ pub use lagrange::{draw_lagrange_point_rings, handle_lp_hover};
 pub use procedural::{
     calculate_frost_line, generate_procedural_atmosphere,
     map_star_to_system_architecture, map_star_to_system_architecture_with_orbit_limits,
-    AsteroidBelt, CometaryCloud, PlanetType, ProceduralPlanet, SystemArchitecture,
+    AsteroidBelt, BinaryCompanionContext, CometaryCloud, PlanetType, ProceduralPlanet,
+    SystemArchitecture,
 };
 pub use selection::{
     animate_marker_dots, animate_ring_highlight, apply_ring_highlight,

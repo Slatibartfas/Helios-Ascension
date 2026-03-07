@@ -24,6 +24,25 @@ const EARTH_RADIUS_KM: f64 = 6371.0;
 /// Gravitational constant in m³/(kg·s²)
 const G: f64 = 6.674e-11;
 
+/// Maximum procedurally assigned eccentricity for any planet.
+///
+/// Orbits with e ≥ 1 are hyperbolic (unbound); cap well below that.
+/// e = 0.95 corresponds to a periapsis of only ~2.6% of the semi-major axis,
+/// which is already extreme by solar-system standards.
+const MAX_ECCENTRICITY: f64 = 0.95;
+
+/// Maximum binary eccentricity used in forced-eccentricity calculations.
+///
+/// Caps the input to the Heppenheimer (1978) formula so that
+/// (1 − e²) ≥ 0.002 and the denominator never reaches zero.
+const MAX_BINARY_ECCENTRICITY_FOR_FORMULA: f64 = 0.999;
+
+/// Defensive floor applied to the (1 − e²) denominator in the forced-eccentricity
+/// formula.  The `MAX_BINARY_ECCENTRICITY_FOR_FORMULA` cap guarantees
+/// (1 − e²) ≥ 0.002; this constant guards against any residual floating-point
+/// rounding that could otherwise produce a near-zero value.
+const MIN_FORCED_ECCENTRICITY_DENOMINATOR: f64 = 1e-3;
+
 /// Calculate escape velocity from a body
 /// v_esc = sqrt(2GM/R)
 pub fn calculate_escape_velocity(mass_kg: f64, radius_m: f64) -> f64 {
@@ -68,6 +87,49 @@ pub fn can_retain_atmosphere_cosmic_shoreline(
 pub fn is_in_habitable_zone(distance_au: f64, star_luminosity_sol: f64) -> bool {
     let (hz_inner, hz_outer) = calculate_habitable_zone(star_luminosity_sol);
     distance_au >= hz_inner && distance_au <= hz_outer
+}
+
+/// Orbital context of a binary companion used for secular eccentricity calculations.
+///
+/// When a planet orbits one star in a binary (S-type / circumstellar orbit), the
+/// companion star continuously excites the planet's eccentricity through secular
+/// gravitational perturbations.  This struct carries the parameters needed to
+/// compute the forced eccentricity floor using the Heppenheimer (1978) formula.
+#[derive(Clone, Copy, Debug)]
+pub struct BinaryCompanionContext {
+    /// Semi-major axis of the binary orbit in AU (D)
+    pub binary_semi_major_axis_au: f64,
+    /// Eccentricity of the binary orbit (e_bin, 0 ≤ e < 1)
+    pub binary_eccentricity: f64,
+    /// Companion mass fraction: M_companion / (M_host + M_companion)
+    pub companion_mass_fraction: f64,
+}
+
+impl BinaryCompanionContext {
+    /// Forced eccentricity imposed on a circumstellar planet at `planet_sma_au`.
+    ///
+    /// Uses the secular perturbation formula from Heppenheimer (1978):
+    ///
+    ///   e_forced = (5/4) × (a_pl / D) × μ × e_bin / (1 − e_bin²)
+    ///
+    /// where `a_pl` is the planet's semi-major axis, `D` is the binary separation,
+    /// `μ` is the companion mass fraction, and `e_bin` is the binary eccentricity.
+    ///
+    /// This eccentricity floor persists indefinitely — it cannot be damped by tidal
+    /// dissipation or planet–planet interactions below this value.
+    pub fn forced_eccentricity(&self, planet_sma_au: f64) -> f64 {
+        if self.binary_semi_major_axis_au <= 0.0 {
+            return 0.0;
+        }
+        let alpha = planet_sma_au / self.binary_semi_major_axis_au;
+        // Cap at MAX_BINARY_ECCENTRICITY_FOR_FORMULA so (1 - e²) ≥ 0.002,
+        // preventing near-parabolic blow-up in the denominator
+        let e = self.binary_eccentricity.min(MAX_BINARY_ECCENTRICITY_FOR_FORMULA);
+        // Defensive floor: the cap above guarantees (1 - e²) ≥ 0.002, but this
+        // guards against any floating-point rounding edge that could reach zero
+        let denom = (1.0 - e * e).max(MIN_FORCED_ECCENTRICITY_DENOMINATOR);
+        (5.0 / 4.0) * alpha * self.companion_mass_fraction * e / denom
+    }
 }
 
 /// Calculate the stellar Hill sphere (approximate galactic bounds)
@@ -468,6 +530,7 @@ pub fn map_star_to_system_architecture(
         name_offset,
         None,
         None,
+        None,
         rng,
     )
 }
@@ -487,6 +550,7 @@ pub fn map_star_to_system_architecture_with_orbit_limits(
     name_offset: usize,
     minimum_orbit_au: Option<f64>,
     maximum_orbit_au: Option<f64>,
+    companion_context: Option<BinaryCompanionContext>,
     rng: &mut impl Rng,
 ) -> SystemArchitecture {
     // Calculate frost line and habitable zone
@@ -612,6 +676,8 @@ pub fn map_star_to_system_architecture_with_orbit_limits(
                 star_mass_solar,
                 luminosity_solar,
                 has_migrated_giant && !migrated_giant_placed,
+                companion_context,
+                maximum_orbit_au,
                 rng,
             );
             if matches!(planet.planet_type, PlanetType::GasGiant | PlanetType::MiniNeptune)
@@ -723,6 +789,8 @@ fn generate_planet_for_slot(
     star_mass_solar: f64,
     star_luminosity_solar: f64,
     allow_migration: bool,
+    companion_context: Option<BinaryCompanionContext>,
+    stability_limit_au: Option<f64>,
     rng: &mut impl Rng,
 ) -> ProceduralPlanet {
     // Calculate orbital period using Kepler's third law: P² = a³ / M
@@ -786,6 +854,33 @@ fn generate_planet_for_slot(
     };
     let axial_tilt_deg = rng.random_range(0.0_f32..1.0).powf(1.5) * max_tilt;
 
+    // Base eccentricity from statistical planet distributions
+    let base_eccentricity = match planet_type {
+        PlanetType::GasGiant | PlanetType::IceGiant => {
+            rng.random_range(0.0_f64..1.0).powf(2.0) * 0.35
+        }
+        _ => rng.random_range(0.0_f64..1.0).powf(2.5) * 0.25,
+    };
+
+    // In binary systems, secular gravitational perturbations from the companion
+    // maintain a forced eccentricity floor that cannot be damped away
+    // (Heppenheimer 1978).  Apply it as a lower bound on the planet's eccentricity.
+    let e_forced = companion_context
+        .map(|ctx| ctx.forced_eccentricity(semi_major_axis_au))
+        .unwrap_or(0.0);
+
+    // Cap eccentricity so the orbit's apoastron stays within the stability zone.
+    // Apoastron = a × (1 + e) ≤ limit  ⇒  e_cap = (limit / a) - 1.
+    // The orbit generator only places planets within the stability limit, so
+    // semi_major_axis_au < stability_limit_au should always hold; the clamp
+    // guards against floating-point edge cases producing a negative cap.
+    let e_cap = stability_limit_au
+        .filter(|&limit| limit > semi_major_axis_au)
+        .map(|limit| ((limit / semi_major_axis_au) - 1.0).clamp(0.0, MAX_ECCENTRICITY))
+        .unwrap_or(MAX_ECCENTRICITY);
+
+    let eccentricity = base_eccentricity.max(e_forced).min(e_cap);
+
     ProceduralPlanet {
         name: format!(
             "{} {}",
@@ -793,13 +888,7 @@ fn generate_planet_for_slot(
             char::from_u32('b' as u32 + slot_index as u32).unwrap_or('?')
         ),
         semi_major_axis_au,
-        // Eccentricity based on planet type
-        eccentricity: match planet_type {
-            PlanetType::GasGiant | PlanetType::IceGiant => {
-                rng.random_range(0.0_f64..1.0).powf(2.0) * 0.35
-            }
-            _ => rng.random_range(0.0_f64..1.0).powf(2.5) * 0.25,
-        },
+        eccentricity,
         // Inclination varies by system type
         inclination: rng.random_range(-0.13..0.13),
         longitude_ascending_node: rng.random_range(0.0..std::f64::consts::TAU),
@@ -1951,6 +2040,7 @@ mod tests {
             0,
             Some(13.09),
             None,
+            None,
             &mut rng,
         );
 
@@ -2182,6 +2272,125 @@ mod tests {
             // Pressure should be reasonable (not negative or absurdly high)
             assert!(atmosphere.surface_pressure_mbar > 0.0);
             assert!(atmosphere.surface_pressure_mbar < 100000.0); // Less than 100 bar
+        }
+    }
+
+    // =========================================================================
+    // Tests for BinaryCompanionContext forced eccentricity
+    // =========================================================================
+
+    #[test]
+    fn test_forced_eccentricity_zero_for_circular_binary() {
+        let ctx = BinaryCompanionContext {
+            binary_semi_major_axis_au: 20.0,
+            binary_eccentricity: 0.0, // circular binary → no forced eccentricity
+            companion_mass_fraction: 0.4,
+        };
+        let e = ctx.forced_eccentricity(3.0);
+        assert_eq!(e, 0.0, "Circular binary should produce zero forced eccentricity");
+    }
+
+    #[test]
+    fn test_forced_eccentricity_increases_with_semi_major_axis() {
+        // Forced eccentricity ∝ a_planet/D: a planet farther from its host (larger SMA)
+        // is closer to the companion and experiences stronger secular perturbations.
+        let ctx = BinaryCompanionContext {
+            binary_semi_major_axis_au: 20.0,
+            binary_eccentricity: 0.5,
+            companion_mass_fraction: 0.45,
+        };
+        let e_close_to_host = ctx.forced_eccentricity(1.0); // a = 1 AU
+        let e_far_from_host = ctx.forced_eccentricity(5.0); // a = 5 AU — closer to companion
+        assert!(
+            e_far_from_host > e_close_to_host,
+            "Forced eccentricity must increase with planet SMA (closer to companion): \
+             a=1 AU → {e_close_to_host:.4}, a=5 AU → {e_far_from_host:.4}"
+        );
+    }
+
+    #[test]
+    fn test_forced_eccentricity_increases_with_binary_eccentricity() {
+        let planet_a = 3.0;
+        let ctx_circular = BinaryCompanionContext {
+            binary_semi_major_axis_au: 20.0,
+            binary_eccentricity: 0.1,
+            companion_mass_fraction: 0.4,
+        };
+        let ctx_eccentric = BinaryCompanionContext {
+            binary_semi_major_axis_au: 20.0,
+            binary_eccentricity: 0.6,
+            companion_mass_fraction: 0.4,
+        };
+        let e_low = ctx_circular.forced_eccentricity(planet_a);
+        let e_high = ctx_eccentric.forced_eccentricity(planet_a);
+        assert!(
+            e_high > e_low,
+            "Forced eccentricity must increase with binary eccentricity: e_low={e_low:.4}, e_high={e_high:.4}"
+        );
+    }
+
+    #[test]
+    fn test_binary_perturbation_boosts_planet_eccentricity_vs_isolated() {
+        // An isolated star at the same separation should produce lower eccentricities
+        // on average than a binary companion context with high eccentricity.
+        let mut rng_iso = StdRng::seed_from_u64(77777);
+        let mut rng_bin = StdRng::seed_from_u64(77777); // same seed for fair comparison
+
+        let frost = calculate_frost_line(0.5);
+        let (hz_inner, hz_outer) = calculate_habitable_zone(0.5);
+
+        let ctx = BinaryCompanionContext {
+            binary_semi_major_axis_au: 20.0,
+            binary_eccentricity: 0.5,
+            companion_mass_fraction: 0.45,
+        };
+
+        let n = 200;
+        let mut sum_iso = 0.0_f64;
+        let mut sum_bin = 0.0_f64;
+        for _ in 0..n {
+            let p_iso = generate_planet_for_slot(
+                "Test", 0, 4.0, frost, hz_inner, hz_outer,
+                SystemType::Standard, 0.7, 0.5, false, None, None, &mut rng_iso,
+            );
+            let p_bin = generate_planet_for_slot(
+                "Test", 0, 4.0, frost, hz_inner, hz_outer,
+                SystemType::Standard, 0.7, 0.5, false, Some(ctx), Some(10.0), &mut rng_bin,
+            );
+            sum_iso += p_iso.eccentricity;
+            sum_bin += p_bin.eccentricity;
+        }
+        let mean_iso = sum_iso / n as f64;
+        let mean_bin = sum_bin / n as f64;
+        assert!(
+            mean_bin >= mean_iso,
+            "Mean eccentricity in binary context ({mean_bin:.4}) must be ≥ isolated ({mean_iso:.4})"
+        );
+    }
+
+    #[test]
+    fn test_eccentricity_capped_by_stability_limit() {
+        // With a tight stability limit, apoastron must not exceed it.
+        let ctx = BinaryCompanionContext {
+            binary_semi_major_axis_au: 5.0,
+            binary_eccentricity: 0.8, // very eccentric → large forced eccentricity
+            companion_mass_fraction: 0.49,
+        };
+        let mut rng = StdRng::seed_from_u64(12345);
+        let frost = calculate_frost_line(1.0);
+        let (hz_inner, hz_outer) = calculate_habitable_zone(1.0);
+
+        for _ in 0..50 {
+            let p = generate_planet_for_slot(
+                "Cap Test", 0, 1.5, frost, hz_inner, hz_outer,
+                SystemType::Standard, 1.0, 1.0, false, Some(ctx), Some(2.0), &mut rng,
+            );
+            let apoastron = p.semi_major_axis_au * (1.0 + p.eccentricity);
+            assert!(
+                apoastron <= 2.0 + 1e-9,
+                "Apoastron {apoastron:.4} AU exceeds stability limit 2.0 AU (e={:.4})",
+                p.eccentricity
+            );
         }
     }
 }
