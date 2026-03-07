@@ -17,6 +17,15 @@ const MIN_ORBITAL_RADIUS_AU: f64 = 0.001; // 1/1000 AU ≈ 149,600 km (inside Me
 /// the system origin and their current-position estimate is unreliable for GA use.
 const MIN_STAR_BARYCENTRIC_DIST_AU: f64 = 0.01; // ≈ 1.5 million km
 
+/// Safe gravity-assist periapsis multiplier (km → multiplier applied to body.radius_km)
+/// for **stellar** flyby bodies: 20× stellar radius keeps the spacecraft well above
+/// the stellar photosphere and chromosphere.  (Sun radius ≈ 695,700 km → 20× ≈ 0.093 AU)
+const STELLAR_FLYBY_RADIUS_KM_MULTIPLIER: f64 = 20_000.0;
+
+/// Safe gravity-assist periapsis multiplier for **planetary** flyby bodies:
+/// 3× body radius is a conservative minimum altitude above the atmosphere/surface.
+const PLANETARY_FLYBY_RADIUS_KM_MULTIPLIER: f64 = 3_000.0;
+
 /// Returns `true` when `gm` is large enough to be a stellar-mass central body.
 ///
 /// Used to decide whether transfer-window phase angles should be read from
@@ -1173,19 +1182,20 @@ pub(super) fn render_transfer_planner(
                     // orbital radius already includes the star's offset from the barycenter.
                     // E.g. a planet 1 AU from Star A, which is 23 AU from the barycenter, has
                     // a barycentric r ≈ 24 AU — very different from its star-centric SMA of 1 AU.
+                    // Fallback values (1.0 AU for origin, 1.5 AU for dest) are Earth-like and
+                    // Mars-like radii used only if an entity is somehow missing — a defensive
+                    // guard that should never trigger in practice.
                     let r1_bary = body_query
                         .get(orbit.body)
                         .ok()
                         .map(|(_, _, sc, _, _)| sc.position.length())
-                        // Fallback only if the entity is somehow missing (defensive; should not occur
-                        // because orbit.body is always a valid spawned entity).
-                        .unwrap_or(1.0)
+                        .unwrap_or(1.0) // defensive: orbit.body is always a valid spawned entity
                         .max(MIN_ORBITAL_RADIUS_AU); // guard against near-zero (fleet at star itself)
                     let r2_bary = body_query
                         .get(target_entity)
                         .ok()
                         .map(|(_, _, sc, _, _)| sc.position.length())
-                        // Same defensive fallback.
+                        // Defensive fallback; target_entity should always resolve here.
                         .unwrap_or(1.5)
                         .max(MIN_ORBITAL_RADIUS_AU);
                     // Total system GM: sum over all stars in the current system.
@@ -1589,10 +1599,13 @@ pub(super) fn render_transfer_planner(
                             sma
                         };
                         let gm_p = G_CONST * body.mass;
-                        // Safe flyby periapsis: 20× stellar radius for stars (to keep above
-                        // the stellar atmosphere), 3× body radius for planets.
+                        // Safe flyby periapsis using the named multipliers.
                         let radius_km = body.radius as f64;
-                        let multiplier = if is_secondary_star { 20_000.0 } else { 3_000.0 };
+                        let multiplier = if is_secondary_star {
+                            STELLAR_FLYBY_RADIUS_KM_MULTIPLIER
+                        } else {
+                            PLANETARY_FLYBY_RADIUS_KM_MULTIPLIER
+                        };
                         let min_peri = (radius_km * multiplier) / AU_IN_METERS;
                         Some((body.name.clone(), flyby_r, gm_p, min_peri.max(1e-6)))
                     })
