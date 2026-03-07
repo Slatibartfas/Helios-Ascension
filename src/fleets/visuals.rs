@@ -259,6 +259,37 @@ fn optimal_departure_angle(origin: Vec3, destination: Vec3) -> f32 {
     }
 }
 
+fn find_host_star(
+    start_entity: Entity,
+    body_query: &Query<(&Transform, &CelestialBody, Option<&LogicalParent>), Without<Fleet>>,
+) -> Option<Entity> {
+    let mut current = Some(start_entity);
+    for _ in 0..8 {
+        let entity = current?;
+        let Ok((_, body, maybe_parent)) = body_query.get(entity) else {
+            return None;
+        };
+        if body.body_type == BodyType::Star {
+            return Some(entity);
+        }
+        current = maybe_parent.map(|parent| parent.0);
+    }
+    None
+}
+
+#[inline]
+fn is_inter_star_transfer(
+    origin_entity: Entity,
+    destination_entity: Entity,
+    body_query: &Query<(&Transform, &CelestialBody, Option<&LogicalParent>), Without<Fleet>>,
+) -> bool {
+    let origin_host_star = find_host_star(origin_entity, body_query);
+    let destination_host_star = find_host_star(destination_entity, body_query);
+    origin_host_star.is_some()
+        && destination_host_star.is_some()
+        && origin_host_star != destination_host_star
+}
+
 /// Return a **frame-stable** travel time for the transfer preview ghost body.
 ///
 /// For *Moderate* and *Fast* transfer options the
@@ -974,6 +1005,8 @@ pub fn draw_fleet_trajectories(
                     )
                 })
                 .unwrap_or((0.0, 0.0));
+            let is_inter_star =
+                is_inter_star_transfer(maneuver.origin_body, maneuver.destination_body, &body_query);
 
             // ── Departure point (op) ─────────────────────────────────────────
             // Course corrections: use the stored visual start position so it matches
@@ -1017,24 +1050,33 @@ pub fn draw_fleet_trajectories(
             )
             .unwrap_or(dest_now);
 
-            let orbit_center_visual = dest_lp.unwrap_or(maneuver.destination_body);
-            let cv_predicted = predict_body_visual_pos(
-                orbit_center_visual,
-                maneuver.arrival_time,
-                &body_query,
-                &kepler_query,
-                &amp_query,
-            )
-            .unwrap_or(dp_absolute);
-            let cv_at_departure = predict_body_visual_pos(
-                orbit_center_visual,
-                maneuver.departure_time,
-                &body_query,
-                &kepler_query,
-                &amp_query,
-            )
-            .unwrap_or(cv_predicted);
-            let dp = dp_absolute - cv_predicted + cv_at_departure;
+            let (dp, cv_ref, flyby_center_predicted, flyby_center_departure) = if is_inter_star {
+                (dp_absolute, Vec3::ZERO, Vec3::ZERO, Vec3::ZERO)
+            } else {
+                let orbit_center_visual = dest_lp.unwrap_or(maneuver.destination_body);
+                let cv_predicted = predict_body_visual_pos(
+                    orbit_center_visual,
+                    maneuver.arrival_time,
+                    &body_query,
+                    &kepler_query,
+                    &amp_query,
+                )
+                .unwrap_or(dp_absolute);
+                let cv_at_departure = predict_body_visual_pos(
+                    orbit_center_visual,
+                    maneuver.departure_time,
+                    &body_query,
+                    &kepler_query,
+                    &amp_query,
+                )
+                .unwrap_or(cv_predicted);
+                (
+                    dp_absolute - cv_predicted + cv_at_departure,
+                    cv_at_departure,
+                    cv_predicted,
+                    cv_at_departure,
+                )
+            };
 
             // --- gravity assist special case ------------------------------------------------
             if let (Some(flyby), Some(_)) = (maneuver.flyby_body, maneuver.leg2_orbit.as_ref()) {
@@ -1053,7 +1095,11 @@ pub fn draw_fleet_trajectories(
                         .map(|(t, _, _)| t.translation)
                         .unwrap_or(Vec3::ZERO)
                 });
-                let fp = fp_absolute - cv_predicted + cv_at_departure;
+                let fp = if is_inter_star {
+                    fp_absolute
+                } else {
+                    fp_absolute - flyby_center_predicted + flyby_center_departure
+                };
 
                 // ring radii and visual size
                 let flyby_visual_r = body_query
@@ -1159,7 +1205,7 @@ pub fn draw_fleet_trajectories(
                 is_course_correction,
                 is_inward,
                 maneuver.is_kinematic(),
-                cv_at_departure,
+                cv_ref,
             );
 
             // ── Progress & glow ──────────────────────────────────────────────
@@ -2278,6 +2324,7 @@ pub fn draw_fleet_transfer_preview(
     let Ok((dest_transform_now, dest_body_data, dest_lp)) = body_query.get(target_entity) else {
         return;
     };
+    let is_inter_star = is_inter_star_transfer(origin_body, target_entity, &body_query);
 
     // For course corrections: departure point = fleet's current render position.
     // For normal transfers: departure point = predicted origin body position at departure.
@@ -2308,6 +2355,9 @@ pub fn draw_fleet_transfer_preview(
     // cause the ghost body to visually spin faster than the actual body because
     // `d(travel_time)/dt ≠ 0` adds to the orbital angular rate.
     let travel_time_s = stable_preview_travel_time(&fleet_ui_state);
+    if !travel_time_s.is_finite() {
+        return;
+    }
 
     // Predict destination body position at planned departure + travel time so the
     // ghost mark moves when the player drags the departure slider.
@@ -2320,26 +2370,30 @@ pub fn draw_fleet_transfer_preview(
     )
     .unwrap_or(dest_transform_now.translation);
 
-    let orbit_center = dest_lp.map(|lp| lp.0).unwrap_or(target_entity);
-    let cv_predicted = predict_body_visual_pos(
-        orbit_center,
-        departure_s + travel_time_s,
-        &body_query,
-        &kepler_query,
-        &amp_query,
-    )
-    .unwrap_or(dp_absolute);
+    let (dp, cv_ref) = if is_inter_star {
+        (dp_absolute, Vec3::ZERO)
+    } else {
+        let orbit_center = dest_lp.map(|lp| lp.0).unwrap_or(target_entity);
+        let cv_predicted = predict_body_visual_pos(
+            orbit_center,
+            departure_s + travel_time_s,
+            &body_query,
+            &kepler_query,
+            &amp_query,
+        )
+        .unwrap_or(dp_absolute);
 
-    let cv_at_departure = predict_body_visual_pos(
-        orbit_center,
-        departure_s,
-        &body_query,
-        &kepler_query,
-        &amp_query,
-    )
-    .unwrap_or(cv_predicted);
+        let cv_at_departure = predict_body_visual_pos(
+            orbit_center,
+            departure_s,
+            &body_query,
+            &kepler_query,
+            &amp_query,
+        )
+        .unwrap_or(cv_predicted);
 
-    let dp = dp_absolute - cv_predicted + cv_at_departure;
+        (dp_absolute - cv_predicted + cv_at_departure, cv_at_departure)
+    };
 
     // ── Determine if this is an inward (orbit-lowering) transfer ─────────────
     // Inward transfers require a retrograde departure burn (CW tangent), while
@@ -2379,7 +2433,7 @@ pub fn draw_fleet_transfer_preview(
         is_course_correction,
         is_inward,
         is_kinematic,
-        cv_at_departure,
+        cv_ref,
     );
 
     // Dashed amber arc.

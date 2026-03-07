@@ -78,6 +78,37 @@ fn find_host_star(
     None
 }
 
+#[inline]
+fn is_inter_star_transfer(
+    origin_entity: Entity,
+    target_entity: Entity,
+    body_query: &Query<(
+        Entity,
+        &CelestialBody,
+        &SpaceCoordinates,
+        Option<&KeplerOrbit>,
+        Option<&LogicalParent>,
+    )>,
+) -> bool {
+    let origin_host_star = find_host_star(origin_entity, body_query).map(|(entity, _)| entity);
+    let target_host_star = find_host_star(target_entity, body_query).map(|(entity, _)| entity);
+    origin_host_star.is_some() && target_host_star.is_some() && origin_host_star != target_host_star
+}
+
+#[inline]
+fn checked_arrival_timestamp(current_timestamp: i64, total_eta_s: f64) -> Option<i64> {
+    if !total_eta_s.is_finite() || total_eta_s < 0.0 {
+        return None;
+    }
+
+    let eta_seconds = total_eta_s.round();
+    if eta_seconds > i64::MAX as f64 {
+        return None;
+    }
+
+    current_timestamp.checked_add(eta_seconds as i64)
+}
+
 pub(super) fn render_transfer_planner(
     ui: &mut egui::Ui,
     fleet_entity: Entity,
@@ -2280,6 +2311,10 @@ pub(super) fn render_transfer_planner(
 
             // Interstellar note
             let is_interstellar = star_system_snap.is_some();
+            let is_inter_star_body_transfer = body_target_snap
+                .map(|target_entity| is_inter_star_transfer(orbit.body, target_entity, body_query))
+                .unwrap_or(false);
+            let hides_calendar_eta = is_interstellar || is_inter_star_body_transfer;
             if is_interstellar {
                 if let Some((_, ref sys_name, dist_ly)) = star_system_snap {
                     ui.group(|ui| {
@@ -2314,6 +2349,23 @@ pub(super) fn render_transfer_planner(
                     });
                     ui.add_space(4.0);
                 }
+            } else if is_inter_star_body_transfer {
+                ui.group(|ui| {
+                    ui.label(
+                        egui::RichText::new("Binary-System Transfer")
+                            .strong()
+                            .size(13.0)
+                            .color(theme::GRAVITY_ASSIST),
+                    );
+                    ui.label(
+                        egui::RichText::new(
+                            "Trajectory is computed in the system barycentric frame because origin and destination orbit different stars.",
+                        )
+                        .size(11.0)
+                        .color(theme::TEXT_DIM),
+                    );
+                });
+                ui.add_space(4.0);
             }
 
             let btn_label = if is_interstellar {
@@ -2348,7 +2400,10 @@ pub(super) fn render_transfer_planner(
 
             // Execute Transfer button with ETA on the same row
             ui.horizontal(|ui| {
-                let insufficient = sel_option.is_thrust_limited && is_interstellar && sel_option.total_delta_v_ms == 0.0;
+                let insufficient = !sel_option.transfer_time_s.is_finite()
+                    || (sel_option.is_thrust_limited
+                        && (is_interstellar || is_inter_star_body_transfer)
+                        && sel_option.total_delta_v_ms == 0.0);
                 let btn = egui::Button::new(
                     egui::RichText::new(&btn_label).size(13.0).strong(),
                 );
@@ -2510,7 +2565,7 @@ pub(super) fn render_transfer_planner(
                         }
                     }
                 }
-                if !is_interstellar {
+                if !hides_calendar_eta {
                     let dep_s = fleet_ui_state.departure_offset_days * 86_400.0;
                     let total_eta_s = dep_s + sel_option.transfer_time_s;
                     ui.add_space(12.0);
@@ -2521,18 +2576,26 @@ pub(super) fn render_transfer_planner(
                     );
                 }
             });
-            if !is_interstellar {
+            if !hides_calendar_eta {
                 let dep_s = fleet_ui_state.departure_offset_days * 86_400.0;
                 let total_eta_s = dep_s + sel_option.transfer_time_s;
-                let arrival_ts = current_timestamp + total_eta_s as i64;
-                ui.label(
-                    egui::RichText::new(format!(
-                        "Arrives  {}",
-                        format_timestamp_date_time(arrival_ts)
-                    ))
-                    .size(11.0)
-                    .color(theme::RP_BLUE),
-                );
+                if let Some(arrival_ts) = checked_arrival_timestamp(current_timestamp, total_eta_s)
+                {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Arrives  {}",
+                            format_timestamp_date_time(arrival_ts)
+                        ))
+                        .size(11.0)
+                        .color(theme::RP_BLUE),
+                    );
+                } else {
+                    ui.label(
+                        egui::RichText::new("Arrives  unavailable")
+                            .size(11.0)
+                            .color(theme::AMBER),
+                    );
+                }
             }
             if !is_interstellar && !sel_affordable_with_abort {
                 ui.label(
