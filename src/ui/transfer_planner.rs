@@ -8,6 +8,15 @@ use super::*;
 /// slightly lower bound so that massive sub-stellar objects do not fall through.
 const MIN_STELLAR_GM: f64 = 1.3e18; // ~0.01 M☉ in m³ s⁻²
 
+/// Minimum orbital radius (AU) used as a guard in transfer calculations to avoid
+/// division-by-zero or negative square-roots in vis-viva equations.
+const MIN_ORBITAL_RADIUS_AU: f64 = 0.001; // 1/1000 AU ≈ 149,600 km (inside Mercury)
+
+/// Minimum barycentric distance (AU) for a secondary star to be considered as a
+/// flyby candidate.  Stars closer than this to the barycenter are effectively at
+/// the system origin and their current-position estimate is unreliable for GA use.
+const MIN_STAR_BARYCENTRIC_DIST_AU: f64 = 0.01; // ≈ 1.5 million km
+
 /// Returns `true` when `gm` is large enough to be a stellar-mass central body.
 ///
 /// Used to decide whether transfer-window phase angles should be read from
@@ -367,27 +376,40 @@ pub(super) fn render_transfer_planner(
         }
     }
 
-    // ── Group: Solar Approach ────────────────────────────────────────────────
-    // Always offer a direct solar-approach destination so the player can plot
-    // an inward heliocentric transfer toward the star.  Filter by current_system_id
-    // to find Sol, not Alpha Centauri or another star from a different system.
-    let star_entity = body_query
-        .iter()
-        .find(|(e, b, _, _, _)| {
-            b.body_type == BodyType::Star
-                && body_system_ids
-                    .get(*e)
+    // ── Group: Star Approach ─────────────────────────────────────────────────
+    // List every star in the current system.  In single-star systems this gives
+    // one "☀ Sol Approach" entry.  In binary / trinary systems each star gets
+    // its own entry, enabling direct inter-star transfer planning and stellar
+    // gravity-assist routes (e.g. Star A → Star B → Star C).
+    {
+        let mut system_stars: Vec<(Entity, String)> = body_query
+            .iter()
+            .filter_map(|(e, b, _, _, _)| {
+                if b.body_type != BodyType::Star {
+                    return None;
+                }
+                if !body_system_ids
+                    .get(e)
                     .ok()
                     .map(|s| s.0 == current_system_id)
                     .unwrap_or(false)
-        })
-        .map(|(e, _, _, _, _)| e);
-    if let Some(star_e) = star_entity {
-        dest_entries.push(DestEntry::Header("Solar".to_string()));
-        dest_entries.push(DestEntry::Body {
-            entity: star_e,
-            name: "☀ Solar Approach (0.3 AU)".to_string(),
-        });
+                {
+                    return None;
+                }
+                Some((e, b.name.clone()))
+            })
+            .collect();
+        // Stable sort by name so order is deterministic across frames.
+        system_stars.sort_by(|a, b| a.1.cmp(&b.1));
+        if !system_stars.is_empty() {
+            dest_entries.push(DestEntry::Header("Star Approach".to_string()));
+            for (star_e, star_name) in system_stars {
+                dest_entries.push(DestEntry::Body {
+                    entity: star_e,
+                    name: format!("☀ {} Approach (0.3 AU)", star_name),
+                });
+            }
+        }
     }
 
     // ── Group: Interstellar ──────────────────────────────────────────────────
@@ -1121,6 +1143,68 @@ pub(super) fn render_transfer_planner(
                 (r1, r2.min(r1 * 0.5), G_CONST * parent_mass)
             } else {
                 // Heliocentric: fleet is at a body that is not in the same parent chain as dest.
+                //
+                // ── Detect inter-star transfer ─────────────────────────────────────────────
+                // In a binary/trinary system, origin and destination may orbit different stars.
+                // E.g. fleet at Planet-A-1 (around Star A), destination Planet-C-1 (around Star C).
+                // For such transfers:
+                //   - r1 / r2 must be barycentric distances (SpaceCoordinates.position.length()),
+                //     NOT star-centric SMAs.  A planet at 1 AU from Star A in a binary where
+                //     Star A is 23 AU from the barycenter has a barycentric r ≈ 24 AU.
+                //   - gm must be the TOTAL system gravitational parameter G·ΣM_stars so that
+                //     both barycentric orbital velocities and transfer times are correct.
+                //
+                // For single-star systems both origin_parent and dest_parent are the same star,
+                // so the inter-star branch is never entered and the existing code is unchanged.
+                let origin_host_star = origin_parent
+                    .and_then(|pe| body_query.get(pe).ok())
+                    .filter(|(_, b, _, _, _)| b.body_type == BodyType::Star)
+                    .map(|(pe, b, _, _, _)| (pe, b.mass));
+                let dest_host_star = dest_parent
+                    .and_then(|pe| body_query.get(pe).ok())
+                    .filter(|(_, b, _, _, _)| b.body_type == BodyType::Star)
+                    .map(|(pe, b, _, _, _)| (pe, b.mass));
+                let is_inter_star = origin_host_star.is_some()
+                    && dest_host_star.is_some()
+                    && origin_host_star.map(|(e, _)| e) != dest_host_star.map(|(e, _)| e);
+
+                if is_inter_star {
+                    // Barycentric transfer: use SpaceCoordinates.position.length() so that the
+                    // orbital radius already includes the star's offset from the barycenter.
+                    // E.g. a planet 1 AU from Star A, which is 23 AU from the barycenter, has
+                    // a barycentric r ≈ 24 AU — very different from its star-centric SMA of 1 AU.
+                    let r1_bary = body_query
+                        .get(orbit.body)
+                        .ok()
+                        .map(|(_, _, sc, _, _)| sc.position.length())
+                        // Fallback only if the entity is somehow missing (defensive; should not occur
+                        // because orbit.body is always a valid spawned entity).
+                        .unwrap_or(1.0)
+                        .max(MIN_ORBITAL_RADIUS_AU); // guard against near-zero (fleet at star itself)
+                    let r2_bary = body_query
+                        .get(target_entity)
+                        .ok()
+                        .map(|(_, _, sc, _, _)| sc.position.length())
+                        // Same defensive fallback.
+                        .unwrap_or(1.5)
+                        .max(MIN_ORBITAL_RADIUS_AU);
+                    // Total system GM: sum over all stars in the current system.
+                    // The barycentric frame requires G·(M₁ + M₂ + M₃ + …).
+                    let system_gm: f64 = body_query
+                        .iter()
+                        .filter(|(e, b, _, _, _)| {
+                            b.body_type == BodyType::Star
+                                && body_system_ids
+                                    .get(*e)
+                                    .ok()
+                                    .map(|s| s.0 == current_system_id)
+                                    .unwrap_or(false)
+                        })
+                        .map(|(_, b, _, _, _)| G_CONST * b.mass)
+                        .sum::<f64>()
+                        .max(GM_SUN);
+                    (r1_bary, r2_bary, system_gm)
+                } else {
                 // If fleet is parked at a moon, its KeplerOrbit SMA is Earth-relative, NOT
                 // heliocentric. Walk up one level to get the heliocentric SMA.
                 let own_sma = body_query
@@ -1176,6 +1260,7 @@ pub(super) fn render_transfer_planner(
                     })
                     .unwrap_or(GM_SUN);
                 (r1, r2, host_gm)
+                } // end same-star case
             };
             // For course corrections, compute the fleet's position in the correct local frame.
             // For heliocentric transfers the position is already relative to the Sun.
@@ -1460,32 +1545,56 @@ pub(super) fn render_transfer_planner(
             // ── Gravity assist candidates (heliocentric transfers only) ─────────
             // Collect planets between r1 and r2, compute two-leg patched-conic options.
             // Use is_stellar_gm() so this works for non-solar stars, not just GM_SUN.
+            // Also includes secondary stars (those with KeplerOrbit) so a fleet can use
+            // a companion star as a massive gravity-assist flyby body.  This enables
+            // routes like Planet-A → Star-B flyby → Planet-C in trinary systems.
             if is_stellar_gm(gm) && !is_course_correction {
                 let ga_bodies: Vec<(String, f64, f64, f64)> = body_query
                     .iter()
-                    .filter_map(|(e, body, _, maybe_ko, _)| {
-                        if !matches!(
+                    .filter_map(|(e, body, sc, maybe_ko, _)| {
+                        let is_planet_class = matches!(
                             body.body_type,
                             BodyType::Planet | BodyType::GasGiant | BodyType::DwarfPlanet
-                        ) {
+                        );
+                        // Include secondary stars (those with a KeplerOrbit around the
+                        // barycenter) as potential flyby bodies.  Their enormous GM can
+                        // produce massive Δv kicks; think Voyager × 1000.
+                        let is_secondary_star =
+                            body.body_type == BodyType::Star && maybe_ko.is_some();
+                        if !is_planet_class && !is_secondary_star {
                             return None;
                         }
                         // Exclude the fleet's current body and the chosen destination
                         if e == orbit.body || Some(e) == body_target_snap {
                             return None;
                         }
-                        // Only consider planets/bodies in the current star system
+                        // Only consider bodies in the current star system
                         if body_system_ids.get(e).map(|s| s.0).unwrap_or(0) != current_system_id {
                             return None;
                         }
-                        let sma = maybe_ko?.semi_major_axis;
-                        if sma < MIN_HELIOCENTRIC_SMA_AU {
-                            return None;
-                        }
+                        let flyby_r = if is_secondary_star {
+                            // Use the star's current barycentric distance as its flyby radius.
+                            // For eccentric binary orbits the star's distance varies; current
+                            // SpaceCoordinates gives the best live estimate.
+                            let bary_r = sc.position.length();
+                            if bary_r < MIN_STAR_BARYCENTRIC_DIST_AU {
+                                return None; // skip stars too close to barycenter origin
+                            }
+                            bary_r
+                        } else {
+                            let sma = maybe_ko?.semi_major_axis;
+                            if sma < MIN_HELIOCENTRIC_SMA_AU {
+                                return None;
+                            }
+                            sma
+                        };
                         let gm_p = G_CONST * body.mass;
-                        // Safe flyby periapsis: 3 × body radius (km → m → AU)
-                        let min_peri = (body.radius as f64 * 3_000.0) / AU_IN_METERS;
-                        Some((body.name.clone(), sma, gm_p, min_peri.max(1e-6)))
+                        // Safe flyby periapsis: 20× stellar radius for stars (to keep above
+                        // the stellar atmosphere), 3× body radius for planets.
+                        let radius_km = body.radius as f64;
+                        let multiplier = if is_secondary_star { 20_000.0 } else { 3_000.0 };
+                        let min_peri = (radius_km * multiplier) / AU_IN_METERS;
+                        Some((body.name.clone(), flyby_r, gm_p, min_peri.max(1e-6)))
                     })
                     .collect();
 
@@ -2793,7 +2902,72 @@ fn build_planned_transfer(
             target_entity,
         )
     } else {
-        // Heliocentric: if fleet is at a moon, its own SMA is Earth-relative — use parent's SMA.
+        // ── Heliocentric fallback ─────────────────────────────────────────────
+        //
+        // ── Detect inter-star transfer ─────────────────────────────────────────
+        // When origin and dest orbit different stars in a multi-star system, the
+        // transfer happens in the barycentric frame.  We must:
+        //   1. Use SpaceCoordinates.position.length() for r1/r2 (barycentric radii).
+        //   2. Use total system GM = G·ΣM_stars for orbital velocities.
+        //   3. Use the primary star (≈ barycenter) as orbit_center for arc rendering.
+        let origin_host_star_e = origin_parent
+            .filter(|&pe| {
+                body_query
+                    .get(pe)
+                    .ok()
+                    .map(|(_, b, _, _, _)| b.body_type == BodyType::Star)
+                    .unwrap_or(false)
+            });
+        let dest_host_star_e = dest_parent.filter(|&pe| {
+            body_query
+                .get(pe)
+                .ok()
+                .map(|(_, b, _, _, _)| b.body_type == BodyType::Star)
+                .unwrap_or(false)
+        });
+        let is_inter_star = origin_host_star_e.is_some()
+            && dest_host_star_e.is_some()
+            && origin_host_star_e != dest_host_star_e;
+
+        if is_inter_star {
+            // Barycentric distances — already correct since SpaceCoordinates stores
+            // positions relative to the system origin (≈ barycenter).
+            // origin_sc is always valid (obtained above); target_entity query can only
+            // fail if the entity was somehow despawned between the UI call and here,
+            // which should not happen in practice.
+            let r1 = origin_sc
+                .position
+                .length()
+                .max(MIN_ORBITAL_RADIUS_AU);
+            let r2 = body_query
+                .get(target_entity)
+                .ok()
+                .map(|(_, _, sc, _, _)| sc.position.length())
+                .unwrap_or(1.5) // defensive fallback; should not be reached
+                .max(MIN_ORBITAL_RADIUS_AU);
+            // Total system GM: sum all stars' G·M
+            let system_gm: f64 = body_query
+                .iter()
+                .filter(|(_, b, _, _, _)| b.body_type == BodyType::Star)
+                .map(|(_, b, _, _, _)| G_CONST * b.mass)
+                .sum::<f64>()
+                .max(GM_SUN);
+            // Orbit center: the star nearest to the barycenter origin (smallest
+            // SpaceCoordinates.position.length() among all stars).
+            let primary_star = body_query
+                .iter()
+                .filter(|(_, b, _, _, _)| b.body_type == BodyType::Star)
+                .min_by(|(_, _, sc_a, _, _), (_, _, sc_b, _, _)| {
+                    sc_a.position
+                        .length_squared()
+                        .partial_cmp(&sc_b.position.length_squared())
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .map(|(e, _, _, _, _)| e)
+                .unwrap_or(orbit.body);
+            (r1, r2, system_gm, primary_star, target_entity)
+        } else {
+        // If fleet is at a moon, its own SMA is Earth-relative — use parent's SMA.
         let r1 = if origin_ko
             .map(|ko| ko.semi_major_axis < MIN_HELIOCENTRIC_SMA_AU)
             .unwrap_or(true)
@@ -2860,6 +3034,7 @@ fn build_planned_transfer(
             })
             .unwrap_or(orbit.body);
         (r1, r2, host_gm, star, target_entity)
+        } // end same-star heliocentric case
     };
 
     // For course corrections, determine outward/inward from the fleet's actual distance vs
