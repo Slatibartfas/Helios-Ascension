@@ -1494,6 +1494,7 @@ fn handle_system_transition(
     mut anchor_query: Query<&mut CameraAnchor, With<GameCamera>>,
     mut camera_query: Query<&mut OrbitCamera, With<GameCamera>>,
     icon_query: Query<&StarSystemIcon>,
+    star_body_query: Query<(Entity, &CelestialBody, &SpaceCoordinates, Option<&SystemId>)>,
     selected_query: Query<Entity, With<SelectedStarSystem>>,
     body_selected_query: Query<Entity, With<crate::astronomy::components::Selected>>,
     mut commands: Commands,
@@ -1520,18 +1521,34 @@ fn handle_system_transition(
                     icon.name, floating_origin.position
                 );
 
-                // Clear the anchor so the camera is free to move in the new system
-                // But wait! If we clear the anchor, the camera target_center stays where it was (at the icon).
-                // Since the Floating Origin shifted, the Icon moved to (0,0,0).
-                // So target_center should be (0,0,0).
-                // And OrbitCamera will naturally look at (0,0,0).
-                anchor.0 = None;
+                let focus_star = star_body_query
+                    .iter()
+                    .filter(|(_, body, _, sys_id)| {
+                        body.body_type == BodyType::Star
+                            && sys_id.map(|s| s.0).unwrap_or(0) == icon.id
+                    })
+                    .max_by(|(_, body_a, _, _), (_, body_b, _, _)| {
+                        body_a
+                            .mass
+                            .partial_cmp(&body_b.mass)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .map(|(entity, _body, coords, _)| (entity, coords.position));
 
-                // Reset OrbitCamera target center to (0,0,0) explicitly
-                // This ensures we are looking at the star (which is at local 0,0,0)
-                // disregarding any previous starmap-space offset
                 if let Ok(mut orbit_camera) = camera_query.single_mut() {
-                    orbit_camera.target_center = Vec3::ZERO;
+                    orbit_camera.pan_offset = Vec3::ZERO;
+                    if let Some((focus_entity, focus_pos)) = focus_star {
+                        let local_focus = (focus_pos - floating_origin.position) * SCALING_FACTOR;
+                        orbit_camera.target_center = Vec3::new(
+                            local_focus.x as f32,
+                            local_focus.y as f32,
+                            local_focus.z as f32,
+                        );
+                        anchor.0 = Some(focus_entity);
+                    } else {
+                        anchor.0 = None;
+                        orbit_camera.target_center = Vec3::ZERO;
+                    }
                 }
             }
         }

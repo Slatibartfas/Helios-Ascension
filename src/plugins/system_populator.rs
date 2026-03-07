@@ -495,10 +495,6 @@ fn populate_nearby_systems(
         for (idx, star_data) in system_data.stars.iter().enumerate() {
             let confirmed_planets = &confirmed_planets_by_star[idx];
             let is_in_explicit_pair = paired_star_indices.contains(&idx);
-            let should_populate_host = !is_in_explicit_pair || !confirmed_planets.is_empty();
-            if !should_populate_host {
-                continue;
-            }
 
             let maximum_stable_orbit_au = direct_star_parent.get(&idx).and_then(|parent_label| {
                 let orbit = orbit_defs_by_label.get(parent_label).copied()?;
@@ -524,6 +520,16 @@ fn populate_nearby_systems(
                 Some(circumstellar_stability_limit(orbit, host_mass, companion_mass))
             });
 
+            let allow_procedural_generation = if is_in_explicit_pair {
+                maximum_stable_orbit_au.map(|limit| limit >= 0.05).unwrap_or(false)
+            } else {
+                true
+            };
+            let should_populate_host = allow_procedural_generation || !confirmed_planets.is_empty();
+            if !should_populate_host {
+                continue;
+            }
+
             system_max_radius_au = system_max_radius_au.max(populate_host_bodies(
                 &mut commands,
                 &mut meshes,
@@ -542,7 +548,7 @@ fn populate_nearby_systems(
                 star_metallicities[idx],
                 star_vis_scales[idx],
                 confirmed_planets,
-                !is_in_explicit_pair,
+                allow_procedural_generation,
                 !is_in_explicit_pair,
                 None,
                 maximum_stable_orbit_au,
@@ -1227,10 +1233,7 @@ fn spawn_star_entity_with_metallicity(
     ));
 
     if let Some(star_orbit) = orbit {
-        entity_commands.insert((
-            star_orbit,
-            OrbitPath::with_fade(Color::srgba(1.0, 0.72, 0.4, 0.45), 3.5),
-        ));
+        entity_commands.insert(star_orbit);
         if let Some(parent) = orbit_center {
             entity_commands.insert(OrbitCenter(parent));
         }
