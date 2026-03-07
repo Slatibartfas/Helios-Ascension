@@ -1,12 +1,12 @@
+use bevy::ecs::system::SystemParam;
 use bevy::math::DVec3;
 use bevy::prelude::*;
-use bevy::ecs::system::SystemParam;
 use bevy::window::PrimaryWindow;
 
 use super::components::{
-    CurrentStarSystem, FloatingOrigin, HoverMarker, Hovered, KeplerOrbit,
-    LocalOrbitAmplification, MarkerDot, MarkerOwner, OrbitPath, Selected, SelectionMarker,
-    SpaceCoordinates, SystemId, OrbitCenter,
+    CurrentStarSystem, FloatingOrigin, HoverMarker, Hovered, KeplerOrbit, LocalOrbitAmplification,
+    MarkerDot, MarkerOwner, OrbitCenter, OrbitPath, Selected, SelectionMarker, SpaceCoordinates,
+    SystemId,
 };
 use super::systems::{orbit_position_from_true_anomaly, SCALING_FACTOR, VISUAL_SPEED_BASE};
 use crate::game_state::ActiveMenu;
@@ -318,7 +318,20 @@ pub fn handle_body_selection(
     // Stores: (Entity, ray_distance, body name)
     let mut closest_body: Option<(Entity, f32, f32, String)> = None;
 
-    for (entity, transform, body, system_id, _logical_parent, visibility, _kepler, _orbit_path, _amp, _orbit_center, _coords) in body_query.iter() {
+    for (
+        entity,
+        transform,
+        body,
+        system_id,
+        _logical_parent,
+        visibility,
+        _kepler,
+        _orbit_path,
+        _amp,
+        _orbit_center,
+        _coords,
+    ) in body_query.iter()
+    {
         // Only interact with bodies in the current star system
         let body_system = system_id.map(|s| s.0).unwrap_or(0);
         if body_system != current_system.0 {
@@ -372,14 +385,34 @@ pub fn handle_body_selection(
             .map(|fo| fo.position)
             .unwrap_or(DVec3::ZERO);
         let orbit_iter = body_query.iter().filter_map(
-            |(entity, _gt, _body, system_id, logical_parent, visibility, kepler, orbit_path, amp, orbit_center, _coords)| {
+            |(
+                entity,
+                _gt,
+                _body,
+                system_id,
+                logical_parent,
+                visibility,
+                kepler,
+                orbit_path,
+                amp,
+                orbit_center,
+                _coords,
+            )| {
                 let body_system = system_id.map(|s| s.0).unwrap_or(0);
                 if body_system != current_system.0 {
                     return None;
                 }
                 let orbit = kepler?;
                 let path = orbit_path?;
-                Some((entity, orbit, path, orbit_center, logical_parent, amp, visibility))
+                Some((
+                    entity,
+                    orbit,
+                    path,
+                    orbit_center,
+                    logical_parent,
+                    amp,
+                    visibility,
+                ))
             },
         );
         let get_parent_coords = |parent: Entity| -> Option<DVec3> {
@@ -390,14 +423,19 @@ pub fn handle_body_selection(
             }
         };
         let camera_distance = camera_transform.translation().length();
-        find_closest_orbit_to_ray(&ray, camera_distance, orbit_iter, &get_parent_coords, origin_offset).and_then(
-            |(entity, _dist)| {
-                body_query
-                    .get(entity)
-                    .ok()
-                    .map(|(_, _, body, _, _, _, _, _, _, _, _)| (entity, body.name.clone()))
-            },
+        find_closest_orbit_to_ray(
+            &ray,
+            camera_distance,
+            orbit_iter,
+            &get_parent_coords,
+            origin_offset,
         )
+        .and_then(|(entity, _dist)| {
+            body_query
+                .get(entity)
+                .ok()
+                .map(|(_, _, body, _, _, _, _, _, _, _, _)| (entity, body.name.clone()))
+        })
     };
 
     // Deselect all currently selected bodies if left clicking
@@ -536,7 +574,20 @@ pub fn handle_body_hover(
     // stars from stealing hovers away from smaller planets orbiting nearby.
     let mut closest_body: Option<(Entity, f32, f32)> = None;
 
-    for (entity, transform, body, system_id, _logical_parent, visibility, _kepler, _orbit_path, _amp, _orbit_center, _coords) in body_query.iter() {
+    for (
+        entity,
+        transform,
+        body,
+        system_id,
+        _logical_parent,
+        visibility,
+        _kepler,
+        _orbit_path,
+        _amp,
+        _orbit_center,
+        _coords,
+    ) in body_query.iter()
+    {
         // Only interact with bodies in the current star system
         let body_system = system_id.map(|s| s.0).unwrap_or(0);
         if body_system != current_system.0 {
@@ -582,16 +633,39 @@ pub fn handle_body_hover(
     let new_hover = if let Some((e, _, _)) = closest_body {
         Some(e)
     } else {
-        let origin_offset = floating_origin.as_ref().map(|fo| fo.position).unwrap_or(DVec3::ZERO);
+        let origin_offset = floating_origin
+            .as_ref()
+            .map(|fo| fo.position)
+            .unwrap_or(DVec3::ZERO);
         let orbit_iter = body_query.iter().filter_map(
-            |(entity, _gt, _body, system_id, logical_parent, visibility, kepler, orbit_path, amp, orbit_center, _coords)| {
+            |(
+                entity,
+                _gt,
+                _body,
+                system_id,
+                logical_parent,
+                visibility,
+                kepler,
+                orbit_path,
+                amp,
+                orbit_center,
+                _coords,
+            )| {
                 let body_system = system_id.map(|s| s.0).unwrap_or(0);
                 if body_system != current_system.0 {
                     return None;
                 }
                 let orbit = kepler?;
                 let path = orbit_path?;
-                Some((entity, orbit, path, orbit_center, logical_parent, amp, visibility))
+                Some((
+                    entity,
+                    orbit,
+                    path,
+                    orbit_center,
+                    logical_parent,
+                    amp,
+                    visibility,
+                ))
             },
         );
         let get_parent_coords = |parent: Entity| -> Option<DVec3> {
@@ -602,8 +676,14 @@ pub fn handle_body_hover(
             }
         };
         let camera_distance = camera_transform.translation().length();
-        find_closest_orbit_to_ray(&ray, camera_distance, orbit_iter, &get_parent_coords, origin_offset)
-            .map(|(entity, _dist)| entity)
+        find_closest_orbit_to_ray(
+            &ray,
+            camera_distance,
+            orbit_iter,
+            &get_parent_coords,
+            origin_offset,
+        )
+        .map(|(entity, _dist)| entity)
     };
     let hover_is_body = new_hover.is_some();
     // Use crosshair only while the transfer planner popup is open.
@@ -650,7 +730,12 @@ pub fn spawn_selection_markers(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     selected_query: Query<
-        (Entity, &CelestialBody, &GlobalTransform, Option<&KeplerOrbit>),
+        (
+            Entity,
+            &CelestialBody,
+            &GlobalTransform,
+            Option<&KeplerOrbit>,
+        ),
         Added<Selected>,
     >,
     hover_markers: Query<(Entity, &MarkerOwner), With<HoverMarker>>,
@@ -787,7 +872,12 @@ pub fn spawn_hover_markers(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     hovered_query: Query<
-        (Entity, &CelestialBody, &GlobalTransform, Option<&KeplerOrbit>),
+        (
+            Entity,
+            &CelestialBody,
+            &GlobalTransform,
+            Option<&KeplerOrbit>,
+        ),
         (Added<Hovered>, Without<Selected>),
     >,
     camera_query: Query<&GlobalTransform, With<GameCamera>>,
@@ -887,11 +977,21 @@ pub fn restore_suppressed_markers(
     mut materials: ResMut<Assets<StandardMaterial>>,
     time_scale: Res<TimeScale>,
     selected_query: Query<
-        (Entity, &CelestialBody, &GlobalTransform, Option<&KeplerOrbit>),
+        (
+            Entity,
+            &CelestialBody,
+            &GlobalTransform,
+            Option<&KeplerOrbit>,
+        ),
         With<Selected>,
     >,
     hovered_query: Query<
-        (Entity, &CelestialBody, &GlobalTransform, Option<&KeplerOrbit>),
+        (
+            Entity,
+            &CelestialBody,
+            &GlobalTransform,
+            Option<&KeplerOrbit>,
+        ),
         (With<Hovered>, Without<Selected>),
     >,
     selection_markers: Query<&MarkerOwner, With<SelectionMarker>>,

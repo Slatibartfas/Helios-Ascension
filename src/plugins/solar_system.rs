@@ -1483,7 +1483,11 @@ pub fn setup_solar_system(
             };
 
             // Asteroids get a steep fade to avoid thick ring buildup at high speed
-            let fade_exponent = if body_data.body_type == BodyType::Asteroid { 5.0 } else { 1.8 };
+            let fade_exponent = if body_data.body_type == BodyType::Asteroid {
+                5.0
+            } else {
+                1.8
+            };
 
             commands.entity(*entity).insert(OrbitPath {
                 color: orbit_color,

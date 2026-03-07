@@ -174,13 +174,15 @@ fn populate_nearby_systems(
             star_vis_scales[idx] = system_visual_scale(star_data.luminosity_sol);
         }
 
-        let orbit_defs_by_label: HashMap<String, &BinaryOrbitData> = system_data
-            .binary_orbits
+        // Normalise catalog binary‐orbit inclinations so the innermost pair
+        // defines the game‐world reference plane, preventing observer‐frame
+        // angles from producing wildly tilted renderings.
+        let normalized_orbits = normalize_system_binary_orbits(&system_data.binary_orbits);
+        let orbit_defs_by_label: HashMap<String, &BinaryOrbitData> = normalized_orbits
             .iter()
             .map(|orbit| (orbit.label.clone(), orbit))
             .collect();
-        let orbit_anchors_by_label: HashMap<String, Entity> = system_data
-            .binary_orbits
+        let orbit_anchors_by_label: HashMap<String, Entity> = normalized_orbits
             .iter()
             .map(|orbit| {
                 (
@@ -192,7 +194,7 @@ fn populate_nearby_systems(
 
         let mut direct_star_parent: HashMap<usize, String> = HashMap::new();
         let mut direct_orbit_parent: HashMap<String, String> = HashMap::new();
-        for orbit in &system_data.binary_orbits {
+        for orbit in &normalized_orbits {
             if let Some(primary_ref) = orbit_primary_ref(orbit) {
                 match primary_ref {
                     OrbitBodyRef::Star(idx) => {
@@ -218,7 +220,7 @@ fn populate_nearby_systems(
         let mut resolved_orbits: HashMap<String, ResolvedOrbitBody> = HashMap::new();
         loop {
             let mut progressed = false;
-            for orbit in &system_data.binary_orbits {
+            for orbit in &normalized_orbits {
                 if resolved_orbits.contains_key(&orbit.label) {
                     continue;
                 }
@@ -252,13 +254,12 @@ fn populate_nearby_systems(
                 progressed = true;
             }
 
-            if resolved_orbits.len() == system_data.binary_orbits.len() || !progressed {
+            if resolved_orbits.len() == normalized_orbits.len() || !progressed {
                 break;
             }
         }
 
-        let root_orbit_labels: Vec<String> = system_data
-            .binary_orbits
+        let root_orbit_labels: Vec<String> = normalized_orbits
             .iter()
             .map(|orbit| orbit.label.clone())
             .filter(|label| !direct_orbit_parent.contains_key(label))
@@ -353,7 +354,7 @@ fn populate_nearby_systems(
             );
         }
 
-        for orbit in &system_data.binary_orbits {
+        for orbit in &normalized_orbits {
             let anchor_entity = *orbit_anchors_by_label
                 .get(&orbit.label)
                 .expect("anchor should exist");
@@ -362,7 +363,8 @@ fn populate_nearby_systems(
                     .get(parent_label)
                     .copied()
                     .expect("parent orbit label should resolve");
-                let parent_primary = orbit_primary_ref(parent_orbit).expect("valid primary orbit ref");
+                let parent_primary =
+                    orbit_primary_ref(parent_orbit).expect("valid primary orbit ref");
                 let parent_secondary =
                     orbit_secondary_ref(parent_orbit).expect("valid secondary orbit ref");
                 let primary_body = resolve_orbit_body(
@@ -391,9 +393,7 @@ fn populate_nearby_systems(
 
                 commands.entity(anchor_entity).insert((
                     SpaceCoordinates::default(),
-                    orbit_center_component(
-                        orbit_anchors_by_label.get(parent_label).copied(),
-                    ),
+                    orbit_center_component(orbit_anchors_by_label.get(parent_label).copied()),
                     if child_is_primary {
                         primary_orbit
                     } else {
@@ -408,7 +408,7 @@ fn populate_nearby_systems(
         }
 
         let orbit_anchor_offsets_au = compute_orbit_anchor_offsets_au(
-            &system_data.binary_orbits,
+            &normalized_orbits,
             &orbit_defs_by_label,
             &direct_orbit_parent,
             &system_data.stars,
@@ -444,7 +444,7 @@ fn populate_nearby_systems(
 
         let mut system_max_radius_au = 10.0_f64;
 
-        for orbit in &system_data.binary_orbits {
+        for orbit in &normalized_orbits {
             let Some(primary_ref) = orbit_primary_ref(orbit) else {
                 continue;
             };
@@ -484,37 +484,43 @@ fn populate_nearby_systems(
             let representative_star = star_entities[host_body.representative_star_idx];
             let representative_data = &system_data.stars[host_body.representative_star_idx];
             let vis_scale = system_visual_scale(host_body.luminosity_sol.max(0.0001));
-            let host_offset_au = orbit_anchor_offsets_au.get(&orbit.label).copied().unwrap_or(0.0);
+            let host_offset_au = orbit_anchor_offsets_au
+                .get(&orbit.label)
+                .copied()
+                .unwrap_or(0.0);
             system_max_radius_au = system_max_radius_au.max(host_offset_au);
-            system_max_radius_au = system_max_radius_au.max(host_offset_au + populate_host_bodies(
-                &mut commands,
-                &mut meshes,
-                &mut materials,
-                &mut images,
-                &orbit.label,
-                &system_data.system_name,
-                OrbitParentLink {
-                    spatial_parent: *orbit_anchors_by_label
-                        .get(&orbit.label)
-                        .expect("orbit anchor should exist"),
-                    logical_parent: representative_star,
-                },
-                system_id,
-                host_body.mass_sol,
-                host_body.luminosity_sol,
-                spectral_type_to_class(&representative_data.spectral_type),
-                host_body.metallicity,
-                vis_scale,
-                &[],
-                true,
-                true,
-                Some(min_circumbinary_au),
-                None,
-                None, // circumbinary planets: no single companion, perturbations already encoded in min orbit
-                None,
-                &mut rng,
-                game_seed.value,
-            ));
+            system_max_radius_au = system_max_radius_au.max(
+                host_offset_au
+                    + populate_host_bodies(
+                        &mut commands,
+                        &mut meshes,
+                        &mut materials,
+                        &mut images,
+                        &orbit.label,
+                        &system_data.system_name,
+                        OrbitParentLink {
+                            spatial_parent: *orbit_anchors_by_label
+                                .get(&orbit.label)
+                                .expect("orbit anchor should exist"),
+                            logical_parent: representative_star,
+                        },
+                        system_id,
+                        host_body.mass_sol,
+                        host_body.luminosity_sol,
+                        spectral_type_to_class(&representative_data.spectral_type),
+                        host_body.metallicity,
+                        vis_scale,
+                        &[],
+                        true,
+                        true,
+                        Some(min_circumbinary_au),
+                        None,
+                        None, // circumbinary planets: no single companion, perturbations already encoded in min orbit
+                        None,
+                        &mut rng,
+                        game_seed.value,
+                    ),
+            );
         }
 
         let paired_star_indices: HashSet<usize> = direct_star_parent.keys().copied().collect();
@@ -584,7 +590,9 @@ fn populate_nearby_systems(
                 });
 
             let allow_procedural_generation = if is_in_explicit_pair {
-                maximum_stable_orbit_au.map(|limit| limit >= 0.05).unwrap_or(false)
+                maximum_stable_orbit_au
+                    .map(|limit| limit >= 0.05)
+                    .unwrap_or(false)
             } else {
                 true
             };
@@ -595,33 +603,36 @@ fn populate_nearby_systems(
             }
 
             system_max_radius_au = system_max_radius_au.max(host_offset_au);
-            system_max_radius_au = system_max_radius_au.max(host_offset_au + populate_host_bodies(
-                &mut commands,
-                &mut meshes,
-                &mut materials,
-                &mut images,
-                &star_data.name,
-                &system_data.system_name,
-                OrbitParentLink {
-                    spatial_parent: star_entities[idx],
-                    logical_parent: star_entities[idx],
-                },
-                system_id,
-                star_data.mass_sol as f64,
-                star_data.luminosity_sol,
-                spectral_type_to_class(&star_data.spectral_type),
-                star_metallicities[idx],
-                star_vis_scales[idx],
-                confirmed_planets,
-                allow_procedural_generation,
-                !is_in_explicit_pair,
-                None,
-                maximum_stable_orbit_au,
-                circumstellar_companion_context,
-                Some((star_entities[idx], star_data)),
-                &mut rng,
-                game_seed.value,
-            ));
+            system_max_radius_au = system_max_radius_au.max(
+                host_offset_au
+                    + populate_host_bodies(
+                        &mut commands,
+                        &mut meshes,
+                        &mut materials,
+                        &mut images,
+                        &star_data.name,
+                        &system_data.system_name,
+                        OrbitParentLink {
+                            spatial_parent: star_entities[idx],
+                            logical_parent: star_entities[idx],
+                        },
+                        system_id,
+                        star_data.mass_sol as f64,
+                        star_data.luminosity_sol,
+                        spectral_type_to_class(&star_data.spectral_type),
+                        star_metallicities[idx],
+                        star_vis_scales[idx],
+                        confirmed_planets,
+                        allow_procedural_generation,
+                        !is_in_explicit_pair,
+                        None,
+                        maximum_stable_orbit_au,
+                        circumstellar_companion_context,
+                        Some((star_entities[idx], star_data)),
+                        &mut rng,
+                        game_seed.value,
+                    ),
+            );
         }
 
         system_metadata.set_bounding_radius(system_id, system_max_radius_au);
@@ -653,6 +664,82 @@ fn stable_unit_interval(seed: &str, salt: u64) -> f64 {
             .wrapping_add(byte as u64 + 97)
     });
     (hash % 10_000) as f64 / 10_000.0
+}
+
+fn stable_signed_interval(seed: &str, salt: u64) -> f64 {
+    stable_unit_interval(seed, salt).mul_add(2.0, -1.0)
+}
+
+fn wrap_degrees(angle_deg: f64) -> f64 {
+    angle_deg.rem_euclid(360.0)
+}
+
+fn clamp_inclination_degrees(inclination_deg: f64) -> f64 {
+    inclination_deg.clamp(0.0, 180.0)
+}
+
+fn procedural_system_plane(system_name: &str) -> (f64, f64) {
+    let reference_inclination_deg = stable_unit_interval(system_name, 701) * 12.0;
+    let reference_node_deg = stable_unit_interval(system_name, 719) * 360.0;
+    (reference_inclination_deg, reference_node_deg)
+}
+
+/// Compute the orbital plane unit normal from inclination and longitude of ascending node.
+fn orbital_plane_normal(inclination_rad: f64, node_rad: f64) -> DVec3 {
+    let (sin_i, cos_i) = inclination_rad.sin_cos();
+    let (sin_n, cos_n) = node_rad.sin_cos();
+    DVec3::new(sin_i * sin_n, -sin_i * cos_n, cos_i)
+}
+
+/// Normalise catalog binary orbit inclinations so the innermost binary pair
+/// defines the game-world reference plane (i ≈ 0°). Outer orbits keep only
+/// their mutual inclination relative to that reference. This prevents
+/// observer-frame angles (e.g. Alpha Centauri AB at 79°) from producing
+/// wildly tilted orbits in the rendered scene.
+fn normalize_system_binary_orbits(orbits: &[BinaryOrbitData]) -> Vec<BinaryOrbitData> {
+    if orbits.is_empty() {
+        return Vec::new();
+    }
+
+    // Find the reference orbit: the innermost pair where both endpoints are
+    // direct stars (not orbit labels referencing another pair).
+    let reference = orbits.iter().find(|o| {
+        o.primary_idx.is_some()
+            && o.secondary_idx.is_some()
+            && o.primary_orbit_label.is_none()
+            && o.secondary_orbit_label.is_none()
+    });
+
+    let Some(ref_orbit) = reference else {
+        // No pure star–star pair; return copies unchanged.
+        return orbits.to_vec();
+    };
+
+    let ref_i = ref_orbit.inclination_deg.to_radians();
+    let ref_node = ref_orbit.longitude_ascending_node_deg.to_radians();
+    let ref_normal = orbital_plane_normal(ref_i, ref_node);
+
+    orbits
+        .iter()
+        .map(|orbit| {
+            let mut norm = orbit.clone();
+
+            let i = orbit.inclination_deg.to_radians();
+            let node = orbit.longitude_ascending_node_deg.to_radians();
+            let n = orbital_plane_normal(i, node);
+
+            // Mutual inclination via dot product of plane normals.
+            let cos_mutual = ref_normal.dot(n).clamp(-1.0, 1.0);
+            norm.inclination_deg = cos_mutual.acos().to_degrees();
+
+            // Relative longitude of ascending node.
+            norm.longitude_ascending_node_deg = (orbit.longitude_ascending_node_deg
+                - ref_orbit.longitude_ascending_node_deg)
+                .rem_euclid(360.0);
+
+            norm
+        })
+        .collect()
 }
 
 fn orbit_body_ref(
@@ -699,7 +786,11 @@ fn orbit_secondary_ref(orbit: &BinaryOrbitData) -> Option<OrbitBodyRef> {
     )
 }
 
-fn resolved_star_body(star_data: &StarData, metallicity: f32, star_index: usize) -> ResolvedOrbitBody {
+fn resolved_star_body(
+    star_data: &StarData,
+    metallicity: f32,
+    star_index: usize,
+) -> ResolvedOrbitBody {
     ResolvedOrbitBody {
         mass_sol: star_data.mass_sol as f64,
         luminosity_sol: star_data.luminosity_sol,
@@ -832,14 +923,11 @@ fn compute_orbit_anchor_offsets_au(
                 .copied()
                 .expect("parent orbit label should resolve");
             let parent_primary = orbit_primary_ref(parent_orbit).expect("valid primary orbit ref");
-            let parent_secondary = orbit_secondary_ref(parent_orbit).expect("valid secondary orbit ref");
-            let primary_body = resolve_orbit_body(
-                &parent_primary,
-                stars,
-                star_metallicities,
-                resolved_orbits,
-            )
-            .expect("parent primary body should resolve");
+            let parent_secondary =
+                orbit_secondary_ref(parent_orbit).expect("valid secondary orbit ref");
+            let primary_body =
+                resolve_orbit_body(&parent_primary, stars, star_metallicities, resolved_orbits)
+                    .expect("parent primary body should resolve");
             let secondary_body = resolve_orbit_body(
                 &parent_secondary,
                 stars,
@@ -944,8 +1032,8 @@ fn circumstellar_stability_limit(
     let total_mass = (host_mass_sol + companion_mass_sol).max(1e-6);
     let mu = (companion_mass_sol / total_mass).clamp(0.0, 1.0);
     let e = orbit.eccentricity.clamp(0.0, 0.9);
-    let ratio = 0.464 - 0.380 * mu - 0.631 * e + 0.586 * mu * e + 0.150 * e * e
-        - 0.198 * mu * e * e;
+    let ratio =
+        0.464 - 0.380 * mu - 0.631 * e + 0.586 * mu * e + 0.150 * e * e - 0.198 * mu * e * e;
     orbit.semi_major_axis_au * ratio.max(0.02)
 }
 
@@ -957,9 +1045,20 @@ fn estimate_outer_companion_orbits(
 ) -> (KeplerOrbit, KeplerOrbit) {
     let semi_major_axis_au = (inner_apastron_au * 250.0).clamp(600.0, 15_000.0);
     let eccentricity = 0.3 + stable_unit_interval(system_name, 17) * 0.25;
-    let inclination_deg = 20.0 + stable_unit_interval(system_name, 29) * 60.0;
+    let (reference_inclination_deg, reference_node_deg) = procedural_system_plane(system_name);
+    let wide_companion_tilt_deg = {
+        let tilt_scale_deg = if stable_unit_interval(system_name, 23) < 0.9 {
+            14.0
+        } else {
+            26.0
+        };
+        stable_signed_interval(system_name, 29) * tilt_scale_deg
+    };
+    let inclination_deg =
+        clamp_inclination_degrees(reference_inclination_deg + wide_companion_tilt_deg);
     let arg_periastron_deg = stable_unit_interval(system_name, 43) * 360.0;
-    let longitude_ascending_node_deg = stable_unit_interval(system_name, 61) * 360.0;
+    let longitude_ascending_node_deg =
+        wrap_degrees(reference_node_deg + stable_signed_interval(system_name, 61) * 24.0);
     let total_mass = (inner_mass_sol + tertiary_mass_sol).max(1e-6);
     let period_years = (semi_major_axis_au.powi(3) / total_mass).sqrt();
 
@@ -983,10 +1082,15 @@ fn build_fallback_star_orbit(
 ) -> KeplerOrbit {
     let semi_major_axis_au = 200.0 + (star_index as f64 * 120.0);
     let eccentricity = 0.05 + stable_unit_interval(system_name, star_index as u64 + 101) * 0.2;
-    let inclination_deg = stable_unit_interval(system_name, star_index as u64 + 211) * 35.0;
+    let (reference_inclination_deg, reference_node_deg) = procedural_system_plane(system_name);
+    let inclination_deg = clamp_inclination_degrees(
+        reference_inclination_deg
+            + stable_signed_interval(system_name, star_index as u64 + 211) * 8.0,
+    );
     let arg_periastron_deg = stable_unit_interval(system_name, star_index as u64 + 307) * 360.0;
-    let longitude_ascending_node_deg =
-        stable_unit_interval(system_name, star_index as u64 + 401) * 360.0;
+    let longitude_ascending_node_deg = wrap_degrees(
+        reference_node_deg + stable_signed_interval(system_name, star_index as u64 + 401) * 15.0,
+    );
     let total_mass = (star_mass_sol + primary_mass_sol).max(1e-6);
     let period_years = (semi_major_axis_au.powi(3) / total_mass).sqrt();
 
@@ -1011,8 +1115,7 @@ fn circumbinary_stability_limit(
     let total_mass = (primary_mass_sol + secondary_mass_sol).max(1e-6);
     let mu = (secondary_mass_sol / total_mass).clamp(0.0, 1.0);
     let e = orbit.eccentricity.clamp(0.0, 0.9);
-    let ratio = 1.60 + 5.10 * e - 2.22 * e * e + 4.12 * mu - 4.27 * e * mu
-        - 5.09 * mu * mu
+    let ratio = 1.60 + 5.10 * e - 2.22 * e * e + 4.12 * mu - 4.27 * e * mu - 5.09 * mu * mu
         + 4.61 * e * e * mu * mu;
     orbit.semi_major_axis_au * ratio.max(2.0)
 }
@@ -1137,7 +1240,8 @@ fn populate_host_bodies(
             .iter()
             .chain(arch.gas_giants.iter())
             .filter(|planet| {
-                planet.semi_major_axis_au >= min_orbit_au && planet.semi_major_axis_au <= max_orbit_au
+                planet.semi_major_axis_au >= min_orbit_au
+                    && planet.semi_major_axis_au <= max_orbit_au
             })
         {
             let planet_entity = spawn_procedural_planet(
@@ -1190,7 +1294,8 @@ fn populate_host_bodies(
             && planet.semi_major_axis_au > frost_line_for_rings * 0.5
         {
             0.42
-        } else if planet.mass_earth > 10.0 && planet.semi_major_axis_au > frost_line_for_rings * 0.5 {
+        } else if planet.mass_earth > 10.0 && planet.semi_major_axis_au > frost_line_for_rings * 0.5
+        {
             0.20
         } else {
             0.0
@@ -1259,7 +1364,8 @@ fn populate_host_bodies(
                 .dwarf_planets
                 .iter()
                 .filter(|planet| {
-                    planet.semi_major_axis_au >= min_orbit_au && planet.semi_major_axis_au <= max_orbit_au
+                    planet.semi_major_axis_au >= min_orbit_au
+                        && planet.semi_major_axis_au <= max_orbit_au
                 })
                 .cloned()
                 .collect();
@@ -1286,10 +1392,8 @@ fn populate_host_bodies(
             .reduce(f64::min)
         {
             let max_star_vis = (inner_sma_au as f32) * (SCALING_FACTOR as f32) * 0.12;
-            let current = calculate_visual_radius(
-                BodyType::Star,
-                (star_data.radius_sol * 695700.0) as f32,
-            );
+            let current =
+                calculate_visual_radius(BodyType::Star, (star_data.radius_sol * 695700.0) as f32);
             if current > max_star_vis && max_star_vis > 2.0 {
                 if let Ok(mut body) = commands.get_entity(star_entity) {
                     body.insert(CelestialBody {
@@ -1329,7 +1433,9 @@ fn clamp_cometary_cloud(
     maximum_outer_au: Option<f64>,
 ) -> Option<CometaryCloud> {
     let inner_au = cloud.inner_au.max(minimum_inner_au);
-    let outer_au = cloud.outer_au.min(maximum_outer_au.unwrap_or(f64::INFINITY));
+    let outer_au = cloud
+        .outer_au
+        .min(maximum_outer_au.unwrap_or(f64::INFINITY));
     (inner_au < outer_au).then(|| CometaryCloud {
         inner_au,
         outer_au,
@@ -1557,7 +1663,15 @@ fn spawn_confirmed_planet(
         .name
         .bytes()
         .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
-    let category = classify_exoplanet_with_mass(BodyType::Planet, None, avg_temp, cat_seed, false, false, Some(mass_kg));
+    let category = classify_exoplanet_with_mass(
+        BodyType::Planet,
+        None,
+        avg_temp,
+        cat_seed,
+        false,
+        false,
+        Some(mass_kg),
+    );
 
     // Generate a reasonable rotation period for confirmed exoplanets (no observational data)
     let is_gas_giant = mass_earth > 10.0;
@@ -1618,7 +1732,7 @@ fn spawn_confirmed_planet(
         orbit,
         RotationSpeed(rotation_speed),
         OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.85)), // Lighter blue — planets
-        SpaceCoordinates::default(),                       // Will be updated by propagate_orbits
+        SpaceCoordinates::default(),                        // Will be updated by propagate_orbits
         OrbitCenter(parent.spatial_parent),
         OrbitsBody::new(parent.logical_parent),
         LogicalParent(parent.logical_parent),
@@ -1712,7 +1826,15 @@ fn spawn_procedural_planet(
         .name
         .bytes()
         .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
-    let category = classify_exoplanet_with_mass(planet.body_type(), None, avg_temp, cat_seed, false, false, Some(mass_kg));
+    let category = classify_exoplanet_with_mass(
+        planet.body_type(),
+        None,
+        avg_temp,
+        cat_seed,
+        false,
+        false,
+        Some(mass_kg),
+    );
 
     // Calculate rotation speed from period (same formula as solar_system.rs)
     let rotation_speed = if planet.rotation_period_days != 0.0 {
@@ -1753,7 +1875,7 @@ fn spawn_procedural_planet(
             north_pole_ra: rng.random_range(0.0..std::f32::consts::TAU),
         },
         OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.85)), // Lighter blue — planets
-        SpaceCoordinates::default(),                       // Will be updated by propagate_orbits
+        SpaceCoordinates::default(),                        // Will be updated by propagate_orbits
         OrbitCenter(parent.spatial_parent),
         OrbitsBody::new(parent.logical_parent),
         LogicalParent(parent.logical_parent),
@@ -2545,7 +2667,6 @@ fn spawn_procedural_moons(
     }
 
     for (i, &(orbital_distance_au, is_regular)) in moon_distances.iter().enumerate() {
-
         // --- Mass (log-uniform for realistic spread across orders of magnitude) ---
         // Real examples: Ganymede 0.025% of Jupiter, Deimos 0.000000025% of Mars,
         //                Earth's Moon 1.2% of Earth, Phobos 0.00000018% of Mars
@@ -2702,8 +2823,7 @@ fn spawn_procedural_moons(
             planet_name,
             planet_sma_au,
             (inner_display / (0.001 * SCALING_FACTOR)).max(1.0),
-            (outer_display / ((0.001 + (spawned as f64 - 1.0) * 0.002) * SCALING_FACTOR))
-                .max(1.0),
+            (outer_display / ((0.001 + (spawned as f64 - 1.0) * 0.002) * SCALING_FACTOR)).max(1.0),
         );
     }
 }
@@ -2762,10 +2882,8 @@ mod tests {
 
         let primary_pos =
             orbit_position_from_mean_anomaly(&primary_orbit, primary_orbit.mean_anomaly_epoch);
-        let secondary_pos = orbit_position_from_mean_anomaly(
-            &secondary_orbit,
-            secondary_orbit.mean_anomaly_epoch,
-        );
+        let secondary_pos =
+            orbit_position_from_mean_anomaly(&secondary_orbit, secondary_orbit.mean_anomaly_epoch);
         let barycenter = primary_pos * primary_mass + secondary_pos * secondary_mass;
 
         assert!(barycenter.length() < 1e-6);

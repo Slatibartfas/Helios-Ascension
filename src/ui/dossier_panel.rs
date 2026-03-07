@@ -1685,8 +1685,13 @@ fn draw_resource_tile(
             ..prev_visuals.clone()
         });
 
-        egui::Tooltip::always_open(ui.ctx().clone(), ui.layer_id(), tooltip_id, egui::PopupAnchor::Pointer)
-            .show(|ui| {
+        egui::Tooltip::always_open(
+            ui.ctx().clone(),
+            ui.layer_id(),
+            tooltip_id,
+            egui::PopupAnchor::Pointer,
+        )
+        .show(|ui| {
             let tip_frame = egui::Frame::NONE
                 .fill(BG_FILL)
                 .stroke(egui::Stroke::new(1.0, ACCENT_DIM))

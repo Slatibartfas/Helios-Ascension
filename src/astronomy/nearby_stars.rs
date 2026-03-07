@@ -483,7 +483,10 @@ mod tests {
         )
         .expect("hierarchical orbit should deserialize");
 
-        assert_eq!(orbit.primary_orbit_label.as_deref(), Some("Alpha Centauri AB"));
+        assert_eq!(
+            orbit.primary_orbit_label.as_deref(),
+            Some("Alpha Centauri AB")
+        );
         assert_eq!(orbit.secondary_idx, Some(2));
         assert_eq!(orbit.primary_idx, None);
     }

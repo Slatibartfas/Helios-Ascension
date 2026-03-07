@@ -488,7 +488,15 @@ pub fn classify_exoplanet(
     has_surface_ocean: bool,
     ocean_is_water: bool,
 ) -> &'static str {
-    classify_exoplanet_with_mass(body_type, asteroid_class, avg_temp_c, seed, has_surface_ocean, ocean_is_water, None)
+    classify_exoplanet_with_mass(
+        body_type,
+        asteroid_class,
+        avg_temp_c,
+        seed,
+        has_surface_ocean,
+        ocean_is_water,
+        None,
+    )
 }
 
 /// Extended classifier that also considers body mass (kg).
@@ -1769,31 +1777,79 @@ mod tests {
     fn test_classify_gas_and_ice_giants_by_mass() {
         // Jupiter-mass (1.9e27 kg) — gas giant regardless of temperature
         assert_eq!(
-            classify_exoplanet_with_mass(BodyType::GasGiant, None, -108.0, 0, false, false, Some(1.9e27)),
+            classify_exoplanet_with_mass(
+                BodyType::GasGiant,
+                None,
+                -108.0,
+                0,
+                false,
+                false,
+                Some(1.9e27)
+            ),
             "gas_giant"
         );
         // Saturn-mass (5.7e26 kg) — gas giant
         assert_eq!(
-            classify_exoplanet_with_mass(BodyType::GasGiant, None, -133.0, 0, false, false, Some(5.7e26)),
+            classify_exoplanet_with_mass(
+                BodyType::GasGiant,
+                None,
+                -133.0,
+                0,
+                false,
+                false,
+                Some(5.7e26)
+            ),
             "gas_giant"
         );
         // Uranus-mass (8.7e25 kg) — ice giant
         assert_eq!(
-            classify_exoplanet_with_mass(BodyType::GasGiant, None, -197.0, 0, false, false, Some(8.7e25)),
+            classify_exoplanet_with_mass(
+                BodyType::GasGiant,
+                None,
+                -197.0,
+                0,
+                false,
+                false,
+                Some(8.7e25)
+            ),
             "ice_giant"
         );
         // Neptune-mass (1.0e26 kg) — ice giant
         assert_eq!(
-            classify_exoplanet_with_mass(BodyType::GasGiant, None, -201.0, 0, false, false, Some(1.0e26)),
+            classify_exoplanet_with_mass(
+                BodyType::GasGiant,
+                None,
+                -201.0,
+                0,
+                false,
+                false,
+                Some(1.0e26)
+            ),
             "ice_giant"
         );
         // Mass threshold: > 2e26 is gas giant
         assert_eq!(
-            classify_exoplanet_with_mass(BodyType::GasGiant, None, -200.0, 0, false, false, Some(2.01e26)),
+            classify_exoplanet_with_mass(
+                BodyType::GasGiant,
+                None,
+                -200.0,
+                0,
+                false,
+                false,
+                Some(2.01e26)
+            ),
             "gas_giant"
         );
         assert_eq!(
-            classify_exoplanet_with_mass(BodyType::GasGiant, None, -200.0, 0, false, false, Some(2.0e26)),
+            classify_exoplanet_with_mass(
+                BodyType::GasGiant,
+                None,
+                -200.0,
+                0,
+                false,
+                false,
+                Some(2.0e26)
+            ),
             "ice_giant"
         );
     }

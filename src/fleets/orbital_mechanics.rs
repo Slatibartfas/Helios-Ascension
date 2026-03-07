@@ -2124,7 +2124,11 @@ mod tests {
         let gm_05 = GM_SUN * 0.5;
         let opts = calculate_transfer_options(1.0, 1.524, gm_05, 0.0);
 
-        assert_eq!(opts.len(), 3, "should still return 3 options for non-solar GM");
+        assert_eq!(
+            opts.len(),
+            3,
+            "should still return 3 options for non-solar GM"
+        );
         // Efficient option Δv < Moderate < Fast
         assert!(opts[0].total_delta_v_ms < opts[1].total_delta_v_ms);
         assert!(opts[1].total_delta_v_ms < opts[2].total_delta_v_ms);
@@ -2168,9 +2172,9 @@ mod tests {
         // Jupiter-analogue at 5 AU around the 0.5 M☉ star.
         let ga_bodies = vec![(
             "JupiterAnalog".to_string(),
-            5.2_f64,  // SMA (AU)
+            5.2_f64,            // SMA (AU)
             G_CONST * 1.898e27, // Jupiter's mass (kg)
-            4.0e-4_f64, // safe flyby periapsis (AU)
+            4.0e-4_f64,         // safe flyby periapsis (AU)
         )];
         // Transfer from 1 AU → 10 AU (outer body beyond Jupiter analogue).
         let assists = find_gravity_assist_options(1.0, 10.0, gm, &ga_bodies);
@@ -2205,7 +2209,7 @@ mod tests {
         // Planet around Star A at 1 AU from Star A → barycentric r ≈ 12.5 AU.
         // Planet around Star B at 3 AU from Star B → barycentric r ≈ 14.5 AU.
         let gm_total = GM_SUN * 2.0; // 2 M☉ total
-        let gm_single = GM_SUN;       // 1 M☉ — wrong to use for inter-star
+        let gm_single = GM_SUN; // 1 M☉ — wrong to use for inter-star
 
         // Barycentric radii for the two planets.
         let r1 = 11.5_f64 + 1.0; // planet at 1 AU from Star A (barycentric ≈ 12.5 AU)
@@ -2255,13 +2259,20 @@ mod tests {
         // Binary system: total GM = GM_SUN (origin star) for the transfer frame.
         // Companion star (the flyby body): 1 M☉ → GM = GM_SUN.
         let companion_gm = GM_SUN; // 1 M☉ companion
-        // Safe periapsis: 20 stellar radii (Sun radius ≈ 0.00465 AU)
+                                   // Safe periapsis: 20 stellar radii (Sun radius ≈ 0.00465 AU)
         let star_radius_au = 0.00465_f64;
         let min_peri_au = star_radius_au * 20.0; // ≈ 0.093 AU
 
         // Transfer from 1 AU → 40 AU, with the companion at 20 AU.
-        let result =
-            compute_gravity_assist(1.0, 40.0, 20.0, GM_SUN, companion_gm, "Companion".into(), min_peri_au);
+        let result = compute_gravity_assist(
+            1.0,
+            40.0,
+            20.0,
+            GM_SUN,
+            companion_gm,
+            "Companion".into(),
+            min_peri_au,
+        );
 
         // A stellar flyby should have extremely high v_inf (approaching the star adds
         // enormous kinetic energy near the star).
@@ -2297,9 +2308,19 @@ mod tests {
 
         let bodies = vec![
             // Companion star at 20 AU — strictly between 5 and 40 AU
-            ("Companion Star".to_string(), 20.0_f64, companion_gm, min_peri),
+            (
+                "Companion Star".to_string(),
+                20.0_f64,
+                companion_gm,
+                min_peri,
+            ),
             // Jupiter-analogue inside the range (5–40 AU)
-            ("JupiterAnalogue".to_string(), 10.0_f64, G_CONST * 1.898e27, 0.001_f64),
+            (
+                "JupiterAnalogue".to_string(),
+                10.0_f64,
+                G_CONST * 1.898e27,
+                0.001_f64,
+            ),
         ];
 
         let opts = find_gravity_assist_options(5.0, 40.0, GM_SUN, &bodies);
@@ -2310,7 +2331,10 @@ mod tests {
             "Companion star should be a gravity-assist candidate"
         );
         // The stellar flyby should have by far the highest max assist kick.
-        let star_opt = opts.iter().find(|o| o.body_name == "Companion Star").unwrap();
+        let star_opt = opts
+            .iter()
+            .find(|o| o.body_name == "Companion Star")
+            .unwrap();
         let planet_opt = opts.iter().find(|o| o.body_name == "JupiterAnalogue");
         if let Some(planet) = planet_opt {
             assert!(

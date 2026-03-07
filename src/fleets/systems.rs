@@ -644,6 +644,7 @@ pub fn process_fleet_actions(
 /// | Ion Research Fleet        | Mars     | Ion Drive          |
 /// | Fusion Expeditionary Corps| Jupiter  | Fusion Torch       |
 /// | Antimatter Vanguard       | Saturn   | Antimatter Drive   |
+/// | Alpha Centauri Test Fleet | Alpha Centauri A | Antimatter Drive |
 pub fn spawn_initial_fleet(
     mut commands: Commands,
     body_query: Query<(Entity, &crate::plugins::solar_system::CelestialBody)>,
@@ -778,5 +779,31 @@ pub fn spawn_initial_fleet(
         ));
     } else {
         bevy::log::warn!("spawn_initial_fleet: Saturn not found");
+    }
+
+    // ── Alpha Centauri Test Fleet (Antimatter Drive, Alpha Centauri A orbit) ─
+    if let Some((alpha_centauri_a, alpha_centauri_a_body)) = body_query
+        .iter()
+        .find(|(_, body)| body.name == "Alpha Centauri A")
+    {
+        // Park the test fleet in a tight stellar orbit so transfers can be
+        // planned immediately in procedural multi-star systems.
+        let radius_au = (alpha_centauri_a_body.radius as f64 * 3.0) * 1_000.0 / AU_IN_METERS;
+        let mut fleet = Fleet::new("Alpha Centauri Test Fleet".to_string());
+        fleet.ships.push(ShipInfo::new(
+            "ACTF Daedalus".to_string(),
+            ShipClass::Destroyer,
+            PropulsionType::AntimatterDrive,
+        ));
+        fleet.ships.push(ShipInfo::new(
+            "ACTF Icarus".to_string(),
+            ShipClass::Frigate,
+            PropulsionType::AntimatterDrive,
+        ));
+        commands.spawn((
+            fleet,
+            FleetOrbit::new(alpha_centauri_a, radius_au),
+            SpaceCoordinates::default(),
+        ));
     }
 }

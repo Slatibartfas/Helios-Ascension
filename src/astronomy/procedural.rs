@@ -49,9 +49,9 @@ const MIN_FORCED_ECCENTRICITY_DENOMINATOR: f64 = 1e-3;
 /// A protoplanetary disk forms roughly coplanar with the binary orbit; this constant
 /// models the small warp and accretion history effects that cause the disk (and
 /// resulting planets) to deviate slightly from perfect alignment.
-/// 0.175 rad ≈ 10°, which matches the typical scatter seen in observed S-type
-/// binary planet systems.
-const MAX_BINARY_INCLINATION_SCATTER_RAD: f64 = 0.175;
+/// 0.087 rad ≈ 5°, which keeps circumstellar planets close to the parent binary
+/// plane while still allowing modest disk warping.
+const MAX_BINARY_INCLINATION_SCATTER_RAD: f64 = 0.087;
 
 /// Calculate escape velocity from a body
 /// v_esc = sqrt(2GM/R)
@@ -68,7 +68,11 @@ pub fn calculate_instellation(star_luminosity_sol: f64, distance_au: f64) -> f64
 /// Calculate equilibrium temperature for a planet
 /// T_eq = (L * (1 - albedo) / (16 * pi * d² * sigma))^(1/4)
 /// Simplified: T_eq = 278.3 * L^(1/4) / d^(1/2)
-pub fn calculate_equilibrium_temperature(star_luminosity_sol: f64, distance_au: f64, albedo: f32) -> f64 {
+pub fn calculate_equilibrium_temperature(
+    star_luminosity_sol: f64,
+    distance_au: f64,
+    albedo: f32,
+) -> f64 {
     let t_eq_no_albedo = 278.3 * star_luminosity_sol.powf(0.25) / distance_au.sqrt();
     // Apply albedo correction
     t_eq_no_albedo * (1.0 - albedo as f64).powf(0.25)
@@ -77,7 +81,11 @@ pub fn calculate_equilibrium_temperature(star_luminosity_sol: f64, distance_au: 
 /// Calculate Hill sphere radius for a body orbiting a larger mass
 /// R_H = a * (m / 3M)^(1/3)
 /// Returns Hill sphere in AU
-pub fn calculate_hill_sphere(planet_mass_kg: f64, star_mass_kg: f64, semi_major_axis_au: f64) -> f64 {
+pub fn calculate_hill_sphere(
+    planet_mass_kg: f64,
+    star_mass_kg: f64,
+    semi_major_axis_au: f64,
+) -> f64 {
     let mass_ratio = planet_mass_kg / (3.0 * star_mass_kg);
     semi_major_axis_au * mass_ratio.cbrt()
 }
@@ -141,7 +149,9 @@ impl BinaryCompanionContext {
         let alpha = planet_sma_au / self.binary_semi_major_axis_au;
         // Cap at MAX_BINARY_ECCENTRICITY_FOR_FORMULA so (1 - e²) ≥ 0.002,
         // preventing near-parabolic blow-up in the denominator
-        let e = self.binary_eccentricity.min(MAX_BINARY_ECCENTRICITY_FOR_FORMULA);
+        let e = self
+            .binary_eccentricity
+            .min(MAX_BINARY_ECCENTRICITY_FOR_FORMULA);
         // Defensive floor: the cap above guarantees (1 - e²) ≥ 0.002, but this
         // guards against any floating-point rounding edge that could reach zero
         let denom = (1.0 - e * e).max(MIN_FORCED_ECCENTRICITY_DENOMINATOR);
@@ -153,7 +163,7 @@ impl BinaryCompanionContext {
     /// The protoplanetary disk that formed the planet was roughly coplanar with the
     /// binary orbit.  This method returns an inclination centred on
     /// `binary_inclination_rad` with a smooth random scatter of
-    /// ±[`MAX_BINARY_INCLINATION_SCATTER_RAD`] (~10°) to model disk warping and
+    /// ±[`MAX_BINARY_INCLINATION_SCATTER_RAD`] (~5°) to model disk warping and
     /// accretion-history effects.
     ///
     /// A triangular distribution (average of two uniform draws) is used rather than
@@ -301,10 +311,10 @@ impl SystemType {
     /// Returns the typical number of orbital slots for this system type
     pub fn typical_slots(&self) -> (usize, usize) {
         match self {
-            SystemType::Standard => (4, 6),   // 4-6 planets
-            SystemType::Compact => (5, 8),   // 5-8 planets (crammed close, TRAPPIST-1 has 7)
+            SystemType::Standard => (4, 6),    // 4-6 planets
+            SystemType::Compact => (5, 8),     // 5-8 planets (crammed close, TRAPPIST-1 has 7)
             SystemType::JovianHeavy => (3, 7), // 3-7 planets with gas giants
-            SystemType::Sparse => (2, 4),     // 2-4 planets
+            SystemType::Sparse => (2, 4),      // 2-4 planets
         }
     }
 }
@@ -312,7 +322,7 @@ impl SystemType {
 /// Type of procedurally generated planet
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlanetType {
-    Rocky,        // Standard terrestrial planet
+    Rocky,       // Standard terrestrial planet
     SuperEarth,  // 1.5-10 Earth masses, rocky
     MiniNeptune, // Gaseous but small (10-20 Earth masses)
     DesertWorld, // Hot, rocky, no water
@@ -658,12 +668,12 @@ pub fn map_star_to_system_architecture_with_orbit_limits(
             SystemType::Sparse => 1.5,
         };
 
-        let min_orbit = minimum_orbit_au.unwrap_or(default_min_orbit).max(default_min_orbit.min(
-            minimum_orbit_au.unwrap_or(default_min_orbit),
-        ));
+        let min_orbit = minimum_orbit_au
+            .unwrap_or(default_min_orbit)
+            .max(default_min_orbit.min(minimum_orbit_au.unwrap_or(default_min_orbit)));
         let growth_factor: f64 = spacing_factor + 0.2;
-        let required_outer_span = min_orbit
-            * growth_factor.powi((slots_to_generate.max(1).saturating_sub(1)) as i32);
+        let required_outer_span =
+            min_orbit * growth_factor.powi((slots_to_generate.max(1).saturating_sub(1)) as i32);
         let unconstrained_max_orbit = default_max_orbit
             .max(required_outer_span)
             .max(min_orbit * 2.5);
@@ -714,8 +724,10 @@ pub fn map_star_to_system_architecture_with_orbit_limits(
                 maximum_orbit_au,
                 rng,
             );
-            if matches!(planet.planet_type, PlanetType::GasGiant | PlanetType::MiniNeptune)
-                && planet.semi_major_axis_au < frost_line_au
+            if matches!(
+                planet.planet_type,
+                PlanetType::GasGiant | PlanetType::MiniNeptune
+            ) && planet.semi_major_axis_au < frost_line_au
             {
                 migrated_giant_placed = true;
             }
@@ -759,29 +771,31 @@ pub fn map_star_to_system_architecture_with_orbit_limits(
     // ========================================================================
     let mut all_orbits_for_belt = valid_existing_orbits.to_vec();
     all_orbits_for_belt.extend(all_planets.iter().map(|p| p.semi_major_axis_au));
-    let outermost_planet_au = all_orbits_for_belt
-        .iter()
-        .copied()
-        .fold(0.0_f64, f64::max);
+    let outermost_planet_au = all_orbits_for_belt.iter().copied().fold(0.0_f64, f64::max);
 
     // If the outermost planet is well inside the frost line, use a scaled
     // "effective frost line" so that minor bodies form just beyond the
     // planetary zone rather than at unrealistically distant orbits.
-    let effective_frost_line = if minimum_orbit_au.is_some_and(|min_orbit| min_orbit > frost_line_au * 2.0) {
-        outermost_planet_au
-            .max(minimum_orbit_au.unwrap_or(frost_line_au))
-            .mul_add(0.75, 0.0)
-            .max(frost_line_au)
-    } else if outermost_planet_au > 0.0 && outermost_planet_au < frost_line_au * 0.5 {
-        // Belt should start just beyond the outermost planet
-        (outermost_planet_au * 2.5).min(frost_line_au)
-    } else {
-        frost_line_au
-    };
+    let effective_frost_line =
+        if minimum_orbit_au.is_some_and(|min_orbit| min_orbit > frost_line_au * 2.0) {
+            outermost_planet_au
+                .max(minimum_orbit_au.unwrap_or(frost_line_au))
+                .mul_add(0.75, 0.0)
+                .max(frost_line_au)
+        } else if outermost_planet_au > 0.0 && outermost_planet_au < frost_line_au * 0.5 {
+            // Belt should start just beyond the outermost planet
+            (outermost_planet_au * 2.5).min(frost_line_au)
+        } else {
+            frost_line_au
+        };
 
     // Generate asteroid belt (inside or near frost line)
     let asteroid_belt = if rng.random_bool(0.8) {
-        Some(generate_asteroid_belt(effective_frost_line, &all_orbits_for_belt, rng))
+        Some(generate_asteroid_belt(
+            effective_frost_line,
+            &all_orbits_for_belt,
+            rng,
+        ))
     } else {
         None
     };
@@ -796,7 +810,14 @@ pub fn map_star_to_system_architecture_with_orbit_limits(
     // Generate dwarf planets in the trans-Neptunian region
     let dwarf_planets = if rng.random_bool(0.75) {
         let name_offset = valid_existing_orbits.len() + all_planets.len();
-        generate_dwarf_planets(star_name, effective_frost_line, &all_orbits_for_belt, name_offset, star_mass_solar, rng)
+        generate_dwarf_planets(
+            star_name,
+            effective_frost_line,
+            &all_orbits_for_belt,
+            name_offset,
+            star_mass_solar,
+            rng,
+        )
     } else {
         Vec::new()
     };
@@ -847,15 +868,12 @@ fn generate_planet_for_slot(
     );
 
     // Generate mass and radius based on planet type
-    let (mass_earth, radius_earth) = generate_mass_radius(planet_type, semi_major_axis_au, frost_line_au, rng);
+    let (mass_earth, radius_earth) =
+        generate_mass_radius(planet_type, semi_major_axis_au, frost_line_au, rng);
 
     // Generate visual properties based on composition
-    let (_color, _albedo) = generate_visual_properties(
-        planet_type,
-        semi_major_axis_au,
-        equilibrium_temp,
-        rng,
-    );
+    let (_color, _albedo) =
+        generate_visual_properties(planet_type, semi_major_axis_au, equilibrium_temp, rng);
 
     // Generate rotation based on planet type and distance
     let rotation_period_days = match planet_type {
@@ -1046,14 +1064,19 @@ fn determine_planet_type(
 /// Generate mass and radius based on planet type
 /// Implements Radius Valley logic: planets with 1.6-2.0 R_earth are differentiated
 /// based on whether they're inside or outside the frost line
-fn generate_mass_radius(planet_type: PlanetType, distance_au: f64, frost_line_au: f64, rng: &mut impl Rng) -> (f32, f32) {
+fn generate_mass_radius(
+    planet_type: PlanetType,
+    distance_au: f64,
+    frost_line_au: f64,
+    rng: &mut impl Rng,
+) -> (f32, f32) {
     match planet_type {
         PlanetType::Rocky => {
             // 0.05 - 2.0 Earth masses
             let log_mass = rng.random_range(-1.3_f64..0.3);
             let mass = 10.0_f64.powf(log_mass) as f32;
             // Rocky: M = R^3.7 (dense rocky composition)
-            let radius = (mass as f64).powf(1.0/3.7) * rng.random_range(0.90..1.10);
+            let radius = (mass as f64).powf(1.0 / 3.7) * rng.random_range(0.90..1.10);
             (mass, radius as f32)
         }
         PlanetType::SuperEarth => {
@@ -1067,7 +1090,7 @@ fn generate_mass_radius(planet_type: PlanetType, distance_au: f64, frost_line_au
             let radius = if distance_au < frost_line_au {
                 // Inside frost line: SuperEarth (high density, rocky interior)
                 // M = R^3.5 for rocky SuperEarths
-                (mass as f64).powf(1.0/3.5) * rng.random_range(0.90..1.10)
+                (mass as f64).powf(1.0 / 3.5) * rng.random_range(0.90..1.10)
             } else {
                 // Outside frost line: Mini-Neptune (low density, gas shroud)
                 // M = R^2.0 for gaseous dwarfs
@@ -2329,7 +2352,10 @@ mod tests {
             binary_inclination_rad: 0.0,
         };
         let e = ctx.forced_eccentricity(3.0);
-        assert_eq!(e, 0.0, "Circular binary should produce zero forced eccentricity");
+        assert_eq!(
+            e, 0.0,
+            "Circular binary should produce zero forced eccentricity"
+        );
     }
 
     #[test]
@@ -2396,12 +2422,34 @@ mod tests {
         let mut sum_bin = 0.0_f64;
         for _ in 0..n {
             let p_iso = generate_planet_for_slot(
-                "Test", 0, 4.0, frost, hz_inner, hz_outer,
-                SystemType::Standard, 0.7, 0.5, false, None, None, &mut rng_iso,
+                "Test",
+                0,
+                4.0,
+                frost,
+                hz_inner,
+                hz_outer,
+                SystemType::Standard,
+                0.7,
+                0.5,
+                false,
+                None,
+                None,
+                &mut rng_iso,
             );
             let p_bin = generate_planet_for_slot(
-                "Test", 0, 4.0, frost, hz_inner, hz_outer,
-                SystemType::Standard, 0.7, 0.5, false, Some(ctx), Some(10.0), &mut rng_bin,
+                "Test",
+                0,
+                4.0,
+                frost,
+                hz_inner,
+                hz_outer,
+                SystemType::Standard,
+                0.7,
+                0.5,
+                false,
+                Some(ctx),
+                Some(10.0),
+                &mut rng_bin,
             );
             sum_iso += p_iso.eccentricity;
             sum_bin += p_bin.eccentricity;
@@ -2429,8 +2477,19 @@ mod tests {
 
         for _ in 0..50 {
             let p = generate_planet_for_slot(
-                "Cap Test", 0, 1.5, frost, hz_inner, hz_outer,
-                SystemType::Standard, 1.0, 1.0, false, Some(ctx), Some(2.0), &mut rng,
+                "Cap Test",
+                0,
+                1.5,
+                frost,
+                hz_inner,
+                hz_outer,
+                SystemType::Standard,
+                1.0,
+                1.0,
+                false,
+                Some(ctx),
+                Some(2.0),
+                &mut rng,
             );
             let apoastron = p.semi_major_axis_au * (1.0 + p.eccentricity);
             assert!(
@@ -2458,8 +2517,10 @@ mod tests {
         };
         let mut rng = StdRng::seed_from_u64(11111);
         let n = 500;
-        let mean_incl: f64 =
-            (0..n).map(|_| ctx.sample_planet_inclination(&mut rng)).sum::<f64>() / n as f64;
+        let mean_incl: f64 = (0..n)
+            .map(|_| ctx.sample_planet_inclination(&mut rng))
+            .sum::<f64>()
+            / n as f64;
         // Mean should land within ±5° of the binary inclination
         assert!(
             (mean_incl - binary_incl_rad).abs() < 0.09, // 0.09 rad ≈ 5°
@@ -2510,20 +2571,46 @@ mod tests {
         let mean_iso_incl: f64 = (0..n)
             .map(|_| {
                 generate_planet_for_slot(
-                    "ISO", 0, 2.0, frost, hz_inner, hz_outer,
-                    SystemType::Standard, 1.0, 1.5, false, None, None, &mut rng_iso,
-                ).inclination
+                    "ISO",
+                    0,
+                    2.0,
+                    frost,
+                    hz_inner,
+                    hz_outer,
+                    SystemType::Standard,
+                    1.0,
+                    1.5,
+                    false,
+                    None,
+                    None,
+                    &mut rng_iso,
+                )
+                .inclination
             })
-            .sum::<f64>() / n as f64;
+            .sum::<f64>()
+            / n as f64;
 
         let mean_bin_incl: f64 = (0..n)
             .map(|_| {
                 generate_planet_for_slot(
-                    "BIN", 0, 2.0, frost, hz_inner, hz_outer,
-                    SystemType::Standard, 1.0, 1.5, false, Some(ctx), Some(8.0), &mut rng_bin,
-                ).inclination
+                    "BIN",
+                    0,
+                    2.0,
+                    frost,
+                    hz_inner,
+                    hz_outer,
+                    SystemType::Standard,
+                    1.0,
+                    1.5,
+                    false,
+                    Some(ctx),
+                    Some(8.0),
+                    &mut rng_bin,
+                )
+                .inclination
             })
-            .sum::<f64>() / n as f64;
+            .sum::<f64>()
+            / n as f64;
 
         // Isolated star: inclination should be near 0
         assert!(

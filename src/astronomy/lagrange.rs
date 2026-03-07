@@ -7,7 +7,7 @@ use super::components::{
     LocalOrbitAmplification, LpMarkerInfo, OrbitCenter, Selected, SpaceCoordinates, SystemId,
 };
 use super::systems::SCALING_FACTOR;
-use crate::fleets::orbital_mechanics::{G_CONST as ORBIT_G};
+use crate::fleets::orbital_mechanics::G_CONST as ORBIT_G;
 use crate::game_state::ActiveMenu;
 use crate::plugins::camera::{CameraAnchor, EguiPanelBounds, GameCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, LogicalParent, Moon};
@@ -54,10 +54,7 @@ pub fn draw_lagrange_point_rings(
 
     // Check for anchor first (double-clicked body), then fall back to selection
     // This allows Lagrange points to be shown when either anchor OR selection exists
-    let anchor_entity = camera_query
-        .single()
-        .ok()
-        .and_then(|a| a.0);
+    let anchor_entity = camera_query.single().ok().and_then(|a| a.0);
 
     // Use anchor if available, otherwise use selection
     let Some(anchored) = anchor_entity.or_else(|| selected_bodies.iter().next()) else {
@@ -332,17 +329,9 @@ pub fn draw_lagrange_point_rings(
         // L1/L2 are along the moon-planet axis
         let lp_offsets: [Vec3; 5] = [
             // L1: toward parent along moon direction
-            Vec3::new(
-                (l1_r * lx) as f32,
-                (l1_r * ly) as f32,
-                (l1_r * lz) as f32,
-            ),
+            Vec3::new((l1_r * lx) as f32, (l1_r * ly) as f32, (l1_r * lz) as f32),
             // L2: away from parent along moon direction
-            Vec3::new(
-                (l2_r * lx) as f32,
-                (l2_r * ly) as f32,
-                (l2_r * lz) as f32,
-            ),
+            Vec3::new((l2_r * lx) as f32, (l2_r * ly) as f32, (l2_r * lz) as f32),
             // L3: opposite to moon (around the parent)
             Vec3::new(
                 (sma_render * -lx) as f32,

@@ -223,12 +223,14 @@ fn orbit_path_segments(path: &OrbitPath, orbit: &KeplerOrbit, amplification: f64
 
     let semi_major_render = orbit.semi_major_axis.abs() * SCALING_FACTOR * amplification.abs();
     if semi_major_render <= 0.0 {
-        return eccentricity_segments.max(path.segments).min(MAX_ORBIT_PATH_SEGMENTS);
+        return eccentricity_segments
+            .max(path.segments)
+            .min(MAX_ORBIT_PATH_SEGMENTS);
     }
 
     let semi_minor_render = semi_major_render * (1.0 - eccentricity * eccentricity).max(0.0).sqrt();
-    let h = ((semi_major_render - semi_minor_render) / (semi_major_render + semi_minor_render))
-        .powi(2);
+    let h =
+        ((semi_major_render - semi_minor_render) / (semi_major_render + semi_minor_render)).powi(2);
     let circumference = std::f64::consts::PI
         * (semi_major_render + semi_minor_render)
         * (1.0 + (3.0 * h) / (10.0 + (4.0 - 3.0 * h).sqrt()));
@@ -274,10 +276,8 @@ pub fn propagate_orbits(
     // parent has already been updated for the current frame — preventing the
     // one-frame positional lag that causes moons to visually "detach" from
     // their parent at high simulation speeds.
-    let orbit_center_set: HashMap<Entity, Option<Entity>> = entries
-        .iter()
-        .map(|(e, _, oc)| (*e, *oc))
-        .collect();
+    let orbit_center_set: HashMap<Entity, Option<Entity>> =
+        entries.iter().map(|(e, _, oc)| (*e, *oc)).collect();
 
     let depth_of = |_entity: Entity, oc: Option<Entity>| -> u8 {
         match oc {
@@ -422,7 +422,9 @@ pub fn update_render_transform(
     let scale = time_scale.scale as f64;
     let real_t = real_time.elapsed_secs() as f64;
 
-    for (coords, mut transform, amplification, logical_parent, orbit_center, kepler_orbit) in query.iter_mut() {
+    for (coords, mut transform, amplification, logical_parent, orbit_center, kepler_orbit) in
+        query.iter_mut()
+    {
         // Determine which position to use for rendering.
         // If the body has a KeplerOrbit and orbital speed is capped, compute
         // a visual position from capped mean anomaly × real time.
@@ -436,7 +438,10 @@ pub fn update_render_transform(
 
                 // For bodies with OrbitCenter, add parent position to get absolute coords
                 let parent_pos = if let Some(oc_entity) = orbit_center.map(|oc| oc.0) {
-                    parent_coords.get(oc_entity).map(|sc| sc.position).unwrap_or(DVec3::ZERO)
+                    parent_coords
+                        .get(oc_entity)
+                        .map(|sc| sc.position)
+                        .unwrap_or(DVec3::ZERO)
                 } else {
                     DVec3::ZERO
                 };
@@ -536,7 +541,18 @@ pub fn draw_orbit_paths(
     let real_t = real_time.elapsed_secs() as f64;
     let origin_offset = floating_origin.map(|fo| fo.position).unwrap_or(DVec3::ZERO);
 
-    for (orbit, path, orbit_center, logical_parent, amplification, visibility, system_id, is_selected, is_hovered) in query.iter() {
+    for (
+        orbit,
+        path,
+        orbit_center,
+        logical_parent,
+        amplification,
+        visibility,
+        system_id,
+        is_selected,
+        is_hovered,
+    ) in query.iter()
+    {
         if !path.visible {
             continue;
         }
@@ -588,7 +604,8 @@ pub fn draw_orbit_paths(
         // compressed orbit rate so the directional indicator matches the body's
         // visual position (set by update_render_transform).
         let visual_true_anomaly = if effective_orbital_speed > VISUAL_SPEED_BASE {
-            let vis_speed = capped_visual_speed(effective_orbital_speed) * orbit.mean_motion.signum();
+            let vis_speed =
+                capped_visual_speed(effective_orbital_speed) * orbit.mean_motion.signum();
             let vis_ma = orbit.mean_anomaly_epoch + vis_speed * real_t;
             mean_anomaly_to_true_anomaly(
                 vis_ma.rem_euclid(std::f64::consts::TAU),
@@ -603,8 +620,13 @@ pub fn draw_orbit_paths(
         let head_true_anomaly = if ring_blend > 0.0 {
             // Blend the head position between true and visual
             // For full ring mode, head = visual position entirely
-            let diff = (visual_true_anomaly - current_true_anomaly).rem_euclid(std::f64::consts::TAU);
-            let adjusted_diff = if diff > std::f64::consts::PI { diff - std::f64::consts::TAU } else { diff };
+            let diff =
+                (visual_true_anomaly - current_true_anomaly).rem_euclid(std::f64::consts::TAU);
+            let adjusted_diff = if diff > std::f64::consts::PI {
+                diff - std::f64::consts::TAU
+            } else {
+                diff
+            };
             current_true_anomaly + adjusted_diff * ring_blend as f64
         } else {
             current_true_anomaly
@@ -707,12 +729,18 @@ pub fn draw_orbit_paths(
 
                 // Apply highlight: multiplicative boost preserves the half-open
                 // trail shape; floor ensures the faint tail stays visible.
-                let alpha = (alpha * highlight_alpha_mult).max(highlight_alpha_floor).min(1.0);
+                let alpha = (alpha * highlight_alpha_mult)
+                    .max(highlight_alpha_floor)
+                    .min(1.0);
 
                 // Glow boost near the head — visible in both modes but
                 // stronger in ring mode to act as a directional indicator.
                 let head_region = t < 0.08;
-                let glow = if head_region { 1.0 + 0.3 * (1.0 - ring_blend) + 0.5 * ring_blend } else { 1.0 };
+                let glow = if head_region {
+                    1.0 + 0.3 * (1.0 - ring_blend) + 0.5 * ring_blend
+                } else {
+                    1.0
+                };
 
                 if alpha > 0.01 {
                     let segment_color = Color::srgba(
@@ -1338,10 +1366,9 @@ pub fn check_natural_destruction(
                 "{} destroyed by tidal forces at {:.4} AU from the Sun",
                 body.name, distance_au
             );
-            commands.entity(entity).insert(Destroyed::new(
-                sim_time.elapsed_seconds(),
-                1.5,
-            ));
+            commands
+                .entity(entity)
+                .insert(Destroyed::new(sim_time.elapsed_seconds(), 1.5));
         }
 
         // Additional destruction checks can be added here for other scenarios:
@@ -1829,7 +1856,8 @@ mod tests {
             ))
             .id();
 
-        app.world_mut().spawn((GameCamera, CameraAnchor(Some(anchor_entity))));
+        app.world_mut()
+            .spawn((GameCamera, CameraAnchor(Some(anchor_entity))));
         app.world_mut().resource_mut::<CurrentStarSystem>().0 = 3;
         *app.world_mut().resource_mut::<ViewMode>() = ViewMode::System;
 

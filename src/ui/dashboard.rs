@@ -27,13 +27,8 @@ fn render_selectable_label(ui: &mut egui::Ui, is_selected: bool, name: &str) -> 
     };
 
     let row_rect = rect.shrink2(egui::vec2(0.0, 1.0));
-    ui.painter().rect(
-        row_rect,
-        3.0,
-        fill,
-        stroke,
-        egui::StrokeKind::Outside,
-    );
+    ui.painter()
+        .rect(row_rect, 3.0, fill, stroke, egui::StrokeKind::Outside);
     ui.painter().text(
         row_rect.left_center() + egui::vec2(8.0, 0.0),
         egui::Align2::LEFT_CENTER,
@@ -69,13 +64,8 @@ fn render_group_header(
         egui::Stroke::NONE
     };
     let row_rect = rect.shrink2(egui::vec2(0.0, 1.0));
-    ui.painter().rect(
-        row_rect,
-        3.0,
-        fill,
-        stroke,
-        egui::StrokeKind::Outside,
-    );
+    ui.painter()
+        .rect(row_rect, 3.0, fill, stroke, egui::StrokeKind::Outside);
     ui.painter().text(
         row_rect.left_center() + egui::vec2(8.0, 0.0),
         egui::Align2::LEFT_CENTER,
@@ -131,7 +121,9 @@ fn render_body_row(
         ui.add_space(20.0);
         // Show anchor indicator (⚓) when anchored - not clickable, just informational
         if is_anchored {
-            ui.add(egui::Label::new(egui::RichText::new("⚓").color(egui::Color32::from_rgb(255, 200, 100))));
+            ui.add(egui::Label::new(
+                egui::RichText::new("⚓").color(egui::Color32::from_rgb(255, 200, 100)),
+            ));
         } else {
             ui.add_space(20.0); // Keep consistent spacing
         }
@@ -140,7 +132,12 @@ fn render_body_row(
         // For asteroids, include the spectral type in the name
         let display_name = if body.body_type == BodyType::Asteroid {
             if let Some(class) = body.asteroid_class {
-                format!("{} {} [{}]", type_icon, body.name, format_asteroid_type_short(class))
+                format!(
+                    "{} {} [{}]",
+                    type_icon,
+                    body.name,
+                    format_asteroid_type_short(class)
+                )
             } else {
                 format!("{} {}", type_icon, body.name)
             }
@@ -203,30 +200,30 @@ fn render_grouped_children(
     }
     let mut row_clicked = false;
     let mut header = state.show_header(ui, |ui| {
-        row_clicked = render_group_header(ui, group_name, children.len(), is_open, theme::TEXT_DIM)
-            .clicked();
+        row_clicked =
+            render_group_header(ui, group_name, children.len(), is_open, theme::TEXT_DIM).clicked();
     });
     if row_clicked {
         header.toggle();
     }
     header.body(|ui| {
-            for &child_entity in children {
-                // Use render_body_tree so bodies with children (e.g. Pluto → Charon)
-                // are expanded recursively rather than shown as a flat row.
-                render_body_tree(
-                    ui,
-                    child_entity,
-                    body_map,
-                    hierarchy,
-                    selection,
-                    commands,
-                    selected_query,
-                    anchored_entity,
-                    pending_anchor,
-                    expanded_groups,
-                );
-            }
-        });
+        for &child_entity in children {
+            // Use render_body_tree so bodies with children (e.g. Pluto → Charon)
+            // are expanded recursively rather than shown as a flat row.
+            render_body_tree(
+                ui,
+                child_entity,
+                body_map,
+                hierarchy,
+                selection,
+                commands,
+                selected_query,
+                anchored_entity,
+                pending_anchor,
+                expanded_groups,
+            );
+        }
+    });
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -285,7 +282,9 @@ fn render_body_tree(
             .show_header(ui, |ui| {
                 // Show anchor indicator (⚓) when anchored - not clickable, just informational
                 if is_anchored {
-                    ui.add(egui::Label::new(egui::RichText::new("⚓").color(egui::Color32::from_rgb(255, 200, 100))));
+                    ui.add(egui::Label::new(
+                        egui::RichText::new("⚓").color(egui::Color32::from_rgb(255, 200, 100)),
+                    ));
                 } else {
                     ui.add_space(20.0); // Keep consistent spacing
                 }
@@ -295,7 +294,12 @@ fn render_body_tree(
                 let type_icon = body_type_icon(&body.body_type);
                 let display_name = if body.body_type == BodyType::Asteroid {
                     if let Some(class) = body.asteroid_class {
-                        format!("{} {} [{}]", type_icon, body.name, format_asteroid_type_short(class))
+                        format!(
+                            "{} {} [{}]",
+                            type_icon,
+                            body.name,
+                            format_asteroid_type_short(class)
+                        )
                     } else {
                         format!("{} {}", type_icon, body.name)
                     }
@@ -1313,8 +1317,7 @@ pub(super) fn ui_time_controls(
                     // RTL: items added right-to-left, so volume → skip → pause → sep → title
                     ui.add_sized(
                         [64.0, 36.0],
-                        egui::Slider::new(&mut playlist.volume, 0.0..=1.0)
-                            .show_value(false),
+                        egui::Slider::new(&mut playlist.volume, 0.0..=1.0).show_value(false),
                     );
 
                     let skip_btn = egui::Button::new(
@@ -1327,8 +1330,11 @@ pub(super) fn ui_time_controls(
                     }
 
                     let play_label = if playlist.paused { "▶" } else { "⏸" };
-                    let play_color =
-                        if playlist.paused { theme::ACCENT } else { theme::TEXT_DIM };
+                    let play_color = if playlist.paused {
+                        theme::ACCENT
+                    } else {
+                        theme::TEXT_DIM
+                    };
                     let play_stroke = if playlist.paused {
                         egui::Stroke::new(1.0, theme::ACCENT)
                     } else {
@@ -1447,14 +1453,26 @@ fn render_star_system_panel(
                                 .spacing([16.0, 4.0])
                                 .show(ui, |ui| {
                                     theme::stat_row(ui, "TYPE", &star_data.spectral_type);
-                                    theme::stat_row(ui, "MASS", &format!("{:.2} M☉", star_data.mass_sol));
-                                    theme::stat_row(ui, "RADIUS", &format!("{:.2} R☉", star_data.radius_sol));
+                                    theme::stat_row(
+                                        ui,
+                                        "MASS",
+                                        &format!("{:.2} M☉", star_data.mass_sol),
+                                    );
+                                    theme::stat_row(
+                                        ui,
+                                        "RADIUS",
+                                        &format!("{:.2} R☉", star_data.radius_sol),
+                                    );
                                     theme::stat_row(
                                         ui,
                                         "LUMINOSITY",
                                         &format!("{:.3} L☉", star_data.luminosity_sol),
                                     );
-                                    theme::stat_row(ui, "TEMP", &format!("{:.0} K", star_data.temp_k));
+                                    theme::stat_row(
+                                        ui,
+                                        "TEMP",
+                                        &format!("{:.0} K", star_data.temp_k),
+                                    );
                                     if let Some(metallicity) = star_data.metallicity {
                                         ui.label(
                                             egui::RichText::new("METALLICITY")
@@ -1469,9 +1487,11 @@ fn render_star_system_panel(
                                             theme::TEXT_VALUE
                                         };
                                         ui.label(
-                                            egui::RichText::new(format!("[Fe/H] {metallicity:+.2}"))
-                                                .font(theme::mono(12.0))
-                                                .color(metallicity_color),
+                                            egui::RichText::new(format!(
+                                                "[Fe/H] {metallicity:+.2}"
+                                            ))
+                                            .font(theme::mono(12.0))
+                                            .color(metallicity_color),
                                         );
                                         ui.end_row();
                                     }
@@ -1622,9 +1642,11 @@ fn render_star_system_panel(
                     );
                     ui.add_space(6.0);
                     ui.label(
-                        egui::RichText::new("Population management data is not yet available for starmap systems.")
-                            .font(theme::body(13.0))
-                            .color(theme::TEXT_DIM),
+                        egui::RichText::new(
+                            "Population management data is not yet available for starmap systems.",
+                        )
+                        .font(theme::body(13.0))
+                        .color(theme::TEXT_DIM),
                     );
                 });
         });

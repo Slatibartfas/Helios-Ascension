@@ -30,17 +30,16 @@ pub use ephemeris::{calculate_position_for_body, calculate_positions_at_timestam
 pub use exoplanets::{ConfirmedPlanet, RealPlanet};
 pub use lagrange::{draw_lagrange_point_rings, handle_lp_hover};
 pub use procedural::{
-    calculate_frost_line, generate_procedural_atmosphere,
-    map_star_to_system_architecture, map_star_to_system_architecture_with_orbit_limits,
-    AsteroidBelt, BinaryCompanionContext, CometaryCloud, PlanetType, ProceduralPlanet,
-    SystemArchitecture,
+    calculate_frost_line, generate_procedural_atmosphere, map_star_to_system_architecture,
+    map_star_to_system_architecture_with_orbit_limits, AsteroidBelt, BinaryCompanionContext,
+    CometaryCloud, PlanetType, ProceduralPlanet, SystemArchitecture,
 };
 pub use selection::{
     animate_marker_dots, animate_ring_highlight, apply_ring_highlight,
-    cleanup_stale_selection_markers, despawn_hover_markers,
-    despawn_selection_markers, handle_body_hover, handle_body_selection, remove_ring_highlight,
-    restore_suppressed_markers, scale_markers_with_zoom, spawn_hover_markers,
-    spawn_selection_markers, zoom_camera_to_anchored_body, RingHighlight,
+    cleanup_stale_selection_markers, despawn_hover_markers, despawn_selection_markers,
+    handle_body_hover, handle_body_selection, remove_ring_highlight, restore_suppressed_markers,
+    scale_markers_with_zoom, spawn_hover_markers, spawn_selection_markers,
+    zoom_camera_to_anchored_body, RingHighlight,
 };
 pub use systems::{
     check_natural_destruction, draw_orbit_paths, fade_destroyed_bodies, manage_comet_tail_meshes,
@@ -105,6 +104,9 @@ impl Plugin for AstronomyPlugin {
             // Selection and hover systems use EguiContexts — must run in EguiPrimaryContextPass
             .add_systems(EguiPrimaryContextPass, handle_body_selection)
             .add_systems(EguiPrimaryContextPass, handle_body_hover)
-            .add_systems(EguiPrimaryContextPass, handle_lp_hover.after(handle_body_hover));
+            .add_systems(
+                EguiPrimaryContextPass,
+                handle_lp_hover.after(handle_body_hover),
+            );
     }
 }

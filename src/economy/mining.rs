@@ -292,8 +292,10 @@ pub fn update_resource_rates(
 ) {
     // --- Resource rates from mining (production) ---
     let mut rates = std::collections::HashMap::new();
-    let mut per_entity: std::collections::HashMap<Entity, std::collections::HashMap<ResourceType, f64>> =
-        std::collections::HashMap::new();
+    let mut per_entity: std::collections::HashMap<
+        Entity,
+        std::collections::HashMap<ResourceType, f64>,
+    > = std::collections::HashMap::new();
 
     // 1. MiningOperation components
     for (entity, op, resources_opt) in mining_ops.iter() {
@@ -314,17 +316,28 @@ pub fn update_resource_rates(
         // base_rate_mt_per_year → per month = rate * (month / year)
         let monthly = op.base_rate_mt_per_year * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
         *rates.entry(op.resource_type).or_insert(0.0) += monthly;
-        *per_entity.entry(entity).or_default().entry(op.resource_type).or_insert(0.0) += monthly;
+        *per_entity
+            .entry(entity)
+            .or_default()
+            .entry(op.resource_type)
+            .or_insert(0.0) += monthly;
     }
 
     // Helper macro-like closure to add to both global and per-entity rates
     let add_rate = |rates: &mut std::collections::HashMap<ResourceType, f64>,
-                    per_entity: &mut std::collections::HashMap<Entity, std::collections::HashMap<ResourceType, f64>>,
+                    per_entity: &mut std::collections::HashMap<
+        Entity,
+        std::collections::HashMap<ResourceType, f64>,
+    >,
                     entity: Entity,
                     r_type: ResourceType,
                     amount: f64| {
         *rates.entry(r_type).or_insert(0.0) += amount;
-        *per_entity.entry(entity).or_default().entry(r_type).or_insert(0.0) += amount;
+        *per_entity
+            .entry(entity)
+            .or_default()
+            .entry(r_type)
+            .or_insert(0.0) += amount;
     };
 
     // 2. Colony mining & atmospheric harvesting
@@ -377,7 +390,13 @@ pub fn update_resource_rates(
                     if total_weight > 0.0 {
                         for (r_type, weight) in &eligible {
                             let share = weight / total_weight;
-                            add_rate(&mut rates, &mut per_entity, entity, *r_type, monthly_surface * share);
+                            add_rate(
+                                &mut rates,
+                                &mut per_entity,
+                                entity,
+                                *r_type,
+                                monthly_surface * share,
+                            );
                         }
                     }
                 }
@@ -397,7 +416,13 @@ pub fn update_resource_rates(
                     if total_weight > 0.0 {
                         for (r_type, weight) in &eligible {
                             let share = weight / total_weight;
-                            add_rate(&mut rates, &mut per_entity, entity, *r_type, monthly_deep * share);
+                            add_rate(
+                                &mut rates,
+                                &mut per_entity,
+                                entity,
+                                *r_type,
+                                monthly_deep * share,
+                            );
                         }
                     }
                 }
@@ -417,7 +442,13 @@ pub fn update_resource_rates(
                     if total_weight > 0.0 {
                         for (r_type, weight) in &eligible {
                             let share = weight / total_weight;
-                            add_rate(&mut rates, &mut per_entity, entity, *r_type, monthly_bulk * share);
+                            add_rate(
+                                &mut rates,
+                                &mut per_entity,
+                                entity,
+                                *r_type,
+                                monthly_bulk * share,
+                            );
                         }
                     }
                 }
@@ -441,7 +472,13 @@ pub fn update_resource_rates(
                     if total_weight > 0.0 {
                         for (r_type, weight) in &harvestable {
                             let share = weight / total_weight;
-                            add_rate(&mut rates, &mut per_entity, entity, *r_type, monthly_total * share);
+                            add_rate(
+                                &mut rates,
+                                &mut per_entity,
+                                entity,
+                                *r_type,
+                                monthly_total * share,
+                            );
                         }
                     }
                 }
@@ -455,11 +492,16 @@ pub fn update_resource_rates(
 
     // 3. Add net colony food rate (production - population consumption)
     for (entity, colony, _) in colony_query.iter() {
-        let food_net_per_year = colony.food_production_per_year() - colony.food_consumption_per_year();
+        let food_net_per_year =
+            colony.food_production_per_year() - colony.food_consumption_per_year();
         let food_net_per_month = food_net_per_year * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
         if food_net_per_month.abs() > f64::EPSILON {
             *rates.entry(ResourceType::Food).or_insert(0.0) += food_net_per_month;
-            *per_entity.entry(entity).or_default().entry(ResourceType::Food).or_insert(0.0) += food_net_per_month;
+            *per_entity
+                .entry(entity)
+                .or_default()
+                .entry(ResourceType::Food)
+                .or_insert(0.0) += food_net_per_month;
         }
     }
 
@@ -477,7 +519,11 @@ pub fn update_resource_rates(
                         let monthly_cost =
                             annual_amount * (count as f64) * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
                         *rates.entry(rt).or_insert(0.0) -= monthly_cost;
-                        *per_entity.entry(entity).or_default().entry(rt).or_insert(0.0) -= monthly_cost;
+                        *per_entity
+                            .entry(entity)
+                            .or_default()
+                            .entry(rt)
+                            .or_insert(0.0) -= monthly_cost;
                     }
                 }
             }
