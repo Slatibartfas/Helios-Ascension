@@ -63,6 +63,16 @@
         "eccentricity": 0.51947,
         "inclination_deg": 79.243,
         "arg_periastron_deg": 231.519
+      },
+      {
+        "label": "Alpha Centauri Outer",
+        "primary_orbit_label": "Alpha Centauri AB",
+        "secondary_idx": 2,
+        "semi_major_axis_au": 8700.0,
+        "period_years": 547000.0,
+        "eccentricity": 0.5,
+        "inclination_deg": 107.6,
+        "arg_periastron_deg": 0.0
       }
     ]
   },
@@ -436,7 +446,7 @@
       },
       {
         "label": "EZ Aquarii B outer",
-        "primary_idx": 0,
+        "primary_orbit_label": "EZ Aquarii AC inner",
         "secondary_idx": 1,
         "semi_major_axis_au": 1.18,
         "period_years": 2.2506,

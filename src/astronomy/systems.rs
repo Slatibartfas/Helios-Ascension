@@ -448,6 +448,7 @@ pub fn draw_orbit_paths(
     query: Query<(
         &KeplerOrbit,
         &OrbitPath,
+        Option<&OrbitCenter>,
         Option<&LogicalParent>,
         Option<&LocalOrbitAmplification>,
         Option<&Visibility>,
@@ -463,7 +464,7 @@ pub fn draw_orbit_paths(
     let real_t = real_time.elapsed_secs() as f64;
     let origin_offset = floating_origin.map(|fo| fo.position).unwrap_or(DVec3::ZERO);
 
-    for (orbit, path, logical_parent, amplification, visibility, system_id, is_selected, is_hovered) in query.iter() {
+    for (orbit, path, orbit_center, logical_parent, amplification, visibility, system_id, is_selected, is_hovered) in query.iter() {
         if !path.visible {
             continue;
         }
@@ -483,8 +484,11 @@ pub fn draw_orbit_paths(
 
         let amp = amplification.map(|a| a.0 as f64).unwrap_or(1.0);
 
-        let parent_offset = logical_parent
-            .and_then(|lp| parent_coords.get(lp.0).ok())
+        let parent_entity = orbit_center
+            .map(|center| center.0)
+            .or_else(|| logical_parent.map(|parent| parent.0));
+        let parent_offset = parent_entity
+            .and_then(|parent| parent_coords.get(parent).ok())
             .map(|sc| {
                 let pos = (sc.position - origin_offset) * SCALING_FACTOR;
                 Vec3::new(pos.x as f32, pos.y as f32, pos.z as f32)

@@ -5,7 +5,7 @@ use bevy::window::PrimaryWindow;
 use super::components::{
     CurrentStarSystem, FloatingOrigin, HoverMarker, Hovered, KeplerOrbit,
     LocalOrbitAmplification, MarkerDot, MarkerOwner, OrbitPath, Selected, SelectionMarker,
-    SpaceCoordinates, SystemId,
+    SpaceCoordinates, SystemId, OrbitCenter,
 };
 use super::systems::{orbit_position_from_true_anomaly, SCALING_FACTOR, VISUAL_SPEED_BASE};
 use crate::game_state::ActiveMenu;
@@ -138,12 +138,13 @@ fn find_closest_orbit_to_ray<'a>(
             Entity,
             &'a KeplerOrbit,
             &'a OrbitPath,
+            Option<&'a OrbitCenter>,
             Option<&'a LogicalParent>,
             Option<&'a LocalOrbitAmplification>,
             &'a Visibility,
         ),
     >,
-    get_parent_coords: impl Fn(Entity) -> Option<DVec3>,
+    get_parent_coords: &impl Fn(Entity) -> Option<DVec3>,
     origin_offset: DVec3,
 ) -> Option<(Entity, f32)> {
     let ray_origin = ray.origin;
@@ -155,7 +156,7 @@ fn find_closest_orbit_to_ray<'a>(
 
     let mut closest: Option<(Entity, f32)> = None;
 
-    for (entity, orbit, path, logical_parent, amplification, visibility) in bodies {
+    for (entity, orbit, path, orbit_center, logical_parent, amplification, visibility) in bodies {
         if !path.visible {
             continue;
         }
@@ -164,8 +165,10 @@ fn find_closest_orbit_to_ray<'a>(
         }
 
         let amp = amplification.map(|a| a.0 as f64).unwrap_or(1.0);
-        let parent_offset = logical_parent
-            .and_then(|lp| get_parent_coords(lp.0))
+        let parent_offset = orbit_center
+            .map(|center| center.0)
+            .or_else(|| logical_parent.map(|parent| parent.0))
+            .and_then(|parent| get_parent_coords(parent))
             .map(|pos| {
                 let scaled = (pos - origin_offset) * SCALING_FACTOR;
                 Vec3::new(scaled.x as f32, scaled.y as f32, scaled.z as f32)
@@ -233,6 +236,7 @@ pub fn handle_body_selection(
             Option<&KeplerOrbit>,
             Option<&OrbitPath>,
             Option<&LocalOrbitAmplification>,
+            Option<&OrbitCenter>,
             Option<&SpaceCoordinates>,
         ),
         Without<ClickExcluded>,
@@ -307,7 +311,7 @@ pub fn handle_body_selection(
     // Stores: (Entity, ray_distance, body name)
     let mut closest_body: Option<(Entity, f32, f32, String)> = None;
 
-    for (entity, transform, body, system_id, _logical_parent, visibility, _kepler, _orbit_path, _amp, _coords) in body_query.iter() {
+    for (entity, transform, body, system_id, _logical_parent, visibility, _kepler, _orbit_path, _amp, _orbit_center, _coords) in body_query.iter() {
         // Only interact with bodies in the current star system
         let body_system = system_id.map(|s| s.0).unwrap_or(0);
         if body_system != current_system.0 {
@@ -357,26 +361,26 @@ pub fn handle_body_selection(
     } else {
         let origin_offset = floating_origin.as_ref().map(|fo| fo.position).unwrap_or(DVec3::ZERO);
         let orbit_iter = body_query.iter().filter_map(
-            |(entity, _gt, _body, system_id, logical_parent, visibility, kepler, orbit_path, amp, _coords)| {
+            |(entity, _gt, _body, system_id, logical_parent, visibility, kepler, orbit_path, amp, orbit_center, _coords)| {
                 let body_system = system_id.map(|s| s.0).unwrap_or(0);
                 if body_system != current_system.0 {
                     return None;
                 }
                 let orbit = kepler?;
                 let path = orbit_path?;
-                Some((entity, orbit, path, logical_parent, amp, visibility))
+                Some((entity, orbit, path, orbit_center, logical_parent, amp, visibility))
             },
         );
         let get_parent_coords = |parent: Entity| -> Option<DVec3> {
-            body_query.get(parent).ok().and_then(|t| t.9.map(|sc| sc.position))
+            body_query.get(parent).ok().and_then(|t| t.10.map(|sc| sc.position))
         };
         let camera_distance = camera_transform.translation().length();
-        find_closest_orbit_to_ray(&ray, camera_distance, orbit_iter, get_parent_coords, origin_offset).and_then(
+        find_closest_orbit_to_ray(&ray, camera_distance, orbit_iter, &get_parent_coords, origin_offset).and_then(
             |(entity, _dist)| {
                 body_query
                     .get(entity)
                     .ok()
-                    .map(|(_, _, body, _, _, _, _, _, _, _)| (entity, body.name.clone()))
+                    .map(|(_, _, body, _, _, _, _, _, _, _, _)| (entity, body.name.clone()))
             },
         )
     };
@@ -441,6 +445,7 @@ pub fn handle_body_hover(
             Option<&KeplerOrbit>,
             Option<&OrbitPath>,
             Option<&LocalOrbitAmplification>,
+            Option<&OrbitCenter>,
             Option<&SpaceCoordinates>,
         ),
         Without<ClickExcluded>,
@@ -515,7 +520,7 @@ pub fn handle_body_hover(
     // stars from stealing hovers away from smaller planets orbiting nearby.
     let mut closest_body: Option<(Entity, f32, f32)> = None;
 
-    for (entity, transform, body, system_id, _logical_parent, visibility, _kepler, _orbit_path, _amp, _coords) in body_query.iter() {
+    for (entity, transform, body, system_id, _logical_parent, visibility, _kepler, _orbit_path, _amp, _orbit_center, _coords) in body_query.iter() {
         // Only interact with bodies in the current star system
         let body_system = system_id.map(|s| s.0).unwrap_or(0);
         if body_system != current_system.0 {
@@ -563,21 +568,21 @@ pub fn handle_body_hover(
     } else {
         let origin_offset = floating_origin.as_ref().map(|fo| fo.position).unwrap_or(DVec3::ZERO);
         let orbit_iter = body_query.iter().filter_map(
-            |(entity, _gt, _body, system_id, logical_parent, visibility, kepler, orbit_path, amp, _coords)| {
+            |(entity, _gt, _body, system_id, logical_parent, visibility, kepler, orbit_path, amp, orbit_center, _coords)| {
                 let body_system = system_id.map(|s| s.0).unwrap_or(0);
                 if body_system != current_system.0 {
                     return None;
                 }
                 let orbit = kepler?;
                 let path = orbit_path?;
-                Some((entity, orbit, path, logical_parent, amp, visibility))
+                Some((entity, orbit, path, orbit_center, logical_parent, amp, visibility))
             },
         );
         let get_parent_coords = |parent: Entity| -> Option<DVec3> {
-            body_query.get(parent).ok().and_then(|t| t.9.map(|sc| sc.position))
+            body_query.get(parent).ok().and_then(|t| t.10.map(|sc| sc.position))
         };
         let camera_distance = camera_transform.translation().length();
-        find_closest_orbit_to_ray(&ray, camera_distance, orbit_iter, get_parent_coords, origin_offset)
+        find_closest_orbit_to_ray(&ray, camera_distance, orbit_iter, &get_parent_coords, origin_offset)
             .map(|(entity, _dist)| entity)
     };
     let hover_is_body = new_hover.is_some();
