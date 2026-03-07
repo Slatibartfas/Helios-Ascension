@@ -43,6 +43,16 @@ const MAX_BINARY_ECCENTRICITY_FOR_FORMULA: f64 = 0.999;
 /// rounding that could otherwise produce a near-zero value.
 const MIN_FORCED_ECCENTRICITY_DENOMINATOR: f64 = 1e-3;
 
+/// Half-width of the random inclination scatter applied to circumstellar planets
+/// relative to the binary orbital plane.
+///
+/// A protoplanetary disk forms roughly coplanar with the binary orbit; this constant
+/// models the small warp and accretion history effects that cause the disk (and
+/// resulting planets) to deviate slightly from perfect alignment.
+/// 0.175 rad ≈ 10°, which matches the typical scatter seen in observed S-type
+/// binary planet systems.
+const MAX_BINARY_INCLINATION_SCATTER_RAD: f64 = 0.175;
+
 /// Calculate escape velocity from a body
 /// v_esc = sqrt(2GM/R)
 pub fn calculate_escape_velocity(mass_kg: f64, radius_m: f64) -> f64 {
@@ -94,7 +104,9 @@ pub fn is_in_habitable_zone(distance_au: f64, star_luminosity_sol: f64) -> bool 
 /// When a planet orbits one star in a binary (S-type / circumstellar orbit), the
 /// companion star continuously excites the planet's eccentricity through secular
 /// gravitational perturbations.  This struct carries the parameters needed to
-/// compute the forced eccentricity floor using the Heppenheimer (1978) formula.
+/// compute the forced eccentricity floor using the Heppenheimer (1978) formula,
+/// and the binary orbital inclination used to align generated planets with the
+/// binary's orbital plane.
 #[derive(Clone, Copy, Debug)]
 pub struct BinaryCompanionContext {
     /// Semi-major axis of the binary orbit in AU (D)
@@ -103,6 +115,11 @@ pub struct BinaryCompanionContext {
     pub binary_eccentricity: f64,
     /// Companion mass fraction: M_companion / (M_host + M_companion)
     pub companion_mass_fraction: f64,
+    /// Inclination of the binary orbit in radians, relative to the reference plane.
+    ///
+    /// Circumstellar planets form from a disk roughly coplanar with this orbit, so
+    /// their inclinations should be centred on this value rather than on 0.
+    pub binary_inclination_rad: f64,
 }
 
 impl BinaryCompanionContext {
@@ -129,6 +146,23 @@ impl BinaryCompanionContext {
         // guards against any floating-point rounding edge that could reach zero
         let denom = (1.0 - e * e).max(MIN_FORCED_ECCENTRICITY_DENOMINATOR);
         (5.0 / 4.0) * alpha * self.companion_mass_fraction * e / denom
+    }
+
+    /// Sample an orbital inclination for a circumstellar planet.
+    ///
+    /// The protoplanetary disk that formed the planet was roughly coplanar with the
+    /// binary orbit.  This method returns an inclination centred on
+    /// `binary_inclination_rad` with a smooth random scatter of
+    /// ±[`MAX_BINARY_INCLINATION_SCATTER_RAD`] (~10°) to model disk warping and
+    /// accretion-history effects.
+    ///
+    /// A triangular distribution (average of two uniform draws) is used rather than
+    /// a plain uniform draw to reduce the probability of extreme offsets.
+    pub fn sample_planet_inclination(&self, rng: &mut impl Rng) -> f64 {
+        let u1 = rng.random_range(-1.0_f64..1.0);
+        let u2 = rng.random_range(-1.0_f64..1.0);
+        let scatter = (u1 + u2) * 0.5 * MAX_BINARY_INCLINATION_SCATTER_RAD;
+        self.binary_inclination_rad + scatter
     }
 }
 
@@ -881,6 +915,14 @@ fn generate_planet_for_slot(
 
     let eccentricity = base_eccentricity.max(e_forced).min(e_cap);
 
+    // Inclination: in a binary system the protoplanetary disk is aligned with
+    // the binary orbital plane, so planets inherit that reference inclination
+    // (with a small random scatter).  For isolated stars the scatter is centred
+    // on 0 relative to the system reference plane, as before.
+    let inclination = companion_context
+        .map(|ctx| ctx.sample_planet_inclination(rng))
+        .unwrap_or_else(|| rng.random_range(-0.13..0.13));
+
     ProceduralPlanet {
         name: format!(
             "{} {}",
@@ -889,8 +931,7 @@ fn generate_planet_for_slot(
         ),
         semi_major_axis_au,
         eccentricity,
-        // Inclination varies by system type
-        inclination: rng.random_range(-0.13..0.13),
+        inclination,
         longitude_ascending_node: rng.random_range(0.0..std::f64::consts::TAU),
         argument_of_periapsis: rng.random_range(0.0..std::f64::consts::TAU),
         mean_anomaly_epoch: rng.random_range(0.0..std::f64::consts::TAU),
@@ -2285,6 +2326,7 @@ mod tests {
             binary_semi_major_axis_au: 20.0,
             binary_eccentricity: 0.0, // circular binary → no forced eccentricity
             companion_mass_fraction: 0.4,
+            binary_inclination_rad: 0.0,
         };
         let e = ctx.forced_eccentricity(3.0);
         assert_eq!(e, 0.0, "Circular binary should produce zero forced eccentricity");
@@ -2298,6 +2340,7 @@ mod tests {
             binary_semi_major_axis_au: 20.0,
             binary_eccentricity: 0.5,
             companion_mass_fraction: 0.45,
+            binary_inclination_rad: 0.0,
         };
         let e_close_to_host = ctx.forced_eccentricity(1.0); // a = 1 AU
         let e_far_from_host = ctx.forced_eccentricity(5.0); // a = 5 AU — closer to companion
@@ -2315,11 +2358,13 @@ mod tests {
             binary_semi_major_axis_au: 20.0,
             binary_eccentricity: 0.1,
             companion_mass_fraction: 0.4,
+            binary_inclination_rad: 0.0,
         };
         let ctx_eccentric = BinaryCompanionContext {
             binary_semi_major_axis_au: 20.0,
             binary_eccentricity: 0.6,
             companion_mass_fraction: 0.4,
+            binary_inclination_rad: 0.0,
         };
         let e_low = ctx_circular.forced_eccentricity(planet_a);
         let e_high = ctx_eccentric.forced_eccentricity(planet_a);
@@ -2343,6 +2388,7 @@ mod tests {
             binary_semi_major_axis_au: 20.0,
             binary_eccentricity: 0.5,
             companion_mass_fraction: 0.45,
+            binary_inclination_rad: 0.0,
         };
 
         let n = 200;
@@ -2375,6 +2421,7 @@ mod tests {
             binary_semi_major_axis_au: 5.0,
             binary_eccentricity: 0.8, // very eccentric → large forced eccentricity
             companion_mass_fraction: 0.49,
+            binary_inclination_rad: 0.0,
         };
         let mut rng = StdRng::seed_from_u64(12345);
         let frost = calculate_frost_line(1.0);
@@ -2392,5 +2439,102 @@ mod tests {
                 p.eccentricity
             );
         }
+    }
+
+    // =========================================================================
+    // Tests for BinaryCompanionContext inclination alignment
+    // =========================================================================
+
+    #[test]
+    fn test_sample_planet_inclination_centred_on_binary_plane() {
+        // With a 79° binary (like Alpha Centauri AB), the mean planet inclination
+        // must be close to 79° (within ±scatter, which vanishes at large N).
+        let binary_incl_rad = 79.0_f64.to_radians();
+        let ctx = BinaryCompanionContext {
+            binary_semi_major_axis_au: 23.4,
+            binary_eccentricity: 0.52,
+            companion_mass_fraction: 0.45,
+            binary_inclination_rad: binary_incl_rad,
+        };
+        let mut rng = StdRng::seed_from_u64(11111);
+        let n = 500;
+        let mean_incl: f64 =
+            (0..n).map(|_| ctx.sample_planet_inclination(&mut rng)).sum::<f64>() / n as f64;
+        // Mean should land within ±5° of the binary inclination
+        assert!(
+            (mean_incl - binary_incl_rad).abs() < 0.09, // 0.09 rad ≈ 5°
+            "Mean inclination {:.4} rad should be close to binary inclination {binary_incl_rad:.4} rad",
+            mean_incl
+        );
+    }
+
+    #[test]
+    fn test_sample_planet_inclination_scatter_bounded() {
+        // All samples should fall within binary_inclination ± MAX_BINARY_INCLINATION_SCATTER_RAD
+        let binary_incl_rad = 1.2_f64; // ~69°
+        let ctx = BinaryCompanionContext {
+            binary_semi_major_axis_au: 20.0,
+            binary_eccentricity: 0.3,
+            companion_mass_fraction: 0.4,
+            binary_inclination_rad: binary_incl_rad,
+        };
+        let mut rng = StdRng::seed_from_u64(22222);
+        for _ in 0..200 {
+            let incl = ctx.sample_planet_inclination(&mut rng);
+            assert!(
+                (incl - binary_incl_rad).abs() <= MAX_BINARY_INCLINATION_SCATTER_RAD + 1e-9,
+                "Inclination {incl:.4} rad is outside scatter bound of ±{MAX_BINARY_INCLINATION_SCATTER_RAD:.4} rad"
+            );
+        }
+    }
+
+    #[test]
+    fn test_binary_planets_inclined_with_binary_not_reference_plane() {
+        // For a binary with a high inclination (~79°), planets generated with binary
+        // context should have inclinations far from 0 (the reference plane), while
+        // planets without context should stay near 0.
+        let binary_incl_rad = 79.0_f64.to_radians(); // typical for Alpha Cen AB
+        let ctx = BinaryCompanionContext {
+            binary_semi_major_axis_au: 23.4,
+            binary_eccentricity: 0.52,
+            companion_mass_fraction: 0.45,
+            binary_inclination_rad: binary_incl_rad,
+        };
+        let frost = calculate_frost_line(1.5);
+        let (hz_inner, hz_outer) = calculate_habitable_zone(1.5);
+
+        let mut rng_iso = StdRng::seed_from_u64(33333);
+        let mut rng_bin = StdRng::seed_from_u64(44444);
+
+        let n = 100;
+        let mean_iso_incl: f64 = (0..n)
+            .map(|_| {
+                generate_planet_for_slot(
+                    "ISO", 0, 2.0, frost, hz_inner, hz_outer,
+                    SystemType::Standard, 1.0, 1.5, false, None, None, &mut rng_iso,
+                ).inclination
+            })
+            .sum::<f64>() / n as f64;
+
+        let mean_bin_incl: f64 = (0..n)
+            .map(|_| {
+                generate_planet_for_slot(
+                    "BIN", 0, 2.0, frost, hz_inner, hz_outer,
+                    SystemType::Standard, 1.0, 1.5, false, Some(ctx), Some(8.0), &mut rng_bin,
+                ).inclination
+            })
+            .sum::<f64>() / n as f64;
+
+        // Isolated star: inclination should be near 0
+        assert!(
+            mean_iso_incl.abs() < 0.15,
+            "Isolated star mean inclination {mean_iso_incl:.4} rad should be near 0"
+        );
+        // Binary star: inclination should be near binary_incl_rad, not near 0
+        assert!(
+            (mean_bin_incl - binary_incl_rad).abs() < 0.15,
+            "Binary star mean inclination {mean_bin_incl:.4} rad should be near binary inclination \
+             {binary_incl_rad:.4} rad (not near 0)"
+        );
     }
 }

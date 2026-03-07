@@ -579,6 +579,7 @@ fn populate_nearby_systems(
                         binary_semi_major_axis_au: orbit.semi_major_axis_au,
                         binary_eccentricity: orbit.eccentricity,
                         companion_mass_fraction: companion_mass / total_mass,
+                        binary_inclination_rad: orbit.inclination_deg.to_radians(),
                     })
                 });
 
