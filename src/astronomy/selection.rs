@@ -1,5 +1,6 @@
 use bevy::math::DVec3;
 use bevy::prelude::*;
+use bevy::ecs::system::SystemParam;
 use bevy::window::PrimaryWindow;
 
 use super::components::{
@@ -56,6 +57,15 @@ pub struct RingHighlight {
 pub struct SelectionState {
     pub last_click_time: f64,
     pub last_clicked_entity: Option<Entity>,
+}
+
+#[derive(SystemParam)]
+pub struct BodySelectionUiParams<'w, 's> {
+    egui_contexts: bevy_egui::EguiContexts<'w, 's>,
+    active_menu: Res<'w, ActiveMenu>,
+    panel_bounds: Res<'w, EguiPanelBounds>,
+    fleet_ui_state: ResMut<'w, FleetUiState>,
+    floating_origin: Option<Res<'w, FloatingOrigin>>,
 }
 
 /// Minimum distance from a point on the ray (in front of camera) to a point
@@ -248,14 +258,10 @@ pub fn handle_body_selection(
     mut anchor_query: Query<(&mut CameraAnchor, &mut OrbitCamera), With<GameCamera>>,
     time: Res<Time>,
     mut selection_state: Local<SelectionState>,
-    mut egui_contexts: bevy_egui::EguiContexts,
-    active_menu: Res<ActiveMenu>,
-    panel_bounds: Res<EguiPanelBounds>,
-    mut fleet_ui_state: ResMut<FleetUiState>,
-    floating_origin: Option<Res<FloatingOrigin>>,
+    mut ui: BodySelectionUiParams,
 ) {
     // Disable body selection when a full-screen overlay menu is active
-    if active_menu.current.blocks_world_interaction() {
+    if ui.active_menu.current.blocks_world_interaction() {
         return;
     }
 
@@ -272,9 +278,9 @@ pub fn handle_body_selection(
     }
 
     // Don't process if egui is using the mouse (e.g., clicking on UI)
-    if let Ok(ctx) = egui_contexts.ctx_mut() {
+    if let Ok(ctx) = ui.egui_contexts.ctx_mut() {
         let hover_pos = ctx.input(|i| i.pointer.hover_pos());
-        let over_panel = if let Some(available) = panel_bounds.available_rect {
+        let over_panel = if let Some(available) = ui.panel_bounds.available_rect {
             hover_pos.map_or(false, |p| !available.contains(p))
         } else {
             false
@@ -360,7 +366,11 @@ pub fn handle_body_selection(
     let selected_entity = if let Some((entity, _, _, name)) = closest_body {
         Some((entity, name))
     } else {
-        let origin_offset = floating_origin.as_ref().map(|fo| fo.position).unwrap_or(DVec3::ZERO);
+        let origin_offset = ui
+            .floating_origin
+            .as_ref()
+            .map(|fo| fo.position)
+            .unwrap_or(DVec3::ZERO);
         let orbit_iter = body_query.iter().filter_map(
             |(entity, _gt, _body, system_id, logical_parent, visibility, kepler, orbit_path, amp, orbit_center, _coords)| {
                 let body_system = system_id.map(|s| s.0).unwrap_or(0);
@@ -416,17 +426,17 @@ pub fn handle_body_selection(
             selection_state.last_click_time = current_time;
             selection_state.last_clicked_entity = Some(entity);
         } else if right_click {
-            if fleet_ui_state.selected_fleet.is_some() {
+            if ui.fleet_ui_state.selected_fleet.is_some() {
                 info!("Right clicked celestial body: {} (entity {:?}) with fleet selected, opening transfer planner", name, entity);
-                fleet_ui_state.target_body = Some(entity);
-                fleet_ui_state.target_lagrange = None;
-                fleet_ui_state.target_fleet = None;
-                fleet_ui_state.computed_options.clear();
-                fleet_ui_state.planned_transfer = None;
-                fleet_ui_state.selected_option = 0;
-                fleet_ui_state.selected_gravity_assist = None;
-                fleet_ui_state.show_transfer_popup = true;
-                fleet_ui_state.departure_offset_days = -1.0; // Signal to auto-set to next window
+                ui.fleet_ui_state.target_body = Some(entity);
+                ui.fleet_ui_state.target_lagrange = None;
+                ui.fleet_ui_state.target_fleet = None;
+                ui.fleet_ui_state.computed_options.clear();
+                ui.fleet_ui_state.planned_transfer = None;
+                ui.fleet_ui_state.selected_option = 0;
+                ui.fleet_ui_state.selected_gravity_assist = None;
+                ui.fleet_ui_state.show_transfer_popup = true;
+                ui.fleet_ui_state.departure_offset_days = -1.0; // Signal to auto-set to next window
             }
         }
     } else if left_click {

@@ -103,13 +103,8 @@ impl Plugin for AstronomyPlugin {
                 ),
             )
             // Selection and hover systems use EguiContexts — must run in EguiPrimaryContextPass
-            .add_systems(
-                EguiPrimaryContextPass,
-                (
-                    handle_body_selection,
-                    handle_body_hover,
-                    handle_lp_hover.after(handle_body_hover),
-                ),
-            );
+            .add_systems(EguiPrimaryContextPass, handle_body_selection)
+            .add_systems(EguiPrimaryContextPass, handle_body_hover)
+            .add_systems(EguiPrimaryContextPass, handle_lp_hover.after(handle_body_hover));
     }
 }
