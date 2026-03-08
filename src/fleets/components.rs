@@ -250,6 +250,27 @@ impl FleetOrbit {
 /// While present on an entity, `update_fleet_maneuver_positions` drives the
 /// fleet's `SpaceCoordinates` along the transfer ellipse each frame.
 /// `complete_fleet_maneuvers` removes this component when `arrival_time` is reached.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransferReferenceFrame {
+    /// The transfer is expressed relative to a real body entity.
+    Body(Entity),
+    /// The transfer is expressed in the current system barycentric frame.
+    SystemBarycentric,
+}
+
+impl TransferReferenceFrame {
+    pub fn body(self) -> Option<Entity> {
+        match self {
+            Self::Body(entity) => Some(entity),
+            Self::SystemBarycentric => None,
+        }
+    }
+
+    pub fn is_barycentric(self) -> bool {
+        matches!(self, Self::SystemBarycentric)
+    }
+}
+
 #[derive(Component, Debug, Clone)]
 pub struct ActiveManeuver {
     /// Keplerian orbit describing the transfer arc.
@@ -257,6 +278,8 @@ pub struct ActiveManeuver {
     /// `mean_anomaly_epoch` is the mean anomaly at `departure_time`.
     /// `mean_motion` is the full orbital mean motion (rad/s).
     pub transfer_orbit: KeplerOrbit,
+    /// Reference frame used by planning, preview rendering, and in-flight updates.
+    pub reference_frame: TransferReferenceFrame,
     /// Entity of the star (or central body) the transfer orbit is centred on.
     pub orbit_center: Entity,
     /// Entity of the body the fleet departed from (used for visual arc rendering).
@@ -265,6 +288,9 @@ pub struct ActiveManeuver {
     pub departure_time: f64,
     /// `SimulationTime.elapsed` when the fleet is expected to arrive.
     pub arrival_time: f64,
+    /// Preserve the precomputed orbit exactly at departure instead of refitting
+    /// it from the origin body's instantaneous angle.
+    pub preserve_orbit_geometry: bool,
     /// Destination body entity.
     pub destination_body: Entity,
     /// Orbital radius the fleet will enter around the destination (AU).
@@ -428,12 +454,16 @@ pub struct PlannedTransfer {
     pub origin_body: Entity,
     /// Destination body entity.
     pub destination_body: Entity,
+    /// Reference frame used to interpret the transfer geometry.
+    pub reference_frame: TransferReferenceFrame,
     /// The central star/body the transfer orbit is centred on.
     pub orbit_center: Entity,
     /// Keplerian orbit for the transfer arc.
     pub transfer_orbit: KeplerOrbit,
     /// Transfer duration (seconds) — used to compute `arrival_time` at execution.
     pub duration_s: f64,
+    /// Preserve the precomputed transfer orbit exactly when the maneuver launches.
+    pub preserve_orbit_geometry: bool,
     /// Arrival circularisation Δv (m/s).
     pub arrival_delta_v_ms: f64,
     /// Parking orbit radius at the destination (AU).

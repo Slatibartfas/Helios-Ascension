@@ -136,10 +136,14 @@ pub fn update_fleet_maneuver_positions(
 
             let orbit_pos_au = orbit_position_from_mean_anomaly(active_orbit, mean_anomaly);
 
-            let center_pos = center_coords
-                .get(maneuver.orbit_center)
-                .map(|sc| sc.position)
-                .unwrap_or(DVec3::ZERO);
+            let center_pos = if maneuver.reference_frame.is_barycentric() {
+                DVec3::ZERO
+            } else {
+                center_coords
+                    .get(maneuver.orbit_center)
+                    .map(|sc| sc.position)
+                    .unwrap_or(DVec3::ZERO)
+            };
 
             fleet_sc.position = center_pos + orbit_pos_au;
         }
@@ -273,6 +277,16 @@ pub fn activate_scheduled_departures(
         if elapsed < maneuver.departure_time {
             continue;
         }
+        if maneuver.preserve_orbit_geometry {
+            if maneuver.is_kinematic() && maneuver.start_position_au.is_some() {
+                if let Ok(fleet_sc) = fleet_sc_query.get(entity) {
+                    maneuver.start_position_au = Some(fleet_sc.position);
+                }
+            }
+
+            commands.entity(entity).remove::<FleetOrbit>();
+            continue;
+        }
         // Correct the transfer-orbit orientation: the argument of periapsis must match
         // the departure position relative to the orbit center at the actual departure moment.
         // Use the fleet's own (heliocentric) SpaceCoordinates rather than the origin body's
@@ -280,19 +294,24 @@ pub fn activate_scheduled_departures(
         // querying the moon entity directly would give the wrong departure direction.
         // For local transfers (planet <-> moon), the orbit_center is the planet whose
         // SpaceCoordinates are heliocentric, but we need planet-centric (DVec3::ZERO).
-        let is_local_transfer = maneuver.orbit_center == maneuver.origin_body
-            || maneuver.orbit_center == maneuver.destination_body;
-        let orbit_center_is_star = body_types
-            .get(maneuver.orbit_center)
-            .map(|body| body.body_type == BodyType::Star)
-            .unwrap_or(false);
-        let center_pos = if is_local_transfer && !orbit_center_is_star {
-            DVec3::ZERO
-        } else {
-            body_coords
-                .get(maneuver.orbit_center)
-                .map(|sc| sc.position)
-                .unwrap_or(DVec3::ZERO)
+        let center_pos = match maneuver.reference_frame {
+            crate::fleets::TransferReferenceFrame::SystemBarycentric => DVec3::ZERO,
+            crate::fleets::TransferReferenceFrame::Body(center_entity) => {
+                let is_local_transfer = center_entity == maneuver.origin_body
+                    || center_entity == maneuver.destination_body;
+                let orbit_center_is_star = body_types
+                    .get(center_entity)
+                    .map(|body| body.body_type == BodyType::Star)
+                    .unwrap_or(false);
+                if is_local_transfer && !orbit_center_is_star {
+                    DVec3::ZERO
+                } else {
+                    body_coords
+                        .get(center_entity)
+                        .map(|sc| sc.position)
+                        .unwrap_or(DVec3::ZERO)
+                }
+            }
         };
 
         let rel_pos = if let Ok(fleet_sc) = fleet_sc_query.get(entity) {
@@ -466,10 +485,12 @@ pub fn process_fleet_actions(
 
         let maneuver = ActiveManeuver {
             transfer_orbit: t.transfer_orbit,
+            reference_frame: t.reference_frame,
             orbit_center: t.orbit_center,
             origin_body: t.origin_body,
             departure_time: departure_s,
             arrival_time: arrival_s,
+            preserve_orbit_geometry: t.preserve_orbit_geometry,
             destination_body: t.destination_body,
             arrival_orbit_radius_au: t.arrival_orbit_radius_au,
             arrival_delta_v_ms: t.arrival_delta_v_ms,
