@@ -1,12 +1,16 @@
 # Desert Planet Textures
 
-Textures for hot, arid desert worlds — Mars and Venus-like bodies with minimal liquid water.
+Textures for hot sandy worlds with dunes, mesas, eroded basins, and occasional traces of water.
 
 ## Characteristics
-- Sand dunes, dry riverbeds, dust storms
-- Orange, tan, and rusty red tones
-- Sparse or no vegetation
-- Temperatures: 60°C – 500°C
+- Sand seas, rocky mesas, dry basins, and dust haze
+- Yellow, tan, ochre, and light brown tones
+- Little vegetation and only sparse surface water features
+- Typical procedural band: above 60C and up to 200C
+
+## Runtime Category
+- Manifest key: `desert`
+- Shares the hot rocky band with `martian`, but represents sandy yellow desert worlds
 
 ## Adding Textures
 
@@ -21,4 +25,5 @@ Drop any equirectangular planet texture here and register it in `assets/data/pla
 
 ## Recommended Sources
 - NASA Solar System Exploration textures (Public Domain)
-- Solar System Scope (CC BY 4.0) — https://www.solarsystemscope.com/textures/
+- Solar System Scope (CC BY 4.0) - https://www.solarsystemscope.com/textures/
+- Custom procedural desert-world textures with dunes and escarpments

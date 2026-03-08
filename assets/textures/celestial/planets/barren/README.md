@@ -1,12 +1,16 @@
 # Barren Planet Textures
 
-Textures for barren, airless, cratered worlds — Mercury-like bodies with no significant atmosphere.
+Textures for dry, rocky, mostly neutral-toned worlds with little atmosphere and no active biosphere.
 
 ## Characteristics
-- Heavily cratered, no erosion
-- Extreme day/night temperature swings
-- Grey to reddish-grey tones
-- No vegetation, no liquid water
+- Dry regolith, rock fields, cratered plains, and weathered highlands
+- Grey, tan, beige, and muted brown tones
+- Minimal or no standing surface water
+- Used as the generic fallback rocky category
+
+## Runtime Category
+- Manifest key: `barren`
+- Used as the default rocky fallback when no more specific terrestrial archetype applies
 
 ## Adding Textures
 
@@ -21,4 +25,5 @@ Drop any equirectangular planet texture here and register it in `assets/data/pla
 
 ## Recommended Sources
 - NASA Solar System Exploration textures (Public Domain)
-- Solar System Scope (CC BY 4.0) — https://www.solarsystemscope.com/textures/
+- Solar System Scope (CC BY 4.0) - https://www.solarsystemscope.com/textures/
+- Custom procedural dry-rock or cratered-terrain textures

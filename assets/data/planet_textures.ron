@@ -27,9 +27,11 @@
 //
 // CATEGORIES
 // ==========
-//   barren     — Cratered, airless rocky worlds (Mercury-like)
+//   barren     — Dry, rocky, mostly neutral-toned worlds (Mercury-like)
+//   rock       — Bare stony and mineral-rich rocky worlds
+//   martian    — Rust-red oxidised rocky worlds (Mars-like)
 //   scorched   — Extreme-heat greenhouse worlds: 200°C – 500°C (Venus-like)
-//   desert     — Hot arid worlds: 60°C – 200°C  (Mars-like)
+//   desert     — Hot sandy worlds: 60°C – 200°C  (dunes / mesas / sparse water)
 //   temperate  — Mixed biome Earth-like worlds: -20°C – 60°C
 //   jungle     — Lush, heavily-vegetated worlds: -20°C – 60°C
 //   ocean      — Global-ocean-dominated worlds:  -20°C – 60°C
@@ -48,14 +50,48 @@
     categories: {
         // ── Rocky terrestrial worlds ─────────────────────────────────────────
         "barren": [
-            // Heavily cratered, airless worlds. Add barren planet textures to
+            // Dry neutral-toned rocky worlds. Add barren planet textures to
             // assets/textures/celestial/planets/barren/ and register them here.
             "textures/celestial/planets/mercury_8k.jpg",
+            "textures/celestial/planets/barren/barren_01.png",
+            "textures/celestial/planets/barren/barren_02.png",
+            "textures/celestial/planets/barren/barren_03.png",
+            "textures/celestial/planets/barren/barren_04.png",
+            "textures/celestial/planets/barren/barren_05.png",
+            "textures/celestial/planets/barren/barren_06.png",
+        ],
+        "rock": [
+            // Bare stony and mineral-rich worlds. Add rock planet textures to
+            // assets/textures/celestial/planets/rock/ and register them here.
+            "textures/celestial/planets/mercury_8k.jpg",
+            "textures/celestial/planets/rock/rock_01.png",
+            "textures/celestial/planets/rock/rock_02.png",
+            "textures/celestial/planets/rock/rock_03.png",
+            "textures/celestial/planets/rock/rock_04.png",
+            "textures/celestial/planets/rock/rock_05.png",
+            "textures/celestial/planets/rock/rock_06.png",
+        ],
+        "martian": [
+            // Rust-red oxidised rocky worlds. Add martian textures to
+            // assets/textures/celestial/planets/martian/ and register them here.
+            "textures/celestial/planets/mars_8k.jpg",
+            "textures/celestial/planets/martian/martian_01.png",
+            "textures/celestial/planets/martian/martian_02.png",
+            "textures/celestial/planets/martian/martian_03.png",
+            "textures/celestial/planets/martian/martian_04.png",
+            "textures/celestial/planets/martian/martian_05.png",
         ],
         "desert": [
-            // Hot, arid worlds (60–200 °C). Add desert planet textures to
-            // assets/textures/celestial/planets/desert/ and register them here.
-            "textures/celestial/planets/mars_8k.jpg",
+            // Hot, sandy arid worlds (60–200 °C) with dunes, mesas, and sparse
+            // traces of surface water.
+            "textures/celestial/planets/desert/desert_01.png",
+            "textures/celestial/planets/desert/desert_02.png",
+            "textures/celestial/planets/desert/desert_03.png",
+            "textures/celestial/planets/desert/desert_04.png",
+            "textures/celestial/planets/desert/desert_05.png",
+            "textures/celestial/planets/desert/desert_06.png",
+            "textures/celestial/planets/desert/desert_07.png",
+            "textures/celestial/planets/desert/desert_08.png",
         ],
         "temperate": [
             // Earth-like mixed biome worlds. Add temperate planet textures to
@@ -94,12 +130,31 @@
             // assets/textures/celestial/planets/ice/ and register them here.
             "textures/celestial/planets/pluto_8k.png",
             "textures/celestial/planets/eris_2k.jpg",
+            "textures/celestial/planets/ice/Icy.png",
+            "textures/celestial/planets/ice/ice_01.png",
+            "textures/celestial/planets/ice/ice_02.png",
+            "textures/celestial/planets/ice/ice_03.png",
+            "textures/celestial/planets/ice/ice_04.png",
+            "textures/celestial/planets/ice/ice_05.png",
+            "textures/celestial/planets/ice/ice_06.png",
+            "textures/celestial/planets/ice/ice_07.png",
+            "textures/celestial/planets/ice/ice_08.png",
         ],
         "lava": [
             // Volcanically active worlds with molten surfaces (>500°C).
-            // Currently uses Mercury/Venus as placeholders — replace with dedicated textures.
+            // Includes the dedicated volcanic textures added under
+            // assets/textures/celestial/planets/lava/.
             "textures/celestial/planets/mercury_8k.jpg",
             "textures/celestial/planets/venus_surface_8k.jpg",
+            "textures/celestial/planets/lava/Volcanic.png",
+            "textures/celestial/planets/lava/lava_01.png",
+            "textures/celestial/planets/lava/lava_02.png",
+            "textures/celestial/planets/lava/lava_03.png",
+            "textures/celestial/planets/lava/lava_04.png",
+            "textures/celestial/planets/lava/lava_05.png",
+            "textures/celestial/planets/lava/lava_06.png",
+            "textures/celestial/planets/lava/lava_07.png",
+            "textures/celestial/planets/lava/lava_08.png",
         ],
         "scorched": [
             // Extreme-heat greenhouse worlds (200–500°C, Venus-like).
@@ -115,6 +170,26 @@
             // assets/textures/celestial/planets/gas_giant/ and register them here.
             "textures/celestial/planets/jupiter_8k.jpg",
             "textures/celestial/planets/saturn_8k.jpg",
+            "textures/celestial/planets/gas_giant/gas_giant_01.png",
+            "textures/celestial/planets/gas_giant/gas_giant_02.png",
+            "textures/celestial/planets/gas_giant/gas_giant_03.png",
+            "textures/celestial/planets/gas_giant/gas_giant_04.png",
+            "textures/celestial/planets/gas_giant/gas_giant_05.png",
+            "textures/celestial/planets/gas_giant/gas_giant_06.png",
+            "textures/celestial/planets/gas_giant/gas_giant_07.png",
+            "textures/celestial/planets/gas_giant/gas_giant_08.png",
+            "textures/celestial/planets/gas_giant/gas_giant_09.png",
+            "textures/celestial/planets/gas_giant/gas_giant_10.png",
+            "textures/celestial/planets/gas_giant/gas_giant_11.png",
+            "textures/celestial/planets/gas_giant/gas_giant_12.png",
+            "textures/celestial/planets/gas_giant/gas_giant_13.png",
+            "textures/celestial/planets/gas_giant/gas_giant_14.png",
+            "textures/celestial/planets/gas_giant/gas_giant_15.png",
+            "textures/celestial/planets/gas_giant/gas_giant_16.png",
+            "textures/celestial/planets/gas_giant/gas_giant_17.png",
+            "textures/celestial/planets/gas_giant/gas_giant_18.png",
+            "textures/celestial/planets/gas_giant/gas_giant_19.png",
+            "textures/celestial/planets/gas_giant/gas_giant_20.png",
         ],
         "ice_giant": [
             // Cold ice giants. Add ice giant textures to

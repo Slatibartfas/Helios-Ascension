@@ -1,12 +1,16 @@
 # Lava Planet Textures
 
-Textures for volcanically active, molten-surface worlds — Io-like or ultra-hot rocky bodies.
+Textures for volcanically active, molten-surface worlds such as Io-like or ultra-hot rocky planets.
 
 ## Characteristics
-- Active volcanism, lava flows, volcanic calderas
-- Deep red, orange, and black tones
-- Temperatures: above 500°C
-- Often tidally locked or very close to their star
+- Active volcanism, lava flows, calderas, and glowing fissures
+- Red, orange, black, and dark basaltic tones
+- Extremely hot surfaces with widespread melt regions
+- Typical procedural band: above 500C
+
+## Runtime Category
+- Manifest key: `lava`
+- Used for the hottest rocky planets
 
 ## Adding Textures
 
@@ -19,11 +23,7 @@ Drop any equirectangular planet texture here and register it in `assets/data/pla
 ],
 ```
 
-## Texture Suggestions
-- NASA Io textures (Public Domain)
-- Volcanic surface renders
-- Procedurally generated lava world textures
-
 ## Recommended Sources
-- NASA Solar System Exploration textures (Public Domain)
-- Solar System Scope (CC BY 4.0) — https://www.solarsystemscope.com/textures/
+- NASA Io textures (Public Domain)
+- Solar System Scope (CC BY 4.0) - https://www.solarsystemscope.com/textures/
+- Custom volcanic renders or procedural lava-world textures

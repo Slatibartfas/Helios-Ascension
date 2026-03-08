@@ -1,12 +1,16 @@
 # Ice Giant Textures
 
-Textures for cold ice giants — Neptune and Uranus-like bodies in the outer solar system.
+Textures for cold ice giants such as Neptune- and Uranus-like worlds in outer systems.
 
 ## Characteristics
-- Smooth, featureless atmosphere with subtle banding
-- Blue, blue-green, and pale cyan tones
-- Primarily composed of water, ammonia, and methane ices
-- Very distant from their host star
+- Smooth atmospheres with subtle banding or haze layers
+- Blue, cyan, teal, and pale blue-green tones
+- Methane-rich upper atmospheres and ice-rich interiors
+- Typically found far from the host star
+
+## Runtime Category
+- Manifest key: `ice_giant`
+- Used for cold giant planets below the gas-giant temperature threshold or below the giant-mass split
 
 ## Adding Textures
 
@@ -21,4 +25,5 @@ Drop any equirectangular planet texture here and register it in `assets/data/pla
 
 ## Recommended Sources
 - NASA Solar System Exploration textures (Public Domain)
-- Solar System Scope (CC BY 4.0) — https://www.solarsystemscope.com/textures/
+- Solar System Scope (CC BY 4.0) - https://www.solarsystemscope.com/textures/
+- Custom procedural methane-atmosphere renders

@@ -1,12 +1,16 @@
 # Ice Planet Textures
 
-Textures for deeply frozen worlds — Pluto-like bodies locked in extreme cold.
+Textures for deeply frozen worlds locked in extreme cold, similar to Pluto-like icy bodies.
 
 ## Characteristics
-- Solid ice and frozen gas surfaces
-- White, pale blue, and grey tones
-- Nitrogen/methane ice fields
-- Temperatures: below –100°C
+- Frozen nitrogen, methane, water ice, and frost-covered plains
+- White, pale blue, bluish-grey, and muted charcoal tones
+- Strong albedo contrasts and icy deposits
+- Typical procedural band: below -100C
+
+## Runtime Category
+- Manifest key: `ice`
+- Used for the coldest terrestrial worlds
 
 ## Adding Textures
 
@@ -21,4 +25,5 @@ Drop any equirectangular planet texture here and register it in `assets/data/pla
 
 ## Recommended Sources
 - NASA Solar System Exploration textures (Public Domain)
-- Solar System Scope (CC BY 4.0) — https://www.solarsystemscope.com/textures/
+- Solar System Scope (CC BY 4.0) - https://www.solarsystemscope.com/textures/
+- Mission-inspired icy dwarf and frozen moon textures

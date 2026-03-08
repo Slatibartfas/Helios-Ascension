@@ -1,12 +1,16 @@
 # Temperate Planet Textures
 
-Textures for Earth-like temperate worlds — mixed biomes with continents, oceans, and moderate weather.
+Textures for Earth-like temperate worlds with mixed land, water, and moderate climates.
 
 ## Characteristics
-- Mixed land/ocean coverage
-- Earth-like colour palette with greens, blues, and browns
-- Moderate seasons and weather patterns
-- Temperatures: –20°C – 60°C
+- Balanced continents, seas, and varied biomes
+- Greens, blues, browns, and cloud-compatible terrain patterns
+- Moderate weather and seasonal variety
+- Typical procedural band: -20C to 60C
+
+## Runtime Category
+- Manifest key: `temperate`
+- Used for mixed-biome habitable terrestrial worlds
 
 ## Adding Textures
 
@@ -20,5 +24,6 @@ Drop any equirectangular planet texture here and register it in `assets/data/pla
 ```
 
 ## Recommended Sources
-- NASA Solar System Exploration textures (Public Domain)
-- Solar System Scope (CC BY 4.0) — https://www.solarsystemscope.com/textures/
+- NASA Earth Observatory and Blue Marble references
+- Solar System Scope (CC BY 4.0) - https://www.solarsystemscope.com/textures/
+- Custom mixed-biome procedural textures
