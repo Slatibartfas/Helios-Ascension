@@ -8,8 +8,10 @@ This directory contains texture assets for celestial bodies in Helios: Ascension
 celestial/
 ├── planets/
 │   ├── *.jpg / *.png          — Solar-system planet textures
-│   ├── barren/                — Cratered, airless Mercury-like worlds
-│   ├── desert/                — Hot arid Mars/Venus-like worlds (60°C – 500°C)
+│   ├── barren/                — Dry neutral-toned rocky worlds
+│   ├── rock/                  — Bare stony and mineral-rich rocky worlds
+│   ├── martian/               — Rust-red oxidised rocky worlds
+│   ├── desert/                — Hot sandy arid worlds (60°C – 200°C)
 │   ├── temperate/             — Earth-like mixed biome worlds (−20°C – 60°C)
 │   ├── jungle/                — Lush, heavily-vegetated worlds (−20°C – 60°C)
 │   ├── alpine/                — Mountainous, high-altitude worlds with snowcaps (−20°C – 10°C)
@@ -18,6 +20,7 @@ celestial/
 │   ├── ocean/                 — Global-ocean worlds (−20°C – 60°C)
 │   ├── tundra/                — Cold permafrost worlds (−100°C – −20°C)
 │   ├── ice/                   — Deeply-frozen worlds below −100°C (Pluto-like)
+│   ├── scorched/              — Extreme-heat greenhouse worlds (200°C – 500°C)
 │   ├── lava/                  — Volcanically-active scorched worlds (> 500°C)
 │   ├── gas_giant/             — Warm gas giants (Jupiter / Saturn-like)
 │   ├── ice_giant/             — Cold ice giants (Neptune / Uranus-like)

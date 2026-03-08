@@ -106,12 +106,11 @@ impl PlanetTextureManifest {
     fn default_fallback() -> Self {
         let entries: &[(&str, &[&str])] = &[
             ("barren", &["textures/celestial/planets/mercury_8k.jpg"]),
+            ("rock", &["textures/celestial/planets/mercury_8k.jpg"]),
+            ("martian", &["textures/celestial/planets/mars_8k.jpg"]),
             (
                 "desert",
-                &[
-                    "textures/celestial/planets/mars_8k.jpg",
-                    "textures/celestial/planets/venus_surface_8k.jpg",
-                ],
+                &["textures/celestial/planets/venus_surface_8k.jpg"],
             ),
             ("temperate", &["textures/celestial/planets/earth_8k.jpg"]),
             ("jungle", &["textures/celestial/planets/earth_8k.jpg"]),
@@ -531,7 +530,13 @@ pub fn classify_exoplanet_with_mass(
                 "gas_giant"
             }
         }
-        BodyType::DwarfPlanet => "dwarf",
+        BodyType::DwarfPlanet => {
+            if seed % 3 == 0 {
+                "rock"
+            } else {
+                "dwarf"
+            }
+        }
         BodyType::Moon => "moon",
         BodyType::Asteroid => match asteroid_class.unwrap_or(AsteroidClass::CType) {
             AsteroidClass::SType | AsteroidClass::VType | AsteroidClass::MType => "asteroid_s",
@@ -545,8 +550,13 @@ pub fn classify_exoplanet_with_mass(
                 // Extreme heat (200–500 °C) — Venus-like greenhouse infernos
                 "scorched"
             } else if avg_temp_c > 60.0 {
-                // Very hot worlds above habitable band
-                "desert"
+                // Hot rocky worlds split between sandy deserts and rust-red
+                // oxidised Martian surfaces based on deterministic seed.
+                if seed % 3 == 0 {
+                    "martian"
+                } else {
+                    "desert"
+                }
             } else if avg_temp_c >= -20.0 {
                 // Habitable-zone planets: split by temperature into four archetypes
                 if avg_temp_c < -5.0 {
@@ -606,6 +616,15 @@ fn category_tint(category: &str, r1: f32, r2: f32, r3: f32) -> (Color, f32, f32)
                 0.0 + r3 * 0.05,
             )
         }
+        "martian" => {
+            // Rust-red oxidised regolith with darker basaltic undertones
+            let b = 0.82 + r1 * 0.10;
+            (
+                Color::srgb(b, (b * 0.58).min(1.0), (b * 0.40).min(1.0)),
+                0.77 + r2 * 0.14,
+                0.0 + r3 * 0.05,
+            )
+        }
         "temperate" => {
             // Near-white — let the texture dominate
             let b = 0.90 + r1 * 0.08;
@@ -654,6 +673,16 @@ fn category_tint(category: &str, r1: f32, r2: f32, r3: f32) -> (Color, f32, f32)
                 Color::srgb(b, (b * 0.93).min(1.0), (b * 0.88).min(1.0)),
                 0.80 + r2 * 0.12,
                 0.0 + r3 * 0.05,
+            )
+        }
+        "rock" => {
+            // Bare stone and mineral-rich surfaces with a slightly darker,
+            // denser look than generic barren worlds.
+            let b = 0.72 + r1 * 0.14;
+            (
+                Color::srgb(b, (b * 0.90).min(1.0), (b * 0.84).min(1.0)),
+                0.83 + r2 * 0.10,
+                0.02 + r3 * 0.05,
             )
         }
         "gas_giant" => {
@@ -1649,19 +1678,32 @@ mod tests {
 
     #[test]
     fn test_classify_desert() {
-        // Hot worlds (60–200 °C)
+        // Hot sandy worlds (60–200 °C) use most seeds.
         assert_eq!(
-            classify_exoplanet(BodyType::Planet, None, 200.0, 0, false, false),
+            classify_exoplanet(BodyType::Planet, None, 200.0, 1, false, false),
             "desert"
         );
         assert_eq!(
-            classify_exoplanet(BodyType::Planet, None, 60.1, 0, false, false),
+            classify_exoplanet(BodyType::Planet, None, 60.1, 2, false, false),
             "desert"
         );
         // exactly 60.0 sits at the hot habitable band and should be savannah
         assert_eq!(
             classify_exoplanet(BodyType::Planet, None, 60.0, 0, false, false),
             "savannah"
+        );
+    }
+
+    #[test]
+    fn test_classify_martian() {
+        // Every third hot rocky world gets the rust-red Martian archetype.
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, 200.0, 0, false, false),
+            "martian"
+        );
+        assert_eq!(
+            classify_exoplanet(BodyType::Planet, None, 60.1, 3, false, false),
+            "martian"
         );
     }
 
@@ -1879,8 +1921,12 @@ mod tests {
     #[test]
     fn test_classify_small_bodies() {
         assert_eq!(
-            classify_exoplanet(BodyType::DwarfPlanet, None, -200.0, 0, false, false),
+            classify_exoplanet(BodyType::DwarfPlanet, None, -200.0, 1, false, false),
             "dwarf"
+        );
+        assert_eq!(
+            classify_exoplanet(BodyType::DwarfPlanet, None, -200.0, 0, false, false),
+            "rock"
         );
         assert_eq!(
             classify_exoplanet(BodyType::Moon, None, 0.0, 0, false, false),
@@ -1998,6 +2044,8 @@ mod tests {
         let manifest = PlanetTextureManifest::default_fallback();
         for cat in &[
             "barren",
+            "rock",
+            "martian",
             "desert",
             "temperate",
             "jungle",
@@ -2031,9 +2079,11 @@ mod tests {
         );
         let manifest = result.unwrap();
         assert!(
-            manifest.categories.len() >= 14,
-            "expected at least 14 categories"
+            manifest.categories.len() >= 16,
+            "expected at least 16 categories"
         );
+        assert!(manifest.pick("rock", 0).is_some());
+        assert!(manifest.pick("martian", 0).is_some());
         assert!(manifest.pick("desert", 0).is_some());
         assert!(manifest.pick("jungle", 0).is_some());
         assert!(manifest.pick("lava", 0).is_some());
@@ -2046,12 +2096,14 @@ mod tests {
         let categories = [
             "lava",
             "desert",
+            "martian",
             "temperate",
             "jungle",
             "ocean",
             "tundra",
             "ice",
             "barren",
+            "rock",
             "gas_giant",
             "ice_giant",
             "dwarf",

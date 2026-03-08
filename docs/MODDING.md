@@ -82,7 +82,10 @@ texture is picked from `assets/data/planet_textures.ron`.
 | Category    | Temperature range              | Appearance                         |
 |-------------|--------------------------------|------------------------------------|
 | `lava`      | > 500 °C                       | Volcanic, molten surface           |
-| `desert`    | 60 – 500 °C                    | Arid, dusty, rusty red             |
+| `scorched`  | 200 – 500 °C                   | Greenhouse inferno, Venus-like     |
+| `desert`    | 60 – 200 °C                    | Sandy yellow deserts, mesas, oases |
+| `martian`   | 60 – 200 °C                    | Rust-red oxidised rocky terrain    |
+| `rock`      | —                              | Bare stony rocky and dwarf worlds  |
 | `savannah`  | > 45 °C (up to 500 °C)         | Hot grasslands, scorched plains    |
 | `jungle`    | −20 – 60 °C                    | Dense green biosphere              |
 | `ocean`     | −20 – 60 °C                    | Global blue ocean                  |
@@ -91,14 +94,15 @@ texture is picked from `assets/data/planet_textures.ron`.
 | `swamp`     | −20 to 45 °C                   | Murky, wet marshlands              |
 | `tundra`    | −100 – −20 °C                  | Permafrost, grey-blue              |
 | `ice`       | below −100 °C                  | Frozen, Pluto-like                 |
-| `barren`    | any (default)                  | Cratered, airless                  |
+| `barren`    | any (default)                  | Dry neutral-toned rocky worlds     |
 | `gas_giant` | ≥ −80 °C                       | Jupiter / Saturn-like              |
 | `ice_giant` | < −80 °C                       | Neptune / Uranus-like              |
 | `dwarf`     | —                              | KBOs, dwarf planets                |
 | `moon`      | —                              | Natural satellites                 |
 
 Jungle, ocean, and temperate worlds are all in the same temperature band; the
-game distributes among the three deterministically by body name.
+game distributes among them deterministically by body name. Desert and martian
+textures likewise share the hot rocky band and are split deterministically.
 
 > **Note:** The category is also shown in starmap tooltips and the selected-body
 > panel, making it easier to identify generated worlds.

@@ -1,12 +1,16 @@
 # Ocean Planet Textures
 
-Textures for water-covered worlds — planets dominated by global oceans.
+Textures for water-dominated worlds with global oceans or near-global ocean coverage.
 
 ## Characteristics
-- Global or near-global ocean coverage
-- Deep blue and teal tones
-- Shallow continental shelves or no land masses
-- Temperatures: –20°C – 60°C
+- Deep blue water coverage with little exposed land
+- Teal, blue, and white cloud-highlight tones
+- Shallow shelves, scattered islands, or no major continents
+- Typical procedural band: -20C to 60C
+
+## Runtime Category
+- Manifest key: `ocean`
+- Used for confirmed water-ocean worlds and ocean-dominant habitable bodies
 
 ## Adding Textures
 
@@ -19,11 +23,7 @@ Drop any equirectangular planet texture here and register it in `assets/data/pla
 ],
 ```
 
-## Texture Suggestions
-- High-resolution Earth ocean maps
-- Procedurally generated blue-dominant planet surfaces
-- Artistic renditions of ocean worlds with cloud layers
-
 ## Recommended Sources
 - NASA Earth Observatory (Public Domain)
-- Custom procedural textures
+- Solar System Scope (CC BY 4.0) - https://www.solarsystemscope.com/textures/
+- Custom procedural ocean-world renders
