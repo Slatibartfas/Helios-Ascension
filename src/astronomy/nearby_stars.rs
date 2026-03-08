@@ -72,9 +72,10 @@ pub struct PlanetData {
     pub eccentricity: f32,
     #[serde(rename = "type")]
     pub planet_type: String,
-    /// Index of the star this planet orbits (0 = first star, 1 = second, etc.)
+    /// Optional index of the star this planet orbits (0 = first star, 1 = second, etc.).
+    /// When omitted, the planet is assumed to orbit the star record that contains it.
     #[serde(default)]
-    pub orbits_star: usize,
+    pub orbits_star: Option<usize>,
 }
 
 /// Binary star orbital relationship
@@ -82,10 +83,20 @@ pub struct PlanetData {
 pub struct BinaryOrbitData {
     /// Name/label for this orbital pair
     pub label: String,
-    /// Index of the primary body in the stars array
-    pub primary_idx: usize,
-    /// Index of the secondary body in the stars array
-    pub secondary_idx: usize,
+    /// Optional index of the primary body in the stars array.
+    /// Omit when the primary is another orbit label.
+    #[serde(default)]
+    pub primary_idx: Option<usize>,
+    /// Optional orbit label used as the primary body.
+    #[serde(default)]
+    pub primary_orbit_label: Option<String>,
+    /// Optional index of the secondary body in the stars array.
+    /// Omit when the secondary is another orbit label.
+    #[serde(default)]
+    pub secondary_idx: Option<usize>,
+    /// Optional orbit label used as the secondary body.
+    #[serde(default)]
+    pub secondary_orbit_label: Option<String>,
     /// Semi-major axis of the binary orbit in AU
     pub semi_major_axis_au: f64,
     /// Orbital period in years
@@ -95,6 +106,9 @@ pub struct BinaryOrbitData {
     /// Inclination in degrees
     #[serde(default)]
     pub inclination_deg: f64,
+    /// Longitude of ascending node in degrees
+    #[serde(default)]
+    pub longitude_ascending_node_deg: f64,
     /// Argument of periastron in degrees
     #[serde(default)]
     pub arg_periastron_deg: f64,
@@ -446,5 +460,34 @@ impl NearbyStarsData {
             .iter()
             .position(|star| star.name == name)
             .map(|idx| idx + 1) // 0 = Sol
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BinaryOrbitData;
+
+    #[test]
+    fn test_hierarchical_binary_orbit_deserializes() {
+        let orbit: BinaryOrbitData = serde_json::from_str(
+            r#"{
+                "label": "Alpha Centauri Outer",
+                "primary_orbit_label": "Alpha Centauri AB",
+                "secondary_idx": 2,
+                "semi_major_axis_au": 8700.0,
+                "period_years": 547000.0,
+                "eccentricity": 0.5,
+                "inclination_deg": 107.6,
+                "arg_periastron_deg": 0.0
+            }"#,
+        )
+        .expect("hierarchical orbit should deserialize");
+
+        assert_eq!(
+            orbit.primary_orbit_label.as_deref(),
+            Some("Alpha Centauri AB")
+        );
+        assert_eq!(orbit.secondary_idx, Some(2));
+        assert_eq!(orbit.primary_idx, None);
     }
 }

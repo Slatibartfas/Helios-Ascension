@@ -2,11 +2,16 @@ use super::transfer_planner::render_transfer_planner;
 use super::*;
 use crate::fleets::components::ShipInfo;
 
-const SHIP_MANIFEST_ACTIONS_WIDTH: f32 = 128.0;
+const SHIP_MANIFEST_ACTIONS_WIDTH: f32 = 122.0;
 const SHIP_MANIFEST_ROW_HEIGHT: f32 = 24.0;
 const SHIP_MANIFEST_INNER_PADDING_X: f32 = 8.0;
 const SHIP_MANIFEST_COLUMN_SPACING: f32 = 10.0;
+const SHIP_MANIFEST_MAX_DRAG_WIDTH: f32 = 900.0;
 const SHIP_MANIFEST_COLUMN_WEIGHTS: [f32; 7] = [1.9, 1.3, 0.95, 0.8, 1.5, 1.0, 1.15];
+
+fn ship_manifest_drag_width(available_width: f32) -> f32 {
+    (available_width - SHIP_MANIFEST_ACTIONS_WIDTH - 2.0).clamp(220.0, SHIP_MANIFEST_MAX_DRAG_WIDTH)
+}
 
 fn ship_manifest_text_column(
     painter: &egui::Painter,
@@ -28,7 +33,8 @@ fn ship_manifest_text_column(
 
 fn ship_manifest_column_rects(row_rect: egui::Rect) -> [egui::Rect; 7] {
     let content_rect = row_rect.shrink2(egui::vec2(SHIP_MANIFEST_INNER_PADDING_X, 0.0));
-    let total_spacing = SHIP_MANIFEST_COLUMN_SPACING * (SHIP_MANIFEST_COLUMN_WEIGHTS.len() - 1) as f32;
+    let total_spacing =
+        SHIP_MANIFEST_COLUMN_SPACING * (SHIP_MANIFEST_COLUMN_WEIGHTS.len() - 1) as f32;
     let total_weight: f32 = SHIP_MANIFEST_COLUMN_WEIGHTS.iter().sum();
     let usable_width = (content_rect.width() - total_spacing).max(70.0);
     let mut left = content_rect.left();
@@ -63,14 +69,7 @@ fn paint_ship_manifest_header(ui: &mut egui::Ui, drag_width: f32) {
             ("Max ΔV", egui::Align2::RIGHT_CENTER),
         ];
         for (idx, (label, align)) in headers.into_iter().enumerate() {
-            ship_manifest_text_column(
-                painter,
-                columns[idx],
-                label,
-                align,
-                theme::TEXT_VALUE,
-                true,
-            );
+            ship_manifest_text_column(painter, columns[idx], label, align, theme::TEXT_VALUE, true);
         }
 
         ui.allocate_ui_with_layout(
@@ -108,16 +107,18 @@ fn render_ship_manifest_row(
 
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
-        let drag_width = (ui.available_width() - SHIP_MANIFEST_ACTIONS_WIDTH - 2.0).max(220.0);
+        let drag_width = ship_manifest_drag_width(ui.available_width());
         let drag_id = egui::Id::new("drag_ship").with(fleet_entity).with(ship_idx);
         ui.dnd_drag_source(drag_id, (fleet_entity, ship_idx), |ui| {
             let (row_rect, response) = ui.allocate_exact_size(
                 egui::vec2(drag_width, SHIP_MANIFEST_ROW_HEIGHT),
                 egui::Sense::click_and_drag(),
             );
+
             let row_rounding = egui::CornerRadius::same(4);
-            let show_frame = response.hovered() || response.dragged();
-            let frame_rect = row_rect.expand2(egui::vec2(2.0, 0.0));
+            let is_hovered = ui.rect_contains_pointer(row_rect);
+            let show_frame = is_hovered || response.dragged();
+            let frame_rect = row_rect.expand2(egui::vec2(4.0, 0.0));
             let fill = if response.dragged() {
                 egui::Color32::from_rgba_premultiplied(0, 140, 160, 42)
             } else {
@@ -198,17 +199,17 @@ fn render_ship_manifest_row(
                 false,
             );
 
-            if response.hovered() {
+            if is_hovered {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
             }
 
-            response.on_hover_text("Drag this ship onto another fleet to transfer it")
+            response
         });
 
         let refuel_resp = ui.add_enabled(
             in_orbit_for_manifest,
             egui::Button::new(egui::RichText::new("⛽ Refuel").size(11.0))
-                .min_size(egui::vec2(60.0, 18.0)),
+                .min_size(egui::vec2(58.0, 18.0)),
         );
         if refuel_resp
             .on_hover_text(if in_orbit_for_manifest {
@@ -224,7 +225,7 @@ fn render_ship_manifest_row(
         if ui
             .add(
                 egui::Button::new(egui::RichText::new("🗑 Scrap").size(11.0).color(theme::RED))
-                    .min_size(egui::vec2(56.0, 18.0)),
+                    .min_size(egui::vec2(54.0, 18.0)),
             )
             .on_hover_text("Permanently scrap this ship")
             .clicked()
@@ -294,7 +295,7 @@ pub(super) fn ui_fleets_panel(
 
         // ── Main two-column layout ───────────────────────────────────────────
         let available = ui.available_size();
-        let left_width = (available.x * 0.42).max(380.0);
+        let left_width = (available.x * 0.34).max(300.0);
 
         ui.horizontal_top(|ui| {
             // ── Left column: fleet list ──────────────────────────────────────
@@ -600,16 +601,19 @@ pub(super) fn ui_fleets_panel(
 
     // ── Ship scrap confirmation popup ────────────────────────────────────────
     if let Some((fleet_entity, ship_idx)) = fleet_ui_state.scrap_confirm_ship {
-        let ship_info = fleet_query.get(fleet_entity).ok().and_then(|(_, fleet, _, _, _)| {
-            fleet.ships.get(ship_idx).map(|ship| {
-                (
-                    fleet.name.clone(),
-                    fleet.ships.len(),
-                    ship.name.clone(),
-                    format!("{} {}", ship.class.icon(), ship.class.display_name()),
-                )
-            })
-        });
+        let ship_info = fleet_query
+            .get(fleet_entity)
+            .ok()
+            .and_then(|(_, fleet, _, _, _)| {
+                fleet.ships.get(ship_idx).map(|ship| {
+                    (
+                        fleet.name.clone(),
+                        fleet.ships.len(),
+                        ship.name.clone(),
+                        format!("{} {}", ship.class.icon(), ship.class.display_name()),
+                    )
+                })
+            });
         if let Some((fleet_name, fleet_ship_count, ship_name, ship_class)) = ship_info {
             let mut do_scrap = false;
             let mut cancel = false;
@@ -1347,7 +1351,7 @@ fn render_fleet_detail(
     // ── Ship manifest ─────────────────────────────────────────────────────────
     ui.label(egui::RichText::new("Ship Manifest").strong().size(14.0));
     let in_orbit_for_manifest = maybe_orbit.is_some();
-    let manifest_drag_width = (ui.available_width() - SHIP_MANIFEST_ACTIONS_WIDTH - 2.0).max(220.0);
+    let manifest_drag_width = ship_manifest_drag_width(ui.available_width());
     paint_ship_manifest_header(ui, manifest_drag_width);
     ui.add_space(2.0);
     for (idx, ship) in fleet.ships.iter().enumerate() {

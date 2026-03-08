@@ -488,7 +488,15 @@ pub fn classify_exoplanet(
     has_surface_ocean: bool,
     ocean_is_water: bool,
 ) -> &'static str {
-    classify_exoplanet_with_mass(body_type, asteroid_class, avg_temp_c, seed, has_surface_ocean, ocean_is_water, None)
+    classify_exoplanet_with_mass(
+        body_type,
+        asteroid_class,
+        avg_temp_c,
+        seed,
+        has_surface_ocean,
+        ocean_is_water,
+        None,
+    )
 }
 
 /// Extended classifier that also considers body mass (kg).
@@ -1494,6 +1502,7 @@ fn handle_system_transition(
     mut anchor_query: Query<&mut CameraAnchor, With<GameCamera>>,
     mut camera_query: Query<&mut OrbitCamera, With<GameCamera>>,
     icon_query: Query<&StarSystemIcon>,
+    star_body_query: Query<(Entity, &CelestialBody, &SpaceCoordinates, Option<&SystemId>)>,
     selected_query: Query<Entity, With<SelectedStarSystem>>,
     body_selected_query: Query<Entity, With<crate::astronomy::components::Selected>>,
     mut commands: Commands,
@@ -1520,18 +1529,34 @@ fn handle_system_transition(
                     icon.name, floating_origin.position
                 );
 
-                // Clear the anchor so the camera is free to move in the new system
-                // But wait! If we clear the anchor, the camera target_center stays where it was (at the icon).
-                // Since the Floating Origin shifted, the Icon moved to (0,0,0).
-                // So target_center should be (0,0,0).
-                // And OrbitCamera will naturally look at (0,0,0).
-                anchor.0 = None;
+                let focus_star = star_body_query
+                    .iter()
+                    .filter(|(_, body, _, sys_id)| {
+                        body.body_type == BodyType::Star
+                            && sys_id.map(|s| s.0).unwrap_or(0) == icon.id
+                    })
+                    .max_by(|(_, body_a, _, _), (_, body_b, _, _)| {
+                        body_a
+                            .mass
+                            .partial_cmp(&body_b.mass)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .map(|(entity, _body, coords, _)| (entity, coords.position));
 
-                // Reset OrbitCamera target center to (0,0,0) explicitly
-                // This ensures we are looking at the star (which is at local 0,0,0)
-                // disregarding any previous starmap-space offset
                 if let Ok(mut orbit_camera) = camera_query.single_mut() {
-                    orbit_camera.target_center = Vec3::ZERO;
+                    orbit_camera.pan_offset = Vec3::ZERO;
+                    if let Some((focus_entity, focus_pos)) = focus_star {
+                        let local_focus = (focus_pos - floating_origin.position) * SCALING_FACTOR;
+                        orbit_camera.target_center = Vec3::new(
+                            local_focus.x as f32,
+                            local_focus.y as f32,
+                            local_focus.z as f32,
+                        );
+                        anchor.0 = Some(focus_entity);
+                    } else {
+                        anchor.0 = None;
+                        orbit_camera.target_center = Vec3::ZERO;
+                    }
                 }
             }
         }
@@ -1752,31 +1777,79 @@ mod tests {
     fn test_classify_gas_and_ice_giants_by_mass() {
         // Jupiter-mass (1.9e27 kg) — gas giant regardless of temperature
         assert_eq!(
-            classify_exoplanet_with_mass(BodyType::GasGiant, None, -108.0, 0, false, false, Some(1.9e27)),
+            classify_exoplanet_with_mass(
+                BodyType::GasGiant,
+                None,
+                -108.0,
+                0,
+                false,
+                false,
+                Some(1.9e27)
+            ),
             "gas_giant"
         );
         // Saturn-mass (5.7e26 kg) — gas giant
         assert_eq!(
-            classify_exoplanet_with_mass(BodyType::GasGiant, None, -133.0, 0, false, false, Some(5.7e26)),
+            classify_exoplanet_with_mass(
+                BodyType::GasGiant,
+                None,
+                -133.0,
+                0,
+                false,
+                false,
+                Some(5.7e26)
+            ),
             "gas_giant"
         );
         // Uranus-mass (8.7e25 kg) — ice giant
         assert_eq!(
-            classify_exoplanet_with_mass(BodyType::GasGiant, None, -197.0, 0, false, false, Some(8.7e25)),
+            classify_exoplanet_with_mass(
+                BodyType::GasGiant,
+                None,
+                -197.0,
+                0,
+                false,
+                false,
+                Some(8.7e25)
+            ),
             "ice_giant"
         );
         // Neptune-mass (1.0e26 kg) — ice giant
         assert_eq!(
-            classify_exoplanet_with_mass(BodyType::GasGiant, None, -201.0, 0, false, false, Some(1.0e26)),
+            classify_exoplanet_with_mass(
+                BodyType::GasGiant,
+                None,
+                -201.0,
+                0,
+                false,
+                false,
+                Some(1.0e26)
+            ),
             "ice_giant"
         );
         // Mass threshold: > 2e26 is gas giant
         assert_eq!(
-            classify_exoplanet_with_mass(BodyType::GasGiant, None, -200.0, 0, false, false, Some(2.01e26)),
+            classify_exoplanet_with_mass(
+                BodyType::GasGiant,
+                None,
+                -200.0,
+                0,
+                false,
+                false,
+                Some(2.01e26)
+            ),
             "gas_giant"
         );
         assert_eq!(
-            classify_exoplanet_with_mass(BodyType::GasGiant, None, -200.0, 0, false, false, Some(2.0e26)),
+            classify_exoplanet_with_mass(
+                BodyType::GasGiant,
+                None,
+                -200.0,
+                0,
+                false,
+                false,
+                Some(2.0e26)
+            ),
             "ice_giant"
         );
     }

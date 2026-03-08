@@ -2216,8 +2216,8 @@ mod tests {
                     BodyType::Asteroid,
                     body_mass_kg,
                     Some(*class),
-                    2.8,  // typical main belt distance
-                    2.5,  // frost line
+                    2.8, // typical main belt distance
+                    2.5, // frost line
                     &mut rng,
                 );
 

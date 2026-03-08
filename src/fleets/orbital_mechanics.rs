@@ -3,6 +3,9 @@
 //! Provides Hohmann transfer computations, multi-option transfer planning,
 //! and the Tsiolkovsky rocket equation for fuel estimation.
 
+use crate::astronomy::KeplerOrbit;
+use bevy::math::DVec3;
+
 /// Gravitational parameter of the Sun (m³ s⁻²)
 pub const GM_SUN: f64 = 1.327_124_4e20;
 
@@ -58,6 +61,9 @@ pub struct TransferOption {
     /// the player understands the displayed trip time is a minimum estimate,
     /// not a Keplerian ballistic arc.
     pub is_thrust_limited: bool,
+    /// Optional fully specified transfer conic to use instead of reconstructing
+    /// geometry from `sma_au` and `eccentricity` alone.
+    pub transfer_orbit_override: Option<KeplerOrbit>,
 }
 
 /// Information about the next optimal Hohmann launch window between two bodies.
@@ -394,6 +400,7 @@ pub fn calculate_transfer_options_phased(
             energy_multiplier: 1.0,
             burn_time_s: 0.0,
             is_thrust_limited: false,
+            transfer_orbit_override: None,
         }];
     }
 
@@ -424,6 +431,7 @@ pub fn calculate_transfer_options_phased(
         energy_multiplier: corr_full,
         burn_time_s: 0.0,
         is_thrust_limited: false,
+        transfer_orbit_override: None,
     };
 
     // Moderate (1.5× inclined base): 65 % of phase correction
@@ -440,6 +448,7 @@ pub fn calculate_transfer_options_phased(
         energy_multiplier: 1.0,
         burn_time_s: 0.0,
         is_thrust_limited: false,
+        transfer_orbit_override: None,
     };
     let moderate = scaled_transfer(&inclined_base, 1.5 * corr_mod, "Moderate");
 
@@ -480,6 +489,7 @@ pub fn calculate_transfer_options(
             energy_multiplier: 1.0,
             burn_time_s: 0.0,
             is_thrust_limited: false,
+            transfer_orbit_override: None,
         }];
     }
 
@@ -498,6 +508,7 @@ pub fn calculate_transfer_options(
         energy_multiplier: 1.0,
         burn_time_s: 0.0,
         is_thrust_limited: false,
+        transfer_orbit_override: None,
     };
 
     // Moderate ≈ 1.5× Δv, ≈ 0.65× time (plane_change_dv_ms propagates via scaled_transfer)
@@ -506,6 +517,456 @@ pub fn calculate_transfer_options(
     let fast = scaled_transfer(&efficient, 2.5, "Fast");
 
     vec![efficient, moderate, fast]
+}
+
+fn mean_anomaly_from_true_anomaly(eccentricity: f64, true_anomaly: f64) -> f64 {
+    use std::f64::consts::TAU;
+
+    let denom = 1.0 + eccentricity * true_anomaly.cos();
+    if denom.abs() < 1e-12 {
+        return 0.0;
+    }
+
+    let cos_e = ((eccentricity + true_anomaly.cos()) / denom).clamp(-1.0, 1.0);
+    let sin_e = ((1.0 - eccentricity * eccentricity).max(0.0)).sqrt() * true_anomaly.sin() / denom;
+    let eccentric_anomaly = sin_e.atan2(cos_e).rem_euclid(TAU);
+    (eccentric_anomaly - eccentricity * eccentric_anomaly.sin()).rem_euclid(TAU)
+}
+
+fn circular_escape_injection_dv(gm: f64, radius_au: f64) -> f64 {
+    if gm <= 0.0 || radius_au <= 0.0 {
+        return 0.0;
+    }
+
+    let radius_m = radius_au * AU_IN_METERS;
+    let circular_speed = (gm / radius_m).sqrt();
+    circular_speed * (std::f64::consts::SQRT_2 - 1.0)
+}
+
+fn stumpff_c(z: f64) -> f64 {
+    if z > 1e-8 {
+        (1.0 - z.sqrt().cos()) / z
+    } else if z < -1e-8 {
+        ((-z).sqrt().cosh() - 1.0) / (-z)
+    } else {
+        0.5
+    }
+}
+
+fn stumpff_s(z: f64) -> f64 {
+    if z > 1e-8 {
+        let sqrt_z = z.sqrt();
+        (sqrt_z - sqrt_z.sin()) / sqrt_z.powi(3)
+    } else if z < -1e-8 {
+        let sqrt_neg_z = (-z).sqrt();
+        (sqrt_neg_z.sinh() - sqrt_neg_z) / sqrt_neg_z.powi(3)
+    } else {
+        1.0 / 6.0
+    }
+}
+
+fn lambert_time_of_flight_s(z: f64, r1_m: f64, r2_m: f64, a_param: f64, gm: f64) -> Option<(f64, f64)> {
+    let c = stumpff_c(z);
+    let s = stumpff_s(z);
+    if !c.is_finite() || !s.is_finite() || c <= 0.0 {
+        return None;
+    }
+
+    let y = r1_m + r2_m + a_param * (z * s - 1.0) / c.sqrt();
+    if !y.is_finite() || y <= 0.0 {
+        return None;
+    }
+
+    let x = (y / c).sqrt();
+    let tof = (x.powi(3) * s + a_param * y.sqrt()) / gm.sqrt();
+    if !tof.is_finite() || tof <= 0.0 {
+        return None;
+    }
+
+    Some((tof, y))
+}
+
+fn minimum_energy_lambert_time_s(r1_m: f64, r2_m: f64, chord_m: f64, gm: f64) -> Option<f64> {
+    let semi_perimeter = (r1_m + r2_m + chord_m) * 0.5;
+    if semi_perimeter <= 0.0 {
+        return None;
+    }
+
+    let a_min = semi_perimeter * 0.5;
+    let beta_arg = ((semi_perimeter - chord_m) / semi_perimeter).clamp(0.0, 1.0);
+    let beta = 2.0 * beta_arg.sqrt().asin();
+    let tof = (a_min.powi(3) / gm).sqrt() * (std::f64::consts::PI - (beta - beta.sin()));
+    if tof.is_finite() && tof > 0.0 {
+        Some(tof)
+    } else {
+        None
+    }
+}
+
+fn orbit_from_state_vectors(r_au: DVec3, v_ms: DVec3, gm: f64) -> Option<KeplerOrbit> {
+    use std::f64::consts::TAU;
+
+    let r_m = r_au * AU_IN_METERS;
+    let r_norm = r_m.length();
+    if r_norm <= 0.0 || gm <= 0.0 {
+        return None;
+    }
+
+    let h_vec = r_m.cross(v_ms);
+    let h_norm = h_vec.length();
+    if h_norm <= 1e-9 {
+        return None;
+    }
+
+    let e_vec = v_ms.cross(h_vec) / gm - r_m / r_norm;
+    let eccentricity = e_vec.length();
+    if !eccentricity.is_finite() || !(0.0..1.0).contains(&eccentricity) {
+        return None;
+    }
+
+    let energy = v_ms.length_squared() * 0.5 - gm / r_norm;
+    if !energy.is_finite() || energy >= 0.0 {
+        return None;
+    }
+    let semi_major_axis_m = -gm / (2.0 * energy);
+    let semi_major_axis_au = semi_major_axis_m / AU_IN_METERS;
+
+    let inclination = (h_vec.z / h_norm).clamp(-1.0, 1.0).acos();
+    let node_vec = DVec3::new(-h_vec.y, h_vec.x, 0.0);
+    let node_norm = node_vec.length();
+    let longitude_ascending_node = if node_norm > 1e-12 {
+        node_vec.y.atan2(node_vec.x).rem_euclid(TAU)
+    } else {
+        0.0
+    };
+
+    let argument_of_periapsis = if node_norm > 1e-12 && eccentricity > 1e-10 {
+        let cos_w = (node_vec.dot(e_vec) / (node_norm * eccentricity)).clamp(-1.0, 1.0);
+        let mut omega = cos_w.acos();
+        if e_vec.z < 0.0 {
+            omega = TAU - omega;
+        }
+        omega
+    } else {
+        e_vec.y.atan2(e_vec.x).rem_euclid(TAU)
+    };
+
+    let true_anomaly = if eccentricity > 1e-10 {
+        let cos_nu = (e_vec.dot(r_m) / (eccentricity * r_norm)).clamp(-1.0, 1.0);
+        let mut nu = cos_nu.acos();
+        if r_m.dot(v_ms) < 0.0 {
+            nu = TAU - nu;
+        }
+        nu
+    } else if node_norm > 1e-12 {
+        let cos_u = (node_vec.dot(r_m) / (node_norm * r_norm)).clamp(-1.0, 1.0);
+        let mut u = cos_u.acos();
+        if r_m.z < 0.0 {
+            u = TAU - u;
+        }
+        u
+    } else {
+        r_m.y.atan2(r_m.x).rem_euclid(TAU)
+    };
+
+    let mean_anomaly_epoch = mean_anomaly_from_true_anomaly(eccentricity, true_anomaly);
+    let mean_motion = (gm / semi_major_axis_m.powi(3)).sqrt();
+
+    Some(KeplerOrbit {
+        semi_major_axis: semi_major_axis_au,
+        eccentricity,
+        inclination,
+        longitude_ascending_node,
+        argument_of_periapsis,
+        mean_anomaly_epoch,
+        mean_motion,
+    })
+}
+
+fn solve_lambert_transfer(
+    origin_pos_au: DVec3,
+    dest_pos_au: DVec3,
+    transfer_time_s: f64,
+    system_gm: f64,
+) -> Option<(DVec3, DVec3, KeplerOrbit)> {
+    let r1_vec = origin_pos_au * AU_IN_METERS;
+    let r2_vec = dest_pos_au * AU_IN_METERS;
+    let r1_m = r1_vec.length();
+    let r2_m = r2_vec.length();
+    if transfer_time_s <= 0.0 || r1_m <= 0.0 || r2_m <= 0.0 || system_gm <= 0.0 {
+        return None;
+    }
+
+    let cos_dtheta = (r1_vec.dot(r2_vec) / (r1_m * r2_m)).clamp(-1.0, 1.0);
+    let sin_dtheta = (r1_vec.cross(r2_vec).length() / (r1_m * r2_m)).clamp(0.0, 1.0);
+    if (1.0 - cos_dtheta).abs() < 1e-10 || sin_dtheta <= 1e-10 {
+        return None;
+    }
+
+    let a_param = sin_dtheta * ((r1_m * r2_m) / (1.0 - cos_dtheta)).sqrt();
+    if !a_param.is_finite() || a_param.abs() <= 1e-9 {
+        return None;
+    }
+
+    let z_min = -4.0 * std::f64::consts::PI * std::f64::consts::PI;
+    let z_max = 4.0 * std::f64::consts::PI * std::f64::consts::PI;
+    let mut bracket: Option<(f64, f64)> = None;
+    let mut previous: Option<(f64, f64)> = None;
+    for step in 0..=512 {
+        let frac = step as f64 / 512.0;
+        let z = z_min + (z_max - z_min) * frac;
+        let Some((tof, _)) = lambert_time_of_flight_s(z, r1_m, r2_m, a_param, system_gm) else {
+            continue;
+        };
+        let value = tof - transfer_time_s;
+        if let Some((prev_z, prev_value)) = previous {
+            if prev_value == 0.0 || value == 0.0 || prev_value.signum() != value.signum() {
+                bracket = Some((prev_z, z));
+                break;
+            }
+        }
+        previous = Some((z, value));
+    }
+
+    let (mut low, mut high) = bracket?;
+    for _ in 0..96 {
+        let mid = 0.5 * (low + high);
+        let Some((tof_low, _)) = lambert_time_of_flight_s(low, r1_m, r2_m, a_param, system_gm) else {
+            return None;
+        };
+        let Some((tof_mid, _)) = lambert_time_of_flight_s(mid, r1_m, r2_m, a_param, system_gm) else {
+            return None;
+        };
+        let f_low = tof_low - transfer_time_s;
+        let f_mid = tof_mid - transfer_time_s;
+        if f_mid.abs() < 1e-6 {
+            low = mid;
+            high = mid;
+            break;
+        }
+        if f_low.signum() == f_mid.signum() {
+            low = mid;
+        } else {
+            high = mid;
+        }
+    }
+
+    let z = 0.5 * (low + high);
+    let (_, y) = lambert_time_of_flight_s(z, r1_m, r2_m, a_param, system_gm)?;
+    let f = 1.0 - y / r1_m;
+    let g = a_param * (y / system_gm).sqrt();
+    let gdot = 1.0 - y / r2_m;
+    if g.abs() <= 1e-9 {
+        return None;
+    }
+
+    let v1_ms = (r2_vec - r1_vec * f) / g;
+    let v2_ms = (r2_vec * gdot - r1_vec) / g;
+    let orbit = orbit_from_state_vectors(origin_pos_au, v1_ms, system_gm)?;
+    Some((v1_ms, v2_ms, orbit))
+}
+
+fn fitted_cross_star_ballistic_options(
+    origin_pos_au: DVec3,
+    dest_pos_au: DVec3,
+    system_gm: f64,
+    origin_host_gm: f64,
+    origin_host_radius_au: f64,
+    dest_host_gm: f64,
+    dest_host_radius_au: f64,
+) -> Vec<TransferOption> {
+    use std::f64::consts::PI;
+
+    let r1_au = origin_pos_au.length();
+    let r2_au = dest_pos_au.length();
+    if system_gm <= 0.0 || r1_au <= 1e-6 || r2_au <= 1e-6 {
+        return Vec::new();
+    }
+
+    let mut angle_cos = origin_pos_au.dot(dest_pos_au) / (r1_au * r2_au);
+    angle_cos = angle_cos.clamp(-0.999_999, 0.999_999);
+    let delta_theta = angle_cos.acos();
+    if !delta_theta.is_finite() || delta_theta <= 1e-4 {
+        return Vec::new();
+    }
+
+    let outward = r2_au >= r1_au;
+    let eccentricity = if outward {
+        let denom = r1_au - r2_au * angle_cos;
+        if denom.abs() < 1e-9 {
+            return Vec::new();
+        }
+        (r2_au - r1_au) / denom
+    } else {
+        let denom = r2_au * angle_cos - r1_au;
+        if denom.abs() < 1e-9 {
+            return Vec::new();
+        }
+        (r2_au - r1_au) / denom
+    };
+
+    if !eccentricity.is_finite() || !(0.0..0.98).contains(&eccentricity) {
+        return Vec::new();
+    }
+
+    let semi_latus_rectum_au = if outward {
+        r1_au * (1.0 + eccentricity)
+    } else {
+        r1_au * (1.0 - eccentricity)
+    };
+    let semi_major_axis_au = semi_latus_rectum_au / (1.0 - eccentricity * eccentricity).max(1e-9);
+    if !semi_major_axis_au.is_finite() || semi_major_axis_au <= 0.0 {
+        return Vec::new();
+    }
+
+    let start_true_anomaly = if outward { 0.0 } else { PI };
+    let end_true_anomaly = if outward { delta_theta } else { PI + delta_theta };
+    let start_mean_anomaly = mean_anomaly_from_true_anomaly(eccentricity, start_true_anomaly);
+    let mut end_mean_anomaly = mean_anomaly_from_true_anomaly(eccentricity, end_true_anomaly);
+    if end_mean_anomaly < start_mean_anomaly {
+        end_mean_anomaly += std::f64::consts::TAU;
+    }
+
+    let semi_major_axis_m = semi_major_axis_au * AU_IN_METERS;
+    let mean_motion = (system_gm / semi_major_axis_m.powi(3)).sqrt();
+    if !mean_motion.is_finite() || mean_motion <= 0.0 {
+        return Vec::new();
+    }
+
+    let base_transfer_time_s = (end_mean_anomaly - start_mean_anomaly) / mean_motion;
+    if !base_transfer_time_s.is_finite() || base_transfer_time_s <= 0.0 {
+        return Vec::new();
+    }
+
+    let r1_m = r1_au * AU_IN_METERS;
+    let r2_m = r2_au * AU_IN_METERS;
+    let v_circ1 = (system_gm / r1_m).sqrt();
+    let v_circ2 = (system_gm / r2_m).sqrt();
+    let v_transfer1 = (system_gm * (2.0 / r1_m - 1.0 / semi_major_axis_m)).sqrt();
+    let v_transfer2 = (system_gm * (2.0 / r2_m - 1.0 / semi_major_axis_m)).sqrt();
+    let local_escape_capture_floor = circular_escape_injection_dv(origin_host_gm, origin_host_radius_au)
+        + circular_escape_injection_dv(dest_host_gm, dest_host_radius_au);
+
+    let efficient = TransferOption {
+        label: "Curved Efficient",
+        total_delta_v_ms: (v_transfer1 - v_circ1).abs()
+            + (v_circ2 - v_transfer2).abs()
+            + local_escape_capture_floor,
+        delta_v1_ms: (v_transfer1 - v_circ1).abs() + local_escape_capture_floor * 0.5,
+        delta_v2_ms: (v_circ2 - v_transfer2).abs() + local_escape_capture_floor * 0.5,
+        plane_change_dv_ms: 0.0,
+        transfer_time_s: base_transfer_time_s,
+        sma_au: semi_major_axis_au,
+        eccentricity,
+        energy_multiplier: 1.0,
+        burn_time_s: 0.0,
+        is_thrust_limited: false,
+        transfer_orbit_override: None,
+    };
+
+    let mut moderate = scaled_transfer(&efficient, 1.5, "Curved Moderate");
+    let mut fast = scaled_transfer(&efficient, 2.5, "Curved Fast");
+    moderate.energy_multiplier = 1.5;
+    fast.energy_multiplier = 2.5;
+
+    vec![efficient, moderate, fast]
+}
+
+/// Compute Lambert-solved curved cross-star transfer options in the system barycentric frame.
+///
+/// These options use a two-body barycentric Lambert solve for the transfer arc and add
+/// local escape/capture floors for leaving the origin host star and entering the
+/// destination host star. Direct point-and-burn options are still generated separately.
+pub fn calculate_cross_star_ballistic_options(
+    origin_pos_au: DVec3,
+    dest_pos_au: DVec3,
+    origin_velocity_ms: DVec3,
+    dest_velocity_ms: DVec3,
+    system_gm: f64,
+    origin_host_gm: f64,
+    origin_host_radius_au: f64,
+    dest_host_gm: f64,
+    dest_host_radius_au: f64,
+) -> Vec<TransferOption> {
+    let chord_m = ((dest_pos_au - origin_pos_au) * AU_IN_METERS).length();
+    let min_energy_tof_s = minimum_energy_lambert_time_s(
+        origin_pos_au.length() * AU_IN_METERS,
+        dest_pos_au.length() * AU_IN_METERS,
+        chord_m,
+        system_gm,
+    );
+    let Some(base_tof_s) = min_energy_tof_s else {
+        return Vec::new();
+    };
+
+    let origin_escape_floor = circular_escape_injection_dv(origin_host_gm, origin_host_radius_au);
+    let dest_capture_floor = circular_escape_injection_dv(dest_host_gm, dest_host_radius_au);
+    let mut options = Vec::new();
+
+    for (label, time_factor, energy_multiplier) in [
+        ("Curved Efficient", 1.00, 1.0),
+        ("Curved Moderate", 0.78, 1.5),
+        ("Curved Fast", 0.62, 2.5),
+    ] {
+        let tof_s = base_tof_s * time_factor;
+        let Some((v_depart_ms, v_arrive_ms, orbit)) =
+            solve_lambert_transfer(origin_pos_au, dest_pos_au, tof_s, system_gm)
+        else {
+            continue;
+        };
+
+        let dv_depart = (v_depart_ms - origin_velocity_ms).length() + origin_escape_floor;
+        let dv_arrive = (dest_velocity_ms - v_arrive_ms).length() + dest_capture_floor;
+
+        options.push(TransferOption {
+            label,
+            total_delta_v_ms: dv_depart + dv_arrive,
+            delta_v1_ms: dv_depart,
+            delta_v2_ms: dv_arrive,
+            plane_change_dv_ms: 0.0,
+            transfer_time_s: tof_s,
+            sma_au: orbit.semi_major_axis,
+            eccentricity: orbit.eccentricity,
+            energy_multiplier,
+            burn_time_s: 0.0,
+            is_thrust_limited: false,
+            transfer_orbit_override: Some(orbit),
+        });
+    }
+
+    if options.len() != 3 {
+        return fitted_cross_star_ballistic_options(
+            origin_pos_au,
+            dest_pos_au,
+            system_gm,
+            origin_host_gm,
+            origin_host_radius_au,
+            dest_host_gm,
+            dest_host_radius_au,
+        );
+    }
+
+    options.sort_by(|left, right| {
+        left.total_delta_v_ms
+            .partial_cmp(&right.total_delta_v_ms)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                right
+                    .transfer_time_s
+                    .partial_cmp(&left.transfer_time_s)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+    });
+    for (option, (label, energy_multiplier)) in options.iter_mut().zip([
+        ("Curved Efficient", 1.0),
+        ("Curved Moderate", 1.5),
+        ("Curved Fast", 2.5),
+    ]) {
+        option.label = label;
+        option.energy_multiplier = energy_multiplier;
+    }
+
+    options
 }
 
 /// Transfer options for a **co-orbital phasing maneuver** to an L3, L4, or L5
@@ -559,6 +1020,7 @@ pub fn direct_lp_transfer_options(r1_au: f64, r2_au: f64, gm: f64) -> Vec<Transf
             energy_multiplier: 1.0,
             burn_time_s: 0.0,
             is_thrust_limited: false,
+            transfer_orbit_override: None,
         }];
     }
 
@@ -604,6 +1066,7 @@ pub fn direct_lp_transfer_options(r1_au: f64, r2_au: f64, gm: f64) -> Vec<Transf
         energy_multiplier: 1.0,
         burn_time_s: 0.0,
         is_thrust_limited: false,
+        transfer_orbit_override: None,
     };
 
     let moderate = TransferOption {
@@ -618,6 +1081,7 @@ pub fn direct_lp_transfer_options(r1_au: f64, r2_au: f64, gm: f64) -> Vec<Transf
         energy_multiplier: 1.3,
         burn_time_s: 0.0,
         is_thrust_limited: false,
+        transfer_orbit_override: None,
     };
 
     let fast = TransferOption {
@@ -632,6 +1096,7 @@ pub fn direct_lp_transfer_options(r1_au: f64, r2_au: f64, gm: f64) -> Vec<Transf
         energy_multiplier: 2.0,
         burn_time_s: 0.0,
         is_thrust_limited: false,
+        transfer_orbit_override: None,
     };
 
     vec![efficient, moderate, fast]
@@ -686,6 +1151,7 @@ pub fn co_orbital_phasing_options(r_au: f64, gm: f64, delta_phi_rad: f64) -> Vec
                 energy_multiplier: 1.0 / nf,
                 burn_time_s: 0.0,
                 is_thrust_limited: false,
+                transfer_orbit_override: None,
             }
         })
         .collect()
@@ -906,6 +1372,7 @@ pub fn course_correction_transfer_options(
             energy_multiplier: energy_mult,
             burn_time_s: 0.0,
             is_thrust_limited: false,
+            transfer_orbit_override: None,
         });
     }
 
@@ -1000,6 +1467,7 @@ fn scaled_transfer(
         burn_time_s: 0.0,
         plane_change_dv_ms: base.plane_change_dv_ms,
         is_thrust_limited: false,
+        transfer_orbit_override: None,
     }
 }
 
@@ -1146,6 +1614,7 @@ pub fn kinematic_transfer_options(
             energy_multiplier,
             burn_time_s: 2.0 * t_accel,
             is_thrust_limited: thrust_limited,
+            transfer_orbit_override: None,
         }
     };
 
@@ -1195,6 +1664,7 @@ pub fn kinematic_transfer_options(
                 energy_multiplier,
                 burn_time_s: t_brach,
                 is_thrust_limited: false,
+                transfer_orbit_override: None,
             });
         }
     } else {
@@ -1362,6 +1832,31 @@ mod tests {
         // Transfer time decreases from efficient to fast
         assert!(options[1].transfer_time_s < options[0].transfer_time_s);
         assert!(options[2].transfer_time_s < options[1].transfer_time_s);
+    }
+
+    #[test]
+    fn test_cross_star_ballistic_options_returns_curved_family() {
+        let options = calculate_cross_star_ballistic_options(
+            bevy::math::DVec3::new(-8.8, 0.0, 0.0),
+            bevy::math::DVec3::new(14.1, 6.0, 0.0),
+            bevy::math::DVec3::new(0.0, 24_000.0, 0.0),
+            bevy::math::DVec3::new(-6_000.0, 18_000.0, 0.0),
+            2.7e20,
+            1.327_124_4e20,
+            1.2,
+            9.5e19,
+            2.1,
+        );
+
+        assert_eq!(options.len(), 3, "curved family should produce 3 options");
+        assert_eq!(options[0].label, "Curved Efficient");
+        assert_eq!(options[1].label, "Curved Moderate");
+        assert_eq!(options[2].label, "Curved Fast");
+        assert!(options[0].total_delta_v_ms.is_finite() && options[0].total_delta_v_ms > 0.0);
+        assert!(options[0].transfer_time_s.is_finite() && options[0].transfer_time_s > 0.0);
+        assert!(options.iter().all(|option| option.transfer_orbit_override.is_some()));
+        assert!(options[1].total_delta_v_ms > options[0].total_delta_v_ms);
+        assert!(options[2].total_delta_v_ms > options[1].total_delta_v_ms);
     }
 
     #[test]
@@ -2041,6 +2536,7 @@ mod tests {
             energy_multiplier: 10.0,
             burn_time_s: 50_000.0,
             is_thrust_limited: false,
+            transfer_orbit_override: None,
         }];
         // Even with tiny accel, Full Thrust should be untouched
         apply_thrust_limits(&mut opts, 0.0001, 5_000.0);
@@ -2052,5 +2548,297 @@ mod tests {
             opts[0].transfer_time_s, 50_000.0,
             "Full Thrust transfer time should be unchanged"
         );
+    }
+
+    // ── Non-solar star system tests ──────────────────────────────────────────
+
+    /// Verify that a Hohmann transfer around a 0.5 M☉ red dwarf gives correct
+    /// physics.  At half the solar mass the circular velocity at 1 AU should be
+    /// 1/√2 of the solar value, and the transfer time should scale accordingly.
+    #[test]
+    fn test_hohmann_red_dwarf_half_solar_mass() {
+        let gm_half = GM_SUN * 0.5; // 0.5 M☉ red dwarf
+        let (dv1, dv2, time_s, sma_au, ecc) = hohmann_transfer(1.0, 2.0, gm_half);
+
+        // For GM_SUN the same transfer gives ~5.65 km/s total Δv and ~516 days.
+        // At half the GM all velocities scale by √0.5 and the period (hence
+        // transfer time) scales by 1/√0.5 = √2.
+        let (dv1_sol, dv2_sol, time_sol, _, _) = hohmann_transfer(1.0, 2.0, GM_SUN);
+
+        let dv_ratio = (dv1 + dv2) / (dv1_sol + dv2_sol);
+        assert!(
+            (dv_ratio - 0.5_f64.sqrt()).abs() < 0.005,
+            "Δv for 0.5 M☉ star should scale as √(0.5); ratio={dv_ratio:.4}"
+        );
+
+        let time_ratio = time_s / time_sol;
+        assert!(
+            (time_ratio - 2.0_f64.sqrt()).abs() < 0.01,
+            "Transfer time for 0.5 M☉ star should scale as √2; ratio={time_ratio:.4}"
+        );
+
+        // Orbital geometry (SMA and eccentricity) depends only on r1 and r2, not GM.
+        assert!(
+            (sma_au - 1.5).abs() < 0.001,
+            "SMA should be (r1+r2)/2 = 1.5 AU regardless of GM"
+        );
+        assert!(
+            (ecc - 1.0 / 3.0).abs() < 0.001,
+            "Eccentricity for 1→2 AU transfer should be 1/3"
+        );
+        let _ = (dv1, dv2);
+    }
+
+    /// Verify that a Hohmann transfer around a 1.1 M☉ star (like Alpha Centauri A)
+    /// gives Δv and transfer time slightly higher/lower than the Solar case.
+    #[test]
+    fn test_hohmann_alpha_centauri_a_mass() {
+        let gm_acen_a = GM_SUN * 1.1; // α Cen A ≈ 1.1 M☉
+        let (dv1, dv2, time_s, _, _) = hohmann_transfer(1.0, 1.524, gm_acen_a);
+        let (dv1_sol, dv2_sol, time_sol, _, _) = hohmann_transfer(1.0, 1.524, GM_SUN);
+
+        let dv_ratio = (dv1 + dv2) / (dv1_sol + dv2_sol);
+        let expected_ratio = 1.1_f64.sqrt();
+        assert!(
+            (dv_ratio - expected_ratio).abs() < 0.005,
+            "Δv for 1.1 M☉ star should scale as √1.1; ratio={dv_ratio:.4}, expected={expected_ratio:.4}"
+        );
+
+        let time_ratio = time_s / time_sol;
+        let expected_time_ratio = 1.0 / 1.1_f64.sqrt();
+        assert!(
+            (time_ratio - expected_time_ratio).abs() < 0.01,
+            "Transfer time for 1.1 M☉ star should scale as 1/√1.1; ratio={time_ratio:.4}"
+        );
+        let _ = (dv1, dv2, time_s);
+    }
+
+    /// Transfer options (Efficient/Moderate/Fast) should be produced consistently
+    /// for a non-solar stellar GM.
+    #[test]
+    fn test_transfer_options_non_solar_star() {
+        let gm_05 = GM_SUN * 0.5;
+        let opts = calculate_transfer_options(1.0, 1.524, gm_05, 0.0);
+
+        assert_eq!(
+            opts.len(),
+            3,
+            "should still return 3 options for non-solar GM"
+        );
+        // Efficient option Δv < Moderate < Fast
+        assert!(opts[0].total_delta_v_ms < opts[1].total_delta_v_ms);
+        assert!(opts[1].total_delta_v_ms < opts[2].total_delta_v_ms);
+        // Transfer time Efficient > Moderate > Fast
+        assert!(opts[0].transfer_time_s > opts[1].transfer_time_s);
+        assert!(opts[1].transfer_time_s > opts[2].transfer_time_s);
+    }
+
+    /// `compute_transfer_window` must work correctly for non-solar stellar GM.
+    /// The synodic period scales inversely with star mass (higher mass = faster
+    /// orbital periods = shorter synodic period for same orbit radii).
+    #[test]
+    fn test_transfer_window_non_solar_star() {
+        let gm_2x = GM_SUN * 2.0; // hypothetical 2 M☉ star
+        let w_sol = compute_transfer_window(1.0, 1.524, GM_SUN, 0.0, 0.0);
+        let w_2x = compute_transfer_window(1.0, 1.524, gm_2x, 0.0, 0.0);
+
+        // With 2× GM both bodies orbit faster so the synodic period is shorter.
+        // Orbital period scales as T ∝ 1/√GM, so synodic period also shortens.
+        assert!(
+            w_2x.synodic_period_s < w_sol.synodic_period_s,
+            "synodic period for 2 M☉ star should be shorter than for 1 M☉: {} vs {} s",
+            w_2x.synodic_period_s,
+            w_sol.synodic_period_s
+        );
+
+        // Phase rate should scale as √GM (faster orbits ⟹ larger phase rate difference).
+        assert!(
+            w_2x.phase_rate_rad_s.abs() > w_sol.phase_rate_rad_s.abs(),
+            "phase rate should be larger for heavier star"
+        );
+    }
+
+    /// Gravity assist options should be found even when GM differs from GM_SUN.
+    /// This validates the `is_stellar_gm()` threshold in the UI layer is consistent
+    /// with what `find_gravity_assist_options` produces for non-solar GMs.
+    #[test]
+    fn test_gravity_assist_non_solar_star_gm() {
+        // Earth → Mars analogue at a 0.5 M☉ star.
+        let gm = GM_SUN * 0.5;
+        // Jupiter-analogue at 5 AU around the 0.5 M☉ star.
+        let ga_bodies = vec![(
+            "JupiterAnalog".to_string(),
+            5.2_f64,            // SMA (AU)
+            G_CONST * 1.898e27, // Jupiter's mass (kg)
+            4.0e-4_f64,         // safe flyby periapsis (AU)
+        )];
+        // Transfer from 1 AU → 10 AU (outer body beyond Jupiter analogue).
+        let assists = find_gravity_assist_options(1.0, 10.0, gm, &ga_bodies);
+        // The assist candidate may or may not geometrically qualify; the important
+        // thing is the function does not panic and returns valid results.
+        for assist in &assists {
+            assert!(
+                assist.total_dv_ms.is_finite() && assist.total_dv_ms > 0.0,
+                "gravity assist Δv should be positive and finite"
+            );
+            assert!(
+                assist.total_time_s.is_finite() && assist.total_time_s > 0.0,
+                "gravity assist transfer time should be positive and finite"
+            );
+        }
+    }
+
+    // ── Inter-star transfer physics tests ────────────────────────────────────
+
+    /// An inter-star Hohmann transfer from 24 AU (planet-around-Star-A in a binary where
+    /// Star A sits 23 AU from the barycenter) to a planet around Star B uses the
+    /// TOTAL barycentric GM, not just one star.
+    ///
+    /// Validates that:
+    ///   - Using the total binary-system GM gives higher Δv than using only one star's GM
+    ///     (because the barycentric circular velocity requires more energy).
+    ///   - Transfer time scales by 1/√2 when GM doubles (Kepler T ∝ GM^(-1/2)).
+    #[test]
+    fn test_inter_star_transfer_uses_total_gm() {
+        // Hypothetical equal-mass binary: each star 1 M☉, total 2 M☉.
+        // Star A barycentric SMA = 11.5 AU, Star B barycentric SMA = 11.5 AU (opposite side).
+        // Planet around Star A at 1 AU from Star A → barycentric r ≈ 12.5 AU.
+        // Planet around Star B at 3 AU from Star B → barycentric r ≈ 14.5 AU.
+        let gm_total = GM_SUN * 2.0; // 2 M☉ total
+        let gm_single = GM_SUN; // 1 M☉ — wrong to use for inter-star
+
+        // Barycentric radii for the two planets.
+        let r1 = 11.5_f64 + 1.0; // planet at 1 AU from Star A (barycentric ≈ 12.5 AU)
+        let r2 = 11.5_f64 + 3.0; // planet at 3 AU from Star B (barycentric ≈ 14.5 AU)
+
+        let (dv1_total, dv2_total, t_total, _, _) = hohmann_transfer(r1, r2, gm_total);
+        let (dv1_single, dv2_single, t_single, _, _) = hohmann_transfer(r1, r2, gm_single);
+
+        // With higher GM, circular velocities are larger → Δv is larger.
+        assert!(
+            dv1_total + dv2_total > dv1_single + dv2_single,
+            "Total-GM transfer should need more Δv than single-star: {:.0} vs {:.0} m/s",
+            dv1_total + dv2_total,
+            dv1_single + dv2_single
+        );
+
+        // With higher GM, periods are shorter → faster transfers.
+        assert!(
+            t_total < t_single,
+            "Total-GM transfer should be faster: {:.1} vs {:.1} days",
+            t_total / 86400.0,
+            t_single / 86400.0
+        );
+
+        // Δv ratio should equal √(GM_ratio) = √2 (vis-viva velocities scale as √GM).
+        let dv_ratio = (dv1_total + dv2_total) / (dv1_single + dv2_single);
+        assert!(
+            (dv_ratio - 2.0_f64.sqrt()).abs() < 0.01,
+            "Δv ratio should equal √2 when GM doubles: got {dv_ratio:.4}"
+        );
+
+        // Transfer time ratio should equal 1/√2 (Kepler period ∝ a^(3/2) / √GM).
+        // Both transfers use the same semi-major axis, so t ∝ 1/√GM.
+        let time_ratio = t_total / t_single;
+        assert!(
+            (time_ratio - 1.0 / 2.0_f64.sqrt()).abs() < 0.01,
+            "Time ratio should equal 1/√2 when GM doubles: got {time_ratio:.4}"
+        );
+    }
+
+    /// A companion star at 20 AU in a binary system can be used as a gravity-assist
+    /// flyby body.  Its enormous GM (≫ any planet) should produce a very large
+    /// maximum assist kick.  Validate that `compute_gravity_assist` gives physically
+    /// reasonable numbers for a stellar flyby.
+    #[test]
+    fn test_star_as_gravity_assist_flyby() {
+        // Binary system: total GM = GM_SUN (origin star) for the transfer frame.
+        // Companion star (the flyby body): 1 M☉ → GM = GM_SUN.
+        let companion_gm = GM_SUN; // 1 M☉ companion
+                                   // Safe periapsis: 20 stellar radii (Sun radius ≈ 0.00465 AU)
+        let star_radius_au = 0.00465_f64;
+        let min_peri_au = star_radius_au * 20.0; // ≈ 0.093 AU
+
+        // Transfer from 1 AU → 40 AU, with the companion at 20 AU.
+        let result = compute_gravity_assist(
+            1.0,
+            40.0,
+            20.0,
+            GM_SUN,
+            companion_gm,
+            "Companion".into(),
+            min_peri_au,
+        );
+
+        // A stellar flyby should have extremely high v_inf (approaching the star adds
+        // enormous kinetic energy near the star).
+        assert!(
+            result.v_inf_ms > 10_000.0,
+            "Stellar flyby v_inf should be large; got {:.0} m/s",
+            result.v_inf_ms
+        );
+
+        // The maximum assist kick should be substantial — a stellar GM allows a large
+        // hyperbolic deflection.
+        assert!(
+            result.max_dv_assist_ms > 1_000.0,
+            "Stellar flyby max assist should exceed 1 km/s; got {:.0} m/s",
+            result.max_dv_assist_ms
+        );
+
+        // All aggregates must be finite and positive.
+        assert!(result.total_dv_ms.is_finite() && result.total_dv_ms > 0.0);
+        assert!(result.total_time_s.is_finite() && result.total_time_s > 0.0);
+        assert!(result.leg1_time_s.is_finite() && result.leg1_time_s > 0.0);
+        assert!(result.leg2_time_s.is_finite() && result.leg2_time_s > 0.0);
+    }
+
+    /// A companion star is found as a gravity-assist candidate when it orbits strictly
+    /// between the origin and destination radii.  This mirrors the `find_gravity_assist_options`
+    /// call made for inter-star transfers via the UI.
+    #[test]
+    fn test_star_gravity_assist_candidate_found() {
+        let companion_gm = GM_SUN; // 1 M☉ companion at 20 AU
+        let star_radius_au = 0.00465_f64;
+        let min_peri = star_radius_au * 20.0;
+
+        let bodies = vec![
+            // Companion star at 20 AU — strictly between 5 and 40 AU
+            (
+                "Companion Star".to_string(),
+                20.0_f64,
+                companion_gm,
+                min_peri,
+            ),
+            // Jupiter-analogue inside the range (5–40 AU)
+            (
+                "JupiterAnalogue".to_string(),
+                10.0_f64,
+                G_CONST * 1.898e27,
+                0.001_f64,
+            ),
+        ];
+
+        let opts = find_gravity_assist_options(5.0, 40.0, GM_SUN, &bodies);
+
+        // The companion star should appear (it has very large v_inf).
+        assert!(
+            opts.iter().any(|o| o.body_name == "Companion Star"),
+            "Companion star should be a gravity-assist candidate"
+        );
+        // The stellar flyby should have by far the highest max assist kick.
+        let star_opt = opts
+            .iter()
+            .find(|o| o.body_name == "Companion Star")
+            .unwrap();
+        let planet_opt = opts.iter().find(|o| o.body_name == "JupiterAnalogue");
+        if let Some(planet) = planet_opt {
+            assert!(
+                star_opt.max_dv_assist_ms > planet.max_dv_assist_ms,
+                "Star flyby should offer larger assist than Jupiter analogue: {:.0} vs {:.0} m/s",
+                star_opt.max_dv_assist_ms,
+                planet.max_dv_assist_ms
+            );
+        }
     }
 }

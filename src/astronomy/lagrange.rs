@@ -7,7 +7,7 @@ use super::components::{
     LocalOrbitAmplification, LpMarkerInfo, OrbitCenter, Selected, SpaceCoordinates, SystemId,
 };
 use super::systems::SCALING_FACTOR;
-use crate::fleets::orbital_mechanics::{GM_SUN, G_CONST as ORBIT_G};
+use crate::fleets::orbital_mechanics::G_CONST as ORBIT_G;
 use crate::game_state::ActiveMenu;
 use crate::plugins::camera::{CameraAnchor, EguiPanelBounds, GameCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, LogicalParent, Moon};
@@ -54,10 +54,7 @@ pub fn draw_lagrange_point_rings(
 
     // Check for anchor first (double-clicked body), then fall back to selection
     // This allows Lagrange points to be shown when either anchor OR selection exists
-    let anchor_entity = camera_query
-        .single()
-        .ok()
-        .and_then(|a| a.0);
+    let anchor_entity = camera_query.single().ok().and_then(|a| a.0);
 
     // Use anchor if available, otherwise use selection
     let Some(anchored) = anchor_entity.or_else(|| selected_bodies.iter().next()) else {
@@ -113,7 +110,7 @@ pub fn draw_lagrange_point_rings(
     };
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Case A: Planet/GasGiant/DwarfPlanet anchored → Sun–Planet L-points
+    // Case A: Planet/GasGiant/DwarfPlanet anchored → Star–Planet L-points
     // ─────────────────────────────────────────────────────────────────────────
     if is_moon.is_none()
         && matches!(
@@ -127,7 +124,19 @@ pub fn draw_lagrange_point_rings(
 
         let a_au = ko.semi_major_axis;
         let m_planet = anchored_body.mass;
-        let r_hill = a_au * (m_planet / (3.0 * SOLAR_MASS_KG)).powf(1.0 / 3.0);
+
+        // Resolve the host star's mass from the planet's LogicalParent.
+        // This correctly handles non-Sol systems (different stellar masses) as well
+        // as secondary stars in binary/trinary systems that have their own planets.
+        // Falls back to SOLAR_MASS_KG if the parent cannot be found.
+        let host_star_mass = anchored_parent
+            .and_then(|lp| body_query.get(lp.0).ok())
+            .map(|(b, _, _, _, _, _, _, _)| b.mass)
+            .unwrap_or(SOLAR_MASS_KG);
+
+        let r_hill = a_au * (m_planet / (3.0 * host_star_mass)).powf(1.0 / 3.0);
+        // Host star GM used for LP transfer option metadata.
+        let host_star_gm = ORBIT_G * host_star_mass;
 
         // Compute LP positions using the full 3D planet direction so that LP
         // markers sit at the correct z-height for inclined orbits (fixes
@@ -251,7 +260,7 @@ pub fn draw_lagrange_point_rings(
                 planet_name: anchored_body.name.clone(),
                 planet_sma_au: a_au,
                 lp_radius_au: lp_radii[i],
-                gm: GM_SUN,
+                gm: host_star_gm,
             });
         }
     }
@@ -320,17 +329,9 @@ pub fn draw_lagrange_point_rings(
         // L1/L2 are along the moon-planet axis
         let lp_offsets: [Vec3; 5] = [
             // L1: toward parent along moon direction
-            Vec3::new(
-                (l1_r * lx) as f32,
-                (l1_r * ly) as f32,
-                (l1_r * lz) as f32,
-            ),
+            Vec3::new((l1_r * lx) as f32, (l1_r * ly) as f32, (l1_r * lz) as f32),
             // L2: away from parent along moon direction
-            Vec3::new(
-                (l2_r * lx) as f32,
-                (l2_r * ly) as f32,
-                (l2_r * lz) as f32,
-            ),
+            Vec3::new((l2_r * lx) as f32, (l2_r * ly) as f32, (l2_r * lz) as f32),
             // L3: opposite to moon (around the parent)
             Vec3::new(
                 (sma_render * -lx) as f32,

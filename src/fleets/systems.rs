@@ -136,10 +136,14 @@ pub fn update_fleet_maneuver_positions(
 
             let orbit_pos_au = orbit_position_from_mean_anomaly(active_orbit, mean_anomaly);
 
-            let center_pos = center_coords
-                .get(maneuver.orbit_center)
-                .map(|sc| sc.position)
-                .unwrap_or(DVec3::ZERO);
+            let center_pos = if maneuver.reference_frame.is_barycentric() {
+                DVec3::ZERO
+            } else {
+                center_coords
+                    .get(maneuver.orbit_center)
+                    .map(|sc| sc.position)
+                    .unwrap_or(DVec3::ZERO)
+            };
 
             fleet_sc.position = center_pos + orbit_pos_au;
         }
@@ -265,11 +269,22 @@ pub fn activate_scheduled_departures(
     sim_time: Res<SimulationTime>,
     mut query: Query<(Entity, &FleetOrbit, &mut ActiveManeuver), With<Fleet>>,
     body_coords: Query<&SpaceCoordinates, Without<Fleet>>,
+    body_types: Query<&CelestialBody, Without<Fleet>>,
     fleet_sc_query: Query<&SpaceCoordinates, With<Fleet>>,
 ) {
     let elapsed = sim_time.elapsed_seconds();
     for (entity, _orbit, mut maneuver) in query.iter_mut() {
         if elapsed < maneuver.departure_time {
+            continue;
+        }
+        if maneuver.preserve_orbit_geometry {
+            if maneuver.is_kinematic() && maneuver.start_position_au.is_some() {
+                if let Ok(fleet_sc) = fleet_sc_query.get(entity) {
+                    maneuver.start_position_au = Some(fleet_sc.position);
+                }
+            }
+
+            commands.entity(entity).remove::<FleetOrbit>();
             continue;
         }
         // Correct the transfer-orbit orientation: the argument of periapsis must match
@@ -279,15 +294,24 @@ pub fn activate_scheduled_departures(
         // querying the moon entity directly would give the wrong departure direction.
         // For local transfers (planet <-> moon), the orbit_center is the planet whose
         // SpaceCoordinates are heliocentric, but we need planet-centric (DVec3::ZERO).
-        let is_local_transfer = maneuver.orbit_center == maneuver.origin_body
-            || maneuver.orbit_center == maneuver.destination_body;
-        let center_pos = if is_local_transfer {
-            DVec3::ZERO
-        } else {
-            body_coords
-                .get(maneuver.orbit_center)
-                .map(|sc| sc.position)
-                .unwrap_or(DVec3::ZERO)
+        let center_pos = match maneuver.reference_frame {
+            crate::fleets::TransferReferenceFrame::SystemBarycentric => DVec3::ZERO,
+            crate::fleets::TransferReferenceFrame::Body(center_entity) => {
+                let is_local_transfer = center_entity == maneuver.origin_body
+                    || center_entity == maneuver.destination_body;
+                let orbit_center_is_star = body_types
+                    .get(center_entity)
+                    .map(|body| body.body_type == BodyType::Star)
+                    .unwrap_or(false);
+                if is_local_transfer && !orbit_center_is_star {
+                    DVec3::ZERO
+                } else {
+                    body_coords
+                        .get(center_entity)
+                        .map(|sc| sc.position)
+                        .unwrap_or(DVec3::ZERO)
+                }
+            }
         };
 
         let rel_pos = if let Ok(fleet_sc) = fleet_sc_query.get(entity) {
@@ -461,10 +485,12 @@ pub fn process_fleet_actions(
 
         let maneuver = ActiveManeuver {
             transfer_orbit: t.transfer_orbit,
+            reference_frame: t.reference_frame,
             orbit_center: t.orbit_center,
             origin_body: t.origin_body,
             departure_time: departure_s,
             arrival_time: arrival_s,
+            preserve_orbit_geometry: t.preserve_orbit_geometry,
             destination_body: t.destination_body,
             arrival_orbit_radius_au: t.arrival_orbit_radius_au,
             arrival_delta_v_ms: t.arrival_delta_v_ms,
@@ -644,6 +670,7 @@ pub fn process_fleet_actions(
 /// | Ion Research Fleet        | Mars     | Ion Drive          |
 /// | Fusion Expeditionary Corps| Jupiter  | Fusion Torch       |
 /// | Antimatter Vanguard       | Saturn   | Antimatter Drive   |
+/// | Alpha Centauri Test Fleet | Alpha Centauri A | Antimatter Drive |
 pub fn spawn_initial_fleet(
     mut commands: Commands,
     body_query: Query<(Entity, &crate::plugins::solar_system::CelestialBody)>,
@@ -778,5 +805,31 @@ pub fn spawn_initial_fleet(
         ));
     } else {
         bevy::log::warn!("spawn_initial_fleet: Saturn not found");
+    }
+
+    // ── Alpha Centauri Test Fleet (Antimatter Drive, Alpha Centauri A orbit) ─
+    if let Some((alpha_centauri_a, alpha_centauri_a_body)) = body_query
+        .iter()
+        .find(|(_, body)| body.name == "Alpha Centauri A")
+    {
+        // Park the test fleet in a tight stellar orbit so transfers can be
+        // planned immediately in procedural multi-star systems.
+        let radius_au = (alpha_centauri_a_body.radius as f64 * 3.0) * 1_000.0 / AU_IN_METERS;
+        let mut fleet = Fleet::new("Alpha Centauri Test Fleet".to_string());
+        fleet.ships.push(ShipInfo::new(
+            "ACTF Daedalus".to_string(),
+            ShipClass::Destroyer,
+            PropulsionType::AntimatterDrive,
+        ));
+        fleet.ships.push(ShipInfo::new(
+            "ACTF Icarus".to_string(),
+            ShipClass::Frigate,
+            PropulsionType::AntimatterDrive,
+        ));
+        commands.spawn((
+            fleet,
+            FleetOrbit::new(alpha_centauri_a, radius_au),
+            SpaceCoordinates::default(),
+        ));
     }
 }

@@ -60,6 +60,7 @@ fn test_system_generation_for_empty_sun_like_system() {
         1.0, // Solar luminosity
         0,   // No existing planets
         &[], // No existing orbits
+        0,
         &mut rng,
     );
 
@@ -101,6 +102,7 @@ fn test_system_generation_respects_existing_planets() {
         1.0, // Solar luminosity
         3,   // 3 existing planets
         &existing_orbits,
+        3,
         &mut rng,
     );
 
@@ -144,7 +146,7 @@ fn test_system_generation_respects_existing_planets() {
 fn test_rocky_planets_inside_frost_line() {
     let mut rng = StdRng::seed_from_u64(11111);
 
-    let architecture = map_star_to_system_architecture("Test Star", 1.0, 1.0, 0, &[], &mut rng);
+    let architecture = map_star_to_system_architecture("Test Star", 1.0, 1.0, 0, &[], 0, &mut rng);
 
     let frost_line = architecture.frost_line_au;
 
@@ -191,7 +193,7 @@ fn test_rocky_planets_inside_frost_line() {
 fn test_gas_giants_outside_frost_line() {
     let mut rng = StdRng::seed_from_u64(22222);
 
-    let architecture = map_star_to_system_architecture("Test Star", 1.0, 1.0, 0, &[], &mut rng);
+    let architecture = map_star_to_system_architecture("Test Star", 1.0, 1.0, 0, &[], 0, &mut rng);
 
     let frost_line = architecture.frost_line_au;
 
@@ -223,7 +225,7 @@ fn test_gas_giants_outside_frost_line() {
 fn test_asteroid_belt_generation() {
     let mut rng = StdRng::seed_from_u64(33333);
 
-    let architecture = map_star_to_system_architecture("Test Star", 1.0, 1.0, 0, &[], &mut rng);
+    let architecture = map_star_to_system_architecture("Test Star", 1.0, 1.0, 0, &[], 0, &mut rng);
 
     if let Some(belt) = &architecture.asteroid_belt {
         // Belt should be in reasonable location
@@ -255,7 +257,7 @@ fn test_asteroid_belt_generation() {
 fn test_cometary_cloud_generation() {
     let mut rng = StdRng::seed_from_u64(44444);
 
-    let architecture = map_star_to_system_architecture("Test Star", 1.0, 1.0, 0, &[], &mut rng);
+    let architecture = map_star_to_system_architecture("Test Star", 1.0, 1.0, 0, &[], 0, &mut rng);
 
     if let Some(cloud) = &architecture.cometary_cloud {
         // Cloud should be beyond the immediate planetary zone.
@@ -288,7 +290,7 @@ fn test_cometary_cloud_generation() {
 fn test_procedural_planet_kepler_orbit_conversion() {
     let mut rng = StdRng::seed_from_u64(55555);
 
-    let architecture = map_star_to_system_architecture("Test Star", 1.0, 1.0, 0, &[], &mut rng);
+    let architecture = map_star_to_system_architecture("Test Star", 1.0, 1.0, 0, &[], 0, &mut rng);
 
     // Test conversion to KeplerOrbit for all generated planets
     for planet in architecture.rocky_planets.iter() {
@@ -372,6 +374,7 @@ fn test_dim_star_system_generation() {
         0.0017, // Very low luminosity
         0,
         &[],
+        0,
         &mut rng,
     );
 
@@ -491,6 +494,7 @@ fn test_bright_star_system_generation() {
         25.4, // High luminosity
         0,
         &[],
+        0,
         &mut rng,
     );
 
@@ -529,10 +533,10 @@ fn test_deterministic_generation_with_seed() {
     // Test that generation is deterministic with the same seed
 
     let mut rng1 = StdRng::seed_from_u64(99999);
-    let arch1 = map_star_to_system_architecture("Star", 1.0, 1.0, 0, &[], &mut rng1);
+    let arch1 = map_star_to_system_architecture("Star", 1.0, 1.0, 0, &[], 0, &mut rng1);
 
     let mut rng2 = StdRng::seed_from_u64(99999);
-    let arch2 = map_star_to_system_architecture("Star", 1.0, 1.0, 0, &[], &mut rng2);
+    let arch2 = map_star_to_system_architecture("Star", 1.0, 1.0, 0, &[], 0, &mut rng2);
 
     // Should generate same number of planets
     assert_eq!(

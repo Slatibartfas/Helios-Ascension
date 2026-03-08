@@ -24,6 +24,35 @@ const EARTH_RADIUS_KM: f64 = 6371.0;
 /// Gravitational constant in m³/(kg·s²)
 const G: f64 = 6.674e-11;
 
+/// Maximum procedurally assigned eccentricity for any planet.
+///
+/// Orbits with e ≥ 1 are hyperbolic (unbound); cap well below that.
+/// e = 0.95 corresponds to a periapsis of only ~2.6% of the semi-major axis,
+/// which is already extreme by solar-system standards.
+const MAX_ECCENTRICITY: f64 = 0.95;
+
+/// Maximum binary eccentricity used in forced-eccentricity calculations.
+///
+/// Caps the input to the Heppenheimer (1978) formula so that
+/// (1 − e²) ≥ 0.002 and the denominator never reaches zero.
+const MAX_BINARY_ECCENTRICITY_FOR_FORMULA: f64 = 0.999;
+
+/// Defensive floor applied to the (1 − e²) denominator in the forced-eccentricity
+/// formula.  The `MAX_BINARY_ECCENTRICITY_FOR_FORMULA` cap guarantees
+/// (1 − e²) ≥ 0.002; this constant guards against any residual floating-point
+/// rounding that could otherwise produce a near-zero value.
+const MIN_FORCED_ECCENTRICITY_DENOMINATOR: f64 = 1e-3;
+
+/// Half-width of the random inclination scatter applied to circumstellar planets
+/// relative to the binary orbital plane.
+///
+/// A protoplanetary disk forms roughly coplanar with the binary orbit; this constant
+/// models the small warp and accretion history effects that cause the disk (and
+/// resulting planets) to deviate slightly from perfect alignment.
+/// 0.087 rad ≈ 5°, which keeps circumstellar planets close to the parent binary
+/// plane while still allowing modest disk warping.
+const MAX_BINARY_INCLINATION_SCATTER_RAD: f64 = 0.087;
+
 /// Calculate escape velocity from a body
 /// v_esc = sqrt(2GM/R)
 pub fn calculate_escape_velocity(mass_kg: f64, radius_m: f64) -> f64 {
@@ -39,7 +68,11 @@ pub fn calculate_instellation(star_luminosity_sol: f64, distance_au: f64) -> f64
 /// Calculate equilibrium temperature for a planet
 /// T_eq = (L * (1 - albedo) / (16 * pi * d² * sigma))^(1/4)
 /// Simplified: T_eq = 278.3 * L^(1/4) / d^(1/2)
-pub fn calculate_equilibrium_temperature(star_luminosity_sol: f64, distance_au: f64, albedo: f32) -> f64 {
+pub fn calculate_equilibrium_temperature(
+    star_luminosity_sol: f64,
+    distance_au: f64,
+    albedo: f32,
+) -> f64 {
     let t_eq_no_albedo = 278.3 * star_luminosity_sol.powf(0.25) / distance_au.sqrt();
     // Apply albedo correction
     t_eq_no_albedo * (1.0 - albedo as f64).powf(0.25)
@@ -48,7 +81,11 @@ pub fn calculate_equilibrium_temperature(star_luminosity_sol: f64, distance_au: 
 /// Calculate Hill sphere radius for a body orbiting a larger mass
 /// R_H = a * (m / 3M)^(1/3)
 /// Returns Hill sphere in AU
-pub fn calculate_hill_sphere(planet_mass_kg: f64, star_mass_kg: f64, semi_major_axis_au: f64) -> f64 {
+pub fn calculate_hill_sphere(
+    planet_mass_kg: f64,
+    star_mass_kg: f64,
+    semi_major_axis_au: f64,
+) -> f64 {
     let mass_ratio = planet_mass_kg / (3.0 * star_mass_kg);
     semi_major_axis_au * mass_ratio.cbrt()
 }
@@ -68,6 +105,75 @@ pub fn can_retain_atmosphere_cosmic_shoreline(
 pub fn is_in_habitable_zone(distance_au: f64, star_luminosity_sol: f64) -> bool {
     let (hz_inner, hz_outer) = calculate_habitable_zone(star_luminosity_sol);
     distance_au >= hz_inner && distance_au <= hz_outer
+}
+
+/// Orbital context of a binary companion used for secular eccentricity calculations.
+///
+/// When a planet orbits one star in a binary (S-type / circumstellar orbit), the
+/// companion star continuously excites the planet's eccentricity through secular
+/// gravitational perturbations.  This struct carries the parameters needed to
+/// compute the forced eccentricity floor using the Heppenheimer (1978) formula,
+/// and the binary orbital inclination used to align generated planets with the
+/// binary's orbital plane.
+#[derive(Clone, Copy, Debug)]
+pub struct BinaryCompanionContext {
+    /// Semi-major axis of the binary orbit in AU (D)
+    pub binary_semi_major_axis_au: f64,
+    /// Eccentricity of the binary orbit (e_bin, 0 ≤ e < 1)
+    pub binary_eccentricity: f64,
+    /// Companion mass fraction: M_companion / (M_host + M_companion)
+    pub companion_mass_fraction: f64,
+    /// Inclination of the binary orbit in radians, relative to the reference plane.
+    ///
+    /// Circumstellar planets form from a disk roughly coplanar with this orbit, so
+    /// their inclinations should be centred on this value rather than on 0.
+    pub binary_inclination_rad: f64,
+}
+
+impl BinaryCompanionContext {
+    /// Forced eccentricity imposed on a circumstellar planet at `planet_sma_au`.
+    ///
+    /// Uses the secular perturbation formula from Heppenheimer (1978):
+    ///
+    ///   e_forced = (5/4) × (a_pl / D) × μ × e_bin / (1 − e_bin²)
+    ///
+    /// where `a_pl` is the planet's semi-major axis, `D` is the binary separation,
+    /// `μ` is the companion mass fraction, and `e_bin` is the binary eccentricity.
+    ///
+    /// This eccentricity floor persists indefinitely — it cannot be damped by tidal
+    /// dissipation or planet–planet interactions below this value.
+    pub fn forced_eccentricity(&self, planet_sma_au: f64) -> f64 {
+        if self.binary_semi_major_axis_au <= 0.0 {
+            return 0.0;
+        }
+        let alpha = planet_sma_au / self.binary_semi_major_axis_au;
+        // Cap at MAX_BINARY_ECCENTRICITY_FOR_FORMULA so (1 - e²) ≥ 0.002,
+        // preventing near-parabolic blow-up in the denominator
+        let e = self
+            .binary_eccentricity
+            .min(MAX_BINARY_ECCENTRICITY_FOR_FORMULA);
+        // Defensive floor: the cap above guarantees (1 - e²) ≥ 0.002, but this
+        // guards against any floating-point rounding edge that could reach zero
+        let denom = (1.0 - e * e).max(MIN_FORCED_ECCENTRICITY_DENOMINATOR);
+        (5.0 / 4.0) * alpha * self.companion_mass_fraction * e / denom
+    }
+
+    /// Sample an orbital inclination for a circumstellar planet.
+    ///
+    /// The protoplanetary disk that formed the planet was roughly coplanar with the
+    /// binary orbit.  This method returns an inclination centred on
+    /// `binary_inclination_rad` with a smooth random scatter of
+    /// ±[`MAX_BINARY_INCLINATION_SCATTER_RAD`] (~5°) to model disk warping and
+    /// accretion-history effects.
+    ///
+    /// A triangular distribution (average of two uniform draws) is used rather than
+    /// a plain uniform draw to reduce the probability of extreme offsets.
+    pub fn sample_planet_inclination(&self, rng: &mut impl Rng) -> f64 {
+        let u1 = rng.random_range(-1.0_f64..1.0);
+        let u2 = rng.random_range(-1.0_f64..1.0);
+        let scatter = (u1 + u2) * 0.5 * MAX_BINARY_INCLINATION_SCATTER_RAD;
+        self.binary_inclination_rad + scatter
+    }
 }
 
 /// Calculate the stellar Hill sphere (approximate galactic bounds)
@@ -205,10 +311,10 @@ impl SystemType {
     /// Returns the typical number of orbital slots for this system type
     pub fn typical_slots(&self) -> (usize, usize) {
         match self {
-            SystemType::Standard => (4, 6),   // 4-6 planets
-            SystemType::Compact => (5, 8),   // 5-8 planets (crammed close, TRAPPIST-1 has 7)
+            SystemType::Standard => (4, 6),    // 4-6 planets
+            SystemType::Compact => (5, 8),     // 5-8 planets (crammed close, TRAPPIST-1 has 7)
             SystemType::JovianHeavy => (3, 7), // 3-7 planets with gas giants
-            SystemType::Sparse => (2, 4),     // 2-4 planets
+            SystemType::Sparse => (2, 4),      // 2-4 planets
         }
     }
 }
@@ -216,7 +322,7 @@ impl SystemType {
 /// Type of procedurally generated planet
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlanetType {
-    Rocky,        // Standard terrestrial planet
+    Rocky,       // Standard terrestrial planet
     SuperEarth,  // 1.5-10 Earth masses, rocky
     MiniNeptune, // Gaseous but small (10-20 Earth masses)
     DesertWorld, // Hot, rocky, no water
@@ -456,6 +562,39 @@ pub fn map_star_to_system_architecture(
     luminosity_solar: f64,
     existing_planet_count: usize,
     existing_orbits_au: &[f64],
+    name_offset: usize,
+    rng: &mut impl Rng,
+) -> SystemArchitecture {
+    map_star_to_system_architecture_with_orbit_limits(
+        star_name,
+        star_mass_solar,
+        luminosity_solar,
+        existing_planet_count,
+        existing_orbits_au,
+        name_offset,
+        None,
+        None,
+        None,
+        rng,
+    )
+}
+
+/// Map a host body to a procedural architecture constrained to a stable orbit band.
+///
+/// This is used for binary-star hosts where planets may only exist either close to
+/// one component or far outside the pair. Unlike the default generator, this entry
+/// point places orbital slots directly inside the allowed band instead of generating
+/// a full star-centric architecture and filtering it afterward.
+pub fn map_star_to_system_architecture_with_orbit_limits(
+    star_name: &str,
+    star_mass_solar: f64,
+    luminosity_solar: f64,
+    existing_planet_count: usize,
+    existing_orbits_au: &[f64],
+    name_offset: usize,
+    minimum_orbit_au: Option<f64>,
+    maximum_orbit_au: Option<f64>,
+    companion_context: Option<BinaryCompanionContext>,
     rng: &mut impl Rng,
 ) -> SystemArchitecture {
     // Calculate frost line and habitable zone
@@ -469,11 +608,17 @@ pub fn map_star_to_system_architecture(
     // Anything beyond that is "Interstellar Space"
     // ========================================================================
     let stellar_hill_sphere = calculate_stellar_hill_sphere(star_mass_solar);
+    let minimum_orbit_au = minimum_orbit_au.filter(|value| value.is_finite() && *value > 0.0);
+    let maximum_orbit_au = maximum_orbit_au.filter(|value| value.is_finite() && *value > 0.0);
 
     // Filter existing orbits to only those within stellar Hill sphere
     let valid_existing_orbits: Vec<f64> = existing_orbits_au
         .iter()
-        .filter(|&&o| o < stellar_hill_sphere)
+        .filter(|&&o| {
+            o < stellar_hill_sphere
+                && minimum_orbit_au.is_none_or(|min_orbit| o >= min_orbit)
+                && maximum_orbit_au.is_none_or(|max_orbit| o <= max_orbit)
+        })
         .cloned()
         .collect();
 
@@ -508,7 +653,7 @@ pub fn map_star_to_system_architecture(
     // Generate planets if we need more
     if slots_to_generate > 0 {
         // Generate orbital slots using log-spaced distribution
-        let (min_orbit, max_orbit) = match system_type {
+        let (default_min_orbit, default_max_orbit) = match system_type {
             SystemType::Compact => (0.02, (frost_line_au * 1.5).max(0.5)),
             SystemType::Standard => (0.08, 40.0),
             SystemType::JovianHeavy => (0.03, (frost_line_au * 3.0).max(5.0)),
@@ -523,19 +668,35 @@ pub fn map_star_to_system_architecture(
             SystemType::Sparse => 1.5,
         };
 
+        let min_orbit = minimum_orbit_au
+            .unwrap_or(default_min_orbit)
+            .max(default_min_orbit.min(minimum_orbit_au.unwrap_or(default_min_orbit)));
+        let growth_factor: f64 = spacing_factor + 0.2;
+        let required_outer_span =
+            min_orbit * growth_factor.powi((slots_to_generate.max(1).saturating_sub(1)) as i32);
+        let unconstrained_max_orbit = default_max_orbit
+            .max(required_outer_span)
+            .max(min_orbit * 2.5);
+        let max_orbit = maximum_orbit_au
+            .map(|limit| unconstrained_max_orbit.min(limit))
+            .unwrap_or(unconstrained_max_orbit);
+
         // Clamp max_orbit to stellar Hill sphere (system boundary)
         let system_boundary = stellar_hill_sphere.min(max_orbit);
-
-        let orbital_slots = generate_log_spaced_orbits(
-            min_orbit,
-            system_boundary,
-            slots_to_generate,
-            spacing_factor,
-            &valid_existing_orbits,
-            rng,
-            star_mass_solar,
-            system_type,
-        );
+        let orbital_slots = if system_boundary > min_orbit {
+            generate_log_spaced_orbits(
+                min_orbit,
+                system_boundary,
+                slots_to_generate,
+                spacing_factor,
+                &valid_existing_orbits,
+                rng,
+                star_mass_solar,
+                system_type,
+            )
+        } else {
+            Vec::new()
+        };
 
         // Decide once per system whether a hot Jupiter migrated inward.
         // Real occurrence rate is ~1% of FGK stars; slightly higher for more
@@ -550,7 +711,7 @@ pub fn map_star_to_system_architecture(
         for (i, &semi_major_axis) in orbital_slots.iter().enumerate() {
             let planet = generate_planet_for_slot(
                 star_name,
-                i,
+                name_offset + i,
                 semi_major_axis,
                 frost_line_au,
                 hz_inner,
@@ -559,10 +720,14 @@ pub fn map_star_to_system_architecture(
                 star_mass_solar,
                 luminosity_solar,
                 has_migrated_giant && !migrated_giant_placed,
+                companion_context,
+                maximum_orbit_au,
                 rng,
             );
-            if matches!(planet.planet_type, PlanetType::GasGiant | PlanetType::MiniNeptune)
-                && planet.semi_major_axis_au < frost_line_au
+            if matches!(
+                planet.planet_type,
+                PlanetType::GasGiant | PlanetType::MiniNeptune
+            ) && planet.semi_major_axis_au < frost_line_au
             {
                 migrated_giant_placed = true;
             }
@@ -606,24 +771,31 @@ pub fn map_star_to_system_architecture(
     // ========================================================================
     let mut all_orbits_for_belt = valid_existing_orbits.to_vec();
     all_orbits_for_belt.extend(all_planets.iter().map(|p| p.semi_major_axis_au));
-    let outermost_planet_au = all_orbits_for_belt
-        .iter()
-        .copied()
-        .fold(0.0_f64, f64::max);
+    let outermost_planet_au = all_orbits_for_belt.iter().copied().fold(0.0_f64, f64::max);
 
     // If the outermost planet is well inside the frost line, use a scaled
     // "effective frost line" so that minor bodies form just beyond the
     // planetary zone rather than at unrealistically distant orbits.
-    let effective_frost_line = if outermost_planet_au > 0.0 && outermost_planet_au < frost_line_au * 0.5 {
-        // Belt should start just beyond the outermost planet
-        (outermost_planet_au * 2.5).min(frost_line_au)
-    } else {
-        frost_line_au
-    };
+    let effective_frost_line =
+        if minimum_orbit_au.is_some_and(|min_orbit| min_orbit > frost_line_au * 2.0) {
+            outermost_planet_au
+                .max(minimum_orbit_au.unwrap_or(frost_line_au))
+                .mul_add(0.75, 0.0)
+                .max(frost_line_au)
+        } else if outermost_planet_au > 0.0 && outermost_planet_au < frost_line_au * 0.5 {
+            // Belt should start just beyond the outermost planet
+            (outermost_planet_au * 2.5).min(frost_line_au)
+        } else {
+            frost_line_au
+        };
 
     // Generate asteroid belt (inside or near frost line)
     let asteroid_belt = if rng.random_bool(0.8) {
-        Some(generate_asteroid_belt(effective_frost_line, &all_orbits_for_belt, rng))
+        Some(generate_asteroid_belt(
+            effective_frost_line,
+            &all_orbits_for_belt,
+            rng,
+        ))
     } else {
         None
     };
@@ -638,7 +810,14 @@ pub fn map_star_to_system_architecture(
     // Generate dwarf planets in the trans-Neptunian region
     let dwarf_planets = if rng.random_bool(0.75) {
         let name_offset = valid_existing_orbits.len() + all_planets.len();
-        generate_dwarf_planets(star_name, effective_frost_line, &all_orbits_for_belt, name_offset, star_mass_solar, rng)
+        generate_dwarf_planets(
+            star_name,
+            effective_frost_line,
+            &all_orbits_for_belt,
+            name_offset,
+            star_mass_solar,
+            rng,
+        )
     } else {
         Vec::new()
     };
@@ -665,6 +844,8 @@ fn generate_planet_for_slot(
     star_mass_solar: f64,
     star_luminosity_solar: f64,
     allow_migration: bool,
+    companion_context: Option<BinaryCompanionContext>,
+    stability_limit_au: Option<f64>,
     rng: &mut impl Rng,
 ) -> ProceduralPlanet {
     // Calculate orbital period using Kepler's third law: P² = a³ / M
@@ -687,15 +868,12 @@ fn generate_planet_for_slot(
     );
 
     // Generate mass and radius based on planet type
-    let (mass_earth, radius_earth) = generate_mass_radius(planet_type, semi_major_axis_au, frost_line_au, rng);
+    let (mass_earth, radius_earth) =
+        generate_mass_radius(planet_type, semi_major_axis_au, frost_line_au, rng);
 
     // Generate visual properties based on composition
-    let (_color, _albedo) = generate_visual_properties(
-        planet_type,
-        semi_major_axis_au,
-        equilibrium_temp,
-        rng,
-    );
+    let (_color, _albedo) =
+        generate_visual_properties(planet_type, semi_major_axis_au, equilibrium_temp, rng);
 
     // Generate rotation based on planet type and distance
     let rotation_period_days = match planet_type {
@@ -728,6 +906,41 @@ fn generate_planet_for_slot(
     };
     let axial_tilt_deg = rng.random_range(0.0_f32..1.0).powf(1.5) * max_tilt;
 
+    // Base eccentricity from statistical planet distributions
+    let base_eccentricity = match planet_type {
+        PlanetType::GasGiant | PlanetType::IceGiant => {
+            rng.random_range(0.0_f64..1.0).powf(2.0) * 0.35
+        }
+        _ => rng.random_range(0.0_f64..1.0).powf(2.5) * 0.25,
+    };
+
+    // In binary systems, secular gravitational perturbations from the companion
+    // maintain a forced eccentricity floor that cannot be damped away
+    // (Heppenheimer 1978).  Apply it as a lower bound on the planet's eccentricity.
+    let e_forced = companion_context
+        .map(|ctx| ctx.forced_eccentricity(semi_major_axis_au))
+        .unwrap_or(0.0);
+
+    // Cap eccentricity so the orbit's apoastron stays within the stability zone.
+    // Apoastron = a × (1 + e) ≤ limit  ⇒  e_cap = (limit / a) - 1.
+    // The orbit generator only places planets within the stability limit, so
+    // semi_major_axis_au ≤ stability_limit_au should normally hold; the clamp
+    // guards against floating-point edge cases producing a negative cap.
+    let e_cap = stability_limit_au
+        .filter(|&limit| limit >= semi_major_axis_au)
+        .map(|limit| ((limit / semi_major_axis_au) - 1.0).clamp(0.0, MAX_ECCENTRICITY))
+        .unwrap_or(MAX_ECCENTRICITY);
+
+    let eccentricity = base_eccentricity.max(e_forced).min(e_cap);
+
+    // Inclination: in a binary system the protoplanetary disk is aligned with
+    // the binary orbital plane, so planets inherit that reference inclination
+    // (with a small random scatter).  For isolated stars the scatter is centred
+    // on 0 relative to the system reference plane, as before.
+    let inclination = companion_context
+        .map(|ctx| ctx.sample_planet_inclination(rng))
+        .unwrap_or_else(|| rng.random_range(-0.13..0.13));
+
     ProceduralPlanet {
         name: format!(
             "{} {}",
@@ -735,15 +948,8 @@ fn generate_planet_for_slot(
             char::from_u32('b' as u32 + slot_index as u32).unwrap_or('?')
         ),
         semi_major_axis_au,
-        // Eccentricity based on planet type
-        eccentricity: match planet_type {
-            PlanetType::GasGiant | PlanetType::IceGiant => {
-                rng.random_range(0.0_f64..1.0).powf(2.0) * 0.35
-            }
-            _ => rng.random_range(0.0_f64..1.0).powf(2.5) * 0.25,
-        },
-        // Inclination varies by system type
-        inclination: rng.random_range(-0.13..0.13),
+        eccentricity,
+        inclination,
         longitude_ascending_node: rng.random_range(0.0..std::f64::consts::TAU),
         argument_of_periapsis: rng.random_range(0.0..std::f64::consts::TAU),
         mean_anomaly_epoch: rng.random_range(0.0..std::f64::consts::TAU),
@@ -858,14 +1064,19 @@ fn determine_planet_type(
 /// Generate mass and radius based on planet type
 /// Implements Radius Valley logic: planets with 1.6-2.0 R_earth are differentiated
 /// based on whether they're inside or outside the frost line
-fn generate_mass_radius(planet_type: PlanetType, distance_au: f64, frost_line_au: f64, rng: &mut impl Rng) -> (f32, f32) {
+fn generate_mass_radius(
+    planet_type: PlanetType,
+    distance_au: f64,
+    frost_line_au: f64,
+    rng: &mut impl Rng,
+) -> (f32, f32) {
     match planet_type {
         PlanetType::Rocky => {
             // 0.05 - 2.0 Earth masses
             let log_mass = rng.random_range(-1.3_f64..0.3);
             let mass = 10.0_f64.powf(log_mass) as f32;
             // Rocky: M = R^3.7 (dense rocky composition)
-            let radius = (mass as f64).powf(1.0/3.7) * rng.random_range(0.90..1.10);
+            let radius = (mass as f64).powf(1.0 / 3.7) * rng.random_range(0.90..1.10);
             (mass, radius as f32)
         }
         PlanetType::SuperEarth => {
@@ -879,7 +1090,7 @@ fn generate_mass_radius(planet_type: PlanetType, distance_au: f64, frost_line_au
             let radius = if distance_au < frost_line_au {
                 // Inside frost line: SuperEarth (high density, rocky interior)
                 // M = R^3.5 for rocky SuperEarths
-                (mass as f64).powf(1.0/3.5) * rng.random_range(0.90..1.10)
+                (mass as f64).powf(1.0 / 3.5) * rng.random_range(0.90..1.10)
             } else {
                 // Outside frost line: Mini-Neptune (low density, gas shroud)
                 // M = R^2.0 for gaseous dwarfs
@@ -1850,6 +2061,7 @@ mod tests {
             1.0, // 1.0 solar luminosity
             0,   // No existing planets
             &[],
+            0,
             &mut rng,
         );
 
@@ -1866,7 +2078,7 @@ mod tests {
         let existing = vec![0.5, 1.2];
 
         let architecture =
-            map_star_to_system_architecture("Test Star", 1.0, 1.0, 2, &existing, &mut rng);
+            map_star_to_system_architecture("Test Star", 1.0, 1.0, 2, &existing, 2, &mut rng);
 
         // Should generate fewer planets since we already have some
         assert!(architecture.rocky_planets.len() + architecture.gas_giants.len() <= 5);
@@ -1876,6 +2088,50 @@ mod tests {
             for &existing_orbit in &existing {
                 assert!((planet.semi_major_axis_au - existing_orbit).abs() > 0.1);
             }
+        }
+    }
+
+    #[test]
+    fn test_outer_orbit_constraints_generate_circumbinary_bodies() {
+        let mut rng = StdRng::seed_from_u64(424424);
+
+        let architecture = map_star_to_system_architecture_with_orbit_limits(
+            "Wolf 424 AB",
+            0.1379 + 0.1258,
+            0.0007 + 0.0005,
+            0,
+            &[],
+            0,
+            Some(13.09),
+            None,
+            None,
+            &mut rng,
+        );
+
+        let mut generated_major_orbits: Vec<f64> = architecture
+            .rocky_planets
+            .iter()
+            .chain(architecture.gas_giants.iter())
+            .map(|planet| planet.semi_major_axis_au)
+            .collect();
+
+        assert!(
+            !generated_major_orbits.is_empty(),
+            "Constrained circumbinary generator should place at least one major body"
+        );
+        assert!(
+            generated_major_orbits.iter().all(|orbit| *orbit >= 13.09),
+            "All generated circumbinary bodies should respect the minimum stable radius"
+        );
+
+        generated_major_orbits.sort_by(|left, right| left.partial_cmp(right).unwrap());
+        assert!(
+            generated_major_orbits.last().copied().unwrap_or_default() > 20.0,
+            "Circumbinary generation should expand beyond the immediate stability edge"
+        );
+
+        if let Some(belt) = architecture.asteroid_belt.as_ref() {
+            assert!(belt.inner_au >= 13.09);
         }
     }
 
@@ -2081,5 +2337,291 @@ mod tests {
             assert!(atmosphere.surface_pressure_mbar > 0.0);
             assert!(atmosphere.surface_pressure_mbar < 100000.0); // Less than 100 bar
         }
+    }
+
+    // =========================================================================
+    // Tests for BinaryCompanionContext forced eccentricity
+    // =========================================================================
+
+    #[test]
+    fn test_forced_eccentricity_zero_for_circular_binary() {
+        let ctx = BinaryCompanionContext {
+            binary_semi_major_axis_au: 20.0,
+            binary_eccentricity: 0.0, // circular binary → no forced eccentricity
+            companion_mass_fraction: 0.4,
+            binary_inclination_rad: 0.0,
+        };
+        let e = ctx.forced_eccentricity(3.0);
+        assert_eq!(
+            e, 0.0,
+            "Circular binary should produce zero forced eccentricity"
+        );
+    }
+
+    #[test]
+    fn test_forced_eccentricity_increases_with_semi_major_axis() {
+        // Forced eccentricity ∝ a_planet/D: a planet farther from its host (larger SMA)
+        // is closer to the companion and experiences stronger secular perturbations.
+        let ctx = BinaryCompanionContext {
+            binary_semi_major_axis_au: 20.0,
+            binary_eccentricity: 0.5,
+            companion_mass_fraction: 0.45,
+            binary_inclination_rad: 0.0,
+        };
+        let e_close_to_host = ctx.forced_eccentricity(1.0); // a = 1 AU
+        let e_far_from_host = ctx.forced_eccentricity(5.0); // a = 5 AU — closer to companion
+        assert!(
+            e_far_from_host > e_close_to_host,
+            "Forced eccentricity must increase with planet SMA (closer to companion): \
+             a=1 AU → {e_close_to_host:.4}, a=5 AU → {e_far_from_host:.4}"
+        );
+    }
+
+    #[test]
+    fn test_forced_eccentricity_increases_with_binary_eccentricity() {
+        let planet_a = 3.0;
+        let ctx_circular = BinaryCompanionContext {
+            binary_semi_major_axis_au: 20.0,
+            binary_eccentricity: 0.1,
+            companion_mass_fraction: 0.4,
+            binary_inclination_rad: 0.0,
+        };
+        let ctx_eccentric = BinaryCompanionContext {
+            binary_semi_major_axis_au: 20.0,
+            binary_eccentricity: 0.6,
+            companion_mass_fraction: 0.4,
+            binary_inclination_rad: 0.0,
+        };
+        let e_low = ctx_circular.forced_eccentricity(planet_a);
+        let e_high = ctx_eccentric.forced_eccentricity(planet_a);
+        assert!(
+            e_high > e_low,
+            "Forced eccentricity must increase with binary eccentricity: e_low={e_low:.4}, e_high={e_high:.4}"
+        );
+    }
+
+    #[test]
+    fn test_binary_perturbation_boosts_planet_eccentricity_vs_isolated() {
+        // An isolated star at the same separation should produce lower eccentricities
+        // on average than a binary companion context with high eccentricity.
+        let mut rng_iso = StdRng::seed_from_u64(77777);
+        let mut rng_bin = StdRng::seed_from_u64(77777); // same seed for fair comparison
+
+        let frost = calculate_frost_line(0.5);
+        let (hz_inner, hz_outer) = calculate_habitable_zone(0.5);
+
+        let ctx = BinaryCompanionContext {
+            binary_semi_major_axis_au: 20.0,
+            binary_eccentricity: 0.5,
+            companion_mass_fraction: 0.45,
+            binary_inclination_rad: 0.0,
+        };
+
+        let n = 200;
+        let mut sum_iso = 0.0_f64;
+        let mut sum_bin = 0.0_f64;
+        for _ in 0..n {
+            let p_iso = generate_planet_for_slot(
+                "Test",
+                0,
+                4.0,
+                frost,
+                hz_inner,
+                hz_outer,
+                SystemType::Standard,
+                0.7,
+                0.5,
+                false,
+                None,
+                None,
+                &mut rng_iso,
+            );
+            let p_bin = generate_planet_for_slot(
+                "Test",
+                0,
+                4.0,
+                frost,
+                hz_inner,
+                hz_outer,
+                SystemType::Standard,
+                0.7,
+                0.5,
+                false,
+                Some(ctx),
+                Some(10.0),
+                &mut rng_bin,
+            );
+            sum_iso += p_iso.eccentricity;
+            sum_bin += p_bin.eccentricity;
+        }
+        let mean_iso = sum_iso / n as f64;
+        let mean_bin = sum_bin / n as f64;
+        assert!(
+            mean_bin >= mean_iso,
+            "Mean eccentricity in binary context ({mean_bin:.4}) must be ≥ isolated ({mean_iso:.4})"
+        );
+    }
+
+    #[test]
+    fn test_eccentricity_capped_by_stability_limit() {
+        // With a tight stability limit, apoastron must not exceed it.
+        let ctx = BinaryCompanionContext {
+            binary_semi_major_axis_au: 5.0,
+            binary_eccentricity: 0.8, // very eccentric → large forced eccentricity
+            companion_mass_fraction: 0.49,
+            binary_inclination_rad: 0.0,
+        };
+        let mut rng = StdRng::seed_from_u64(12345);
+        let frost = calculate_frost_line(1.0);
+        let (hz_inner, hz_outer) = calculate_habitable_zone(1.0);
+
+        for _ in 0..50 {
+            let p = generate_planet_for_slot(
+                "Cap Test",
+                0,
+                1.5,
+                frost,
+                hz_inner,
+                hz_outer,
+                SystemType::Standard,
+                1.0,
+                1.0,
+                false,
+                Some(ctx),
+                Some(2.0),
+                &mut rng,
+            );
+            let apoastron = p.semi_major_axis_au * (1.0 + p.eccentricity);
+            assert!(
+                apoastron <= 2.0 + 1e-9,
+                "Apoastron {apoastron:.4} AU exceeds stability limit 2.0 AU (e={:.4})",
+                p.eccentricity
+            );
+        }
+    }
+
+    // =========================================================================
+    // Tests for BinaryCompanionContext inclination alignment
+    // =========================================================================
+
+    #[test]
+    fn test_sample_planet_inclination_centred_on_binary_plane() {
+        // With a 79° binary (like Alpha Centauri AB), the mean planet inclination
+        // must be close to 79° (within ±scatter, which vanishes at large N).
+        let binary_incl_rad = 79.0_f64.to_radians();
+        let ctx = BinaryCompanionContext {
+            binary_semi_major_axis_au: 23.4,
+            binary_eccentricity: 0.52,
+            companion_mass_fraction: 0.45,
+            binary_inclination_rad: binary_incl_rad,
+        };
+        let mut rng = StdRng::seed_from_u64(11111);
+        let n = 500;
+        let mean_incl: f64 = (0..n)
+            .map(|_| ctx.sample_planet_inclination(&mut rng))
+            .sum::<f64>()
+            / n as f64;
+        // Mean should land within ±5° of the binary inclination
+        assert!(
+            (mean_incl - binary_incl_rad).abs() < 0.09, // 0.09 rad ≈ 5°
+            "Mean inclination {:.4} rad should be close to binary inclination {binary_incl_rad:.4} rad",
+            mean_incl
+        );
+    }
+
+    #[test]
+    fn test_sample_planet_inclination_scatter_bounded() {
+        // All samples should fall within binary_inclination ± MAX_BINARY_INCLINATION_SCATTER_RAD
+        let binary_incl_rad = 1.2_f64; // ~69°
+        let ctx = BinaryCompanionContext {
+            binary_semi_major_axis_au: 20.0,
+            binary_eccentricity: 0.3,
+            companion_mass_fraction: 0.4,
+            binary_inclination_rad: binary_incl_rad,
+        };
+        let mut rng = StdRng::seed_from_u64(22222);
+        for _ in 0..200 {
+            let incl = ctx.sample_planet_inclination(&mut rng);
+            assert!(
+                (incl - binary_incl_rad).abs() <= MAX_BINARY_INCLINATION_SCATTER_RAD + 1e-9,
+                "Inclination {incl:.4} rad is outside scatter bound of ±{MAX_BINARY_INCLINATION_SCATTER_RAD:.4} rad"
+            );
+        }
+    }
+
+    #[test]
+    fn test_binary_planets_inclined_with_binary_not_reference_plane() {
+        // For a binary with a high inclination (~79°), planets generated with binary
+        // context should have inclinations far from 0 (the reference plane), while
+        // planets without context should stay near 0.
+        let binary_incl_rad = 79.0_f64.to_radians(); // typical for Alpha Cen AB
+        let ctx = BinaryCompanionContext {
+            binary_semi_major_axis_au: 23.4,
+            binary_eccentricity: 0.52,
+            companion_mass_fraction: 0.45,
+            binary_inclination_rad: binary_incl_rad,
+        };
+        let frost = calculate_frost_line(1.5);
+        let (hz_inner, hz_outer) = calculate_habitable_zone(1.5);
+
+        let mut rng_iso = StdRng::seed_from_u64(33333);
+        let mut rng_bin = StdRng::seed_from_u64(44444);
+
+        let n = 100;
+        let mean_iso_incl: f64 = (0..n)
+            .map(|_| {
+                generate_planet_for_slot(
+                    "ISO",
+                    0,
+                    2.0,
+                    frost,
+                    hz_inner,
+                    hz_outer,
+                    SystemType::Standard,
+                    1.0,
+                    1.5,
+                    false,
+                    None,
+                    None,
+                    &mut rng_iso,
+                )
+                .inclination
+            })
+            .sum::<f64>()
+            / n as f64;
+
+        let mean_bin_incl: f64 = (0..n)
+            .map(|_| {
+                generate_planet_for_slot(
+                    "BIN",
+                    0,
+                    2.0,
+                    frost,
+                    hz_inner,
+                    hz_outer,
+                    SystemType::Standard,
+                    1.0,
+                    1.5,
+                    false,
+                    Some(ctx),
+                    Some(8.0),
+                    &mut rng_bin,
+                )
+                .inclination
+            })
+            .sum::<f64>()
+            / n as f64;
+
+        // Isolated star: inclination should be near 0
+        assert!(
+            mean_iso_incl.abs() < 0.15,
+            "Isolated star mean inclination {mean_iso_incl:.4} rad should be near 0"
+        );
+        // Binary star: inclination should be near binary_incl_rad, not near 0
+        assert!(
+            (mean_bin_incl - binary_incl_rad).abs() < 0.15,
+            "Binary star mean inclination {mean_bin_incl:.4} rad should be near binary inclination \
+             {binary_incl_rad:.4} rad (not near 0)"
+        );
     }
 }

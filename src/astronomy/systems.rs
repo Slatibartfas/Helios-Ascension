@@ -4,8 +4,8 @@ use bevy::math::DVec3;
 use bevy::prelude::*;
 
 use super::components::{
-    CometTail, CurrentStarSystem, Destroyed, Hovered, KeplerOrbit, LocalOrbitAmplification,
-    OrbitCenter, OrbitPath, Selected, SpaceCoordinates, SystemId,
+    CometTail, CurrentStarSystem, Destroyed, FloatingOrigin, Hovered, KeplerOrbit,
+    LocalOrbitAmplification, OrbitCenter, OrbitPath, Selected, SpaceCoordinates, SystemId,
 };
 use crate::plugins::camera::{CameraAnchor, GameCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, Comet, LogicalParent, Moon, Planet};
@@ -25,6 +25,13 @@ const KEPLER_TOLERANCE: f64 = 1e-10;
 /// Maximum eccentricity for the elliptical Kepler solver.
 /// Orbits with e >= this are clamped to avoid numerical singularities.
 const MAX_ELLIPTICAL_ECCENTRICITY: f64 = 0.99999;
+
+/// Desired approximate line-segment chord length for orbit gizmos, in render units.
+/// Large stellar orbits need more samples than planet-scale orbits to avoid a faceted look.
+const ORBIT_PATH_TARGET_CHORD_LENGTH: f64 = 300.0;
+
+/// Hard cap to keep orbit rendering cost bounded even for extremely wide systems.
+const MAX_ORBIT_PATH_SEGMENTS: u32 = 1536;
 
 /// Solves Kepler's equation: M = E - e*sin(E) for eccentric anomaly E
 /// Uses Newton-Raphson iteration for high accuracy.
@@ -206,6 +213,35 @@ fn mean_anomaly_to_true_anomaly(mean_anomaly: f64, eccentricity: f64) -> f64 {
     eccentric_to_true_anomaly(e_anom, eccentricity)
 }
 
+fn orbit_path_segments(path: &OrbitPath, orbit: &KeplerOrbit, amplification: f64) -> u32 {
+    let eccentricity = orbit.eccentricity.min(MAX_ELLIPTICAL_ECCENTRICITY);
+    let eccentricity_segments = if eccentricity > 0.6 {
+        (path.segments as f64 * (1.0 + eccentricity * 2.0)).ceil() as u32
+    } else {
+        path.segments
+    };
+
+    let semi_major_render = orbit.semi_major_axis.abs() * SCALING_FACTOR * amplification.abs();
+    if semi_major_render <= 0.0 {
+        return eccentricity_segments
+            .max(path.segments)
+            .min(MAX_ORBIT_PATH_SEGMENTS);
+    }
+
+    let semi_minor_render = semi_major_render * (1.0 - eccentricity * eccentricity).max(0.0).sqrt();
+    let h =
+        ((semi_major_render - semi_minor_render) / (semi_major_render + semi_minor_render)).powi(2);
+    let circumference = std::f64::consts::PI
+        * (semi_major_render + semi_minor_render)
+        * (1.0 + (3.0 * h) / (10.0 + (4.0 - 3.0 * h).sqrt()));
+    let size_segments = (circumference / ORBIT_PATH_TARGET_CHORD_LENGTH).ceil() as u32;
+
+    eccentricity_segments
+        .max(size_segments)
+        .max(path.segments)
+        .min(MAX_ORBIT_PATH_SEGMENTS)
+}
+
 /// System that propagates all orbits based on Keplerian mechanics
 /// Updates SpaceCoordinates based on KeplerOrbit elements and elapsed time
 /// Uses SimulationTime to allow time scaling via UI controls
@@ -240,10 +276,8 @@ pub fn propagate_orbits(
     // parent has already been updated for the current frame — preventing the
     // one-frame positional lag that causes moons to visually "detach" from
     // their parent at high simulation speeds.
-    let orbit_center_set: HashMap<Entity, Option<Entity>> = entries
-        .iter()
-        .map(|(e, _, oc)| (*e, *oc))
-        .collect();
+    let orbit_center_set: HashMap<Entity, Option<Entity>> =
+        entries.iter().map(|(e, _, oc)| (*e, *oc)).collect();
 
     let depth_of = |_entity: Entity, oc: Option<Entity>| -> u8 {
         match oc {
@@ -288,6 +322,44 @@ pub fn propagate_orbits(
             coords.position = parent_pos + orbit_pos;
         }
     }
+}
+
+/// Keep the floating origin centered on the currently anchored body while in
+/// system view.
+///
+/// This preserves f32 transform precision for planets and moons orbiting stars
+/// that are themselves far from the system barycenter, such as Proxima in Alpha
+/// Centauri. Without this recentering, a small local orbit can be added on top
+/// of a very large parent translation, producing visible wobble in render space.
+pub fn sync_floating_origin_to_anchor(
+    view_mode: Res<ViewMode>,
+    current_system: Res<CurrentStarSystem>,
+    camera_query: Query<&CameraAnchor, With<GameCamera>>,
+    anchor_query: Query<(&SpaceCoordinates, Option<&SystemId>)>,
+    mut floating_origin: ResMut<FloatingOrigin>,
+) {
+    if *view_mode != ViewMode::System {
+        return;
+    }
+
+    let Ok(anchor) = camera_query.single() else {
+        return;
+    };
+
+    let Some(anchor_entity) = anchor.0 else {
+        return;
+    };
+
+    let Ok((coords, system_id)) = anchor_query.get(anchor_entity) else {
+        return;
+    };
+
+    let anchor_system = system_id.map(|id| id.0).unwrap_or(0);
+    if anchor_system != current_system.0 {
+        return;
+    }
+
+    floating_origin.position = coords.position;
 }
 
 /// Base visual speed threshold in rad/real-second.
@@ -350,7 +422,9 @@ pub fn update_render_transform(
     let scale = time_scale.scale as f64;
     let real_t = real_time.elapsed_secs() as f64;
 
-    for (coords, mut transform, amplification, logical_parent, orbit_center, kepler_orbit) in query.iter_mut() {
+    for (coords, mut transform, amplification, logical_parent, orbit_center, kepler_orbit) in
+        query.iter_mut()
+    {
         // Determine which position to use for rendering.
         // If the body has a KeplerOrbit and orbital speed is capped, compute
         // a visual position from capped mean anomaly × real time.
@@ -364,7 +438,10 @@ pub fn update_render_transform(
 
                 // For bodies with OrbitCenter, add parent position to get absolute coords
                 let parent_pos = if let Some(oc_entity) = orbit_center.map(|oc| oc.0) {
-                    parent_coords.get(oc_entity).map(|sc| sc.position).unwrap_or(DVec3::ZERO)
+                    parent_coords
+                        .get(oc_entity)
+                        .map(|sc| sc.position)
+                        .unwrap_or(DVec3::ZERO)
                 } else {
                     DVec3::ZERO
                 };
@@ -448,6 +525,7 @@ pub fn draw_orbit_paths(
     query: Query<(
         &KeplerOrbit,
         &OrbitPath,
+        Option<&OrbitCenter>,
         Option<&LogicalParent>,
         Option<&LocalOrbitAmplification>,
         Option<&Visibility>,
@@ -463,7 +541,18 @@ pub fn draw_orbit_paths(
     let real_t = real_time.elapsed_secs() as f64;
     let origin_offset = floating_origin.map(|fo| fo.position).unwrap_or(DVec3::ZERO);
 
-    for (orbit, path, logical_parent, amplification, visibility, system_id, is_selected, is_hovered) in query.iter() {
+    for (
+        orbit,
+        path,
+        orbit_center,
+        logical_parent,
+        amplification,
+        visibility,
+        system_id,
+        is_selected,
+        is_hovered,
+    ) in query.iter()
+    {
         if !path.visible {
             continue;
         }
@@ -483,8 +572,11 @@ pub fn draw_orbit_paths(
 
         let amp = amplification.map(|a| a.0 as f64).unwrap_or(1.0);
 
-        let parent_offset = logical_parent
-            .and_then(|lp| parent_coords.get(lp.0).ok())
+        let parent_entity = orbit_center
+            .map(|center| center.0)
+            .or_else(|| logical_parent.map(|parent| parent.0));
+        let parent_offset = parent_entity
+            .and_then(|parent| parent_coords.get(parent).ok())
             .map(|sc| {
                 let pos = (sc.position - origin_offset) * SCALING_FACTOR;
                 Vec3::new(pos.x as f32, pos.y as f32, pos.z as f32)
@@ -512,7 +604,8 @@ pub fn draw_orbit_paths(
         // compressed orbit rate so the directional indicator matches the body's
         // visual position (set by update_render_transform).
         let visual_true_anomaly = if effective_orbital_speed > VISUAL_SPEED_BASE {
-            let vis_speed = capped_visual_speed(effective_orbital_speed) * orbit.mean_motion.signum();
+            let vis_speed =
+                capped_visual_speed(effective_orbital_speed) * orbit.mean_motion.signum();
             let vis_ma = orbit.mean_anomaly_epoch + vis_speed * real_t;
             mean_anomaly_to_true_anomaly(
                 vis_ma.rem_euclid(std::f64::consts::TAU),
@@ -527,19 +620,21 @@ pub fn draw_orbit_paths(
         let head_true_anomaly = if ring_blend > 0.0 {
             // Blend the head position between true and visual
             // For full ring mode, head = visual position entirely
-            let diff = (visual_true_anomaly - current_true_anomaly).rem_euclid(std::f64::consts::TAU);
-            let adjusted_diff = if diff > std::f64::consts::PI { diff - std::f64::consts::TAU } else { diff };
+            let diff =
+                (visual_true_anomaly - current_true_anomaly).rem_euclid(std::f64::consts::TAU);
+            let adjusted_diff = if diff > std::f64::consts::PI {
+                diff - std::f64::consts::TAU
+            } else {
+                diff
+            };
             current_true_anomaly + adjusted_diff * ring_blend as f64
         } else {
             current_true_anomaly
         };
 
-        // Use more segments for eccentric orbits to keep the periapsis region smooth
-        let segments = if orbit.eccentricity > 0.6 {
-            (path.segments as f64 * (1.0 + orbit.eccentricity * 2.0)) as u32
-        } else {
-            path.segments
-        };
+        // Increase sampling for both eccentric and very large rendered orbits.
+        // This keeps wide stellar binaries from looking polygonal.
+        let segments = orbit_path_segments(path, orbit, amp);
 
         // For highly eccentric orbits (e > 0.9), limit the arc drawn.
         // The full ellipse extends to enormous distances at apoapsis, creating
@@ -634,12 +729,18 @@ pub fn draw_orbit_paths(
 
                 // Apply highlight: multiplicative boost preserves the half-open
                 // trail shape; floor ensures the faint tail stays visible.
-                let alpha = (alpha * highlight_alpha_mult).max(highlight_alpha_floor).min(1.0);
+                let alpha = (alpha * highlight_alpha_mult)
+                    .max(highlight_alpha_floor)
+                    .min(1.0);
 
                 // Glow boost near the head — visible in both modes but
                 // stronger in ring mode to act as a directional indicator.
                 let head_region = t < 0.08;
-                let glow = if head_region { 1.0 + 0.3 * (1.0 - ring_blend) + 0.5 * ring_blend } else { 1.0 };
+                let glow = if head_region {
+                    1.0 + 0.3 * (1.0 - ring_blend) + 0.5 * ring_blend
+                } else {
+                    1.0
+                };
 
                 if alpha > 0.01 {
                     let segment_color = Color::srgba(
@@ -1265,10 +1366,9 @@ pub fn check_natural_destruction(
                 "{} destroyed by tidal forces at {:.4} AU from the Sun",
                 body.name, distance_au
             );
-            commands.entity(entity).insert(Destroyed::new(
-                sim_time.elapsed_seconds(),
-                1.5,
-            ));
+            commands
+                .entity(entity)
+                .insert(Destroyed::new(sim_time.elapsed_seconds(), 1.5));
         }
 
         // Additional destruction checks can be added here for other scenarios:
@@ -1662,6 +1762,30 @@ mod tests {
     }
 
     #[test]
+    fn test_orbit_path_segments_scale_with_render_size() {
+        let path = OrbitPath::with_segments(Color::WHITE, 128);
+        let planet_scale_orbit = KeplerOrbit::circular(1.0, 0.0);
+        let wide_star_orbit = KeplerOrbit::circular(50.0, 0.0);
+
+        let small_segments = orbit_path_segments(&path, &planet_scale_orbit, 1.0);
+        let large_segments = orbit_path_segments(&path, &wide_star_orbit, 1.0);
+
+        assert_eq!(small_segments, 128);
+        assert!(large_segments > small_segments);
+    }
+
+    #[test]
+    fn test_orbit_path_segments_respect_upper_bound() {
+        let path = OrbitPath::with_segments(Color::WHITE, 128);
+        let huge_orbit = KeplerOrbit::circular(5_000.0, 0.0);
+
+        assert_eq!(
+            orbit_path_segments(&path, &huge_orbit, 1.0),
+            MAX_ORBIT_PATH_SEGMENTS
+        );
+    }
+
+    #[test]
     fn test_propagate_orbits_system() {
         // Create a test app
         let mut app = App::new();
@@ -1714,5 +1838,32 @@ mod tests {
             (3.0 * SCALING_FACTOR) as f32,
         );
         assert!((transform.translation - expected).length() < 1e-5);
+    }
+
+    #[test]
+    fn test_sync_floating_origin_to_anchor_uses_anchor_position() {
+        let mut app = App::new();
+        app.init_resource::<CurrentStarSystem>();
+        app.init_resource::<FloatingOrigin>();
+        app.init_resource::<ViewMode>();
+        app.add_systems(Update, sync_floating_origin_to_anchor);
+
+        let anchor_entity = app
+            .world_mut()
+            .spawn((
+                SpaceCoordinates::new(DVec3::new(12345.0, -67.0, 8.5)),
+                SystemId(3),
+            ))
+            .id();
+
+        app.world_mut()
+            .spawn((GameCamera, CameraAnchor(Some(anchor_entity))));
+        app.world_mut().resource_mut::<CurrentStarSystem>().0 = 3;
+        *app.world_mut().resource_mut::<ViewMode>() = ViewMode::System;
+
+        app.update();
+
+        let origin = app.world().resource::<FloatingOrigin>();
+        assert_eq!(origin.position, DVec3::new(12345.0, -67.0, 8.5));
     }
 }
