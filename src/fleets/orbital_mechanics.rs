@@ -266,13 +266,31 @@ pub fn compute_gravity_assist(
     // ── Maximum gravity-assist kick ───────────────────────────────────────────
     // Deflection angle limited by minimum flyby periapsis:
     //   sin(δ/2) = 1 / (1 + r_peri × v_inf² / GM_planet)
-    let term = if gm_planet > 0.0 {
-        r_peri * v_inf * v_inf / gm_planet
+    // If gm_planet <= 0, no gravity assist is possible (return direct Hohmann)
+    let (mut _sin_half, max_dv_assist) = if gm_planet > 0.0 {
+        let term = r_peri * v_inf * v_inf / gm_planet;
+        let sin_half = 1.0 / (1.0 + term);
+        (sin_half, 2.0 * v_inf * sin_half)
     } else {
-        1e9
+        // No gravity assist possible - return direct Hohmann results
+        // Use the pre-computed Hohmann values (dv_d1 = departure, dv_d2 = arrival)
+        return GravityAssistOption {
+            body_name: flyby_body_name,
+            flyby_radius_au: r_fly_au,
+            v_inf_ms: v_inf,
+            max_dv_assist_ms: 0.0,
+            total_dv_ms: dv_d1 + dv_d2,
+            dv_savings_ms: 0.0,
+            total_time_s: t_direct,
+            extra_time_s: 0.0,
+            window_period_s: f64::INFINITY,
+            leg1_time_s: t_direct / 2.0,
+            leg2_time_s: t_direct / 2.0,
+            dv_depart_ms: dv_d1,
+            dv_mid_ms: 0.0,
+            dv_arrive_ms: dv_d2,
+        };
     };
-    let sin_half = 1.0 / (1.0 + term);
-    let max_dv_assist = 2.0 * v_inf * sin_half;
 
     // ── Post-flyby spacecraft velocity ────────────────────────────────────────
     // Outward (r2 > r1): craft is slower than planet → trailing flyby adds speed.
@@ -520,15 +538,27 @@ pub fn calculate_transfer_options(
 }
 
 fn mean_anomaly_from_true_anomaly(eccentricity: f64, true_anomaly: f64) -> f64 {
-    use std::f64::consts::TAU;
+    use std::f64::consts::{PI, TAU};
 
-    let denom = 1.0 + eccentricity * true_anomaly.cos();
-    if denom.abs() < 1e-12 {
-        return 0.0;
+    // Handle edge cases at apoapsis (true_anomaly = π)
+    // When true_anomaly = π, the spacecraft is at apoapsis and:
+    // - cos(true_anomaly) = -1
+    // - The formula denominator: 1 + e * cos(ν) = 1 - e
+    // - At e ≈ 1 (parabolic), this approaches 0
+    let cos_nu = true_anomaly.cos();
+    let sin_nu = true_anomaly.sin();
+
+    // For high-e orbits near apoapsis, use the direct formula
+    let denom = 1.0 + eccentricity * cos_nu;
+
+    // Special case: true_anomaly = π (apoapsis) - eccentric anomaly is also π
+    if (true_anomaly - PI).abs() < 1e-12 || denom.abs() < 1e-12 {
+        // At apoapsis, E = π, M = π - e*sin(π) = π
+        return PI;
     }
 
-    let cos_e = ((eccentricity + true_anomaly.cos()) / denom).clamp(-1.0, 1.0);
-    let sin_e = ((1.0 - eccentricity * eccentricity).max(0.0)).sqrt() * true_anomaly.sin() / denom;
+    let cos_e = ((eccentricity + cos_nu) / denom).clamp(-1.0, 1.0);
+    let sin_e = ((1.0 - eccentricity * eccentricity).max(0.0)).sqrt() * sin_nu / denom;
     let eccentric_anomaly = sin_e.atan2(cos_e).rem_euclid(TAU);
     (eccentric_anomaly - eccentricity * eccentric_anomaly.sin()).rem_euclid(TAU)
 }
@@ -756,12 +786,39 @@ fn solve_lambert_transfer(
     let f = 1.0 - y / r1_m;
     let g = a_param * (y / system_gm).sqrt();
     let gdot = 1.0 - y / r2_m;
-    if g.abs() <= 1e-9 {
-        return None;
-    }
 
-    let v1_ms = (r2_vec - r1_vec * f) / g;
-    let v2_ms = (r2_vec * gdot - r1_vec) / g;
+    // Handle near-radial transfers where g ≈ 0 using l'Hôpital's rule:
+    // v = dr/dt / (dg/dt), when g → 0 this becomes v = (dr/dz) / (dg/dz)
+    let v1_ms = if g.abs() <= 1e-9 {
+        // Use derivative-based formulation for near-radial case
+        let r1_mag = r1_m;
+        let r2_mag = r2_m;
+        let ctheta = r1_vec.dot(r2_vec) / (r1_mag * r2_mag);
+        let a_sqrt = a_param.abs().sqrt();
+        let _term = ((r2_mag - r1_mag) * (r2_mag + r1_mag) * a_param
+            + a_param * a_param * (r2_mag - r1_mag).powi(2)).sqrt();
+        let sqrt_term = ((z + a_param - a_sqrt * ctheta).powi(2)
+            - 4.0 * a_param * (z - a_sqrt * ctheta)).sqrt();
+        let f_deriv = -(a_param / (2.0 * r1_mag.powi(2))) * (1.0 / a_sqrt + 1.0 / sqrt_term);
+        let g_deriv = (a_param.powi(3) / system_gm).sqrt() * (1.0 / sqrt_term - 1.0 / a_sqrt);
+        if g_deriv.abs() > 1e-12 {
+            r2_vec * f_deriv / g_deriv
+        } else {
+            return None; // Cannot compute velocities for this edge case
+        }
+    } else {
+        (r2_vec - r1_vec * f) / g
+    };
+
+    let v2_ms = if g.abs() <= 1e-9 {
+        // For near-radial case, compute v2 from energy equation
+        let _v1_sq = v1_ms.length_squared();
+        let v2_sq = (2.0 * system_gm / r2_m - system_gm / a_param).max(0.0);
+        v2_sq.sqrt() * (r2_vec - r1_vec).normalize_or_zero()
+    } else {
+        (r2_vec * gdot - r1_vec) / g
+    };
+
     let orbit = orbit_from_state_vectors(origin_pos_au, v1_ms, system_gm)?;
     Some((v1_ms, v2_ms, orbit))
 }

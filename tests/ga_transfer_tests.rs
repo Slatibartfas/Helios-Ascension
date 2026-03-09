@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use helios_ascension::astronomy::KeplerOrbit;
 use helios_ascension::fleets::{
     ActiveManeuver, Fleet, FleetOrbit, PendingFleetActions, PlannedTransfer, StartTransferAction,
+    TransferReferenceFrame,
 };
 use helios_ascension::plugins::solar_system::CelestialBody;
 use helios_ascension::plugins::solar_system_data::BodyType;
@@ -16,9 +17,11 @@ fn test_planned_transfer_records_flyby() {
     let pt = PlannedTransfer {
         origin_body: dummy,
         destination_body: dummy,
+        reference_frame: TransferReferenceFrame::Body(dummy),
         orbit_center: dummy,
         transfer_orbit: KeplerOrbit::circular(1.0, 1.0),
         duration_s: 0.0,
+        preserve_orbit_geometry: false,
         arrival_delta_v_ms: 0.0,
         arrival_orbit_radius_au: 0.0,
         fuel_cost_t: 0.0,
@@ -98,9 +101,11 @@ fn test_active_maneuver_inherits_flyby() {
     let planned = PlannedTransfer {
         origin_body: origin,
         destination_body: destination,
+        reference_frame: TransferReferenceFrame::Body(origin),
         orbit_center: origin,
         transfer_orbit: KeplerOrbit::circular(1.0, 1.0),
         duration_s: 1.0,
+        preserve_orbit_geometry: false,
         arrival_delta_v_ms: 0.0,
         arrival_orbit_radius_au: 0.0,
         fuel_cost_t: 0.0,
