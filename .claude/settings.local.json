@@ -9,7 +9,11 @@
       "mcp__MiniMax__web_search",
       "WebFetch(domain:en.wikipedia.org)",
       "Bash(cargo build)",
-      "Bash(cargo test --test procedural_generation_tests)"
+      "Bash(cargo test --test procedural_generation_tests)",
+      "WebFetch(domain:orbital-mechanics.space)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ]
   }
 }

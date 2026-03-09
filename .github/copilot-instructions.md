@@ -129,9 +129,8 @@ helios_ascension/
 
 ## Coding Standards
 
-Apply the [Rust coding standards](./.github/instructions/rust.instructions.md) to all Rust code.
+Follow standard Rust best practices:
 
-Key principles:
 - Write idiomatic Rust following the Rust API Guidelines
 - Use strong types and leverage the ownership system
 - Handle errors with `Result<T, E>`, avoid `unwrap()` in library code
@@ -140,8 +139,6 @@ Key principles:
 - Use `cargo fmt` and `cargo clippy` for code quality
 
 ## Testing Strategy
-
-Apply the [testing standards](./.github/instructions/testing.instructions.md) for all tests.
 
 - Write unit tests for individual components and systems
 - Use integration tests for plugin interactions
@@ -220,7 +217,7 @@ When adding new UI icons (menus, research categories, etc.), applying the follow
 ### Game Systems Overview
 
 #### Colony Management
-- **32 building types** across 11 categories (Infrastructure, Mining & Industry, Atmospheric Harvesting, Advanced Mining, Logistics, Power, Population & Growth, Research, Financial & Commerce, Military & Shipbuilding, Advanced Industry)
+- **31 building types** across 8 categories (Infrastructure, Mining & Industry, Atmospheric Harvesting, Advanced Mining, Logistics, Power, Population & Growth, Research, Financial & Commerce, Military & Shipbuilding, Advanced Industry)
 - Construction queue system with resource costs and workforce requirements
 - Population growth mechanics with housing capacity and food requirements
 - Buildings require maintenance resources and generate various effects
@@ -359,16 +356,12 @@ When adding new UI icons (menus, research categories, etc.), applying the follow
 
 ## Security Considerations
 
-Apply the [security standards](./.github/instructions/security.instructions.md).
-
 - Validate all user inputs
 - Use safe Rust practices, avoid `unsafe` unless necessary
 - Be careful with deserialization from untrusted sources
 - Follow Rust's memory safety guarantees
 
 ## Performance Guidelines
-
-Apply the [performance standards](./.github/instructions/performance.instructions.md).
 
 - Profile before optimizing
 - Use Bevy's built-in diagnostics for frame timing
@@ -377,8 +370,6 @@ Apply the [performance standards](./.github/instructions/performance.instruction
 - Consider using `bevy_rapier` for physics if needed
 
 ## Documentation
-
-Apply the [documentation standards](./.github/instructions/documentation.instructions.md).
 
 ### Documentation Principles (CRITICAL)
 - **NO PR Summaries**: NEVER create "SUMMARY.md", "IMPLEMENTATION_SUMMARY.md", "FIXES.md" or similar PR-specific documents. These become stale documentation clutter.

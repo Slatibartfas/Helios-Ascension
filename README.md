@@ -10,14 +10,14 @@ The game now has fully functional colony management, economy, research, interste
 ### Core Game Systems
 
 - **Colony Management**: Establish and manage colonies across the solar system
-  - **29 distinct building types** across 8 categories (Infrastructure, Industry, Logistics, Power, Population, Research, Financial, Military)
+  - **31 distinct building types** across 8 categories (Infrastructure, Industry, Logistics, Power, Population, Research, Financial, Military)
   - Construction queue system with resource costs and build times
   - Workforce allocation and efficiency management
   - Population growth and housing systems
   - Building maintenance and operating costs
 
 - **Economy & Resources**: Deep resource management with real scarcity
-  - **20 resource types**: Volatiles, gases, construction materials, precious metals, fissiles, and specialty materials
+  - **37 resource types**: Volatiles, gases, construction materials, precious metals, fissiles, and specialty materials
   - Mining operations to extract resources from celestial bodies
   - Resource stockpiles, production rates, and consumption tracking
   - Global budget management with income and expenses
@@ -187,7 +187,7 @@ The game uses a modular plugin architecture built on Bevy's ECS (Entity Componen
 - **CameraPlugin**: 3D camera movement and automatic view transitions
 - **SolarSystemPlugin**: Manages celestial bodies and orbital mechanics
 - **AstronomyPlugin**: High-precision Keplerian orbital mechanics
-- **ColonyPlugin**: Colony management with 29 building types
+- **ColonyPlugin**: Colony management with 31 building types
 - **EconomyPlugin**: Resource production, consumption, and budget tracking
 - **ResearchPlugin**: Technology tree and research progression
 - **FleetPlugin**: Fleet management, orbital transfer planning, gravity assists, and trajectory rendering
@@ -273,7 +273,7 @@ Helios Ascension is designed to be data-driven and moddable without touching Rus
 📖 **See [docs/RESEARCH_MODDING.md](docs/RESEARCH_MODDING.md)** for the full technology modding guide, including all modifier types, component definitions, and balancing guidelines.
 
 ### Buildings
-- ✅ **Data-driven buildings**: All 29 building types defined in `assets/data/buildings.ron`
+- ✅ **Data-driven buildings**: All 31 building types defined in `assets/data/buildings.ron`
 - ✅ **Custom buildings**: Add new construction options with resource costs and effects
 
 ## Development
