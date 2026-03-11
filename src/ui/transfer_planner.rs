@@ -88,6 +88,7 @@ fn is_inter_star_transfer(
 
 fn transfer_absolute_position(
     entity: Entity,
+    sim_time_s: f64,
     body_query: &Query<(
         Entity,
         &CelestialBody,
@@ -96,11 +97,21 @@ fn transfer_absolute_position(
         Option<&LogicalParent>,
     )>,
 ) -> Option<bevy::math::DVec3> {
-    let (_, body, sc, _, lp) = body_query.get(entity).ok()?;
+    let (_, body, sc, ko, lp) = body_query.get(entity).ok()?;
     if body.body_type == BodyType::Moon {
         let parent = lp?.0;
-        let (_, _, parent_sc, _, _) = body_query.get(parent).ok()?;
-        Some(parent_sc.position)
+        transfer_absolute_position(parent, sim_time_s, body_query)
+    } else if let Some(orbit) = ko {
+        let parent_pos = lp
+            .and_then(|parent| transfer_absolute_position(parent.0, sim_time_s, body_query))
+            .unwrap_or(bevy::math::DVec3::ZERO);
+        let mean_anomaly = orbit.mean_anomaly_epoch + orbit.mean_motion * sim_time_s;
+        let local_pos = crate::astronomy::orbit_position_from_mean_anomaly(orbit, mean_anomaly);
+        Some(parent_pos + local_pos)
+    } else if lp.is_some() {
+        lp.and_then(|parent| transfer_absolute_position(parent.0, sim_time_s, body_query))
+    } else if body.body_type == BodyType::Star {
+        Some(bevy::math::DVec3::ZERO)
     } else {
         Some(sc.position)
     }
@@ -226,6 +237,7 @@ fn resolve_planner_transfer_frame(
 fn position_in_planner_frame(
     entity: Entity,
     frame: PlannerTransferFrame,
+    sim_time_s: f64,
     body_query: &Query<(
         Entity,
         &CelestialBody,
@@ -235,13 +247,15 @@ fn position_in_planner_frame(
     )>,
 ) -> Option<bevy::math::DVec3> {
     match frame {
-        PlannerTransferFrame::SystemBarycentric => transfer_absolute_position(entity, body_query),
+        PlannerTransferFrame::SystemBarycentric => {
+            transfer_absolute_position(entity, sim_time_s, body_query)
+        }
         PlannerTransferFrame::StellarLocal(star_entity) => {
             if entity == star_entity {
                 Some(bevy::math::DVec3::ZERO)
             } else {
-                let body_pos = transfer_absolute_position(entity, body_query)?;
-                let star_pos = transfer_absolute_position(star_entity, body_query)
+                let body_pos = transfer_absolute_position(entity, sim_time_s, body_query)?;
+                let star_pos = transfer_absolute_position(star_entity, sim_time_s, body_query)
                     .unwrap_or(bevy::math::DVec3::ZERO);
                 Some(body_pos - star_pos)
             }
@@ -253,8 +267,8 @@ fn position_in_planner_frame(
                 let entry = body_query.get(entity).ok()?;
                 let center = body_query.get(central_body).ok()?;
                 if center.1.body_type == BodyType::Star {
-                    let body_pos = transfer_absolute_position(entity, body_query)?;
-                    let center_pos = transfer_absolute_position(central_body, body_query)
+                    let body_pos = transfer_absolute_position(entity, sim_time_s, body_query)?;
+                    let center_pos = transfer_absolute_position(central_body, sim_time_s, body_query)
                         .unwrap_or(bevy::math::DVec3::ZERO);
                     Some(body_pos - center_pos)
                 } else {
@@ -1279,9 +1293,9 @@ pub(super) fn render_transfer_planner(
             const SOLAR_APPROACH_AU: f64 = 0.3;
 
             let (r1, r2, gm) = if is_inter_star_body_transfer {
-                let origin_pos = transfer_absolute_position(orbit.body, body_query)
+                let origin_pos = transfer_absolute_position(orbit.body, elapsed, body_query)
                     .unwrap_or(bevy::math::DVec3::ZERO);
-                let dest_pos = transfer_absolute_position(target_entity, body_query)
+                let dest_pos = transfer_absolute_position(target_entity, elapsed, body_query)
                     .unwrap_or(bevy::math::DVec3::ZERO);
                 let r1_bary = origin_pos.length().max(MIN_ORBITAL_RADIUS_AU);
                 let r2_bary = dest_pos.length().max(MIN_ORBITAL_RADIUS_AU);
@@ -1457,11 +1471,11 @@ pub(super) fn render_transfer_planner(
                     // Fallback values (1.0 AU for origin, 1.5 AU for dest) are Earth-like and
                     // Mars-like radii used only if an entity is somehow missing — a defensive
                     // guard that should never trigger in practice.
-                    let r1_bary = transfer_absolute_position(orbit.body, body_query)
+                    let r1_bary = transfer_absolute_position(orbit.body, elapsed, body_query)
                         .map(|pos| pos.length())
                         .unwrap_or(1.0) // defensive: orbit.body is always a valid spawned entity
                         .max(MIN_ORBITAL_RADIUS_AU); // guard against near-zero (fleet at star itself)
-                    let r2_bary = transfer_absolute_position(target_entity, body_query)
+                    let r2_bary = transfer_absolute_position(target_entity, elapsed, body_query)
                         .map(|pos| pos.length())
                         // Defensive fallback; target_entity should always resolve here.
                         .unwrap_or(1.5)
@@ -1559,7 +1573,7 @@ pub(super) fn render_transfer_planner(
                         PlannerTransferFrame::SystemBarycentric => Some(fleet_helio),
                         PlannerTransferFrame::StellarLocal(center_entity)
                         | PlannerTransferFrame::BodyLocal(center_entity) => {
-                            let center_helio = transfer_absolute_position(center_entity, body_query)
+                            let center_helio = transfer_absolute_position(center_entity, elapsed, body_query)
                                 .unwrap_or(bevy::math::DVec3::ZERO);
                             Some(fleet_helio - center_helio)
                         }
@@ -1580,9 +1594,9 @@ pub(super) fn render_transfer_planner(
                 if fleet_ui_state.departure_offset_days < 0.0 {
                     fleet_ui_state.departure_offset_days = 0.0;
                 }
-                let origin_pos = transfer_absolute_position(orbit.body, body_query)
+                let origin_pos = transfer_absolute_position(orbit.body, elapsed, body_query)
                     .unwrap_or(bevy::math::DVec3::ZERO);
-                let dest_pos = transfer_absolute_position(target_entity, body_query)
+                let dest_pos = transfer_absolute_position(target_entity, elapsed, body_query)
                     .unwrap_or(bevy::math::DVec3::ZERO);
                 let origin_velocity = transfer_absolute_velocity(orbit.body, elapsed, body_query)
                     .unwrap_or(bevy::math::DVec3::ZERO);
@@ -1594,9 +1608,9 @@ pub(super) fn render_transfer_planner(
                     .unwrap_or((orbit.body, 0.0));
                 let (dest_host_star, dest_host_mass) = find_host_star(target_entity, body_query)
                     .unwrap_or((target_entity, 0.0));
-                let origin_host_pos = transfer_absolute_position(origin_host_star, body_query)
+                let origin_host_pos = transfer_absolute_position(origin_host_star, elapsed, body_query)
                     .unwrap_or(bevy::math::DVec3::ZERO);
-                let dest_host_pos = transfer_absolute_position(dest_host_star, body_query)
+                let dest_host_pos = transfer_absolute_position(dest_host_star, elapsed, body_query)
                     .unwrap_or(bevy::math::DVec3::ZERO);
                 let origin_host_radius_au = (origin_pos - origin_host_pos)
                     .length()
@@ -1652,8 +1666,8 @@ pub(super) fn render_transfer_planner(
                     )
                 } else {
                     (
-                        position_in_planner_frame(orbit.body, planner_frame, body_query),
-                        position_in_planner_frame(target_entity, planner_frame, body_query),
+                        position_in_planner_frame(orbit.body, planner_frame, elapsed, body_query),
+                        position_in_planner_frame(target_entity, planner_frame, elapsed, body_query),
                     )
                 };
                 // For course corrections, override pos1 with the fleet's actual current
@@ -2539,6 +2553,48 @@ pub(super) fn render_transfer_planner(
             // Pre-compute execute button state
             let sel_option =
                 fleet_ui_state.computed_options[fleet_ui_state.selected_option].clone();
+            let planned_departure_time_s = elapsed + fleet_ui_state.departure_offset_days * 86_400.0;
+            fleet_ui_state.planned_transfer = if star_system_snap.is_some() {
+                None
+            } else if fleet_ui_state.selected_gravity_assist.is_some() {
+                None
+            } else if let Some(ref lp) = lp_target_snap {
+                build_planned_transfer_lp(fleet_entity, fleet, orbit, lp, body_query, &sel_option)
+            } else if let Some(tfe) = fleet_target_snap {
+                all_fleets_query
+                    .get(tfe)
+                    .ok()
+                    .and_then(|(_, _, _, maybe_fo, _)| maybe_fo)
+                    .and_then(|fo| {
+                        build_planned_transfer(
+                            fleet_entity,
+                            fleet,
+                            orbit,
+                            fo.body,
+                            planned_departure_time_s,
+                            body_query,
+                            &sel_option,
+                            course_correction_sc,
+                            body_system_ids,
+                            current_system_id,
+                        )
+                    })
+            } else if let Some(te) = body_target_snap {
+                build_planned_transfer(
+                    fleet_entity,
+                    fleet,
+                    orbit,
+                    te,
+                    planned_departure_time_s,
+                    body_query,
+                    &sel_option,
+                    course_correction_sc,
+                    body_system_ids,
+                    current_system_id,
+                )
+            } else {
+                None
+            };
             let abort_cost_t: f32 = if let Some(maneuver) = current_maneuver {
                 let progress = maneuver.progress(elapsed) as f32;
                 let abort_factor = 4.0 * progress * (1.0 - progress);
@@ -2688,7 +2744,7 @@ pub(super) fn render_transfer_planner(
                             all_fleets_query.get(tfe).ok()
                                 .and_then(|(_, _, _, maybe_fo, _)| maybe_fo)
                                 .and_then(|fo| {
-                                    build_planned_transfer(fleet_entity, fleet, orbit, fo.body, body_query, &sel_option, course_correction_sc, body_system_ids, current_system_id)
+                                    build_planned_transfer(fleet_entity, fleet, orbit, fo.body, planned_departure_time_s, body_query, &sel_option, course_correction_sc, body_system_ids, current_system_id)
                                 })
                         } else if let Some(te) = body_target_snap {
                             if sel_option.label == "Gravity Assist" {
@@ -2706,7 +2762,7 @@ pub(super) fn render_transfer_planner(
 
                                 if let Some(flyby) = flyby_e {
                                     let mut maybe_pt = build_planned_transfer(
-                                        fleet_entity, fleet, orbit, flyby,
+                                        fleet_entity, fleet, orbit, flyby, planned_departure_time_s,
                                         body_query, &sel_option, course_correction_sc,
                                         body_system_ids, current_system_id,
                                     );
@@ -2812,10 +2868,10 @@ pub(super) fn render_transfer_planner(
                                     }
                                     maybe_pt
                                 } else {
-                                    build_planned_transfer(fleet_entity, fleet, orbit, te, body_query, &sel_option, course_correction_sc, body_system_ids, current_system_id)
+                                    build_planned_transfer(fleet_entity, fleet, orbit, te, planned_departure_time_s, body_query, &sel_option, course_correction_sc, body_system_ids, current_system_id)
                                 }
                             } else {
-                                build_planned_transfer(fleet_entity, fleet, orbit, te, body_query, &sel_option, course_correction_sc, body_system_ids, current_system_id)
+                                build_planned_transfer(fleet_entity, fleet, orbit, te, planned_departure_time_s, body_query, &sel_option, course_correction_sc, body_system_ids, current_system_id)
                             }
                         } else {
                             None
@@ -3222,6 +3278,7 @@ fn build_planned_transfer(
     fleet: &Fleet,
     orbit: &FleetOrbit,
     target_entity: Entity,
+    sim_time_s: f64,
     body_query: &Query<(
         Entity,
         &CelestialBody,
@@ -3239,7 +3296,10 @@ fn build_planned_transfer(
     current_system_id: usize,
 ) -> Option<PlannedTransfer> {
     use crate::astronomy::KeplerOrbit;
-    use crate::fleets::orbital_mechanics::{AU_IN_METERS, GM_SUN, G_CONST};
+    use crate::fleets::orbital_mechanics::{solve_lambert_transfer, AU_IN_METERS, GM_SUN, G_CONST};
+
+    let departure_time_s = sim_time_s;
+    let arrival_time_s = departure_time_s + option.transfer_time_s;
 
     let (_, origin_body, origin_sc, origin_ko, origin_lp) = body_query.get(orbit.body).ok()?;
     let (_, dest_body, _dest_sc, dest_ko, dest_lp) = body_query.get(target_entity).ok()?;
@@ -3360,11 +3420,11 @@ fn build_planned_transfer(
             // origin_sc is always valid (obtained above); target_entity query can only
             // fail if the entity was somehow despawned between the UI call and here,
             // which should not happen in practice.
-            let r1 = transfer_absolute_position(orbit.body, body_query)
+            let r1 = transfer_absolute_position(orbit.body, departure_time_s, body_query)
                 .unwrap_or(origin_sc.position)
                 .length()
                 .max(MIN_ORBITAL_RADIUS_AU);
-            let r2 = transfer_absolute_position(target_entity, body_query)
+            let r2 = transfer_absolute_position(target_entity, arrival_time_s, body_query)
                 .map(|pos| pos.length())
                 .unwrap_or(1.5) // defensive fallback; should not be reached
                 .max(MIN_ORBITAL_RADIUS_AU);
@@ -3518,13 +3578,20 @@ fn build_planned_transfer(
                 .ok()
                 .map(|(_, b, _, _, _)| b.body_type == BodyType::Star)
                 .unwrap_or(false));
+    let future_resolved_transfer = reference_frame.is_barycentric();
     let center_pos = match reference_frame {
         TransferReferenceFrame::SystemBarycentric => bevy::math::DVec3::ZERO,
         TransferReferenceFrame::Body(center_entity) => {
             if is_local_transfer && !local_center_is_star {
                 bevy::math::DVec3::ZERO
+            } else if future_resolved_transfer {
+                transfer_absolute_position(center_entity, departure_time_s, body_query)
+                    .unwrap_or(bevy::math::DVec3::ZERO)
             } else {
-                transfer_absolute_position(center_entity, body_query)
+                body_query
+                    .get(center_entity)
+                    .ok()
+                    .map(|(_, _, sc, _, _)| sc.position)
                     .unwrap_or(bevy::math::DVec3::ZERO)
             }
         }
@@ -3544,8 +3611,9 @@ fn build_planned_transfer(
         // SpaceCoordinates stores only a local offset from its parent planet — not a
         // heliocentric position.  Use the parent planet's heliocentric SC so that the
         // departure direction (argument_of_periapsis) points in the correct direction.
-        let origin_pos = if reference_frame.is_barycentric() {
-            transfer_absolute_position(orbit.body, body_query).unwrap_or(origin_sc.position)
+        let origin_pos = if future_resolved_transfer {
+            transfer_absolute_position(orbit.body, departure_time_s, body_query)
+                .unwrap_or(origin_sc.position)
         } else if is_local_transfer && !local_center_is_star {
             origin_sc.position
         } else if origin_body.body_type == BodyType::Moon {
@@ -3573,8 +3641,9 @@ fn build_planned_transfer(
             // - origin is moon-relative (local coordinates)
             // - destination should also be local (DVec3::ZERO for the planet center)
             // For heliocentric: if destination is a moon, get parent's heliocentric position
-            if reference_frame.is_barycentric() {
-                transfer_absolute_position(target_entity, body_query).unwrap_or(sc.position)
+            if future_resolved_transfer {
+                transfer_absolute_position(target_entity, arrival_time_s, body_query)
+                    .unwrap_or(sc.position)
             } else if is_local_transfer {
                 // For downward transfer (Moon → Earth), destination is the planet itself
                 // For upward transfer (Earth → Moon), destination is moon-relative
@@ -3657,8 +3726,71 @@ fn build_planned_transfer(
         (0.0, 0.0, aop)
     };
 
-    let preserve_orbit_geometry = option.transfer_orbit_override.is_some();
-    let transfer_orbit = if let Some(orbit_override) = option.transfer_orbit_override {
+    let same_star_stellar_lambert = matches!(reference_frame,
+        TransferReferenceFrame::Body(center_entity)
+            if body_query
+                .get(center_entity)
+                .ok()
+                .map(|(_, body, _, _, _)| body.body_type == BodyType::Star)
+                .unwrap_or(false)
+            && !is_local_transfer
+            && !dest_is_star
+            && !option.label.contains("Direct")
+    );
+
+    let lambert_same_star_orbit = if same_star_stellar_lambert {
+        if let TransferReferenceFrame::Body(center_entity) = reference_frame {
+            let center_departure = transfer_absolute_position(center_entity, departure_time_s, body_query)
+                .unwrap_or(bevy::math::DVec3::ZERO);
+            let center_arrival = transfer_absolute_position(center_entity, arrival_time_s, body_query)
+                .unwrap_or(center_departure);
+            let origin_departure = if let Some(fleet_pos) = course_correction_pos {
+                fleet_pos
+            } else {
+                transfer_absolute_position(orbit.body, departure_time_s, body_query)
+                    .unwrap_or(rel_pos + center_pos)
+                    - center_departure
+            };
+            let destination_arrival = transfer_absolute_position(target_entity, arrival_time_s, body_query)
+                .unwrap_or(dest_rel + center_pos)
+                - center_arrival;
+
+            solve_lambert_transfer(origin_departure, destination_arrival, option.transfer_time_s, gm)
+                .map(|(_, _, orbit)| orbit)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let transfer_orbit = if reference_frame.is_barycentric() && option.transfer_orbit_override.is_some() {
+        let origin_future = transfer_absolute_position(orbit.body, departure_time_s, body_query)
+            .unwrap_or(rel_pos + center_pos);
+        let dest_future = transfer_absolute_position(target_entity, arrival_time_s, body_query)
+            .unwrap_or(dest_rel + center_pos);
+
+        solve_lambert_transfer(origin_future, dest_future, option.transfer_time_s, gm)
+            .map(|(_, _, orbit)| orbit)
+            .or(option.transfer_orbit_override)
+            .unwrap_or_else(|| {
+                let mean_anomaly_epoch = if outward { 0.0 } else { std::f64::consts::PI };
+                let sma_m = option.sma_au * AU_IN_METERS;
+                let mean_motion = (gm / sma_m.powi(3)).sqrt();
+
+                KeplerOrbit {
+                    semi_major_axis: option.sma_au,
+                    eccentricity: option.eccentricity,
+                    inclination: transfer_inclination,
+                    longitude_ascending_node: transfer_lan,
+                    argument_of_periapsis,
+                    mean_anomaly_epoch,
+                    mean_motion,
+                }
+            })
+    } else if let Some(orbit) = lambert_same_star_orbit {
+        orbit
+    } else if let Some(orbit_override) = option.transfer_orbit_override {
         orbit_override
     } else {
         let mean_anomaly_epoch = if outward { 0.0 } else { std::f64::consts::PI };
@@ -3675,6 +3807,7 @@ fn build_planned_transfer(
             mean_motion,
         }
     };
+    let preserve_orbit_geometry = option.transfer_orbit_override.is_some() || lambert_same_star_orbit.is_some();
 
     // Arrival orbit radius: for rings use the ring radius, otherwise reuse fleet parking radius
     let arrival_orbit_radius_au = if dest_is_ring {
@@ -3968,6 +4101,7 @@ mod tests {
             &fleet,
             &orbit,
             destination,
+            0.0,
             &body_query,
             &option,
             None,
@@ -4051,6 +4185,7 @@ mod tests {
             &fleet,
             &orbit,
             destination,
+            0.0,
             &body_query,
             &option,
             None,

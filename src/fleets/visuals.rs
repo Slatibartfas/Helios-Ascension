@@ -13,7 +13,7 @@ use crate::astronomy::{
 use crate::plugins::camera::{GameCamera, OrbitCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, LogicalParent};
 use crate::plugins::solar_system_data::BodyType;
-use crate::ui::{FleetUiState, SimulationTime};
+use crate::ui::{FleetUiState, SimulationTime, TimeScale};
 
 /// Marker component for entities that have a fleet mesh sphere.
 #[derive(Component)]
@@ -111,6 +111,19 @@ fn draw_dashed_polyline(
 
 // ── Body-prediction helpers ───────────────────────────────────────────────────
 
+/// Mirrors the astronomy render-system cap so preview markers follow the same
+/// readable visual orbit path as fast moons and tight inner bodies.
+const VISUAL_PREDICTION_SPEED_BASE: f64 = std::f64::consts::TAU;
+
+fn capped_prediction_visual_speed(effective_speed: f64) -> f64 {
+    if effective_speed <= VISUAL_PREDICTION_SPEED_BASE {
+        effective_speed
+    } else {
+        VISUAL_PREDICTION_SPEED_BASE
+            * (1.0 + (effective_speed / VISUAL_PREDICTION_SPEED_BASE).ln())
+    }
+}
+
 /// Predict the visual (render-space) `Vec3` position where a celestial body will
 /// be at `future_sim_s` by propagating its `KeplerOrbit` forward.
 ///
@@ -119,6 +132,8 @@ fn predict_body_visual_pos(
     target: Entity,
     current_sim_s: f64,
     future_sim_s: f64,
+    current_real_s: f64,
+    time_scale: f64,
     body_query: &Query<(&Transform, &CelestialBody, Option<&LogicalParent>), Without<Fleet>>,
     kepler_query: &Query<&KeplerOrbit, Without<Fleet>>,
     amp_query: &Query<&LocalOrbitAmplification, Without<Fleet>>,
@@ -126,8 +141,21 @@ fn predict_body_visual_pos(
     let kepler = kepler_query.get(target).ok()?;
     let (current_transform, _, maybe_lp) = body_query.get(target).ok()?;
 
-    // Advance mean anomaly to future simulation time.
-    let ma_future = kepler.mean_anomaly_epoch + kepler.mean_motion * future_sim_s;
+    // Mirror the astronomy render transform: very fast local orbits are drawn
+    // with a capped real-time angular speed to remain readable/clickable.
+    let effective_speed = kepler.mean_motion.abs() * time_scale;
+    let ma_future = if effective_speed > VISUAL_PREDICTION_SPEED_BASE {
+        let vis_speed = capped_prediction_visual_speed(effective_speed) * kepler.mean_motion.signum();
+        let delta_real_s = if time_scale.abs() > 1e-9 {
+            ((future_sim_s - current_sim_s) / time_scale).max(0.0)
+        } else {
+            0.0
+        };
+        let current_visual_ma = kepler.mean_anomaly_epoch + vis_speed * current_real_s;
+        current_visual_ma + vis_speed * delta_real_s
+    } else {
+        kepler.mean_anomaly_epoch + kepler.mean_motion * future_sim_s
+    };
     let pos_future_au = orbit_position_from_mean_anomaly(kepler, ma_future);
 
     // Apply LocalOrbitAmplification (moons rendered further from parent than raw AU).
@@ -144,6 +172,8 @@ fn predict_body_visual_pos(
             lp.0,
             current_sim_s,
             future_sim_s,
+            current_real_s,
+            time_scale,
             body_query,
             kepler_query,
             amp_query,
@@ -364,7 +394,11 @@ fn stable_preview_travel_time(ui: &FleetUiState) -> f64 {
         let opt = &ui.computed_options[ui.selected_option];
         // Options with inherently stable times (Efficient, kinematic, etc.)
         // can be returned directly.
-        if opt.label != "Moderate" && opt.label != "Fast" {
+        // "Curved Moderate" / "Curved Fast" from cross-star ballistic options
+        // also have phase-dependent times that need the same stabilisation.
+        let is_moderate = opt.label == "Moderate" || opt.label == "Curved Moderate";
+        let is_fast = opt.label == "Fast" || opt.label == "Curved Fast";
+        if !is_moderate && !is_fast {
             return opt.transfer_time_s;
         }
         // Base Hohmann time from the Efficient option (index 0).
@@ -374,7 +408,7 @@ fn stable_preview_travel_time(ui: &FleetUiState) -> f64 {
             .map(|o| o.transfer_time_s)
             .unwrap_or(opt.transfer_time_s);
         // Use the tier's nominal multiplier, stripping the per-frame phase correction.
-        let nominal_mult: f64 = if opt.label == "Moderate" { 1.5 } else { 2.5 };
+        let nominal_mult: f64 = if is_moderate { 1.5 } else { 2.5 };
         // Kepler scaling: time ∝ multiplier^(−2/3)
         base_time * nominal_mult.powf(-2.0 / 3.0)
     } else if let Some(pt) = &ui.planned_transfer {
@@ -449,6 +483,120 @@ impl TransferArcGeometry {
     }
 }
 
+fn transfer_orbit_visual_point(
+    orbit: &KeplerOrbit,
+    mean_anomaly: f64,
+    center_visual: Vec3,
+) -> Vec3 {
+    let local = orbit_position_from_mean_anomaly(orbit, mean_anomaly);
+    center_visual
+        + Vec3::new(
+            (local.x * SCALING_FACTOR) as f32,
+            (local.y * SCALING_FACTOR) as f32,
+            (local.z * SCALING_FACTOR) as f32,
+        )
+}
+
+fn sampled_transfer_orbit_points(
+    orbit: &KeplerOrbit,
+    center_visual: Vec3,
+    start_mean_anomaly: f64,
+    total_ma_travel: f64,
+    start_fraction: f32,
+    segments: u32,
+) -> Vec<Vec3> {
+    let mut points = Vec::with_capacity(segments as usize + 2);
+    let start_ma = start_mean_anomaly + total_ma_travel * start_fraction as f64;
+    points.push(transfer_orbit_visual_point(orbit, start_ma, center_visual));
+
+    for i in 0..=segments {
+        let frac = i as f32 / segments as f32;
+        if frac <= start_fraction {
+            continue;
+        }
+        let mean_anomaly = start_mean_anomaly + total_ma_travel * frac as f64;
+        points.push(transfer_orbit_visual_point(orbit, mean_anomaly, center_visual));
+    }
+
+    points
+}
+
+fn build_visual_sampled_transfer_polyline(
+    orbit: &KeplerOrbit,
+    center_visual: Vec3,
+    _origin_body_pos: Vec3,
+    _origin_ring_r: f32,
+    _destination_body_pos: Vec3,
+    _dest_ring_r: f32,
+    _is_course_correction: bool,
+    _is_inward: bool,
+    start_mean_anomaly: f64,
+    total_ma_travel: f64,
+    segments: u32,
+) -> Vec<Vec3> {
+    sampled_transfer_orbit_points(
+        orbit,
+        center_visual,
+        start_mean_anomaly,
+        total_ma_travel,
+        0.0,
+        segments,
+    )
+}
+
+fn sample_polyline(points: &[Vec3], progress: f32) -> Vec3 {
+    if points.is_empty() {
+        return Vec3::ZERO;
+    }
+    if points.len() == 1 {
+        return points[0];
+    }
+
+    let scaled = progress.clamp(0.0, 1.0) * (points.len() - 1) as f32;
+    let index = scaled.floor() as usize;
+    let frac = scaled - index as f32;
+    if index + 1 >= points.len() {
+        points[points.len() - 1]
+    } else {
+        points[index].lerp(points[index + 1], frac)
+    }
+}
+
+fn draw_sampled_transfer_orbit(
+    gizmos: &mut Gizmos,
+    points: &[Vec3],
+    start_fraction: f32,
+    mut color_fn: impl FnMut(f32) -> Color,
+) {
+    if points.is_empty() {
+        return;
+    }
+
+    let start_fraction = start_fraction.clamp(0.0, 1.0);
+    let mut prev = Some(sampled_transfer_orbit_position(points, start_fraction));
+    let scaled = start_fraction * (points.len().saturating_sub(1)) as f32;
+    let start_index = scaled.floor() as usize + 1;
+
+    for (idx, pos) in points.iter().copied().enumerate().skip(start_index) {
+        let frac = if points.len() <= 1 {
+            1.0
+        } else {
+            idx as f32 / (points.len() - 1) as f32
+        };
+        if let Some(prev_pos) = prev {
+            gizmos.line(prev_pos, pos, color_fn(frac));
+        }
+        prev = Some(pos);
+    }
+}
+
+fn sampled_transfer_orbit_position(
+    points: &[Vec3],
+    progress: f32,
+) -> Vec3 {
+    sample_polyline(points, progress)
+}
+
 /// Compute the visual Bezier geometry for a transfer arc.
 ///
 /// # Parameters
@@ -473,6 +621,17 @@ fn compute_transfer_arc(
     let departure_angle = optimal_departure_angle(op, dp);
     let dir_dep = Vec3::new(departure_angle.cos(), departure_angle.sin(), 0.0);
 
+    // Detect "central-body" transfers where both bodies orbit a distant centre
+    // (e.g. heliocentric planet→planet, or moon→moon around a planet).
+    // For local transfers (planet→moon), the origin IS near the orbit centre,
+    // so origin_r ≈ 0 and the check fails — preserving the existing local logic.
+    let origin_r = (op - cv_ref).length();
+    let dest_r = (dp - cv_ref).length();
+    let chord = (dp - op).length().max(1e-3);
+    let is_central_body_xfer = !is_course_correction
+        && origin_r > chord * 0.15
+        && dest_r > chord * 0.15;
+
     // Rotate direction by 90° so the ring point is where prograde (outward) or
     // retrograde (inward) aims toward the destination — Hohmann departure.
     let dep_ring_dir = if is_inward {
@@ -482,18 +641,28 @@ fn compute_transfer_arc(
     };
     let p0 = op + dep_ring_dir * origin_ring_r;
 
-    // Prograde/retrograde at the rotated ring point now points along dir_dep.
-    let tang_orbit_raw = dir_dep;
     let direct_dir = (dp - p0).normalize_or_zero();
     let tang_origin = if is_course_correction {
         // Course corrections: fleet already moving, aim mostly at destination.
+        let tang_orbit_raw = dir_dep;
         (tang_orbit_raw * 0.10 + direct_dir * 0.90).normalize_or_zero()
+    } else if is_central_body_xfer {
+        // For orbits around a distant central body (star or planet), compute the
+        // true orbital prograde direction (perpendicular to the radial from the
+        // orbit centre to the body, CCW).  Hohmann transfers always depart in the
+        // prograde direction — the burn changes speed, not heading.
+        let origin_radial = (op - cv_ref).normalize_or_zero();
+        let prograde = Vec3::new(-origin_radial.y, origin_radial.x, 0.0);
+        // Blend: strongly orbital with a hint of direct for visual continuity.
+        (prograde * 0.85 + direct_dir * 0.15).normalize_or_zero()
     } else if is_inward {
         // Inward (retrograde departure): blend heavily toward direct path.
+        let tang_orbit_raw = dir_dep;
         (tang_orbit_raw * 0.20 + direct_dir * 0.80).normalize_or_zero()
     } else {
         // Outward (prograde departure): blend to avoid the 90° hook while
         // keeping the prograde orbital character of a Hohmann departure.
+        let tang_orbit_raw = dir_dep;
         (tang_orbit_raw * 0.55 + direct_dir * 0.45).normalize_or_zero()
     };
 
@@ -541,9 +710,36 @@ fn compute_transfer_arc(
         })
     };
 
-    let ctrl_len = (p3 - p0).length() * 0.40;
+    // For central-body transfers, override the arrival tangent with the orbital
+    // prograde direction at the destination.  Hohmann transfers always arrive in
+    // the prograde direction (tangent to the destination orbit), regardless of
+    // whether the transfer is outward or inward.
+    let tang_dest = if is_central_body_xfer {
+        let dest_radial = (dp - cv_ref).normalize_or_zero();
+        Vec3::new(-dest_radial.y, dest_radial.x, 0.0) // CCW prograde at destination
+    } else {
+        tang_dest
+    };
+
+    // Longer control arms for central-body transfers approximate the half-ellipse
+    // of a Hohmann orbit. The standard 0.40× chord is too short and produces
+    // nearly-straight arcs between distant planets.
+    let ctrl_len = if is_central_body_xfer {
+        (p3 - p0).length() * 0.72
+    } else {
+        (p3 - p0).length() * 0.40
+    };
     let mut p1 = p0 + tang_origin * ctrl_len;
     let mut p2 = p3 - tang_dest * ctrl_len;
+    if is_central_body_xfer {
+        let radius_sum = (origin_r + dest_r).max(1.0);
+        let eccentricity_hint = ((origin_r - dest_r).abs() / radius_sum).clamp(0.0, 1.0);
+        let focus_pull = (p3 - p0).length() * (0.10 + 0.20 * eccentricity_hint);
+        let focus_dir_1 = (cv_ref - p1).normalize_or_zero();
+        let focus_dir_2 = (cv_ref - p2).normalize_or_zero();
+        p1 += focus_dir_1 * focus_pull;
+        p2 += focus_dir_2 * focus_pull;
+    }
     // Smoothly interpolate z so the arc bridges the two orbital planes
     // even when the tangent vectors are 2D (z = 0).
     p1.z = p0.z + (p3.z - p0.z) * 0.33;
@@ -665,6 +861,25 @@ mod tests {
 
         assert!(final_segment.dot(inbound) > 0.7);
         assert!(final_segment.dot(radial).abs() < 0.8);
+    }
+
+    #[test]
+    fn central_body_inward_arc_bends_inside_linear_chord() {
+        let geo = compute_transfer_arc(
+            Vec3::new(12.0, 1.0, 0.0),
+            Vec3::new(-2.5, 4.0, 0.0),
+            0.6,
+            0.6,
+            false,
+            true,
+            false,
+            Vec3::ZERO,
+        );
+
+        let curve_mid = geo.eval(0.5);
+        let chord_mid = (geo.p0 + geo.p3) * 0.5;
+
+        assert!(curve_mid.distance(chord_mid) > 0.5);
     }
 }
 
@@ -813,6 +1028,7 @@ pub fn draw_fleet_trajectories(
     view_mode: Res<ViewMode>,
     sim_time: Res<SimulationTime>,
     real_time: Res<Time<Real>>,
+    time_scale: Res<TimeScale>,
 ) {
     let origin_offset = floating_origin
         .as_ref()
@@ -826,7 +1042,9 @@ pub fn draw_fleet_trajectories(
 
     const SEGMENTS: u32 = 64;
     let sim_elapsed = sim_time.elapsed_seconds();
-    let real_secs = real_time.elapsed_secs();
+    let real_secs = real_time.elapsed_secs() as f64;
+    let real_secs_f32 = real_time.elapsed_secs();
+    let sim_scale = time_scale.scale as f64;
 
     fleet_ui_state.waiting_orbit_count = 0;
 
@@ -894,6 +1112,8 @@ pub fn draw_fleet_trajectories(
                         maneuver.orbit_center,
                         sim_elapsed,
                         maneuver.departure_time,
+                        real_secs,
+                        sim_scale,
                         &body_query,
                         &kepler_query,
                         &amp_query,
@@ -905,6 +1125,8 @@ pub fn draw_fleet_trajectories(
                         maneuver.origin_body,
                         sim_elapsed,
                         maneuver.departure_time,
+                        real_secs,
+                        sim_scale,
                         &body_query,
                         &kepler_query,
                         &amp_query,
@@ -914,6 +1136,8 @@ pub fn draw_fleet_trajectories(
                         maneuver.orbit_center,
                         sim_elapsed,
                         maneuver.departure_time,
+                        real_secs,
+                        sim_scale,
                         &body_query,
                         &kepler_query,
                         &amp_query,
@@ -929,6 +1153,8 @@ pub fn draw_fleet_trajectories(
                     maneuver.destination_body,
                     sim_elapsed,
                     maneuver.arrival_time,
+                    real_secs,
+                    sim_scale,
                     &body_query,
                     &kepler_query,
                     &amp_query,
@@ -939,6 +1165,8 @@ pub fn draw_fleet_trajectories(
                     maneuver.orbit_center,
                     sim_elapsed,
                     maneuver.arrival_time,
+                    real_secs,
+                    sim_scale,
                     &body_query,
                     &kepler_query,
                     &amp_query,
@@ -1132,7 +1360,7 @@ pub fn draw_fleet_trajectories(
                 };
                 let remaining_span = (1.0_f32 - progress_t).max(1e-4_f32);
                 // Glow pulse travels from fleet toward target, one cycle per 4 real seconds.
-                let glow_pos = progress_t + (real_secs / 4.0_f32).fract() * remaining_span;
+                let glow_pos = progress_t + (real_secs_f32 / 4.0_f32).fract() * remaining_span;
                 let traj_color = |t: f32| -> Color {
                     let arc_frac = ((t - progress_t) / remaining_span).clamp(0.0, 1.0);
                     let base_a = 0.50 - 0.22 * arc_frac;
@@ -1228,6 +1456,8 @@ pub fn draw_fleet_trajectories(
                     maneuver.origin_body,
                     sim_elapsed,
                     maneuver.departure_time,
+                    real_secs,
+                    sim_scale,
                     &body_query,
                     &kepler_query,
                     &amp_query,
@@ -1246,6 +1476,8 @@ pub fn draw_fleet_trajectories(
                 maneuver.destination_body,
                 sim_elapsed,
                 maneuver.arrival_time,
+                real_secs,
+                sim_scale,
                 &body_query,
                 &kepler_query,
                 &amp_query,
@@ -1260,6 +1492,8 @@ pub fn draw_fleet_trajectories(
                     orbit_center_visual,
                     sim_elapsed,
                     maneuver.arrival_time,
+                    real_secs,
+                    sim_scale,
                     &body_query,
                     &kepler_query,
                     &amp_query,
@@ -1269,6 +1503,8 @@ pub fn draw_fleet_trajectories(
                     orbit_center_visual,
                     sim_elapsed,
                     maneuver.departure_time,
+                    real_secs,
+                    sim_scale,
                     &body_query,
                     &kepler_query,
                     &amp_query,
@@ -1289,6 +1525,8 @@ pub fn draw_fleet_trajectories(
                     flyby,
                     sim_elapsed,
                     maneuver.departure_time + maneuver.leg2_start_s,
+                        real_secs,
+                        sim_scale,
                     &body_query,
                     &kepler_query,
                     &amp_query,
@@ -1341,7 +1579,7 @@ pub fn draw_fleet_trajectories(
                     1.0_f32
                 };
                 let remaining_span = (1.0 - progress_t).max(1e-4_f32);
-                let glow_pos = progress_t + (real_secs / 4.0_f32).fract() * remaining_span;
+                let glow_pos = progress_t + (real_secs_f32 / 4.0_f32).fract() * remaining_span;
                 let traj_color = |t: f32| -> Color {
                     let arc_frac = ((t - progress_t) / remaining_span).clamp(0.0, 1.0);
                     let base_a = 0.50 - 0.22 * arc_frac;
@@ -1399,7 +1637,7 @@ pub fn draw_fleet_trajectories(
                     1.0_f32
                 };
                 let remaining_span = (1.0 - progress_t).max(1e-4_f32);
-                let glow_pos = progress_t + (real_secs / 4.0_f32).fract() * remaining_span;
+                let glow_pos = progress_t + (real_secs_f32 / 4.0_f32).fract() * remaining_span;
                 let traj_color = |t: f32| -> Color {
                     let arc_frac = ((t - progress_t) / remaining_span).clamp(0.0, 1.0);
                     let base_a = 0.50 - 0.22 * arc_frac;
@@ -1450,6 +1688,64 @@ pub fn draw_fleet_trajectories(
                 continue;
             }
 
+            if !is_inter_star && !maneuver.is_kinematic() {
+                let progress_t = if maneuver.arrival_time > maneuver.departure_time {
+                    ((sim_elapsed - maneuver.departure_time)
+                        / (maneuver.arrival_time - maneuver.departure_time))
+                        .clamp(0.0, 1.0) as f32
+                } else {
+                    1.0_f32
+                };
+                let remaining_span = (1.0 - progress_t).max(1e-4_f32);
+                let glow_pos = progress_t + (real_secs_f32 / 4.0_f32).fract() * remaining_span;
+                let traj_color = |t: f32| -> Color {
+                    let arc_frac = ((t - progress_t) / remaining_span).clamp(0.0, 1.0);
+                    let base_a = 0.50 - 0.22 * arc_frac;
+                    let dist = (t - glow_pos).abs();
+                    let glow = (1.0 - (dist / 0.09_f32).min(1.0)).powi(2);
+                    Color::linear_rgba(
+                        0.55 + glow * 1.15,
+                        0.08 + glow * 0.50,
+                        0.85 + glow * 1.05,
+                        (base_a + glow * 0.45).min(1.0),
+                    )
+                };
+
+                let is_inward = if is_course_correction {
+                    op.length_squared() > dp.length_squared()
+                } else if origin_lp == Some(maneuver.destination_body) {
+                    true
+                } else if dest_lp == Some(maneuver.origin_body) {
+                    false
+                } else {
+                    op.length_squared() > dp.length_squared()
+                };
+
+                let center_visual = body_query
+                    .get(maneuver.orbit_center)
+                    .map(|(t, _, _)| t.translation)
+                    .unwrap_or(Vec3::ZERO);
+
+                let visual_points = build_visual_sampled_transfer_polyline(
+                    &maneuver.transfer_orbit,
+                    center_visual,
+                    op,
+                    actual_origin_ring_r,
+                    dp,
+                    dest_ring_r,
+                    is_course_correction,
+                    is_inward,
+                    maneuver.transfer_orbit.mean_anomaly_epoch,
+                    maneuver.transfer_orbit.mean_motion
+                        * (maneuver.arrival_time - maneuver.departure_time),
+                    128,
+                );
+                draw_sampled_transfer_orbit(&mut gizmos, &visual_points, progress_t, traj_color);
+
+                draw_ghost_body(&mut gizmos, dp, dest_ring_r, dest_visual_r, false);
+                continue;
+            }
+
             // ── Inward / outward ─────────────────────────────────────────────
             let is_inward = if is_course_correction {
                 op.length_squared() > dp.length_squared()
@@ -1486,7 +1782,7 @@ pub fn draw_fleet_trajectories(
                 1.0_f32
             };
             let remaining_span = (1.0 - progress_t).max(1e-4_f32);
-            let glow_pos = progress_t + (real_secs / 4.0_f32).fract() * remaining_span;
+            let glow_pos = progress_t + (real_secs_f32 / 4.0_f32).fract() * remaining_span;
             let traj_color = |t: f32| -> Color {
                 let arc_frac = ((t - progress_t) / remaining_span).clamp(0.0, 1.0);
                 let base_a = 0.50 - 0.22 * arc_frac;
@@ -1533,7 +1829,7 @@ pub fn draw_fleet_trajectories(
             1.0_f32
         };
         let remaining_span = (1.0_f32 - progress_t).max(1e-4_f32);
-        let glow_pos = progress_t + (real_secs / 4.0_f32).fract() * remaining_span;
+        let glow_pos = progress_t + (real_secs_f32 / 4.0_f32).fract() * remaining_span;
         let traj_color = |t: f32| -> Color {
             let arc_frac = ((t - progress_t) / remaining_span).clamp(0.0, 1.0);
             let base_a = 0.50 - 0.22 * arc_frac;
@@ -1879,6 +2175,8 @@ pub fn update_fleet_transforms(
     floating_origin: Option<Res<FloatingOrigin>>,
     view_mode: Res<ViewMode>,
     sim_time: Res<SimulationTime>,
+    real_time: Res<Time<Real>>,
+    time_scale: Res<TimeScale>,
     fleet_ui_state: Res<FleetUiState>,
 ) {
     let origin_offset = floating_origin
@@ -1886,6 +2184,8 @@ pub fn update_fleet_transforms(
         .map(|fo| fo.position)
         .unwrap_or(DVec3::ZERO);
     let elapsed = sim_time.elapsed_seconds();
+    let real_secs = real_time.elapsed_secs() as f64;
+    let sim_scale = time_scale.scale as f64;
     let selected = fleet_ui_state.selected_fleet;
 
     for (entity, sc, mut transform, mut vis, maybe_orbit, maybe_maneuver) in fleet_query.iter_mut()
@@ -1965,6 +2265,8 @@ pub fn update_fleet_transforms(
                             maneuver.orbit_center,
                             elapsed,
                             maneuver.departure_time,
+                            real_secs,
+                            sim_scale,
                             &body_query,
                             &kepler_query,
                             &amp_query,
@@ -1976,6 +2278,8 @@ pub fn update_fleet_transforms(
                             maneuver.origin_body,
                             elapsed,
                             maneuver.departure_time,
+                            real_secs,
+                            sim_scale,
                             &body_query,
                             &kepler_query,
                             &amp_query,
@@ -1985,6 +2289,8 @@ pub fn update_fleet_transforms(
                             maneuver.orbit_center,
                             elapsed,
                             maneuver.departure_time,
+                            real_secs,
+                            sim_scale,
                             &body_query,
                             &kepler_query,
                             &amp_query,
@@ -1997,6 +2303,8 @@ pub fn update_fleet_transforms(
                         maneuver.destination_body,
                         elapsed,
                         maneuver.arrival_time,
+                        real_secs,
+                        sim_scale,
                         &body_query,
                         &kepler_query,
                         &amp_query,
@@ -2007,6 +2315,8 @@ pub fn update_fleet_transforms(
                         maneuver.orbit_center,
                         elapsed,
                         maneuver.arrival_time,
+                        real_secs,
+                        sim_scale,
                         &body_query,
                         &kepler_query,
                         &amp_query,
@@ -2091,21 +2401,15 @@ pub fn update_fleet_transforms(
                 } else {
                     origin_ring_r
                 };
-                let op = if maneuver.reference_frame.is_barycentric() && maneuver.is_kinematic() {
-                    maneuver
-                        .start_position_au
-                        .map(|pos| {
-                            let render_du = (pos - origin_offset) * SCALING_FACTOR;
-                            Vec3::new(render_du.x as f32, render_du.y as f32, render_du.z as f32)
-                        })
-                        .unwrap_or(origin_now)
-                } else if let Some(start_pos) = maneuver.start_visual_pos {
+                let op = if let Some(start_pos) = maneuver.start_visual_pos {
                     start_pos
                 } else {
                     predict_body_visual_pos(
                         maneuver.origin_body,
                         elapsed,
                         maneuver.departure_time,
+                        real_secs,
+                        sim_scale,
                         &body_query,
                         &kepler_query,
                         &amp_query,
@@ -2117,33 +2421,26 @@ pub fn update_fleet_transforms(
                     .get(maneuver.destination_body)
                     .map(|(t, _, _)| t.translation)
                     .unwrap_or(Vec3::ZERO);
-                let dp_absolute = if maneuver.reference_frame.is_barycentric()
-                    && maneuver.is_kinematic()
-                {
-                    maneuver
-                        .end_position_au
-                        .map(|pos| {
-                            let render_du = (pos - origin_offset) * SCALING_FACTOR;
-                            Vec3::new(render_du.x as f32, render_du.y as f32, render_du.z as f32)
-                        })
-                        .unwrap_or(dest_now)
-                } else {
-                    predict_body_visual_pos(
+                let dp_absolute = predict_body_visual_pos(
                         maneuver.destination_body,
                         elapsed,
                         maneuver.arrival_time,
+                    real_secs,
+                    sim_scale,
                         &body_query,
                         &kepler_query,
                         &amp_query,
                     )
-                    .unwrap_or(dest_now)
-                };
+                    .unwrap_or(dest_now);
 
                 let orbit_center_visual = maneuver.orbit_center;
+                let is_inter_star = maneuver.reference_frame.is_barycentric();
                 let cv_predicted = predict_body_visual_pos(
                     orbit_center_visual,
                     elapsed,
                     maneuver.arrival_time,
+                    real_secs,
+                    sim_scale,
                     &body_query,
                     &kepler_query,
                     &amp_query,
@@ -2153,18 +2450,29 @@ pub fn update_fleet_transforms(
                     orbit_center_visual,
                     elapsed,
                     maneuver.departure_time,
+                    real_secs,
+                    sim_scale,
                     &body_query,
                     &kepler_query,
                     &amp_query,
                 )
                 .unwrap_or(cv_predicted);
-                let dp = dp_absolute - cv_predicted + cv_at_departure;
+                // For inter-star transfers, skip the orbit-centre drift correction —
+                // dp_absolute is already in the correct visual frame, matching
+                // draw_fleet_trajectories which also uses dp_absolute directly.
+                let dp = if is_inter_star {
+                    dp_absolute
+                } else {
+                    dp_absolute - cv_predicted + cv_at_departure
+                };
 
                 if let (Some(flyby), Some(_)) = (maneuver.flyby_body, maneuver.leg2_orbit.as_ref()) {
                     let fp_absolute = predict_body_visual_pos(
                         flyby,
                         elapsed,
                         maneuver.departure_time + maneuver.leg2_start_s,
+                        real_secs,
+                        sim_scale,
                         &body_query,
                         &kepler_query,
                         &amp_query,
@@ -2225,6 +2533,49 @@ pub fn update_fleet_transforms(
                         render_du.x as f32,
                         render_du.y as f32,
                         render_du.z as f32,
+                    );
+
+                    let inside_origin = transform.translation.distance(op) < origin_ring_r;
+                    let inside_dest = transform.translation.distance(dp) < dest_ring_r;
+                    if inside_origin || inside_dest {
+                        *vis = Visibility::Hidden;
+                    }
+                    continue;
+                }
+
+                if !is_inter_star && !maneuver.is_kinematic() {
+                    let is_inward = if is_course_correction {
+                        op.length_squared() > dp.length_squared()
+                    } else if origin_lp == Some(maneuver.destination_body) {
+                        true
+                    } else if dest_lp_entity == Some(maneuver.origin_body) {
+                        false
+                    } else {
+                        op.length_squared() > dp.length_squared()
+                    };
+
+                    let center_visual = body_query
+                        .get(maneuver.orbit_center)
+                        .map(|(t, _, _)| t.translation)
+                        .unwrap_or(Vec3::ZERO);
+
+                    let visual_points = build_visual_sampled_transfer_polyline(
+                        &maneuver.transfer_orbit,
+                        center_visual,
+                        op,
+                        actual_origin_ring_r,
+                        dp,
+                        dest_ring_r,
+                        is_course_correction,
+                        is_inward,
+                        maneuver.transfer_orbit.mean_anomaly_epoch,
+                        maneuver.transfer_orbit.mean_motion
+                            * (maneuver.arrival_time - maneuver.departure_time),
+                        128,
+                    );
+                    transform.translation = sampled_transfer_orbit_position(
+                        &visual_points,
+                        maneuver.progress(elapsed) as f32,
                     );
 
                     let inside_origin = transform.translation.distance(op) < origin_ring_r;
@@ -2416,6 +2767,8 @@ pub fn draw_fleet_transfer_preview(
     fleet_ui_state: Res<FleetUiState>,
     view_mode: Res<ViewMode>,
     sim_time: Res<SimulationTime>,
+    real_time: Res<Time<Real>>,
+    time_scale: Res<TimeScale>,
 ) {
     if *view_mode != ViewMode::System {
         return;
@@ -2444,6 +2797,8 @@ pub fn draw_fleet_transfer_preview(
         .map(|fo| fo.position)
         .unwrap_or(DVec3::ZERO);
     let elapsed = sim_time.elapsed_seconds();
+    let real_secs = real_time.elapsed_secs() as f64;
+    let sim_scale = time_scale.scale as f64;
 
     let current_sim_s = elapsed;
     let departure_offset_s = fleet_ui_state.departure_offset_days * 86_400.0;
@@ -2485,6 +2840,8 @@ pub fn draw_fleet_transfer_preview(
                 origin_body,
                 current_sim_s,
                 departure_s,
+                real_secs,
+                sim_scale,
                 &body_query,
                 &kepler_query,
                 &amp_query,
@@ -2519,6 +2876,8 @@ pub fn draw_fleet_transfer_preview(
                 lp.planet_entity,
                 current_sim_s,
                 departure_s + travel_time_s,
+                real_secs,
+                sim_scale,
                 &body_query,
                 &kepler_query,
                 &amp_query,
@@ -2607,6 +2966,8 @@ pub fn draw_fleet_transfer_preview(
                 origin_body,
                 current_sim_s,
                 departure_s,
+                real_secs,
+                sim_scale,
                 &body_query,
                 &kepler_query,
                 &amp_query,
@@ -2722,6 +3083,8 @@ pub fn draw_fleet_transfer_preview(
             origin_body,
             current_sim_s,
             departure_s,
+            real_secs,
+            sim_scale,
             &body_query,
             &kepler_query,
             &amp_query,
@@ -2737,12 +3100,31 @@ pub fn draw_fleet_transfer_preview(
     let dest_visual_r = dest_body_data.visual_radius;
     let dest_ring_r = fleet_parking_visual_radius(dest_visual_r);
 
+    let planned_transfer = fleet_ui_state.planned_transfer.as_ref();
+    let same_star_sampled_preview = matches!(
+        planned_transfer,
+        Some(pt)
+            if !pt.reference_frame.is_barycentric()
+                && !pt.option_label.contains("Direct")
+                && pt.flyby_body.is_none()
+                && matches!(
+                    body_query.get(pt.orbit_center),
+                    Ok((_, body, _)) if body.body_type == BodyType::Star
+                )
+    );
+
     // Travel time from selected transfer option (or 0 = show arc to current position).
-    // Uses `stable_preview_travel_time` which strips frame-varying phase corrections
-    // from Moderate/Fast options.  Without this, fast-orbiting moons (e.g. Amalthea)
-    // cause the ghost body to visually spin faster than the actual body because
-    // `d(travel_time)/dt ≠ 0` adds to the orbital angular rate.
-    let travel_time_s = stable_preview_travel_time(&fleet_ui_state);
+    // Most previews use `stable_preview_travel_time` to strip frame-varying phase
+    // corrections from Moderate/Fast options. For sampled same-star ballistic previews,
+    // however, the arc is drawn from the selected planned transfer orbit, so the ghost
+    // marker must use that exact arrival epoch to stay aligned with the arc endpoint.
+    let travel_time_s = if same_star_sampled_preview {
+        planned_transfer
+            .map(|transfer| transfer.duration_s)
+            .unwrap_or_else(|| stable_preview_travel_time(&fleet_ui_state))
+    } else {
+        stable_preview_travel_time(&fleet_ui_state)
+    };
     if !travel_time_s.is_finite() {
         return;
     }
@@ -2753,6 +3135,8 @@ pub fn draw_fleet_transfer_preview(
         target_entity,
         current_sim_s,
         departure_s + travel_time_s,
+        real_secs,
+        sim_scale,
         &body_query,
         &kepler_query,
         &amp_query,
@@ -2764,6 +3148,8 @@ pub fn draw_fleet_transfer_preview(
             orbit_center,
             current_sim_s,
             departure_s + travel_time_s,
+            real_secs,
+            sim_scale,
             &body_query,
             &kepler_query,
             &amp_query,
@@ -2774,6 +3160,8 @@ pub fn draw_fleet_transfer_preview(
             orbit_center,
             current_sim_s,
             departure_s,
+            real_secs,
+            sim_scale,
             &body_query,
             &kepler_query,
             &amp_query,
@@ -2839,6 +3227,50 @@ pub fn draw_fleet_transfer_preview(
         }
     }
 
+    let preview_center_is_star = matches!(
+        planned_transfer,
+        Some(pt)
+            if !pt.reference_frame.is_barycentric()
+                && !matches!(
+                    body_query.get(pt.orbit_center),
+                    Ok((_, body, _)) if body.body_type != BodyType::Star
+                )
+                && !pt.option_label.contains("Direct")
+                && pt.flyby_body.is_none()
+    );
+
+    if preview_center_is_star {
+        if let Some(pt) = planned_transfer {
+            let center_visual = body_query
+                .get(pt.orbit_center)
+                .map(|(t, _, _)| t.translation)
+                .unwrap_or(Vec3::ZERO);
+            let total_ma_travel = pt.transfer_orbit.mean_motion * pt.duration_s;
+            let is_inward = op.length_squared() > dp.length_squared();
+            let visual_points = build_visual_sampled_transfer_polyline(
+                &pt.transfer_orbit,
+                center_visual,
+                op,
+                origin_ring_r,
+                dp,
+                dest_ring_r,
+                is_course_correction,
+                is_inward,
+                pt.transfer_orbit.mean_anomaly_epoch,
+                total_ma_travel,
+                160,
+            );
+            draw_sampled_transfer_orbit(
+                &mut gizmos,
+                &visual_points,
+                0.0,
+                |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+            );
+            draw_ghost_body(&mut gizmos, dp, dest_ring_r, dest_visual_r, false);
+            return;
+        }
+    }
+
     // Shared geometry — identical curve to transit gizmo and fleet dot.
     let geo = if reference_frame.is_barycentric() && is_kinematic {
         compute_direct_transfer_arc(op, dp, origin_ring_r, dest_ring_r)
@@ -2890,6 +3322,8 @@ pub fn draw_gravity_assist_preview(
     fleet_ui_state: Res<FleetUiState>,
     view_mode: Res<ViewMode>,
     sim_time: Res<SimulationTime>,
+    real_time: Res<Time<Real>>,
+    time_scale: Res<TimeScale>,
 ) {
     if *view_mode != ViewMode::System {
         return;
@@ -2934,6 +3368,8 @@ pub fn draw_gravity_assist_preview(
     }
 
     let current_sim_s = sim_time.elapsed_seconds();
+    let real_secs = real_time.elapsed_secs() as f64;
+    let sim_scale = time_scale.scale as f64;
     let depart_s = current_sim_s + departure_offset_s;
 
     let Ok((origin_t, origin_bd, _)) = body_query.get(origin_body) else {
@@ -2952,6 +3388,8 @@ pub fn draw_gravity_assist_preview(
         origin_body,
         current_sim_s,
         depart_s,
+        real_secs,
+        sim_scale,
         &body_query,
         &kepler_query,
         &amp_query,
@@ -2965,6 +3403,8 @@ pub fn draw_gravity_assist_preview(
         flyby_entity,
         current_sim_s,
         depart_s + leg1_time,
+        real_secs,
+        sim_scale,
         &body_query,
         &kepler_query,
         &amp_query,
@@ -2981,6 +3421,8 @@ pub fn draw_gravity_assist_preview(
         target_entity,
         current_sim_s,
         depart_s + total_time,
+        real_secs,
+        sim_scale,
         &body_query,
         &kepler_query,
         &amp_query,

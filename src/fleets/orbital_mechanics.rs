@@ -713,7 +713,7 @@ fn orbit_from_state_vectors(r_au: DVec3, v_ms: DVec3, gm: f64) -> Option<KeplerO
     })
 }
 
-fn solve_lambert_transfer(
+pub(crate) fn solve_lambert_transfer(
     origin_pos_au: DVec3,
     dest_pos_au: DVec3,
     transfer_time_s: f64,
