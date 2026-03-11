@@ -1280,6 +1280,8 @@ pub(super) fn render_transfer_planner(
                 .map(|lp| lp.0);
             let is_inter_star_body_transfer =
                 is_inter_star_transfer(orbit.body, target_entity, body_query);
+            let inter_star_departure_time_s =
+                elapsed + fleet_ui_state.departure_offset_days.max(0.0) * 86_400.0;
             let planner_frame = resolve_planner_transfer_frame(
                 orbit.body,
                 target_entity,
@@ -1293,9 +1295,17 @@ pub(super) fn render_transfer_planner(
             const SOLAR_APPROACH_AU: f64 = 0.3;
 
             let (r1, r2, gm) = if is_inter_star_body_transfer {
-                let origin_pos = transfer_absolute_position(orbit.body, elapsed, body_query)
+                let origin_pos = transfer_absolute_position(
+                    orbit.body,
+                    inter_star_departure_time_s,
+                    body_query,
+                )
                     .unwrap_or(bevy::math::DVec3::ZERO);
-                let dest_pos = transfer_absolute_position(target_entity, elapsed, body_query)
+                let dest_pos = transfer_absolute_position(
+                    target_entity,
+                    inter_star_departure_time_s,
+                    body_query,
+                )
                     .unwrap_or(bevy::math::DVec3::ZERO);
                 let r1_bary = origin_pos.length().max(MIN_ORBITAL_RADIUS_AU);
                 let r2_bary = dest_pos.length().max(MIN_ORBITAL_RADIUS_AU);
@@ -1594,13 +1604,29 @@ pub(super) fn render_transfer_planner(
                 if fleet_ui_state.departure_offset_days < 0.0 {
                     fleet_ui_state.departure_offset_days = 0.0;
                 }
-                let origin_pos = transfer_absolute_position(orbit.body, elapsed, body_query)
+                let origin_pos = transfer_absolute_position(
+                    orbit.body,
+                    inter_star_departure_time_s,
+                    body_query,
+                )
                     .unwrap_or(bevy::math::DVec3::ZERO);
-                let dest_pos = transfer_absolute_position(target_entity, elapsed, body_query)
+                let dest_pos = transfer_absolute_position(
+                    target_entity,
+                    inter_star_departure_time_s,
+                    body_query,
+                )
                     .unwrap_or(bevy::math::DVec3::ZERO);
-                let origin_velocity = transfer_absolute_velocity(orbit.body, elapsed, body_query)
+                let origin_velocity = transfer_absolute_velocity(
+                    orbit.body,
+                    inter_star_departure_time_s,
+                    body_query,
+                )
                     .unwrap_or(bevy::math::DVec3::ZERO);
-                let dest_velocity = transfer_absolute_velocity(target_entity, elapsed, body_query)
+                let dest_velocity = transfer_absolute_velocity(
+                    target_entity,
+                    inter_star_departure_time_s,
+                    body_query,
+                )
                     .unwrap_or(bevy::math::DVec3::ZERO);
                 let separation_m = (dest_pos - origin_pos).length()
                     * crate::fleets::orbital_mechanics::AU_IN_METERS;
@@ -1608,9 +1634,17 @@ pub(super) fn render_transfer_planner(
                     .unwrap_or((orbit.body, 0.0));
                 let (dest_host_star, dest_host_mass) = find_host_star(target_entity, body_query)
                     .unwrap_or((target_entity, 0.0));
-                let origin_host_pos = transfer_absolute_position(origin_host_star, elapsed, body_query)
+                let origin_host_pos = transfer_absolute_position(
+                    origin_host_star,
+                    inter_star_departure_time_s,
+                    body_query,
+                )
                     .unwrap_or(bevy::math::DVec3::ZERO);
-                let dest_host_pos = transfer_absolute_position(dest_host_star, elapsed, body_query)
+                let dest_host_pos = transfer_absolute_position(
+                    dest_host_star,
+                    inter_star_departure_time_s,
+                    body_query,
+                )
                     .unwrap_or(bevy::math::DVec3::ZERO);
                 let origin_host_radius_au = (origin_pos - origin_host_pos)
                     .length()
