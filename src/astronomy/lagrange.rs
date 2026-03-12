@@ -15,6 +15,42 @@ use crate::plugins::solar_system::{CelestialBody, LogicalParent, Moon};
 /// Approximate solar mass (kg) used for Hill-sphere and L-point calculations.
 const SOLAR_MASS_KG: f64 = 1.989e30;
 
+fn absolute_star_planet_lp_positions(
+    host_star_pos: DVec3,
+    planet_pos: DVec3,
+    orbital_radius_au: f64,
+    hill_radius_au: f64,
+) -> Option<[DVec3; 5]> {
+    let rel = planet_pos - host_star_pos;
+    let rel_mag = rel.length();
+    if rel_mag < 1e-10 {
+        return None;
+    }
+
+    let rel_dir = rel / rel_mag;
+    let cos60 = (std::f64::consts::PI / 3.0).cos();
+    let sin60 = (std::f64::consts::PI / 3.0).sin();
+    let (px, py, pz) = (rel_dir.x, rel_dir.y, rel_dir.z);
+
+    Some([
+        host_star_pos + rel_dir * (orbital_radius_au - hill_radius_au),
+        host_star_pos + rel_dir * (orbital_radius_au + hill_radius_au),
+        host_star_pos - rel_dir * orbital_radius_au,
+        host_star_pos
+            + DVec3::new(
+                orbital_radius_au * (px * cos60 - py * sin60),
+                orbital_radius_au * (px * sin60 + py * cos60),
+                pz * orbital_radius_au,
+            ),
+        host_star_pos
+            + DVec3::new(
+                orbital_radius_au * (px * cos60 + py * sin60),
+                orbital_radius_au * (-px * sin60 + py * cos60),
+                pz * orbital_radius_au,
+            ),
+    ])
+}
+
 /// Draws blue Lagrange-point orbit rings and point markers for the currently
 /// **anchored** body. If no anchor exists, falls back to the selected body.
 ///
@@ -125,57 +161,27 @@ pub fn draw_lagrange_point_rings(
         let a_au = ko.semi_major_axis;
         let m_planet = anchored_body.mass;
 
-        // Resolve the host star's mass from the planet's LogicalParent.
-        // This correctly handles non-Sol systems (different stellar masses) as well
-        // as secondary stars in binary/trinary systems that have their own planets.
-        // Falls back to SOLAR_MASS_KG if the parent cannot be found.
-        let host_star_mass = anchored_parent
+        let (host_star_pos, host_star_mass) = anchored_parent
             .and_then(|lp| body_query.get(lp.0).ok())
-            .map(|(b, _, _, _, _, _, _, _)| b.mass)
-            .unwrap_or(SOLAR_MASS_KG);
+            .map(|(b, sc, _, _, _, _, _, _)| (sc.position, b.mass))
+            .unwrap_or((DVec3::ZERO, SOLAR_MASS_KG));
 
         let r_hill = a_au * (m_planet / (3.0 * host_star_mass)).powf(1.0 / 3.0);
         // Host star GM used for LP transfer option metadata.
         let host_star_gm = ORBIT_G * host_star_mass;
 
-        // Compute LP positions using the full 3D planet direction so that LP
-        // markers sit at the correct z-height for inclined orbits (fixes
-        // markers appearing to "float" above/below the planet in perspective).
         let p3d = anchored_sc.position;
-        let p_mag = p3d.length();
-        if p_mag < 1e-10 {
+        let Some(lp_positions) = absolute_star_planet_lp_positions(host_star_pos, p3d, a_au, r_hill)
+        else {
             return;
-        }
-        let p_dir = p3d / p_mag; // unit vector from star toward planet
-
-        // L4/L5: rotate p_dir by ±60° around the Z axis (ecliptic normal is a
-        // valid approximation for bodies with small orbital inclinations; their
-        // z-component is preserved by scaling p_dir, giving the correct z).
-        let cos60 = (std::f64::consts::PI / 3.0).cos(); // 0.5
-        let sin60 = (std::f64::consts::PI / 3.0).sin(); // ≈ 0.866
-        let (px, py, pz) = (p_dir.x, p_dir.y, p_dir.z);
-
-        let lp_positions: [DVec3; 5] = [
-            p_dir * (a_au - r_hill), // L1: inner
-            p_dir * (a_au + r_hill), // L2: outer
-            -p_dir * a_au,           // L3: opposition
-            DVec3::new(
-                a_au * (px * cos60 - py * sin60), // L4: leading +60°
-                a_au * (px * sin60 + py * cos60),
-                pz * a_au,
-            ),
-            DVec3::new(
-                a_au * (px * cos60 + py * sin60), // L5: trailing −60°
-                a_au * (-px * sin60 + py * cos60),
-                pz * a_au,
-            ),
-        ];
+        };
         let lp_radii: [f64; 5] = [a_au - r_hill, a_au + r_hill, a_au, a_au, a_au];
 
         // Minimum render-space distance from the planet's visual centre so that
         // LP markers (especially L1 on inner planets) don't appear inside the
         // enlarged visual sphere.
         let planet_render = to_render(p3d);
+        let host_render = to_render(host_star_pos);
         let min_lp_dist = anchored_body.visual_radius * 1.6;
         let dot_half = (r_hill * SCALING_FACTOR as f64 * 0.10).clamp(5.0, 30.0) as f32;
         // Minimum 3D gap between L1 and L2.  Without this, both markers lie on
@@ -184,11 +190,12 @@ pub fn draw_lagrange_point_rings(
         // ecliptic).
         let min_l1l2_sep = (min_lp_dist * 2.0).max(dot_half * 8.0);
 
-        // Planet-star axis in render space (direction from star toward planet).
-        // Used as the authoritative push direction for L1/L2 to avoid the
-        // precision loss that occurs when normalising a near-zero `from_planet`
-        // vector (r_hill can be tiny in render units for inner planets).
-        let p_dir_render = planet_render.normalize_or_zero();
+        // Planet-star axis in render space (direction from host star toward planet).
+        // This must be host-relative, not absolute, otherwise planets orbiting a
+        // companion star in a binary system will wobble as the host star moves
+        // around the barycenter. It also keeps the axis valid when the floating
+        // origin is anchored to the planet and `planet_render` is near zero.
+        let p_dir_render = (planet_render - host_render).normalize_or_zero();
 
         // ── Pass 1: clamp each LP outside the visual sphere ──────────────────
         let clamp_one = |pos_au: DVec3| -> Vec3 {
@@ -380,6 +387,38 @@ pub fn draw_lagrange_point_rings(
                 gm: planet_gm,
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::absolute_star_planet_lp_positions;
+    use bevy::math::DVec3;
+
+    #[test]
+    fn star_planet_lp_positions_are_host_relative() {
+        let host_star_pos = DVec3::new(12.0, 4.0, 0.0);
+        let planet_pos = DVec3::new(12.0, 5.0, 0.0);
+
+        let positions = absolute_star_planet_lp_positions(host_star_pos, planet_pos, 1.0, 0.1)
+            .expect("planet offset from host star should produce LP positions");
+
+        assert!((positions[0] - DVec3::new(12.0, 4.9, 0.0)).length() < 1e-10);
+        assert!((positions[1] - DVec3::new(12.0, 5.1, 0.0)).length() < 1e-10);
+        assert!((positions[2] - DVec3::new(12.0, 3.0, 0.0)).length() < 1e-10);
+    }
+
+    #[test]
+    fn star_planet_lp_positions_preserve_binary_star_offset() {
+        let host_star_pos = DVec3::new(20.0, -3.0, 0.0);
+        let planet_pos = DVec3::new(21.0, -3.0, 0.0);
+
+        let positions = absolute_star_planet_lp_positions(host_star_pos, planet_pos, 1.0, 0.2)
+            .expect("binary companion planet should produce LP positions");
+
+        assert!((positions[0] - DVec3::new(20.8, -3.0, 0.0)).length() < 1e-10);
+        assert!((positions[1] - DVec3::new(21.2, -3.0, 0.0)).length() < 1e-10);
+        assert!((positions[2] - DVec3::new(19.0, -3.0, 0.0)).length() < 1e-10);
     }
 }
 

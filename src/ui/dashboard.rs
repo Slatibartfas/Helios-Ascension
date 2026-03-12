@@ -1,4 +1,5 @@
 use super::*;
+use crate::astronomy::components::FloatingOrigin;
 use crate::plugins::solar_system_data::AsteroidClass;
 use std::cell::RefCell;
 
@@ -75,6 +76,38 @@ fn render_group_header(
     );
 
     response
+}
+
+fn focus_remote_fleet_system(
+    target_system_id: usize,
+    navigation: &mut ParamSet<(ResMut<CurrentStarSystem>, ResMut<FloatingOrigin>)>,
+    star_system_query: &Query<(Entity, &StarSystemIcon, Option<&SelectedStarSystem>)>,
+    orbit_query: &mut Query<&mut OrbitCamera, With<GameCamera>>,
+    commands: &mut Commands,
+) {
+    if target_system_id == navigation.p0().0 {
+        return;
+    }
+
+    let Some((_, icon, _)) = star_system_query
+        .iter()
+        .find(|(_, icon, _)| icon.id == target_system_id)
+    else {
+        return;
+    };
+
+    navigation.p0().0 = target_system_id;
+    navigation.p1().position = icon.position;
+
+    for (entity, _, selected) in star_system_query.iter() {
+        if selected.is_some() {
+            commands.entity(entity).remove::<SelectedStarSystem>();
+        }
+    }
+
+    if let Ok(mut orbit_camera) = orbit_query.single_mut() {
+        orbit_camera.pan_offset = Vec3::ZERO;
+    }
 }
 
 /// Returns a Unicode icon for each body type to distinguish entries in the ledger
@@ -464,13 +497,16 @@ fn render_body_tree(
 fn render_fleet_ledger_tree(
     ui: &mut egui::Ui,
     fleet_query: &Query<(Entity, &Fleet, Option<&FleetOrbit>, Option<&ActiveManeuver>)>,
-    body_map: &std::collections::HashMap<Entity, &CelestialBody>,
+    body_lookup: &std::collections::HashMap<Entity, (&CelestialBody, usize)>,
     fleet_ui_state: &mut FleetUiState,
     selected_query: &Query<Entity, With<Selected>>,
     commands: &mut Commands,
     selection: &mut Selection,
     elapsed: f64,
     anchor_query: &mut Query<&mut CameraAnchor, With<GameCamera>>,
+    orbit_query: &mut Query<&mut OrbitCamera, With<GameCamera>>,
+    navigation: &mut ParamSet<(ResMut<CurrentStarSystem>, ResMut<FloatingOrigin>)>,
+    star_system_query: &Query<(Entity, &StarSystemIcon, Option<&SelectedStarSystem>)>,
     sim_time: &SimulationTime,
 ) {
     let mut fleets: Vec<(Entity, &Fleet, Option<&FleetOrbit>, Option<&ActiveManeuver>)> =
@@ -513,10 +549,10 @@ fn render_fleet_ledger_tree(
                 "↗ In transit".to_string()
             }
         } else if let Some(orbit) = maybe_orbit {
-            let body = body_map.get(&orbit.body);
-            let body_name = body.map(|b| b.name.as_str()).unwrap_or("?");
+            let body = body_lookup.get(&orbit.body).copied();
+            let body_name = body.map(|(b, _)| b.name.as_str()).unwrap_or("?");
             // Show a distinct label for heliocentric Lagrange-point orbits.
-            if body.map(|b| b.body_type) == Some(BodyType::Star) {
+            if body.map(|(b, _)| b.body_type) == Some(BodyType::Star) {
                 format!("✦ Lagrange Orbit ({body_name})")
             } else {
                 format!("⊙ Orbiting {body_name}")
@@ -628,11 +664,34 @@ fn render_fleet_ledger_tree(
                 fleet_ui_state.selected_fleet = Some(entity);
                 fleet_ui_state.clear_target();
 
-                if let Ok(mut anchor) = anchor_query.single_mut() {
-                    if let Some(orbit) = maybe_orbit {
-                        anchor.0 = Some(orbit.body);
-                    } else if maybe_maneuver.is_some() {
-                        anchor.0 = Some(entity);
+                let target = if let Some(orbit) = maybe_orbit {
+                    body_lookup
+                        .get(&orbit.body)
+                        .map(|(_, system_id)| (orbit.body, *system_id))
+                } else if let Some(maneuver) = maybe_maneuver {
+                    let focus_body = if elapsed < maneuver.departure_time {
+                        maneuver.origin_body
+                    } else {
+                        maneuver.destination_body
+                    };
+                    body_lookup
+                        .get(&focus_body)
+                        .map(|(_, system_id)| (entity, *system_id))
+                } else {
+                    None
+                };
+
+                if let Some((anchor_target, target_system_id)) = target {
+                    focus_remote_fleet_system(
+                        target_system_id,
+                        navigation,
+                        star_system_query,
+                        orbit_query,
+                        commands,
+                    );
+
+                    if let Ok(mut anchor) = anchor_query.single_mut() {
+                        anchor.0 = Some(anchor_target);
                     }
                 }
             }
@@ -802,7 +861,7 @@ pub(super) fn ui_dashboard(
     mut contexts: EguiContexts,
     // budget: Res<GlobalBudget>, // Moved to ui_resources_bar
     mut selection: ResMut<Selection>,
-    current_system: Res<CurrentStarSystem>,
+    mut navigation: ParamSet<(ResMut<CurrentStarSystem>, ResMut<FloatingOrigin>)>,
     nearby_stars: Res<NearbyStarsData>,
     active_menu: Res<ActiveMenu>,
     mut fleet_ui_state: ResMut<FleetUiState>,
@@ -941,15 +1000,22 @@ pub(super) fn ui_dashboard(
                             let mut roots: Vec<Entity> = Vec::new();
                             let mut body_map: std::collections::HashMap<Entity, &CelestialBody> =
                                 std::collections::HashMap::new();
+                            let mut fleet_body_lookup: std::collections::HashMap<
+                                Entity,
+                                (&CelestialBody, usize),
+                            > = std::collections::HashMap::new();
                             let mut orbit_map: std::collections::HashMap<Entity, f64> =
                                 std::collections::HashMap::new();
+                            let current_system_id = navigation.p0().0;
 
                             for (entity, body, logical_parent, orbit, system_id) in
                                 all_bodies_query.iter()
                             {
-                                // Filter by current star system
                                 let sys_id = system_id.map(|s| s.0).unwrap_or(0);
-                                if sys_id != current_system.0 {
+                                fleet_body_lookup.insert(entity, (body, sys_id));
+
+                                // Filter by current star system
+                                if sys_id != current_system_id {
                                     continue;
                                 }
 
@@ -1061,13 +1127,16 @@ pub(super) fn ui_dashboard(
                                 render_fleet_ledger_tree(
                                     ui,
                                     &fleet_query,
-                                    &body_map,
+                                    &fleet_body_lookup,
                                     &mut fleet_ui_state,
                                     &selected_query,
                                     &mut commands,
                                     &mut selection,
                                     sim_time.elapsed_seconds(),
                                     &mut anchor_query,
+                                    &mut orbit_query,
+                                    &mut navigation,
+                                    &star_system_query,
                                     &sim_time,
                                 );
                             });
@@ -1142,15 +1211,17 @@ pub(super) fn ui_dashboard(
         .iter()
         .find(|(_, _, selected)| selected.is_some());
 
-    if let Some((_star_entity, star_icon, _)) = selected_star_system {
+    if active_menu.current == GameMenu::Starmap {
+        if let Some((_star_entity, star_icon, _)) = selected_star_system {
         // Show star system details
-        render_star_system_panel(
-            ctx,
-            star_icon,
-            &all_bodies_query,
-            &resource_query,
-            &nearby_stars,
-        );
+            render_star_system_panel(
+                ctx,
+                star_icon,
+                &all_bodies_query,
+                &resource_query,
+                &nearby_stars,
+            );
+        }
     }
     // Body dossier panel is now rendered by `dossier_panel::ui_planet_dossier`
 }

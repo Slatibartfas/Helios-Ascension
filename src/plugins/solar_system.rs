@@ -1282,6 +1282,7 @@ pub fn setup_solar_system(
                         PointLight {
                             intensity: 2.8e11,
                             range: 2.0e9,
+                            color: LinearRgba::new(er, eg, eb, 1.0).into(),
                             shadows_enabled: false,
                             ..default()
                         },

@@ -1520,7 +1520,14 @@ pub(super) fn render_transfer_planner(
                         .ok()
                         .and_then(|(_, _, _, ko, _)| ko)
                         .map(|ko| ko.semi_major_axis);
-                    let r1 = if own_sma.map(|s| s < MIN_HELIOCENTRIC_SMA_AU).unwrap_or(true) {
+                    let origin_is_star = body_query
+                        .get(orbit.body)
+                        .ok()
+                        .map(|(_, body, _, _, _)| body.body_type == BodyType::Star)
+                        .unwrap_or(false);
+                    let r1 = if origin_is_star {
+                        orbit.radius_au.max(MIN_ORBITAL_RADIUS_AU)
+                    } else if own_sma.map(|s| s < MIN_HELIOCENTRIC_SMA_AU).unwrap_or(true) {
                         // Small SMA → likely a moon; use its parent's heliocentric SMA
                         origin_parent
                             .and_then(|pe| body_query.get(pe).ok())
@@ -3613,6 +3620,28 @@ fn build_planned_transfer(
                 .map(|(_, b, _, _, _)| b.body_type == BodyType::Star)
                 .unwrap_or(false));
     let future_resolved_transfer = reference_frame.is_barycentric();
+    let star_origin_departure_absolute = if origin_body.body_type == BodyType::Star {
+        match reference_frame {
+            TransferReferenceFrame::Body(center_entity) if center_entity == orbit.body => {
+                let center_departure = transfer_absolute_position(center_entity, departure_time_s, body_query)
+                    .unwrap_or(origin_sc.position);
+                let target_departure = transfer_absolute_position(target_entity, departure_time_s, body_query)
+                    .unwrap_or(center_departure + bevy::math::DVec3::X * orbit.radius_au.max(MIN_ORBITAL_RADIUS_AU));
+                let radial_dir = (target_departure - center_departure).normalize_or_zero();
+                let fallback_dir = bevy::math::DVec3::new(orbit.angle_rad.cos(), orbit.angle_rad.sin(), 0.0);
+                let departure_dir = if radial_dir.length_squared() > 1e-12 {
+                    radial_dir
+                } else {
+                    fallback_dir
+                };
+                Some(center_departure + departure_dir * orbit.radius_au.max(MIN_ORBITAL_RADIUS_AU))
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
+
     let center_pos = match reference_frame {
         TransferReferenceFrame::SystemBarycentric => bevy::math::DVec3::ZERO,
         TransferReferenceFrame::Body(center_entity) => {
@@ -3645,7 +3674,9 @@ fn build_planned_transfer(
         // SpaceCoordinates stores only a local offset from its parent planet — not a
         // heliocentric position.  Use the parent planet's heliocentric SC so that the
         // departure direction (argument_of_periapsis) points in the correct direction.
-        let origin_pos = if future_resolved_transfer {
+        let origin_pos = if let Some(star_departure_pos) = star_origin_departure_absolute {
+            star_departure_pos
+        } else if future_resolved_transfer {
             transfer_absolute_position(orbit.body, departure_time_s, body_query)
                 .unwrap_or(origin_sc.position)
         } else if is_local_transfer && !local_center_is_star {
@@ -3780,6 +3811,8 @@ fn build_planned_transfer(
                 .unwrap_or(center_departure);
             let origin_departure = if let Some(fleet_pos) = course_correction_pos {
                 fleet_pos
+            } else if let Some(star_departure_pos) = star_origin_departure_absolute {
+                star_departure_pos - center_departure
             } else {
                 transfer_absolute_position(orbit.body, departure_time_s, body_query)
                     .unwrap_or(rel_pos + center_pos)
@@ -3806,7 +3839,6 @@ fn build_planned_transfer(
 
         solve_lambert_transfer(origin_future, dest_future, option.transfer_time_s, gm)
             .map(|(_, _, orbit)| orbit)
-            .or(option.transfer_orbit_override)
             .unwrap_or_else(|| {
                 let mean_anomaly_epoch = if outward { 0.0 } else { std::f64::consts::PI };
                 let sma_m = option.sma_au * AU_IN_METERS;
@@ -4045,6 +4077,7 @@ fn build_planned_transfer_lp(
 mod tests {
     use super::build_planned_transfer;
     use crate::astronomy::components::SystemId;
+    use crate::astronomy::orbit_position_from_mean_anomaly;
     use crate::astronomy::{KeplerOrbit, SpaceCoordinates};
     use crate::fleets::orbital_mechanics::TransferOption;
     use crate::fleets::{Fleet, FleetOrbit, TransferReferenceFrame};
@@ -4232,5 +4265,79 @@ mod tests {
         assert_eq!(planned.option_label, "Curved Efficient");
         assert!(planned.start_position_au.is_none());
         assert!(planned.end_position_au.is_none());
+    }
+
+    #[test]
+    fn build_planned_transfer_star_origin_uses_parking_orbit_radius() {
+        let mut world = World::new();
+
+        let star = world
+            .spawn((
+                test_body("Star A", BodyType::Star, 1.9e30, 700_000.0, 40.0),
+                SpaceCoordinates::new(DVec3::ZERO),
+                SystemId(7),
+            ))
+            .id();
+        let destination = world
+            .spawn((
+                test_body("Destination", BodyType::Planet, 6.4e24, 6_800.0, 13.0),
+                SpaceCoordinates::new(DVec3::new(1.8, 0.5, 0.0)),
+                KeplerOrbit::new(0.02, 1.85, 0.0, 0.0, 0.2, 0.4, 1.2e-7),
+                LogicalParent(star),
+                SystemId(7),
+            ))
+            .id();
+
+        let fleet = Fleet::new("Test Fleet".to_string());
+        let mut orbit = FleetOrbit::new(star, 0.08);
+        orbit.angle_rad = 0.35;
+
+        let option = TransferOption {
+            label: "Efficient",
+            total_delta_v_ms: 12_000.0,
+            delta_v1_ms: 6_000.0,
+            delta_v2_ms: 6_000.0,
+            transfer_time_s: 86_400.0 * 4.0,
+            sma_au: 1.0,
+            eccentricity: 0.5,
+            energy_multiplier: 1.0,
+            burn_time_s: 0.0,
+            plane_change_dv_ms: 0.0,
+            is_thrust_limited: false,
+            transfer_orbit_override: None,
+        };
+
+        let mut body_query_state = world.query::<(
+            Entity,
+            &CelestialBody,
+            &SpaceCoordinates,
+            Option<&KeplerOrbit>,
+            Option<&LogicalParent>,
+        )>();
+        let mut system_id_query_state = world.query::<&SystemId>();
+        let body_query = body_query_state.query(&world);
+        let system_id_query = system_id_query_state.query(&world);
+
+        let planned = build_planned_transfer(
+            Entity::PLACEHOLDER,
+            &fleet,
+            &orbit,
+            destination,
+            0.0,
+            &body_query,
+            &option,
+            None,
+            &system_id_query,
+            7,
+        )
+        .expect("star-origin transfer should build successfully");
+
+        assert_eq!(planned.reference_frame, TransferReferenceFrame::Body(star));
+
+        let departure_pos = orbit_position_from_mean_anomaly(
+            &planned.transfer_orbit,
+            planned.transfer_orbit.mean_anomaly_epoch,
+        );
+        assert!(departure_pos.length() > orbit.radius_au * 0.5);
     }
 }

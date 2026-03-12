@@ -268,32 +268,41 @@ pub fn propagate_orbits(
         entries.push((entity, *orbit, orbit_center.map(|oc| oc.0)));
     }
 
-    // Build a depth map so that entities are processed in hierarchy order:
-    //   depth 0 = no OrbitCenter (Sol-system planets, top-level bodies)
-    //   depth 1 = OrbitCenter whose parent has no OrbitCenter (procedural planets)
-    //   depth 2 = OrbitCenter whose parent also has an OrbitCenter (procedural moons)
-    // This ensures that when a child reads its parent's SpaceCoordinates, the
-    // parent has already been updated for the current frame — preventing the
-    // one-frame positional lag that causes moons to visually "detach" from
-    // their parent at high simulation speeds.
+    // Build a full depth map so entities are processed in ancestry order.
+    // Generated multi-star systems can have chains like:
+    //   barycenter anchor -> companion star -> planet -> moon
+    // The previous capped 0/1/2 classification let planets and moons share
+    // the same depth, so a moon could read its planet's previous-frame
+    // position and appear to flicker outside its orbit.
     let orbit_center_set: HashMap<Entity, Option<Entity>> =
         entries.iter().map(|(e, _, oc)| (*e, *oc)).collect();
+    let mut depth_cache: HashMap<Entity, usize> = HashMap::new();
 
-    let depth_of = |_entity: Entity, oc: Option<Entity>| -> u8 {
-        match oc {
+    fn depth_of(
+        entity: Entity,
+        orbit_center_set: &HashMap<Entity, Option<Entity>>,
+        depth_cache: &mut HashMap<Entity, usize>,
+    ) -> usize {
+        if let Some(depth) = depth_cache.get(&entity) {
+            return *depth;
+        }
+
+        let depth = match orbit_center_set.get(&entity).copied().flatten() {
             None => 0,
             Some(parent) => {
-                // Check if parent itself has an OrbitCenter in this batch
-                if let Some(Some(_grandparent)) = orbit_center_set.get(&parent) {
-                    2 // moon of a procedural planet
+                if parent == entity {
+                    0
                 } else {
-                    1 // direct child of a star or non-orbiting body
+                    depth_of(parent, orbit_center_set, depth_cache).saturating_add(1)
                 }
             }
-        }
-    };
+        };
 
-    entries.sort_by_key(|(e, _, oc)| depth_of(*e, *oc));
+        depth_cache.insert(entity, depth);
+        depth
+    }
+
+    entries.sort_by_key(|(entity, _, _)| depth_of(*entity, &orbit_center_set, &mut depth_cache));
 
     // Second pass: perform lookups and mutation without holding the p0 iterator borrow
     for (entity, orbit, orbit_center_entity) in entries {
@@ -1808,6 +1817,55 @@ mod tests {
         let coords = query.iter(app.world()).next().unwrap();
         // For a circular orbit with elapsed > 0, position should have moved from origin
         assert!(coords.position.x.abs() > 0.0 || coords.position.y.abs() > 0.0);
+    }
+
+    #[test]
+    fn test_propagate_orbits_updates_deep_hierarchy_in_order() {
+        let mut app = App::new();
+        app.init_resource::<SimulationTime>();
+        app.add_systems(Update, propagate_orbits);
+
+        let root_anchor = app
+            .world_mut()
+            .spawn(SpaceCoordinates::new(DVec3::new(10.0, 0.0, 0.0)))
+            .id();
+
+        let star = app
+            .world_mut()
+            .spawn((
+                KeplerOrbit::new(0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+                SpaceCoordinates::default(),
+                OrbitCenter(root_anchor),
+            ))
+            .id();
+
+        let planet = app
+            .world_mut()
+            .spawn((
+                KeplerOrbit::new(0.0, 0.5, 0.0, 0.0, 0.0, std::f64::consts::FRAC_PI_2, 0.0),
+                SpaceCoordinates::default(),
+                OrbitCenter(star),
+            ))
+            .id();
+
+        let moon = app
+            .world_mut()
+            .spawn((
+                KeplerOrbit::new(0.0, 0.1, 0.0, 0.0, 0.0, std::f64::consts::PI, 0.0),
+                SpaceCoordinates::default(),
+                OrbitCenter(planet),
+            ))
+            .id();
+
+        app.update();
+
+        let star_pos = app.world().get::<SpaceCoordinates>(star).unwrap().position;
+        let planet_pos = app.world().get::<SpaceCoordinates>(planet).unwrap().position;
+        let moon_pos = app.world().get::<SpaceCoordinates>(moon).unwrap().position;
+
+        assert!((star_pos - DVec3::new(12.0, 0.0, 0.0)).length() < 1e-10);
+        assert!((planet_pos - DVec3::new(12.0, 0.5, 0.0)).length() < 1e-10);
+        assert!((moon_pos - DVec3::new(11.9, 0.5, 0.0)).length() < 1e-10);
     }
 
     #[test]

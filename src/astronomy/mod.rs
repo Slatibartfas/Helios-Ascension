@@ -92,9 +92,11 @@ impl Plugin for AstronomyPlugin {
                     // Rendering
                     draw_orbit_paths
                         .after(update_orbit_visibility)
+                        .after(sync_floating_origin_to_anchor)
                         .after(propagate_orbits),
                     draw_lagrange_point_rings
                         .after(update_orbit_visibility)
+                        .after(sync_floating_origin_to_anchor)
                         .after(propagate_orbits),
                     // Comet Visuals
                     manage_comet_tail_meshes,
