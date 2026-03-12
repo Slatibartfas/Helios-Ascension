@@ -470,7 +470,7 @@ pub fn process_fleet_actions(
 
             (Some(start_pos), Some(end_pos))
         } else {
-            (None, None)
+            (t.start_position_au, t.end_position_au)
         };
 
         let start_visual_pos = if is_in_transit {

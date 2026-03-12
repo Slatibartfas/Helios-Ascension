@@ -108,9 +108,10 @@ fn transfer_absolute_position(
         let mean_anomaly = orbit.mean_anomaly_epoch + orbit.mean_motion * sim_time_s;
         let local_pos = crate::astronomy::orbit_position_from_mean_anomaly(orbit, mean_anomaly);
         Some(parent_pos + local_pos)
+    } else if lp.is_some() {
+        // Has a parent but no orbit - get parent's position recursively
+        lp.and_then(|parent| transfer_absolute_position(parent.0, sim_time_s, body_query))
     } else if body.body_type == BodyType::Star {
-        // Stars may have KeplerOrbit (binary star components) - handled above at line 104
-        // Stars with LogicalParent (e.g., orbiting a barycenter) - handled above at line 111
         // Isolated stars (no orbit, no parent): return current position from SpaceCoordinates
         Some(sc.position)
     } else {
@@ -4213,35 +4214,47 @@ mod tests {
     fn build_planned_transfer_keeps_curved_cross_star_routes_non_kinematic() {
         let mut world = World::new();
 
+        // Stars at origin for this test - positions don't affect orbit-computed positions
         let star_a = world
             .spawn((
                 test_body("Star A", BodyType::Star, 1.9e30, 700_000.0, 40.0),
-                SpaceCoordinates::new(DVec3::new(-10.0, 0.0, 0.0)),
+                SpaceCoordinates::new(DVec3::ZERO),
                 SystemId(7),
             ))
             .id();
         let star_b = world
             .spawn((
                 test_body("Star B", BodyType::Star, 1.3e30, 600_000.0, 34.0),
-                SpaceCoordinates::new(DVec3::new(12.0, 0.0, 0.0)),
+                SpaceCoordinates::new(DVec3::ZERO),
                 SystemId(7),
             ))
             .id();
 
+        // Origin planet: orbit radius 1.2 AU, at position (1.2, 0, 0) relative to star_a
         let origin = world
             .spawn((
                 test_body("Origin", BodyType::Planet, 5.97e24, 6_371.0, 12.0),
-                SpaceCoordinates::new(DVec3::new(-8.8, 0.0, 0.0)),
+                SpaceCoordinates::new(DVec3::new(1.2, 0.0, 0.0)),
                 KeplerOrbit::circular(1.2, 1.0e-7),
                 LogicalParent(star_a),
                 SystemId(7),
             ))
             .id();
+        // Destination planet: orbit radius 2.1 AU, at position (2.1, 6.0, 0) relative to star_b
+        // Use inclination=90deg to get y-offset in a circular orbit
         let destination = world
             .spawn((
                 test_body("Destination", BodyType::Planet, 6.4e24, 6_800.0, 13.0),
-                SpaceCoordinates::new(DVec3::new(14.1, 6.0, 0.0)),
-                KeplerOrbit::circular(2.1, 8.0e-8),
+                SpaceCoordinates::new(DVec3::new(2.1, 6.0, 0.0)),
+                KeplerOrbit {
+                    semi_major_axis: 2.1,
+                    eccentricity: 0.0,
+                    inclination: std::f64::consts::FRAC_PI_2, // 90 degrees for y-offset
+                    longitude_ascending_node: 0.0,
+                    argument_of_periapsis: 0.0,
+                    mean_anomaly_epoch: 0.0,
+                    mean_motion: 8.0e-8,
+                },
                 LogicalParent(star_b),
                 SystemId(7),
             ))

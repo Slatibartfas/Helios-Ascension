@@ -420,13 +420,24 @@ fn stable_preview_travel_time(ui: &FleetUiState) -> f64 {
     }
 }
 
+#[cfg(test)]
 fn should_sample_planned_transfer_preview(
     planned_transfer: &PlannedTransfer,
     center_is_star: bool,
 ) -> bool {
     planned_transfer.preserve_orbit_geometry
-        && !planned_transfer.reference_frame.is_barycentric()
+        && should_use_star_centered_transfer_preview(planned_transfer, center_is_star)
+}
+
+fn should_use_star_centered_transfer_preview(
+    planned_transfer: &PlannedTransfer,
+    center_is_star: bool,
+) -> bool {
+    !planned_transfer.reference_frame.is_barycentric()
         && center_is_star
+        && planned_transfer.option_label != "Full Thrust"
+        && !planned_transfer.option_label.contains("Coast")
+        && planned_transfer.option_label != "Max Speed"
         && !planned_transfer.option_label.contains("Direct")
         && planned_transfer.flyby_body.is_none()
 }
@@ -1089,6 +1100,13 @@ mod tests {
         let planned = test_planned_transfer(true);
 
         assert!(should_sample_planned_transfer_preview(&planned, true));
+    }
+
+    #[test]
+    fn star_centered_preview_allows_non_preserved_same_star_geometry() {
+        let planned = test_planned_transfer(false);
+
+        assert!(super::should_use_star_centered_transfer_preview(&planned, true));
     }
 
     #[test]
@@ -2872,17 +2890,9 @@ pub fn update_fleet_transforms(
                 }
 
                 if maneuver.reference_frame.is_barycentric() && !maneuver.is_kinematic() {
-                    let total_ma_travel = maneuver.transfer_orbit.mean_motion
-                        * (maneuver.arrival_time - maneuver.departure_time);
-                    let geo = compute_barycentric_visual_arc(
-                        &maneuver.transfer_orbit,
-                        op,
-                        dp,
-                        total_ma_travel,
-                        maneuver.departure_velocity_ms,
-                        maneuver.arrival_velocity_ms,
-                    );
-                    transform.translation = geo.eval(maneuver.progress(elapsed) as f32);
+                    let render_du = (sc.position - origin_offset) * SCALING_FACTOR;
+                    transform.translation =
+                        Vec3::new(render_du.x as f32, render_du.y as f32, render_du.z as f32);
 
                     let inside_origin = transform.translation.distance(op) < origin_ring_r;
                     let inside_dest = transform.translation.distance(dp) < dest_ring_r;
@@ -3471,13 +3481,13 @@ pub fn draw_fleet_transfer_preview(
     let dest_ring_r = fleet_parking_visual_radius(dest_visual_r);
 
     let planned_transfer = fleet_ui_state.planned_transfer.as_ref();
-    let sampled_preview_candidate = planned_transfer
+    let star_centered_preview_candidate = planned_transfer
         .map(|transfer| {
             let center_is_star = matches!(
                 body_query.get(transfer.orbit_center),
                 Ok((_, body, _)) if body.body_type == BodyType::Star
             );
-            should_sample_planned_transfer_preview(transfer, center_is_star)
+            should_use_star_centered_transfer_preview(transfer, center_is_star)
         })
         .unwrap_or(false);
 
@@ -3487,7 +3497,7 @@ pub fn draw_fleet_transfer_preview(
     // however, the arc is drawn from the selected planned transfer orbit, so the ghost
     // marker must use that exact arrival epoch to stay aligned with the arc endpoint.
     let stable_travel_time_s = stable_preview_travel_time(&fleet_ui_state);
-    let candidate_travel_time_s = if sampled_preview_candidate {
+    let candidate_travel_time_s = if star_centered_preview_candidate {
         planned_transfer
             .map(|transfer| transfer.duration_s)
             .unwrap_or(stable_travel_time_s)
@@ -3542,11 +3552,11 @@ pub fn draw_fleet_transfer_preview(
         (dp_absolute, Vec3::ZERO)
     };
 
-    let same_star_sampled_preview = planned_transfer
-        .filter(|_| sampled_preview_candidate)
+    let same_star_orbit_preview = planned_transfer
+        .filter(|_| star_centered_preview_candidate)
         .is_some();
 
-    let travel_time_s = if same_star_sampled_preview {
+    let travel_time_s = if same_star_orbit_preview {
         candidate_travel_time_s
     } else {
         stable_travel_time_s
@@ -3555,7 +3565,7 @@ pub fn draw_fleet_transfer_preview(
         return;
     }
 
-    let dp_absolute = if same_star_sampled_preview {
+    let dp_absolute = if same_star_orbit_preview {
         dp_absolute
     } else {
         predict_body_visual_pos(
@@ -3571,7 +3581,7 @@ pub fn draw_fleet_transfer_preview(
         .unwrap_or(dest_transform_now.translation)
     };
 
-    let (dp, cv_ref) = if same_star_sampled_preview {
+    let (dp, cv_ref) = if same_star_orbit_preview {
         (dp, cv_ref)
     } else if let TransferReferenceFrame::Body(orbit_center) = reference_frame {
         let cv_predicted = predict_body_visual_pos(
@@ -3675,7 +3685,7 @@ pub fn draw_fleet_transfer_preview(
         return;
     }
 
-    let preview_center_is_star = same_star_sampled_preview;
+    let preview_center_is_star = same_star_orbit_preview;
 
     if preview_center_is_star {
         if let Some(pt) = planned_transfer {
