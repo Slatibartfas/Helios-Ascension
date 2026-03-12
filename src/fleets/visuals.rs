@@ -513,6 +513,8 @@ fn compute_barycentric_visual_arc(
     start_pos: Vec3,
     end_pos: Vec3,
     total_ma_travel: f64,
+    departure_velocity_ms: Option<DVec3>,
+    arrival_velocity_ms: Option<DVec3>,
 ) -> TransferArcGeometry {
     let departure_angle = optimal_departure_angle(start_pos, end_pos);
     let direct_dir = (end_pos - start_pos).normalize_or_zero();
@@ -533,8 +535,16 @@ fn compute_barycentric_visual_arc(
     let end_ma = start_ma + total_ma_travel;
     let delta_ma = total_ma_travel.signum() * total_ma_travel.abs().max(1e-3) * 0.002;
 
-    let depart_dir_raw = orbit_visual_tangent_direction(orbit, start_ma, delta_ma);
-    let arrive_dir_raw = orbit_visual_tangent_direction(orbit, end_ma, -delta_ma);
+    let depart_dir_raw = departure_velocity_ms
+        .map(|velocity| Vec3::new(velocity.x as f32, velocity.y as f32, velocity.z as f32))
+        .filter(|velocity| velocity.length_squared() > 1e-12)
+        .map(|velocity| velocity.normalize_or_zero())
+        .unwrap_or_else(|| orbit_visual_tangent_direction(orbit, start_ma, delta_ma));
+    let arrive_dir_raw = arrival_velocity_ms
+        .map(|velocity| Vec3::new(velocity.x as f32, velocity.y as f32, velocity.z as f32))
+        .filter(|velocity| velocity.length_squared() > 1e-12)
+        .map(|velocity| velocity.normalize_or_zero())
+        .unwrap_or_else(|| orbit_visual_tangent_direction(orbit, end_ma, -delta_ma));
 
     let depart_dir = (depart_dir_raw * 0.75 + direct_dir * 0.25).normalize_or_zero();
     let arrive_dir = (arrive_dir_raw * 0.75 + direct_dir * 0.25).normalize_or_zero();
@@ -965,6 +975,7 @@ mod tests {
     };
     use crate::astronomy::KeplerOrbit;
     use crate::fleets::{PlannedTransfer, TransferReferenceFrame};
+    use bevy::math::DVec3;
     use bevy::prelude::Vec3;
 
     fn test_planned_transfer(preserve_orbit_geometry: bool) -> PlannedTransfer {
@@ -990,6 +1001,8 @@ mod tests {
             option_label: "Efficient",
             start_position_au: None,
             end_position_au: None,
+            departure_velocity_ms: None,
+            arrival_velocity_ms: None,
             flyby_body: None,
             leg2_orbit: None,
             leg2_start_s: 0.0,
@@ -1092,7 +1105,14 @@ mod tests {
 
         let start = Vec3::new(-320.0, 40.0, 0.0);
         let end = Vec3::new(410.0, -120.0, 0.0);
-        let geo = compute_barycentric_visual_arc(&orbit, start, end, 1.2);
+        let geo = compute_barycentric_visual_arc(
+            &orbit,
+            start,
+            end,
+            1.2,
+            Some(DVec3::new(0.0, 18_000.0, 0.0)),
+            Some(DVec3::new(-11_000.0, 9_000.0, 0.0)),
+        );
 
         assert!(geo.eval(0.0).distance(start) < 1e-4);
         assert!(geo.eval(1.0).distance(end) < 1e-4);
@@ -1666,8 +1686,29 @@ pub fn draw_fleet_trajectories(
             } else {
                 origin_ring_r
             };
+            let barycentric_start = maneuver.start_position_au.map(|position| {
+                Vec3::new(
+                    ((position.x - origin_offset.x) * scale) as f32,
+                    ((position.y - origin_offset.y) * scale) as f32,
+                    ((position.z - origin_offset.z) * scale) as f32,
+                )
+            });
             let op = if let Some(start_pos) = maneuver.start_visual_pos {
                 start_pos
+            } else if is_inter_star {
+                barycentric_start.unwrap_or_else(|| {
+                    predict_body_visual_pos(
+                        maneuver.origin_body,
+                        sim_elapsed,
+                        maneuver.departure_time,
+                        real_secs,
+                        sim_scale,
+                        &body_query,
+                        &kepler_query,
+                        &amp_query,
+                    )
+                    .unwrap_or(origin_now)
+                })
             } else {
                 predict_body_visual_pos(
                     maneuver.origin_body,
@@ -1689,17 +1730,42 @@ pub fn draw_fleet_trajectories(
                 .get(maneuver.destination_body)
                 .map(|(t, _, _)| t.translation)
                 .unwrap_or(Vec3::ZERO);
-            let dp_absolute = predict_body_visual_pos(
-                maneuver.destination_body,
-                sim_elapsed,
-                maneuver.arrival_time,
-                real_secs,
-                sim_scale,
-                &body_query,
-                &kepler_query,
-                &amp_query,
-            )
-            .unwrap_or(dest_now);
+            let dp_absolute = if is_inter_star {
+                maneuver
+                    .end_position_au
+                    .map(|position| {
+                        Vec3::new(
+                            ((position.x - origin_offset.x) * scale) as f32,
+                            ((position.y - origin_offset.y) * scale) as f32,
+                            ((position.z - origin_offset.z) * scale) as f32,
+                        )
+                    })
+                    .unwrap_or_else(|| {
+                        predict_body_visual_pos(
+                            maneuver.destination_body,
+                            sim_elapsed,
+                            maneuver.arrival_time,
+                            real_secs,
+                            sim_scale,
+                            &body_query,
+                            &kepler_query,
+                            &amp_query,
+                        )
+                        .unwrap_or(dest_now)
+                    })
+            } else {
+                predict_body_visual_pos(
+                    maneuver.destination_body,
+                    sim_elapsed,
+                    maneuver.arrival_time,
+                    real_secs,
+                    sim_scale,
+                    &body_query,
+                    &kepler_query,
+                    &amp_query,
+                )
+                .unwrap_or(dest_now)
+            };
 
             let (dp, cv_ref, flyby_center_predicted, flyby_center_departure) = if is_inter_star {
                 (dp_absolute, Vec3::ZERO, Vec3::ZERO, Vec3::ZERO)
@@ -1875,6 +1941,8 @@ pub fn draw_fleet_trajectories(
                     op,
                     dp,
                     total_ma_travel,
+                    maneuver.departure_velocity_ms,
+                    maneuver.arrival_velocity_ms,
                 );
                 let mut prev: Option<Vec3> = Some(geo.eval(progress_t));
                 for i in 0..=SEGMENTS {
@@ -2464,6 +2532,7 @@ pub fn update_fleet_transforms(
             }
         } else if let Some(maneuver) = maybe_maneuver {
             // ── In-transit: check whether this is a local or heliocentric transfer ──
+            transform.rotation = Quat::IDENTITY;
             let center_is_star = maneuver.reference_frame.is_barycentric()
                 || body_query
                     .get(maneuver.orbit_center)
@@ -2620,6 +2689,7 @@ pub fn update_fleet_transforms(
                     .get(maneuver.destination_body)
                     .map(|(_, b, _)| fleet_parking_visual_radius(b.visual_radius))
                     .unwrap_or(0.0);
+                let is_inter_star = maneuver.reference_frame.is_barycentric();
 
                 let origin_now = body_query
                     .get(maneuver.origin_body)
@@ -2631,8 +2701,29 @@ pub fn update_fleet_transforms(
                 } else {
                     origin_ring_r
                 };
+                let barycentric_start = maneuver.start_position_au.map(|position| {
+                    Vec3::new(
+                        ((position.x - origin_offset.x) * SCALING_FACTOR) as f32,
+                        ((position.y - origin_offset.y) * SCALING_FACTOR) as f32,
+                        ((position.z - origin_offset.z) * SCALING_FACTOR) as f32,
+                    )
+                });
                 let op = if let Some(start_pos) = maneuver.start_visual_pos {
                     start_pos
+                } else if is_inter_star {
+                    barycentric_start.unwrap_or_else(|| {
+                        predict_body_visual_pos(
+                            maneuver.origin_body,
+                            elapsed,
+                            maneuver.departure_time,
+                            real_secs,
+                            sim_scale,
+                            &body_query,
+                            &kepler_query,
+                            &amp_query,
+                        )
+                        .unwrap_or(origin_now)
+                    })
                 } else {
                     predict_body_visual_pos(
                         maneuver.origin_body,
@@ -2651,20 +2742,43 @@ pub fn update_fleet_transforms(
                     .get(maneuver.destination_body)
                     .map(|(t, _, _)| t.translation)
                     .unwrap_or(Vec3::ZERO);
-                let dp_absolute = predict_body_visual_pos(
+                let dp_absolute = if is_inter_star {
+                    maneuver
+                        .end_position_au
+                        .map(|position| {
+                            Vec3::new(
+                                ((position.x - origin_offset.x) * SCALING_FACTOR) as f32,
+                                ((position.y - origin_offset.y) * SCALING_FACTOR) as f32,
+                                ((position.z - origin_offset.z) * SCALING_FACTOR) as f32,
+                            )
+                        })
+                        .unwrap_or_else(|| {
+                            predict_body_visual_pos(
+                                maneuver.destination_body,
+                                elapsed,
+                                maneuver.arrival_time,
+                                real_secs,
+                                sim_scale,
+                                &body_query,
+                                &kepler_query,
+                                &amp_query,
+                            )
+                            .unwrap_or(dest_now)
+                        })
+                } else {
+                    predict_body_visual_pos(
                         maneuver.destination_body,
                         elapsed,
                         maneuver.arrival_time,
-                    real_secs,
-                    sim_scale,
+                        real_secs,
+                        sim_scale,
                         &body_query,
                         &kepler_query,
                         &amp_query,
                     )
-                    .unwrap_or(dest_now);
-
+                    .unwrap_or(dest_now)
+                };
                 let orbit_center_visual = maneuver.orbit_center;
-                let is_inter_star = maneuver.reference_frame.is_barycentric();
                 let cv_predicted = predict_body_visual_pos(
                     orbit_center_visual,
                     elapsed,
@@ -2765,6 +2879,8 @@ pub fn update_fleet_transforms(
                         op,
                         dp,
                         total_ma_travel,
+                        maneuver.departure_velocity_ms,
+                        maneuver.arrival_velocity_ms,
                     );
                     transform.translation = geo.eval(maneuver.progress(elapsed) as f32);
 
@@ -3520,18 +3636,32 @@ pub fn draw_fleet_transfer_preview(
     if reference_frame.is_barycentric() && !is_kinematic {
         let barycentric_preview = planned_transfer
             .filter(|transfer| transfer.reference_frame.is_barycentric())
-            .map(|transfer| (&transfer.transfer_orbit, transfer.duration_s))
+            .map(|transfer| {
+                (
+                    &transfer.transfer_orbit,
+                    transfer.duration_s,
+                    transfer.departure_velocity_ms,
+                    transfer.arrival_velocity_ms,
+                )
+            })
             .or_else(|| {
                 selected_option.and_then(|opt| {
                     opt.transfer_orbit_override
                         .as_ref()
-                        .map(|orbit| (orbit, travel_time_s))
+                        .map(|orbit| (orbit, travel_time_s, None, None))
                 })
             });
 
-        if let Some((orbit, preview_duration_s)) = barycentric_preview {
+        if let Some((orbit, preview_duration_s, departure_velocity_ms, arrival_velocity_ms)) = barycentric_preview {
             let total_ma_travel = orbit.mean_motion * preview_duration_s;
-            let geo = compute_barycentric_visual_arc(orbit, op, dp, total_ma_travel);
+            let geo = compute_barycentric_visual_arc(
+                orbit,
+                op,
+                dp,
+                total_ma_travel,
+                departure_velocity_ms,
+                arrival_velocity_ms,
+            );
 
             draw_dashed_curve(&mut gizmos, |t| geo.eval(t), 24, |f| {
                 Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f)
@@ -3539,6 +3669,10 @@ pub fn draw_fleet_transfer_preview(
             draw_ghost_body(&mut gizmos, dp, dest_ring_r, dest_visual_r, false);
             return;
         }
+
+        // Avoid a one-frame fallback to the legacy Bezier preview while the
+        // barycentric transfer option state is still being populated.
+        return;
     }
 
     let preview_center_is_star = same_star_sampled_preview;

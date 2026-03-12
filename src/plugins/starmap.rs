@@ -587,118 +587,104 @@ pub fn classify_exoplanet_with_mass(
 /// Return `(base_color_tint, perceptual_roughness, metallic)` for a body
 /// category.  The tint multiplies the texture sample to give each planet type
 /// a distinctive colour cast while still showing the underlying texture detail.
+/// Tints are kept subtle (close to white) so the texture dominates.
 fn category_tint(category: &str, r1: f32, r2: f32, r3: f32) -> (Color, f32, f32) {
+    // Base brightness - keep high so tint is subtle
+    let base = 0.92 + r1 * 0.08;
+
     match category {
         "lava" => {
-            // Deep orange-red — volcanic, scorched
-            let b = 0.75 + r1 * 0.15;
+            // Subtle warm tint - mostly let texture show
             (
-                Color::srgb(b, (b * 0.32).min(1.0), (b * 0.06).min(1.0)),
+                Color::srgb(base, base * 0.95, base * 0.88),
                 0.70 + r2 * 0.15,
                 0.0 + r3 * 0.05,
             )
         }
         "scorched" => {
-            // Dark red-orange — Venus-like extreme greenhouse worlds
-            let b = 0.82 + r1 * 0.12;
+            // Subtle warm-orange tint
             (
-                Color::srgb(b, (b * 0.45).min(1.0), (b * 0.15).min(1.0)),
+                Color::srgb(base, base * 0.96, base * 0.92),
                 0.72 + r2 * 0.15,
                 0.0 + r3 * 0.05,
             )
         }
         "desert" => {
-            // Warm orange-tan — arid and dusty
-            let b = 0.88 + r1 * 0.10;
+            // Subtle tan tint
             (
-                Color::srgb(b, (b * 0.80).min(1.0), (b * 0.58).min(1.0)),
+                Color::srgb(base, base * 0.98, base * 0.94),
                 0.75 + r2 * 0.15,
                 0.0 + r3 * 0.05,
             )
         }
         "martian" => {
-            // Rust-red oxidised regolith with darker basaltic undertones
-            let b = 0.82 + r1 * 0.10;
+            // Subtle reddish tint
             (
-                Color::srgb(b, (b * 0.58).min(1.0), (b * 0.40).min(1.0)),
+                Color::srgb(base, base * 0.96, base * 0.92),
                 0.77 + r2 * 0.14,
                 0.0 + r3 * 0.05,
             )
         }
         "temperate" => {
             // Near-white — let the texture dominate
-            let b = 0.90 + r1 * 0.08;
-            (Color::srgb(b, b, b), 0.65 + r2 * 0.20, 0.0 + r3 * 0.05)
+            (Color::srgb(base, base, base), 0.65 + r2 * 0.20, 0.0 + r3 * 0.05)
         }
         "jungle" => {
-            // Deep green tint — dense vegetation
-            let b = 0.80 + r1 * 0.12;
+            // Very subtle green tint
             (
-                Color::srgb((b * 0.68).min(1.0), b, (b * 0.65).min(1.0)),
+                Color::srgb(base * 0.98, base, base * 0.97),
                 0.70 + r2 * 0.18,
                 0.0 + r3 * 0.05,
             )
         }
         "ocean" => {
-            // Deep blue — ocean-dominated
-            let b = 0.80 + r1 * 0.12;
+            // Subtle blue tint
             (
-                Color::srgb((b * 0.50).min(1.0), (b * 0.72).min(1.0), b),
+                Color::srgb(base * 0.96, base * 0.98, base),
                 0.60 + r2 * 0.15,
                 0.0 + r3 * 0.05,
             )
         }
         "tundra" => {
-            // Blue-grey — cold, partially frozen
-            let b = 0.78 + r1 * 0.14;
+            // Subtle cool tint
             (
-                Color::srgb((b * 0.86).min(1.0), (b * 0.91).min(1.0), b),
+                Color::srgb(base * 0.98, base * 0.99, base),
                 0.78 + r2 * 0.12,
                 0.0 + r3 * 0.05,
             )
         }
         "ice" => {
-            // Pale blue-white — deeply frozen
-            let b = 0.85 + r1 * 0.12;
+            // Very subtle blue-white tint
             (
-                Color::srgb((b * 0.88).min(1.0), (b * 0.93).min(1.0), b),
+                Color::srgb(base * 0.99, base * 0.99, base),
                 0.72 + r2 * 0.15,
                 0.0 + r3 * 0.05,
             )
         }
         "barren" => {
-            // Neutral grey — cratered, airless
-            let b = 0.78 + r1 * 0.16;
-            (
-                Color::srgb(b, (b * 0.93).min(1.0), (b * 0.88).min(1.0)),
-                0.80 + r2 * 0.12,
-                0.0 + r3 * 0.05,
-            )
+            // Neutral grey — let texture dominate
+            (Color::srgb(base, base, base), 0.80 + r2 * 0.12, 0.0 + r3 * 0.05)
         }
         "rock" => {
-            // Bare stone and mineral-rich surfaces with a slightly darker,
-            // denser look than generic barren worlds.
-            let b = 0.72 + r1 * 0.14;
+            // Subtle grey-brown tint
             (
-                Color::srgb(b, (b * 0.90).min(1.0), (b * 0.84).min(1.0)),
+                Color::srgb(base, base * 0.98, base * 0.96),
                 0.83 + r2 * 0.10,
                 0.02 + r3 * 0.05,
             )
         }
         "gas_giant" => {
-            // Warm amber — banded atmosphere
-            let b = 0.88 + r1 * 0.08;
+            // Subtle warm tint for bands
             (
-                Color::srgb(b, (b * 0.87).min(1.0), (b * 0.65).min(1.0)),
+                Color::srgb(base, base * 0.98, base * 0.95),
                 0.60 + r2 * 0.15,
                 0.0 + r3 * 0.05,
             )
         }
         "ice_giant" => {
-            // Blue-cyan — methane-dominated
-            let b = 0.78 + r1 * 0.12;
+            // Subtle cyan tint
             (
-                Color::srgb((b * 0.76).min(1.0), (b * 0.90).min(1.0), b),
+                Color::srgb(base * 0.97, base * 0.99, base),
                 0.62 + r2 * 0.15,
                 0.0 + r3 * 0.05,
             )
@@ -712,69 +698,53 @@ fn category_tint(category: &str, r1: f32, r2: f32, r3: f32) -> (Color, f32, f32)
             )
         }
         "moon" => {
-            let b = 0.80 + r1 * 0.18;
-            (
-                Color::srgb(b, (b * 0.98).min(1.0), (b * 0.95).min(1.0)),
-                0.75 + r2 * 0.15,
-                0.0 + r3 * 0.05,
-            )
+            // Neutral grey - let texture dominate
+            (Color::srgb(base, base, base), 0.75 + r2 * 0.15, 0.0 + r3 * 0.05)
         }
         "asteroid_s" => {
-            let b = 0.85 + r1 * 0.12;
+            // Subtle reddish-grey
             (
-                Color::srgb(b, (b * 0.93).min(1.0), (b * 0.84).min(1.0)),
+                Color::srgb(base, base * 0.98, base * 0.96),
                 0.68 + r2 * 0.18,
                 0.05 + r3 * 0.10,
             )
         }
         "asteroid_c" => {
-            let b = 0.52 + r1 * 0.22;
+            // Subtle grey-brown
             (
-                Color::srgb(b, (b * 0.96).min(1.0), (b * 0.90).min(1.0)),
+                Color::srgb(base * 0.98, base, base * 0.97),
                 0.82 + r2 * 0.12,
                 0.02 + r3 * 0.07,
             )
         }
         "comet" => {
-            let b = 0.55 + r1 * 0.28;
-            let tint_r = r2 * 0.12;
+            // Subtle icy tint
             (
-                Color::srgb(
-                    (b + tint_r).min(1.0),
-                    (b + tint_r * 0.5).min(1.0),
-                    (b - tint_r * 0.3).clamp(0.0, 1.0),
-                ),
+                Color::srgb(base * 0.99, base * 0.99, base),
                 0.78 + r2 * 0.15,
                 0.01 + r3 * 0.05,
             )
         }
         "alpine" => {
-            // Cool grey-blue with white snow caps
-            let b = 0.82 + r1 * 0.12;
+            // Subtle cool tint
             (
-                Color::srgb((b * 0.85).min(1.0), (b * 0.90).min(1.0), b),
+                Color::srgb(base * 0.98, base * 0.99, base),
                 0.72 + r2 * 0.15,
                 0.0 + r3 * 0.05,
             )
         }
         "savannah" => {
-            // Warm golden-brown — dry grasslands
-            let b = 0.85 + r1 * 0.10;
+            // Subtle warm tint
             (
-                Color::srgb(b, (b * 0.82).min(1.0), (b * 0.55).min(1.0)),
+                Color::srgb(base, base * 0.98, base * 0.95),
                 0.73 + r2 * 0.15,
                 0.0 + r3 * 0.05,
             )
         }
         "swamp" => {
-            // Dark green-brown — murky wetlands
-            let b = 0.70 + r1 * 0.15;
+            // Subtle green tint
             (
-                Color::srgb(
-                    (b * 0.72).min(1.0),
-                    (b * 0.85).min(1.0),
-                    (b * 0.55).min(1.0),
-                ),
+                Color::srgb(base * 0.97, base, base * 0.96),
                 0.78 + r2 * 0.14,
                 0.0 + r3 * 0.05,
             )
@@ -1610,18 +1580,45 @@ fn handle_system_transition(
 /// Clears the body anchor so the previous body's moons/LP markers don't stay visible.
 fn handle_starmap_transition(
     view_mode: Res<ViewMode>,
+    current_system: Res<CurrentStarSystem>,
+    mut floating_origin: ResMut<FloatingOrigin>,
     mut anchor_query: Query<&mut CameraAnchor, With<GameCamera>>,
+    mut camera_query: Query<&mut OrbitCamera, With<GameCamera>>,
+    icon_query: Query<(Entity, &StarSystemIcon)>,
+    selected_query: Query<Entity, With<SelectedStarSystem>>,
+    mut commands: Commands,
 ) {
     if !view_mode.is_changed() || *view_mode != ViewMode::Starmap {
         return;
     }
 
-    // Clear the body anchor when leaving system view
-    // This ensures moons and Lagrange points from the old system are hidden
+    // Restore the neutral starmap frame so icons are laid out in universe space
+    // rather than around the last visited system's floating origin.
+    floating_origin.position = DVec3::ZERO;
+
+    let current_icon = icon_query
+        .iter()
+        .find(|(_, icon)| icon.id == current_system.0)
+        .map(|(entity, _)| entity);
+
+    for entity in selected_query.iter() {
+        commands.entity(entity).remove::<SelectedStarSystem>();
+    }
+    if let Some(icon_entity) = current_icon {
+        commands.entity(icon_entity).insert(SelectedStarSystem);
+    }
+
+    // Replace the body anchor with the current system's starmap icon so the map
+    // stays centered on the visited system and zooming back in returns through
+    // the normal starmap->system transition path.
     if let Ok(mut anchor) = anchor_query.single_mut() {
-        if anchor.0.is_some() {
-            info!("Clearing body anchor on starmap transition");
-            anchor.0 = None;
+        anchor.0 = current_icon;
+    }
+
+    if let Ok(mut orbit_camera) = camera_query.single_mut() {
+        orbit_camera.pan_offset = Vec3::ZERO;
+        if current_icon.is_none() {
+            orbit_camera.target_center = Vec3::ZERO;
         }
     }
 }

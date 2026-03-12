@@ -108,10 +108,11 @@ fn transfer_absolute_position(
         let mean_anomaly = orbit.mean_anomaly_epoch + orbit.mean_motion * sim_time_s;
         let local_pos = crate::astronomy::orbit_position_from_mean_anomaly(orbit, mean_anomaly);
         Some(parent_pos + local_pos)
-    } else if lp.is_some() {
-        lp.and_then(|parent| transfer_absolute_position(parent.0, sim_time_s, body_query))
     } else if body.body_type == BodyType::Star {
-        Some(bevy::math::DVec3::ZERO)
+        // Stars may have KeplerOrbit (binary star components) - handled above at line 104
+        // Stars with LogicalParent (e.g., orbiting a barycenter) - handled above at line 111
+        // Isolated stars (no orbit, no parent): return current position from SpaceCoordinates
+        Some(sc.position)
     } else {
         Some(sc.position)
     }
@@ -3831,13 +3832,28 @@ fn build_planned_transfer(
         None
     };
 
-    let transfer_orbit = if reference_frame.is_barycentric() && option.transfer_orbit_override.is_some() {
+    let barycentric_start_end = if reference_frame.is_barycentric() {
         let origin_future = transfer_absolute_position(orbit.body, departure_time_s, body_query)
             .unwrap_or(rel_pos + center_pos);
         let dest_future = transfer_absolute_position(target_entity, arrival_time_s, body_query)
             .unwrap_or(dest_rel + center_pos);
+        Some((origin_future, dest_future))
+    } else {
+        None
+    };
 
-        solve_lambert_transfer(origin_future, dest_future, option.transfer_time_s, gm)
+    let lambert_barycentric_solution = if reference_frame.is_barycentric()
+        && option.transfer_orbit_override.is_some()
+    {
+        barycentric_start_end.and_then(|(origin_future, dest_future)| {
+            solve_lambert_transfer(origin_future, dest_future, option.transfer_time_s, gm)
+        })
+    } else {
+        None
+    };
+
+    let transfer_orbit = if reference_frame.is_barycentric() && option.transfer_orbit_override.is_some() {
+        lambert_barycentric_solution
             .map(|(_, _, orbit)| orbit)
             .unwrap_or_else(|| {
                 let mean_anomaly_epoch = if outward { 0.0 } else { std::f64::consts::PI };
@@ -3874,6 +3890,14 @@ fn build_planned_transfer(
         }
     };
     let preserve_orbit_geometry = option.transfer_orbit_override.is_some() || lambert_same_star_orbit.is_some();
+    let (departure_velocity_ms, arrival_velocity_ms) = lambert_barycentric_solution
+        .map(|(departure_velocity, arrival_velocity, _)| {
+            (Some(departure_velocity), Some(arrival_velocity))
+        })
+        .unwrap_or((None, None));
+    let (start_position_au, end_position_au) = barycentric_start_end
+        .map(|(start_position, end_position)| (Some(start_position), Some(end_position)))
+        .unwrap_or((None, None));
 
     // Arrival orbit radius: for rings use the ring radius, otherwise reuse fleet parking radius
     let arrival_orbit_radius_au = if dest_is_ring {
@@ -3898,8 +3922,10 @@ fn build_planned_transfer(
         arrival_orbit_radius_au,
         fuel_cost_t: fuel_cost,
         option_label: option.label,
-        start_position_au: None,
-        end_position_au: None,
+        start_position_au,
+        end_position_au,
+        departure_velocity_ms,
+        arrival_velocity_ms,
         flyby_body: None,
         leg2_orbit: None,
         leg2_start_s: 0.0,
@@ -4067,6 +4093,8 @@ fn build_planned_transfer_lp(
         option_label,
         start_position_au: start_pos,
         end_position_au: end_pos,
+        departure_velocity_ms: None,
+        arrival_velocity_ms: None,
         flyby_body: None,
         leg2_orbit: None,
         leg2_start_s: 0.0,
@@ -4233,7 +4261,7 @@ mod tests {
             burn_time_s: 0.0,
             plane_change_dv_ms: 0.0,
             is_thrust_limited: false,
-            transfer_orbit_override: None,
+            transfer_orbit_override: Some(KeplerOrbit::circular(18.0, 1.0e-8)),
         };
 
         let mut body_query_state = world.query::<(
@@ -4263,8 +4291,10 @@ mod tests {
 
         assert_eq!(planned.reference_frame, TransferReferenceFrame::SystemBarycentric);
         assert_eq!(planned.option_label, "Curved Efficient");
-        assert!(planned.start_position_au.is_none());
-        assert!(planned.end_position_au.is_none());
+        assert!(planned.start_position_au.is_some());
+        assert!(planned.end_position_au.is_some());
+        assert!(planned.departure_velocity_ms.is_some());
+        assert!(planned.arrival_velocity_ms.is_some());
     }
 
     #[test]

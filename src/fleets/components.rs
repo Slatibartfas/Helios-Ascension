@@ -312,6 +312,14 @@ pub struct ActiveManeuver {
     /// The physics position (AU) of the destination body at arrival time.
     /// Used for kinematic transfers.
     pub end_position_au: Option<bevy::math::DVec3>,
+    /// Lambert departure velocity (m/s) for barycentric curved transfers.
+    ///
+    /// Used only by the visual systems to shape the preview and transit arc.
+    pub departure_velocity_ms: Option<bevy::math::DVec3>,
+    /// Lambert arrival velocity (m/s) for barycentric curved transfers.
+    ///
+    /// Used only by the visual systems to shape the preview and transit arc.
+    pub arrival_velocity_ms: Option<bevy::math::DVec3>,
     /// The visual position of the fleet at the moment of departure.
     /// Used for course corrections to prevent the visual arc from jumping back to the origin body.
     pub start_visual_pos: Option<bevy::math::Vec3>,
@@ -478,6 +486,10 @@ pub struct PlannedTransfer {
     /// Pre-computed arrival position (AU) for kinematic/direct transfers.
     /// When set, `process_fleet_actions` uses this instead of predicting from `destination_body`.
     pub end_position_au: Option<bevy::math::DVec3>,
+    /// Lambert departure velocity (m/s) for barycentric curved transfers.
+    pub departure_velocity_ms: Option<bevy::math::DVec3>,
+    /// Lambert arrival velocity (m/s) for barycentric curved transfers.
+    pub arrival_velocity_ms: Option<bevy::math::DVec3>,
     /// For gravity-assist transfers a pre-computed flyby body is stored here.
     ///
     /// This allows the rendering code to know where the two-leg corner should

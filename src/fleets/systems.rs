@@ -42,8 +42,7 @@ pub fn update_fleet_orbit_positions(
         // Advance the visual orbital angle at a slow, legible rate.
         // `orbit.direction` is +1 (CCW/prograde) or -1 (CW/retrograde) and is set
         // at insertion to match the arrival arc's tangent direction.
-        // direction == 0.0 marks an LP-stationed fleet whose angle is frozen at the
-        // Lagrange-point angular position — do not advance it visually.
+        // direction == 0.0 marks an LP-stationed fleet whose angle is frozen.
         if orbit.direction != 0.0 {
             orbit.angle_rad = (orbit.angle_rad + orbit.direction * VISUAL_ORBIT_RATE * real_delta)
                 .rem_euclid(std::f64::consts::TAU);
@@ -499,6 +498,8 @@ pub fn process_fleet_actions(
             departure_angle,
             start_position_au,
             end_position_au,
+            departure_velocity_ms: t.departure_velocity_ms,
+            arrival_velocity_ms: t.arrival_velocity_ms,
             start_visual_pos,
             flyby_body: t.flyby_body,
             leg2_orbit: t.leg2_orbit,
