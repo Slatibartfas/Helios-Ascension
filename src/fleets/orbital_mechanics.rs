@@ -822,7 +822,12 @@ pub(crate) fn solve_lambert_transfer(
     transfer_time_s: f64,
     system_gm: f64,
 ) -> Option<(DVec3, DVec3, KeplerOrbit)> {
-    let mut best_solution: Option<(DVec3, DVec3, KeplerOrbit, f64)> = None;
+    let plane_normal = origin_pos_au.cross(dest_pos_au);
+    let plane_normal_len_sq = plane_normal.length_squared();
+    let mut best_solution: Option<(DVec3, DVec3, KeplerOrbit, f64, f64, f64, f64)> = None;
+    const ARRIVAL_ERROR_TIE_EPS_AU: f64 = 1e-6;
+    const ALIGNMENT_TIE_EPS: f64 = 1e-9;
+    const SPEED_TIE_EPS: f64 = 1e-6;
 
     for sin_sign in [1.0, -1.0] {
         let Some((v1_ms, v2_ms, orbit)) = solve_lambert_transfer_branch(
@@ -838,16 +843,52 @@ pub(crate) fn solve_lambert_transfer(
         let arrival_mean_anomaly = orbit.mean_anomaly_epoch + orbit.mean_motion * transfer_time_s;
         let propagated_arrival = orbit_position_from_mean_anomaly(&orbit, arrival_mean_anomaly);
         let arrival_error = (propagated_arrival - dest_pos_au).length();
-
-        match &mut best_solution {
-            Some((_, _, _, best_error)) if arrival_error >= *best_error => {}
-            slot => {
-                *slot = Some((v1_ms, v2_ms, orbit, arrival_error));
+        let angular_momentum = (origin_pos_au * AU_IN_METERS).cross(v1_ms);
+        let plane_alignment = if plane_normal_len_sq > 1e-18 {
+            angular_momentum.dot(plane_normal) / (angular_momentum.length() * plane_normal.length()).max(1e-12)
+        } else {
+            0.0
+        };
+        let total_speed = v1_ms.length() + v2_ms.length();
+        let replace = match &best_solution {
+            Some((_, _, _, best_error, best_alignment, best_speed, best_sign)) => {
+                if arrival_error + ARRIVAL_ERROR_TIE_EPS_AU < *best_error {
+                    true
+                } else if (arrival_error - *best_error).abs() <= ARRIVAL_ERROR_TIE_EPS_AU {
+                    if plane_alignment > *best_alignment + ALIGNMENT_TIE_EPS {
+                        true
+                    } else if (plane_alignment - *best_alignment).abs() <= ALIGNMENT_TIE_EPS {
+                        if total_speed + SPEED_TIE_EPS < *best_speed {
+                            true
+                        } else if (total_speed - *best_speed).abs() <= SPEED_TIE_EPS {
+                            sin_sign > *best_sign
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
             }
+            None => true,
+        };
+
+        if replace {
+            best_solution = Some((
+                v1_ms,
+                v2_ms,
+                orbit,
+                arrival_error,
+                plane_alignment,
+                total_speed,
+                sin_sign,
+            ));
         }
     }
 
-    best_solution.map(|(v1_ms, v2_ms, orbit, _)| (v1_ms, v2_ms, orbit))
+    best_solution.map(|(v1_ms, v2_ms, orbit, _, _, _, _)| (v1_ms, v2_ms, orbit))
 }
 
 fn fitted_cross_star_ballistic_options(
@@ -1941,6 +1982,28 @@ mod tests {
         assert!(options.iter().all(|option| option.transfer_orbit_override.is_some()));
         assert!(options[1].total_delta_v_ms > options[0].total_delta_v_ms);
         assert!(options[2].total_delta_v_ms > options[1].total_delta_v_ms);
+    }
+
+    #[test]
+    fn lambert_branch_selection_is_stable_for_small_endpoint_changes() {
+        let origin = DVec3::new(1.0, 0.0, 0.0);
+        let dest_a = DVec3::new(0.2, 1.4, 0.0);
+        let dest_b = DVec3::new(0.2001, 1.4, 0.0);
+        let tof_s = 220.0 * 86_400.0;
+
+        let (v1_a, _, _) = solve_lambert_transfer(origin, dest_a, tof_s, GM_SUN)
+            .expect("first Lambert solution should exist");
+        let (v1_b, _, _) = solve_lambert_transfer(origin, dest_b, tof_s, GM_SUN)
+            .expect("second Lambert solution should exist");
+
+        let h_a = (origin * AU_IN_METERS).cross(v1_a);
+        let h_b = (origin * AU_IN_METERS).cross(v1_b);
+        let plane_a = origin.cross(dest_a);
+        let plane_b = origin.cross(dest_b);
+
+        assert!(h_a.dot(plane_a) > 0.0);
+        assert!(h_b.dot(plane_b) > 0.0);
+        assert_eq!(h_a.z.signum(), h_b.z.signum());
     }
 
     #[test]

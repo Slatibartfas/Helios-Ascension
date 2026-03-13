@@ -234,6 +234,87 @@ fn transfer_absolute_velocity(
     Some(parent_velocity + local_velocity)
 }
 
+fn exact_star_centered_transfer_data(
+    reference_frame: TransferReferenceFrame,
+    orbit_center: Entity,
+    transfer_orbit: &KeplerOrbit,
+    gm: f64,
+    departure_time_s: f64,
+    arrival_time_s: f64,
+    is_local_transfer: bool,
+    body_query: &Query<(
+        Entity,
+        &CelestialBody,
+        &SpaceCoordinates,
+        Option<&KeplerOrbit>,
+        Option<&LogicalParent>,
+    )>,
+) -> Option<(
+    bevy::math::DVec3,
+    bevy::math::DVec3,
+    bevy::math::DVec3,
+    bevy::math::DVec3,
+)> {
+    if is_local_transfer || reference_frame.is_barycentric() {
+        return None;
+    }
+
+    let TransferReferenceFrame::Body(center_entity) = reference_frame else {
+        return None;
+    };
+    if center_entity != orbit_center {
+        return None;
+    }
+
+    let center_is_star = body_query
+        .get(center_entity)
+        .ok()
+        .map(|(_, body, _, _, _)| body.body_type == BodyType::Star)
+        .unwrap_or(false);
+    if !center_is_star {
+        return None;
+    }
+
+    let center_departure = transfer_absolute_position(center_entity, departure_time_s, body_query)
+        .unwrap_or(bevy::math::DVec3::ZERO);
+    let center_arrival = transfer_absolute_position(center_entity, arrival_time_s, body_query)
+        .unwrap_or(center_departure);
+    let center_departure_velocity =
+        transfer_absolute_velocity(center_entity, departure_time_s, body_query)
+            .unwrap_or(bevy::math::DVec3::ZERO);
+    let center_arrival_velocity = transfer_absolute_velocity(center_entity, arrival_time_s, body_query)
+        .unwrap_or(center_departure_velocity);
+
+    let start_mean_anomaly = transfer_orbit.mean_anomaly_epoch;
+    let end_mean_anomaly = start_mean_anomaly
+        + transfer_orbit.mean_motion * (arrival_time_s - departure_time_s).max(0.0);
+    let start_local = crate::astronomy::orbit_position_from_mean_anomaly(
+        transfer_orbit,
+        start_mean_anomaly,
+    );
+    let end_local = crate::astronomy::orbit_position_from_mean_anomaly(
+        transfer_orbit,
+        end_mean_anomaly,
+    );
+    let departure_local_velocity = crate::fleets::orbital_mechanics::keplerian_velocity_vector(
+        transfer_orbit,
+        start_mean_anomaly,
+        gm,
+    );
+    let arrival_local_velocity = crate::fleets::orbital_mechanics::keplerian_velocity_vector(
+        transfer_orbit,
+        end_mean_anomaly,
+        gm,
+    );
+
+    Some((
+        center_departure + start_local,
+        center_arrival + end_local,
+        center_departure_velocity + departure_local_velocity,
+        center_arrival_velocity + arrival_local_velocity,
+    ))
+}
+
 fn resolve_planner_transfer_frame(
     origin_entity: Entity,
     target_entity: Entity,
@@ -3679,15 +3760,17 @@ fn build_planned_transfer(
     // (DVec3::ZERO) for the transfer orbit geometry. Only use heliocentric position for
     // heliocentric transfers.
     // Cases: (1) Earth → Moon: dest_parent == Some(orbit.body), (2) Moon → Earth: Some(target_entity) == origin_parent
-    let is_local_transfer = dest_parent == Some(orbit.body) || Some(target_entity) == origin_parent;
-    let local_center_is_star = is_local_transfer
-        && matches!(reference_frame, TransferReferenceFrame::Body(center_entity)
-            if body_query
-                .get(center_entity)
-                .ok()
-                .map(|(_, b, _, _, _)| b.body_type == BodyType::Star)
-                .unwrap_or(false));
-    let future_resolved_transfer = reference_frame.is_barycentric();
+    let orbit_center_is_star = matches!(reference_frame, TransferReferenceFrame::Body(center_entity)
+        if body_query
+            .get(center_entity)
+            .ok()
+            .map(|(_, b, _, _, _)| b.body_type == BodyType::Star)
+            .unwrap_or(false));
+    let is_local_transfer = !orbit_center_is_star
+        && (dest_parent == Some(orbit.body) || Some(target_entity) == origin_parent);
+    let local_center_is_star = is_local_transfer && orbit_center_is_star;
+    let future_resolved_transfer = reference_frame.is_barycentric()
+        || (orbit_center_is_star && !is_local_transfer);
     let star_origin_departure_absolute = if origin_body.body_type == BodyType::Star {
         match reference_frame {
             TransferReferenceFrame::Body(center_entity) if center_entity == orbit.body => {
@@ -3992,6 +4075,21 @@ fn build_planned_transfer(
             })
         })
         .unwrap_or((None, None));
+
+    let exact_star_centered_data = exact_star_centered_transfer_data(
+        reference_frame,
+        orbit_center,
+        &transfer_orbit,
+        gm,
+        departure_time_s,
+        arrival_time_s,
+        is_local_transfer,
+        body_query,
+    );
+    let start_position_au = start_position_au.or(exact_star_centered_data.map(|data| data.0));
+    let end_position_au = end_position_au.or(exact_star_centered_data.map(|data| data.1));
+    let departure_velocity_ms = departure_velocity_ms.or(exact_star_centered_data.map(|data| data.2));
+    let arrival_velocity_ms = arrival_velocity_ms.or(exact_star_centered_data.map(|data| data.3));
 
     // Arrival orbit radius: for rings use the ring radius, otherwise reuse fleet parking radius
     let arrival_orbit_radius_au = if dest_is_ring {
@@ -4546,6 +4644,94 @@ mod tests {
         assert_eq!(planned.reference_frame, TransferReferenceFrame::Body(star));
         assert!((planned.transfer_orbit.inclination - origin_orbit.inclination).abs() < 1e-9);
         assert!((planned.transfer_orbit.longitude_ascending_node - origin_orbit.longitude_ascending_node).abs() < 1e-9);
+        assert!(planned.start_position_au.is_some());
+        assert!(planned.end_position_au.is_some());
+        assert!(planned.departure_velocity_ms.is_some());
+        assert!(planned.arrival_velocity_ms.is_some());
+    }
+
+    #[test]
+    fn build_planned_transfer_to_star_tracks_departure_epoch() {
+        let mut world = World::new();
+
+        let star = world
+            .spawn((
+                test_body("Star", BodyType::Star, 1.9e30, 700_000.0, 40.0),
+                SpaceCoordinates::new(DVec3::ZERO),
+                SystemId(7),
+            ))
+            .id();
+
+        let origin = world
+            .spawn((
+                test_body("Origin", BodyType::Planet, 5.97e24, 6_371.0, 12.0),
+                SpaceCoordinates::new(DVec3::new(1.2, 0.0, 0.0)),
+                KeplerOrbit::circular(1.2, 2.2e-7),
+                LogicalParent(star),
+                SystemId(7),
+            ))
+            .id();
+
+        let fleet = Fleet::new("Test Fleet".to_string());
+        let orbit = FleetOrbit::new(origin, 0.0001);
+        let option = TransferOption {
+            label: "Efficient",
+            total_delta_v_ms: 12_000.0,
+            delta_v1_ms: 6_000.0,
+            delta_v2_ms: 6_000.0,
+            transfer_time_s: 86_400.0 * 6.0,
+            sma_au: 0.9,
+            eccentricity: 0.45,
+            energy_multiplier: 1.0,
+            burn_time_s: 0.0,
+            plane_change_dv_ms: 0.0,
+            is_thrust_limited: false,
+            transfer_orbit_override: None,
+        };
+
+        let mut body_query_state = world.query::<(
+            Entity,
+            &CelestialBody,
+            &SpaceCoordinates,
+            Option<&KeplerOrbit>,
+            Option<&LogicalParent>,
+        )>();
+        let mut system_id_query_state = world.query::<&SystemId>();
+        let body_query = body_query_state.query(&world);
+        let system_id_query = system_id_query_state.query(&world);
+
+        let planned_now = build_planned_transfer(
+            Entity::PLACEHOLDER,
+            &fleet,
+            &orbit,
+            star,
+            0.0,
+            &body_query,
+            &option,
+            None,
+            &system_id_query,
+            7,
+        )
+        .expect("initial star transfer should build successfully");
+        let planned_later = build_planned_transfer(
+            Entity::PLACEHOLDER,
+            &fleet,
+            &orbit,
+            star,
+            86_400.0 * 20.0,
+            &body_query,
+            &option,
+            None,
+            &system_id_query,
+            7,
+        )
+        .expect("delayed star transfer should build successfully");
+
+        assert_ne!(
+            planned_now.transfer_orbit.argument_of_periapsis,
+            planned_later.transfer_orbit.argument_of_periapsis
+        );
+        assert_ne!(planned_now.start_position_au, planned_later.start_position_au);
     }
 
     #[test]

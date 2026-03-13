@@ -442,6 +442,10 @@ fn should_use_star_centered_transfer_preview(
         && planned_transfer.flyby_body.is_none()
 }
 
+fn should_use_exact_endpoint_bezier(reference_frame: TransferReferenceFrame) -> bool {
+    reference_frame.is_barycentric()
+}
+
 // ── Shared transfer-arc geometry ──────────────────────────────────────────────
 
 /// Computed Bezier control points for a transfer arc.
@@ -957,20 +961,37 @@ fn tangential_ring_arrival_point(
         } else {
             -tangent_ccw
         };
-        let score = if let Some(preferred) = preferred_radial {
+        let primary_score = if let Some(preferred) = preferred_radial {
             radial.dot(preferred)
         } else if direct_approach.length_squared() > 0.0 {
             inbound.dot(direct_approach)
         } else {
             inbound.dot(tang_dest)
         };
-        (score, tang_dest)
+        let secondary_score = if direct_approach.length_squared() > 0.0 {
+            inbound.dot(direct_approach)
+        } else {
+            inbound.dot(tang_dest)
+        };
+        (primary_score, secondary_score, tang_dest)
     };
 
-    let (score_a, tang_a) = evaluate_candidate(candidate_a);
-    let (score_b, tang_b) = evaluate_candidate(candidate_b);
+    let (score_a, secondary_a, tang_a) = evaluate_candidate(candidate_a);
+    let (score_b, secondary_b, tang_b) = evaluate_candidate(candidate_b);
 
-    let (p3, tang_dest) = if score_a >= score_b {
+    let primary_delta = score_a - score_b;
+    let secondary_delta = secondary_a - secondary_b;
+    let choose_a = if primary_delta.abs() > 1e-4 {
+        primary_delta > 0.0
+    } else if secondary_delta.abs() > 1e-4 {
+        secondary_delta > 0.0
+    } else if candidate_a.x != candidate_b.x {
+        candidate_a.x > candidate_b.x
+    } else {
+        candidate_a.y >= candidate_b.y
+    };
+
+    let (p3, tang_dest) = if choose_a {
         (candidate_a, tang_a)
     } else {
         (candidate_b, tang_b)
@@ -1170,8 +1191,34 @@ mod tests {
         assert!(geo.eval(1.0).distance(end) < 1e-4);
         assert!(geo.eval(0.5).is_finite());
     }
+
+    #[test]
+    fn exact_endpoint_bezier_is_reserved_for_barycentric_routes() {
+        assert!(super::should_use_exact_endpoint_bezier(
+            TransferReferenceFrame::SystemBarycentric
+        ));
+        assert!(!super::should_use_exact_endpoint_bezier(
+            TransferReferenceFrame::Body(bevy::prelude::Entity::from_bits(9))
+        ));
+    }
 }
 
+
+        #[test]
+        fn tangential_arrival_tie_break_is_stable() {
+            let source_a = Vec3::new(-8.0, 2.0000, 0.0);
+            let source_b = Vec3::new(-8.0, 2.0001, 0.0);
+            let center = Vec3::ZERO;
+            let ring_r = 2.0;
+            let preferred = Some(Vec3::X);
+
+            let (point_a, _) = tangential_ring_arrival_point(source_a, center, ring_r, preferred)
+                .expect("first tangent point should exist");
+            let (point_b, _) = tangential_ring_arrival_point(source_b, center, ring_r, preferred)
+                .expect("second tangent point should exist");
+
+            assert!(point_a.y.signum() == point_b.y.signum());
+        }
 // ── Gravity-assist arc geometry ──────────────────────────────────────────────
 
 /// Computed two-leg Bezier geometry for a gravity-assist slingshot trajectory.
@@ -2986,6 +3033,7 @@ pub fn update_fleet_transforms(
                         .unwrap_or(false);
 
                     if center_is_star
+                        && should_use_exact_endpoint_bezier(maneuver.reference_frame)
                         && maneuver.departure_velocity_ms.is_some()
                         && maneuver.arrival_velocity_ms.is_some()
                         && maneuver.start_position_au.is_some()
@@ -3783,7 +3831,8 @@ pub fn draw_fleet_transfer_preview(
     if preview_center_is_star {
         if let Some(pt) = planned_transfer {
             let total_ma_travel = pt.transfer_orbit.mean_motion * pt.duration_s;
-            if pt.departure_velocity_ms.is_some()
+            if should_use_exact_endpoint_bezier(pt.reference_frame)
+                && pt.departure_velocity_ms.is_some()
                 && pt.arrival_velocity_ms.is_some()
                 && pt.start_position_au.is_some()
                 && pt.end_position_au.is_some()
