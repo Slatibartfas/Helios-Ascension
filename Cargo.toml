@@ -1,8 +1,8 @@
 [package]
 name = "helios_ascension"
-version = "0.1.0"
+version = "0.4.0"
 edition = "2021"
-authors = ["Helios Development Team"]
+authors = ["Alexander Klingspor"]
 description = "A 4X Grand Strategy game with realistic orbital mechanics"
 license = "MIT"
 

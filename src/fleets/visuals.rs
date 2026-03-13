@@ -838,11 +838,12 @@ fn compute_transfer_arc(
     let radial_dest_raw = dp - cv_ref;
     let radial_dest = if radial_dest_raw.length() > 1.0 {
         radial_dest_raw.normalize()
-    } else if dp.length() > 0.1 {
-        // cv_ref ≈ dp (heliocentric: orbit_center = target planet itself).
-        // In System view the star is always at Vec3::ZERO, so dp IS the orbital
-        // radial from the star to the body.
-        dp.normalize()
+    } else if (p0 - cv_ref).length() > 0.1 {
+        // When the destination is the orbit centre itself (for example a transfer
+        // into a star-centred parking ring), there is no body radial at `dp`.
+        // Use the centre-to-source direction so the arrival side remains stable
+        // even when the whole system is translated away from world origin.
+        (p0 - cv_ref).normalize()
     } else {
         (dp - op).normalize_or_zero()
     };
@@ -1086,6 +1087,39 @@ mod tests {
         let chord_mid = (geo.p0 + geo.p3) * 0.5;
 
         assert!(curve_mid.distance(chord_mid) > 0.5);
+    }
+
+    #[test]
+    fn inward_star_arrival_is_translation_invariant() {
+        let base_origin = Vec3::new(12.0, 1.0, 0.0);
+        let base_dest = Vec3::ZERO;
+        let offset = Vec3::new(37.0, -19.0, 0.0);
+
+        let base = compute_transfer_arc(
+            base_origin,
+            base_dest,
+            0.6,
+            1.8,
+            false,
+            true,
+            false,
+            Vec3::ZERO,
+        );
+        let shifted = compute_transfer_arc(
+            base_origin + offset,
+            base_dest + offset,
+            0.6,
+            1.8,
+            false,
+            true,
+            false,
+            offset,
+        );
+
+        assert!(shifted.p0.distance(base.p0 + offset) < 1e-4);
+        assert!(shifted.p1.distance(base.p1 + offset) < 1e-4);
+        assert!(shifted.p2.distance(base.p2 + offset) < 1e-4);
+        assert!(shifted.p3.distance(base.p3 + offset) < 1e-4);
     }
 
     #[test]
@@ -2017,6 +2051,39 @@ pub fn draw_fleet_trajectories(
                     .map(|(_, body, _)| body.body_type == BodyType::Star)
                     .unwrap_or(false);
 
+                if center_is_star
+                    && maneuver.departure_velocity_ms.is_some()
+                    && maneuver.arrival_velocity_ms.is_some()
+                    && maneuver.start_position_au.is_some()
+                    && maneuver.end_position_au.is_some()
+                {
+                    let total_ma_travel = maneuver.transfer_orbit.mean_motion
+                        * (maneuver.arrival_time - maneuver.departure_time);
+                    let geo = compute_barycentric_visual_arc(
+                        &maneuver.transfer_orbit,
+                        op,
+                        dp_absolute,
+                        total_ma_travel,
+                        maneuver.departure_velocity_ms,
+                        maneuver.arrival_velocity_ms,
+                    );
+                    let mut prev: Option<Vec3> = Some(geo.eval(progress_t));
+                    for i in 0..=SEGMENTS {
+                        let t_frac = i as f32 / SEGMENTS as f32;
+                        if t_frac <= progress_t {
+                            continue;
+                        }
+                        let pos = geo.eval(t_frac);
+                        if let Some(prev_pos) = prev {
+                            gizmos.line(prev_pos, pos, traj_color(t_frac));
+                        }
+                        prev = Some(pos);
+                    }
+
+                    draw_ghost_body(&mut gizmos, dp_absolute, dest_ring_r, dest_visual_r, false);
+                    continue;
+                }
+
                 let sampled_dest = if center_is_star { dp_absolute } else { dp };
 
                 let visual_points = if center_is_star {
@@ -2918,6 +2985,32 @@ pub fn update_fleet_transforms(
                         .map(|(_, body, _)| body.body_type == BodyType::Star)
                         .unwrap_or(false);
 
+                    if center_is_star
+                        && maneuver.departure_velocity_ms.is_some()
+                        && maneuver.arrival_velocity_ms.is_some()
+                        && maneuver.start_position_au.is_some()
+                        && maneuver.end_position_au.is_some()
+                    {
+                        let total_ma_travel = maneuver.transfer_orbit.mean_motion
+                            * (maneuver.arrival_time - maneuver.departure_time);
+                        let geo = compute_barycentric_visual_arc(
+                            &maneuver.transfer_orbit,
+                            op,
+                            dp_absolute,
+                            total_ma_travel,
+                            maneuver.departure_velocity_ms,
+                            maneuver.arrival_velocity_ms,
+                        );
+                        transform.translation = geo.eval(maneuver.progress(elapsed) as f32);
+
+                        let inside_origin = transform.translation.distance(op) < origin_ring_r;
+                        let inside_dest = transform.translation.distance(dp_absolute) < dest_ring_r;
+                        if inside_origin || inside_dest {
+                            *vis = Visibility::Hidden;
+                        }
+                        continue;
+                    }
+
                     let sampled_dest = if center_is_star { dp_absolute } else { dp };
 
                     let visual_points = if center_is_star {
@@ -3690,6 +3783,28 @@ pub fn draw_fleet_transfer_preview(
     if preview_center_is_star {
         if let Some(pt) = planned_transfer {
             let total_ma_travel = pt.transfer_orbit.mean_motion * pt.duration_s;
+            if pt.departure_velocity_ms.is_some()
+                && pt.arrival_velocity_ms.is_some()
+                && pt.start_position_au.is_some()
+                && pt.end_position_au.is_some()
+            {
+                let geo = compute_barycentric_visual_arc(
+                    &pt.transfer_orbit,
+                    op,
+                    dp_absolute,
+                    total_ma_travel,
+                    pt.departure_velocity_ms,
+                    pt.arrival_velocity_ms,
+                );
+                draw_dashed_curve(
+                    &mut gizmos,
+                    |t| geo.eval(t),
+                    24,
+                    |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+                );
+                draw_ghost_body(&mut gizmos, dp_absolute, dest_ring_r, dest_visual_r, false);
+                return;
+            }
             let visual_points = build_visual_sampled_transfer_polyline_moving_center(
                 &pt.transfer_orbit,
                 pt.orbit_center,

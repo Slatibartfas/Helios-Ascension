@@ -119,6 +119,72 @@ fn transfer_absolute_position(
     }
 }
 
+fn star_frame_reference_orbit(
+    body_entity: Entity,
+    parent_entity: Option<Entity>,
+    body_query: &Query<(
+        Entity,
+        &CelestialBody,
+        &SpaceCoordinates,
+        Option<&KeplerOrbit>,
+        Option<&LogicalParent>,
+    )>,
+) -> Option<KeplerOrbit> {
+    let own_orbit = body_query
+        .get(body_entity)
+        .ok()
+        .and_then(|(_, _, _, ko, _)| ko.copied());
+
+    if own_orbit
+        .map(|orbit| orbit.semi_major_axis >= MIN_HELIOCENTRIC_SMA_AU)
+        .unwrap_or(false)
+    {
+        return own_orbit;
+    }
+
+    parent_entity
+        .and_then(|parent| body_query.get(parent).ok())
+        .and_then(|(_, _, _, ko, _)| ko.copied())
+        .or(own_orbit)
+}
+
+fn transfer_plane_from_reference_orbit(
+    reference_orbit: &KeplerOrbit,
+    departure_rel: bevy::math::DVec3,
+    outward: bool,
+) -> Option<(f64, f64, f64)> {
+    let peri_dir = departure_rel.normalize_or_zero();
+    if peri_dir.length_squared() <= 1e-20 {
+        return None;
+    }
+
+    let inclination = reference_orbit.inclination;
+    let lan = reference_orbit.longitude_ascending_node;
+    let sin_i = inclination.sin();
+    let normal = bevy::math::DVec3::new(sin_i * lan.sin(), -sin_i * lan.cos(), inclination.cos());
+    let node_xy = bevy::math::DVec3::new(lan.cos(), lan.sin(), 0.0);
+    let node_len = node_xy.length();
+
+    let argument_of_periapsis = if node_len > 1e-20 {
+        let node = node_xy / node_len;
+        let departure_argument = normal.dot(node.cross(peri_dir)).atan2(node.dot(peri_dir));
+        if outward {
+            departure_argument
+        } else {
+            departure_argument + std::f64::consts::PI
+        }
+    } else {
+        let departure_angle = peri_dir.y.atan2(peri_dir.x);
+        if outward {
+            departure_angle
+        } else {
+            departure_angle - std::f64::consts::PI
+        }
+    };
+
+    Some((inclination, lan, argument_of_periapsis))
+}
+
 fn transfer_absolute_velocity(
     entity: Entity,
     sim_time_s: f64,
@@ -3747,7 +3813,7 @@ fn build_planned_transfer(
     let plane_normal = rel_pos.cross(dest_rel);
     let plane_normal_len = plane_normal.length();
 
-    let (transfer_inclination, transfer_lan, argument_of_periapsis) = if plane_normal_len > 1e-20 {
+    let default_transfer_plane = if plane_normal_len > 1e-20 {
         let n = plane_normal / plane_normal_len;
         // i = angle between plane normal and ecliptic north (Ẑ).
         let incl = n.z.clamp(-1.0, 1.0).acos();
@@ -3793,6 +3859,20 @@ fn build_planned_transfer(
         (0.0, 0.0, aop)
     };
 
+    let star_endpoint_reference_orbit = if dest_is_star {
+        star_frame_reference_orbit(orbit.body, origin_parent, body_query)
+    } else if origin_body.body_type == BodyType::Star {
+        star_frame_reference_orbit(target_entity, dest_parent, body_query)
+    } else {
+        None
+    };
+
+    let (transfer_inclination, transfer_lan, argument_of_periapsis) = star_endpoint_reference_orbit
+        .and_then(|reference_orbit| {
+            transfer_plane_from_reference_orbit(&reference_orbit, rel_pos, outward)
+        })
+        .unwrap_or(default_transfer_plane);
+
     let same_star_stellar_lambert = matches!(reference_frame,
         TransferReferenceFrame::Body(center_entity)
             if body_query
@@ -3805,7 +3885,7 @@ fn build_planned_transfer(
             && !option.label.contains("Direct")
     );
 
-    let lambert_same_star_orbit = if same_star_stellar_lambert {
+    let lambert_same_star_solution = if same_star_stellar_lambert {
         if let TransferReferenceFrame::Body(center_entity) = reference_frame {
             let center_departure = transfer_absolute_position(center_entity, departure_time_s, body_query)
                 .unwrap_or(bevy::math::DVec3::ZERO);
@@ -3825,13 +3905,13 @@ fn build_planned_transfer(
                 - center_arrival;
 
             solve_lambert_transfer(origin_departure, destination_arrival, option.transfer_time_s, gm)
-                .map(|(_, _, orbit)| orbit)
         } else {
             None
         }
     } else {
         None
     };
+    let lambert_same_star_orbit = lambert_same_star_solution.map(|(_, _, orbit)| orbit);
 
     let barycentric_start_end = if reference_frame.is_barycentric() {
         let origin_future = transfer_absolute_position(orbit.body, departure_time_s, body_query)
@@ -3895,9 +3975,22 @@ fn build_planned_transfer(
         .map(|(departure_velocity, arrival_velocity, _)| {
             (Some(departure_velocity), Some(arrival_velocity))
         })
+        .or_else(|| {
+            lambert_same_star_solution.map(|(departure_velocity, arrival_velocity, _)| {
+                (Some(departure_velocity), Some(arrival_velocity))
+            })
+        })
         .unwrap_or((None, None));
     let (start_position_au, end_position_au) = barycentric_start_end
         .map(|(start_position, end_position)| (Some(start_position), Some(end_position)))
+        .or_else(|| {
+            lambert_same_star_solution.map(|_| {
+                (
+                    transfer_absolute_position(orbit.body, departure_time_s, body_query),
+                    transfer_absolute_position(target_entity, arrival_time_s, body_query),
+                )
+            })
+        })
         .unwrap_or((None, None));
 
     // Arrival orbit radius: for rings use the ring radius, otherwise reuse fleet parking radius
@@ -4382,5 +4475,241 @@ mod tests {
             planned.transfer_orbit.mean_anomaly_epoch,
         );
         assert!(departure_pos.length() > orbit.radius_au * 0.5);
+    }
+
+    #[test]
+    fn build_planned_transfer_to_star_preserves_origin_orbital_plane() {
+        let mut world = World::new();
+
+        let star = world
+            .spawn((
+                test_body("Star", BodyType::Star, 1.9e30, 700_000.0, 40.0),
+                SpaceCoordinates::new(DVec3::new(11.0, -7.0, 3.0)),
+                SystemId(7),
+            ))
+            .id();
+
+        let origin_orbit = KeplerOrbit::new(0.08, 1.6, 0.72, 0.91, 0.35, 0.44, 1.2e-7);
+        let origin_pos = orbit_position_from_mean_anomaly(&origin_orbit, origin_orbit.mean_anomaly_epoch);
+        let origin = world
+            .spawn((
+                test_body("Origin", BodyType::Planet, 5.97e24, 6_371.0, 12.0),
+                SpaceCoordinates::new(DVec3::new(11.0, -7.0, 3.0) + origin_pos),
+                origin_orbit,
+                LogicalParent(star),
+                SystemId(7),
+            ))
+            .id();
+
+        let fleet = Fleet::new("Test Fleet".to_string());
+        let orbit = FleetOrbit::new(origin, 0.0001);
+        let option = TransferOption {
+            label: "Efficient",
+            total_delta_v_ms: 12_000.0,
+            delta_v1_ms: 6_000.0,
+            delta_v2_ms: 6_000.0,
+            transfer_time_s: 86_400.0 * 6.0,
+            sma_au: 0.9,
+            eccentricity: 0.45,
+            energy_multiplier: 1.0,
+            burn_time_s: 0.0,
+            plane_change_dv_ms: 0.0,
+            is_thrust_limited: false,
+            transfer_orbit_override: None,
+        };
+
+        let mut body_query_state = world.query::<(
+            Entity,
+            &CelestialBody,
+            &SpaceCoordinates,
+            Option<&KeplerOrbit>,
+            Option<&LogicalParent>,
+        )>();
+        let mut system_id_query_state = world.query::<&SystemId>();
+        let body_query = body_query_state.query(&world);
+        let system_id_query = system_id_query_state.query(&world);
+
+        let planned = build_planned_transfer(
+            Entity::PLACEHOLDER,
+            &fleet,
+            &orbit,
+            star,
+            0.0,
+            &body_query,
+            &option,
+            None,
+            &system_id_query,
+            7,
+        )
+        .expect("star-destination transfer should build successfully");
+
+        assert_eq!(planned.reference_frame, TransferReferenceFrame::Body(star));
+        assert!((planned.transfer_orbit.inclination - origin_orbit.inclination).abs() < 1e-9);
+        assert!((planned.transfer_orbit.longitude_ascending_node - origin_orbit.longitude_ascending_node).abs() < 1e-9);
+    }
+
+    #[test]
+    fn build_planned_transfer_from_star_preserves_destination_orbital_plane() {
+        let mut world = World::new();
+
+        let star = world
+            .spawn((
+                test_body("Star", BodyType::Star, 1.9e30, 700_000.0, 40.0),
+                SpaceCoordinates::new(DVec3::new(-5.0, 2.0, -1.0)),
+                SystemId(7),
+            ))
+            .id();
+
+        let destination_orbit = KeplerOrbit::new(0.04, 1.9, 0.63, 1.14, 0.2, 0.51, 1.1e-7);
+        let destination_pos = orbit_position_from_mean_anomaly(
+            &destination_orbit,
+            destination_orbit.mean_anomaly_epoch,
+        );
+        let destination = world
+            .spawn((
+                test_body("Destination", BodyType::Planet, 6.4e24, 6_800.0, 13.0),
+                SpaceCoordinates::new(DVec3::new(-5.0, 2.0, -1.0) + destination_pos),
+                destination_orbit,
+                LogicalParent(star),
+                SystemId(7),
+            ))
+            .id();
+
+        let fleet = Fleet::new("Test Fleet".to_string());
+        let mut orbit = FleetOrbit::new(star, 0.08);
+        orbit.angle_rad = 0.35;
+
+        let option = TransferOption {
+            label: "Efficient",
+            total_delta_v_ms: 12_000.0,
+            delta_v1_ms: 6_000.0,
+            delta_v2_ms: 6_000.0,
+            transfer_time_s: 86_400.0 * 4.0,
+            sma_au: 1.0,
+            eccentricity: 0.5,
+            energy_multiplier: 1.0,
+            burn_time_s: 0.0,
+            plane_change_dv_ms: 0.0,
+            is_thrust_limited: false,
+            transfer_orbit_override: None,
+        };
+
+        let mut body_query_state = world.query::<(
+            Entity,
+            &CelestialBody,
+            &SpaceCoordinates,
+            Option<&KeplerOrbit>,
+            Option<&LogicalParent>,
+        )>();
+        let mut system_id_query_state = world.query::<&SystemId>();
+        let body_query = body_query_state.query(&world);
+        let system_id_query = system_id_query_state.query(&world);
+
+        let planned = build_planned_transfer(
+            Entity::PLACEHOLDER,
+            &fleet,
+            &orbit,
+            destination,
+            0.0,
+            &body_query,
+            &option,
+            None,
+            &system_id_query,
+            7,
+        )
+        .expect("star-origin transfer should build successfully");
+
+        assert_eq!(planned.reference_frame, TransferReferenceFrame::Body(star));
+        assert!((planned.transfer_orbit.inclination - destination_orbit.inclination).abs() < 1e-9);
+        assert!((planned.transfer_orbit.longitude_ascending_node - destination_orbit.longitude_ascending_node).abs() < 1e-9);
+    }
+
+    #[test]
+    fn build_planned_transfer_same_star_lambert_carries_exact_endpoint_data() {
+        let mut world = World::new();
+
+        let star = world
+            .spawn((
+                test_body("Star", BodyType::Star, 1.9e30, 700_000.0, 40.0),
+                SpaceCoordinates::new(DVec3::new(4.0, -3.0, 2.0)),
+                SystemId(7),
+            ))
+            .id();
+
+        let origin_orbit = KeplerOrbit::new(0.0, 1.3, 0.47, 0.82, 0.33, 0.21, 0.0);
+        let destination_orbit = KeplerOrbit::new(0.0, 2.4, 0.47, 0.82, 0.33, 1.12, 0.0);
+        let origin_pos = orbit_position_from_mean_anomaly(&origin_orbit, origin_orbit.mean_anomaly_epoch);
+        let destination_pos = orbit_position_from_mean_anomaly(
+            &destination_orbit,
+            destination_orbit.mean_anomaly_epoch,
+        );
+
+        let origin = world
+            .spawn((
+                test_body("Origin", BodyType::Planet, 5.97e24, 6_371.0, 12.0),
+                SpaceCoordinates::new(DVec3::new(4.0, -3.0, 2.0) + origin_pos),
+                origin_orbit,
+                LogicalParent(star),
+                SystemId(7),
+            ))
+            .id();
+        let destination = world
+            .spawn((
+                test_body("Destination", BodyType::Planet, 6.4e24, 6_800.0, 13.0),
+                SpaceCoordinates::new(DVec3::new(4.0, -3.0, 2.0) + destination_pos),
+                destination_orbit,
+                LogicalParent(star),
+                SystemId(7),
+            ))
+            .id();
+
+        let fleet = Fleet::new("Test Fleet".to_string());
+        let orbit = FleetOrbit::new(origin, 0.0001);
+        let transfer_time_s = 86_400.0 * 220.0;
+        let option = TransferOption {
+            label: "Efficient",
+            total_delta_v_ms: 12_000.0,
+            delta_v1_ms: 6_000.0,
+            delta_v2_ms: 6_000.0,
+            transfer_time_s,
+            sma_au: 1.8,
+            eccentricity: 0.3,
+            energy_multiplier: 1.0,
+            burn_time_s: 0.0,
+            plane_change_dv_ms: 0.0,
+            is_thrust_limited: false,
+            transfer_orbit_override: None,
+        };
+
+        let mut body_query_state = world.query::<(
+            Entity,
+            &CelestialBody,
+            &SpaceCoordinates,
+            Option<&KeplerOrbit>,
+            Option<&LogicalParent>,
+        )>();
+        let mut system_id_query_state = world.query::<&SystemId>();
+        let body_query = body_query_state.query(&world);
+        let system_id_query = system_id_query_state.query(&world);
+
+        let planned = build_planned_transfer(
+            Entity::PLACEHOLDER,
+            &fleet,
+            &orbit,
+            destination,
+            0.0,
+            &body_query,
+            &option,
+            None,
+            &system_id_query,
+            7,
+        )
+        .expect("same-star transfer should build successfully");
+
+        assert!(planned.preserve_orbit_geometry);
+        assert!(planned.start_position_au.is_some());
+        assert!(planned.end_position_au.is_some());
+        assert!(planned.departure_velocity_ms.is_some());
+        assert!(planned.arrival_velocity_ms.is_some());
     }
 }

@@ -8,7 +8,7 @@ use super::components::{
     LocalOrbitAmplification, OrbitCenter, OrbitPath, Selected, SpaceCoordinates, SystemId,
 };
 use crate::plugins::camera::{CameraAnchor, GameCamera, ViewMode};
-use crate::plugins::solar_system::{CelestialBody, Comet, LogicalParent, Moon, Planet};
+use crate::plugins::solar_system::{CelestialBody, Comet, LogicalParent, Moon, Planet, Star};
 use crate::plugins::solar_system_data::BodyType;
 use crate::ui::{SimulationTime, TimeScale};
 
@@ -150,9 +150,12 @@ fn eccentric_to_true_anomaly(eccentric_anomaly: f64, eccentricity: f64) -> f64 {
     // Clamp eccentricity to keep the sqrt term valid (1-e must be > 0)
     let e = eccentricity.min(MAX_ELLIPTICAL_ECCENTRICITY);
 
-    // Calculate true anomaly using the formula
-    let sqrt_term = ((1.0 + e) / (1.0 - e)).sqrt();
-    2.0 * (sqrt_term * (eccentric_anomaly / 2.0).tan()).atan()
+    // Recover the correct quadrant with atan2; a plain atan folds angles back
+    // into (-pi, pi) and breaks transfers that propagate past apoapsis.
+    let denom = 1.0 - e * eccentric_anomaly.cos();
+    let cos_nu = ((eccentric_anomaly.cos() - e) / denom).clamp(-1.0, 1.0);
+    let sin_nu = ((1.0 - e * e).max(0.0)).sqrt() * eccentric_anomaly.sin() / denom;
+    sin_nu.atan2(cos_nu)
 }
 
 /// Calculate the orbital radius at a given true anomaly
@@ -1441,6 +1444,7 @@ pub fn update_orbit_visibility(
         &mut OrbitPath,
         Option<&Selected>,
         Option<&Planet>,
+        Option<&Star>,
         Option<&Moon>,
         Option<&LogicalParent>,
         Option<&CelestialBody>,
@@ -1510,7 +1514,7 @@ pub fn update_orbit_visibility(
         }
     }
 
-    for (entity, mut orbit_path, selected, planet, moon, logical_parent, celestial_body) in
+    for (entity, mut orbit_path, selected, planet, star, moon, logical_parent, celestial_body) in
         orbit_query.iter_mut()
     {
         // Hide all orbits in starmap view
@@ -1522,8 +1526,8 @@ pub fn update_orbit_visibility(
         if selected.is_some() {
             // Selected bodies always show their orbit
             orbit_path.visible = true;
-        } else if planet.is_some() {
-            // Planets always show their orbit
+        } else if planet.is_some() || star.is_some() {
+            // Planets and orbiting stars always show their orbit.
             orbit_path.visible = true;
         } else if moon.is_some() {
             let parent_entity = logical_parent.map(|lp| lp.0);
@@ -1866,6 +1870,37 @@ mod tests {
         assert!((star_pos - DVec3::new(12.0, 0.0, 0.0)).length() < 1e-10);
         assert!((planet_pos - DVec3::new(12.0, 0.5, 0.0)).length() < 1e-10);
         assert!((moon_pos - DVec3::new(11.9, 0.5, 0.0)).length() < 1e-10);
+    }
+
+    #[test]
+    fn test_update_orbit_visibility_keeps_orbiting_star_paths_visible() {
+        let mut app = App::new();
+        app.init_resource::<ViewMode>();
+        app.init_resource::<crate::ui::FleetUiState>();
+        app.init_resource::<crate::ui::ExpandedLedgerGroups>();
+        app.add_systems(Update, update_orbit_visibility);
+
+        app.world_mut().spawn((GameCamera, CameraAnchor(None)));
+
+        let star = app
+            .world_mut()
+            .spawn((
+                Star,
+                OrbitPath {
+                    color: Color::WHITE,
+                    visible: false,
+                    segments: 128,
+                    fade_exponent: 1.8,
+                },
+            ))
+            .id();
+
+        app.update();
+
+        assert!(
+            app.world().get::<OrbitPath>(star).unwrap().visible,
+            "orbiting stars should keep their orbit path visible like planets"
+        );
     }
 
     #[test]

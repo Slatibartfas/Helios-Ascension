@@ -1459,6 +1459,11 @@ pub fn setup_solar_system(
             // Determine orbit color and visibility based on body type
             // Orbit trail colors with higher alpha for bright trail heads
             let (orbit_color, should_show) = match body_data.body_type {
+                BodyType::Star => {
+                    // Orbiting stars in binary/trinary systems should always show
+                    // the same fading partial-orbit treatment as planets.
+                    (Color::srgba(1.0, 0.82, 0.5, 0.82), true)
+                }
                 BodyType::Planet | BodyType::GasGiant => {
                     // Planets & gas/ice giants: lighter blue
                     (Color::srgba(0.4, 0.75, 1.0, 0.85), true)
@@ -1481,7 +1486,6 @@ pub fn setup_solar_system(
                     (Color::srgba(1.0, 0.8, 0.3, 0.65), false)
                 }
                 BodyType::Ring => (Color::srgba(0.0, 0.0, 0.0, 0.0), false),
-                _ => (Color::srgba(0.5, 0.5, 0.5, 0.4), false),
             };
 
             // Asteroids get a steep fade to avoid thick ring buildup at high speed

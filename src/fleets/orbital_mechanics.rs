@@ -3,7 +3,7 @@
 //! Provides Hohmann transfer computations, multi-option transfer planning,
 //! and the Tsiolkovsky rocket equation for fuel estimation.
 
-use crate::astronomy::KeplerOrbit;
+use crate::astronomy::{orbit_position_from_mean_anomaly, KeplerOrbit};
 use bevy::math::DVec3;
 
 /// Gravitational parameter of the Sun (m³ s⁻²)
@@ -664,6 +664,7 @@ fn orbit_from_state_vectors(r_au: DVec3, v_ms: DVec3, gm: f64) -> Option<KeplerO
     let inclination = (h_vec.z / h_norm).clamp(-1.0, 1.0).acos();
     let node_vec = DVec3::new(-h_vec.y, h_vec.x, 0.0);
     let node_norm = node_vec.length();
+    let h_hat = h_vec / h_norm;
     let longitude_ascending_node = if node_norm > 1e-12 {
         node_vec.y.atan2(node_vec.x).rem_euclid(TAU)
     } else {
@@ -672,29 +673,20 @@ fn orbit_from_state_vectors(r_au: DVec3, v_ms: DVec3, gm: f64) -> Option<KeplerO
 
     let argument_of_periapsis = if node_norm > 1e-12 && eccentricity > 1e-10 {
         let cos_w = (node_vec.dot(e_vec) / (node_norm * eccentricity)).clamp(-1.0, 1.0);
-        let mut omega = cos_w.acos();
-        if e_vec.z < 0.0 {
-            omega = TAU - omega;
-        }
-        omega
+        let sin_w = node_vec.cross(e_vec).dot(h_hat) / (node_norm * eccentricity);
+        sin_w.atan2(cos_w).rem_euclid(TAU)
     } else {
         e_vec.y.atan2(e_vec.x).rem_euclid(TAU)
     };
 
     let true_anomaly = if eccentricity > 1e-10 {
         let cos_nu = (e_vec.dot(r_m) / (eccentricity * r_norm)).clamp(-1.0, 1.0);
-        let mut nu = cos_nu.acos();
-        if r_m.dot(v_ms) < 0.0 {
-            nu = TAU - nu;
-        }
-        nu
+        let sin_nu = e_vec.cross(r_m).dot(h_hat) / (eccentricity * r_norm);
+        sin_nu.atan2(cos_nu).rem_euclid(TAU)
     } else if node_norm > 1e-12 {
         let cos_u = (node_vec.dot(r_m) / (node_norm * r_norm)).clamp(-1.0, 1.0);
-        let mut u = cos_u.acos();
-        if r_m.z < 0.0 {
-            u = TAU - u;
-        }
-        u
+        let sin_u = node_vec.cross(r_m).dot(h_hat) / (node_norm * r_norm);
+        sin_u.atan2(cos_u).rem_euclid(TAU)
     } else {
         r_m.y.atan2(r_m.x).rem_euclid(TAU)
     };
@@ -713,11 +705,12 @@ fn orbit_from_state_vectors(r_au: DVec3, v_ms: DVec3, gm: f64) -> Option<KeplerO
     })
 }
 
-pub(crate) fn solve_lambert_transfer(
+fn solve_lambert_transfer_branch(
     origin_pos_au: DVec3,
     dest_pos_au: DVec3,
     transfer_time_s: f64,
     system_gm: f64,
+    sin_sign: f64,
 ) -> Option<(DVec3, DVec3, KeplerOrbit)> {
     let r1_vec = origin_pos_au * AU_IN_METERS;
     let r2_vec = dest_pos_au * AU_IN_METERS;
@@ -728,8 +721,8 @@ pub(crate) fn solve_lambert_transfer(
     }
 
     let cos_dtheta = (r1_vec.dot(r2_vec) / (r1_m * r2_m)).clamp(-1.0, 1.0);
-    let sin_dtheta = (r1_vec.cross(r2_vec).length() / (r1_m * r2_m)).clamp(0.0, 1.0);
-    if (1.0 - cos_dtheta).abs() < 1e-10 || sin_dtheta <= 1e-10 {
+    let sin_dtheta = sin_sign * (r1_vec.cross(r2_vec).length() / (r1_m * r2_m)).clamp(0.0, 1.0);
+    if (1.0 - cos_dtheta).abs() < 1e-10 || sin_dtheta.abs() <= 1e-10 {
         return None;
     }
 
@@ -821,6 +814,40 @@ pub(crate) fn solve_lambert_transfer(
 
     let orbit = orbit_from_state_vectors(origin_pos_au, v1_ms, system_gm)?;
     Some((v1_ms, v2_ms, orbit))
+}
+
+pub(crate) fn solve_lambert_transfer(
+    origin_pos_au: DVec3,
+    dest_pos_au: DVec3,
+    transfer_time_s: f64,
+    system_gm: f64,
+) -> Option<(DVec3, DVec3, KeplerOrbit)> {
+    let mut best_solution: Option<(DVec3, DVec3, KeplerOrbit, f64)> = None;
+
+    for sin_sign in [1.0, -1.0] {
+        let Some((v1_ms, v2_ms, orbit)) = solve_lambert_transfer_branch(
+            origin_pos_au,
+            dest_pos_au,
+            transfer_time_s,
+            system_gm,
+            sin_sign,
+        ) else {
+            continue;
+        };
+
+        let arrival_mean_anomaly = orbit.mean_anomaly_epoch + orbit.mean_motion * transfer_time_s;
+        let propagated_arrival = orbit_position_from_mean_anomaly(&orbit, arrival_mean_anomaly);
+        let arrival_error = (propagated_arrival - dest_pos_au).length();
+
+        match &mut best_solution {
+            Some((_, _, _, best_error)) if arrival_error >= *best_error => {}
+            slot => {
+                *slot = Some((v1_ms, v2_ms, orbit, arrival_error));
+            }
+        }
+    }
+
+    best_solution.map(|(v1_ms, v2_ms, orbit, _)| (v1_ms, v2_ms, orbit))
 }
 
 fn fitted_cross_star_ballistic_options(

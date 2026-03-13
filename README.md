@@ -100,7 +100,7 @@ The game now has fully functional colony management, economy, research, interste
 
 ## System Requirements
 
-### Linux
+### Linux (Debian / Ubuntu)
 ```bash
 # Required for running the game with graphics
 sudo apt-get install libwayland-dev libxkbcommon-dev libvulkan-dev libasound2-dev libudev-dev
@@ -108,6 +108,27 @@ sudo apt-get install libwayland-dev libxkbcommon-dev libvulkan-dev libasound2-de
 # Required for optimized build performance (LLD linker)
 # Without this, builds will fail on Linux due to .cargo/config.toml configuration
 sudo apt-get install lld clang
+```
+
+### Linux (Arch / Arch-based)
+```bash
+# Required for running the game with graphics
+sudo pacman -Syu --needed \
+  wayland \
+  libxkbcommon \
+  vulkan-icd-loader \
+  alsa-lib \
+  libx11 \
+  libxrandr \
+  libxinerama \
+  libxcursor \
+  libxi \
+  libglvnd
+
+# NOTE: libudev is provided by systemd and does not need a separate package.
+
+# Required for optimized build performance (LLD linker)
+sudo pacman -S --needed lld clang
 ```
 
 ### macOS / Windows
