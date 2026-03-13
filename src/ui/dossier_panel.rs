@@ -927,7 +927,7 @@ fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
     let half_w = response.rect.width() / 2.0;
     let half_h = response.rect.height() / 2.0;
     let max_possible = half_w.min(half_h);
-    let max_r = (max_possible - 16.0).max(10.0).min(FALLBACK_MAX_R);
+    let max_r = (max_possible - 16.0).clamp(10.0, FALLBACK_MAX_R);
     let label_r = (max_r + 14.0).min(82.0);
 
     // Axis angles — start top (-PI/2), go clockwise

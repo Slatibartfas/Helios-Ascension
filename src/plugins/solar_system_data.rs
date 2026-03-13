@@ -316,32 +316,28 @@ pub fn system_visual_scale(star_luminosity_sol: f32) -> f32 {
 pub fn kelvin_to_color(temperature: f32) -> Color {
     let t = temperature.clamp(1000.0, 40000.0) / 100.0;
 
-    let r;
-    let g;
-    let b;
-
     // Red
-    if t <= 66.0 {
-        r = 255.0;
+    let r = if t <= 66.0 {
+        255.0
     } else {
-        r = 329.698_73 * (t - 60.0).powf(-0.133_204_76);
-    }
+        329.698_73 * (t - 60.0).powf(-0.133_204_76)
+    };
 
     // Green
-    if t <= 66.0 {
-        g = 99.470_8 * t.ln() - 161.119_57;
+    let g = if t <= 66.0 {
+        99.470_8 * t.ln() - 161.119_57
     } else {
-        g = 288.122_16 * (t - 60.0).powf(-0.075_514_846);
-    }
+        288.122_16 * (t - 60.0).powf(-0.075_514_846)
+    };
 
     // Blue
-    if t >= 66.0 {
-        b = 255.0;
+    let b = if t >= 66.0 {
+        255.0
     } else if t <= 19.0 {
-        b = 0.0;
+        0.0
     } else {
-        b = 138.517_73 * (t - 10.0).ln() - 305.044_8;
-    }
+        138.517_73 * (t - 10.0).ln() - 305.044_8
+    };
 
     Color::srgb(
         (r / 255.0).clamp(0.0, 1.0),

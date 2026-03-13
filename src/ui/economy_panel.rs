@@ -1783,7 +1783,7 @@ fn render_econ_power_grid(ui: &mut egui::Ui, budget: &GlobalBudget, hierarchy: &
                                 ui.label(
                                     egui::RichText::new(format!(
                                         "| {} {}",
-                                        format!("{}", gen.source_type),
+                                        gen.source_type,
                                         format_power(gen.output_watts)
                                     ))
                                     .size(11.0)

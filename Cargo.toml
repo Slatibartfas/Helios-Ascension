@@ -76,3 +76,9 @@ opt-level = 2
 
 [features]
 default = []
+
+[lints.clippy]
+# Bevy systems inherently use many parameters (queries, resources, events)
+too_many_arguments = "allow"
+# Bevy Query types are necessarily complex; factoring into aliases adds noise
+type_complexity = "allow"

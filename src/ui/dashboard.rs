@@ -735,8 +735,6 @@ fn render_fleet_ledger_tree(
     }
 }
 
-/// System that displays a tooltip for hovered celestial bodies or Lagrange points
-
 /// Compact mass format for tight UI tiles — no space before unit, single decimal.
 pub(super) fn format_mass_compact(megatons: f64) -> String {
     let abs_val = megatons.abs();

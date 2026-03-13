@@ -2744,9 +2744,9 @@ pub(super) fn render_transfer_planner(
             let sel_option =
                 fleet_ui_state.computed_options[fleet_ui_state.selected_option].clone();
             let planned_departure_time_s = elapsed + fleet_ui_state.departure_offset_days * 86_400.0;
-            fleet_ui_state.planned_transfer = if star_system_snap.is_some() {
-                None
-            } else if fleet_ui_state.selected_gravity_assist.is_some() {
+            fleet_ui_state.planned_transfer = if star_system_snap.is_some()
+                || fleet_ui_state.selected_gravity_assist.is_some()
+            {
                 None
             } else if let Some(ref lp) = lp_target_snap {
                 build_planned_transfer_lp(fleet_entity, fleet, orbit, lp, body_query, &sel_option)
@@ -4091,11 +4091,9 @@ fn build_planned_transfer(
     let departure_velocity_ms = departure_velocity_ms.or(exact_star_centered_data.map(|data| data.2));
     let arrival_velocity_ms = arrival_velocity_ms.or(exact_star_centered_data.map(|data| data.3));
 
-    // Arrival orbit radius: for rings use the ring radius, otherwise reuse fleet parking radius
-    let arrival_orbit_radius_au = if dest_is_ring {
-        dest_sma_au
-    } else if dest_is_star {
-        dest_sma_au // park at SOI boundary initially
+    // Arrival orbit radius: for rings/stars use the SMA, otherwise reuse fleet parking radius
+    let arrival_orbit_radius_au = if dest_is_ring || dest_is_star {
+        dest_sma_au // ring radius or SOI boundary for stars
     } else {
         orbit.radius_au
     };
