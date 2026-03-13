@@ -183,7 +183,7 @@ pub fn draw_lagrange_point_rings(
         let planet_render = to_render(p3d);
         let host_render = to_render(host_star_pos);
         let min_lp_dist = anchored_body.visual_radius * 1.6;
-        let dot_half = (r_hill * SCALING_FACTOR as f64 * 0.10).clamp(5.0, 30.0) as f32;
+        let dot_half = (r_hill * SCALING_FACTOR * 0.10).clamp(5.0, 30.0) as f32;
         // Minimum 3D gap between L1 and L2.  Without this, both markers lie on
         // the planet–star axis and appear to stack when the camera is aligned
         // with that axis (e.g. when anchored to Earth and looking along the
@@ -213,7 +213,7 @@ pub fn draw_lagrange_point_rings(
         // going through `clamp_one`.  This avoids the precision loss that occurs
         // when r_hill is tiny in render space (d ≤ 0.1 → clamp skipped, or
         // near-zero `from_planet` → normalize gives a random direction).
-        let r_hill_render = (r_hill * SCALING_FACTOR as f64) as f32;
+        let r_hill_render = (r_hill * SCALING_FACTOR) as f32;
         let l1_dist = r_hill_render.max(min_lp_dist); // distance from planet render centre
         let l2_dist = r_hill_render.max(min_lp_dist);
 
@@ -320,9 +320,9 @@ pub fn draw_lagrange_point_rings(
 
         // L-point offsets from planet center in render units (amplified)
         // L1/L2 are along the moon-planet axis
-        let l1_r = ((a_moon - r_hill) * amp * SCALING_FACTOR as f64).max(10.0);
-        let l2_r = ((a_moon + r_hill) * amp * SCALING_FACTOR as f64).max(l1_r + 10.0);
-        let sma_render = a_moon * amp * SCALING_FACTOR as f64;
+        let l1_r = ((a_moon - r_hill) * amp * SCALING_FACTOR).max(10.0);
+        let l2_r = ((a_moon + r_hill) * amp * SCALING_FACTOR).max(l1_r + 10.0);
+        let sma_render = a_moon * amp * SCALING_FACTOR;
 
         // For L4/L5, we need to create triangular points in the orbital plane
         // Using the actual 3D moon direction
@@ -361,7 +361,7 @@ pub fn draw_lagrange_point_rings(
 
         // Dot markers + circle for each L-point (no orbit rings drawn).
         // Use the amplified hill radius so markers scale with the visual orbit.
-        let dot_half = (r_hill * amp * SCALING_FACTOR as f64 * 0.10).clamp(3.0, 15.0) as f32;
+        let dot_half = (r_hill * amp * SCALING_FACTOR * 0.10).clamp(3.0, 15.0) as f32;
         let base_marker_count = lp_markers.markers.len();
         for (i, offset) in lp_offsets.iter().enumerate() {
             let render_pos = parent_render + *offset;
@@ -452,7 +452,7 @@ pub fn handle_lp_hover(
     if let Ok(ctx) = egui_contexts.ctx_mut() {
         let hover_pos = ctx.input(|i| i.pointer.hover_pos());
         let over_panel = if let Some(available) = panel_bounds.available_rect {
-            hover_pos.map_or(false, |p| !available.contains(p))
+            hover_pos.is_some_and(|p| !available.contains(p))
         } else {
             false
         };
@@ -486,11 +486,10 @@ pub fn handle_lp_hover(
         }
         let closest = ray.origin + *ray.direction * proj;
         let dist = (m.render_pos - closest).length();
-        if dist < m.hit_radius {
-            if best.map_or(true, |(_, prev_proj)| proj < prev_proj) {
+        if dist < m.hit_radius
+            && best.is_none_or(|(_, prev_proj)| proj < prev_proj) {
                 best = Some((i, proj));
             }
-        }
     }
 
     lp_markers.hovered_index = best.map(|(i, _)| i);

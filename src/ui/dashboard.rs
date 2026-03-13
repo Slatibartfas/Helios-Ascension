@@ -512,7 +512,6 @@ fn render_fleet_ledger_tree(
     let mut fleets: Vec<(Entity, &Fleet, Option<&FleetOrbit>, Option<&ActiveManeuver>)> =
         fleet_query
             .iter()
-            .map(|(e, f, o, m)| (e, f, o, m))
             .collect();
     fleets.sort_by(|a, b| a.1.name.cmp(&b.1.name));
 

@@ -144,7 +144,7 @@ pub(super) fn ui_resources_bar(
                     let is_this_open = open_popup
                         .open
                         .as_ref()
-                        .map_or(false, |(n, _)| n == category_name);
+                        .is_some_and(|(n, _)| n == category_name);
 
                     // Use a Frame for the category display
                     let response = egui::Frame::NONE
@@ -216,7 +216,7 @@ pub(super) fn ui_resources_bar(
                     let is_rp_open = open_popup
                         .open
                         .as_ref()
-                        .map_or(false, |(n, _)| n == "ResearchPoints");
+                        .is_some_and(|(n, _)| n == "ResearchPoints");
 
                     // Find active research projects
                     let mut active_rps: Vec<_> =
@@ -232,7 +232,7 @@ pub(super) fn ui_resources_bar(
 
                     // Warning flash
                     let flash = if !has_active_rp && ui_prefs.show_inactive_warning {
-                        (time.elapsed_secs() * 5.0).sin().abs() as f32
+                        (time.elapsed_secs() * 5.0).sin().abs()
                     } else {
                         0.0
                     };
@@ -348,7 +348,7 @@ pub(super) fn ui_resources_bar(
                     let is_ep_open = open_popup
                         .open
                         .as_ref()
-                        .map_or(false, |(n, _)| n == "EngineeringPoints");
+                        .is_some_and(|(n, _)| n == "EngineeringPoints");
 
                     // Find active engineering projects
                     let mut active_eps: Vec<_> = engineering_projects.iter().collect();
@@ -363,7 +363,7 @@ pub(super) fn ui_resources_bar(
 
                     // Warning flash
                     let flash = if !has_active_ep && ui_prefs.show_inactive_warning {
-                        (time.elapsed_secs() * 5.0).sin().abs() as f32
+                        (time.elapsed_secs() * 5.0).sin().abs()
                     } else {
                         0.0
                     };
@@ -496,7 +496,7 @@ pub(super) fn ui_resources_bar(
                     let is_power_open = open_popup
                         .open
                         .as_ref()
-                        .map_or(false, |(n, _)| n == "Power");
+                        .is_some_and(|(n, _)| n == "Power");
 
                     // Power generation display (clickable with tooltip)
                     let response = egui::Frame::NONE
@@ -556,7 +556,7 @@ pub(super) fn ui_resources_bar(
                     let is_treasury_open = open_popup
                         .open
                         .as_ref()
-                        .map_or(false, |(n, _)| n == "Treasury");
+                        .is_some_and(|(n, _)| n == "Treasury");
 
                     let treasury_response = egui::Frame::NONE
                         .inner_margin(egui::Margin::symmetric(1, 2))
@@ -639,7 +639,7 @@ pub(super) fn ui_resources_bar(
                     let is_pop_open = open_popup
                         .open
                         .as_ref()
-                        .map_or(false, |(n, _)| n == "Population");
+                        .is_some_and(|(n, _)| n == "Population");
 
                     // Use a Frame for the population display
                     let pop_response = egui::Frame::NONE
@@ -1275,8 +1275,8 @@ pub(super) fn ui_resources_bar(
             .into_iter()
             .find(|(name, _)| *name == cat_name.as_str())
         {
-            let icon = get_resource_category_icon(&cat_name);
-            let color = get_category_color(&cat_name);
+            let icon = get_resource_category_icon(cat_name);
+            let color = get_category_color(cat_name);
 
             let mut still_open = true;
             let window_response = egui::Window::new(cat_name.as_str())

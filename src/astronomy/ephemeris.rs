@@ -68,7 +68,7 @@ impl J2000Elements {
         let mut mean_anomaly = mean_longitude - self.longitude_perihelion;
 
         // Normalize to 0-360 range
-        mean_anomaly = mean_anomaly % 360.0;
+        mean_anomaly %= 360.0;
         if mean_anomaly < 0.0 {
             mean_anomaly += 360.0;
         }
@@ -97,7 +97,7 @@ impl SimpleElements {
         let mut mean_anomaly = self.base_offset + n * days_from_reference;
 
         // Normalize to 0-360 range
-        mean_anomaly = mean_anomaly % 360.0;
+        mean_anomaly %= 360.0;
         if mean_anomaly < 0.0 {
             mean_anomaly += 360.0;
         }

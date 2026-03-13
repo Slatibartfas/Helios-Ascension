@@ -187,7 +187,7 @@ fn orbit_camera_controls(
         // rendered) catches anchored panels (SidePanel, TopBottomPanel) that don't show up
         // in is_pointer_over_area().
         let over_panel = if let Some(available) = panel_bounds.available_rect {
-            hover_pos.map_or(false, |pos| !available.contains(pos))
+            hover_pos.is_some_and(|pos| !available.contains(pos))
         } else {
             false
         };

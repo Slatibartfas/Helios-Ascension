@@ -178,7 +178,7 @@ fn find_closest_orbit_to_ray<'a>(
         let parent_offset = orbit_center
             .map(|center| center.0)
             .or_else(|| logical_parent.map(|parent| parent.0))
-            .and_then(|parent| get_parent_coords(parent))
+            .and_then(get_parent_coords)
             .map(|pos| {
                 let scaled = (pos - origin_offset) * SCALING_FACTOR;
                 Vec3::new(scaled.x as f32, scaled.y as f32, scaled.z as f32)
@@ -281,7 +281,7 @@ pub fn handle_body_selection(
     if let Ok(ctx) = ui.egui_contexts.ctx_mut() {
         let hover_pos = ctx.input(|i| i.pointer.hover_pos());
         let over_panel = if let Some(available) = ui.panel_bounds.available_rect {
-            hover_pos.map_or(false, |p| !available.contains(p))
+            hover_pos.is_some_and(|p| !available.contains(p))
         } else {
             false
         };
@@ -463,8 +463,8 @@ pub fn handle_body_selection(
             }
             selection_state.last_click_time = current_time;
             selection_state.last_clicked_entity = Some(entity);
-        } else if right_click {
-            if ui.fleet_ui_state.selected_fleet.is_some() {
+        } else if right_click
+            && ui.fleet_ui_state.selected_fleet.is_some() {
                 info!("Right clicked celestial body: {} (entity {:?}) with fleet selected, opening transfer planner", name, entity);
                 ui.fleet_ui_state.target_body = Some(entity);
                 ui.fleet_ui_state.target_lagrange = None;
@@ -476,7 +476,6 @@ pub fn handle_body_selection(
                 ui.fleet_ui_state.show_transfer_popup = true;
                 ui.fleet_ui_state.departure_offset_days = -1.0; // Signal to auto-set to next window
             }
-        }
     } else if left_click {
         selection_state.last_clicked_entity = None;
     }
@@ -534,7 +533,7 @@ pub fn handle_body_hover(
     if let Ok(ctx) = egui_contexts.ctx_mut() {
         let hover_pos = ctx.input(|i| i.pointer.hover_pos());
         let over_panel = if let Some(available) = panel_bounds.available_rect {
-            hover_pos.map_or(false, |p| !available.contains(p))
+            hover_pos.is_some_and(|p| !available.contains(p))
         } else {
             false
         };

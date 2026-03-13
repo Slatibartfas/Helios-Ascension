@@ -1665,17 +1665,10 @@ pub(super) fn ui_transfer_planner_popup(
 
     let planner_orbit: Option<FleetOrbit> = if let Some(orbit) = maybe_orbit {
         Some(*orbit)
-    } else if let Some(maneuver) = maybe_maneuver {
-        // Use origin_body (the departure body) rather than destination_body.
-        // If we used destination_body and the user re-targets the same destination,
-        // r1 == r2 and the planner shows "Same orbit, 0 m/s" with zero travel time.
-        Some(FleetOrbit::new(
+    } else { maybe_maneuver.map(|maneuver| FleetOrbit::new(
             maneuver.origin_body,
             maneuver.arrival_orbit_radius_au,
-        ))
-    } else {
-        None
-    };
+        )) };
 
     // For course corrections, pass the fleet's actual current heliocentric position
     // so the planner can show accurate ΔV from the fleet's real location, not the

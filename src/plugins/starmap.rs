@@ -531,7 +531,7 @@ pub fn classify_exoplanet_with_mass(
             }
         }
         BodyType::DwarfPlanet => {
-            if seed % 3 == 0 {
+            if seed.is_multiple_of(3) {
                 "rock"
             } else {
                 "dwarf"
@@ -552,7 +552,7 @@ pub fn classify_exoplanet_with_mass(
             } else if avg_temp_c > 60.0 {
                 // Hot rocky worlds split between sandy deserts and rust-red
                 // oxidised Martian surfaces based on deterministic seed.
-                if seed % 3 == 0 {
+                if seed.is_multiple_of(3) {
                     "martian"
                 } else {
                     "desert"
@@ -1261,7 +1261,7 @@ fn handle_starmap_hover(
     {
         let hover_pos = ctx.input(|i| i.pointer.hover_pos());
         let over_panel = if let Some(available) = panel_bounds.available_rect {
-            hover_pos.map_or(false, |p| !available.contains(p))
+            hover_pos.is_some_and(|p| !available.contains(p))
         } else {
             false
         };
@@ -1373,7 +1373,7 @@ fn handle_starmap_selection(
     if let Ok(ctx) = egui_contexts.ctx_mut() {
         let hover_pos = ctx.input(|i| i.pointer.hover_pos());
         let over_panel = if let Some(available) = panel_bounds.available_rect {
-            hover_pos.map_or(false, |p| !available.contains(p))
+            hover_pos.is_some_and(|p| !available.contains(p))
         } else {
             false
         };
@@ -1394,7 +1394,7 @@ fn handle_starmap_selection(
     {
         let hover_pos = ctx.input(|i| i.pointer.hover_pos());
         let over_panel = if let Some(available) = panel_bounds.available_rect {
-            hover_pos.map_or(false, |p| !available.contains(p))
+            hover_pos.is_some_and(|p| !available.contains(p))
         } else {
             false
         };

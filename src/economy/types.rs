@@ -62,7 +62,7 @@ pub fn determine_resource_phase(
         }
         ResourceType::Methane => {
             // Methane: melts at −182.5°C, boils at −161.5°C (at 1 atm)
-            if temp_celsius >= -182.5 && temp_celsius <= -161.5 {
+            if (-182.5..=-161.5).contains(&temp_celsius) {
                 ResourcePhase::Liquid
             } else if temp_celsius > -161.5 {
                 ResourcePhase::Vapor
@@ -72,7 +72,7 @@ pub fn determine_resource_phase(
         }
         ResourceType::Ammonia => {
             // Ammonia: melts at −77.7°C, boils at −33.3°C (at 1 atm)
-            if temp_celsius >= -78.0 && temp_celsius <= -33.0 {
+            if (-78.0..=-33.0).contains(&temp_celsius) {
                 ResourcePhase::Liquid
             } else if temp_celsius > -33.0 {
                 ResourcePhase::Vapor
@@ -82,7 +82,7 @@ pub fn determine_resource_phase(
         }
         ResourceType::Hydrogen => {
             // Hydrogen: melts at −259°C, boils at −253°C
-            if temp_celsius >= -259.0 && temp_celsius <= -253.0 {
+            if (-259.0..=-253.0).contains(&temp_celsius) {
                 ResourcePhase::Liquid
             } else if temp_celsius > -253.0 {
                 ResourcePhase::Vapor
@@ -92,7 +92,7 @@ pub fn determine_resource_phase(
         }
         ResourceType::Deuterium => {
             // Deuterium: melts at −254.4°C, boils at −249.5°C
-            if temp_celsius >= -254.4 && temp_celsius <= -249.5 {
+            if (-254.4..=-249.5).contains(&temp_celsius) {
                 ResourcePhase::Liquid
             } else if temp_celsius > -249.5 {
                 ResourcePhase::Vapor
@@ -102,7 +102,7 @@ pub fn determine_resource_phase(
         }
         ResourceType::Sulfur => {
             // Sulfur: melts at 115°C, boils at 445°C
-            if temp_celsius >= 115.0 && temp_celsius <= 445.0 {
+            if (115.0..=445.0).contains(&temp_celsius) {
                 ResourcePhase::Liquid
             } else if temp_celsius > 445.0 {
                 ResourcePhase::Vapor
@@ -112,7 +112,7 @@ pub fn determine_resource_phase(
         }
         ResourceType::Phosphorus => {
             // White phosphorus: melts at 44°C, boils at 280°C
-            if temp_celsius >= 44.0 && temp_celsius <= 280.0 {
+            if (44.0..=280.0).contains(&temp_celsius) {
                 ResourcePhase::Liquid
             } else if temp_celsius > 280.0 {
                 ResourcePhase::Vapor
@@ -122,7 +122,7 @@ pub fn determine_resource_phase(
         }
         ResourceType::Fluorine => {
             // Fluorine: melts at −220°C, boils at −188°C
-            if temp_celsius >= -220.0 && temp_celsius <= -188.0 {
+            if (-220.0..=-188.0).contains(&temp_celsius) {
                 ResourcePhase::Liquid
             } else if temp_celsius > -188.0 {
                 ResourcePhase::Vapor

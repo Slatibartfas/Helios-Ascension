@@ -70,7 +70,7 @@ pub(super) fn render_tech_tree_tab(
     if ui.input(|i| {
         i.pointer
             .hover_pos()
-            .map_or(false, |pos| canvas_rect.contains(pos))
+            .is_some_and(|pos| canvas_rect.contains(pos))
     }) {
         let scroll_delta = ui.input(|i| i.smooth_scroll_delta.y);
         if scroll_delta != 0.0 {
@@ -81,7 +81,7 @@ pub(super) fn render_tech_tree_tab(
     let pointer_in_canvas = ui.input(|i| {
         i.pointer
             .hover_pos()
-            .map_or(false, |pos| canvas_rect.contains(pos))
+            .is_some_and(|pos| canvas_rect.contains(pos))
     });
     if pointer_in_canvas && ui.input(|i| i.pointer.button_down(egui::PointerButton::Middle)) {
         pan_offset += ui.input(|i| i.pointer.delta());
@@ -111,7 +111,7 @@ pub(super) fn render_tech_tree_tab(
     // Measure the widest tech name to determine uniform width
     let mut max_name_w: f32 = 0.0;
     let mut max_cost_w: f32 = 0.0;
-    for (_, tech) in &tech_data.technologies {
+    for tech in tech_data.technologies.values() {
         let g = painter.layout_no_wrap(tech.name.clone(), font_name.clone(), egui::Color32::WHITE);
         max_name_w = max_name_w.max(g.size().x);
         let cost_text = format!("{:.0} RP", tech.research_cost);
@@ -133,7 +133,7 @@ pub(super) fn render_tech_tree_tab(
 
     // Collect unique tiers (sorted)
     let mut tier_set: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
-    for (_, tech) in &tech_data.technologies {
+    for tech in tech_data.technologies.values() {
         tier_set.insert(tech.tier);
     }
     let tiers: Vec<u32> = tier_set.into_iter().collect();
@@ -145,7 +145,7 @@ pub(super) fn render_tech_tree_tab(
         u8,
         std::collections::BTreeMap<u32, Vec<&crate::research::types::Technology>>,
     > = std::collections::BTreeMap::new();
-    for (_, tech) in &tech_data.technologies {
+    for tech in tech_data.technologies.values() {
         techs_by_cat_tier
             .entry(tech.category as u8)
             .or_default()
@@ -328,7 +328,7 @@ pub(super) fn render_tech_tree_tab(
 
     // ---------- draw connection lines (cubic bezier) ----------
     // Connect right edge of prerequisite to left edge of dependent
-    for (_, tech) in &tech_data.technologies {
+    for tech in tech_data.technologies.values() {
         if let Some(tech_center) = node_positions.get(&tech.id) {
             for prereq_id in &tech.prerequisites {
                 if let Some(prereq_center) = node_positions.get(prereq_id) {
@@ -698,7 +698,7 @@ pub(super) fn render_tech_tree_tab(
             egui::pos2(held_tooltip_pos.x + 390.0, held_tooltip_pos.y + 430.0),
         );
         let pointer_inside_held_tooltip =
-            pointer_hover_pos.map_or(false, |pos| held_tooltip_rect.contains(pos));
+            pointer_hover_pos.is_some_and(|pos| held_tooltip_rect.contains(pos));
 
         if pointer_inside_held_tooltip {
             hovered_tech_id = None;
@@ -741,7 +741,7 @@ pub(super) fn render_tech_tree_tab(
                 egui::pos2(tooltip_pos.x + 390.0, tooltip_pos.y + 430.0),
             );
             let pointer_in_bridge =
-                pointer_hover_pos.map_or(false, |pos| hover_bridge.contains(pos));
+                pointer_hover_pos.is_some_and(|pos| hover_bridge.contains(pos));
 
             if now <= hold_until || pointer_in_bridge {
                 if pointer_in_bridge {

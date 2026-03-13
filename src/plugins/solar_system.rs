@@ -302,7 +302,7 @@ fn get_generic_texture_path(
             for byte in body_data.name.bytes() {
                 seed = seed.wrapping_mul(31).wrapping_add(byte as u32);
             }
-            if seed % 3 == 0 {
+            if seed.is_multiple_of(3) {
                 Some("textures/celestial/asteroids/generic_s_type_2k.jpg".to_string())
             } else {
                 Some("textures/celestial/asteroids/generic_c_type_2k.jpg".to_string())
@@ -580,7 +580,7 @@ pub fn setup_solar_system(
     let start_ts = sim_time.start_timestamp();
     let pre_load = data.bodies.len();
     data.bodies
-        .retain(|body| body.destroyed_at.map_or(true, |t| start_ts < t));
+        .retain(|body| body.destroyed_at.is_none_or(|t| start_ts < t));
     let removed = pre_load - data.bodies.len();
     if removed > 0 {
         info!(
@@ -842,7 +842,7 @@ pub fn setup_solar_system(
 
             // Airless rocky planets (no atmosphere data) are "barren" — e.g. Mercury.
             if body_data.body_type == BodyType::Planet && body_data.atmosphere.is_none() {
-                return if seed % 2 == 0 { "barren" } else { "rock" };
+                return if seed.is_multiple_of(2) { "barren" } else { "rock" };
             }
 
             // mimic the logic used in starmap classification so categories agree
@@ -1777,7 +1777,7 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
     // Generate base sphere
     // Use higher resolution for smoother look as requested
     // 64 sectors, 32 stacks
-    let mut mesh = Mesh::from(Sphere::new(visual_radius).mesh().uv(64, 32));
+    let mut mesh = Sphere::new(visual_radius).mesh().uv(64, 32);
 
     if let Some(VertexAttributeValues::Float32x3(positions)) =
         mesh.attribute(Mesh::ATTRIBUTE_POSITION)

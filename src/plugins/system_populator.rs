@@ -1264,7 +1264,7 @@ fn populate_host_bodies(
                     planet.semi_major_axis_au,
                     vis_scale,
                 ),
-                radius_km: planet.radius_km() as f32,
+                radius_km: planet.radius_km(),
                 name: planet.name.clone(),
             });
         }
@@ -1393,7 +1393,7 @@ fn populate_host_bodies(
         {
             let max_star_vis = (inner_sma_au as f32) * (SCALING_FACTOR as f32) * 0.12;
             let current =
-                calculate_visual_radius(BodyType::Star, (star_data.radius_sol * 695700.0) as f32);
+                calculate_visual_radius(BodyType::Star, star_data.radius_sol * 695700.0);
             if current > max_star_vis && max_star_vis > 2.0 {
                 if let Ok(mut body) = commands.get_entity(star_entity) {
                     body.insert(CelestialBody {
@@ -1419,7 +1419,7 @@ fn clamp_asteroid_belt(
 ) -> Option<AsteroidBelt> {
     let inner_au = belt.inner_au.max(minimum_inner_au);
     let outer_au = belt.outer_au.min(maximum_outer_au.unwrap_or(f64::INFINITY));
-    (inner_au < outer_au).then(|| AsteroidBelt {
+    (inner_au < outer_au).then_some(AsteroidBelt {
         inner_au,
         outer_au,
         count: belt.count,
@@ -1436,7 +1436,7 @@ fn clamp_cometary_cloud(
     let outer_au = cloud
         .outer_au
         .min(maximum_outer_au.unwrap_or(f64::INFINITY));
-    (inner_au < outer_au).then(|| CometaryCloud {
+    (inner_au < outer_au).then_some(CometaryCloud {
         inner_au,
         outer_au,
         count: cloud.count,
@@ -1550,7 +1550,7 @@ fn spawn_star_entity_with_metallicity(
             body_type: BodyType::Star,
             visual_radius: calculate_visual_radius(
                 BodyType::Star,
-                (star_data.radius_sol * 695700.0) as f32,
+                star_data.radius_sol * 695700.0,
             ),
             asteroid_class: None,
         },
@@ -1654,7 +1654,7 @@ fn spawn_confirmed_planet(
     // Cap visual radius to 10% of orbital distance (in Bevy units) so
     // close-in planets don't visually overlap the star or each other.
     let base_visual_radius = calculate_visual_radius(BodyType::Planet, radius_km) * vis_scale;
-    let orbit_distance_bevy = (planet_data.semi_major_axis_au as f32) * (SCALING_FACTOR as f32);
+    let orbit_distance_bevy = planet_data.semi_major_axis_au * (SCALING_FACTOR as f32);
     let max_orbit_fraction = orbit_distance_bevy * 0.10;
     let visual_radius = base_visual_radius.min(max_orbit_fraction).max(2.0);
 
@@ -1687,7 +1687,7 @@ fn spawn_confirmed_planet(
         rng.random_range(2.0..8.0_f32)
     } else {
         // Normal: log-uniform from ~0.3 to ~5 days
-        let log_p = rng.random_range((-0.5_f32)..(0.7));
+        let log_p = rng.random_range((-0.5_f32)..0.7);
         10.0_f32.powf(log_p)
     };
     let rotation_speed = if rotation_period_days != 0.0 {
@@ -1910,12 +1910,12 @@ fn spawn_procedural_planet(
         entity_commands.insert(ocean);
     }
 
-    let entity = entity_commands.id();
+    
 
     // Resource generation will be handled by the existing system
     // The metallicity_multiplier will be applied in the resource generation
 
-    entity
+    entity_commands.id()
 }
 
 /// Spawn procedural dwarf planets in the trans-Neptunian region.
