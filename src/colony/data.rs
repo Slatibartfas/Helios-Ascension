@@ -147,6 +147,7 @@ fn parse_building_type(id: &str) -> Option<BuildingType> {
         "DataCenter" => Some(BuildingType::DataCenter),
         "SpacePort" => Some(BuildingType::SpacePort),
         "GroundDefenseBattery" => Some(BuildingType::GroundDefenseBattery),
+        "Warehouse" => Some(BuildingType::Warehouse),
         _ => None,
     }
 }
@@ -320,7 +321,7 @@ mod tests {
     #[test]
     fn test_can_afford_resources() {
         let budget = crate::economy::GlobalBudget::new();
-        // Budget starts with Iron=15000
+        // Budget starts with Iron ≈ 625 Mt (3-month 2026 production buffer)
         let costs = vec![("Iron".to_string(), 10.0)];
         assert!(can_afford_resources(&budget, &costs));
 

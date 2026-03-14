@@ -129,6 +129,10 @@ pub enum BuildingType {
     SpacePort,
     /// Ground-based anti-orbital / anti-missile defense battery
     GroundDefenseBattery,
+
+    // Storage
+    /// Bulk resource depot expanding civilisation-wide stockpile capacity
+    Warehouse,
 }
 
 impl BuildingType {
@@ -182,6 +186,7 @@ impl BuildingType {
             DataCenter,
             SpacePort,
             GroundDefenseBattery,
+            Warehouse,
         ]
     }
 
@@ -234,6 +239,7 @@ impl BuildingType {
             BuildingType::DataCenter => "Computation Hub",
             BuildingType::SpacePort => "Space Port",
             BuildingType::GroundDefenseBattery => "Ground Defense Battery",
+            BuildingType::Warehouse => "Resource Depot",
         }
     }
     pub fn description(&self) -> &'static str {
@@ -286,6 +292,7 @@ impl BuildingType {
             BuildingType::DataCenter => "Planetary-scale computation, AI processing, and data storage infrastructure",
             BuildingType::SpacePort => "High-throughput orbital launch complex with multiple pads",
             BuildingType::GroundDefenseBattery => "Anti-orbital and anti-missile ground defense installation",
+            BuildingType::Warehouse => "Bulk storage depot that expands global resource stockpile capacity by 5% per depot",
         }
     }
 
@@ -338,6 +345,7 @@ impl BuildingType {
             BuildingType::DataCenter => "🖥️",
             BuildingType::SpacePort => "🚀",
             BuildingType::GroundDefenseBattery => "🛡️",
+            BuildingType::Warehouse => "🏗",
         }
     }
 
@@ -396,6 +404,7 @@ impl BuildingType {
             | BuildingType::GroundDefenseBattery => {
                 BuildingCategory::Military
             }
+            BuildingType::Warehouse => BuildingCategory::Logistics,
         }
     }
 
@@ -448,6 +457,7 @@ impl BuildingType {
             BuildingType::DataCenter => 2000.0,
             BuildingType::SpacePort => 4000.0,
             BuildingType::GroundDefenseBattery => 2500.0,
+            BuildingType::Warehouse => 300.0,
         }
     }
 
@@ -520,6 +530,8 @@ impl BuildingType {
             // Advanced space
             BuildingType::SpacePort => 20_000,
             BuildingType::GroundDefenseBattery => 3_000,
+            // Storage
+            BuildingType::Warehouse => 1_000,
         }
     }
 
@@ -625,7 +637,7 @@ mod tests {
     #[test]
     fn test_building_type_all() {
         let all = BuildingType::all();
-        assert_eq!(all.len(), 46, "Should have exactly 46 building types");
+        assert_eq!(all.len(), 47, "Should have exactly 47 building types");
     }
 
     #[test]

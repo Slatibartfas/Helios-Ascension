@@ -1089,5 +1089,31 @@
             ],
             modifiers: [],
         ),
+
+        // ========================================
+        // STORAGE
+        // ========================================
+        (
+            id: "Warehouse",
+            display_name: "Resource Depot",
+            description: "Bulk storage depot expanding global stockpile capacity by 5% per depot",
+            icon: "🏗",
+            category: "Logistics",
+            build_points: 300.0,
+            workforce: 1000,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 300.0),
+                ("Silicates", 200.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.005),
+                ("Polymers", 0.001),
+            ],
+            modifiers: [
+                // Each depot adds 5% to the base cap for every resource type globally
+                (modifier_type: "StorageCapacity", value: 0.05),
+            ],
+        ),
     ],
 )

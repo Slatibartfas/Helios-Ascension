@@ -953,6 +953,8 @@ pub fn setup_solar_system(
                 // Medical/Population
                 (BuildingType::MedicalCenter, 200),
                 (BuildingType::PharmaceuticalPlant, 100),
+                // Storage infrastructure (10 depots = +50% cap, representing global logistics)
+                (BuildingType::Warehouse, 10),
             ];
 
             for (b_type, count) in base_buildings {

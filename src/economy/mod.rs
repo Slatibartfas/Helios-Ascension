@@ -17,8 +17,9 @@ pub(crate) mod profiles;
 pub mod types;
 
 pub use budget::{
-    format_currency, format_power, update_civilization_score, update_power_grid, EnergyGrid,
-    GlobalBudget, ResourceRateTracker, SECONDS_PER_MONTH, SECONDS_PER_YEAR,
+    format_currency, format_power, update_civilization_score, update_power_grid,
+    update_storage_capacity, EnergyGrid, GlobalBudget, ResourceRateTracker, SECONDS_PER_MONTH,
+    SECONDS_PER_YEAR,
 };
 pub use components::{
     MineralDeposit, OrbitsBody, PlanetResources, PowerGenerator, PowerSourceType, SpectralClass,
@@ -49,6 +50,7 @@ impl Plugin for EconomyPlugin {
             .add_systems(
                 Update,
                 (
+                    update_storage_capacity,
                     update_power_grid,
                     update_civilization_score.after(update_power_grid),
                     extract_resources,
