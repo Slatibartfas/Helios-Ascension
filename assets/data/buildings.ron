@@ -731,5 +731,429 @@
             ],
             modifiers: [],
         ),
+
+        // ========================================
+        // ADVANCED POWER GENERATION
+        // ========================================
+        (
+            id: "WindFarm",
+            display_name: "Wind Farm",
+            description: "Generates clean energy from wind currents",
+            icon: "💨",
+            category: "Power",
+            build_points: 300.0,
+            workforce: 200,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 300.0),
+                ("Copper", 150.0),
+                ("Aluminum", 100.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Copper", 0.002),
+            ],
+            modifiers: [
+                (modifier_type: "PowerGeneration", value: 3.0),
+            ],
+        ),
+        (
+            id: "HydroelectricDam",
+            display_name: "Hydroelectric Dam",
+            description: "Harnesses river flow for reliable base-load power",
+            icon: "🌊",
+            category: "Power",
+            build_points: 2500.0,
+            workforce: 1000,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 2000.0),
+                ("Silicates", 3000.0),
+                ("Aluminum", 500.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.1),
+            ],
+            modifiers: [
+                (modifier_type: "PowerGeneration", value: 15.0),
+            ],
+        ),
+        (
+            id: "GeothermalPlant",
+            display_name: "Geothermal Plant",
+            description: "Taps planetary heat for continuous power generation",
+            icon: "🌋",
+            category: "Power",
+            build_points: 1800.0,
+            workforce: 800,
+            required_tech: "geothermal_energy",
+            resource_costs: [
+                ("Iron", 1500.0),
+                ("Titanium", 500.0),
+                ("Nickel", 200.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.05),
+                ("Titanium", 0.01),
+            ],
+            modifiers: [
+                (modifier_type: "PowerGeneration", value: 18.0),
+            ],
+        ),
+        (
+            id: "CoalPowerPlant",
+            display_name: "Coal Power Plant",
+            description: "Burns coal for power; produces CO2 emissions",
+            icon: "🏭",
+            category: "Power",
+            build_points: 800.0,
+            workforce: 2000,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 800.0),
+                ("Copper", 300.0),
+                ("Silicates", 500.0),
+            ],
+            maintenance_resources: [
+                ("Carbon", 20.0),
+                ("Iron", 0.1),
+            ],
+            modifiers: [
+                (modifier_type: "PowerGeneration", value: 10.0),
+            ],
+        ),
+        (
+            id: "NaturalGasPlant",
+            display_name: "Natural Gas Plant",
+            description: "Fast-ramping gas turbine power plant",
+            icon: "🔥",
+            category: "Power",
+            build_points: 600.0,
+            workforce: 1500,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 600.0),
+                ("Copper", 200.0),
+                ("Nickel", 100.0),
+            ],
+            maintenance_resources: [
+                ("Methane", 5.0),
+                ("Iron", 0.05),
+            ],
+            modifiers: [
+                (modifier_type: "PowerGeneration", value: 12.0),
+            ],
+        ),
+
+        // ========================================
+        // ADVANCED INDUSTRY
+        // ========================================
+        (
+            id: "SteelMill",
+            display_name: "Steel Mill",
+            description: "Produces structural steel from iron and carbon",
+            icon: "⚙️",
+            category: "Industry",
+            build_points: 1200.0,
+            workforce: 8000,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 1000.0),
+                ("Silicates", 500.0),
+                ("Carbon", 200.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 50.0),
+                ("Carbon", 5.0),
+                ("Nickel", 0.5),
+            ],
+            modifiers: [
+                (modifier_type: "MiningEfficiency", value: 5.0),
+            ],
+        ),
+        (
+            id: "AluminumSmelter",
+            display_name: "Aluminum Smelter",
+            description: "Electrolytically refines aluminium from ore",
+            icon: "🔩",
+            category: "Industry",
+            build_points: 1000.0,
+            workforce: 6000,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 800.0),
+                ("Copper", 400.0),
+                ("Silicates", 300.0),
+            ],
+            maintenance_resources: [
+                ("Aluminum", 10.0),
+                ("Iron", 0.05),
+            ],
+            modifiers: [
+                (modifier_type: "MiningEfficiency", value: 3.0),
+            ],
+        ),
+        (
+            id: "SemiconductorFab",
+            display_name: "Semiconductor Fab",
+            description: "Manufactures high-precision microchips and electronics",
+            icon: "💾",
+            category: "Industry",
+            build_points: 5000.0,
+            workforce: 5000,
+            required_tech: "semiconductor_manufacturing",
+            resource_costs: [
+                ("Silicates", 2000.0),
+                ("RareEarths", 500.0),
+                ("Copper", 800.0),
+                ("Aluminum", 400.0),
+            ],
+            maintenance_resources: [
+                ("Silicates", 0.5),
+                ("RareEarths", 0.05),
+                ("Copper", 0.02),
+                ("Fluorine", 0.01),
+            ],
+            modifiers: [
+                (modifier_type: "ResearchSpeed", value: 8.0),
+                (modifier_type: "EngineeringSpeed", value: 5.0),
+            ],
+        ),
+        (
+            id: "PharmaceuticalPlant",
+            display_name: "Pharmaceutical Plant",
+            description: "Produces medicines, vaccines, and bio-compounds",
+            icon: "💊",
+            category: "Industry",
+            build_points: 800.0,
+            workforce: 4000,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 600.0),
+                ("Copper", 200.0),
+                ("Phosphorus", 100.0),
+            ],
+            maintenance_resources: [
+                ("Water", 0.5),
+                ("Sulfur", 0.1),
+                ("Phosphorus", 0.05),
+            ],
+            modifiers: [
+                (modifier_type: "PopulationGrowth", value: 3.0),
+            ],
+        ),
+
+        // ========================================
+        // WATER & ENVIRONMENT
+        // ========================================
+        (
+            id: "WaterTreatmentPlant",
+            display_name: "Water Treatment Plant",
+            description: "Purifies water for industrial and population use",
+            icon: "💧",
+            category: "Infrastructure",
+            build_points: 400.0,
+            workforce: 500,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 300.0),
+                ("Silicates", 200.0),
+                ("Copper", 100.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.01),
+                ("Sulfur", 0.005),
+            ],
+            modifiers: [
+                (modifier_type: "PopulationGrowth", value: 2.0),
+            ],
+        ),
+        (
+            id: "DesalinationPlant",
+            display_name: "Desalination Plant",
+            description: "Converts saltwater into fresh water",
+            icon: "🧂",
+            category: "Infrastructure",
+            build_points: 600.0,
+            workforce: 400,
+            required_tech: "desalination",
+            resource_costs: [
+                ("Iron", 500.0),
+                ("Titanium", 200.0),
+                ("Copper", 150.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.02),
+                ("Titanium", 0.005),
+            ],
+            modifiers: [
+                (modifier_type: "PopulationGrowth", value: 1.0),
+            ],
+        ),
+        (
+            id: "RecyclingCenter",
+            display_name: "Recycling Center",
+            description: "Recovers reusable metals and polymers from waste",
+            icon: "♻️",
+            category: "Infrastructure",
+            build_points: 300.0,
+            workforce: 1000,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 200.0),
+                ("Silicates", 100.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.005),
+            ],
+            modifiers: [
+                (modifier_type: "MiningEfficiency", value: 2.0),
+            ],
+        ),
+
+        // ========================================
+        // ADVANCED AGRICULTURE
+        // ========================================
+        (
+            id: "Greenhouse",
+            display_name: "Greenhouse",
+            description: "Controlled-environment crop growing for any climate",
+            icon: "🌿",
+            category: "Population",
+            build_points: 400.0,
+            workforce: 2000,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 300.0),
+                ("Silicates", 500.0),
+                ("Water", 100.0),
+            ],
+            maintenance_resources: [
+                ("Water", 2.0),
+                ("Phosphorus", 0.1),
+            ],
+            modifiers: [
+                (modifier_type: "FoodProduction", value: 500000.0),
+            ],
+        ),
+        (
+            id: "AquacultureFacility",
+            display_name: "Aquaculture Facility",
+            description: "Cultivates fish and aquatic organisms for food",
+            icon: "🐟",
+            category: "Population",
+            build_points: 500.0,
+            workforce: 1500,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 400.0),
+                ("Silicates", 300.0),
+                ("Water", 200.0),
+            ],
+            maintenance_resources: [
+                ("Water", 5.0),
+                ("Phosphorus", 0.05),
+            ],
+            modifiers: [
+                (modifier_type: "FoodProduction", value: 750000.0),
+            ],
+        ),
+
+        // ========================================
+        // DIGITAL INFRASTRUCTURE
+        // ========================================
+        (
+            id: "DataCenter",
+            display_name: "Data Center",
+            description: "Massive computation and data-storage hub",
+            icon: "🖥️",
+            category: "Research",
+            build_points: 2000.0,
+            workforce: 1000,
+            required_tech: "neural_networks",
+            resource_costs: [
+                ("Iron", 800.0),
+                ("Copper", 600.0),
+                ("Silicates", 400.0),
+                ("RareEarths", 200.0),
+            ],
+            maintenance_resources: [
+                ("Copper", 0.02),
+                ("RareEarths", 0.002),
+                ("Lithium", 0.001),
+            ],
+            modifiers: [
+                (modifier_type: "ResearchSpeed", value: 10.0),
+                (modifier_type: "EngineeringSpeed", value: 8.0),
+            ],
+        ),
+        (
+            id: "TelecomTower",
+            display_name: "Telecom Tower",
+            description: "Global communications relay improving coordination",
+            icon: "📡",
+            category: "Research",
+            build_points: 200.0,
+            workforce: 100,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 150.0),
+                ("Copper", 100.0),
+                ("Aluminum", 50.0),
+            ],
+            maintenance_resources: [
+                ("Copper", 0.001),
+            ],
+            modifiers: [
+                (modifier_type: "EngineeringSpeed", value: 1.0),
+            ],
+        ),
+
+        // ========================================
+        // ADVANCED SPACE
+        // ========================================
+        (
+            id: "SpacePort",
+            display_name: "Space Port",
+            description: "High-throughput orbital launch complex with multiple pads",
+            icon: "🚀",
+            category: "Military",
+            build_points: 4000.0,
+            workforce: 20000,
+            required_tech: "",
+            resource_costs: [
+                ("Iron", 3000.0),
+                ("Aluminum", 2000.0),
+                ("Titanium", 1000.0),
+                ("Copper", 800.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 1.0),
+                ("Aluminum", 0.2),
+                ("Magnesium", 0.1),
+            ],
+            modifiers: [],
+        ),
+        (
+            id: "GroundDefenseBattery",
+            display_name: "Ground Defense Battery",
+            description: "Anti-orbital and anti-missile ground defense installation",
+            icon: "🛡️",
+            category: "Military",
+            build_points: 2500.0,
+            workforce: 3000,
+            required_tech: "missile_systems",
+            resource_costs: [
+                ("Iron", 1500.0),
+                ("Titanium", 800.0),
+                ("Copper", 400.0),
+                ("Tungsten", 200.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.3),
+                ("Copper", 0.01),
+            ],
+            modifiers: [],
+        ),
     ],
 )

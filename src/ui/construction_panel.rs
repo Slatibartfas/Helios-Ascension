@@ -1,5 +1,23 @@
 use super::*;
 
+/// UI state for the construction panel (persists across frames)
+#[derive(Resource, Debug, Clone)]
+pub struct ConstructionUiState {
+    /// Build multiplier: how many copies to queue at once
+    pub build_multiplier: u32,
+    /// Currently selected colony entity (None = auto-select first)
+    pub selected_colony: Option<bevy::ecs::entity::Entity>,
+}
+
+impl Default for ConstructionUiState {
+    fn default() -> Self {
+        Self {
+            build_multiplier: 1,
+            selected_colony: None,
+        }
+    }
+}
+
 pub(super) fn ui_construction_panels(
     mut contexts: EguiContexts,
     active_menu: Res<ActiveMenu>,
@@ -11,6 +29,7 @@ pub(super) fn ui_construction_panels(
     mut debug_settings: ResMut<ConstructionDebugSettings>,
     buildings_data: Option<Res<BuildingsData>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut ui_state: ResMut<ConstructionUiState>,
 ) {
     if active_menu.current != GameMenu::Construction {
         return;
@@ -36,6 +55,7 @@ pub(super) fn ui_construction_panels(
             &budget,
             &mut debug_settings,
             buildings_data.as_deref(),
+            &mut ui_state,
         );
     });
 }
@@ -50,16 +70,17 @@ fn render_construction_panel(
     budget: &GlobalBudget,
     debug_settings: &mut ConstructionDebugSettings,
     buildings_data: Option<&BuildingsData>,
+    ui_state: &mut ConstructionUiState,
 ) {
     ui.heading("Construction");
     ui.separator();
 
-    // Debug mode panel (if enabled)
+    // -- Debug panel --
     if debug_settings.enabled {
         ui.group(|ui| {
             ui.horizontal(|ui| {
                 ui.label(
-                    egui::RichText::new("🐛 DEBUG MODE")
+                    egui::RichText::new("DEBUG MODE")
                         .strong()
                         .color(theme::RED),
                 );
@@ -82,7 +103,7 @@ fn render_construction_panel(
                 );
             });
             ui.label(
-                egui::RichText::new("⚠ Debug features are for development only")
+                egui::RichText::new("Debug features are for development only")
                     .small()
                     .italics()
                     .color(theme::AMBER),
@@ -91,20 +112,16 @@ fn render_construction_panel(
         ui.separator();
     }
 
-    // Global financial summary
+    // -- Treasury / balance row --
     ui.horizontal(|ui| {
         ui.label(
-            egui::RichText::new(format!("💰 Treasury: {}", format_currency(budget.treasury)))
+            egui::RichText::new(format!("Treasury: {}", format_currency(budget.treasury)))
                 .size(13.0)
                 .color(theme::GOLD),
         );
         ui.separator();
         let balance = budget.balance_per_year();
-        let balance_color = if balance >= 0.0 {
-            theme::GREEN
-        } else {
-            theme::RED
-        };
+        let balance_color = if balance >= 0.0 { theme::GREEN } else { theme::RED };
         let sign = if balance >= 0.0 { "+" } else { "" };
         ui.label(
             egui::RichText::new(format!("Balance: {}{}/yr", sign, format_currency(balance)))
@@ -128,420 +145,535 @@ fn render_construction_panel(
         return;
     }
 
+    // -- Colony selector --
+    let selected_valid = ui_state
+        .selected_colony
+        .map(|e| colonies.iter().any(|(ce, _, _)| *ce == e))
+        .unwrap_or(false);
+    if !selected_valid {
+        ui_state.selected_colony = colonies.first().map(|(e, _, _)| *e);
+    }
+
+    let current_name = ui_state
+        .selected_colony
+        .and_then(|e| colonies.iter().find(|(ce, _, _)| *ce == e))
+        .map(|(_, c, _)| c.name.clone())
+        .unwrap_or_default();
+
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Colony:").strong());
+        egui::ComboBox::from_id_salt("colony_selector")
+            .selected_text(&current_name)
+            .show_ui(ui, |ui| {
+                for (entity, colony, _) in &colonies {
+                    let label = format!(
+                        "{} ({})",
+                        colony.name,
+                        Colony::format_population(colony.population)
+                    );
+                    if ui
+                        .selectable_label(ui_state.selected_colony == Some(*entity), &label)
+                        .clicked()
+                    {
+                        ui_state.selected_colony = Some(*entity);
+                    }
+                }
+            });
+    });
+    ui.separator();
+
+    let selected_entity = match ui_state.selected_colony {
+        Some(e) => e,
+        None => return,
+    };
+    let (colony_entity, colony, body) =
+        match colonies.iter().find(|(e, _, _)| *e == selected_entity) {
+            Some(c) => c,
+            None => return,
+        };
+
     let bypass_tech = debug_settings.enabled && debug_settings.bypass_tech_requirements;
     let free_build = debug_settings.enabled && debug_settings.free_construction;
 
     egui::ScrollArea::vertical().show(ui, |ui| {
-        // Show each colony
-        for (colony_entity, colony, body) in &colonies {
-            let header = format!(
-                "🏠 {} ({})",
-                colony.name,
-                Colony::format_population(colony.population)
+        // -- Colony stats --
+        ui.group(|ui| {
+            ui.label(
+                egui::RichText::new(format!("{} -- {}", colony.name, body.name))
+                    .size(14.0)
+                    .strong(),
             );
+            ui.separator();
 
-            egui::CollapsingHeader::new(egui::RichText::new(&header).size(14.0).strong())
+            let workforce_eff = colony.workforce_efficiency();
+            let wf_color = if workforce_eff >= 1.0 {
+                theme::GREEN
+            } else if workforce_eff >= 0.5 {
+                theme::AMBER
+            } else {
+                theme::RED
+            };
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Workforce: {} / {} ({:.0}%)",
+                        colony.available_workforce(),
+                        colony.total_workforce_demand(),
+                        workforce_eff * 100.0
+                    ))
+                    .color(wf_color),
+                );
+                if workforce_eff < 1.0 {
+                    ui.label(
+                        egui::RichText::new("understaffed")
+                            .size(11.0)
+                            .color(theme::RED),
+                    );
+                }
+            });
+
+            let efficiency = colony.logistics_efficiency();
+            let eff_color = if efficiency >= 1.0 {
+                theme::GREEN
+            } else if efficiency >= 0.5 {
+                theme::AMBER
+            } else {
+                theme::RED
+            };
+            ui.horizontal(|ui| {
+                ui.label("Logistics:");
+                ui.label(
+                    egui::RichText::new(format!("{:.0}%", efficiency * 100.0)).color(eff_color),
+                );
+                if efficiency < 1.0 {
+                    ui.label(
+                        egui::RichText::new("(build Mass Drivers / Orbital Lifts)")
+                            .size(11.0)
+                            .color(theme::TEXT_DIM),
+                    );
+                }
+            });
+
+            let housing = colony.housing_capacity();
+            let housing_util = if housing > 0.0 {
+                (colony.population / housing * 100.0).min(100.0)
+            } else {
+                0.0
+            };
+            ui.label(format!(
+                "Housing: {} / {} ({:.0}%)",
+                Colony::format_population(colony.population),
+                Colony::format_population(housing),
+                housing_util
+            ));
+
+            let growth = colony.population_growth_per_year(1.0);
+            if growth.abs() > 0.1 {
+                ui.label(format!(
+                    "Growth: +{}/year",
+                    Colony::format_population(growth)
+                ));
+            }
+
+            let income = colony.wealth_generation_per_year();
+            let cost = colony.operating_cost_per_year();
+            if income > 0.0 || cost > 0.0 {
+                let colony_balance = income - cost;
+                let cb_color = if colony_balance >= 0.0 { theme::GREEN } else { theme::RED };
+                let sign = if colony_balance >= 0.0 { "+" } else { "" };
+                ui.horizontal(|ui| {
+                    ui.label(format!("Income: {}/yr", format_currency(income)));
+                    ui.label(format!("| Cost: {}/yr", format_currency(cost)));
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "| Net: {}{}/yr",
+                            sign,
+                            format_currency(colony_balance)
+                        ))
+                        .color(cb_color),
+                    );
+                });
+            }
+
+            ui.label(format!("Buildings: {}", colony.total_buildings()));
+        });
+
+        ui.add_space(4.0);
+
+        // -- Build multiplier selector --
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Build qty:").strong());
+            for &mult in &[1u32, 5, 10, 25, 50, 100] {
+                let selected = ui_state.build_multiplier == mult;
+                let btn_text = format!("x{}", mult);
+                let btn = egui::Button::new(
+                    egui::RichText::new(&btn_text).size(12.0).color(if selected {
+                        theme::GOLD
+                    } else {
+                        egui::Color32::WHITE
+                    }),
+                );
+                if ui.add(btn).clicked() {
+                    ui_state.build_multiplier = mult;
+                }
+            }
+        });
+
+        ui.separator();
+
+        // -- Existing buildings (collapsible) --
+        if colony.total_buildings() > 0 {
+            egui::CollapsingHeader::new("Buildings")
+                .default_open(false)
+                .show(ui, |ui| {
+                    for category in BuildingCategory::all() {
+                        let buildings_in_cat: Vec<_> = category
+                            .buildings()
+                            .iter()
+                            .filter(|b| colony.building_count(**b) > 0)
+                            .map(|b| (*b, colony.building_count(*b)))
+                            .collect();
+
+                        if !buildings_in_cat.is_empty() {
+                            ui.label(
+                                egui::RichText::new(category.display_name())
+                                    .size(12.0)
+                                    .strong(),
+                            );
+                            for (building, count) in buildings_in_cat {
+                                let workers = building.workforce_required() * count;
+                                let mut label_text = format!(
+                                    "  {} {} x {} (workers: {})",
+                                    building.icon(),
+                                    building.display_name(),
+                                    count,
+                                    workers
+                                );
+                                if let Some(data) = buildings_data {
+                                    let maint = data.maintenance_resources(&building);
+                                    if !maint.is_empty() {
+                                        let maint_str: Vec<_> = maint
+                                            .iter()
+                                            .map(|(r, a)| {
+                                                format!("{:.1} {}/yr", a * count as f64, r)
+                                            })
+                                            .collect();
+                                        label_text +=
+                                            &format!(" [maint: {}]", maint_str.join(", "));
+                                    }
+                                }
+                                ui.label(&label_text);
+                            }
+                        }
+                    }
+                });
+        }
+
+        // -- Construction queue --
+        let factories = colony.building_count(BuildingType::Factory) as f64;
+        let bp_rate = 1.0 + factories * 10.0;
+
+        let queue: Vec<_> = construction_query
+            .iter()
+            .filter(|(_, p)| p.colony_entity == *colony_entity)
+            .collect();
+
+        if !queue.is_empty() {
+            egui::CollapsingHeader::new(
+                egui::RichText::new(format!("Queue ({})", queue.len())).strong(),
+            )
+            .default_open(true)
+            .show(ui, |ui| {
+                for (proj_entity, project) in &queue {
+                    let pct = project.progress_percent();
+                    let remaining_bp = project.building_type.build_cost() * (1.0 - pct as f64);
+                    let years_remaining = if bp_rate > 0.0 {
+                        remaining_bp / bp_rate
+                    } else {
+                        f64::INFINITY
+                    };
+
+                    ui.horizontal(|ui| {
+                        ui.label(format!(
+                            "{} {}",
+                            project.building_type.icon(),
+                            project.building_type.display_name()
+                        ));
+                        let time_str = if years_remaining < 1.0 {
+                            format!("{:.1} mo", years_remaining * 12.0)
+                        } else {
+                            format!("{:.1} yr", years_remaining)
+                        };
+                        ui.label(egui::RichText::new(&time_str).size(11.0).color(theme::AMBER));
+                        if ui
+                            .small_button("X")
+                            .on_hover_text("Cancel construction")
+                            .clicked()
+                        {
+                            construction_actions.cancel_construction.push(*proj_entity);
+                        }
+                    });
+
+                    let bar = egui::ProgressBar::new(pct)
+                        .show_percentage()
+                        .desired_width(ui.available_width() - 8.0);
+                    ui.add(bar);
+                    ui.add_space(2.0);
+                }
+            });
+        }
+
+        ui.add_space(4.0);
+
+        // -- Build section --
+        egui::CollapsingHeader::new(
+            egui::RichText::new(format!("Build  ({:.1} BP/yr)", bp_rate)).strong(),
+        )
+        .default_open(true)
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(format!("Output: {:.1} BP/year", bp_rate))
+                        .color(theme::GREEN)
+                        .strong(),
+                );
+                ui.label(egui::RichText::new("i").small())
+                    .on_hover_text("Base: 1 BP/yr + 10 BP/yr per Factory");
+            });
+            ui.separator();
+
+            let multiplier = ui_state.build_multiplier;
+
+            for category in BuildingCategory::all() {
+                let available: Vec<_> = category
+                    .buildings()
+                    .into_iter()
+                    .filter(|b| {
+                        if bypass_tech {
+                            return true;
+                        }
+                        let tech_req = buildings_data
+                            .and_then(|d| d.required_tech(b))
+                            .or_else(|| b.required_tech());
+                        match tech_req {
+                            Some(tech_id) => research_state.is_unlocked(tech_id),
+                            None => true,
+                        }
+                    })
+                    .collect();
+
+                if available.is_empty() {
+                    continue;
+                }
+
+                egui::CollapsingHeader::new(
+                    egui::RichText::new(format!(
+                        "{} ({})",
+                        category.display_name(),
+                        available.len()
+                    ))
+                    .size(13.0)
+                    .strong(),
+                )
                 .default_open(true)
                 .show(ui, |ui| {
-                    // Colony overview
-                    ui.horizontal(|ui| {
-                        ui.label(format!("Body: {}", body.name));
-                        ui.separator();
-                        ui.label(format!("Buildings: {}", colony.total_buildings()));
-                    });
+                    let chunks: Vec<&[BuildingType]> = available.chunks(3).collect();
+                    for chunk in chunks {
+                        let card_width = (ui.available_width() - 24.0) / 3.0;
+                        ui.columns(3, |cols| {
+                            for (i, building) in chunk.iter().enumerate() {
+                                let costs = buildings_data
+                                    .map(|d| d.resource_costs(building))
+                                    .unwrap_or(&[]);
+                                let can_afford = free_build
+                                    || costs.is_empty()
+                                    || can_afford_resources_multiplied(budget, costs, multiplier);
 
-                    // Workforce status
-                    let workforce_eff = colony.workforce_efficiency();
-                    let wf_color = if workforce_eff >= 1.0 {
-                        theme::GREEN
-                    } else if workforce_eff >= 0.5 {
-                        theme::AMBER
-                    } else {
-                        theme::RED
-                    };
-                    ui.horizontal(|ui| {
-                        ui.label(format!(
-                            "👷 Workforce: {} / {}",
-                            colony.available_workforce(),
-                            colony.total_workforce_demand()
-                        ));
-                        ui.label(
-                            egui::RichText::new(format!("({:.0}%)", workforce_eff * 100.0))
-                                .color(wf_color),
-                        );
-                        if workforce_eff < 1.0 {
-                            ui.label(
-                                egui::RichText::new("understaffed")
-                                    .size(11.0)
-                                    .color(theme::RED),
-                            );
-                        }
-                    });
-
-                    // Logistics status
-                    let efficiency = colony.logistics_efficiency();
-                    let eff_color = if efficiency >= 1.0 {
-                        theme::GREEN
-                    } else if efficiency >= 0.5 {
-                        theme::AMBER
-                    } else {
-                        theme::RED
-                    };
-                    ui.horizontal(|ui| {
-                        ui.label("Logistics:");
-                        ui.label(
-                            egui::RichText::new(format!("{:.0}%", efficiency * 100.0))
-                                .color(eff_color),
-                        );
-                        if efficiency < 1.0 {
-                            ui.label(
-                                egui::RichText::new("(build Mass Drivers / Orbital Lifts)")
-                                    .size(11.0)
-                                    .color(theme::TEXT_DIM),
-                            );
-                        }
-                    });
-
-                    // Housing
-                    let housing = colony.housing_capacity();
-                    let housing_util = if housing > 0.0 {
-                        (colony.population / housing * 100.0).min(100.0)
-                    } else {
-                        0.0
-                    };
-                    ui.horizontal(|ui| {
-                        ui.label(format!(
-                            "Housing: {} / {} ({:.0}%)",
-                            Colony::format_population(colony.population),
-                            Colony::format_population(housing),
-                            housing_util
-                        ));
-                    });
-
-                    // Growth
-                    let growth = colony.population_growth_per_year(1.0);
-                    if growth.abs() > 0.1 {
-                        ui.horizontal(|ui| {
-                            ui.label(format!(
-                                "Growth: +{}/year",
-                                Colony::format_population(growth)
-                            ));
+                                render_building_card(
+                                    &mut cols[i],
+                                    *building,
+                                    multiplier,
+                                    *colony_entity,
+                                    costs,
+                                    budget,
+                                    bp_rate,
+                                    can_afford,
+                                    construction_actions,
+                                    card_width,
+                                );
+                            }
                         });
+                        ui.add_space(4.0);
                     }
+                });
 
-                    // Colony financials
-                    let income = colony.wealth_generation_per_year();
-                    let cost = colony.operating_cost_per_year();
-                    if income > 0.0 || cost > 0.0 {
-                        let colony_balance = income - cost;
-                        let cb_color = if colony_balance >= 0.0 {
-                            theme::GREEN
+                ui.add_space(2.0);
+            }
+
+            // -- Locked buildings --
+            if !bypass_tech {
+                let locked: Vec<_> = BuildingType::all()
+                    .iter()
+                    .filter(|b| {
+                        let tech_req = buildings_data
+                            .and_then(|d| d.required_tech(b))
+                            .or_else(|| b.required_tech());
+                        if let Some(tech_id) = tech_req {
+                            !research_state.is_unlocked(tech_id)
                         } else {
-                            theme::RED
-                        };
-                        ui.horizontal(|ui| {
-                            ui.label(format!("💰 Income: {}/yr", format_currency(income)));
-                            ui.label(format!("| Cost: {}/yr", format_currency(cost)));
-                            let sign = if colony_balance >= 0.0 { "+" } else { "" };
-                            ui.label(
-                                egui::RichText::new(format!(
-                                    "| Net: {}{}/yr",
-                                    sign,
-                                    format_currency(colony_balance)
-                                ))
-                                .color(cb_color),
-                            );
-                        });
-                    }
+                            false
+                        }
+                    })
+                    .collect();
 
-                    ui.add_space(5.0);
-
-                    // Existing buildings by category
-                    let has_buildings = colony.total_buildings() > 0;
-                    if has_buildings {
-                        egui::CollapsingHeader::new("📋 Buildings")
-                            .default_open(false)
-                            .show(ui, |ui| {
-                                for category in BuildingCategory::all() {
-                                    let buildings_in_cat: Vec<_> = category
-                                        .buildings()
-                                        .iter()
-                                        .filter(|b| colony.building_count(**b) > 0)
-                                        .map(|b| (*b, colony.building_count(*b)))
-                                        .collect();
-
-                                    if !buildings_in_cat.is_empty() {
-                                        ui.label(
-                                            egui::RichText::new(category.display_name())
-                                                .size(12.0)
-                                                .strong(),
-                                        );
-                                        for (building, count) in buildings_in_cat {
-                                            let workers = building.workforce_required() * count;
-                                            let mut label_text = format!(
-                                                "  {} {} × {} (👷 {})",
-                                                building.icon(),
-                                                building.display_name(),
-                                                count,
-                                                workers
-                                            );
-                                            // Show maintenance in tooltip
-                                            if let Some(data) = buildings_data {
-                                                let maint = data.maintenance_resources(&building);
-                                                if !maint.is_empty() {
-                                                    let maint_str: Vec<_> = maint
-                                                        .iter()
-                                                        .map(|(r, a)| {
-                                                            format!(
-                                                                "{:.1} {}/yr",
-                                                                a * count as f64,
-                                                                r
-                                                            )
-                                                        })
-                                                        .collect();
-                                                    label_text += &format!(
-                                                        " [maint: {}]",
-                                                        maint_str.join(", ")
-                                                    );
-                                                }
-                                            }
-                                            ui.horizontal(|ui| {
-                                                ui.label(&label_text);
-                                            });
-                                        }
-                                    }
-                                }
-                            });
-                    }
-
-                    // Construction queue
-                    let queue: Vec<_> = construction_query
-                        .iter()
-                        .filter(|(_, p)| p.colony_entity == *colony_entity)
-                        .collect();
-
-                    if !queue.is_empty() {
-                        egui::CollapsingHeader::new(format!("🔨 Queue ({})", queue.len()))
-                            .default_open(true)
-                            .show(ui, |ui| {
-                                for (proj_entity, project) in &queue {
-                                    ui.horizontal(|ui| {
-                                        let pct = project.progress_percent() * 100.0;
-                                        ui.label(format!(
-                                            "{} {} - {:.0}%",
-                                            project.building_type.icon(),
-                                            project.building_type.display_name(),
-                                            pct
-                                        ));
-                                        if ui
-                                            .small_button("✖")
-                                            .on_hover_text("Cancel construction")
-                                            .clicked()
-                                        {
-                                            construction_actions
-                                                .cancel_construction
-                                                .push(*proj_entity);
-                                        }
-                                    });
-
-                                    // Progress bar
-                                    let bar = egui::ProgressBar::new(project.progress_percent())
-                                        .show_percentage();
-                                    ui.add(bar);
-                                }
-                            });
-                    }
-
-                    // Build new buildings
-                    egui::CollapsingHeader::new("➕ Build")
-                        .default_open(queue.is_empty() && !has_buildings)
-                        .show(ui, |ui| {
-                            let factories = colony.building_count(BuildingType::Factory) as f64;
-                            let bp_rate = 1.0 + factories * 10.0;
-                            ui.horizontal(|ui| {
+                if !locked.is_empty() {
+                    egui::CollapsingHeader::new(
+                        egui::RichText::new(format!("Locked ({})", locked.len()))
+                            .size(13.0)
+                            .color(theme::TEXT_DIM),
+                    )
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        for building in locked {
+                            let tech_id = buildings_data
+                                .and_then(|d| d.required_tech(building))
+                                .or_else(|| building.required_tech());
+                            if let Some(tech_name) = tech_id {
                                 ui.label(
                                     egui::RichText::new(format!(
-                                        "Construction Output: {:.1} BP/year",
-                                        bp_rate
+                                        "  {} {} -- requires: {}",
+                                        building.icon(),
+                                        building.display_name(),
+                                        tech_name
                                     ))
-                                    .color(theme::GREEN)
-                                    .strong(),
+                                    .size(11.0)
+                                    .color(theme::TEXT_HINT),
                                 );
-                                ui.label(egui::RichText::new("ℹ").small())
-                                    .on_hover_text("Base: 1 BP/yr + 10 BP/yr per Factory");
-                            });
-                            ui.separator();
-
-                            for category in BuildingCategory::all() {
-                                let available: Vec<_> = category
-                                    .buildings()
-                                    .into_iter()
-                                    .filter(|b| {
-                                        if bypass_tech {
-                                            return true;
-                                        }
-                                        // Check tech prerequisite from data file first, fall back to code
-                                        let tech_req = buildings_data
-                                            .and_then(|d| d.required_tech(b))
-                                            .or_else(|| b.required_tech());
-                                        match tech_req {
-                                            Some(tech_id) => research_state.is_unlocked(tech_id),
-                                            None => true,
-                                        }
-                                    })
-                                    .collect();
-
-                                if available.is_empty() {
-                                    continue;
-                                }
-
-                                ui.label(
-                                    egui::RichText::new(category.display_name())
-                                        .size(12.0)
-                                        .strong(),
-                                );
-                                for building in available {
-                                    let costs = buildings_data
-                                        .map(|d| d.resource_costs(&building))
-                                        .unwrap_or(&[]);
-                                    let can_afford = free_build
-                                        || costs.is_empty()
-                                        || can_afford_resources(budget, costs);
-
-                                    ui.horizontal(|ui| {
-                                        // Build resource cost summary
-                                        let mut cost_parts = Vec::new();
-                                        cost_parts.push(format!("{:.0} BP", building.build_cost()));
-                                        cost_parts
-                                            .push(format!("👷 {}", building.workforce_required()));
-                                        if !costs.is_empty() {
-                                            let res_str: Vec<_> = costs
-                                                .iter()
-                                                .map(|(r, a)| format!("{:.0} {}", a, r))
-                                                .collect();
-                                            cost_parts.push(res_str.join(", "));
-                                        }
-                                        let label = format!(
-                                            "{} {} ({})",
-                                            building.icon(),
-                                            building.display_name(),
-                                            cost_parts.join(" | ")
-                                        );
-
-                                        let button = ui.add_enabled(
-                                            can_afford,
-                                            egui::Button::new(
-                                                egui::RichText::new(&label).size(11.0),
-                                            )
-                                            .small(),
-                                        );
-
-                                        // Build rich tooltip
-                                        let mut tooltip_text = building.description().to_string();
-                                        if !costs.is_empty() {
-                                            tooltip_text += "\n\n📦 Construction costs:";
-                                            for (r, a) in costs {
-                                                let available =
-                                                    crate::colony::data::parse_resource_type(r)
-                                                        .map(|rt| budget.get_stockpile(&rt))
-                                                        .unwrap_or(0.0);
-                                                let status =
-                                                    if available >= *a { "✔" } else { "✘" };
-                                                tooltip_text += &format!(
-                                                    "\n  {} {:.1} {} (have {:.1})",
-                                                    status, a, r, available
-                                                );
-                                            }
-                                        }
-                                        if let Some(data) = buildings_data {
-                                            let maint = data.maintenance_resources(&building);
-                                            if !maint.is_empty() {
-                                                tooltip_text += "\n\n🔧 Maintenance (per year):";
-                                                for (r, a) in maint {
-                                                    tooltip_text += &format!("\n  {:.2} {}", a, r);
-                                                }
-                                            }
-                                            if let Some(def) = data.get(&building) {
-                                                if !def.modifiers.is_empty() {
-                                                    tooltip_text += "\n\n⚡ Effects:";
-                                                    for m in &def.modifiers {
-                                                        let sign =
-                                                            if m.value >= 0.0 { "+" } else { "" };
-                                                        tooltip_text += &format!(
-                                                            "\n  {}{:.0}% {}",
-                                                            sign, m.value, m.modifier_type
-                                                        );
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        let response = button.on_hover_text(&tooltip_text);
-
-                                        if !can_afford {
-                                            ui.label(
-                                                egui::RichText::new("⚠ insufficient resources")
-                                                    .size(10.0)
-                                                    .color(theme::RED),
-                                            );
-                                        }
-
-                                        if response.clicked() {
-                                            construction_actions
-                                                .start_construction
-                                                .push((*colony_entity, building));
-                                        }
-                                    });
-                                }
-                                ui.add_space(3.0);
                             }
+                        }
+                    });
+                }
+            }
+        });
+    });
+}
 
-                            // Show locked buildings (unless bypassing)
-                            if !bypass_tech {
-                                let locked: Vec<_> = BuildingType::all()
-                                    .iter()
-                                    .filter(|b| {
-                                        let tech_req = buildings_data
-                                            .and_then(|d| d.required_tech(b))
-                                            .or_else(|| b.required_tech());
-                                        if let Some(tech_id) = tech_req {
-                                            !research_state.is_unlocked(tech_id)
-                                        } else {
-                                            false
-                                        }
-                                    })
-                                    .collect();
+/// Check if resource costs x multiplier can all be covered by the current budget.
+fn can_afford_resources_multiplied(
+    budget: &GlobalBudget,
+    costs: &[crate::colony::data::ResourceCostEntry],
+    multiplier: u32,
+) -> bool {
+    for (name, amount) in costs {
+        let total_needed = amount * multiplier as f64;
+        if let Some(rt) = crate::colony::data::parse_resource_type(name) {
+            if budget.get_stockpile(&rt) < total_needed {
+                return false;
+            }
+        }
+    }
+    true
+}
 
-                                if !locked.is_empty() {
-                                    ui.add_space(5.0);
-                                    ui.label(
-                                        egui::RichText::new("🔒 Locked (requires research)")
-                                            .size(12.0)
-                                            .color(theme::TEXT_DIM),
-                                    );
-                                    for building in locked {
-                                        let tech_id = buildings_data
-                                            .and_then(|d| d.required_tech(building))
-                                            .or_else(|| building.required_tech());
-                                        if let Some(tech_name) = tech_id {
-                                            ui.label(
-                                                egui::RichText::new(format!(
-                                                    "  {} {} — requires: {}",
-                                                    building.icon(),
-                                                    building.display_name(),
-                                                    tech_name
-                                                ))
-                                                .size(11.0)
-                                                .color(theme::TEXT_HINT),
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                        });
+/// Render a single building card in the grid layout.
+fn render_building_card(
+    ui: &mut egui::Ui,
+    building: BuildingType,
+    multiplier: u32,
+    colony_entity: bevy::ecs::entity::Entity,
+    costs: &[crate::colony::data::ResourceCostEntry],
+    budget: &GlobalBudget,
+    bp_rate: f64,
+    can_afford: bool,
+    construction_actions: &mut PendingConstructionActions,
+    _card_width: f32,
+) {
+    let total_bp = building.build_cost() * multiplier as f64;
+    let years_to_build = if bp_rate > 0.0 { total_bp / bp_rate } else { f64::INFINITY };
 
-                    ui.separator();
-                });
+    ui.group(|ui| {
+        ui.set_min_width(150.0);
+
+        // Icon + name header
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(building.icon()).size(20.0));
+            ui.vertical(|ui| {
+                ui.label(egui::RichText::new(building.display_name()).strong().size(12.0));
+                ui.label(
+                    egui::RichText::new(building.description())
+                        .small()
+                        .color(theme::TEXT_DIM),
+                );
+            });
+        });
+
+        ui.separator();
+
+        // Build stats row
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(format!("{:.0} BP", total_bp)).size(11.0));
+            ui.separator();
+            ui.label(
+                egui::RichText::new(format!(
+                    "workers: {}",
+                    building.workforce_required() * multiplier
+                ))
+                .size(11.0),
+            );
+        });
+
+        // Time estimate
+        let time_str = if years_to_build < 1.0 {
+            format!("{:.1} mo", years_to_build * 12.0)
+        } else if years_to_build < 100.0 {
+            format!("{:.1} yr", years_to_build)
+        } else {
+            format!("{:.0} yr", years_to_build)
+        };
+        ui.label(egui::RichText::new(&time_str).size(11.0).color(theme::AMBER));
+
+        // Resource costs
+        if !costs.is_empty() {
+            ui.separator();
+            for (r, a) in costs {
+                let total_needed = a * multiplier as f64;
+                let available = crate::colony::data::parse_resource_type(r)
+                    .map(|rt| budget.get_stockpile(&rt))
+                    .unwrap_or(0.0);
+                let ok = available >= total_needed;
+                let color = if ok { theme::GREEN } else { theme::RED };
+                let symbol = if ok { "ok" } else { "X" };
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} {:.0} {} ({:.0} avail)",
+                        symbol, total_needed, r, available
+                    ))
+                    .size(10.0)
+                    .color(color),
+                );
+            }
+        }
+
+        ui.add_space(4.0);
+
+        // Queue button
+        let btn_text = if multiplier == 1 {
+            "Queue x1".to_string()
+        } else {
+            format!("Queue x{}", multiplier)
+        };
+        let response = ui.add_enabled(
+            can_afford,
+            egui::Button::new(egui::RichText::new(&btn_text).size(11.0)),
+        );
+        if !can_afford {
+            response.on_hover_text("Insufficient resources");
+        } else if response.clicked() {
+            for _ in 0..multiplier {
+                construction_actions
+                    .start_construction
+                    .push((colony_entity, building));
+            }
         }
     });
 }

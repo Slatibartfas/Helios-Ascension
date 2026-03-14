@@ -915,18 +915,47 @@ pub fn setup_solar_system(
 
             // Add initial infrastructure
             let base_buildings = [
-                (BuildingType::Housing, 33000),      // Housing (250k each -> 8.25B)
-                (BuildingType::Farm, 8200), // Food (1M each → 1 farm/1M people for 8.2B pop)
-                (BuildingType::Factory, 2000), // Production (Increased for Earth)
-                (BuildingType::Mine, 3000), // Mining (Increased for realism)
-                (BuildingType::Refinery, 800), // Refining
-                (BuildingType::ChemicalPlant, 1000), // Chemicals & Volatiles
-                (BuildingType::HydrocarbonExtractor, 500), // Oil & Gas
-                (BuildingType::AtmosphericProcessor, 500), // Gas harvesting
-                (BuildingType::ResearchLab, 500), // Research
-                (BuildingType::LaunchSite, 50), // Space Access
-                (BuildingType::FinancialCenter, 100), // Economy
-                (BuildingType::CommercialHub, 500), // Economy
+                // Housing: 8.2B people at 250K per complex = 32,800 complexes
+                (BuildingType::Housing, 32_800),
+                // Food: Farms (mega-scale: each feeds 1M), ~8200 needed
+                (BuildingType::Farm, 8_200),
+                // Food: Greenhouses 2000 (controlled-env)
+                (BuildingType::Greenhouse, 2_000),
+                // Food: Aquaculture 500
+                (BuildingType::AquacultureFacility, 500),
+                // Industry
+                (BuildingType::Factory, 2_000),
+                (BuildingType::Mine, 3_000),
+                (BuildingType::Refinery, 800),
+                (BuildingType::ChemicalPlant, 1_000),
+                (BuildingType::HydrocarbonExtractor, 500),
+                (BuildingType::AtmosphericProcessor, 500),
+                (BuildingType::SteelMill, 300),
+                (BuildingType::AluminumSmelter, 200),
+                (BuildingType::RecyclingCenter, 500),
+                // Power (2026 mix: coal, gas, hydro, nuclear, solar, wind)
+                (BuildingType::CoalPowerPlant, 2_400),   // ~40% coal
+                (BuildingType::NaturalGasPlant, 1_800),  // ~30% gas
+                (BuildingType::HydroelectricDam, 800),   // ~16% hydro
+                (BuildingType::SolarPower, 600),         // ~6% solar
+                (BuildingType::WindFarm, 900),           // ~7% wind
+                (BuildingType::FissionReactor, 440),     // ~5% nuclear (~440 reactors)
+                // Water
+                (BuildingType::WaterTreatmentPlant, 1_000),
+                // Research & Tech
+                (BuildingType::ResearchLab, 500),
+                (BuildingType::DataCenter, 50),
+                (BuildingType::TelecomTower, 2_000),
+                // Space access
+                (BuildingType::LaunchSite, 50),
+                (BuildingType::SpacePort, 5),
+                // Economy
+                (BuildingType::FinancialCenter, 100),
+                (BuildingType::CommercialHub, 500),
+                (BuildingType::TradePort, 50),
+                // Medical/Population
+                (BuildingType::MedicalCenter, 200),
+                (BuildingType::PharmaceuticalPlant, 100),
             ];
 
             for (b_type, count) in base_buildings {

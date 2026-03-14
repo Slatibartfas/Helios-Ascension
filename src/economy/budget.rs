@@ -90,35 +90,42 @@ impl GlobalBudget {
         //   Sulfur ~74.4, Phosphorus ~28.5, RareEarths ~0.25
         //
         // All values in Megatons (Mt).
-        stockpiles.insert(ResourceType::Water, 800.0); // ~2 yr (400 Mt/yr from Refineries)
-        stockpiles.insert(ResourceType::Oxygen, 200.0); // Construction buffer; easily harvested
-        stockpiles.insert(ResourceType::Iron, 520.0); // ~2 yr (259 Mt/yr aggregate)
-        stockpiles.insert(ResourceType::Copper, 50.0); // ~2 yr (26 Mt/yr)
-        stockpiles.insert(ResourceType::Silicates, 50_000.0); // Construction reserve; extremely abundant
-        stockpiles.insert(ResourceType::Aluminum, 100.0); // Construction buffer (5 Mt/yr maintenance)
-        stockpiles.insert(ResourceType::RareEarths, 0.5); // ~2 yr (0.25 Mt/yr from ResearchLabs)
-        stockpiles.insert(ResourceType::Uranium, 0.12); // Fissile construction reserve
-        stockpiles.insert(ResourceType::Thorium, 0.02); // Fissile construction reserve
-        stockpiles.insert(ResourceType::Deuterium, 5.0); // Fusion fuel reserve (FusionReactor: 5 Mt/yr)
-        stockpiles.insert(ResourceType::Nickel, 7.0); // ~2 yr (3.2 Mt/yr: factories + refineries + mines)
-        stockpiles.insert(ResourceType::Tungsten, 0.17); // ~2 yr (0.084 Mt/yr: factories + refineries)
-        stockpiles.insert(ResourceType::Carbon, 20.0); // Construction reserve (OrbitalLift, Shipyard)
-        stockpiles.insert(ResourceType::Phosphorus, 60.0); // ~2 yr (28.5 Mt/yr: farms + chem plants)
-        stockpiles.insert(ResourceType::Lithium, 0.35); // ~2 yr (0.17 Mt/yr: factories + labs)
-        stockpiles.insert(ResourceType::Sulfur, 150.0); // ~2 yr (74.4 Mt/yr: chem plants + farms + factories)
-        stockpiles.insert(ResourceType::Food, 500.0); // Starting buffer; Earth farms (~8200) produce ~820 kt/yr balanced against population consumption
-        stockpiles.insert(ResourceType::Chromium, 90.0); // ~2 yr (44 Mt/yr alloy production)
-        stockpiles.insert(ResourceType::Magnesium, 3.0); // Construction reserve (lightweight alloys)
-        stockpiles.insert(ResourceType::Cobalt, 0.5); // ~2 yr (0.22 Mt/yr: batteries + superalloys)
-        stockpiles.insert(ResourceType::Fluorine, 17.0); // ~2 yr (8.5 Mt/yr: enrichment + chem industry)
-        stockpiles.insert(ResourceType::Polymers, 100.0); // Manufactured reserve (chem plants produce)
+        stockpiles.insert(ResourceType::Water, 4_000.0);
+        stockpiles.insert(ResourceType::Oxygen, 2_000.0);
+        stockpiles.insert(ResourceType::Hydrogen, 1_000.0);
+        stockpiles.insert(ResourceType::Methane, 500.0);
+        stockpiles.insert(ResourceType::Nitrogen, 1_000.0);
+        stockpiles.insert(ResourceType::Iron, 5_000.0);
+        stockpiles.insert(ResourceType::Copper, 500.0);
+        stockpiles.insert(ResourceType::Silicates, 200_000.0);
+        stockpiles.insert(ResourceType::Aluminum, 800.0);
+        stockpiles.insert(ResourceType::Titanium, 100.0);
+        stockpiles.insert(ResourceType::RareEarths, 5.0);
+        stockpiles.insert(ResourceType::Uranium, 1.0);
+        stockpiles.insert(ResourceType::Thorium, 0.2);
+        stockpiles.insert(ResourceType::Deuterium, 50.0);
+        stockpiles.insert(ResourceType::Nickel, 70.0);
+        stockpiles.insert(ResourceType::Tungsten, 1.7);
+        stockpiles.insert(ResourceType::Carbon, 200.0);
+        stockpiles.insert(ResourceType::Phosphorus, 600.0);
+        stockpiles.insert(ResourceType::Lithium, 3.5);
+        stockpiles.insert(ResourceType::Sulfur, 1_500.0);
+        stockpiles.insert(ResourceType::Food, 5_000.0);
+        stockpiles.insert(ResourceType::Chromium, 900.0);
+        stockpiles.insert(ResourceType::Magnesium, 30.0);
+        stockpiles.insert(ResourceType::Cobalt, 5.0);
+        stockpiles.insert(ResourceType::Fluorine, 170.0);
+        stockpiles.insert(ResourceType::Polymers, 1_000.0);
+        stockpiles.insert(ResourceType::Silver, 1.0);
+        stockpiles.insert(ResourceType::Gold, 0.5);
+        stockpiles.insert(ResourceType::Platinum, 0.1);
 
         Self {
             stockpiles,
             energy_grid: EnergyGrid::default(),
             civilization_score: 0.0,
             power_breakdown: HashMap::new(),
-            treasury: 100_000.0, // Starting treasury: 100K MC (enough for early expansion)
+            treasury: 1_000_000.0, // Starting treasury: 1M MC (global industrial base)
             income_per_year: 0.0,
             expenses_per_year: 0.0,
         }
@@ -441,7 +448,7 @@ mod tests {
     #[test]
     fn test_treasury_initial() {
         let budget = GlobalBudget::new();
-        assert_eq!(budget.treasury, 100_000.0);
+        assert_eq!(budget.treasury, 1_000_000.0);
     }
 
     #[test]

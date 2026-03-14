@@ -404,6 +404,7 @@ impl Plugin for UIPlugin {
             .init_resource::<FleetUiState>()
             .init_resource::<ResolutionWarning>()
             .init_resource::<ExpandedLedgerGroups>()
+            .init_resource::<construction_panel::ConstructionUiState>()
             // ActiveMenu is now initialized in GameStatePlugin
             // to allow access in camera/starmap plugins
             // Load menu icons at startup
