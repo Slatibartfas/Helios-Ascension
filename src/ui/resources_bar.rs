@@ -22,7 +22,7 @@ fn get_resource_category_icon(category: &str) -> &'static str {
 }
 
 /// Get the icon for a specific resource type
-fn get_resource_icon(resource: &ResourceType) -> &'static str {
+pub(super) fn get_resource_icon(resource: &ResourceType) -> &'static str {
     match resource {
         // Biological
         ResourceType::Food => "\u{1F35E}", // 🍞

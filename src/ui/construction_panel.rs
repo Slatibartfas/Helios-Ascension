@@ -578,7 +578,10 @@ fn can_afford_resources_multiplied(
     true
 }
 
-/// Render a single building card in the grid layout.
+/// Minimum card height for construction building cards.
+/// This is tall enough to fit: header (2 lines) + stats (2 lines) + up to 4
+/// resource cost rows + queue button without resizing when fewer rows are shown.
+const BUILDING_CARD_MIN_HEIGHT: f32 = 195.0;
 fn render_building_card(
     ui: &mut egui::Ui,
     building: BuildingType,
@@ -595,88 +598,112 @@ fn render_building_card(
     let years_to_build = if bp_rate > 0.0 { total_bp / bp_rate } else { f64::INFINITY };
 
     ui.group(|ui| {
-        ui.set_min_width(150.0);
+        ui.set_min_width(170.0);
+        ui.set_min_height(BUILDING_CARD_MIN_HEIGHT);
 
-        // Icon + name header
+        // Icon + name header (fixed 2-line header area)
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(building.icon()).size(20.0));
+            ui.label(egui::RichText::new(building.icon()).size(22.0));
             ui.vertical(|ui| {
                 ui.label(egui::RichText::new(building.display_name()).strong().size(12.0));
-                ui.label(
-                    egui::RichText::new(building.description())
-                        .small()
-                        .color(theme::TEXT_DIM),
+                // Wrap description to 2 lines
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(building.description())
+                            .small()
+                            .color(theme::TEXT_DIM),
+                    )
+                    .wrap(),
                 );
             });
         });
 
         ui.separator();
 
-        // Build stats row
+        // Build stats: BP + workers on one line, build-time on next
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(format!("{:.0} BP", total_bp)).size(11.0));
+            ui.label(egui::RichText::new(format!("{:.0} BP", total_bp)).size(10.0));
             ui.separator();
             ui.label(
                 egui::RichText::new(format!(
-                    "workers: {}",
+                    "👷 {}",
                     building.workforce_required() * multiplier
                 ))
-                .size(11.0),
+                .size(10.0),
             );
         });
 
-        // Time estimate
-        let time_str = if years_to_build < 1.0 {
-            format!("{:.1} mo", years_to_build * 12.0)
-        } else if years_to_build < 100.0 {
-            format!("{:.1} yr", years_to_build)
+        // Build time
+        let time_str = if years_to_build.is_infinite() {
+            "∞ (no factory)".to_string()
+        } else if years_to_build < 1.0 {
+            format!("⏱ {:.1} mo", years_to_build * 12.0)
         } else {
-            format!("{:.0} yr", years_to_build)
+            format!("⏱ {:.1} yr", years_to_build)
         };
-        ui.label(egui::RichText::new(&time_str).size(11.0).color(theme::AMBER));
+        ui.label(egui::RichText::new(&time_str).size(10.0).color(theme::AMBER));
 
-        // Resource costs
-        if !costs.is_empty() {
-            ui.separator();
+        // Resource costs — icon + name + need/available
+        ui.separator();
+        if costs.is_empty() {
+            ui.label(egui::RichText::new("No materials required").size(10.0).color(theme::TEXT_DIM));
+        } else {
             for (r, a) in costs {
                 let total_needed = a * multiplier as f64;
-                let available = crate::colony::data::parse_resource_type(r)
-                    .map(|rt| contextual.get(&rt))
-                    .unwrap_or(0.0);
+                let rt_opt = crate::colony::data::parse_resource_type(r);
+                let available = rt_opt.map(|rt| contextual.get(&rt)).unwrap_or(0.0);
                 let ok = available >= total_needed;
                 let color = if ok { theme::GREEN } else { theme::RED };
-                let symbol = if ok { "\u{2714}" } else { "\u{2718}" };
-                ui.label(
-                    egui::RichText::new(format!(
-                        "{} {:.0} {} ({:.0} avail)",
-                        symbol, total_needed, r, available
-                    ))
-                    .size(10.0)
-                    .color(color),
-                );
+                let icon = rt_opt
+                    .as_ref()
+                    .map(|rt| super::resources_bar::get_resource_icon(rt))
+                    .unwrap_or("?");
+                // Format amounts: compact thousands
+                let need_str = format_compact(total_needed);
+                let avail_str = format_compact(available);
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(icon).size(11.0));
+                    ui.label(
+                        egui::RichText::new(format!("{} {}/{}", r, need_str, avail_str))
+                            .size(10.0)
+                            .color(color),
+                    );
+                });
             }
         }
 
-        ui.add_space(4.0);
-
-        // Queue button
-        let btn_text = if multiplier == 1 {
-            "Queue x1".to_string()
-        } else {
-            format!("Queue x{}", multiplier)
-        };
-        let response = ui.add_enabled(
-            can_afford,
-            egui::Button::new(egui::RichText::new(&btn_text).size(11.0)),
-        );
-        if !can_afford {
-            response.on_hover_text("Insufficient resources");
-        } else if response.clicked() {
-            for _ in 0..multiplier {
-                construction_actions
-                    .start_construction
-                    .push((colony_entity, building));
+        // Push Queue button to bottom
+        ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
+            let btn_text = if multiplier == 1 {
+                "Queue".to_string()
+            } else {
+                format!("Queue ×{}", multiplier)
+            };
+            let response = ui.add_enabled(
+                can_afford,
+                egui::Button::new(egui::RichText::new(&btn_text).size(11.0))
+                    .min_size(egui::vec2(140.0, 20.0)),
+            );
+            if !can_afford {
+                response.on_hover_text("Insufficient resources in this system");
+            } else if response.clicked() {
+                for _ in 0..multiplier {
+                    construction_actions
+                        .start_construction
+                        .push((colony_entity, building));
+                }
             }
-        }
+        });
     });
+}
+
+/// Compact number formatter: 1500 → "1.5k", 1_000_000 → "1.0M"
+fn format_compact(v: f64) -> String {
+    if v >= 1_000_000.0 {
+        format!("{:.1}M", v / 1_000_000.0)
+    } else if v >= 1_000.0 {
+        format!("{:.1}k", v / 1_000.0)
+    } else {
+        format!("{:.0}", v)
+    }
 }

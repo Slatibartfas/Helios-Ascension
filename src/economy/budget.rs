@@ -507,7 +507,11 @@ pub fn update_contextual_stockpile(
     view_mode: Res<ViewMode>,
     current_system: Res<CurrentStarSystem>,
     local_query: Query<(Option<&SystemId>, &LocalStockpile)>,
-    star_query: Query<(&crate::plugins::solar_system::CelestialBody, &SystemId)>,
+    // With<Star> ensures we only find the star body, not planets/moons like Pluto
+    star_query: Query<
+        (&crate::plugins::solar_system::CelestialBody, &SystemId),
+        With<crate::plugins::solar_system::Star>,
+    >,
     mut contextual: ResMut<ContextualStockpile>,
 ) {
     contextual.stockpiles.clear();

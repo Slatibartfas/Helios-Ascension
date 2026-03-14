@@ -19,7 +19,8 @@ pub mod types;
 pub use components::{Colony, ConstructionProject, PendingConstructionActions};
 pub use data::{BuildingDefinition, BuildingsData};
 pub use systems::{
-    advance_construction, process_construction_actions, update_colony_growth, update_treasury,
+    advance_construction, process_construction_actions, sync_population_from_colony,
+    update_colony_growth, update_treasury,
 };
 pub use types::{BuildingCategory, BuildingType};
 
@@ -56,6 +57,7 @@ impl Plugin for ColonyPlugin {
                     process_construction_actions,
                     advance_construction,
                     update_colony_growth,
+                    sync_population_from_colony.after(update_colony_growth),
                     update_treasury,
                     systems::deduct_maintenance_resources,
                 )

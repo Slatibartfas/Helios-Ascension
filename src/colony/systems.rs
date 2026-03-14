@@ -6,7 +6,7 @@ use super::types::BuildingType;
 use super::ConstructionDebugSettings;
 use crate::astronomy::OceanProperties;
 use crate::economy::budget::SECONDS_PER_YEAR;
-use crate::economy::components::LocalStockpile;
+use crate::economy::components::{LocalStockpile, Population};
 use crate::economy::types::ResourceType;
 use crate::ui::SimulationTime;
 
@@ -394,6 +394,20 @@ pub fn deduct_maintenance_resources(
                 }
             }
         }
+    }
+}
+
+/// System that syncs `Population.count` from `Colony.population`.
+///
+/// `Colony.population` is the authoritative population value (updated by
+/// `update_colony_growth`).  The `Population` ECS component is what the UI
+/// queries to display population counts.  This system keeps them in sync so
+/// the top-right population counter and dossier panel stay up-to-date.
+pub fn sync_population_from_colony(
+    mut query: Query<(&Colony, &mut Population)>,
+) {
+    for (colony, mut pop) in query.iter_mut() {
+        pop.count = colony.population;
     }
 }
 

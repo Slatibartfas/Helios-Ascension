@@ -25,8 +25,8 @@
             workforce: 2000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 500.0),
-                ("Copper", 200.0),
+                ("Iron", 83.0),
+                ("Copper", 33.0),
             ],
             maintenance_resources: [
                 ("Water", 5.0),
@@ -45,9 +45,9 @@
             workforce: 1000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 1000.0),
-                ("Silicates", 800.0),
-                ("Aluminum", 300.0),
+                ("Iron", 167.0),
+                ("Silicates", 133.0),
+                ("Aluminum", 50.0),
             ],
             maintenance_resources: [
                 ("Iron", 1.0),
@@ -66,8 +66,8 @@
             workforce: 500,
             required_tech: "",
             resource_costs: [
-                ("Iron", 200.0),
-                ("Silicates", 500.0),
+                ("Iron", 33.0),
+                ("Silicates", 83.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.001),
@@ -85,9 +85,9 @@
             workforce: 1500,
             required_tech: "",
             resource_costs: [
-                ("Iron", 1500.0),
-                ("Silicates", 1000.0),
-                ("Titanium", 500.0),
+                ("Iron", 250.0),
+                ("Silicates", 167.0),
+                ("Titanium", 83.0),
             ],
             maintenance_resources: [
                 ("Iron", 2.0),
@@ -109,8 +109,8 @@
             workforce: 5000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 500.0),
-                ("Copper", 100.0),
+                ("Iron", 83.0),
+                ("Copper", 17.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -130,9 +130,9 @@
             workforce: 6000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 800.0),
-                ("Copper", 300.0),
-                ("Silicates", 200.0),
+                ("Iron", 133.0),
+                ("Copper", 50.0),
+                ("Silicates", 33.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.02),
@@ -156,10 +156,10 @@
             workforce: 12000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 1500.0),
-                ("Copper", 500.0),
-                ("Aluminum", 500.0),
-                ("Nickel", 200.0),
+                ("Iron", 250.0),
+                ("Copper", 83.0),
+                ("Aluminum", 83.0),
+                ("Nickel", 33.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.05),
@@ -186,9 +186,9 @@
             workforce: 10000,
             required_tech: "deep_drilling",
             resource_costs: [
-                ("Iron", 2000.0),
-                ("Titanium", 1000.0),
-                ("Copper", 500.0),
+                ("Iron", 333.0),
+                ("Titanium", 167.0),
+                ("Copper", 83.0),
             ],
             maintenance_resources: [
                 ("Iron", 1.0),
@@ -210,9 +210,9 @@
             workforce: 4000,
             required_tech: "laser_drilling",
             resource_costs: [
-                ("Titanium", 2500.0),
-                ("RareEarths", 1200.0),
-                ("Copper", 1000.0),
+                ("Titanium", 417.0),
+                ("RareEarths", 200.0),
+                ("Copper", 167.0),
             ],
             maintenance_resources: [
                 ("RareEarths", 0.003),
@@ -232,9 +232,9 @@
             workforce: 50000,
             required_tech: "strip_mining",
             resource_costs: [
-                ("Iron", 6000.0),
-                ("Titanium", 3500.0),
-                ("Aluminum", 2500.0),
+                ("Iron", 1000.0),
+                ("Titanium", 583.0),
+                ("Aluminum", 417.0),
             ],
             maintenance_resources: [
                 ("Iron", 5.0),
@@ -254,9 +254,9 @@
             workforce: 3000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 400.0),
-                ("Copper", 200.0),
-                ("Aluminum", 200.0),
+                ("Iron", 67.0),
+                ("Copper", 33.0),
+                ("Aluminum", 33.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -276,10 +276,10 @@
             workforce: 4000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 800.0),
-                ("Copper", 300.0),
-                ("Silicates", 200.0),
-                ("Sulfur", 100.0),
+                ("Iron", 133.0),
+                ("Copper", 50.0),
+                ("Silicates", 33.0),
+                ("Sulfur", 17.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.02),
@@ -303,8 +303,8 @@
             workforce: 2000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 1000.0),
-                ("Copper", 200.0),
+                ("Iron", 167.0),
+                ("Copper", 33.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.05),
@@ -328,9 +328,9 @@
             workforce: 2500,
             required_tech: "",
             resource_costs: [
-                ("Iron", 2000.0),
-                ("Copper", 1000.0),
-                ("RareEarths", 300.0),
+                ("Iron", 333.0),
+                ("Copper", 167.0),
+                ("RareEarths", 50.0),
             ],
             maintenance_resources: [
                 ("Copper", 0.5),
@@ -347,10 +347,10 @@
             workforce: 6000,
             required_tech: "",
             resource_costs: [
-                ("Titanium", 3000.0),
-                ("Iron", 2000.0),
-                ("RareEarths", 500.0),
-                ("Carbon", 1000.0),
+                ("Titanium", 500.0),
+                ("Iron", 333.0),
+                ("RareEarths", 83.0),
+                ("Carbon", 167.0),
             ],
             maintenance_resources: [
                 ("Titanium", 1.0),
@@ -368,8 +368,8 @@
             workforce: 3000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 300.0),
-                ("Silicates", 200.0),
+                ("Iron", 50.0),
+                ("Silicates", 33.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.05),
@@ -390,9 +390,9 @@
             workforce: 500,
             required_tech: "",
             resource_costs: [
-                ("Silicates", 500.0),
-                ("Copper", 200.0),
-                ("Lithium", 50.0),
+                ("Silicates", 83.0),
+                ("Copper", 33.0),
+                ("Lithium", 8.0),
             ],
             maintenance_resources: [
                 ("Silicates", 0.01),
@@ -411,10 +411,10 @@
             workforce: 4000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 1000.0),
-                ("Uranium", 500.0),
-                ("Copper", 500.0),
-                ("Lithium", 100.0),
+                ("Iron", 167.0),
+                ("Uranium", 83.0),
+                ("Copper", 83.0),
+                ("Lithium", 17.0),
             ],
             maintenance_resources: [
                 ("Uranium", 5.0),
@@ -434,10 +434,10 @@
             workforce: 8000,
             required_tech: "fusion_power",
             resource_costs: [
-                ("Titanium", 2500.0),
-                ("RareEarths", 1200.0),
-                ("Helium3", 800.0),
-                ("Lithium", 200.0),
+                ("Titanium", 417.0),
+                ("RareEarths", 200.0),
+                ("Helium3", 133.0),
+                ("Lithium", 33.0),
             ],
             maintenance_resources: [
                 ("Helium3", 10.0),
@@ -463,10 +463,10 @@
             workforce: 3000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 600.0),
-                ("Silicates", 400.0),
-                ("Water", 200.0),
-                ("Phosphorus", 100.0),
+                ("Iron", 100.0),
+                ("Silicates", 67.0),
+                ("Water", 33.0),
+                ("Phosphorus", 17.0),
             ],
             maintenance_resources: [
                 ("Water", 10.0),
@@ -486,9 +486,9 @@
             workforce: 1000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 50.0),
-                ("Water", 50.0),
-                ("Phosphorus", 20.0),
+                ("Iron", 8.0),
+                ("Water", 8.0),
+                ("Phosphorus", 3.0),
             ],
             maintenance_resources: [
                 ("Water", 0.0),
@@ -509,9 +509,9 @@
             workforce: 6000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 800.0),
-                ("Copper", 300.0),
-                ("RareEarths", 200.0),
+                ("Iron", 133.0),
+                ("Copper", 50.0),
+                ("RareEarths", 33.0),
             ],
             maintenance_resources: [
                 ("Water", 0.1),
@@ -536,9 +536,9 @@
             workforce: 8000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 1000.0),
-                ("Copper", 500.0),
-                ("RareEarths", 300.0),
+                ("Iron", 167.0),
+                ("Copper", 83.0),
+                ("RareEarths", 50.0),
             ],
             maintenance_resources: [
                 ("Copper", 0.005),
@@ -560,9 +560,9 @@
             workforce: 10000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 1200.0),
-                ("Titanium", 500.0),
-                ("Copper", 500.0),
+                ("Iron", 200.0),
+                ("Titanium", 83.0),
+                ("Copper", 83.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.1),
@@ -582,9 +582,9 @@
             workforce: 2000,
             required_tech: "neural_networks",
             resource_costs: [
-                ("RareEarths", 1800.0),
-                ("Copper", 1200.0),
-                ("Titanium", 800.0),
+                ("RareEarths", 300.0),
+                ("Copper", 200.0),
+                ("Titanium", 133.0),
             ],
             maintenance_resources: [
                 ("RareEarths", 0.005),
@@ -610,8 +610,8 @@
             workforce: 8000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 500.0),
-                ("Silicates", 500.0),
+                ("Iron", 83.0),
+                ("Silicates", 83.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -628,9 +628,9 @@
             workforce: 10000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 1000.0),
-                ("Copper", 500.0),
-                ("RareEarths", 300.0),
+                ("Iron", 167.0),
+                ("Copper", 83.0),
+                ("RareEarths", 50.0),
             ],
             maintenance_resources: [
                 ("Copper", 0.01),
@@ -647,9 +647,9 @@
             workforce: 15000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 2000.0),
-                ("Titanium", 1000.0),
-                ("Copper", 500.0),
+                ("Iron", 333.0),
+                ("Titanium", 167.0),
+                ("Copper", 83.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.5),
@@ -671,12 +671,12 @@
             workforce: 80000,
             required_tech: "orbital_construction",
             resource_costs: [
-                ("Iron", 6000.0),
-                ("Titanium", 4000.0),
-                ("Aluminum", 2500.0),
-                ("Copper", 1500.0),
-                ("Nickel", 500.0),
-                ("Carbon", 300.0),
+                ("Iron", 1000.0),
+                ("Titanium", 667.0),
+                ("Aluminum", 417.0),
+                ("Copper", 250.0),
+                ("Nickel", 83.0),
+                ("Carbon", 50.0),
             ],
             maintenance_resources: [
                 ("Iron", 5.0),
@@ -699,10 +699,10 @@
             workforce: 5000,
             required_tech: "missile_systems",
             resource_costs: [
-                ("Iron", 1500.0),
-                ("Titanium", 1000.0),
-                ("Copper", 500.0),
-                ("Tungsten", 300.0),
+                ("Iron", 250.0),
+                ("Titanium", 167.0),
+                ("Copper", 83.0),
+                ("Tungsten", 50.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.5),
@@ -720,9 +720,9 @@
             workforce: 12000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 1500.0),
-                ("Aluminum", 1000.0),
-                ("Copper", 500.0),
+                ("Iron", 250.0),
+                ("Aluminum", 167.0),
+                ("Copper", 83.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.5),
@@ -745,9 +745,9 @@
             workforce: 200,
             required_tech: "",
             resource_costs: [
-                ("Iron", 300.0),
-                ("Copper", 150.0),
-                ("Aluminum", 100.0),
+                ("Iron", 50.0),
+                ("Copper", 25.0),
+                ("Aluminum", 17.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -767,9 +767,9 @@
             workforce: 1000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 2000.0),
-                ("Silicates", 3000.0),
-                ("Aluminum", 500.0),
+                ("Iron", 333.0),
+                ("Silicates", 500.0),
+                ("Aluminum", 83.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.1),
@@ -788,9 +788,9 @@
             workforce: 800,
             required_tech: "geothermal_energy",
             resource_costs: [
-                ("Iron", 1500.0),
-                ("Titanium", 500.0),
-                ("Nickel", 200.0),
+                ("Iron", 250.0),
+                ("Titanium", 83.0),
+                ("Nickel", 33.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.05),
@@ -810,9 +810,9 @@
             workforce: 2000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 800.0),
-                ("Copper", 300.0),
-                ("Silicates", 500.0),
+                ("Iron", 133.0),
+                ("Copper", 50.0),
+                ("Silicates", 83.0),
             ],
             maintenance_resources: [
                 ("Carbon", 20.0),
@@ -832,9 +832,9 @@
             workforce: 1500,
             required_tech: "",
             resource_costs: [
-                ("Iron", 600.0),
-                ("Copper", 200.0),
-                ("Nickel", 100.0),
+                ("Iron", 100.0),
+                ("Copper", 33.0),
+                ("Nickel", 17.0),
             ],
             maintenance_resources: [
                 ("Methane", 5.0),
@@ -858,10 +858,10 @@
             workforce: 5000,
             required_tech: "semiconductor_manufacturing",
             resource_costs: [
-                ("Silicates", 2000.0),
-                ("RareEarths", 500.0),
-                ("Copper", 800.0),
-                ("Aluminum", 400.0),
+                ("Silicates", 333.0),
+                ("RareEarths", 83.0),
+                ("Copper", 133.0),
+                ("Aluminum", 67.0),
             ],
             maintenance_resources: [
                 ("Silicates", 0.5),
@@ -884,9 +884,9 @@
             workforce: 4000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 600.0),
-                ("Copper", 200.0),
-                ("Phosphorus", 100.0),
+                ("Iron", 100.0),
+                ("Copper", 33.0),
+                ("Phosphorus", 17.0),
             ],
             maintenance_resources: [
                 ("Water", 0.5),
@@ -911,9 +911,9 @@
             workforce: 500,
             required_tech: "",
             resource_costs: [
-                ("Iron", 300.0),
-                ("Silicates", 200.0),
-                ("Copper", 100.0),
+                ("Iron", 50.0),
+                ("Silicates", 33.0),
+                ("Copper", 17.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.01),
@@ -933,9 +933,9 @@
             workforce: 400,
             required_tech: "desalination",
             resource_costs: [
-                ("Iron", 500.0),
-                ("Titanium", 200.0),
-                ("Copper", 150.0),
+                ("Iron", 83.0),
+                ("Titanium", 33.0),
+                ("Copper", 25.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.02),
@@ -955,8 +955,8 @@
             workforce: 1000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 200.0),
-                ("Silicates", 100.0),
+                ("Iron", 33.0),
+                ("Silicates", 17.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.005),
@@ -979,9 +979,9 @@
             workforce: 2000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 300.0),
-                ("Silicates", 500.0),
-                ("Water", 100.0),
+                ("Iron", 50.0),
+                ("Silicates", 83.0),
+                ("Water", 17.0),
             ],
             maintenance_resources: [
                 ("Water", 2.0),
@@ -1001,9 +1001,9 @@
             workforce: 1500,
             required_tech: "",
             resource_costs: [
-                ("Iron", 400.0),
-                ("Silicates", 300.0),
-                ("Water", 200.0),
+                ("Iron", 67.0),
+                ("Silicates", 50.0),
+                ("Water", 33.0),
             ],
             maintenance_resources: [
                 ("Water", 5.0),
@@ -1027,10 +1027,10 @@
             workforce: 1000,
             required_tech: "neural_networks",
             resource_costs: [
-                ("Iron", 800.0),
-                ("Copper", 600.0),
-                ("Silicates", 400.0),
-                ("RareEarths", 200.0),
+                ("Iron", 133.0),
+                ("Copper", 100.0),
+                ("Silicates", 67.0),
+                ("RareEarths", 33.0),
             ],
             maintenance_resources: [
                 ("Copper", 0.02),
@@ -1056,10 +1056,10 @@
             workforce: 20000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 3000.0),
-                ("Aluminum", 2000.0),
-                ("Titanium", 1000.0),
-                ("Copper", 800.0),
+                ("Iron", 500.0),
+                ("Aluminum", 333.0),
+                ("Titanium", 167.0),
+                ("Copper", 133.0),
             ],
             maintenance_resources: [
                 ("Iron", 1.0),
@@ -1078,10 +1078,10 @@
             workforce: 3000,
             required_tech: "missile_systems",
             resource_costs: [
-                ("Iron", 1500.0),
-                ("Titanium", 800.0),
-                ("Copper", 400.0),
-                ("Tungsten", 200.0),
+                ("Iron", 250.0),
+                ("Titanium", 133.0),
+                ("Copper", 67.0),
+                ("Tungsten", 33.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.3),
@@ -1103,8 +1103,8 @@
             workforce: 1000,
             required_tech: "",
             resource_costs: [
-                ("Iron", 300.0),
-                ("Silicates", 200.0),
+                ("Iron", 50.0),
+                ("Silicates", 33.0),
             ],
             maintenance_resources: [
                 ("Iron", 0.005),
