@@ -216,8 +216,8 @@ impl GlobalBudget {
     pub fn add_resource_capped(&mut self, resource: ResourceType, amount: f64) -> f64 {
         assert!(
             amount >= 0.0,
-            "Cannot add negative resource amount: {}",
-            amount
+            "Cannot add negative resource amount {} to {:?}",
+            amount, resource
         );
         let cap = self.effective_stockpile_cap(resource);
         let current = self.get_stockpile(&resource);
@@ -232,14 +232,21 @@ impl GlobalBudget {
     /// Maximum stockpile capacity for a given resource *before* the storage
     /// multiplier is applied (in Megatons).
     ///
-    /// Values represent the realistic maximum achievable storage for 2026 Earth
-    /// technology, calibrated at approximately 3 years of annual production.
-    /// Use `effective_stockpile_cap()` for the actual enforced cap (which
+    /// Values are calibrated at **3 years of 2026 Earth annual production**
+    /// (source: USGS Mineral Commodity Summaries 2025, IEA, UN FAO).
+    /// Formula per resource: `base_cap = production_Mt_yr × 3`.
+    ///
+    /// **Food exception**: Food uses *game units* (population × 0.0001 Mt/yr),
+    /// not real-world Mt.  Its cap is 2 years of game-unit consumption so the
+    /// colony has a meaningful storage ceiling without being trivially easy to fill.
+    ///
+    /// Use `effective_stockpile_cap()` for the actual enforced cap which
     /// includes the `storage_multiplier` bonus from Warehouse / Resource Depot
-    /// buildings).
+    /// buildings.
     pub fn stockpile_cap(resource: ResourceType) -> f64 {
         match resource {
-            // Food: ~2 years of Earth game-unit consumption (8.2B × 0.0001 × 2)
+            // Food: 2 yr of Earth game-unit consumption (8.2B × 0.0001 × 2 = 1,640,000 Mt)
+            // (Different from other resources; see doc comment above.)
             ResourceType::Food => 1_640_000.0,
             // Iron ore: 3 yr × 2,500 Mt/yr
             ResourceType::Iron => 7_500.0,
