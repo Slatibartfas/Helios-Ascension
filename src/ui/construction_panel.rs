@@ -642,7 +642,7 @@ fn render_building_card(
                     .unwrap_or(0.0);
                 let ok = available >= total_needed;
                 let color = if ok { theme::GREEN } else { theme::RED };
-                let symbol = if ok { "ok" } else { "X" };
+                let symbol = if ok { "\u{2714}" } else { "\u{2718}" };
                 ui.label(
                     egui::RichText::new(format!(
                         "{} {:.0} {} ({:.0} avail)",
