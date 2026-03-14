@@ -3,8 +3,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::types::ResourceType;
+use crate::astronomy::components::{CurrentStarSystem, SystemId};
 use crate::colony::{BuildingsData, Colony};
-use crate::economy::{PowerGenerator, PowerSourceType};
+use crate::economy::{components::LocalStockpile, PowerGenerator, PowerSourceType};
+use crate::plugins::camera::ViewMode;
 
 /// Tracks per-month income/production rates for all resources
 /// and research/engineering points for display in the resource bar.
@@ -460,6 +462,87 @@ pub fn format_currency(mc: f64) -> String {
         format!("{}{:.1}K MC", sign, abs / 1_000.0)
     } else {
         format!("{}{:.0} MC", sign, abs)
+    }
+}
+
+// ============================================================
+// ContextualStockpile — view-scoped aggregate for the UI
+// ============================================================
+
+/// View-scoped aggregate of all `LocalStockpile` components.
+///
+/// Updated each frame by `update_contextual_stockpile`:
+/// - **System view**: sums stockpiles of every body in `CurrentStarSystem`.
+/// - **Starmap view**: sums stockpiles of every body across all systems.
+///
+/// The resource bar and construction affordability checks read from this
+/// resource so the displayed numbers match the player's current context.
+#[derive(Resource, Debug, Clone, Default)]
+pub struct ContextualStockpile {
+    /// Aggregated stockpiles for the current view context (Mt).
+    pub stockpiles: HashMap<ResourceType, f64>,
+    /// Human-readable label for the current context (e.g. "Sol System").
+    pub context_label: String,
+    /// The system ID being shown, or `None` if showing all systems.
+    pub active_system_id: Option<usize>,
+}
+
+impl ContextualStockpile {
+    /// Get the aggregated stockpile for a resource in the current context.
+    pub fn get(&self, resource: &ResourceType) -> f64 {
+        self.stockpiles.get(resource).copied().unwrap_or(0.0)
+    }
+
+    /// Sum of all stockpiles for a slice of resource types.
+    pub fn category_total(&self, resources: &[ResourceType]) -> f64 {
+        resources.iter().map(|r| self.get(r)).sum()
+    }
+}
+
+/// System that builds `ContextualStockpile` from `LocalStockpile` components.
+///
+/// Runs every frame in `Update`.  Reads `ViewMode` and `CurrentStarSystem`
+/// to decide which bodies to aggregate.
+pub fn update_contextual_stockpile(
+    view_mode: Res<ViewMode>,
+    current_system: Res<CurrentStarSystem>,
+    local_query: Query<(Option<&SystemId>, &LocalStockpile)>,
+    star_query: Query<(&crate::plugins::solar_system::CelestialBody, &SystemId)>,
+    mut contextual: ResMut<ContextualStockpile>,
+) {
+    contextual.stockpiles.clear();
+
+    match *view_mode {
+        ViewMode::System => {
+            // Aggregate only bodies in the active star system
+            let sys_id = current_system.0;
+            contextual.active_system_id = Some(sys_id);
+            for (sid_opt, stockpile) in local_query.iter() {
+                let body_sys = sid_opt.map(|s| s.0).unwrap_or(0);
+                if body_sys == sys_id {
+                    for (rt, &amount) in &stockpile.stockpiles {
+                        *contextual.stockpiles.entry(*rt).or_insert(0.0) += amount;
+                    }
+                }
+            }
+            // Find the star name for this system
+            let star_name = star_query
+                .iter()
+                .find(|(_, sid)| sid.0 == sys_id)
+                .map(|(body, _)| body.name.clone())
+                .unwrap_or_else(|| format!("System {sys_id}"));
+            contextual.context_label = format!("{star_name} System");
+        }
+        ViewMode::Starmap => {
+            // Aggregate all bodies
+            contextual.active_system_id = None;
+            for (_, stockpile) in local_query.iter() {
+                for (rt, &amount) in &stockpile.stockpiles {
+                    *contextual.stockpiles.entry(*rt).or_insert(0.0) += amount;
+                }
+            }
+            contextual.context_label = "All Systems".to_string();
+        }
     }
 }
 

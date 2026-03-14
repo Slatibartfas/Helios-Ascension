@@ -17,7 +17,8 @@ use crate::astronomy::{
     OceanType, OrbitPath, SpaceCoordinates, StellarProperties, SurfaceTemperature, SCALING_FACTOR,
 };
 use crate::colony::{BuildingType, Colony};
-use crate::economy::components::{Population, PowerGenerator, PowerSourceType};
+use crate::economy::components::{LocalStockpile, Population, PowerGenerator, PowerSourceType};
+use crate::economy::budget::GlobalBudget;
 use crate::plugins::camera::{CameraAnchor, GameCamera};
 use crate::ui::SimulationTime;
 
@@ -42,7 +43,10 @@ impl Plugin for SolarSystemPlugin {
             .add_plugins(MaterialPlugin::<StarHalo3dMaterial>::default())
             .init_resource::<RingAlphaCombineQueue>()
             .add_systems(Startup, setup_solar_system)
-            .add_systems(PostStartup, initial_camera_focus)
+            .add_systems(
+                PostStartup,
+                (initial_camera_focus, initialize_colony_stockpiles),
+            )
             .add_systems(
                 Update,
                 (
@@ -1870,4 +1874,42 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
     }
 
     mesh
+}
+
+
+/// PostStartup system that attaches a `LocalStockpile` to every colony entity.
+///
+/// Earth gets the realistic 2026 starting values from `GlobalBudget::new()`.
+/// Other colonies start with a small bootstrap stockpile so construction is
+/// immediately possible without requiring freighter deliveries.
+///
+/// This runs in `PostStartup` so all colony entities from `setup_solar_system`
+/// already exist.
+pub fn initialize_colony_stockpiles(
+    mut commands: Commands,
+    colony_query: Query<(Entity, &Colony), Without<LocalStockpile>>,
+) {
+    let defaults = GlobalBudget::new();
+
+    for (entity, colony) in colony_query.iter() {
+        let stockpile = if colony.name == "Earth" {
+            // Earth starts with the full realistic 2026 stockpile
+            LocalStockpile::with_stockpiles(defaults.stockpiles.iter().map(|(k, v)| (*k, *v)))
+        } else {
+            // Other colonies start with a small bootstrap supply to allow
+            // initial construction without requiring freighter transport.
+            // (All values in Mt — enough for a few basic buildings.)
+            LocalStockpile::with_stockpiles([
+                (crate::economy::types::ResourceType::Iron, 10.0),
+                (crate::economy::types::ResourceType::Silicates, 50.0),
+                (crate::economy::types::ResourceType::Aluminum, 2.0),
+                (crate::economy::types::ResourceType::Copper, 0.5),
+                (crate::economy::types::ResourceType::Polymers, 1.0),
+                (crate::economy::types::ResourceType::Food, 10_000.0),
+                (crate::economy::types::ResourceType::Water, 5.0),
+            ])
+        };
+
+        commands.entity(entity).insert(stockpile);
+    }
 }

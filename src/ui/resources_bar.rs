@@ -98,6 +98,7 @@ pub(super) fn ui_resources_bar(
     mut contexts: EguiContexts,
     mut pending_research: ResMut<PendingResearchActions>,
     budget: Res<GlobalBudget>,
+    contextual: Res<crate::economy::ContextualStockpile>,
     rate_tracker: Res<ResourceRateTracker>,
     research_state: Res<ResearchState>,
     population_query: Query<(
@@ -127,11 +128,23 @@ pub(super) fn ui_resources_bar(
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.add_space(10.0);
 
+                // Context label (e.g. "Sol System" or "All Systems")
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(format!("📍 {}", contextual.context_label))
+                            .size(10.0)
+                            .color(theme::TEXT_DIM),
+                    )
+                    .selectable(false),
+                );
+                ui.add_space(4.0);
+                ui.separator();
+                ui.add_space(4.0);
+
                 // Show resource categories
                 for (category_name, resources) in ResourceType::by_category() {
-                    // Calculate total for category
-                    let category_total: f64 =
-                        resources.iter().map(|r| budget.get_stockpile(r)).sum();
+                    // Calculate total for category from contextual stockpile
+                    let category_total: f64 = resources.iter().map(|r| contextual.get(r)).sum();
                     let category_rate: f64 = resources
                         .iter()
                         .map(|r| rate_tracker.get_resource_rate(r))
@@ -1339,7 +1352,7 @@ pub(super) fn ui_resources_bar(
                             ui.end_row();
 
                             for resource in &resources {
-                                let amount = budget.get_stockpile(resource);
+                                let amount = contextual.get(resource);
                                 let rate = rate_tracker.get_resource_rate(resource);
 
                                 // Icon + Name in one cell

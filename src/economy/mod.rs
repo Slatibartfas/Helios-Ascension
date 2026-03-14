@@ -17,13 +17,13 @@ pub(crate) mod profiles;
 pub mod types;
 
 pub use budget::{
-    format_currency, format_power, update_civilization_score, update_power_grid,
-    update_storage_capacity, EnergyGrid, GlobalBudget, ResourceRateTracker, SECONDS_PER_MONTH,
-    SECONDS_PER_YEAR,
+    format_currency, format_power, update_civilization_score, update_contextual_stockpile,
+    update_power_grid, update_storage_capacity, ContextualStockpile, EnergyGrid, GlobalBudget,
+    ResourceRateTracker, SECONDS_PER_MONTH, SECONDS_PER_YEAR,
 };
 pub use components::{
-    MineralDeposit, OrbitsBody, PlanetResources, PowerGenerator, PowerSourceType, SpectralClass,
-    StarSystem,
+    LocalStockpile, MineralDeposit, OrbitsBody, PlanetResources, PowerGenerator, PowerSourceType,
+    SpectralClass, StarSystem,
 };
 pub use generation::{generate_ring_resources, generate_solar_system_resources};
 pub use mining::{extract_resources, update_resource_rates, MiningOperation};
@@ -38,6 +38,7 @@ impl Plugin for EconomyPlugin {
             // Resources
             .init_resource::<GlobalBudget>()
             .init_resource::<ResourceRateTracker>()
+            .init_resource::<ContextualStockpile>()
             // Startup systems
             .add_systems(
                 PostStartup,
@@ -55,6 +56,8 @@ impl Plugin for EconomyPlugin {
                     update_civilization_score.after(update_power_grid),
                     extract_resources,
                     update_resource_rates,
+                    // Context-aware aggregation: must run after mining/production
+                    update_contextual_stockpile.after(extract_resources),
                 ),
             );
     }

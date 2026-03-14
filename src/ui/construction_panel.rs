@@ -26,6 +26,7 @@ pub(super) fn ui_construction_panels(
     mut construction_actions: ResMut<PendingConstructionActions>,
     research_state: Res<crate::research::ResearchState>,
     budget: Res<GlobalBudget>,
+    contextual: Res<crate::economy::ContextualStockpile>,
     mut debug_settings: ResMut<ConstructionDebugSettings>,
     buildings_data: Option<Res<BuildingsData>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
@@ -53,6 +54,7 @@ pub(super) fn ui_construction_panels(
             &mut construction_actions,
             &research_state,
             &budget,
+            &contextual,
             &mut debug_settings,
             buildings_data.as_deref(),
             &mut ui_state,
@@ -68,6 +70,7 @@ fn render_construction_panel(
     construction_actions: &mut ResMut<PendingConstructionActions>,
     research_state: &crate::research::ResearchState,
     budget: &GlobalBudget,
+    contextual: &crate::economy::ContextualStockpile,
     debug_settings: &mut ConstructionDebugSettings,
     buildings_data: Option<&BuildingsData>,
     ui_state: &mut ConstructionUiState,
@@ -487,7 +490,7 @@ fn render_construction_panel(
                                     .unwrap_or(&[]);
                                 let can_afford = free_build
                                     || costs.is_empty()
-                                    || can_afford_resources_multiplied(budget, costs, multiplier);
+                                    || can_afford_resources_multiplied(contextual, costs, multiplier);
 
                                 render_building_card(
                                     &mut cols[i],
@@ -495,7 +498,7 @@ fn render_construction_panel(
                                     multiplier,
                                     *colony_entity,
                                     costs,
-                                    budget,
+                                    contextual,
                                     bp_rate,
                                     can_afford,
                                     construction_actions,
@@ -558,16 +561,16 @@ fn render_construction_panel(
     });
 }
 
-/// Check if resource costs x multiplier can all be covered by the current budget.
+/// Check if resource costs x multiplier can all be covered by the contextual (system-scoped) stockpile.
 fn can_afford_resources_multiplied(
-    budget: &GlobalBudget,
+    contextual: &crate::economy::ContextualStockpile,
     costs: &[crate::colony::data::ResourceCostEntry],
     multiplier: u32,
 ) -> bool {
     for (name, amount) in costs {
         let total_needed = amount * multiplier as f64;
         if let Some(rt) = crate::colony::data::parse_resource_type(name) {
-            if budget.get_stockpile(&rt) < total_needed {
+            if contextual.get(&rt) < total_needed {
                 return false;
             }
         }
@@ -582,7 +585,7 @@ fn render_building_card(
     multiplier: u32,
     colony_entity: bevy::ecs::entity::Entity,
     costs: &[crate::colony::data::ResourceCostEntry],
-    budget: &GlobalBudget,
+    contextual: &crate::economy::ContextualStockpile,
     bp_rate: f64,
     can_afford: bool,
     construction_actions: &mut PendingConstructionActions,
@@ -638,7 +641,7 @@ fn render_building_card(
             for (r, a) in costs {
                 let total_needed = a * multiplier as f64;
                 let available = crate::colony::data::parse_resource_type(r)
-                    .map(|rt| budget.get_stockpile(&rt))
+                    .map(|rt| contextual.get(&rt))
                     .unwrap_or(0.0);
                 let ok = available >= total_needed;
                 let color = if ok { theme::GREEN } else { theme::RED };

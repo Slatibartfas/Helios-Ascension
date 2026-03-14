@@ -1,11 +1,12 @@
 use bevy::prelude::*;
 
 use super::components::{Colony, ConstructionProject, PendingConstructionActions};
-use super::data::{deduct_resources, BuildingsData};
+use super::data::{BuildingsData};
 use super::types::BuildingType;
 use super::ConstructionDebugSettings;
 use crate::astronomy::OceanProperties;
 use crate::economy::budget::SECONDS_PER_YEAR;
+use crate::economy::components::LocalStockpile;
 use crate::economy::types::ResourceType;
 use crate::ui::SimulationTime;
 
@@ -89,7 +90,10 @@ pub fn advance_construction(
 /// System that processes pending construction actions from the UI.
 ///
 /// Creates new `ConstructionProject` entities and handles cancellations.
-/// Deducts resource costs from the global stockpile when starting construction.
+/// Deducts resource costs from the **same-system** `LocalStockpile` pool
+/// (all bodies in the same `SystemId`) when starting construction.
+/// Falls back to the global budget if no local stockpiles exist.
+///
 /// In debug mode with `free_construction`, resource costs are bypassed.
 /// In debug mode with `instant_build`, buildings are added immediately.
 pub fn process_construction_actions(
@@ -99,6 +103,12 @@ pub fn process_construction_actions(
     mut budget: ResMut<crate::economy::GlobalBudget>,
     buildings_data: Option<Res<BuildingsData>>,
     debug_settings: Res<ConstructionDebugSettings>,
+    // For local stockpile support
+    colony_sys_query: Query<Option<&crate::astronomy::components::SystemId>>,
+    mut local_stockpile_query: Query<(
+        Option<&crate::astronomy::components::SystemId>,
+        &mut LocalStockpile,
+    )>,
 ) {
     // Start new projects
     for (colony_entity, building_type) in actions.start_construction.drain(..) {
@@ -110,13 +120,78 @@ pub fn process_construction_actions(
         let free = debug_settings.enabled && debug_settings.free_construction;
         if !free {
             if let Some(ref data) = buildings_data {
-                let costs = data.resource_costs(&building_type);
-                if !costs.is_empty() && !deduct_resources(&mut budget, costs) {
-                    warn!(
-                        "Cannot build {}: insufficient resources",
-                        building_type.display_name()
-                    );
-                    continue;
+                let costs_raw = data.resource_costs(&building_type);
+                if !costs_raw.is_empty() {
+                    // Convert cost list to (ResourceType, f64) pairs; warn on unknown names
+                    let costs_typed: Vec<(crate::economy::types::ResourceType, f64)> = costs_raw
+                        .iter()
+                        .filter_map(|(name, amt)| {
+                            let rt = super::data::parse_resource_type(name);
+                            if rt.is_none() {
+                                warn!("Unknown resource type '{}' in build costs, skipping", name);
+                            }
+                            rt.map(|rt| (rt, *amt))
+                        })
+                        .collect();
+
+                    // Find which system this colony is in
+                    let sys_id = colony_sys_query
+                        .get(colony_entity)
+                        .ok()
+                        .flatten()
+                        .map(|s| s.0);
+
+                    // Single pass: sum available amounts and, if sufficient, deduct in the same
+                    // iteration by collecting (entity_index, rt, amount_to_deduct).
+                    // Phase 1 — sum totals to check affordability.
+                    let mut available: std::collections::HashMap<
+                        crate::economy::types::ResourceType,
+                        f64,
+                    > = std::collections::HashMap::new();
+                    for (sid_opt, ls) in local_stockpile_query.iter() {
+                        let body_sys = sid_opt.map(|s| s.0);
+                        if sys_id.is_none() || body_sys == sys_id {
+                            for (rt, &amt) in &ls.stockpiles {
+                                *available.entry(*rt).or_insert(0.0) += amt;
+                            }
+                        }
+                    }
+
+                    let can_pay_local = costs_typed
+                        .iter()
+                        .all(|(rt, need)| available.get(rt).copied().unwrap_or(0.0) >= *need);
+
+                    if can_pay_local {
+                        // Phase 2 — deduct. We use a separate `iter_mut` pass but only when
+                        // we know the resources are available, so the extra iteration is only
+                        // paid when a build actually proceeds.
+                        let mut remaining: std::collections::HashMap<
+                            crate::economy::types::ResourceType,
+                            f64,
+                        > = costs_typed.iter().cloned().collect();
+
+                        for (sid_opt, mut ls) in local_stockpile_query.iter_mut() {
+                            let body_sys = sid_opt.map(|s| s.0);
+                            if sys_id.is_none() || body_sys == sys_id {
+                                for (rt, need) in remaining.iter_mut() {
+                                    if *need > 0.0 {
+                                        let taken = ls.consume(*rt, *need);
+                                        *need -= taken;
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // Fallback: try global budget
+                        let costs_for_global: Vec<(String, f64)> = costs_raw.to_vec();
+                        if !super::data::deduct_resources(&mut budget, &costs_for_global) {
+                            warn!(
+                                "Cannot build {}: insufficient resources",
+                                building_type.display_name()
+                            );
+                            continue;
+                        }
+                    }
                 }
             }
         }
@@ -150,13 +225,13 @@ pub fn process_construction_actions(
 /// Bodies with liquid-water oceans receive a habitability bonus.
 ///
 /// Food economy:
-/// - Farm/AgriDome buildings produce Food into the global stockpile
-/// - Population consumes Food proportional to colony population
+/// - Farm/AgriDome buildings produce Food into the colony's `LocalStockpile`
+/// - Population consumes Food from the colony's `LocalStockpile`
 /// - `food_factor` (0.5–1.0) is derived from stockpile adequacy:
 ///   - Stockpile ≥ 1 year of consumption → food_factor = 1.0
 ///   - Stockpile = 0 → food_factor = 0.5 (ship-supplied minimum)
 pub fn update_colony_growth(
-    mut colonies: Query<(Entity, &mut Colony)>,
+    mut colonies: Query<(Entity, &mut Colony, Option<&mut LocalStockpile>)>,
     ocean_query: Query<&OceanProperties>,
     mut budget: ResMut<crate::economy::GlobalBudget>,
     sim_time: Res<SimulationTime>,
@@ -175,44 +250,52 @@ pub fn update_colony_growth(
         return;
     }
 
-    // --- Food production: add Food from agricultural buildings ---
-    let mut total_food_production = 0.0_f64;
-    let mut total_food_consumption = 0.0_f64;
+    // Process food per-colony when a LocalStockpile is present.
+    // If no LocalStockpile exists (legacy / newly spawned colony), fall back
+    // to the global budget so gameplay continues uninterrupted.
+    for (entity, mut colony, local_opt) in colonies.iter_mut() {
+        let food_prod = colony.food_production_per_year() * years_elapsed;
+        let food_cons = colony.food_consumption_per_year() * years_elapsed;
 
-    for (_entity, colony) in colonies.iter() {
-        total_food_production += colony.food_production_per_year();
-        total_food_consumption += colony.food_consumption_per_year();
-    }
+        let food_factor = if let Some(mut ls) = local_opt {
+            // --- Local stockpile path ---
+            let cap = budget.effective_stockpile_cap(ResourceType::Food);
+            if food_prod > 0.0 {
+                ls.add_capped(ResourceType::Food, food_prod, cap);
+            }
+            if food_cons > 0.0 {
+                ls.consume(ResourceType::Food, food_cons);
+            }
+            let reserve = ls.get(&ResourceType::Food);
+            let annual_cons = colony.food_consumption_per_year();
+            if annual_cons > 0.0 {
+                let years_reserve = reserve / annual_cons;
+                (0.5 + 0.5 * years_reserve.min(1.0)).min(1.0)
+            } else {
+                1.0
+            }
+        } else {
+            // --- Global budget fallback ---
+            if food_prod > 0.0 {
+                budget.add_resource_capped(ResourceType::Food, food_prod);
+            }
+            if food_cons > 0.0 {
+                let available = budget.get_stockpile(&ResourceType::Food);
+                let consumed = food_cons.min(available);
+                if consumed > 0.0 {
+                    budget.consume_resource(ResourceType::Food, consumed);
+                }
+            }
+            let reserve = budget.get_stockpile(&ResourceType::Food);
+            let annual_cons = colony.food_consumption_per_year();
+            if annual_cons > 0.0 {
+                let years_reserve = reserve / annual_cons;
+                (0.5 + 0.5 * years_reserve.min(1.0)).min(1.0)
+            } else {
+                1.0
+            }
+        };
 
-    // Add produced food to stockpile, capped so it doesn't accumulate infinitely
-    let food_produced = total_food_production * years_elapsed;
-    if food_produced > 0.0 {
-        budget.add_resource_capped(ResourceType::Food, food_produced);
-    }
-
-    // Consume food from stockpile
-    let food_to_consume = total_food_consumption * years_elapsed;
-    if food_to_consume > 0.0 {
-        let available = budget.get_stockpile(&ResourceType::Food);
-        let consumed = food_to_consume.min(available);
-        if consumed > 0.0 {
-            budget.consume_resource(ResourceType::Food, consumed);
-        }
-    }
-
-    // Compute global food_factor: how adequate is the food supply?
-    // Stockpile measured against 1 year of consumption.
-    // food_factor ranges from 0.5 (starvation) to 1.0 (fully fed).
-    let food_stockpile = budget.get_stockpile(&ResourceType::Food);
-    let food_factor = if total_food_consumption > 0.0 {
-        let years_of_reserve = food_stockpile / total_food_consumption;
-        // 0 reserves → 0.5, 1+ year reserves → 1.0 (linear interpolation)
-        (0.5 + 0.5 * years_of_reserve.min(1.0)).min(1.0)
-    } else {
-        1.0 // No population to feed
-    };
-
-    for (entity, mut colony) in colonies.iter_mut() {
         let base_growth = colony.population_growth_per_year(food_factor) * years_elapsed;
         let ocean_modifier = ocean_query
             .get(entity)
@@ -260,14 +343,15 @@ pub fn update_treasury(
     budget.treasury += balance * years_elapsed;
 }
 
-/// System that deducts maintenance resources from the global stockpile.
+/// System that deducts maintenance resources from the colony's `LocalStockpile`.
 ///
 /// Each building consumes a small amount of resources per year for upkeep.
 /// Resources are deducted proportionally based on elapsed simulation time.
-/// If resources run out, buildings still operate but the stockpile goes to zero.
+/// If the local stockpile runs out, the global budget is used as fallback.
+/// If that is also empty, buildings still operate (no hard shutdown).
 pub fn deduct_maintenance_resources(
     mut budget: ResMut<crate::economy::GlobalBudget>,
-    colonies: Query<&Colony>,
+    mut colonies: Query<(&Colony, Option<&mut LocalStockpile>)>,
     buildings_data: Option<Res<BuildingsData>>,
     sim_time: Res<SimulationTime>,
     mut last_elapsed: Local<f64>,
@@ -290,18 +374,22 @@ pub fn deduct_maintenance_resources(
         return;
     }
 
-    // Aggregate maintenance costs across all colonies
-    for colony in colonies.iter() {
+    for (colony, mut local_opt) in colonies.iter_mut() {
         for (building_type, count) in &colony.buildings {
             let maintenance = data.maintenance_resources(building_type);
             for (resource_name, annual_amount) in maintenance {
                 let amount = annual_amount * f64::from(*count) * years_elapsed;
                 if let Some(rt) = super::data::parse_resource_type(resource_name) {
-                    // Deduct what we can; don't prevent operation if stockpile is empty
-                    let available = budget.get_stockpile(&rt);
-                    let to_deduct = amount.min(available);
-                    if to_deduct > 0.0 {
-                        budget.consume_resource(rt, to_deduct);
+                    if let Some(ref mut ls) = local_opt {
+                        // Use local stockpile
+                        ls.consume(rt, amount);
+                    } else {
+                        // Fallback to global budget
+                        let available = budget.get_stockpile(&rt);
+                        let to_deduct = amount.min(available);
+                        if to_deduct > 0.0 {
+                            budget.consume_resource(rt, to_deduct);
+                        }
                     }
                 }
             }

@@ -262,6 +262,7 @@ pub(super) fn ui_economy_panels(
     mut contexts: EguiContexts,
     active_menu: Res<ActiveMenu>,
     budget: Res<GlobalBudget>,
+    contextual: Res<crate::economy::ContextualStockpile>,
     rate_tracker: Res<ResourceRateTracker>,
     body_query: Query<(
         Entity,
@@ -327,7 +328,7 @@ pub(super) fn ui_economy_panels(
             EconomyTab::Overview => render_econ_overview(ui, &budget, &rate_tracker, &hierarchy),
             EconomyTab::Resources => render_econ_resources(
                 ui,
-                &budget,
+                &contextual,
                 &rate_tracker,
                 &hierarchy,
                 buildings_data.as_deref(),
@@ -615,20 +616,23 @@ fn render_econ_overview(
 /// Render resource stockpiles and net rates with per-system breakdown.
 fn render_econ_resources(
     ui: &mut egui::Ui,
-    budget: &GlobalBudget,
+    contextual: &crate::economy::ContextualStockpile,
     rate_tracker: &ResourceRateTracker,
     hierarchy: &[StarSystemGroup],
     buildings_data: Option<&BuildingsData>,
 ) {
     ui.label(
-        egui::RichText::new("Rates are net monthly. Units scale automatically (t, kt, Mt, Gt).")
-            .size(11.0)
-            .color(theme::TEXT_DIM),
+        egui::RichText::new(format!(
+            "Showing resources for: {}  •  Rates are net monthly.",
+            contextual.context_label
+        ))
+        .size(11.0)
+        .color(theme::TEXT_DIM),
     );
     ui.separator();
 
     egui::ScrollArea::vertical().show(ui, |ui| {
-        // Global resource stockpiles by category
+        // Contextual resource stockpiles by category
         let categories = ResourceType::by_category();
         for (category_name, resources) in &categories {
             egui::CollapsingHeader::new(
@@ -650,7 +654,7 @@ fn render_econ_resources(
                         ui.end_row();
 
                         for resource in resources {
-                            let stockpile = budget.get_stockpile(resource);
+                            let stockpile = contextual.get(resource);
                             let rate = rate_tracker.get_resource_rate(resource);
 
                             ui.label(resource.display_name());

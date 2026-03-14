@@ -53,7 +53,6 @@ use crate::astronomy::{
     AtmosphereComposition, Hovered, KeplerOrbit, LagrangePointMarkers, LastLpClick, Selected,
     SpaceCoordinates,
 };
-use crate::colony::data::can_afford_resources;
 use crate::colony::{
     BuildingCategory, BuildingType, BuildingsData, Colony, ConstructionDebugSettings,
     ConstructionProject, PendingConstructionActions,
