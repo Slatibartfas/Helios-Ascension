@@ -18,6 +18,13 @@ pub const AU_IN_METERS: f64 = 1.495_978_707e11;
 /// Standard gravity (m s⁻²) — used in the rocket equation
 pub const G0: f64 = 9.806_65;
 
+/// Wide tertiary companions like Proxima produce barycentric minimum-energy arcs
+/// that are technically valid but not useful for gameplay: the transfer ellipse is
+/// enormous, ETAs run into geological timescales, and the preview becomes visually
+/// misleading. Beyond this horizon, the planner falls back to direct point-and-burn
+/// profiles instead of offering curved barycentric options.
+const MAX_CURVED_CROSS_STAR_TRANSFER_TIME_S: f64 = 500.0 * 365.25 * 86_400.0;
+
 /// A transfer trajectory option for the player to choose between.
 #[derive(Debug, Clone)]
 pub struct TransferOption {
@@ -1019,6 +1026,9 @@ pub fn calculate_cross_star_ballistic_options(
     let Some(base_tof_s) = min_energy_tof_s else {
         return Vec::new();
     };
+    if base_tof_s > MAX_CURVED_CROSS_STAR_TRANSFER_TIME_S {
+        return Vec::new();
+    }
 
     let origin_escape_floor = circular_escape_injection_dv(origin_host_gm, origin_host_radius_au);
     let dest_capture_floor = circular_escape_injection_dv(dest_host_gm, dest_host_radius_au);
@@ -1978,6 +1988,26 @@ mod tests {
         assert!(options.iter().all(|option| option.transfer_orbit_override.is_some()));
         assert!(options[1].total_delta_v_ms > options[0].total_delta_v_ms);
         assert!(options[2].total_delta_v_ms > options[1].total_delta_v_ms);
+    }
+
+    #[test]
+    fn test_cross_star_ballistic_options_skip_wide_tertiary_companions() {
+        let options = calculate_cross_star_ballistic_options(
+            DVec3::new(24.0, 0.0, 0.0),
+            DVec3::new(13_000.0, 1_500.0, 0.0),
+            DVec3::ZERO,
+            DVec3::ZERO,
+            GM_SUN * 2.12,
+            GM_SUN,
+            1.0,
+            GM_SUN * 0.12,
+            0.05,
+        );
+
+        assert!(
+            options.is_empty(),
+            "wide Proxima-scale companions should fall back to direct profiles"
+        );
     }
 
     #[test]

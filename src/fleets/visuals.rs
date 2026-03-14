@@ -75,6 +75,25 @@ fn draw_dashed_curve(
     draw_dashed_polyline(gizmos, &points, num_dashes, &color_fn);
 }
 
+fn draw_solid_curve(
+    gizmos: &mut Gizmos,
+    sample_fn: impl Fn(f32) -> Vec3,
+    segments: u32,
+    mut color_fn: impl FnMut(f32) -> Color,
+) {
+    if segments == 0 {
+        return;
+    }
+
+    let mut previous = sample_fn(0.0);
+    for index in 1..=segments {
+        let fraction = index as f32 / segments as f32;
+        let position = sample_fn(fraction);
+        gizmos.line(previous, position, color_fn(fraction));
+        previous = position;
+    }
+}
+
 /// Draw a dashed polyline with proportional, arc-length-uniform spacing.
 ///
 /// `num_dashes` visible dash segments are distributed evenly along the total
@@ -1406,7 +1425,7 @@ pub fn draw_fleet_trajectories(
                 .get(maneuver.origin_body)
                 .map(|(_, b, _)| fleet_parking_visual_radius(b.visual_radius))
                 .unwrap_or(0.0);
-            let (dest_visual_r, dest_ring_r) = body_query
+            let (dest_visual_r, default_dest_ring_r) = body_query
                 .get(maneuver.destination_body)
                 .map(|(_, b, _)| {
                     (
@@ -1485,6 +1504,18 @@ pub fn draw_fleet_trajectories(
                 // For the in-transit arc, target where the body WILL BE at arrival,
                 // not where it is now.  The preview used predicted pos; once departed
                 // we must continue pointing at the same predicted endpoint.
+                let dest_is_star = body_query
+                    .get(maneuver.destination_body)
+                    .map(|(_, body, _)| body.body_type == BodyType::Star)
+                    .unwrap_or(false);
+                let dest_ring_r = if maneuver.reference_frame.is_barycentric()
+                    && maneuver.is_kinematic()
+                    && dest_is_star
+                {
+                    (maneuver.arrival_orbit_radius_au as f32 * SCALING_FACTOR as f32).max(1.0)
+                } else {
+                    default_dest_ring_r
+                };
                 let dp_absolute = predict_body_visual_pos(
                     maneuver.destination_body,
                     sim_elapsed,
@@ -1761,7 +1792,7 @@ pub fn draw_fleet_trajectories(
                 .get(maneuver.origin_body)
                 .map(|(_, b, _)| fleet_parking_visual_radius(b.visual_radius))
                 .unwrap_or(0.0);
-            let (dest_visual_r, dest_ring_r) = body_query
+            let (dest_visual_r, default_dest_ring_r) = body_query
                 .get(maneuver.destination_body)
                 .map(|(_, b, _)| {
                     (
@@ -1785,29 +1816,8 @@ pub fn draw_fleet_trajectories(
             } else {
                 origin_ring_r
             };
-            let barycentric_start = maneuver.start_position_au.map(|position| {
-                Vec3::new(
-                    ((position.x - origin_offset.x) * scale) as f32,
-                    ((position.y - origin_offset.y) * scale) as f32,
-                    ((position.z - origin_offset.z) * scale) as f32,
-                )
-            });
             let op = if let Some(start_pos) = maneuver.start_visual_pos {
                 start_pos
-            } else if is_inter_star {
-                barycentric_start.unwrap_or_else(|| {
-                    predict_body_visual_pos(
-                        maneuver.origin_body,
-                        sim_elapsed,
-                        maneuver.departure_time,
-                        real_secs,
-                        sim_scale,
-                        &body_query,
-                        &kepler_query,
-                        &amp_query,
-                    )
-                    .unwrap_or(origin_now)
-                })
             } else {
                 predict_body_visual_pos(
                     maneuver.origin_body,
@@ -1829,42 +1839,26 @@ pub fn draw_fleet_trajectories(
                 .get(maneuver.destination_body)
                 .map(|(t, _, _)| t.translation)
                 .unwrap_or(Vec3::ZERO);
-            let dp_absolute = if is_inter_star {
-                maneuver
-                    .end_position_au
-                    .map(|position| {
-                        Vec3::new(
-                            ((position.x - origin_offset.x) * scale) as f32,
-                            ((position.y - origin_offset.y) * scale) as f32,
-                            ((position.z - origin_offset.z) * scale) as f32,
-                        )
-                    })
-                    .unwrap_or_else(|| {
-                        predict_body_visual_pos(
-                            maneuver.destination_body,
-                            sim_elapsed,
-                            maneuver.arrival_time,
-                            real_secs,
-                            sim_scale,
-                            &body_query,
-                            &kepler_query,
-                            &amp_query,
-                        )
-                        .unwrap_or(dest_now)
-                    })
+            let dest_is_star = body_query
+                .get(maneuver.destination_body)
+                .map(|(_, body, _)| body.body_type == BodyType::Star)
+                .unwrap_or(false);
+            let dest_ring_r = if is_inter_star && maneuver.is_kinematic() && dest_is_star {
+                (maneuver.arrival_orbit_radius_au as f32 * SCALING_FACTOR as f32).max(1.0)
             } else {
-                predict_body_visual_pos(
-                    maneuver.destination_body,
-                    sim_elapsed,
-                    maneuver.arrival_time,
-                    real_secs,
-                    sim_scale,
-                    &body_query,
-                    &kepler_query,
-                    &amp_query,
-                )
-                .unwrap_or(dest_now)
+                default_dest_ring_r
             };
+            let dp_absolute = predict_body_visual_pos(
+                maneuver.destination_body,
+                sim_elapsed,
+                maneuver.arrival_time,
+                real_secs,
+                sim_scale,
+                &body_query,
+                &kepler_query,
+                &amp_query,
+            )
+            .unwrap_or(dest_now);
 
             let (dp, cv_ref, flyby_center_predicted, flyby_center_departure) = if is_inter_star {
                 (dp_absolute, Vec3::ZERO, Vec3::ZERO, Vec3::ZERO)
@@ -2817,7 +2811,7 @@ pub fn update_fleet_transforms(
                     .get(maneuver.origin_body)
                     .map(|(_, b, _)| fleet_parking_visual_radius(b.visual_radius))
                     .unwrap_or(0.0);
-                let dest_ring_r = body_query
+                let default_dest_ring_r = body_query
                     .get(maneuver.destination_body)
                     .map(|(_, b, _)| fleet_parking_visual_radius(b.visual_radius))
                     .unwrap_or(0.0);
@@ -2833,29 +2827,8 @@ pub fn update_fleet_transforms(
                 } else {
                     origin_ring_r
                 };
-                let barycentric_start = maneuver.start_position_au.map(|position| {
-                    Vec3::new(
-                        ((position.x - origin_offset.x) * SCALING_FACTOR) as f32,
-                        ((position.y - origin_offset.y) * SCALING_FACTOR) as f32,
-                        ((position.z - origin_offset.z) * SCALING_FACTOR) as f32,
-                    )
-                });
                 let op = if let Some(start_pos) = maneuver.start_visual_pos {
                     start_pos
-                } else if is_inter_star {
-                    barycentric_start.unwrap_or_else(|| {
-                        predict_body_visual_pos(
-                            maneuver.origin_body,
-                            elapsed,
-                            maneuver.departure_time,
-                            real_secs,
-                            sim_scale,
-                            &body_query,
-                            &kepler_query,
-                            &amp_query,
-                        )
-                        .unwrap_or(origin_now)
-                    })
                 } else {
                     predict_body_visual_pos(
                         maneuver.origin_body,
@@ -2874,42 +2847,26 @@ pub fn update_fleet_transforms(
                     .get(maneuver.destination_body)
                     .map(|(t, _, _)| t.translation)
                     .unwrap_or(Vec3::ZERO);
-                let dp_absolute = if is_inter_star {
-                    maneuver
-                        .end_position_au
-                        .map(|position| {
-                            Vec3::new(
-                                ((position.x - origin_offset.x) * SCALING_FACTOR) as f32,
-                                ((position.y - origin_offset.y) * SCALING_FACTOR) as f32,
-                                ((position.z - origin_offset.z) * SCALING_FACTOR) as f32,
-                            )
-                        })
-                        .unwrap_or_else(|| {
-                            predict_body_visual_pos(
-                                maneuver.destination_body,
-                                elapsed,
-                                maneuver.arrival_time,
-                                real_secs,
-                                sim_scale,
-                                &body_query,
-                                &kepler_query,
-                                &amp_query,
-                            )
-                            .unwrap_or(dest_now)
-                        })
+                let dest_is_star = body_query
+                    .get(maneuver.destination_body)
+                    .map(|(_, body, _)| body.body_type == BodyType::Star)
+                    .unwrap_or(false);
+                let dest_ring_r = if is_inter_star && maneuver.is_kinematic() && dest_is_star {
+                    (maneuver.arrival_orbit_radius_au as f32 * SCALING_FACTOR as f32).max(1.0)
                 } else {
-                    predict_body_visual_pos(
-                        maneuver.destination_body,
-                        elapsed,
-                        maneuver.arrival_time,
-                        real_secs,
-                        sim_scale,
-                        &body_query,
-                        &kepler_query,
-                        &amp_query,
-                    )
-                    .unwrap_or(dest_now)
+                    default_dest_ring_r
                 };
+                let dp_absolute = predict_body_visual_pos(
+                    maneuver.destination_body,
+                    elapsed,
+                    maneuver.arrival_time,
+                    real_secs,
+                    sim_scale,
+                    &body_query,
+                    &kepler_query,
+                    &amp_query,
+                )
+                .unwrap_or(dest_now);
                 let orbit_center_visual = maneuver.orbit_center;
                 let cv_predicted = predict_body_visual_pos(
                     orbit_center_visual,
@@ -3288,7 +3245,7 @@ pub fn draw_fleet_transfer_preview(
     body_query: Query<(&Transform, &CelestialBody, Option<&LogicalParent>), Without<Fleet>>,
     kepler_query: Query<&KeplerOrbit, Without<Fleet>>,
     amp_query: Query<&LocalOrbitAmplification, Without<Fleet>>,
-    _floating_origin: Option<Res<FloatingOrigin>>,
+    floating_origin: Option<Res<FloatingOrigin>>,
     fleet_ui_state: Res<FleetUiState>,
     view_mode: Res<ViewMode>,
     sim_time: Res<SimulationTime>,
@@ -3317,6 +3274,10 @@ pub fn draw_fleet_transfer_preview(
     else {
         return;
     };
+    let _origin_offset = floating_origin
+        .as_ref()
+        .map(|origin| origin.position)
+        .unwrap_or(DVec3::ZERO);
     let elapsed = sim_time.elapsed_seconds();
     let real_secs = real_time.elapsed_secs() as f64;
     let sim_scale = time_scale.scale as f64;
@@ -3535,12 +3496,21 @@ pub fn draw_fleet_transfer_preview(
             Vec3::ZERO,
         );
 
-        draw_dashed_curve(
-            &mut gizmos,
-            |t| geo.eval(t),
-            24,
-            |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
-        );
+        if is_kinematic {
+            draw_solid_curve(
+                &mut gizmos,
+                |t| geo.eval(t),
+                64,
+                |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+            );
+        } else {
+            draw_dashed_curve(
+                &mut gizmos,
+                |t| geo.eval(t),
+                24,
+                |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+            );
+        }
 
         // Fleet-target marker: crosshair + dashed circle in orange-red.
         let fleet_color = Color::srgba(1.0, 0.4, 0.1, 0.9);
@@ -3594,6 +3564,18 @@ pub fn draw_fleet_transfer_preview(
         return;
     };
     let reference_frame = resolve_preview_reference_frame(origin_body, target_entity, &body_query);
+    let selected_option = fleet_ui_state
+        .computed_options
+        .get(fleet_ui_state.selected_option);
+    let is_kinematic = selected_option
+        .map(|opt| {
+            opt.label == "Full Thrust"
+                || opt.label.contains("Coast")
+                || opt.label == "Max Speed"
+                || opt.label.contains("Direct")
+        })
+        .unwrap_or(false);
+    let planned_transfer = fleet_ui_state.planned_transfer.as_ref();
 
     // For course corrections: departure point = fleet's current render position.
     // For normal transfers: departure point = predicted origin body position at departure.
@@ -3619,9 +3601,8 @@ pub fn draw_fleet_transfer_preview(
         fleet_parking_visual_radius(origin_body_data.visual_radius)
     };
     let dest_visual_r = dest_body_data.visual_radius;
-    let dest_ring_r = fleet_parking_visual_radius(dest_visual_r);
+    let default_dest_ring_r = fleet_parking_visual_radius(dest_visual_r);
 
-    let planned_transfer = fleet_ui_state.planned_transfer.as_ref();
     let star_centered_preview_candidate = planned_transfer
         .map(|transfer| {
             let center_is_star = matches!(
@@ -3651,6 +3632,14 @@ pub fn draw_fleet_transfer_preview(
 
     // Predict destination body position at planned departure + travel time so the
     // ghost mark moves when the player drags the departure slider.
+    let dest_is_star = dest_body_data.body_type == BodyType::Star;
+    let dest_ring_r = if reference_frame.is_barycentric() && is_kinematic && dest_is_star {
+        planned_transfer
+            .map(|transfer| (transfer.arrival_orbit_radius_au as f32 * SCALING_FACTOR as f32).max(1.0))
+            .unwrap_or(default_dest_ring_r)
+    } else {
+        default_dest_ring_r
+    };
     let dp_absolute = predict_body_visual_pos(
         target_entity,
         current_sim_s,
@@ -3771,19 +3760,6 @@ pub fn draw_fleet_transfer_preview(
         op.length_squared() > dp.length_squared()
     };
 
-    // Check whether the selected option is a kinematic transfer.
-    let selected_option = fleet_ui_state
-        .computed_options
-        .get(fleet_ui_state.selected_option);
-    let is_kinematic = selected_option
-        .map(|opt| {
-            opt.label == "Full Thrust"
-                || opt.label.contains("Coast")
-                || opt.label == "Max Speed"
-                || opt.label.contains("Direct")
-        })
-        .unwrap_or(false);
-
     if reference_frame.is_barycentric() && !is_kinematic {
         let barycentric_preview = planned_transfer
             .filter(|transfer| transfer.reference_frame.is_barycentric())
@@ -3896,13 +3872,21 @@ pub fn draw_fleet_transfer_preview(
         )
     };
 
-    // Dashed amber arc.
-    draw_dashed_curve(
-        &mut gizmos,
-        |t| geo.eval(t),
-        24,
-        |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
-    );
+    if is_kinematic {
+        draw_solid_curve(
+            &mut gizmos,
+            |t| geo.eval(t),
+            96,
+            |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+        );
+    } else {
+        draw_dashed_curve(
+            &mut gizmos,
+            |t| geo.eval(t),
+            24,
+            |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+        );
+    }
 
     // Ghost body at predicted arrival position.
     // In the preview the destination is the body we are flying TO, not the orbit

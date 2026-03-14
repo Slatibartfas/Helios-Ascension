@@ -3487,6 +3487,7 @@ fn build_planned_transfer(
 ) -> Option<PlannedTransfer> {
     use crate::astronomy::KeplerOrbit;
     use crate::fleets::orbital_mechanics::{solve_lambert_transfer, AU_IN_METERS, GM_SUN, G_CONST};
+    const STELLAR_APPROACH_AU: f64 = 0.3;
 
     let departure_time_s = sim_time_s;
     let arrival_time_s = departure_time_s + option.transfer_time_s;
@@ -3498,11 +3499,75 @@ fn build_planned_transfer(
     let origin_parent = origin_lp.map(|lp| lp.0);
     let dest_is_star = dest_body.body_type == BodyType::Star;
     let dest_is_ring = dest_body.body_type == BodyType::Ring;
+    let origin_host_star_e = find_host_star(orbit.body, body_query).map(|(e, _)| e);
+    let dest_host_star_e = find_host_star(target_entity, body_query).map(|(e, _)| e);
+    let is_inter_star = origin_host_star_e.is_some()
+        && dest_host_star_e.is_some()
+        && origin_host_star_e != dest_host_star_e;
 
     // Determine: (origin_sma, dest_sma, gm, orbit_center, actual destination body for FleetOrbit)
     // For Rings: redirect the FleetOrbit destination to the ring's parent planet.
     // For Stars: Fleet will orbit the star at the planet SOI boundary; orbit_center = star entity.
-    let (origin_sma_au, dest_sma_au, gm, orbit_center, actual_dest_body, reference_frame) = if dest_is_star {
+    let (origin_sma_au, dest_sma_au, gm, orbit_center, actual_dest_body, reference_frame) = if is_inter_star {
+        let r1 = transfer_absolute_position(orbit.body, departure_time_s, body_query)
+            .unwrap_or(origin_sc.position)
+            .length()
+            .max(MIN_ORBITAL_RADIUS_AU);
+        let r2 = transfer_absolute_position(target_entity, arrival_time_s, body_query)
+            .map(|pos| pos.length())
+            .unwrap_or(1.5)
+            .max(MIN_ORBITAL_RADIUS_AU);
+        let system_gm_raw: f64 = body_query
+            .iter()
+            .filter_map(|(e, b, _, _, _)| {
+                if b.body_type != BodyType::Star {
+                    return None;
+                }
+                let Ok(system_id) = body_system_ids.get(e) else {
+                    return None;
+                };
+                if system_id.0 != current_system_id {
+                    return None;
+                }
+                Some(G_CONST * b.mass)
+            })
+            .sum();
+        let system_gm = if system_gm_raw > 0.0 {
+            system_gm_raw
+        } else {
+            GM_SUN
+        };
+        let primary_star = body_query
+            .iter()
+            .filter_map(|(e, b, sc, _, _)| {
+                if b.body_type != BodyType::Star {
+                    return None;
+                }
+                let Ok(system_id) = body_system_ids.get(e) else {
+                    return None;
+                };
+                if system_id.0 != current_system_id {
+                    return None;
+                }
+                Some((e, sc))
+            })
+            .min_by(|(_, sc_a), (_, sc_b)| {
+                sc_a.position
+                    .length_squared()
+                    .partial_cmp(&sc_b.position.length_squared())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(e, _)| e)
+            .unwrap_or(orbit.body);
+        (
+            r1,
+            r2,
+            system_gm,
+            primary_star,
+            target_entity,
+            TransferReferenceFrame::SystemBarycentric,
+        )
+    } else if dest_is_star {
         // Transfer toward the destination star.
         // The transfer orbit is centred on the destination star, so gm = G·M_star.
         // The "arrival orbit" radius is approximated as the planet's sphere of influence:
@@ -3556,11 +3621,10 @@ fn build_planned_transfer(
             target_entity,
             TransferReferenceFrame::Body(orbit.body),
         )
-    } else if dest_parent.is_some() && dest_parent == origin_parent {
+    } else if let Some(shared) = dest_parent.filter(|parent| Some(*parent) == origin_parent) {
         // Both orbit the same central body (moon-to-moon OR interplanetary, e.g. Earth→Mars).
         // Use G·mass for any central body — non-Sol stars carry their actual mass in kg
         // in CelestialBody.mass, so G·M gives the correct GM for any star.
-        let shared = dest_parent.unwrap();
         let gm = body_query
             .get(shared)
             .ok()
@@ -3598,12 +3662,6 @@ fn build_planned_transfer(
         // transfer happens in the barycentric frame.  We walk the full LogicalParent
         // chain to the stellar ancestor so that moon→planet→star hierarchies are
         // handled correctly (not just immediate parent checks).
-        let origin_host_star_e = find_host_star(orbit.body, body_query).map(|(e, _)| e);
-        let dest_host_star_e = find_host_star(target_entity, body_query).map(|(e, _)| e);
-        let is_inter_star = origin_host_star_e.is_some()
-            && dest_host_star_e.is_some()
-            && origin_host_star_e != dest_host_star_e;
-
         if is_inter_star {
             // Barycentric distances — already correct since SpaceCoordinates stores
             // positions relative to the system origin (≈ barycenter).
@@ -3999,8 +4057,18 @@ fn build_planned_transfer(
     let barycentric_start_end = if reference_frame.is_barycentric() {
         let origin_future = transfer_absolute_position(orbit.body, departure_time_s, body_query)
             .unwrap_or(rel_pos + center_pos);
-        let dest_future = transfer_absolute_position(target_entity, arrival_time_s, body_query)
+        let dest_future_center = transfer_absolute_position(target_entity, arrival_time_s, body_query)
             .unwrap_or(dest_rel + center_pos);
+        let dest_future = if dest_is_star {
+            let inbound = (dest_future_center - origin_future).normalize_or_zero();
+            if inbound.length_squared() > 1e-20 {
+                dest_future_center - inbound * STELLAR_APPROACH_AU
+            } else {
+                dest_future_center + bevy::math::DVec3::new(STELLAR_APPROACH_AU, 0.0, 0.0)
+            }
+        } else {
+            dest_future_center
+        };
         Some((origin_future, dest_future))
     } else {
         None
@@ -4092,7 +4160,9 @@ fn build_planned_transfer(
     let arrival_velocity_ms = arrival_velocity_ms.or(exact_star_centered_data.map(|data| data.3));
 
     // Arrival orbit radius: for rings/stars use the SMA, otherwise reuse fleet parking radius
-    let arrival_orbit_radius_au = if dest_is_ring || dest_is_star {
+    let arrival_orbit_radius_au = if reference_frame.is_barycentric() && dest_is_star {
+        STELLAR_APPROACH_AU
+    } else if dest_is_ring || dest_is_star {
         dest_sma_au // ring radius or SOI boundary for stars
     } else {
         orbit.radius_au
@@ -4895,5 +4965,88 @@ mod tests {
         assert!(planned.end_position_au.is_some());
         assert!(planned.departure_velocity_ms.is_some());
         assert!(planned.arrival_velocity_ms.is_some());
+    }
+
+    #[test]
+    fn build_planned_transfer_cross_star_to_star_uses_barycentric_approach() {
+        let mut world = World::new();
+
+        let star_a = world
+            .spawn((
+                test_body("Alpha A", BodyType::Star, 2.0e30, 700_000.0, 40.0),
+                SpaceCoordinates::new(DVec3::new(-2000.0, 0.0, 0.0)),
+                SystemId(7),
+            ))
+            .id();
+        let star_b = world
+            .spawn((
+                test_body("Proxima", BodyType::Star, 2.4e29, 110_000.0, 22.0),
+                SpaceCoordinates::new(DVec3::new(2100.0, 120.0, 0.0)),
+                SystemId(7),
+            ))
+            .id();
+
+        let origin = world
+            .spawn((
+                test_body("Origin", BodyType::Planet, 5.97e24, 6_371.0, 12.0),
+                SpaceCoordinates::new(DVec3::new(-1998.8, 0.0, 0.0)),
+                KeplerOrbit::circular(1.2, 1.0e-7),
+                LogicalParent(star_a),
+                SystemId(7),
+            ))
+            .id();
+
+        let fleet = Fleet::new("Test Fleet".to_string());
+        let orbit = FleetOrbit::new(origin, 0.0001);
+        let option = TransferOption {
+            label: "Long Coast",
+            total_delta_v_ms: 12_000.0,
+            delta_v1_ms: 6_000.0,
+            delta_v2_ms: 6_000.0,
+            transfer_time_s: 86_400.0 * 500.0,
+            sma_au: 3000.0,
+            eccentricity: 0.2,
+            energy_multiplier: 1.0,
+            burn_time_s: 0.0,
+            plane_change_dv_ms: 0.0,
+            is_thrust_limited: false,
+            transfer_orbit_override: None,
+        };
+
+        let mut body_query_state = world.query::<(
+            Entity,
+            &CelestialBody,
+            &SpaceCoordinates,
+            Option<&KeplerOrbit>,
+            Option<&LogicalParent>,
+        )>();
+        let mut system_id_query_state = world.query::<&SystemId>();
+        let body_query = body_query_state.query(&world);
+        let system_id_query = system_id_query_state.query(&world);
+
+        let planned = build_planned_transfer(
+            Entity::PLACEHOLDER,
+            &fleet,
+            &orbit,
+            star_b,
+            0.0,
+            &body_query,
+            &option,
+            None,
+            &system_id_query,
+            7,
+        )
+        .expect("cross-star star-approach transfer should build successfully");
+
+        assert_eq!(planned.reference_frame, TransferReferenceFrame::SystemBarycentric);
+        assert_eq!(planned.destination_body, star_b);
+        assert_eq!(planned.arrival_orbit_radius_au, 0.3);
+        let end_pos = planned.end_position_au.expect("approach endpoint should be stored");
+        let star_pos = body_query
+            .get(star_b)
+            .map(|(_, _, sc, _, _)| sc.position)
+            .expect("star should exist");
+        let approach_distance = (end_pos - star_pos).length();
+        assert!((approach_distance - 0.3).abs() < 1e-6);
     }
 }
