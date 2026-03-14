@@ -1910,8 +1910,6 @@ fn spawn_procedural_planet(
         entity_commands.insert(ocean);
     }
 
-    
-
     // Resource generation will be handled by the existing system
     // The metallicity_multiplier will be applied in the resource generation
 

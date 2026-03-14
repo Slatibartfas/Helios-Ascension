@@ -313,6 +313,7 @@ pub fn system_visual_scale(star_luminosity_sol: f32) -> f32 {
 
 /// Convert temperature (Kelvin) to approximate sRGB color.
 /// Based on Tanner Helland's algorithm.
+#[allow(clippy::excessive_precision)] // constants match published algorithm coefficients exactly
 pub fn kelvin_to_color(temperature: f32) -> Color {
     let t = temperature.clamp(1000.0, 40000.0) / 100.0;
 
@@ -320,14 +321,14 @@ pub fn kelvin_to_color(temperature: f32) -> Color {
     let r = if t <= 66.0 {
         255.0
     } else {
-        329.698_73 * (t - 60.0).powf(-0.133_204_76)
+        329.698_727_446 * (t - 60.0).powf(-0.133_204_759_2)
     };
 
     // Green
     let g = if t <= 66.0 {
-        99.470_8 * t.ln() - 161.119_57
+        99.470_802_586_1 * t.ln() - 161.119_568_166_1
     } else {
-        288.122_16 * (t - 60.0).powf(-0.075_514_846)
+        288.122_169_528_3 * (t - 60.0).powf(-0.075_514_849_2)
     };
 
     // Blue
@@ -336,7 +337,7 @@ pub fn kelvin_to_color(temperature: f32) -> Color {
     } else if t <= 19.0 {
         0.0
     } else {
-        138.517_73 * (t - 10.0).ln() - 305.044_8
+        138.517_731_223_1 * (t - 10.0).ln() - 305.044_792_730_7
     };
 
     Color::srgb(
