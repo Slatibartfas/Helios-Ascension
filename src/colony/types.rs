@@ -101,13 +101,9 @@ pub enum BuildingType {
     NaturalGasPlant,
 
     // Advanced Industry (new)
-    /// Heavy steel production facility
-    SteelMill,
-    /// Aluminium smelting and processing
-    AluminumSmelter,
-    /// High-precision microchip manufacturing (requires semiconductor_manufacturing tech)
+    /// High-precision microchip and electronics industry (requires semiconductor_manufacturing tech)
     SemiconductorFab,
-    /// Drug and pharmaceutical production
+    /// Pharmaceutical and biomedical production sector
     PharmaceuticalPlant,
 
     // Water & Environment
@@ -125,10 +121,8 @@ pub enum BuildingType {
     AquacultureFacility,
 
     // Digital Infrastructure
-    /// Large-scale computation and data storage hub
+    /// Planetary-scale computation and data-storage infrastructure
     DataCenter,
-    /// Global communications relay network
-    TelecomTower,
 
     // Advanced Space
     /// Advanced multi-pad orbital launch complex
@@ -178,8 +172,6 @@ impl BuildingType {
             GeothermalPlant,
             CoalPowerPlant,
             NaturalGasPlant,
-            SteelMill,
-            AluminumSmelter,
             SemiconductorFab,
             PharmaceuticalPlant,
             WaterTreatmentPlant,
@@ -188,7 +180,6 @@ impl BuildingType {
             Greenhouse,
             AquacultureFacility,
             DataCenter,
-            TelecomTower,
             SpacePort,
             GroundDefenseBattery,
         ]
@@ -231,19 +222,16 @@ impl BuildingType {
             BuildingType::WindFarm => "Wind Farm",
             BuildingType::HydroelectricDam => "Hydroelectric Dam",
             BuildingType::GeothermalPlant => "Geothermal Plant",
-            BuildingType::CoalPowerPlant => "Coal Power Plant",
-            BuildingType::NaturalGasPlant => "Natural Gas Plant",
-            BuildingType::SteelMill => "Steel Mill",
-            BuildingType::AluminumSmelter => "Aluminum Smelter",
-            BuildingType::SemiconductorFab => "Semiconductor Fab",
-            BuildingType::PharmaceuticalPlant => "Pharmaceutical Plant",
-            BuildingType::WaterTreatmentPlant => "Water Treatment Plant",
-            BuildingType::DesalinationPlant => "Desalination Plant",
-            BuildingType::RecyclingCenter => "Recycling Center",
-            BuildingType::Greenhouse => "Greenhouse",
-            BuildingType::AquacultureFacility => "Aquaculture Facility",
-            BuildingType::DataCenter => "Data Center",
-            BuildingType::TelecomTower => "Telecom Tower",
+            BuildingType::CoalPowerPlant => "Coal Power Sector",
+            BuildingType::NaturalGasPlant => "Gas Power Sector",
+            BuildingType::SemiconductorFab => "Electronics Industry",
+            BuildingType::PharmaceuticalPlant => "Pharmaceutical Sector",
+            BuildingType::WaterTreatmentPlant => "Water Management Complex",
+            BuildingType::DesalinationPlant => "Desalination Complex",
+            BuildingType::RecyclingCenter => "Industrial Recycling Complex",
+            BuildingType::Greenhouse => "Greenhouse Complex",
+            BuildingType::AquacultureFacility => "Aquaculture Complex",
+            BuildingType::DataCenter => "Computation Hub",
             BuildingType::SpacePort => "Space Port",
             BuildingType::GroundDefenseBattery => "Ground Defense Battery",
         }
@@ -286,19 +274,16 @@ impl BuildingType {
             BuildingType::WindFarm => "Generates clean energy from wind currents",
             BuildingType::HydroelectricDam => "Harnesses river flow for reliable base-load power",
             BuildingType::GeothermalPlant => "Taps planetary heat for continuous power generation",
-            BuildingType::CoalPowerPlant => "Burns coal for power; produces CO2 emissions",
-            BuildingType::NaturalGasPlant => "Fast-ramping gas turbine power plant",
-            BuildingType::SteelMill => "Produces structural steel from iron and carbon",
-            BuildingType::AluminumSmelter => "Electrolytically refines aluminium from ore",
-            BuildingType::SemiconductorFab => "Manufactures high-precision microchips and electronics",
-            BuildingType::PharmaceuticalPlant => "Produces medicines, vaccines, and bio-compounds",
-            BuildingType::WaterTreatmentPlant => "Purifies water for industrial and population use",
-            BuildingType::DesalinationPlant => "Converts saltwater into fresh water",
-            BuildingType::RecyclingCenter => "Recovers reusable metals and polymers from waste",
-            BuildingType::Greenhouse => "Controlled-environment crop growing for any climate",
-            BuildingType::AquacultureFacility => "Cultivates fish and aquatic organisms for food",
-            BuildingType::DataCenter => "Massive computation and data-storage hub",
-            BuildingType::TelecomTower => "Global communications relay improving coordination",
+            BuildingType::CoalPowerPlant => "Massive coal-fired power sector; a major industrial base-load source",
+            BuildingType::NaturalGasPlant => "Gas turbine power sector for fast-ramping base-load generation",
+            BuildingType::SemiconductorFab => "Planetary electronics and microchip manufacturing industry",
+            BuildingType::PharmaceuticalPlant => "Civilisation-scale pharmaceutical and biomedical production",
+            BuildingType::WaterTreatmentPlant => "Planetary water purification and distribution network",
+            BuildingType::DesalinationPlant => "Large-scale ocean desalination infrastructure for water-scarce worlds",
+            BuildingType::RecyclingCenter => "Industrial-scale material recovery and resource reprocessing",
+            BuildingType::Greenhouse => "Vast network of climate-controlled crop production facilities",
+            BuildingType::AquacultureFacility => "Planetary aquatic protein farming across oceans and inland seas",
+            BuildingType::DataCenter => "Planetary-scale computation, AI processing, and data storage infrastructure",
             BuildingType::SpacePort => "High-throughput orbital launch complex with multiple pads",
             BuildingType::GroundDefenseBattery => "Anti-orbital and anti-missile ground defense installation",
         }
@@ -343,8 +328,6 @@ impl BuildingType {
             BuildingType::GeothermalPlant => "🌋",
             BuildingType::CoalPowerPlant => "🏭",
             BuildingType::NaturalGasPlant => "🔥",
-            BuildingType::SteelMill => "⚙️",
-            BuildingType::AluminumSmelter => "🔩",
             BuildingType::SemiconductorFab => "💾",
             BuildingType::PharmaceuticalPlant => "💊",
             BuildingType::WaterTreatmentPlant => "💧",
@@ -353,7 +336,6 @@ impl BuildingType {
             BuildingType::Greenhouse => "🌿",
             BuildingType::AquacultureFacility => "🐟",
             BuildingType::DataCenter => "🖥️",
-            BuildingType::TelecomTower => "📡",
             BuildingType::SpacePort => "🚀",
             BuildingType::GroundDefenseBattery => "🛡️",
         }
@@ -378,8 +360,6 @@ impl BuildingType {
             | BuildingType::DeepDrill
             | BuildingType::LaserDrill
             | BuildingType::StripMine
-            | BuildingType::SteelMill
-            | BuildingType::AluminumSmelter
             | BuildingType::SemiconductorFab
             | BuildingType::PharmaceuticalPlant => BuildingCategory::Industry,
             BuildingType::MassDriver | BuildingType::OrbitalLift | BuildingType::CargoTerminal => {
@@ -403,8 +383,7 @@ impl BuildingType {
             BuildingType::ResearchLab
             | BuildingType::EngineeringBay
             | BuildingType::AiCluster
-            | BuildingType::DataCenter
-            | BuildingType::TelecomTower => {
+            | BuildingType::DataCenter => {
                 BuildingCategory::Research
             }
             BuildingType::CommercialHub
@@ -459,8 +438,6 @@ impl BuildingType {
             BuildingType::GeothermalPlant => 1800.0,
             BuildingType::CoalPowerPlant => 800.0,
             BuildingType::NaturalGasPlant => 600.0,
-            BuildingType::SteelMill => 1200.0,
-            BuildingType::AluminumSmelter => 1000.0,
             BuildingType::SemiconductorFab => 5000.0,
             BuildingType::PharmaceuticalPlant => 800.0,
             BuildingType::WaterTreatmentPlant => 400.0,
@@ -469,7 +446,6 @@ impl BuildingType {
             BuildingType::Greenhouse => 400.0,
             BuildingType::AquacultureFacility => 500.0,
             BuildingType::DataCenter => 2000.0,
-            BuildingType::TelecomTower => 200.0,
             BuildingType::SpacePort => 4000.0,
             BuildingType::GroundDefenseBattery => 2500.0,
         }
@@ -530,8 +506,6 @@ impl BuildingType {
             BuildingType::CoalPowerPlant => 2_000,
             BuildingType::NaturalGasPlant => 1_500,
             // Advanced industry
-            BuildingType::SteelMill => 8_000,
-            BuildingType::AluminumSmelter => 6_000,
             BuildingType::SemiconductorFab => 5_000,
             BuildingType::PharmaceuticalPlant => 4_000,
             // Water & environment
@@ -543,7 +517,6 @@ impl BuildingType {
             BuildingType::AquacultureFacility => 1_500,
             // Digital infrastructure
             BuildingType::DataCenter => 1_000,
-            BuildingType::TelecomTower => 100,
             // Advanced space
             BuildingType::SpacePort => 20_000,
             BuildingType::GroundDefenseBattery => 3_000,
@@ -652,7 +625,7 @@ mod tests {
     #[test]
     fn test_building_type_all() {
         let all = BuildingType::all();
-        assert_eq!(all.len(), 49, "Should have exactly 49 building types");
+        assert_eq!(all.len(), 46, "Should have exactly 46 building types");
     }
 
     #[test]

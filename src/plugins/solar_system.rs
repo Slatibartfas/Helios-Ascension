@@ -930,8 +930,6 @@ pub fn setup_solar_system(
                 (BuildingType::ChemicalPlant, 1_000),
                 (BuildingType::HydrocarbonExtractor, 500),
                 (BuildingType::AtmosphericProcessor, 500),
-                (BuildingType::SteelMill, 300),
-                (BuildingType::AluminumSmelter, 200),
                 (BuildingType::RecyclingCenter, 500),
                 // Power (2026 mix: coal, gas, hydro, nuclear, solar, wind)
                 (BuildingType::CoalPowerPlant, 2_400),   // ~40% coal
@@ -945,7 +943,6 @@ pub fn setup_solar_system(
                 // Research & Tech
                 (BuildingType::ResearchLab, 500),
                 (BuildingType::DataCenter, 50),
-                (BuildingType::TelecomTower, 2_000),
                 // Space access
                 (BuildingType::LaunchSite, 50),
                 (BuildingType::SpacePort, 5),
