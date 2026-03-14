@@ -184,10 +184,10 @@ pub fn update_colony_growth(
         total_food_consumption += colony.food_consumption_per_year();
     }
 
-    // Add produced food to stockpile
+    // Add produced food to stockpile, capped so it doesn't accumulate infinitely
     let food_produced = total_food_production * years_elapsed;
     if food_produced > 0.0 {
-        budget.add_resource(ResourceType::Food, food_produced);
+        budget.add_resource_capped(ResourceType::Food, food_produced);
     }
 
     // Consume food from stockpile

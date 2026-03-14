@@ -116,10 +116,14 @@ impl Colony {
     ///
     /// - Farm: 100 Mt/year (large-scale agriculture feeding ~1M people)
     /// - AgriDome: 0.4 Mt/year (enclosed agriculture feeding ~4K people)
+    /// - Greenhouse: 50 Mt/year (controlled-environment, feeds ~500K people)
+    /// - AquacultureFacility: 75 Mt/year (aquatic protein, feeds ~750K people)
     pub fn food_production_per_year(&self) -> f64 {
         let farm_count = self.building_count(BuildingType::Farm) as f64;
         let agri_count = self.building_count(BuildingType::AgriDome) as f64;
-        farm_count * 100.0 + agri_count * 0.4
+        let greenhouse_count = self.building_count(BuildingType::Greenhouse) as f64;
+        let aquaculture_count = self.building_count(BuildingType::AquacultureFacility) as f64;
+        farm_count * 100.0 + agri_count * 0.4 + greenhouse_count * 50.0 + aquaculture_count * 75.0
     }
 
     /// Calculate food consumption rate (Mt/year) based on population.

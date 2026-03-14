@@ -110,7 +110,7 @@ impl GlobalBudget {
         stockpiles.insert(ResourceType::Phosphorus, 600.0);
         stockpiles.insert(ResourceType::Lithium, 3.5);
         stockpiles.insert(ResourceType::Sulfur, 1_500.0);
-        stockpiles.insert(ResourceType::Food, 5_000.0);
+        stockpiles.insert(ResourceType::Food, 1_000_000.0); // ~1.2yr Earth reserve → food_factor=1.0
         stockpiles.insert(ResourceType::Chromium, 900.0);
         stockpiles.insert(ResourceType::Magnesium, 30.0);
         stockpiles.insert(ResourceType::Cobalt, 5.0);
@@ -178,6 +178,89 @@ impl GlobalBudget {
         } else {
             false
         }
+    }
+
+    /// Add resources to the stockpile, capped at the per-resource limit.
+    ///
+    /// Production stops silently when the stockpile is full.  Use this instead
+    /// of `add_resource` for all ongoing production (mining, food, atmospheric
+    /// harvesting) so that stockpiles have finite capacity.
+    ///
+    /// Returns the amount actually added (may be less than `amount` if near cap).
+    pub fn add_resource_capped(&mut self, resource: ResourceType, amount: f64) -> f64 {
+        assert!(
+            amount >= 0.0,
+            "Cannot add negative resource amount: {}",
+            amount
+        );
+        let cap = Self::stockpile_cap(resource);
+        let current = self.get_stockpile(&resource);
+        let headroom = (cap - current).max(0.0);
+        let added = amount.min(headroom);
+        if added > 0.0 {
+            self.stockpiles.insert(resource, current + added);
+        }
+        added
+    }
+
+    /// Maximum stockpile capacity for a given resource (in Megatons).
+    ///
+    /// Caps are tuned so a well-developed Earth colony fills storage in
+    /// roughly 5–20 years, giving a meaningful "full" signal without
+    /// stopping production immediately.  Resources not listed here have
+    /// an unlimited cap (f64::MAX).
+    pub fn stockpile_cap(resource: ResourceType) -> f64 {
+        match resource {
+            // Food: ~3 years of Earth consumption (8.2B pop × 0.0001 Mt/person/yr ≈ 820 kt/yr)
+            ResourceType::Food => 2_500_000.0,
+            // Common industrial metals
+            ResourceType::Iron => 50_000.0,
+            ResourceType::Copper => 5_000.0,
+            ResourceType::Aluminum => 10_000.0,
+            ResourceType::Nickel => 2_000.0,
+            ResourceType::Chromium => 10_000.0,
+            ResourceType::Magnesium => 1_000.0,
+            ResourceType::Cobalt => 200.0,
+            ResourceType::Tungsten => 100.0,
+            // Non-metals / industrial
+            ResourceType::Silicates => 1_000_000.0,
+            ResourceType::Carbon => 5_000.0,
+            ResourceType::Sulfur => 20_000.0,
+            ResourceType::Phosphorus => 10_000.0,
+            ResourceType::Polymers => 10_000.0,
+            // Strategic / rare
+            ResourceType::Titanium => 2_000.0,
+            ResourceType::RareEarths => 200.0,
+            ResourceType::Lithium => 200.0,
+            ResourceType::Fluorine => 2_000.0,
+            // Volatiles / gases
+            ResourceType::Water => 50_000.0,
+            ResourceType::Oxygen => 20_000.0,
+            ResourceType::Hydrogen => 10_000.0,
+            ResourceType::Methane => 5_000.0,
+            ResourceType::Nitrogen => 10_000.0,
+            ResourceType::Ammonia => 5_000.0,
+            // Fissile / fusion fuels
+            ResourceType::Uranium => 100.0,
+            ResourceType::Thorium => 50.0,
+            ResourceType::Deuterium => 1_000.0,
+            ResourceType::Helium3 => 500.0,
+            // Precious metals
+            ResourceType::Gold => 20.0,
+            ResourceType::Silver => 50.0,
+            ResourceType::Platinum => 5.0,
+            // Exotic / late-game (essentially uncapped for now)
+            _ => f64::MAX,
+        }
+    }
+
+    /// Returns true if the stockpile for `resource` has reached its cap.
+    pub fn is_stockpile_full(&self, resource: ResourceType) -> bool {
+        let cap = Self::stockpile_cap(resource);
+        if cap >= f64::MAX {
+            return false;
+        }
+        self.get_stockpile(&resource) >= cap
     }
 
     /// Update civilization score based on power generation
@@ -465,6 +548,47 @@ mod tests {
         assert_eq!(format_currency(1500.0), "1.5K MC");
         assert_eq!(format_currency(2_500_000.0), "2.5M MC");
         assert_eq!(format_currency(-500.0), "-500 MC");
+    }
+
+    #[test]
+    fn test_add_resource_capped_respects_limit() {
+        let mut budget = GlobalBudget::new();
+        // Gold cap is 20.0 Mt; start empty
+        budget.stockpiles.insert(ResourceType::Gold, 18.0);
+        let added = budget.add_resource_capped(ResourceType::Gold, 5.0);
+        // Only 2.0 should fit (20.0 cap - 18.0 current)
+        assert!((added - 2.0).abs() < 1e-9, "Should only add up to cap");
+        assert!((budget.get_stockpile(&ResourceType::Gold) - 20.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_add_resource_capped_when_full() {
+        let mut budget = GlobalBudget::new();
+        budget.stockpiles.insert(ResourceType::Gold, 20.0); // already at cap
+        let added = budget.add_resource_capped(ResourceType::Gold, 1.0);
+        assert_eq!(added, 0.0, "Nothing should be added when at cap");
+        assert!((budget.get_stockpile(&ResourceType::Gold) - 20.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_is_stockpile_full() {
+        let mut budget = GlobalBudget::new();
+        budget.stockpiles.insert(ResourceType::Gold, 20.0);
+        assert!(budget.is_stockpile_full(ResourceType::Gold));
+        budget.stockpiles.insert(ResourceType::Gold, 19.0);
+        assert!(!budget.is_stockpile_full(ResourceType::Gold));
+    }
+
+    #[test]
+    fn test_food_stockpile_initial_gives_full_food_factor() {
+        let budget = GlobalBudget::new();
+        let food = budget.get_stockpile(&ResourceType::Food);
+        // Earth consumption ≈ 820,000 Mt/yr; initial stockpile should be ≥ 1 year
+        let earth_annual_consumption = 8.2e9 * 0.0001; // 820,000 Mt
+        assert!(
+            food >= earth_annual_consumption,
+            "Initial food stockpile ({food:.0} Mt) should cover >= 1yr Earth consumption ({earth_annual_consumption:.0} Mt)"
+        );
     }
 }
 

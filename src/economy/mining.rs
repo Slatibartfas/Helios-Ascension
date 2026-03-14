@@ -83,9 +83,9 @@ pub fn extract_resources(
                         total_extracted += taking_bulk;
                     }
 
-                    // Add to global budget
+                    // Add to global budget (capped at stockpile limit)
                     if total_extracted > 0.0 {
-                        budget.add_resource(op.resource_type, total_extracted);
+                        budget.add_resource_capped(op.resource_type, total_extracted);
                         // Reduce body mass (1 Mt = 1e9 kg)
                         body.mass -= total_extracted * 1e9;
                     }
@@ -154,7 +154,7 @@ pub fn extract_resources(
                                 let taking = demand.min(deposit.reserve.proven_crustal);
                                 deposit.reserve.proven_crustal -= taking;
                                 if taking > 0.0 {
-                                    budget.add_resource(*r_type, taking);
+                                    budget.add_resource_capped(*r_type, taking);
                                     body.mass -= taking * 1e9;
                                 }
                             }
@@ -181,7 +181,7 @@ pub fn extract_resources(
                                 let taking = demand.min(deposit.reserve.deep_deposits);
                                 deposit.reserve.deep_deposits -= taking;
                                 if taking > 0.0 {
-                                    budget.add_resource(*r_type, taking);
+                                    budget.add_resource_capped(*r_type, taking);
                                     body.mass -= taking * 1e9;
                                 }
                             }
@@ -208,7 +208,7 @@ pub fn extract_resources(
                                 let taking = demand.min(deposit.reserve.planetary_bulk);
                                 deposit.reserve.planetary_bulk -= taking;
                                 if taking > 0.0 {
-                                    budget.add_resource(*r_type, taking);
+                                    budget.add_resource_capped(*r_type, taking);
                                     body.mass -= taking * 1e9;
                                 }
                             }
@@ -258,7 +258,7 @@ pub fn extract_resources(
                                 }
 
                                 if extracted > 0.0 {
-                                    budget.add_resource(*r_type, extracted);
+                                    budget.add_resource_capped(*r_type, extracted);
                                     body.mass -= extracted * 1e9;
                                 }
                             }
