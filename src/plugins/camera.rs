@@ -187,7 +187,7 @@ fn orbit_camera_controls(
         // rendered) catches anchored panels (SidePanel, TopBottomPanel) that don't show up
         // in is_pointer_over_area().
         let over_panel = if let Some(available) = panel_bounds.available_rect {
-            hover_pos.map_or(false, |pos| !available.contains(pos))
+            hover_pos.is_some_and(|pos| !available.contains(pos))
         } else {
             false
         };
@@ -296,8 +296,6 @@ fn update_camera_transform(
 /// - **Stars**: clamp to `max(visual_radius × 2.5, 250)` — safely above the 200-unit
 ///   glare-fade threshold in `update_star_glare_lod`.
 /// - **Other bodies**: clamp to `max(visual_radius × 2.0, 5.0)` for comfortable close-ups.
-/// Dynamically adjusts the camera's `min_radius` so the camera can never zoom
-/// close enough to a star that the glare LOD fades to zero (leaving a black sphere).
 ///
 /// Two-tier logic:
 /// 1. If the anchor entity IS a `CelestialBody` (non-star), allow a tighter zoom.

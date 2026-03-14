@@ -512,7 +512,6 @@ fn render_fleet_ledger_tree(
     let mut fleets: Vec<(Entity, &Fleet, Option<&FleetOrbit>, Option<&ActiveManeuver>)> =
         fleet_query
             .iter()
-            .map(|(e, f, o, m)| (e, f, o, m))
             .collect();
     fleets.sort_by(|a, b| a.1.name.cmp(&b.1.name));
 
@@ -735,8 +734,6 @@ fn render_fleet_ledger_tree(
         }
     }
 }
-
-/// System that displays a tooltip for hovered celestial bodies or Lagrange points
 
 /// Compact mass format for tight UI tiles — no space before unit, single decimal.
 pub(super) fn format_mass_compact(megatons: f64) -> String {

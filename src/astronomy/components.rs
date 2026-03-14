@@ -573,7 +573,7 @@ impl AtmosphereComposition {
             .map(|g| surface_pressure_mbar * g.percentage / 100.0)
             .unwrap_or(0.0);
 
-        let breathable = o2_pressure >= 100.0 && o2_pressure <= 300.0;
+        let breathable = (100.0..=300.0).contains(&o2_pressure);
 
         let can_support_atmosphere = Self::can_retain_atmosphere(body_mass_kg, body_radius_km);
 
@@ -621,7 +621,7 @@ impl AtmosphereComposition {
             .map(|g| surface_pressure_mbar * g.percentage / 100.0)
             .unwrap_or(0.0);
 
-        let breathable = o2_pressure >= 100.0 && o2_pressure <= 300.0;
+        let breathable = (100.0..=300.0).contains(&o2_pressure);
 
         Self {
             surface_pressure_mbar,
@@ -958,10 +958,8 @@ pub fn calculate_colony_cost_details(
         None => 0.0, // already covered by atmosphere_cost = 3.0
         Some(atm) => {
             let p = atm.surface_pressure_mbar / 1000.0;
-            if p < 0.0001 {
-                0.0 // effectively vacuum — handled by atmosphere_cost
-            } else if p >= 0.5 && p <= 2.0 {
-                0.0 // within ideal band
+            if p < 0.0001 || (0.5..=2.0).contains(&p) {
+                0.0 // vacuum (handled by atmosphere_cost) or within ideal band
             } else if p < 0.5 {
                 (0.5_f32 / p).log10().abs().min(2.5) * 0.8
             } else {

@@ -901,8 +901,6 @@ fn ui_starmap_labels(
     }
 }
 
-/// Helper function to render a selectable label with highlighting for selected items
-
 fn ui_hover_tooltip(
     mut contexts: EguiContexts,
     hovered_query: Query<
@@ -1135,7 +1133,6 @@ fn ui_hover_tooltip(
 /// TODO(lagrange-transfers): Re-enable this handler once Lagrange-point transfer
 /// planning is working correctly. Currently LP markers are display-only; clicking
 /// one does not open the transfer planner.
-
 fn ui_lp_click_handler(mut last_click: ResMut<LastLpClick>, _fleet_ui_state: ResMut<FleetUiState>) {
     // Consume the click so it doesn't accumulate, but don't act on it.
     let _ = last_click.info.take();
@@ -1228,9 +1225,6 @@ fn ui_starmap_hover_tooltip(
             });
     }
 }
-
-/// Formats large mass values (in megatons) to user-readable strings with metric prefixes.
-/// Supports kt, Mt, Gt, Tt, Pt, Et...
 
 /// Check window resolution at startup and flag if below minimum
 fn check_window_resolution(

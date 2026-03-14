@@ -240,7 +240,7 @@ pub fn extract_resources(
                             let share = weight / total_weight;
                             let effective_rate = total_atmo_rate * share;
 
-                            if let Some(deposit) = resources.deposits.get_mut(&r_type) {
+                            if let Some(deposit) = resources.deposits.get_mut(r_type) {
                                 let mut demand = effective_rate * years_elapsed;
                                 let mut extracted = 0.0;
 
@@ -303,8 +303,8 @@ pub fn update_resource_rates(
             continue;
         }
         // Skip if the targeted deposit is fully depleted
-        let depleted = resources_opt.map_or(false, |res| {
-            res.deposits.get(&op.resource_type).map_or(true, |d| {
+        let depleted = resources_opt.is_some_and(|res| {
+            res.deposits.get(&op.resource_type).is_none_or(|d| {
                 d.reserve.proven_crustal < 0.001
                     && d.reserve.deep_deposits < 0.001
                     && d.reserve.planetary_bulk < 0.001

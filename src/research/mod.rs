@@ -29,6 +29,7 @@ pub use types::{ModifierType, TechCategory, TechModifierDef, Technology, Technol
 
 /// Debug settings for research system
 #[derive(Resource, Debug, Clone)]
+#[derive(Default)]
 pub struct ResearchDebugSettings {
     /// Whether debug mode is enabled
     pub enabled: bool,
@@ -48,23 +49,10 @@ pub struct ResearchDebugSettings {
     pub modifier_dialog_value_input: String,
 }
 
-impl Default for ResearchDebugSettings {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            show_all_techs: false,
-            instant_research: false,
-            instant_engineering: false,
-            debug_modifiers: std::collections::HashMap::new(),
-            modifier_dialog_show: false,
-            modifier_dialog_type_index: 0,
-            modifier_dialog_value_input: String::new(),
-        }
-    }
-}
 
 /// State for the tech tree debug editing UI (context menus, edit dialogs)
 #[derive(Resource, Debug, Clone)]
+#[derive(Default)]
 pub struct TechTreeEditState {
     /// Whether the "Edit Technology" window is open
     pub editing: Option<TechEditData>,
@@ -78,17 +66,6 @@ pub struct TechTreeEditState {
     pub status_message: Option<(String, f64)>,
 }
 
-impl Default for TechTreeEditState {
-    fn default() -> Self {
-        Self {
-            editing: None,
-            adding: None,
-            context_menu: None,
-            delete_confirm: None,
-            status_message: None,
-        }
-    }
-}
 
 /// Context menu state
 #[derive(Debug, Clone)]

@@ -2240,7 +2240,7 @@ pub(super) fn render_transfer_planner(
             // Use a phasing-orbit maneuver instead: lower into a shorter-period
             // orbit and drift the 60 deg (L4/L5) or 180 deg (L3) phase gap in N laps.
             let co_orbital =
-                matches!(lp.point, 3 | 4 | 5) && (r1_lp - lp.planet_sma_au).abs() < 0.02;
+                matches!(lp.point, 3..=5) && (r1_lp - lp.planet_sma_au).abs() < 0.02;
 
             if co_orbital {
                 let delta_phi = if lp.point == 3 {
@@ -2421,7 +2421,7 @@ pub(super) fn render_transfer_planner(
                                         .map(|ko| ko.semi_major_axis))
                             })
                             .unwrap_or(lp.planet_sma_au);
-                        let is_co_orbital = matches!(lp.point, 3 | 4 | 5)
+                        let is_co_orbital = matches!(lp.point, 3..=5)
                             && (r1_info - lp.planet_sma_au).abs() < 0.02;
                         let is_l12_direct = matches!(lp.point, 1 | 2);
                         if is_co_orbital {
@@ -2579,7 +2579,7 @@ pub(super) fn render_transfer_planner(
                                     );
                                 } else {
                                     ui.label(
-                                        egui::RichText::new(format!("{}", format_duration(window.time_to_window_s)))
+                                        egui::RichText::new(format_duration(window.time_to_window_s).to_string())
                                             .size(12.0)
                                             .color(theme::TEXT),
                                     );
@@ -2613,12 +2613,12 @@ pub(super) fn render_transfer_planner(
                         // Row 2: slider
                         let mut offset_days = fleet_ui_state.departure_offset_days as f32;
                         let slider = egui::Slider::new(&mut offset_days, 0.0_f32..=max_days as f32)
-                            .step_by(step_size as f64)
+                            .step_by(step_size)
                             .custom_formatter(|v, _| {
                                 if v < 0.01 {
                                     "Now".to_owned()
                                 } else {
-                                    format_duration(v as f64 * 86_400.0)
+                                    format_duration(v * 86_400.0)
                                 }
                             });
                         if ui.add(slider).changed() {
@@ -2744,9 +2744,9 @@ pub(super) fn render_transfer_planner(
             let sel_option =
                 fleet_ui_state.computed_options[fleet_ui_state.selected_option].clone();
             let planned_departure_time_s = elapsed + fleet_ui_state.departure_offset_days * 86_400.0;
-            fleet_ui_state.planned_transfer = if star_system_snap.is_some() {
-                None
-            } else if fleet_ui_state.selected_gravity_assist.is_some() {
+            fleet_ui_state.planned_transfer = if star_system_snap.is_some()
+                || fleet_ui_state.selected_gravity_assist.is_some()
+            {
                 None
             } else if let Some(ref lp) = lp_target_snap {
                 build_planned_transfer_lp(fleet_entity, fleet, orbit, lp, body_query, &sel_option)
@@ -4091,11 +4091,9 @@ fn build_planned_transfer(
     let departure_velocity_ms = departure_velocity_ms.or(exact_star_centered_data.map(|data| data.2));
     let arrival_velocity_ms = arrival_velocity_ms.or(exact_star_centered_data.map(|data| data.3));
 
-    // Arrival orbit radius: for rings use the ring radius, otherwise reuse fleet parking radius
-    let arrival_orbit_radius_au = if dest_is_ring {
-        dest_sma_au
-    } else if dest_is_star {
-        dest_sma_au // park at SOI boundary initially
+    // Arrival orbit radius: for rings/stars use the SMA, otherwise reuse fleet parking radius
+    let arrival_orbit_radius_au = if dest_is_ring || dest_is_star {
+        dest_sma_au // ring radius or SOI boundary for stars
     } else {
         orbit.radius_au
     };

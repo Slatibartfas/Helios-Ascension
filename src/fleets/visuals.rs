@@ -2393,7 +2393,7 @@ pub fn draw_fleet_selection_reticule(
         ViewMode::Starmap => {
             let camera_radius = camera_query
                 .single()
-                .map(|c| c.radius as f32)
+                .map(|c| c.radius)
                 .unwrap_or(200_000.0);
             let icon_size = 280.0 * (camera_radius / 100_000.0).sqrt().max(0.5);
             let raw = sc.position - origin_offset;
@@ -2497,7 +2497,7 @@ pub fn draw_fleet_starmap_icons(
     let camera_radius = camera_query
         .single()
         .ok()
-        .map(|c| c.radius as f32)
+        .map(|c| c.radius)
         .unwrap_or(200_000.0);
     let icon_size = 200.0 * (camera_radius / 100_000.0).sqrt().max(0.5);
 
@@ -3389,7 +3389,7 @@ pub fn draw_fleet_transfer_preview(
         // position many years in the future.  Phasing maneuvers keep the fleet
         // near the planet's orbit, so the current marker is the intuitive target.
         // L1/L2 are radial transfers that use the predicted arrival position.
-        let co_orbital_lp = matches!(lp.point, 3 | 4 | 5);
+        let co_orbital_lp = matches!(lp.point, 3..=5);
         let planet_ref_pos = if co_orbital_lp {
             planet_pos_now
         } else {
@@ -4048,12 +4048,12 @@ pub fn draw_gravity_assist_preview(
     // ── Draw both legs with arc-length-uniform dashing ───────────────────────
 
     // Leg 1: lime-green approach arc.
-    draw_dashed_curve(&mut gizmos, &leg1, 24, |f| {
+    draw_dashed_curve(&mut gizmos, leg1, 24, |f| {
         Color::srgba(0.3, 1.0, 0.4, 0.80 - 0.35 * f)
     });
 
     // Leg 2: magenta departure arc.
-    draw_dashed_curve(&mut gizmos, &leg2, 24, |f| {
+    draw_dashed_curve(&mut gizmos, leg2, 24, |f| {
         Color::srgba(1.0, 0.3, 0.8, 0.80 - 0.35 * f)
     });
 

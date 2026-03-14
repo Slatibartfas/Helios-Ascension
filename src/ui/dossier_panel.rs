@@ -623,7 +623,7 @@ fn compute_habitability_scores(
 ) -> [f32; 5] {
     // Gas giants — no solid surface, completely uninhabitable.
     let is_gas_giant =
-        body.body_type == BodyType::GasGiant || atmo.map_or(false, |a| a.is_reference_pressure);
+        body.body_type == BodyType::GasGiant || atmo.is_some_and(|a| a.is_reference_pressure);
     if is_gas_giant {
         return [0.0; 5];
     }
@@ -658,7 +658,7 @@ fn compute_habitability_scores(
             let p = a.surface_pressure_mbar / 1000.0;
             if p < 0.0001 {
                 0.0
-            } else if p >= 0.5 && p <= 2.0 {
+            } else if (0.5..=2.0).contains(&p) {
                 1.0
             } else {
                 let log_dev = if p < 0.5 {
@@ -773,7 +773,7 @@ fn draw_habitability_section(
     // Colony cost summary
     let gravity_g = body.surface_gravity();
     let is_gas_giant = body.body_type == BodyType::GasGiant
-        || atmosphere.map_or(false, |a| a.is_reference_pressure);
+        || atmosphere.is_some_and(|a| a.is_reference_pressure);
     let (min_t, max_t) = surface_temp
         .map(|t| (t.min_celsius, t.max_celsius))
         .or_else(|| {
@@ -927,7 +927,7 @@ fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
     let half_w = response.rect.width() / 2.0;
     let half_h = response.rect.height() / 2.0;
     let max_possible = half_w.min(half_h);
-    let max_r = (max_possible - 16.0).max(10.0).min(FALLBACK_MAX_R);
+    let max_r = (max_possible - 16.0).clamp(10.0, FALLBACK_MAX_R);
     let label_r = (max_r + 14.0).min(82.0);
 
     // Axis angles — start top (-PI/2), go clockwise
@@ -1430,8 +1430,8 @@ fn draw_resource_section(
 
         // Upgrade button
         if let Some(survey) = survey_level {
-            if *survey != SurveyLevel::CoreSample {
-                if ui
+            if *survey != SurveyLevel::CoreSample
+                && ui
                     .small_button(
                         egui::RichText::new("\u{25B2} UPGRADE")
                             .font(mono_font(9.0))
@@ -1446,7 +1446,6 @@ fn draw_resource_section(
                         _ => SurveyLevel::CoreSample,
                     };
                 }
-            }
         } else if ui
             .small_button(
                 egui::RichText::new("\u{25CE} INIT SCAN")

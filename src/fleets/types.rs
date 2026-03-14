@@ -2,8 +2,10 @@
 
 /// Roles that can be assigned to a fleet, changing its icon and primary purpose.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub enum FleetRole {
     /// Default role for unassigned fleets
+    #[default]
     Unassigned,
     /// Combat fleet focused on offensive operations
     Attack,
@@ -17,11 +19,6 @@ pub enum FleetRole {
     Explore,
 }
 
-impl Default for FleetRole {
-    fn default() -> Self {
-        Self::Unassigned
-    }
-}
 
 impl FleetRole {
     /// Human-readable display name.

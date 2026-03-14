@@ -25,6 +25,7 @@ pub use types::{BuildingCategory, BuildingType};
 
 /// Debug settings for construction system (toggled with F12 on Construction menu)
 #[derive(Resource, Debug, Clone)]
+#[derive(Default)]
 pub struct ConstructionDebugSettings {
     /// Whether debug mode is enabled
     pub enabled: bool,
@@ -36,16 +37,6 @@ pub struct ConstructionDebugSettings {
     pub bypass_tech_requirements: bool,
 }
 
-impl Default for ConstructionDebugSettings {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            free_construction: false,
-            instant_build: false,
-            bypass_tech_requirements: false,
-        }
-    }
-}
 
 /// Plugin that adds the colony and construction system to the Bevy app
 pub struct ColonyPlugin;

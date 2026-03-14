@@ -2,20 +2,13 @@ use super::*;
 
 /// Loaded textures for the top menu icons
 #[derive(Resource)]
+#[derive(Default)]
 pub struct MenuIcons {
     pub handles: HashMap<GameMenu, Handle<Image>>,
     /// Menus that have already been post-processed (white -> transparent)
     pub processed: std::collections::HashSet<GameMenu>,
 }
 
-impl Default for MenuIcons {
-    fn default() -> Self {
-        Self {
-            handles: HashMap::new(),
-            processed: Default::default(),
-        }
-    }
-}
 
 /// Startup system to load menu icon images from assets/textures/ui/menu/
 pub(super) fn load_menu_icons(mut commands: Commands, asset_server: Res<AssetServer>) {
@@ -104,20 +97,13 @@ pub(super) fn process_menu_icons(
 
 /// Loaded textures for research category icons
 #[derive(Resource)]
+#[derive(Default)]
 pub struct ResearchIcons {
     pub handles: HashMap<TechCategory, Handle<Image>>,
     /// Icons that have already been post-processed
     pub processed: std::collections::HashSet<TechCategory>,
 }
 
-impl Default for ResearchIcons {
-    fn default() -> Self {
-        Self {
-            handles: HashMap::new(),
-            processed: Default::default(),
-        }
-    }
-}
 
 /// Startup system to load research icons from assets/textures/ui/research/
 pub(super) fn load_research_icons(mut commands: Commands, asset_server: Res<AssetServer>) {

@@ -72,11 +72,6 @@ pub fn update_fleet_orbit_positions(
     }
 }
 
-/// Update `SpaceCoordinates` for every fleet actively on a transfer arc.
-///
-/// The fleet follows a Keplerian ellipse (`ActiveManeuver.transfer_orbit`)
-/// centred on `orbit_center`, advancing analytically from the departure time.
-
 /// Return the active Keplerian orbit and the time elapsed within that orbit
 /// for a given maneuver and simulation time.
 ///

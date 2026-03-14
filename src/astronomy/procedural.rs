@@ -888,7 +888,7 @@ fn generate_planet_for_slot(
                 rng.random_range(2.0..8.0_f32)
             } else {
                 // Normal: log-uniform from ~0.3 to ~5 days
-                let log_p = rng.random_range((-0.5_f32)..(0.7));
+                let log_p = rng.random_range((-0.5_f32)..0.7);
                 10.0_f32.powf(log_p)
             }
         }
@@ -979,18 +979,16 @@ fn determine_planet_type(
     }
 
     // Check for desert world (hot, inside HZ inner edge)
-    if distance_au < hz_inner && equilibrium_temp > 400.0 && equilibrium_temp < 1000.0 {
-        if rng.random_bool(0.3) {
+    if distance_au < hz_inner && equilibrium_temp > 400.0 && equilibrium_temp < 1000.0
+        && rng.random_bool(0.3) {
             return PlanetType::DesertWorld;
         }
-    }
 
     // Check for hot Jupiter ( JovianHeavy system or migration)
-    if system_type == SystemType::JovianHeavy && distance_au < hz_inner {
-        if rng.random_bool(0.7) {
+    if system_type == SystemType::JovianHeavy && distance_au < hz_inner
+        && rng.random_bool(0.7) {
             return PlanetType::GasGiant;
         }
-    }
 
     // Check for migration: gas giant inside frost line (decided once per system)
     if allow_migration && distance_au < frost_line_au {
@@ -1715,7 +1713,7 @@ fn generate_dwarf_planets(
         // Pluto 6.39 d, Eris ~15.8 d, Ceres 0.38 d, Makemake 0.95 d, Haumea 0.16 d
         // Wide range from fast rotators to slow ones
         let rotation_period_days = {
-            let log_p = rng.random_range((-0.8_f32)..(1.2));
+            let log_p = rng.random_range((-0.8_f32)..1.2);
             10.0_f32.powf(log_p) // ~0.16 to ~16 days
         };
 
@@ -1847,7 +1845,7 @@ pub fn generate_procedural_atmosphere(
 
     // Planet must be terrestrial-sized (0.5 - 5.0 Earth masses for rocky planets with atmospheres)
     // Larger planets become mini-Neptunes with thick H/He envelopes
-    let is_terrestrial_size = planet_mass_earth >= 0.5 && planet_mass_earth <= 5.0;
+    let is_terrestrial_size = (0.5..=5.0).contains(&planet_mass_earth);
 
     if !is_terrestrial_size {
         return None; // Too small or too large for Earth-like atmosphere

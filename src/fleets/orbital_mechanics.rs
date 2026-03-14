@@ -754,12 +754,8 @@ fn solve_lambert_transfer_branch(
     let (mut low, mut high) = bracket?;
     for _ in 0..96 {
         let mid = 0.5 * (low + high);
-        let Some((tof_low, _)) = lambert_time_of_flight_s(low, r1_m, r2_m, a_param, system_gm) else {
-            return None;
-        };
-        let Some((tof_mid, _)) = lambert_time_of_flight_s(mid, r1_m, r2_m, a_param, system_gm) else {
-            return None;
-        };
+        let (tof_low, _) = lambert_time_of_flight_s(low, r1_m, r2_m, a_param, system_gm)?;
+        let (tof_mid, _) = lambert_time_of_flight_s(mid, r1_m, r2_m, a_param, system_gm)?;
         let f_low = tof_low - transfer_time_s;
         let f_mid = tof_mid - transfer_time_s;
         if f_mid.abs() < 1e-6 {
@@ -1401,10 +1397,10 @@ pub fn keplerian_velocity_vector(
 /// substantially *larger*.
 ///
 /// # Arguments
-/// - `r_vec_au`:     Fleet's current position vector relative to orbit centre (AU).
-///                   Its length gives the current orbital radius `r1`.
-/// - `r_dest_au`:    Destination orbital radius (AU) — `r2`.
-/// - `gm`:           Gravitational parameter of the central body (m³ s⁻²).
+/// - `r_vec_au`:   Fleet's current position vector relative to orbit centre (AU).
+///   Its length gives the current orbital radius `r1`.
+/// - `r_dest_au`:  Destination orbital radius (AU) — `r2`.
+/// - `gm`:         Gravitational parameter of the central body (m³ s⁻²).
 /// - `v_current_ms`: Fleet's current velocity vector in m/s.
 /// - `delta_i_rad`:  Required orbital-plane change (radians; 0 for co-planar).
 pub fn course_correction_transfer_options(
@@ -1636,7 +1632,7 @@ pub fn compute_burn_time_s(total_dv_ms: f64, fleet_accel_ms2: f64, avg_isp_s: f3
 /// - `fleet_accel_ms2`: fleet minimum acceleration (m/s²) — bottleneck ship.
 /// - `avg_isp_s`: fleet thrust-weighted average specific impulse (s).
 pub fn apply_thrust_limits(
-    options: &mut Vec<TransferOption>,
+    options: &mut [TransferOption],
     fleet_accel_ms2: f64,
     avg_isp_s: f32,
 ) {

@@ -912,8 +912,7 @@ pub fn manage_comet_tail_meshes(
         let distance_au = coords.position.length();
 
         // Check if tail should be visible
-        if distance_au <= COMET_TAIL_ONSET_AU
-            && distance_au >= COMET_TAIL_MIN_DISTANCE_AU
+        if (COMET_TAIL_MIN_DISTANCE_AU..=COMET_TAIL_ONSET_AU).contains(&distance_au)
             && distance_au > 1e-6
         {
             comets_needing_tails.insert(entity);
@@ -1140,8 +1139,7 @@ pub fn draw_comet_tails(
         let distance_au = coords.position.length();
 
         // Only draw tail if within the onset distance and not too close to sun
-        if distance_au > COMET_TAIL_ONSET_AU
-            || distance_au < COMET_TAIL_MIN_DISTANCE_AU
+        if !(COMET_TAIL_MIN_DISTANCE_AU..=COMET_TAIL_ONSET_AU).contains(&distance_au)
             || distance_au < 1e-6
         {
             continue;

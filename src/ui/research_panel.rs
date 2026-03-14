@@ -209,7 +209,7 @@ pub(super) fn ui_research_panels(
 
         // Tab content
         match *selected_tab {
-            0 => render_overview_tab(ui, &research_state, &tech_data, icon_textures, &research_projects, &engineering_projects, &all_teams, &team_capacity, &mut *ui_prefs),
+            0 => render_overview_tab(ui, &research_state, &tech_data, icon_textures, &research_projects, &engineering_projects, &all_teams, &team_capacity, &mut ui_prefs),
             1 => render_tech_tree_tab(ui, &research_state, &mut tech_data, icon_textures, debug_settings.enabled, &mut edit_state, &active_research, &mut pending_research, &mut debug_settings),
             2 => render_available_research_tab(ui, &research_state, &tech_data, icon_textures, &active_research, &mut pending_research, &team_capacity),
             3 => render_available_engineering_tab(ui, &research_state, &tech_data, icon_textures),
@@ -986,7 +986,7 @@ fn render_bonuses_tab(
         &ModifierType,
         Vec<(&crate::research::types::Technology, f64)>,
     > = HashMap::new();
-    for (_tech_id, tech) in &tech_data.technologies {
+    for tech in tech_data.technologies.values() {
         if research_state.is_unlocked(&tech.id) {
             for modifier_def in &tech.modifiers {
                 modifier_sources
@@ -1050,7 +1050,7 @@ fn render_bonuses_tab(
                 };
 
                 let modifier_name = modifier_type.display_name();
-                let is_pinned = pinned_name.map_or(false, |p| p == modifier_name);
+                let is_pinned = pinned_name.is_some_and(|p| p == modifier_name);
 
                 let row_rect = {
                     let row = ui.horizontal(|ui| {
@@ -1132,7 +1132,7 @@ fn render_bonuses_tab(
 
             for (modifier_type, _value) in &unlocks {
                 let modifier_name = modifier_type.display_name();
-                let is_pinned = pinned_name.map_or(false, |p| p == modifier_name);
+                let is_pinned = pinned_name.is_some_and(|p| p == modifier_name);
 
                 let row_rect = {
                     let row = ui.horizontal(|ui| {
