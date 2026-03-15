@@ -216,6 +216,53 @@ pub fn process_construction_actions(
     for entity in actions.cancel_construction.drain(..) {
         commands.entity(entity).despawn();
     }
+
+    // Establish new outpost colonies
+    let outpost_requests: Vec<(Entity, String)> = actions.establish_outpost.drain(..).collect();
+    for (body_entity, colony_name) in outpost_requests {
+        // Don't double-establish a colony on an already-colonized body
+        if colonies.get(body_entity).is_ok() {
+            warn!(
+                "Outpost establishment requested for {:?} but it already has a Colony component",
+                body_entity
+            );
+            continue;
+        }
+
+        // Create the Colony component (no buildings yet — they will be queued)
+        let colony = Colony::new(colony_name.clone(), 0.0);
+        commands.entity(body_entity).insert(colony);
+
+        // Insert an initial local stockpile (empty — resources must be transported)
+        commands.entity(body_entity).insert(LocalStockpile::default());
+
+        // Insert Population component so the growth system picks it up
+        commands.entity(body_entity).insert(Population { count: 0.0 });
+
+        // Queue the starter building package:
+        //   - LifeSupport × 1      : basic air/water recycling
+        //   - Housing × 1          : sleeping quarters for up to 250 K (outpost uses ~5 K)
+        //   - FissionReactor × 2   : power from uranium (baseline + redundancy)
+        //   - AgriDome × 2         : food for up to 8 K people (>5 K cap)
+        const OUTPOST_BUILDINGS: &[BuildingType] = &[
+            BuildingType::LifeSupport,
+            BuildingType::Housing,
+            BuildingType::FissionReactor,
+            BuildingType::FissionReactor,
+            BuildingType::AgriDome,
+            BuildingType::AgriDome,
+        ];
+        for &btype in OUTPOST_BUILDINGS {
+            commands.spawn(ConstructionProject::new(btype, body_entity));
+        }
+
+        info!(
+            "Established outpost '{}' on {:?}; queued {} construction projects",
+            colony_name,
+            body_entity,
+            OUTPOST_BUILDINGS.len()
+        );
+    }
 }
 
 /// System that applies colony population growth each tick.

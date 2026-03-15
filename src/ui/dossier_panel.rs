@@ -86,6 +86,7 @@ pub(super) fn ui_planet_dossier(
         Option<&StarSystem>,
         Option<&LogicalParent>,
         Option<&OceanProperties>,
+        Option<&Colony>,
     )>,
     parent_coords_query: Query<&SpaceCoordinates>,
     all_bodies_query: Query<(
@@ -97,6 +98,7 @@ pub(super) fn ui_planet_dossier(
     )>,
     star_system_query: Query<(Entity, &StarSystemIcon, Option<&SelectedStarSystem>)>,
     rate_tracker: Res<ResourceRateTracker>,
+    mut pending_actions: ResMut<PendingConstructionActions>,
 ) {
     // Don't show when full-screen menus are active
     if matches!(
@@ -141,6 +143,7 @@ pub(super) fn ui_planet_dossier(
         star_system,
         logical_parent,
         ocean_props,
+        existing_colony,
     )) = body_query.get_mut(entity)
     else {
         return;
@@ -240,6 +243,23 @@ pub(super) fn ui_planet_dossier(
                             survey_level.as_deref_mut(),
                             &mut commands,
                             &rate_tracker,
+                        );
+                    }
+
+                    // ── Outpost / Colony ───────────────────────────
+                    // Only show for colonisable body types (not stars, rings, gas giants)
+                    let can_colonise = !matches!(
+                        body.body_type,
+                        BodyType::Star | BodyType::Ring | BodyType::GasGiant
+                    );
+                    if can_colonise {
+                        section_divider(ui);
+                        draw_colony_section(
+                            ui,
+                            entity,
+                            body,
+                            existing_colony,
+                            &mut pending_actions,
                         );
                     }
                 });
@@ -1821,4 +1841,164 @@ fn tooltip_row(ui: &mut egui::Ui, label: &str, value: &str) {
             .color(TEXT_VALUE),
     );
     ui.end_row();
+}
+
+// ─── Outpost / Colony Section ────────────────────────────────────────────────
+
+/// Draws the colony/outpost section of the dossier.
+///
+/// - If the body already has a `Colony` component, shows a compact status
+///   summary (population, buildings, housing utilisation).
+/// - If it does not, shows an "Establish Outpost" button that queues the
+///   standard starter package (LifeSupport, Housing, 2× FissionReactor,
+///   2× AgriDome).  The outpost starts with zero population and resources
+///   must be transported before construction begins.
+fn draw_colony_section(
+    ui: &mut egui::Ui,
+    entity: Entity,
+    body: &CelestialBody,
+    existing_colony: Option<&Colony>,
+    pending_actions: &mut PendingConstructionActions,
+) {
+    if let Some(colony) = existing_colony {
+        // ── Already colonised ──────────────────────────────────────
+        ui.label(
+            egui::RichText::new("COLONY")
+                .font(heading_font())
+                .color(TEXT_DIM),
+        );
+        ui.add_space(4.0);
+
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new("Name:")
+                    .font(mono_font(10.0))
+                    .color(TEXT_DIM),
+            );
+            ui.label(
+                egui::RichText::new(&colony.name)
+                    .font(mono_font(11.0))
+                    .color(TEXT_VALUE),
+            );
+        });
+
+        let pop = colony.population;
+        let housing = colony.housing_capacity();
+        let util_pct = if housing > 0.0 {
+            (pop / housing * 100.0).min(100.0)
+        } else {
+            0.0
+        };
+        let pop_color = if util_pct > 90.0 {
+            RED_ACCENT
+        } else if util_pct > 70.0 {
+            AMBER
+        } else {
+            GREEN_ACCENT
+        };
+
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new("Population:")
+                    .font(mono_font(10.0))
+                    .color(TEXT_DIM),
+            );
+            ui.label(
+                egui::RichText::new(format!(
+                    "{}  ({:.0}% housing)",
+                    Colony::format_population(pop),
+                    util_pct
+                ))
+                .font(mono_font(11.0))
+                .color(pop_color),
+            );
+        });
+
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new("Buildings:")
+                    .font(mono_font(10.0))
+                    .color(TEXT_DIM),
+            );
+            ui.label(
+                egui::RichText::new(format!("{}", colony.total_buildings()))
+                    .font(mono_font(11.0))
+                    .color(TEXT_VALUE),
+            );
+        });
+    } else {
+        // ── Not yet colonised ──────────────────────────────────────
+        ui.label(
+            egui::RichText::new("OUTPOST")
+                .font(heading_font())
+                .color(TEXT_DIM),
+        );
+        ui.add_space(4.0);
+
+        ui.label(
+            egui::RichText::new(
+                "No colony established. An outpost can be founded here.",
+            )
+            .font(mono_font(10.0))
+            .color(TEXT_DIM),
+        );
+        ui.add_space(4.0);
+
+        // Outline what the starter package includes
+        ui.group(|ui| {
+            ui.label(
+                egui::RichText::new("Starter package:")
+                    .font(mono_font(10.0))
+                    .strong()
+                    .color(TEXT_VALUE),
+            );
+            ui.label(
+                egui::RichText::new("• Life Support ×1  (air/water recycling)")
+                    .font(mono_font(10.0))
+                    .color(TEXT_DIM),
+            );
+            ui.label(
+                egui::RichText::new("• Housing Complex ×1  (up to 5,000 residents)")
+                    .font(mono_font(10.0))
+                    .color(TEXT_DIM),
+            );
+            ui.label(
+                egui::RichText::new("• Fission Reactor ×2  (power from Uranium)")
+                    .font(mono_font(10.0))
+                    .color(TEXT_DIM),
+            );
+            ui.label(
+                egui::RichText::new("• Agricultural Dome ×2  (food for ~8,000 ppl)")
+                    .font(mono_font(10.0))
+                    .color(TEXT_DIM),
+            );
+            ui.add_space(2.0);
+            ui.label(
+                egui::RichText::new(
+                    "Resources must be transported before construction begins.",
+                )
+                .font(mono_font(9.0))
+                .italics()
+                .color(TEXT_DIM),
+            );
+        });
+
+        ui.add_space(6.0);
+
+        let btn_response = ui.add(
+            egui::Button::new(
+                egui::RichText::new("🏗  Establish Outpost")
+                    .font(mono_font(12.0))
+                    .color(ACCENT),
+            )
+            .min_size(egui::Vec2::new(200.0, 28.0)),
+        );
+        if btn_response.clicked() {
+            pending_actions.establish_outpost.push((entity, body.name.clone()));
+        }
+        btn_response.on_hover_text(
+            "Create an outpost colony. Starter buildings will be queued and built \
+             as soon as the required resources arrive.",
+        );
+    }
 }

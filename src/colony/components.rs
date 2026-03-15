@@ -310,6 +310,9 @@ pub struct PendingConstructionActions {
     pub start_construction: Vec<(Entity, BuildingType)>,
     /// Construction project entities to cancel
     pub cancel_construction: Vec<Entity>,
+    /// Requests to establish a new outpost colony on the given body entity.
+    /// Tuple: (body_entity, colony_name)
+    pub establish_outpost: Vec<(Entity, String)>,
 }
 
 #[cfg(test)]
