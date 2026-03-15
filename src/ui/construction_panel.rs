@@ -598,9 +598,11 @@ fn can_afford_resources_multiplied(
 }
 
 /// Minimum card height for construction building cards.
-/// This is tall enough to fit: header (2 lines) + stats (2 lines) + up to 4
-/// resource cost rows + queue button without resizing when fewer rows are shown.
-const BUILDING_CARD_MIN_HEIGHT: f32 = 195.0;
+/// Tall enough for: icon+name (1 row), description (1 line), separator,
+/// stats (1 row), build-time (1 row), effects (up to 2 lines), separator,
+/// cost rows in 2-column pairs (up to 3 pairs), Queue button.
+const BUILDING_CARD_MIN_HEIGHT: f32 = 230.0;
+
 fn render_building_card(
     ui: &mut egui::Ui,
     building: BuildingType,
@@ -628,37 +630,34 @@ fn render_building_card(
         ui.set_min_width(170.0);
         ui.set_min_height(BUILDING_CARD_MIN_HEIGHT);
 
-        // Icon + name header (fixed 2-line header area)
+        // ── Header: icon + name + description (max 2 lines) ──────────────
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(building.icon()).size(22.0));
             ui.vertical(|ui| {
                 ui.label(egui::RichText::new(building.display_name()).strong().size(12.0));
-                // Wrap description to 2 lines
+                // Cap description to 2 lines so all cards stay uniform height.
                 ui.add(
                     egui::Label::new(
                         egui::RichText::new(building.description())
                             .small()
                             .color(theme::TEXT_DIM),
                     )
-                    .wrap(),
+                    .wrap()
+                    .truncate(),
                 );
             });
         });
 
         ui.separator();
 
-        // Build stats: BP + workers on one line, build-time on next
+        // ── Build stats ───────────────────────────────────────────────────
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(format!("{:.0} BP", total_bp)).size(10.0));
             ui.separator();
             ui.label(
-                egui::RichText::new(format!(
-                    "👷 {}",
-                    building.workforce_required() * multiplier
-                ))
-                .size(10.0),
+                egui::RichText::new(format!("👷 {}", building.workforce_required() * multiplier))
+                    .size(10.0),
             );
-            // Power demand (if non-zero)
             if power_demand_mw > 0.0 {
                 ui.separator();
                 let power_str = if power_demand_mw >= 1000.0 {
@@ -680,36 +679,59 @@ fn render_building_card(
         };
         ui.label(egui::RichText::new(&time_str).size(10.0).color(theme::AMBER));
 
-        // Resource costs — icon + name + need/available
+        // ── Effect lines ─────────────────────────────────────────────────
+        let effects = building.effects_summary();
+        if !effects.is_empty() {
+            ui.separator();
+            for line in effects {
+                ui.label(
+                    egui::RichText::new(format!("▸ {}", line))
+                        .size(10.0)
+                        .color(theme::GREEN),
+                );
+            }
+        }
+
+        // ── Resource costs in compact 2-per-row pairs ────────────────────
         ui.separator();
         if costs.is_empty() {
-            ui.label(egui::RichText::new("No materials required").size(10.0).color(theme::TEXT_DIM));
+            ui.label(
+                egui::RichText::new("No materials required")
+                    .size(10.0)
+                    .color(theme::TEXT_DIM),
+            );
         } else {
-            for (r, a) in costs {
-                let total_needed = a * multiplier as f64;
-                let rt_opt = crate::colony::data::parse_resource_type(r);
-                let available = rt_opt.map(|rt| contextual.get(&rt)).unwrap_or(0.0);
-                let ok = available >= total_needed;
-                let color = if ok { theme::GREEN } else { theme::RED };
-                let icon = rt_opt
-                    .as_ref()
-                    .map(|rt| super::resources_bar::get_resource_icon(rt))
-                    .unwrap_or("?");
-                // Format amounts: compact thousands
-                let need_str = format_compact(total_needed);
-                let avail_str = format_compact(available);
+            // Collect formatted cost entries
+            let cost_entries: Vec<(String, egui::Color32)> = costs
+                .iter()
+                .map(|(r, a)| {
+                    let total_needed = a * multiplier as f64;
+                    let rt_opt = crate::colony::data::parse_resource_type(r);
+                    let available = rt_opt.map(|rt| contextual.get(&rt)).unwrap_or(0.0);
+                    let ok = available >= total_needed;
+                    let color = if ok { theme::GREEN } else { theme::RED };
+                    let icon = rt_opt
+                        .as_ref()
+                        .map(|rt| super::resources_bar::get_resource_icon(rt))
+                        .unwrap_or("?");
+                    let need_str = format_compact(total_needed);
+                    let avail_str = format_compact(available);
+                    (format!("{} {} {}/{}", icon, r, need_str, avail_str), color)
+                })
+                .collect();
+
+            // Render 2 costs per row to keep cards uniform height
+            for pair in cost_entries.chunks(2) {
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(icon).size(11.0));
-                    ui.label(
-                        egui::RichText::new(format!("{} {}/{}", r, need_str, avail_str))
-                            .size(10.0)
-                            .color(color),
-                    );
+                    for (text, color) in pair {
+                        ui.label(egui::RichText::new(text).size(9.5).color(*color));
+                        ui.add_space(4.0);
+                    }
                 });
             }
         }
 
-        // Push Queue button to bottom
+        // ── Queue button (pinned to bottom) ───────────────────────────────
         ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
             let btn_text = if multiplier == 1 {
                 "Queue".to_string()

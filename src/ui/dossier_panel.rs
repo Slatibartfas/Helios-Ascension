@@ -2030,7 +2030,7 @@ fn draw_colony_section(
                 .color(TEXT_DIM),
         );
         ui.label(
-            egui::RichText::new("• Housing Complex ×1  (≤5,000 residents)")
+            egui::RichText::new("• Housing Complex ×1  (capacity: 25M residents)")
                 .font(mono_font(10.0))
                 .color(TEXT_DIM),
         );
@@ -2040,7 +2040,7 @@ fn draw_colony_section(
                 .color(TEXT_DIM),
         );
         ui.label(
-            egui::RichText::new("• Agricultural Dome ×2  (food for ~8,000 ppl)")
+            egui::RichText::new("• Agricultural Dome ×2  (food for ~80,000 ppl)")
                 .font(mono_font(10.0))
                 .color(TEXT_DIM),
         );

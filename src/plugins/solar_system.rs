@@ -919,15 +919,14 @@ pub fn setup_solar_system(
 
             // Add initial infrastructure
             let base_buildings = [
-                // Housing: cap at ~8.375B to allow roughly 2 years of growth at 0.9%/yr
-                // (8.2B × 1.009² ≈ 8.35B → 33,500 complexes × 250K = 8.375B)
-                (BuildingType::Housing, 33_500),
-                // Food: Farms (mega-scale: each feeds 1M), ~8200 needed
-                (BuildingType::Farm, 8_200),
-                // Food: Greenhouses 2000 (controlled-env)
-                (BuildingType::Greenhouse, 2_000),
-                // Food: Aquaculture 500
-                (BuildingType::AquacultureFacility, 500),
+                // Housing: 335 × 25M = 8.375B capacity (~2 yr growth headroom at 0.9%/yr)
+                (BuildingType::Housing, 335),
+                // Food: 820 Farms × 1,000 Mt/yr = 820,000 Mt/yr → feeds 8.2B ✓
+                (BuildingType::Farm, 820),
+                // Greenhouses: 200 × 500 Mt/yr = 100,000 Mt/yr (supplemental)
+                (BuildingType::Greenhouse, 200),
+                // Aquaculture: 67 × 750 Mt/yr = 50,250 Mt/yr (supplemental)
+                (BuildingType::AquacultureFacility, 67),
                 // Industry
                 (BuildingType::Factory, 2_000),
                 (BuildingType::Mine, 3_000),

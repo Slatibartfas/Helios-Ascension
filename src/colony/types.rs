@@ -296,6 +296,101 @@ impl BuildingType {
         }
     }
 
+    /// Short, pre-formatted effect strings shown on the construction card.
+    ///
+    /// Each entry is one line such as "+25M housing capacity" or
+    /// "+1,000 Mt/yr food (feeds ~10M ppl)".  Returns an empty slice for
+    /// buildings whose effects are opaque from the UI (e.g. pure military).
+    pub fn effects_summary(&self) -> &'static [&'static str] {
+        match self {
+            // ── Infrastructure ───────────────────────────────────────────
+            BuildingType::LifeSupport => &[
+                "Enables habitation on vacuum / hostile worlds",
+                "Recycles air and water for pressurised habitats",
+            ],
+            BuildingType::HabitatDome => &[
+                "+50M housing capacity",
+                "Pressurised dome, works on any body",
+            ],
+            BuildingType::Housing => &["+25M housing capacity"],
+            BuildingType::UndergroundHabitat => &[
+                "+30M housing capacity",
+                "Buried structure; ideal for airless bodies",
+            ],
+            // ── Mining & Industry ────────────────────────────────────────
+            BuildingType::Mine => &["+15% mining efficiency"],
+            BuildingType::Refinery => &["+8% mining efficiency"],
+            BuildingType::Factory => &[
+                "+10 BP/yr construction speed",
+                "-5% construction costs",
+            ],
+            BuildingType::ChemicalPlant => &["+1 chemical processing unit/yr"],
+            BuildingType::HydrocarbonExtractor => &["+10% mining efficiency"],
+            // ── Atmospheric Harvesting ───────────────────────────────────
+            BuildingType::AtmosphericProcessor => &["+0.75 Mt/yr atmospheric harvest"],
+            // ── Advanced Mining ──────────────────────────────────────────
+            BuildingType::DeepDrill => &["+25% deep mining efficiency"],
+            BuildingType::LaserDrill => &["+50% deep mining efficiency"],
+            BuildingType::StripMine => &["+100% bulk mining efficiency"],
+            // ── Logistics ────────────────────────────────────────────────
+            BuildingType::MassDriver => &["+5,000 logistics capacity"],
+            BuildingType::OrbitalLift => &["+20,000 logistics capacity"],
+            BuildingType::CargoTerminal => &["+2,000 logistics capacity"],
+            // ── Power ─────────────────────────────────────────────────── 
+            BuildingType::SolarPower => &["+5 GW power output"],
+            BuildingType::FissionReactor => &["+20 GW power output", "Fuel: Uranium"],
+            BuildingType::FusionReactor => &["+40 GW power output", "Fuel: Deuterium"],
+            BuildingType::WindFarm => &["+3 GW power output"],
+            BuildingType::HydroelectricDam => &["+15 GW power output"],
+            BuildingType::GeothermalPlant => &["+18 GW power output"],
+            BuildingType::CoalPowerPlant => &["+10 GW power output", "Burns: Coal"],
+            BuildingType::NaturalGasPlant => &["+12 GW power output", "Burns: Natural Gas"],
+            // ── Population & Growth ──────────────────────────────────────
+            BuildingType::Farm => &[
+                "+1,000 Mt/yr food",
+                "Feeds ~10M people",
+            ],
+            BuildingType::AgriDome => &[
+                "+4 Mt/yr food",
+                "Feeds ~40K people (enclosed)",
+            ],
+            BuildingType::Greenhouse => &[
+                "+500 Mt/yr food",
+                "Feeds ~5M people",
+            ],
+            BuildingType::AquacultureFacility => &[
+                "+750 Mt/yr food",
+                "Feeds ~7.5M people",
+            ],
+            BuildingType::MedicalCenter => &["+0.03% population growth rate per centre"],
+            BuildingType::WaterTreatmentPlant => &["+2% population growth rate"],
+            BuildingType::DesalinationPlant => &["+1% population growth rate"],
+            BuildingType::PharmaceuticalPlant => &["+3% population growth rate"],
+            // ── Research ─────────────────────────────────────────────────
+            BuildingType::ResearchLab => &["+5% research speed"],
+            BuildingType::EngineeringBay => &["+5% engineering speed"],
+            BuildingType::AiCluster => &["+15% research speed", "+10% engineering speed"],
+            BuildingType::SemiconductorFab => &["+8% research speed", "+5% engineering speed"],
+            BuildingType::DataCenter => &["+10% research speed", "+8% engineering speed"],
+            // ── Financial & Commerce ─────────────────────────────────────
+            BuildingType::CommercialHub => &["+credits income from trade"],
+            BuildingType::FinancialCenter => &["+credits income from banking"],
+            BuildingType::TradePort => &["+credits income from import/export"],
+            // ── Military & Shipbuilding ──────────────────────────────────
+            BuildingType::Shipyard => &[
+                "Enables ship construction",
+                "+10% ship efficiency, -10% build costs",
+            ],
+            BuildingType::MissileSilo => &["Planetary anti-orbital defense"],
+            BuildingType::LaunchSite => &["Surface-to-orbit launch access"],
+            BuildingType::SpacePort => &["High-throughput orbital access"],
+            BuildingType::GroundDefenseBattery => &["Anti-orbital / anti-missile defense"],
+            // ── Advanced Industry ────────────────────────────────────────
+            BuildingType::RecyclingCenter => &["+2% mining efficiency", "Reduces waste"],
+            BuildingType::Warehouse => &["+5% global stockpile capacity"],
+        }
+    }
+
     /// Icon/emoji for UI display
     pub fn icon(&self) -> &'static str {
         match self {

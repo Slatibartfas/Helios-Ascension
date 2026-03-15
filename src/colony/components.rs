@@ -101,36 +101,45 @@ impl Colony {
 
     /// Calculate housing capacity from habitat buildings.
     ///
-    /// Habitat Dome houses 1,000,000 colonists, Underground Habitat houses 600,000.
-    /// Values are scaled for civilization-level populations (millions to billions).
-    /// Multiple domes/habitats are needed for large colony populations.
+    /// Each building represents a district-level installation:
+    /// - Housing Complex:      25,000,000 residents  (scaled for meaningful per-build impact)
+    /// - Habitat Dome:         50,000,000 residents  (pressurised premium dome)
+    /// - Underground Habitat:  30,000,000 residents  (buried habitat, airless worlds)
+    ///
+    /// At this scale Earth needs ~335 Housing Complexes (not 33,500), so
+    /// each newly-built complex is a visible +0.3% capacity improvement.
     pub fn housing_capacity(&self) -> f64 {
         let domes = self.building_count(BuildingType::HabitatDome) as f64;
         let housing_complexes = self.building_count(BuildingType::Housing) as f64;
         let underground = self.building_count(BuildingType::UndergroundHabitat) as f64;
 
-        domes * 1_000_000.0 + housing_complexes * 250_000.0 + underground * 600_000.0
+        domes * 50_000_000.0 + housing_complexes * 25_000_000.0 + underground * 30_000_000.0
     }
 
     /// Calculate food production rate (Mt/year) from agricultural buildings.
     ///
-    /// - Farm: 100 Mt/year (large-scale agriculture feeding ~1M people)
-    /// - AgriDome: 0.4 Mt/year (enclosed agriculture feeding ~4K people)
-    /// - Greenhouse: 50 Mt/year (controlled-environment, feeds ~500K people)
-    /// - AquacultureFacility: 75 Mt/year (aquatic protein, feeds ~750K people)
+    /// Each building is scaled for civilisation-level throughput:
+    /// - Farm:                1,000 Mt/yr  → feeds ~10M people
+    /// - AgriDome:              4   Mt/yr  → feeds ~40K people (enclosed)
+    /// - Greenhouse:          500   Mt/yr  → feeds ~5M people (controlled-env)
+    /// - AquacultureFacility: 750   Mt/yr  → feeds ~7.5M people
+    ///
+    /// Per-capita food consumption: 0.0001 Mt/person/yr (100 t/person/yr).
     pub fn food_production_per_year(&self) -> f64 {
         let farm_count = self.building_count(BuildingType::Farm) as f64;
         let agri_count = self.building_count(BuildingType::AgriDome) as f64;
         let greenhouse_count = self.building_count(BuildingType::Greenhouse) as f64;
         let aquaculture_count = self.building_count(BuildingType::AquacultureFacility) as f64;
-        farm_count * 100.0 + agri_count * 0.4 + greenhouse_count * 50.0 + aquaculture_count * 75.0
+        farm_count * 1_000.0
+            + agri_count * 4.0
+            + greenhouse_count * 500.0
+            + aquaculture_count * 750.0
     }
 
     /// Calculate food consumption rate (Mt/year) based on population.
     ///
     /// Per-capita consumption: 0.0001 Mt/person/year (100 tonnes/person/year).
-    /// This rate is calibrated so that 1 Farm (100 Mt/year) feeds 1M people
-    /// and 1 AgriDome (0.4 Mt/year) feeds 4K people.
+    /// At this scale 1 Farm (1,000 Mt/yr) feeds ~10M people.
     pub fn food_consumption_per_year(&self) -> f64 {
         self.population * 0.0001
     }
@@ -422,10 +431,10 @@ mod tests {
         assert_eq!(colony.housing_capacity(), 0.0);
 
         colony.add_building(BuildingType::HabitatDome);
-        assert_eq!(colony.housing_capacity(), 1_000_000.0);
+        assert_eq!(colony.housing_capacity(), 50_000_000.0);
 
         colony.add_building(BuildingType::UndergroundHabitat);
-        assert_eq!(colony.housing_capacity(), 1_600_000.0);
+        assert_eq!(colony.housing_capacity(), 80_000_000.0);
     }
 
     #[test]
@@ -437,8 +446,8 @@ mod tests {
     #[test]
     fn test_population_growth_with_housing() {
         let mut colony = Colony::new("Test".to_string(), 100_000.0);
-        colony.add_building(BuildingType::HabitatDome); // 1,000,000 capacity
-        colony.add_building(BuildingType::AgriDome); // food for 500,000
+        colony.add_building(BuildingType::HabitatDome); // 50,000,000 capacity
+        colony.add_building(BuildingType::AgriDome); // food for ~40K people
 
         let growth = colony.population_growth_per_year(1.0);
         // Should be positive with housing and food
