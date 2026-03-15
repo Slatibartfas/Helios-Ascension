@@ -158,10 +158,6 @@ pub fn process_construction_actions(
                         })
                         .collect();
 
-                    // Retrieve the local stockpile of the colony itself.
-                    let colony_local_opt: Option<f64> = None; // placeholder
-                    let _ = colony_local_opt;
-
                     // Get the local stockpile for this specific colony entity.
                     let can_pay_local = local_stockpile_query
                         .get(colony_entity)
@@ -305,7 +301,10 @@ pub fn process_construction_actions(
                                 awaiting = false;
                             }
 
-                            // If still can't proceed at all (all resources unavailable), skip.
+                            // Safety guard: if resources are still short but no requests were
+                            // created (e.g. all slots already have open requests for the same
+                            // resource), skip this build.  The player can retry once existing
+                            // deliveries arrive.
                             if awaiting
                                 && remaining.values().all(|v| *v > 0.0)
                                 && blocking_request_ids.is_empty()

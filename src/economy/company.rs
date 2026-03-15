@@ -254,7 +254,7 @@ pub fn process_company_ai(
 
         let req = &mut requests.requests[req_vec_idx];
 
-        // Remove the requirement index from future consideration.
+        // Remove this request index from future consideration in this tick.
         pending_indices.retain(|&i| i != req_vec_idx);
 
         // Source the resources: deduct from stockpiles (first-fit, largest first).
