@@ -109,7 +109,14 @@ Manages colonies, buildings, and construction.
 3. `needs_oxygen` derived from `AtmosphereComposition.breathable`
 4. `ColonyEnvironmentCosts` attached: Water = 0.00005 Mt/person/yr always; Oxygen = 0.0001 Mt/person/yr when `needs_oxygen`
 5. Starter buildings queued: LifeSupport, Housing ×1, FissionReactor ×2, AgriDome ×2
-6. Construction draws from **same-system stockpile pool** — resources on any body in the same star system count; interstellar supply requires a Freighter fleet transfer
+6. (v0.3) Construction draws from same-system `ContextualStockpile` pool; (v0.4+) will require `ResourceRequest` delivery to local stockpile
+
+**Planned: Logistics Network (v0.4+):**
+- `ResourceRequest` — published when construction needs materials not locally available; priority: Emergency > Construction > Maintenance > Trade
+- `MinimumStockpile` (per-body) — player-configured per-resource thresholds; auto-creates Maintenance requests when below threshold
+- `ShippingCompany` (Resource) — AI-controlled private companies that bid on requests, earn credits, buy more ships at shipyards
+- `ContextualStockpile` is retained **display-only**; construction will read local `LocalStockpile` only
+- See `docs/design/LOGISTICS_NETWORK.md` for the full design specification.
 
 > See `docs/COLONIES.md` for the player-facing guide.
 

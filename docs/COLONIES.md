@@ -21,8 +21,9 @@ A complete player reference for founding colonies, constructing buildings, and s
 5. [Building Scale & Design Philosophy](#building-scale--design-philosophy)
 6. [Construction Workflow](#construction-workflow)
 7. [Population Growth](#population-growth)
-8. [Logistics Efficiency](#logistics-efficiency)
-9. [Debug / Cheat Controls](#debug--cheat-controls)
+8. [Minimum Stockpile Settings](#minimum-stockpile-settings)
+9. [Logistics Efficiency](#logistics-efficiency)
+10. [Debug / Cheat Controls](#debug--cheat-controls)
 
 ---
 
@@ -37,7 +38,9 @@ Each colonised body has a `Colony` component that tracks:
 - **Food production / consumption** — megatonnes per year; a deficit slows growth
 - **Logistics efficiency** — determines how effectively mines, labs, etc. operate
 
-Resource stockpiles are stored in `LocalStockpile` (a separate ECS component) and scoped to the body.  Construction draws from the **same-system stockpile pool** — any resource on any body within the same star system can fund construction on another body in that system.
+Resource stockpiles are stored in `LocalStockpile` (a separate ECS component) and scoped to the body.  The UI aggregates stockpiles system-wide for display, but **each body has its own physical stockpile** — resources must be physically transported by ships to be used on a different body.
+
+> **Planned change (v0.4+):** The current implementation still draws from a system-wide pool for construction.  The logistics network redesign (see `docs/design/LOGISTICS_NETWORK.md`) will require explicit transport for all intra-system resource moves.
 
 ---
 
@@ -80,8 +83,12 @@ The dossier lists per-person-per-year running costs *before* you click the butto
 
 ### Step 5 — Send resources first
 
-> **⚠ Important**: Resources must arrive at the target body *before* construction can start.  
-> Starter buildings are queued immediately, but they will remain paused until the required materials are present in the local system stockpile.
+> **⚠ Important**: Resources must be physically present at the target body *before* construction can start.  
+> Starter buildings are queued immediately, but they will remain paused until the required materials arrive.
+
+When the logistics network is active (v0.4+), founding an outpost automatically **publishes resource requests** for all starter-building materials.  These requests can be fulfilled by:
+- **Your Freighter fleets** — manually assign a fleet in the Fleet panel
+- **Private shipping companies** — AI freighters pick up the request autonomously and deliver for a credit fee
 
 See [Transporting Resources to a New Colony](#transporting-resources-to-a-new-colony) for how to do this.
 
@@ -93,21 +100,30 @@ The button enqueues the outpost request.  On the next simulation tick the starte
 
 ## Transporting Resources to a New Colony
 
-New colonies start with **zero local stockpile**.  All starter-building materials (Iron, Silicates, Uranium, etc.) must be shipped in from an existing colony or mining site in the same — or a different — star system.
+New colonies start with **zero local stockpile**.  All starter-building materials (Iron, Silicates, Uranium, etc.) must be shipped in by Freighter — even if the materials exist elsewhere in the same solar system.
 
 ### Within the same star system
 
-Resources are pooled **system-wide**.  Any stockpile on any body in the same star system counts toward construction on every other body in that system.  No explicit freighter action is needed once resources exist anywhere in the system.
+Resources are **physically located on individual bodies** and must be transported by ship.  When a construction project or outpost needs materials, a **resource request** is created.  This can be fulfilled two ways:
 
-**Workflow:**
+**Option A — Player-controlled Freighter (manual)**
+1. Select a Freighter fleet in the **Fleet** panel.
+2. Open the **Transfer Planner** and set the destination body.
+3. Accept the resource request shown in the planner.
+4. Choose a transfer option (Efficient / Moderate / Fast).
+5. On arrival the cargo is automatically delivered and the request closed.
 
-1. Ensure Earth (or another established colony) has sufficient Iron, Silicates, Uranium, etc.
-2. Found the new outpost — construction will draw from the system pool automatically.
-3. If stocks run low, build more Mines and Refineries on resource-rich bodies nearby.
+**Option B — Private shipping company (automatic)**
+- Private companies operate Freighter fleets and automatically bid on open resource requests.
+- They are paid in credits from your treasury (price depends on distance and priority).
+- Companies reinvest profits to buy additional ships, increasing system-wide logistics capacity.
+- No player action needed — just ensure your treasury can cover the shipping costs.
+
+> **Tip:** Set a **minimum stockpile** for key resources on each colony so that private freighters keep your outposts topped up automatically without you needing to monitor every delivery.
 
 ### From another star system (interstellar supply run)
 
-You need a **Freighter** fleet.
+You need a **Freighter** fleet capable of interstellar transit.
 
 1. **Open the Fleet panel** and spawn or select a Freighter fleet at the origin colony.
 2. **Open the Transfer Planner** (in the Fleet panel) and set the destination body.
@@ -115,14 +131,12 @@ You need a **Freighter** fleet.
 4. The fleet travels along the computed Keplerian arc; use *phased departure* to align with the optimal transfer window.
 5. On arrival the fleet's cargo is automatically added to the destination body's local stockpile.
 
-> **Tip:** The in-game resource bar shows how much of each resource is available in the current system.  Switch to Starmap view to see system-wide aggregates.
-
 ### Resources needed for the starter buildings
 
-The following materials are drawn from the system stockpile when a typical outpost is founded:
+The following materials must be present at the new colony before construction begins:
 
-| Material | Approx. amount needed |
-|----------|-----------------------|
+| Material | Purpose |
+|----------|---------|
 | Iron | Structural framework |
 | Silicates | Dome glass & insulation |
 | Aluminum | Lightweight structures |
@@ -313,6 +327,28 @@ Population grows by ~0.9% per year at baseline.  Growth is multiplied by:
 - ≥1% housing headroom (≥82M spare capacity → at least 4 spare Housing Complexes)
 - Enough food: 8.2B × 0.0001 = 820,000 Mt/yr production
 - Adequate logistics infrastructure
+
+---
+
+## Minimum Stockpile Settings
+
+*(Planned feature — v0.4.5)*
+
+Each colony can have a **minimum stockpile** configured per resource.  When the local stockpile drops below the threshold, a Maintenance-priority resource request is automatically created and a private freighter (or a player fleet) will be dispatched to top it up.
+
+This is the "set-and-forget" supply management approach:
+
+| Example | Configuration |
+|---------|---------------|
+| Mars always has fuel | Min Uranium = 500 Mt |
+| Moon life support stable | Min O₂ = 1,000 Mt, Min Water = 2,000 Mt |
+| Ceres construction buffer | Min Iron = 5,000 Mt, Min Silicates = 3,000 Mt |
+
+Minimums are configured in the colony dossier panel (Survey tab → select body → scroll to Resources section).
+
+Emergency defaults are applied automatically for all colonies with Life Support systems:
+- Oxygen: 200 Mt minimum
+- Water: 100 Mt minimum
 
 ---
 
