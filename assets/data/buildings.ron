@@ -34,6 +34,7 @@
                 ("Polymers", 0.005),
             ],
             modifiers: [],
+            power_demand_mw: 200.0,
         ),
         (
             id: "HabitatDome",
@@ -55,6 +56,7 @@
                 ("Magnesium", 0.005),
             ],
             modifiers: [],
+            power_demand_mw: 150.0,
         ),
         (
             id: "Housing",
@@ -74,6 +76,7 @@
                 ("Polymers", 0.002),
             ],
             modifiers: [],
+            power_demand_mw: 50.0,
         ),
         (
             id: "UndergroundHabitat",
@@ -94,6 +97,7 @@
                 ("Polymers", 0.008),
             ],
             modifiers: [],
+            power_demand_mw: 300.0,
         ),
 
         // ========================================
@@ -119,6 +123,7 @@
             modifiers: [
                 (modifier_type: "MiningEfficiency", value: 15.0),
             ],
+            power_demand_mw: 250.0,
         ),
         (
             id: "Refinery",
@@ -145,6 +150,7 @@
             modifiers: [
                 (modifier_type: "MiningEfficiency", value: 8.0),
             ],
+            power_demand_mw: 500.0,
         ),
         (
             id: "Factory",
@@ -175,6 +181,7 @@
             modifiers: [
                 (modifier_type: "ConstructionCost", value: -5.0),
             ],
+            power_demand_mw: 800.0,
         ),
         (
             id: "DeepDrill",
@@ -199,6 +206,7 @@
             modifiers: [
                 (modifier_type: "DeepMiningEfficiency", value: 25.0),
             ],
+            power_demand_mw: 600.0,
         ),
         (
             id: "LaserDrill",
@@ -221,6 +229,7 @@
             modifiers: [
                 (modifier_type: "DeepMiningEfficiency", value: 50.0),
             ],
+            power_demand_mw: 1500.0,
         ),
         (
             id: "StripMine",
@@ -243,6 +252,7 @@
             modifiers: [
                 (modifier_type: "BulkMiningEfficiency", value: 100.0),
             ],
+            power_demand_mw: 2000.0,
         ),
         (
             id: "AtmosphericProcessor",
@@ -265,6 +275,7 @@
             modifiers: [
                 (modifier_type: "AtmosphericHarvesting", value: 0.75), // Calibrated to 2026 Earth industrial gas production
             ],
+            power_demand_mw: 400.0,
         ),
         (
             id: "ChemicalPlant",
@@ -292,6 +303,7 @@
             modifiers: [
                 (modifier_type: "ChemicalProcessing", value: 1.0),
             ],
+            power_demand_mw: 600.0,
         ),
         (
             id: "HydrocarbonExtractor",
@@ -313,6 +325,7 @@
             modifiers: [
                 (modifier_type: "MiningEfficiency", value: 10.0),
             ],
+            power_demand_mw: 350.0,
         ),
 
         // ========================================
@@ -336,6 +349,7 @@
                 ("Copper", 0.5),
             ],
             modifiers: [],
+            power_demand_mw: 500.0,
         ),
         (
             id: "OrbitalLift",
@@ -357,6 +371,7 @@
                 ("Iron", 0.5),
             ],
             modifiers: [],
+            power_demand_mw: 800.0,
         ),
         (
             id: "CargoTerminal",
@@ -375,6 +390,7 @@
                 ("Iron", 0.05),
             ],
             modifiers: [],
+            power_demand_mw: 100.0,
         ),
 
         // ========================================
@@ -400,6 +416,7 @@
             modifiers: [
                 (modifier_type: "PowerGeneration", value: 5.0),
             ],
+            power_demand_mw: 0.0,
         ),
         (
             id: "FissionReactor",
@@ -423,6 +440,7 @@
             modifiers: [
                 (modifier_type: "PowerGeneration", value: 20.0),
             ],
+            power_demand_mw: 100.0,
         ),
         (
             id: "FusionReactor",
@@ -448,6 +466,7 @@
             modifiers: [
                 (modifier_type: "PowerGeneration", value: 40.0),
             ],
+            power_demand_mw: 200.0,
         ),
 
         // ========================================
@@ -475,6 +494,7 @@
             modifiers: [
                 (modifier_type: "FoodProduction", value: 4000.0), // Feeds 4000 people
             ],
+            power_demand_mw: 200.0,
         ),
         (
             id: "Farm",
@@ -498,6 +518,7 @@
             modifiers: [
                 (modifier_type: "FoodProduction", value: 1000000.0), // Feeds 1M people (Mega-Farm)
             ],
+            power_demand_mw: 30.0,
         ),
         (
             id: "MedicalCenter",
@@ -521,6 +542,7 @@
             modifiers: [
                 (modifier_type: "PopulationGrowth", value: 5.0),
             ],
+            power_demand_mw: 150.0,
         ),
 
         // ========================================
@@ -549,6 +571,7 @@
             modifiers: [
                 (modifier_type: "ResearchSpeed", value: 5.0),
             ],
+            power_demand_mw: 300.0,
         ),
         (
             id: "EngineeringBay",
@@ -571,6 +594,7 @@
             modifiers: [
                 (modifier_type: "EngineeringSpeed", value: 5.0),
             ],
+            power_demand_mw: 400.0,
         ),
         (
             id: "AiCluster",
@@ -595,6 +619,7 @@
                 (modifier_type: "ResearchSpeed", value: 15.0),
                 (modifier_type: "EngineeringSpeed", value: 10.0),
             ],
+            power_demand_mw: 2000.0,
         ),
 
         // ========================================
@@ -617,6 +642,7 @@
                 ("Iron", 0.01),
             ],
             modifiers: [],
+            power_demand_mw: 80.0,
         ),
         (
             id: "FinancialCenter",
@@ -636,6 +662,7 @@
                 ("Copper", 0.01),
             ],
             modifiers: [],
+            power_demand_mw: 100.0,
         ),
         (
             id: "TradePort",
@@ -656,6 +683,7 @@
                 ("Copper", 0.02),
             ],
             modifiers: [],
+            power_demand_mw: 200.0,
         ),
 
         // ========================================
@@ -688,6 +716,7 @@
             modifiers: [
                 (modifier_type: "ConstructionCost", value: -10.0),
             ],
+            power_demand_mw: 3000.0,
         ),
         (
             id: "MissileSilo",
@@ -709,6 +738,7 @@
                 ("Copper", 0.01),
             ],
             modifiers: [],
+            power_demand_mw: 400.0,
         ),
         (
             id: "LaunchSite",
@@ -730,6 +760,7 @@
                 ("Magnesium", 0.05),
             ],
             modifiers: [],
+            power_demand_mw: 500.0,
         ),
 
         // ========================================
@@ -756,6 +787,7 @@
             modifiers: [
                 (modifier_type: "PowerGeneration", value: 3.0),
             ],
+            power_demand_mw: 0.0,
         ),
         (
             id: "HydroelectricDam",
@@ -777,6 +809,7 @@
             modifiers: [
                 (modifier_type: "PowerGeneration", value: 15.0),
             ],
+            power_demand_mw: 0.0,
         ),
         (
             id: "GeothermalPlant",
@@ -799,6 +832,7 @@
             modifiers: [
                 (modifier_type: "PowerGeneration", value: 18.0),
             ],
+            power_demand_mw: 0.0,
         ),
         (
             id: "CoalPowerPlant",
@@ -821,6 +855,7 @@
             modifiers: [
                 (modifier_type: "PowerGeneration", value: 10.0),
             ],
+            power_demand_mw: 0.0,
         ),
         (
             id: "NaturalGasPlant",
@@ -843,6 +878,7 @@
             modifiers: [
                 (modifier_type: "PowerGeneration", value: 12.0),
             ],
+            power_demand_mw: 0.0,
         ),
 
         // ========================================
@@ -873,6 +909,7 @@
                 (modifier_type: "ResearchSpeed", value: 8.0),
                 (modifier_type: "EngineeringSpeed", value: 5.0),
             ],
+            power_demand_mw: 1000.0,
         ),
         (
             id: "PharmaceuticalPlant",
@@ -896,6 +933,7 @@
             modifiers: [
                 (modifier_type: "PopulationGrowth", value: 3.0),
             ],
+            power_demand_mw: 300.0,
         ),
 
         // ========================================
@@ -922,6 +960,7 @@
             modifiers: [
                 (modifier_type: "PopulationGrowth", value: 2.0),
             ],
+            power_demand_mw: 150.0,
         ),
         (
             id: "DesalinationPlant",
@@ -944,6 +983,7 @@
             modifiers: [
                 (modifier_type: "PopulationGrowth", value: 1.0),
             ],
+            power_demand_mw: 200.0,
         ),
         (
             id: "RecyclingCenter",
@@ -964,6 +1004,7 @@
             modifiers: [
                 (modifier_type: "MiningEfficiency", value: 2.0),
             ],
+            power_demand_mw: 150.0,
         ),
 
         // ========================================
@@ -990,6 +1031,7 @@
             modifiers: [
                 (modifier_type: "FoodProduction", value: 500000.0),
             ],
+            power_demand_mw: 100.0,
         ),
         (
             id: "AquacultureFacility",
@@ -1012,6 +1054,7 @@
             modifiers: [
                 (modifier_type: "FoodProduction", value: 750000.0),
             ],
+            power_demand_mw: 180.0,
         ),
 
         // ========================================
@@ -1041,6 +1084,7 @@
                 (modifier_type: "ResearchSpeed", value: 10.0),
                 (modifier_type: "EngineeringSpeed", value: 8.0),
             ],
+            power_demand_mw: 500.0,
         ),
 
         // ========================================
@@ -1067,6 +1111,7 @@
                 ("Magnesium", 0.1),
             ],
             modifiers: [],
+            power_demand_mw: 1000.0,
         ),
         (
             id: "GroundDefenseBattery",
@@ -1088,6 +1133,7 @@
                 ("Copper", 0.01),
             ],
             modifiers: [],
+            power_demand_mw: 300.0,
         ),
 
         // ========================================
@@ -1114,6 +1160,7 @@
                 // Each depot adds 5% to the base cap for every resource type globally
                 (modifier_type: "StorageCapacity", value: 0.05),
             ],
+            power_demand_mw: 30.0,
         ),
     ],
 )

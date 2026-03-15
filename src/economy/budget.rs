@@ -821,7 +821,7 @@ pub fn update_power_grid(
 
     // 2. Colony buildings
     // Assume building modifiers "PowerGeneration" is in GW (1e9 W)
-    if let Some(data) = buildings_data {
+    if let Some(ref data) = buildings_data {
         for colony in colonies.iter() {
             for (building_type, &count) in &colony.buildings {
                 if count == 0 {
@@ -845,12 +845,26 @@ pub fn update_power_grid(
         }
     }
 
-    // 3. Calculate consumption (Temporary: 400 MW per building)
-    // TODO: Add power_consumption to building data
+    // 3. Calculate consumption using per-building power_demand_mw from data.
+    //    Falls back to a generic 400 MW estimate when BuildingsData is unavailable.
     let mut total_consumed = 0.0;
     for colony in colonies.iter() {
-        let building_count: u32 = colony.buildings.values().sum();
-        total_consumed += building_count as f64 * 400_000_000.0;
+        if let Some(ref data) = buildings_data {
+            for (building_type, &count) in &colony.buildings {
+                if count == 0 {
+                    continue;
+                }
+                let demand_mw = data
+                    .get(building_type)
+                    .map(|def| def.power_demand_mw)
+                    .unwrap_or(400.0); // 400 MW fallback
+                total_consumed += demand_mw * count as f64 * 1_000_000.0; // MW → W
+            }
+        } else {
+            // No data loaded yet – flat fallback
+            let building_count: u32 = colony.buildings.values().sum();
+            total_consumed += building_count as f64 * 400_000_000.0;
+        }
     }
 
     // Update grid

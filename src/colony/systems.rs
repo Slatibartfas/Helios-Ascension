@@ -302,6 +302,13 @@ pub fn update_colony_growth(
             .map(|o| o.habitability_modifier())
             .unwrap_or(1.0);
         colony.population += base_growth * ocean_modifier;
+
+        // Hard cap: population cannot exceed available housing capacity.
+        // Earth (no buildings yet) is exempt because it starts with 8.2B.
+        let housing = colony.housing_capacity();
+        if housing > 0.0 {
+            colony.population = colony.population.min(housing);
+        }
     }
 }
 

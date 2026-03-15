@@ -503,6 +503,7 @@ fn render_construction_panel(
                                     can_afford,
                                     construction_actions,
                                     card_width,
+                                    buildings_data,
                                 );
                             }
                         });
@@ -593,9 +594,17 @@ fn render_building_card(
     can_afford: bool,
     construction_actions: &mut PendingConstructionActions,
     _card_width: f32,
+    buildings_data: Option<&crate::colony::BuildingsData>,
 ) {
     let total_bp = building.build_cost() * multiplier as f64;
     let years_to_build = if bp_rate > 0.0 { total_bp / bp_rate } else { f64::INFINITY };
+
+    // Power demand from data file
+    let power_demand_mw = buildings_data
+        .and_then(|d| d.get(&building))
+        .map(|def| def.power_demand_mw)
+        .unwrap_or(0.0)
+        * multiplier as f64;
 
     ui.group(|ui| {
         ui.set_min_width(170.0);
@@ -631,6 +640,16 @@ fn render_building_card(
                 ))
                 .size(10.0),
             );
+            // Power demand (if non-zero)
+            if power_demand_mw > 0.0 {
+                ui.separator();
+                let power_str = if power_demand_mw >= 1000.0 {
+                    format!("⚡ {:.1} GW", power_demand_mw / 1000.0)
+                } else {
+                    format!("⚡ {:.0} MW", power_demand_mw)
+                };
+                ui.label(egui::RichText::new(power_str).size(10.0).color(theme::TEXT_DIM));
+            }
         });
 
         // Build time

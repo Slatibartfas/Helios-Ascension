@@ -42,6 +42,10 @@ pub struct BuildingDefinition {
     pub maintenance_resources: Vec<ResourceCostEntry>,
     /// Modifiers applied while this building is operational
     pub modifiers: Vec<BuildingModifierDef>,
+    /// Power consumed by this building in MW (megawatts).
+    /// Defaults to 0 if not specified in the data file.
+    #[serde(default)]
+    pub power_demand_mw: f64,
 }
 
 impl BuildingDefinition {
@@ -367,6 +371,7 @@ mod tests {
             resource_costs: vec![],
             maintenance_resources: vec![],
             modifiers: vec![],
+            power_demand_mw: 0.0,
         };
         assert!(def.required_tech_opt().is_none());
 
@@ -399,6 +404,7 @@ mod tests {
                 resource_costs: vec![("Iron".to_string(), 5.0)],
                 maintenance_resources: vec![("Iron".to_string(), 0.1)],
                 modifiers: vec![],
+                power_demand_mw: 250.0,
             },
         );
 

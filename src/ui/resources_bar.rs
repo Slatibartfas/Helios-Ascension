@@ -104,6 +104,7 @@ pub(super) fn ui_resources_bar(
     population_query: Query<(
         &Population,
         Option<&crate::plugins::solar_system::CelestialBody>,
+        Option<&crate::colony::Colony>,
     )>,
     mut open_popup: Local<OpenResourcePopup>,
     research_projects: Query<&ResearchProject>,
@@ -120,7 +121,7 @@ pub(super) fn ui_resources_bar(
     };
 
     // Calculate total population
-    let total_population: f64 = population_query.iter().map(|(p, _)| p.count).sum();
+    let total_population: f64 = population_query.iter().map(|(p, _, _)| p.count).sum();
 
     egui::TopBottomPanel::top("resources_bar")
         .min_height(40.0)
@@ -1191,45 +1192,140 @@ pub(super) fn ui_resources_bar(
                     });
                     ui.separator();
 
-                    // Collect and sort populations
-                    let mut pops: Vec<(String, f64)> = population_query
+                    // Collect colony data: (name, population, housing_cap, growth_per_year)
+                    let mut pops: Vec<(String, f64, f64, f64)> = population_query
                         .iter()
-                        .filter(|(p, _)| p.count > 0.0)
-                        .map(|(p, body)| {
+                        .filter(|(p, _, _)| p.count > 0.0)
+                        .map(|(p, body, colony_opt)| {
                             let name = if let Some(b) = body {
                                 b.name.clone()
                             } else {
                                 "Unknown".to_string()
                             };
-                            (name, p.count)
+                            let housing = colony_opt
+                                .map(|c| c.housing_capacity())
+                                .unwrap_or(0.0);
+                            let growth_yr = colony_opt
+                                .map(|c| c.population_growth_per_year(1.0))
+                                .unwrap_or(0.0);
+                            (name, p.count, housing, growth_yr)
                         })
                         .collect();
 
-                    // Sort descending
+                    // Sort descending by population
                     pops.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-                    let top_10_count = pops.len().min(10);
+                    // Max population for relative bar scaling
+                    let max_pop = pops.first().map(|(_, c, _, _)| *c).unwrap_or(1.0).max(1.0);
 
-                    for (name, count) in pops.iter().take(top_10_count) {
+                    let top_count = pops.len().min(10);
+
+                    for (name, count, housing, growth_yr) in pops.iter().take(top_count) {
+                        ui.add_space(3.0);
+                        // Name (left) + population count + growth rate (right)
                         ui.horizontal(|ui| {
-                            ui.add(egui::Label::new(name.as_str()).selectable(false));
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(name.as_str()).size(11.0),
+                                )
+                                .selectable(false),
+                            );
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
+                                    let growth_month = growth_yr / 12.0;
+                                    let (growth_text, growth_color) = if growth_month > 0.5 {
+                                        (
+                                            format!("+{}/mo", format_population(growth_month)),
+                                            theme::GREEN,
+                                        )
+                                    } else if growth_month < -0.5 {
+                                        (
+                                            format!("{}/mo", format_population(growth_month)),
+                                            theme::RED,
+                                        )
+                                    } else {
+                                        ("\u{2014}".to_string(), theme::TEXT_DIM)
+                                    };
                                     ui.add(
                                         egui::Label::new(
-                                            egui::RichText::new(format_population(*count)).strong(),
+                                            egui::RichText::new(growth_text)
+                                                .size(10.0)
+                                                .color(growth_color),
+                                        )
+                                        .selectable(false),
+                                    );
+                                    ui.add_space(4.0);
+                                    ui.add(
+                                        egui::Label::new(
+                                            egui::RichText::new(format_population(*count))
+                                                .size(11.0)
+                                                .strong(),
                                         )
                                         .selectable(false),
                                     );
                                 },
                             );
                         });
+
+                        // Progress bar: outer = relative to largest, inner = housing utilisation
+                        let bar_fill = (*count / max_pop) as f32;
+                        let housing_fill = if *housing > 0.0 {
+                            (*count / housing).min(1.0) as f32
+                        } else {
+                            0.0
+                        };
+                        let bar_color = if housing_fill >= 0.99 {
+                            theme::RED
+                        } else if housing_fill > 0.85 {
+                            theme::AMBER
+                        } else {
+                            egui::Color32::from_rgb(100, 180, 255)
+                        };
+                        let (rect, _) = ui.allocate_exact_size(
+                            egui::vec2(ui.available_width(), 4.0),
+                            egui::Sense::hover(),
+                        );
+                        ui.painter().rect_filled(
+                            egui::Rect::from_min_size(
+                                rect.min,
+                                egui::vec2(rect.width() * bar_fill, rect.height()),
+                            ),
+                            0.0,
+                            bar_color.linear_multiply(0.3),
+                        );
+                        if *housing > 0.0 {
+                            ui.painter().rect_filled(
+                                egui::Rect::from_min_size(
+                                    rect.min,
+                                    egui::vec2(
+                                        rect.width() * bar_fill * housing_fill,
+                                        rect.height(),
+                                    ),
+                                ),
+                                0.0,
+                                bar_color,
+                            );
+                        }
+                        if *housing > 0.0 {
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(format!(
+                                        "  \u{1F3E0} {:.0}% of {}",
+                                        housing_fill * 100.0,
+                                        format_population(*housing)
+                                    ))
+                                    .size(9.0)
+                                    .color(theme::TEXT_DIM),
+                                )
+                                .selectable(false),
+                            );
+                        }
                     }
 
-                    // Summarize the rest
+                    // Summarize colonies beyond top 10
                     if pops.len() > 10 {
-                        let other_total: f64 = pops.iter().skip(10).map(|(_, c)| c).sum();
+                        let other_total: f64 = pops.iter().skip(10).map(|(_, c, _, _)| c).sum();
                         ui.horizontal(|ui| {
                             ui.add(
                                 egui::Label::new(egui::RichText::new("Other").italics())
@@ -1251,12 +1347,38 @@ pub(super) fn ui_resources_bar(
                     }
 
                     ui.separator();
+                    // Total + aggregate growth rate
+                    let total_growth_yr: f64 = population_query
+                        .iter()
+                        .filter_map(|(p, _, c)| {
+                            if p.count > 0.0 {
+                                Some(c.map(|col| col.population_growth_per_year(1.0)).unwrap_or(0.0))
+                            } else {
+                                None
+                            }
+                        })
+                        .sum();
+                    let total_growth_month = total_growth_yr / 12.0;
                     ui.horizontal(|ui| {
                         ui.add(
                             egui::Label::new(egui::RichText::new("Total").strong())
                                 .selectable(false),
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let (g_text, g_color) = if total_growth_month >= 1.0 {
+                                (format!("+{}/mo", format_population(total_growth_month)), theme::GREEN)
+                            } else if total_growth_month < -1.0 {
+                                (format!("{}/mo", format_population(total_growth_month)), theme::RED)
+                            } else {
+                                ("\u{2014}".to_string(), theme::TEXT_DIM)
+                            };
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(g_text).size(10.0).color(g_color),
+                                )
+                                .selectable(false),
+                            );
+                            ui.add_space(4.0);
                             ui.add(
                                 egui::Label::new(
                                     egui::RichText::new(format_population(total_population))
