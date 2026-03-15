@@ -52,7 +52,7 @@ src/
 ### Key Systems
 
 - **Astronomy**: KeplerOrbit propagation, comet tails, Lagrange points, starmap
-- **Colony**: 31 building types across 8 categories, construction queue, population
+- **Colony**: 47 building types across 8 categories, construction queue, population
 - **Economy**: 37 resource types, mining operations, energy grid, global budget
 - **Fleets**: 7 ship classes, 6 propulsion types, orbital mechanics with gravity assists
 - **Research**: 15 technology categories, prerequisite chains, modifiers

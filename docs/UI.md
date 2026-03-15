@@ -69,34 +69,45 @@ Manage colony buildings and construction projects.
 
 ### Features
 - **Colony Selection**: Dropdown to choose which colony to manage
-- **Building Categories**:
-  - Infrastructure (Life Support, Housing, Habitat Domes)
-  - Industry (Mines, Refineries, Factories)
-  - Logistics (Mass Drivers, Orbital Lifts, Cargo Terminals)
-  - Power (Solar, Fission, Fusion)
-  - Population (Agri Domes, Farms, Medical Centers)
-  - Research (Labs, Engineering Bays, AI Clusters)
+- **Build Multiplier**: Queue ×1, ×5, or ×10 copies in one click
+- **Building Categories** (47 total):
+  - Infrastructure (Housing, Habitat Dome, Underground Habitat, Life Support, Water Treatment, Desalination, Recycling)
+  - Industry (Mines, Refineries, Factories, Atmospheric Processors, Chemical Plants, Drills, Semiconductor Fabs, Pharma Plants)
+  - Logistics (Mass Drivers, Orbital Lifts, Cargo Terminals, Warehouses)
+  - Power (Solar, Wind, Hydro, Geothermal, Coal, Gas, Fission, Fusion)
+  - Population (Agri Domes, Farms, Greenhouses, Aquaculture Facilities, Medical Centers)
+  - Research (Labs, Engineering Bays, AI Clusters, Data Centers)
   - Financial (Commercial Hubs, Financial Centers, Trade Ports)
-  - Military (Shipyards, Missile Silos, Launch Sites)
+  - Military (Shipyards, Missile Silos, Launch Sites, Space Ports, Defense Batteries)
 
-### Building Information
-Each building shows:
-- Name and description
-- Build cost (Build Points)
-- Resource requirements
-- Workforce requirement
-- Tech prerequisites (if any)
-- Production/effects
+### Building Card Layout
+
+Each building card shows (top to bottom):
+
+1. **Icon + Name** — identifying header
+2. **Description** — what it is (one line)
+3. **Separator**
+4. **Stats row** — `BP cost` | `👷 workforce` | `⚡ power demand`
+5. **Build time** — estimated years or months based on current Factory BP output
+6. **▸ Effect lines** (green) — the actual numeric impact per building, e.g.:
+   - `+25M housing capacity`
+   - `+1,000 Mt/yr food (feeds ~10M ppl)`
+   - `+20 GW power output`
+   - `+15% mining efficiency`
+7. **Resource costs** — 2 per row, coloured green (affordable) or red (insufficient)
+8. **Queue button** — disabled in red if resources are insufficient
 
 ### Construction Queue
-- View active construction projects
-- See progress bars and time remaining
-- Cancel projects if needed
+- Appears at the bottom of the panel
+- Shows active projects with a progress bar and estimated completion
+- Cancel any project to refund queued resources
 
 ### Debug Controls (F12)
 - **Free Construction**: Build without resource costs
 - **Instant Build**: Complete construction immediately
-- **Bypass Tech**: Show all buildings regardless of tech prerequisites
+- **Bypass Tech**: Show and queue all buildings regardless of tech prerequisites
+
+> For a complete building reference with per-building outputs, capacities, and tech requirements see `docs/COLONIES.md`.
 
 ## Research Panel
 

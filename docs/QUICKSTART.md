@@ -117,9 +117,11 @@ When you launch the game, you'll see:
 
 ### Construction Panel
 - Select a colony to manage
-- View 29 building types across 8 categories
-- Queue construction projects
-- Monitor build progress
+- View **47 building types** across 8 categories (Infrastructure, Industry, Logistics, Power, Population, Research, Financial, Military)
+- Each building card shows green **effect lines** (e.g. "+25M housing capacity", "+1,000 Mt/yr food") so you know exactly what you're building
+- Queue construction projects with configurable multipliers (×1 / ×5 / ×10)
+- Monitor build progress and queue
+- See `docs/COLONIES.md` for the full building reference
 
 ### Research Panel
 - Browse technology tree with 15 categories
@@ -159,6 +161,22 @@ All bodies have:
 3. **Research**: Progress through the technology tree
 4. **Expand**: Establish colonies on other bodies
 5. **Grow**: Increase population and production capacity
+
+### Founding Your First Outpost
+
+When you're ready to expand beyond Earth:
+
+1. Open the **Survey** tab and select a target body (e.g. Moon or Mars).
+2. The right-hand panel shows a **"🏗 Establish Outpost"** button near the bottom.
+   - Gas giants and bodies with gravity > 3 g cannot be colonised.
+   - Harsh worlds show an amber ⚠ warning — still colonisable, but expensive to maintain.
+3. Review the **starter package** (Life Support, Housing Complex, Fission Reactors, Agri Domes) and the **per-person running costs** (water, and oxygen on airless worlds).
+4. **Before clicking** — make sure the system stockpile has enough Iron, Silicates, and Uranium to build the starter buildings.  Resources pool across all bodies in the same star system.
+5. Click **Establish Outpost**.  The starter buildings are queued and will begin building as soon as materials are available.
+
+> **Tip:** Resources in any Earth system body (including Earth itself) count as one pool for Luna or Mars construction.  No explicit freight action needed within a system.
+
+For interstellar outposts, you must first send a **Freighter** fleet carrying the required materials.  See `docs/COLONIES.md` for the full workflow.
 
 ### Resource Management
 - Monitor your stockpiles in the Economy panel
@@ -217,6 +235,7 @@ Once you're comfortable with the basics:
 
 1. **Learn the Systems**: 
    - Read `docs/UI.md` for comprehensive UI guide
+   - Read `docs/COLONIES.md` for the complete building reference, colony founding guide, and resource transport
    - Check `docs/RESOURCES.md` for resource details
    - Review `docs/MODDING.md` for customization options
 

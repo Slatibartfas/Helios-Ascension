@@ -94,7 +94,7 @@ helios_ascension/
 │   ├── audio/
 │   │   └── music/           # Background music (CC-BY 4.0, Scott Buckley)
 │   ├── data/
-│   │   ├── buildings.ron    # 29 building definitions
+│   │   ├── buildings.ron    # 47 building definitions
 │   │   ├── technologies.ron # Technology tree data
 │   │   ├── solar_system.ron # Solar system configuration
 │   │   └── nearest_stars_raw.json # Star catalog
@@ -217,12 +217,16 @@ When adding new UI icons (menus, research categories, etc.), applying the follow
 ### Game Systems Overview
 
 #### Colony Management
-- **31 building types** across 8 categories (Infrastructure, Mining & Industry, Atmospheric Harvesting, Advanced Mining, Logistics, Power, Population & Growth, Research, Financial & Commerce, Military & Shipbuilding, Advanced Industry)
+- **47 building types** across 8 categories (Infrastructure, Industry, Logistics, Power, Population, Research, Financial, Military)
+- Each building has district-scale output: Housing = 25M residents, Farm = 1,000 Mt/yr food (~10M people), HabitatDome = 50M, Farm/Greenhouse/Aquaculture scale ×10 vs old values
+- Each new building is a perceptible improvement; Earth starts with ~335 Housing Complexes (not 33,500) — queuing one adds ~0.3% capacity
 - Construction queue system with resource costs and workforce requirements
-- Population growth mechanics with housing capacity and food requirements
-- Buildings require maintenance resources and generate various effects
+- Population growth mechanics with housing capacity and food requirements (food consumption: 0.0001 Mt/person/yr)
+- Buildings require maintenance resources and generate various effects (see `BuildingType::effects_summary()`)
 - Tech-gated buildings unlock through research progression
 - Debug menu (F12) for free construction, instant build, and tech bypass
+- **Outpost founding** (`EstablishOutpostRequest` in `PendingConstructionActions`): dossier panel provides "🏗 Establish Outpost" button; hard blocks for gas giants and gravity > 3 g; starter package (LifeSupport, Housing ×1, FissionReactor ×2, AgriDome ×2) queued on click; `ColonyEnvironmentCosts` attached for O₂/Water drain
+- **Resource transport**: construction draws from the *same-system stockpile pool* (any body in the same star system); interstellar supply requires a Freighter fleet transfer; see `docs/COLONIES.md`
 
 #### Economy & Resources
 - **37 resource types** (defined in `src/economy/types.rs` as `ResourceType` enum): Volatiles (Water, Hydrogen, Ammonia, Methane, Phosphorus), Biological (Food), Atmospheric Gases (Nitrogen, Oxygen, CarbonDioxide, Argon), Construction Materials (Iron, Aluminum, Titanium, Silicates, Nickel, Tungsten, Carbon, Chromium, Magnesium), Fusion Fuel (Helium3, Deuterium), Fissiles (Uranium, Thorium), Precious Metals (Gold, Silver, Platinum), Strategic Materials (Copper, RareEarths, Lithium, Sulfur, Cobalt, Fluorine, Polymers), Exotic Materials (Antimatter, ExoticMatter, Metamaterials, Computronium)
