@@ -16,11 +16,14 @@ pub mod data;
 pub mod systems;
 pub mod types;
 
-pub use components::{Colony, ConstructionProject, PendingConstructionActions};
+pub use components::{
+    Colony, ColonyEnvironmentCosts, ConstructionProject, EstablishOutpostRequest,
+    PendingConstructionActions,
+};
 pub use data::{BuildingDefinition, BuildingModifierDef, BuildingsData};
 pub use systems::{
-    advance_construction, process_construction_actions, sync_population_from_colony,
-    update_colony_growth, update_treasury,
+    advance_construction, deduct_environment_costs, process_construction_actions,
+    sync_population_from_colony, update_colony_growth, update_treasury,
 };
 pub use types::{BuildingCategory, BuildingType};
 
@@ -171,6 +174,7 @@ impl Plugin for ColonyPlugin {
                     sync_population_from_colony.after(update_colony_growth),
                     update_treasury,
                     systems::deduct_maintenance_resources,
+                    systems::deduct_environment_costs,
                 )
                     .chain()
                     .after(crate::economy::extract_resources),

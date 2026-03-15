@@ -218,8 +218,11 @@ pub fn process_construction_actions(
     }
 
     // Establish new outpost colonies
-    let outpost_requests: Vec<(Entity, String)> = actions.establish_outpost.drain(..).collect();
-    for (body_entity, colony_name) in outpost_requests {
+    let outpost_requests: Vec<_> = actions.establish_outpost.drain(..).collect();
+    for req in outpost_requests {
+        let (body_entity, colony_name, needs_oxygen) =
+            (req.body_entity, req.colony_name, req.needs_oxygen);
+
         // Don't double-establish a colony on an already-colonized body
         if colonies.get(body_entity).is_ok() {
             warn!(
@@ -239,6 +242,16 @@ pub fn process_construction_actions(
         // Insert Population component so the growth system picks it up
         commands.entity(body_entity).insert(Population { count: 0.0 });
 
+        // Attach environment costs:
+        //   • O₂: 0.0001 Mt/person/yr on vacuum/non-breathable worlds (same scale as food)
+        //   • Water: 0.00005 Mt/person/yr on all outposts
+        commands.entity(body_entity).insert(
+            crate::colony::components::ColonyEnvironmentCosts {
+                oxygen_per_person_per_year: if needs_oxygen { 0.0001 } else { 0.0 },
+                water_per_person_per_year: 0.00005,
+            },
+        );
+
         // Queue the starter building package:
         //   - LifeSupport × 1      : basic air/water recycling
         //   - Housing × 1          : sleeping quarters for up to 250 K (outpost uses ~5 K)
@@ -257,9 +270,10 @@ pub fn process_construction_actions(
         }
 
         info!(
-            "Established outpost '{}' on {:?}; queued {} construction projects",
+            "Established outpost '{}' on {:?} (needs_oxygen={}); queued {} construction projects",
             colony_name,
             body_entity,
+            needs_oxygen,
             OUTPOST_BUILDINGS.len()
         );
     }
@@ -463,6 +477,69 @@ pub fn sync_population_from_colony(
 ) {
     for (colony, mut pop) in query.iter_mut() {
         pop.count = colony.population;
+    }
+}
+
+/// System that deducts per-person environment costs (O₂, water) from colonies
+/// that carry a [`ColonyEnvironmentCosts`] component.
+///
+/// These costs apply to all outposts:
+/// - **Water**: always consumed (recycling losses in a closed habitat).
+/// - **Oxygen**: consumed only when the body has no breathable atmosphere
+///   (the component stores 0.0 for breathable worlds).
+///
+/// Resources are drawn from the body's `LocalStockpile` when present, or from
+/// the global budget as a fallback.
+pub fn deduct_environment_costs(
+    mut colonies: Query<(
+        &Colony,
+        &crate::colony::components::ColonyEnvironmentCosts,
+        Option<&mut LocalStockpile>,
+    )>,
+    mut budget: ResMut<crate::economy::GlobalBudget>,
+    sim_time: Res<SimulationTime>,
+    mut last_elapsed: Local<f64>,
+) {
+    let current_elapsed = sim_time.elapsed_seconds();
+    let dt = current_elapsed - *last_elapsed;
+    *last_elapsed = current_elapsed;
+
+    if dt <= 0.0 {
+        return;
+    }
+
+    let years_elapsed = dt / SECONDS_PER_YEAR;
+    if years_elapsed <= 0.0 {
+        return;
+    }
+
+    for (colony, env_costs, mut local_opt) in colonies.iter_mut() {
+        let pop = colony.population;
+        if pop <= 0.0 {
+            continue;
+        }
+
+        // Water consumption
+        let water_needed = env_costs.water_per_person_per_year * pop * years_elapsed;
+        if water_needed > 0.0 {
+            if let Some(ref mut ls) = local_opt {
+                ls.consume(ResourceType::Water, water_needed);
+            } else {
+                let avail = budget.get_stockpile(&ResourceType::Water);
+                budget.consume_resource(ResourceType::Water, water_needed.min(avail));
+            }
+        }
+
+        // Oxygen consumption (only on non-breathable worlds)
+        let o2_needed = env_costs.oxygen_per_person_per_year * pop * years_elapsed;
+        if o2_needed > 0.0 {
+            if let Some(ref mut ls) = local_opt {
+                ls.consume(ResourceType::Oxygen, o2_needed);
+            } else {
+                let avail = budget.get_stockpile(&ResourceType::Oxygen);
+                budget.consume_resource(ResourceType::Oxygen, o2_needed.min(avail));
+            }
+        }
     }
 }
 

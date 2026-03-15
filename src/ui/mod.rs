@@ -55,7 +55,8 @@ use crate::astronomy::{
 };
 use crate::colony::{
     BuildingCategory, BuildingEditData, BuildingEditState, BuildingType, BuildingsData, Colony,
-    ConstructionDebugSettings, ConstructionProject, PendingConstructionActions,
+    ColonyEnvironmentCosts, ConstructionDebugSettings, ConstructionProject,
+    EstablishOutpostRequest, PendingConstructionActions,
 };
 use crate::economy::components::{MineralDeposit, Population, SurveyLevel};
 use crate::economy::{

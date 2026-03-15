@@ -310,9 +310,33 @@ pub struct PendingConstructionActions {
     pub start_construction: Vec<(Entity, BuildingType)>,
     /// Construction project entities to cancel
     pub cancel_construction: Vec<Entity>,
-    /// Requests to establish a new outpost colony on the given body entity.
-    /// Tuple: (body_entity, colony_name)
-    pub establish_outpost: Vec<(Entity, String)>,
+    /// Requests to establish a new outpost colony on a body.
+    pub establish_outpost: Vec<EstablishOutpostRequest>,
+}
+
+/// Parameters carried from the UI when the player clicks "Establish Outpost".
+#[derive(Debug, Clone)]
+pub struct EstablishOutpostRequest {
+    /// The celestial-body entity to colonise.
+    pub body_entity: Entity,
+    /// Name to give the new colony (usually the body name).
+    pub colony_name: String,
+    /// True when the body has no breathable atmosphere — adds O₂ maintenance.
+    pub needs_oxygen: bool,
+}
+
+/// Per-colony continuous resource drain from the environment, driven by
+/// population.  Used for outposts that need to import oxygen (no breathable
+/// atmosphere) and/or recycle water.
+///
+/// Attached by `process_construction_actions` when an outpost is established.
+#[derive(Component, Debug, Clone)]
+pub struct ColonyEnvironmentCosts {
+    /// Oxygen consumed per person per year (Mt).
+    /// Set to 0.0 when the body has a breathable atmosphere.
+    pub oxygen_per_person_per_year: f64,
+    /// Water consumed per person per year (Mt).
+    pub water_per_person_per_year: f64,
 }
 
 #[cfg(test)]

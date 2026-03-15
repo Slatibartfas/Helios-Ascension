@@ -259,6 +259,9 @@ pub(super) fn ui_planet_dossier(
                             entity,
                             body,
                             existing_colony,
+                            atmosphere,
+                            surface_temp,
+                            ocean_props,
                             &mut pending_actions,
                         );
                     }
@@ -1849,15 +1852,24 @@ fn tooltip_row(ui: &mut egui::Ui, label: &str, value: &str) {
 ///
 /// - If the body already has a `Colony` component, shows a compact status
 ///   summary (population, buildings, housing utilisation).
-/// - If it does not, shows an "Establish Outpost" button that queues the
-///   standard starter package (LifeSupport, Housing, 2× FissionReactor,
-///   2× AgriDome).  The outpost starts with zero population and resources
-///   must be transported before construction begins.
+/// - If it does not, evaluates habitability and shows either:
+///   - A blocked state (gas giant or gravity > 3 g) with a clear explanation.
+///   - A warning + "Establish Outpost" button for extreme-but-possible bodies.
+///   - A normal "Establish Outpost" button for habitable/marginal bodies.
+///
+/// The button enqueues an `EstablishOutpostRequest` that carries a
+/// `needs_oxygen` flag (derived from `AtmosphereComposition.breathable`).
+/// The processing system then attaches `ColonyEnvironmentCosts` so O₂ and
+/// water are deducted from the local stockpile once population arrives.
+#[allow(clippy::too_many_arguments)]
 fn draw_colony_section(
     ui: &mut egui::Ui,
     entity: Entity,
     body: &CelestialBody,
     existing_colony: Option<&Colony>,
+    atmosphere: Option<&AtmosphereComposition>,
+    surface_temp: Option<&SurfaceTemperature>,
+    ocean: Option<&OceanProperties>,
     pending_actions: &mut PendingConstructionActions,
 ) {
     if let Some(colony) = existing_colony {
@@ -1926,79 +1938,189 @@ fn draw_colony_section(
                     .color(TEXT_VALUE),
             );
         });
-    } else {
-        // ── Not yet colonised ──────────────────────────────────────
+
+        return;
+    }
+
+    // ── Not yet colonised — evaluate habitability ──────────────────────
+    ui.label(
+        egui::RichText::new("OUTPOST")
+            .font(heading_font())
+            .color(TEXT_DIM),
+    );
+    ui.add_space(4.0);
+
+    // Compute cost details to gate the button
+    let is_gas_giant = body.body_type == crate::plugins::solar_system_data::BodyType::GasGiant
+        || atmosphere.is_some_and(|a| a.is_reference_pressure);
+    let gravity_g = body.surface_gravity();
+    let (min_t, max_t) = surface_temp
+        .map(|t| (t.min_celsius, t.max_celsius))
+        .unwrap_or((-273.15, -273.15));
+    let water_bonus = ocean
+        .map(|o| {
+            use crate::astronomy::components::OceanType;
+            if o.is_subsurface {
+                -0.2_f32
+            } else if o.ocean_type == OceanType::Water {
+                -0.5 * (o.surface_fraction / 0.3).clamp(0.0, 1.0)
+            } else {
+                -0.1
+            }
+        })
+        .unwrap_or(0.0_f32);
+
+    let details = crate::astronomy::components::calculate_colony_cost_with_water(
+        gravity_g, min_t, max_t, atmosphere, is_gas_giant, water_bonus,
+    );
+
+    // Hard blocks
+    if details.is_gas_giant {
+        ui.colored_label(
+            RED_ACCENT,
+            egui::RichText::new("⛔  UNINHABITABLE — Gas Giant")
+                .font(mono_font(11.0))
+                .strong(),
+        );
         ui.label(
-            egui::RichText::new("OUTPOST")
-                .font(heading_font())
+            egui::RichText::new("Gas giants have no solid surface. Outposts cannot be established.")
+                .font(mono_font(10.0))
                 .color(TEXT_DIM),
         );
-        ui.add_space(4.0);
-
+        return;
+    }
+    if details.heavy_gravity_limit_exceeded {
+        ui.colored_label(
+            RED_ACCENT,
+            egui::RichText::new(format!(
+                "⛔  UNINHABITABLE — Gravity {:.1} g (> 3.0 g limit)",
+                gravity_g
+            ))
+            .font(mono_font(11.0))
+            .strong(),
+        );
         ui.label(
             egui::RichText::new(
-                "No colony established. An outpost can be founded here.",
+                "Surface gravity exceeds human physiological limits. Outposts cannot be established.",
             )
             .font(mono_font(10.0))
             .color(TEXT_DIM),
         );
+        return;
+    }
+
+    // Determine atmosphere breathability for O₂ cost
+    let breathable = atmosphere.is_some_and(|a| a.breathable);
+    let needs_oxygen = !breathable;
+
+    // Warn for extreme (but survivable) environments
+    let is_extreme = details.total_cost > 7.0;
+
+    // Info group: what the outpost includes + environmental notes
+    ui.group(|ui| {
+        ui.label(
+            egui::RichText::new("Starter package:")
+                .font(mono_font(10.0))
+                .strong()
+                .color(TEXT_VALUE),
+        );
+        ui.label(
+            egui::RichText::new("• Life Support ×1")
+                .font(mono_font(10.0))
+                .color(TEXT_DIM),
+        );
+        ui.label(
+            egui::RichText::new("• Housing Complex ×1  (≤5,000 residents)")
+                .font(mono_font(10.0))
+                .color(TEXT_DIM),
+        );
+        ui.label(
+            egui::RichText::new("• Fission Reactor ×2  (Uranium-powered)")
+                .font(mono_font(10.0))
+                .color(TEXT_DIM),
+        );
+        ui.label(
+            egui::RichText::new("• Agricultural Dome ×2  (food for ~8,000 ppl)")
+                .font(mono_font(10.0))
+                .color(TEXT_DIM),
+        );
         ui.add_space(4.0);
 
-        // Outline what the starter package includes
-        ui.group(|ui| {
-            ui.label(
-                egui::RichText::new("Starter package:")
-                    .font(mono_font(10.0))
-                    .strong()
-                    .color(TEXT_VALUE),
-            );
-            ui.label(
-                egui::RichText::new("• Life Support ×1  (air/water recycling)")
-                    .font(mono_font(10.0))
-                    .color(TEXT_DIM),
-            );
-            ui.label(
-                egui::RichText::new("• Housing Complex ×1  (up to 5,000 residents)")
-                    .font(mono_font(10.0))
-                    .color(TEXT_DIM),
-            );
-            ui.label(
-                egui::RichText::new("• Fission Reactor ×2  (power from Uranium)")
-                    .font(mono_font(10.0))
-                    .color(TEXT_DIM),
-            );
-            ui.label(
-                egui::RichText::new("• Agricultural Dome ×2  (food for ~8,000 ppl)")
-                    .font(mono_font(10.0))
-                    .color(TEXT_DIM),
-            );
-            ui.add_space(2.0);
-            ui.label(
-                egui::RichText::new(
-                    "Resources must be transported before construction begins.",
-                )
-                .font(mono_font(9.0))
-                .italics()
-                .color(TEXT_DIM),
-            );
-        });
-
-        ui.add_space(6.0);
-
-        let btn_response = ui.add(
-            egui::Button::new(
-                egui::RichText::new("🏗  Establish Outpost")
-                    .font(mono_font(12.0))
-                    .color(ACCENT),
-            )
-            .min_size(egui::Vec2::new(200.0, 28.0)),
+        // ── Environmental operating costs ──────────────────────────
+        ui.label(
+            egui::RichText::new("Ongoing resource costs (per person / yr):")
+                .font(mono_font(10.0))
+                .strong()
+                .color(TEXT_VALUE),
         );
-        if btn_response.clicked() {
-            pending_actions.establish_outpost.push((entity, body.name.clone()));
+        ui.label(
+            egui::RichText::new("• 💧 Water: 0.05 t/person/yr  (recycling losses)")
+                .font(mono_font(10.0))
+                .color(egui::Color32::from_rgb(100, 180, 255)),
+        );
+        if needs_oxygen {
+            ui.label(
+                egui::RichText::new("• 🫁 Oxygen: 100 t/person/yr  (no breathable atm.)")
+                    .font(mono_font(10.0))
+                    .color(AMBER),
+            );
+        } else {
+            ui.label(
+                egui::RichText::new("• 🫁 Oxygen: none  (breathable atmosphere present)")
+                    .font(mono_font(10.0))
+                    .color(GREEN_ACCENT),
+            );
         }
-        btn_response.on_hover_text(
-            "Create an outpost colony. Starter buildings will be queued and built \
-             as soon as the required resources arrive.",
+
+        ui.add_space(2.0);
+        ui.label(
+            egui::RichText::new(
+                "Resources must be transported before construction begins.",
+            )
+            .font(mono_font(9.0))
+            .italics()
+            .color(TEXT_DIM),
         );
+    });
+
+    ui.add_space(4.0);
+
+    // Extreme environment warning
+    if is_extreme {
+        ui.colored_label(
+            AMBER,
+            egui::RichText::new(format!(
+                "⚠  Extreme environment (colony cost {:.1}/10). Significant life-support required.",
+                details.total_cost
+            ))
+            .font(mono_font(10.0)),
+        );
+        ui.add_space(4.0);
     }
+
+    let btn_response = ui.add(
+        egui::Button::new(
+            egui::RichText::new("🏗  Establish Outpost")
+                .font(mono_font(12.0))
+                .color(ACCENT),
+        )
+        .min_size(egui::Vec2::new(200.0, 28.0)),
+    );
+    if btn_response.clicked() {
+        pending_actions.establish_outpost.push(EstablishOutpostRequest {
+            body_entity: entity,
+            colony_name: body.name.clone(),
+            needs_oxygen,
+        });
+    }
+    let hover = if needs_oxygen {
+        "Create an outpost colony. This body has no breathable atmosphere — oxygen will \
+         be consumed from the stockpile. Starter buildings will be queued and built \
+         as soon as the required resources arrive."
+    } else {
+        "Create an outpost colony. Starter buildings will be queued and built \
+         as soon as the required resources arrive."
+    };
+    btn_response.on_hover_text(hover);
 }
+
