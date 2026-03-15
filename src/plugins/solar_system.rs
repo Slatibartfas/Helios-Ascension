@@ -1877,11 +1877,16 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
 }
 
 
-/// PostStartup system that attaches a `LocalStockpile` to every colony entity.
+/// PostStartup system that attaches a `LocalStockpile` and `MinimumStockpile`
+/// to every colony entity.
 ///
 /// Earth gets the realistic 2026 starting values from `GlobalBudget::new()`.
 /// Other colonies start with a small bootstrap stockpile so construction is
 /// immediately possible without requiring freighter deliveries.
+///
+/// All colonies also receive a default `MinimumStockpile` with conservative
+/// thresholds for critical supplies (food, water, oxygen) so that freighters
+/// keep them stocked without requiring manual configuration.
 ///
 /// This runs in `PostStartup` so all colony entities from `setup_solar_system`
 /// already exist.
@@ -1889,6 +1894,9 @@ pub fn initialize_colony_stockpiles(
     mut commands: Commands,
     colony_query: Query<(Entity, &Colony), Without<LocalStockpile>>,
 ) {
+    use crate::economy::logistics::MinimumStockpile;
+    use crate::economy::types::ResourceType;
+
     let defaults = GlobalBudget::new();
 
     for (entity, colony) in colony_query.iter() {
@@ -1900,16 +1908,26 @@ pub fn initialize_colony_stockpiles(
             // initial construction without requiring freighter transport.
             // (All values in Mt — enough for a few basic buildings.)
             LocalStockpile::with_stockpiles([
-                (crate::economy::types::ResourceType::Iron, 10.0),
-                (crate::economy::types::ResourceType::Silicates, 50.0),
-                (crate::economy::types::ResourceType::Aluminum, 2.0),
-                (crate::economy::types::ResourceType::Copper, 0.5),
-                (crate::economy::types::ResourceType::Polymers, 1.0),
-                (crate::economy::types::ResourceType::Food, 10_000.0),
-                (crate::economy::types::ResourceType::Water, 5.0),
+                (ResourceType::Iron, 10.0),
+                (ResourceType::Silicates, 50.0),
+                (ResourceType::Aluminum, 2.0),
+                (ResourceType::Copper, 0.5),
+                (ResourceType::Polymers, 1.0),
+                (ResourceType::Food, 10_000.0),
+                (ResourceType::Water, 5.0),
             ])
         };
 
+        // Default minimum stockpile thresholds — conservative values for
+        // critical life-support resources so freighters keep the colony topped up.
+        let mut minimum = MinimumStockpile::default();
+        if colony.name != "Earth" {
+            // Outposts need steady resupply of core consumables.
+            minimum.set(ResourceType::Food, 5_000.0);
+            minimum.set(ResourceType::Water, 2.0);
+        }
+
         commands.entity(entity).insert(stockpile);
+        commands.entity(entity).insert(minimum);
     }
 }

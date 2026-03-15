@@ -6,12 +6,15 @@
 //! - Realistic resource generation based on distance from sun (frost line)
 //! - Global budget and stockpile management
 //! - Energy grid tracking and civilization scoring
+//! - Logistics network: resource requests, minimum stockpiles, private shipping companies
 
 use bevy::prelude::*;
 
 pub mod budget;
+pub mod company;
 pub mod components;
 pub mod generation;
+pub mod logistics;
 pub mod mining;
 pub(crate) mod profiles;
 pub mod types;
@@ -21,11 +24,16 @@ pub use budget::{
     update_power_grid, update_storage_capacity, ContextualStockpile, EnergyGrid, GlobalBudget,
     ResourceRateTracker, SECONDS_PER_MONTH, SECONDS_PER_YEAR,
 };
+pub use company::{ShippingCompanies, ShippingCompany};
 pub use components::{
     LocalStockpile, MineralDeposit, OrbitsBody, PlanetResources, PowerGenerator, PowerSourceType,
     SpectralClass, StarSystem,
 };
 pub use generation::{generate_ring_resources, generate_solar_system_resources};
+pub use logistics::{
+    check_minimum_stockpile_requests, complete_deliveries, prune_old_requests, MinimumStockpile,
+    PendingResourceRequests, RequestPriority, RequestState, ResourceRequest,
+};
 pub use mining::{extract_resources, update_resource_rates, MiningOperation};
 pub use types::{ResourcePhase, ResourceType};
 
@@ -39,6 +47,9 @@ impl Plugin for EconomyPlugin {
             .init_resource::<GlobalBudget>()
             .init_resource::<ResourceRateTracker>()
             .init_resource::<ContextualStockpile>()
+            // Logistics resources
+            .init_resource::<PendingResourceRequests>()
+            .init_resource::<ShippingCompanies>()
             // Startup systems
             .add_systems(
                 PostStartup,
@@ -58,6 +69,12 @@ impl Plugin for EconomyPlugin {
                     update_resource_rates,
                     // Context-aware aggregation: must run after mining/production
                     update_contextual_stockpile.after(extract_resources),
+                    // Logistics: check minimums → company AI → deliver → return freighters
+                    check_minimum_stockpile_requests,
+                    company::process_company_ai.after(check_minimum_stockpile_requests),
+                    complete_deliveries.after(company::process_company_ai),
+                    company::update_company_fleets.after(complete_deliveries),
+                    prune_old_requests.after(complete_deliveries),
                 ),
             );
     }

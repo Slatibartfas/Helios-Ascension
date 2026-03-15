@@ -285,6 +285,16 @@ pub struct ConstructionProject {
     pub required: f64,
     /// The colony entity this project belongs to
     pub colony_entity: Entity,
+    /// When `true` the project is waiting for a `ResourceRequest` to be fulfilled
+    /// before construction can begin.  Set by `process_construction_actions` when
+    /// the local stockpile cannot afford the costs; cleared by `complete_deliveries`
+    /// when the delivery arrives.
+    #[serde(default)]
+    pub awaiting_resources: bool,
+    /// ID of the `ResourceRequest` that is blocking this project.
+    /// `None` when the project is not blocked.
+    #[serde(skip)]
+    pub blocking_request_id: Option<u64>,
 }
 
 impl ConstructionProject {
@@ -295,6 +305,8 @@ impl ConstructionProject {
             progress: 0.0,
             required: building_type.build_cost(),
             colony_entity,
+            awaiting_resources: false,
+            blocking_request_id: None,
         }
     }
 

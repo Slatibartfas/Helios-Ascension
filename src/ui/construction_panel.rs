@@ -33,6 +33,8 @@ pub(super) fn ui_construction_panels(
     mut ui_state: ResMut<ConstructionUiState>,
     mut edit_state: ResMut<crate::colony::BuildingEditState>,
     sim_time: Res<crate::ui::SimulationTime>,
+    resource_requests: Res<crate::economy::PendingResourceRequests>,
+    mut minimum_stockpiles: Query<&mut crate::economy::MinimumStockpile>,
 ) {
     if active_menu.current != GameMenu::Construction {
         return;
@@ -60,6 +62,8 @@ pub(super) fn ui_construction_panels(
             &mut debug_settings,
             buildings_data.as_deref(),
             &mut ui_state,
+            &resource_requests,
+            &mut minimum_stockpiles,
         );
     });
 
@@ -86,6 +90,8 @@ fn render_construction_panel(
     debug_settings: &mut ConstructionDebugSettings,
     buildings_data: Option<&BuildingsData>,
     ui_state: &mut ConstructionUiState,
+    resource_requests: &crate::economy::PendingResourceRequests,
+    minimum_stockpiles: &mut Query<&mut crate::economy::MinimumStockpile>,
 ) {
     ui.heading("Construction");
     ui.separator();
@@ -420,12 +426,62 @@ fn render_construction_panel(
                             project.building_type.icon(),
                             project.building_type.display_name()
                         ));
-                        let time_str = if years_remaining < 1.0 {
-                            format!("{:.1} mo", years_remaining * 12.0)
+
+                        if project.awaiting_resources {
+                            // Show delivery status instead of build time.
+                            let req_opt = project
+                                .blocking_request_id
+                                .and_then(|id| resource_requests.find_by_id(id));
+
+                            if let Some(req) = req_opt {
+                                use crate::economy::RequestState;
+                                let status = match req.state {
+                                    RequestState::Pending => {
+                                        egui::RichText::new("⏳ Waiting for freighter")
+                                            .size(11.0)
+                                            .color(theme::AMBER)
+                                    }
+                                    RequestState::Assigned | RequestState::InTransit => {
+                                        let eta_text = if let Some(eta) = req.eta_seconds {
+                                            // We don't have sim_time here; just show "In transit"
+                                            let _ = eta;
+                                            "🚀 In transit".to_string()
+                                        } else {
+                                            "🚀 In transit".to_string()
+                                        };
+                                        egui::RichText::new(eta_text)
+                                            .size(11.0)
+                                            .color(theme::GREEN)
+                                    }
+                                    _ => egui::RichText::new("⏳ Awaiting resources")
+                                        .size(11.0)
+                                        .color(theme::AMBER),
+                                };
+                                ui.label(status);
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "({:?} {:.1} Mt)",
+                                        req.resource, req.amount_mt
+                                    ))
+                                    .size(10.0)
+                                    .color(theme::TEXT_DIM),
+                                );
+                            } else {
+                                ui.label(
+                                    egui::RichText::new("⏳ Awaiting resources")
+                                        .size(11.0)
+                                        .color(theme::AMBER),
+                                );
+                            }
                         } else {
-                            format!("{:.1} yr", years_remaining)
-                        };
-                        ui.label(egui::RichText::new(&time_str).size(11.0).color(theme::AMBER));
+                            let time_str = if years_remaining < 1.0 {
+                                format!("{:.1} mo", years_remaining * 12.0)
+                            } else {
+                                format!("{:.1} yr", years_remaining)
+                            };
+                            ui.label(egui::RichText::new(&time_str).size(11.0).color(theme::AMBER));
+                        }
+
                         if ui
                             .small_button("X")
                             .on_hover_text("Cancel construction")
@@ -435,13 +491,26 @@ fn render_construction_panel(
                         }
                     });
 
-                    let bar = egui::ProgressBar::new(pct)
-                        .show_percentage()
-                        .desired_width(ui.available_width() - 8.0);
-                    ui.add(bar);
+                    if project.awaiting_resources {
+                        // Show a "blocked" bar instead of a progress bar.
+                        let bar = egui::ProgressBar::new(0.0)
+                            .desired_width(ui.available_width() - 8.0)
+                            .text("Awaiting delivery");
+                        ui.add(bar);
+                    } else {
+                        let bar = egui::ProgressBar::new(pct)
+                            .show_percentage()
+                            .desired_width(ui.available_width() - 8.0);
+                        ui.add(bar);
+                    }
                     ui.add_space(2.0);
                 }
             });
+        }
+
+        // -- Minimum stockpile configuration --
+        if minimum_stockpiles.get(*colony_entity).is_ok() {
+            render_minimum_stockpile_editor(ui, *colony_entity, minimum_stockpiles);
         }
 
         ui.add_space(4.0);
@@ -756,6 +825,101 @@ fn render_building_card(
     });
 }
 
+
+/// Render the minimum stockpile configuration section for a colony.
+///
+/// Shows a collapsible section with a table of all resource types.  The player
+/// can set (or clear) a per-resource minimum threshold; when the local stockpile
+/// falls below it a Maintenance-priority freighter request is generated.
+fn render_minimum_stockpile_editor(
+    ui: &mut egui::Ui,
+    colony_entity: bevy::ecs::entity::Entity,
+    minimum_stockpiles: &mut Query<&mut crate::economy::MinimumStockpile>,
+) {
+    use crate::economy::types::ResourceType;
+
+    let Ok(mut minimum) = minimum_stockpiles.get_mut(colony_entity) else {
+        return;
+    };
+
+    egui::CollapsingHeader::new(egui::RichText::new("⚖ Minimum Stockpiles").strong())
+        .default_open(false)
+        .show(ui, |ui| {
+            ui.label(
+                egui::RichText::new(
+                    "Set a minimum amount for each resource. Freighters will automatically resupply when stocks fall below the threshold.",
+                )
+                .size(11.0)
+                .color(theme::TEXT_DIM),
+            );
+            ui.add_space(4.0);
+
+            egui::Grid::new("min_stockpile_grid")
+                .num_columns(3)
+                .striped(true)
+                .show(ui, |ui| {
+                    ui.label(egui::RichText::new("Resource").strong().size(11.0));
+                    ui.label(egui::RichText::new("Min (Mt)").strong().size(11.0));
+                    ui.label(egui::RichText::new("").size(11.0));
+                    ui.end_row();
+
+                    let all_resources: &[ResourceType] = &[
+                        ResourceType::Iron,
+                        ResourceType::Silicates,
+                        ResourceType::Aluminum,
+                        ResourceType::Copper,
+                        ResourceType::Titanium,
+                        ResourceType::Nickel,
+                        ResourceType::Polymers,
+                        ResourceType::Water,
+                        ResourceType::Food,
+                        ResourceType::Hydrogen,
+                        ResourceType::Oxygen,
+                        ResourceType::Nitrogen,
+                        ResourceType::Uranium,
+                        ResourceType::Helium3,
+                    ];
+
+                    for &resource in all_resources {
+                        let current = minimum.get(&resource);
+                        let has_threshold = current > 0.0;
+
+                        let label_text = format!("{resource:?}");
+                        ui.label(egui::RichText::new(&label_text).size(11.0));
+
+                        let mut val_str = if has_threshold {
+                            format!("{current:.1}")
+                        } else {
+                            String::new()
+                        };
+
+                        let text_edit = egui::TextEdit::singleline(&mut val_str)
+                            .desired_width(80.0)
+                            .hint_text("—");
+                        if ui.add(text_edit).changed() {
+                            if val_str.is_empty() {
+                                minimum.clear(&resource);
+                            } else if let Ok(v) = val_str.parse::<f64>() {
+                                minimum.set(resource, v);
+                            }
+                        }
+
+                        if has_threshold {
+                            if ui
+                                .small_button("✕")
+                                .on_hover_text("Clear minimum threshold")
+                                .clicked()
+                            {
+                                minimum.clear(&resource);
+                            }
+                        } else {
+                            ui.label(""); // spacer
+                        }
+                        ui.end_row();
+                    }
+                });
+        });
+}
 
 /// Compact number formatter: 1500 → "1.5k", 1_000_000 → "1.0M"
 fn format_compact(v: f64) -> String {

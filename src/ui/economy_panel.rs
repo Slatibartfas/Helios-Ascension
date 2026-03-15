@@ -10,6 +10,7 @@ enum EconomyTab {
     Colonies,
     Mining,
     PowerGrid,
+    Logistics,
 }
 
 impl From<u8> for EconomyTab {
@@ -20,6 +21,7 @@ impl From<u8> for EconomyTab {
             2 => EconomyTab::Colonies,
             3 => EconomyTab::Mining,
             4 => EconomyTab::PowerGrid,
+            5 => EconomyTab::Logistics,
             _ => EconomyTab::Overview,
         }
     }
@@ -33,6 +35,7 @@ impl From<EconomyTab> for u8 {
             EconomyTab::Colonies => 2,
             EconomyTab::Mining => 3,
             EconomyTab::PowerGrid => 4,
+            EconomyTab::Logistics => 5,
         }
     }
 }
@@ -275,6 +278,8 @@ pub(super) fn ui_economy_panels(
     )>,
     star_query: Query<(&CelestialBody, &SystemId), With<crate::plugins::solar_system::Star>>,
     buildings_data: Option<Res<BuildingsData>>,
+    resource_requests: Res<crate::economy::PendingResourceRequests>,
+    shipping_companies: Res<crate::economy::ShippingCompanies>,
 ) {
     if active_menu.current != GameMenu::Economy {
         return;
@@ -305,6 +310,7 @@ pub(super) fn ui_economy_panels(
                 (EconomyTab::Colonies, "🏠 Colonies"),
                 (EconomyTab::Mining, "⛏ Mining"),
                 (EconomyTab::PowerGrid, "⚡ Power Grid"),
+                (EconomyTab::Logistics, "🚚 Logistics"),
             ];
             for (tab, label) in &tabs {
                 let selected = current_tab == *tab;
@@ -336,6 +342,9 @@ pub(super) fn ui_economy_panels(
             EconomyTab::Colonies => render_econ_colonies(ui, &budget, &hierarchy),
             EconomyTab::Mining => render_econ_mining(ui, &hierarchy),
             EconomyTab::PowerGrid => render_econ_power_grid(ui, &budget, &hierarchy),
+            EconomyTab::Logistics => {
+                render_econ_logistics(ui, &resource_requests, &shipping_companies, &budget)
+            }
         }
     });
 }
@@ -1831,5 +1840,245 @@ fn render_econ_power_grid(ui: &mut egui::Ui, budget: &GlobalBudget, hierarchy: &
                 .color(theme::TEXT_HINT),
             );
         });
+    });
+}
+
+// ── Logistics tab ────────────────────────────────────────────────────────────
+
+/// Render the Logistics tab: open resource requests and shipping company registry.
+fn render_econ_logistics(
+    ui: &mut egui::Ui,
+    resource_requests: &crate::economy::PendingResourceRequests,
+    companies: &crate::economy::ShippingCompanies,
+    budget: &GlobalBudget,
+) {
+    use crate::economy::{RequestPriority, RequestState};
+
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        // ── Shipping Companies ────────────────────────────────────────────────
+        ui.group(|ui| {
+            ui.label(
+                egui::RichText::new("🚀 Shipping Companies")
+                    .strong()
+                    .size(15.0),
+            );
+            ui.separator();
+
+            if companies.companies.is_empty() {
+                ui.label(
+                    egui::RichText::new("No private shipping companies active yet.")
+                        .italics()
+                        .color(theme::TEXT_DIM),
+                );
+            } else {
+                egui::Grid::new("shipping_companies")
+                    .num_columns(5)
+                    .striped(true)
+                    .spacing([12.0, 4.0])
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new("Company").strong().size(11.0));
+                        ui.label(egui::RichText::new("Treasury").strong().size(11.0));
+                        ui.label(egui::RichText::new("Fleet").strong().size(11.0));
+                        ui.label(egui::RichText::new("Available").strong().size(11.0));
+                        ui.label(egui::RichText::new("Deliveries").strong().size(11.0));
+                        ui.end_row();
+
+                        for company in &companies.companies {
+                            ui.label(
+                                egui::RichText::new(&company.name)
+                                    .size(12.0)
+                                    .strong(),
+                            );
+                            ui.label(
+                                egui::RichText::new(format_currency(company.treasury_mc))
+                                    .size(11.0)
+                                    .color(theme::GOLD),
+                            );
+                            ui.label(
+                                egui::RichText::new(format!("{} ships", company.freighter_count))
+                                    .size(11.0),
+                            );
+                            let available_color = if company.available_freighters > 0 {
+                                theme::GREEN
+                            } else {
+                                theme::RED
+                            };
+                            ui.label(
+                                egui::RichText::new(format!("{} idle", company.available_freighters))
+                                    .size(11.0)
+                                    .color(available_color),
+                            );
+                            ui.label(
+                                egui::RichText::new(format!("{}", company.total_deliveries))
+                                    .size(11.0),
+                            );
+                            ui.end_row();
+                        }
+                    });
+            }
+        });
+
+        ui.add_space(8.0);
+
+        // ── Treasury Info ─────────────────────────────────────────────────────
+        ui.group(|ui| {
+            ui.label(
+                egui::RichText::new("💰 Logistics Expenditure")
+                    .strong()
+                    .size(13.0),
+            );
+            ui.separator();
+            let total_paid: f64 = companies
+                .companies
+                .iter()
+                .map(|c| c.total_deliveries as f64 * 100.0) // rough estimate
+                .sum();
+            ui.label(
+                egui::RichText::new(format!(
+                    "Player treasury: {}",
+                    format_currency(budget.treasury)
+                ))
+                .size(12.0),
+            );
+            ui.label(
+                egui::RichText::new(
+                    "Payments are deducted from treasury when deliveries complete.",
+                )
+                .size(11.0)
+                .color(theme::TEXT_DIM),
+            );
+            let _ = total_paid;
+        });
+
+        ui.add_space(8.0);
+
+        // ── Open Resource Requests ────────────────────────────────────────────
+        let open: Vec<_> = resource_requests.open_requests().collect();
+        let delivered: Vec<_> = resource_requests
+            .requests
+            .iter()
+            .filter(|r| matches!(r.state, RequestState::Delivered))
+            .collect();
+
+        ui.group(|ui| {
+            ui.label(
+                egui::RichText::new(format!("📋 Open Requests ({})", open.len()))
+                    .strong()
+                    .size(15.0),
+            );
+            ui.separator();
+
+            if open.is_empty() {
+                ui.label(
+                    egui::RichText::new("No open resource requests.")
+                        .italics()
+                        .color(theme::TEXT_DIM),
+                );
+            } else {
+                egui::Grid::new("open_requests_grid")
+                    .num_columns(5)
+                    .striped(true)
+                    .spacing([12.0, 4.0])
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new("Destination").strong().size(11.0));
+                        ui.label(egui::RichText::new("Resource").strong().size(11.0));
+                        ui.label(egui::RichText::new("Amount").strong().size(11.0));
+                        ui.label(egui::RichText::new("Priority").strong().size(11.0));
+                        ui.label(egui::RichText::new("Status").strong().size(11.0));
+                        ui.end_row();
+
+                        for req in &open {
+                            ui.label(
+                                egui::RichText::new(&req.destination_name)
+                                    .size(11.0)
+                                    .strong(),
+                            );
+                            ui.label(
+                                egui::RichText::new(format!("{:?}", req.resource)).size(11.0),
+                            );
+                            ui.label(
+                                egui::RichText::new(format!("{:.1} Mt", req.amount_mt))
+                                    .size(11.0),
+                            );
+                            let priority_color = match req.priority {
+                                RequestPriority::Emergency => theme::RED,
+                                RequestPriority::Construction => theme::AMBER,
+                                RequestPriority::Maintenance => theme::ACCENT,
+                                RequestPriority::Trade => theme::TEXT_DIM,
+                            };
+                            ui.label(
+                                egui::RichText::new(format!("{}", req.priority))
+                                    .size(11.0)
+                                    .color(priority_color),
+                            );
+                            let (state_text, state_color) = match req.state {
+                                RequestState::Pending => ("⏳ Pending", theme::TEXT_DIM),
+                                RequestState::Assigned => ("📋 Assigned", theme::AMBER),
+                                RequestState::InTransit => ("🚀 In Transit", theme::GREEN),
+                                _ => ("?", theme::TEXT_DIM),
+                            };
+                            ui.label(
+                                egui::RichText::new(state_text)
+                                    .size(11.0)
+                                    .color(state_color),
+                            );
+                            ui.end_row();
+                        }
+                    });
+            }
+        });
+
+        ui.add_space(8.0);
+
+        // ── Recent Deliveries ─────────────────────────────────────────────────
+        if !delivered.is_empty() {
+            ui.group(|ui| {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "✅ Recent Deliveries ({})",
+                        delivered.len()
+                    ))
+                    .strong()
+                    .size(15.0),
+                );
+                ui.separator();
+
+                egui::Grid::new("delivered_grid")
+                    .num_columns(4)
+                    .striped(true)
+                    .spacing([12.0, 4.0])
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new("Destination").strong().size(11.0));
+                        ui.label(egui::RichText::new("Resource").strong().size(11.0));
+                        ui.label(egui::RichText::new("Delivered").strong().size(11.0));
+                        ui.label(egui::RichText::new("Company").strong().size(11.0));
+                        ui.end_row();
+
+                        // Show last 20 deliveries newest first.
+                        for req in delivered.iter().rev().take(20) {
+                            ui.label(
+                                egui::RichText::new(&req.destination_name)
+                                    .size(11.0)
+                                    .strong(),
+                            );
+                            ui.label(
+                                egui::RichText::new(format!("{:?}", req.resource)).size(11.0),
+                            );
+                            ui.label(
+                                egui::RichText::new(format!("{:.1} Mt", req.in_transit_mt))
+                                    .size(11.0)
+                                    .color(theme::GREEN),
+                            );
+                            let company_name = req
+                                .assigned_company_idx
+                                .and_then(|i| companies.companies.get(i))
+                                .map(|c| c.name.as_str())
+                                .unwrap_or("—");
+                            ui.label(egui::RichText::new(company_name).size(11.0));
+                            ui.end_row();
+                        }
+                    });
+            });
+        }
     });
 }

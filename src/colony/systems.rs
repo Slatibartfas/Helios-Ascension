@@ -1,12 +1,16 @@
 use bevy::prelude::*;
 
 use super::components::{Colony, ConstructionProject, PendingConstructionActions};
-use super::data::{BuildingsData};
+use super::data::BuildingsData;
 use super::types::BuildingType;
 use super::ConstructionDebugSettings;
 use crate::astronomy::OceanProperties;
 use crate::economy::budget::SECONDS_PER_YEAR;
-use crate::economy::components::{LocalStockpile, Population};
+use crate::economy::components::LocalStockpile;
+use crate::economy::components::Population;
+use crate::economy::logistics::{
+    PendingResourceRequests, RequestPriority, RequestState, ResourceRequest,
+};
 use crate::economy::types::ResourceType;
 use crate::ui::SimulationTime;
 
@@ -65,6 +69,11 @@ pub fn advance_construction(
             }
 
             if let Ok((_, mut project)) = projects.get_mut(proj_entity) {
+                // Skip projects waiting for a resource delivery.
+                if project.awaiting_resources {
+                    continue;
+                }
+
                 let needed = project.required - project.progress;
                 let applied = needed.min(available_bp);
                 project.progress += applied;
@@ -90,26 +99,36 @@ pub fn advance_construction(
 /// System that processes pending construction actions from the UI.
 ///
 /// Creates new `ConstructionProject` entities and handles cancellations.
-/// Deducts resource costs from the **same-system** `LocalStockpile` pool
-/// (all bodies in the same `SystemId`) when starting construction.
-/// Falls back to the global budget if no local stockpiles exist.
 ///
-/// In debug mode with `free_construction`, resource costs are bypassed.
-/// In debug mode with `instant_build`, buildings are added immediately.
+/// Resource handling:
+/// - If the colony's **local** `LocalStockpile` can afford the costs, resources
+///   are deducted immediately and the project starts normally.
+/// - If the local stockpile is insufficient, the system generates one
+///   `ResourceRequest` per missing resource (Construction priority) and spawns
+///   the project with `awaiting_resources = true`.  The project will not
+///   accumulate build points until the delivery arrives.
+/// - Same-system pool fallback is retained as a secondary check when no
+///   colony-local stockpile component exists (legacy / debug path).
+/// - In debug mode with `free_construction`, resource costs are bypassed.
+/// - In debug mode with `instant_build`, buildings are added immediately.
 pub fn process_construction_actions(
     mut commands: Commands,
     mut actions: ResMut<PendingConstructionActions>,
     mut colonies: Query<&mut Colony>,
-    mut budget: ResMut<crate::economy::GlobalBudget>,
+    _budget: ResMut<crate::economy::GlobalBudget>,
     buildings_data: Option<Res<BuildingsData>>,
     debug_settings: Res<ConstructionDebugSettings>,
-    // For local stockpile support
     colony_sys_query: Query<Option<&crate::astronomy::components::SystemId>>,
     mut local_stockpile_query: Query<(
+        Entity,
         Option<&crate::astronomy::components::SystemId>,
         &mut LocalStockpile,
     )>,
+    mut resource_requests: ResMut<PendingResourceRequests>,
+    sim_time: Res<SimulationTime>,
 ) {
+    let now = sim_time.elapsed_seconds();
+
     // Start new projects
     for (colony_entity, building_type) in actions.start_construction.drain(..) {
         if colonies.get(colony_entity).is_err() {
@@ -118,12 +137,17 @@ pub fn process_construction_actions(
 
         // Check and deduct resource costs (unless debug free_construction)
         let free = debug_settings.enabled && debug_settings.free_construction;
+
+        // Track whether this project is blocked waiting for resource deliveries.
+        let mut awaiting = false;
+        let mut blocking_request_ids: Vec<u64> = Vec::new();
+
         if !free {
             if let Some(ref data) = buildings_data {
                 let costs_raw = data.resource_costs(&building_type);
                 if !costs_raw.is_empty() {
-                    // Convert cost list to (ResourceType, f64) pairs; warn on unknown names
-                    let costs_typed: Vec<(crate::economy::types::ResourceType, f64)> = costs_raw
+                    // Convert cost list to (ResourceType, f64) pairs.
+                    let costs_typed: Vec<(ResourceType, f64)> = costs_raw
                         .iter()
                         .filter_map(|(name, amt)| {
                             let rt = super::data::parse_resource_type(name);
@@ -134,62 +158,164 @@ pub fn process_construction_actions(
                         })
                         .collect();
 
-                    // Find which system this colony is in
-                    let sys_id = colony_sys_query
+                    // Retrieve the local stockpile of the colony itself.
+                    let colony_local_opt: Option<f64> = None; // placeholder
+                    let _ = colony_local_opt;
+
+                    // Get the local stockpile for this specific colony entity.
+                    let can_pay_local = local_stockpile_query
                         .get(colony_entity)
-                        .ok()
-                        .flatten()
-                        .map(|s| s.0);
-
-                    // Single pass: sum available amounts and, if sufficient, deduct in the same
-                    // iteration by collecting (entity_index, rt, amount_to_deduct).
-                    // Phase 1 — sum totals to check affordability.
-                    let mut available: std::collections::HashMap<
-                        crate::economy::types::ResourceType,
-                        f64,
-                    > = std::collections::HashMap::new();
-                    for (sid_opt, ls) in local_stockpile_query.iter() {
-                        let body_sys = sid_opt.map(|s| s.0);
-                        if sys_id.is_none() || body_sys == sys_id {
-                            for (rt, &amt) in &ls.stockpiles {
-                                *available.entry(*rt).or_insert(0.0) += amt;
-                            }
-                        }
-                    }
-
-                    let can_pay_local = costs_typed
-                        .iter()
-                        .all(|(rt, need)| available.get(rt).copied().unwrap_or(0.0) >= *need);
+                        .map(|(_, _, ls)| {
+                            costs_typed
+                                .iter()
+                                .all(|(rt, need)| ls.get(rt) >= *need)
+                        })
+                        .unwrap_or(false);
 
                     if can_pay_local {
-                        // Phase 2 — deduct. We use a separate `iter_mut` pass but only when
-                        // we know the resources are available, so the extra iteration is only
-                        // paid when a build actually proceeds.
-                        let mut remaining: std::collections::HashMap<
-                            crate::economy::types::ResourceType,
-                            f64,
-                        > = costs_typed.iter().cloned().collect();
-
-                        for (sid_opt, mut ls) in local_stockpile_query.iter_mut() {
-                            let body_sys = sid_opt.map(|s| s.0);
-                            if sys_id.is_none() || body_sys == sys_id {
-                                for (rt, need) in remaining.iter_mut() {
-                                    if *need > 0.0 {
-                                        let taken = ls.consume(*rt, *need);
-                                        *need -= taken;
-                                    }
-                                }
+                        // Deduct from the colony's own stockpile.
+                        if let Ok((_, _, mut ls)) = local_stockpile_query.get_mut(colony_entity) {
+                            for (rt, need) in &costs_typed {
+                                ls.consume(*rt, *need);
                             }
                         }
                     } else {
-                        // Fallback: try global budget
-                        let costs_for_global: Vec<(String, f64)> = costs_raw.to_vec();
-                        if !super::data::deduct_resources(&mut budget, &costs_for_global) {
-                            warn!(
-                                "Cannot build {}: insufficient resources",
-                                building_type.display_name()
-                            );
-                            continue;
+                        // Determine which resources are missing from the colony's local stockpile
+                        // and which can be covered by the same-system pool.
+                        let sys_id = colony_sys_query
+                            .get(colony_entity)
+                            .ok()
+                            .flatten()
+                            .map(|s| s.0);
+
+                        // Get current local stockpile for the colony.
+                        let colony_local: std::collections::HashMap<ResourceType, f64> =
+                            local_stockpile_query
+                                .get(colony_entity)
+                                .map(|(_, _, ls)| {
+                                    ls.stockpiles.iter().map(|(k, v)| (*k, *v)).collect()
+                                })
+                                .unwrap_or_default();
+
+                        // Sum the available resources across the same system (for pool check).
+                        let mut system_available: std::collections::HashMap<ResourceType, f64> =
+                            std::collections::HashMap::new();
+                        for (_, sid_opt, ls) in local_stockpile_query.iter() {
+                            let body_sys = sid_opt.map(|s| s.0);
+                            if sys_id.is_none() || body_sys == sys_id {
+                                for (rt, &amt) in &ls.stockpiles {
+                                    *system_available.entry(*rt).or_insert(0.0) += amt;
+                                }
+                            }
+                        }
+
+                        let can_pay_system = costs_typed
+                            .iter()
+                            .all(|(rt, need)| system_available.get(rt).copied().unwrap_or(0.0) >= *need);
+
+                        if can_pay_system {
+                            // Draw from system pool (current behaviour preserved).
+                            let mut remaining: std::collections::HashMap<ResourceType, f64> =
+                                costs_typed.iter().cloned().collect();
+                            for (_, sid_opt, mut ls) in local_stockpile_query.iter_mut() {
+                                let body_sys = sid_opt.map(|s| s.0);
+                                if sys_id.is_none() || body_sys == sys_id {
+                                    for (rt, need) in remaining.iter_mut() {
+                                        if *need > 0.0 {
+                                            let taken = ls.consume(*rt, *need);
+                                            *need -= taken;
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // Resources not available anywhere in the system.
+                            // Generate a ResourceRequest per missing resource and block the project.
+                            let colony_name = colonies
+                                .get(colony_entity)
+                                .map(|c| c.name.clone())
+                                .unwrap_or_else(|_| format!("{colony_entity:?}"));
+
+                            // First: use what we have in the system pool for any partial amounts,
+                            // then request the remainder.
+                            let mut remaining: std::collections::HashMap<ResourceType, f64> =
+                                costs_typed.iter().cloned().collect();
+
+                            // Deduct partial amounts from system pool.
+                            for (_, sid_opt, mut ls) in local_stockpile_query.iter_mut() {
+                                let body_sys = sid_opt.map(|s| s.0);
+                                if sys_id.is_none() || body_sys == sys_id {
+                                    for (rt, need) in remaining.iter_mut() {
+                                        if *need > 0.0 {
+                                            let taken = ls.consume(*rt, *need);
+                                            *need -= taken;
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Generate requests for what's still missing.
+                            for (rt, &shortfall) in &remaining {
+                                if shortfall <= 0.0 {
+                                    continue;
+                                }
+                                // Only add a request if there isn't one already for this colony+resource.
+                                if resource_requests.has_open_request_for(colony_entity, *rt) {
+                                    awaiting = true;
+                                    continue;
+                                }
+
+                                // Check how much the local stockpile already has towards this cost.
+                                let already_local =
+                                    colony_local.get(rt).copied().unwrap_or(0.0);
+                                let need_delivered = (shortfall - already_local).max(0.0);
+
+                                if need_delivered > 0.0 {
+                                    let req_id = resource_requests.add(ResourceRequest {
+                                        id: 0,
+                                        destination_body: colony_entity,
+                                        destination_name: colony_name.clone(),
+                                        resource: *rt,
+                                        amount_mt: need_delivered,
+                                        priority: RequestPriority::Construction,
+                                        state: RequestState::Pending,
+                                        in_transit_mt: 0.0,
+                                        eta_seconds: None,
+                                        assigned_company_idx: None,
+                                        created_at_seconds: now,
+                                        source_body: None,
+                                        linked_project: None, // filled in after project spawn
+                                        payment_made: false,
+                                    });
+                                    blocking_request_ids.push(req_id);
+                                    awaiting = true;
+
+                                    warn!(
+                                        "Construction '{}' at {}: {:?} {:.1} Mt not available in system — requesting delivery",
+                                        building_type.display_name(),
+                                        colony_name,
+                                        rt,
+                                        need_delivered
+                                    );
+                                }
+                            }
+
+                            // If nothing was actually missing (somehow), don't block.
+                            if blocking_request_ids.is_empty() {
+                                awaiting = false;
+                            }
+
+                            // If still can't proceed at all (all resources unavailable), skip.
+                            if awaiting
+                                && remaining.values().all(|v| *v > 0.0)
+                                && blocking_request_ids.is_empty()
+                            {
+                                warn!(
+                                    "Cannot build {}: insufficient resources and no requests created",
+                                    building_type.display_name()
+                                );
+                                continue;
+                            }
                         }
                     }
                 }
@@ -207,8 +333,28 @@ pub fn process_construction_actions(
                 );
             }
         } else {
-            commands.spawn(ConstructionProject::new(building_type, colony_entity));
-            info!("Started construction: {}", building_type.display_name());
+            let mut project = ConstructionProject::new(building_type, colony_entity);
+            project.awaiting_resources = awaiting;
+            // Store first blocking request ID for status display.
+            project.blocking_request_id = blocking_request_ids.first().copied();
+
+            let proj_entity = commands.spawn(project).id();
+
+            // Back-fill linked_project on every generated request.
+            for req_id in &blocking_request_ids {
+                if let Some(req) = resource_requests.find_by_id_mut(*req_id) {
+                    req.linked_project = Some(proj_entity);
+                }
+            }
+
+            if awaiting {
+                info!(
+                    "Construction '{}' queued but awaiting resource deliveries",
+                    building_type.display_name()
+                );
+            } else {
+                info!("Started construction: {}", building_type.display_name());
+            }
         }
     }
 
@@ -238,6 +384,13 @@ pub fn process_construction_actions(
 
         // Insert an initial local stockpile (empty — resources must be transported)
         commands.entity(body_entity).insert(LocalStockpile::default());
+
+        // Attach a MinimumStockpile with basic life-support thresholds so that
+        // private freighters automatically keep the outpost stocked.
+        let mut minimum = crate::economy::MinimumStockpile::default();
+        minimum.set(ResourceType::Food, 5_000.0);
+        minimum.set(ResourceType::Water, 2.0);
+        commands.entity(body_entity).insert(minimum);
 
         // Insert Population component so the growth system picks it up
         commands.entity(body_entity).insert(Population { count: 0.0 });
