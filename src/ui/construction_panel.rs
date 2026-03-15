@@ -28,9 +28,11 @@ pub(super) fn ui_construction_panels(
     budget: Res<GlobalBudget>,
     contextual: Res<crate::economy::ContextualStockpile>,
     mut debug_settings: ResMut<ConstructionDebugSettings>,
-    buildings_data: Option<Res<BuildingsData>>,
+    mut buildings_data: Option<ResMut<BuildingsData>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut ui_state: ResMut<ConstructionUiState>,
+    mut edit_state: ResMut<crate::colony::BuildingEditState>,
+    sim_time: Res<crate::ui::SimulationTime>,
 ) {
     if active_menu.current != GameMenu::Construction {
         return;
@@ -60,6 +62,16 @@ pub(super) fn ui_construction_panels(
             &mut ui_state,
         );
     });
+
+    // Building editor dialog (rendered outside CentralPanel so it floats)
+    if debug_settings.enabled {
+        render_building_editor(
+            ctx,
+            buildings_data.as_deref_mut(),
+            &mut edit_state,
+            sim_time.elapsed_seconds(),
+        );
+    }
 }
 
 /// Render the construction panel showing colonies, buildings, and construction queues.
@@ -110,6 +122,12 @@ fn render_construction_panel(
                     .small()
                     .italics()
                     .color(theme::AMBER),
+            );
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new("Building Editor: right-click a building in the list to open, or use the button below")
+                    .small()
+                    .color(theme::TEXT_DIM),
             );
         });
         ui.separator();
@@ -716,6 +734,7 @@ fn render_building_card(
     });
 }
 
+
 /// Compact number formatter: 1500 → "1.5k", 1_000_000 → "1.0M"
 fn format_compact(v: f64) -> String {
     if v >= 1_000_000.0 {
@@ -726,3 +745,389 @@ fn format_compact(v: f64) -> String {
         format!("{:.0}", v)
     }
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Building Editor (F12 debug mode)
+// ══════════════════════════════════════════════════════════════════════════════
+
+/// Render the floating building editor window.
+///
+/// Shows a left-hand list of all building types.  Clicking one opens an edit
+/// form on the right that lets the developer tweak every field of the
+/// `BuildingDefinition`.  Saving writes back to in-memory `BuildingsData` and
+/// serialises the result to `assets/data/buildings.ron`.
+pub(super) fn render_building_editor(
+    ctx: &egui::Context,
+    buildings_data: Option<&mut BuildingsData>,
+    edit_state: &mut crate::colony::BuildingEditState,
+    elapsed: f64,
+) {
+    let Some(data) = buildings_data else {
+        return;
+    };
+
+    let mut open = true;
+    egui::Window::new("🏗 Building Editor")
+        .id(egui::Id::new("building_editor_window"))
+        .open(&mut open)
+        .collapsible(true)
+        .resizable(true)
+        .default_size([800.0, 600.0])
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            // Status message
+            if let Some((ref msg, ts)) = edit_state.status_message.clone() {
+                let age = elapsed - ts;
+                if age < 4.0 {
+                    let alpha = ((4.0 - age) / 2.0).min(1.0) as f32;
+                    let color = if msg.starts_with("Error") {
+                        theme::RED
+                    } else {
+                        theme::GREEN
+                    };
+                    ui.colored_label(color.linear_multiply(alpha), msg.as_str());
+                } else {
+                    edit_state.status_message = None;
+                }
+                ui.separator();
+            }
+
+            ui.columns(2, |cols| {
+                // ── Left column: building type list ──
+                let left = &mut cols[0];
+                left.label(egui::RichText::new("Buildings").strong());
+                left.separator();
+                egui::ScrollArea::vertical()
+                    .id_salt("bld_editor_list")
+                    .max_height(550.0)
+                    .show(left, |ui| {
+                        for cat in BuildingCategory::all() {
+                            ui.label(
+                                egui::RichText::new(cat.display_name())
+                                    .size(11.0)
+                                    .strong()
+                                    .color(theme::TEXT_DIM),
+                            );
+                            for btype in cat.buildings() {
+                                let is_selected =
+                                    edit_state.selected_type == Some(btype);
+                                let def_name = data
+                                    .get(&btype)
+                                    .map(|d| d.display_name.as_str())
+                                    .unwrap_or(btype.display_name());
+                                let row_text = format!(
+                                    "{} {}",
+                                    data.get(&btype)
+                                        .map(|d| d.icon.as_str())
+                                        .unwrap_or(""),
+                                    def_name
+                                );
+                                let response = ui.selectable_label(is_selected, &row_text);
+                                if response.clicked() {
+                                    edit_state.selected_type = Some(btype);
+                                    // Open edit form
+                                    if let Some(def) = data.get(&btype) {
+                                        edit_state.editing = Some(
+                                            crate::colony::BuildingEditData::from_def(btype, def),
+                                        );
+                                    }
+                                }
+                            }
+                            ui.add_space(4.0);
+                        }
+                    });
+
+                // ── Right column: edit form ──
+                let right = &mut cols[1];
+                if let Some(ref mut ed) = edit_state.editing {
+                    right.label(
+                        egui::RichText::new(format!("Edit: {}", ed.display_name))
+                            .strong(),
+                    );
+                    right.separator();
+
+                    let mut save_clicked = false;
+
+                    egui::ScrollArea::vertical()
+                        .id_salt("bld_editor_form")
+                        .max_height(510.0)
+                        .show(right, |ui| {
+                            egui::Grid::new("bld_edit_grid")
+                                .num_columns(2)
+                                .spacing([8.0, 5.0])
+                                .striped(true)
+                                .show(ui, |ui| {
+                                    // ID (read-only)
+                                    ui.label("ID:");
+                                    ui.label(
+                                        egui::RichText::new(
+                                            format!("{:?}", ed.building_type),
+                                        )
+                                        .monospace()
+                                        .color(theme::TEXT_DIM),
+                                    );
+                                    ui.end_row();
+
+                                    // Display name
+                                    ui.label("Display Name:");
+                                    ui.text_edit_singleline(&mut ed.display_name);
+                                    ui.end_row();
+
+                                    // Icon
+                                    ui.label("Icon:");
+                                    ui.text_edit_singleline(&mut ed.icon);
+                                    ui.end_row();
+
+                                    // Category
+                                    ui.label("Category:");
+                                    egui::ComboBox::from_id_salt("bld_cat_combo")
+                                        .selected_text(
+                                            BuildingCategory::all()
+                                                .get(ed.category_index)
+                                                .map(|c| c.display_name())
+                                                .unwrap_or("?"),
+                                        )
+                                        .show_ui(ui, |ui| {
+                                            for (i, cat) in
+                                                BuildingCategory::all().iter().enumerate()
+                                            {
+                                                ui.selectable_value(
+                                                    &mut ed.category_index,
+                                                    i,
+                                                    cat.display_name(),
+                                                );
+                                            }
+                                        });
+                                    ui.end_row();
+
+                                    // Build Points
+                                    ui.label("Build Points:");
+                                    ui.text_edit_singleline(&mut ed.build_points);
+                                    ui.end_row();
+
+                                    // Workforce
+                                    ui.label("Workforce:");
+                                    ui.text_edit_singleline(&mut ed.workforce);
+                                    ui.end_row();
+
+                                    // Power Demand
+                                    ui.label("Power Demand (MW):");
+                                    ui.text_edit_singleline(&mut ed.power_demand_mw);
+                                    ui.end_row();
+
+                                    // Required Tech
+                                    ui.label("Required Tech:");
+                                    ui.text_edit_singleline(&mut ed.required_tech);
+                                    ui.end_row();
+
+                                    // Description
+                                    ui.label("Description:");
+                                    ui.text_edit_multiline(&mut ed.description);
+                                    ui.end_row();
+                                });
+
+                            ui.add_space(8.0);
+
+                            // ── Resource Costs ──
+                            ui.label(egui::RichText::new("Resource Costs (construction)").strong());
+                            ui.group(|ui| {
+                                let mut remove_idx: Option<usize> = None;
+                                for (i, (name, amt)) in ed.resource_costs.iter_mut().enumerate() {
+                                    ui.horizontal(|ui| {
+                                        ui.add(egui::TextEdit::singleline(name).desired_width(100.0));
+                                        ui.label("×");
+                                        ui.add(egui::TextEdit::singleline(amt).desired_width(60.0));
+                                        if ui.small_button("✖").clicked() {
+                                            remove_idx = Some(i);
+                                        }
+                                    });
+                                }
+                                if let Some(idx) = remove_idx {
+                                    ed.resource_costs.remove(idx);
+                                }
+                                ui.horizontal(|ui| {
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut ed.new_cost_name)
+                                            .hint_text("Resource")
+                                            .desired_width(100.0),
+                                    );
+                                    ui.label("×");
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut ed.new_cost_amount)
+                                            .hint_text("Amount")
+                                            .desired_width(60.0),
+                                    );
+                                    if ui.button("➕").clicked()
+                                        && !ed.new_cost_name.is_empty()
+                                        && !ed.new_cost_amount.is_empty()
+                                    {
+                                        ed.resource_costs.push((
+                                            std::mem::take(&mut ed.new_cost_name),
+                                            std::mem::take(&mut ed.new_cost_amount),
+                                        ));
+                                    }
+                                });
+                            });
+
+                            ui.add_space(6.0);
+
+                            // ── Maintenance Resources ──
+                            ui.label(egui::RichText::new("Maintenance Resources (per year)").strong());
+                            ui.group(|ui| {
+                                let mut remove_idx: Option<usize> = None;
+                                for (i, (name, amt)) in
+                                    ed.maintenance_resources.iter_mut().enumerate()
+                                {
+                                    ui.horizontal(|ui| {
+                                        ui.add(egui::TextEdit::singleline(name).desired_width(100.0));
+                                        ui.label("×");
+                                        ui.add(egui::TextEdit::singleline(amt).desired_width(60.0));
+                                        if ui.small_button("✖").clicked() {
+                                            remove_idx = Some(i);
+                                        }
+                                    });
+                                }
+                                if let Some(idx) = remove_idx {
+                                    ed.maintenance_resources.remove(idx);
+                                }
+                                ui.horizontal(|ui| {
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut ed.new_maint_name)
+                                            .hint_text("Resource")
+                                            .desired_width(100.0),
+                                    );
+                                    ui.label("×");
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut ed.new_maint_amount)
+                                            .hint_text("Amount")
+                                            .desired_width(60.0),
+                                    );
+                                    if ui.button("➕").clicked()
+                                        && !ed.new_maint_name.is_empty()
+                                        && !ed.new_maint_amount.is_empty()
+                                    {
+                                        ed.maintenance_resources.push((
+                                            std::mem::take(&mut ed.new_maint_name),
+                                            std::mem::take(&mut ed.new_maint_amount),
+                                        ));
+                                    }
+                                });
+                            });
+
+                            ui.add_space(6.0);
+
+                            // ── Modifiers ──
+                            ui.label(egui::RichText::new("Modifiers (operational effects)").strong());
+                            ui.group(|ui| {
+                                let mut remove_idx: Option<usize> = None;
+                                for (i, m) in ed.modifiers.iter().enumerate() {
+                                    ui.horizontal(|ui| {
+                                        ui.colored_label(theme::AMBER, format!("{}: {}", m.modifier_type, m.value));
+                                        if ui.small_button("✖").clicked() {
+                                            remove_idx = Some(i);
+                                        }
+                                    });
+                                }
+                                if let Some(idx) = remove_idx {
+                                    ed.modifiers.remove(idx);
+                                }
+                                ui.horizontal(|ui| {
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut ed.new_modifier_type)
+                                            .hint_text("ModifierType")
+                                            .desired_width(140.0),
+                                    );
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut ed.new_modifier_value)
+                                            .hint_text("Value")
+                                            .desired_width(60.0),
+                                    );
+                                    if ui.button("➕").clicked()
+                                        && !ed.new_modifier_type.is_empty()
+                                        && !ed.new_modifier_value.is_empty()
+                                    {
+                                        if let Ok(val) = ed.new_modifier_value.parse::<f64>() {
+                                            ed.modifiers.push(
+                                                crate::colony::data::BuildingModifierDef {
+                                                    modifier_type: std::mem::take(&mut ed.new_modifier_type),
+                                                    value: val,
+                                                },
+                                            );
+                                            ed.new_modifier_value.clear();
+                                        }
+                                    }
+                                });
+                            });
+
+                            ui.add_space(10.0);
+                            if ui
+                                .button(egui::RichText::new("💾 Save & Write to File").strong())
+                                .clicked()
+                            {
+                                save_clicked = true;
+                            }
+                        });
+
+                    // Apply save outside the scroll area borrow
+                    if save_clicked {
+                        let btype = ed.building_type;
+                        if let Some(def) = data.definitions.get_mut(&btype) {
+                            ed.apply_to(def);
+                            let status = save_buildings_to_file(data);
+                            edit_state.status_message = Some((status, elapsed));
+                        }
+                    }
+                } else {
+                    right.label(
+                        egui::RichText::new("Select a building from the list to edit it.")
+                            .color(theme::TEXT_DIM),
+                    );
+                }
+            });
+        });
+
+    if !open {
+        // If the user closed the window, keep edit_state open but unselected
+        // (the window will re-open on next F12 toggle)
+        edit_state.editing = None;
+    }
+}
+
+/// Serialise all building definitions back to `assets/data/buildings.ron`.
+/// Returns a human-readable status string.
+fn save_buildings_to_file(data: &BuildingsData) -> String {
+    use crate::colony::data::BuildingDefinition;
+    use serde::Serialize;
+
+    #[derive(Serialize)]
+    struct BuildingsFile<'a> {
+        buildings: Vec<&'a BuildingDefinition>,
+    }
+
+    // Sort by category then display_name for stable output
+    let mut defs: Vec<&BuildingDefinition> = data.definitions.values().collect();
+    defs.sort_by(|a, b| {
+        a.category
+            .cmp(&b.category)
+            .then_with(|| a.display_name.cmp(&b.display_name))
+    });
+
+    let file_data = BuildingsFile { buildings: defs };
+
+    let pretty = ron::ser::PrettyConfig::new()
+        .depth_limit(4)
+        .struct_names(false)
+        .enumerate_arrays(false);
+
+    match ron::ser::to_string_pretty(&file_data, pretty) {
+        Ok(contents) => {
+            let path = "assets/data/buildings.ron";
+            match std::fs::write(path, &contents) {
+                Ok(()) => format!("Saved {} buildings to {}", data.definitions.len(), path),
+                Err(e) => format!("Error writing file: {}", e),
+            }
+        }
+        Err(e) => format!("Error serialising: {}", e),
+    }
+}
+

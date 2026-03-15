@@ -137,8 +137,8 @@ impl Colony {
 
     /// Calculate base population growth rate per year.
     ///
-    /// Base growth: 1.5% per year (realistic for a developed civilisation).
-    /// Medical centres add 0.05% each, capped at +1.5% bonus.
+    /// Base growth: 0.9% per year (Earth 2026 demographic baseline).
+    /// Medical centres add up to +0.9% bonus (capped).
     /// Growth slows as housing fills. Logistics also applies.
     ///
     /// # Arguments
@@ -154,14 +154,14 @@ impl Colony {
             return 0.0;
         }
 
-        // Base growth rate: 1.5% per year (realistic for a developed civilisation).
-        // Compare: Earth 2024 ≈ 0.9%/yr; early industrial ≈ 1-2%/yr.
-        const BASE_GROWTH_RATE: f64 = 0.015;
+        // Base growth rate: 0.9%/yr — matches Earth's 2026 demographic rate.
+        // Medical centres can double this for well-served colonies.
+        const BASE_GROWTH_RATE: f64 = 0.009;
 
-        // Medical centres add 0.05% per centre, capped at +1.5% total.
-        // 30+ centres → full bonus; prevents runaway growth from large Earth fleets.
-        const MEDICAL_GROWTH_PER_CENTER: f64 = 0.0005;
-        const MAX_MEDICAL_GROWTH_BONUS: f64 = 0.015;
+        // Medical centres add 0.03% per centre, capped at +0.9% total.
+        // 30 centres → full bonus.
+        const MEDICAL_GROWTH_PER_CENTER: f64 = 0.0003;
+        const MAX_MEDICAL_GROWTH_BONUS: f64 = 0.009;
         let medical_bonus = (self.building_count(BuildingType::MedicalCenter) as f64
             * MEDICAL_GROWTH_PER_CENTER)
             .min(MAX_MEDICAL_GROWTH_BONUS);

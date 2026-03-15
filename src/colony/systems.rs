@@ -304,7 +304,8 @@ pub fn update_colony_growth(
         colony.population += base_growth * ocean_modifier;
 
         // Hard cap: population cannot exceed available housing capacity.
-        // Earth (no buildings yet) is exempt because it starts with 8.2B.
+        // Colonies without any housing buildings (housing == 0) are uncapped
+        // to allow the player time to build infrastructure for brand-new outposts.
         let housing = colony.housing_capacity();
         if housing > 0.0 {
             colony.population = colony.population.min(housing);
