@@ -93,6 +93,49 @@ pub(super) struct OpenResourcePopup {
     open: Option<(String, egui::Rect)>,
 }
 
+const CONTEXT_TILE_WIDTH: f32 = 88.0;
+const CONTEXT_TILE_HEIGHT: f32 = 28.0;
+const CONTEXT_NAME_FONT_SIZE: f32 = 11.5;
+
+fn render_context_name_marquee(ui: &mut egui::Ui, text: &str) {
+    let font_id = egui::FontId::proportional(CONTEXT_NAME_FONT_SIZE);
+    let color = theme::TEXT_VALUE;
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.to_string(), font_id.clone(), color);
+    let text_size = galley.size();
+    let row_height = text_size.y.max(12.0);
+    let available_width = ui.available_width().max(1.0);
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(available_width, row_height), egui::Sense::hover());
+    let clip = rect;
+    let painter = ui.painter().with_clip_rect(clip);
+
+    if text_size.x <= clip.width() {
+        painter.text(
+            clip.left_center(),
+            egui::Align2::LEFT_CENTER,
+            text,
+            font_id,
+            color,
+        );
+    } else {
+        let gap = 36.0_f32;
+        let cycle = text_size.x + gap;
+        let speed = 35.0_f64;
+        let t = ui.ctx().input(|i| i.time);
+        let offset_x = ((t * speed) % cycle as f64) as f32;
+        let y = clip.top() + (clip.height() - text_size.y) * 0.5;
+        let x0 = clip.left() - offset_x;
+        painter.galley(egui::pos2(x0, y), galley.clone(), color);
+        let x1 = x0 + cycle;
+        if x1 < clip.right() + text_size.x {
+            painter.galley(egui::pos2(x1, y), galley, color);
+        }
+        ui.ctx().request_repaint();
+    }
+}
+
 /// Render the resources bar at the top of the screen (above the menu)
 pub(super) fn ui_resources_bar(
     mut contexts: EguiContexts,
@@ -124,23 +167,50 @@ pub(super) fn ui_resources_bar(
     let total_population: f64 = population_query.iter().map(|(p, _, _)| p.count).sum();
 
     egui::TopBottomPanel::top("resources_bar")
-        .min_height(40.0)
+        .exact_height(40.0)
         .show(ctx, |ui| {
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                ui.add_space(10.0);
+                ui.add_space(4.0);
 
                 // Context label (e.g. "Sol System" or "All Systems")
-                ui.add(
-                    egui::Label::new(
-                        egui::RichText::new(format!("📍 {}", contextual.context_label))
-                            .size(10.0)
-                            .color(theme::TEXT_DIM),
-                    )
-                    .selectable(false),
+                ui.allocate_ui_with_layout(
+                    egui::vec2(CONTEXT_TILE_WIDTH, CONTEXT_TILE_HEIGHT),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.set_min_width(CONTEXT_TILE_WIDTH);
+                        ui.set_max_width(CONTEXT_TILE_WIDTH);
+                        ui.set_min_height(CONTEXT_TILE_HEIGHT);
+                        ui.set_max_height(CONTEXT_TILE_HEIGHT);
+                        ui.spacing_mut().item_spacing = egui::vec2(2.0, 0.0);
+                        ui.horizontal(|ui| {
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new("📍")
+                                        .size(15.0)
+                                        .color(theme::ACCENT),
+                                )
+                                .selectable(false),
+                            );
+                            ui.add_space(2.0);
+                            ui.vertical(|ui| {
+                                ui.spacing_mut().item_spacing.y = 0.0;
+                                ui.set_width((CONTEXT_TILE_WIDTH - 22.0).max(1.0));
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new("CURRENT SYSTEM")
+                                            .size(6.0)
+                                            .color(theme::TEXT_HINT),
+                                    )
+                                    .selectable(false),
+                                );
+                                render_context_name_marquee(ui, &contextual.context_label);
+                            });
+                        });
+                    },
                 );
-                ui.add_space(4.0);
+                ui.add_space(1.0);
                 ui.separator();
-                ui.add_space(4.0);
+                ui.add_space(1.0);
 
                 // Show resource categories
                 for (category_name, resources) in ResourceType::by_category() {

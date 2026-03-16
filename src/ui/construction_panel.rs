@@ -1,3 +1,4 @@
+use super::dashboard::format_mass_compact;
 use super::*;
 
 /// UI state for the construction panel (persists across frames)
@@ -350,49 +351,22 @@ fn render_construction_panel(
 
         // -- Existing buildings (collapsible) --
         if colony.total_buildings() > 0 {
-            egui::CollapsingHeader::new("Buildings")
-                .default_open(false)
+            egui::CollapsingHeader::new(
+                egui::RichText::new(format!("Buildings ({})", colony.total_buildings()))
+                    .strong(),
+            )
+                .default_open(true)
                 .show(ui, |ui| {
-                    for category in BuildingCategory::all() {
-                        let buildings_in_cat: Vec<_> = category
-                            .buildings()
-                            .iter()
-                            .filter(|b| colony.building_count(**b) > 0)
-                            .map(|b| (*b, colony.building_count(*b)))
-                            .collect();
+                    ui.label(
+                        egui::RichText::new(
+                            "Grouped by role. Cards show active count, staffing, throughput, and upkeep.",
+                        )
+                        .size(11.0)
+                        .color(theme::TEXT_DIM),
+                    );
+                    ui.add_space(6.0);
 
-                        if !buildings_in_cat.is_empty() {
-                            ui.label(
-                                egui::RichText::new(category.display_name())
-                                    .size(12.0)
-                                    .strong(),
-                            );
-                            for (building, count) in buildings_in_cat {
-                                let workers = building.workforce_required() * count;
-                                let mut label_text = format!(
-                                    "  {} {} x {} (workers: {})",
-                                    building.icon(),
-                                    building.display_name(),
-                                    count,
-                                    workers
-                                );
-                                if let Some(data) = buildings_data {
-                                    let maint = data.maintenance_resources(&building);
-                                    if !maint.is_empty() {
-                                        let maint_str: Vec<_> = maint
-                                            .iter()
-                                            .map(|(r, a)| {
-                                                format!("{:.1} {}/yr", a * count as f64, r)
-                                            })
-                                            .collect();
-                                        label_text +=
-                                            &format!(" [maint: {}]", maint_str.join(", "));
-                                    }
-                                }
-                                ui.label(&label_text);
-                            }
-                        }
-                    }
+                    render_existing_buildings_section(ui, colony, buildings_data);
                 });
         }
 
@@ -567,11 +541,23 @@ fn render_construction_panel(
                 )
                 .default_open(true)
                 .show(ui, |ui| {
-                    let chunks: Vec<&[BuildingType]> = available.chunks(3).collect();
-                    for chunk in chunks {
-                        let card_width = (ui.available_width() - 24.0) / 3.0;
-                        ui.columns(3, |cols| {
-                            for (i, building) in chunk.iter().enumerate() {
+                    let column_count = build_card_columns(ui.available_width());
+                    let spacing = 16.0;
+                    let available_width = ui.available_width();
+                    let card_width = if column_count == 1 {
+                        available_width.min(BUILDING_CARD_WIDTH)
+                    } else {
+                        ((available_width - spacing * (column_count.saturating_sub(1) as f32))
+                            / column_count as f32)
+                            .min(BUILDING_CARD_WIDTH)
+                    };
+
+                    let old_spacing = ui.spacing().item_spacing;
+                    ui.spacing_mut().item_spacing = egui::vec2(spacing, 10.0);
+
+                    for chunk in available.chunks(column_count) {
+                        ui.horizontal_top(|ui| {
+                            for building in chunk {
                                 let costs = buildings_data
                                     .map(|d| d.resource_costs(building))
                                     .unwrap_or(&[]);
@@ -579,23 +565,35 @@ fn render_construction_panel(
                                     || costs.is_empty()
                                     || can_afford_resources_multiplied(contextual, costs, multiplier);
 
-                                render_building_card(
-                                    &mut cols[i],
-                                    *building,
-                                    multiplier,
-                                    *colony_entity,
-                                    costs,
-                                    contextual,
-                                    bp_rate,
-                                    can_afford,
-                                    construction_actions,
-                                    card_width,
-                                    buildings_data,
+                                ui.allocate_ui_with_layout(
+                                    egui::vec2(card_width, BUILDING_CARD_MIN_HEIGHT),
+                                    egui::Layout::top_down(egui::Align::Min),
+                                    |ui| {
+                                        render_building_card(
+                                            ui,
+                                            *building,
+                                            multiplier,
+                                            *colony_entity,
+                                            costs,
+                                            contextual,
+                                            bp_rate,
+                                            can_afford,
+                                            construction_actions,
+                                            card_width,
+                                            buildings_data,
+                                        );
+                                    },
                                 );
                             }
+
+                            for _ in chunk.len()..column_count {
+                                ui.allocate_space(egui::vec2(card_width, BUILDING_CARD_MIN_HEIGHT));
+                            }
                         });
-                        ui.add_space(4.0);
+                        ui.add_space(10.0);
                     }
+
+                    ui.spacing_mut().item_spacing = old_spacing;
                 });
 
                 ui.add_space(2.0);
@@ -666,11 +664,490 @@ fn can_afford_resources_multiplied(
     true
 }
 
+const EXISTING_BUILDING_CARD_WIDTH: f32 = 280.0;
+const EXISTING_BUILDING_CARD_MIN_HEIGHT: f32 = 84.0;
+const BUILDING_CARD_WIDTH: f32 = 300.0;
+
+fn build_card_columns(available_width: f32) -> usize {
+    if available_width >= 1280.0 {
+        4
+    } else if available_width >= 920.0 {
+        3
+    } else if available_width >= 620.0 {
+        2
+    } else {
+        1
+    }
+}
+
+fn render_existing_buildings_section(
+    ui: &mut egui::Ui,
+    colony: &Colony,
+    buildings_data: Option<&BuildingsData>,
+) {
+    for &category in BuildingCategory::all() {
+        let mut buildings_in_category: Vec<_> = category
+            .buildings()
+            .into_iter()
+            .filter_map(|building| {
+                let count = colony.building_count(building);
+                (count > 0).then_some((building, count))
+            })
+            .collect();
+
+        buildings_in_category.sort_by(|(left_building, left_count), (right_building, right_count)| {
+            right_count
+                .cmp(left_count)
+                .then_with(|| left_building.display_name().cmp(right_building.display_name()))
+        });
+
+        if buildings_in_category.is_empty() {
+            continue;
+        }
+
+        let total_instances: u64 = buildings_in_category
+            .iter()
+            .map(|(_, count)| *count as u64)
+            .sum();
+        let total_workers: u64 = buildings_in_category
+            .iter()
+            .map(|(building, count)| building.workforce_required() as u64 * *count as u64)
+            .sum();
+
+        ui.group(|ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(category.display_name())
+                        .size(12.5)
+                        .strong()
+                        .color(building_category_color(category)),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{} workers",
+                            format_grouped_u64(total_workers)
+                        ))
+                        .size(10.5)
+                        .color(theme::TEXT_HINT),
+                    );
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{} buildings",
+                            format_grouped_u64(total_instances)
+                        ))
+                        .size(10.5)
+                        .color(theme::TEXT_DIM),
+                    );
+                });
+            });
+
+            ui.label(
+                egui::RichText::new(format!(
+                    "{} active types",
+                    format_grouped_u64(buildings_in_category.len() as u64)
+                ))
+                .size(10.0)
+                .color(theme::TEXT_HINT),
+            );
+            ui.add_space(4.0);
+
+            let card_spacing = 8.0;
+            let available_width = ui.available_width().max(220.0);
+            let column_count = build_card_columns(available_width).min(4);
+            let total_spacing = card_spacing * column_count.saturating_sub(1) as f32;
+            let card_width = ((available_width - total_spacing - 4.0) / column_count as f32)
+                .clamp(220.0, EXISTING_BUILDING_CARD_WIDTH);
+
+            for chunk in buildings_in_category.chunks(column_count) {
+                ui.horizontal_top(|ui| {
+                    ui.spacing_mut().item_spacing = egui::vec2(card_spacing, card_spacing);
+
+                    for (building, count) in chunk {
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(card_width, EXISTING_BUILDING_CARD_MIN_HEIGHT),
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| {
+                                render_existing_building_card(
+                                    ui,
+                                    *building,
+                                    *count,
+                                    card_width,
+                                    buildings_data,
+                                );
+                            },
+                        );
+                    }
+
+                    for _ in chunk.len()..column_count {
+                        ui.allocate_space(egui::vec2(card_width, EXISTING_BUILDING_CARD_MIN_HEIGHT));
+                    }
+                });
+                ui.add_space(card_spacing);
+            }
+        });
+
+        ui.add_space(6.0);
+    }
+}
+
+fn render_existing_building_card(
+    ui: &mut egui::Ui,
+    building: BuildingType,
+    count: u32,
+    card_width: f32,
+    buildings_data: Option<&BuildingsData>,
+) {
+    let definition = buildings_data.and_then(|data| data.get(&building));
+    let display_name = definition
+        .map(|def| def.display_name.as_str())
+        .unwrap_or(building.display_name());
+    let description = definition
+        .map(|def| def.description.as_str())
+        .unwrap_or(building.description());
+    let icon = definition
+        .map(|def| def.icon.as_str())
+        .unwrap_or(building.icon());
+    let workers = building.workforce_required() as u64 * count as u64;
+
+    let operational_entries = operational_stat_entries(building, count, definition);
+    let upkeep_entries = maintenance_entries(count, definition);
+    let operations_summary = summarize_card_entries(&operational_entries, 1);
+    let upkeep_summary = summarize_card_entries(&upkeep_entries, 2);
+
+    let response = ui.group(|ui| {
+        let target_width = card_width.max(220.0);
+        ui.set_min_width(target_width);
+        ui.set_max_width(target_width);
+        ui.set_min_height(EXISTING_BUILDING_CARD_MIN_HEIGHT);
+
+        ui.horizontal_top(|ui| {
+            ui.label(egui::RichText::new(icon).size(18.0));
+            ui.vertical(|ui| {
+                ui.label(egui::RichText::new(display_name).strong().size(11.5));
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(description)
+                            .size(9.25)
+                            .color(theme::TEXT_DIM),
+                    )
+                    .truncate(),
+                );
+            });
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                ui.label(
+                    egui::RichText::new(format!("×{}", format_grouped_u64(count as u64)))
+                        .size(11.0)
+                        .strong()
+                        .color(theme::GOLD),
+                );
+            });
+        });
+
+        ui.add_space(4.0);
+        render_existing_building_summary_row(
+            ui,
+            "Staff",
+            &format_compact_u64(workers),
+            theme::TEXT_VALUE,
+        );
+
+        if let Some((summary, color)) = operations_summary.as_ref() {
+            render_existing_building_summary_row(ui, "Ops", summary, *color);
+        }
+
+        if let Some((summary, color)) = upkeep_summary.as_ref() {
+            render_existing_building_summary_row(ui, "Upkeep", summary, *color);
+        } else {
+            render_existing_building_summary_row(ui, "Upkeep", "None", theme::TEXT_HINT);
+        }
+    });
+
+    response.response.on_hover_ui(|ui| {
+        ui.label(egui::RichText::new(display_name).strong());
+        ui.label(
+            egui::RichText::new(format!(
+                "Count: {}   Workforce: {}",
+                format_grouped_u64(count as u64),
+                format_grouped_u64(workers)
+            ))
+            .size(10.5)
+            .color(theme::TEXT_DIM),
+        );
+
+        if !operational_entries.is_empty() {
+            ui.separator();
+            ui.label(egui::RichText::new("Operations").strong().size(10.5));
+            for (text, color) in &operational_entries {
+                ui.label(egui::RichText::new(text).size(10.0).color(*color));
+            }
+        }
+
+        if !upkeep_entries.is_empty() {
+            ui.separator();
+            ui.label(egui::RichText::new("Upkeep / yr").strong().size(10.5));
+            for (text, color) in &upkeep_entries {
+                ui.label(egui::RichText::new(text).size(10.0).color(*color));
+            }
+        }
+    });
+}
+
+fn render_existing_building_summary_row(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: &str,
+    value_color: egui::Color32,
+) {
+    ui.horizontal(|ui| {
+        ui.add_sized(
+            [38.0, 14.0],
+            egui::Label::new(
+                egui::RichText::new(label)
+                    .size(9.25)
+                    .color(theme::TEXT_HINT),
+            ),
+        );
+        ui.add_space(4.0);
+        let value_width = ui.available_width().max(0.0);
+        ui.allocate_ui_with_layout(
+            egui::vec2(value_width, 14.0),
+            egui::Layout::left_to_right(egui::Align::Min),
+            |ui| {
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(value)
+                            .size(9.5)
+                            .color(value_color),
+                    )
+                    .truncate(),
+                );
+            },
+        );
+    });
+}
+
+fn summarize_card_entries(
+    entries: &[(String, egui::Color32)],
+    max_entries: usize,
+) -> Option<(String, egui::Color32)> {
+    if entries.is_empty() {
+        return None;
+    }
+
+    let max_entries = max_entries.max(1);
+    let mut summary = entries
+        .iter()
+        .take(max_entries)
+        .map(|(text, _)| abbreviate_card_summary(text))
+        .collect::<Vec<_>>()
+        .join(" | ");
+    if entries.len() > max_entries {
+        summary.push_str(&format!(" +{}", entries.len() - max_entries));
+    }
+
+    Some((summary, entries[0].1))
+}
+
+fn abbreviate_card_summary(text: &str) -> String {
+    text.replace(" mining output", " mining")
+        .replace(" deep mining output", " deep mining")
+        .replace(" bulk mining output", " bulk mining")
+        .replace(" atmospheric harvest", " atmo")
+        .replace(" chemical processing/yr", " chem/yr")
+        .replace(" power output", " power")
+        .replace(" research speed", " research")
+        .replace(" engineering speed", " engineering")
+        .replace(" population growth", " pop")
+        .replace(" construction costs", " build cost")
+        .replace(" stockpile capacity", " capacity")
+}
+
+fn building_category_color(category: BuildingCategory) -> egui::Color32 {
+    match category {
+        BuildingCategory::Infrastructure => theme::ACCENT,
+        BuildingCategory::Industry => theme::CAT_CONSTRUCTION,
+        BuildingCategory::Logistics => theme::AMBER,
+        BuildingCategory::Power => theme::GOLD,
+        BuildingCategory::Population => theme::GREEN,
+        BuildingCategory::Research => theme::RP_BLUE,
+        BuildingCategory::Financial => theme::EP_TEAL,
+        BuildingCategory::Military => theme::RED,
+    }
+}
+
+fn format_grouped_u64(value: u64) -> String {
+    let digits = value.to_string();
+    let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
+
+    for (index, ch) in digits.chars().rev().enumerate() {
+        if index > 0 && index % 3 == 0 {
+            grouped.push(',');
+        }
+        grouped.push(ch);
+    }
+
+    grouped.chars().rev().collect()
+}
+
+fn format_compact_u64(value: u64) -> String {
+    if value >= 1_000_000_000 {
+        format!("{:.1}B", value as f64 / 1_000_000_000.0)
+    } else if value >= 1_000_000 {
+        format!("{:.1}M", value as f64 / 1_000_000.0)
+    } else if value >= 1_000 {
+        format!("{:.1}k", value as f64 / 1_000.0)
+    } else {
+        value.to_string()
+    }
+}
+
 /// Minimum card height for construction building cards.
 /// Tall enough for: icon+name (1 row), description (1 line), separator,
 /// stats (1 row), build-time (1 row), effects (up to 2 lines), separator,
 /// cost rows in 2-column pairs (up to 3 pairs), Queue button.
-const BUILDING_CARD_MIN_HEIGHT: f32 = 230.0;
+const BUILDING_CARD_MIN_HEIGHT: f32 = 168.0;
+
+fn format_card_scalar(value: f64) -> String {
+    if (value.fract()).abs() < 0.01 {
+        format!("{value:.0}")
+    } else {
+        format!("{value:.2}").trim_end_matches('0').trim_end_matches('.').to_string()
+    }
+}
+
+fn operational_stat_entries(
+    building: BuildingType,
+    multiplier: u32,
+    definition: Option<&crate::colony::BuildingDefinition>,
+) -> Vec<(String, egui::Color32)> {
+    let multiplier = multiplier as f64;
+    let mut entries = Vec::new();
+
+    if matches!(building, BuildingType::Factory) {
+        entries.push((
+            format!("+{} BP/yr construction speed", format_card_scalar(10.0 * multiplier)),
+            theme::GREEN,
+        ));
+    }
+
+    if let Some(definition) = definition {
+        for modifier in &definition.modifiers {
+            let total = modifier.value * multiplier;
+            let entry = match modifier.modifier_type.as_str() {
+                "MiningEfficiency" => Some((
+                    format!("+{}% mining output", format_card_scalar(total)),
+                    theme::GREEN,
+                )),
+                "DeepMiningEfficiency" => Some((
+                    format!("+{}% deep mining output", format_card_scalar(total)),
+                    theme::GREEN,
+                )),
+                "BulkMiningEfficiency" => Some((
+                    format!("+{}% bulk mining output", format_card_scalar(total)),
+                    theme::GREEN,
+                )),
+                "AtmosphericHarvesting" => Some((
+                    format!("+{}/yr atmospheric harvest", format_mass_compact(total)),
+                    theme::GREEN,
+                )),
+                "ChemicalProcessing" => Some((
+                    format!("+{} chemical processing/yr", format_card_scalar(total)),
+                    theme::GREEN,
+                )),
+                "PowerGeneration" => Some((
+                    format!("+{} GW power output", format_card_scalar(total)),
+                    theme::GREEN,
+                )),
+                "ResearchSpeed" => Some((
+                    format!("+{}% research speed", format_card_scalar(total)),
+                    theme::GREEN,
+                )),
+                "EngineeringSpeed" => Some((
+                    format!("+{}% engineering speed", format_card_scalar(total)),
+                    theme::GREEN,
+                )),
+                "PopulationGrowth" => Some((
+                    format!("+{}% population growth", format_card_scalar(total)),
+                    theme::GREEN,
+                )),
+                "ConstructionCost" => {
+                    let color = if total <= 0.0 { theme::GREEN } else { theme::RED };
+                    Some((
+                        format!("{:+}% construction costs", total.round()),
+                        color,
+                    ))
+                }
+                "StorageCapacity" => Some((
+                    format!("+{}% stockpile capacity", format_card_scalar(total * 100.0)),
+                    theme::GREEN,
+                )),
+                _ => None,
+            };
+
+            if let Some(entry) = entry {
+                entries.push(entry);
+            }
+        }
+    }
+
+    if entries.is_empty() {
+        entries.extend(
+            building
+                .effects_summary()
+                .iter()
+                .map(|line| ((*line).to_string(), theme::GREEN)),
+        );
+    }
+
+    entries
+}
+
+fn maintenance_entries(
+    multiplier: u32,
+    definition: Option<&crate::colony::BuildingDefinition>,
+) -> Vec<(String, egui::Color32)> {
+    definition
+        .map(|definition| {
+            definition
+                .maintenance_resources
+                .iter()
+                .map(|(resource, amount)| {
+                    let total = amount * multiplier as f64;
+                    let icon = crate::colony::data::parse_resource_type(resource)
+                        .as_ref()
+                        .map(super::resources_bar::get_resource_icon)
+                        .unwrap_or("?");
+                    (
+                        format!("{} {} {}/yr", icon, resource, format_mass_compact(total)),
+                        theme::AMBER,
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn summarize_construction_card_entries(
+    entries: &[(String, egui::Color32)],
+    max_entries: usize,
+) -> Option<(String, egui::Color32)> {
+    if entries.is_empty() {
+        return None;
+    }
+
+    let mut summary = entries
+        .iter()
+        .take(max_entries.max(1))
+        .map(|(text, _)| abbreviate_card_summary(text))
+        .collect::<Vec<_>>()
+        .join(" | ");
+    if entries.len() > max_entries.max(1) {
+        summary.push_str(&format!(" +{}", entries.len() - max_entries.max(1)));
+    }
+
+    Some((summary, entries[0].1))
+}
 
 fn render_building_card(
     ui: &mut egui::Ui,
@@ -682,21 +1159,24 @@ fn render_building_card(
     bp_rate: f64,
     can_afford: bool,
     construction_actions: &mut PendingConstructionActions,
-    _card_width: f32,
+    card_width: f32,
     buildings_data: Option<&crate::colony::BuildingsData>,
 ) {
     let total_bp = building.build_cost() * multiplier as f64;
     let years_to_build = if bp_rate > 0.0 { total_bp / bp_rate } else { f64::INFINITY };
+    let definition = buildings_data.and_then(|data| data.get(&building));
+    let operational_entries = operational_stat_entries(building, multiplier, definition);
+    let maintenance_entries = maintenance_entries(multiplier, definition);
+    let operations_summary = summarize_construction_card_entries(&operational_entries, 1);
+    let upkeep_summary = summarize_construction_card_entries(&maintenance_entries, 2);
 
     // Power demand from data file
-    let power_demand_mw = buildings_data
-        .and_then(|d| d.get(&building))
-        .map(|def| def.power_demand_mw)
-        .unwrap_or(0.0)
-        * multiplier as f64;
+    let power_demand_mw = definition.map(|def| def.power_demand_mw).unwrap_or(0.0) * multiplier as f64;
 
     ui.group(|ui| {
-        ui.set_min_width(170.0);
+        let target_width = card_width;
+        ui.set_min_width(target_width);
+        ui.set_max_width(target_width);
         ui.set_min_height(BUILDING_CARD_MIN_HEIGHT);
 
         // ── Header: icon + name + description (max 2 lines) ──────────────
@@ -708,10 +1188,9 @@ fn render_building_card(
                 ui.add(
                     egui::Label::new(
                         egui::RichText::new(building.description())
-                            .small()
+                            .size(9.0)
                             .color(theme::TEXT_DIM),
                     )
-                    .wrap()
                     .truncate(),
                 );
             });
@@ -722,13 +1201,13 @@ fn render_building_card(
         // ── Build stats ───────────────────────────────────────────────────
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(format!("{:.0} BP", total_bp)).size(10.0));
-            ui.separator();
+            ui.label(egui::RichText::new("|").size(9.0).color(theme::TEXT_DIM));
             ui.label(
                 egui::RichText::new(format!("👷 {}", building.workforce_required() * multiplier))
                     .size(10.0),
             );
             if power_demand_mw > 0.0 {
-                ui.separator();
+                ui.label(egui::RichText::new("|").size(9.0).color(theme::TEXT_DIM));
                 let power_str = if power_demand_mw >= 1000.0 {
                     format!("⚡ {:.1} GW", power_demand_mw / 1000.0)
                 } else {
@@ -749,28 +1228,28 @@ fn render_building_card(
         ui.label(egui::RichText::new(&time_str).size(10.0).color(theme::AMBER));
 
         // ── Effect lines ─────────────────────────────────────────────────
-        let effects = building.effects_summary();
-        if !effects.is_empty() {
+        if let Some((summary, color)) = operations_summary {
             ui.separator();
-            for line in effects {
-                ui.label(
-                    egui::RichText::new(format!("▸ {}", line))
-                        .size(10.0)
-                        .color(theme::GREEN),
-                );
-            }
+            ui.add(
+                egui::Label::new(egui::RichText::new(summary).size(9.5).color(color)).truncate(),
+            );
         }
 
-        // ── Resource costs in compact 2-per-row pairs ────────────────────
+        if let Some((summary, color)) = upkeep_summary {
+            ui.add(
+                egui::Label::new(egui::RichText::new(summary).size(9.25).color(color)).truncate(),
+            );
+        }
+
+        // ── Resource costs ────────────────────────────────────────────────
         ui.separator();
         if costs.is_empty() {
             ui.label(
                 egui::RichText::new("No materials required")
-                    .size(10.0)
+                    .size(9.25)
                     .color(theme::TEXT_DIM),
             );
         } else {
-            // Collect formatted cost entries
             let cost_entries: Vec<(String, egui::Color32)> = costs
                 .iter()
                 .map(|(r, a)| {
@@ -783,25 +1262,35 @@ fn render_building_card(
                         .as_ref()
                         .map(|rt| super::resources_bar::get_resource_icon(rt))
                         .unwrap_or("?");
-                    let need_str = format_compact(total_needed);
-                    let avail_str = format_compact(available);
+                    let need_str = format_mass_compact(total_needed);
+                    let avail_str = format_mass_compact(available);
                     (format!("{} {} {}/{}", icon, r, need_str, avail_str), color)
                 })
                 .collect();
 
-            // Render 2 costs per row to keep cards uniform height
-            for pair in cost_entries.chunks(2) {
-                ui.horizontal(|ui| {
-                    for (text, color) in pair {
-                        ui.label(egui::RichText::new(text).size(9.5).color(*color));
-                        ui.add_space(4.0);
-                    }
-                });
-            }
+            let summary = cost_entries
+                .iter()
+                .take(2)
+                .map(|(text, _)| text.as_str())
+                .collect::<Vec<_>>()
+                .join(" | ");
+            let summary_color = if cost_entries.iter().take(2).all(|(_, color)| *color == theme::GREEN) {
+                theme::GREEN
+            } else {
+                theme::RED
+            };
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(summary).size(9.25).color(summary_color),
+                )
+                .truncate(),
+            );
         }
 
-        // ── Queue button (pinned to bottom) ───────────────────────────────
-        ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
+        ui.add_space(4.0);
+
+        // ── Queue button ───────────────────────────────────────────────────
+        ui.horizontal_centered(|ui| {
             let btn_text = if multiplier == 1 {
                 "Queue".to_string()
             } else {
@@ -854,82 +1343,122 @@ fn render_minimum_stockpile_editor(
             );
             ui.add_space(4.0);
 
-            egui::Grid::new("min_stockpile_grid")
-                .num_columns(3)
-                .striped(true)
-                .show(ui, |ui| {
-                    ui.label(egui::RichText::new("Resource").strong().size(11.0));
-                    ui.label(egui::RichText::new("Min (Mt)").strong().size(11.0));
-                    ui.label(egui::RichText::new("").size(11.0));
-                    ui.end_row();
+            let categories = ResourceType::by_category();
+            let column_count = if ui.available_width() >= 1080.0 {
+                3
+            } else if ui.available_width() >= 720.0 {
+                2
+            } else {
+                1
+            };
 
-                    let all_resources: &[ResourceType] = &[
-                        ResourceType::Iron,
-                        ResourceType::Silicates,
-                        ResourceType::Aluminum,
-                        ResourceType::Copper,
-                        ResourceType::Titanium,
-                        ResourceType::Nickel,
-                        ResourceType::Polymers,
-                        ResourceType::Water,
-                        ResourceType::Food,
-                        ResourceType::Hydrogen,
-                        ResourceType::Oxygen,
-                        ResourceType::Nitrogen,
-                        ResourceType::Uranium,
-                        ResourceType::Helium3,
-                    ];
+            let mut columns: Vec<Vec<(&'static str, Vec<ResourceType>)>> =
+                (0..column_count).map(|_| Vec::new()).collect();
+            let mut column_loads = vec![0usize; column_count];
 
-                    for &resource in all_resources {
-                        let current = minimum.get(&resource);
-                        let has_threshold = current > 0.0;
+            for category in categories {
+                let next_column = column_loads
+                    .iter()
+                    .enumerate()
+                    .min_by_key(|(_, load)| **load)
+                    .map(|(index, _)| index)
+                    .unwrap_or(0);
+                column_loads[next_column] += category.1.len() + 1;
+                columns[next_column].push(category);
+            }
 
-                        let label_text = format!("{resource:?}");
-                        ui.label(egui::RichText::new(&label_text).size(11.0));
-
-                        let mut val_str = if has_threshold {
-                            format!("{current:.1}")
-                        } else {
-                            String::new()
-                        };
-
-                        let text_edit = egui::TextEdit::singleline(&mut val_str)
-                            .desired_width(80.0)
-                            .hint_text("—");
-                        if ui.add(text_edit).changed() {
-                            if val_str.is_empty() {
-                                minimum.clear(&resource);
-                            } else if let Ok(v) = val_str.parse::<f64>() {
-                                minimum.set(resource, v);
-                            }
-                        }
-
-                        if has_threshold {
-                            if ui
-                                .small_button("✕")
-                                .on_hover_text("Clear minimum threshold")
-                                .clicked()
-                            {
-                                minimum.clear(&resource);
-                            }
-                        } else {
-                            ui.label(""); // spacer
-                        }
-                        ui.end_row();
+            ui.columns(column_count, |ui_columns| {
+                for (column_ui, groups) in ui_columns.iter_mut().zip(columns.into_iter()) {
+                    for (category_name, resources) in groups {
+                        render_minimum_stockpile_group(
+                            column_ui,
+                            category_name,
+                            &resources,
+                            &mut minimum,
+                        );
+                        column_ui.add_space(8.0);
                     }
-                });
+                }
+            });
         });
 }
 
-/// Compact number formatter: 1500 → "1.5k", 1_000_000 → "1.0M"
-fn format_compact(v: f64) -> String {
-    if v >= 1_000_000.0 {
-        format!("{:.1}M", v / 1_000_000.0)
-    } else if v >= 1_000.0 {
-        format!("{:.1}k", v / 1_000.0)
-    } else {
-        format!("{:.0}", v)
-    }
+fn render_minimum_stockpile_group(
+    ui: &mut egui::Ui,
+    category_name: &str,
+    resources: &[crate::economy::types::ResourceType],
+    minimum: &mut crate::economy::MinimumStockpile,
+) {
+    ui.group(|ui| {
+        ui.set_width(ui.available_width());
+        ui.label(
+            egui::RichText::new(category_name)
+                .strong()
+                .size(11.5)
+                .color(theme::category_color(category_name)),
+        );
+        ui.add_space(4.0);
+
+        egui::Grid::new(format!("min_stockpile_grid_{category_name}"))
+            .num_columns(3)
+            .striped(true)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new("Resource").strong().size(10.5));
+                ui.label(egui::RichText::new("Min (Mt)").strong().size(10.5));
+                ui.label(egui::RichText::new("").size(10.5));
+                ui.end_row();
+
+                for &resource in resources {
+                    let current = minimum.get(&resource);
+                    let has_threshold = current > 0.0;
+
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{} {}",
+                            super::resources_bar::get_resource_icon(&resource),
+                            resource.display_name()
+                        ))
+                        .size(11.0),
+                    );
+
+                    let mut value_text = if has_threshold {
+                        format!("{current:.1}")
+                    } else {
+                        String::new()
+                    };
+
+                    let text_edit = egui::TextEdit::singleline(&mut value_text)
+                        .desired_width(72.0)
+                        .hint_text("—");
+                    if ui.add(text_edit).changed() {
+                        let trimmed = value_text.trim();
+                        if trimmed.is_empty() {
+                            minimum.clear(&resource);
+                        } else if let Ok(value) = trimmed.parse::<f64>() {
+                            if value > 0.0 {
+                                minimum.set(resource, value);
+                            } else {
+                                minimum.clear(&resource);
+                            }
+                        }
+                    }
+
+                    if has_threshold {
+                        if ui
+                            .small_button("✕")
+                            .on_hover_text("Clear minimum threshold")
+                            .clicked()
+                        {
+                            minimum.clear(&resource);
+                        }
+                    } else {
+                        ui.label("");
+                    }
+                    ui.end_row();
+                }
+            });
+    });
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
