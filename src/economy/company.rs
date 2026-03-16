@@ -334,11 +334,11 @@ pub fn update_company_fleets(
             .unwrap_or(1.0);
         let payment = compute_payment(req.in_transit_mt, distance_au, req.priority);
 
-        // Deduct payment from player treasury and credit company.
-        if budget.treasury >= payment {
-            budget.treasury -= payment;
-        }
-        company.complete_delivery(payment);
+        // Deduct payment from player treasury (clamped to available funds so
+        // treasury never goes negative) and credit the company with what was paid.
+        let actual_payment = payment.min(budget.treasury.max(0.0));
+        budget.treasury -= actual_payment;
+        company.complete_delivery(actual_payment);
         req.payment_made = true;
     }
 

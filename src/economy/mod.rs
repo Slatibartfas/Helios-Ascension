@@ -70,7 +70,9 @@ impl Plugin for EconomyPlugin {
                     // Context-aware aggregation: must run after mining/production
                     update_contextual_stockpile.after(extract_resources),
                     // Logistics: check minimums → company AI → deliver → return freighters
-                    check_minimum_stockpile_requests,
+                    // check_minimum_stockpile_requests must run after extraction/drains
+                    // so it reads up-to-date stockpile values.
+                    check_minimum_stockpile_requests.after(extract_resources),
                     company::process_company_ai.after(check_minimum_stockpile_requests),
                     complete_deliveries.after(company::process_company_ai),
                     company::update_company_fleets.after(complete_deliveries),

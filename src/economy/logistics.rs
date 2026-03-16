@@ -114,6 +114,9 @@ pub struct ResourceRequest {
     pub linked_project: Option<Entity>,
     /// True once the company has been paid for this delivery (prevents double-payment).
     pub payment_made: bool,
+    /// SimulationTime (seconds) when this request transitioned to Delivered or Expired.
+    /// `None` while the request is still open.
+    pub completed_at_seconds: Option<f64>,
 }
 
 impl ResourceRequest {
@@ -172,11 +175,17 @@ impl PendingResourceRequests {
         self.requests.iter_mut().find(|r| r.id == id)
     }
 
-    /// Remove delivered/expired requests older than `HISTORY_KEEP_S`.
+    /// Remove delivered/expired requests once their *completion* is older than `HISTORY_KEEP_S`.
+    ///
+    /// Using `completed_at_seconds` (not `created_at_seconds`) ensures that long-haul
+    /// requests are not immediately evicted from history just because they were created
+    /// more than 30 days ago.
     pub fn prune(&mut self, current_sim_seconds: f64) {
         self.requests.retain(|r| {
             r.is_open()
-                || (current_sim_seconds - r.created_at_seconds) < HISTORY_KEEP_S
+                || r.completed_at_seconds
+                    .map(|t| (current_sim_seconds - t) < HISTORY_KEEP_S)
+                    .unwrap_or(true) // keep if completed_at not set yet (shouldn't happen)
         });
     }
 
@@ -273,6 +282,7 @@ pub fn check_minimum_stockpile_requests(
                 source_body: None,
                 linked_project: None,
                 payment_made: false,
+                completed_at_seconds: None,
             });
 
             debug!(
@@ -287,9 +297,9 @@ pub fn check_minimum_stockpile_requests(
 ///
 /// For each `InTransit` request whose `eta_seconds ≤ now`:
 /// 1. Transfer `in_transit_mt` of the resource to the destination `LocalStockpile`.
-/// 2. Pay the assigned shipping company from the player treasury.
-/// 3. Mark the request as `Delivered`.
-/// 4. If a `ConstructionProject` is linked, unblock it (`awaiting_resources = false`).
+/// 2. Mark the request as `Delivered` and record `completed_at_seconds`.
+/// 3. If a `ConstructionProject` is linked **and** all other requests for that same
+///    project are also now delivered, unblock construction (`awaiting_resources = false`).
 ///
 /// Falls back to the `GlobalBudget` stockpile if no destination `LocalStockpile`
 /// component exists (should not happen in normal gameplay).
@@ -301,6 +311,10 @@ pub fn complete_deliveries(
     sim_time: Res<SimulationTime>,
 ) {
     let now = sim_time.elapsed_seconds();
+
+    // Pass 1: deliver resources and collect candidate project entities to unblock.
+    // We track (proj_entity, destination_name, resource, delivered_mt) for logging.
+    let mut delivered_for_project: Vec<(Entity, String, ResourceType, f64)> = Vec::new();
 
     for req in requests.requests.iter_mut() {
         if req.state != RequestState::InTransit {
@@ -325,23 +339,49 @@ pub fn complete_deliveries(
         };
 
         req.state = RequestState::Delivered;
+        req.completed_at_seconds = Some(now);
 
-        // Unblock linked construction project.
         if let Some(proj_entity) = req.linked_project {
-            if let Ok(mut project) = projects.get_mut(proj_entity) {
-                if project.awaiting_resources {
-                    project.awaiting_resources = false;
-                    info!(
-                        "Delivery complete: {:?} {:.1} Mt → {} — construction unblocked",
-                        req.resource, delivered, req.destination_name
-                    );
-                }
-            }
+            delivered_for_project.push((
+                proj_entity,
+                req.destination_name.clone(),
+                req.resource,
+                delivered,
+            ));
         } else {
             info!(
                 "Delivery complete: {:?} {:.1} Mt → {}",
                 req.resource, delivered, req.destination_name
             );
+        }
+    }
+
+    // Pass 2: for each candidate project, check whether ALL linked requests have
+    // now been fulfilled. Only unblock when there are no remaining open requests
+    // for the same project.
+    for (proj_entity, dest_name, resource, delivered) in delivered_for_project {
+        let still_waiting = requests
+            .requests
+            .iter()
+            .any(|r| r.linked_project == Some(proj_entity) && r.is_open());
+
+        if still_waiting {
+            info!(
+                "Partial delivery: {:?} {:.1} Mt → {} — still waiting for other resources",
+                resource, delivered, dest_name
+            );
+            continue;
+        }
+
+        // All requests satisfied — unblock the project.
+        if let Ok(mut project) = projects.get_mut(proj_entity) {
+            if project.awaiting_resources {
+                project.awaiting_resources = false;
+                info!(
+                    "All deliveries complete for {} — construction unblocked",
+                    dest_name
+                );
+            }
         }
     }
 }
@@ -406,6 +446,7 @@ mod tests {
             source_body: None,
             linked_project: None,
                 payment_made: false,
+                completed_at_seconds: None,
         });
 
         assert_eq!(id, 0);
@@ -436,6 +477,7 @@ mod tests {
             source_body: None,
             linked_project: None,
                 payment_made: false,
+                completed_at_seconds: None,
         });
 
         assert!(pool.has_open_request_for(entity, ResourceType::Iron));
@@ -464,6 +506,7 @@ mod tests {
             source_body: None,
             linked_project: None,
                 payment_made: false,
+                completed_at_seconds: None,
         });
 
         // current_sim_seconds much larger than HISTORY_KEEP_S → should be pruned

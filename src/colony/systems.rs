@@ -115,7 +115,6 @@ pub fn process_construction_actions(
     mut commands: Commands,
     mut actions: ResMut<PendingConstructionActions>,
     mut colonies: Query<&mut Colony>,
-    _budget: ResMut<crate::economy::GlobalBudget>,
     buildings_data: Option<Res<BuildingsData>>,
     debug_settings: Res<ConstructionDebugSettings>,
     colony_sys_query: Query<Option<&crate::astronomy::components::SystemId>>,
@@ -225,34 +224,21 @@ pub fn process_construction_actions(
                                 }
                             }
                         } else {
-                            // Resources not available anywhere in the system.
-                            // Generate a ResourceRequest per missing resource and block the project.
+                            // Resources not fully available in the system.
+                            // Do NOT partially deduct from the system pool — that would leave
+                            // stockpiles inconsistent while the project waits for delivery.
+                            // Instead, request the full cost and let the delivery system add
+                            // resources to the local stockpile before construction advances.
                             let colony_name = colonies
                                 .get(colony_entity)
                                 .map(|c| c.name.clone())
                                 .unwrap_or_else(|_| format!("{colony_entity:?}"));
 
-                            // First: use what we have in the system pool for any partial amounts,
-                            // then request the remainder.
-                            let mut remaining: std::collections::HashMap<ResourceType, f64> =
-                                costs_typed.iter().cloned().collect();
-
-                            // Deduct partial amounts from system pool.
-                            for (_, sid_opt, mut ls) in local_stockpile_query.iter_mut() {
-                                let body_sys = sid_opt.map(|s| s.0);
-                                if sys_id.is_none() || body_sys == sys_id {
-                                    for (rt, need) in remaining.iter_mut() {
-                                        if *need > 0.0 {
-                                            let taken = ls.consume(*rt, *need);
-                                            *need -= taken;
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Generate requests for what's still missing.
-                            for (rt, &shortfall) in &remaining {
-                                if shortfall <= 0.0 {
+                            // Generate one request per missing resource type.
+                            // `costs_typed` contains the *full* cost; we request the full
+                            // amount so that construction can proceed once everything arrives.
+                            for (rt, &full_cost) in &costs_typed {
+                                if full_cost <= 0.0 {
                                     continue;
                                 }
                                 // Only add a request if there isn't one already for this colony+resource.
@@ -261,10 +247,11 @@ pub fn process_construction_actions(
                                     continue;
                                 }
 
-                                // Check how much the local stockpile already has towards this cost.
+                                // Credit the colony's existing local stock toward the cost;
+                                // only request the remainder that truly needs to be delivered.
                                 let already_local =
                                     colony_local.get(rt).copied().unwrap_or(0.0);
-                                let need_delivered = (shortfall - already_local).max(0.0);
+                                let need_delivered = (full_cost - already_local).max(0.0);
 
                                 if need_delivered > 0.0 {
                                     let req_id = resource_requests.add(ResourceRequest {
@@ -282,6 +269,7 @@ pub fn process_construction_actions(
                                         source_body: None,
                                         linked_project: None, // filled in after project spawn
                                         payment_made: false,
+                                        completed_at_seconds: None,
                                     });
                                     blocking_request_ids.push(req_id);
                                     awaiting = true;
@@ -299,21 +287,6 @@ pub fn process_construction_actions(
                             // If nothing was actually missing (somehow), don't block.
                             if blocking_request_ids.is_empty() {
                                 awaiting = false;
-                            }
-
-                            // Safety guard: if resources are still short but no requests were
-                            // created (e.g. all slots already have open requests for the same
-                            // resource), skip this build.  The player can retry once existing
-                            // deliveries arrive.
-                            if awaiting
-                                && remaining.values().all(|v| *v > 0.0)
-                                && blocking_request_ids.is_empty()
-                            {
-                                warn!(
-                                    "Cannot build {}: insufficient resources and no requests created",
-                                    building_type.display_name()
-                                );
-                                continue;
                             }
                         }
                     }
@@ -418,7 +391,10 @@ pub fn process_construction_actions(
             BuildingType::AgriDome,
         ];
         for &btype in OUTPOST_BUILDINGS {
-            commands.spawn(ConstructionProject::new(btype, body_entity));
+            // Queue through the normal construction action pipeline so that
+            // resource costs are checked and ResourceRequests are generated when
+            // the outpost stockpile is empty (i.e. always for a new outpost).
+            actions.start_construction.push((body_entity, btype));
         }
 
         info!(

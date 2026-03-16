@@ -2054,7 +2054,7 @@ fn draw_colony_section(
                 .color(TEXT_VALUE),
         );
         ui.label(
-            egui::RichText::new("• 💧 Water: 0.05 t/person/yr  (recycling losses)")
+            egui::RichText::new("• 💧 Water: 50 t/person/yr  (recycling losses)")
                 .font(mono_font(10.0))
                 .color(egui::Color32::from_rgb(100, 180, 255)),
         );
