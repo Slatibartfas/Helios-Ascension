@@ -17,7 +17,7 @@ use crate::astronomy::{
     OceanType, OrbitPath, SpaceCoordinates, StellarProperties, SurfaceTemperature, SCALING_FACTOR,
 };
 use crate::colony::{BuildingType, Colony};
-use crate::economy::components::{LocalStockpile, Population};
+use crate::economy::components::{LocalStockpile, Population, SurveyLevel};
 use crate::economy::budget::GlobalBudget;
 use crate::plugins::camera::{CameraAnchor, GameCamera};
 use crate::ui::SimulationTime;
@@ -915,6 +915,8 @@ pub fn setup_solar_system(
 
         // Initialize Earth as a colony
         if body_data.name == "Earth" {
+            entity_commands.insert(SurveyLevel::CoreSample);
+
             let mut colony = Colony::new("Earth".to_string(), 8.2e9); // 8.2 Billion
 
             // Add initial infrastructure

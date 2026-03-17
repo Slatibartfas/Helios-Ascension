@@ -1,7 +1,9 @@
 use super::*;
+use super::dossier_panel::{paint_resource_tile, ResourceTileDisplay};
 use crate::astronomy::components::FloatingOrigin;
 use crate::plugins::solar_system_data::AsteroidClass;
 use std::cell::RefCell;
+use std::collections::HashMap;
 
 fn render_selectable_label(ui: &mut egui::Ui, is_selected: bool, name: &str) -> egui::Response {
     let desired_size = egui::vec2(ui.available_width(), 24.0);
@@ -863,8 +865,8 @@ pub(super) fn ui_dashboard(
     active_menu: Res<ActiveMenu>,
     mut fleet_ui_state: ResMut<FleetUiState>,
     fleet_query: Query<(Entity, &Fleet, Option<&FleetOrbit>, Option<&ActiveManeuver>)>,
-    // Resource query for system totals
-    resource_query: Query<(&SystemId, &PlanetResources)>,
+    // Resource query for system survey/resource summaries
+    resource_query: Query<(&SystemId, &CelestialBody, &PlanetResources, Option<&SurveyLevel>)>,
     // Ledger queries
     all_bodies_query: Query<(
         Entity,
@@ -1454,7 +1456,7 @@ fn render_star_system_panel(
         Option<&KeplerOrbit>,
         Option<&SystemId>,
     )>,
-    resource_query: &Query<(&SystemId, &PlanetResources)>,
+    resource_query: &Query<(&SystemId, &CelestialBody, &PlanetResources, Option<&SurveyLevel>)>,
     nearby_stars: &Res<NearbyStarsData>,
 ) {
     let panel_frame = theme::panel_frame();
@@ -1646,60 +1648,125 @@ fn render_star_system_panel(
                     );
                     ui.add_space(6.0);
 
-                    let mut total_resources: std::collections::HashMap<ResourceType, f64> =
-                        std::collections::HashMap::new();
+                    let resource_bodies: Vec<_> = resource_query
+                        .iter()
+                        .filter(|(sys_id, _, _, _)| sys_id.0 == star_icon.id)
+                        .collect();
 
-                    for (sys_id, resources) in resource_query.iter() {
-                        if sys_id.0 == star_icon.id {
-                            for (resource_type, deposit) in &resources.deposits {
-                                let total = deposit.total_megatons();
-                                *total_resources.entry(*resource_type).or_insert(0.0) += total;
+                    let total_resource_weight: f64 = resource_bodies
+                        .iter()
+                        .map(|(_, body, resources, _)| {
+                            total_resource_density_weight(body.mass, resources)
+                        })
+                        .sum();
+                    let discovered_resource_weight: f64 = resource_bodies
+                        .iter()
+                        .map(|(_, body, resources, survey_level)| {
+                            discovered_resource_density_weight(
+                                body.mass,
+                                resources,
+                                survey_level.copied().unwrap_or(SurveyLevel::Unsurveyed),
+                            )
+                        })
+                        .sum();
+                    let surveyed_body_count = resource_bodies
+                        .iter()
+                        .filter(|(_, _, _, survey_level)| {
+                            survey_level
+                                .copied()
+                                .unwrap_or(SurveyLevel::Unsurveyed)
+                                != SurveyLevel::Unsurveyed
+                        })
+                        .count();
+                    let survey_percent = if total_resource_weight > 0.0 {
+                        (discovered_resource_weight / total_resource_weight * 100.0)
+                            .clamp(0.0, 100.0)
+                    } else {
+                        0.0
+                    };
+                    let survey_percent = if survey_percent.abs() < 0.000_1 {
+                        0.0
+                    } else {
+                        survey_percent
+                    };
+                    let fully_surveyed = total_resource_weight > 0.0
+                        && (discovered_resource_weight / total_resource_weight) >= 0.999_999;
+
+                    let mut discovered_resources: HashMap<ResourceType, f64> = HashMap::new();
+                    for (_, _, resources, survey_level) in &resource_bodies {
+                        let survey_level = survey_level
+                            .copied()
+                            .unwrap_or(SurveyLevel::Unsurveyed);
+                        if survey_level == SurveyLevel::Unsurveyed {
+                            continue;
+                        }
+
+                        for (resource_type, deposit) in &resources.deposits {
+                            let discovered = survey_level.discovered_amount(&deposit.reserve);
+                            if discovered > 0.001 {
+                                *discovered_resources.entry(*resource_type).or_insert(0.0) +=
+                                    discovered;
                             }
                         }
                     }
 
-                    if total_resources.is_empty() {
-                        ui.label(
-                            egui::RichText::new("No surveyed resources yet")
-                                .font(theme::body(13.0))
-                                .color(theme::TEXT_DIM),
-                        );
-                    } else {
-                        egui::Grid::new("star_system_resources_summary_grid")
-                            .num_columns(2)
-                            .spacing([16.0, 4.0])
-                            .show(ui, |ui| {
-                                theme::stat_row(
-                                    ui,
-                                    "SURVEYED TYPES",
-                                    &total_resources.len().to_string(),
-                                );
-                            });
-
-                        ui.add_space(4.0);
-                        ui.label(
-                            egui::RichText::new("TOP RESOURCES")
-                                .font(theme::heading())
-                                .color(theme::TEXT_DIM),
-                        );
-
-                        let mut sorted_resources: Vec<_> = total_resources.iter().collect();
-                        sorted_resources.sort_by(|a, b| {
-                            b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal)
+                    egui::Grid::new("star_system_resources_summary_grid")
+                        .num_columns(2)
+                        .spacing([16.0, 4.0])
+                        .show(ui, |ui| {
+                            theme::stat_row(ui, "SURVEY", &format!("{survey_percent:.0}%"));
+                            theme::stat_row(
+                                ui,
+                                "SURVEYED BODIES",
+                                &format!("{} / {}", surveyed_body_count, resource_bodies.len()),
+                            );
+                            theme::stat_row(
+                                ui,
+                                "REVEALED TYPES",
+                                &discovered_resources.len().to_string(),
+                            );
                         });
 
-                        egui::Grid::new("star_system_resources_grid")
-                            .num_columns(2)
-                            .spacing([16.0, 4.0])
-                            .show(ui, |ui| {
-                                for (resource_type, amount) in sorted_resources.iter().take(5) {
-                                    theme::stat_row(
-                                        ui,
-                                        resource_type.display_name(),
-                                        &format_mass(**amount),
-                                    );
-                                }
-                            });
+                    ui.add_space(6.0);
+
+                    for (category_name, category_resources) in ResourceType::by_category() {
+                        let mineable: Vec<ResourceType> = category_resources
+                            .into_iter()
+                            .filter(|resource| resource.is_mineable())
+                            .collect();
+                        if mineable.is_empty() {
+                            continue;
+                        }
+
+                        let cat_color = theme::category_color(category_name);
+                        ui.label(
+                            egui::RichText::new(category_name)
+                                .font(theme::mono(9.0))
+                                .color(cat_color),
+                        );
+
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing = egui::Vec2::splat(3.0);
+
+                            for resource_type in &mineable {
+                                let display = if let Some(discovered_megatons) =
+                                    discovered_resources.get(resource_type)
+                                {
+                                    ResourceTileDisplay::Deposit {
+                                        discovered_megatons: *discovered_megatons,
+                                        concentration: None,
+                                    }
+                                } else if fully_surveyed {
+                                    ResourceTileDisplay::None
+                                } else {
+                                    ResourceTileDisplay::Unknown
+                                };
+
+                                paint_resource_tile(ui, *resource_type, display, 44.0, cat_color);
+                            }
+                        });
+
+                        ui.add_space(2.0);
                     }
 
                     theme::divider(ui);
@@ -1718,4 +1785,28 @@ fn render_star_system_panel(
                     );
                 });
         });
+}
+
+fn total_resource_density_weight(body_mass_kg: f64, resources: &PlanetResources) -> f64 {
+    let total_resource_mass: f64 = resources
+        .deposits
+        .values()
+        .map(|deposit| deposit.reserve.total_mass())
+        .sum();
+
+    total_resource_mass / body_mass_kg.max(1.0)
+}
+
+fn discovered_resource_density_weight(
+    body_mass_kg: f64,
+    resources: &PlanetResources,
+    survey_level: SurveyLevel,
+) -> f64 {
+    let discovered_resource_mass: f64 = resources
+        .deposits
+        .values()
+        .map(|deposit| survey_level.discovered_amount(&deposit.reserve))
+        .sum();
+
+    discovered_resource_mass / body_mass_kg.max(1.0)
 }

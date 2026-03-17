@@ -1522,6 +1522,130 @@ fn magnitude_tier(megatons: f64) -> (u8, &'static str) {
     }
 }
 
+pub(super) enum ResourceTileDisplay {
+    Unknown,
+    None,
+    Deposit {
+        discovered_megatons: f64,
+        concentration: Option<f32>,
+    },
+}
+
+pub(super) fn paint_resource_tile(
+    ui: &mut egui::Ui,
+    resource: ResourceType,
+    display: ResourceTileDisplay,
+    size: f32,
+    cat_color: egui::Color32,
+) -> egui::Response {
+    let (response, painter) = ui.allocate_painter(egui::Vec2::splat(size), egui::Sense::hover());
+    let rect = response.rect;
+
+    painter.rect_filled(rect, 3.0, TILE_BG);
+
+    match display {
+        ResourceTileDisplay::Deposit {
+            discovered_megatons,
+            concentration,
+        } => {
+            let (tier, _tier_label) = magnitude_tier(discovered_megatons);
+
+            let brightness = concentration
+                .map(|conc| {
+                    let conc = conc.clamp(1e-10, 1.0) as f64;
+                    let conc_norm = ((conc.log10() + 10.0) / 10.0).clamp(0.0, 1.0) as f32;
+                    0.3 + 0.7 * conc_norm
+                })
+                .unwrap_or(0.8);
+
+            let fill_frac = match tier {
+                0 => 0.08,
+                1 => 0.25,
+                2 => 0.42,
+                3 => 0.60,
+                4 => 0.80,
+                _ => 1.00,
+            };
+            let fill_height = rect.height() * fill_frac;
+            let fill_rect = egui::Rect::from_min_max(
+                egui::Pos2::new(rect.left(), rect.bottom() - fill_height),
+                rect.max,
+            );
+
+            let fill_alpha = (40.0 + 120.0 * brightness) as u8;
+            let fill_color = egui::Color32::from_rgba_premultiplied(
+                (cat_color.r() as f32 * brightness * 0.5) as u8,
+                (cat_color.g() as f32 * brightness * 0.5) as u8,
+                (cat_color.b() as f32 * brightness * 0.5) as u8,
+                fill_alpha,
+            );
+            painter.rect_filled(fill_rect, 0.0, fill_color);
+
+            painter.text(
+                egui::Pos2::new(rect.center().x, rect.top() + size * 0.32),
+                egui::Align2::CENTER_CENTER,
+                resource.symbol(),
+                mono_font(11.0),
+                egui::Color32::WHITE,
+            );
+
+            let compact = format_mass_compact(discovered_megatons);
+            painter.text(
+                egui::Pos2::new(rect.center().x, rect.top() + size * 0.58),
+                egui::Align2::CENTER_CENTER,
+                &compact,
+                mono_font(7.0),
+                egui::Color32::from_rgba_premultiplied(220, 230, 240, (180.0 * brightness) as u8),
+            );
+
+            let pip_y = rect.bottom() - 5.0;
+            let pip_r = 2.0_f32;
+            let pip_spacing = 6.0_f32;
+            let total_pip_w = 5.0 * pip_spacing - pip_spacing + pip_r * 2.0;
+            let pip_start_x = rect.center().x - total_pip_w * 0.5 + pip_r;
+            for i in 0..5u8 {
+                let cx = pip_start_x + i as f32 * pip_spacing;
+                if i < tier {
+                    painter.circle_filled(egui::Pos2::new(cx, pip_y), pip_r, cat_color);
+                } else {
+                    painter.circle_stroke(
+                        egui::Pos2::new(cx, pip_y),
+                        pip_r,
+                        egui::Stroke::new(0.5, egui::Color32::from_rgb(40, 45, 55)),
+                    );
+                }
+            }
+        }
+        ResourceTileDisplay::None => {
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                resource.symbol(),
+                mono_font(10.0),
+                egui::Color32::from_rgb(50, 55, 65),
+            );
+        }
+        ResourceTileDisplay::Unknown => {
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "?",
+                mono_font(13.0),
+                TEXT_DIM,
+            );
+        }
+    }
+
+    painter.rect_stroke(
+        rect,
+        3.0,
+        egui::Stroke::new(1.0, BORDER),
+        egui::StrokeKind::Outside,
+    );
+
+    response
+}
+
 /// Resource periodic grid: tiles laid out by category, each showing a chemical
 /// symbol with magnitude pips and compact value.
 fn draw_resource_grid(
@@ -1588,106 +1712,22 @@ fn draw_resource_tile(
     rate_tracker: &ResourceRateTracker,
     entity: Entity,
 ) {
-    let (response, painter) = ui.allocate_painter(egui::Vec2::splat(size), egui::Sense::hover());
-    let rect = response.rect;
-
-    // Background
-    painter.rect_filled(rect, 3.0, TILE_BG);
-
     let has_deposit = deposit.is_some_and(|d| d.reserve.total_mass() > 0.001);
-
-    if has_deposit {
-        let d = deposit.unwrap();
+    let response = if let Some(d) = deposit.filter(|d| d.reserve.total_mass() > 0.001) {
         let discovered = survey_level.discovered_amount(&d.reserve);
-
-        // ── Magnitude tier (0–5) ────────────────────────────────
-        let (tier, _tier_label) = magnitude_tier(discovered);
-
-        // ── Concentration → brightness multiplier (0.3 … 1.0) ──
-        let conc = d.reserve.concentration.clamp(1e-10, 1.0) as f64;
-        let conc_norm = ((conc.log10() + 10.0) / 10.0).clamp(0.0, 1.0) as f32;
-        let brightness = 0.3 + 0.7 * conc_norm;
-
-        // ── Tile fill: discrete tier bands ──────────────────────
-        let fill_frac = match tier {
-            0 => 0.08,
-            1 => 0.25,
-            2 => 0.42,
-            3 => 0.60,
-            4 => 0.80,
-            _ => 1.00,
-        };
-        let fill_height = rect.height() * fill_frac;
-        let fill_rect = egui::Rect::from_min_max(
-            egui::Pos2::new(rect.left(), rect.bottom() - fill_height),
-            rect.max,
-        );
-
-        // Tint with category colour, modulated by concentration brightness
-        let fill_alpha = (40.0 + 120.0 * brightness) as u8;
-        let fill_color = egui::Color32::from_rgba_premultiplied(
-            (cat_color.r() as f32 * brightness * 0.5) as u8,
-            (cat_color.g() as f32 * brightness * 0.5) as u8,
-            (cat_color.b() as f32 * brightness * 0.5) as u8,
-            fill_alpha,
-        );
-        painter.rect_filled(fill_rect, 0.0, fill_color);
-
-        // ── Symbol text (upper area) ────────────────────────────
-        painter.text(
-            egui::Pos2::new(rect.center().x, rect.top() + size * 0.32),
-            egui::Align2::CENTER_CENTER,
-            resource.symbol(),
-            mono_font(11.0),
-            egui::Color32::WHITE,
-        );
-
-        // ── Compact mass value (below symbol) ───────────────────
-        let compact = format_mass_compact(discovered);
-        painter.text(
-            egui::Pos2::new(rect.center().x, rect.top() + size * 0.58),
-            egui::Align2::CENTER_CENTER,
-            &compact,
-            mono_font(7.0),
-            egui::Color32::from_rgba_premultiplied(220, 230, 240, (180.0 * brightness) as u8),
-        );
-
-        // ── Magnitude pip dots (bottom of tile) ─────────────────
-        let pip_y = rect.bottom() - 5.0;
-        let pip_r = 2.0_f32;
-        let pip_spacing = 6.0_f32;
-        let total_pip_w = 5.0 * pip_spacing - pip_spacing + pip_r * 2.0;
-        let pip_start_x = rect.center().x - total_pip_w * 0.5 + pip_r;
-        for i in 0..5u8 {
-            let cx = pip_start_x + i as f32 * pip_spacing;
-            if i < tier {
-                painter.circle_filled(egui::Pos2::new(cx, pip_y), pip_r, cat_color);
-            } else {
-                painter.circle_stroke(
-                    egui::Pos2::new(cx, pip_y),
-                    pip_r,
-                    egui::Stroke::new(0.5, egui::Color32::from_rgb(40, 45, 55)),
-                );
-            }
-        }
+        paint_resource_tile(
+            ui,
+            resource,
+            ResourceTileDisplay::Deposit {
+                discovered_megatons: discovered,
+                concentration: Some(d.reserve.concentration),
+            },
+            size,
+            cat_color,
+        )
     } else {
-        // No deposit — dim symbol, centred
-        painter.text(
-            rect.center(),
-            egui::Align2::CENTER_CENTER,
-            resource.symbol(),
-            mono_font(10.0),
-            egui::Color32::from_rgb(50, 55, 65),
-        );
-    }
-
-    // Border
-    painter.rect_stroke(
-        rect,
-        3.0,
-        egui::Stroke::new(1.0, BORDER),
-        egui::StrokeKind::Outside,
-    );
+        paint_resource_tile(ui, resource, ResourceTileDisplay::None, size, cat_color)
+    };
 
     // Hover tooltip
     if response.hovered() && has_deposit {
