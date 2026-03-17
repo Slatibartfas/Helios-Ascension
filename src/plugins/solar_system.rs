@@ -17,7 +17,7 @@ use crate::astronomy::{
     OceanType, OrbitPath, SpaceCoordinates, StellarProperties, SurfaceTemperature, SCALING_FACTOR,
 };
 use crate::colony::{BuildingType, Colony};
-use crate::economy::components::{LocalStockpile, Population, PowerGenerator, PowerSourceType};
+use crate::economy::components::{LocalStockpile, Population};
 use crate::economy::budget::GlobalBudget;
 use crate::plugins::camera::{CameraAnchor, GameCamera};
 use crate::ui::SimulationTime;
@@ -919,37 +919,45 @@ pub fn setup_solar_system(
 
             // Add initial infrastructure
             let base_buildings = [
-                // Housing: 335 × 25M = 8.375B capacity (~2 yr growth headroom at 0.9%/yr)
-                (BuildingType::Housing, 335),
+                // Housing: scaled for population capacity
+                (BuildingType::Housing, 400),
                 // Food: 820 Farms × 1,000 Mt/yr = 820,000 Mt/yr → feeds 8.2B ✓
                 (BuildingType::Farm, 820),
                 // Greenhouses: 200 × 500 Mt/yr = 100,000 Mt/yr (supplemental)
                 (BuildingType::Greenhouse, 200),
                 // Aquaculture: 67 × 750 Mt/yr = 50,250 Mt/yr (supplemental)
                 (BuildingType::AquacultureFacility, 67),
-                // Industry
-                (BuildingType::Factory, 2_000),
-                (BuildingType::Mine, 3_000),
-                (BuildingType::Refinery, 800),
-                (BuildingType::ChemicalPlant, 1_000),
-                (BuildingType::HydrocarbonExtractor, 500),
-                (BuildingType::AtmosphericProcessor, 500),
-                (BuildingType::RecyclingCenter, 500),
-                // Power (2026 mix: coal, gas, hydro, nuclear, solar, wind)
-                (BuildingType::CoalPowerPlant, 2_400),   // ~40% coal
-                (BuildingType::NaturalGasPlant, 1_800),  // ~30% gas
-                (BuildingType::HydroelectricDam, 800),   // ~16% hydro
-                (BuildingType::SolarPower, 600),         // ~6% solar
-                (BuildingType::WindFarm, 900),           // ~7% wind
-                (BuildingType::FissionReactor, 440),     // ~5% nuclear (~440 reactors)
+                // Industry (scaled for ~2.8 TW consumption with room to build more)
+                // These are reduced from full Earth capacity to give player building room
+                (BuildingType::Factory, 1_200),
+                (BuildingType::Mine, 2_000),
+                (BuildingType::Refinery, 500),
+                (BuildingType::ChemicalPlant, 700),
+                (BuildingType::HydrocarbonExtractor, 300),
+                (BuildingType::AtmosphericProcessor, 300),
+                (BuildingType::RecyclingCenter, 300),
+                // Power: scaled 2026 global installed-capacity mix with effective output
+                // discounted by per-building capacity factors.
+                // Represented installed capacity ≈ 8.38 TW:
+                // Solar 24.7%, Coal 22.1%, Gas 20.5%, Hydro 15.2%, Wind 13.5%, Nuclear 4.1%
+                // Effective delivered output ≈ 3.70 TW, leaving ~16% reserve over the
+                // 3.19 TW starting demand baseline.
+                (BuildingType::SolarPower, 414),       // 414 × 1.25 = 517.5 GW
+                (BuildingType::CoalPowerPlant, 185),  // 185 × 6.0 = 1,110 GW
+                (BuildingType::NaturalGasPlant, 143), // 143 × 6.0 = 858 GW
+                (BuildingType::HydroelectricDam, 85), // 85 × 6.75 = 573.75 GW
+                (BuildingType::WindFarm, 376),        // 376 × 0.9 = 338.4 GW
+                (BuildingType::FissionReactor, 17),   // 17 × 18 = 306 GW
                 // Water
-                (BuildingType::WaterTreatmentPlant, 1_000),
-                // Research & Tech
+                (BuildingType::WaterTreatmentPlant, 500),
+                // Research & Tech (high power consumers)
                 (BuildingType::ResearchLab, 500),
-                (BuildingType::DataCenter, 50),
+                (BuildingType::DataCenter, 100),       // 100 × 500 MW = 50 GW (realistic for early game)
+                (BuildingType::AiCluster, 10),        // 10 × 2000 MW = 20 GW (very advanced tech)
                 // Space access
-                (BuildingType::LaunchSite, 50),
-                (BuildingType::SpacePort, 5),
+                (BuildingType::LaunchSite, 200),
+                (BuildingType::SpacePort, 50),
+                (BuildingType::Shipyard, 50),         // Heavy consumer - reduced
                 // Economy
                 (BuildingType::FinancialCenter, 100),
                 (BuildingType::CommercialHub, 500),
@@ -1252,14 +1260,8 @@ pub fn setup_solar_system(
             count: population_count,
         });
 
-        // Initialize power generation
-        // Earth starts with ~20 TW (Type 0.73 civilization)
-        if body_data.name == "Earth" {
-            commands.entity(entity).insert(PowerGenerator {
-                output: 20_000_000_000_000.0, // 20 TW
-                source_type: PowerSourceType::Planet,
-            });
-        }
+        // Power generation now handled via Colony buildings
+        // No separate PowerGenerator needed - Earth uses building-based power
 
         entity_map.insert(body_data.name.clone(), entity);
     }

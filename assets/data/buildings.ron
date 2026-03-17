@@ -414,7 +414,8 @@
                 ("Silicates", 0.01),
             ],
             modifiers: [
-                (modifier_type: "PowerGeneration", value: 5.0),
+                // 1.25 GW actual (5 GW capacity × 25% capacity factor for solar)
+                (modifier_type: "PowerGeneration", value: 1.25),
             ],
             power_demand_mw: 0.0,
         ),
@@ -438,7 +439,8 @@
                 ("Fluorine", 0.01),
             ],
             modifiers: [
-                (modifier_type: "PowerGeneration", value: 20.0),
+                // 18.0 GW actual (20 GW capacity × 90% capacity factor for nuclear)
+                (modifier_type: "PowerGeneration", value: 18.0),
             ],
             power_demand_mw: 100.0,
         ),
@@ -785,7 +787,8 @@
                 ("Copper", 0.002),
             ],
             modifiers: [
-                (modifier_type: "PowerGeneration", value: 3.0),
+                // 0.9 GW actual (3 GW capacity × 30% capacity factor for wind)
+                (modifier_type: "PowerGeneration", value: 0.9),
             ],
             power_demand_mw: 0.0,
         ),
@@ -807,7 +810,8 @@
                 ("Iron", 0.1),
             ],
             modifiers: [
-                (modifier_type: "PowerGeneration", value: 15.0),
+                // 6.75 GW actual (15 GW capacity × 45% capacity factor for hydro)
+                (modifier_type: "PowerGeneration", value: 6.75),
             ],
             power_demand_mw: 0.0,
         ),
@@ -853,7 +857,8 @@
                 ("Iron", 0.1),
             ],
             modifiers: [
-                (modifier_type: "PowerGeneration", value: 10.0),
+                // 6.0 GW actual (10 GW capacity × 60% capacity factor for coal)
+                (modifier_type: "PowerGeneration", value: 6.0),
             ],
             power_demand_mw: 0.0,
         ),
@@ -876,7 +881,8 @@
                 ("Iron", 0.05),
             ],
             modifiers: [
-                (modifier_type: "PowerGeneration", value: 12.0),
+                // 6.0 GW actual (12 GW capacity × 50% capacity factor for gas)
+                (modifier_type: "PowerGeneration", value: 6.0),
             ],
             power_demand_mw: 0.0,
         ),
