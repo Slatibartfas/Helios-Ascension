@@ -925,10 +925,10 @@ pub fn setup_solar_system(
                 (BuildingType::Housing, 400),
                 // Food: 820 Farms × 1,000 Mt/yr = 820,000 Mt/yr → feeds 8.2B ✓
                 (BuildingType::Farm, 820),
-                // Greenhouses: 200 × 500 Mt/yr = 100,000 Mt/yr (supplemental)
-                (BuildingType::Greenhouse, 200),
-                // Aquaculture: 67 × 750 Mt/yr = 50,250 Mt/yr (supplemental)
-                (BuildingType::AquacultureFacility, 67),
+                // Greenhouses: trimmed to a modest buffer above baseline food demand.
+                (BuildingType::Greenhouse, 60),
+                // Aquaculture: retained as a smaller supplemental protein buffer.
+                (BuildingType::AquacultureFacility, 20),
                 // Industry (scaled for ~2.8 TW consumption with room to build more)
                 // These are reduced from full Earth capacity to give player building room
                 (BuildingType::Factory, 1_200),
@@ -967,8 +967,9 @@ pub fn setup_solar_system(
                 // Medical/Population
                 (BuildingType::MedicalCenter, 200),
                 (BuildingType::PharmaceuticalPlant, 100),
-                // Storage infrastructure (10 depots = +50% cap, representing global logistics)
-                (BuildingType::Warehouse, 10),
+                // Storage infrastructure: 4 depots = +10% cap, keeping Earth within
+                // the one-year stockpile target while preserving a small building margin.
+                (BuildingType::Warehouse, 4),
             ];
 
             for (b_type, count) in base_buildings {

@@ -256,11 +256,12 @@ pub(super) fn apply_special_body_profile(
         //   Bulk    = Total crustal/mantle abundance — planet-scale, essentially infinite
         //             Only accessible with far-future technology
         //
-        // Concentrations are set proportional to 2026 real-world annual production
-        // so that the mining system distributes output realistically:
-        //   Solid: Silicates ~50,000  Methane ~2,900  Iron ~2,500  Water ~5,000
-        //          Aluminum ~76  Copper ~26.0  RareEarths ~0.24  Uranium ~0.058 Mt/yr
-        //   Atmo:  N₂ ~175  O₂ ~150  CO₂ ~35  Ar ~4.5 Mt/yr
+        // Concentrations are normalized to a 2026 throughput baseline so that
+        // Earth's starting mining rates, stockpile caps, and reserve lifetimes
+        // all use the same economic scale.
+        //   Solid: Silicates ~50,000  Carbon ~4,300  Methane ~3,900  Iron ~2,500
+        //          Water ~600  Phosphorus ~240  Copper ~26  Titanium ~10 Mt/yr
+        //   Atmo:  N₂ ~130  O₂ ~100  CO₂ ~35  Ar ~4.5 Mt/yr
         "Earth" => {
             // === NON-ATMOSPHERIC (SOLID/LIQUID MINING) ===
             // Concentration determines share of total mining output.
@@ -276,20 +277,20 @@ pub(super) fn apply_special_body_profile(
                 MineralDeposit::new(10_000_000.0, 1_600_000_000.0, 2.69e15, 1.0, 1.0),
             );
 
-            // Water: Oceans + Freshwater — industrial use ~5,000 Mt/yr
+            // Water: Oceans + freshwater treatment throughput ~600 Mt/yr
             // Proven: 1.35 billion Gt oceans (effectively inexhaustible)
             // Deep: 50M Mt ice caps + groundwater
             resources.add_deposit(
                 ResourceType::Water,
-                MineralDeposit::new(1_350_000_000.0, 50_000_000.0, 0.0, 0.10, 1.0),
+                MineralDeposit::new(1_350_000_000.0, 50_000_000.0, 0.0, 0.012, 1.0),
             );
 
-            // Methane (Natural Gas) — ~2,900 Mt/yr (~4,000 bcm)
+            // Methane (Natural Gas) — ~3,900 Mt/yr
             // Proven: ~188,000 Mt (USGS+EIA 2024: ~188 Tcm proven reserves)
             // Deep: ~800,000 Mt (unconventional: shale, tight gas, hydrates)
             resources.add_deposit(
                 ResourceType::Methane,
-                MineralDeposit::new(188_000.0, 800_000.0, 0.0, 0.058, 0.3),
+                MineralDeposit::new(188_000.0, 800_000.0, 0.0, 0.078, 0.3),
             );
 
             // Iron — ~2,500 Mt/yr (crude ore + DRI + steel)
@@ -301,31 +302,31 @@ pub(super) fn apply_special_body_profile(
                 MineralDeposit::new(180_000.0, 800_000.0, 1.91e15, 0.05, 0.9),
             );
 
-            // Aluminum — ~76 Mt/yr primary production
+            // Aluminum — ~70 Mt/yr primary production
             // Proven: ~5,500 Mt (USGS 2024: ~32 Gt bauxite ≈ 5.5 Gt aluminum metal)
             // Deep: ~40,000 Mt (USGS identified resources, non-bauxite alumina sources)
             // Bulk: ~8% of crust by mass
             resources.add_deposit(
                 ResourceType::Aluminum,
-                MineralDeposit::new(5_500.0, 40_000.0, 4.78e14, 0.00152, 0.8),
+                MineralDeposit::new(5_500.0, 40_000.0, 4.78e14, 0.0014, 0.8),
             );
 
-            // Copper — ~26.0 Mt/yr (updated to match 2026 demand)
+            // Copper — ~26 Mt/yr
             // Proven: ~890 Mt (USGS 2024 reserves)
             // Deep: ~3,500 Mt (USGS 2024 identified + undiscovered resources ~5.6 Gt)
             // Bulk: Crustal average ~60 ppm
             resources.add_deposit(
                 ResourceType::Copper,
-                MineralDeposit::new(890.0, 3_500.0, 1.43e12, 0.00184, 0.5),
+                MineralDeposit::new(890.0, 3_500.0, 1.43e12, 0.00052, 0.5),
             );
 
-            // Rare Earths — ~0.24 Mt/yr (240,000 tonnes REO)
+            // Rare Earths — ~0.35 Mt/yr (350,000 tonnes REO)
             // Proven: ~110 Mt REO (USGS 2024 reserves)
             // Deep: ~500 Mt (USGS total resources estimate)
             // Bulk: Crustal average ~150-200 ppm
             resources.add_deposit(
                 ResourceType::RareEarths,
-                MineralDeposit::new(110.0, 500.0, 1.19e12, 0.000017, 0.4),
+                MineralDeposit::new(110.0, 500.0, 1.19e12, 0.000007, 0.4),
             );
 
             // Uranium — ~0.058 Mt/yr (58,000 tonnes)
@@ -334,7 +335,7 @@ pub(super) fn apply_special_body_profile(
             // Bulk: Crustal average ~2.7 ppm
             resources.add_deposit(
                 ResourceType::Uranium,
-                MineralDeposit::new(6.1, 22.0, 1.61e10, 0.0000012, 0.3),
+                MineralDeposit::new(6.1, 22.0, 1.61e10, 0.00000116, 0.3),
             );
 
             // Thorium — ~0.01 Mt/yr (byproduct of rare earth mining)
@@ -346,31 +347,31 @@ pub(super) fn apply_special_body_profile(
                 MineralDeposit::new(6.3, 25.0, 4.84e10, 0.0000002, 0.35),
             );
 
-            // Titanium — ~0.26 Mt/yr sponge metal (~9 Mt/yr mineral concentrates)
+            // Titanium — ~10 Mt/yr mineral concentrates / equivalent throughput
             // Proven: ~700 Mt (USGS 2024: ilmenite + rutile reserves)
             // Deep: ~2,000 Mt (USGS total resources)
             // Bulk: Crustal average ~0.57% — 9th most abundant element
             resources.add_deposit(
                 ResourceType::Titanium,
-                MineralDeposit::new(700.0, 2_000.0, 3.40e13, 0.0000052, 0.6),
+                MineralDeposit::new(700.0, 2_000.0, 3.40e13, 0.0002, 0.6),
             );
 
-            // Gold — ~0.0031 Mt/yr (3,100 tonnes)
+            // Gold — ~0.0036 Mt/yr (3,600 tonnes)
             // Proven: ~0.059 Mt (USGS 2024: 59,000 tonnes reserves)
             // Deep: ~0.20 Mt (USGS identified resources + ocean dissolved)
             // Bulk: Crustal average ~0.004 ppm (most in core, inaccessible)
             resources.add_deposit(
                 ResourceType::Gold,
-                MineralDeposit::new(0.059, 0.20, 2.39e4, 0.000000062, 0.3),
+                MineralDeposit::new(0.059, 0.20, 2.39e4, 0.000000072, 0.3),
             );
 
-            // Silver — ~0.026 Mt/yr (26,000 tonnes)
+            // Silver — ~0.028 Mt/yr (28,000 tonnes)
             // Proven: ~0.53 Mt (USGS 2024: 530,000 tonnes reserves)
             // Deep: ~1.7 Mt (USGS identified resources)
             // Bulk: Crustal average ~0.075 ppm
             resources.add_deposit(
                 ResourceType::Silver,
-                MineralDeposit::new(0.53, 1.7, 4.48e5, 0.00000052, 0.3),
+                MineralDeposit::new(0.53, 1.7, 4.48e5, 0.00000056, 0.3),
             );
 
             // Platinum — ~0.00019 Mt/yr (190 tonnes)
@@ -379,10 +380,8 @@ pub(super) fn apply_special_body_profile(
             // Bulk: Crustal average ~0.005 ppm
             resources.add_deposit(
                 ResourceType::Platinum,
-                MineralDeposit::new(0.069, 0.10, 2.99e4, 0.0000000038, 0.2),
+                MineralDeposit::new(0.069, 0.10, 2.99e4, 0.0000000046, 0.2),
             );
-
-            // === NEW RESOURCES (2026 baseline) ===
 
             // Nickel — ~2.7 Mt/yr (refined)
             // Proven: ~95 Mt (USGS 2024 reserves)
@@ -390,34 +389,34 @@ pub(super) fn apply_special_body_profile(
             // Bulk: ~1.8×10¹³ Mt (core is ~5% Ni, mantle ~0.2%)
             resources.add_deposit(
                 ResourceType::Nickel,
-                MineralDeposit::new(95.0, 350.0, 1.8e13, 0.0054, 0.7),
+                MineralDeposit::new(95.0, 350.0, 1.8e13, 0.000066, 0.7),
             );
 
-            // Tungsten — ~0.084 Mt/yr (84,000 tonnes)
+            // Tungsten — ~0.094 Mt/yr (94,000 tonnes)
             // Proven: ~3.8 Mt (USGS 2024 reserves)
             // Deep: ~12 Mt (USGS identified resources)
             // Bulk: Crustal average ~1.3 ppm
             resources.add_deposit(
                 ResourceType::Tungsten,
-                MineralDeposit::new(3.8, 12.0, 7.76e9, 0.0000168, 0.4),
+                MineralDeposit::new(3.8, 12.0, 7.76e9, 0.00000188, 0.4),
             );
 
-            // Carbon — ~9,000 Mt/yr (coal equiv + industrial)
+            // Carbon — ~4,300 Mt/yr (coal / industrial carbon throughput)
             // Proven: ~1,100,000 Mt (proven coal reserves, USGS/WEC 2024)
             // Deep: ~10,000,000 Mt (total coal resources + carbonate rocks)
             // Bulk: Crustal average ~200 ppm (mostly in carbonate sediment)
             resources.add_deposit(
                 ResourceType::Carbon,
-                MineralDeposit::new(1_100_000.0, 10_000_000.0, 1.19e12, 0.18, 0.8),
+                MineralDeposit::new(1_100_000.0, 10_000_000.0, 1.19e12, 0.086, 0.8),
             );
 
-            // Phosphorus — ~0.22 Mt/yr (220,000 tonnes elemental P)
+            // Phosphorus — ~240 Mt/yr phosphate rock equivalent
             // Proven: ~71,000 Mt phosphate rock (USGS 2024; ~13% P content = ~9,200 Mt P)
             // Deep: ~300,000 Mt (USGS total resources)
             // Bulk: Crustal average ~1,050 ppm
             resources.add_deposit(
                 ResourceType::Phosphorus,
-                MineralDeposit::new(9_200.0, 39_000.0, 6.27e12, 0.000044, 0.5),
+                MineralDeposit::new(9_200.0, 39_000.0, 6.27e12, 0.0048, 0.5),
             );
 
             // Deuterium — ocean D/H ratio 1.5576×10⁻⁴
@@ -426,16 +425,16 @@ pub(super) fn apply_special_body_profile(
             // Proven: 2.1×10⁷ Mt (extractable from seawater)
             resources.add_deposit(
                 ResourceType::Deuterium,
-                MineralDeposit::new(21_000_000.0, 0.0, 0.0, 0.0002, 0.6),
+                MineralDeposit::new(21_000_000.0, 0.0, 0.0, 0.0000002, 0.6),
             );
 
-            // Lithium — ~0.13 Mt/yr (130,000 tonnes)
+            // Lithium — ~0.9 Mt/yr (lithium carbonate equivalent scale)
             // Proven: ~28 Mt (USGS 2024 reserves)
             // Deep: ~98 Mt (USGS identified resources)
             // Bulk: Crustal average ~20 ppm
             resources.add_deposit(
                 ResourceType::Lithium,
-                MineralDeposit::new(28.0, 98.0, 1.19e11, 0.0000026, 0.35),
+                MineralDeposit::new(28.0, 98.0, 1.19e11, 0.000018, 0.35),
             );
 
             // Sulfur — ~80 Mt/yr (elemental + recovered)
@@ -444,7 +443,7 @@ pub(super) fn apply_special_body_profile(
             // Bulk: Crustal average ~350 ppm
             resources.add_deposit(
                 ResourceType::Sulfur,
-                MineralDeposit::new(600.0, 5_000.0, 2.09e12, 0.016, 0.6),
+                MineralDeposit::new(600.0, 5_000.0, 2.09e12, 0.0013, 0.6),
             );
 
             // Chromium — ~44 Mt/yr (chromite ore)
@@ -453,7 +452,7 @@ pub(super) fn apply_special_body_profile(
             // Bulk: Crustal average ~100 ppm
             resources.add_deposit(
                 ResourceType::Chromium,
-                MineralDeposit::new(600.0, 12_000.0, 5.97e11, 0.0088, 0.5),
+                MineralDeposit::new(600.0, 12_000.0, 5.97e11, 0.00088, 0.5),
             );
 
             // Magnesium — ~1.1 Mt/yr (primary production)
@@ -462,7 +461,7 @@ pub(super) fn apply_special_body_profile(
             // Bulk: Crustal average ~2.3% (5th most abundant element)
             resources.add_deposit(
                 ResourceType::Magnesium,
-                MineralDeposit::new(12_000.0, 100_000.0, 1.37e14, 0.022, 0.7),
+                MineralDeposit::new(12_000.0, 100_000.0, 1.37e14, 0.000024, 0.7),
             );
 
             // Cobalt — ~0.22 Mt/yr (220,000 tonnes)
@@ -471,46 +470,46 @@ pub(super) fn apply_special_body_profile(
             // Bulk: Crustal average ~25 ppm
             resources.add_deposit(
                 ResourceType::Cobalt,
-                MineralDeposit::new(8.3, 25.0, 1.49e11, 0.0000044, 0.35),
+                MineralDeposit::new(8.3, 25.0, 1.49e11, 0.0000042, 0.35),
             );
 
-            // Fluorine — ~8.5 Mt/yr (fluorspar equivalent)
+            // Fluorine — ~2 Mt/yr (refined industrial fluorine throughput)
             // Proven: ~320 Mt (USGS 2024 fluorspar reserves)
             // Deep: ~5,000 Mt (USGS identified resources)
             // Bulk: Crustal average ~585 ppm
             resources.add_deposit(
                 ResourceType::Fluorine,
-                MineralDeposit::new(320.0, 5_000.0, 3.49e12, 0.0017, 0.5),
+                MineralDeposit::new(320.0, 5_000.0, 3.49e12, 0.00004, 0.5),
             );
 
             // === ATMOSPHERIC GASES ===
             // Concentrations proportional to 2026 industrial gas production.
             // N₂ (highest industrial output) = 1.0 reference.
 
-            // Nitrogen: 78% of atmosphere — ~175 Mt/yr industrial
+            // Nitrogen: 78% of atmosphere — ~130 Mt/yr industrial
             {
                 let mut dep = MineralDeposit::new(4_000_000_000.0, 4_000_000.0, 0.0, 1.0, 0.78);
                 dep.is_atmospheric = true;
                 resources.add_deposit(ResourceType::Nitrogen, dep);
             }
 
-            // Oxygen: 21% of atmosphere — ~150 Mt/yr industrial
+            // Oxygen: 21% of atmosphere — ~100 Mt/yr industrial
             {
-                let mut dep = MineralDeposit::new(1_100_000_000.0, 7_700_000.0, 0.0, 0.857, 0.21);
+                let mut dep = MineralDeposit::new(1_100_000_000.0, 7_700_000.0, 0.0, 0.7692308, 0.21);
                 dep.is_atmospheric = true;
                 resources.add_deposit(ResourceType::Oxygen, dep);
             }
 
             // Carbon Dioxide: 0.04% of atmosphere — ~35 Mt/yr industrial
             {
-                let mut dep = MineralDeposit::new(2_200_000.0, 2_200_000.0, 0.0, 0.200, 0.0004);
+                let mut dep = MineralDeposit::new(2_200_000.0, 2_200_000.0, 0.0, 0.26923078, 0.0004);
                 dep.is_atmospheric = true;
                 resources.add_deposit(ResourceType::CarbonDioxide, dep);
             }
 
             // Argon: 0.93% of atmosphere — ~4.5 Mt/yr industrial
             {
-                let mut dep = MineralDeposit::new(50_000_000.0, 0.0, 0.0, 0.026, 0.009);
+                let mut dep = MineralDeposit::new(50_000_000.0, 0.0, 0.0, 0.034615386, 0.009);
                 dep.is_atmospheric = true;
                 resources.add_deposit(ResourceType::Argon, dep);
             }
@@ -1998,4 +1997,49 @@ pub(super) fn apply_procedural_gas_giant_profile(
     }
 
     resources
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn earth_resources() -> PlanetResources {
+        let mut rng = rand::rng();
+        apply_special_body_profile("Earth", 5.972e24, &mut rng).expect("Earth profile should exist")
+    }
+
+    #[test]
+    fn test_earth_proven_reserve_lifetimes_match_2026_estimates() {
+        let resources = earth_resources();
+
+        let copper = resources.get_deposit(&ResourceType::Copper).unwrap();
+        let silver = resources.get_deposit(&ResourceType::Silver).unwrap();
+        let uranium = resources.get_deposit(&ResourceType::Uranium).unwrap();
+        let lithium = resources.get_deposit(&ResourceType::Lithium).unwrap();
+
+        let copper_years = copper.reserve.proven_crustal / 26.0;
+        let silver_years = silver.reserve.proven_crustal / 0.028;
+        let uranium_years = uranium.reserve.proven_crustal / 0.058;
+        let lithium_years = lithium.reserve.proven_crustal / 0.9;
+
+        assert!((30.0..=40.0).contains(&copper_years));
+        assert!((15.0..=25.0).contains(&silver_years));
+        assert!((90.0..=120.0).contains(&uranium_years));
+        assert!((25.0..=40.0).contains(&lithium_years));
+    }
+
+    #[test]
+    fn test_earth_atmospheric_weights_follow_budget_baseline() {
+        let resources = earth_resources();
+
+        let nitrogen = resources.get_deposit(&ResourceType::Nitrogen).unwrap();
+        let oxygen = resources.get_deposit(&ResourceType::Oxygen).unwrap();
+        let carbon_dioxide = resources.get_deposit(&ResourceType::CarbonDioxide).unwrap();
+        let argon = resources.get_deposit(&ResourceType::Argon).unwrap();
+
+        assert!((nitrogen.reserve.concentration - 1.0).abs() < 1e-6);
+        assert!((oxygen.reserve.concentration - 0.7692308).abs() < 1e-5);
+        assert!((carbon_dioxide.reserve.concentration - 0.26923078).abs() < 1e-5);
+        assert!((argon.reserve.concentration - 0.034615386).abs() < 1e-5);
+    }
 }

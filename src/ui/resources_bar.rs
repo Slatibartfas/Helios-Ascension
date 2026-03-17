@@ -1,3 +1,5 @@
+use bevy::ecs::system::SystemParam;
+
 use super::dashboard::{format_mass, format_rate_monthly};
 use super::research_panel::{render_research_tech_tooltip_content, ActiveProjectInfo};
 use super::time::{
@@ -54,10 +56,12 @@ pub(super) fn get_resource_icon(resource: &ResourceType) -> &'static str {
         // Energy
         ResourceType::Helium3 => "\u{2600}",   // ☀
         ResourceType::Deuterium => "\u{269B}", // ⚛
+        ResourceType::Tritium => "\u{2622}",   // ☢
 
         // Fissiles
         ResourceType::Uranium => "\u{2622}", // ☢
         ResourceType::Thorium => "\u{26A1}", // ⚡
+        ResourceType::Plutonium => "\u{1F9EA}", // 🧪
 
         // Precious
         ResourceType::Gold => "\u{1F451}",     // 👑
@@ -91,6 +95,30 @@ fn get_category_color(category: &str) -> egui::Color32 {
 pub(super) struct OpenResourcePopup {
     /// Which category is open, and where to anchor the popup
     open: Option<(String, egui::Rect)>,
+}
+
+#[derive(SystemParam)]
+pub(super) struct ResourceBarPowerQueries<'w, 's> {
+    body_query: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static CelestialBody,
+            Option<&'static SystemId>,
+            Option<&'static Colony>,
+            Option<&'static PlanetResources>,
+            Option<&'static crate::economy::components::PowerGenerator>,
+            Option<&'static MiningOperation>,
+        ),
+    >,
+    star_query: Query<
+        'w,
+        's,
+        (&'static CelestialBody, &'static SystemId),
+        With<crate::plugins::solar_system::Star>,
+    >,
+    buildings_data: Option<Res<'w, BuildingsData>>,
 }
 
 const CONTEXT_TILE_WIDTH: f32 = 88.0;
@@ -143,6 +171,7 @@ pub(super) fn ui_resources_bar(
     budget: Res<GlobalBudget>,
     contextual: Res<crate::economy::ContextualStockpile>,
     rate_tracker: Res<ResourceRateTracker>,
+    power_popup_queries: ResourceBarPowerQueries,
     research_state: Res<ResearchState>,
     population_query: Query<(
         &Population,
@@ -780,6 +809,12 @@ pub(super) fn ui_resources_bar(
     if let Some((ref cat_name, anchor_rect)) = open_popup.open.clone() {
         if cat_name == "Power" {
             let mut still_open = true;
+            let hierarchy = super::economy_panel::build_economy_hierarchy(
+                &power_popup_queries.body_query,
+                &power_popup_queries.star_query,
+                power_popup_queries.buildings_data.as_deref(),
+            );
+            let power_rows = super::economy_panel::collect_power_body_rows(&hierarchy);
             // Determine color from budget - recalculate here
             let net_power = budget.net_power();
             let power_color = if net_power >= 0.0 {
@@ -797,7 +832,7 @@ pub(super) fn ui_resources_bar(
                 .open(&mut still_open)
                 .frame(egui::Frame::popup(ctx.style().as_ref()))
                 .show(ctx, |ui| {
-                    ui.set_min_width(220.0);
+                    ui.set_min_width(300.0);
                     ui.horizontal(|ui| {
                         ui.add(
                             egui::Label::new(
@@ -817,26 +852,94 @@ pub(super) fn ui_resources_bar(
                     });
                     ui.separator();
 
-                    let sources = [
-                        PowerSourceType::Planet,
-                        PowerSourceType::Station,
-                        PowerSourceType::Ship,
-                        PowerSourceType::Asteroid,
-                    ];
+                    if power_rows.is_empty() {
+                        ui.add(egui::Label::new("No active power generation").selectable(false));
+                    } else {
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new("Top Contributing Bodies")
+                                    .size(12.0)
+                                    .color(theme::TEXT_DIM),
+                            )
+                            .selectable(false),
+                        );
+                        ui.add_space(4.0);
 
-                    let mut has_sources = false;
-                    for source in sources {
-                        let amount = budget.power_breakdown.get(&source).copied().unwrap_or(0.0);
-                        if amount > 0.0 {
-                            has_sources = true;
+                        let top_count = power_rows.len().min(10);
+                        for body in power_rows.iter().take(top_count) {
+                            let row_response = ui
+                                .horizontal(|ui| {
+                                    ui.add(
+                                        egui::Label::new(format!(
+                                            "{} {}",
+                                            super::economy_panel::power_body_icon(body.body_type),
+                                            body.body_name
+                                        ))
+                                        .selectable(false),
+                                    );
+                                    ui.add(
+                                        egui::Label::new(
+                                            egui::RichText::new(format!(
+                                                "({})",
+                                                body.system_name
+                                            ))
+                                            .size(10.5)
+                                            .color(theme::TEXT_DIM),
+                                        )
+                                        .selectable(false),
+                                    );
+                                    ui.with_layout(
+                                        egui::Layout::right_to_left(egui::Align::Center),
+                                        |ui| {
+                                            ui.add(
+                                                egui::Label::new(
+                                                    egui::RichText::new(format_power(
+                                                        body.total_generation_watts,
+                                                    ))
+                                                    .strong(),
+                                                )
+                                                .selectable(false),
+                                            );
+                                        },
+                                    );
+                                })
+                                .response;
+
+                            row_response.on_hover_ui(|ui| {
+                                super::economy_panel::render_power_body_detail_tooltip(
+                                    ui,
+                                    body,
+                                    power_popup_queries.buildings_data.as_deref(),
+                                );
+                            });
+                        }
+
+                        let rest_count = power_rows.len().saturating_sub(top_count);
+                        let rest_generation: f64 = power_rows
+                            .iter()
+                            .skip(top_count)
+                            .map(|body| body.total_generation_watts)
+                            .sum();
+                        if rest_count > 0 && rest_generation > 0.0 {
+                            ui.separator();
                             ui.horizontal(|ui| {
-                                ui.add(egui::Label::new(format!("{}", source)).selectable(false));
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(format!(
+                                            "Rest ({} bodies)",
+                                            rest_count
+                                        ))
+                                        .color(theme::TEXT_DIM),
+                                    )
+                                    .selectable(false),
+                                );
                                 ui.with_layout(
                                     egui::Layout::right_to_left(egui::Align::Center),
                                     |ui| {
                                         ui.add(
                                             egui::Label::new(
-                                                egui::RichText::new(format_power(amount)).strong(),
+                                                egui::RichText::new(format_power(rest_generation))
+                                                    .color(theme::TEXT_DIM),
                                             )
                                             .selectable(false),
                                         );
@@ -844,10 +947,6 @@ pub(super) fn ui_resources_bar(
                                 );
                             });
                         }
-                    }
-
-                    if !has_sources {
-                        ui.add(egui::Label::new("No active power generation").selectable(false));
                     }
 
                     ui.separator();

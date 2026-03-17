@@ -100,6 +100,16 @@ pub fn determine_resource_phase(
                 ResourcePhase::Solid
             }
         }
+        ResourceType::Tritium => {
+            // Tritium: similar cryogenic behavior to other hydrogen isotopes
+            if (-252.5..=-248.0).contains(&temp_celsius) {
+                ResourcePhase::Liquid
+            } else if temp_celsius > -248.0 {
+                ResourcePhase::Vapor
+            } else {
+                ResourcePhase::Solid
+            }
+        }
         ResourceType::Sulfur => {
             // Sulfur: melts at 115°C, boils at 445°C
             if (115.0..=445.0).contains(&temp_celsius) {
@@ -178,10 +188,14 @@ pub enum ResourceType {
     Helium3,
     /// Easier fusion than He-3; the "oil" of the 22nd century
     Deuterium,
+    /// Bred from lithium blankets; short-lived but ideal for D-T reactors
+    Tritium,
 
     // Fissile materials - Rare, inner solar system
     Uranium,
     Thorium,
+    /// Manufactured from fertile uranium in breeder reactors
+    Plutonium,
 
     // Precious metals - High value, rare
     Gold,
@@ -241,8 +255,10 @@ impl ResourceType {
             Magnesium,
             Helium3,
             Deuterium,
+            Tritium,
             Uranium,
             Thorium,
+            Plutonium,
             Gold,
             Silver,
             Platinum,
@@ -306,12 +322,12 @@ impl ResourceType {
 
     /// Returns true if this is a fusion fuel resource
     pub fn is_fusion_fuel(&self) -> bool {
-        matches!(self, ResourceType::Helium3 | ResourceType::Deuterium)
+        matches!(self, ResourceType::Helium3 | ResourceType::Deuterium | ResourceType::Tritium)
     }
 
     /// Returns true if this is a fissile material
     pub fn is_fissile(&self) -> bool {
-        matches!(self, ResourceType::Uranium | ResourceType::Thorium)
+        matches!(self, ResourceType::Uranium | ResourceType::Thorium | ResourceType::Plutonium)
     }
 
     /// Returns true if this is a precious metal
@@ -355,7 +371,12 @@ impl ResourceType {
     /// ground.  Use this to filter planetary resource grids and deposit
     /// generation loops instead of hardcoding individual variant names.
     pub fn is_mineable(&self) -> bool {
-        !self.is_biological() && !self.is_exotic() && !matches!(self, ResourceType::Polymers)
+        !self.is_biological()
+            && !self.is_exotic()
+            && !matches!(
+                self,
+                ResourceType::Polymers | ResourceType::Tritium | ResourceType::Plutonium
+            )
     }
 
     /// Returns the display name of the resource
@@ -374,8 +395,10 @@ impl ResourceType {
             ResourceType::Titanium => "Titanium",
             ResourceType::Silicates => "Silicates",
             ResourceType::Helium3 => "Helium-3",
+            ResourceType::Tritium => "Tritium",
             ResourceType::Uranium => "Uranium",
             ResourceType::Thorium => "Thorium",
+            ResourceType::Plutonium => "Plutonium",
             ResourceType::Gold => "Gold",
             ResourceType::Silver => "Silver",
             ResourceType::Platinum => "Platinum",
@@ -417,8 +440,10 @@ impl ResourceType {
             ResourceType::Titanium => "Ti",
             ResourceType::Silicates => "SiO2",
             ResourceType::Helium3 => "He3",
+            ResourceType::Tritium => "T",
             ResourceType::Uranium => "U",
             ResourceType::Thorium => "Th",
+            ResourceType::Plutonium => "Pu",
             ResourceType::Gold => "Au",
             ResourceType::Silver => "Ag",
             ResourceType::Platinum => "Pt",
@@ -453,6 +478,7 @@ impl ResourceType {
                 | ResourceType::Iron
                 | ResourceType::Helium3
                 | ResourceType::Deuterium
+                | ResourceType::Tritium
                 | ResourceType::Uranium
                 | ResourceType::Food
         )
@@ -522,11 +548,11 @@ impl ResourceType {
             ),
             (
                 "Fusion Fuel",
-                vec![ResourceType::Helium3, ResourceType::Deuterium],
+                vec![ResourceType::Helium3, ResourceType::Deuterium, ResourceType::Tritium],
             ),
             (
                 "Fissiles",
-                vec![ResourceType::Uranium, ResourceType::Thorium],
+                vec![ResourceType::Uranium, ResourceType::Thorium, ResourceType::Plutonium],
             ),
             (
                 "Precious Metals",
@@ -574,7 +600,7 @@ mod tests {
     #[test]
     fn test_resource_type_all() {
         let all = ResourceType::all();
-        assert_eq!(all.len(), 37, "Should have exactly 37 resource types");
+        assert_eq!(all.len(), 39, "Should have exactly 39 resource types");
     }
 
     #[test]
@@ -592,7 +618,9 @@ mod tests {
         assert!(ResourceType::Magnesium.is_construction());
         assert!(ResourceType::Helium3.is_fusion_fuel());
         assert!(ResourceType::Deuterium.is_fusion_fuel());
+        assert!(ResourceType::Tritium.is_fusion_fuel());
         assert!(ResourceType::Uranium.is_fissile());
+        assert!(ResourceType::Plutonium.is_fissile());
         assert!(ResourceType::Gold.is_precious_metal());
         assert!(ResourceType::Copper.is_strategic());
         assert!(ResourceType::Lithium.is_strategic());
@@ -613,8 +641,8 @@ mod tests {
             .filter(|r| r.is_critical())
             .count();
         assert_eq!(
-            critical_count, 7,
-            "Should have exactly 7 critical resources"
+            critical_count, 8,
+            "Should have exactly 8 critical resources"
         );
     }
 
@@ -623,6 +651,7 @@ mod tests {
         assert_eq!(ResourceType::Water.display_name(), "Water");
         assert_eq!(ResourceType::Nitrogen.display_name(), "Nitrogen");
         assert_eq!(ResourceType::Helium3.display_name(), "Helium-3");
+        assert_eq!(ResourceType::Tritium.display_name(), "Tritium");
         assert_eq!(ResourceType::Gold.display_name(), "Gold");
     }
 
@@ -632,6 +661,7 @@ mod tests {
         assert_eq!(ResourceType::Nitrogen.symbol(), "N2");
         assert_eq!(ResourceType::Iron.symbol(), "Fe");
         assert_eq!(ResourceType::Helium3.symbol(), "He3");
+        assert_eq!(ResourceType::Tritium.symbol(), "T");
         assert_eq!(ResourceType::Gold.symbol(), "Au");
     }
 
@@ -649,7 +679,9 @@ mod tests {
         assert_eq!(ResourceType::Magnesium.category(), "Construction");
         assert_eq!(ResourceType::Helium3.category(), "Fusion Fuel");
         assert_eq!(ResourceType::Deuterium.category(), "Fusion Fuel");
+        assert_eq!(ResourceType::Tritium.category(), "Fusion Fuel");
         assert_eq!(ResourceType::Uranium.category(), "Fissiles");
+        assert_eq!(ResourceType::Plutonium.category(), "Fissiles");
         assert_eq!(ResourceType::Gold.category(), "Precious Metals");
         assert_eq!(ResourceType::Copper.category(), "Strategic");
         assert_eq!(ResourceType::Lithium.category(), "Strategic");
@@ -667,6 +699,14 @@ mod tests {
         assert!(
             !ResourceType::Polymers.is_mineable(),
             "Polymers are manufactured"
+        );
+        assert!(
+            !ResourceType::Tritium.is_mineable(),
+            "Tritium is bred/manufactured"
+        );
+        assert!(
+            !ResourceType::Plutonium.is_mineable(),
+            "Plutonium is bred/manufactured"
         );
         assert!(!ResourceType::Food.is_mineable(), "Food is grown/produced");
         assert!(
@@ -706,6 +746,8 @@ mod tests {
             non_mineable,
             vec![
                 ResourceType::Food,
+                ResourceType::Tritium,
+                ResourceType::Plutonium,
                 ResourceType::Polymers,
                 ResourceType::Antimatter,
                 ResourceType::ExoticMatter,
@@ -733,11 +775,11 @@ mod tests {
         assert_eq!(categories[7].0, "Strategic");
         assert_eq!(categories[8].0, "Exotic");
 
-        // Check total resources (should be all 37)
+        // Check total resources (should be all 39)
         let total_resources: usize = categories
             .iter()
             .map(|(_, resources)| resources.len())
             .sum();
-        assert_eq!(total_resources, 37);
+        assert_eq!(total_resources, 39);
     }
 }

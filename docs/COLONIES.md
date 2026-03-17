@@ -186,7 +186,7 @@ Building outputs below are **per building**.
 | 🏭 Refinery | +8% mining efficiency | 600 | 6,000 | Converts raw ore |
 | 🏭 Factory | +10 BP/yr construction speed; −5% construction costs | 1,000 | 12,000 | Required for most BP output |
 | ☁️ Atmospheric Processor | +0.75 Mt/yr atmospheric harvest | 600 | 3,000 | Gas-giant moons or dense atmospheres |
-| ⚗️ Chemical Plant | +1 chemical processing unit/yr | 800 | 4,000 | Processes volatiles and polymers |
+| ⚗️ Chemical Plant | +0.15 Mt/yr Hydrogen, +0.14 Mt/yr Ammonia, +0.01 Mt/yr Polymers | 800 | 4,000 | Synthesises industrial feedstocks from volatile inputs |
 | 🛢️ Hydrocarbon Extractor | +10% mining efficiency | 1,200 | 2,500 | Oil/gas from crustal deposits |
 | 🕳 Deep Drill | +25% deep mining efficiency | 2,000 | 10,000 | Requires `deep_drilling` tech |
 | 🔦 Laser Drill | +50% deep mining efficiency | 6,000 | 4,000 | Requires `laser_drilling` tech |
@@ -224,7 +224,11 @@ Buildings require power (MW/GW).  Power deficit reduces building output.  Build 
 | 🏭 Coal Power Plant | +10 GW | Coal | 800 | 2,000 |
 | 🔥 Natural Gas Plant | +12 GW | Gas | 600 | 1,500 |
 | ☢ Fission Reactor | +20 GW | Uranium | 1,500 | 4,000 |
-| ⚡ Fusion Reactor | +40 GW | Deuterium | 5,000 | 8,000 | Requires `fusion_power` tech |
+| ⚡ Fusion Reactor | +40 GW | Helium-3 + Deuterium | 5,000 | 8,000 | Requires `fusion_power` tech |
+| ⚛ D-T Fusion Reactor | +50 GW | Deuterium + Tritium | 6,000 | 9,000 | Requires `fusion_power` tech |
+| ☀ D-He3 Fusion Reactor | +45 GW | Deuterium + Helium-3 | 7,000 | 9,500 | Requires `helium3_fusion` tech |
+| ♨ Thorium Reactor | +24 GW | Thorium | 1,800 | 4,500 | Requires `molten_salt_fission` tech |
+| ☢ Breeder Reactor | +22 GW | Uranium (+Plutonium output) | 2,600 | 5,000 | Requires `breeder_reactors` tech |
 
 ---
 

@@ -51,57 +51,80 @@ enum EconomySourceKind {
 
 /// Snapshot of a body's economic contribution, aggregated per-frame.
 #[allow(dead_code)]
-struct BodyEconomyEntry {
+#[derive(Clone)]
+pub(super) struct BodyEconomyEntry {
     #[allow(dead_code)]
-    body_name: String,
+    pub(super) body_name: String,
     /// Prepared for future use (stations, mining ships)
     #[allow(dead_code)]
-    body_type: BodyType,
+    pub(super) body_type: BodyType,
     source_kind: EconomySourceKind,
     /// Colony data (if colonised)
-    colony: Option<ColonySnapshot>,
+    pub(super) colony: Option<ColonySnapshot>,
     /// Standalone mining operations on this body
     mining_ops: Vec<MiningOpSnapshot>,
     /// Resource deposits on this body
     deposits: Vec<(ResourceType, MineralDeposit)>,
     /// Power generators on this body
-    generators: Vec<PowerGenSnapshot>,
+    pub(super) generators: Vec<PowerGenSnapshot>,
 }
 
 /// Lightweight copy of colony data for the economy UI.
-struct ColonySnapshot {
-    name: String,
-    population: f64,
-    growth_per_year: f64,
-    housing_capacity: f64,
-    total_buildings: u32,
-    workforce_efficiency: f64,
-    logistics_efficiency: f64,
-    income_per_year: f64,
-    operating_cost_per_year: f64,
-    power_generation_watts: f64,
-    power_load_watts: f64,
-    buildings: Vec<(BuildingType, u32)>,
+#[derive(Clone)]
+pub(super) struct ColonySnapshot {
+    pub(super) name: String,
+    pub(super) population: f64,
+    pub(super) growth_per_year: f64,
+    pub(super) housing_capacity: f64,
+    pub(super) total_buildings: u32,
+    pub(super) workforce_efficiency: f64,
+    pub(super) logistics_efficiency: f64,
+    pub(super) income_per_year: f64,
+    pub(super) operating_cost_per_year: f64,
+    pub(super) power_generation_watts: f64,
+    pub(super) power_load_watts: f64,
+    pub(super) buildings: Vec<(BuildingType, u32)>,
 }
 
+#[derive(Clone)]
 struct MiningOpSnapshot {
     resource_type: ResourceType,
     rate_mt_per_year: f64,
     active: bool,
 }
 
-struct PowerGenSnapshot {
-    source_type: PowerSourceType,
-    output_watts: f64,
+#[derive(Clone)]
+pub(super) struct PowerGenSnapshot {
+    pub(super) source_type: PowerSourceType,
+    pub(super) output_watts: f64,
 }
 
 /// A star system grouping for the hierarchical economy view.
-struct StarSystemGroup {
-    system_name: String,
-    bodies: Vec<BodyEconomyEntry>,
+pub(super) struct StarSystemGroup {
+    pub(super) system_name: String,
+    pub(super) bodies: Vec<BodyEconomyEntry>,
 }
 
-fn calculate_building_power_profile(
+#[derive(Clone)]
+pub(super) struct BuildingPowerRow {
+    pub(super) building_type: BuildingType,
+    pub(super) count: u32,
+    pub(super) produced_watts: f64,
+    pub(super) consumed_watts: f64,
+}
+
+#[derive(Clone)]
+pub(super) struct PowerBodyRow {
+    pub(super) system_name: String,
+    pub(super) body_name: String,
+    pub(super) body_type: BodyType,
+    pub(super) total_generation_watts: f64,
+    pub(super) net_power_watts: f64,
+    pub(super) colony: Option<ColonySnapshot>,
+    pub(super) generators: Vec<PowerGenSnapshot>,
+}
+
+pub(super) fn calculate_building_power_profile(
     building_type: BuildingType,
     count: u32,
     buildings_data: Option<&BuildingsData>,
@@ -137,8 +160,268 @@ fn format_power_gw(watts: f64) -> String {
     format!("{formatted} GW")
 }
 
+pub(super) fn power_body_icon(body_type: BodyType) -> &'static str {
+    match body_type {
+        BodyType::Planet | BodyType::GasGiant => "🪐",
+        BodyType::Moon => "🌙",
+        BodyType::Asteroid => "🪨",
+        BodyType::DwarfPlanet => "⚫",
+        BodyType::Comet => "☄",
+        _ => "🔵",
+    }
+}
+
+pub(super) fn build_colony_power_rows(
+    colony: &ColonySnapshot,
+    buildings_data: Option<&BuildingsData>,
+) -> Vec<BuildingPowerRow> {
+    let mut building_rows: Vec<BuildingPowerRow> = colony
+        .buildings
+        .iter()
+        .filter_map(|(building_type, count)| {
+            let (produced_watts, consumed_watts) =
+                calculate_building_power_profile(*building_type, *count, buildings_data);
+            if produced_watts <= 0.0 && consumed_watts <= 0.0 {
+                None
+            } else {
+                Some(BuildingPowerRow {
+                    building_type: *building_type,
+                    count: *count,
+                    produced_watts,
+                    consumed_watts,
+                })
+            }
+        })
+        .collect();
+
+    building_rows.sort_by(|left, right| {
+        right
+            .produced_watts
+            .partial_cmp(&left.produced_watts)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                right
+                    .consumed_watts
+                    .partial_cmp(&left.consumed_watts)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| right.count.cmp(&left.count))
+    });
+
+    building_rows
+}
+
+pub(super) fn collect_power_body_rows(hierarchy: &[StarSystemGroup]) -> Vec<PowerBodyRow> {
+    let mut rows: Vec<PowerBodyRow> = hierarchy
+        .iter()
+        .flat_map(|group| {
+            group.bodies.iter().filter_map(|body_entry| {
+                let generator_output_watts: f64 =
+                    body_entry.generators.iter().map(|gen| gen.output_watts).sum();
+                let colony_generation_watts = body_entry
+                    .colony
+                    .as_ref()
+                    .map(|colony| colony.power_generation_watts)
+                    .unwrap_or(0.0);
+                let colony_load_watts = body_entry
+                    .colony
+                    .as_ref()
+                    .map(|colony| colony.power_load_watts)
+                    .unwrap_or(0.0);
+                let total_generation_watts = generator_output_watts + colony_generation_watts;
+
+                if total_generation_watts <= 0.0 {
+                    return None;
+                }
+
+                Some(PowerBodyRow {
+                    system_name: group.system_name.clone(),
+                    body_name: body_entry.body_name.clone(),
+                    body_type: body_entry.body_type,
+                    total_generation_watts,
+                    net_power_watts: total_generation_watts - colony_load_watts,
+                    colony: body_entry.colony.clone(),
+                    generators: body_entry.generators.clone(),
+                })
+            })
+        })
+        .collect();
+
+    rows.sort_by(|left, right| {
+        right
+            .total_generation_watts
+            .partial_cmp(&left.total_generation_watts)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                right
+                    .net_power_watts
+                    .partial_cmp(&left.net_power_watts)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| left.body_name.cmp(&right.body_name))
+    });
+
+    rows
+}
+
+pub(super) fn render_power_body_detail_tooltip(
+    ui: &mut egui::Ui,
+    body: &PowerBodyRow,
+    buildings_data: Option<&BuildingsData>,
+) {
+    ui.set_min_width(360.0);
+
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new(format!(
+                "{} {}",
+                power_body_icon(body.body_type),
+                body.body_name
+            ))
+            .strong()
+            .size(13.0),
+        );
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.label(
+                egui::RichText::new(format_power(body.total_generation_watts))
+                    .color(theme::GREEN)
+                    .strong(),
+            );
+        });
+    });
+    ui.label(egui::RichText::new(&body.system_name).size(11.0).color(theme::TEXT_DIM));
+    ui.separator();
+
+    if let Some(colony) = &body.colony {
+        let utilization = if colony.power_generation_watts > 0.0 {
+            colony.power_load_watts / colony.power_generation_watts
+        } else {
+            0.0
+        };
+        let net_color = if body.net_power_watts >= 0.0 {
+            theme::GREEN
+        } else {
+            theme::RED
+        };
+        let util_color = if colony.power_generation_watts <= 0.0 {
+            theme::TEXT_DIM
+        } else if utilization < 0.8 {
+            theme::GREEN
+        } else if utilization < 1.0 {
+            theme::AMBER
+        } else {
+            theme::RED
+        };
+
+        let building_rows = build_colony_power_rows(colony, buildings_data);
+        if !building_rows.is_empty() {
+            egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+                egui::Grid::new(format!("power_tooltip_buildings_{}", body.body_name))
+                    .num_columns(5)
+                    .spacing([16.0, 4.0])
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new("Building Type").strong());
+                        ui.label(egui::RichText::new("Count").strong());
+                        ui.label(egui::RichText::new("Generation").strong());
+                        ui.label(egui::RichText::new("Load").strong());
+                        ui.label(egui::RichText::new("Net").strong());
+                        ui.end_row();
+
+                        for row in building_rows {
+                            let building_net = row.produced_watts - row.consumed_watts;
+                            let building_net_color = if building_net >= 0.0 {
+                                theme::GREEN
+                            } else {
+                                theme::RED
+                            };
+
+                            ui.label(row.building_type.display_name());
+                            ui.label(row.count.to_string());
+                            ui.label(
+                                egui::RichText::new(format_power_gw(row.produced_watts))
+                                    .color(theme::GREEN)
+                                    .monospace(),
+                            );
+                            ui.label(
+                                egui::RichText::new(format_power_gw(row.consumed_watts))
+                                    .color(theme::AMBER)
+                                    .monospace(),
+                            );
+                            ui.label(
+                                egui::RichText::new(format_power_gw(building_net))
+                                    .color(building_net_color)
+                                    .monospace(),
+                            );
+                            ui.end_row();
+                        }
+                    });
+            });
+
+            ui.separator();
+        }
+
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(format!(
+                    "Production {}",
+                    format_power(colony.power_generation_watts)
+                ))
+                .color(theme::GREEN),
+            );
+            ui.label(
+                egui::RichText::new(format!("Load {}", format_power(colony.power_load_watts)))
+                    .color(theme::AMBER),
+            );
+            ui.label(
+                egui::RichText::new(format!("Net {}", format_power(body.net_power_watts)))
+                    .color(net_color),
+            );
+            ui.label(
+                egui::RichText::new(if colony.power_generation_watts > 0.0 {
+                    format!("Utilization {:.1}%", utilization * 100.0)
+                } else {
+                    "Utilization n/a".to_string()
+                })
+                .color(util_color),
+            );
+        });
+    }
+
+    if !body.generators.is_empty() {
+        if body.colony.is_some() {
+            ui.separator();
+        }
+
+        ui.label(egui::RichText::new("Standalone Generators").strong());
+        let mut generators = body.generators.clone();
+        generators.sort_by(|left, right| {
+            right
+                .output_watts
+                .partial_cmp(&left.output_watts)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        egui::Grid::new(format!("power_tooltip_generators_{}", body.body_name))
+            .num_columns(2)
+            .spacing([16.0, 4.0])
+            .striped(true)
+            .show(ui, |ui| {
+                for generator in generators {
+                    ui.label(generator.source_type.to_string());
+                    ui.label(
+                        egui::RichText::new(format_power(generator.output_watts))
+                            .color(theme::GREEN)
+                            .monospace(),
+                    );
+                    ui.end_row();
+                }
+            });
+    }
+}
+
 /// Build the hierarchical economy data: star systems → bodies → colonies/mining/power.
-fn build_economy_hierarchy(
+pub(super) fn build_economy_hierarchy(
     body_query: &Query<(
         Entity,
         &CelestialBody,
@@ -299,6 +582,19 @@ fn rate_text(rate: f64, suffix: &str) -> (String, egui::Color32) {
     (text, color)
 }
 
+fn colony_balance(colony: &ColonySnapshot) -> f64 {
+    colony.income_per_year - colony.operating_cost_per_year
+}
+
+fn group_has_population_or_colonies(group: &StarSystemGroup) -> bool {
+    group.bodies.iter().any(|body| {
+        body.colony
+            .as_ref()
+            .map(|colony| colony.population > 0.0 || colony.total_buildings > 0)
+            .unwrap_or(false)
+    })
+}
+
 /// System that renders the Economy UI when the Economy menu is active.
 ///
 /// This system provides a hierarchical view of the empire's economy broken down
@@ -403,6 +699,11 @@ fn render_econ_overview(
     rate_tracker: &ResourceRateTracker,
     hierarchy: &[StarSystemGroup],
 ) {
+    let populated_systems = hierarchy
+        .iter()
+        .filter(|group| group_has_population_or_colonies(group))
+        .count();
+
     egui::ScrollArea::vertical().show(ui, |ui| {
         // Treasury & Balance
         ui.group(|ui| {
@@ -552,7 +853,9 @@ fn render_econ_overview(
                         );
                         ui.end_row();
                         ui.label("Systems:");
-                        ui.label(egui::RichText::new(format!("{}", hierarchy.len())).strong());
+                        ui.label(
+                            egui::RichText::new(format!("{}", populated_systems)).strong(),
+                        );
                         ui.end_row();
                     });
             });
@@ -616,6 +919,10 @@ fn render_econ_overview(
                 );
             } else {
                 for group in hierarchy {
+                    if !group_has_population_or_colonies(group) {
+                        continue;
+                    }
+
                     let sys_colonies: usize =
                         group.bodies.iter().filter(|b| b.colony.is_some()).count();
                     let sys_pop: f64 = group
@@ -642,24 +949,88 @@ fn render_econ_overview(
                     } else {
                         theme::RED
                     };
+                    let sign = if sys_net >= 0.0 { "+" } else { "" };
 
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(&group.system_name).strong());
-                        ui.label(format!(
-                            "— {} colonies, Pop: {}",
+                    egui::CollapsingHeader::new(
+                        egui::RichText::new(format!(
+                            "{} — {} colonies, Pop: {}, Net: {}{}/yr",
+                            group.system_name,
                             sys_colonies,
-                            Colony::format_population(sys_pop)
-                        ));
-                        let sign = if sys_net >= 0.0 { "+" } else { "" };
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "Net: {}{}/yr",
-                                sign,
-                                format_currency(sys_net)
-                            ))
-                            .color(net_color),
-                        );
+                            Colony::format_population(sys_pop),
+                            sign,
+                            format_currency(sys_net)
+                        ))
+                        .strong()
+                        .color(net_color),
+                    )
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        let mut body_count = 0usize;
+
+                        for body_entry in &group.bodies {
+                            let Some(colony) = body_entry.colony.as_ref() else {
+                                continue;
+                            };
+
+                            let body_net = colony_balance(colony);
+                            if body_net.abs() < 1e-9 {
+                                continue;
+                            }
+
+                            body_count += 1;
+                            let body_color = if body_net >= 0.0 {
+                                theme::GREEN
+                            } else {
+                                theme::RED
+                            };
+                            let body_sign = if body_net >= 0.0 { "+" } else { "" };
+                            let body_icon = match body_entry.body_type {
+                                BodyType::Planet | BodyType::GasGiant => "🪐",
+                                BodyType::Moon => "🌙",
+                                BodyType::Asteroid => "🪨",
+                                BodyType::DwarfPlanet => "⚫",
+                                BodyType::Comet => "☄",
+                                _ => "🔵",
+                            };
+
+                            ui.horizontal(|ui| {
+                                ui.label(body_icon);
+                                ui.label(
+                                    egui::RichText::new(&body_entry.body_name).strong(),
+                                );
+                                if colony.name != body_entry.body_name {
+                                    ui.label(
+                                        egui::RichText::new(format!("({})", colony.name))
+                                            .color(theme::TEXT_DIM),
+                                    );
+                                }
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "Net: {}{}/yr",
+                                        body_sign,
+                                        format_currency(body_net)
+                                    ))
+                                    .color(body_color),
+                                );
+                            });
+                        }
+
+                        if body_count == 0 {
+                            ui.label(
+                                egui::RichText::new("No body-level non-zero balances")
+                                    .italics()
+                                    .color(theme::TEXT_DIM),
+                            );
+                        }
                     });
+                }
+
+                if populated_systems == 0 {
+                    ui.label(
+                        egui::RichText::new("No populated or colonized systems")
+                            .italics()
+                            .color(theme::TEXT_DIM),
+                    );
                 }
             }
         });
@@ -1845,36 +2216,7 @@ fn render_econ_power_grid(
                     )
                     .default_open(false)
                     .show(ui, |ui| {
-                        let mut building_rows: Vec<(BuildingType, u32, f64, f64)> = colony
-                            .buildings
-                            .iter()
-                            .filter_map(|(building_type, count)| {
-                                let (produced_watts, consumed_watts) =
-                                    calculate_building_power_profile(
-                                        *building_type,
-                                        *count,
-                                        buildings_data,
-                                    );
-                                if produced_watts <= 0.0 && consumed_watts <= 0.0 {
-                                    None
-                                } else {
-                                    Some((*building_type, *count, produced_watts, consumed_watts))
-                                }
-                            })
-                            .collect();
-                        building_rows.sort_by(|left, right| {
-                            right
-                                .2
-                                .partial_cmp(&left.2)
-                                .unwrap_or(std::cmp::Ordering::Equal)
-                                .then_with(|| {
-                                    right
-                                        .3
-                                        .partial_cmp(&left.3)
-                                        .unwrap_or(std::cmp::Ordering::Equal)
-                                })
-                                .then_with(|| right.1.cmp(&left.1))
-                        });
+                        let building_rows = build_colony_power_rows(colony, buildings_data);
 
                         egui::Grid::new(format!("colony_power_buildings_{}", colony.name))
                             .num_columns(5)
@@ -1888,23 +2230,23 @@ fn render_econ_power_grid(
                                 ui.label(egui::RichText::new("Net").strong());
                                 ui.end_row();
 
-                                for (building_type, count, produced_watts, consumed_watts) in building_rows {
-                                    let building_net = produced_watts - consumed_watts;
+                                for row in building_rows {
+                                    let building_net = row.produced_watts - row.consumed_watts;
                                     let building_net_color = if building_net >= 0.0 {
                                         theme::GREEN
                                     } else {
                                         theme::RED
                                     };
 
-                                    ui.label(building_type.display_name());
-                                    ui.label(count.to_string());
+                                    ui.label(row.building_type.display_name());
+                                    ui.label(row.count.to_string());
                                     ui.label(
-                                        egui::RichText::new(format_power_gw(produced_watts))
+                                        egui::RichText::new(format_power_gw(row.produced_watts))
                                             .color(theme::GREEN)
                                             .monospace(),
                                     );
                                     ui.label(
-                                        egui::RichText::new(format_power_gw(consumed_watts))
+                                        egui::RichText::new(format_power_gw(row.consumed_watts))
                                             .color(theme::AMBER)
                                             .monospace(),
                                     );
@@ -1991,13 +2333,7 @@ fn render_econ_power_grid(
                             continue;
                         }
 
-                        let body_icon = match body_entry.body_type {
-                            BodyType::Planet | BodyType::GasGiant => "🪐",
-                            BodyType::Moon => "🌙",
-                            BodyType::Asteroid => "🪨",
-                            BodyType::DwarfPlanet => "⚫",
-                            _ => "🔵",
-                        };
+                        let body_icon = power_body_icon(body_entry.body_type);
 
                         ui.horizontal(|ui| {
                             let generator_output_watts: f64 =

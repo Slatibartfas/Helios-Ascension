@@ -5,6 +5,7 @@ use crate::economy::budget::{
 use crate::economy::components::{LocalStockpile, PlanetResources};
 use crate::economy::types::ResourceType;
 use crate::plugins::solar_system::CelestialBody;
+use crate::research::ResearchState;
 use crate::ui::SimulationTime;
 use bevy::prelude::*;
 
@@ -26,6 +27,131 @@ impl Default for MiningOperation {
     }
 }
 
+struct IndustrialProcessRule {
+    output: ResourceType,
+    required_tech: Option<&'static str>,
+    inputs_per_output: &'static [(ResourceType, f64)],
+}
+
+fn industrial_process_rule(modifier_type: &str) -> Option<IndustrialProcessRule> {
+    match modifier_type {
+        "HydrogenSynthesis" => Some(IndustrialProcessRule {
+            output: ResourceType::Hydrogen,
+            required_tech: None,
+            inputs_per_output: &[(ResourceType::Methane, 2.0)],
+        }),
+        "AmmoniaSynthesis" => Some(IndustrialProcessRule {
+            output: ResourceType::Ammonia,
+            required_tech: None,
+            inputs_per_output: &[(ResourceType::Nitrogen, 0.82), (ResourceType::Methane, 0.71)],
+        }),
+        "PolymerSynthesis" => Some(IndustrialProcessRule {
+            output: ResourceType::Polymers,
+            required_tech: None,
+            inputs_per_output: &[(ResourceType::Methane, 1.15)],
+        }),
+        "TritiumBreeding" => Some(IndustrialProcessRule {
+            output: ResourceType::Tritium,
+            required_tech: Some("fusion_power"),
+            inputs_per_output: &[(ResourceType::Lithium, 0.6)],
+        }),
+        "PlutoniumBreeding" => Some(IndustrialProcessRule {
+            output: ResourceType::Plutonium,
+            required_tech: Some("breeder_reactors"),
+            inputs_per_output: &[(ResourceType::Uranium, 1.2)],
+        }),
+        _ => None,
+    }
+}
+
+fn process_is_unlocked(rule: &IndustrialProcessRule, research_state: Option<&ResearchState>) -> bool {
+    match rule.required_tech {
+        Some(tech_id) => research_state.is_some_and(|state| state.is_unlocked(tech_id)),
+        None => true,
+    }
+}
+
+fn combined_available(
+    local_opt: &Option<Mut<LocalStockpile>>,
+    budget: &GlobalBudget,
+    resource: ResourceType,
+) -> f64 {
+    local_opt
+        .as_ref()
+        .map_or(0.0, |local| local.get(&resource))
+        + budget.get_stockpile(&resource)
+}
+
+fn consume_with_fallback(
+    local_opt: &mut Option<Mut<LocalStockpile>>,
+    budget: &mut GlobalBudget,
+    resource: ResourceType,
+    amount: f64,
+) -> f64 {
+    let mut remaining = amount.max(0.0);
+    if remaining <= 0.0 {
+        return 0.0;
+    }
+
+    if let Some(local) = local_opt.as_deref_mut() {
+        let consumed_local = local.consume(resource, remaining);
+        remaining -= consumed_local;
+    }
+
+    if remaining > 0.0 {
+        let available_global = budget.get_stockpile(&resource);
+        let consumed_global = remaining.min(available_global);
+        if consumed_global > 0.0 {
+            budget.consume_resource(resource, consumed_global);
+            remaining -= consumed_global;
+        }
+    }
+
+    amount.max(0.0) - remaining
+}
+
+fn deposit_with_fallback(
+    local_opt: &mut Option<Mut<LocalStockpile>>,
+    budget: &mut GlobalBudget,
+    resource: ResourceType,
+    amount: f64,
+) {
+    let amount = amount.max(0.0);
+    if amount <= 0.0 {
+        return;
+    }
+
+    if let Some(local) = local_opt.as_deref_mut() {
+        let cap = budget.effective_stockpile_cap(resource);
+        local.add_capped(resource, amount, cap);
+    } else {
+        budget.add_resource_capped(resource, amount);
+    }
+}
+
+fn feasible_output_amount(
+    desired_output: f64,
+    rule: &IndustrialProcessRule,
+    local_opt: &Option<Mut<LocalStockpile>>,
+    budget: &GlobalBudget,
+) -> f64 {
+    if desired_output <= 0.0 {
+        return 0.0;
+    }
+
+    let mut scale = 1.0_f64;
+    for (input_resource, input_per_output) in rule.inputs_per_output {
+        let required_input = desired_output * *input_per_output;
+        if required_input <= 0.0 {
+            continue;
+        }
+        let available_input = combined_available(local_opt, budget, *input_resource);
+        scale = scale.min((available_input / required_input).clamp(0.0, 1.0));
+    }
+
+    desired_output * scale
+}
+
 pub fn extract_resources(
     mut budget: ResMut<GlobalBudget>,
     mut all_query: Query<(
@@ -38,6 +164,7 @@ pub fn extract_resources(
     sim_time: Res<SimulationTime>,
     mut last_elapsed: Local<f64>,
     buildings_data: Option<Res<BuildingsData>>,
+    research_state: Option<Res<ResearchState>>,
 ) {
     let current_elapsed = sim_time.elapsed_seconds();
     let dt = current_elapsed - *last_elapsed;
@@ -285,6 +412,50 @@ pub fn extract_resources(
                         }
                     }
                 }
+
+                // --- Industrial synthesis / breeding ---
+                for (building_type, &count) in &colony.buildings {
+                    if count == 0 {
+                        continue;
+                    }
+                    let Some(def) = data.get(building_type) else {
+                        continue;
+                    };
+
+                    for modifier in &def.modifiers {
+                        let Some(rule) = industrial_process_rule(&modifier.modifier_type) else {
+                            continue;
+                        };
+                        if !process_is_unlocked(&rule, research_state.as_deref()) {
+                            continue;
+                        }
+
+                        let desired_output = modifier.value * count as f64 * years_elapsed;
+                        let actual_output =
+                            feasible_output_amount(desired_output, &rule, &local_opt, &budget);
+
+                        if actual_output <= 0.0 {
+                            continue;
+                        }
+
+                        for (input_resource, input_per_output) in rule.inputs_per_output {
+                            let input_amount = actual_output * *input_per_output;
+                            consume_with_fallback(
+                                &mut local_opt,
+                                &mut budget,
+                                *input_resource,
+                                input_amount,
+                            );
+                        }
+
+                        deposit_with_fallback(
+                            &mut local_opt,
+                            &mut budget,
+                            rule.output,
+                            actual_output,
+                        );
+                    }
+                }
             }
         }
     }
@@ -306,8 +477,9 @@ pub fn update_resource_rates(
     mining_ops: Query<(Entity, &MiningOperation, Option<&PlanetResources>)>,
     research_buildings: Query<&crate::research::components::ResearchBuilding>,
     engineering_facilities: Query<&crate::research::components::EngineeringFacility>,
-    colony_query: Query<(Entity, &Colony, Option<&PlanetResources>)>,
+    colony_query: Query<(Entity, &Colony, Option<&PlanetResources>, Option<&LocalStockpile>)>,
     buildings_data: Option<Res<BuildingsData>>,
+    budget: Res<GlobalBudget>,
     research_state: Res<crate::research::ResearchState>,
 ) {
     // --- Resource rates from mining (production) ---
@@ -362,7 +534,7 @@ pub fn update_resource_rates(
 
     // 2. Colony mining & atmospheric harvesting
     if let Some(data) = &buildings_data {
-        for (entity, colony, resources_opt) in colony_query.iter() {
+        for (entity, colony, resources_opt, local_opt) in colony_query.iter() {
             if let Some(resources) = resources_opt {
                 let mut surface_rate = 0.0_f64;
                 let mut deep_rate = 0.0_f64;
@@ -502,6 +674,80 @@ pub fn update_resource_rates(
                         }
                     }
                 }
+
+                let mut simulated_available: std::collections::HashMap<ResourceType, f64> =
+                    ResourceType::all()
+                        .iter()
+                        .copied()
+                        .map(|resource| {
+                            (
+                                resource,
+                                local_opt.map_or(0.0, |local| local.get(&resource))
+                                    + budget.get_stockpile(&resource),
+                            )
+                        })
+                        .collect();
+
+                for (building_type, &count) in &colony.buildings {
+                    if count == 0 {
+                        continue;
+                    }
+                    let Some(def) = data.get(building_type) else {
+                        continue;
+                    };
+
+                    for modifier in &def.modifiers {
+                        let Some(rule) = industrial_process_rule(&modifier.modifier_type) else {
+                            continue;
+                        };
+                        if !process_is_unlocked(&rule, Some(&research_state)) {
+                            continue;
+                        }
+
+                        let desired_monthly_output =
+                            modifier.value * count as f64 * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
+                        if desired_monthly_output <= 0.0 {
+                            continue;
+                        }
+
+                        let mut scale = 1.0_f64;
+                        for (input_resource, input_per_output) in rule.inputs_per_output {
+                            let required = desired_monthly_output * *input_per_output;
+                            if required <= 0.0 {
+                                continue;
+                            }
+                            let available =
+                                simulated_available.get(input_resource).copied().unwrap_or(0.0);
+                            scale = scale.min((available / required).clamp(0.0, 1.0));
+                        }
+
+                        let actual_output = desired_monthly_output * scale;
+                        if actual_output <= 0.0 {
+                            continue;
+                        }
+
+                        for (input_resource, input_per_output) in rule.inputs_per_output {
+                            let consumed = actual_output * *input_per_output;
+                            *simulated_available.entry(*input_resource).or_insert(0.0) -= consumed;
+                            add_rate(
+                                &mut rates,
+                                &mut per_entity,
+                                entity,
+                                *input_resource,
+                                -consumed,
+                            );
+                        }
+
+                        *simulated_available.entry(rule.output).or_insert(0.0) += actual_output;
+                        add_rate(
+                            &mut rates,
+                            &mut per_entity,
+                            entity,
+                            rule.output,
+                            actual_output,
+                        );
+                    }
+                }
             } else {
                 warn!("Colony {} has no PlanetResources!", colony.name);
             }
@@ -511,7 +757,7 @@ pub fn update_resource_rates(
     }
 
     // 3. Add net colony food rate (production - population consumption)
-    for (entity, colony, _) in colony_query.iter() {
+    for (entity, colony, _, _) in colony_query.iter() {
         let food_net_per_year =
             colony.food_production_per_year() - colony.food_consumption_per_year();
         let food_net_per_month = food_net_per_year * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
@@ -527,7 +773,7 @@ pub fn update_resource_rates(
 
     // 4. Subtract maintenance consumption so rates show NET balance
     if let Some(data) = &buildings_data {
-        for (entity, colony, _) in colony_query.iter() {
+        for (entity, colony, _, _) in colony_query.iter() {
             for (building_type, &count) in &colony.buildings {
                 if count == 0 {
                     continue;
@@ -565,7 +811,7 @@ pub fn update_resource_rates(
 
     // From colony buildings
     if let Some(data) = &buildings_data {
-        for (_entity, colony, _) in colony_query.iter() {
+        for (_entity, colony, _, _) in colony_query.iter() {
             for (building_type, &count) in &colony.buildings {
                 if count == 0 {
                     continue;
@@ -598,7 +844,7 @@ pub fn update_resource_rates(
 
     // From colony buildings
     if let Some(data) = &buildings_data {
-        for (_entity, colony, _) in colony_query.iter() {
+        for (_entity, colony, _, _) in colony_query.iter() {
             for (building_type, &count) in &colony.buildings {
                 if count == 0 {
                     continue;

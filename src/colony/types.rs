@@ -49,6 +49,14 @@ pub enum BuildingType {
     FissionReactor,
     /// Advanced fusion power plant
     FusionReactor,
+    /// Deuterium-tritium fusion plant with lithium breeding support
+    DTFusionReactor,
+    /// Deuterium-helium-3 fusion plant for premium low-neutron power
+    DHe3FusionReactor,
+    /// Thorium molten-salt reactor for long-duration baseload generation
+    ThoriumReactor,
+    /// Fast breeder reactor that creates plutonium while generating power
+    BreederReactor,
 
     // Population & Growth
     /// Agricultural facilities for food production
@@ -160,6 +168,10 @@ impl BuildingType {
             Farm,
             FissionReactor,
             FusionReactor,
+            DTFusionReactor,
+            DHe3FusionReactor,
+            ThoriumReactor,
+            BreederReactor,
             AgriDome,
             MedicalCenter,
             ResearchLab,
@@ -212,6 +224,10 @@ impl BuildingType {
             BuildingType::SolarPower => "Solar Power Plant",
             BuildingType::FissionReactor => "Fission Reactor",
             BuildingType::FusionReactor => "Fusion Reactor",
+            BuildingType::DTFusionReactor => "D-T Fusion Reactor",
+            BuildingType::DHe3FusionReactor => "D-He3 Fusion Reactor",
+            BuildingType::ThoriumReactor => "Thorium Reactor",
+            BuildingType::BreederReactor => "Breeder Reactor",
             BuildingType::AgriDome => "Agricultural Dome",
             BuildingType::Farm => "Farm",
             BuildingType::MedicalCenter => "Medical Center",
@@ -266,6 +282,10 @@ impl BuildingType {
             BuildingType::FissionReactor => "Nuclear fission reactor for reliable power",
             BuildingType::Farm => "Open-air food production",
             BuildingType::FusionReactor => "Advanced fusion power plant",
+            BuildingType::DTFusionReactor => "High-output fusion plant using deuterium-tritium fuel",
+            BuildingType::DHe3FusionReactor => "Premium fusion plant using deuterium and helium-3",
+            BuildingType::ThoriumReactor => "Molten-salt thorium reactor for safe baseload power",
+            BuildingType::BreederReactor => "Fast breeder reactor that produces plutonium from uranium",
             BuildingType::AgriDome => "Agricultural facilities for food production",
             BuildingType::MedicalCenter => "Medical facilities to boost population growth",
             BuildingType::ResearchLab => "Scientific research laboratory",
@@ -292,7 +312,7 @@ impl BuildingType {
             BuildingType::DataCenter => "Planetary-scale computation, AI processing, and data storage infrastructure",
             BuildingType::SpacePort => "High-throughput orbital launch complex with multiple pads",
             BuildingType::GroundDefenseBattery => "Anti-orbital and anti-missile ground defense installation",
-            BuildingType::Warehouse => "Bulk storage depot that expands global resource stockpile capacity by 5% per depot",
+            BuildingType::Warehouse => "Bulk storage depot that expands global resource stockpile capacity by 2.5% per depot",
         }
     }
 
@@ -318,20 +338,24 @@ impl BuildingType {
                 "Buried structure; ideal for airless bodies",
             ],
             // ── Mining & Industry ────────────────────────────────────────
-            BuildingType::Mine => &["+15% mining efficiency"],
-            BuildingType::Refinery => &["+8% mining efficiency"],
+            BuildingType::Mine => &["+24.4% mining efficiency"],
+            BuildingType::Refinery => &["+13% mining efficiency"],
             BuildingType::Factory => &[
                 "+10 BP/yr construction speed",
                 "-5% construction costs",
             ],
-            BuildingType::ChemicalPlant => &["+1 chemical processing unit/yr"],
-            BuildingType::HydrocarbonExtractor => &["+10% mining efficiency"],
+            BuildingType::ChemicalPlant => &[
+                "+0.15 Mt/yr hydrogen",
+                "+0.14 Mt/yr ammonia",
+                "+0.01 Mt/yr polymers",
+            ],
+            BuildingType::HydrocarbonExtractor => &["+16.2% mining efficiency"],
             // ── Atmospheric Harvesting ───────────────────────────────────
-            BuildingType::AtmosphericProcessor => &["+0.75 Mt/yr atmospheric harvest"],
+            BuildingType::AtmosphericProcessor => &["+0.9 Mt/yr atmospheric harvest"],
             // ── Advanced Mining ──────────────────────────────────────────
-            BuildingType::DeepDrill => &["+25% deep mining efficiency"],
-            BuildingType::LaserDrill => &["+50% deep mining efficiency"],
-            BuildingType::StripMine => &["+100% bulk mining efficiency"],
+            BuildingType::DeepDrill => &["+40.7% deep mining efficiency"],
+            BuildingType::LaserDrill => &["+81.3% deep mining efficiency"],
+            BuildingType::StripMine => &["+162.7% bulk mining efficiency"],
             // ── Logistics ────────────────────────────────────────────────
             BuildingType::MassDriver => &["+5,000 logistics capacity"],
             BuildingType::OrbitalLift => &["+20,000 logistics capacity"],
@@ -339,7 +363,11 @@ impl BuildingType {
             // ── Power ─────────────────────────────────────────────────── 
             BuildingType::SolarPower => &["+5 GW power output"],
             BuildingType::FissionReactor => &["+20 GW power output", "Fuel: Uranium"],
-            BuildingType::FusionReactor => &["+40 GW power output", "Fuel: Deuterium"],
+            BuildingType::FusionReactor => &["+40 GW power output", "Fuel: He-3 + Deuterium"],
+            BuildingType::DTFusionReactor => &["+50 GW power output", "Fuel: Deuterium + Tritium"],
+            BuildingType::DHe3FusionReactor => &["+45 GW power output", "Fuel: Deuterium + Helium-3"],
+            BuildingType::ThoriumReactor => &["+24 GW power output", "Fuel: Thorium"],
+            BuildingType::BreederReactor => &["+22 GW power output", "+Plutonium bred/yr"],
             BuildingType::WindFarm => &["+3 GW power output"],
             BuildingType::HydroelectricDam => &["+15 GW power output"],
             BuildingType::GeothermalPlant => &["+18 GW power output"],
@@ -386,8 +414,8 @@ impl BuildingType {
             BuildingType::SpacePort => &["High-throughput orbital access"],
             BuildingType::GroundDefenseBattery => &["Anti-orbital / anti-missile defense"],
             // ── Advanced Industry ────────────────────────────────────────
-            BuildingType::RecyclingCenter => &["+2% mining efficiency", "Reduces waste"],
-            BuildingType::Warehouse => &["+5% global stockpile capacity"],
+            BuildingType::RecyclingCenter => &["+3.2% mining efficiency", "Reduces waste"],
+            BuildingType::Warehouse => &["+2.5% global stockpile capacity"],
         }
     }
 
@@ -414,6 +442,10 @@ impl BuildingType {
             BuildingType::Farm => "🐄",
             BuildingType::FissionReactor => "☢",
             BuildingType::FusionReactor => "⚡",
+            BuildingType::DTFusionReactor => "⚛",
+            BuildingType::DHe3FusionReactor => "☀",
+            BuildingType::ThoriumReactor => "♨️",
+            BuildingType::BreederReactor => "☢️",
             BuildingType::AgriDome => "🌾",
             BuildingType::MedicalCenter => "🏥",
             BuildingType::ResearchLab => "🔬",
@@ -471,6 +503,10 @@ impl BuildingType {
             BuildingType::SolarPower
             | BuildingType::FissionReactor
             | BuildingType::FusionReactor
+            | BuildingType::DTFusionReactor
+            | BuildingType::DHe3FusionReactor
+            | BuildingType::ThoriumReactor
+            | BuildingType::BreederReactor
             | BuildingType::WindFarm
             | BuildingType::HydroelectricDam
             | BuildingType::GeothermalPlant
@@ -526,6 +562,10 @@ impl BuildingType {
             BuildingType::SolarPower => 200.0,
             BuildingType::FissionReactor => 1500.0,
             BuildingType::FusionReactor => 5000.0,
+            BuildingType::DTFusionReactor => 6000.0,
+            BuildingType::DHe3FusionReactor => 7000.0,
+            BuildingType::ThoriumReactor => 1800.0,
+            BuildingType::BreederReactor => 2600.0,
             BuildingType::AgriDome => 600.0,
             BuildingType::MedicalCenter => 800.0,
             BuildingType::ResearchLab => 1000.0,
@@ -588,6 +628,10 @@ impl BuildingType {
             BuildingType::SolarPower => 500,
             BuildingType::FissionReactor => 4_000,
             BuildingType::FusionReactor => 8_000,
+            BuildingType::DTFusionReactor => 9_000,
+            BuildingType::DHe3FusionReactor => 9_500,
+            BuildingType::ThoriumReactor => 4_500,
+            BuildingType::BreederReactor => 5_000,
             // Population support
             BuildingType::AgriDome => 4_000,
             BuildingType::Farm => 1_000,
@@ -640,6 +684,10 @@ impl BuildingType {
             BuildingType::StripMine => Some("strip_mining"),
             BuildingType::AtmosphericProcessor => None,
             BuildingType::FusionReactor => Some("fusion_power"),
+            BuildingType::DTFusionReactor => Some("fusion_power"),
+            BuildingType::DHe3FusionReactor => Some("helium3_fusion"),
+            BuildingType::ThoriumReactor => Some("molten_salt_fission"),
+            BuildingType::BreederReactor => Some("breeder_reactors"),
             BuildingType::AiCluster => Some("neural_networks"),
             BuildingType::Shipyard => Some("orbital_construction"),
             BuildingType::MissileSilo => Some("missile_systems"),
@@ -732,7 +780,7 @@ mod tests {
     #[test]
     fn test_building_type_all() {
         let all = BuildingType::all();
-        assert_eq!(all.len(), 47, "Should have exactly 47 building types");
+        assert_eq!(all.len(), 51, "Should have exactly 51 building types");
     }
 
     #[test]
@@ -764,6 +812,7 @@ mod tests {
         assert_eq!(BuildingType::Mine.display_name(), "Mine");
         assert_eq!(BuildingType::MassDriver.display_name(), "Mass Driver");
         assert_eq!(BuildingType::FusionReactor.display_name(), "Fusion Reactor");
+        assert_eq!(BuildingType::DTFusionReactor.display_name(), "D-T Fusion Reactor");
         assert_eq!(BuildingType::DeepDrill.display_name(), "Deep Drill");
         assert_eq!(BuildingType::Shipyard.display_name(), "Shipyard");
     }
@@ -841,6 +890,18 @@ mod tests {
         assert_eq!(
             BuildingType::AiCluster.required_tech(),
             Some("neural_networks")
+        );
+        assert_eq!(
+            BuildingType::DHe3FusionReactor.required_tech(),
+            Some("helium3_fusion")
+        );
+        assert_eq!(
+            BuildingType::ThoriumReactor.required_tech(),
+            Some("molten_salt_fission")
+        );
+        assert_eq!(
+            BuildingType::BreederReactor.required_tech(),
+            Some("breeder_reactors")
         );
         assert_eq!(
             BuildingType::Shipyard.required_tech(),

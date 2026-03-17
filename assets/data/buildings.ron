@@ -121,7 +121,7 @@
                 ("Nickel", 0.0001),
             ],
             modifiers: [
-                (modifier_type: "MiningEfficiency", value: 15.0),
+                (modifier_type: "MiningEfficiency", value: 24.4),
             ],
             power_demand_mw: 250.0,
         ),
@@ -148,7 +148,7 @@
                 ("Chromium", 0.003),
             ],
             modifiers: [
-                (modifier_type: "MiningEfficiency", value: 8.0),
+                (modifier_type: "MiningEfficiency", value: 13.0),
             ],
             power_demand_mw: 500.0,
         ),
@@ -175,7 +175,7 @@
                 ("Lithium", 0.00006),
                 ("Sulfur", 0.005),
                 ("Chromium", 0.005),
-                ("Cobalt", 0.001),
+                ("Cobalt", 0.00005),
                 ("Polymers", 0.003),
             ],
             modifiers: [
@@ -199,12 +199,12 @@
             ],
             maintenance_resources: [
                 ("Iron", 1.0),
-                ("Titanium", 0.1),
+                ("Titanium", 0.01),
                 ("Tungsten", 0.0001),
                 ("Chromium", 0.005),
             ],
             modifiers: [
-                (modifier_type: "DeepMiningEfficiency", value: 25.0),
+                (modifier_type: "DeepMiningEfficiency", value: 40.7),
             ],
             power_demand_mw: 600.0,
         ),
@@ -223,11 +223,11 @@
                 ("Copper", 167.0),
             ],
             maintenance_resources: [
-                ("RareEarths", 0.003),
+                ("RareEarths", 0.001),
                 ("Copper", 0.002),
             ],
             modifiers: [
-                (modifier_type: "DeepMiningEfficiency", value: 50.0),
+                (modifier_type: "DeepMiningEfficiency", value: 81.3),
             ],
             power_demand_mw: 1500.0,
         ),
@@ -247,10 +247,10 @@
             ],
             maintenance_resources: [
                 ("Iron", 5.0),
-                ("Titanium", 0.5),
+                ("Titanium", 0.05),
             ],
             modifiers: [
-                (modifier_type: "BulkMiningEfficiency", value: 100.0),
+                (modifier_type: "BulkMiningEfficiency", value: 162.7),
             ],
             power_demand_mw: 2000.0,
         ),
@@ -273,7 +273,7 @@
                 ("Copper", 0.005),
             ],
             modifiers: [
-                (modifier_type: "AtmosphericHarvesting", value: 0.75), // Calibrated to 2026 Earth industrial gas production
+                (modifier_type: "AtmosphericHarvesting", value: 0.9), // Calibrated to 2026 Earth industrial gas production
             ],
             power_demand_mw: 400.0,
         ),
@@ -297,11 +297,17 @@
                 ("Copper", 0.01),
                 ("Nickel", 0.0005),
                 ("Sulfur", 0.03),
-                ("Phosphorus", 0.003),
-                ("Fluorine", 0.005),
+                ("Phosphorus", 0.0005),
+                ("Fluorine", 0.001),
             ],
             modifiers: [
-                (modifier_type: "ChemicalProcessing", value: 1.0),
+                // Industrial chemistry rates are intentionally modest per plant because
+                // Earth starts with hundreds of plants at civilization scale.
+                (modifier_type: "HydrogenSynthesis", value: 0.15),
+                (modifier_type: "AmmoniaSynthesis", value: 0.14),
+                (modifier_type: "PolymerSynthesis", value: 0.01),
+                // Tritium breeding is only active once `fusion_power` is unlocked.
+                (modifier_type: "TritiumBreeding", value: 0.00002),
             ],
             power_demand_mw: 600.0,
         ),
@@ -323,7 +329,7 @@
                 ("Sulfur", 0.005),
             ],
             modifiers: [
-                (modifier_type: "MiningEfficiency", value: 10.0),
+                (modifier_type: "MiningEfficiency", value: 16.2),
             ],
             power_demand_mw: 350.0,
         ),
@@ -367,7 +373,7 @@
                 ("Carbon", 167.0),
             ],
             maintenance_resources: [
-                ("Titanium", 1.0),
+                ("Titanium", 0.02),
                 ("Iron", 0.5),
             ],
             modifiers: [],
@@ -435,8 +441,8 @@
                 ("Lithium", 17.0),
             ],
             maintenance_resources: [
-                ("Uranium", 5.0),
-                ("Fluorine", 0.01),
+                ("Uranium", 0.0028),
+                ("Fluorine", 0.005),
             ],
             modifiers: [
                 // 18.0 GW actual (20 GW capacity × 90% capacity factor for nuclear)
@@ -469,6 +475,108 @@
                 (modifier_type: "PowerGeneration", value: 40.0),
             ],
             power_demand_mw: 200.0,
+        ),
+        (
+            id: "DTFusionReactor",
+            display_name: "D-T Fusion Reactor",
+            description: "High-output deuterium-tritium fusion power plant with lithium breeding blankets",
+            icon: "⚛",
+            category: "Power",
+            build_points: 6000.0,
+            workforce: 9000,
+            required_tech: "fusion_power",
+            resource_costs: [
+                ("Titanium", 500.0),
+                ("RareEarths", 250.0),
+                ("Lithium", 50.0),
+                ("Cobalt", 25.0),
+            ],
+            maintenance_resources: [
+                ("Deuterium", 0.0015),
+                ("Tritium", 0.0005),
+                ("Lithium", 0.0002),
+                ("Cobalt", 0.002),
+                ("Fluorine", 0.003),
+            ],
+            modifiers: [
+                (modifier_type: "PowerGeneration", value: 50.0),
+            ],
+            power_demand_mw: 250.0,
+        ),
+        (
+            id: "DHe3FusionReactor",
+            display_name: "D-He3 Fusion Reactor",
+            description: "Premium deuterium-helium-3 fusion plant for cleaner late-game baseload power",
+            icon: "☀",
+            category: "Power",
+            build_points: 7000.0,
+            workforce: 9500,
+            required_tech: "helium3_fusion",
+            resource_costs: [
+                ("Titanium", 583.0),
+                ("RareEarths", 250.0),
+                ("Helium3", 167.0),
+                ("Lithium", 50.0),
+            ],
+            maintenance_resources: [
+                ("Helium3", 0.0008),
+                ("Deuterium", 0.0008),
+                ("Cobalt", 0.002),
+                ("Fluorine", 0.003),
+            ],
+            modifiers: [
+                (modifier_type: "PowerGeneration", value: 45.0),
+            ],
+            power_demand_mw: 220.0,
+        ),
+        (
+            id: "ThoriumReactor",
+            display_name: "Thorium Reactor",
+            description: "Molten-salt thorium reactor for stable baseload and long fuel cycles",
+            icon: "♨",
+            category: "Power",
+            build_points: 1800.0,
+            workforce: 4500,
+            required_tech: "molten_salt_fission",
+            resource_costs: [
+                ("Iron", 183.0),
+                ("Thorium", 40.0),
+                ("Copper", 83.0),
+                ("Lithium", 17.0),
+            ],
+            maintenance_resources: [
+                ("Thorium", 0.0012),
+                ("Fluorine", 0.004),
+            ],
+            modifiers: [
+                (modifier_type: "PowerGeneration", value: 24.0),
+            ],
+            power_demand_mw: 110.0,
+        ),
+        (
+            id: "BreederReactor",
+            display_name: "Breeder Reactor",
+            description: "Fast-spectrum reactor that breeds plutonium from uranium while generating power",
+            icon: "☢",
+            category: "Power",
+            build_points: 2600.0,
+            workforce: 5000,
+            required_tech: "breeder_reactors",
+            resource_costs: [
+                ("Iron", 200.0),
+                ("Uranium", 100.0),
+                ("Copper", 100.0),
+                ("RareEarths", 20.0),
+            ],
+            maintenance_resources: [
+                ("Uranium", 0.0015),
+                ("Fluorine", 0.004),
+            ],
+            modifiers: [
+                (modifier_type: "PowerGeneration", value: 22.0),
+                (modifier_type: "PlutoniumBreeding", value: 0.0006),
+            ],
+            power_demand_mw: 120.0,
         ),
 
         // ========================================
@@ -515,7 +623,7 @@
             maintenance_resources: [
                 ("Water", 0.0),
                 ("Sulfur", 0.003),
-                ("Phosphorus", 0.003),
+                ("Phosphorus", 0.0002),
             ],
             modifiers: [
                 (modifier_type: "FoodProduction", value: 1000000.0), // Feeds 1M people (Mega-Farm)
@@ -566,8 +674,8 @@
             ],
             maintenance_resources: [
                 ("Copper", 0.005),
-                ("RareEarths", 0.0005),
-                ("Lithium", 0.0001),
+                ("RareEarths", 0.0001),
+                ("Lithium", 0.00005),
                 ("Polymers", 0.002),
             ],
             modifiers: [
@@ -613,9 +721,9 @@
                 ("Titanium", 133.0),
             ],
             maintenance_resources: [
-                ("RareEarths", 0.005),
+                ("RareEarths", 0.001),
                 ("Copper", 0.01),
-                ("Cobalt", 0.001),
+                ("Cobalt", 0.0002),
             ],
             modifiers: [
                 (modifier_type: "ResearchSpeed", value: 15.0),
@@ -710,10 +818,10 @@
             ],
             maintenance_resources: [
                 ("Iron", 5.0),
-                ("Titanium", 1.0),
+                ("Titanium", 0.002),
                 ("Chromium", 0.5),
-                ("Cobalt", 0.05),
-                ("Magnesium", 0.3),
+                ("Cobalt", 0.0001),
+                ("Magnesium", 0.002),
             ],
             modifiers: [
                 (modifier_type: "ConstructionCost", value: -10.0),
@@ -758,8 +866,8 @@
             ],
             maintenance_resources: [
                 ("Iron", 0.5),
-                ("Aluminum", 0.1),
-                ("Magnesium", 0.05),
+                ("Aluminum", 0.005),
+                ("Magnesium", 0.002),
             ],
             modifiers: [],
             power_demand_mw: 500.0,
@@ -907,7 +1015,7 @@
             ],
             maintenance_resources: [
                 ("Silicates", 0.5),
-                ("RareEarths", 0.05),
+                ("RareEarths", 0.01),
                 ("Copper", 0.02),
                 ("Fluorine", 0.01),
             ],
@@ -934,7 +1042,7 @@
             maintenance_resources: [
                 ("Water", 0.5),
                 ("Sulfur", 0.1),
-                ("Phosphorus", 0.05),
+                ("Phosphorus", 0.0005),
             ],
             modifiers: [
                 (modifier_type: "PopulationGrowth", value: 3.0),
@@ -1008,7 +1116,7 @@
                 ("Iron", 0.005),
             ],
             modifiers: [
-                (modifier_type: "MiningEfficiency", value: 2.0),
+                (modifier_type: "MiningEfficiency", value: 3.2),
             ],
             power_demand_mw: 150.0,
         ),
@@ -1032,7 +1140,7 @@
             ],
             maintenance_resources: [
                 ("Water", 2.0),
-                ("Phosphorus", 0.1),
+                ("Phosphorus", 0.001),
             ],
             modifiers: [
                 (modifier_type: "FoodProduction", value: 500000.0),
@@ -1055,7 +1163,7 @@
             ],
             maintenance_resources: [
                 ("Water", 5.0),
-                ("Phosphorus", 0.05),
+                ("Phosphorus", 0.0005),
             ],
             modifiers: [
                 (modifier_type: "FoodProduction", value: 750000.0),
@@ -1083,8 +1191,8 @@
             ],
             maintenance_resources: [
                 ("Copper", 0.02),
-                ("RareEarths", 0.002),
-                ("Lithium", 0.001),
+                ("RareEarths", 0.0005),
+                ("Lithium", 0.0003),
             ],
             modifiers: [
                 (modifier_type: "ResearchSpeed", value: 10.0),
@@ -1113,8 +1221,8 @@
             ],
             maintenance_resources: [
                 ("Iron", 1.0),
-                ("Aluminum", 0.2),
-                ("Magnesium", 0.1),
+                ("Aluminum", 0.01),
+                ("Magnesium", 0.004),
             ],
             modifiers: [],
             power_demand_mw: 1000.0,
@@ -1148,7 +1256,7 @@
         (
             id: "Warehouse",
             display_name: "Resource Depot",
-            description: "Bulk storage depot expanding global stockpile capacity by 5% per depot",
+            description: "Bulk storage depot expanding global stockpile capacity by 2.5% per depot",
             icon: "🏗",
             category: "Logistics",
             build_points: 300.0,
@@ -1163,8 +1271,8 @@
                 ("Polymers", 0.001),
             ],
             modifiers: [
-                // Each depot adds 5% to the base cap for every resource type globally
-                (modifier_type: "StorageCapacity", value: 0.05),
+                // Each depot adds 2.5% to the base cap for every resource type globally
+                (modifier_type: "StorageCapacity", value: 0.025),
             ],
             power_demand_mw: 30.0,
         ),

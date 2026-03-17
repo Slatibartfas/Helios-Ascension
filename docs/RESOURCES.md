@@ -42,10 +42,12 @@ The game features **31 resource types** organized into **8 categories**:
 ### Fusion Fuel
 - **Helium-3 (He3):** Rare fusion fuel (found in gas giants, lunar regolith)
 - **Deuterium (D):** Heavy hydrogen, primary fusion fuel (~156 ppm in water)
+- **Tritium (T):** Manufactured fusion fuel bred from lithium blankets; short-lived and not naturally stockpiled
 
 ### Fissiles
 - **Uranium (U):** Nuclear fission fuel (~3 ppm in crust)
 - **Thorium (Th):** Alternative nuclear fuel (~12 ppm in crust)
+- **Plutonium (Pu):** Manufactured fissile bred from uranium in fast-spectrum reactors
 
 ### Precious Metals
 - **Gold (Au):** High-value applications (~0.004 ppm in crust)
