@@ -1655,15 +1655,12 @@ fn render_star_system_panel(
 
                     let total_resource_weight: f64 = resource_bodies
                         .iter()
-                        .map(|(_, body, resources, _)| {
-                            total_resource_density_weight(body.mass, resources)
-                        })
+                        .map(|(_, _, resources, _)| total_resource_expectation_weight(resources))
                         .sum();
                     let discovered_resource_weight: f64 = resource_bodies
                         .iter()
-                        .map(|(_, body, resources, survey_level)| {
-                            discovered_resource_density_weight(
-                                body.mass,
+                        .map(|(_, _, resources, survey_level)| {
+                            discovered_resource_expectation_weight(
                                 resources,
                                 survey_level.copied().unwrap_or(SurveyLevel::Unsurveyed),
                             )
@@ -1787,26 +1784,18 @@ fn render_star_system_panel(
         });
 }
 
-fn total_resource_density_weight(body_mass_kg: f64, resources: &PlanetResources) -> f64 {
-    let total_resource_mass: f64 = resources
+fn total_resource_expectation_weight(resources: &PlanetResources) -> f64 {
+    resources
         .deposits
         .values()
         .map(|deposit| deposit.reserve.total_mass())
-        .sum();
-
-    total_resource_mass / body_mass_kg.max(1.0)
+        .sum()
 }
 
-fn discovered_resource_density_weight(
-    body_mass_kg: f64,
-    resources: &PlanetResources,
-    survey_level: SurveyLevel,
-) -> f64 {
-    let discovered_resource_mass: f64 = resources
+fn discovered_resource_expectation_weight(resources: &PlanetResources, survey_level: SurveyLevel) -> f64 {
+    resources
         .deposits
         .values()
         .map(|deposit| survey_level.discovered_amount(&deposit.reserve))
-        .sum();
-
-    discovered_resource_mass / body_mass_kg.max(1.0)
+        .sum()
 }
