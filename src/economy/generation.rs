@@ -1280,7 +1280,7 @@ mod tests {
         // C-Type should have 4-7% water (scientifically validated)
         let water = resources.get_abundance(&ResourceType::Water);
         assert!(
-            water >= 0.04 && water <= 0.08,
+            (0.04..=0.08).contains(&water),
             "C-Type should have 4-7% water (scientific range), found: {:.1}%",
             water * 100.0
         );
@@ -1677,7 +1677,7 @@ mod tests {
 
         let water_abundance = resources.get_abundance(&ResourceType::Water);
         assert!(
-            water_abundance >= 0.04 && water_abundance <= 0.08,
+            (0.04..=0.08).contains(&water_abundance),
             "C-type asteroids should have 4-7% water by weight (scientific range), found: {:.1}%",
             water_abundance * 100.0
         );
@@ -1777,7 +1777,7 @@ mod tests {
 
         if iron_fraction > 0.0 {
             assert!(
-                iron_fraction >= 0.15 && iron_fraction <= 0.35,
+                (0.15..=0.35).contains(&iron_fraction),
                 "Inner planet iron should be 15-35% (realistic crustal abundance), found: {:.1}%",
                 iron_fraction * 100.0
             );
@@ -1785,14 +1785,14 @@ mod tests {
 
         if silicates_fraction > 0.0 {
             assert!(
-                silicates_fraction >= 0.25 && silicates_fraction <= 0.45,
+                (0.25..=0.45).contains(&silicates_fraction),
                 "Inner planet silicates should be 25-45% (major crustal component), found: {:.1}%",
                 silicates_fraction * 100.0
             );
         }
 
         if aluminum_fraction > 0.0 {
-            assert!(aluminum_fraction >= 0.05 && aluminum_fraction <= 0.12, 
+            assert!((0.05..=0.12).contains(&aluminum_fraction), 
                 "Inner planet aluminum should be 5-12% (realistic crustal abundance), found: {:.1}%", 
                 aluminum_fraction * 100.0);
         }
@@ -1844,7 +1844,7 @@ mod tests {
             // lower than the raw draw (30-70%) because all resources are scaled
             // to fit within 95% of body mass. Water should still be significant.
             assert!(
-                water_fraction >= 0.10 && water_fraction <= 0.7,
+                (0.10..=0.7).contains(&water_fraction),
                 "Outer system body should have 10-70% water ice, found: {:.1}%",
                 water_fraction * 100.0
             );

@@ -119,7 +119,7 @@ pub fn load_technologies(mut commands: Commands) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::research::types::{ModifierType, TechCategory, TechModifierDef};
+    use crate::research::types::TechCategory;
 
     #[test]
     fn test_technologies_data_get_tech() {

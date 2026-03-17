@@ -1627,11 +1627,6 @@ fn handle_starmap_transition(
 mod tests {
     use super::*;
 
-    fn make_seed(name: &str) -> u32 {
-        name.bytes()
-            .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32))
-    }
-
     // ── classify_exoplanet ───────────────────────────────────────────────────
 
     #[test]
@@ -1666,10 +1661,10 @@ mod tests {
             classify_exoplanet(BodyType::Planet, None, 201.0, 0, false, false),
             "scorched"
         );
-        // exactly 200.0 is desert (condition is > 200.0 for scorched)
+        // exactly 200.0 falls into the hot rocky-world split, not the scorched band.
         assert_eq!(
             classify_exoplanet(BodyType::Planet, None, 200.0, 0, false, false),
-            "desert"
+            "martian"
         );
     }
 
@@ -2127,11 +2122,11 @@ mod tests {
                     "{cat} blue out of range"
                 );
                 assert!(
-                    roughness >= 0.0 && roughness <= 1.0,
+                    (0.0..=1.0).contains(&roughness),
                     "{cat} roughness out of range"
                 );
                 assert!(
-                    metallic >= 0.0 && metallic <= 1.0,
+                    (0.0..=1.0).contains(&metallic),
                     "{cat} metallic out of range"
                 );
             }

@@ -72,7 +72,7 @@ fn test_atmosphere_ui_formatting() {
 fn test_colony_cost_colors() {
     // Test that colony costs map to correct color categories
 
-    let test_atmospheres = vec![
+    let test_atmospheres = [
         // Good (0-3)
         AtmosphereComposition::new(
             1013.0,

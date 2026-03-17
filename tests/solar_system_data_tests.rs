@@ -73,17 +73,11 @@ fn test_solar_system_hierarchy() {
 
     // Earth should be a child of Sol
     let earth = data.get_body("Earth").expect("Earth should exist");
-    assert_eq!(
-        earth.parent.as_ref().map(|s: &String| s.as_str()),
-        Some("Sol")
-    );
+    assert_eq!(earth.parent.as_deref(), Some("Sol"));
 
     // Moon should be a child of Earth
     let moon = data.get_body("Moon").expect("Moon should exist");
-    assert_eq!(
-        moon.parent.as_ref().map(|s: &String| s.as_str()),
-        Some("Earth")
-    );
+    assert_eq!(moon.parent.as_deref(), Some("Earth"));
 
     // Jupiter should have multiple moons
     let jupiter_moons = data.get_children("Jupiter");

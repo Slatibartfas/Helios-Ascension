@@ -601,6 +601,35 @@ pub fn initialize_baseline_technology(
     }
 }
 
+/// Apply debug modifiers to the research state each frame.
+/// Uses a Local snapshot to subtract the previously injected values before
+/// re-adding the current ones, so changes take effect immediately without
+/// accumulating across frames.
+pub fn apply_debug_modifiers(
+    mut research_state: ResMut<ResearchState>,
+    debug_settings: Res<super::ResearchDebugSettings>,
+    mut prev_applied: Local<HashMap<ModifierType, f64>>,
+) {
+    // Remove whatever we injected last frame
+    for (modifier_type, value) in prev_applied.iter() {
+        *research_state
+            .active_modifiers
+            .entry(modifier_type.clone())
+            .or_insert(0.0) -= value;
+    }
+    prev_applied.clear();
+
+    if !debug_settings.enabled || debug_settings.debug_modifiers.is_empty() {
+        return;
+    }
+
+    // Inject this frame's debug modifiers and record what we added
+    for (modifier_type, value) in debug_settings.debug_modifiers.iter() {
+        research_state.add_modifier(modifier_type.clone(), *value);
+        prev_applied.insert(modifier_type.clone(), *value);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -641,34 +670,5 @@ mod tests {
 
         state.complete_component("test_component".to_string());
         assert!(state.is_component_completed("test_component"));
-    }
-}
-
-/// Apply debug modifiers to the research state each frame.
-/// Uses a Local snapshot to subtract the previously injected values before
-/// re-adding the current ones, so changes take effect immediately without
-/// accumulating across frames.
-pub fn apply_debug_modifiers(
-    mut research_state: ResMut<ResearchState>,
-    debug_settings: Res<super::ResearchDebugSettings>,
-    mut prev_applied: Local<HashMap<ModifierType, f64>>,
-) {
-    // Remove whatever we injected last frame
-    for (modifier_type, value) in prev_applied.iter() {
-        *research_state
-            .active_modifiers
-            .entry(modifier_type.clone())
-            .or_insert(0.0) -= value;
-    }
-    prev_applied.clear();
-
-    if !debug_settings.enabled || debug_settings.debug_modifiers.is_empty() {
-        return;
-    }
-
-    // Inject this frame's debug modifiers and record what we added
-    for (modifier_type, value) in debug_settings.debug_modifiers.iter() {
-        research_state.add_modifier(modifier_type.clone(), *value);
-        prev_applied.insert(modifier_type.clone(), *value);
     }
 }

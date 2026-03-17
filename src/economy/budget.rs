@@ -596,6 +596,79 @@ pub fn update_contextual_stockpile(
     }
 }
 
+/// System that scans all colonies for `StorageCapacity` building modifiers and
+/// updates `GlobalBudget.storage_multiplier`.
+///
+/// Each Warehouse / Resource Depot has `StorageCapacity = 0.05`, meaning it
+/// adds +5% to ALL per-resource stockpile caps globally.
+/// `storage_multiplier = 1.0 + Σ(modifier.value × count)`.
+pub fn update_storage_capacity(
+    mut budget: ResMut<GlobalBudget>,
+    colonies: Query<&Colony>,
+    buildings_data: Option<Res<BuildingsData>>,
+) {
+    let data = match buildings_data {
+        Some(ref d) if !d.definitions.is_empty() => d,
+        _ => return,
+    };
+
+    let mut total_bonus = 0.0_f64;
+    for colony in colonies.iter() {
+        for (building_type, &count) in &colony.buildings {
+            if count == 0 {
+                continue;
+            }
+            if let Some(def) = data.get(building_type) {
+                for modifier in &def.modifiers {
+                    if modifier.modifier_type == "StorageCapacity" {
+                        total_bonus += modifier.value * count as f64;
+                    }
+                }
+            }
+        }
+    }
+    budget.storage_multiplier = 1.0 + total_bonus;
+}
+
+/// System to aggregate power from all generators and update global budget
+pub fn update_power_grid(
+    mut budget: ResMut<GlobalBudget>,
+    query: Query<&PowerGenerator>,
+    colonies: Query<&Colony>,
+    buildings_data: Option<Res<BuildingsData>>,
+) {
+    let mut total_produced = 0.0;
+    let mut breakdown = HashMap::new();
+
+    // 1. Existing PowerGenerator entities
+    for generator in query.iter() {
+        total_produced += generator.output;
+        *breakdown.entry(generator.source_type).or_insert(0.0) += generator.output;
+    }
+
+    // 2. Colony buildings
+    if let Some(ref data) = buildings_data {
+        for colony in colonies.iter() {
+            let totals = calculate_colony_power_totals(colony, Some(data));
+            total_produced += totals.produced_watts;
+            *breakdown.entry(PowerSourceType::Planet).or_insert(0.0) += totals.produced_watts;
+        }
+    }
+
+    // 3. Calculate consumption using per-building power_demand_mw from data.
+    //    Falls back to a generic 400 MW estimate when BuildingsData is unavailable.
+    let mut total_consumed = 0.0;
+    for colony in colonies.iter() {
+        let totals = calculate_colony_power_totals(colony, buildings_data.as_deref());
+        total_consumed += totals.consumed_watts;
+    }
+
+    // Update grid
+    budget.energy_grid.produced = total_produced;
+    budget.energy_grid.consumed = total_consumed;
+    budget.power_breakdown = breakdown;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -813,77 +886,4 @@ mod tests {
             "Initial food stockpile ({food:.0} Mt) should cover >= 1yr Earth consumption ({earth_annual_consumption:.0} Mt)"
         );
     }
-}
-
-/// System that scans all colonies for `StorageCapacity` building modifiers and
-/// updates `GlobalBudget.storage_multiplier`.
-///
-/// Each Warehouse / Resource Depot has `StorageCapacity = 0.05`, meaning it
-/// adds +5% to ALL per-resource stockpile caps globally.
-/// `storage_multiplier = 1.0 + Σ(modifier.value × count)`.
-pub fn update_storage_capacity(
-    mut budget: ResMut<GlobalBudget>,
-    colonies: Query<&Colony>,
-    buildings_data: Option<Res<BuildingsData>>,
-) {
-    let data = match buildings_data {
-        Some(ref d) if !d.definitions.is_empty() => d,
-        _ => return,
-    };
-
-    let mut total_bonus = 0.0_f64;
-    for colony in colonies.iter() {
-        for (building_type, &count) in &colony.buildings {
-            if count == 0 {
-                continue;
-            }
-            if let Some(def) = data.get(building_type) {
-                for modifier in &def.modifiers {
-                    if modifier.modifier_type == "StorageCapacity" {
-                        total_bonus += modifier.value * count as f64;
-                    }
-                }
-            }
-        }
-    }
-    budget.storage_multiplier = 1.0 + total_bonus;
-}
-
-/// System to aggregate power from all generators and update global budget
-pub fn update_power_grid(
-    mut budget: ResMut<GlobalBudget>,
-    query: Query<&PowerGenerator>,
-    colonies: Query<&Colony>,
-    buildings_data: Option<Res<BuildingsData>>,
-) {
-    let mut total_produced = 0.0;
-    let mut breakdown = HashMap::new();
-
-    // 1. Existing PowerGenerator entities
-    for generator in query.iter() {
-        total_produced += generator.output;
-        *breakdown.entry(generator.source_type).or_insert(0.0) += generator.output;
-    }
-
-    // 2. Colony buildings
-    if let Some(ref data) = buildings_data {
-        for colony in colonies.iter() {
-            let totals = calculate_colony_power_totals(colony, Some(data));
-            total_produced += totals.produced_watts;
-            *breakdown.entry(PowerSourceType::Planet).or_insert(0.0) += totals.produced_watts;
-        }
-    }
-
-    // 3. Calculate consumption using per-building power_demand_mw from data.
-    //    Falls back to a generic 400 MW estimate when BuildingsData is unavailable.
-    let mut total_consumed = 0.0;
-    for colony in colonies.iter() {
-        let totals = calculate_colony_power_totals(colony, buildings_data.as_deref());
-        total_consumed += totals.consumed_watts;
-    }
-
-    // Update grid
-    budget.energy_grid.produced = total_produced;
-    budget.energy_grid.consumed = total_consumed;
-    budget.power_breakdown = breakdown;
 }

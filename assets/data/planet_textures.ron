@@ -203,8 +203,8 @@
             // Dwarf planets and KBOs. Add textures to
             // assets/textures/celestial/planets/dwarf/ and register them here.
             "textures/celestial/planets/dwarf/4k_ceres.jpg",
-            "textures/celestial/planets/haumea_4k.jpg",
-            "textures/celestial/planets/makemake_4k.jpg",
+            // Haumea and Makemake currently use generic dwarf rendering until
+            // dedicated textures are added to the asset pack.
             "textures/celestial/planets/eris_2k.jpg",
             "textures/celestial/planets/pluto_8k.png",
             // generic fallbacks for procedural asteroids

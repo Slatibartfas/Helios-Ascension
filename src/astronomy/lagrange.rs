@@ -390,38 +390,6 @@ pub fn draw_lagrange_point_rings(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::absolute_star_planet_lp_positions;
-    use bevy::math::DVec3;
-
-    #[test]
-    fn star_planet_lp_positions_are_host_relative() {
-        let host_star_pos = DVec3::new(12.0, 4.0, 0.0);
-        let planet_pos = DVec3::new(12.0, 5.0, 0.0);
-
-        let positions = absolute_star_planet_lp_positions(host_star_pos, planet_pos, 1.0, 0.1)
-            .expect("planet offset from host star should produce LP positions");
-
-        assert!((positions[0] - DVec3::new(12.0, 4.9, 0.0)).length() < 1e-10);
-        assert!((positions[1] - DVec3::new(12.0, 5.1, 0.0)).length() < 1e-10);
-        assert!((positions[2] - DVec3::new(12.0, 3.0, 0.0)).length() < 1e-10);
-    }
-
-    #[test]
-    fn star_planet_lp_positions_preserve_binary_star_offset() {
-        let host_star_pos = DVec3::new(20.0, -3.0, 0.0);
-        let planet_pos = DVec3::new(21.0, -3.0, 0.0);
-
-        let positions = absolute_star_planet_lp_positions(host_star_pos, planet_pos, 1.0, 0.2)
-            .expect("binary companion planet should produce LP positions");
-
-        assert!((positions[0] - DVec3::new(20.8, -3.0, 0.0)).length() < 1e-10);
-        assert!((positions[1] - DVec3::new(21.2, -3.0, 0.0)).length() < 1e-10);
-        assert!((positions[2] - DVec3::new(19.0, -3.0, 0.0)).length() < 1e-10);
-    }
-}
-
 /// Hover-detection system for Lagrange-point markers.
 ///
 /// Tests the mouse ray against the LP marker hit-spheres recorded by
@@ -510,5 +478,37 @@ pub fn handle_lp_hover(
         //         fleet_ui_state.show_transfer_popup = true;
         //     }
         // }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::absolute_star_planet_lp_positions;
+    use bevy::math::DVec3;
+
+    #[test]
+    fn star_planet_lp_positions_are_host_relative() {
+        let host_star_pos = DVec3::new(12.0, 4.0, 0.0);
+        let planet_pos = DVec3::new(12.0, 5.0, 0.0);
+
+        let positions = absolute_star_planet_lp_positions(host_star_pos, planet_pos, 1.0, 0.1)
+            .expect("planet offset from host star should produce LP positions");
+
+        assert!((positions[0] - DVec3::new(12.0, 4.9, 0.0)).length() < 1e-10);
+        assert!((positions[1] - DVec3::new(12.0, 5.1, 0.0)).length() < 1e-10);
+        assert!((positions[2] - DVec3::new(12.0, 3.0, 0.0)).length() < 1e-10);
+    }
+
+    #[test]
+    fn star_planet_lp_positions_preserve_binary_star_offset() {
+        let host_star_pos = DVec3::new(20.0, -3.0, 0.0);
+        let planet_pos = DVec3::new(21.0, -3.0, 0.0);
+
+        let positions = absolute_star_planet_lp_positions(host_star_pos, planet_pos, 1.0, 0.2)
+            .expect("binary companion planet should produce LP positions");
+
+        assert!((positions[0] - DVec3::new(20.8, -3.0, 0.0)).length() < 1e-10);
+        assert!((positions[1] - DVec3::new(21.2, -3.0, 0.0)).length() < 1e-10);
+        assert!((positions[2] - DVec3::new(19.0, -3.0, 0.0)).length() < 1e-10);
     }
 }

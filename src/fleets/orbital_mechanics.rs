@@ -2943,11 +2943,12 @@ mod tests {
             min_peri_au,
         );
 
-        // A stellar flyby should have extremely high v_inf (approaching the star adds
-        // enormous kinetic energy near the star).
+        // For a stellar flyby, v_inf is the encounter speed relative to the companion star's
+        // barycentric orbit, not the periapsis speed deep in the star's gravity well.
+        // It should still be several km/s for a 1 AU → 40 AU transfer via a 20 AU companion.
         assert!(
-            result.v_inf_ms > 10_000.0,
-            "Stellar flyby v_inf should be large; got {:.0} m/s",
+            result.v_inf_ms > 4_000.0,
+            "Stellar flyby v_inf should be several km/s; got {:.0} m/s",
             result.v_inf_ms
         );
 

@@ -1334,7 +1334,7 @@ fn generate_rocky_planets(
             rng.random_range(2.0..8.0_f32)
         } else {
             // Normal: log-uniform from ~0.3 to ~5 days
-            let log_p = rng.random_range((-0.5_f32)..(0.7));
+            let log_p = rng.random_range((-0.5_f32)..0.7);
             10.0_f32.powf(log_p)
         };
 
@@ -1372,7 +1372,7 @@ fn generate_rocky_planets(
             // For rocky planets, R ∝ M^0.28 (Terran regime)
             mass_earth: {
                 // Log-uniform from 0.05 (sub-Mercury) to 5.0 (super-Earth)
-                let log_mass = rng.random_range((-1.3_f64)..(0.7_f64)); // 10^-1.3 ≈ 0.05, 10^0.7 ≈ 5.0
+                let log_mass = rng.random_range((-1.3_f64)..0.7_f64); // 10^-1.3 ≈ 0.05, 10^0.7 ≈ 5.0
                 10.0_f64.powf(log_mass) as f32
             },
             radius_earth: 0.0, // placeholder, set below

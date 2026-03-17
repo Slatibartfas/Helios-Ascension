@@ -5,11 +5,9 @@
 
 use bevy::prelude::*;
 use helios_ascension::astronomy::{
-    calculate_frost_line, map_star_to_system_architecture, KeplerOrbit, PlanetType,
-    ProceduralPlanet,
+    calculate_frost_line, map_star_to_system_architecture, PlanetType,
 };
-use helios_ascension::economy::components::{PlanetResources, SpectralClass, StarSystem};
-use helios_ascension::economy::types::ResourceType;
+use helios_ascension::economy::components::{SpectralClass, StarSystem};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 
@@ -67,7 +65,7 @@ fn test_system_generation_for_empty_sun_like_system() {
     // Should generate enough planets to reach target of 5
     let total_planets = architecture.rocky_planets.len() + architecture.gas_giants.len();
     assert!(
-        total_planets >= 4 && total_planets <= 7,
+        (4..=7).contains(&total_planets),
         "Expected 4-7 planets for empty system, got {}",
         total_planets
     );
@@ -109,7 +107,7 @@ fn test_system_generation_respects_existing_planets() {
     // Should generate 2-3 more planets to reach target of 5-6
     let total_planets = architecture.rocky_planets.len() + architecture.gas_giants.len();
     assert!(
-        total_planets >= 1 && total_planets <= 4,
+        (1..=4).contains(&total_planets),
         "Expected 1-4 new planets to fill gaps, got {}",
         total_planets
     );
@@ -409,7 +407,7 @@ fn test_moon_uses_parent_star_frost_line() {
     app.add_plugins(MinimalPlugins);
 
     // Spawn star with a non-default frost line (10 AU)
-    let mut world = app.world_mut();
+    let world = app.world_mut();
     let star_entity = world
         .spawn((
             Star,
@@ -513,12 +511,6 @@ fn test_bright_star_system_generation() {
             .iter()
             .map(|p| p.semi_major_axis_au)
             .fold(f64::MAX, f64::min);
-        let max_rocky_orbit = architecture
-            .rocky_planets
-            .iter()
-            .map(|p| p.semi_major_axis_au)
-            .fold(0.0, f64::max);
-
         // Rocky planets should span a reasonable range within the inner system
         assert!(
             min_rocky_orbit < 5.0,

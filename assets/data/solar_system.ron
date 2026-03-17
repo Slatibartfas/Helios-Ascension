@@ -652,7 +652,7 @@
                 initial_angle: 286.78,
             )),
             rotation_period: 1.08,
-            texture: Some("textures/celestial/planets/dwarf/4k_eris.jpg"),
+            texture: Some("textures/celestial/planets/eris_2k.jpg"),
         ),
         
         // Makemake
@@ -672,7 +672,9 @@
                 initial_angle: 120.57,
             )),
             rotation_period: 0.95,
-            texture: Some("textures/celestial/planets/dwarf/4k_makemake.jpg"),
+            // No dedicated Makemake texture asset is currently shipped.
+            // Fall back to the generic dwarf styling tinted by the configured color.
+            texture: None,
         ),
         
         // Haumea
@@ -692,7 +694,9 @@
                 initial_angle: 168.04,
             )),
             rotation_period: 0.163,
-            texture: Some("textures/celestial/planets/dwarf/4k_haumea.jpg"),
+            // No dedicated Haumea texture asset is currently shipped.
+            // Fall back to the generic dwarf styling tinted by the configured color.
+            texture: None,
         ),
         
         // MAIN BELT ASTEROIDS (Largest)

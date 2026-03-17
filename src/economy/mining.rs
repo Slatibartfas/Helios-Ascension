@@ -620,7 +620,7 @@ pub fn update_resource_rates(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::economy::components::{MineralDeposit, PlanetResources, ResourceReserve};
+    use crate::economy::components::{MineralDeposit, PlanetResources};
     use crate::economy::types::ResourceType;
 
     /// Helper: create a deposit with specific proven/deep/bulk, concentration, and atmospheric flag

@@ -184,8 +184,8 @@ impl PendingResourceRequests {
         self.requests.retain(|r| {
             r.is_open()
                 || r.completed_at_seconds
-                    .map(|t| (current_sim_seconds - t) < HISTORY_KEEP_S)
-                    .unwrap_or(true) // keep if completed_at not set yet (shouldn't happen)
+                    .unwrap_or(r.created_at_seconds)
+                    .gt(&(current_sim_seconds - HISTORY_KEEP_S))
         });
     }
 
