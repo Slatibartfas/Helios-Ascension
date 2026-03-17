@@ -237,8 +237,8 @@ pub fn process_construction_actions(
                             // Generate one request per missing resource type.
                             // `costs_typed` contains the *full* cost; we request the full
                             // amount so that construction can proceed once everything arrives.
-                            for (rt, &full_cost) in &costs_typed {
-                                if full_cost <= 0.0 {
+                            for (rt, full_cost) in &costs_typed {
+                                if *full_cost <= 0.0 {
                                     continue;
                                 }
                                 // Only add a request if there isn't one already for this colony+resource.
@@ -249,9 +249,9 @@ pub fn process_construction_actions(
 
                                 // Credit the colony's existing local stock toward the cost;
                                 // only request the remainder that truly needs to be delivered.
-                                let already_local =
+                                let already_local: f64 =
                                     colony_local.get(rt).copied().unwrap_or(0.0);
-                                let need_delivered = (full_cost - already_local).max(0.0);
+                                let need_delivered = (*full_cost - already_local).max(0.0);
 
                                 if need_delivered > 0.0 {
                                     let req_id = resource_requests.add(ResourceRequest {

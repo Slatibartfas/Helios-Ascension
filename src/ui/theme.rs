@@ -233,4 +233,7 @@ pub fn apply_global_visuals(ctx: &egui::Context) {
     visuals.slider_trailing_fill = true;
 
     ctx.set_visuals(visuals);
+    ctx.style_mut(|style| {
+        style.interaction.tooltip_delay = 0.2;
+    });
 }
