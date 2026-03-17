@@ -101,6 +101,42 @@ struct StarSystemGroup {
     bodies: Vec<BodyEconomyEntry>,
 }
 
+fn calculate_building_power_profile(
+    building_type: BuildingType,
+    count: u32,
+    buildings_data: Option<&BuildingsData>,
+) -> (f64, f64) {
+    let Some(data) = buildings_data else {
+        return (0.0, count as f64 * 400_000_000.0);
+    };
+
+    let Some(def) = data.get(&building_type) else {
+        return (0.0, count as f64 * 400_000_000.0);
+    };
+
+    let produced_watts = def
+        .modifiers
+        .iter()
+        .filter(|modifier| modifier.modifier_type == "PowerGeneration")
+        .map(|modifier| modifier.value * count as f64 * 1_000_000_000.0)
+        .sum();
+    let consumed_watts = def.power_demand_mw * count as f64 * 1_000_000.0;
+
+    (produced_watts, consumed_watts)
+}
+
+fn format_power_gw(watts: f64) -> String {
+    let gw = watts / 1_000_000_000.0;
+    let mut formatted = format!("{gw:.3}");
+    while formatted.contains('.') && formatted.ends_with('0') {
+        formatted.pop();
+    }
+    if formatted.ends_with('.') {
+        formatted.pop();
+    }
+    format!("{formatted} GW")
+}
+
 /// Build the hierarchical economy data: star systems → bodies → colonies/mining/power.
 fn build_economy_hierarchy(
     body_query: &Query<(
@@ -349,7 +385,9 @@ pub(super) fn ui_economy_panels(
             ),
             EconomyTab::Colonies => render_econ_colonies(ui, &budget, &hierarchy),
             EconomyTab::Mining => render_econ_mining(ui, &hierarchy),
-            EconomyTab::PowerGrid => render_econ_power_grid(ui, &budget, &hierarchy),
+            EconomyTab::PowerGrid => {
+                render_econ_power_grid(ui, &budget, &hierarchy, buildings_data.as_deref())
+            }
             EconomyTab::Logistics => {
                 render_econ_logistics(ui, &resource_requests, &shipping_companies, &budget)
             }
@@ -1661,7 +1699,12 @@ fn render_econ_mining(ui: &mut egui::Ui, hierarchy: &[StarSystemGroup]) {
 
 // ---- Economy Tab: Power Grid ----
 
-fn render_econ_power_grid(ui: &mut egui::Ui, budget: &GlobalBudget, hierarchy: &[StarSystemGroup]) {
+fn render_econ_power_grid(
+    ui: &mut egui::Ui,
+    budget: &GlobalBudget,
+    hierarchy: &[StarSystemGroup],
+    buildings_data: Option<&BuildingsData>,
+) {
     let grid = &budget.energy_grid;
     let surplus = grid.surplus();
     let utilization = grid.load_factor();
@@ -1763,67 +1806,148 @@ fn render_econ_power_grid(ui: &mut egui::Ui, budget: &GlobalBudget, hierarchy: &
                 );
                 ui.separator();
 
-                egui::Grid::new("econ_colony_power_breakdown")
-                    .num_columns(5)
-                    .spacing([16.0, 4.0])
-                    .striped(true)
+                for colony in colony_power {
+                    let net_power = colony.power_generation_watts - colony.power_load_watts;
+                    let utilization = if colony.power_generation_watts > 0.0 {
+                        colony.power_load_watts / colony.power_generation_watts
+                    } else {
+                        0.0
+                    };
+                    let net_color = if net_power >= 0.0 {
+                        theme::GREEN
+                    } else {
+                        theme::RED
+                    };
+                    let util_color = if colony.power_generation_watts <= 0.0 {
+                        theme::TEXT_DIM
+                    } else if utilization < 0.8 {
+                        theme::GREEN
+                    } else if utilization < 1.0 {
+                        theme::AMBER
+                    } else {
+                        theme::RED
+                    };
+
+                    egui::CollapsingHeader::new(
+                        egui::RichText::new(format!(
+                            "{} | Gen {} | Load {} | Net {} | {}",
+                            colony.name,
+                            format_power(colony.power_generation_watts),
+                            format_power(colony.power_load_watts),
+                            format_power(net_power),
+                            if colony.power_generation_watts > 0.0 {
+                                format!("Util {:.1}%", utilization * 100.0)
+                            } else {
+                                "Util n/a".to_string()
+                            }
+                        ))
+                        .size(12.5),
+                    )
+                    .default_open(false)
                     .show(ui, |ui| {
-                        ui.label(egui::RichText::new("Colony").strong());
-                        ui.label(egui::RichText::new("Production").strong());
-                        ui.label(egui::RichText::new("Load").strong());
-                        ui.label(egui::RichText::new("Net").strong());
-                        ui.label(egui::RichText::new("Utilization").strong());
-                        ui.end_row();
+                        let mut building_rows: Vec<(BuildingType, u32, f64, f64)> = colony
+                            .buildings
+                            .iter()
+                            .filter_map(|(building_type, count)| {
+                                let (produced_watts, consumed_watts) =
+                                    calculate_building_power_profile(
+                                        *building_type,
+                                        *count,
+                                        buildings_data,
+                                    );
+                                if produced_watts <= 0.0 && consumed_watts <= 0.0 {
+                                    None
+                                } else {
+                                    Some((*building_type, *count, produced_watts, consumed_watts))
+                                }
+                            })
+                            .collect();
+                        building_rows.sort_by(|left, right| {
+                            right
+                                .2
+                                .partial_cmp(&left.2)
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                                .then_with(|| {
+                                    right
+                                        .3
+                                        .partial_cmp(&left.3)
+                                        .unwrap_or(std::cmp::Ordering::Equal)
+                                })
+                                .then_with(|| right.1.cmp(&left.1))
+                        });
 
-                        for colony in colony_power {
-                            let net_power = colony.power_generation_watts - colony.power_load_watts;
-                            let utilization = if colony.power_generation_watts > 0.0 {
-                                colony.power_load_watts / colony.power_generation_watts
-                            } else {
-                                0.0
-                            };
-                            let net_color = if net_power >= 0.0 {
-                                theme::GREEN
-                            } else {
-                                theme::RED
-                            };
-                            let util_color = if colony.power_generation_watts <= 0.0 {
-                                theme::TEXT_DIM
-                            } else if utilization < 0.8 {
-                                theme::GREEN
-                            } else if utilization < 1.0 {
-                                theme::AMBER
-                            } else {
-                                theme::RED
-                            };
+                        egui::Grid::new(format!("colony_power_buildings_{}", colony.name))
+                            .num_columns(5)
+                            .spacing([16.0, 4.0])
+                            .striped(true)
+                            .show(ui, |ui| {
+                                ui.label(egui::RichText::new("Building Type").strong());
+                                ui.label(egui::RichText::new("Count").strong());
+                                ui.label(egui::RichText::new("Generation").strong());
+                                ui.label(egui::RichText::new("Load").strong());
+                                ui.label(egui::RichText::new("Net").strong());
+                                ui.end_row();
 
-                            ui.label(&colony.name);
+                                for (building_type, count, produced_watts, consumed_watts) in building_rows {
+                                    let building_net = produced_watts - consumed_watts;
+                                    let building_net_color = if building_net >= 0.0 {
+                                        theme::GREEN
+                                    } else {
+                                        theme::RED
+                                    };
+
+                                    ui.label(building_type.display_name());
+                                    ui.label(count.to_string());
+                                    ui.label(
+                                        egui::RichText::new(format_power_gw(produced_watts))
+                                            .color(theme::GREEN)
+                                            .monospace(),
+                                    );
+                                    ui.label(
+                                        egui::RichText::new(format_power_gw(consumed_watts))
+                                            .color(theme::AMBER)
+                                            .monospace(),
+                                    );
+                                    ui.label(
+                                        egui::RichText::new(format_power_gw(building_net))
+                                            .color(building_net_color)
+                                            .monospace(),
+                                    );
+                                    ui.end_row();
+                                }
+                            });
+
+                        ui.separator();
+                        ui.horizontal(|ui| {
                             ui.label(
-                                egui::RichText::new(format_power(colony.power_generation_watts))
-                                    .color(theme::GREEN)
-                                    .monospace(),
+                                egui::RichText::new(format!(
+                                    "Production {}",
+                                    format_power(colony.power_generation_watts)
+                                ))
+                                .color(theme::GREEN),
                             );
                             ui.label(
-                                egui::RichText::new(format_power(colony.power_load_watts))
-                                    .color(theme::AMBER)
-                                    .monospace(),
+                                egui::RichText::new(format!(
+                                    "Load {}",
+                                    format_power(colony.power_load_watts)
+                                ))
+                                .color(theme::AMBER),
                             );
                             ui.label(
-                                egui::RichText::new(format_power(net_power))
-                                    .color(net_color)
-                                    .monospace(),
+                                egui::RichText::new(format!("Net {}", format_power(net_power)))
+                                    .color(net_color),
                             );
                             ui.label(
                                 egui::RichText::new(if colony.power_generation_watts > 0.0 {
-                                    format!("{:.1}%", utilization * 100.0)
+                                    format!("Utilization {:.1}%", utilization * 100.0)
                                 } else {
-                                    "n/a".to_string()
+                                    "Utilization n/a".to_string()
                                 })
                                 .color(util_color),
                             );
-                            ui.end_row();
-                        }
+                        });
                     });
+                }
             });
             ui.add_space(8.0);
         }
