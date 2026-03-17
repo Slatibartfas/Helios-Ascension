@@ -478,3 +478,102 @@ mod tests {
         assert!((total - 100.0).abs() < 0.001);
     }
 }
+
+// ============================================================
+// LocalStockpile — per-body resource storage
+// ============================================================
+
+/// ECS component that stores the physical resource inventory on a specific
+/// celestial body (colony, mining outpost, station, etc.).
+///
+/// All production (mining, atmospheric harvesting, food) deposits into the
+/// local stockpile of the producing body.  Consumption (maintenance, food,
+/// construction material) deducts from the local stockpile.
+///
+/// Construction that can pool same-system stockpiles is handled in the
+/// construction system (see `src/colony/systems.rs`).
+///
+/// # Context-aware UI
+/// `ContextualStockpile` (a `Resource`) aggregates local stockpiles for the
+/// current view scope:
+///  - **System view** → sum all bodies in `CurrentStarSystem`
+///  - **Starmap view** → sum all bodies across every star system
+#[derive(Component, Debug, Clone, Serialize, Deserialize, Default)]
+pub struct LocalStockpile {
+    /// Resource inventory (Megatons)
+    pub stockpiles: HashMap<ResourceType, f64>,
+}
+
+impl LocalStockpile {
+    /// Create an empty local stockpile.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Create a stockpile pre-loaded with `entries`.
+    pub fn with_stockpiles(entries: impl IntoIterator<Item = (ResourceType, f64)>) -> Self {
+        Self {
+            stockpiles: entries.into_iter().collect(),
+        }
+    }
+
+    /// Get current amount of a resource.
+    pub fn get(&self, resource: &ResourceType) -> f64 {
+        self.stockpiles.get(resource).copied().unwrap_or(0.0)
+    }
+
+    /// Add `amount` of `resource`, capped at `cap`.
+    ///
+    /// Returns the amount actually added.  Negative amounts are clamped to zero.
+    pub fn add_capped(&mut self, resource: ResourceType, amount: f64, cap: f64) -> f64 {
+        let amount = amount.max(0.0);
+        let current = self.get(&resource);
+        if cap < f64::MAX {
+            let headroom = (cap - current).max(0.0);
+            let added = amount.min(headroom);
+            if added > 0.0 {
+                self.stockpiles.insert(resource, current + added);
+            }
+            added
+        } else {
+            self.stockpiles.insert(resource, current + amount);
+            amount
+        }
+    }
+
+    /// Unconditionally add `amount` (no cap check — use for bootstrapping).
+    /// Negative amounts are clamped to zero.
+    pub fn add(&mut self, resource: ResourceType, amount: f64) {
+        let amount = amount.max(0.0);
+        let current = self.get(&resource);
+        self.stockpiles.insert(resource, current + amount);
+    }
+
+    /// Consume up to `amount`.  Returns how much was actually consumed.
+    /// Negative amounts are clamped to zero.
+    pub fn consume(&mut self, resource: ResourceType, amount: f64) -> f64 {
+        let amount = amount.max(0.0);
+        let available = self.get(&resource);
+        let consumed = amount.min(available);
+        if consumed > 0.0 {
+            self.stockpiles.insert(resource, available - consumed);
+        }
+        consumed
+    }
+
+    /// Check whether all `costs` can be satisfied by this stockpile alone.
+    pub fn can_afford(&self, costs: &[(ResourceType, f64)]) -> bool {
+        costs.iter().all(|(rt, need)| self.get(rt) >= *need)
+    }
+
+    /// Deduct `costs`.  Returns `true` on success, `false` (no-op) if any resource is short.
+    pub fn deduct(&mut self, costs: &[(ResourceType, f64)]) -> bool {
+        if !self.can_afford(costs) {
+            return false;
+        }
+        for (rt, need) in costs {
+            self.consume(*rt, *need);
+        }
+        true
+    }
+}

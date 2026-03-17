@@ -70,29 +70,55 @@ High-precision Keplerian orbital mechanics with f64 coordinates.
 Manages colonies, buildings, and construction.
 
 **Components:**
-- `Colony`: Colony data (name, population, stockpiles)
+- `Colony`: Colony data (name, population, housing capacity, food balance, growth-rate modifier)
+- `ColonyEnvironmentCosts`: Per-tick O₂ and Water drain for outpost colonies (non-breathable/hostile worlds)
 - `BuildingInventory`: List of constructed buildings per colony
 - `ConstructionQueue`: Queue of buildings under construction
+- `ConstructionProject`: Per-entity in-progress build with remaining BP
 
 **Resources:**
-- `BuildingsData`: Building definitions loaded from assets/data/buildings.ron
+- `BuildingsData`: Building definitions loaded from `assets/data/buildings.ron`
+- `PendingConstructionActions`: Thread-safe action queue (start-construction, establish-outpost)
 - `ConstructionDebugSettings`: Debug toggles (free construction, instant build, bypass tech)
 
-**Systems:**
+**Key systems:**
 - `load_buildings`: Loads building definitions at startup
 - `process_construction_actions`: Handles construction progress and completion
+- `deduct_environment_costs`: Drains O₂/Water from outpost stockpile each tick
 - `update_colony_resources`: Updates resource production/consumption
-- `population_growth`: Simulates population changes
+- `population_growth`: Simulates population changes using food-factor × housing-utilisation × logistics
 
-**Buildings (29 types in 8 categories):**
-- Infrastructure: LifeSupport, HabitatDome, Housing, UndergroundHabitat
-- Industry: Mine, Refinery, Factory, AtmosphericProcessor, DeepDrill, LaserDrill, StripMine
-- Logistics: MassDriver, OrbitalLift, CargoTerminal
-- Power: SolarPower, FissionReactor, FusionReactor
-- Population: AgriDome, Farm, MedicalCenter
-- Research: ResearchLab, EngineeringBay, AiCluster
-- Financial: CommercialHub, FinancialCenter, TradePort
-- Military: Shipyard, MissileSilo, LaunchSite
+**Buildings (47 types across 8 categories):**
+- **Infrastructure**: Housing, HabitatDome, UndergroundHabitat, LifeSupport, WaterTreatmentPlant, DesalinationPlant, RecyclingCenter
+- **Industry**: Mine, Refinery, Factory, AtmosphericProcessor, ChemicalPlant, HydrocarbonExtractor, DeepDrill, LaserDrill, StripMine, SemiconductorFab, PharmaceuticalPlant
+- **Logistics**: MassDriver, OrbitalLift, CargoTerminal, Warehouse
+- **Power**: SolarPower, WindFarm, HydroelectricDam, GeothermalPlant, CoalPowerPlant, NaturalGasPlant, FissionReactor, FusionReactor
+- **Population**: AgriDome, Farm, Greenhouse, AquacultureFacility, MedicalCenter
+- **Research**: ResearchLab, EngineeringBay, AiCluster, DataCenter
+- **Financial**: CommercialHub, FinancialCenter, TradePort
+- **Military**: Shipyard, MissileSilo, LaunchSite, SpacePort, GroundDefenseBattery
+
+**Building output scale** (district-level, not single structure):
+- Housing: 25M capacity/building; HabitatDome: 50M; UndergroundHabitat: 30M
+- Farm: 1,000 Mt/yr food (~10M people); AgriDome: 4 Mt/yr; Greenhouse: 500 Mt/yr; Aquaculture: 750 Mt/yr
+- Each new building is a perceptible ~0.3% improvement so construction remains meaningful
+
+**Outpost founding flow** (`EstablishOutpostRequest`):
+1. Player clicks "🏗 Establish Outpost" in the dossier panel (Survey tab)
+2. Hard blocks: gas giants and gravity > 3 g are suppressed; amber warning at cost > 7/10
+3. `needs_oxygen` derived from `AtmosphereComposition.breathable`
+4. `ColonyEnvironmentCosts` attached: Water = 0.00005 Mt/person/yr always; Oxygen = 0.0001 Mt/person/yr when `needs_oxygen`
+5. Starter buildings queued: LifeSupport, Housing ×1, FissionReactor ×2, AgriDome ×2
+6. (v0.3) Construction draws from same-system `ContextualStockpile` pool; (v0.4+) will require `ResourceRequest` delivery to local stockpile
+
+**Planned: Logistics Network (v0.4+):**
+- `ResourceRequest` — published when construction needs materials not locally available; priority: Emergency > Construction > Maintenance > Trade
+- `MinimumStockpile` (per-body) — player-configured per-resource thresholds; auto-creates Maintenance requests when below threshold
+- `ShippingCompany` (Resource) — AI-controlled private companies that bid on requests, earn credits, buy more ships at shipyards
+- `ContextualStockpile` is retained **display-only**; construction will read local `LocalStockpile` only
+- See `docs/design/LOGISTICS_NETWORK.md` for the full design specification.
+
+> See `docs/COLONIES.md` for the player-facing guide.
 
 #### 5. EconomyPlugin (`src/economy/`)
 Handles resources, budgets, and energy systems.

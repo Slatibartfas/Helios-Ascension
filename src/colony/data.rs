@@ -42,6 +42,10 @@ pub struct BuildingDefinition {
     pub maintenance_resources: Vec<ResourceCostEntry>,
     /// Modifiers applied while this building is operational
     pub modifiers: Vec<BuildingModifierDef>,
+    /// Power consumed by this building in MW (megawatts).
+    /// Defaults to 0 if not specified in the data file.
+    #[serde(default)]
+    pub power_demand_mw: f64,
 }
 
 impl BuildingDefinition {
@@ -132,6 +136,22 @@ fn parse_building_type(id: &str) -> Option<BuildingType> {
         "LaunchSite" => Some(BuildingType::LaunchSite),
         "Housing" => Some(BuildingType::Housing),
         "Farm" => Some(BuildingType::Farm),
+        "WindFarm" => Some(BuildingType::WindFarm),
+        "HydroelectricDam" => Some(BuildingType::HydroelectricDam),
+        "GeothermalPlant" => Some(BuildingType::GeothermalPlant),
+        "CoalPowerPlant" => Some(BuildingType::CoalPowerPlant),
+        "NaturalGasPlant" => Some(BuildingType::NaturalGasPlant),
+        "SemiconductorFab" => Some(BuildingType::SemiconductorFab),
+        "PharmaceuticalPlant" => Some(BuildingType::PharmaceuticalPlant),
+        "WaterTreatmentPlant" => Some(BuildingType::WaterTreatmentPlant),
+        "DesalinationPlant" => Some(BuildingType::DesalinationPlant),
+        "RecyclingCenter" => Some(BuildingType::RecyclingCenter),
+        "Greenhouse" => Some(BuildingType::Greenhouse),
+        "AquacultureFacility" => Some(BuildingType::AquacultureFacility),
+        "DataCenter" => Some(BuildingType::DataCenter),
+        "SpacePort" => Some(BuildingType::SpacePort),
+        "GroundDefenseBattery" => Some(BuildingType::GroundDefenseBattery),
+        "Warehouse" => Some(BuildingType::Warehouse),
         _ => None,
     }
 }
@@ -305,7 +325,7 @@ mod tests {
     #[test]
     fn test_can_afford_resources() {
         let budget = crate::economy::GlobalBudget::new();
-        // Budget starts with Iron=15000
+        // Budget starts with Iron ≈ 625 Mt (3-month 2026 production buffer)
         let costs = vec![("Iron".to_string(), 10.0)];
         assert!(can_afford_resources(&budget, &costs));
 
@@ -351,6 +371,7 @@ mod tests {
             resource_costs: vec![],
             maintenance_resources: vec![],
             modifiers: vec![],
+            power_demand_mw: 0.0,
         };
         assert!(def.required_tech_opt().is_none());
 
@@ -383,6 +404,7 @@ mod tests {
                 resource_costs: vec![("Iron".to_string(), 5.0)],
                 maintenance_resources: vec![("Iron".to_string(), 0.1)],
                 modifiers: vec![],
+                power_demand_mw: 250.0,
             },
         );
 

@@ -2,7 +2,7 @@ use crate::colony::{BuildingsData, Colony};
 use crate::economy::budget::{
     GlobalBudget, ResourceRateTracker, SECONDS_PER_MONTH, SECONDS_PER_YEAR,
 };
-use crate::economy::components::PlanetResources;
+use crate::economy::components::{LocalStockpile, PlanetResources};
 use crate::economy::types::ResourceType;
 use crate::plugins::solar_system::CelestialBody;
 use crate::ui::SimulationTime;
@@ -33,6 +33,7 @@ pub fn extract_resources(
         &mut CelestialBody,
         Option<&MiningOperation>,
         Option<&Colony>,
+        Option<&mut LocalStockpile>,
     )>,
     sim_time: Res<SimulationTime>,
     mut last_elapsed: Local<f64>,
@@ -53,7 +54,27 @@ pub fn extract_resources(
         return;
     }
 
-    for (mut resources, mut body, op_opt, colony_opt) in all_query.iter_mut() {
+    // Helper: deposit extracted amount into the body's LocalStockpile if present,
+    // otherwise fall back to the global budget.
+    // Closure captures `budget` by mut-ref which is not possible with an iter_mut
+    // borrow also active; instead we collect extractions and apply them afterwards.
+    // We handle this via a simple inline deposit in the loop with an explicit split.
+
+    for (mut resources, mut body, op_opt, colony_opt, mut local_opt) in all_query.iter_mut() {
+        /// Deposit helper: goes to LocalStockpile when present, GlobalBudget otherwise.
+        macro_rules! deposit {
+            ($rt:expr, $amount:expr) => {
+                if $amount > 0.0 {
+                    if let Some(ref mut ls) = local_opt {
+                        let cap = budget.effective_stockpile_cap($rt);
+                        ls.add_capped($rt, $amount, cap);
+                    } else {
+                        budget.add_resource_capped($rt, $amount);
+                    }
+                }
+            };
+        }
+
         // 1. Process specific MiningOperations (legacy/scenario)
         if let Some(op) = op_opt {
             if op.active {
@@ -83,9 +104,8 @@ pub fn extract_resources(
                         total_extracted += taking_bulk;
                     }
 
-                    // Add to global budget
                     if total_extracted > 0.0 {
-                        budget.add_resource(op.resource_type, total_extracted);
+                        deposit!(op.resource_type, total_extracted);
                         // Reduce body mass (1 Mt = 1e9 kg)
                         body.mass -= total_extracted * 1e9;
                     }
@@ -154,7 +174,7 @@ pub fn extract_resources(
                                 let taking = demand.min(deposit.reserve.proven_crustal);
                                 deposit.reserve.proven_crustal -= taking;
                                 if taking > 0.0 {
-                                    budget.add_resource(*r_type, taking);
+                                    deposit!(*r_type, taking);
                                     body.mass -= taking * 1e9;
                                 }
                             }
@@ -181,7 +201,7 @@ pub fn extract_resources(
                                 let taking = demand.min(deposit.reserve.deep_deposits);
                                 deposit.reserve.deep_deposits -= taking;
                                 if taking > 0.0 {
-                                    budget.add_resource(*r_type, taking);
+                                    deposit!(*r_type, taking);
                                     body.mass -= taking * 1e9;
                                 }
                             }
@@ -208,7 +228,7 @@ pub fn extract_resources(
                                 let taking = demand.min(deposit.reserve.planetary_bulk);
                                 deposit.reserve.planetary_bulk -= taking;
                                 if taking > 0.0 {
-                                    budget.add_resource(*r_type, taking);
+                                    deposit!(*r_type, taking);
                                     body.mass -= taking * 1e9;
                                 }
                             }
@@ -258,7 +278,7 @@ pub fn extract_resources(
                                 }
 
                                 if extracted > 0.0 {
-                                    budget.add_resource(*r_type, extracted);
+                                    deposit!(*r_type, extracted);
                                     body.mass -= extracted * 1e9;
                                 }
                             }

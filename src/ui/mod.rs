@@ -53,10 +53,10 @@ use crate::astronomy::{
     AtmosphereComposition, Hovered, KeplerOrbit, LagrangePointMarkers, LastLpClick, Selected,
     SpaceCoordinates,
 };
-use crate::colony::data::can_afford_resources;
 use crate::colony::{
-    BuildingCategory, BuildingType, BuildingsData, Colony, ConstructionDebugSettings,
-    ConstructionProject, PendingConstructionActions,
+    BuildingCategory, BuildingEditData, BuildingEditState, BuildingType, BuildingsData, Colony,
+    ColonyEnvironmentCosts, ConstructionDebugSettings, ConstructionProject,
+    EstablishOutpostRequest, PendingConstructionActions,
 };
 use crate::economy::components::{MineralDeposit, Population, SurveyLevel};
 use crate::economy::{
@@ -404,6 +404,7 @@ impl Plugin for UIPlugin {
             .init_resource::<FleetUiState>()
             .init_resource::<ResolutionWarning>()
             .init_resource::<ExpandedLedgerGroups>()
+            .init_resource::<construction_panel::ConstructionUiState>()
             // ActiveMenu is now initialized in GameStatePlugin
             // to allow access in camera/starmap plugins
             // Load menu icons at startup

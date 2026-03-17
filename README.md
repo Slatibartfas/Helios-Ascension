@@ -10,7 +10,9 @@ The game now has fully functional colony management, economy, research, interste
 ### Core Game Systems
 
 - **Colony Management**: Establish and manage colonies across the solar system
-  - **31 distinct building types** across 8 categories (Infrastructure, Industry, Logistics, Power, Population, Research, Financial, Military)
+  - **47 building types** across 8 categories (Infrastructure, Industry, Logistics, Power, Population, Research, Financial, Military)
+  - Each building has meaningful civilisation-scale output (e.g. Housing Complex = 25M residents, Farm = 1,000 Mt/yr food for ~10M people)
+  - Construction cards show green effect lines so players know exactly what each building does
   - Construction queue system with resource costs and build times
   - Workforce allocation and efficiency management
   - Population growth and housing systems

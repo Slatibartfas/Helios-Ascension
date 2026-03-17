@@ -22,7 +22,7 @@ fn get_resource_category_icon(category: &str) -> &'static str {
 }
 
 /// Get the icon for a specific resource type
-fn get_resource_icon(resource: &ResourceType) -> &'static str {
+pub(super) fn get_resource_icon(resource: &ResourceType) -> &'static str {
     match resource {
         // Biological
         ResourceType::Food => "\u{1F35E}", // 🍞
@@ -93,16 +93,61 @@ pub(super) struct OpenResourcePopup {
     open: Option<(String, egui::Rect)>,
 }
 
+const CONTEXT_TILE_WIDTH: f32 = 88.0;
+const CONTEXT_TILE_HEIGHT: f32 = 28.0;
+const CONTEXT_NAME_FONT_SIZE: f32 = 11.5;
+
+fn render_context_name_marquee(ui: &mut egui::Ui, text: &str) {
+    let font_id = egui::FontId::proportional(CONTEXT_NAME_FONT_SIZE);
+    let color = theme::TEXT_VALUE;
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.to_string(), font_id.clone(), color);
+    let text_size = galley.size();
+    let row_height = text_size.y.max(12.0);
+    let available_width = ui.available_width().max(1.0);
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(available_width, row_height), egui::Sense::hover());
+    let clip = rect;
+    let painter = ui.painter().with_clip_rect(clip);
+
+    if text_size.x <= clip.width() {
+        painter.text(
+            clip.left_center(),
+            egui::Align2::LEFT_CENTER,
+            text,
+            font_id,
+            color,
+        );
+    } else {
+        let gap = 36.0_f32;
+        let cycle = text_size.x + gap;
+        let speed = 35.0_f64;
+        let t = ui.ctx().input(|i| i.time);
+        let offset_x = ((t * speed) % cycle as f64) as f32;
+        let y = clip.top() + (clip.height() - text_size.y) * 0.5;
+        let x0 = clip.left() - offset_x;
+        painter.galley(egui::pos2(x0, y), galley.clone(), color);
+        let x1 = x0 + cycle;
+        if x1 < clip.right() + text_size.x {
+            painter.galley(egui::pos2(x1, y), galley, color);
+        }
+        ui.ctx().request_repaint();
+    }
+}
+
 /// Render the resources bar at the top of the screen (above the menu)
 pub(super) fn ui_resources_bar(
     mut contexts: EguiContexts,
     mut pending_research: ResMut<PendingResearchActions>,
     budget: Res<GlobalBudget>,
+    contextual: Res<crate::economy::ContextualStockpile>,
     rate_tracker: Res<ResourceRateTracker>,
     research_state: Res<ResearchState>,
     population_query: Query<(
         &Population,
         Option<&crate::plugins::solar_system::CelestialBody>,
+        Option<&crate::colony::Colony>,
     )>,
     mut open_popup: Local<OpenResourcePopup>,
     research_projects: Query<&ResearchProject>,
@@ -119,19 +164,58 @@ pub(super) fn ui_resources_bar(
     };
 
     // Calculate total population
-    let total_population: f64 = population_query.iter().map(|(p, _)| p.count).sum();
+    let total_population: f64 = population_query.iter().map(|(p, _, _)| p.count).sum();
 
     egui::TopBottomPanel::top("resources_bar")
-        .min_height(40.0)
+        .exact_height(40.0)
         .show(ctx, |ui| {
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                ui.add_space(10.0);
+                ui.add_space(4.0);
+
+                // Context label (e.g. "Sol System" or "All Systems")
+                ui.allocate_ui_with_layout(
+                    egui::vec2(CONTEXT_TILE_WIDTH, CONTEXT_TILE_HEIGHT),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.set_min_width(CONTEXT_TILE_WIDTH);
+                        ui.set_max_width(CONTEXT_TILE_WIDTH);
+                        ui.set_min_height(CONTEXT_TILE_HEIGHT);
+                        ui.set_max_height(CONTEXT_TILE_HEIGHT);
+                        ui.spacing_mut().item_spacing = egui::vec2(2.0, 0.0);
+                        ui.horizontal(|ui| {
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new("📍")
+                                        .size(15.0)
+                                        .color(theme::ACCENT),
+                                )
+                                .selectable(false),
+                            );
+                            ui.add_space(2.0);
+                            ui.vertical(|ui| {
+                                ui.spacing_mut().item_spacing.y = 0.0;
+                                ui.set_width((CONTEXT_TILE_WIDTH - 22.0).max(1.0));
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new("CURRENT SYSTEM")
+                                            .size(6.0)
+                                            .color(theme::TEXT_HINT),
+                                    )
+                                    .selectable(false),
+                                );
+                                render_context_name_marquee(ui, &contextual.context_label);
+                            });
+                        });
+                    },
+                );
+                ui.add_space(1.0);
+                ui.separator();
+                ui.add_space(1.0);
 
                 // Show resource categories
                 for (category_name, resources) in ResourceType::by_category() {
-                    // Calculate total for category
-                    let category_total: f64 =
-                        resources.iter().map(|r| budget.get_stockpile(r)).sum();
+                    // Calculate total for category from contextual stockpile
+                    let category_total: f64 = resources.iter().map(|r| contextual.get(r)).sum();
                     let category_rate: f64 = resources
                         .iter()
                         .map(|r| rate_tracker.get_resource_rate(r))
@@ -1178,45 +1262,140 @@ pub(super) fn ui_resources_bar(
                     });
                     ui.separator();
 
-                    // Collect and sort populations
-                    let mut pops: Vec<(String, f64)> = population_query
+                    // Collect colony data: (name, population, housing_cap, growth_per_year)
+                    let mut pops: Vec<(String, f64, f64, f64)> = population_query
                         .iter()
-                        .filter(|(p, _)| p.count > 0.0)
-                        .map(|(p, body)| {
+                        .filter(|(p, _, _)| p.count > 0.0)
+                        .map(|(p, body, colony_opt)| {
                             let name = if let Some(b) = body {
                                 b.name.clone()
                             } else {
                                 "Unknown".to_string()
                             };
-                            (name, p.count)
+                            let housing = colony_opt
+                                .map(|c| c.housing_capacity())
+                                .unwrap_or(0.0);
+                            let growth_yr = colony_opt
+                                .map(|c| c.population_growth_per_year(1.0))
+                                .unwrap_or(0.0);
+                            (name, p.count, housing, growth_yr)
                         })
                         .collect();
 
-                    // Sort descending
+                    // Sort descending by population
                     pops.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-                    let top_10_count = pops.len().min(10);
+                    // Max population for relative bar scaling
+                    let max_pop = pops.first().map(|(_, c, _, _)| *c).unwrap_or(1.0).max(1.0);
 
-                    for (name, count) in pops.iter().take(top_10_count) {
+                    let top_count = pops.len().min(10);
+
+                    for (name, count, housing, growth_yr) in pops.iter().take(top_count) {
+                        ui.add_space(3.0);
+                        // Name (left) + population count + growth rate (right)
                         ui.horizontal(|ui| {
-                            ui.add(egui::Label::new(name.as_str()).selectable(false));
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(name.as_str()).size(11.0),
+                                )
+                                .selectable(false),
+                            );
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
+                                    let growth_month = growth_yr / 12.0;
+                                    let (growth_text, growth_color) = if growth_month > 0.5 {
+                                        (
+                                            format!("+{}/mo", format_population(growth_month)),
+                                            theme::GREEN,
+                                        )
+                                    } else if growth_month < -0.5 {
+                                        (
+                                            format!("{}/mo", format_population(growth_month)),
+                                            theme::RED,
+                                        )
+                                    } else {
+                                        ("\u{2014}".to_string(), theme::TEXT_DIM)
+                                    };
                                     ui.add(
                                         egui::Label::new(
-                                            egui::RichText::new(format_population(*count)).strong(),
+                                            egui::RichText::new(growth_text)
+                                                .size(10.0)
+                                                .color(growth_color),
+                                        )
+                                        .selectable(false),
+                                    );
+                                    ui.add_space(4.0);
+                                    ui.add(
+                                        egui::Label::new(
+                                            egui::RichText::new(format_population(*count))
+                                                .size(11.0)
+                                                .strong(),
                                         )
                                         .selectable(false),
                                     );
                                 },
                             );
                         });
+
+                        // Progress bar: outer = relative to largest, inner = housing utilisation
+                        let bar_fill = (*count / max_pop) as f32;
+                        let housing_fill = if *housing > 0.0 {
+                            (*count / housing).min(1.0) as f32
+                        } else {
+                            0.0
+                        };
+                        let bar_color = if housing_fill >= 0.99 {
+                            theme::RED
+                        } else if housing_fill > 0.85 {
+                            theme::AMBER
+                        } else {
+                            egui::Color32::from_rgb(100, 180, 255)
+                        };
+                        let (rect, _) = ui.allocate_exact_size(
+                            egui::vec2(ui.available_width(), 4.0),
+                            egui::Sense::hover(),
+                        );
+                        ui.painter().rect_filled(
+                            egui::Rect::from_min_size(
+                                rect.min,
+                                egui::vec2(rect.width() * bar_fill, rect.height()),
+                            ),
+                            0.0,
+                            bar_color.linear_multiply(0.3),
+                        );
+                        if *housing > 0.0 {
+                            ui.painter().rect_filled(
+                                egui::Rect::from_min_size(
+                                    rect.min,
+                                    egui::vec2(
+                                        rect.width() * bar_fill * housing_fill,
+                                        rect.height(),
+                                    ),
+                                ),
+                                0.0,
+                                bar_color,
+                            );
+                        }
+                        if *housing > 0.0 {
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(format!(
+                                        "  \u{1F3E0} {:.0}% of {}",
+                                        housing_fill * 100.0,
+                                        format_population(*housing)
+                                    ))
+                                    .size(9.0)
+                                    .color(theme::TEXT_DIM),
+                                )
+                                .selectable(false),
+                            );
+                        }
                     }
 
-                    // Summarize the rest
+                    // Summarize colonies beyond top 10
                     if pops.len() > 10 {
-                        let other_total: f64 = pops.iter().skip(10).map(|(_, c)| c).sum();
+                        let other_total: f64 = pops.iter().skip(10).map(|(_, c, _, _)| c).sum();
                         ui.horizontal(|ui| {
                             ui.add(
                                 egui::Label::new(egui::RichText::new("Other").italics())
@@ -1238,12 +1417,38 @@ pub(super) fn ui_resources_bar(
                     }
 
                     ui.separator();
+                    // Total + aggregate growth rate
+                    let total_growth_yr: f64 = population_query
+                        .iter()
+                        .filter_map(|(p, _, c)| {
+                            if p.count > 0.0 {
+                                Some(c.map(|col| col.population_growth_per_year(1.0)).unwrap_or(0.0))
+                            } else {
+                                None
+                            }
+                        })
+                        .sum();
+                    let total_growth_month = total_growth_yr / 12.0;
                     ui.horizontal(|ui| {
                         ui.add(
                             egui::Label::new(egui::RichText::new("Total").strong())
                                 .selectable(false),
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let (g_text, g_color) = if total_growth_month >= 1.0 {
+                                (format!("+{}/mo", format_population(total_growth_month)), theme::GREEN)
+                            } else if total_growth_month < -1.0 {
+                                (format!("{}/mo", format_population(total_growth_month)), theme::RED)
+                            } else {
+                                ("\u{2014}".to_string(), theme::TEXT_DIM)
+                            };
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(g_text).size(10.0).color(g_color),
+                                )
+                                .selectable(false),
+                            );
+                            ui.add_space(4.0);
                             ui.add(
                                 egui::Label::new(
                                     egui::RichText::new(format_population(total_population))
@@ -1339,7 +1544,7 @@ pub(super) fn ui_resources_bar(
                             ui.end_row();
 
                             for resource in &resources {
-                                let amount = budget.get_stockpile(resource);
+                                let amount = contextual.get(resource);
                                 let rate = rate_tracker.get_resource_rate(resource);
 
                                 // Icon + Name in one cell

@@ -87,6 +87,52 @@ pub enum BuildingType {
     ChemicalPlant,
     /// Extraction facility for hydrocarbons (oil/gas)
     HydrocarbonExtractor,
+
+    // Advanced Power Generation
+    /// Wind turbine farm
+    WindFarm,
+    /// Hydroelectric power dam
+    HydroelectricDam,
+    /// Geothermal energy plant (requires geothermal_energy tech)
+    GeothermalPlant,
+    /// Fossil-fuel coal power plant
+    CoalPowerPlant,
+    /// Natural gas combustion turbine plant
+    NaturalGasPlant,
+
+    // Advanced Industry (new)
+    /// High-precision microchip and electronics industry (requires semiconductor_manufacturing tech)
+    SemiconductorFab,
+    /// Pharmaceutical and biomedical production sector
+    PharmaceuticalPlant,
+
+    // Water & Environment
+    /// Purifies contaminated water supplies
+    WaterTreatmentPlant,
+    /// Extracts fresh water from oceans / brine (requires desalination tech)
+    DesalinationPlant,
+    /// Recovers and re-processes waste materials
+    RecyclingCenter,
+
+    // Advanced Agriculture
+    /// Controlled-environment crop growing
+    Greenhouse,
+    /// Fish, shellfish, and aquatic protein farming
+    AquacultureFacility,
+
+    // Digital Infrastructure
+    /// Planetary-scale computation and data-storage infrastructure
+    DataCenter,
+
+    // Advanced Space
+    /// Advanced multi-pad orbital launch complex
+    SpacePort,
+    /// Ground-based anti-orbital / anti-missile defense battery
+    GroundDefenseBattery,
+
+    // Storage
+    /// Bulk resource depot expanding civilisation-wide stockpile capacity
+    Warehouse,
 }
 
 impl BuildingType {
@@ -125,6 +171,22 @@ impl BuildingType {
             Shipyard,
             MissileSilo,
             LaunchSite,
+            WindFarm,
+            HydroelectricDam,
+            GeothermalPlant,
+            CoalPowerPlant,
+            NaturalGasPlant,
+            SemiconductorFab,
+            PharmaceuticalPlant,
+            WaterTreatmentPlant,
+            DesalinationPlant,
+            RecyclingCenter,
+            Greenhouse,
+            AquacultureFacility,
+            DataCenter,
+            SpacePort,
+            GroundDefenseBattery,
+            Warehouse,
         ]
     }
 
@@ -162,6 +224,22 @@ impl BuildingType {
             BuildingType::Shipyard => "Shipyard",
             BuildingType::MissileSilo => "Missile Silo",
             BuildingType::LaunchSite => "Launch Site",
+            BuildingType::WindFarm => "Wind Farm",
+            BuildingType::HydroelectricDam => "Hydroelectric Dam",
+            BuildingType::GeothermalPlant => "Geothermal Plant",
+            BuildingType::CoalPowerPlant => "Coal Power Sector",
+            BuildingType::NaturalGasPlant => "Gas Power Sector",
+            BuildingType::SemiconductorFab => "Electronics Industry",
+            BuildingType::PharmaceuticalPlant => "Pharmaceutical Sector",
+            BuildingType::WaterTreatmentPlant => "Water Management Complex",
+            BuildingType::DesalinationPlant => "Desalination Complex",
+            BuildingType::RecyclingCenter => "Industrial Recycling Complex",
+            BuildingType::Greenhouse => "Greenhouse Complex",
+            BuildingType::AquacultureFacility => "Aquaculture Complex",
+            BuildingType::DataCenter => "Computation Hub",
+            BuildingType::SpacePort => "Space Port",
+            BuildingType::GroundDefenseBattery => "Ground Defense Battery",
+            BuildingType::Warehouse => "Resource Depot",
         }
     }
     pub fn description(&self) -> &'static str {
@@ -199,6 +277,117 @@ impl BuildingType {
             BuildingType::Shipyard => "Orbital shipyard for constructing vessels",
             BuildingType::MissileSilo => "Ground-based missile silo for planetary defence",
             BuildingType::LaunchSite => "Rocket launch site for orbital access",
+            BuildingType::WindFarm => "Generates clean energy from wind currents",
+            BuildingType::HydroelectricDam => "Harnesses river flow for reliable base-load power",
+            BuildingType::GeothermalPlant => "Taps planetary heat for continuous power generation",
+            BuildingType::CoalPowerPlant => "Massive coal-fired power sector; a major industrial base-load source",
+            BuildingType::NaturalGasPlant => "Gas turbine power sector for fast-ramping base-load generation",
+            BuildingType::SemiconductorFab => "Planetary electronics and microchip manufacturing industry",
+            BuildingType::PharmaceuticalPlant => "Civilisation-scale pharmaceutical and biomedical production",
+            BuildingType::WaterTreatmentPlant => "Planetary water purification and distribution network",
+            BuildingType::DesalinationPlant => "Large-scale ocean desalination infrastructure for water-scarce worlds",
+            BuildingType::RecyclingCenter => "Industrial-scale material recovery and resource reprocessing",
+            BuildingType::Greenhouse => "Vast network of climate-controlled crop production facilities",
+            BuildingType::AquacultureFacility => "Planetary aquatic protein farming across oceans and inland seas",
+            BuildingType::DataCenter => "Planetary-scale computation, AI processing, and data storage infrastructure",
+            BuildingType::SpacePort => "High-throughput orbital launch complex with multiple pads",
+            BuildingType::GroundDefenseBattery => "Anti-orbital and anti-missile ground defense installation",
+            BuildingType::Warehouse => "Bulk storage depot that expands global resource stockpile capacity by 5% per depot",
+        }
+    }
+
+    /// Short, pre-formatted effect strings shown on the construction card.
+    ///
+    /// Each entry is one line such as "+25M housing capacity" or
+    /// "+1,000 Mt/yr food (feeds ~10M ppl)".  Returns an empty slice for
+    /// buildings whose effects are opaque from the UI (e.g. pure military).
+    pub fn effects_summary(&self) -> &'static [&'static str] {
+        match self {
+            // ── Infrastructure ───────────────────────────────────────────
+            BuildingType::LifeSupport => &[
+                "Enables habitation on vacuum / hostile worlds",
+                "Recycles air and water for pressurised habitats",
+            ],
+            BuildingType::HabitatDome => &[
+                "+50M housing capacity",
+                "Pressurised dome, works on any body",
+            ],
+            BuildingType::Housing => &["+25M housing capacity"],
+            BuildingType::UndergroundHabitat => &[
+                "+30M housing capacity",
+                "Buried structure; ideal for airless bodies",
+            ],
+            // ── Mining & Industry ────────────────────────────────────────
+            BuildingType::Mine => &["+15% mining efficiency"],
+            BuildingType::Refinery => &["+8% mining efficiency"],
+            BuildingType::Factory => &[
+                "+10 BP/yr construction speed",
+                "-5% construction costs",
+            ],
+            BuildingType::ChemicalPlant => &["+1 chemical processing unit/yr"],
+            BuildingType::HydrocarbonExtractor => &["+10% mining efficiency"],
+            // ── Atmospheric Harvesting ───────────────────────────────────
+            BuildingType::AtmosphericProcessor => &["+0.75 Mt/yr atmospheric harvest"],
+            // ── Advanced Mining ──────────────────────────────────────────
+            BuildingType::DeepDrill => &["+25% deep mining efficiency"],
+            BuildingType::LaserDrill => &["+50% deep mining efficiency"],
+            BuildingType::StripMine => &["+100% bulk mining efficiency"],
+            // ── Logistics ────────────────────────────────────────────────
+            BuildingType::MassDriver => &["+5,000 logistics capacity"],
+            BuildingType::OrbitalLift => &["+20,000 logistics capacity"],
+            BuildingType::CargoTerminal => &["+2,000 logistics capacity"],
+            // ── Power ─────────────────────────────────────────────────── 
+            BuildingType::SolarPower => &["+5 GW power output"],
+            BuildingType::FissionReactor => &["+20 GW power output", "Fuel: Uranium"],
+            BuildingType::FusionReactor => &["+40 GW power output", "Fuel: Deuterium"],
+            BuildingType::WindFarm => &["+3 GW power output"],
+            BuildingType::HydroelectricDam => &["+15 GW power output"],
+            BuildingType::GeothermalPlant => &["+18 GW power output"],
+            BuildingType::CoalPowerPlant => &["+10 GW power output", "Burns: Coal"],
+            BuildingType::NaturalGasPlant => &["+12 GW power output", "Burns: Natural Gas"],
+            // ── Population & Growth ──────────────────────────────────────
+            BuildingType::Farm => &[
+                "+1,000 Mt/yr food",
+                "Feeds ~10M people",
+            ],
+            BuildingType::AgriDome => &[
+                "+4 Mt/yr food",
+                "Feeds ~40K people (enclosed)",
+            ],
+            BuildingType::Greenhouse => &[
+                "+500 Mt/yr food",
+                "Feeds ~5M people",
+            ],
+            BuildingType::AquacultureFacility => &[
+                "+750 Mt/yr food",
+                "Feeds ~7.5M people",
+            ],
+            BuildingType::MedicalCenter => &["+0.03% population growth rate per centre"],
+            BuildingType::WaterTreatmentPlant => &["+2% population growth rate"],
+            BuildingType::DesalinationPlant => &["+1% population growth rate"],
+            BuildingType::PharmaceuticalPlant => &["+3% population growth rate"],
+            // ── Research ─────────────────────────────────────────────────
+            BuildingType::ResearchLab => &["+5% research speed"],
+            BuildingType::EngineeringBay => &["+5% engineering speed"],
+            BuildingType::AiCluster => &["+15% research speed", "+10% engineering speed"],
+            BuildingType::SemiconductorFab => &["+8% research speed", "+5% engineering speed"],
+            BuildingType::DataCenter => &["+10% research speed", "+8% engineering speed"],
+            // ── Financial & Commerce ─────────────────────────────────────
+            BuildingType::CommercialHub => &["+credits income from trade"],
+            BuildingType::FinancialCenter => &["+credits income from banking"],
+            BuildingType::TradePort => &["+credits income from import/export"],
+            // ── Military & Shipbuilding ──────────────────────────────────
+            BuildingType::Shipyard => &[
+                "Enables ship construction",
+                "+10% ship efficiency, -10% build costs",
+            ],
+            BuildingType::MissileSilo => &["Planetary anti-orbital defense"],
+            BuildingType::LaunchSite => &["Surface-to-orbit launch access"],
+            BuildingType::SpacePort => &["High-throughput orbital access"],
+            BuildingType::GroundDefenseBattery => &["Anti-orbital / anti-missile defense"],
+            // ── Advanced Industry ────────────────────────────────────────
+            BuildingType::RecyclingCenter => &["+2% mining efficiency", "Reduces waste"],
+            BuildingType::Warehouse => &["+5% global stockpile capacity"],
         }
     }
 
@@ -236,6 +425,22 @@ impl BuildingType {
             BuildingType::Shipyard => "⚓",
             BuildingType::MissileSilo => "🚀",
             BuildingType::LaunchSite => "🛫",
+            BuildingType::WindFarm => "💨",
+            BuildingType::HydroelectricDam => "🌊",
+            BuildingType::GeothermalPlant => "🌋",
+            BuildingType::CoalPowerPlant => "🏭",
+            BuildingType::NaturalGasPlant => "🔥",
+            BuildingType::SemiconductorFab => "💾",
+            BuildingType::PharmaceuticalPlant => "💊",
+            BuildingType::WaterTreatmentPlant => "💧",
+            BuildingType::DesalinationPlant => "🧂",
+            BuildingType::RecyclingCenter => "♻️",
+            BuildingType::Greenhouse => "🌿",
+            BuildingType::AquacultureFacility => "🐟",
+            BuildingType::DataCenter => "🖥️",
+            BuildingType::SpacePort => "🚀",
+            BuildingType::GroundDefenseBattery => "🛡️",
+            BuildingType::Warehouse => "🏗",
         }
     }
 
@@ -245,7 +450,10 @@ impl BuildingType {
             BuildingType::LifeSupport
             | BuildingType::HabitatDome
             | BuildingType::Housing
-            | BuildingType::UndergroundHabitat => BuildingCategory::Infrastructure,
+            | BuildingType::UndergroundHabitat
+            | BuildingType::WaterTreatmentPlant
+            | BuildingType::DesalinationPlant
+            | BuildingType::RecyclingCenter => BuildingCategory::Infrastructure,
             BuildingType::Mine
             | BuildingType::Refinery
             | BuildingType::Factory
@@ -254,25 +462,44 @@ impl BuildingType {
             | BuildingType::HydrocarbonExtractor
             | BuildingType::DeepDrill
             | BuildingType::LaserDrill
-            | BuildingType::StripMine => BuildingCategory::Industry,
+            | BuildingType::StripMine
+            | BuildingType::SemiconductorFab
+            | BuildingType::PharmaceuticalPlant => BuildingCategory::Industry,
             BuildingType::MassDriver | BuildingType::OrbitalLift | BuildingType::CargoTerminal => {
                 BuildingCategory::Logistics
             }
             BuildingType::SolarPower
             | BuildingType::FissionReactor
-            | BuildingType::FusionReactor => BuildingCategory::Power,
-            BuildingType::AgriDome | BuildingType::Farm | BuildingType::MedicalCenter => {
+            | BuildingType::FusionReactor
+            | BuildingType::WindFarm
+            | BuildingType::HydroelectricDam
+            | BuildingType::GeothermalPlant
+            | BuildingType::CoalPowerPlant
+            | BuildingType::NaturalGasPlant => BuildingCategory::Power,
+            BuildingType::AgriDome
+            | BuildingType::Farm
+            | BuildingType::MedicalCenter
+            | BuildingType::Greenhouse
+            | BuildingType::AquacultureFacility => {
                 BuildingCategory::Population
             }
-            BuildingType::ResearchLab | BuildingType::EngineeringBay | BuildingType::AiCluster => {
+            BuildingType::ResearchLab
+            | BuildingType::EngineeringBay
+            | BuildingType::AiCluster
+            | BuildingType::DataCenter => {
                 BuildingCategory::Research
             }
             BuildingType::CommercialHub
             | BuildingType::FinancialCenter
             | BuildingType::TradePort => BuildingCategory::Financial,
-            BuildingType::Shipyard | BuildingType::MissileSilo | BuildingType::LaunchSite => {
+            BuildingType::Shipyard
+            | BuildingType::MissileSilo
+            | BuildingType::LaunchSite
+            | BuildingType::SpacePort
+            | BuildingType::GroundDefenseBattery => {
                 BuildingCategory::Military
             }
+            BuildingType::Warehouse => BuildingCategory::Logistics,
         }
     }
 
@@ -310,6 +537,22 @@ impl BuildingType {
             BuildingType::Shipyard => 10000.0,
             BuildingType::MissileSilo => 3000.0,
             BuildingType::LaunchSite => 2000.0,
+            BuildingType::WindFarm => 300.0,
+            BuildingType::HydroelectricDam => 2500.0,
+            BuildingType::GeothermalPlant => 1800.0,
+            BuildingType::CoalPowerPlant => 800.0,
+            BuildingType::NaturalGasPlant => 600.0,
+            BuildingType::SemiconductorFab => 5000.0,
+            BuildingType::PharmaceuticalPlant => 800.0,
+            BuildingType::WaterTreatmentPlant => 400.0,
+            BuildingType::DesalinationPlant => 600.0,
+            BuildingType::RecyclingCenter => 300.0,
+            BuildingType::Greenhouse => 400.0,
+            BuildingType::AquacultureFacility => 500.0,
+            BuildingType::DataCenter => 2000.0,
+            BuildingType::SpacePort => 4000.0,
+            BuildingType::GroundDefenseBattery => 2500.0,
+            BuildingType::Warehouse => 300.0,
         }
     }
 
@@ -361,6 +604,29 @@ impl BuildingType {
             BuildingType::Shipyard => 80_000,
             BuildingType::MissileSilo => 5_000,
             BuildingType::LaunchSite => 12_000,
+            // Advanced power
+            BuildingType::WindFarm => 200,
+            BuildingType::HydroelectricDam => 1_000,
+            BuildingType::GeothermalPlant => 800,
+            BuildingType::CoalPowerPlant => 2_000,
+            BuildingType::NaturalGasPlant => 1_500,
+            // Advanced industry
+            BuildingType::SemiconductorFab => 5_000,
+            BuildingType::PharmaceuticalPlant => 4_000,
+            // Water & environment
+            BuildingType::WaterTreatmentPlant => 500,
+            BuildingType::DesalinationPlant => 400,
+            BuildingType::RecyclingCenter => 1_000,
+            // Advanced agriculture
+            BuildingType::Greenhouse => 2_000,
+            BuildingType::AquacultureFacility => 1_500,
+            // Digital infrastructure
+            BuildingType::DataCenter => 1_000,
+            // Advanced space
+            BuildingType::SpacePort => 20_000,
+            BuildingType::GroundDefenseBattery => 3_000,
+            // Storage
+            BuildingType::Warehouse => 1_000,
         }
     }
 
@@ -377,6 +643,11 @@ impl BuildingType {
             BuildingType::AiCluster => Some("neural_networks"),
             BuildingType::Shipyard => Some("orbital_construction"),
             BuildingType::MissileSilo => Some("missile_systems"),
+            BuildingType::GeothermalPlant => Some("geothermal_energy"),
+            BuildingType::SemiconductorFab => Some("semiconductor_manufacturing"),
+            BuildingType::DesalinationPlant => Some("desalination"),
+            BuildingType::DataCenter => Some("neural_networks"),
+            BuildingType::GroundDefenseBattery => Some("missile_systems"),
             _ => None,
         }
     }
@@ -461,7 +732,7 @@ mod tests {
     #[test]
     fn test_building_type_all() {
         let all = BuildingType::all();
-        assert_eq!(all.len(), 31, "Should have exactly 31 building types");
+        assert_eq!(all.len(), 47, "Should have exactly 47 building types");
     }
 
     #[test]

@@ -101,41 +101,53 @@ impl Colony {
 
     /// Calculate housing capacity from habitat buildings.
     ///
-    /// Habitat Dome houses 1,000,000 colonists, Underground Habitat houses 600,000.
-    /// Values are scaled for civilization-level populations (millions to billions).
-    /// Multiple domes/habitats are needed for large colony populations.
+    /// Each building represents a district-level installation:
+    /// - Housing Complex:      25,000,000 residents  (scaled for meaningful per-build impact)
+    /// - Habitat Dome:         50,000,000 residents  (pressurised premium dome)
+    /// - Underground Habitat:  30,000,000 residents  (buried habitat, airless worlds)
+    ///
+    /// At this scale Earth needs ~335 Housing Complexes (not 33,500), so
+    /// each newly-built complex is a visible +0.3% capacity improvement.
     pub fn housing_capacity(&self) -> f64 {
         let domes = self.building_count(BuildingType::HabitatDome) as f64;
         let housing_complexes = self.building_count(BuildingType::Housing) as f64;
         let underground = self.building_count(BuildingType::UndergroundHabitat) as f64;
 
-        domes * 1_000_000.0 + housing_complexes * 250_000.0 + underground * 600_000.0
+        domes * 50_000_000.0 + housing_complexes * 25_000_000.0 + underground * 30_000_000.0
     }
 
     /// Calculate food production rate (Mt/year) from agricultural buildings.
     ///
-    /// - Farm: 100 Mt/year (large-scale agriculture feeding ~1M people)
-    /// - AgriDome: 0.4 Mt/year (enclosed agriculture feeding ~4K people)
+    /// Each building is scaled for civilisation-level throughput:
+    /// - Farm:                1,000 Mt/yr  → feeds ~10M people
+    /// - AgriDome:              4   Mt/yr  → feeds ~40K people (enclosed)
+    /// - Greenhouse:          500   Mt/yr  → feeds ~5M people (controlled-env)
+    /// - AquacultureFacility: 750   Mt/yr  → feeds ~7.5M people
+    ///
+    /// Per-capita food consumption: 0.0001 Mt/person/yr (100 t/person/yr).
     pub fn food_production_per_year(&self) -> f64 {
         let farm_count = self.building_count(BuildingType::Farm) as f64;
         let agri_count = self.building_count(BuildingType::AgriDome) as f64;
-        farm_count * 100.0 + agri_count * 0.4
+        let greenhouse_count = self.building_count(BuildingType::Greenhouse) as f64;
+        let aquaculture_count = self.building_count(BuildingType::AquacultureFacility) as f64;
+        farm_count * 1_000.0
+            + agri_count * 4.0
+            + greenhouse_count * 500.0
+            + aquaculture_count * 750.0
     }
 
     /// Calculate food consumption rate (Mt/year) based on population.
     ///
     /// Per-capita consumption: 0.0001 Mt/person/year (100 tonnes/person/year).
-    /// This rate is calibrated so that 1 Farm (100 Mt/year) feeds 1M people
-    /// and 1 AgriDome (0.4 Mt/year) feeds 4K people.
+    /// At this scale 1 Farm (1,000 Mt/yr) feeds ~10M people.
     pub fn food_consumption_per_year(&self) -> f64 {
         self.population * 0.0001
     }
 
     /// Calculate base population growth rate per year.
     ///
-    /// Base growth: 5% per year (viable gameplay pacing at 1wk/s).
-    /// At 1wk/s game speed, a 100K-pop colony reaches ~1M in ~5 real minutes.
-    /// Medical centres add 1% each (up to meaningful bonus).
+    /// Base growth: 0.9% per year (Earth 2026 demographic baseline).
+    /// Medical centres add up to +0.9% bonus (capped).
     /// Growth slows as housing fills. Logistics also applies.
     ///
     /// # Arguments
@@ -151,11 +163,17 @@ impl Colony {
             return 0.0;
         }
 
-        // Base growth rate: 5% per year
-        let base_rate = 0.05;
+        // Base growth rate: 0.9%/yr — matches Earth's 2026 demographic rate.
+        // Medical centres can double this for well-served colonies.
+        const BASE_GROWTH_RATE: f64 = 0.009;
 
-        // Medical centres add 1% each
-        let medical_bonus = self.building_count(BuildingType::MedicalCenter) as f64 * 0.01;
+        // Medical centres add 0.03% per centre, capped at +0.9% total.
+        // 30 centres → full bonus.
+        const MEDICAL_GROWTH_PER_CENTER: f64 = 0.0003;
+        const MAX_MEDICAL_GROWTH_BONUS: f64 = 0.009;
+        let medical_bonus = (self.building_count(BuildingType::MedicalCenter) as f64
+            * MEDICAL_GROWTH_PER_CENTER)
+            .min(MAX_MEDICAL_GROWTH_BONUS);
 
         // Housing utilisation factor – growth slows as housing fills
         let utilisation = (self.population / housing).min(1.0);
@@ -164,7 +182,7 @@ impl Colony {
         // Logistics efficiency penalty
         let logistics = self.logistics_efficiency();
 
-        let effective_rate = (base_rate + medical_bonus)
+        let effective_rate = (BASE_GROWTH_RATE + medical_bonus)
             * food_factor
             * housing_factor
             * logistics
@@ -267,6 +285,16 @@ pub struct ConstructionProject {
     pub required: f64,
     /// The colony entity this project belongs to
     pub colony_entity: Entity,
+    /// When `true` the project is waiting for a `ResourceRequest` to be fulfilled
+    /// before construction can begin.  Set by `process_construction_actions` when
+    /// the local stockpile cannot afford the costs; cleared by `complete_deliveries`
+    /// when the delivery arrives.
+    #[serde(default)]
+    pub awaiting_resources: bool,
+    /// ID of the `ResourceRequest` that is blocking this project.
+    /// `None` when the project is not blocked.
+    #[serde(skip)]
+    pub blocking_request_id: Option<u64>,
 }
 
 impl ConstructionProject {
@@ -277,6 +305,8 @@ impl ConstructionProject {
             progress: 0.0,
             required: building_type.build_cost(),
             colony_entity,
+            awaiting_resources: false,
+            blocking_request_id: None,
         }
     }
 
@@ -301,6 +331,33 @@ pub struct PendingConstructionActions {
     pub start_construction: Vec<(Entity, BuildingType)>,
     /// Construction project entities to cancel
     pub cancel_construction: Vec<Entity>,
+    /// Requests to establish a new outpost colony on a body.
+    pub establish_outpost: Vec<EstablishOutpostRequest>,
+}
+
+/// Parameters carried from the UI when the player clicks "Establish Outpost".
+#[derive(Debug, Clone)]
+pub struct EstablishOutpostRequest {
+    /// The celestial-body entity to colonise.
+    pub body_entity: Entity,
+    /// Name to give the new colony (usually the body name).
+    pub colony_name: String,
+    /// True when the body has no breathable atmosphere — adds O₂ maintenance.
+    pub needs_oxygen: bool,
+}
+
+/// Per-colony continuous resource drain from the environment, driven by
+/// population.  Used for outposts that need to import oxygen (no breathable
+/// atmosphere) and/or recycle water.
+///
+/// Attached by `process_construction_actions` when an outpost is established.
+#[derive(Component, Debug, Clone)]
+pub struct ColonyEnvironmentCosts {
+    /// Oxygen consumed per person per year (Mt).
+    /// Set to 0.0 when the body has a breathable atmosphere.
+    pub oxygen_per_person_per_year: f64,
+    /// Water consumed per person per year (Mt).
+    pub water_per_person_per_year: f64,
 }
 
 #[cfg(test)]
@@ -386,10 +443,10 @@ mod tests {
         assert_eq!(colony.housing_capacity(), 0.0);
 
         colony.add_building(BuildingType::HabitatDome);
-        assert_eq!(colony.housing_capacity(), 1_000_000.0);
+        assert_eq!(colony.housing_capacity(), 50_000_000.0);
 
         colony.add_building(BuildingType::UndergroundHabitat);
-        assert_eq!(colony.housing_capacity(), 1_600_000.0);
+        assert_eq!(colony.housing_capacity(), 80_000_000.0);
     }
 
     #[test]
@@ -401,8 +458,8 @@ mod tests {
     #[test]
     fn test_population_growth_with_housing() {
         let mut colony = Colony::new("Test".to_string(), 100_000.0);
-        colony.add_building(BuildingType::HabitatDome); // 1,000,000 capacity
-        colony.add_building(BuildingType::AgriDome); // food for 500,000
+        colony.add_building(BuildingType::HabitatDome); // 50,000,000 capacity
+        colony.add_building(BuildingType::AgriDome); // food for ~40K people
 
         let growth = colony.population_growth_per_year(1.0);
         // Should be positive with housing and food

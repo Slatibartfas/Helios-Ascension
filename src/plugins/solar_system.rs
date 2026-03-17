@@ -17,7 +17,8 @@ use crate::astronomy::{
     OceanType, OrbitPath, SpaceCoordinates, StellarProperties, SurfaceTemperature, SCALING_FACTOR,
 };
 use crate::colony::{BuildingType, Colony};
-use crate::economy::components::{Population, PowerGenerator, PowerSourceType};
+use crate::economy::components::{LocalStockpile, Population, PowerGenerator, PowerSourceType};
+use crate::economy::budget::GlobalBudget;
 use crate::plugins::camera::{CameraAnchor, GameCamera};
 use crate::ui::SimulationTime;
 
@@ -42,7 +43,10 @@ impl Plugin for SolarSystemPlugin {
             .add_plugins(MaterialPlugin::<StarHalo3dMaterial>::default())
             .init_resource::<RingAlphaCombineQueue>()
             .add_systems(Startup, setup_solar_system)
-            .add_systems(PostStartup, initial_camera_focus)
+            .add_systems(
+                PostStartup,
+                (initial_camera_focus, initialize_colony_stockpiles),
+            )
             .add_systems(
                 Update,
                 (
@@ -915,18 +919,46 @@ pub fn setup_solar_system(
 
             // Add initial infrastructure
             let base_buildings = [
-                (BuildingType::Housing, 33000),      // Housing (250k each -> 8.25B)
-                (BuildingType::Farm, 8200), // Food (1M each → 1 farm/1M people for 8.2B pop)
-                (BuildingType::Factory, 2000), // Production (Increased for Earth)
-                (BuildingType::Mine, 3000), // Mining (Increased for realism)
-                (BuildingType::Refinery, 800), // Refining
-                (BuildingType::ChemicalPlant, 1000), // Chemicals & Volatiles
-                (BuildingType::HydrocarbonExtractor, 500), // Oil & Gas
-                (BuildingType::AtmosphericProcessor, 500), // Gas harvesting
-                (BuildingType::ResearchLab, 500), // Research
-                (BuildingType::LaunchSite, 50), // Space Access
-                (BuildingType::FinancialCenter, 100), // Economy
-                (BuildingType::CommercialHub, 500), // Economy
+                // Housing: 335 × 25M = 8.375B capacity (~2 yr growth headroom at 0.9%/yr)
+                (BuildingType::Housing, 335),
+                // Food: 820 Farms × 1,000 Mt/yr = 820,000 Mt/yr → feeds 8.2B ✓
+                (BuildingType::Farm, 820),
+                // Greenhouses: 200 × 500 Mt/yr = 100,000 Mt/yr (supplemental)
+                (BuildingType::Greenhouse, 200),
+                // Aquaculture: 67 × 750 Mt/yr = 50,250 Mt/yr (supplemental)
+                (BuildingType::AquacultureFacility, 67),
+                // Industry
+                (BuildingType::Factory, 2_000),
+                (BuildingType::Mine, 3_000),
+                (BuildingType::Refinery, 800),
+                (BuildingType::ChemicalPlant, 1_000),
+                (BuildingType::HydrocarbonExtractor, 500),
+                (BuildingType::AtmosphericProcessor, 500),
+                (BuildingType::RecyclingCenter, 500),
+                // Power (2026 mix: coal, gas, hydro, nuclear, solar, wind)
+                (BuildingType::CoalPowerPlant, 2_400),   // ~40% coal
+                (BuildingType::NaturalGasPlant, 1_800),  // ~30% gas
+                (BuildingType::HydroelectricDam, 800),   // ~16% hydro
+                (BuildingType::SolarPower, 600),         // ~6% solar
+                (BuildingType::WindFarm, 900),           // ~7% wind
+                (BuildingType::FissionReactor, 440),     // ~5% nuclear (~440 reactors)
+                // Water
+                (BuildingType::WaterTreatmentPlant, 1_000),
+                // Research & Tech
+                (BuildingType::ResearchLab, 500),
+                (BuildingType::DataCenter, 50),
+                // Space access
+                (BuildingType::LaunchSite, 50),
+                (BuildingType::SpacePort, 5),
+                // Economy
+                (BuildingType::FinancialCenter, 100),
+                (BuildingType::CommercialHub, 500),
+                (BuildingType::TradePort, 50),
+                // Medical/Population
+                (BuildingType::MedicalCenter, 200),
+                (BuildingType::PharmaceuticalPlant, 100),
+                // Storage infrastructure (10 depots = +50% cap, representing global logistics)
+                (BuildingType::Warehouse, 10),
             ];
 
             for (b_type, count) in base_buildings {
@@ -1842,4 +1874,60 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
     }
 
     mesh
+}
+
+
+/// PostStartup system that attaches a `LocalStockpile` and `MinimumStockpile`
+/// to every colony entity.
+///
+/// Earth gets the realistic 2026 starting values from `GlobalBudget::new()`.
+/// Other colonies start with a small bootstrap stockpile so construction is
+/// immediately possible without requiring freighter deliveries.
+///
+/// All colonies also receive a default `MinimumStockpile` with conservative
+/// thresholds for critical supplies (food, water, oxygen) so that freighters
+/// keep them stocked without requiring manual configuration.
+///
+/// This runs in `PostStartup` so all colony entities from `setup_solar_system`
+/// already exist.
+pub fn initialize_colony_stockpiles(
+    mut commands: Commands,
+    colony_query: Query<(Entity, &Colony), Without<LocalStockpile>>,
+) {
+    use crate::economy::logistics::MinimumStockpile;
+    use crate::economy::types::ResourceType;
+
+    let defaults = GlobalBudget::new();
+
+    for (entity, colony) in colony_query.iter() {
+        let stockpile = if colony.name == "Earth" {
+            // Earth starts with the full realistic 2026 stockpile
+            LocalStockpile::with_stockpiles(defaults.stockpiles.iter().map(|(k, v)| (*k, *v)))
+        } else {
+            // Other colonies start with a small bootstrap supply to allow
+            // initial construction without requiring freighter transport.
+            // (All values in Mt — enough for a few basic buildings.)
+            LocalStockpile::with_stockpiles([
+                (ResourceType::Iron, 10.0),
+                (ResourceType::Silicates, 50.0),
+                (ResourceType::Aluminum, 2.0),
+                (ResourceType::Copper, 0.5),
+                (ResourceType::Polymers, 1.0),
+                (ResourceType::Food, 10_000.0),
+                (ResourceType::Water, 5.0),
+            ])
+        };
+
+        // Default minimum stockpile thresholds — conservative values for
+        // critical life-support resources so freighters keep the colony topped up.
+        let mut minimum = MinimumStockpile::default();
+        if colony.name != "Earth" {
+            // Outposts need steady resupply of core consumables.
+            minimum.set(ResourceType::Food, 5_000.0);
+            minimum.set(ResourceType::Water, 2.0);
+        }
+
+        commands.entity(entity).insert(stockpile);
+        commands.entity(entity).insert(minimum);
+    }
 }

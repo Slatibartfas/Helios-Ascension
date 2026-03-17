@@ -30,11 +30,42 @@ Transform the building system to offer much more variety and player choices, wit
 - [ ] Storage capacity limits per location
 
 ### 4.3 Logistics Network
-- [ ] AI-controlled logistics ships (private company freighters)
-- [ ] Automated cargo routes between colonies
-- [ ] Logistics priority system (essential vs luxury goods)
-- [ ] Shipping costs and transit times
-- [ ] Supply and demand per location
+
+Inspired by Aurora 4X (player-directed logistics) and Distant Worlds 2 (private sector automation).
+
+**Core mechanic:** Every solar system has its own logistics network.  Resources are physically located on individual bodies and must be carried by Freighter ships to be used elsewhere.  The UI shows aggregated system-wide stockpiles for visibility, but construction and consumption draw from **local stockpiles only**.
+
+**Resource requests:**
+- [ ] `ResourceRequest` component generated when construction needs materials not present locally
+- [ ] Requests generated when an outpost is founded (full starter-package materials needed at destination)
+- [ ] Priority tiers: Emergency → Construction → Maintenance → Trade
+- [ ] Requests visible in a new **Logistics** panel tab
+
+**Player-directed transport (Phase 2):**
+- [ ] Fleet panel lists open resource requests at each body
+- [ ] Assign a Freighter fleet to a specific request from the Fleet panel
+- [ ] Fleet arrival auto-delivers cargo and closes the request
+- [ ] Manual control for players who prefer Aurora 4X-style micromanagement
+
+**Private shipping companies (Phase 3):**
+- [ ] `ShippingCompany` resource — AI-controlled freighter fleets operating autonomously
+- [ ] Companies scan open requests and assign their nearest available freighter
+- [ ] Payment: credits deducted from player treasury → credited to company
+- [ ] Payment formula: `base_rate × amount_mt × distance_au × priority_multiplier`
+- [ ] Companies reinvest profits to purchase additional ships at shipyards
+- [ ] Starting state: one company with 2–3 chemical freighters at Earth; new companies emerge as economy grows
+- [ ] Company fleet icons visible on starmap; hover to see active routes
+- [ ] Company registry in Logistics panel (name, ship count, active routes, treasury)
+
+**Minimum stockpile (Phase 4):**
+- [ ] Per-colony, per-resource minimum stockpile threshold (player-configured)
+- [ ] When local stockpile drops below threshold → auto-create Maintenance-priority request
+- [ ] Freighter (player or company) dispatched to top up the colony
+- [ ] Default minimums for Life Support bodies: O₂ = 200 Mt, Water = 100 Mt
+- [ ] UI: minimum input field per resource row in colony dossier with ETA display
+- [ ] "In transit" indicator on resource bar showing amount en route
+
+See `docs/design/LOGISTICS_NETWORK.md` for the full design specification.
 
 ### 4.4 Ship & Station Designer
 - [ ] Modular ship design interface

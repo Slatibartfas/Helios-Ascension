@@ -86,6 +86,7 @@ pub(super) fn ui_planet_dossier(
         Option<&StarSystem>,
         Option<&LogicalParent>,
         Option<&OceanProperties>,
+        Option<&Colony>,
     )>,
     parent_coords_query: Query<&SpaceCoordinates>,
     all_bodies_query: Query<(
@@ -97,6 +98,7 @@ pub(super) fn ui_planet_dossier(
     )>,
     star_system_query: Query<(Entity, &StarSystemIcon, Option<&SelectedStarSystem>)>,
     rate_tracker: Res<ResourceRateTracker>,
+    mut pending_actions: ResMut<PendingConstructionActions>,
 ) {
     // Don't show when full-screen menus are active
     if matches!(
@@ -141,6 +143,7 @@ pub(super) fn ui_planet_dossier(
         star_system,
         logical_parent,
         ocean_props,
+        existing_colony,
     )) = body_query.get_mut(entity)
     else {
         return;
@@ -240,6 +243,26 @@ pub(super) fn ui_planet_dossier(
                             survey_level.as_deref_mut(),
                             &mut commands,
                             &rate_tracker,
+                        );
+                    }
+
+                    // ── Outpost / Colony ───────────────────────────
+                    // Only show for colonisable body types (not stars, rings, gas giants)
+                    let can_colonise = !matches!(
+                        body.body_type,
+                        BodyType::Star | BodyType::Ring | BodyType::GasGiant
+                    );
+                    if can_colonise {
+                        section_divider(ui);
+                        draw_colony_section(
+                            ui,
+                            entity,
+                            body,
+                            existing_colony,
+                            atmosphere,
+                            surface_temp,
+                            ocean_props,
+                            &mut pending_actions,
                         );
                     }
                 });
@@ -1822,3 +1845,282 @@ fn tooltip_row(ui: &mut egui::Ui, label: &str, value: &str) {
     );
     ui.end_row();
 }
+
+// ─── Outpost / Colony Section ────────────────────────────────────────────────
+
+/// Draws the colony/outpost section of the dossier.
+///
+/// - If the body already has a `Colony` component, shows a compact status
+///   summary (population, buildings, housing utilisation).
+/// - If it does not, evaluates habitability and shows either:
+///   - A blocked state (gas giant or gravity > 3 g) with a clear explanation.
+///   - A warning + "Establish Outpost" button for extreme-but-possible bodies.
+///   - A normal "Establish Outpost" button for habitable/marginal bodies.
+///
+/// The button enqueues an `EstablishOutpostRequest` that carries a
+/// `needs_oxygen` flag (derived from `AtmosphereComposition.breathable`).
+/// The processing system then attaches `ColonyEnvironmentCosts` so O₂ and
+/// water are deducted from the local stockpile once population arrives.
+#[allow(clippy::too_many_arguments)]
+fn draw_colony_section(
+    ui: &mut egui::Ui,
+    entity: Entity,
+    body: &CelestialBody,
+    existing_colony: Option<&Colony>,
+    atmosphere: Option<&AtmosphereComposition>,
+    surface_temp: Option<&SurfaceTemperature>,
+    ocean: Option<&OceanProperties>,
+    pending_actions: &mut PendingConstructionActions,
+) {
+    if let Some(colony) = existing_colony {
+        // ── Already colonised ──────────────────────────────────────
+        ui.label(
+            egui::RichText::new("COLONY")
+                .font(heading_font())
+                .color(TEXT_DIM),
+        );
+        ui.add_space(4.0);
+
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new("Name:")
+                    .font(mono_font(10.0))
+                    .color(TEXT_DIM),
+            );
+            ui.label(
+                egui::RichText::new(&colony.name)
+                    .font(mono_font(11.0))
+                    .color(TEXT_VALUE),
+            );
+        });
+
+        let pop = colony.population;
+        let housing = colony.housing_capacity();
+        let util_pct = if housing > 0.0 {
+            (pop / housing * 100.0).min(100.0)
+        } else {
+            0.0
+        };
+        let pop_color = if util_pct > 90.0 {
+            RED_ACCENT
+        } else if util_pct > 70.0 {
+            AMBER
+        } else {
+            GREEN_ACCENT
+        };
+
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new("Population:")
+                    .font(mono_font(10.0))
+                    .color(TEXT_DIM),
+            );
+            ui.label(
+                egui::RichText::new(format!(
+                    "{}  ({:.0}% housing)",
+                    Colony::format_population(pop),
+                    util_pct
+                ))
+                .font(mono_font(11.0))
+                .color(pop_color),
+            );
+        });
+
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new("Buildings:")
+                    .font(mono_font(10.0))
+                    .color(TEXT_DIM),
+            );
+            ui.label(
+                egui::RichText::new(format!("{}", colony.total_buildings()))
+                    .font(mono_font(11.0))
+                    .color(TEXT_VALUE),
+            );
+        });
+
+        return;
+    }
+
+    // ── Not yet colonised — evaluate habitability ──────────────────────
+    ui.label(
+        egui::RichText::new("OUTPOST")
+            .font(heading_font())
+            .color(TEXT_DIM),
+    );
+    ui.add_space(4.0);
+
+    // Compute cost details to gate the button
+    let is_gas_giant = body.body_type == crate::plugins::solar_system_data::BodyType::GasGiant
+        || atmosphere.is_some_and(|a| a.is_reference_pressure);
+    let gravity_g = body.surface_gravity();
+    let (min_t, max_t) = surface_temp
+        .map(|t| (t.min_celsius, t.max_celsius))
+        .unwrap_or((-273.15, -273.15));
+    let water_bonus = ocean
+        .map(|o| {
+            use crate::astronomy::components::OceanType;
+            if o.is_subsurface {
+                -0.2_f32
+            } else if o.ocean_type == OceanType::Water {
+                -0.5 * (o.surface_fraction / 0.3).clamp(0.0, 1.0)
+            } else {
+                -0.1
+            }
+        })
+        .unwrap_or(0.0_f32);
+
+    let details = crate::astronomy::components::calculate_colony_cost_with_water(
+        gravity_g, min_t, max_t, atmosphere, is_gas_giant, water_bonus,
+    );
+
+    // Hard blocks
+    if details.is_gas_giant {
+        ui.colored_label(
+            RED_ACCENT,
+            egui::RichText::new("⛔  UNINHABITABLE — Gas Giant")
+                .font(mono_font(11.0))
+                .strong(),
+        );
+        ui.label(
+            egui::RichText::new("Gas giants have no solid surface. Outposts cannot be established.")
+                .font(mono_font(10.0))
+                .color(TEXT_DIM),
+        );
+        return;
+    }
+    if details.heavy_gravity_limit_exceeded {
+        ui.colored_label(
+            RED_ACCENT,
+            egui::RichText::new(format!(
+                "⛔  UNINHABITABLE — Gravity {:.1} g (> 3.0 g limit)",
+                gravity_g
+            ))
+            .font(mono_font(11.0))
+            .strong(),
+        );
+        ui.label(
+            egui::RichText::new(
+                "Surface gravity exceeds human physiological limits. Outposts cannot be established.",
+            )
+            .font(mono_font(10.0))
+            .color(TEXT_DIM),
+        );
+        return;
+    }
+
+    // Determine atmosphere breathability for O₂ cost
+    let breathable = atmosphere.is_some_and(|a| a.breathable);
+    let needs_oxygen = !breathable;
+
+    // Warn for extreme (but survivable) environments
+    let is_extreme = details.total_cost > 7.0;
+
+    // Info group: what the outpost includes + environmental notes
+    ui.group(|ui| {
+        ui.label(
+            egui::RichText::new("Starter package:")
+                .font(mono_font(10.0))
+                .strong()
+                .color(TEXT_VALUE),
+        );
+        ui.label(
+            egui::RichText::new("• Life Support ×1")
+                .font(mono_font(10.0))
+                .color(TEXT_DIM),
+        );
+        ui.label(
+            egui::RichText::new("• Housing Complex ×1  (capacity: 25M residents)")
+                .font(mono_font(10.0))
+                .color(TEXT_DIM),
+        );
+        ui.label(
+            egui::RichText::new("• Fission Reactor ×2  (Uranium-powered)")
+                .font(mono_font(10.0))
+                .color(TEXT_DIM),
+        );
+        ui.label(
+            egui::RichText::new("• Agricultural Dome ×2  (food for ~80,000 ppl)")
+                .font(mono_font(10.0))
+                .color(TEXT_DIM),
+        );
+        ui.add_space(4.0);
+
+        // ── Environmental operating costs ──────────────────────────
+        ui.label(
+            egui::RichText::new("Ongoing resource costs (per person / yr):")
+                .font(mono_font(10.0))
+                .strong()
+                .color(TEXT_VALUE),
+        );
+        ui.label(
+            egui::RichText::new("• 💧 Water: 50 t/person/yr  (recycling losses)")
+                .font(mono_font(10.0))
+                .color(egui::Color32::from_rgb(100, 180, 255)),
+        );
+        if needs_oxygen {
+            ui.label(
+                egui::RichText::new("• 🫁 Oxygen: 100 t/person/yr  (no breathable atm.)")
+                    .font(mono_font(10.0))
+                    .color(AMBER),
+            );
+        } else {
+            ui.label(
+                egui::RichText::new("• 🫁 Oxygen: none  (breathable atmosphere present)")
+                    .font(mono_font(10.0))
+                    .color(GREEN_ACCENT),
+            );
+        }
+
+        ui.add_space(2.0);
+        ui.label(
+            egui::RichText::new(
+                "Resources must be transported before construction begins.",
+            )
+            .font(mono_font(9.0))
+            .italics()
+            .color(TEXT_DIM),
+        );
+    });
+
+    ui.add_space(4.0);
+
+    // Extreme environment warning
+    if is_extreme {
+        ui.colored_label(
+            AMBER,
+            egui::RichText::new(format!(
+                "⚠  Extreme environment (colony cost {:.1}/10). Significant life-support required.",
+                details.total_cost
+            ))
+            .font(mono_font(10.0)),
+        );
+        ui.add_space(4.0);
+    }
+
+    let btn_response = ui.add(
+        egui::Button::new(
+            egui::RichText::new("🏗  Establish Outpost")
+                .font(mono_font(12.0))
+                .color(ACCENT),
+        )
+        .min_size(egui::Vec2::new(200.0, 28.0)),
+    );
+    if btn_response.clicked() {
+        pending_actions.establish_outpost.push(EstablishOutpostRequest {
+            body_entity: entity,
+            colony_name: body.name.clone(),
+            needs_oxygen,
+        });
+    }
+    let hover = if needs_oxygen {
+        "Create an outpost colony. This body has no breathable atmosphere — oxygen will \
+         be consumed from the stockpile. Starter buildings will be queued and built \
+         as soon as the required resources arrive."
+    } else {
+        "Create an outpost colony. Starter buildings will be queued and built \
+         as soon as the required resources arrive."
+    };
+    btn_response.on_hover_text(hover);
+}
+
