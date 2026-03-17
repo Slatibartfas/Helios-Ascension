@@ -20,9 +20,10 @@ pub(crate) mod profiles;
 pub mod types;
 
 pub use budget::{
-    format_currency, format_power, update_civilization_score, update_contextual_stockpile,
-    update_power_grid, update_storage_capacity, ContextualStockpile, EnergyGrid, GlobalBudget,
-    ResourceRateTracker, SECONDS_PER_MONTH, SECONDS_PER_YEAR,
+    calculate_colony_power_totals, format_currency, format_power, update_civilization_score,
+    update_contextual_stockpile, update_power_grid, update_storage_capacity,
+    ColonyPowerTotals, ContextualStockpile, EnergyGrid, GlobalBudget, ResourceRateTracker,
+    SECONDS_PER_MONTH, SECONDS_PER_YEAR,
 };
 pub use company::{ShippingCompanies, ShippingCompany};
 pub use components::{

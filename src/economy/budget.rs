@@ -29,6 +29,52 @@ pub const SECONDS_PER_MONTH: f64 = 2_592_000.0;
 /// Seconds in one year (365.25 × 86400)
 pub const SECONDS_PER_YEAR: f64 = 31_557_600.0;
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ColonyPowerTotals {
+    pub produced_watts: f64,
+    pub consumed_watts: f64,
+}
+
+pub fn calculate_colony_power_totals(
+    colony: &Colony,
+    buildings_data: Option<&BuildingsData>,
+) -> ColonyPowerTotals {
+    let Some(data) = buildings_data else {
+        let building_count: u32 = colony.buildings.values().sum();
+        return ColonyPowerTotals {
+            produced_watts: 0.0,
+            consumed_watts: building_count as f64 * 400_000_000.0,
+        };
+    };
+
+    let mut produced_watts = 0.0;
+    let mut consumed_watts = 0.0;
+
+    for (building_type, &count) in &colony.buildings {
+        if count == 0 {
+            continue;
+        }
+
+        let Some(def) = data.get(building_type) else {
+            consumed_watts += count as f64 * 400_000_000.0;
+            continue;
+        };
+
+        for modifier in &def.modifiers {
+            if modifier.modifier_type == "PowerGeneration" {
+                produced_watts += modifier.value * count as f64 * 1_000_000_000.0;
+            }
+        }
+
+        consumed_watts += def.power_demand_mw * count as f64 * 1_000_000.0;
+    }
+
+    ColonyPowerTotals {
+        produced_watts,
+        consumed_watts,
+    }
+}
+
 impl ResourceRateTracker {
     /// Get the global monthly rate for a resource type
     pub fn get_resource_rate(&self, resource: &ResourceType) -> f64 {
@@ -820,28 +866,11 @@ pub fn update_power_grid(
     }
 
     // 2. Colony buildings
-    // Assume building modifiers "PowerGeneration" is in GW (1e9 W)
     if let Some(ref data) = buildings_data {
         for colony in colonies.iter() {
-            for (building_type, &count) in &colony.buildings {
-                if count == 0 {
-                    continue;
-                }
-
-                if let Some(def) = data.get(building_type) {
-                    for modifier in &def.modifiers {
-                        if modifier.modifier_type == "PowerGeneration" {
-                            // Scale: 5.0 -> 5 GW
-                            let power_gw = modifier.value * count as f64;
-                            let power_watts = power_gw * 1_000_000_000.0;
-                            total_produced += power_watts;
-
-                            // Categorize based on PowerSourceType
-                            *breakdown.entry(PowerSourceType::Planet).or_insert(0.0) += power_watts;
-                        }
-                    }
-                }
-            }
+            let totals = calculate_colony_power_totals(colony, Some(data));
+            total_produced += totals.produced_watts;
+            *breakdown.entry(PowerSourceType::Planet).or_insert(0.0) += totals.produced_watts;
         }
     }
 
@@ -849,22 +878,8 @@ pub fn update_power_grid(
     //    Falls back to a generic 400 MW estimate when BuildingsData is unavailable.
     let mut total_consumed = 0.0;
     for colony in colonies.iter() {
-        if let Some(ref data) = buildings_data {
-            for (building_type, &count) in &colony.buildings {
-                if count == 0 {
-                    continue;
-                }
-                let demand_mw = data
-                    .get(building_type)
-                    .map(|def| def.power_demand_mw)
-                    .unwrap_or(400.0); // 400 MW fallback
-                total_consumed += demand_mw * count as f64 * 1_000_000.0; // MW → W
-            }
-        } else {
-            // No data loaded yet – flat fallback
-            let building_count: u32 = colony.buildings.values().sum();
-            total_consumed += building_count as f64 * 400_000_000.0;
-        }
+        let totals = calculate_colony_power_totals(colony, buildings_data.as_deref());
+        total_consumed += totals.consumed_watts;
     }
 
     // Update grid

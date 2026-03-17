@@ -936,18 +936,18 @@ pub fn setup_solar_system(
                 (BuildingType::HydrocarbonExtractor, 300),
                 (BuildingType::AtmosphericProcessor, 300),
                 (BuildingType::RecyclingCenter, 300),
-                // Power: scaled 2026 global installed-capacity mix with effective output
-                // discounted by per-building capacity factors.
-                // Represented installed capacity ≈ 8.38 TW:
-                // Solar 24.7%, Coal 22.1%, Gas 20.5%, Hydro 15.2%, Wind 13.5%, Nuclear 4.1%
-                // Effective delivered output ≈ 3.70 TW, leaving ~16% reserve over the
-                // 3.19 TW starting demand baseline.
-                (BuildingType::SolarPower, 414),       // 414 × 1.25 = 517.5 GW
-                (BuildingType::CoalPowerPlant, 185),  // 185 × 6.0 = 1,110 GW
-                (BuildingType::NaturalGasPlant, 143), // 143 × 6.0 = 858 GW
-                (BuildingType::HydroelectricDam, 85), // 85 × 6.75 = 573.75 GW
-                (BuildingType::WindFarm, 376),        // 376 × 0.9 = 338.4 GW
-                (BuildingType::FissionReactor, 17),   // 17 × 18 = 306 GW
+                // Power: effective-output 2026 baseline tuned for the coal/renewables flip
+                // visible in 2025-2026 generation data.
+                // Effective mix: Coal ~32.0%, Gas ~22.2%, Hydro ~15.2%, Nuclear ~9.9%,
+                // Wind ~9.9%, Solar ~11.0%.
+                // Wind + Solar combined ≈ 20.8% of delivered output, with total effective
+                // generation ≈ 3.65 TW and ~14.5% reserve over the 3.19 TW starting load.
+                (BuildingType::SolarPower, 320),       // 320 × 1.25 = 400 GW
+                (BuildingType::CoalPowerPlant, 195),   // 195 × 6.0 = 1,170 GW
+                (BuildingType::NaturalGasPlant, 135),  // 135 × 6.0 = 810 GW
+                (BuildingType::HydroelectricDam, 82),  // 82 × 6.75 = 553.5 GW
+                (BuildingType::WindFarm, 400),         // 400 × 0.9 = 360 GW
+                (BuildingType::FissionReactor, 20),    // 20 × 18 = 360 GW
                 // Water
                 (BuildingType::WaterTreatmentPlant, 500),
                 // Research & Tech (high power consumers)
