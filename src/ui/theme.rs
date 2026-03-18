@@ -120,7 +120,23 @@ pub fn central_frame() -> egui::Frame {
     egui::Frame::NONE
         .fill(BG_SOLID)
         .stroke(egui::Stroke::new(1.0, BORDER))
-        .inner_margin(egui::Margin::same(10))
+    .inner_margin(egui::Margin::same(8))
+}
+
+/// Frame for prominent section cards inside full-screen menus.
+pub fn section_frame() -> egui::Frame {
+    egui::Frame::NONE
+    .inner_margin(egui::Margin::same(2))
+        .corner_radius(4.0)
+}
+
+/// Slightly raised variant used for nested summary blocks.
+pub fn elevated_frame() -> egui::Frame {
+    egui::Frame::NONE
+    .fill(SURFACE)
+    .stroke(egui::Stroke::new(1.0, BORDER))
+    .inner_margin(egui::Margin::same(8))
+    .corner_radius(3.0)
 }
 
 /// Frame for tooltip popups.
@@ -134,7 +150,7 @@ pub fn tooltip_frame() -> egui::Frame {
 
 /// Thin horizontal tactical divider.
 pub fn divider(ui: &mut egui::Ui) {
-    ui.add_space(6.0);
+    ui.add_space(4.0);
     let rect = ui.available_rect_before_wrap();
     let y = rect.top();
     ui.painter().hline(
@@ -142,7 +158,7 @@ pub fn divider(ui: &mut egui::Ui) {
         y,
         egui::Stroke::new(1.0, BORDER),
     );
-    ui.add_space(8.0);
+    ui.add_space(6.0);
 }
 
 /// Draw a dim-label + value row in a grid.

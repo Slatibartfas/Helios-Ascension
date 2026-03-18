@@ -9,6 +9,36 @@ const SHIP_MANIFEST_COLUMN_SPACING: f32 = 10.0;
 const SHIP_MANIFEST_MAX_DRAG_WIDTH: f32 = 900.0;
 const SHIP_MANIFEST_COLUMN_WEIGHTS: [f32; 7] = [1.9, 1.3, 0.95, 0.8, 1.5, 1.0, 1.15];
 
+fn draw_menu_header(ui: &mut egui::Ui, title: &str, subtitle: &str) {
+    ui.label(
+        egui::RichText::new(title)
+            .font(theme::title())
+            .color(theme::ACCENT),
+    );
+    ui.label(
+        egui::RichText::new(subtitle)
+            .font(theme::body(11.5))
+            .color(theme::TEXT_DIM),
+    );
+    theme::divider(ui);
+}
+
+fn draw_status_chip(ui: &mut egui::Ui, label: &str, value: String, color: egui::Color32) {
+    ui.vertical(|ui| {
+        ui.set_min_width(132.0);
+        ui.label(
+            egui::RichText::new(label)
+                .font(theme::mono(10.0))
+                .color(theme::TEXT_DIM),
+        );
+        ui.label(
+            egui::RichText::new(value)
+                .font(theme::heading())
+                .color(color),
+        );
+    });
+}
+
 fn ship_manifest_drag_width(available_width: f32) -> f32 {
     (available_width - SHIP_MANIFEST_ACTIONS_WIDTH - 2.0).clamp(220.0, SHIP_MANIFEST_MAX_DRAG_WIDTH)
 }
@@ -268,9 +298,14 @@ pub(super) fn ui_fleets_panel(
 
     let elapsed = sim_time.elapsed_seconds();
 
-    egui::CentralPanel::default().show(ctx, |ui| {
-        ui.heading("Fleets");
-        ui.separator();
+    egui::CentralPanel::default()
+        .frame(theme::central_frame())
+        .show(ctx, |ui| {
+        draw_menu_header(
+            ui,
+            "FLEETS",
+            "Force composition, orbital posture, and transfer planning.",
+        );
 
         // ── Top summary bar ──────────────────────────────────────────────────
         let fleet_count = fleet_query.iter().count();
@@ -278,24 +313,17 @@ pub(super) fn ui_fleets_panel(
             .iter()
             .filter(|(_, _, _, m, _)| m.is_some())
             .count();
-        ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new(format!("🚀 Total Fleets: {fleet_count}"))
-                    .size(13.0)
-                    .color(theme::TEXT_VALUE),
-            );
+        ui.horizontal_wrapped(|ui| {
+            draw_status_chip(ui, "TOTAL FLEETS", fleet_count.to_string(), theme::TEXT_VALUE);
             ui.separator();
-            ui.label(
-                egui::RichText::new(format!("✈ In Transit: {in_transit}"))
-                    .size(13.0)
-                    .color(theme::RP_BLUE),
-            );
+            draw_status_chip(ui, "IN TRANSIT", in_transit.to_string(), theme::RP_BLUE);
         });
-        ui.separator();
+
+        theme::divider(ui);
 
         // ── Main two-column layout ───────────────────────────────────────────
         let available = ui.available_size();
-        let left_width = (available.x * 0.34).max(300.0);
+        let left_width = (available.x * 0.40).clamp(340.0, 560.0);
 
         ui.horizontal_top(|ui| {
             // ── Left column: fleet list ──────────────────────────────────────
@@ -304,14 +332,15 @@ pub(super) fn ui_fleets_panel(
                 egui::Layout::top_down(egui::Align::Min),
                 |ui| {
                     egui::Frame::default()
-                        .inner_margin(egui::Margin::same(6i8))
+                        .fill(theme::SURFACE)
+                        .inner_margin(egui::Margin::same(8i8))
                         .stroke(egui::Stroke::new(1.0, theme::BORDER))
+                        .corner_radius(4.0)
                         .show(ui, |ui| {
                             ui.label(
-                                egui::RichText::new("Fleet List")
-                                    .strong()
-                                    .size(14.0)
-                                    .color(theme::TEXT_VALUE),
+                                egui::RichText::new("FLEET LIST")
+                                    .font(theme::heading())
+                                    .color(theme::ACCENT),
                             );
                             ui.separator();
 
@@ -472,14 +501,16 @@ pub(super) fn ui_fleets_panel(
             ui.add_space(8.0);
 
             // ── Right column: selected fleet details + transfer planner ──────
-            let remaining = ui.available_width().min(480.0);
+            let remaining = ui.available_width();
             ui.allocate_ui_with_layout(
                 egui::Vec2::new(remaining, available.y - 80.0),
                 egui::Layout::top_down(egui::Align::Min),
                 |ui| {
                     egui::Frame::default()
-                        .inner_margin(egui::Margin::same(6i8))
+                        .fill(theme::SURFACE)
+                        .inner_margin(egui::Margin::same(8i8))
                         .stroke(egui::Stroke::new(1.0, theme::BORDER))
+                        .corner_radius(4.0)
                         .show(ui, |ui| {
                             if let Some(selected) = fleet_ui_state.selected_fleet {
                                 if let Ok((_, fleet, maybe_orbit, maybe_maneuver, _)) =
@@ -511,7 +542,7 @@ pub(super) fn ui_fleets_panel(
                                         egui::RichText::new(
                                             "Select a fleet from the list to view details.",
                                         )
-                                        .size(14.0)
+                                        .font(theme::heading())
                                         .italics()
                                         .color(theme::TEXT_DIM),
                                     );

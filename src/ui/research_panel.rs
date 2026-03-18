@@ -13,6 +13,59 @@ pub(super) struct ActiveProjectInfo {
     pub(super) active: bool,
 }
 
+fn draw_menu_header(ui: &mut egui::Ui, title: &str, subtitle: &str) {
+    ui.label(
+        egui::RichText::new(title)
+            .font(theme::title())
+            .color(theme::ACCENT),
+    );
+    ui.label(
+        egui::RichText::new(subtitle)
+            .font(theme::body(11.5))
+            .color(theme::TEXT_DIM),
+    );
+    theme::divider(ui);
+}
+
+fn draw_tab_button(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
+    ui.add(
+        egui::Button::new(
+            egui::RichText::new(label).size(13.5).color(if selected {
+                theme::ACCENT
+            } else {
+                theme::TEXT
+            }),
+        )
+        .fill(if selected {
+            theme::SURFACE_RAISED
+        } else {
+            theme::SURFACE
+        })
+        .stroke(if selected {
+            egui::Stroke::new(1.0, theme::ACCENT)
+        } else {
+            egui::Stroke::new(1.0, theme::BORDER)
+        })
+        .corner_radius(4.0),
+    )
+}
+
+fn draw_section_title(ui: &mut egui::Ui, title: &str, subtitle: &str) {
+    ui.label(
+        egui::RichText::new(title)
+            .font(theme::heading())
+            .color(theme::ACCENT),
+    );
+    if !subtitle.is_empty() {
+        ui.label(
+            egui::RichText::new(subtitle)
+                .size(11.0)
+                .color(theme::TEXT_DIM),
+        );
+    }
+    ui.add_space(6.0);
+}
+
 pub(super) fn ui_research_panels(
     mut contexts: EguiContexts,
     active_menu: Res<ActiveMenu>,
@@ -124,13 +177,21 @@ pub(super) fn ui_research_panels(
     }
 
     // Main panel - Tabbed interface (no left sidebar)
-    egui::CentralPanel::default().show(ctx, |ui| {
+    egui::CentralPanel::default()
+        .frame(theme::central_frame())
+        .show(ctx, |ui| {
         // Disable text selection cursor everywhere in the research menu
         ui.style_mut().interaction.selectable_labels = false;
 
+        draw_menu_header(
+            ui,
+            "RESEARCH",
+            "Scientific direction, engineering throughput, and technology pipeline control.",
+        );
+
         // Debug mode panel (if enabled)
         if debug_settings.enabled {
-            ui.group(|ui| {
+            theme::elevated_frame().show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new("🐛 DEBUG MODE").strong().color(theme::RED));
                     ui.label(egui::RichText::new("(Press F12 to toggle)").italics().small());
@@ -171,7 +232,7 @@ pub(super) fn ui_research_panels(
                     .italics()
                     .color(theme::AMBER));
             });
-            ui.add_space(5.0);
+            ui.add_space(10.0);
         } else {
             // Show subtle hint about debug mode
             ui.horizontal(|ui| {
@@ -183,16 +244,23 @@ pub(super) fn ui_research_panels(
         }
         
         // Tab bar
-        ui.horizontal(|ui| {
-            ui.selectable_value(&mut *selected_tab, 0, "📊 Overview");
-            ui.selectable_value(&mut *selected_tab, 1, "🌳 Tech Tree");
-            ui.selectable_value(&mut *selected_tab, 2, "🔬 Research");
-            ui.selectable_value(&mut *selected_tab, 3, "⚙ Engineering");
-            ui.selectable_value(&mut *selected_tab, 4, "✦ Bonuses");
-            ui.selectable_value(&mut *selected_tab, 5, "📚 Archive");
+        ui.horizontal_wrapped(|ui| {
+            let tabs = [
+                (0usize, "📊 Overview"),
+                (1usize, "🌳 Tech Tree"),
+                (2usize, "🔬 Research"),
+                (3usize, "⚙ Engineering"),
+                (4usize, "✦ Bonuses"),
+                (5usize, "📚 Archive"),
+            ];
+            for (tab, label) in tabs {
+                if draw_tab_button(ui, label, *selected_tab == tab).clicked() {
+                    *selected_tab = tab;
+                }
+            }
         });
         
-        ui.separator();
+        theme::divider(ui);
         
         // Build rich active research info map
         let mut active_research: HashMap<String, ActiveProjectInfo> = HashMap::new();
@@ -230,7 +298,11 @@ fn render_overview_tab(
     team_capacity: &ResearchTeamCapacity,
     ui_prefs: &mut ResearchUiPreferences,
 ) {
-    ui.heading("Research & Engineering Overview");
+    ui.label(
+        egui::RichText::new("RESEARCH OVERVIEW")
+            .font(theme::heading())
+            .color(theme::ACCENT),
+    );
     ui.checkbox(
         &mut ui_prefs.show_inactive_warning,
         "Show Inactive Warning in Top Bar",
@@ -239,8 +311,12 @@ fn render_overview_tab(
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         // Point Generation
-        ui.group(|ui| {
-            ui.label(egui::RichText::new("Point Generation").strong().size(16.0));
+        theme::elevated_frame().show(ui, |ui| {
+            ui.label(
+                egui::RichText::new("Point Generation")
+                    .font(theme::heading())
+                    .color(theme::ACCENT),
+            );
             ui.separator();
 
             let rp_per_year = research_state.rp_rate_per_second * 31_557_600.0;
@@ -274,7 +350,7 @@ fn render_overview_tab(
         ui.add_space(10.0);
 
         // Active Research Projects
-        ui.group(|ui| {
+        theme::elevated_frame().show(ui, |ui| {
             let active_count = research_projects
                 .iter()
                 .filter(|(_, p, _)| p.active)
@@ -285,8 +361,8 @@ fn render_overview_tab(
                     "Active Research Projects ({}/{})",
                     active_count, team_capacity.max_research_teams
                 ))
-                .strong()
-                .size(16.0),
+                .font(theme::heading())
+                .color(theme::ACCENT),
             );
             ui.separator();
 
@@ -362,11 +438,11 @@ fn render_overview_tab(
         ui.add_space(10.0);
 
         // Active Engineering Projects
-        ui.group(|ui| {
+        theme::elevated_frame().show(ui, |ui| {
             ui.label(
                 egui::RichText::new("Active Engineering Projects")
-                    .strong()
-                    .size(16.0),
+                    .font(theme::heading())
+                    .color(theme::ACCENT),
             );
             ui.separator();
 
@@ -408,11 +484,11 @@ fn render_overview_tab(
         ui.add_space(10.0);
 
         // Research Teams
-        ui.group(|ui| {
+        theme::elevated_frame().show(ui, |ui| {
             ui.label(
                 egui::RichText::new("Research & Engineering Teams")
-                    .strong()
-                    .size(16.0),
+                    .font(theme::heading())
+                    .color(theme::ACCENT),
             );
             ui.separator();
 
@@ -604,9 +680,8 @@ fn render_available_research_tab(
         .max_research_teams
         .saturating_sub(active_count);
 
-    ui.heading("Research Projects");
-    ui.horizontal(|ui| {
-        ui.label("Technologies with all prerequisites met.");
+    draw_section_title(ui, "RESEARCH PROJECTS", "Technologies with all prerequisites met.");
+    ui.horizontal_wrapped(|ui| {
         ui.add_space(20.0);
         ui.label(
             egui::RichText::new(format!(
@@ -620,7 +695,7 @@ fn render_available_research_tab(
             }),
         );
     });
-    ui.separator();
+    theme::divider(ui);
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         let unlocked_ids: Vec<_> = research_state
@@ -637,7 +712,11 @@ fn render_available_research_tab(
         active_projects.sort_by(|a, b| a.0.cmp(b.0));
 
         if !active_projects.is_empty() {
-            ui.label(egui::RichText::new("Current Research").strong().size(16.0));
+            ui.label(
+                egui::RichText::new("CURRENT RESEARCH")
+                    .font(theme::heading())
+                    .color(theme::ACCENT),
+            );
             ui.add_space(4.0);
 
             for (tech_id, info) in &active_projects {
@@ -764,9 +843,9 @@ fn render_available_research_tab(
             ui.label("Complete more research to unlock new technologies.");
         } else if !available_techs.is_empty() {
             ui.label(
-                egui::RichText::new("Available to Start")
-                    .strong()
-                    .size(16.0),
+                egui::RichText::new("AVAILABLE TO START")
+                    .font(theme::heading())
+                    .color(theme::ACCENT),
             );
             ui.add_space(4.0);
 
@@ -852,9 +931,12 @@ fn render_available_engineering_tab(
     tech_data: &TechnologiesData,
     icon_textures: &HashMap<TechCategory, egui::TextureId>,
 ) {
-    ui.heading("Engineering Projects");
-    ui.label("Component designs ready for engineering");
-    ui.separator();
+    draw_section_title(
+        ui,
+        "ENGINEERING PROJECTS",
+        "Component designs unlocked by research and ready for implementation.",
+    );
+    theme::divider(ui);
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         let mut available_components = Vec::new();
@@ -976,9 +1058,12 @@ fn render_bonuses_tab(
     tech_data: &TechnologiesData,
     icon_textures: &HashMap<TechCategory, egui::TextureId>,
 ) {
-    ui.heading("Current Bonuses");
-    ui.label("Active modifiers from researched technologies");
-    ui.separator();
+    draw_section_title(
+        ui,
+        "CURRENT BONUSES",
+        "Active modifiers and unlocked mechanics derived from completed technologies.",
+    );
+    theme::divider(ui);
 
     // Build a lookup: for each modifier type, which techs contribute and how much.
     // Done outside the scroll area so the detail Area can reference it unconditionally.
@@ -1034,7 +1119,11 @@ fn render_bonuses_tab(
         let pinned_name = pinned_data.as_ref().map(|(n, _)| n.as_str());
 
         if !bonuses.is_empty() {
-            ui.label(egui::RichText::new("Numeric Bonuses").strong().size(16.0));
+            ui.label(
+                egui::RichText::new("NUMERIC BONUSES")
+                    .font(theme::heading())
+                    .color(theme::ACCENT),
+            );
             ui.add_space(4.0);
 
             for (modifier_type, total_value) in &bonuses {
@@ -1124,9 +1213,9 @@ fn render_bonuses_tab(
 
         if !unlocks.is_empty() {
             ui.label(
-                egui::RichText::new("Unlocked Mechanics")
-                    .strong()
-                    .size(16.0),
+                egui::RichText::new("UNLOCKED MECHANICS")
+                    .font(theme::heading())
+                    .color(theme::ACCENT),
             );
             ui.add_space(4.0);
 
@@ -1340,17 +1429,20 @@ fn render_archive_tab(
     tech_data: &TechnologiesData,
     icon_textures: &HashMap<TechCategory, egui::TextureId>,
 ) {
-    ui.heading("Research Archive");
-    ui.label("Completed technologies and components");
-    ui.separator();
+    draw_section_title(
+        ui,
+        "RESEARCH ARCHIVE",
+        "Completed technologies and engineered components, organized for review.",
+    );
+    theme::divider(ui);
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         // Completed Technologies
-        ui.group(|ui| {
+        theme::elevated_frame().show(ui, |ui| {
             ui.label(
                 egui::RichText::new("Completed Technologies")
-                    .strong()
-                    .size(16.0),
+                    .font(theme::heading())
+                    .color(theme::ACCENT),
             );
             ui.separator();
 

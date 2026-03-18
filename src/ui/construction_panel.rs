@@ -34,6 +34,64 @@ impl Default for ConstructionUiState {
     }
 }
 
+fn draw_menu_header(ui: &mut egui::Ui, title: &str, subtitle: &str) {
+    ui.label(
+        egui::RichText::new(title)
+            .font(theme::title())
+            .color(theme::ACCENT),
+    );
+    ui.label(
+        egui::RichText::new(subtitle)
+            .font(theme::body(11.5))
+            .color(theme::TEXT_DIM),
+    );
+    theme::divider(ui);
+}
+
+fn draw_status_chip(ui: &mut egui::Ui, label: &str, value: String, color: egui::Color32) {
+    ui.vertical(|ui| {
+        ui.set_min_width(132.0);
+        ui.label(
+            egui::RichText::new(label)
+                .font(theme::mono(10.0))
+                .color(theme::TEXT_DIM),
+        );
+        ui.label(
+            egui::RichText::new(value)
+                .font(theme::heading())
+                .color(color),
+        );
+    });
+}
+
+fn draw_tab_button(
+    ui: &mut egui::Ui,
+    label: &str,
+    selected: bool,
+    enabled: bool,
+) -> egui::Response {
+    let text = egui::RichText::new(label).size(13.5).color(if selected {
+        theme::ACCENT
+    } else {
+        theme::TEXT
+    });
+    ui.add_enabled(
+        enabled,
+        egui::Button::new(text)
+            .fill(if selected {
+                theme::SURFACE_RAISED
+            } else {
+                theme::SURFACE
+            })
+            .stroke(if selected {
+                egui::Stroke::new(1.0, theme::ACCENT)
+            } else {
+                egui::Stroke::new(1.0, theme::BORDER)
+            })
+            .corner_radius(4.0),
+    )
+}
+
 pub(super) fn ui_construction_panels(
     mut contexts: EguiContexts,
     active_menu: Res<ActiveMenu>,
@@ -66,7 +124,9 @@ pub(super) fn ui_construction_panels(
         Err(_) => return,
     };
 
-    egui::CentralPanel::default().show(ctx, |ui| {
+    egui::CentralPanel::default()
+        .frame(theme::central_frame())
+        .show(ctx, |ui| {
         render_construction_panel(
             ui,
             &colony_query,
@@ -81,7 +141,7 @@ pub(super) fn ui_construction_panels(
             &resource_requests,
             &mut minimum_stockpiles,
         );
-    });
+        });
 
     // Building editor dialog (rendered outside CentralPanel so it floats)
     if debug_settings.enabled {
@@ -109,16 +169,19 @@ fn render_construction_panel(
     resource_requests: &crate::economy::PendingResourceRequests,
     minimum_stockpiles: &mut Query<&mut crate::economy::MinimumStockpile>,
 ) {
-    ui.heading("Construction");
-    ui.separator();
+    draw_menu_header(
+        ui,
+        "CONSTRUCTION",
+        "Industrial planning, queue control, and colony provisioning.",
+    );
 
     // -- Debug panel --
     if debug_settings.enabled {
-        ui.group(|ui| {
+        theme::elevated_frame().show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(
                     egui::RichText::new("DEBUG MODE")
-                        .strong()
+                        .font(theme::heading())
                         .color(theme::RED),
                 );
                 ui.label(
@@ -152,39 +215,43 @@ fn render_construction_panel(
                     .color(theme::TEXT_DIM),
             );
         });
-        ui.separator();
+        ui.add_space(10.0);
     }
 
-    // -- Treasury / balance row --
-    ui.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new(format!("Treasury: {}", format_currency(budget.treasury)))
-                .size(13.0)
-                .color(theme::GOLD),
+    let balance = budget.balance_per_year();
+    let balance_color = if balance >= 0.0 { theme::GREEN } else { theme::RED };
+    let sign = if balance >= 0.0 { "+" } else { "" };
+    ui.horizontal_wrapped(|ui| {
+        draw_status_chip(
+            ui,
+            "TREASURY",
+            format_currency(budget.treasury),
+            theme::GOLD,
         );
         ui.separator();
-        let balance = budget.balance_per_year();
-        let balance_color = if balance >= 0.0 { theme::GREEN } else { theme::RED };
-        let sign = if balance >= 0.0 { "+" } else { "" };
-        ui.label(
-            egui::RichText::new(format!("Balance: {}{}/yr", sign, format_currency(balance)))
-                .size(13.0)
-                .color(balance_color),
+        draw_status_chip(
+            ui,
+            "BALANCE",
+            format!("{}{}/yr", sign, format_currency(balance)),
+            balance_color,
         );
     });
-    ui.separator();
+
+    theme::divider(ui);
 
     let colonies: Vec<_> = colony_query.iter().collect();
 
     if colonies.is_empty() {
-        ui.add_space(20.0);
-        ui.label(
-            egui::RichText::new("No colonies established yet.")
-                .size(14.0)
-                .color(theme::TEXT_DIM),
-        );
-        ui.add_space(10.0);
-        ui.label("Send a colony ship to a celestial body to establish a colony.");
+        theme::elevated_frame().show(ui, |ui| {
+            ui.add_space(12.0);
+            ui.label(
+                egui::RichText::new("NO COLONIES ONLINE")
+                    .font(theme::heading())
+                    .color(theme::TEXT_DIM),
+            );
+            ui.add_space(6.0);
+            ui.label("Send a colony ship to a celestial body to establish a colony.");
+        });
         return;
     }
 
@@ -204,9 +271,19 @@ fn render_construction_panel(
         .unwrap_or_default();
 
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Colony:").strong());
+        ui.label(
+            egui::RichText::new("ACTIVE COLONY")
+                .font(theme::heading())
+                .color(theme::ACCENT),
+        );
+        ui.add_space(12.0);
         egui::ComboBox::from_id_salt("colony_selector")
-            .selected_text(&current_name)
+            .selected_text(
+                egui::RichText::new(&current_name)
+                    .color(theme::TEXT_VALUE)
+                    .font(theme::body(13.0)),
+            )
+            .width((ui.available_width() - 12.0).max(240.0))
             .show_ui(ui, |ui| {
                 for (entity, colony, _) in &colonies {
                     let label = format!(
@@ -223,7 +300,8 @@ fn render_construction_panel(
                 }
             });
     });
-    ui.separator();
+
+    theme::divider(ui);
 
     let selected_entity = match ui_state.selected_colony {
         Some(e) => e,
@@ -268,11 +346,7 @@ fn render_construction_panel(
 
         for (tab, label) in tabs {
             let enabled = tab != ConstructionTab::Stockpiles || has_stockpile_editor;
-            let response = ui.add_enabled(
-                enabled,
-                egui::Button::new(egui::RichText::new(label).size(13.5))
-                    .selected(ui_state.selected_tab == tab),
-            );
+            let response = draw_tab_button(ui, &label, ui_state.selected_tab == tab, enabled);
             if response.clicked() {
                 ui_state.selected_tab = tab;
             }
@@ -281,7 +355,8 @@ fn render_construction_panel(
             }
         }
     });
-    ui.separator();
+
+    theme::divider(ui);
 
     if ui_state.selected_tab == ConstructionTab::Stockpiles && !has_stockpile_editor {
         ui_state.selected_tab = ConstructionTab::Overview;
@@ -333,7 +408,11 @@ fn render_construction_overview_tab(
     construction_actions: &mut PendingConstructionActions,
     resource_requests: &crate::economy::PendingResourceRequests,
 ) {
-    ui.heading("Colony Overview");
+    ui.label(
+        egui::RichText::new("COLONY OVERVIEW")
+            .font(theme::heading())
+            .color(theme::ACCENT),
+    );
     ui.label(
         egui::RichText::new("Operational summary for the selected colony.")
             .size(11.0)
@@ -341,7 +420,7 @@ fn render_construction_overview_tab(
     );
     ui.add_space(8.0);
 
-    ui.group(|ui| {
+    theme::elevated_frame().show(ui, |ui| {
         ui.label(
             egui::RichText::new(format!("{} -- {}", colony.name, body.name))
                 .size(14.0)
@@ -435,7 +514,7 @@ fn render_construction_overview_tab(
 
     ui.add_space(8.0);
 
-    ui.group(|ui| {
+    theme::elevated_frame().show(ui, |ui| {
         ui.label(egui::RichText::new("Construction Summary").strong());
         ui.separator();
         ui.label(
@@ -471,7 +550,11 @@ fn render_construction_buildings_tab(
     colony: &Colony,
     buildings_data: Option<&BuildingsData>,
 ) {
-    ui.heading("Buildings");
+    ui.label(
+        egui::RichText::new("BUILDINGS")
+            .font(theme::heading())
+            .color(theme::ACCENT),
+    );
     if colony.total_buildings() == 0 {
         ui.add_space(12.0);
         ui.label(
@@ -502,7 +585,11 @@ fn render_construction_queue_section(
     show_heading: bool,
 ) {
     if show_heading {
-        ui.heading("Construction Queue");
+        ui.label(
+            egui::RichText::new("CONSTRUCTION QUEUE")
+                .font(theme::heading())
+                .color(theme::ACCENT),
+        );
     }
     if queue.is_empty() {
         ui.add_space(12.0);
@@ -609,34 +696,54 @@ fn render_construction_build_tab(
     bypass_tech: bool,
     free_build: bool,
 ) {
-    ui.heading("Build");
-    ui.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new(format!("Output: {:.1} BP/year", bp_rate))
-                .color(theme::GREEN)
-                .strong(),
-        );
-        ui.label(egui::RichText::new("i").small())
-            .on_hover_text("Base: 1 BP/yr + 10 BP/yr per Factory");
-    });
-    ui.separator();
-
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Build qty:").strong());
-        for &mult in &[1u32, 5, 10, 25, 50, 100] {
-            let selected = ui_state.build_multiplier == mult;
-            let btn_text = format!("x{}", mult);
-            let btn = egui::Button::new(
-                egui::RichText::new(&btn_text).size(12.0).color(if selected {
-                    theme::GOLD
-                } else {
-                    egui::Color32::WHITE
-                }),
+    ui.label(
+        egui::RichText::new("BUILD")
+            .font(theme::heading())
+            .color(theme::ACCENT),
+    );
+    theme::elevated_frame().show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(format!("Output: {:.1} BP/year", bp_rate))
+                    .color(theme::GREEN)
+                    .strong(),
             );
-            if ui.add(btn).clicked() {
-                ui_state.build_multiplier = mult;
+            ui.label(egui::RichText::new("i").small())
+                .on_hover_text("Base: 1 BP/yr + 10 BP/yr per Factory");
+        });
+    });
+
+    theme::divider(ui);
+
+    theme::elevated_frame().show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Build qty:").strong());
+            for &mult in &[1u32, 5, 10, 25, 50, 100] {
+                let selected = ui_state.build_multiplier == mult;
+                let btn_text = format!("x{}", mult);
+                let btn = egui::Button::new(
+                    egui::RichText::new(&btn_text).size(12.0).color(if selected {
+                        theme::GOLD
+                    } else {
+                        egui::Color32::WHITE
+                    }),
+                )
+                .fill(if selected {
+                    theme::SURFACE_RAISED
+                } else {
+                    theme::SURFACE
+                })
+                .stroke(if selected {
+                    egui::Stroke::new(1.0, theme::ACCENT)
+                } else {
+                    egui::Stroke::new(1.0, theme::BORDER)
+                })
+                .corner_radius(4.0);
+                if ui.add(btn).clicked() {
+                    ui_state.build_multiplier = mult;
+                }
             }
-        }
+        });
     });
     ui.add_space(6.0);
 
@@ -690,34 +797,32 @@ fn render_construction_build_tab(
         ui_state.selected_build_tab = visible_tabs.first().copied().unwrap_or(0);
     }
 
-    ui.horizontal_wrapped(|ui| {
-        for (index, category, available) in &available_by_category {
-            let label = format!("{} ({})", category.display_name(), available.len());
-            if ui
-                .selectable_label(
-                    ui_state.selected_build_tab == *index,
-                    egui::RichText::new(label).size(13.0),
+    theme::elevated_frame().show(ui, |ui| {
+        ui.horizontal_wrapped(|ui| {
+            for (index, category, available) in &available_by_category {
+                let label = format!("{} ({})", category.display_name(), available.len());
+                if draw_tab_button(ui, &label, ui_state.selected_build_tab == *index, true)
+                    .clicked()
+                {
+                    ui_state.selected_build_tab = *index;
+                }
+            }
+
+            if !locked.is_empty()
+                && draw_tab_button(
+                    ui,
+                    &format!("Locked ({})", locked.len()),
+                    ui_state.selected_build_tab == locked_tab_index,
+                    true,
                 )
                 .clicked()
             {
-                ui_state.selected_build_tab = *index;
+                ui_state.selected_build_tab = locked_tab_index;
             }
-        }
-
-        if !locked.is_empty()
-            && ui
-                .selectable_label(
-                    ui_state.selected_build_tab == locked_tab_index,
-                    egui::RichText::new(format!("Locked ({})", locked.len()))
-                        .size(13.0)
-                        .color(theme::TEXT_DIM),
-                )
-                .clicked()
-        {
-            ui_state.selected_build_tab = locked_tab_index;
-        }
+        });
     });
-    ui.separator();
+
+    theme::divider(ui);
 
     if ui_state.selected_build_tab == locked_tab_index {
         for building in locked {
@@ -1506,7 +1611,11 @@ fn render_minimum_stockpile_editor(
         return;
     };
 
-    ui.heading("Minimum Stockpiles");
+    ui.label(
+        egui::RichText::new("MINIMUM STOCKPILES")
+            .font(theme::heading())
+            .color(theme::ACCENT),
+    );
     ui.label(
         egui::RichText::new(
             "Set a minimum amount for each resource. Freighters will automatically resupply when stocks fall below the threshold.",
@@ -1561,7 +1670,7 @@ fn render_minimum_stockpile_group(
     resources: &[crate::economy::types::ResourceType],
     minimum: &mut crate::economy::MinimumStockpile,
 ) {
-    ui.group(|ui| {
+    theme::elevated_frame().show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.label(
             egui::RichText::new(category_name)
