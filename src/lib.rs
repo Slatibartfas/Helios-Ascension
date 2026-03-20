@@ -6,4 +6,5 @@ pub mod game_state;
 pub mod plugins;
 pub mod render;
 pub mod research;
+pub mod shipbuilding;
 pub mod ui;

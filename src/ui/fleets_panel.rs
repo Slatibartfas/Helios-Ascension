@@ -489,6 +489,7 @@ pub(super) fn ui_fleets_panel(
                                                 ships: Vec::new(),
                                                 orbit_body: body_entity,
                                                 orbit_radius_au,
+                                                stationary: false,
                                             },
                                         );
                                     }

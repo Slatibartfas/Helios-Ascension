@@ -28,6 +28,7 @@ mod fleets_panel;
 pub mod icons;
 mod research_panel;
 mod resources_bar;
+mod shipbuilding_panel;
 mod tech_tree;
 pub(super) mod theme;
 pub mod time;
@@ -45,6 +46,7 @@ use fleets_panel::{
 use icons::{load_menu_icons, load_research_icons, process_menu_icons, process_research_icons};
 use research_panel::ui_research_panels;
 use resources_bar::ui_resources_bar;
+use shipbuilding_panel::ui_shipbuilding_panel;
 use time::advance_simulation_time;
 
 use crate::astronomy::components::{CurrentStarSystem, SystemId};
@@ -404,6 +406,7 @@ impl Plugin for UIPlugin {
             .init_resource::<ResolutionWarning>()
             .init_resource::<ExpandedLedgerGroups>()
             .init_resource::<construction_panel::ConstructionUiState>()
+            .init_resource::<shipbuilding_panel::ShipbuildingUiState>()
             // ActiveMenu is now initialized in GameStatePlugin
             // to allow access in camera/starmap plugins
             // Load menu icons at startup
@@ -461,6 +464,10 @@ impl Plugin for UIPlugin {
             .add_systems(
                 EguiPrimaryContextPass,
                 ui_fleets_panel.in_set(UiSystemSet::MainPanels),
+            )
+            .add_systems(
+                EguiPrimaryContextPass,
+                ui_shipbuilding_panel.in_set(UiSystemSet::MainPanels),
             )
             .add_systems(
                 EguiPrimaryContextPass,
