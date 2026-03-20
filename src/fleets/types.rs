@@ -1,5 +1,7 @@
 //! Ship class and propulsion type definitions for the fleet system.
 
+use serde::{Deserialize, Serialize};
+
 /// Roles that can be assigned to a fleet, changing its icon and primary purpose.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum FleetRole {
@@ -45,7 +47,7 @@ impl FleetRole {
 }
 
 /// Classes of ships that can be built and flown.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ShipClass {
     /// Small, fast courier for urgent cargo and personnel transfer
     Courier,
@@ -118,7 +120,7 @@ impl ShipClass {
 }
 
 /// Propulsion technologies available for ships.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PropulsionType {
     /// Chemical rockets — high thrust, low specific impulse (~450 s)
     Chemical,

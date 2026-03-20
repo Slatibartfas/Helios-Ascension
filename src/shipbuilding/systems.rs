@@ -1,0 +1,446 @@
+use bevy::prelude::*;
+
+use super::components::{
+    LaunchCapacityState, PendingShipbuildingActions, QueueShipConstructionAction,
+    ShipConstructionProject, ShipConstructionState,
+};
+use super::data::ShipbuildingData;
+use super::types::ConstructionMode;
+use crate::colony::{BuildingType, Colony};
+use crate::economy::budget::SECONDS_PER_YEAR;
+use crate::economy::components::LocalStockpile;
+use crate::economy::logistics::{
+    PendingResourceRequests, RequestPriority, RequestState, ResourceRequest,
+};
+use crate::economy::{GlobalBudget, ResourceType};
+use crate::fleets::{
+    PendingFleetActions, PropulsionType, ShipClass, ShipInfo, SpawnFleetAction, AU_IN_METERS,
+};
+use crate::plugins::solar_system::CelestialBody;
+use crate::research::ResearchState;
+use crate::ui::SimulationTime;
+
+const SHIPYARD_BP_PER_YEAR: f64 = 2_500.0;
+const FACTORY_SUPPORT_BP_PER_YEAR: f64 = 125.0;
+const ENGINEERING_BAY_BONUS: f64 = 0.05;
+
+const LAUNCH_SITE_CAPACITY_T_PER_YEAR: f64 = 5.0;
+const SPACE_PORT_CAPACITY_T_PER_YEAR: f64 = 40.0;
+const ORBITAL_LIFT_CAPACITY_T_PER_YEAR: f64 = 25_000.0;
+
+const BASE_LAUNCH_ALTITUDE_KM: f64 = 400.0;
+const STATION_ORBIT_ALTITUDE_KM: f64 = 1_000.0;
+
+const LAUNCH_CREDIT_COST_PER_TON_MC: f64 = 0.45;
+const LAUNCH_METHANE_PER_TON_MT: f64 = 0.000_000_12;
+const LAUNCH_OXYGEN_PER_TON_MT: f64 = 0.000_000_22;
+const LAUNCH_POLYMERS_PER_TON_MT: f64 = 0.000_000_01;
+
+pub fn process_pending_shipbuilding_actions(
+    mut commands: Commands,
+    mut actions: ResMut<PendingShipbuildingActions>,
+    colonies: Query<&Colony>,
+    mut stockpiles: Query<&mut LocalStockpile>,
+    shipbuilding_data: Res<ShipbuildingData>,
+    research_state: Res<ResearchState>,
+    mut resource_requests: ResMut<PendingResourceRequests>,
+    sim_time: Res<SimulationTime>,
+) {
+    let now = sim_time.elapsed_seconds();
+
+    for QueueShipConstructionAction { build_site, design } in actions.queue_projects.drain(..) {
+        let Ok(colony) = colonies.get(build_site) else {
+            warn!("Ignoring shipbuilding action for non-colony entity {:?}", build_site);
+            continue;
+        };
+
+        if colony.building_count(BuildingType::Shipyard) == 0 {
+            warn!(
+                "{} cannot queue ship construction without an operational Shipyard",
+                colony.name
+            );
+            continue;
+        }
+
+        if design.construction_mode == ConstructionMode::SurfaceLaunch
+            && colony.building_count(BuildingType::LaunchSite) == 0
+            && colony.building_count(BuildingType::SpacePort) == 0
+            && colony.building_count(BuildingType::OrbitalLift) == 0
+        {
+            warn!(
+                "{} cannot queue a surface-launch design without orbital access infrastructure",
+                colony.name
+            );
+            continue;
+        }
+
+        let Some(summary) = shipbuilding_data.summarize_design(&design, &research_state) else {
+            warn!(
+                "Rejected invalid or locked ship design '{}' at {}",
+                design.name, colony.name
+            );
+            continue;
+        };
+
+        if !summary.missing_required_slots.is_empty() {
+            warn!(
+                "Rejected incomplete ship design '{}' at {}: missing {:?}",
+                design.name, colony.name, summary.missing_required_slots
+            );
+            continue;
+        }
+
+        let mut awaiting_resources = false;
+        let mut blocking_request_ids = Vec::new();
+
+        if let Ok(mut stockpile) = stockpiles.get_mut(build_site) {
+            if stockpile.can_afford(&summary.resource_costs) {
+                stockpile.deduct(&summary.resource_costs);
+            } else {
+                awaiting_resources = true;
+                for (resource, amount) in &summary.resource_costs {
+                    if *amount <= 0.0 {
+                        continue;
+                    }
+                    let shortfall = (*amount - stockpile.get(resource)).max(0.0);
+                    if shortfall <= 0.0 || resource_requests.has_open_request_for(build_site, *resource) {
+                        continue;
+                    }
+                    let request_id = resource_requests.add(ResourceRequest {
+                        id: 0,
+                        destination_body: build_site,
+                        destination_name: colony.name.clone(),
+                        resource: *resource,
+                        amount_mt: shortfall,
+                        priority: RequestPriority::Construction,
+                        state: RequestState::Pending,
+                        in_transit_mt: 0.0,
+                        eta_seconds: None,
+                        assigned_company_idx: None,
+                        created_at_seconds: now,
+                        source_body: None,
+                        linked_project: None,
+                        payment_made: false,
+                        completed_at_seconds: None,
+                    });
+                    blocking_request_ids.push(request_id);
+                }
+            }
+        } else if !summary.resource_costs.is_empty() {
+            awaiting_resources = true;
+        }
+
+        let selected_modules = design.modules.clone();
+        let module_count = selected_modules.len();
+        let project_entity = commands
+            .spawn(ShipConstructionProject {
+                design_name: design.name,
+                hull_id: design.hull_id,
+                build_site,
+                selected_modules,
+                ship_class: summary.ship_class,
+                propulsion: summary.propulsion,
+                progress: 0.0,
+                required_build_points: summary.build_points,
+                dry_mass_t: summary.dry_mass_t,
+                launch_mass_t: summary.launch_mass_t,
+                fuel_capacity_t: summary.fuel_capacity_t,
+                cargo_capacity_t: summary.cargo_capacity_t,
+                ordnance_capacity_t: summary.ordnance_capacity_t,
+                magazine_capacity_t: summary.magazine_capacity_t,
+                crew: summary.crew,
+                power_generation_mw: summary.power_generation_mw,
+                power_draw_mw: summary.power_draw_mw,
+                thrust_kn: summary.thrust_kn,
+                isp_s: summary.isp_s,
+                acceleration_ms2: summary.acceleration_ms2,
+                delta_v_ms: summary.delta_v_ms,
+                sensor_range_au: summary.sensor_range_au,
+                docking_ports: summary.docking_ports,
+                construction_capacity_bp_per_year: summary.construction_capacity_bp_per_year,
+                launch_capacity_t_per_year: summary.launch_capacity_t_per_year,
+                is_station: summary.is_station,
+                construction_mode: design.construction_mode,
+                state: ShipConstructionState::Building,
+                awaiting_resources,
+                blocking_request_ids: blocking_request_ids.clone(),
+                module_count,
+                resource_costs: summary.resource_costs,
+                launch_resource_costs: launch_resource_costs(summary.launch_mass_t),
+                launch_credit_cost_mc: summary.launch_mass_t * LAUNCH_CREDIT_COST_PER_TON_MC,
+            })
+            .id();
+
+        for request_id in blocking_request_ids {
+            if let Some(request) = resource_requests.find_by_id_mut(request_id) {
+                request.linked_project = Some(project_entity);
+            }
+        }
+    }
+
+    for entity in actions.cancel_projects.drain(..) {
+        commands.entity(entity).despawn();
+    }
+}
+
+pub fn advance_ship_construction(
+    colonies: Query<&Colony>,
+    mut projects: Query<(Entity, &mut ShipConstructionProject)>,
+    sim_time: Res<SimulationTime>,
+    mut last_elapsed: Local<f64>,
+) {
+    let current_elapsed = sim_time.elapsed_seconds();
+    let dt = current_elapsed - *last_elapsed;
+    *last_elapsed = current_elapsed;
+
+    if dt <= 0.0 {
+        return;
+    }
+
+    let years_elapsed = dt / SECONDS_PER_YEAR;
+    if years_elapsed <= 0.0 {
+        return;
+    }
+
+    let mut colony_bp: Vec<(Entity, f64)> = Vec::new();
+    for (_, project) in projects.iter() {
+        if !project.is_building() || project.awaiting_resources {
+            continue;
+        }
+
+        let colony_entity = project.build_site;
+        if colony_bp.iter().any(|(entity, _)| *entity == colony_entity) {
+            continue;
+        }
+
+        if let Ok(colony) = colonies.get(colony_entity) {
+            let shipyards = colony.building_count(BuildingType::Shipyard) as f64;
+            if shipyards <= 0.0 {
+                continue;
+            }
+
+            let factories = colony.building_count(BuildingType::Factory) as f64;
+            let engineering_bays = colony.building_count(BuildingType::EngineeringBay) as f64;
+            let bonus = 1.0 + engineering_bays * ENGINEERING_BAY_BONUS;
+            let bp =
+                (shipyards * SHIPYARD_BP_PER_YEAR + factories * FACTORY_SUPPORT_BP_PER_YEAR)
+                    * bonus
+                    * years_elapsed;
+            colony_bp.push((colony_entity, bp));
+        }
+    }
+
+    for (colony_entity, mut available_bp) in colony_bp {
+        let mut project_entities: Vec<Entity> = projects
+            .iter()
+            .filter(|(_, project)| {
+                project.build_site == colony_entity
+                    && project.is_building()
+                    && !project.awaiting_resources
+            })
+            .map(|(entity, _)| entity)
+            .collect();
+        project_entities.sort();
+
+        for project_entity in project_entities {
+            if available_bp <= 0.0 {
+                break;
+            }
+
+            if let Ok((_, mut project)) = projects.get_mut(project_entity) {
+                let needed = project.required_build_points - project.progress;
+                let applied = needed.min(available_bp);
+                project.progress += applied;
+                available_bp -= applied;
+
+                if project.progress >= project.required_build_points {
+                    project.state = match project.construction_mode {
+                        ConstructionMode::SurfaceLaunch => ShipConstructionState::ReadyForLaunch,
+                        ConstructionMode::OrbitalAssembly | ConstructionMode::OrbitalShipyard => {
+                            ShipConstructionState::CompletedInOrbit
+                        }
+                    };
+                }
+            }
+        }
+    }
+}
+
+pub fn process_ship_launches_and_completions(
+    mut commands: Commands,
+    sim_time: Res<SimulationTime>,
+    mut last_elapsed: Local<f64>,
+    colonies: Query<(Entity, &Colony, &CelestialBody)>,
+    mut stockpiles: Query<&mut LocalStockpile>,
+    mut budget: ResMut<GlobalBudget>,
+    mut launch_state: ResMut<LaunchCapacityState>,
+    mut pending_fleet_actions: ResMut<PendingFleetActions>,
+    mut resource_requests: ResMut<PendingResourceRequests>,
+    mut projects: Query<(Entity, &mut ShipConstructionProject)>,
+) {
+    let current_elapsed = sim_time.elapsed_seconds();
+    let dt = current_elapsed - *last_elapsed;
+    *last_elapsed = current_elapsed;
+    let years_elapsed = (dt / SECONDS_PER_YEAR).max(0.0);
+
+    for (site_entity, colony, _) in colonies.iter() {
+        let annual_capacity = annual_launch_capacity_t(colony);
+        let available = launch_state
+            .available_mass_t
+            .entry(site_entity)
+            .or_insert(annual_capacity.max(0.0));
+        *available = (*available + annual_capacity * years_elapsed).min(annual_capacity.max(0.0));
+    }
+
+    let mut project_entities: Vec<Entity> = projects.iter().map(|(entity, _)| entity).collect();
+    project_entities.sort();
+
+    for project_entity in project_entities {
+        let Ok((entity, mut project)) = projects.get_mut(project_entity) else {
+            continue;
+        };
+
+        if project.awaiting_resources {
+            let still_waiting = resource_requests
+                .requests
+                .iter()
+                .any(|request| request.linked_project == Some(entity) && request.is_open());
+            if still_waiting {
+                continue;
+            }
+            project.awaiting_resources = false;
+            project.blocking_request_ids.clear();
+        }
+
+        match project.state {
+            ShipConstructionState::Building => {}
+            ShipConstructionState::CompletedInOrbit => {
+                if let Ok((_, _, body)) = colonies.get(project.build_site) {
+                    pending_fleet_actions.spawn_fleets.push(SpawnFleetAction {
+                        name: project.design_name.clone(),
+                        ships: vec![build_ship_info(&project)],
+                        orbit_body: project.build_site,
+                        orbit_radius_au: insertion_orbit_radius_au(body, project.is_station),
+                        stationary: project.is_station,
+                    });
+                    commands.entity(entity).despawn();
+                }
+            }
+            ShipConstructionState::ReadyForLaunch => {
+                let Ok((_, colony, body)) = colonies.get(project.build_site) else {
+                    continue;
+                };
+
+                let available_capacity = launch_state
+                    .available_mass_t
+                    .entry(project.build_site)
+                    .or_insert_with(|| annual_launch_capacity_t(colony));
+
+                if *available_capacity + f64::EPSILON < project.launch_mass_t {
+                    continue;
+                }
+
+                let mut can_launch = false;
+                if let Ok(mut stockpile) = stockpiles.get_mut(project.build_site) {
+                    if stockpile.can_afford(&project.launch_resource_costs)
+                        && budget.treasury >= project.launch_credit_cost_mc
+                    {
+                        stockpile.deduct(&project.launch_resource_costs);
+                        budget.treasury -= project.launch_credit_cost_mc;
+                        can_launch = true;
+                    } else {
+                        let existing_requests = resource_requests
+                            .requests
+                            .iter()
+                            .any(|request| request.linked_project == Some(entity) && request.is_open());
+                        if !existing_requests {
+                            let launch_costs = project.launch_resource_costs.clone();
+                            for (resource, amount) in launch_costs {
+                                let shortfall = (amount - stockpile.get(&resource)).max(0.0);
+                                if shortfall <= 0.0 {
+                                    continue;
+                                }
+                                let request_id = resource_requests.add(ResourceRequest {
+                                    id: 0,
+                                    destination_body: project.build_site,
+                                    destination_name: colony.name.clone(),
+                                    resource,
+                                    amount_mt: shortfall,
+                                    priority: RequestPriority::Construction,
+                                    state: RequestState::Pending,
+                                    in_transit_mt: 0.0,
+                                    eta_seconds: None,
+                                    assigned_company_idx: None,
+                                    created_at_seconds: current_elapsed,
+                                    source_body: None,
+                                    linked_project: Some(entity),
+                                    payment_made: false,
+                                    completed_at_seconds: None,
+                                });
+                                project.blocking_request_ids.push(request_id);
+                            }
+                        }
+                        project.awaiting_resources = true;
+                    }
+                }
+
+                if !can_launch {
+                    continue;
+                }
+
+                *available_capacity -= project.launch_mass_t;
+                pending_fleet_actions.spawn_fleets.push(SpawnFleetAction {
+                    name: project.design_name.clone(),
+                    ships: vec![build_ship_info(&project)],
+                    orbit_body: project.build_site,
+                    orbit_radius_au: insertion_orbit_radius_au(body, project.is_station),
+                    stationary: project.is_station,
+                });
+                commands.entity(entity).despawn();
+            }
+        }
+    }
+}
+
+pub fn annual_launch_capacity_t(colony: &Colony) -> f64 {
+    colony.building_count(BuildingType::LaunchSite) as f64 * LAUNCH_SITE_CAPACITY_T_PER_YEAR
+        + colony.building_count(BuildingType::SpacePort) as f64 * SPACE_PORT_CAPACITY_T_PER_YEAR
+        + colony.building_count(BuildingType::OrbitalLift) as f64 * ORBITAL_LIFT_CAPACITY_T_PER_YEAR
+}
+
+pub fn launch_resource_costs(launch_mass_t: f64) -> Vec<(ResourceType, f64)> {
+    vec![
+        (ResourceType::Methane, launch_mass_t * LAUNCH_METHANE_PER_TON_MT),
+        (ResourceType::Oxygen, launch_mass_t * LAUNCH_OXYGEN_PER_TON_MT),
+        (ResourceType::Polymers, launch_mass_t * LAUNCH_POLYMERS_PER_TON_MT),
+    ]
+}
+
+fn build_ship_info(project: &ShipConstructionProject) -> ShipInfo {
+    let propulsion = project.propulsion.unwrap_or(PropulsionType::Chemical);
+    let fuel_mass = project.fuel_capacity_t.max(0.0) as f32;
+    ShipInfo {
+        name: project.design_name.clone(),
+        class: if project.is_station {
+            ShipClass::Station
+        } else {
+            project.ship_class
+        },
+        dry_mass_t: project.dry_mass_t as f32,
+        fuel_mass_t: fuel_mass,
+        max_fuel_t: fuel_mass,
+        thrust_kn: project.thrust_kn as f32,
+        isp_s: project.isp_s as f32,
+        propulsion,
+    }
+}
+
+fn insertion_orbit_radius_au(body: &CelestialBody, station: bool) -> f64 {
+    let altitude_km = if station {
+        STATION_ORBIT_ALTITUDE_KM
+    } else {
+        BASE_LAUNCH_ALTITUDE_KM
+    };
+
+    ((body.radius as f64 + altitude_km) * 1_000.0) / AU_IN_METERS
+}

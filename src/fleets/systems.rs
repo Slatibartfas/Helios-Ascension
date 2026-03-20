@@ -372,7 +372,10 @@ pub fn process_fleet_actions(
 
     // Spawn new fleets
     for action in actions.spawn_fleets.drain(..) {
-        let orbit = FleetOrbit::new(action.orbit_body, action.orbit_radius_au);
+        let mut orbit = FleetOrbit::new(action.orbit_body, action.orbit_radius_au);
+        if action.stationary {
+            orbit.direction = 0.0;
+        }
         let mut fleet = Fleet::new(action.name);
         fleet.ships = action.ships;
         commands.spawn((fleet, orbit, SpaceCoordinates::default()));
@@ -381,6 +384,12 @@ pub fn process_fleet_actions(
 
     // Start transfers (works for both parked and in-transit fleets)
     for action in actions.start_transfers.drain(..) {
+        if let Ok(fleet) = fleet_query.get(action.fleet) {
+            if fleet.ships.iter().any(|ship| ship.class == ShipClass::Station) {
+                continue;
+            }
+        }
+
         let is_parked = orbit_query.get(action.fleet).is_ok();
         let is_in_transit = maneuver_query.get(action.fleet).is_ok();
 

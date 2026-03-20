@@ -167,6 +167,28 @@ Technology progression and engineering projects.
 **Technology Categories (15):**
 Electronics, Military, SpaceTechnology, Biology, Physics, Energy, Sociology, Construction, Propulsion, Materials, Sensors, Weapons, DefensiveSystems, LifeSupport, Industry
 
+#### ShipbuildingPlugin (`src/shipbuilding/`)
+Modular ship and station design, construction queues, and the first slice of launch-aware production flow.
+
+**Components:**
+- `ShipConstructionProject`: Active ship or station project with build progress, selected construction mode, and resulting launch/orbit state
+- `OrbitalStation`: Marker reserved for immobile station assets once completed projects spawn into the fleet layer
+
+**Resources:**
+- `ShipbuildingData`: Hull and module definitions loaded from `assets/data/ship_hulls.ron` and `assets/data/ship_modules.ron`
+- `PendingShipbuildingActions`: Thread-safe action queue for project creation and cancellation
+
+**Systems:**
+- `load_shipbuilding_data`: Loads hull and module definitions at startup
+- `process_pending_shipbuilding_actions`: Validates selected hull/module combinations against research unlocks and local facilities
+- `advance_ship_construction`: Advances queued projects using shipyard throughput, then transitions them to `ReadyForLaunch` or `CompletedInOrbit`
+
+**Current scope:**
+- Data-driven hulls and module families for the first shipbuilder slice
+- In-game Shipbuilding panel with modular slot selection, design summaries, and queue inspection
+- Surface build and orbital assembly project progression from colony shipyards
+- True launch execution, logistics-blocked inputs, and station-hosted orbital yards are the next implementation layers
+
 #### 7. StarmapPlugin (`src/plugins/starmap.rs`)
 Interstellar navigation and star system visualization.
 
@@ -194,6 +216,7 @@ Egui-based dashboard with time controls, body info, and resource display. The mo
 - `dashboard.rs`: Main survey panel, time controls bar, star system detail panel
 - `research_panel.rs`: Full research/engineering UI including interactive tech tree
 - `construction_panel.rs`: Construction queue panel
+- `shipbuilding_panel.rs`: Modular hull design, component selection, and ship/station build queues
 - `economy_panel.rs`: Economy overview, per-resource rates, colony/mining/power tabs
 - `fleets_panel.rs`: Fleet list, detail view, `FleetUiState`, transfer planner, LP transfers
 - `interaction.rs`: `Selection` resource, body selection helpers
@@ -212,7 +235,7 @@ Egui-based dashboard with time controls, body info, and resource display. The mo
 - Economy Panel: Budget and resource tracking
 - Starmap Panel: System selection and navigation
 - Fleet Panel: Full fleet management — spawn, transfer planning, transfer-window countdown, gravity-assist routing, Lagrange-point targeting, intercept planning, refuel, abort
-- Shipbuilding Panel: Vessel construction (planned)
+- Shipbuilding Panel: Initial modular design and queue management for ships and stations
 
 **Key Design Decision — SimulationTime:**
 - Bevy's `Time<Virtual>` caps delta at 250ms, limiting effective speed to ~15×.
@@ -358,6 +381,12 @@ src/
 │   ├── systems.rs       # Fleet position, maneuver execution, visualisation
 │   ├── types.rs         # ShipClass, PropulsionType
 │   └── mod.rs           # FleetPlugin
+├── shipbuilding/        # Modular hull/module data, ship construction queues, progression
+│   ├── components.rs    # ShipDesignDraft, ShipConstructionProject, pending actions
+│   ├── data.rs          # Hull and module definitions + design summaries
+│   ├── systems.rs       # Queue validation and shipyard throughput progression
+│   ├── types.rs         # ConstructionMode and ShipModuleCategory
+│   └── mod.rs           # ShipbuildingPlugin
 ├── plugins/             # Game systems
 │   ├── camera.rs        # Camera movement, anchoring & ViewMode
 │   ├── solar_system.rs  # Body spawning, rotation, billboards

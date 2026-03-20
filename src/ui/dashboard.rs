@@ -736,63 +736,79 @@ fn render_fleet_ledger_tree(
 }
 
 /// Compact mass format for tight UI tiles — no space before unit, single decimal.
-pub(super) fn format_mass_compact(megatons: f64) -> String {
-    let abs_val = megatons.abs();
+/// Input is in TONNES. Displays as:
+///   < 1 kg: "X g"
+///   1-999 kg: "X kg"
+///   1-999 t: "X t"
+///   1,000-999,999 t: "X kt"
+///   1,000,000-999,999,999 t: "X Mt"
+///   etc.
+pub(super) fn format_mass_compact(tonnes: f64) -> String {
+    let abs_val = tonnes.abs();
     if abs_val < 1e-9 {
         return "0".to_string();
     }
+    // < 1 kg: show in grams
     if abs_val < 0.001 {
-        let t = megatons * 1_000_000.0;
-        return if t.abs() < 10.0 {
-            format!("{:.1}t", t)
+        let g = tonnes * 1_000_000.0;
+        if g.abs() < 10.0 {
+            format!("{:.1}g", g)
         } else {
-            format!("{:.0}t", t)
-        };
+            format!("{:.0}g", g)
+        }
     }
-    if abs_val < 1.0 {
-        let kt = megatons * 1000.0;
-        return if kt.abs() < 10.0 {
+    // 1 kg - 999 kg: show in kg
+    else if abs_val < 1.0 {
+        let kg = tonnes * 1000.0;
+        if kg.abs() < 10.0 {
+            format!("{:.1}kg", kg)
+        } else {
+            format!("{:.0}kg", kg)
+        }
+    }
+    // 1 - 999 t: show in tonnes
+    else if abs_val < 1000.0 {
+        if abs_val < 10.0 {
+            format!("{:.1}t", abs_val)
+        } else {
+            format!("{:.0}t", abs_val)
+        }
+    }
+    // 1,000 - 999,999 t: show in kilotonnes
+    else if abs_val < 1_000_000.0 {
+        let kt = abs_val / 1000.0;
+        if kt < 10.0 {
             format!("{:.1}kt", kt)
         } else {
             format!("{:.0}kt", kt)
-        };
+        }
     }
-    if abs_val < 1000.0 {
-        return if abs_val < 10.0 {
-            format!("{:.1}Mt", megatons)
+    // 1,000,000 - 999,999,999 t: show in megatonnes
+    else if abs_val < 1_000_000_000.0 {
+        let mt = abs_val / 1_000_000.0;
+        if mt < 10.0 {
+            format!("{:.1}Mt", mt)
         } else {
-            format!("{:.0}Mt", megatons)
-        };
+            format!("{:.0}Mt", mt)
+        }
     }
-    if abs_val < 1_000_000.0 {
-        let gt = megatons / 1000.0;
-        return if gt.abs() < 10.0 {
+    // 1,000,000,000 - 999,999,999,999 t: show in gigatonnes
+    else if abs_val < 1_000_000_000_000.0 {
+        let gt = abs_val / 1_000_000_000.0;
+        if gt < 10.0 {
             format!("{:.1}Gt", gt)
         } else {
             format!("{:.0}Gt", gt)
-        };
+        }
     }
-    if abs_val < 1_000_000_000.0 {
-        let tt = megatons / 1_000_000.0;
-        return if tt.abs() < 10.0 {
+    // 1,000,000,000,000+ t: show in teratonnes
+    else {
+        let tt = abs_val / 1_000_000_000_000.0;
+        if tt < 10.0 {
             format!("{:.1}Tt", tt)
         } else {
             format!("{:.0}Tt", tt)
-        };
-    }
-    if abs_val < 1_000_000_000_000.0 {
-        let pt = megatons / 1_000_000_000.0;
-        return if pt.abs() < 10.0 {
-            format!("{:.1}Pt", pt)
-        } else {
-            format!("{:.0}Pt", pt)
-        };
-    }
-    let et = megatons / 1_000_000_000_000.0;
-    if et.abs() < 10.0 {
-        format!("{:.1}Et", et)
-    } else {
-        format!("{:.0}Et", et)
+        }
     }
 }
 
@@ -895,6 +911,7 @@ pub(super) fn ui_dashboard(
         || active_menu.current == GameMenu::Construction
         || active_menu.current == GameMenu::Economy
         || active_menu.current == GameMenu::Fleets
+        || active_menu.current == GameMenu::Shipbuilding
     {
         return;
     }

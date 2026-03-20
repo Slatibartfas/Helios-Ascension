@@ -438,6 +438,8 @@ pub struct SpawnFleetAction {
     pub orbit_body: Entity,
     /// Parking orbit radius in AU.
     pub orbit_radius_au: f64,
+    /// True when the spawned fleet should remain fixed like an orbital station.
+    pub stationary: bool,
 }
 
 /// Request to start a previously computed orbital transfer.

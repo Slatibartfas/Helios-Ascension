@@ -21,6 +21,7 @@ use crate::colony::components::ConstructionProject;
 use crate::economy::components::LocalStockpile;
 use crate::economy::types::ResourceType;
 use crate::economy::GlobalBudget;
+use crate::shipbuilding::ShipConstructionProject;
 use crate::ui::SimulationTime;
 
 // ── Priority ─────────────────────────────────────────────────────────────────
@@ -313,6 +314,7 @@ pub fn complete_deliveries(
     mut stockpiles: Query<&mut LocalStockpile>,
     mut budget: ResMut<GlobalBudget>,
     mut projects: Query<&mut ConstructionProject>,
+    mut ship_projects: Query<&mut ShipConstructionProject>,
     sim_time: Res<SimulationTime>,
 ) {
     let now = sim_time.elapsed_seconds();
@@ -384,6 +386,18 @@ pub fn complete_deliveries(
                 project.awaiting_resources = false;
                 info!(
                     "All deliveries complete for {} — construction unblocked",
+                    dest_name
+                );
+            }
+            continue;
+        }
+
+        if let Ok(mut project) = ship_projects.get_mut(proj_entity) {
+            if project.awaiting_resources {
+                project.awaiting_resources = false;
+                project.blocking_request_ids.clear();
+                info!(
+                    "All deliveries complete for {} — ship construction unblocked",
                     dest_name
                 );
             }
