@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::types::ConstructionMode;
@@ -6,7 +7,7 @@ use crate::economy::ResourceType;
 use crate::fleets::{PropulsionType, ShipClass};
 
 /// Module choice for a specific hull slot.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShipModuleSelection {
     pub slot_id: String,
     pub module_id: String,
@@ -49,6 +50,8 @@ impl ShipConstructionState {
 /// A ship or station currently progressing through the construction queue.
 #[derive(Component, Debug, Clone)]
 pub struct ShipConstructionProject {
+    /// Link to the design template this was built from.
+    pub template_id: uuid::Uuid,
     pub design_name: String,
     pub hull_id: String,
     pub build_site: Entity,

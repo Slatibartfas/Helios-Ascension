@@ -19,6 +19,13 @@ pub struct HullSlotDefinition {
     pub size: String,
     #[serde(default = "default_required_slot")]
     pub required: bool,
+    /// Optional normalized position (0-1) on hull sprite for graphical editor.
+    /// x = left to right, y = bottom to top.
+    #[serde(default)]
+    pub position: Option<(f32, f32)>,
+    /// Optional rotation in degrees for weapon/sensor arcs.
+    #[serde(default)]
+    pub rotation_deg: Option<f32>,
 }
 
 fn default_required_slot() -> bool {
@@ -57,6 +64,22 @@ impl ShipHullDefinition {
     /// Effective size tier — uses explicit field if set, otherwise derives from mass.
     pub fn effective_size_tier(&self) -> HullSizeTier {
         self.size_tier.unwrap_or_else(|| HullSizeTier::from_mass_t(self.base_dry_mass_t, self.is_station))
+    }
+
+    pub fn mode_compatibility_error(&self, mode: ConstructionMode) -> Option<&'static str> {
+        match mode {
+            ConstructionMode::SurfaceLaunch if self.orbital_only => {
+                Some("This hull is orbital-only and cannot be surface launched.")
+            }
+            ConstructionMode::SurfaceLaunch if !self.surface_launchable => {
+                Some("This hull does not support surface launch.")
+            }
+            _ => None,
+        }
+    }
+
+    pub fn supports_construction_mode(&self, mode: ConstructionMode) -> bool {
+        self.mode_compatibility_error(mode).is_none()
     }
 }
 
@@ -133,6 +156,10 @@ pub struct ShipDesignSummary {
     pub resource_costs: Vec<(ResourceType, f64)>,
     pub missing_required_slots: Vec<String>,
     pub is_station: bool,
+    // New fields for expanded component categories
+    pub isru_rate_t_per_year: f64,
+    pub heat_sink_capacity: f64,
+    pub maintenance_rate: f64,
 }
 
 impl Default for ShipDesignSummary {
@@ -162,6 +189,9 @@ impl Default for ShipDesignSummary {
             resource_costs: Vec::new(),
             missing_required_slots: Vec::new(),
             is_station: false,
+            isru_rate_t_per_year: 0.0,
+            heat_sink_capacity: 0.0,
+            maintenance_rate: 0.0,
         }
     }
 }
@@ -333,6 +363,82 @@ impl ShipbuildingData {
     }
 }
 
+/// Global library of ship design templates (designs / classes).
+/// Loaded/saved with game state. Separate from hull/module definition data.
+#[derive(Resource, Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ShipDesignLibrary {
+    pub templates: HashMap<uuid::Uuid, crate::shipbuilding::ShipDesignTemplate>,
+}
+
+impl ShipDesignLibrary {
+    /// Save or update a template and return its ID.
+    pub fn save_template(&mut self, template: crate::shipbuilding::ShipDesignTemplate) -> uuid::Uuid {
+        let id = template.id;
+        self.templates.insert(id, template);
+        id
+    }
+
+    /// Get a template by ID.
+    pub fn get_template(&self, id: &uuid::Uuid) -> Option<&crate::shipbuilding::ShipDesignTemplate> {
+        self.templates.get(id)
+    }
+
+    /// Get a template by ID (mutable).
+    pub fn get_template_mut(&mut self, id: &uuid::Uuid) -> Option<&mut crate::shipbuilding::ShipDesignTemplate> {
+        self.templates.get_mut(id)
+    }
+
+    /// List all templates sorted by name, then version.
+    pub fn all_templates(&self) -> Vec<&crate::shipbuilding::ShipDesignTemplate> {
+        let mut list: Vec<_> = self.templates.values().collect();
+        list.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.version.cmp(&b.version)));
+        list
+    }
+
+    /// Get all versions of a design by name prefix.
+    pub fn version_history(&self, name: &str) -> Vec<&crate::shipbuilding::ShipDesignTemplate> {
+        let mut versions: Vec<_> = self
+            .templates
+            .values()
+            .filter(|t| t.name.starts_with(name))
+            .collect();
+        versions.sort_by_key(|t| t.version);
+        versions
+    }
+
+    /// Get the latest version number for a design name.
+    pub fn latest_version(&self, name: &str) -> u32 {
+        self.version_history(name)
+            .last()
+            .map(|t| t.version)
+            .unwrap_or(0)
+    }
+
+    /// Create a new version of an existing template with modified modules.
+    pub fn create_new_version(
+        &mut self,
+        parent_id: &uuid::Uuid,
+        new_modules: Vec<crate::shipbuilding::ShipModuleSelection>,
+        current_game_time: f64,
+    ) -> Option<uuid::Uuid> {
+        let parent = self.templates.get(parent_id)?;
+        let new_version = parent.version + 1;
+        let new_id = uuid::Uuid::new_v4();
+        let template = crate::shipbuilding::ShipDesignTemplate {
+            id: new_id,
+            name: parent.name.clone(),
+            hull_id: parent.hull_id.clone(),
+            modules: new_modules,
+            version: new_version,
+            parent_template_id: Some(*parent_id),
+            created_at_game_time: current_game_time,
+            construction_mode: parent.construction_mode,
+        };
+        self.templates.insert(new_id, template);
+        Some(new_id)
+    }
+}
+
 fn accumulate_costs(target: &mut Vec<(ResourceType, f64)>, added: &[(ResourceType, f64)]) {
     for (resource, amount) in added {
         if let Some((_, existing)) = target.iter_mut().find(|(existing_resource, _)| existing_resource == resource) {
@@ -353,6 +459,9 @@ fn accumulate_attributes(summary: &mut ShipDesignSummary, attributes: &[Attribut
             "magazine_capacity_t" => summary.magazine_capacity_t += *value,
             "sensor_range_au" => summary.sensor_range_au += *value,
             "docking_ports" => summary.docking_ports += *value,
+            "isru_rate_t_per_year" => summary.isru_rate_t_per_year += *value,
+            "heat_sink_capacity" => summary.heat_sink_capacity += *value,
+            "maintenance_rate" => summary.maintenance_rate += *value,
             _ => {}
         }
     }
@@ -434,6 +543,7 @@ mod tests {
                 surface_launchable: true,
                 orbital_only: false,
                 is_station: false,
+                size_tier: None,
                 required_tech: None,
                 resource_costs: vec![(ResourceType::Iron, 3.0)],
                 slot_layout: vec![HullSlotDefinition {
@@ -441,6 +551,8 @@ mod tests {
                     category: ShipModuleCategory::Propulsion,
                     size: "Small".to_string(),
                     required: true,
+                    position: None,
+                    rotation_deg: None,
                 }],
                 tags: Vec::new(),
             },
@@ -490,5 +602,29 @@ mod tests {
         assert_eq!(summary.thrust_kn, 4.0);
         assert_eq!(summary.resource_costs.len(), 1);
         assert_eq!(summary.resource_costs[0], (ResourceType::Iron, 5.0));
+    }
+
+    #[test]
+    fn orbital_only_hulls_reject_surface_launch_mode() {
+        let hull = ShipHullDefinition {
+            id: "orbital_hull".to_string(),
+            display_name: "Orbital Hull".to_string(),
+            description: String::new(),
+            class: ShipClass::Frigate,
+            base_build_points: 100.0,
+            base_dry_mass_t: 10.0,
+            default_construction_mode: ConstructionMode::OrbitalAssembly,
+            surface_launchable: false,
+            orbital_only: true,
+            is_station: false,
+            size_tier: None,
+            required_tech: None,
+            resource_costs: Vec::new(),
+            slot_layout: Vec::new(),
+            tags: Vec::new(),
+        };
+
+        assert!(!hull.supports_construction_mode(ConstructionMode::SurfaceLaunch));
+        assert!(hull.supports_construction_mode(ConstructionMode::OrbitalAssembly));
     }
 }
