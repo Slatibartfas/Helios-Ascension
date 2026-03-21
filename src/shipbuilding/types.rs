@@ -14,6 +14,13 @@ pub enum ShipModuleCategory {
     Construction,
     Habitat,
     Utility,
+    // Aurora/TI/DW-inspired categories:
+    Bridge,
+    CrewQuarters,
+    MaintenanceBay,
+    ISRU,
+    Scanner,
+    HeatRadiator,
 }
 
 impl ShipModuleCategory {
@@ -32,6 +39,12 @@ impl ShipModuleCategory {
             Construction,
             Habitat,
             Utility,
+            Bridge,
+            CrewQuarters,
+            MaintenanceBay,
+            ISRU,
+            Scanner,
+            HeatRadiator,
         ]
     }
 
@@ -48,6 +61,12 @@ impl ShipModuleCategory {
             Self::Construction => "Construction",
             Self::Habitat => "Habitat",
             Self::Utility => "Utility",
+            Self::Bridge => "Bridge",
+            Self::CrewQuarters => "Crew Quarters",
+            Self::MaintenanceBay => "Maintenance",
+            Self::ISRU => "ISRU",
+            Self::Scanner => "Scanner",
+            Self::HeatRadiator => "Heat Radiator",
         }
     }
 
@@ -64,6 +83,12 @@ impl ShipModuleCategory {
             Self::Construction => "🏗",
             Self::Habitat => "🏠",
             Self::Utility => "🔧",
+            Self::Bridge => "🎛",
+            Self::CrewQuarters => "🛏",
+            Self::MaintenanceBay => "🔩",
+            Self::ISRU => "⚙️",
+            Self::Scanner => "🔍",
+            Self::HeatRadiator => "🌡",
         }
     }
 }
@@ -141,4 +166,26 @@ impl ConstructionMode {
             Self::OrbitalShipyard => "Shipyard",
         }
     }
+}
+
+/// Immutable design template — a "class" in Aurora/DW terminology.
+/// Stored in ShipDesignLibrary and referenced by construction projects.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShipDesignTemplate {
+    /// Stable UUID for versioning and linking
+    pub id: uuid::Uuid,
+    /// Display name, e.g. "Survey Probe Mk-I", "Frigate Block 2"
+    pub name: String,
+    /// Points to a ShipHullDefinition id
+    pub hull_id: String,
+    /// Module selections for each slot
+    pub modules: Vec<crate::shipbuilding::ShipModuleSelection>,
+    /// Version number within the same design lineage
+    pub version: u32,
+    /// Parent template id for version history (None for original)
+    pub parent_template_id: Option<uuid::Uuid>,
+    /// Game time when this version was created
+    pub created_at_game_time: f64,
+    /// Construction mode for this design
+    pub construction_mode: ConstructionMode,
 }

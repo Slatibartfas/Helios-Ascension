@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use super::dashboard::format_mass_compact;
+use bevy_egui::egui::Widget;
+use super::dashboard::format_mass_compact_tonnes;
 use super::*;
 use crate::economy::components::LocalStockpile;
 
@@ -22,6 +23,7 @@ pub struct ShipbuildingUiState {
     pub selected_modules: HashMap<String, String>,
     pub design_name: String,
     pub selected_mode: crate::shipbuilding::ConstructionMode,
+    pub selected_slot: Option<String>,
 }
 
 impl Default for ShipbuildingUiState {
@@ -32,6 +34,7 @@ impl Default for ShipbuildingUiState {
             selected_modules: HashMap::default(),
             design_name: String::new(),
             selected_mode: crate::shipbuilding::ConstructionMode::SurfaceLaunch,
+            selected_slot: None,
         }
     }
 }
@@ -106,12 +109,33 @@ fn render_shipbuilding_panel(
         .as_deref()
         .and_then(|hull_id| shipbuilding_data.get_hull(hull_id));
     if let Some(hull) = selected_hull {
+        if !hull.supports_construction_mode(ui_state.selected_mode) {
+            ui_state.selected_mode = if hull.supports_construction_mode(hull.default_construction_mode)
+            {
+                hull.default_construction_mode
+            } else {
+                [
+                    crate::shipbuilding::ConstructionMode::SurfaceLaunch,
+                    crate::shipbuilding::ConstructionMode::OrbitalAssembly,
+                    crate::shipbuilding::ConstructionMode::OrbitalShipyard,
+                ]
+                .into_iter()
+                .find(|mode| hull.supports_construction_mode(*mode))
+                .unwrap_or(hull.default_construction_mode)
+            };
+        }
         hydrate_default_slot_selection(ui_state, shipbuilding_data, research_state, hull);
     }
 
     let selected_colony = ui_state.selected_colony.and_then(|entity| colonies.get(entity).ok());
     let design = build_current_design(ui_state);
     let summary = shipbuilding_data.summarize_design(&design, research_state);
+    let queue_errors = crate::shipbuilding::systems::queue_validation_errors(
+        selected_colony.map(|(_, colony, _, _)| colony),
+        selected_hull,
+        summary.as_ref(),
+        ui_state.selected_mode,
+    );
 
     ui.horizontal(|ui| {
         draw_status_chip(ui, "UNLOCKED HULLS", available_hulls.len().to_string(), theme::ACCENT);
@@ -166,10 +190,8 @@ fn render_shipbuilding_panel(
         draw_project_queue(ui, colonies, projects);
     });
 
-    let can_queue = summary
-        .as_ref()
-        .is_some_and(|summary| summary.missing_required_slots.is_empty());
-    if let Some((colony_entity, colony, _, _)) = selected_colony {
+    let can_queue = queue_errors.is_empty();
+    if let Some((colony_entity, _, _, _)) = selected_colony {
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             let queue_label = match ui_state.selected_mode {
@@ -190,16 +212,21 @@ fn render_shipbuilding_panel(
                 });
             }
 
-            if colony.building_count(BuildingType::Shipyard) == 0 {
+            if let Some(error) = queue_errors.first() {
                 ui.label(
-                    egui::RichText::new(
-                        "Selected colony needs a Shipyard before any design can be queued.",
-                    )
-                    .font(theme::body(11.0))
-                    .color(theme::RED),
+                    egui::RichText::new(error)
+                        .font(theme::body(11.0))
+                        .color(theme::RED),
                 );
             }
         });
+    } else if let Some(error) = queue_errors.first() {
+        ui.add_space(8.0);
+        ui.label(
+            egui::RichText::new(error)
+                .font(theme::body(11.0))
+                .color(theme::RED),
+        );
     }
 }
 
@@ -415,12 +442,23 @@ fn draw_design_column(
                 .font(theme::mono(10.0))
                 .color(theme::TEXT_DIM),
         );
+        let selected_hull = ui_state
+            .selected_hull_id
+            .as_deref()
+            .and_then(|hull_id| shipbuilding_data.get_hull(hull_id));
         for mode in [
             crate::shipbuilding::ConstructionMode::SurfaceLaunch,
             crate::shipbuilding::ConstructionMode::OrbitalAssembly,
             crate::shipbuilding::ConstructionMode::OrbitalShipyard,
         ] {
-            ui.selectable_value(&mut ui_state.selected_mode, mode, mode.short_name());
+            let enabled = selected_hull.is_none_or(|hull| hull.supports_construction_mode(mode));
+            let response = ui.add_enabled(
+                enabled,
+                egui::Button::selectable(ui_state.selected_mode == mode, mode.short_name()),
+            );
+            if response.clicked() {
+                ui_state.selected_mode = mode;
+            }
         }
     });
 
@@ -432,6 +470,18 @@ fn draw_design_column(
                     .font(theme::body(11.0))
                     .color(theme::TEXT_DIM),
             );
+            ui.add_space(6.0);
+
+            // Draw hull visual with clickable slots
+            let clicked_slot = draw_hull_visual(
+                ui,
+                hull,
+                &ui_state.selected_modules,
+                ui_state.selected_slot.as_deref(),
+            );
+            if let Some(slot_id) = clicked_slot {
+                ui_state.selected_slot = Some(slot_id);
+            }
             ui.add_space(6.0);
 
             egui::ScrollArea::vertical()
@@ -557,7 +607,36 @@ fn draw_summary_column(
     );
     theme::divider(ui);
 
+    egui::ScrollArea::vertical()
+        .id_salt("shipbuilding_summary_scroll")
+        .show(ui, |ui| {
+
     if let Some(hull) = selected_hull {
+        // Visual stat gauges for quick assessment
+        if let Some(summary) = summary {
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new("Quick Stats")
+                    .font(theme::mono(9.5))
+                    .color(theme::TEXT_DIM),
+            );
+            egui::Frame::NONE
+                .fill(theme::SURFACE)
+                .stroke(egui::Stroke::new(1.0, theme::BORDER))
+                .inner_margin(egui::Margin::same(6))
+                .show(ui, |ui| {
+                    ui.set_max_height(80.0);
+                    draw_stat_gauge(ui, "Delta-V", summary.delta_v_ms, 10_000.0, " m/s", theme::RP_BLUE);
+                    draw_stat_gauge(ui, "Thrust", summary.thrust_kn, 10_000.0, " kN", theme::AMBER);
+                    draw_stat_gauge(ui, "Accel", summary.acceleration_ms2, 100.0, " m/s²", theme::GOLD);
+                    draw_power_balance_gauge(ui, summary.power_generation_mw, summary.power_draw_mw);
+                    if summary.ordnance_capacity_t > 0.0 || summary.magazine_capacity_t > 0.0 || summary.docking_ports > 0.0 {
+                        draw_combat_value_gauge(ui, summary.ordnance_capacity_t, summary.magazine_capacity_t, summary.docking_ports);
+                    }
+                });
+            ui.add_space(4.0);
+        }
+
         egui::Grid::new("shipbuilding_summary_grid").show(ui, |ui| {
             theme::stat_row(ui, "Hull", &hull.display_name);
             theme::stat_row(ui, "Size Class", hull.effective_size_tier().display_name());
@@ -566,15 +645,15 @@ fn draw_summary_column(
 
             if let Some(summary) = summary {
                 theme::stat_row(ui, "Build Points", &format!("{:.0}", summary.build_points));
-                theme::stat_row(ui, "Dry Mass", &format_mass_compact(summary.dry_mass_t));
-                theme::stat_row(ui, "Launch Mass", &format_mass_compact(summary.launch_mass_t));
-                theme::stat_row(ui, "Fuel Capacity", &format_mass_compact(summary.fuel_capacity_t));
-                theme::stat_row(ui, "Cargo Capacity", &format_mass_compact(summary.cargo_capacity_t));
+                theme::stat_row(ui, "Dry Mass", &format_mass_compact_tonnes(summary.dry_mass_t));
+                theme::stat_row(ui, "Launch Mass", &format_mass_compact_tonnes(summary.launch_mass_t));
+                theme::stat_row(ui, "Fuel Capacity", &format_mass_compact_tonnes(summary.fuel_capacity_t));
+                theme::stat_row(ui, "Cargo Capacity", &format_mass_compact_tonnes(summary.cargo_capacity_t));
                 if summary.ordnance_capacity_t > 0.0 {
-                    theme::stat_row(ui, "Ordnance Cap", &format_mass_compact(summary.ordnance_capacity_t));
+                    theme::stat_row(ui, "Ordnance Cap", &format_mass_compact_tonnes(summary.ordnance_capacity_t));
                 }
                 if summary.magazine_capacity_t > 0.0 {
-                    theme::stat_row(ui, "Magazine Cap", &format_mass_compact(summary.magazine_capacity_t));
+                    theme::stat_row(ui, "Magazine Cap", &format_mass_compact_tonnes(summary.magazine_capacity_t));
                 }
                 theme::stat_row(ui, "Crew", &format!("{:.0}", summary.crew));
                 theme::stat_row(ui, "Power Gen", &format!("{:.1} MW", summary.power_generation_mw));
@@ -604,6 +683,15 @@ fn draw_summary_column(
                     ))
                     .font(theme::body(11.0))
                     .color(theme::RED),
+                );
+            }
+
+            if let Some(error) = hull.mode_compatibility_error(ui_state.selected_mode) {
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new(error)
+                        .font(theme::body(11.0))
+                        .color(theme::RED),
                 );
             }
 
@@ -694,6 +782,7 @@ fn draw_summary_column(
                 .color(theme::TEXT_DIM),
         );
     }
+    }); // end ScrollArea
 }
 
 fn draw_project_queue(
@@ -753,7 +842,7 @@ fn draw_project_queue(
                 );
                 ui.label(egui::RichText::new(format!("{:.0}%", project.progress_percent() as f64 * 100.0)).font(theme::mono(10.0)).color(theme::TEXT_VALUE));
                 ui.label(egui::RichText::new(format!("{:.0} BP", project.required_build_points)).font(theme::mono(10.0)).color(theme::TEXT_DIM));
-                ui.label(egui::RichText::new(format_mass_compact(project.launch_mass_t)).font(theme::mono(10.0)).color(theme::TEXT_DIM));
+                ui.label(egui::RichText::new(format_mass_compact_tonnes(project.launch_mass_t)).font(theme::mono(10.0)).color(theme::TEXT_DIM));
                 ui.end_row();
             }
         });
@@ -831,4 +920,141 @@ fn format_material_amount_mt(amount_mt: f64) -> String {
     } else {
         format!("{:.1} kg", amount_mt * 1_000_000_000.0)
     }
+}
+
+/// Draw a horizontal stat gauge (progress bar style).
+fn draw_stat_gauge(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: f64,
+    max_value: f64,
+    unit: &str,
+    color: egui::Color32,
+) {
+    ui.horizontal(|ui| {
+        ui.set_min_width(80.0);
+        ui.label(
+            egui::RichText::new(label)
+                .font(theme::mono(9.5))
+                .color(theme::TEXT_DIM),
+        );
+        let fraction = (value.abs() / max_value.abs().max(0.001)).clamp(0.0, 1.0) as f32;
+        let bar = egui::ProgressBar::new(fraction)
+            .fill(color)
+            .text(format!("{:.1}{}", value, unit));
+        bar.ui(ui);
+    });
+}
+
+/// Draw a combat value indicator bar.
+fn draw_combat_value_gauge(ui: &mut egui::Ui, ordnance_t: f64, magazine_t: f64, docking_ports: f64) {
+    let combat_value = ordnance_t * 10.0 + magazine_t * 5.0 + docking_ports * 2.0;
+    let max_combat = 100.0; // arbitrary scale for 1-10 display
+    ui.horizontal(|ui| {
+        ui.set_min_width(80.0);
+        ui.label(
+            egui::RichText::new("Combat")
+                .font(theme::mono(9.5))
+                .color(theme::TEXT_DIM),
+        );
+        let fraction = (combat_value / max_combat).clamp(0.0, 1.0) as f32;
+        let color = if combat_value < 10.0 {
+            theme::TEXT_DIM
+        } else if combat_value < 50.0 {
+            theme::AMBER
+        } else {
+            theme::RED
+        };
+        let bar = egui::ProgressBar::new(fraction)
+            .fill(color)
+            .text(format!("{:.0}", combat_value));
+        bar.ui(ui);
+    });
+}
+
+/// Draw a power balance gauge (can be negative).
+fn draw_power_balance_gauge(ui: &mut egui::Ui, gen_mw: f64, draw_mw: f64) {
+    let balance = gen_mw - draw_mw;
+    let max_power = gen_mw.max(draw_mw).max(1.0);
+    ui.horizontal(|ui| {
+        ui.set_min_width(80.0);
+        ui.label(
+            egui::RichText::new("Pwr Bal")
+                .font(theme::mono(9.5))
+                .color(theme::TEXT_DIM),
+        );
+        let fraction = (balance.abs() / max_power).clamp(0.0, 1.0) as f32;
+        let color = if balance >= 0.0 { theme::GREEN } else { theme::RED };
+        let bar = egui::ProgressBar::new(fraction)
+            .fill(color)
+            .text(format!("{:+.1} MW", balance));
+        bar.ui(ui);
+    });
+}
+
+/// Returns the color for a module category.
+fn category_color(category: crate::shipbuilding::ShipModuleCategory) -> egui::Color32 {
+    match category {
+        crate::shipbuilding::ShipModuleCategory::Command => theme::ACCENT,
+        crate::shipbuilding::ShipModuleCategory::Propulsion => theme::AMBER,
+        crate::shipbuilding::ShipModuleCategory::Power => egui::Color32::from_rgb(255, 200, 50),
+        crate::shipbuilding::ShipModuleCategory::Fuel => egui::Color32::from_rgb(100, 180, 255),
+        crate::shipbuilding::ShipModuleCategory::Cargo => egui::Color32::from_rgb(150, 150, 200),
+        crate::shipbuilding::ShipModuleCategory::Sensor => egui::Color32::from_rgb(50, 255, 150),
+        crate::shipbuilding::ShipModuleCategory::Defense => egui::Color32::from_rgb(200, 100, 255),
+        crate::shipbuilding::ShipModuleCategory::Weapon => theme::RED,
+        crate::shipbuilding::ShipModuleCategory::Construction => egui::Color32::from_rgb(205, 150, 80),
+        crate::shipbuilding::ShipModuleCategory::Habitat => egui::Color32::from_rgb(180, 130, 255),
+        crate::shipbuilding::ShipModuleCategory::Utility => egui::Color32::from_rgb(120, 140, 170),
+        crate::shipbuilding::ShipModuleCategory::Bridge => egui::Color32::from_rgb(230, 200, 100),
+        crate::shipbuilding::ShipModuleCategory::CrewQuarters => egui::Color32::from_rgb(100, 200, 180),
+        crate::shipbuilding::ShipModuleCategory::MaintenanceBay => egui::Color32::from_rgb(180, 150, 120),
+        crate::shipbuilding::ShipModuleCategory::ISRU => egui::Color32::from_rgb(200, 150, 100),
+        crate::shipbuilding::ShipModuleCategory::Scanner => egui::Color32::from_rgb(80, 220, 200),
+        crate::shipbuilding::ShipModuleCategory::HeatRadiator => egui::Color32::from_rgb(255, 100, 100),
+    }
+}
+
+/// Draw a compact slot status strip showing filled/empty slots.
+/// Returns the ID of the clicked slot, if any.
+fn draw_hull_visual(
+    ui: &mut egui::Ui,
+    hull: &crate::shipbuilding::ShipHullDefinition,
+    selected_modules: &HashMap<String, String>,
+    selected_slot: Option<&str>,
+) -> Option<String> {
+    ui.label(
+        egui::RichText::new("Slots")
+            .font(theme::mono(9.0))
+            .color(theme::TEXT_DIM),
+    );
+
+    let mut clicked_slot: Option<String> = None;
+
+    ui.horizontal(|ui| {
+        for slot in &hull.slot_layout {
+            let module_filled = selected_modules.contains_key(&slot.slot_id);
+            let is_selected = selected_slot == Some(&slot.slot_id);
+            let color = category_color(slot.category);
+
+            let fill_alpha = if module_filled { 1.0 } else { 0.3 };
+            let bg_color = color.gamma_multiply(fill_alpha);
+
+            let slot_label = format!("{} {}", slot.slot_id.chars().next().unwrap_or('?'), slot.size.chars().next().unwrap_or('S'));
+
+            if egui::Button::selectable(is_selected, egui::RichText::new(slot_label).font(theme::mono(8.0))).ui(ui).clicked() {
+                clicked_slot = Some(slot.slot_id.clone());
+            }
+
+            // Draw colored indicator
+            let indicator_size = 8.0;
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(indicator_size, indicator_size), egui::Sense::hover());
+            let painter = ui.painter_at(rect);
+            painter.rect_filled(rect.expand(1.0), 2.0, bg_color);
+
+            ui.add_space(4.0);
+        }
+    });
+
+    clicked_slot
 }

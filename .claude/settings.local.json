@@ -14,7 +14,16 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:api.github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "Bash(cargo test:*)"
+      "Bash(cargo test:*)",
+      "WebFetch(domain:aurora2.pentarch.org)",
+      "WebFetch(domain:aurora4x.fandom.com)",
+      "WebFetch(domain:www.scribd.com)",
+      "WebFetch(domain:7w1.github.io)",
+      "WebFetch(domain:www.reddit.com)",
+      "WebFetch(domain:www.navalgazing.net)",
+      "WebFetch(domain:wiki.hoodedhorse.com)",
+      "WebFetch(domain:www.thegamer.com)",
+      "WebFetch(domain:steamcommunity.com)"
     ]
   }
 }

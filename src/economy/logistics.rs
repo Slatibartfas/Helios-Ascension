@@ -196,6 +196,14 @@ impl PendingResourceRequests {
             .iter()
             .any(|r| r.destination_body == body && r.resource == resource && r.is_open())
     }
+
+    pub fn open_request_ids_for(&self, body: Entity, resource: ResourceType) -> Vec<u64> {
+        self.requests
+            .iter()
+            .filter(|r| r.destination_body == body && r.resource == resource && r.is_open())
+            .map(|r| r.id)
+            .collect()
+    }
 }
 
 // ── MinimumStockpile ──────────────────────────────────────────────────────────

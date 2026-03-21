@@ -4,8 +4,9 @@ use super::components::{
     LaunchCapacityState, PendingShipbuildingActions, QueueShipConstructionAction,
     ShipConstructionProject, ShipConstructionState,
 };
-use super::data::ShipbuildingData;
+use super::data::{ShipDesignLibrary, ShipDesignSummary, ShipHullDefinition, ShipbuildingData};
 use super::types::ConstructionMode;
+use super::ShipDesignTemplate;
 use crate::colony::{BuildingType, Colony};
 use crate::economy::budget::SECONDS_PER_YEAR;
 use crate::economy::components::LocalStockpile;
@@ -36,12 +37,104 @@ const LAUNCH_METHANE_PER_TON_MT: f64 = 0.000_000_12;
 const LAUNCH_OXYGEN_PER_TON_MT: f64 = 0.000_000_22;
 const LAUNCH_POLYMERS_PER_TON_MT: f64 = 0.000_000_01;
 
+pub fn has_surface_launch_infrastructure(colony: &Colony) -> bool {
+    colony.building_count(BuildingType::LaunchSite) > 0
+        || colony.building_count(BuildingType::SpacePort) > 0
+        || colony.building_count(BuildingType::OrbitalLift) > 0
+}
+
+pub fn queue_validation_errors(
+    colony: Option<&Colony>,
+    hull: Option<&ShipHullDefinition>,
+    summary: Option<&ShipDesignSummary>,
+    mode: ConstructionMode,
+) -> Vec<String> {
+    let mut errors = Vec::new();
+
+    let Some(hull) = hull else {
+        errors.push("Select an unlocked hull before queueing a design.".to_string());
+        return errors;
+    };
+
+    if let Some(error) = hull.mode_compatibility_error(mode) {
+        errors.push(error.to_string());
+    }
+
+    let Some(summary) = summary else {
+        errors.push("The current design is invalid or locked by research requirements.".to_string());
+        return errors;
+    };
+
+    if !summary.missing_required_slots.is_empty() {
+        errors.push(format!(
+            "Missing required slots: {}",
+            summary.missing_required_slots.join(", ")
+        ));
+    }
+
+    let Some(colony) = colony else {
+        errors.push("Select a build site before queueing a design.".to_string());
+        return errors;
+    };
+
+    if colony.building_count(BuildingType::Shipyard) == 0 {
+        errors.push("Selected colony needs an operational Shipyard.".to_string());
+    }
+
+    if mode == ConstructionMode::SurfaceLaunch && !has_surface_launch_infrastructure(colony) {
+        errors.push(
+            "Selected colony needs a Launch Site, Space Port, or Orbital Lift for surface launches."
+                .to_string(),
+        );
+    }
+
+    errors
+}
+
+fn create_ship_resource_requests(
+    resource_requests: &mut PendingResourceRequests,
+    destination_body: Entity,
+    destination_name: &str,
+    created_at_seconds: f64,
+    costs: &[(ResourceType, f64)],
+) -> Vec<u64> {
+    let mut request_ids = Vec::new();
+
+    for (resource, amount_mt) in costs {
+        if *amount_mt <= 0.0 {
+            continue;
+        }
+
+        let request_id = resource_requests.add(ResourceRequest {
+            id: 0,
+            destination_body,
+            destination_name: destination_name.to_string(),
+            resource: *resource,
+            amount_mt: *amount_mt,
+            priority: RequestPriority::Construction,
+            state: RequestState::Pending,
+            in_transit_mt: 0.0,
+            eta_seconds: None,
+            assigned_company_idx: None,
+            created_at_seconds,
+            source_body: None,
+            linked_project: None,
+            payment_made: false,
+            completed_at_seconds: None,
+        });
+        request_ids.push(request_id);
+    }
+
+    request_ids
+}
+
 pub fn process_pending_shipbuilding_actions(
     mut commands: Commands,
     mut actions: ResMut<PendingShipbuildingActions>,
     colonies: Query<&Colony>,
     mut stockpiles: Query<&mut LocalStockpile>,
     shipbuilding_data: Res<ShipbuildingData>,
+    mut design_library: ResMut<ShipDesignLibrary>,
     research_state: Res<ResearchState>,
     mut resource_requests: ResMut<PendingResourceRequests>,
     sim_time: Res<SimulationTime>,
@@ -54,25 +147,7 @@ pub fn process_pending_shipbuilding_actions(
             continue;
         };
 
-        if colony.building_count(BuildingType::Shipyard) == 0 {
-            warn!(
-                "{} cannot queue ship construction without an operational Shipyard",
-                colony.name
-            );
-            continue;
-        }
-
-        if design.construction_mode == ConstructionMode::SurfaceLaunch
-            && colony.building_count(BuildingType::LaunchSite) == 0
-            && colony.building_count(BuildingType::SpacePort) == 0
-            && colony.building_count(BuildingType::OrbitalLift) == 0
-        {
-            warn!(
-                "{} cannot queue a surface-launch design without orbital access infrastructure",
-                colony.name
-            );
-            continue;
-        }
+        let hull = shipbuilding_data.get_hull(&design.hull_id);
 
         let Some(summary) = shipbuilding_data.summarize_design(&design, &research_state) else {
             warn!(
@@ -82,58 +157,74 @@ pub fn process_pending_shipbuilding_actions(
             continue;
         };
 
-        if !summary.missing_required_slots.is_empty() {
+        let queue_errors = queue_validation_errors(
+            Some(colony),
+            hull,
+            Some(&summary),
+            design.construction_mode,
+        );
+        if !queue_errors.is_empty() {
             warn!(
-                "Rejected incomplete ship design '{}' at {}: missing {:?}",
-                design.name, colony.name, summary.missing_required_slots
+                "Rejected ship design '{}' at {}: {}",
+                design.name,
+                colony.name,
+                queue_errors.join(" ")
             );
             continue;
         }
 
-        let mut awaiting_resources = false;
-        let mut blocking_request_ids = Vec::new();
+        // Create and save a design template for this construction
+        let template_id = {
+            let template = ShipDesignTemplate {
+                id: uuid::Uuid::new_v4(),
+                name: design.name.clone(),
+                hull_id: design.hull_id.clone(),
+                modules: design.modules.clone(),
+                version: design_library.latest_version(&design.name) + 1,
+                parent_template_id: None,
+                created_at_game_time: now,
+                construction_mode: design.construction_mode,
+            };
+            design_library.save_template(template)
+        };
 
-        if let Ok(mut stockpile) = stockpiles.get_mut(build_site) {
+        let blocking_request_ids = if let Ok(mut stockpile) = stockpiles.get_mut(build_site) {
             if stockpile.can_afford(&summary.resource_costs) {
                 stockpile.deduct(&summary.resource_costs);
+                Vec::new()
             } else {
-                awaiting_resources = true;
-                for (resource, amount) in &summary.resource_costs {
-                    if *amount <= 0.0 {
-                        continue;
-                    }
-                    let shortfall = (*amount - stockpile.get(resource)).max(0.0);
-                    if shortfall <= 0.0 || resource_requests.has_open_request_for(build_site, *resource) {
-                        continue;
-                    }
-                    let request_id = resource_requests.add(ResourceRequest {
-                        id: 0,
-                        destination_body: build_site,
-                        destination_name: colony.name.clone(),
-                        resource: *resource,
-                        amount_mt: shortfall,
-                        priority: RequestPriority::Construction,
-                        state: RequestState::Pending,
-                        in_transit_mt: 0.0,
-                        eta_seconds: None,
-                        assigned_company_idx: None,
-                        created_at_seconds: now,
-                        source_body: None,
-                        linked_project: None,
-                        payment_made: false,
-                        completed_at_seconds: None,
-                    });
-                    blocking_request_ids.push(request_id);
-                }
+                let shortfalls: Vec<_> = summary
+                    .resource_costs
+                    .iter()
+                    .filter_map(|(resource, amount)| {
+                        let shortfall = (*amount - stockpile.get(resource)).max(0.0);
+                        (shortfall > 0.0).then_some((*resource, shortfall))
+                    })
+                    .collect();
+                create_ship_resource_requests(
+                    &mut resource_requests,
+                    build_site,
+                    &colony.name,
+                    now,
+                    &shortfalls,
+                )
             }
-        } else if !summary.resource_costs.is_empty() {
-            awaiting_resources = true;
-        }
+        } else {
+            create_ship_resource_requests(
+                &mut resource_requests,
+                build_site,
+                &colony.name,
+                now,
+                &summary.resource_costs,
+            )
+        };
+        let awaiting_resources = !blocking_request_ids.is_empty();
 
         let selected_modules = design.modules.clone();
         let module_count = selected_modules.len();
         let project_entity = commands
             .spawn(ShipConstructionProject {
+                template_id,
                 design_name: design.name,
                 hull_id: design.hull_id,
                 build_site,
