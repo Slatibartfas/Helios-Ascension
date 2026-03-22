@@ -2,6 +2,8 @@ use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::prelude::*;
 #[cfg(not(target_os = "windows"))]
 use bevy::render::view::Hdr;
+#[cfg(target_os = "windows")]
+use bevy::render::view::NoIndirectDrawing;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass, EguiStartupSet};
 
 use crate::astronomy::components::{CurrentStarSystem, SystemId};
@@ -143,6 +145,7 @@ fn spawn_camera(mut commands: Commands) {
             far: 3_000_000.0, // Increased to comfortably render at max camera distance
             ..default()
         }),
+        NoIndirectDrawing,
         GameCamera,
         CameraAnchor(None),
         OrbitCamera::default(),
