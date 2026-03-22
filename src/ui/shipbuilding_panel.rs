@@ -1122,13 +1122,13 @@ fn draw_ship_schematic(
 
     for slot in &hull.slot_layout {
         let column = match slot.category {
-            crate::shipbuilding::ShipModuleCategory::Sensor
-            | crate::shipbuilding::ShipModuleCategory::Scanner
-            | crate::shipbuilding::ShipModuleCategory::Defense
-            | crate::shipbuilding::ShipModuleCategory::HeatRadiator => 0,
-            crate::shipbuilding::ShipModuleCategory::Weapon
-            | crate::shipbuilding::ShipModuleCategory::Cargo
-            | crate::shipbuilding::ShipModuleCategory::Utility => 2,
+            crate::shipbuilding::ShipModuleCategory::Sensors
+            | crate::shipbuilding::ShipModuleCategory::SpecialScience
+            | crate::shipbuilding::ShipModuleCategory::ArmorDefense
+            | crate::shipbuilding::ShipModuleCategory::PowerThermal => 0,
+            crate::shipbuilding::ShipModuleCategory::Weapons
+            | crate::shipbuilding::ShipModuleCategory::FuelStorage
+            | crate::shipbuilding::ShipModuleCategory::UtilitySupport => 2,
             _ => 1,
         };
         columns[column].push(slot);
