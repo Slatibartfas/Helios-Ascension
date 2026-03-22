@@ -301,259 +301,270 @@ pub(super) fn ui_fleets_panel(
     egui::CentralPanel::default()
         .frame(theme::central_frame())
         .show(ctx, |ui| {
-        draw_menu_header(
-            ui,
-            "FLEETS",
-            "Force composition, orbital posture, and transfer planning.",
-        );
-
-        // ── Top summary bar ──────────────────────────────────────────────────
-        let fleet_count = fleet_query.iter().count();
-        let in_transit = fleet_query
-            .iter()
-            .filter(|(_, _, _, m, _)| m.is_some())
-            .count();
-        ui.horizontal_wrapped(|ui| {
-            draw_status_chip(ui, "TOTAL FLEETS", fleet_count.to_string(), theme::TEXT_VALUE);
-            ui.separator();
-            draw_status_chip(ui, "IN TRANSIT", in_transit.to_string(), theme::RP_BLUE);
-        });
-
-        theme::divider(ui);
-
-        // ── Main two-column layout ───────────────────────────────────────────
-        let available = ui.available_size();
-        let left_width = (available.x * 0.40).clamp(340.0, 560.0);
-
-        ui.horizontal_top(|ui| {
-            // ── Left column: fleet list ──────────────────────────────────────
-            ui.allocate_ui_with_layout(
-                egui::Vec2::new(left_width, available.y - 80.0),
-                egui::Layout::top_down(egui::Align::Min),
-                |ui| {
-                    egui::Frame::default()
-                        .fill(theme::SURFACE)
-                        .inner_margin(egui::Margin::same(8i8))
-                        .stroke(egui::Stroke::new(1.0, theme::BORDER))
-                        .corner_radius(4.0)
-                        .show(ui, |ui| {
-                            ui.label(
-                                egui::RichText::new("FLEET LIST")
-                                    .font(theme::heading())
-                                    .color(theme::ACCENT),
-                            );
-                            ui.separator();
-
-                            egui::ScrollArea::vertical()
-                                .id_salt("fleet_list_scroll")
-                                .max_height(available.y - 140.0)
-                                .show(ui, |ui| {
-                                    render_fleet_list(
-                                        ui,
-                                        &fleet_query,
-                                        &body_query,
-                                        &mut fleet_ui_state,
-                                        &mut pending_actions,
-                                        elapsed,
-                                    );
-                                });
-
-                            ui.separator();
-                            // ── Create Fleet section ─────────────────────────────
-                            {
-                                // Build sorted colony list grouped by star system
-                                let mut colony_entries: Vec<(Entity, String, String)> =
-                                    colony_query
-                                        .iter()
-                                        .filter_map(|(e, _colony)| {
-                                            body_query.get(e).ok().map(|(_, body, _, _, _)| {
-                                                let star = find_body_star_name(e, &body_query);
-                                                (e, body.name.clone(), star)
-                                            })
-                                        })
-                                        .collect();
-                                colony_entries.sort_by(|a, b| a.2.cmp(&b.2).then(a.1.cmp(&b.1)));
-
-                                // Keep selection valid; default to selected fleet location → Earth → first colony
-                                let selection_valid = fleet_ui_state
-                                    .spawn_location_body
-                                    .map(|e| colony_entries.iter().any(|(ce, _, _)| *ce == e))
-                                    .unwrap_or(false);
-                                if !selection_valid {
-                                    let fallback = fleet_ui_state
-                                        .selected_fleet
-                                        .and_then(|sel| {
-                                            fleet_query
-                                                .get(sel)
-                                                .ok()
-                                                .and_then(|(_, _, mo, _, _)| mo.map(|o| o.body))
-                                        })
-                                        .and_then(|e| {
-                                            colony_entries
-                                                .iter()
-                                                .any(|(ce, _, _)| *ce == e)
-                                                .then_some(e)
-                                        })
-                                        .or_else(|| {
-                                            body_query
-                                                .iter()
-                                                .find(|(_, b, _, _, _)| b.name == "Earth")
-                                                .map(|(e, _, _, _, _)| e)
-                                                .and_then(|e| {
-                                                    colony_entries
-                                                        .iter()
-                                                        .any(|(ce, _, _)| *ce == e)
-                                                        .then_some(e)
-                                                })
-                                        })
-                                        .or_else(|| colony_entries.first().map(|(e, _, _)| *e));
-                                    fleet_ui_state.spawn_location_body = fallback;
-                                }
-
-                                let selected_label = fleet_ui_state
-                                    .spawn_location_body
-                                    .and_then(|e| colony_entries.iter().find(|(ce, _, _)| *ce == e))
-                                    .map(|(_, name, star)| format!("{name} ({star})"))
-                                    .unwrap_or_else(|| "— No colony —".to_string());
-
-                                ui.horizontal(|ui| {
-                                    ui.label(
-                                        egui::RichText::new("Location:")
-                                            .size(12.0)
-                                            .color(theme::TEXT_DIM),
-                                    );
-                                    if colony_entries.is_empty() {
-                                        ui.label(
-                                            egui::RichText::new("No colonies yet")
-                                                .size(12.0)
-                                                .italics()
-                                                .color(theme::TEXT_HINT),
-                                        );
-                                    } else {
-                                        egui::ComboBox::from_id_salt("create_fleet_location")
-                                            .selected_text(
-                                                egui::RichText::new(&selected_label).size(12.0),
-                                            )
-                                            .width(210.0)
-                                            .show_ui(ui, |ui| {
-                                                let mut current_star = String::new();
-                                                for (e, body_name, star_name) in &colony_entries {
-                                                    if *star_name != current_star {
-                                                        current_star = star_name.clone();
-                                                        ui.add_space(2.0);
-                                                        ui.label(
-                                                            egui::RichText::new(format!(
-                                                                "★ {star_name}"
-                                                            ))
-                                                            .size(11.0)
-                                                            .strong()
-                                                            .color(theme::STAR_GOLD),
-                                                        );
-                                                    }
-                                                    let is_sel = fleet_ui_state.spawn_location_body
-                                                        == Some(*e);
-                                                    if ui
-                                                        .selectable_label(
-                                                            is_sel,
-                                                            egui::RichText::new(format!(
-                                                                "  {body_name}"
-                                                            ))
-                                                            .size(12.0),
-                                                        )
-                                                        .clicked()
-                                                    {
-                                                        fleet_ui_state.spawn_location_body =
-                                                            Some(*e);
-                                                    }
-                                                }
-                                            });
-                                    }
-                                });
-
-                                if ui
-                                    .button(egui::RichText::new("＋ Create Fleet").size(13.0))
-                                    .clicked()
-                                {
-                                    let spawn_body =
-                                        fleet_ui_state.spawn_location_body.or_else(|| {
-                                            body_query
-                                                .iter()
-                                                .find(|(_, b, _, _, _)| b.name == "Earth")
-                                                .map(|(e, _, _, _, _)| e)
-                                        });
-                                    if let Some(body_entity) = spawn_body {
-                                        let orbit_radius_au = 6_771.0_f64 * 1_000.0 / AU_IN_METERS;
-                                        pending_actions.spawn_fleets.push(
-                                            crate::fleets::components::SpawnFleetAction {
-                                                name: format!("New Fleet {}", fleet_count + 1),
-                                                ships: Vec::new(),
-                                                orbit_body: body_entity,
-                                                orbit_radius_au,
-                                                stationary: false,
-                                            },
-                                        );
-                                    }
-                                }
-                            }
-                        });
-                },
+            draw_menu_header(
+                ui,
+                "FLEETS",
+                "Force composition, orbital posture, and transfer planning.",
             );
 
-            ui.add_space(8.0);
+            // ── Top summary bar ──────────────────────────────────────────────────
+            let fleet_count = fleet_query.iter().count();
+            let in_transit = fleet_query
+                .iter()
+                .filter(|(_, _, _, m, _)| m.is_some())
+                .count();
+            ui.horizontal_wrapped(|ui| {
+                draw_status_chip(
+                    ui,
+                    "TOTAL FLEETS",
+                    fleet_count.to_string(),
+                    theme::TEXT_VALUE,
+                );
+                ui.separator();
+                draw_status_chip(ui, "IN TRANSIT", in_transit.to_string(), theme::RP_BLUE);
+            });
 
-            // ── Right column: selected fleet details + transfer planner ──────
-            let remaining = ui.available_width();
-            ui.allocate_ui_with_layout(
-                egui::Vec2::new(remaining, available.y - 80.0),
-                egui::Layout::top_down(egui::Align::Min),
-                |ui| {
-                    egui::Frame::default()
-                        .fill(theme::SURFACE)
-                        .inner_margin(egui::Margin::same(8i8))
-                        .stroke(egui::Stroke::new(1.0, theme::BORDER))
-                        .corner_radius(4.0)
-                        .show(ui, |ui| {
-                            if let Some(selected) = fleet_ui_state.selected_fleet {
-                                if let Ok((_, fleet, maybe_orbit, maybe_maneuver, _)) =
-                                    fleet_query.get(selected)
-                                {
-                                    egui::ScrollArea::vertical()
-                                        .id_salt("fleet_detail_scroll")
-                                        .show(ui, |ui| {
-                                            render_fleet_detail(
-                                                ui,
-                                                selected,
-                                                fleet,
-                                                maybe_orbit,
-                                                maybe_maneuver,
-                                                &body_query,
-                                                &mut fleet_ui_state,
-                                                &mut pending_actions,
-                                                elapsed,
-                                            );
-                                        });
-                                } else {
-                                    // Selected entity no longer exists
-                                    fleet_ui_state.selected_fleet = None;
-                                }
-                            } else {
-                                ui.vertical_centered(|ui| {
-                                    ui.add_space(60.0);
-                                    ui.label(
-                                        egui::RichText::new(
-                                            "Select a fleet from the list to view details.",
-                                        )
+            theme::divider(ui);
+
+            // ── Main two-column layout ───────────────────────────────────────────
+            let available = ui.available_size();
+            let left_width = (available.x * 0.40).clamp(340.0, 560.0);
+
+            ui.horizontal_top(|ui| {
+                // ── Left column: fleet list ──────────────────────────────────────
+                ui.allocate_ui_with_layout(
+                    egui::Vec2::new(left_width, available.y - 80.0),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        egui::Frame::default()
+                            .fill(theme::SURFACE)
+                            .inner_margin(egui::Margin::same(8i8))
+                            .stroke(egui::Stroke::new(1.0, theme::BORDER))
+                            .corner_radius(4.0)
+                            .show(ui, |ui| {
+                                ui.label(
+                                    egui::RichText::new("FLEET LIST")
                                         .font(theme::heading())
-                                        .italics()
-                                        .color(theme::TEXT_DIM),
-                                    );
-                                });
-                            }
-                        });
-                },
-            );
+                                        .color(theme::ACCENT),
+                                );
+                                ui.separator();
+
+                                egui::ScrollArea::vertical()
+                                    .id_salt("fleet_list_scroll")
+                                    .max_height(available.y - 140.0)
+                                    .show(ui, |ui| {
+                                        render_fleet_list(
+                                            ui,
+                                            &fleet_query,
+                                            &body_query,
+                                            &mut fleet_ui_state,
+                                            &mut pending_actions,
+                                            elapsed,
+                                        );
+                                    });
+
+                                ui.separator();
+                                // ── Create Fleet section ─────────────────────────────
+                                {
+                                    // Build sorted colony list grouped by star system
+                                    let mut colony_entries: Vec<(Entity, String, String)> =
+                                        colony_query
+                                            .iter()
+                                            .filter_map(|(e, _colony)| {
+                                                body_query.get(e).ok().map(|(_, body, _, _, _)| {
+                                                    let star = find_body_star_name(e, &body_query);
+                                                    (e, body.name.clone(), star)
+                                                })
+                                            })
+                                            .collect();
+                                    colony_entries
+                                        .sort_by(|a, b| a.2.cmp(&b.2).then(a.1.cmp(&b.1)));
+
+                                    // Keep selection valid; default to selected fleet location → Earth → first colony
+                                    let selection_valid = fleet_ui_state
+                                        .spawn_location_body
+                                        .map(|e| colony_entries.iter().any(|(ce, _, _)| *ce == e))
+                                        .unwrap_or(false);
+                                    if !selection_valid {
+                                        let fallback = fleet_ui_state
+                                            .selected_fleet
+                                            .and_then(|sel| {
+                                                fleet_query
+                                                    .get(sel)
+                                                    .ok()
+                                                    .and_then(|(_, _, mo, _, _)| mo.map(|o| o.body))
+                                            })
+                                            .and_then(|e| {
+                                                colony_entries
+                                                    .iter()
+                                                    .any(|(ce, _, _)| *ce == e)
+                                                    .then_some(e)
+                                            })
+                                            .or_else(|| {
+                                                body_query
+                                                    .iter()
+                                                    .find(|(_, b, _, _, _)| b.name == "Earth")
+                                                    .map(|(e, _, _, _, _)| e)
+                                                    .and_then(|e| {
+                                                        colony_entries
+                                                            .iter()
+                                                            .any(|(ce, _, _)| *ce == e)
+                                                            .then_some(e)
+                                                    })
+                                            })
+                                            .or_else(|| colony_entries.first().map(|(e, _, _)| *e));
+                                        fleet_ui_state.spawn_location_body = fallback;
+                                    }
+
+                                    let selected_label = fleet_ui_state
+                                        .spawn_location_body
+                                        .and_then(|e| {
+                                            colony_entries.iter().find(|(ce, _, _)| *ce == e)
+                                        })
+                                        .map(|(_, name, star)| format!("{name} ({star})"))
+                                        .unwrap_or_else(|| "— No colony —".to_string());
+
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            egui::RichText::new("Location:")
+                                                .size(12.0)
+                                                .color(theme::TEXT_DIM),
+                                        );
+                                        if colony_entries.is_empty() {
+                                            ui.label(
+                                                egui::RichText::new("No colonies yet")
+                                                    .size(12.0)
+                                                    .italics()
+                                                    .color(theme::TEXT_HINT),
+                                            );
+                                        } else {
+                                            egui::ComboBox::from_id_salt("create_fleet_location")
+                                                .selected_text(
+                                                    egui::RichText::new(&selected_label).size(12.0),
+                                                )
+                                                .width(210.0)
+                                                .show_ui(ui, |ui| {
+                                                    let mut current_star = String::new();
+                                                    for (e, body_name, star_name) in &colony_entries
+                                                    {
+                                                        if *star_name != current_star {
+                                                            current_star = star_name.clone();
+                                                            ui.add_space(2.0);
+                                                            ui.label(
+                                                                egui::RichText::new(format!(
+                                                                    "★ {star_name}"
+                                                                ))
+                                                                .size(11.0)
+                                                                .strong()
+                                                                .color(theme::STAR_GOLD),
+                                                            );
+                                                        }
+                                                        let is_sel = fleet_ui_state
+                                                            .spawn_location_body
+                                                            == Some(*e);
+                                                        if ui
+                                                            .selectable_label(
+                                                                is_sel,
+                                                                egui::RichText::new(format!(
+                                                                    "  {body_name}"
+                                                                ))
+                                                                .size(12.0),
+                                                            )
+                                                            .clicked()
+                                                        {
+                                                            fleet_ui_state.spawn_location_body =
+                                                                Some(*e);
+                                                        }
+                                                    }
+                                                });
+                                        }
+                                    });
+
+                                    if ui
+                                        .button(egui::RichText::new("＋ Create Fleet").size(13.0))
+                                        .clicked()
+                                    {
+                                        let spawn_body =
+                                            fleet_ui_state.spawn_location_body.or_else(|| {
+                                                body_query
+                                                    .iter()
+                                                    .find(|(_, b, _, _, _)| b.name == "Earth")
+                                                    .map(|(e, _, _, _, _)| e)
+                                            });
+                                        if let Some(body_entity) = spawn_body {
+                                            let orbit_radius_au =
+                                                6_771.0_f64 * 1_000.0 / AU_IN_METERS;
+                                            pending_actions.spawn_fleets.push(
+                                                crate::fleets::components::SpawnFleetAction {
+                                                    name: format!("New Fleet {}", fleet_count + 1),
+                                                    ships: Vec::new(),
+                                                    orbit_body: body_entity,
+                                                    orbit_radius_au,
+                                                    stationary: false,
+                                                },
+                                            );
+                                        }
+                                    }
+                                }
+                            });
+                    },
+                );
+
+                ui.add_space(8.0);
+
+                // ── Right column: selected fleet details + transfer planner ──────
+                let remaining = ui.available_width();
+                ui.allocate_ui_with_layout(
+                    egui::Vec2::new(remaining, available.y - 80.0),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        egui::Frame::default()
+                            .fill(theme::SURFACE)
+                            .inner_margin(egui::Margin::same(8i8))
+                            .stroke(egui::Stroke::new(1.0, theme::BORDER))
+                            .corner_radius(4.0)
+                            .show(ui, |ui| {
+                                if let Some(selected) = fleet_ui_state.selected_fleet {
+                                    if let Ok((_, fleet, maybe_orbit, maybe_maneuver, _)) =
+                                        fleet_query.get(selected)
+                                    {
+                                        egui::ScrollArea::vertical()
+                                            .id_salt("fleet_detail_scroll")
+                                            .show(ui, |ui| {
+                                                render_fleet_detail(
+                                                    ui,
+                                                    selected,
+                                                    fleet,
+                                                    maybe_orbit,
+                                                    maybe_maneuver,
+                                                    &body_query,
+                                                    &mut fleet_ui_state,
+                                                    &mut pending_actions,
+                                                    elapsed,
+                                                );
+                                            });
+                                    } else {
+                                        // Selected entity no longer exists
+                                        fleet_ui_state.selected_fleet = None;
+                                    }
+                                } else {
+                                    ui.vertical_centered(|ui| {
+                                        ui.add_space(60.0);
+                                        ui.label(
+                                            egui::RichText::new(
+                                                "Select a fleet from the list to view details.",
+                                            )
+                                            .font(theme::heading())
+                                            .italics()
+                                            .color(theme::TEXT_DIM),
+                                        );
+                                    });
+                                }
+                            });
+                    },
+                );
+            });
         });
-    });
 
     // ── Disband confirmation popup ────────────────────────────────────────────
     if let Some(fleet_to_disband) = fleet_ui_state.disband_confirm_fleet {
@@ -1701,10 +1712,8 @@ pub(super) fn ui_transfer_planner_popup(
         // Use origin_body (the departure body) rather than destination_body.
         // If we used destination_body and the user re-targets the same destination,
         // r1 == r2 and the planner shows "Same orbit, 0 m/s" with zero travel time.
-        maybe_maneuver.map(|maneuver| FleetOrbit::new(
-            maneuver.origin_body,
-            maneuver.arrival_orbit_radius_au,
-        ))
+        maybe_maneuver
+            .map(|maneuver| FleetOrbit::new(maneuver.origin_body, maneuver.arrival_orbit_radius_au))
     };
 
     // For course corrections, pass the fleet's actual current heliocentric position

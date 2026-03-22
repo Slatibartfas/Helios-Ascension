@@ -29,13 +29,11 @@ fn draw_menu_header(ui: &mut egui::Ui, title: &str, subtitle: &str) {
 
 fn draw_tab_button(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
     ui.add(
-        egui::Button::new(
-            egui::RichText::new(label).size(13.5).color(if selected {
-                theme::ACCENT
-            } else {
-                theme::TEXT
-            }),
-        )
+        egui::Button::new(egui::RichText::new(label).size(13.5).color(if selected {
+            theme::ACCENT
+        } else {
+            theme::TEXT
+        }))
         .fill(if selected {
             theme::SURFACE_RAISED
         } else {
@@ -680,7 +678,11 @@ fn render_available_research_tab(
         .max_research_teams
         .saturating_sub(active_count);
 
-    draw_section_title(ui, "RESEARCH PROJECTS", "Technologies with all prerequisites met.");
+    draw_section_title(
+        ui,
+        "RESEARCH PROJECTS",
+        "Technologies with all prerequisites met.",
+    );
     ui.horizontal_wrapped(|ui| {
         ui.add_space(20.0);
         ui.label(

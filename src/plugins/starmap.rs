@@ -627,7 +627,11 @@ fn category_tint(category: &str, r1: f32, r2: f32, r3: f32) -> (Color, f32, f32)
         }
         "temperate" => {
             // Near-white — let the texture dominate
-            (Color::srgb(base, base, base), 0.65 + r2 * 0.20, 0.0 + r3 * 0.05)
+            (
+                Color::srgb(base, base, base),
+                0.65 + r2 * 0.20,
+                0.0 + r3 * 0.05,
+            )
         }
         "jungle" => {
             // Very subtle green tint
@@ -663,7 +667,11 @@ fn category_tint(category: &str, r1: f32, r2: f32, r3: f32) -> (Color, f32, f32)
         }
         "barren" => {
             // Neutral grey — let texture dominate
-            (Color::srgb(base, base, base), 0.80 + r2 * 0.12, 0.0 + r3 * 0.05)
+            (
+                Color::srgb(base, base, base),
+                0.80 + r2 * 0.12,
+                0.0 + r3 * 0.05,
+            )
         }
         "rock" => {
             // Subtle grey-brown tint
@@ -699,7 +707,11 @@ fn category_tint(category: &str, r1: f32, r2: f32, r3: f32) -> (Color, f32, f32)
         }
         "moon" => {
             // Neutral grey - let texture dominate
-            (Color::srgb(base, base, base), 0.75 + r2 * 0.15, 0.0 + r3 * 0.05)
+            (
+                Color::srgb(base, base, base),
+                0.75 + r2 * 0.15,
+                0.0 + r3 * 0.05,
+            )
         }
         "asteroid_s" => {
             // Subtle reddish-grey

@@ -15,8 +15,9 @@ pub mod types;
 pub mod visuals;
 
 pub use components::{
-    ActiveManeuver, Fleet, FleetOrbit, MergeFleetAction, PendingFleetActions, PlannedTransfer,
-    ShipInfo, SpawnFleetAction, StartTransferAction, TransferReferenceFrame,
+    ActiveManeuver, AssignShipsAction, CreateFleetFromShipsAction, Fleet, FleetOrbit,
+    MergeFleetAction, PendingFleetActions, PlannedTransfer, ShipInfo, ShipInstance,
+    SpawnFleetAction, StartTransferAction, TransferReferenceFrame,
 };
 pub use orbital_mechanics::{
     apply_thrust_limits, calculate_transfer_options, calculate_transfer_options_phased,
@@ -40,11 +41,16 @@ impl Plugin for FleetPlugin {
                 Update,
                 (
                     systems::process_fleet_actions,
+                    systems::sync_fleet_cache_from_ship_entities
+                        .after(systems::process_fleet_actions),
                     systems::activate_scheduled_departures.after(systems::process_fleet_actions),
                     systems::update_fleet_orbit_positions
                         .after(systems::activate_scheduled_departures),
                     systems::update_fleet_maneuver_positions
                         .after(systems::activate_scheduled_departures)
+                        .after(systems::update_fleet_orbit_positions),
+                    systems::sync_ship_instance_locations
+                        .after(systems::complete_fleet_maneuvers)
                         .after(systems::update_fleet_orbit_positions),
                     systems::complete_fleet_maneuvers
                         .after(systems::update_fleet_maneuver_positions),

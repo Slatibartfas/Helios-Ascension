@@ -249,7 +249,12 @@ impl MinimumStockpile {
 /// request already exists for that (body, resource) pair, a new
 /// Maintenance-priority request is created.
 pub fn check_minimum_stockpile_requests(
-    bodies: Query<(Entity, &LocalStockpile, &MinimumStockpile, Option<&crate::colony::Colony>)>,
+    bodies: Query<(
+        Entity,
+        &LocalStockpile,
+        &MinimumStockpile,
+        Option<&crate::colony::Colony>,
+    )>,
     mut requests: ResMut<PendingResourceRequests>,
     sim_time: Res<SimulationTime>,
 ) {
@@ -467,8 +472,8 @@ mod tests {
             created_at_seconds: 0.0,
             source_body: None,
             linked_project: None,
-                payment_made: false,
-                completed_at_seconds: None,
+            payment_made: false,
+            completed_at_seconds: None,
         });
 
         assert_eq!(id, 0);
@@ -498,8 +503,8 @@ mod tests {
             created_at_seconds: 0.0,
             source_body: None,
             linked_project: None,
-                payment_made: false,
-                completed_at_seconds: None,
+            payment_made: false,
+            completed_at_seconds: None,
         });
 
         assert!(pool.has_open_request_for(entity, ResourceType::Iron));
@@ -527,8 +532,8 @@ mod tests {
             created_at_seconds: 0.0,
             source_body: None,
             linked_project: None,
-                payment_made: false,
-                completed_at_seconds: None,
+            payment_made: false,
+            completed_at_seconds: None,
         });
 
         // current_sim_seconds much larger than HISTORY_KEEP_S → should be pruned

@@ -28,8 +28,7 @@ pub use systems::{
 pub use types::{BuildingCategory, BuildingType};
 
 /// Debug settings for construction system (toggled with F12 on Construction menu)
-#[derive(Resource, Debug, Clone)]
-#[derive(Default)]
+#[derive(Resource, Debug, Clone, Default)]
 pub struct ConstructionDebugSettings {
     /// Whether debug mode is enabled
     pub enabled: bool,

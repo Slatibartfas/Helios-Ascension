@@ -979,16 +979,18 @@ fn determine_planet_type(
     }
 
     // Check for desert world (hot, inside HZ inner edge)
-    if distance_au < hz_inner && equilibrium_temp > 400.0 && equilibrium_temp < 1000.0
-        && rng.random_bool(0.3) {
-            return PlanetType::DesertWorld;
-        }
+    if distance_au < hz_inner
+        && equilibrium_temp > 400.0
+        && equilibrium_temp < 1000.0
+        && rng.random_bool(0.3)
+    {
+        return PlanetType::DesertWorld;
+    }
 
     // Check for hot Jupiter ( JovianHeavy system or migration)
-    if system_type == SystemType::JovianHeavy && distance_au < hz_inner
-        && rng.random_bool(0.7) {
-            return PlanetType::GasGiant;
-        }
+    if system_type == SystemType::JovianHeavy && distance_au < hz_inner && rng.random_bool(0.7) {
+        return PlanetType::GasGiant;
+    }
 
     // Check for migration: gas giant inside frost line (decided once per system)
     if allow_migration && distance_au < frost_line_au {

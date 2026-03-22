@@ -140,8 +140,7 @@ fn capped_prediction_visual_speed(effective_speed: f64) -> f64 {
     if effective_speed <= VISUAL_PREDICTION_SPEED_BASE {
         effective_speed
     } else {
-        VISUAL_PREDICTION_SPEED_BASE
-            * (1.0 + (effective_speed / VISUAL_PREDICTION_SPEED_BASE).ln())
+        VISUAL_PREDICTION_SPEED_BASE * (1.0 + (effective_speed / VISUAL_PREDICTION_SPEED_BASE).ln())
     }
 }
 
@@ -166,7 +165,8 @@ fn predict_body_visual_pos(
     // with a capped real-time angular speed to remain readable/clickable.
     let effective_speed = kepler.mean_motion.abs() * time_scale;
     let ma_future = if effective_speed > VISUAL_PREDICTION_SPEED_BASE {
-        let vis_speed = capped_prediction_visual_speed(effective_speed) * kepler.mean_motion.signum();
+        let vis_speed =
+            capped_prediction_visual_speed(effective_speed) * kepler.mean_motion.signum();
         let delta_real_s = if time_scale.abs() > 1e-9 {
             ((future_sim_s - current_sim_s) / time_scale).max(0.0)
         } else {
@@ -199,14 +199,13 @@ fn predict_body_visual_pos(
             kepler_query,
             amp_query,
         )
-            .unwrap_or_else(|| {
-                body_query
-                    .get(lp.0)
-                    .ok()
-                    .map(|(t, _, _)| t.translation)
-                    .unwrap_or(Vec3::ZERO)
-            })
-            + pos_scaled
+        .unwrap_or_else(|| {
+            body_query
+                .get(lp.0)
+                .ok()
+                .map(|(t, _, _)| t.translation)
+                .unwrap_or(Vec3::ZERO)
+        }) + pos_scaled
     } else {
         let ma_current = kepler.mean_anomaly_epoch + kepler.mean_motion * current_sim_s;
         let pos_current_au = orbit_position_from_mean_anomaly(kepler, ma_current);
@@ -375,7 +374,8 @@ fn resolve_preview_reference_frame(
         .ok()
         .and_then(|(_, _, parent)| parent.map(|parent| parent.0));
 
-    if let Some(shared_parent) = destination_parent.filter(|parent| Some(*parent) == origin_parent) {
+    if let Some(shared_parent) = destination_parent.filter(|parent| Some(*parent) == origin_parent)
+    {
         return TransferReferenceFrame::Body(shared_parent);
     }
 
@@ -393,7 +393,11 @@ fn resolve_preview_reference_frame(
         return TransferReferenceFrame::Body(host_star);
     }
 
-    TransferReferenceFrame::Body(destination_parent.or(origin_parent).unwrap_or(origin_entity))
+    TransferReferenceFrame::Body(
+        destination_parent
+            .or(origin_parent)
+            .unwrap_or(origin_entity),
+    )
 }
 
 /// Return a **frame-stable** travel time for the transfer preview ghost body.
@@ -537,9 +541,14 @@ fn orbit_visual_tangent_direction(
 ) -> Vec3 {
     let delta = delta_mean_anomaly.abs().max(1e-4);
     let p0 = orbit_position_from_mean_anomaly(orbit, mean_anomaly);
-    let p1 = orbit_position_from_mean_anomaly(orbit, mean_anomaly + delta_mean_anomaly.signum() * delta);
-    Vec3::new((p1.x - p0.x) as f32, (p1.y - p0.y) as f32, (p1.z - p0.z) as f32)
-        .normalize_or_zero()
+    let p1 =
+        orbit_position_from_mean_anomaly(orbit, mean_anomaly + delta_mean_anomaly.signum() * delta);
+    Vec3::new(
+        (p1.x - p0.x) as f32,
+        (p1.y - p0.y) as f32,
+        (p1.z - p0.z) as f32,
+    )
+    .normalize_or_zero()
 }
 
 fn compute_barycentric_visual_arc(
@@ -782,10 +791,7 @@ fn draw_sampled_transfer_orbit(
     }
 }
 
-fn sampled_transfer_orbit_position(
-    points: &[Vec3],
-    progress: f32,
-) -> Vec3 {
+fn sampled_transfer_orbit_position(points: &[Vec3], progress: f32) -> Vec3 {
     sample_polyline(points, progress)
 }
 
@@ -820,9 +826,8 @@ fn compute_transfer_arc(
     let origin_r = (op - cv_ref).length();
     let dest_r = (dp - cv_ref).length();
     let chord = (dp - op).length().max(1e-3);
-    let is_central_body_xfer = !is_course_correction
-        && origin_r > chord * 0.15
-        && dest_r > chord * 0.15;
+    let is_central_body_xfer =
+        !is_course_correction && origin_r > chord * 0.15 && dest_r > chord * 0.15;
 
     // Rotate direction by 90° so the ring point is where prograde (outward) or
     // retrograde (inward) aims toward the destination — Hohmann departure.
@@ -874,33 +879,25 @@ fn compute_transfer_arc(
     let (p3, tang_dest) = if is_kinematic {
         tangential_ring_arrival_point(p0, dp, dest_ring_r, Some(preferred_arrival_side))
             .unwrap_or_else(|| {
-            let arr_ring_dir = if is_inward {
-                radial_dest
-            } else {
-                -radial_dest
-            };
-            let p3 = dp + arr_ring_dir * dest_ring_r;
-            let tang_dest = Vec3::new(-radial_dest.y, radial_dest.x, 0.0);
-            (p3, tang_dest)
-        })
+                let arr_ring_dir = if is_inward { radial_dest } else { -radial_dest };
+                let p3 = dp + arr_ring_dir * dest_ring_r;
+                let tang_dest = Vec3::new(-radial_dest.y, radial_dest.x, 0.0);
+                (p3, tang_dest)
+            })
     } else {
         tangential_ring_arrival_point(p0, dp, dest_ring_r, Some(preferred_arrival_side))
             .unwrap_or_else(|| {
-            let arr_ring_dir = if is_inward {
-                radial_dest
-            } else {
-                -radial_dest
-            };
-            let p3 = dp + arr_ring_dir * dest_ring_r;
-            let tangent_ccw = Vec3::new(-radial_dest.y, radial_dest.x, 0.0);
-            let inbound = (p3 - p0).normalize_or_zero();
-            let tang_dest = if inbound.dot(tangent_ccw) >= 0.0 {
-                tangent_ccw
-            } else {
-                -tangent_ccw
-            };
-            (p3, tang_dest)
-        })
+                let arr_ring_dir = if is_inward { radial_dest } else { -radial_dest };
+                let p3 = dp + arr_ring_dir * dest_ring_r;
+                let tangent_ccw = Vec3::new(-radial_dest.y, radial_dest.x, 0.0);
+                let inbound = (p3 - p0).normalize_or_zero();
+                let tang_dest = if inbound.dot(tangent_ccw) >= 0.0 {
+                    tangent_ccw
+                } else {
+                    -tangent_ccw
+                };
+                (p3, tang_dest)
+            })
     };
 
     // For central-body transfers, override the arrival tangent with the orbital
@@ -1022,8 +1019,8 @@ fn tangential_ring_arrival_point(
 #[cfg(test)]
 mod tests {
     use super::{
-        compute_barycentric_visual_arc, compute_transfer_arc, should_sample_planned_transfer_preview,
-        tangential_ring_arrival_point,
+        compute_barycentric_visual_arc, compute_transfer_arc,
+        should_sample_planned_transfer_preview, tangential_ring_arrival_point,
     };
     use crate::astronomy::KeplerOrbit;
     use crate::fleets::{PlannedTransfer, TransferReferenceFrame};
@@ -1180,7 +1177,9 @@ mod tests {
     fn star_centered_preview_allows_non_preserved_same_star_geometry() {
         let planned = test_planned_transfer(false);
 
-        assert!(super::should_use_star_centered_transfer_preview(&planned, true));
+        assert!(super::should_use_star_centered_transfer_preview(
+            &planned, true
+        ));
     }
 
     #[test]
@@ -1222,22 +1221,21 @@ mod tests {
     }
 }
 
+#[test]
+fn tangential_arrival_tie_break_is_stable() {
+    let source_a = Vec3::new(-8.0, 2.0000, 0.0);
+    let source_b = Vec3::new(-8.0, 2.0001, 0.0);
+    let center = Vec3::ZERO;
+    let ring_r = 2.0;
+    let preferred = Some(Vec3::X);
 
-        #[test]
-        fn tangential_arrival_tie_break_is_stable() {
-            let source_a = Vec3::new(-8.0, 2.0000, 0.0);
-            let source_b = Vec3::new(-8.0, 2.0001, 0.0);
-            let center = Vec3::ZERO;
-            let ring_r = 2.0;
-            let preferred = Some(Vec3::X);
+    let (point_a, _) = tangential_ring_arrival_point(source_a, center, ring_r, preferred)
+        .expect("first tangent point should exist");
+    let (point_b, _) = tangential_ring_arrival_point(source_b, center, ring_r, preferred)
+        .expect("second tangent point should exist");
 
-            let (point_a, _) = tangential_ring_arrival_point(source_a, center, ring_r, preferred)
-                .expect("first tangent point should exist");
-            let (point_b, _) = tangential_ring_arrival_point(source_b, center, ring_r, preferred)
-                .expect("second tangent point should exist");
-
-            assert!(point_a.y.signum() == point_b.y.signum());
-        }
+    assert!(point_a.y.signum() == point_b.y.signum());
+}
 // ── Gravity-assist arc geometry ──────────────────────────────────────────────
 
 /// Computed two-leg Bezier geometry for a gravity-assist slingshot trajectory.
@@ -1330,17 +1328,18 @@ fn compute_gravity_assist_arc(
         -tang_perp_a
     };
 
-    let (p3_2, td2) = tangential_ring_arrival_point(periapsis, dp, dest_ring_r, None).unwrap_or_else(|| {
-        let inbound = -dir_from_flyby;
-        let is_outward2 = dp.length_squared() > fp.length_squared();
-        let arr_dir = if is_outward2 {
-            Vec3::new(inbound.y, -inbound.x, 0.0)
-        } else {
-            Vec3::new(-inbound.y, inbound.x, 0.0)
-        };
-        let p3_2 = dp + arr_dir * dest_ring_r;
-        (p3_2, inbound)
-    });
+    let (p3_2, td2) = tangential_ring_arrival_point(periapsis, dp, dest_ring_r, None)
+        .unwrap_or_else(|| {
+            let inbound = -dir_from_flyby;
+            let is_outward2 = dp.length_squared() > fp.length_squared();
+            let arr_dir = if is_outward2 {
+                Vec3::new(inbound.y, -inbound.x, 0.0)
+            } else {
+                Vec3::new(-inbound.y, inbound.x, 0.0)
+            };
+            let p3_2 = dp + arr_dir * dest_ring_r;
+            (p3_2, inbound)
+        });
 
     // ── Bezier control points ────────────────────────────────────────────────
     let cl1 = (periapsis - p0).length() * 0.40;
@@ -1901,8 +1900,8 @@ pub fn draw_fleet_trajectories(
                     flyby,
                     sim_elapsed,
                     maneuver.departure_time + maneuver.leg2_start_s,
-                        real_secs,
-                        sim_scale,
+                    real_secs,
+                    sim_scale,
                     &body_query,
                     &kepler_query,
                     &amp_query,
@@ -2385,10 +2384,7 @@ pub fn draw_fleet_selection_reticule(
             (pos, 22.0_f32)
         }
         ViewMode::Starmap => {
-            let camera_radius = camera_query
-                .single()
-                .map(|c| c.radius)
-                .unwrap_or(200_000.0);
+            let camera_radius = camera_query.single().map(|c| c.radius).unwrap_or(200_000.0);
             let icon_size = 280.0 * (camera_radius / 100_000.0).sqrt().max(0.5);
             let raw = sc.position - origin_offset;
             let pos = Vec3::new(raw.x as f32, raw.y as f32, raw.z as f32);
@@ -2899,7 +2895,8 @@ pub fn update_fleet_transforms(
                     dp_absolute - cv_predicted + cv_at_departure
                 };
 
-                if let (Some(flyby), Some(_)) = (maneuver.flyby_body, maneuver.leg2_orbit.as_ref()) {
+                if let (Some(flyby), Some(_)) = (maneuver.flyby_body, maneuver.leg2_orbit.as_ref())
+                {
                     let fp_absolute = predict_body_visual_pos(
                         flyby,
                         elapsed,
@@ -3635,7 +3632,9 @@ pub fn draw_fleet_transfer_preview(
     let dest_is_star = dest_body_data.body_type == BodyType::Star;
     let dest_ring_r = if reference_frame.is_barycentric() && is_kinematic && dest_is_star {
         planned_transfer
-            .map(|transfer| (transfer.arrival_orbit_radius_au as f32 * SCALING_FACTOR as f32).max(1.0))
+            .map(|transfer| {
+                (transfer.arrival_orbit_radius_au as f32 * SCALING_FACTOR as f32).max(1.0)
+            })
             .unwrap_or(default_dest_ring_r)
     } else {
         default_dest_ring_r
@@ -3677,7 +3676,10 @@ pub fn draw_fleet_transfer_preview(
         )
         .unwrap_or(cv_predicted);
 
-        (dp_absolute - cv_predicted + cv_at_departure, cv_at_departure)
+        (
+            dp_absolute - cv_predicted + cv_at_departure,
+            cv_at_departure,
+        )
     } else {
         (dp_absolute, Vec3::ZERO)
     };
@@ -3738,7 +3740,10 @@ pub fn draw_fleet_transfer_preview(
         )
         .unwrap_or(cv_predicted);
 
-        (dp_absolute - cv_predicted + cv_at_departure, cv_at_departure)
+        (
+            dp_absolute - cv_predicted + cv_at_departure,
+            cv_at_departure,
+        )
     } else {
         (dp_absolute, Vec3::ZERO)
     };
@@ -3779,7 +3784,9 @@ pub fn draw_fleet_transfer_preview(
                 })
             });
 
-        if let Some((orbit, preview_duration_s, departure_velocity_ms, arrival_velocity_ms)) = barycentric_preview {
+        if let Some((orbit, preview_duration_s, departure_velocity_ms, arrival_velocity_ms)) =
+            barycentric_preview
+        {
             let total_ma_travel = orbit.mean_motion * preview_duration_s;
             let geo = compute_barycentric_visual_arc(
                 orbit,
@@ -3790,9 +3797,12 @@ pub fn draw_fleet_transfer_preview(
                 arrival_velocity_ms,
             );
 
-            draw_dashed_curve(&mut gizmos, |t| geo.eval(t), 24, |f| {
-                Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f)
-            });
+            draw_dashed_curve(
+                &mut gizmos,
+                |t| geo.eval(t),
+                24,
+                |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+            );
             draw_ghost_body(&mut gizmos, dp, dest_ring_r, dest_visual_r, false);
             return;
         }
@@ -3845,12 +3855,9 @@ pub fn draw_fleet_transfer_preview(
                 total_ma_travel,
                 160,
             );
-            draw_sampled_transfer_orbit(
-                &mut gizmos,
-                &visual_points,
-                0.0,
-                |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
-            );
+            draw_sampled_transfer_orbit(&mut gizmos, &visual_points, 0.0, |f| {
+                Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f)
+            });
             draw_ghost_body(&mut gizmos, dp_absolute, dest_ring_r, dest_visual_r, false);
             return;
         }

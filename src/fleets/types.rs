@@ -3,8 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Roles that can be assigned to a fleet, changing its icon and primary purpose.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum FleetRole {
     /// Default role for unassigned fleets
     #[default]
@@ -20,7 +19,6 @@ pub enum FleetRole {
     /// Long-range exploration fleet
     Explore,
 }
-
 
 impl FleetRole {
     /// Human-readable display name.

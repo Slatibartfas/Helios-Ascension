@@ -93,10 +93,7 @@ pub struct QueueRefitAction {
 }
 
 /// Check if a design change constitutes a same-hull refit or requires full reconstruction.
-pub fn determine_refit_type(
-    existing_hull_id: &str,
-    new_hull_id: &str,
-) -> RefitType {
+pub fn determine_refit_type(existing_hull_id: &str, new_hull_id: &str) -> RefitType {
     if existing_hull_id == new_hull_id {
         RefitType::SameHull
     } else {

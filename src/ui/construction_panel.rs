@@ -127,20 +127,20 @@ pub(super) fn ui_construction_panels(
     egui::CentralPanel::default()
         .frame(theme::central_frame())
         .show(ctx, |ui| {
-        render_construction_panel(
-            ui,
-            &colony_query,
-            &construction_query,
-            &mut construction_actions,
-            &research_state,
-            &budget,
-            &contextual,
-            &mut debug_settings,
-            buildings_data.as_deref(),
-            &mut ui_state,
-            &resource_requests,
-            &mut minimum_stockpiles,
-        );
+            render_construction_panel(
+                ui,
+                &colony_query,
+                &construction_query,
+                &mut construction_actions,
+                &research_state,
+                &budget,
+                &contextual,
+                &mut debug_settings,
+                buildings_data.as_deref(),
+                &mut ui_state,
+                &resource_requests,
+                &mut minimum_stockpiles,
+            );
         });
 
     // Building editor dialog (rendered outside CentralPanel so it floats)
@@ -219,7 +219,11 @@ fn render_construction_panel(
     }
 
     let balance = budget.balance_per_year();
-    let balance_color = if balance >= 0.0 { theme::GREEN } else { theme::RED };
+    let balance_color = if balance >= 0.0 {
+        theme::GREEN
+    } else {
+        theme::RED
+    };
     let sign = if balance >= 0.0 { "+" } else { "" };
     ui.horizontal_wrapped(|ui| {
         draw_status_chip(
@@ -326,10 +330,7 @@ fn render_construction_panel(
 
     ui.horizontal_wrapped(|ui| {
         let tabs = [
-            (
-                ConstructionTab::Overview,
-                "📊 Overview".to_string(),
-            ),
+            (ConstructionTab::Overview, "📊 Overview".to_string()),
             (
                 ConstructionTab::Buildings,
                 format!("🏢 Buildings ({buildings_total})"),
@@ -338,10 +339,7 @@ fn render_construction_panel(
                 ConstructionTab::Build,
                 format!("🛠 Build ({bp_rate:.1} BP/yr)"),
             ),
-            (
-                ConstructionTab::Stockpiles,
-                "⚖ Stockpiles".to_string(),
-            ),
+            (ConstructionTab::Stockpiles, "⚖ Stockpiles".to_string()),
         ];
 
         for (tab, label) in tabs {
@@ -351,7 +349,8 @@ fn render_construction_panel(
                 ui_state.selected_tab = tab;
             }
             if tab == ConstructionTab::Stockpiles && !has_stockpile_editor {
-                response.on_hover_text("Minimum stockpile controls are not available for this colony.");
+                response
+                    .on_hover_text("Minimum stockpile controls are not available for this colony.");
             }
         }
     });
@@ -362,39 +361,37 @@ fn render_construction_panel(
         ui_state.selected_tab = ConstructionTab::Overview;
     }
 
-    egui::ScrollArea::vertical().show(ui, |ui| {
-        match ui_state.selected_tab {
-            ConstructionTab::Overview => {
-                render_construction_overview_tab(
-                    ui,
-                    colony,
-                    body,
-                    bp_rate,
-                    &queue,
-                    construction_actions,
-                    resource_requests,
-                );
-            }
-            ConstructionTab::Buildings => {
-                render_construction_buildings_tab(ui, colony, buildings_data);
-            }
-            ConstructionTab::Build => {
-                render_construction_build_tab(
-                    ui,
-                    colony_entity,
-                    research_state,
-                    contextual,
-                    construction_actions,
-                    buildings_data,
-                    ui_state,
-                    bp_rate,
-                    bypass_tech,
-                    free_build,
-                );
-            }
-            ConstructionTab::Stockpiles => {
-                render_minimum_stockpile_editor(ui, *colony_entity, minimum_stockpiles);
-            }
+    egui::ScrollArea::vertical().show(ui, |ui| match ui_state.selected_tab {
+        ConstructionTab::Overview => {
+            render_construction_overview_tab(
+                ui,
+                colony,
+                body,
+                bp_rate,
+                &queue,
+                construction_actions,
+                resource_requests,
+            );
+        }
+        ConstructionTab::Buildings => {
+            render_construction_buildings_tab(ui, colony, buildings_data);
+        }
+        ConstructionTab::Build => {
+            render_construction_build_tab(
+                ui,
+                colony_entity,
+                research_state,
+                contextual,
+                construction_actions,
+                buildings_data,
+                ui_state,
+                bp_rate,
+                bypass_tech,
+                free_build,
+            );
+        }
+        ConstructionTab::Stockpiles => {
+            render_minimum_stockpile_editor(ui, *colony_entity, minimum_stockpiles);
         }
     });
 }
@@ -490,21 +487,32 @@ fn render_construction_overview_tab(
 
         let growth = colony.population_growth_per_year(1.0);
         if growth.abs() > 0.1 {
-            ui.label(format!("Growth: +{}/year", Colony::format_population(growth)));
+            ui.label(format!(
+                "Growth: +{}/year",
+                Colony::format_population(growth)
+            ));
         }
 
         let income = colony.wealth_generation_per_year();
         let cost = colony.operating_cost_per_year();
         if income > 0.0 || cost > 0.0 {
             let colony_balance = income - cost;
-            let cb_color = if colony_balance >= 0.0 { theme::GREEN } else { theme::RED };
+            let cb_color = if colony_balance >= 0.0 {
+                theme::GREEN
+            } else {
+                theme::RED
+            };
             let sign = if colony_balance >= 0.0 { "+" } else { "" };
             ui.horizontal(|ui| {
                 ui.label(format!("Income: {}/yr", format_currency(income)));
                 ui.label(format!("| Cost: {}/yr", format_currency(cost)));
                 ui.label(
-                    egui::RichText::new(format!("| Net: {}{}/yr", sign, format_currency(colony_balance)))
-                        .color(cb_color),
+                    egui::RichText::new(format!(
+                        "| Net: {}{}/yr",
+                        sign,
+                        format_currency(colony_balance)
+                    ))
+                    .color(cb_color),
                 );
             });
         }
@@ -522,14 +530,20 @@ fn render_construction_overview_tab(
                 .color(theme::GREEN)
                 .strong(),
         );
-        ui.label(egui::RichText::new("Base: 1 BP/yr + 10 BP/yr per Factory").size(11.0).color(theme::TEXT_DIM));
+        ui.label(
+            egui::RichText::new("Base: 1 BP/yr + 10 BP/yr per Factory")
+                .size(11.0)
+                .color(theme::TEXT_DIM),
+        );
         ui.add_space(4.0);
         ui.label(format!("Active queue entries: {}", queue.len()));
         if queue.is_empty() {
             ui.label(
-                egui::RichText::new("No active projects. Use the Build tab to queue new construction.")
-                    .size(11.0)
-                    .color(theme::TEXT_DIM),
+                egui::RichText::new(
+                    "No active projects. Use the Build tab to queue new construction.",
+                )
+                .size(11.0)
+                .color(theme::TEXT_DIM),
             );
         }
     });
@@ -640,9 +654,12 @@ fn render_construction_queue_section(
                     };
                     ui.label(status);
                     ui.label(
-                        egui::RichText::new(format!("({:?} {:.1} Mt)", req.resource, req.amount_mt))
-                            .size(10.0)
-                            .color(theme::TEXT_DIM),
+                        egui::RichText::new(format!(
+                            "({:?} {:.1} Mt)",
+                            req.resource, req.amount_mt
+                        ))
+                        .size(10.0)
+                        .color(theme::TEXT_DIM),
                     );
                 } else {
                     ui.label(
@@ -657,7 +674,11 @@ fn render_construction_queue_section(
                 } else {
                     format!("{:.1} yr", years_remaining)
                 };
-                ui.label(egui::RichText::new(&time_str).size(11.0).color(theme::AMBER));
+                ui.label(
+                    egui::RichText::new(&time_str)
+                        .size(11.0)
+                        .color(theme::AMBER),
+                );
             }
 
             if ui
@@ -721,13 +742,13 @@ fn render_construction_build_tab(
             for &mult in &[1u32, 5, 10, 25, 50, 100] {
                 let selected = ui_state.build_multiplier == mult;
                 let btn_text = format!("x{}", mult);
-                let btn = egui::Button::new(
-                    egui::RichText::new(&btn_text).size(12.0).color(if selected {
+                let btn = egui::Button::new(egui::RichText::new(&btn_text).size(12.0).color(
+                    if selected {
                         theme::GOLD
                     } else {
                         egui::Color32::WHITE
-                    }),
-                )
+                    },
+                ))
                 .fill(if selected {
                     theme::SURFACE_RAISED
                 } else {
@@ -960,11 +981,15 @@ fn render_existing_buildings_section(
             })
             .collect();
 
-        buildings_in_category.sort_by(|(left_building, left_count), (right_building, right_count)| {
-            right_count
-                .cmp(left_count)
-                .then_with(|| left_building.display_name().cmp(right_building.display_name()))
-        });
+        buildings_in_category.sort_by(
+            |(left_building, left_count), (right_building, right_count)| {
+                right_count.cmp(left_count).then_with(|| {
+                    left_building
+                        .display_name()
+                        .cmp(right_building.display_name())
+                })
+            },
+        );
 
         if buildings_in_category.is_empty() {
             continue;
@@ -1020,8 +1045,8 @@ fn render_existing_buildings_section(
             let card_spacing = 12.0;
             let available_width = ui.available_width().max(220.0);
             let card_width = available_width.min(EXISTING_BUILDING_CARD_WIDTH);
-            let fit_columns = ((available_width + card_spacing) / (card_width + card_spacing))
-                .floor() as usize;
+            let fit_columns =
+                ((available_width + card_spacing) / (card_width + card_spacing)).floor() as usize;
             let column_count = build_card_columns(available_width)
                 .min(4)
                 .min(fit_columns.max(1));
@@ -1113,10 +1138,13 @@ fn render_existing_building_card(
                             ui.add_sized(
                                 [count_width, 18.0],
                                 egui::Label::new(
-                                    egui::RichText::new(format!("×{}", format_grouped_u64(count as u64)))
-                                        .size(11.0)
-                                        .strong()
-                                        .color(theme::GOLD),
+                                    egui::RichText::new(format!(
+                                        "×{}",
+                                        format_grouped_u64(count as u64)
+                                    ))
+                                    .size(11.0)
+                                    .strong()
+                                    .color(theme::GOLD),
                                 ),
                             );
                         });
@@ -1137,7 +1165,12 @@ fn render_existing_building_card(
                     if let Some((summary, color)) = upkeep_summary.as_ref() {
                         render_existing_building_summary_row(ui, "Upkeep", summary, *color);
                     } else {
-                        render_existing_building_summary_row(ui, "Upkeep", "None", theme::TEXT_HINT);
+                        render_existing_building_summary_row(
+                            ui,
+                            "Upkeep",
+                            "None",
+                            theme::TEXT_HINT,
+                        );
                     }
                 })
                 .response
@@ -1292,7 +1325,10 @@ fn format_card_scalar(value: f64) -> String {
     if (value.fract()).abs() < 0.01 {
         format!("{value:.0}")
     } else {
-        format!("{value:.2}").trim_end_matches('0').trim_end_matches('.').to_string()
+        format!("{value:.2}")
+            .trim_end_matches('0')
+            .trim_end_matches('.')
+            .to_string()
     }
 }
 
@@ -1306,7 +1342,10 @@ fn operational_stat_entries(
 
     if matches!(building, BuildingType::Factory) {
         entries.push((
-            format!("+{} BP/yr construction speed", format_card_scalar(10.0 * multiplier)),
+            format!(
+                "+{} BP/yr construction speed",
+                format_card_scalar(10.0 * multiplier)
+            ),
             theme::GREEN,
         ));
     }
@@ -1352,11 +1391,12 @@ fn operational_stat_entries(
                     theme::GREEN,
                 )),
                 "ConstructionCost" => {
-                    let color = if total <= 0.0 { theme::GREEN } else { theme::RED };
-                    Some((
-                        format!("{:+}% construction costs", total.round()),
-                        color,
-                    ))
+                    let color = if total <= 0.0 {
+                        theme::GREEN
+                    } else {
+                        theme::RED
+                    };
+                    Some((format!("{:+}% construction costs", total.round()), color))
                 }
                 "StorageCapacity" => Some((
                     format!("+{}% stockpile capacity", format_card_scalar(total * 100.0)),
@@ -1443,7 +1483,11 @@ fn render_building_card(
     buildings_data: Option<&crate::colony::BuildingsData>,
 ) {
     let total_bp = building.build_cost() * multiplier as f64;
-    let years_to_build = if bp_rate > 0.0 { total_bp / bp_rate } else { f64::INFINITY };
+    let years_to_build = if bp_rate > 0.0 {
+        total_bp / bp_rate
+    } else {
+        f64::INFINITY
+    };
     let definition = buildings_data.and_then(|data| data.get(&building));
     let operational_entries = operational_stat_entries(building, multiplier, definition);
     let maintenance_entries = maintenance_entries(multiplier, definition);
@@ -1451,7 +1495,8 @@ fn render_building_card(
     let upkeep_summary = summarize_construction_card_entries(&maintenance_entries, 2);
 
     // Power demand from data file
-    let power_demand_mw = definition.map(|def| def.power_demand_mw).unwrap_or(0.0) * multiplier as f64;
+    let power_demand_mw =
+        definition.map(|def| def.power_demand_mw).unwrap_or(0.0) * multiplier as f64;
 
     ui.group(|ui| {
         let target_width = card_width;
@@ -1463,7 +1508,11 @@ fn render_building_card(
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(building.icon()).size(22.0));
             ui.vertical(|ui| {
-                ui.label(egui::RichText::new(building.display_name()).strong().size(12.0));
+                ui.label(
+                    egui::RichText::new(building.display_name())
+                        .strong()
+                        .size(12.0),
+                );
                 // Cap description to 2 lines so all cards stay uniform height.
                 ui.add(
                     egui::Label::new(
@@ -1493,7 +1542,11 @@ fn render_building_card(
                 } else {
                     format!("⚡ {:.0} MW", power_demand_mw)
                 };
-                ui.label(egui::RichText::new(power_str).size(10.0).color(theme::TEXT_DIM));
+                ui.label(
+                    egui::RichText::new(power_str)
+                        .size(10.0)
+                        .color(theme::TEXT_DIM),
+                );
             }
         });
 
@@ -1505,7 +1558,11 @@ fn render_building_card(
         } else {
             format!("⏱ {:.1} yr", years_to_build)
         };
-        ui.label(egui::RichText::new(&time_str).size(10.0).color(theme::AMBER));
+        ui.label(
+            egui::RichText::new(&time_str)
+                .size(10.0)
+                .color(theme::AMBER),
+        );
 
         // ── Effect lines ─────────────────────────────────────────────────
         if let Some((summary, color)) = operations_summary {
@@ -1554,16 +1611,18 @@ fn render_building_card(
                 .map(|(text, _)| text.as_str())
                 .collect::<Vec<_>>()
                 .join(" | ");
-            let summary_color = if cost_entries.iter().take(2).all(|(_, color)| *color == theme::GREEN) {
+            let summary_color = if cost_entries
+                .iter()
+                .take(2)
+                .all(|(_, color)| *color == theme::GREEN)
+            {
                 theme::GREEN
             } else {
                 theme::RED
             };
             ui.add(
-                egui::Label::new(
-                    egui::RichText::new(summary).size(9.25).color(summary_color),
-                )
-                .truncate(),
+                egui::Label::new(egui::RichText::new(summary).size(9.25).color(summary_color))
+                    .truncate(),
             );
         }
 
@@ -1593,7 +1652,6 @@ fn render_building_card(
         });
     });
 }
-
 
 /// Render the minimum stockpile configuration section for a colony.
 ///
@@ -1652,12 +1710,7 @@ fn render_minimum_stockpile_editor(
     ui.columns(column_count, |ui_columns| {
         for (column_ui, groups) in ui_columns.iter_mut().zip(columns.into_iter()) {
             for (category_name, resources) in groups {
-                render_minimum_stockpile_group(
-                    column_ui,
-                    category_name,
-                    &resources,
-                    &mut minimum,
-                );
+                render_minimum_stockpile_group(column_ui, category_name, &resources, &mut minimum);
                 column_ui.add_space(8.0);
             }
         }
@@ -1805,17 +1858,14 @@ pub(super) fn render_building_editor(
                                     .color(theme::TEXT_DIM),
                             );
                             for btype in cat.buildings() {
-                                let is_selected =
-                                    edit_state.selected_type == Some(btype);
+                                let is_selected = edit_state.selected_type == Some(btype);
                                 let def_name = data
                                     .get(&btype)
                                     .map(|d| d.display_name.as_str())
                                     .unwrap_or(btype.display_name());
                                 let row_text = format!(
                                     "{} {}",
-                                    data.get(&btype)
-                                        .map(|d| d.icon.as_str())
-                                        .unwrap_or(""),
+                                    data.get(&btype).map(|d| d.icon.as_str()).unwrap_or(""),
                                     def_name
                                 );
                                 let response = ui.selectable_label(is_selected, &row_text);
@@ -1836,10 +1886,7 @@ pub(super) fn render_building_editor(
                 // ── Right column: edit form ──
                 let right = &mut cols[1];
                 if let Some(ref mut ed) = edit_state.editing {
-                    right.label(
-                        egui::RichText::new(format!("Edit: {}", ed.display_name))
-                            .strong(),
-                    );
+                    right.label(egui::RichText::new(format!("Edit: {}", ed.display_name)).strong());
                     right.separator();
 
                     let mut save_clicked = false;
@@ -1856,11 +1903,9 @@ pub(super) fn render_building_editor(
                                     // ID (read-only)
                                     ui.label("ID:");
                                     ui.label(
-                                        egui::RichText::new(
-                                            format!("{:?}", ed.building_type),
-                                        )
-                                        .monospace()
-                                        .color(theme::TEXT_DIM),
+                                        egui::RichText::new(format!("{:?}", ed.building_type))
+                                            .monospace()
+                                            .color(theme::TEXT_DIM),
                                     );
                                     ui.end_row();
 
@@ -1930,7 +1975,9 @@ pub(super) fn render_building_editor(
                                 let mut remove_idx: Option<usize> = None;
                                 for (i, (name, amt)) in ed.resource_costs.iter_mut().enumerate() {
                                     ui.horizontal(|ui| {
-                                        ui.add(egui::TextEdit::singleline(name).desired_width(100.0));
+                                        ui.add(
+                                            egui::TextEdit::singleline(name).desired_width(100.0),
+                                        );
                                         ui.label("×");
                                         ui.add(egui::TextEdit::singleline(amt).desired_width(60.0));
                                         if ui.small_button("✖").clicked() {
@@ -1968,14 +2015,18 @@ pub(super) fn render_building_editor(
                             ui.add_space(6.0);
 
                             // ── Maintenance Resources ──
-                            ui.label(egui::RichText::new("Maintenance Resources (per year)").strong());
+                            ui.label(
+                                egui::RichText::new("Maintenance Resources (per year)").strong(),
+                            );
                             ui.group(|ui| {
                                 let mut remove_idx: Option<usize> = None;
                                 for (i, (name, amt)) in
                                     ed.maintenance_resources.iter_mut().enumerate()
                                 {
                                     ui.horizontal(|ui| {
-                                        ui.add(egui::TextEdit::singleline(name).desired_width(100.0));
+                                        ui.add(
+                                            egui::TextEdit::singleline(name).desired_width(100.0),
+                                        );
                                         ui.label("×");
                                         ui.add(egui::TextEdit::singleline(amt).desired_width(60.0));
                                         if ui.small_button("✖").clicked() {
@@ -2013,12 +2064,17 @@ pub(super) fn render_building_editor(
                             ui.add_space(6.0);
 
                             // ── Modifiers ──
-                            ui.label(egui::RichText::new("Modifiers (operational effects)").strong());
+                            ui.label(
+                                egui::RichText::new("Modifiers (operational effects)").strong(),
+                            );
                             ui.group(|ui| {
                                 let mut remove_idx: Option<usize> = None;
                                 for (i, m) in ed.modifiers.iter().enumerate() {
                                     ui.horizontal(|ui| {
-                                        ui.colored_label(theme::AMBER, format!("{}: {}", m.modifier_type, m.value));
+                                        ui.colored_label(
+                                            theme::AMBER,
+                                            format!("{}: {}", m.modifier_type, m.value),
+                                        );
                                         if ui.small_button("✖").clicked() {
                                             remove_idx = Some(i);
                                         }
@@ -2045,7 +2101,9 @@ pub(super) fn render_building_editor(
                                         if let Ok(val) = ed.new_modifier_value.parse::<f64>() {
                                             ed.modifiers.push(
                                                 crate::colony::data::BuildingModifierDef {
-                                                    modifier_type: std::mem::take(&mut ed.new_modifier_type),
+                                                    modifier_type: std::mem::take(
+                                                        &mut ed.new_modifier_type,
+                                                    ),
                                                     value: val,
                                                 },
                                             );
@@ -2126,4 +2184,3 @@ fn save_buildings_to_file(data: &BuildingsData) -> String {
         Err(e) => format!("Error serialising: {}", e),
     }
 }
-

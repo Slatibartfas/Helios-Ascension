@@ -141,51 +141,51 @@ impl GlobalBudget {
         // All values are in Megatons (Mt).
 
         // Volatiles / gases
-        stockpiles.insert(ResourceType::Water, 300.0);      // 600 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Oxygen, 50.0);      // 100 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Hydrogen, 50.0);    // 100 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Methane, 1_950.0);  // 3,900 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Nitrogen, 65.0);    // 130 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Ammonia, 95.0);     // 190 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Water, 300.0); // 600 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Oxygen, 50.0); // 100 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Hydrogen, 50.0); // 100 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Methane, 1_950.0); // 3,900 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Nitrogen, 65.0); // 130 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Ammonia, 95.0); // 190 Mt/yr → 6 mo
 
         // Construction / common metals
-        stockpiles.insert(ResourceType::Iron, 1_250.0);     // 2,500 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Copper, 13.0);      // 26 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Aluminum, 35.0);    // 70 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Iron, 1_250.0); // 2,500 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Copper, 13.0); // 26 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Aluminum, 35.0); // 70 Mt/yr → 6 mo
         stockpiles.insert(ResourceType::Silicates, 25_000.0); // 50,000 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Nickel, 1.65);      // 3.3 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Chromium, 22.0);    // 44 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Magnesium, 0.6);    // 1.2 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Cobalt, 0.105);     // 0.21 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Tungsten, 0.047);   // 0.094 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Titanium, 5.0);     // 10 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Nickel, 1.65); // 3.3 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Chromium, 22.0); // 44 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Magnesium, 0.6); // 1.2 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Cobalt, 0.105); // 0.21 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Tungsten, 0.047); // 0.094 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Titanium, 5.0); // 10 Mt/yr → 6 mo
 
         // Non-metals / chemical industry
-        stockpiles.insert(ResourceType::Carbon, 2_150.0);   // 4,300 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Carbon, 2_150.0); // 4,300 Mt/yr → 6 mo
         stockpiles.insert(ResourceType::Phosphorus, 120.0); // 240 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Sulfur, 32.5);      // 65 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Polymers, 217.5);   // 435 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Fluorine, 1.0);     // 2 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Sulfur, 32.5); // 65 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Polymers, 217.5); // 435 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Fluorine, 1.0); // 2 Mt/yr → 6 mo
 
         // Strategic / rare
-        stockpiles.insert(ResourceType::Lithium, 0.45);     // 0.9 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Lithium, 0.45); // 0.9 Mt/yr → 6 mo
         stockpiles.insert(ResourceType::RareEarths, 0.175); // 0.35 Mt/yr → 6 mo
 
         // Precious metals
-        stockpiles.insert(ResourceType::Gold, 0.0018);      // 0.0036 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Silver, 0.014);     // 0.028 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Gold, 0.0018); // 0.0036 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Silver, 0.014); // 0.028 Mt/yr → 6 mo
         stockpiles.insert(ResourceType::Platinum, 0.000115); // 0.00023 Mt/yr → 6 mo
 
         // Fissile / fusion fuels
-        stockpiles.insert(ResourceType::Uranium, 0.029);    // 0.058 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Thorium, 0.005);    // 0.01 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Plutonium, 0.0);    // manufactured in breeder reactors
-        stockpiles.insert(ResourceType::Deuterium, 0.005);  // 0.01 Mt/yr → 6 mo
-        stockpiles.insert(ResourceType::Tritium, 0.0);      // bred from lithium blankets
-        stockpiles.insert(ResourceType::Helium3, 0.0);      // essentially none yet
+        stockpiles.insert(ResourceType::Uranium, 0.029); // 0.058 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Thorium, 0.005); // 0.01 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Plutonium, 0.0); // manufactured in breeder reactors
+        stockpiles.insert(ResourceType::Deuterium, 0.005); // 0.01 Mt/yr → 6 mo
+        stockpiles.insert(ResourceType::Tritium, 0.0); // bred from lithium blankets
+        stockpiles.insert(ResourceType::Helium3, 0.0); // essentially none yet
 
         // Food — game units (8.2B pop × 0.0001 Mt/yr = 820,000 Mt/yr consumption)
-        stockpiles.insert(ResourceType::Food, 450_000.0);   // ~0.55yr reserve
+        stockpiles.insert(ResourceType::Food, 450_000.0); // ~0.55yr reserve
 
         Self {
             stockpiles,
@@ -261,7 +261,8 @@ impl GlobalBudget {
         assert!(
             amount >= 0.0,
             "Cannot add negative resource amount {} to {:?}",
-            amount, resource
+            amount,
+            resource
         );
         let cap = self.effective_stockpile_cap(resource);
         let current = self.get_stockpile(&resource);
@@ -829,7 +830,10 @@ mod tests {
         budget.storage_multiplier = 1.5; // 20 warehouses × 2.5%
         let base_cap = GlobalBudget::stockpile_cap(ResourceType::Iron);
         let eff_cap = budget.effective_stockpile_cap(ResourceType::Iron);
-        assert!((eff_cap - base_cap * 1.5).abs() < 1e-6, "Effective cap should be 1.5× base");
+        assert!(
+            (eff_cap - base_cap * 1.5).abs() < 1e-6,
+            "Effective cap should be 1.5× base"
+        );
     }
 
     #[test]
@@ -841,7 +845,10 @@ mod tests {
         budget.stockpiles.insert(ResourceType::Iron, base_cap);
         // With 2× multiplier we should still have headroom
         let added = budget.add_resource_capped(ResourceType::Iron, base_cap);
-        assert!(added > 0.0, "Should be able to add beyond base cap when multiplier > 1");
+        assert!(
+            added > 0.0,
+            "Should be able to add beyond base cap when multiplier > 1"
+        );
     }
 
     #[test]
