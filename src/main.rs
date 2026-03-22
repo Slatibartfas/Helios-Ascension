@@ -3,7 +3,7 @@ use bevy::render::{
     settings::{Backends, RenderCreation, WgpuSettings},
     RenderPlugin,
 };
-use bevy::window::{WindowResizeConstraints, WindowResolution};
+use bevy::window::{PresentMode, WindowResizeConstraints, WindowResolution};
 use bevy_egui::EguiPlugin;
 
 pub mod astronomy;
@@ -48,6 +48,7 @@ fn main() {
                     primary_window: Some(Window {
                         title: "Helios Ascension".to_string(),
                         resolution: WindowResolution::new(1920, 1080),
+                        present_mode: PresentMode::Fifo,
                         resize_constraints: WindowResizeConstraints {
                             min_width: MIN_WINDOW_WIDTH,
                             min_height: MIN_WINDOW_HEIGHT,

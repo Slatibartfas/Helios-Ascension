@@ -1,3 +1,4 @@
+#[cfg(not(target_os = "windows"))]
 use bevy::core_pipeline::tonemapping::Tonemapping;
 #[cfg(not(target_os = "windows"))]
 use bevy::post_process::bloom::Bloom;
@@ -36,34 +37,35 @@ impl Material for NightMaterial {
 }
 
 /// Setup camera effects for better space atmosphere
+#[cfg(not(target_os = "windows"))]
 fn setup_camera_effects(mut commands: Commands, camera_query: Query<Entity, With<Camera3d>>) {
     if let Ok(camera_entity) = camera_query.single() {
         commands
             .entity(camera_entity)
             .insert(Tonemapping::ReinhardLuminance);
 
-        #[cfg(not(target_os = "windows"))]
-        {
-            // Add bloom effect for bright objects (stars, sun) — tuned for subtle,
-            // realistic corona. On Windows DX12 this has been triggering unstable
-            // swap-chain/device-loss behaviour on some systems, so it is disabled there.
-            commands.entity(camera_entity).insert(Bloom {
-                intensity: 0.25,
-                // Reduced from 0.6: a narrower low-frequency boost means the bloom halo
-                // stays close to the star surface and doesn't spread across close-in orbits.
-                low_frequency_boost: 0.35,
-                low_frequency_boost_curvature: 0.4,
-                high_pass_frequency: 0.1,
-                prefilter: bevy::post_process::bloom::BloomPrefilter {
-                    // Raised from 2.0: only genuine star-surface HDR values (≥3.0) trigger
-                    // bloom — dim planet surfaces illuminated by a nearby star no longer
-                    // exceed the threshold and develop their own halo.
-                    threshold: 3.0,
-                    threshold_softness: 0.4,
-                },
-                composite_mode: bevy::post_process::bloom::BloomCompositeMode::Additive,
-                ..default()
-            });
-        }
+        // Add bloom effect for bright objects (stars, sun) — tuned for subtle,
+        // realistic corona. On Windows DX12 this has been triggering unstable
+        // swap-chain/device-loss behaviour on some systems, so it is disabled there.
+        commands.entity(camera_entity).insert(Bloom {
+            intensity: 0.25,
+            // Reduced from 0.6: a narrower low-frequency boost means the bloom halo
+            // stays close to the star surface and doesn't spread across close-in orbits.
+            low_frequency_boost: 0.35,
+            low_frequency_boost_curvature: 0.4,
+            high_pass_frequency: 0.1,
+            prefilter: bevy::post_process::bloom::BloomPrefilter {
+                // Raised from 2.0: only genuine star-surface HDR values (≥3.0) trigger
+                // bloom — dim planet surfaces illuminated by a nearby star no longer
+                // exceed the threshold and develop their own halo.
+                threshold: 3.0,
+                threshold_softness: 0.4,
+            },
+            composite_mode: bevy::post_process::bloom::BloomCompositeMode::Additive,
+            ..default()
+        });
     }
 }
+
+#[cfg(target_os = "windows")]
+fn setup_camera_effects(_: Commands, _: Query<Entity, With<Camera3d>>) {}
