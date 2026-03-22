@@ -314,7 +314,7 @@ fn draw_design_tab(
     let current_summary = shipbuilding_data.summarize_design(&current_design, research_state);
 
     let available_width = ui.available_width();
-    if available_width < 1680.0 {
+    if available_width < 1360.0 {
         egui::ScrollArea::vertical()
             .id_salt("design_workspace_stacked_scroll")
             .show(ui, |ui| {
@@ -342,8 +342,8 @@ fn draw_design_tab(
                 );
             });
     } else {
-        let summary_width = 232.0;
-        let design_width = (available_width - summary_width - 16.0).max(560.0);
+        let summary_width = (available_width * 0.24).clamp(280.0, 380.0);
+        let design_width = (available_width - summary_width - 12.0).max(700.0);
 
         ui.horizontal_top(|ui| {
             ui.allocate_ui_with_layout(
@@ -365,7 +365,7 @@ fn draw_design_tab(
                 },
             );
 
-            ui.add_space(16.0);
+            ui.add_space(12.0);
             ui.allocate_ui_with_layout(
                 egui::vec2(summary_width, ui.available_height()),
                 egui::Layout::top_down(egui::Align::Min),
@@ -1060,36 +1060,53 @@ fn draw_hull_editor(
     }
 
     ui.add_space(8.0);
-    let browser_width = (ui.available_width() * 0.24).clamp(220.0, 280.0);
-    let schematic_width = (ui.available_width() - browser_width - 12.0).clamp(420.0, 700.0);
+    let available_width = ui.available_width();
+    let stacked_layout = available_width < 980.0;
+    let browser_width = (available_width * 0.30).clamp(260.0, 360.0);
+    let schematic_width = (available_width - browser_width - 12.0).max(460.0);
 
-    ui.horizontal_top(|ui| {
-        ui.allocate_ui_with_layout(
-            egui::vec2(browser_width, ui.available_height()),
-            egui::Layout::top_down(egui::Align::Min),
-            |ui| {
-                draw_component_browser(ui, shipbuilding_data, research_state, ui_state, hull);
-            },
+    if stacked_layout {
+        draw_component_browser(ui, shipbuilding_data, research_state, ui_state, hull);
+        ui.add_space(10.0);
+        let clicked_slot = draw_ship_schematic(
+            ui,
+            shipbuilding_data,
+            hull,
+            &ui_state.selected_modules,
+            ui_state.selected_slot.as_deref(),
         );
+        if let Some(slot_id) = clicked_slot {
+            ui_state.selected_slot = Some(slot_id);
+        }
+    } else {
+        ui.horizontal_top(|ui| {
+            ui.allocate_ui_with_layout(
+                egui::vec2(browser_width, ui.available_height()),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    draw_component_browser(ui, shipbuilding_data, research_state, ui_state, hull);
+                },
+            );
 
-        ui.add_space(12.0);
-        ui.allocate_ui_with_layout(
-            egui::vec2(schematic_width, ui.available_height()),
-            egui::Layout::top_down(egui::Align::Min),
-            |ui| {
-                let clicked_slot = draw_ship_schematic(
-                    ui,
-                    shipbuilding_data,
-                    hull,
-                    &ui_state.selected_modules,
-                    ui_state.selected_slot.as_deref(),
-                );
-                if let Some(slot_id) = clicked_slot {
-                    ui_state.selected_slot = Some(slot_id);
-                }
-            },
-        );
-    });
+            ui.add_space(12.0);
+            ui.allocate_ui_with_layout(
+                egui::vec2(schematic_width, ui.available_height()),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    let clicked_slot = draw_ship_schematic(
+                        ui,
+                        shipbuilding_data,
+                        hull,
+                        &ui_state.selected_modules,
+                        ui_state.selected_slot.as_deref(),
+                    );
+                    if let Some(slot_id) = clicked_slot {
+                        ui_state.selected_slot = Some(slot_id);
+                    }
+                },
+            );
+        });
+    }
 }
 
 fn draw_ship_schematic(
@@ -1132,13 +1149,9 @@ fn draw_ship_schematic(
 
         let lane_titles = ["Defensive / Sensor", "Core Hull", "Weapons / Mission"];
         let lane_spacing = 10.0;
-        let lane_width = ((ui.available_width() - lane_spacing * 2.0) / 3.0).clamp(145.0, 195.0);
-        let total_width = lane_width * 3.0 + lane_spacing * 2.0;
-        let left_padding = ((ui.available_width() - total_width) * 0.5).max(0.0);
+        let lane_width = ((ui.available_width() - lane_spacing * 2.0) / 3.0).max(145.0);
 
         ui.horizontal_top(|ui| {
-            ui.add_space(left_padding);
-
             for (index, slots) in columns.into_iter().enumerate() {
                 ui.allocate_ui_with_layout(
                     egui::vec2(lane_width, ui.available_height()),
@@ -1293,7 +1306,7 @@ fn draw_component_browser(
 
         egui::ScrollArea::vertical()
             .id_salt(format!("component_browser_{}", slot.slot_id))
-            .max_height(520.0)
+            .max_height(ui.available_height().max(260.0))
             .show(ui, |ui| {
                 for module in compatible {
                     let selected = ui_state
@@ -1309,64 +1322,58 @@ fn draw_component_browser(
                         .stroke(egui::Stroke::new(1.0, theme::BORDER))
                         .inner_margin(egui::Margin::same(6))
                         .show(ui, |ui| {
-                            ui.horizontal_top(|ui| {
-                                ui.vertical(|ui| {
-                                    ui.label(
-                                        egui::RichText::new(&module.display_name)
-                                            .font(theme::body(10.0))
-                                            .color(theme::TEXT_VALUE),
-                                    );
-                                    ui.label(
-                                        egui::RichText::new(format!(
-                                            "{} | {} BP | {}",
-                                            module.size,
-                                            module.build_points.round(),
-                                            format_mass_compact_tonnes(module.dry_mass_t)
-                                        ))
-                                        .font(theme::body(9.0))
-                                        .color(theme::TEXT_DIM),
-                                    );
-                                    ui.label(
-                                        egui::RichText::new(format_power_profile(module))
-                                            .font(theme::mono(8.8))
-                                            .color(theme::TEXT_DIM),
-                                    );
-                                    if !module.resource_costs.is_empty() {
-                                        ui.label(
-                                            egui::RichText::new(format!(
-                                                "Cost: {}",
-                                                format_resource_costs_inline(
-                                                    &module.resource_costs,
-                                                    4,
-                                                )
-                                            ))
-                                            .font(theme::body(8.8))
-                                            .color(theme::TEXT_DIM),
-                                        );
-                                    }
-                                });
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        ui.label(
-                                            egui::RichText::new(if selected {
-                                                "Fitted"
-                                            } else {
-                                                "Click to fit"
-                                            })
-                                            .font(theme::mono(8.6))
-                                            .color(if selected {
-                                                theme::GREEN
-                                            } else {
-                                                theme::ACCENT
-                                            }),
-                                        );
-                                    },
+                            ui.label(
+                                egui::RichText::new(&module.display_name)
+                                    .font(theme::body(10.0))
+                                    .color(theme::TEXT_VALUE),
+                            );
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "{} | {} BP | {}",
+                                    module.size,
+                                    module.build_points.round(),
+                                    format_mass_compact_tonnes(module.dry_mass_t)
+                                ))
+                                .font(theme::body(9.0))
+                                .color(theme::TEXT_DIM),
+                            );
+                            ui.label(
+                                egui::RichText::new(format_power_profile(module))
+                                    .font(theme::mono(8.8))
+                                    .color(theme::TEXT_DIM),
+                            );
+                            if !module.resource_costs.is_empty() {
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "Cost: {}",
+                                        format_resource_costs_inline(&module.resource_costs, 4)
+                                    ))
+                                    .font(theme::body(8.8))
+                                    .color(theme::TEXT_DIM),
                                 );
-                            });
+                            }
+                            ui.add_space(2.0);
+                            ui.label(
+                                egui::RichText::new(if selected { "Fitted" } else { "Click to fit" })
+                                    .font(theme::mono(8.6))
+                                    .color(if selected {
+                                        theme::GREEN
+                                    } else {
+                                        theme::ACCENT
+                                    }),
+                            );
+                            ui.set_min_height(0.0);
                         })
                         .response;
-                    if response.clicked() {
+                    let click_response = ui.interact(
+                        response.rect,
+                        ui.id()
+                            .with("component_fit_card")
+                            .with(&slot.slot_id)
+                            .with(&module.id),
+                        egui::Sense::click(),
+                    );
+                    if click_response.clicked() {
                         ui_state
                             .selected_modules
                             .insert(slot.slot_id.clone(), module.id.clone());
