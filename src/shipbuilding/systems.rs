@@ -14,9 +14,7 @@ use crate::economy::logistics::{
     PendingResourceRequests, RequestPriority, RequestState, ResourceRequest,
 };
 use crate::economy::{GlobalBudget, ResourceType};
-use crate::fleets::{
-    PendingFleetActions, PropulsionType, ShipClass, ShipInfo, SpawnFleetAction, AU_IN_METERS,
-};
+use crate::fleets::{PropulsionType, ShipClass, ShipInfo, ShipInstance, AU_IN_METERS};
 use crate::plugins::solar_system::CelestialBody;
 use crate::research::ResearchState;
 use crate::ui::SimulationTime;
@@ -61,7 +59,8 @@ pub fn queue_validation_errors(
     }
 
     let Some(summary) = summary else {
-        errors.push("The current design is invalid or locked by research requirements.".to_string());
+        errors
+            .push("The current design is invalid or locked by research requirements.".to_string());
         return errors;
     };
 
@@ -143,7 +142,10 @@ pub fn process_pending_shipbuilding_actions(
 
     for QueueShipConstructionAction { build_site, design } in actions.queue_projects.drain(..) {
         let Ok(colony) = colonies.get(build_site) else {
-            warn!("Ignoring shipbuilding action for non-colony entity {:?}", build_site);
+            warn!(
+                "Ignoring shipbuilding action for non-colony entity {:?}",
+                build_site
+            );
             continue;
         };
 
@@ -157,12 +159,8 @@ pub fn process_pending_shipbuilding_actions(
             continue;
         };
 
-        let queue_errors = queue_validation_errors(
-            Some(colony),
-            hull,
-            Some(&summary),
-            design.construction_mode,
-        );
+        let queue_errors =
+            queue_validation_errors(Some(colony), hull, Some(&summary), design.construction_mode);
         if !queue_errors.is_empty() {
             warn!(
                 "Rejected ship design '{}' at {}: {}",
@@ -313,10 +311,9 @@ pub fn advance_ship_construction(
             let factories = colony.building_count(BuildingType::Factory) as f64;
             let engineering_bays = colony.building_count(BuildingType::EngineeringBay) as f64;
             let bonus = 1.0 + engineering_bays * ENGINEERING_BAY_BONUS;
-            let bp =
-                (shipyards * SHIPYARD_BP_PER_YEAR + factories * FACTORY_SUPPORT_BP_PER_YEAR)
-                    * bonus
-                    * years_elapsed;
+            let bp = (shipyards * SHIPYARD_BP_PER_YEAR + factories * FACTORY_SUPPORT_BP_PER_YEAR)
+                * bonus
+                * years_elapsed;
             colony_bp.push((colony_entity, bp));
         }
     }
@@ -365,7 +362,6 @@ pub fn process_ship_launches_and_completions(
     mut stockpiles: Query<&mut LocalStockpile>,
     mut budget: ResMut<GlobalBudget>,
     mut launch_state: ResMut<LaunchCapacityState>,
-    mut pending_fleet_actions: ResMut<PendingFleetActions>,
     mut resource_requests: ResMut<PendingResourceRequests>,
     mut projects: Query<(Entity, &mut ShipConstructionProject)>,
 ) {
@@ -407,13 +403,14 @@ pub fn process_ship_launches_and_completions(
             ShipConstructionState::Building => {}
             ShipConstructionState::CompletedInOrbit => {
                 if let Ok((_, _, body)) = colonies.get(project.build_site) {
-                    pending_fleet_actions.spawn_fleets.push(SpawnFleetAction {
-                        name: project.design_name.clone(),
-                        ships: vec![build_ship_info(&project)],
-                        orbit_body: project.build_site,
-                        orbit_radius_au: insertion_orbit_radius_au(body, project.is_station),
-                        stationary: project.is_station,
-                    });
+                    commands.spawn(ShipInstance::new(
+                        build_ship_info(&project),
+                        project.build_site,
+                        insertion_orbit_radius_au(body, project.is_station),
+                        project.is_station,
+                        None,
+                        0,
+                    ));
                     commands.entity(entity).despawn();
                 }
             }
@@ -440,10 +437,9 @@ pub fn process_ship_launches_and_completions(
                         budget.treasury -= project.launch_credit_cost_mc;
                         can_launch = true;
                     } else {
-                        let existing_requests = resource_requests
-                            .requests
-                            .iter()
-                            .any(|request| request.linked_project == Some(entity) && request.is_open());
+                        let existing_requests = resource_requests.requests.iter().any(|request| {
+                            request.linked_project == Some(entity) && request.is_open()
+                        });
                         if !existing_requests {
                             let launch_costs = project.launch_resource_costs.clone();
                             for (resource, amount) in launch_costs {
@@ -480,13 +476,14 @@ pub fn process_ship_launches_and_completions(
                 }
 
                 *available_capacity -= project.launch_mass_t;
-                pending_fleet_actions.spawn_fleets.push(SpawnFleetAction {
-                    name: project.design_name.clone(),
-                    ships: vec![build_ship_info(&project)],
-                    orbit_body: project.build_site,
-                    orbit_radius_au: insertion_orbit_radius_au(body, project.is_station),
-                    stationary: project.is_station,
-                });
+                commands.spawn(ShipInstance::new(
+                    build_ship_info(&project),
+                    project.build_site,
+                    insertion_orbit_radius_au(body, project.is_station),
+                    project.is_station,
+                    None,
+                    0,
+                ));
                 commands.entity(entity).despawn();
             }
         }
@@ -501,9 +498,18 @@ pub fn annual_launch_capacity_t(colony: &Colony) -> f64 {
 
 pub fn launch_resource_costs(launch_mass_t: f64) -> Vec<(ResourceType, f64)> {
     vec![
-        (ResourceType::Methane, launch_mass_t * LAUNCH_METHANE_PER_TON_MT),
-        (ResourceType::Oxygen, launch_mass_t * LAUNCH_OXYGEN_PER_TON_MT),
-        (ResourceType::Polymers, launch_mass_t * LAUNCH_POLYMERS_PER_TON_MT),
+        (
+            ResourceType::Methane,
+            launch_mass_t * LAUNCH_METHANE_PER_TON_MT,
+        ),
+        (
+            ResourceType::Oxygen,
+            launch_mass_t * LAUNCH_OXYGEN_PER_TON_MT,
+        ),
+        (
+            ResourceType::Polymers,
+            launch_mass_t * LAUNCH_POLYMERS_PER_TON_MT,
+        ),
     ]
 }
 

@@ -1,10 +1,14 @@
 //! ECS systems for fleet position updates and action processing.
 
+use std::collections::HashMap;
+
 use bevy::math::DVec3;
 use bevy::prelude::*;
 use bevy::time::Real;
 
-use super::components::{ActiveManeuver, Fleet, FleetOrbit, PendingFleetActions, ShipInfo};
+use super::components::{
+    ActiveManeuver, Fleet, FleetOrbit, PendingFleetActions, ShipInfo, ShipInstance,
+};
 use super::orbital_mechanics::AU_IN_METERS;
 use super::types::{PropulsionType, ShipClass};
 use super::visuals::predict_body_physics_pos;
@@ -17,6 +21,120 @@ use crate::ui::{SimulationTime, TimeScale};
 
 /// One full visual revolution every 40 real seconds — readable at any time scale.
 const VISUAL_ORBIT_RATE: f64 = std::f64::consts::TAU / 40.0;
+
+fn ordered_ship_entities_for_fleet(
+    ships: &Query<(Entity, &ShipInstance)>,
+    fleet_entity: Entity,
+) -> Vec<Entity> {
+    let mut rows: Vec<_> = ships
+        .iter()
+        .filter(|(_, ship)| ship.assigned_fleet == Some(fleet_entity))
+        .map(|(entity, ship)| (entity, ship.sort_order, ship.info.name.clone()))
+        .collect();
+    rows.sort_by(|left, right| left.1.cmp(&right.1).then_with(|| left.2.cmp(&right.2)));
+    rows.into_iter().map(|(entity, _, _)| entity).collect()
+}
+
+fn next_sort_order_for_fleet(ships: &Query<(Entity, &ShipInstance)>, fleet_entity: Entity) -> i32 {
+    ships
+        .iter()
+        .filter(|(_, ship)| ship.assigned_fleet == Some(fleet_entity))
+        .map(|(_, ship)| ship.sort_order)
+        .max()
+        .unwrap_or(-1)
+        + 1
+}
+
+fn fleet_has_assigned_ships(ships: &Query<(Entity, &ShipInstance)>, fleet_entity: Entity) -> bool {
+    ships
+        .iter()
+        .any(|(_, ship)| ship.assigned_fleet == Some(fleet_entity))
+}
+
+fn spawn_fleet_with_ship_entities(
+    commands: &mut Commands,
+    name: String,
+    ships: Vec<ShipInfo>,
+    orbit_body: Entity,
+    orbit_radius_au: f64,
+    stationary: bool,
+) -> Entity {
+    let mut orbit = FleetOrbit::new(orbit_body, orbit_radius_au);
+    if stationary {
+        orbit.direction = 0.0;
+    }
+
+    let mut fleet = Fleet::new(name);
+    fleet.ships = ships.clone();
+    let fleet_entity = commands
+        .spawn((fleet, orbit, SpaceCoordinates::default()))
+        .id();
+
+    for (index, ship) in ships.into_iter().enumerate() {
+        commands.spawn(ShipInstance::new(
+            ship,
+            orbit_body,
+            orbit_radius_au,
+            stationary,
+            Some(fleet_entity),
+            index as i32,
+        ));
+    }
+
+    fleet_entity
+}
+
+pub fn sync_fleet_cache_from_ship_entities(
+    ships: Query<(Entity, &ShipInstance)>,
+    mut fleets: Query<(Entity, &mut Fleet)>,
+) {
+    let mut grouped: HashMap<Entity, Vec<(i32, String, ShipInfo)>> = HashMap::new();
+
+    for (_, ship) in ships.iter() {
+        let Some(fleet_entity) = ship.assigned_fleet else {
+            continue;
+        };
+
+        grouped.entry(fleet_entity).or_default().push((
+            ship.sort_order,
+            ship.info.name.clone(),
+            ship.as_ship_info(),
+        ));
+    }
+
+    for (fleet_entity, mut fleet) in fleets.iter_mut() {
+        let mut ships_for_fleet = grouped.remove(&fleet_entity).unwrap_or_default();
+        ships_for_fleet
+            .sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
+        fleet.ships = ships_for_fleet
+            .into_iter()
+            .map(|(_, _, ship_info)| ship_info)
+            .collect();
+    }
+}
+
+pub fn sync_ship_instance_locations(
+    fleets: Query<(Option<&FleetOrbit>, Option<&ActiveManeuver>), With<Fleet>>,
+    mut ships: Query<&mut ShipInstance>,
+) {
+    for mut ship in ships.iter_mut() {
+        let Some(fleet_entity) = ship.assigned_fleet else {
+            continue;
+        };
+
+        match fleets.get(fleet_entity) {
+            Ok((Some(orbit), _)) => {
+                ship.parked_body = orbit.body;
+                ship.parked_orbit_radius_au = orbit.radius_au;
+                ship.stationary = orbit.direction == 0.0;
+            }
+            Ok((None, Some(_))) => {}
+            Ok((None, None)) | Err(_) => {
+                ship.assigned_fleet = None;
+            }
+        }
+    }
+}
 
 /// Update `SpaceCoordinates` for every fleet in a stable parking orbit.
 ///
@@ -367,25 +485,106 @@ pub fn process_fleet_actions(
     center_coords: Query<&SpaceCoordinates, Without<Fleet>>,
     fleet_sc_query: Query<&SpaceCoordinates, With<Fleet>>,
     fleet_transform_query: Query<&Transform, With<Fleet>>,
+    mut ship_queries: ParamSet<(
+        Query<(Entity, &ShipInstance)>,
+        Query<(Entity, &mut ShipInstance)>,
+    )>,
 ) {
     let elapsed = sim_time.elapsed_seconds();
 
     // Spawn new fleets
     for action in actions.spawn_fleets.drain(..) {
-        let mut orbit = FleetOrbit::new(action.orbit_body, action.orbit_radius_au);
-        if action.stationary {
-            orbit.direction = 0.0;
+        spawn_fleet_with_ship_entities(
+            &mut commands,
+            action.name,
+            action.ships,
+            action.orbit_body,
+            action.orbit_radius_au,
+            action.stationary,
+        );
+    }
+
+    for action in actions.create_fleets_from_ships.drain(..) {
+        let fleet_entity = spawn_fleet_with_ship_entities(
+            &mut commands,
+            action.name,
+            Vec::new(),
+            action.orbit_body,
+            action.orbit_radius_au,
+            action.stationary,
+        );
+
+        for (index, ship_entity) in action.ship_entities.into_iter().enumerate() {
+            if let Ok((_, mut ship)) = ship_queries.p1().get_mut(ship_entity) {
+                ship.assigned_fleet = Some(fleet_entity);
+                ship.parked_body = action.orbit_body;
+                ship.parked_orbit_radius_au = action.orbit_radius_au;
+                ship.stationary = action.stationary;
+                ship.sort_order = index as i32;
+            }
         }
-        let mut fleet = Fleet::new(action.name);
-        fleet.ships = action.ships;
-        commands.spawn((fleet, orbit, SpaceCoordinates::default()));
-        // NOTE: mesh is added lazily by ensure_fleet_meshes (needs asset access)
+    }
+
+    for action in actions.assign_ships.drain(..) {
+        let source_fleets: Vec<_> = action
+            .ship_entities
+            .iter()
+            .filter_map(|entity| {
+                ship_queries
+                    .p0()
+                    .get(*entity)
+                    .ok()
+                    .and_then(|(_, ship)| ship.assigned_fleet)
+            })
+            .collect();
+
+        let destination_state = action.destination_fleet.and_then(|fleet_entity| {
+            orbit_query.get(fleet_entity).ok().map(|orbit| {
+                (
+                    fleet_entity,
+                    orbit.body,
+                    orbit.radius_au,
+                    orbit.direction == 0.0,
+                    next_sort_order_for_fleet(&ship_queries.p0(), fleet_entity),
+                )
+            })
+        });
+
+        let mut next_sort_order = destination_state.map(|(_, _, _, _, sort_order)| sort_order);
+
+        for ship_entity in action.ship_entities {
+            if let Ok((_, mut ship)) = ship_queries.p1().get_mut(ship_entity) {
+                if let Some((fleet_entity, body, radius_au, stationary, _)) = destination_state {
+                    ship.assigned_fleet = Some(fleet_entity);
+                    ship.parked_body = body;
+                    ship.parked_orbit_radius_au = radius_au;
+                    ship.stationary = stationary;
+                    ship.sort_order = next_sort_order.unwrap_or(0);
+                    next_sort_order = next_sort_order.map(|value| value + 1);
+                } else {
+                    ship.assigned_fleet = None;
+                }
+            }
+        }
+
+        for source_fleet in source_fleets {
+            if action.destination_fleet == Some(source_fleet) {
+                continue;
+            }
+            if !fleet_has_assigned_ships(&ship_queries.p0(), source_fleet) {
+                commands.entity(source_fleet).despawn();
+            }
+        }
     }
 
     // Start transfers (works for both parked and in-transit fleets)
     for action in actions.start_transfers.drain(..) {
         if let Ok(fleet) = fleet_query.get(action.fleet) {
-            if fleet.ships.iter().any(|ship| ship.class == ShipClass::Station) {
+            if fleet
+                .ships
+                .iter()
+                .any(|ship| ship.class == ShipClass::Station)
+            {
                 continue;
             }
         }
@@ -399,6 +598,15 @@ pub fn process_fleet_actions(
 
         // Deduct abort burn cost from fleet fuel (course corrections only)
         if action.abort_cost_t > 0.0 {
+            let per_ship_abort_cost = if let Ok(fleet) = fleet_query.get(action.fleet) {
+                if fleet.ships.is_empty() {
+                    0.0
+                } else {
+                    action.abort_cost_t / fleet.ships.len() as f32
+                }
+            } else {
+                0.0
+            };
             if let Ok(mut fleet) = fleet_query.get_mut(action.fleet) {
                 let per_ship = if fleet.ships.is_empty() {
                     0.0
@@ -407,6 +615,11 @@ pub fn process_fleet_actions(
                 };
                 for ship in fleet.ships.iter_mut() {
                     ship.fuel_mass_t = (ship.fuel_mass_t - per_ship).max(0.0);
+                }
+            }
+            for (_, mut ship) in ship_queries.p1().iter_mut() {
+                if ship.assigned_fleet == Some(action.fleet) {
+                    ship.info.fuel_mass_t = (ship.info.fuel_mass_t - per_ship_abort_cost).max(0.0);
                 }
             }
         }
@@ -544,6 +757,11 @@ pub fn process_fleet_actions(
                     ship.fuel_mass_t = ship.max_fuel_t;
                 }
             }
+            for (_, mut ship) in ship_queries.p1().iter_mut() {
+                if ship.assigned_fleet == Some(entity) {
+                    ship.info.fuel_mass_t = ship.info.max_fuel_t;
+                }
+            }
         }
     }
 
@@ -553,6 +771,14 @@ pub fn process_fleet_actions(
             if let Ok(mut fleet) = fleet_query.get_mut(entity) {
                 if let Some(ship) = fleet.ships.get_mut(ship_idx) {
                     ship.fuel_mass_t = ship.max_fuel_t;
+                }
+            }
+            if let Some(ship_entity) = ordered_ship_entities_for_fleet(&ship_queries.p0(), entity)
+                .get(ship_idx)
+                .copied()
+            {
+                if let Ok((_, mut ship)) = ship_queries.p1().get_mut(ship_entity) {
+                    ship.info.fuel_mass_t = ship.info.max_fuel_t;
                 }
             }
         }
@@ -581,26 +807,24 @@ pub fn process_fleet_actions(
         // Only allow transfer if both are parked at the same body
         if let (Some(src_orbit), Some(dst_orbit)) = (source_orbit, dest_orbit) {
             if src_orbit.body == dst_orbit.body {
-                let mut despawn_source = false;
-                if let Ok([mut src_fleet, mut dst_fleet]) =
-                    fleet_query.get_many_mut([action.source_fleet, action.destination_fleet])
-                {
-                    // Sort indices in descending order so we can remove them without shifting issues
-                    let mut indices = action.ship_indices.clone();
-                    indices.sort_unstable_by(|a, b| b.cmp(a));
-
-                    for idx in indices {
-                        if idx < src_fleet.ships.len() {
-                            let ship = src_fleet.ships.remove(idx);
-                            dst_fleet.ships.push(ship);
+                let ordered_ships =
+                    ordered_ship_entities_for_fleet(&ship_queries.p0(), action.source_fleet);
+                let mut next_sort_order =
+                    next_sort_order_for_fleet(&ship_queries.p0(), action.destination_fleet);
+                for idx in action.ship_indices {
+                    if let Some(ship_entity) = ordered_ships.get(idx).copied() {
+                        if let Ok((_, mut ship)) = ship_queries.p1().get_mut(ship_entity) {
+                            ship.assigned_fleet = Some(action.destination_fleet);
+                            ship.parked_body = dst_orbit.body;
+                            ship.parked_orbit_radius_au = dst_orbit.radius_au;
+                            ship.stationary = dst_orbit.direction == 0.0;
+                            ship.sort_order = next_sort_order;
+                            next_sort_order += 1;
                         }
                     }
-
-                    if src_fleet.ships.is_empty() {
-                        despawn_source = true;
-                    }
                 }
-                if despawn_source {
+
+                if !fleet_has_assigned_ships(&ship_queries.p0(), action.source_fleet) {
                     commands.entity(action.source_fleet).despawn();
                 }
             }
@@ -609,14 +833,12 @@ pub fn process_fleet_actions(
 
     // Scrap individual ships. If the last ship is removed, despawn the fleet.
     for (entity, ship_idx) in actions.scrap_ships.drain(..) {
-        let mut despawn_fleet = false;
-        if let Ok(mut fleet) = fleet_query.get_mut(entity) {
-            if ship_idx < fleet.ships.len() {
-                fleet.ships.remove(ship_idx);
-                despawn_fleet = fleet.ships.is_empty();
-            }
+        let ordered_ships = ordered_ship_entities_for_fleet(&ship_queries.p0(), entity);
+        if let Some(ship_entity) = ordered_ships.get(ship_idx).copied() {
+            commands.entity(ship_entity).despawn();
         }
-        if despawn_fleet {
+
+        if !fleet_has_assigned_ships(&ship_queries.p0(), entity) {
             commands.entity(entity).despawn();
         }
     }
@@ -624,6 +846,21 @@ pub fn process_fleet_actions(
     // Disband fleets (already confirmed by the player in the UI).
     for entity in actions.disband_fleets.drain(..) {
         if fleet_query.get(entity).is_ok() {
+            let orbit_state = orbit_query
+                .get(entity)
+                .ok()
+                .map(|orbit| (orbit.body, orbit.radius_au, orbit.direction == 0.0));
+
+            for (_, mut ship) in ship_queries.p1().iter_mut() {
+                if ship.assigned_fleet == Some(entity) {
+                    ship.assigned_fleet = None;
+                    if let Some((body, radius_au, stationary)) = orbit_state {
+                        ship.parked_body = body;
+                        ship.parked_orbit_radius_au = radius_au;
+                        ship.stationary = stationary;
+                    }
+                }
+            }
             commands.entity(entity).despawn();
         }
     }
@@ -646,19 +883,19 @@ pub fn process_fleet_actions(
         if !all_valid {
             continue;
         }
-        // Collect all ships from sources first to satisfy the borrow checker.
-        let mut collected_ships: Vec<ShipInfo> = Vec::new();
-        let mut to_despawn: Vec<Entity> = Vec::new();
+        let mut next_sort_order =
+            next_sort_order_for_fleet(&ship_queries.p0(), action.target_fleet);
         for src_entity in &action.source_fleets {
-            if let Ok(mut src) = fleet_query.get_mut(*src_entity) {
-                collected_ships.append(&mut src.ships);
-                to_despawn.push(*src_entity);
+            let ship_entities = ordered_ship_entities_for_fleet(&ship_queries.p0(), *src_entity);
+            for ship_entity in ship_entities {
+                if let Ok((_, mut ship)) = ship_queries.p1().get_mut(ship_entity) {
+                    ship.assigned_fleet = Some(action.target_fleet);
+                    ship.sort_order = next_sort_order;
+                    next_sort_order += 1;
+                }
             }
         }
-        if let Ok(mut target) = fleet_query.get_mut(action.target_fleet) {
-            target.ships.append(&mut collected_ships);
-        }
-        for e in to_despawn {
+        for e in action.source_fleets {
             commands.entity(e).despawn();
         }
     }
@@ -691,22 +928,25 @@ pub fn spawn_initial_fleet(
     // ── Earth Defense Squadron (Nuclear Thermal, Earth orbit) ─────────────────
     if let Some(earth) = find_body("Earth") {
         let radius_au = 6_771.0_f64 * 1_000.0 / AU_IN_METERS;
-        let mut fleet = Fleet::new("Earth Defense Squadron".to_string());
-        fleet.ships.push(ShipInfo::new(
-            "EDS Helios".to_string(),
-            ShipClass::Frigate,
-            PropulsionType::NuclearThermal,
-        ));
-        fleet.ships.push(ShipInfo::new(
-            "EDS Aurora".to_string(),
-            ShipClass::Destroyer,
-            PropulsionType::NuclearThermal,
-        ));
-        commands.spawn((
-            fleet,
-            FleetOrbit::new(earth, radius_au),
-            SpaceCoordinates::default(),
-        ));
+        spawn_fleet_with_ship_entities(
+            &mut commands,
+            "Earth Defense Squadron".to_string(),
+            vec![
+                ShipInfo::new(
+                    "EDS Helios".to_string(),
+                    ShipClass::Frigate,
+                    PropulsionType::NuclearThermal,
+                ),
+                ShipInfo::new(
+                    "EDS Aurora".to_string(),
+                    ShipClass::Destroyer,
+                    PropulsionType::NuclearThermal,
+                ),
+            ],
+            earth,
+            radius_au,
+            false,
+        );
     } else {
         bevy::log::warn!("spawn_initial_fleet: Earth not found");
     }
@@ -715,27 +955,30 @@ pub fn spawn_initial_fleet(
     if let Some(venus) = find_body("Venus") {
         // Venus radius ≈ 6052 km; 400 km altitude orbit
         let radius_au = 6_452.0_f64 * 1_000.0 / AU_IN_METERS;
-        let mut fleet = Fleet::new("Chemical Strike Force".to_string());
-        fleet.ships.push(ShipInfo::new(
-            "CSV Pyrrhus".to_string(),
-            ShipClass::Frigate,
-            PropulsionType::Chemical,
-        ));
-        fleet.ships.push(ShipInfo::new(
-            "CSV Ares".to_string(),
-            ShipClass::Frigate,
-            PropulsionType::Chemical,
-        ));
-        fleet.ships.push(ShipInfo::new(
-            "CSV Hammer".to_string(),
-            ShipClass::Destroyer,
-            PropulsionType::Chemical,
-        ));
-        commands.spawn((
-            fleet,
-            FleetOrbit::new(venus, radius_au),
-            SpaceCoordinates::default(),
-        ));
+        spawn_fleet_with_ship_entities(
+            &mut commands,
+            "Chemical Strike Force".to_string(),
+            vec![
+                ShipInfo::new(
+                    "CSV Pyrrhus".to_string(),
+                    ShipClass::Frigate,
+                    PropulsionType::Chemical,
+                ),
+                ShipInfo::new(
+                    "CSV Ares".to_string(),
+                    ShipClass::Frigate,
+                    PropulsionType::Chemical,
+                ),
+                ShipInfo::new(
+                    "CSV Hammer".to_string(),
+                    ShipClass::Destroyer,
+                    PropulsionType::Chemical,
+                ),
+            ],
+            venus,
+            radius_au,
+            false,
+        );
     } else {
         bevy::log::warn!("spawn_initial_fleet: Venus not found");
     }
@@ -744,22 +987,25 @@ pub fn spawn_initial_fleet(
     if let Some(mars) = find_body("Mars") {
         // Mars radius ≈ 3390 km; 400 km altitude orbit
         let radius_au = 3_790.0_f64 * 1_000.0 / AU_IN_METERS;
-        let mut fleet = Fleet::new("Ion Research Fleet".to_string());
-        fleet.ships.push(ShipInfo::new(
-            "IRS Odyssey".to_string(),
-            ShipClass::ResearchVessel,
-            PropulsionType::IonDrive,
-        ));
-        fleet.ships.push(ShipInfo::new(
-            "IRS Pathfinder".to_string(),
-            ShipClass::Freighter,
-            PropulsionType::IonDrive,
-        ));
-        commands.spawn((
-            fleet,
-            FleetOrbit::new(mars, radius_au),
-            SpaceCoordinates::default(),
-        ));
+        spawn_fleet_with_ship_entities(
+            &mut commands,
+            "Ion Research Fleet".to_string(),
+            vec![
+                ShipInfo::new(
+                    "IRS Odyssey".to_string(),
+                    ShipClass::ResearchVessel,
+                    PropulsionType::IonDrive,
+                ),
+                ShipInfo::new(
+                    "IRS Pathfinder".to_string(),
+                    ShipClass::Freighter,
+                    PropulsionType::IonDrive,
+                ),
+            ],
+            mars,
+            radius_au,
+            false,
+        );
     } else {
         bevy::log::warn!("spawn_initial_fleet: Mars not found");
     }
@@ -768,22 +1014,25 @@ pub fn spawn_initial_fleet(
     if let Some(jupiter) = find_body("Jupiter") {
         // Jupiter radius ≈ 71 492 km; 5 000 km altitude orbit
         let radius_au = 76_492.0_f64 * 1_000.0 / AU_IN_METERS;
-        let mut fleet = Fleet::new("Fusion Expeditionary Corps".to_string());
-        fleet.ships.push(ShipInfo::new(
-            "FEC Prometheus".to_string(),
-            ShipClass::Frigate,
-            PropulsionType::FusionTorch,
-        ));
-        fleet.ships.push(ShipInfo::new(
-            "FEC Titan".to_string(),
-            ShipClass::Cruiser,
-            PropulsionType::FusionTorch,
-        ));
-        commands.spawn((
-            fleet,
-            FleetOrbit::new(jupiter, radius_au),
-            SpaceCoordinates::default(),
-        ));
+        spawn_fleet_with_ship_entities(
+            &mut commands,
+            "Fusion Expeditionary Corps".to_string(),
+            vec![
+                ShipInfo::new(
+                    "FEC Prometheus".to_string(),
+                    ShipClass::Frigate,
+                    PropulsionType::FusionTorch,
+                ),
+                ShipInfo::new(
+                    "FEC Titan".to_string(),
+                    ShipClass::Cruiser,
+                    PropulsionType::FusionTorch,
+                ),
+            ],
+            jupiter,
+            radius_au,
+            false,
+        );
     } else {
         bevy::log::warn!("spawn_initial_fleet: Jupiter not found");
     }
@@ -792,22 +1041,25 @@ pub fn spawn_initial_fleet(
     if let Some(saturn) = find_body("Saturn") {
         // Saturn radius ≈ 60 268 km; 5 000 km altitude orbit
         let radius_au = 65_268.0_f64 * 1_000.0 / AU_IN_METERS;
-        let mut fleet = Fleet::new("Antimatter Vanguard".to_string());
-        fleet.ships.push(ShipInfo::new(
-            "AMV Singularity".to_string(),
-            ShipClass::Destroyer,
-            PropulsionType::AntimatterDrive,
-        ));
-        fleet.ships.push(ShipInfo::new(
-            "AMV Horizon".to_string(),
-            ShipClass::Frigate,
-            PropulsionType::AntimatterDrive,
-        ));
-        commands.spawn((
-            fleet,
-            FleetOrbit::new(saturn, radius_au),
-            SpaceCoordinates::default(),
-        ));
+        spawn_fleet_with_ship_entities(
+            &mut commands,
+            "Antimatter Vanguard".to_string(),
+            vec![
+                ShipInfo::new(
+                    "AMV Singularity".to_string(),
+                    ShipClass::Destroyer,
+                    PropulsionType::AntimatterDrive,
+                ),
+                ShipInfo::new(
+                    "AMV Horizon".to_string(),
+                    ShipClass::Frigate,
+                    PropulsionType::AntimatterDrive,
+                ),
+            ],
+            saturn,
+            radius_au,
+            false,
+        );
     } else {
         bevy::log::warn!("spawn_initial_fleet: Saturn not found");
     }
@@ -820,21 +1072,24 @@ pub fn spawn_initial_fleet(
         // Park the test fleet in a tight stellar orbit so transfers can be
         // planned immediately in procedural multi-star systems.
         let radius_au = (alpha_centauri_a_body.radius as f64 * 3.0) * 1_000.0 / AU_IN_METERS;
-        let mut fleet = Fleet::new("Alpha Centauri Test Fleet".to_string());
-        fleet.ships.push(ShipInfo::new(
-            "ACTF Daedalus".to_string(),
-            ShipClass::Destroyer,
-            PropulsionType::AntimatterDrive,
-        ));
-        fleet.ships.push(ShipInfo::new(
-            "ACTF Icarus".to_string(),
-            ShipClass::Frigate,
-            PropulsionType::AntimatterDrive,
-        ));
-        commands.spawn((
-            fleet,
-            FleetOrbit::new(alpha_centauri_a, radius_au),
-            SpaceCoordinates::default(),
-        ));
+        spawn_fleet_with_ship_entities(
+            &mut commands,
+            "Alpha Centauri Test Fleet".to_string(),
+            vec![
+                ShipInfo::new(
+                    "ACTF Daedalus".to_string(),
+                    ShipClass::Destroyer,
+                    PropulsionType::AntimatterDrive,
+                ),
+                ShipInfo::new(
+                    "ACTF Icarus".to_string(),
+                    ShipClass::Frigate,
+                    PropulsionType::AntimatterDrive,
+                ),
+            ],
+            alpha_centauri_a,
+            radius_au,
+            false,
+        );
     }
 }

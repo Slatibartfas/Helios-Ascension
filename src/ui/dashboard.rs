@@ -750,47 +750,41 @@ pub(super) fn format_mass_compact(megatons: f64) -> String {
         } else {
             format!("{:.0}t", tonnes)
         }
-    }
-    else if abs_val < 1.0 {
+    } else if abs_val < 1.0 {
         let kt = megatons * 1000.0;
         if kt.abs() < 10.0 {
             format!("{:.1}kt", kt)
         } else {
             format!("{:.0}kt", kt)
         }
-    }
-    else if abs_val < 1000.0 {
+    } else if abs_val < 1000.0 {
         if abs_val < 10.0 {
             format!("{:.1}Mt", megatons)
         } else {
             format!("{:.0}Mt", megatons)
         }
-    }
-    else if abs_val < 1_000_000.0 {
+    } else if abs_val < 1_000_000.0 {
         let gt = megatons / 1000.0;
         if gt.abs() < 10.0 {
             format!("{:.1}Gt", gt)
         } else {
             format!("{:.0}Gt", gt)
         }
-    }
-    else if abs_val < 1_000_000_000.0 {
+    } else if abs_val < 1_000_000_000.0 {
         let tt = megatons / 1_000_000.0;
         if tt.abs() < 10.0 {
             format!("{:.1}Tt", tt)
         } else {
             format!("{:.0}Tt", tt)
         }
-    }
-    else if abs_val < 1_000_000_000_000.0 {
+    } else if abs_val < 1_000_000_000_000.0 {
         let pt = megatons / 1_000_000_000.0;
         if pt.abs() < 10.0 {
             format!("{:.1}Pt", pt)
         } else {
             format!("{:.0}Pt", pt)
         }
-    }
-    else {
+    } else {
         let et = megatons / 1_000_000_000_000.0;
         if et.abs() < 10.0 {
             format!("{:.1}Et", et)

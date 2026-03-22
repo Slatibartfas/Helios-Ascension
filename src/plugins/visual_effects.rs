@@ -1,4 +1,5 @@
 use bevy::core_pipeline::tonemapping::Tonemapping;
+#[cfg(not(target_os = "windows"))]
 use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
 use bevy::render::render_resource::AsBindGroup;
@@ -37,9 +38,16 @@ impl Material for NightMaterial {
 /// Setup camera effects for better space atmosphere
 fn setup_camera_effects(mut commands: Commands, camera_query: Query<Entity, With<Camera3d>>) {
     if let Ok(camera_entity) = camera_query.single() {
-        // Add bloom effect for bright objects (stars, sun) — tuned for subtle, realistic corona
-        commands.entity(camera_entity).insert((
-            Bloom {
+        commands
+            .entity(camera_entity)
+            .insert(Tonemapping::ReinhardLuminance);
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            // Add bloom effect for bright objects (stars, sun) — tuned for subtle,
+            // realistic corona. On Windows DX12 this has been triggering unstable
+            // swap-chain/device-loss behaviour on some systems, so it is disabled there.
+            commands.entity(camera_entity).insert(Bloom {
                 intensity: 0.25,
                 // Reduced from 0.6: a narrower low-frequency boost means the bloom halo
                 // stays close to the star surface and doesn't spread across close-in orbits.
@@ -55,8 +63,7 @@ fn setup_camera_effects(mut commands: Commands, camera_query: Query<Entity, With
                 },
                 composite_mode: bevy::post_process::bloom::BloomCompositeMode::Additive,
                 ..default()
-            },
-            Tonemapping::ReinhardLuminance, // Better for handling extreme dynamic range
-        ));
+            });
+        }
     }
 }

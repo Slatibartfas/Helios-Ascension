@@ -63,7 +63,8 @@ pub struct ShipHullDefinition {
 impl ShipHullDefinition {
     /// Effective size tier — uses explicit field if set, otherwise derives from mass.
     pub fn effective_size_tier(&self) -> HullSizeTier {
-        self.size_tier.unwrap_or_else(|| HullSizeTier::from_mass_t(self.base_dry_mass_t, self.is_station))
+        self.size_tier
+            .unwrap_or_else(|| HullSizeTier::from_mass_t(self.base_dry_mass_t, self.is_station))
     }
 
     pub fn mode_compatibility_error(&self, mode: ConstructionMode) -> Option<&'static str> {
@@ -217,7 +218,11 @@ impl ShipbuildingData {
         self.modules.get(module_id)
     }
 
-    pub fn hull_is_unlocked(&self, hull: &ShipHullDefinition, research_state: &ResearchState) -> bool {
+    pub fn hull_is_unlocked(
+        &self,
+        hull: &ShipHullDefinition,
+        research_state: &ResearchState,
+    ) -> bool {
         hull.required_tech
             .as_deref()
             .is_none_or(|tech| research_state.is_unlocked(tech))
@@ -372,19 +377,28 @@ pub struct ShipDesignLibrary {
 
 impl ShipDesignLibrary {
     /// Save or update a template and return its ID.
-    pub fn save_template(&mut self, template: crate::shipbuilding::ShipDesignTemplate) -> uuid::Uuid {
+    pub fn save_template(
+        &mut self,
+        template: crate::shipbuilding::ShipDesignTemplate,
+    ) -> uuid::Uuid {
         let id = template.id;
         self.templates.insert(id, template);
         id
     }
 
     /// Get a template by ID.
-    pub fn get_template(&self, id: &uuid::Uuid) -> Option<&crate::shipbuilding::ShipDesignTemplate> {
+    pub fn get_template(
+        &self,
+        id: &uuid::Uuid,
+    ) -> Option<&crate::shipbuilding::ShipDesignTemplate> {
         self.templates.get(id)
     }
 
     /// Get a template by ID (mutable).
-    pub fn get_template_mut(&mut self, id: &uuid::Uuid) -> Option<&mut crate::shipbuilding::ShipDesignTemplate> {
+    pub fn get_template_mut(
+        &mut self,
+        id: &uuid::Uuid,
+    ) -> Option<&mut crate::shipbuilding::ShipDesignTemplate> {
         self.templates.get_mut(id)
     }
 
@@ -441,7 +455,10 @@ impl ShipDesignLibrary {
 
 fn accumulate_costs(target: &mut Vec<(ResourceType, f64)>, added: &[(ResourceType, f64)]) {
     for (resource, amount) in added {
-        if let Some((_, existing)) = target.iter_mut().find(|(existing_resource, _)| existing_resource == resource) {
+        if let Some((_, existing)) = target
+            .iter_mut()
+            .find(|(existing_resource, _)| existing_resource == resource)
+        {
             *existing += *amount;
         } else {
             target.push((*resource, *amount));
