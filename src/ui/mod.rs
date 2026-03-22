@@ -97,10 +97,11 @@ use crate::research::{
 /// Used when walking up the hierarchy to find the heliocentric SMA.
 const MIN_HELIOCENTRIC_SMA_AU: f64 = 0.05;
 
-/// Minimum supported window dimensions to prevent UI overlap
-/// Full HD (1920×1080) is required for the complex strategy game UI
-const MIN_WINDOW_WIDTH: f32 = 1920.0;
-const MIN_WINDOW_HEIGHT: f32 = 1080.0;
+/// Minimum supported window dimensions before showing the low-resolution warning.
+/// The UI is now intended to remain usable at 1280×720, even though larger
+/// windows still provide a better strategic overview.
+const MIN_WINDOW_WIDTH: f32 = 1280.0;
+const MIN_WINDOW_HEIGHT: f32 = 720.0;
 
 /// Tracks which ledger category groups are currently expanded in the bodies panel.
 /// Cleared at the start of each `ui_dashboard` frame, then repopulated as the

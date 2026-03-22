@@ -1,25 +1,43 @@
 use serde::{Deserialize, Serialize};
 
 /// High-level category for a ship module slot or component.
+///
+/// Organized into logical groups inspired by Aurora 4X but evolved for
+/// Helios Ascension's 2026-era small-craft focus:
+///   - Core flight: Command, Propulsion, Power, Fuel
+///   - Payload: Sensor, Weapon, Defense, Cargo
+///   - Crew & Operations: Bridge, CrewQuarters, LifeSupport, MaintenanceBay
+///   - Special Systems: ElectronicWarfare, Stealth, Scanner, ISRU, Mining
+///   - Infrastructure: Construction, Habitat, Utility, Refueling, HeatRadiator
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ShipModuleCategory {
+    // Core flight
     Command,
     Propulsion,
     Power,
     Fuel,
+    // Payload
     Cargo,
     Sensor,
     Defense,
     Weapon,
+    // Crew & Operations
+    Bridge,
+    CrewQuarters,
+    LifeSupport,
+    MaintenanceBay,
+    // Special Systems
+    ElectronicWarfare,
+    Stealth,
+    Scanner,
+    ISRU,
+    Mining,
+    Refueling,
+    TroopTransport,
+    // Infrastructure
     Construction,
     Habitat,
     Utility,
-    // Aurora/TI/DW-inspired categories:
-    Bridge,
-    CrewQuarters,
-    MaintenanceBay,
-    ISRU,
-    Scanner,
     HeatRadiator,
 }
 
@@ -28,66 +46,99 @@ impl ShipModuleCategory {
         use ShipModuleCategory::*;
 
         &[
+            // Core flight
             Command,
             Propulsion,
             Power,
             Fuel,
+            // Payload
             Cargo,
             Sensor,
             Defense,
             Weapon,
+            // Crew & Operations
+            Bridge,
+            CrewQuarters,
+            LifeSupport,
+            MaintenanceBay,
+            // Special Systems
+            ElectronicWarfare,
+            Stealth,
+            Scanner,
+            ISRU,
+            Mining,
+            Refueling,
+            TroopTransport,
+            // Infrastructure
             Construction,
             Habitat,
             Utility,
-            Bridge,
-            CrewQuarters,
-            MaintenanceBay,
-            ISRU,
-            Scanner,
             HeatRadiator,
         ]
     }
 
     pub fn display_name(self) -> &'static str {
         match self {
+            // Core flight
             Self::Command => "Command",
             Self::Propulsion => "Propulsion",
             Self::Power => "Power",
             Self::Fuel => "Fuel",
+            // Payload
             Self::Cargo => "Cargo",
             Self::Sensor => "Sensors",
             Self::Defense => "Defense",
             Self::Weapon => "Weapons",
+            // Crew & Operations
+            Self::Bridge => "Bridge",
+            Self::CrewQuarters => "Crew Quarters",
+            Self::LifeSupport => "Life Support",
+            Self::MaintenanceBay => "Maintenance",
+            // Special Systems
+            Self::ElectronicWarfare => "Electronic Warfare",
+            Self::Stealth => "Stealth",
+            Self::Scanner => "Scanner",
+            Self::ISRU => "ISRU",
+            Self::Mining => "Mining",
+            Self::Refueling => "Refueling",
+            Self::TroopTransport => "Troop Transport",
+            // Infrastructure
             Self::Construction => "Construction",
             Self::Habitat => "Habitat",
             Self::Utility => "Utility",
-            Self::Bridge => "Bridge",
-            Self::CrewQuarters => "Crew Quarters",
-            Self::MaintenanceBay => "Maintenance",
-            Self::ISRU => "ISRU",
-            Self::Scanner => "Scanner",
             Self::HeatRadiator => "Heat Radiator",
         }
     }
 
     pub fn icon(self) -> &'static str {
         match self {
+            // Core flight
             Self::Command => "🧠",
             Self::Propulsion => "🚀",
             Self::Power => "⚡",
             Self::Fuel => "⛽",
+            // Payload
             Self::Cargo => "📦",
             Self::Sensor => "📡",
             Self::Defense => "🛡",
             Self::Weapon => "🎯",
+            // Crew & Operations
+            Self::Bridge => "🎛",
+            Self::CrewQuarters => "🛏",
+            Self::LifeSupport => "🌿",
+            Self::MaintenanceBay => "🔩",
+            // Special Systems
+            Self::ElectronicWarfare => "📡",
+            Self::Stealth => "👻",
+            Self::Scanner => "🔍",
+            Self::ISRU => "⚙️",
+            Self::Mining => "⛏",
+            Self::Refueling => "🔋",
+            Self::TroopTransport => "🎖",
+            // Infrastructure
             Self::Construction => "🏗",
             Self::Habitat => "🏠",
             Self::Utility => "🔧",
-            Self::Bridge => "🎛",
-            Self::CrewQuarters => "🛏",
-            Self::MaintenanceBay => "🔩",
-            Self::ISRU => "⚙️",
-            Self::Scanner => "🔍",
             Self::HeatRadiator => "🌡",
         }
     }
