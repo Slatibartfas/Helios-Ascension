@@ -5,6 +5,7 @@ use bevy_egui::egui;
 
 use super::dashboard::format_mass_compact_tonnes;
 use super::*;
+use crate::economy::ResourceType;
 use crate::economy::components::LocalStockpile;
 use crate::fleets::{
     AssignShipsAction, CreateFleetFromShipsAction, FleetRole, ShipClass, ShipInstance,
@@ -313,59 +314,75 @@ fn draw_design_tab(
     let current_summary = shipbuilding_data.summarize_design(&current_design, research_state);
 
     let available_width = ui.available_width();
-    if available_width < 1180.0 {
-        render_design_workspace_panel(
-            ui,
-            shipbuilding_data,
-            research_state,
-            ui_state,
-            available_hulls,
-            selected_hull,
-        );
+    if available_width < 1680.0 {
+        egui::ScrollArea::vertical()
+            .id_salt("design_workspace_stacked_scroll")
+            .show(ui, |ui| {
+                render_design_workspace_panel(
+                    ui,
+                    shipbuilding_data,
+                    research_state,
+                    ui_state,
+                    available_hulls,
+                    selected_hull,
+                );
+            });
         ui.add_space(10.0);
-        render_design_summary_panel(
-            ui,
-            shipbuilding_data,
-            design_library,
-            research_state,
-            ui_state,
-            selected_hull,
-            current_summary.as_ref(),
-        );
+        egui::ScrollArea::vertical()
+            .id_salt("design_summary_stacked_scroll")
+            .show(ui, |ui| {
+                render_design_summary_panel(
+                    ui,
+                    shipbuilding_data,
+                    design_library,
+                    research_state,
+                    ui_state,
+                    selected_hull,
+                    current_summary.as_ref(),
+                );
+            });
     } else {
-        let summary_width = (available_width * 0.26).clamp(240.0, 320.0);
-        let design_width = (available_width - summary_width - 12.0).max(620.0);
+        let summary_width = 232.0;
+        let design_width = (available_width - summary_width - 16.0).max(560.0);
 
         ui.horizontal_top(|ui| {
             ui.allocate_ui_with_layout(
                 egui::vec2(design_width, ui.available_height()),
                 egui::Layout::top_down(egui::Align::Min),
                 |ui| {
-                    render_design_workspace_panel(
-                        ui,
-                        shipbuilding_data,
-                        research_state,
-                        ui_state,
-                        available_hulls,
-                        selected_hull,
-                    )
+                    egui::ScrollArea::vertical()
+                        .id_salt("design_workspace_wide_scroll")
+                        .show(ui, |ui| {
+                            render_design_workspace_panel(
+                                ui,
+                                shipbuilding_data,
+                                research_state,
+                                ui_state,
+                                available_hulls,
+                                selected_hull,
+                            )
+                        })
                 },
             );
 
-            ui.add_space(12.0);
+            ui.add_space(16.0);
             ui.allocate_ui_with_layout(
                 egui::vec2(summary_width, ui.available_height()),
                 egui::Layout::top_down(egui::Align::Min),
                 |ui| {
-                    render_design_summary_panel(
-                        ui,
-                        shipbuilding_data,
-                        design_library,
-                        research_state,
-                        ui_state,
-                        selected_hull,
-                        current_summary.as_ref(),
-                    )
+                    egui::ScrollArea::vertical()
+                        .id_salt("design_summary_wide_scroll")
+                        .show(ui, |ui| {
+                            render_design_summary_panel(
+                                ui,
+                                shipbuilding_data,
+                                design_library,
+                                research_state,
+                                ui_state,
+                                selected_hull,
+                                current_summary.as_ref(),
+                            )
+                        })
                 },
             );
         });
@@ -388,7 +405,7 @@ fn render_design_workspace_panel(
         );
         ui.label(
             egui::RichText::new(
-                "Build a hull configuration in the designer, tune individual sections, and save reusable classes to the archive.",
+                "Configure a hull, click a section in the schematic, and fit compatible modules from the component panel.",
             )
             .font(theme::body(11.0))
             .color(theme::TEXT_DIM),
@@ -421,13 +438,13 @@ fn render_design_summary_panel(
 ) {
     theme::elevated_frame().show(ui, |ui| {
         ui.label(
-            egui::RichText::new("Draft Summary")
+            egui::RichText::new("Design Overview")
                 .font(theme::heading())
                 .color(theme::TEXT_VALUE),
         );
         ui.label(
             egui::RichText::new(
-                "Current draft massing, propulsion, and combat numbers. Archive management is handled in the separate Archive tab.",
+                "A compact command-panel view of the current draft: massing, combat posture, power balance, and save controls.",
             )
             .font(theme::body(11.0))
             .color(theme::TEXT_DIM),
@@ -939,45 +956,53 @@ fn design_controls(
         .map(|hull| hull.display_name.clone())
         .unwrap_or_else(|| "Select hull".to_string());
 
-    ui.columns(2, |columns| {
-        columns[0].label(
-            egui::RichText::new("Hull")
-                .font(theme::mono(10.0))
-                .color(theme::TEXT_DIM),
-        );
-        egui::ComboBox::from_id_salt("designer_hull_select")
-            .selected_text(selected_hull_name)
-            .width(columns[0].available_width().max(260.0))
-            .show_ui(&mut columns[0], |ui| {
-                for hull in available_hulls {
-                    if ui
-                        .selectable_label(
-                            ui_state.selected_hull_id.as_deref() == Some(hull.id.as_str()),
-                            format!(
-                                "{} {} [{}]",
-                                hull.class.icon(),
-                                hull.display_name,
-                                hull.effective_size_tier().display_name()
-                            ),
-                        )
-                        .clicked()
-                    {
-                        ui_state.selected_hull_id = Some(hull.id.clone());
-                        ui_state.design_name = format!("{} Prototype", hull.display_name);
-                        ui_state.selected_modules.clear();
-                        ui_state.selected_slot = None;
-                        ui_state.selected_mode = hull.default_construction_mode;
-                        hydrate_selected_design(ui_state, shipbuilding_data, research_state);
+    ui.horizontal_top(|ui| {
+        ui.vertical(|ui| {
+            ui.label(
+                egui::RichText::new("Hull")
+                    .font(theme::mono(10.0))
+                    .color(theme::TEXT_DIM),
+            );
+            egui::ComboBox::from_id_salt("designer_hull_select")
+                .selected_text(selected_hull_name)
+                .width(360.0)
+                .show_ui(ui, |ui| {
+                    for hull in available_hulls {
+                        if ui
+                            .selectable_label(
+                                ui_state.selected_hull_id.as_deref() == Some(hull.id.as_str()),
+                                format!(
+                                    "{} {} [{}]",
+                                    hull.class.icon(),
+                                    hull.display_name,
+                                    hull.effective_size_tier().display_name()
+                                ),
+                            )
+                            .clicked()
+                        {
+                            ui_state.selected_hull_id = Some(hull.id.clone());
+                            ui_state.design_name = format!("{} Prototype", hull.display_name);
+                            ui_state.selected_modules.clear();
+                            ui_state.selected_slot = None;
+                            ui_state.selected_mode = hull.default_construction_mode;
+                            hydrate_selected_design(ui_state, shipbuilding_data, research_state);
+                        }
                     }
-                }
-            });
+                });
+        });
 
-        columns[1].label(
-            egui::RichText::new("Design Name")
-                .font(theme::mono(10.0))
-                .color(theme::TEXT_DIM),
-        );
-        columns[1].text_edit_singleline(&mut ui_state.design_name);
+        ui.add_space(12.0);
+        ui.vertical(|ui| {
+            ui.label(
+                egui::RichText::new("Design Name")
+                    .font(theme::mono(10.0))
+                    .color(theme::TEXT_DIM),
+            );
+            ui.add_sized(
+                egui::vec2(ui.available_width().max(220.0), 24.0),
+                egui::TextEdit::singleline(&mut ui_state.design_name),
+            );
+        });
     });
 
     ui.add_space(6.0);
@@ -1035,33 +1060,26 @@ fn draw_hull_editor(
     }
 
     ui.add_space(8.0);
-    let picker_width = (ui.available_width() * 0.29).clamp(220.0, 300.0);
-    let schematic_width = (ui.available_width() - picker_width - 10.0).max(360.0);
+    let browser_width = (ui.available_width() * 0.24).clamp(220.0, 280.0);
+    let schematic_width = (ui.available_width() - browser_width - 12.0).clamp(420.0, 700.0);
 
     ui.horizontal_top(|ui| {
         ui.allocate_ui_with_layout(
-            egui::vec2(picker_width, ui.available_height()),
+            egui::vec2(browser_width, ui.available_height()),
             egui::Layout::top_down(egui::Align::Min),
             |ui| {
-                if let Some(selected_slot_id) = ui_state.selected_slot.as_deref() {
-                    if let Some(slot) = hull
-                        .slot_layout
-                        .iter()
-                        .find(|slot| slot.slot_id == selected_slot_id)
-                    {
-                        draw_selected_slot_editor(ui, shipbuilding_data, research_state, ui_state, slot);
-                    }
-                }
+                draw_component_browser(ui, shipbuilding_data, research_state, ui_state, hull);
             },
         );
 
-        ui.add_space(10.0);
+        ui.add_space(12.0);
         ui.allocate_ui_with_layout(
             egui::vec2(schematic_width, ui.available_height()),
             egui::Layout::top_down(egui::Align::Min),
             |ui| {
                 let clicked_slot = draw_ship_schematic(
                     ui,
+                    shipbuilding_data,
                     hull,
                     &ui_state.selected_modules,
                     ui_state.selected_slot.as_deref(),
@@ -1076,6 +1094,7 @@ fn draw_hull_editor(
 
 fn draw_ship_schematic(
     ui: &mut egui::Ui,
+    shipbuilding_data: &crate::shipbuilding::ShipbuildingData,
     hull: &crate::shipbuilding::ShipHullDefinition,
     selected_modules: &HashMap<String, String>,
     selected_slot: Option<&str>,
@@ -1104,85 +1123,56 @@ fn draw_ship_schematic(
                 .font(theme::mono(10.0))
                 .color(theme::TEXT_DIM),
         );
+        ui.label(
+            egui::RichText::new("Click any section card to focus it, then fit a compatible component from the left panel.")
+                .font(theme::body(10.0))
+                .color(theme::TEXT_DIM),
+        );
         ui.add_space(6.0);
 
-        let total_spacing = 18.0;
-        let card_width = ((ui.available_width() - total_spacing) / 3.0).max(108.0);
-        let card_height = 56.0;
+        let lane_titles = ["Defensive / Sensor", "Core Hull", "Weapons / Mission"];
+        let lane_spacing = 10.0;
+        let lane_width = ((ui.available_width() - lane_spacing * 2.0) / 3.0).clamp(145.0, 195.0);
+        let total_width = lane_width * 3.0 + lane_spacing * 2.0;
+        let left_padding = ((ui.available_width() - total_width) * 0.5).max(0.0);
 
-        ui.columns(3, |layout_columns| {
-            for (column_ui, slots) in layout_columns.iter_mut().zip(columns.into_iter()) {
-                column_ui.set_min_width(card_width);
-                for slot in slots {
-                    let filled = selected_modules.contains_key(&slot.slot_id);
-                    let selected = selected_slot == Some(slot.slot_id.as_str());
-                    let fill = if selected {
-                        theme::SURFACE_RAISED
-                    } else if filled {
-                        theme::SURFACE_INPUT
-                    } else {
-                        theme::SURFACE
-                    };
-                    let response = column_ui
-                        .allocate_ui_with_layout(
-                            egui::vec2(card_width, card_height),
-                            egui::Layout::top_down(egui::Align::Min),
-                            |ui| {
-                                egui::Frame::NONE
-                                    .fill(fill)
-                                    .stroke(egui::Stroke::new(
-                                        if selected { 1.5 } else { 1.0 },
-                                        if selected {
-                                            theme::ACCENT
-                                        } else {
-                                            theme::BORDER
-                                        },
-                                    ))
-                                    .inner_margin(egui::Margin::same(8))
-                                    .show(ui, |ui| {
-                                        ui.set_min_size(egui::vec2(
-                                            card_width - 2.0,
-                                            card_height - 2.0,
-                                        ));
-                                        ui.vertical(|ui| {
-                                            ui.label(
-                                                egui::RichText::new(&slot.slot_id)
-                                                    .font(theme::body(10.0))
-                                                    .color(theme::TEXT_VALUE),
-                                            );
-                                            ui.label(
-                                                egui::RichText::new(format!(
-                                                    "{} | {}{}",
-                                                    slot.category.display_name(),
-                                                    slot.size,
-                                                    if slot.required { "" } else { " | optional" }
-                                                ))
-                                                .font(theme::body(8.5))
-                                                .color(theme::TEXT_DIM),
-                                            );
-                                            ui.label(
-                                                egui::RichText::new(if filled {
-                                                    "Fitted"
-                                                } else {
-                                                    "Empty"
-                                                })
-                                                .font(theme::mono(8.5))
-                                                .color(if filled {
-                                                    theme::GREEN
-                                                } else {
-                                                    theme::AMBER
-                                                }),
-                                            );
-                                        });
-                                    })
-                                    .response
-                            },
-                        )
-                        .inner;
-                    if response.clicked() {
-                        clicked = Some(slot.slot_id.clone());
-                    }
-                    column_ui.add_space(6.0);
+        ui.horizontal_top(|ui| {
+            ui.add_space(left_padding);
+
+            for (index, slots) in columns.into_iter().enumerate() {
+                ui.allocate_ui_with_layout(
+                    egui::vec2(lane_width, ui.available_height()),
+                    egui::Layout::top_down(egui::Align::Center),
+                    |ui| {
+                        ui.label(
+                            egui::RichText::new(lane_titles[index])
+                                .font(theme::mono(9.5))
+                                .color(theme::TEXT_DIM),
+                        );
+                        ui.add_space(6.0);
+
+                        for slot in slots {
+                            let module_name = selected_modules
+                                .get(&slot.slot_id)
+                                .and_then(|module_id| shipbuilding_data.get_module(module_id))
+                                .map(|module| module.display_name.as_str());
+                            let response = draw_slot_card(
+                                ui,
+                                lane_width,
+                                slot,
+                                module_name,
+                                selected_slot == Some(slot.slot_id.as_str()),
+                            );
+                            if response.clicked() {
+                                clicked = Some(slot.slot_id.clone());
+                            }
+                            ui.add_space(8.0);
+                        }
+                    },
+                );
+
+                if index < 2 {
+                    ui.add_space(lane_spacing);
                 }
             }
         });
@@ -1191,58 +1181,119 @@ fn draw_ship_schematic(
     clicked
 }
 
-fn draw_selected_slot_editor(
+fn draw_component_browser(
     ui: &mut egui::Ui,
     shipbuilding_data: &crate::shipbuilding::ShipbuildingData,
     research_state: &crate::research::ResearchState,
     ui_state: &mut ShipbuildingUiState,
-    slot: &crate::shipbuilding::HullSlotDefinition,
+    hull: &crate::shipbuilding::ShipHullDefinition,
 ) {
-    let compatible = shipbuilding_data.compatible_modules_for_slot(slot, research_state);
-    let selected_text = ui_state
-        .selected_modules
-        .get(&slot.slot_id)
-        .and_then(|module_id| shipbuilding_data.get_module(module_id))
-        .map(|module| module.display_name.clone())
-        .unwrap_or_else(|| {
-            if slot.required {
-                "No module fitted".to_string()
-            } else {
-                "Optional section".to_string()
-            }
-        });
-
     theme::elevated_frame().show(ui, |ui| {
         ui.label(
-            egui::RichText::new(format!("Selected Section: {}", slot.slot_id))
-                .font(theme::body(11.5))
+            egui::RichText::new("Components")
+                .font(theme::heading())
                 .color(theme::TEXT_VALUE),
         );
         ui.label(
-            egui::RichText::new(format!(
-                "{} | {}{}",
-                slot.category.display_name(),
-                slot.size,
-                if slot.required { "" } else { " | optional" }
-            ))
+            egui::RichText::new("Focused slot details and compatible fittings for the section selected in the hull schematic.")
             .font(theme::body(10.0))
             .color(theme::TEXT_DIM),
         );
         ui.add_space(6.0);
-        ui.label(
-            egui::RichText::new(format!("Current Fit: {selected_text}"))
-                .font(theme::body(10.0))
-                .color(theme::TEXT_VALUE),
-        );
-        ui.add_space(8.0);
 
-        if !slot.required && ui.button("Clear Section").clicked() {
-            ui_state.selected_modules.remove(&slot.slot_id);
+        let Some(selected_slot_id) = ui_state.selected_slot.as_deref() else {
+            ui.label(
+                egui::RichText::new("Select a hull section in the schematic to inspect compatible components.")
+                    .font(theme::body(10.0))
+                    .color(theme::TEXT_DIM),
+            );
+            return;
+        };
+
+        let Some(slot) = hull
+            .slot_layout
+            .iter()
+            .find(|slot| slot.slot_id == selected_slot_id)
+        else {
+            ui.label(
+                egui::RichText::new("Selected section is no longer present on this hull.")
+                    .font(theme::body(10.0))
+                    .color(theme::RED),
+            );
+            return;
+        };
+
+        let compatible = shipbuilding_data.compatible_modules_for_slot(slot, research_state);
+        let compatible_count = compatible.len();
+        let selected_text = ui_state
+            .selected_modules
+            .get(&slot.slot_id)
+            .and_then(|module_id| shipbuilding_data.get_module(module_id))
+            .map(|module| module.display_name.clone())
+            .unwrap_or_else(|| {
+                if slot.required {
+                    "No module fitted".to_string()
+                } else {
+                    "Optional section".to_string()
+                }
+            });
+
+        ui.horizontal_wrapped(|ui| {
+            ui.vertical(|ui| {
+                ui.label(
+                    egui::RichText::new(prettify_slot_name(&slot.slot_id))
+                        .font(theme::body(11.0))
+                        .color(theme::TEXT_VALUE),
+                );
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} | {}{} | {} fits",
+                        slot.category.display_name(),
+                        slot.size,
+                        if slot.required { "" } else { " | optional" },
+                        compatible_count
+                    ))
+                    .font(theme::body(9.2))
+                    .color(theme::TEXT_DIM),
+                );
+                ui.add_space(2.0);
+                ui.label(
+                    egui::RichText::new(format!("Current fit: {selected_text}"))
+                        .font(theme::body(9.8))
+                        .color(theme::TEXT_VALUE),
+                );
+            });
+
+            if !slot.required {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                    if ui.button("Clear").clicked() {
+                        ui_state.selected_modules.remove(&slot.slot_id);
+                    }
+                });
+            }
+        });
+
+        theme::divider(ui);
+
+        ui.label(
+            egui::RichText::new(format!("Compatible Components ({compatible_count})"))
+                .font(theme::mono(10.0))
+                .color(theme::TEXT_DIM),
+        );
+
+        if compatible.is_empty() {
+            ui.add_space(6.0);
+            ui.label(
+                egui::RichText::new("No unlocked components fit this section yet.")
+                    .font(theme::body(10.0))
+                    .color(theme::AMBER),
+            );
+            return;
         }
 
         egui::ScrollArea::vertical()
-            .id_salt(format!("slot_editor_{}", slot.slot_id))
-            .max_height(420.0)
+            .id_salt(format!("component_browser_{}", slot.slot_id))
+            .max_height(520.0)
             .show(ui, |ui| {
                 for module in compatible {
                     let selected = ui_state
@@ -1258,22 +1309,61 @@ fn draw_selected_slot_editor(
                         .stroke(egui::Stroke::new(1.0, theme::BORDER))
                         .inner_margin(egui::Margin::same(6))
                         .show(ui, |ui| {
-                            ui.label(
-                                egui::RichText::new(&module.display_name)
-                                    .font(theme::body(10.0))
-                                    .color(theme::TEXT_VALUE),
-                            );
-                            ui.label(
-                                egui::RichText::new(format!(
-                                    "{} | {} BP | {} | {:.0} MW",
-                                    module.size,
-                                    module.build_points.round(),
-                                    format_mass_compact_tonnes(module.dry_mass_t),
-                                    module.power_draw_mw
-                                ))
-                                .font(theme::body(9.0))
-                                .color(theme::TEXT_DIM),
-                            );
+                            ui.horizontal_top(|ui| {
+                                ui.vertical(|ui| {
+                                    ui.label(
+                                        egui::RichText::new(&module.display_name)
+                                            .font(theme::body(10.0))
+                                            .color(theme::TEXT_VALUE),
+                                    );
+                                    ui.label(
+                                        egui::RichText::new(format!(
+                                            "{} | {} BP | {}",
+                                            module.size,
+                                            module.build_points.round(),
+                                            format_mass_compact_tonnes(module.dry_mass_t)
+                                        ))
+                                        .font(theme::body(9.0))
+                                        .color(theme::TEXT_DIM),
+                                    );
+                                    ui.label(
+                                        egui::RichText::new(format_power_profile(module))
+                                            .font(theme::mono(8.8))
+                                            .color(theme::TEXT_DIM),
+                                    );
+                                    if !module.resource_costs.is_empty() {
+                                        ui.label(
+                                            egui::RichText::new(format!(
+                                                "Cost: {}",
+                                                format_resource_costs_inline(
+                                                    &module.resource_costs,
+                                                    4,
+                                                )
+                                            ))
+                                            .font(theme::body(8.8))
+                                            .color(theme::TEXT_DIM),
+                                        );
+                                    }
+                                });
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        ui.label(
+                                            egui::RichText::new(if selected {
+                                                "Fitted"
+                                            } else {
+                                                "Click to fit"
+                                            })
+                                            .font(theme::mono(8.6))
+                                            .color(if selected {
+                                                theme::GREEN
+                                            } else {
+                                                theme::ACCENT
+                                            }),
+                                        );
+                                    },
+                                );
+                            });
                         })
                         .response;
                     if response.clicked() {
@@ -1287,19 +1377,99 @@ fn draw_selected_slot_editor(
     });
 }
 
+fn draw_slot_card(
+    ui: &mut egui::Ui,
+    width: f32,
+    slot: &crate::shipbuilding::HullSlotDefinition,
+    module_name: Option<&str>,
+    selected: bool,
+) -> egui::Response {
+    let size = egui::vec2(width, 68.0);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+
+    let filled = module_name.is_some();
+    let fill = if selected {
+        theme::SURFACE_RAISED
+    } else if filled {
+        theme::SURFACE_INPUT
+    } else {
+        theme::SURFACE
+    };
+    let stroke = egui::Stroke::new(
+        if selected { 1.5 } else { 1.0 },
+        if selected { theme::ACCENT } else { theme::BORDER },
+    );
+    ui.painter().rect(
+        rect,
+        4.0,
+        fill,
+        stroke,
+        egui::StrokeKind::Outside,
+    );
+
+    let padding = egui::vec2(10.0, 8.0);
+    let top_left = rect.left_top() + padding;
+    let status_text = module_name.unwrap_or(if slot.required {
+        "Required slot empty"
+    } else {
+        "Optional slot empty"
+    });
+
+    ui.painter().text(
+        top_left,
+        egui::Align2::LEFT_TOP,
+        prettify_slot_name(&slot.slot_id),
+        theme::body(10.0),
+        theme::TEXT_VALUE,
+    );
+    ui.painter().text(
+        top_left + egui::vec2(0.0, 18.0),
+        egui::Align2::LEFT_TOP,
+        status_text,
+        theme::body(8.8),
+        if filled { theme::GREEN } else { theme::TEXT_DIM },
+    );
+    ui.painter().text(
+        top_left + egui::vec2(0.0, 36.0),
+        egui::Align2::LEFT_TOP,
+        format!(
+            "{} | {}{}",
+            slot.category.display_name(),
+            slot.size,
+            if slot.required { "" } else { " | optional" }
+        ),
+        theme::mono(8.2),
+        theme::TEXT_DIM,
+    );
+
+    response
+}
+
+fn prettify_slot_name(slot_id: &str) -> String {
+    slot_id
+        .split('_')
+        .filter(|segment| !segment.is_empty())
+        .map(|segment| {
+            let mut chars = segment.chars();
+            match chars.next() {
+                Some(first) => {
+                    let mut word = first.to_uppercase().collect::<String>();
+                    word.push_str(chars.as_str());
+                    word
+                }
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn draw_current_design_summary(
     ui: &mut egui::Ui,
     selected_hull: Option<&crate::shipbuilding::ShipHullDefinition>,
     summary: Option<&ShipDesignSummary>,
-    _ui_state: &ShipbuildingUiState,
+    ui_state: &ShipbuildingUiState,
 ) {
-    ui.label(
-        egui::RichText::new("Design Assessment")
-            .font(theme::heading())
-            .color(theme::TEXT_VALUE),
-    );
-    ui.add_space(4.0);
-
     let Some(hull) = selected_hull else {
         ui.label(
             egui::RichText::new("Choose a hull to inspect mass, propulsion, and combat metrics.")
@@ -1309,7 +1479,19 @@ fn draw_current_design_summary(
         return;
     };
 
+    let fitted_slots = ui_state.selected_modules.len();
+    let total_slots = hull.slot_layout.len();
+
     let Some(summary) = summary else {
+        summary_banner(
+            ui,
+            &hull.display_name,
+            hull.class.display_name(),
+            fitted_slots,
+            total_slots,
+            None,
+        );
+        ui.add_space(8.0);
         ui.label(
             egui::RichText::new("Current draft is incomplete or locked by research.")
                 .font(theme::body(10.5))
@@ -1318,39 +1500,126 @@ fn draw_current_design_summary(
         return;
     };
 
-    ui.columns(2, |columns| {
-        metrics_card(
-            &mut columns[0],
-            "Performance",
-            &[
-                ("Hull", hull.display_name.as_str()),
-                ("Type", hull.class.display_name()),
-                ("Build", &format!("{:.0} BP", summary.build_points)),
-                ("Mass", &format_mass_compact_tonnes(summary.launch_mass_t)),
-                ("Delta-V", &format!("{:.0} m/s", summary.delta_v_ms)),
-                ("Accel", &format!("{:.3} m/s²", summary.acceleration_ms2)),
-            ],
-        );
+    summary_banner(
+        ui,
+        &hull.display_name,
+        hull.class.display_name(),
+        fitted_slots,
+        total_slots,
+        Some(summary),
+    );
+    ui.add_space(8.0);
 
-        metrics_card(
-            &mut columns[1],
-            "Combat / Utility",
-            &[
-                ("Combat", &format!("{:.1}", combat_score(summary))),
-                ("Sensors", &format!("{:.2} AU", summary.sensor_range_au)),
-                (
-                    "Ordnance",
-                    &format_mass_compact_tonnes(summary.ordnance_capacity_t),
+    metrics_card(
+        ui,
+        "Design Overview",
+        &[
+            ("Build", &format!("{:.0} BP", summary.build_points)),
+            ("Mass", &format_mass_compact_tonnes(summary.launch_mass_t)),
+            ("Delta-V", &format!("{:.0} m/s", summary.delta_v_ms)),
+            ("Accel", &format!("{:.3} m/s²", summary.acceleration_ms2)),
+            ("Fuel", &format_mass_compact_tonnes(summary.fuel_capacity_t)),
+            ("Gen", &format!("{:.1} MW", summary.power_generation_mw)),
+            ("Load", &format!("{:.1} MW", summary.power_draw_mw)),
+            ("Net", &format!("{:+.1} MW", summary.power_balance_mw())),
+        ],
+    );
+
+    if !summary.resource_costs.is_empty() {
+        ui.add_space(8.0);
+        draw_resource_costs_card(ui, "Material Cost", &summary.resource_costs, 6);
+    }
+
+    ui.add_space(8.0);
+    draw_rating_block(
+        ui,
+        "Ratings",
+        &[
+            (
+                "Attack",
+                combat_score(summary),
+                600.0,
+                theme::RED,
+                format!("{:.1}", combat_score(summary)),
+            ),
+            (
+                "Defense",
+                summary.magazine_capacity_t * 8.0 + summary.power_generation_mw * 0.5,
+                220.0,
+                theme::ACCENT,
+                format!(
+                    "{:.1}",
+                    summary.magazine_capacity_t * 8.0 + summary.power_generation_mw * 0.5
                 ),
-                (
-                    "Magazine",
-                    &format_mass_compact_tonnes(summary.magazine_capacity_t),
+            ),
+            (
+                "Mobility",
+                summary.delta_v_ms * 0.02 + summary.acceleration_ms2 * 200.0,
+                160.0,
+                theme::AMBER,
+                format!(
+                    "{:.1}",
+                    summary.delta_v_ms * 0.02 + summary.acceleration_ms2 * 200.0
                 ),
-                ("Docking", &format!("{:.0}", summary.docking_ports)),
-                ("Fuel", &format_mass_compact_tonnes(summary.fuel_capacity_t)),
-            ],
-        );
-    });
+            ),
+            (
+                "Scanners",
+                summary.sensor_range_au * 1200.0,
+                900.0,
+                theme::RP_BLUE,
+                format!("{:.1}", summary.sensor_range_au * 1200.0),
+            ),
+        ],
+    );
+
+    ui.add_space(8.0);
+    draw_rating_block(
+        ui,
+        "Energy",
+        &[
+            (
+                "Reactor Output",
+                summary.power_generation_mw,
+                40.0,
+                theme::GREEN,
+                format!("{:.1} MW", summary.power_generation_mw),
+            ),
+            (
+                "System Load",
+                summary.power_draw_mw,
+                40.0,
+                theme::AMBER,
+                format!("{:.1} MW", summary.power_draw_mw),
+            ),
+            (
+                "Propulsion",
+                summary.thrust_kn / 50.0,
+                40.0,
+                theme::EP_TEAL,
+                format!("{:.0} kN", summary.thrust_kn),
+            ),
+        ],
+    );
+
+    ui.add_space(8.0);
+    metrics_card(
+        ui,
+        "Stores / Utility",
+        &[
+            ("Sensors", &format!("{:.2} AU", summary.sensor_range_au)),
+            (
+                "Ordnance",
+                &format_mass_compact_tonnes(summary.ordnance_capacity_t),
+            ),
+            (
+                "Magazine",
+                &format_mass_compact_tonnes(summary.magazine_capacity_t),
+            ),
+            ("Docking", &format!("{:.0}", summary.docking_ports)),
+            ("Cargo", &format_mass_compact_tonnes(summary.cargo_capacity_t)),
+            ("Crew", &format!("{:.0}", summary.crew)),
+        ],
+    );
 
     if !summary.missing_required_slots.is_empty() {
         ui.add_space(6.0);
@@ -2234,6 +2503,179 @@ fn metrics_card(ui: &mut egui::Ui, title: &str, rows: &[(&str, &str)]) {
         egui::Grid::new(title).num_columns(2).show(ui, |ui| {
             for (label, value) in rows {
                 theme::stat_row(ui, label, value);
+            }
+        });
+    });
+}
+
+fn summary_banner(
+    ui: &mut egui::Ui,
+    hull_name: &str,
+    hull_type: &str,
+    fitted_slots: usize,
+    total_slots: usize,
+    summary: Option<&ShipDesignSummary>,
+) {
+    theme::elevated_frame().show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                ui.label(
+                    egui::RichText::new(hull_name)
+                        .font(theme::heading())
+                        .color(theme::TEXT_VALUE),
+                );
+                ui.label(
+                    egui::RichText::new(hull_type)
+                        .font(theme::body(10.0))
+                        .color(theme::TEXT_DIM),
+                );
+            });
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let completeness = format!("{}/{} fitted", fitted_slots, total_slots);
+                ui.label(
+                    egui::RichText::new(completeness)
+                        .font(theme::mono(9.0))
+                        .color(theme::ACCENT),
+                );
+            });
+        });
+
+        ui.add_space(6.0);
+        let ratio = if total_slots == 0 {
+            0.0
+        } else {
+            fitted_slots as f32 / total_slots as f32
+        };
+        ui.add(
+            egui::ProgressBar::new(ratio)
+                .desired_width(ui.available_width())
+                .fill(theme::ACCENT)
+                .show_percentage(),
+        );
+
+        if let Some(summary) = summary {
+            ui.add_space(6.0);
+            ui.horizontal_wrapped(|ui| {
+                mini_metric(ui, "Combat", format!("{:.1}", combat_score(summary)), theme::AMBER);
+                mini_metric(ui, "Delta-V", format!("{:.0} m/s", summary.delta_v_ms), theme::EP_TEAL);
+                mini_metric(ui, "Power", format!("{:+.1} MW", summary.power_balance_mw()), theme::GREEN);
+                mini_metric(ui, "Sensors", format!("{:.2} AU", summary.sensor_range_au), theme::RP_BLUE);
+            });
+        }
+    });
+}
+
+fn mini_metric(ui: &mut egui::Ui, label: &str, value: String, color: egui::Color32) {
+    egui::Frame::NONE
+        .fill(theme::SURFACE_INPUT)
+        .stroke(egui::Stroke::new(1.0, theme::BORDER))
+        .inner_margin(egui::Margin::same(6))
+        .show(ui, |ui| {
+            ui.set_min_width(68.0);
+            ui.label(
+                egui::RichText::new(label)
+                    .font(theme::mono(8.2))
+                    .color(theme::TEXT_DIM),
+            );
+            ui.label(
+                egui::RichText::new(value)
+                    .font(theme::body(10.5))
+                    .color(color),
+            );
+        });
+}
+
+fn draw_rating_block(
+    ui: &mut egui::Ui,
+    title: &str,
+    rows: &[(&str, f64, f64, egui::Color32, String)],
+) {
+    theme::elevated_frame().show(ui, |ui| {
+        ui.label(
+            egui::RichText::new(title)
+                .font(theme::mono(10.0))
+                .color(theme::TEXT_DIM),
+        );
+        ui.add_space(4.0);
+        for (label, value, scale_max, color, display) in rows {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(*label)
+                        .font(theme::body(9.4))
+                        .color(theme::TEXT_VALUE),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(
+                        egui::RichText::new(display)
+                            .font(theme::mono(8.8))
+                            .color(*color),
+                    );
+                });
+            });
+            let normalized = if *scale_max <= 0.0 {
+                0.0
+            } else {
+                (*value / *scale_max).clamp(0.0, 1.0) as f32
+            };
+            ui.add(
+                egui::ProgressBar::new(normalized)
+                    .desired_width(ui.available_width())
+                    .fill(*color),
+            );
+            ui.add_space(4.0);
+        }
+    });
+}
+
+fn format_power_profile(module: &crate::shipbuilding::ShipModuleDefinition) -> String {
+    match (module.power_generation_mw > 0.0, module.power_draw_mw > 0.0) {
+        (true, true) => format!(
+            "Power +{:.1} MW / -{:.1} MW",
+            module.power_generation_mw, module.power_draw_mw
+        ),
+        (true, false) => format!("Power +{:.1} MW", module.power_generation_mw),
+        (false, true) => format!("Power -{:.1} MW", module.power_draw_mw),
+        (false, false) => "Power 0.0 MW".to_string(),
+    }
+}
+
+fn format_resource_costs_inline(costs: &[(ResourceType, f64)], max_items: usize) -> String {
+    let mut parts = Vec::new();
+    for (index, (resource, amount)) in costs.iter().enumerate() {
+        if index >= max_items {
+            parts.push(format!("+{} more", costs.len() - max_items));
+            break;
+        }
+        parts.push(format!("{} {:.1}", resource.display_name(), amount));
+    }
+    parts.join(" | ")
+}
+
+fn draw_resource_costs_card(
+    ui: &mut egui::Ui,
+    title: &str,
+    costs: &[(ResourceType, f64)],
+    max_rows: usize,
+) {
+    theme::elevated_frame().show(ui, |ui| {
+        ui.label(
+            egui::RichText::new(title)
+                .font(theme::mono(10.0))
+                .color(theme::TEXT_DIM),
+        );
+        ui.add_space(4.0);
+
+        egui::Grid::new(title).num_columns(2).show(ui, |ui| {
+            for (resource, amount) in costs.iter().take(max_rows) {
+                theme::stat_row(ui, resource.display_name(), &format!("{amount:.1}"));
+            }
+
+            if costs.len() > max_rows {
+                theme::stat_row(
+                    ui,
+                    "Additional",
+                    &format!("{} more entries", costs.len() - max_rows),
+                );
             }
         });
     });

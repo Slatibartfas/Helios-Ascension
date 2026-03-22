@@ -106,8 +106,10 @@
             slot_layout: [
                 (slot_id: "command", category: Command, size: "Medium", required: true),
                 (slot_id: "drive", category: Propulsion, size: "Medium", required: true),
+                (slot_id: "drive_aux", category: Propulsion, size: "Small", required: false),
                 (slot_id: "reactor", category: Power, size: "Medium", required: true),
                 (slot_id: "tank", category: Fuel, size: "Medium", required: true),
+                (slot_id: "tank_aux", category: Fuel, size: "Small", required: false),
                 (slot_id: "weapon_1", category: Weapon, size: "Small", required: true),
                 (slot_id: "weapon_2", category: Weapon, size: "Small", required: false),
                 (slot_id: "magazine", category: Defense, size: "Medium", required: true),
@@ -139,8 +141,11 @@
             slot_layout: [
                 (slot_id: "command", category: Command, size: "Medium", required: true),
                 (slot_id: "drive", category: Propulsion, size: "Medium", required: true),
+                (slot_id: "drive_aux", category: Propulsion, size: "Medium", required: false),
                 (slot_id: "reactor", category: Power, size: "Medium", required: true),
+                (slot_id: "reactor_aux", category: Power, size: "Small", required: false),
                 (slot_id: "tank", category: Fuel, size: "Medium", required: true),
+                (slot_id: "tank_aux", category: Fuel, size: "Medium", required: false),
                 (slot_id: "weapon_1", category: Weapon, size: "Medium", required: true),
                 (slot_id: "weapon_2", category: Weapon, size: "Small", required: false),
                 (slot_id: "weapon_3", category: Weapon, size: "Small", required: false),
