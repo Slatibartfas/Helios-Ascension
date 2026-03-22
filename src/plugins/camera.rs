@@ -1,5 +1,6 @@
 use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::prelude::*;
+#[cfg(not(target_os = "windows"))]
 use bevy::render::view::Hdr;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass, EguiStartupSet};
 
@@ -134,6 +135,20 @@ impl Default for OrbitCamera {
 }
 
 fn spawn_camera(mut commands: Commands) {
+    #[cfg(target_os = "windows")]
+    commands.spawn((
+        Camera3d::default(),
+        Transform::from_xyz(0.0, 10_000.0, 20_000.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Projection::Perspective(PerspectiveProjection {
+            far: 3_000_000.0, // Increased to comfortably render at max camera distance
+            ..default()
+        }),
+        GameCamera,
+        CameraAnchor(None),
+        OrbitCamera::default(),
+    ));
+
+    #[cfg(not(target_os = "windows"))]
     commands.spawn((
         Camera3d::default(),
         Transform::from_xyz(0.0, 10_000.0, 20_000.0).looking_at(Vec3::ZERO, Vec3::Y),
