@@ -20,12 +20,15 @@ Help synchronize documentation with code changes:
 | `docs/ASTRONOMY.md` | Procedural generation |
 | `docs/MODDING.md` | Texture and body modding |
 | `docs/RESEARCH_MODDING.md` | Tech tree modding |
+| `docs/SHIPBUILDING.md` | Shipbuilding data and authoring workflow |
 | `docs/QUICKSTART.md` | Installation and setup |
 | `.github/copilot-instructions.md` | Developer conventions |
 
 ## Data Files to Check
 
 - `assets/data/buildings.ron` - 29 building definitions
+- `assets/data/ship_hulls.ron` - Ship hulls and slot layouts
+- `assets/data/ship_modules.ron` - Canonical ship module definitions
 - `assets/data/technologies.ron` - Tech tree
 - `assets/data/solar_system.ron` - Solar system config
 

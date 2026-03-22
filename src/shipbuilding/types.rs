@@ -2,43 +2,38 @@ use serde::{Deserialize, Serialize};
 
 /// High-level category for a ship module slot or component.
 ///
-/// Organized into logical groups inspired by Aurora 4X but evolved for
-/// Helios Ascension's 2026-era small-craft focus:
-///   - Core flight: Command, Propulsion, Power, Fuel
-///   - Payload: Sensor, Weapon, Defense, Cargo
-///   - Crew & Operations: Bridge, CrewQuarters, LifeSupport, MaintenanceBay
-///   - Special Systems: ElectronicWarfare, Stealth, Scanner, ISRU, Mining
-///   - Infrastructure: Construction, Habitat, Utility, Refueling, HeatRadiator
+/// Consolidated Aurora 4X-inspired categories (12 total) for Helios Ascension.
+/// Each category groups related component types across all tiers:
+///   - FlightSystems: Flight cores, engines, RCS
+///   - PowerThermal: Reactors (solar/fission/fusion), radiators
+///   - FuelStorage: Propellant tanks, cargo bays, specialized containers
+///   - Weapons: Missiles, kinetic, energy, plasma weapons
+///   - FireControl: Targeting computers, fire control radars
+///   - Sensors: Passive/active radar, lidar, telescopes, passive sensors
+///   - ArmorDefense: Armor plating, point defense turrets, shields
+///   - CrewSystems: Bridge, crew quarters, life support, med bays
+///   - UtilitySupport: Docking bays, workshops, refuel ports, cargo handling
+///   - ConstructionISRU: Gantries, mining heads, habitat modules, processors
+///   - ElectronicWarfare: Jammers, decoys, cloaking, signal masking
+///   - SpecialScience: Gravimeters, particle detectors, deep telescopes
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ShipModuleCategory {
-    // Core flight
-    Command,
-    Propulsion,
-    Power,
-    Fuel,
-    // Payload
-    Cargo,
-    Sensor,
-    Defense,
-    Weapon,
-    // Crew & Operations
-    Bridge,
-    CrewQuarters,
-    LifeSupport,
-    MaintenanceBay,
-    // Special Systems
+    // Core operations
+    FlightSystems,
+    PowerThermal,
+    FuelStorage,
+    // Combat systems
+    Weapons,
+    FireControl,
+    Sensors,
+    ArmorDefense,
+    // Crew & habitability
+    CrewSystems,
+    // Support & logistics
+    UtilitySupport,
+    ConstructionISRU,
     ElectronicWarfare,
-    Stealth,
-    Scanner,
-    ISRU,
-    Mining,
-    Refueling,
-    TroopTransport,
-    // Infrastructure
-    Construction,
-    Habitat,
-    Utility,
-    HeatRadiator,
+    SpecialScience,
 }
 
 impl ShipModuleCategory {
@@ -46,100 +41,64 @@ impl ShipModuleCategory {
         use ShipModuleCategory::*;
 
         &[
-            // Core flight
-            Command,
-            Propulsion,
-            Power,
-            Fuel,
-            // Payload
-            Cargo,
-            Sensor,
-            Defense,
-            Weapon,
-            // Crew & Operations
-            Bridge,
-            CrewQuarters,
-            LifeSupport,
-            MaintenanceBay,
-            // Special Systems
+            // Core operations
+            FlightSystems,
+            PowerThermal,
+            FuelStorage,
+            // Combat systems
+            Weapons,
+            FireControl,
+            Sensors,
+            ArmorDefense,
+            // Crew & habitability
+            CrewSystems,
+            // Support & logistics
+            UtilitySupport,
+            ConstructionISRU,
             ElectronicWarfare,
-            Stealth,
-            Scanner,
-            ISRU,
-            Mining,
-            Refueling,
-            TroopTransport,
-            // Infrastructure
-            Construction,
-            Habitat,
-            Utility,
-            HeatRadiator,
+            SpecialScience,
         ]
     }
 
     pub fn display_name(self) -> &'static str {
         match self {
-            // Core flight
-            Self::Command => "Command",
-            Self::Propulsion => "Propulsion",
-            Self::Power => "Power",
-            Self::Fuel => "Fuel",
-            // Payload
-            Self::Cargo => "Cargo",
-            Self::Sensor => "Sensors",
-            Self::Defense => "Defense",
-            Self::Weapon => "Weapons",
-            // Crew & Operations
-            Self::Bridge => "Bridge",
-            Self::CrewQuarters => "Crew Quarters",
-            Self::LifeSupport => "Life Support",
-            Self::MaintenanceBay => "Maintenance",
-            // Special Systems
+            // Core operations
+            Self::FlightSystems => "Flight Systems",
+            Self::PowerThermal => "Power & Thermal",
+            Self::FuelStorage => "Fuel & Storage",
+            // Combat systems
+            Self::Weapons => "Weapons",
+            Self::FireControl => "Fire Control",
+            Self::Sensors => "Sensors",
+            Self::ArmorDefense => "Armor & Defense",
+            // Crew & habitability
+            Self::CrewSystems => "Crew Systems",
+            // Support & logistics
+            Self::UtilitySupport => "Utility & Support",
+            Self::ConstructionISRU => "Construction & ISRU",
             Self::ElectronicWarfare => "Electronic Warfare",
-            Self::Stealth => "Stealth",
-            Self::Scanner => "Scanner",
-            Self::ISRU => "ISRU",
-            Self::Mining => "Mining",
-            Self::Refueling => "Refueling",
-            Self::TroopTransport => "Troop Transport",
-            // Infrastructure
-            Self::Construction => "Construction",
-            Self::Habitat => "Habitat",
-            Self::Utility => "Utility",
-            Self::HeatRadiator => "Heat Radiator",
+            Self::SpecialScience => "Special Science",
         }
     }
 
     pub fn icon(self) -> &'static str {
         match self {
-            // Core flight
-            Self::Command => "🧠",
-            Self::Propulsion => "🚀",
-            Self::Power => "⚡",
-            Self::Fuel => "⛽",
-            // Payload
-            Self::Cargo => "📦",
-            Self::Sensor => "📡",
-            Self::Defense => "🛡",
-            Self::Weapon => "🎯",
-            // Crew & Operations
-            Self::Bridge => "🎛",
-            Self::CrewQuarters => "🛏",
-            Self::LifeSupport => "🌿",
-            Self::MaintenanceBay => "🔩",
-            // Special Systems
-            Self::ElectronicWarfare => "📡",
-            Self::Stealth => "👻",
-            Self::Scanner => "🔍",
-            Self::ISRU => "⚙️",
-            Self::Mining => "⛏",
-            Self::Refueling => "🔋",
-            Self::TroopTransport => "🎖",
-            // Infrastructure
-            Self::Construction => "🏗",
-            Self::Habitat => "🏠",
-            Self::Utility => "🔧",
-            Self::HeatRadiator => "🌡",
+            // Core operations
+            Self::FlightSystems => "🚀",
+            Self::PowerThermal => "⚡",
+            Self::FuelStorage => "⛽",
+            // Combat systems
+            Self::Weapons => "🎯",
+            Self::FireControl => "🎛",
+            Self::Sensors => "📡",
+            Self::ArmorDefense => "🛡",
+            // Crew & habitability
+            Self::CrewSystems => "👥",
+            // Support & logistics
+            Self::UtilitySupport => "🔧",
+            Self::ConstructionISRU => "🏗",
+            Self::ElectronicWarfare => "⚠️",
+            Self::SpecialScience => "🔬",
         }
     }
 }

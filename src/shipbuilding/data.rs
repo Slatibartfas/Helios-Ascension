@@ -565,7 +565,7 @@ mod tests {
                 resource_costs: vec![(ResourceType::Iron, 3.0)],
                 slot_layout: vec![HullSlotDefinition {
                     slot_id: "drive".to_string(),
-                    category: ShipModuleCategory::Propulsion,
+                    category: ShipModuleCategory::FlightSystems,
                     size: "Small".to_string(),
                     required: true,
                     position: None,
@@ -580,7 +580,7 @@ mod tests {
                 id: "drive_1".to_string(),
                 display_name: "Drive".to_string(),
                 description: String::new(),
-                category: ShipModuleCategory::Propulsion,
+                category: ShipModuleCategory::FlightSystems,
                 size: "Small".to_string(),
                 propulsion: Some(PropulsionType::Chemical),
                 required_tech: None,
