@@ -747,7 +747,7 @@ fn render_kardashev_overlay(
     scrim_painter.rect_filled(
         ctx.content_rect(),
         0.0,
-        egui::Color32::from_rgba_premultiplied(4, 6, 12, 180),
+        egui::Color32::from_rgba_premultiplied(4, 6, 12, 104),
     );
 
     egui::Window::new(series.title.as_str())
@@ -1452,14 +1452,15 @@ pub(super) fn ui_resources_bar(
                         );
                     }
 
-                    if kardashev_interact.hovered() {
+                    if kardashev_interact.hovered() && !kardashev_trend.detail_open {
                         ctx.request_repaint();
                     }
 
-                    kardashev_interact
+                    let kardashev_hover = kardashev_interact
                         .clone()
-                        .on_hover_cursor(egui::CursorIcon::PointingHand)
-                        .on_hover_ui(|ui| {
+                        .on_hover_cursor(egui::CursorIcon::PointingHand);
+                    if !kardashev_trend.detail_open {
+                        kardashev_hover.on_hover_ui(|ui| {
                             theme::tooltip_frame().show(ui, |ui| {
                                 render_kardashev_hover_content(
                                     ui,
@@ -1471,6 +1472,7 @@ pub(super) fn ui_resources_bar(
                                 );
                             });
                         });
+                    }
 
                     if kardashev_interact.clicked() {
                         open_popup.open = None;
