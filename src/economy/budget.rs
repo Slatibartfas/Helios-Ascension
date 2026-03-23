@@ -16,6 +16,10 @@ use crate::plugins::camera::ViewMode;
 pub struct ResourceRateTracker {
     /// Monthly production rate per resource type (Mt/month) — global total
     pub resource_rates: HashMap<ResourceType, f64>,
+    /// Gross monthly production per resource type before consumption offsets (Mt/month)
+    pub gross_production_rates: HashMap<ResourceType, f64>,
+    /// Gross monthly consumption per resource type before production offsets (Mt/month)
+    pub gross_consumption_rates: HashMap<ResourceType, f64>,
     /// Per-entity (body) monthly rates for resource tooltip breakdown
     pub per_entity_rates: HashMap<Entity, HashMap<ResourceType, f64>>,
     /// Monthly research point generation
@@ -79,6 +83,22 @@ impl ResourceRateTracker {
     /// Get the global monthly rate for a resource type
     pub fn get_resource_rate(&self, resource: &ResourceType) -> f64 {
         self.resource_rates.get(resource).copied().unwrap_or(0.0)
+    }
+
+    /// Get the gross monthly production rate for a resource type.
+    pub fn get_resource_production_rate(&self, resource: &ResourceType) -> f64 {
+        self.gross_production_rates
+            .get(resource)
+            .copied()
+            .unwrap_or(0.0)
+    }
+
+    /// Get the gross monthly consumption rate for a resource type.
+    pub fn get_resource_consumption_rate(&self, resource: &ResourceType) -> f64 {
+        self.gross_consumption_rates
+            .get(resource)
+            .copied()
+            .unwrap_or(0.0)
     }
 
     /// Get the monthly rate for a resource on a specific body
