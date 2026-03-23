@@ -1,9 +1,9 @@
-use std::collections::HashMap;
-
 use bevy::prelude::*;
 use bevy_egui::egui;
 
 use super::dashboard::format_mass_compact_tonnes;
+use super::shipbuilding_state::{DesignSort, ShipRosterRow, ShipbuildingTab, ShipbuildingUiState};
+use super::shipbuilding_workspace::ShipbuildingUiBackend;
 use super::*;
 use crate::economy::ResourceType;
 use crate::economy::components::LocalStockpile;
@@ -41,74 +41,6 @@ type FleetRosterQuery<'w, 's> = Query<
 
 type ShipInstanceQuery<'w, 's> = Query<'w, 's, (Entity, &'static ShipInstance)>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-enum ShipbuildingTab {
-    #[default]
-    Design,
-    Archive,
-    Construction,
-    Ships,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-enum DesignSort {
-    #[default]
-    HullType,
-    DeltaV,
-    Combat,
-    Weight,
-}
-
-impl DesignSort {
-    fn label(self) -> &'static str {
-        match self {
-            Self::HullType => "Hull Type",
-            Self::DeltaV => "Delta-V",
-            Self::Combat => "Combat",
-            Self::Weight => "Weight",
-        }
-    }
-}
-
-#[derive(Resource, Debug, Clone)]
-pub struct ShipbuildingUiState {
-    active_tab: ShipbuildingTab,
-    selected_colony: Option<Entity>,
-    selected_template_id: Option<uuid::Uuid>,
-    selected_hull_id: Option<String>,
-    selected_modules: HashMap<String, String>,
-    design_name: String,
-    selected_mode: ConstructionMode,
-    selected_slot: Option<String>,
-    design_sort: DesignSort,
-    design_sort_descending: bool,
-    selected_ship: Option<Entity>,
-    assignment_target_fleet: Option<Entity>,
-    new_fleet_name: String,
-    construction_design_id: Option<uuid::Uuid>,
-}
-
-impl Default for ShipbuildingUiState {
-    fn default() -> Self {
-        Self {
-            active_tab: ShipbuildingTab::Design,
-            selected_colony: None,
-            selected_template_id: None,
-            selected_hull_id: None,
-            selected_modules: HashMap::default(),
-            design_name: String::new(),
-            selected_mode: ConstructionMode::SurfaceLaunch,
-            selected_slot: None,
-            design_sort: DesignSort::HullType,
-            design_sort_descending: false,
-            selected_ship: None,
-            assignment_target_fleet: None,
-            new_fleet_name: String::new(),
-            construction_design_id: None,
-        }
-    }
-}
-
 #[derive(Clone)]
 struct DesignBrowserRow {
     template_id: uuid::Uuid,
@@ -120,27 +52,10 @@ struct DesignBrowserRow {
     construction_mode: ConstructionMode,
 }
 
-#[derive(Clone)]
-struct ShipRosterRow {
-    ship_entity: Entity,
-    fleet_entity: Option<Entity>,
-    fleet_name: String,
-    ship_name: String,
-    ship_class: ShipClass,
-    dry_mass_t: f64,
-    delta_v_ms: f64,
-    fuel_fraction: f32,
-    role: Option<FleetRole>,
-    location: String,
-    parked_body: Entity,
-    parked_orbit_radius_au: f64,
-    stationary: bool,
-    in_transit: bool,
-}
-
 pub(super) fn ui_shipbuilding_panel(
     mut contexts: EguiContexts,
     active_menu: Res<ActiveMenu>,
+    backend: Res<ShipbuildingUiBackend>,
     colonies: ShipyardColonyQuery,
     fleets: FleetRosterQuery,
     ships: ShipInstanceQuery,
@@ -154,7 +69,7 @@ pub(super) fn ui_shipbuilding_panel(
     launch_state: Res<crate::shipbuilding::LaunchCapacityState>,
     budget: Res<GlobalBudget>,
 ) {
-    if active_menu.current != GameMenu::Shipbuilding {
+    if active_menu.current != GameMenu::Shipbuilding || !backend.uses_legacy_egui() {
         return;
     }
 
