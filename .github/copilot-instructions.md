@@ -95,6 +95,9 @@ helios_ascension/
 │       ├── tech_tree.rs           # Tech tree tab, edit dialog, category colors
 │       ├── construction_panel.rs  # Construction queue UI
 │       ├── economy_panel.rs       # Economy/budget UI
+│       ├── shipbuilding_state.rs  # Shared shipbuilding UI state across backends
+│       ├── shipbuilding_panel.rs  # Legacy egui shipbuilding designer
+│       ├── shipbuilding_workspace.rs # Native Bevy UI shipbuilding workspace prototype
 │       ├── fleets_panel.rs        # Fleet list, detail, orbit/maneuver status, FleetUiState
 │       ├── transfer_planner.rs    # Transfer planner sub-panel (destination, options, LP transfers)
 │       └── interaction.rs         # Selection management
@@ -268,6 +271,12 @@ When adding new UI icons (menus, research categories, etc.), applying the follow
 - Module IDs must be unique; the runtime loader stores modules in a `HashMap` keyed by ID, so duplicate IDs silently override earlier entries
 - RON edits must preserve tuple separators exactly; malformed RON often appears only at runtime during `cargo run`, not at compile time
 - `ShipModuleCategory` currently uses 12 consolidated categories: `FlightSystems`, `PowerThermal`, `FuelStorage`, `Weapons`, `FireControl`, `Sensors`, `ArmorDefense`, `CrewSystems`, `UtilitySupport`, `ConstructionISRU`, `ElectronicWarfare`, `SpecialScience`
+- The Shipbuilding menu currently has **two UI backends**:
+  - `src/ui/shipbuilding_panel.rs` = legacy egui implementation
+  - `src/ui/shipbuilding_workspace.rs` = native Bevy UI prototype with a blueprint canvas, module library, and analytics panel
+- Shared state for both backends lives in `src/ui/shipbuilding_state.rs`; avoid duplicating selection, preview, or hull state in backend-local resources unless there is a strong reason
+- The native prototype is runtime-toggleable with `F9` while the Shipbuilding menu is open; preserve that toggle unless explicitly redesigning the migration plan
+- The native blueprint currently uses **heuristic slot placement** based on slot IDs/categories when `position` is not authored in `assets/data/ship_hulls.ron`; authored `position` data should be preferred for long-term layout quality
 - See [docs/SHIPBUILDING.md](../docs/SHIPBUILDING.md) for the current shipbuilding workflow and data authoring rules
 
 #### Fleet Management & Orbital Mechanics (`src/fleets/`)
@@ -421,6 +430,7 @@ When adding new UI icons (menus, research categories, etc.), applying the follow
 - All egui-using systems must be placed in the `EguiPrimaryContextPass` schedule (from `bevy_egui`), **not** `Update`
 - This is required because `bevy_egui` 0.36+ runs its context setup in a separate pass; calling `available_rect()` before the context is ready causes a panic
 - Example: `.add_systems(EguiPrimaryContextPass, my_egui_system)`
+- This applies to **egui systems only**. Native Bevy UI systems such as `src/ui/shipbuilding_workspace.rs` stay in normal Bevy schedules like `Startup` or `Update`
 
 ### Bevy 0.18 Feature Collections
 - Bevy 0.18 introduced high-level cargo feature collections: `2d`, `3d`, `ui`

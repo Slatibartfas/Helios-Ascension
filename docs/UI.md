@@ -2,19 +2,25 @@
 
 ## Overview
 
-Helios Ascension features a comprehensive UI system built with egui, providing intuitive access to all game systems through a modern dashboard interface.
+Helios Ascension currently uses a mixed UI stack:
+
+- **egui** for the main dashboard, resource bar, research, economy, construction, and most overlays
+- **Native Bevy UI** for the experimental shipbuilding workspace prototype
+
+Most of the game still follows the egui workflow, but the Shipbuilding menu now has an alternate retained-mode workspace intended to support a more spatial, blueprint-oriented design flow.
 
 ## Main Dashboard
 
 The dashboard is visible at the top of the screen and provides access to all major game panels:
 
 ### Navigation Tabs
+
 - **Survey** - Explore celestial bodies and star systems
 - **Construction** - Build and manage colony infrastructure
 - **Research** - Navigate the technology tree
 - **Economy** - Track resources and budget
 - **Fleets** - Manage spacecraft (coming soon)
-- **Shipbuilding** - Design and construct vessels (coming soon)
+- **Shipbuilding** - Design ship hull/module layouts and inspect live engineering metrics
 
 ### Time Controls
 
@@ -34,6 +40,7 @@ Located in the dashboard header:
 View and select celestial bodies or star systems.
 
 ### System View (Zoomed In)
+
 When viewing the solar system or a specific star system:
 
 - **Body List**: Scrollable list of all bodies in current system
@@ -48,6 +55,7 @@ When viewing the solar system or a specific star system:
   - Population and buildings
 
 ### Starmap View (Zoomed Out)
+
 When zoomed out beyond ~100 AU:
 
 - **Star Icons**: Visual representation of nearby star systems
@@ -68,6 +76,7 @@ When zoomed out beyond ~100 AU:
 Manage colony buildings and construction projects.
 
 ### Features
+
 - **Colony Selection**: Dropdown to choose which colony to manage
 - **Build Multiplier**: Queue ×1, ×5, or ×10 copies in one click
 - **Building Categories** (47 total):
@@ -98,11 +107,13 @@ Each building card shows (top to bottom):
 8. **Queue button** — disabled in red if resources are insufficient
 
 ### Construction Queue
+
 - Appears at the bottom of the panel
 - Shows active projects with a progress bar and estimated completion
 - Cancel any project to refund queued resources
 
-### Debug Controls (F12)
+### Construction Debug Controls (F12)
+
 - **Free Construction**: Build without resource costs
 - **Instant Build**: Complete construction immediately
 - **Bypass Tech**: Show and queue all buildings regardless of tech prerequisites
@@ -114,6 +125,7 @@ Each building card shows (top to bottom):
 Browse and select technologies to research.
 
 ### Technology Tree
+
 - **15 Categories**: Electronics, Military, Space Technology, Biology, Physics, Energy, Sociology, Construction, Propulsion, Materials, Sensors, Weapons, Defensive Systems, Life Support, Industry
 - **Tech Cards**: Show technology name, description, cost (RP), and prerequisites
 - **Progress Tracking**: View research progress on active projects
@@ -124,12 +136,14 @@ Browse and select technologies to research.
   - Active (currently being researched)
 
 ### Technology Information
+
 - **Research Cost**: Amount of Research Points (RP) required
 - **Prerequisites**: Technologies that must be completed first
 - **Unlocks**: Buildings, components, or capabilities unlocked
 - **Modifiers**: Bonuses provided (cost reductions, productivity increases)
 
-### Debug Controls (F12)
+### Research Debug Controls (F12)
+
 - **Instant Research**: Complete current research immediately
 - **Free Research**: Unlock all technologies
 
@@ -138,12 +152,14 @@ Browse and select technologies to research.
 Track resources, production, and budget.
 
 ### Resource Overview
+
 - **Stockpiles**: Current amount of each resource
 - **Production Rate**: Resources generated per year
 - **Consumption Rate**: Resources used per year
 - **Net Rate**: Net production/consumption (green/red)
 
 ### Resource Types (31 Total)
+
 - **Volatiles**: Water, Hydrogen, Ammonia, Methane, Phosphorus
 - **Atmospheric Gases**: Nitrogen, Oxygen, Carbon Dioxide, Argon
 - **Construction Materials**: Iron, Aluminum, Titanium, Silicates, Nickel, Tungsten, Carbon
@@ -154,31 +170,73 @@ Track resources, production, and budget.
 - **Exotic Materials**: Antimatter, Exotic Matter, Metamaterials, Computronium
 
 ### Budget Information
+
 - **Treasury**: Current monetary credits (MC)
 - **Income**: Credits earned per year
 - **Expenses**: Credits spent per year (building maintenance, operations)
 - **Net Income**: Overall financial balance
 
 ### Energy Grid
+
 - **Power Generation**: Total power produced by power plants
 - **Power Consumption**: Total power used by buildings
 - **Grid Status**: Surplus or deficit
 
+## Shipbuilding Panel
+
+The Shipbuilding menu now supports two frontends for the same underlying shipbuilding data.
+
+### Backends
+
+- **Legacy egui designer**: the original list-and-form workflow
+- **Native Bevy workspace prototype**: a three-column engineering workspace
+
+### Runtime Toggle
+
+- Press **F9** while the Shipbuilding menu is open to switch between the egui designer and the native prototype
+
+### Native Workspace Layout
+
+The native prototype is divided into three panes:
+
+1. **Logistics Hub**
+
+Hull selector, slot-category navigation, and the compatible module list for the focused slot.
+
+1. **Design Blueprint**
+
+Slot cards arranged on a schematic canvas, with hover and selection states for slot inspection. Click a slot to focus it, then click a module card to install it.
+
+1. **Engineering Analytics**
+
+Gauge-style metrics for delta-v, thrust, mass, acceleration, power, thermal capacity, sensor range, build points, fuel, and cargo, plus supplemental chip metrics for crew, docking, ISRU, generation/load, and ordnance.
+
+### Current Prototype Constraints
+
+- Blueprint placement is still partly heuristic because many hull slots in `assets/data/ship_hulls.ron` do not yet have authored `position` values
+- The native workspace is functional, but still considered a prototype rather than the final shipbuilding UX
+- The egui version remains available as the fallback workflow during iteration
+
 ## Tooltips & Interaction
 
 ### Body Tooltips (Blue Border)
+
 Hover over celestial bodies in system view to see:
+
 - Body name and type
 - Distance from parent body
 - Key properties
 
 ### Star Tooltips (Orange Border)
+
 Hover over star icons in starmap view to see:
+
 - Star system name
 - Distance from Sol
 - Body count
 
 ### Selection
+
 - **Single Click**: Select bodies in system view
 - **Double Click**: Select star systems in starmap view
 - **Right Panel**: Detailed information appears for selected object
@@ -186,6 +244,7 @@ Hover over star icons in starmap view to see:
 ## Camera Controls
 
 ### Movement
+
 - **W**: Forward
 - **A**: Left
 - **S**: Backward
@@ -194,6 +253,7 @@ Hover over star icons in starmap view to see:
 - **E**: Up
 
 ### View Control
+
 - **Right-Click + Drag**: Rotate camera
 - **Mouse Wheel**: Zoom in/out
 - **Automatic View Switching**: System ↔ Starmap transition at ~100 AU
@@ -201,28 +261,33 @@ Hover over star icons in starmap view to see:
 ## Keyboard Shortcuts
 
 - **F12**: Toggle debug settings (when in Construction or Research panels)
+- **F9**: Toggle shipbuilding backend while in the Shipbuilding menu
 - **Space**: Pause/resume simulation
 - **ESC**: Close current panel or deselect
 
 ## Tips & Tricks
 
 ### Efficient Navigation
+
 1. Use starmap view to quickly locate distant star systems
 2. Double-click stars to see resource totals without visiting
 3. Use body list in Survey panel to quickly select specific bodies
 
 ### Resource Management
+
 1. Check Economy panel regularly to monitor stockpiles
 2. Watch for resource deficits (red production rates)
 3. Build logistics buildings to improve efficiency
 
 ### Construction Planning
+
 1. Check tech prerequisites before planning buildings
 2. Ensure sufficient workforce before building industrial structures
 3. Balance power generation and consumption
 4. Build housing before running out of capacity
 
 ### Research Strategy
+
 1. Prioritize technologies that unlock critical buildings
 2. Research construction cost reduction techs early
 3. Balance tech categories to unlock diverse capabilities
@@ -230,16 +295,19 @@ Hover over star icons in starmap view to see:
 ## Troubleshooting
 
 ### UI Not Responding
+
 - Check if time is paused
 - Ensure you've selected the correct colony/body
 - Try clicking away and reselecting
 
 ### Missing Information
+
 - Some data requires specific technologies to be researched
 - Mineral deposits require survey operations
 - Resource information needs time to update after changes
 
 ### Performance Issues
+
 - Close unused panels
 - Zoom closer when not using starmap
 - Lower time acceleration if simulation is slow
@@ -247,8 +315,9 @@ Hover over star icons in starmap view to see:
 ## Future Enhancements
 
 Planned UI improvements:
+
 - Fleet management panel with ship controls
-- Shipbuilding interface for vessel design
+- Shipbuilding workspace migration from prototype to full replacement of the legacy egui panel
 - Diplomacy panel for faction relations
 - Advanced filters and sorting in all panels
 - Customizable layouts and hotkeys
