@@ -158,7 +158,6 @@ impl SimulationHistory {
             age_seconds -= sample_spacing_for_age(age_seconds);
         }
 
-        seeded_samples.reverse();
         self.samples = seeded_samples;
     }
 }
@@ -539,10 +538,11 @@ mod tests {
 
     #[test]
     fn thinning_discards_old_high_frequency_samples() {
-        let mut history = SimulationHistory::default();
-        history.samples = (0..500)
-            .map(|index| sample_at(index as f64 * HISTORY_RECENT_STEP_SECONDS))
-            .collect();
+        let mut history = SimulationHistory {
+            samples: (0..500)
+                .map(|index| sample_at(index as f64 * HISTORY_RECENT_STEP_SECONDS))
+                .collect(),
+        };
         history.thin_samples(500.0 * HISTORY_RECENT_STEP_SECONDS);
 
         assert!(history.samples.len() < 200);

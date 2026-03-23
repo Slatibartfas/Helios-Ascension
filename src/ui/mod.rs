@@ -29,6 +29,8 @@ pub mod icons;
 mod research_panel;
 mod resources_bar;
 mod shipbuilding_panel;
+mod shipbuilding_state;
+mod shipbuilding_workspace;
 mod tech_tree;
 pub(super) mod theme;
 pub mod time;
@@ -47,6 +49,7 @@ use icons::{load_menu_icons, load_research_icons, process_menu_icons, process_re
 use research_panel::ui_research_panels;
 use resources_bar::ui_resources_bar;
 use shipbuilding_panel::ui_shipbuilding_panel;
+use shipbuilding_workspace::ShipbuildingWorkspacePlugin;
 use time::advance_simulation_time;
 
 use crate::astronomy::components::{CurrentStarSystem, SystemId};
@@ -398,6 +401,7 @@ impl Plugin for UIPlugin {
         app
             // Egui plugin is added in `main.rs` (explicit bevy_egui integration)
             .add_plugins(cursors::CursorPlugin)
+            .add_plugins(ShipbuildingWorkspacePlugin)
             // Resources
             .init_resource::<Selection>()
             .init_resource::<TimeScale>()
@@ -407,7 +411,7 @@ impl Plugin for UIPlugin {
             .init_resource::<ResolutionWarning>()
             .init_resource::<ExpandedLedgerGroups>()
             .init_resource::<construction_panel::ConstructionUiState>()
-            .init_resource::<shipbuilding_panel::ShipbuildingUiState>()
+            .init_resource::<shipbuilding_state::ShipbuildingUiState>()
             // ActiveMenu is now initialized in GameStatePlugin
             // to allow access in camera/starmap plugins
             // Load menu icons at startup
@@ -438,9 +442,15 @@ impl Plugin for UIPlugin {
             )
             .add_systems(
                 EguiPrimaryContextPass,
-                (ui_resources_bar, ui_top_menu_bar, ui_time_controls)
-                    .chain()
-                    .in_set(UiSystemSet::TopBar),
+                ui_resources_bar.in_set(UiSystemSet::TopBar),
+            )
+            .add_systems(
+                EguiPrimaryContextPass,
+                ui_top_menu_bar.in_set(UiSystemSet::TopBar),
+            )
+            .add_systems(
+                EguiPrimaryContextPass,
+                ui_time_controls.in_set(UiSystemSet::TopBar),
             )
             .add_systems(
                 EguiPrimaryContextPass,
