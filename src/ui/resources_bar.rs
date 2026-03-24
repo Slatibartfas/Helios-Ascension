@@ -228,6 +228,7 @@ pub(super) struct KardashevTrendState {
     axis_mode: HistoryTimeAxisMode,
     metric: HistoryPanelMetric,
     resource: ResourceType,
+    last_window_pos: Option<egui::Pos2>,
 }
 
 impl Default for KardashevTrendState {
@@ -237,6 +238,7 @@ impl Default for KardashevTrendState {
             axis_mode: HistoryTimeAxisMode::RelativeYears,
             metric: HistoryPanelMetric::Kardashev,
             resource: ResourceType::Iron,
+            last_window_pos: None,
         }
     }
 }
@@ -522,28 +524,7 @@ fn render_history_plot(
 
     let plot_rect = rect.shrink2(egui::vec2(10.0, 16.0));
     let window_start = current_sim_seconds - HISTORY_PANEL_SECONDS;
-    let mut min_y = series
-        .points
-        .iter()
-        .map(|point| point.value)
-        .fold(f64::INFINITY, f64::min);
-    let mut max_y = series
-        .points
-        .iter()
-        .map(|point| point.value)
-        .fold(f64::NEG_INFINITY, f64::max);
-    if !min_y.is_finite() || !max_y.is_finite() {
-        min_y = 0.0;
-        max_y = 1.0;
-    }
-    if (max_y - min_y).abs() < 0.01 {
-        min_y = (min_y - 0.02).max(0.0);
-        max_y += 0.02;
-    } else {
-        let padding = (max_y - min_y) * 0.12;
-        min_y = (min_y - padding).max(0.0);
-        max_y += padding;
-    }
+    let (min_y, max_y) = compute_history_y_bounds(series, metric);
 
     let to_screen = |sim_seconds: f64, value: f64| {
         let x_t = ((sim_seconds - window_start) / HISTORY_PANEL_SECONDS).clamp(0.0, 1.0);
@@ -657,6 +638,101 @@ fn render_history_plot(
     None
 }
 
+fn percentile_sorted(sorted_values: &[f64], percentile: f64) -> f64 {
+    if sorted_values.is_empty() {
+        return 0.0;
+    }
+
+    let clamped = percentile.clamp(0.0, 1.0);
+    let index = ((sorted_values.len() - 1) as f64 * clamped).round() as usize;
+    sorted_values[index.min(sorted_values.len() - 1)]
+}
+
+fn is_resource_history_metric(metric: HistoryPanelMetric) -> bool {
+    matches!(
+        metric,
+        HistoryPanelMetric::ResourceStockpile
+            | HistoryPanelMetric::ResourceNetRate
+            | HistoryPanelMetric::ResourceProduction
+            | HistoryPanelMetric::ResourceConsumption
+    )
+}
+
+fn compute_history_y_bounds(series: &HistorySeriesData, metric: HistoryPanelMetric) -> (f64, f64) {
+    let mut values: Vec<f64> = series
+        .points
+        .iter()
+        .map(|point| point.value)
+        .filter(|value| value.is_finite())
+        .collect();
+
+    if values.is_empty() {
+        return (0.0, 1.0);
+    }
+
+    values.sort_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
+
+    let raw_min = values[0];
+    let raw_max = *values.last().unwrap_or(&1.0);
+    let non_negative_series = raw_min >= 0.0;
+    let latest_value = series.points.last().map(|point| point.value).unwrap_or(raw_max);
+    let use_zero_baseline = non_negative_series
+        && match metric {
+            HistoryPanelMetric::SurveyCoverage => true,
+            _ => raw_min <= (raw_max * 0.25),
+        };
+
+    let mut min_y = if use_zero_baseline { 0.0 } else { raw_min };
+    let mut max_y = raw_max;
+    let value_scale = raw_max.abs().max(raw_min.abs()).max(latest_value.abs());
+    let tiny_padding = value_scale.max(1.0e-9) * 0.25;
+
+    if values.len() >= 8 && use_zero_baseline {
+        let robust_percentile = if is_resource_history_metric(metric) {
+            0.85
+        } else {
+            0.95
+        };
+        let robust_max = percentile_sorted(&values, robust_percentile).max(0.0);
+        let high_outlier_count = values
+            .iter()
+            .filter(|value| **value > robust_max * 2.5)
+            .count();
+
+        if robust_max > 0.0 && raw_max > robust_max * 6.0 && high_outlier_count <= 2 {
+            max_y = robust_max.max(latest_value);
+        }
+
+        if is_resource_history_metric(metric) && latest_value > 0.0 {
+            let current_scale_ceiling = (latest_value * 12.0).max(percentile_sorted(&values, 0.75));
+            if max_y > current_scale_ceiling * 2.0 {
+                max_y = current_scale_ceiling.max(latest_value);
+            }
+        }
+    }
+
+    if (max_y - min_y).abs() < 0.01 {
+        if use_zero_baseline {
+            max_y = (max_y + tiny_padding).max(tiny_padding * 2.0);
+        } else {
+            min_y -= tiny_padding;
+            max_y += tiny_padding;
+        }
+    } else {
+        let padding = (max_y - min_y) * 0.12;
+        if !use_zero_baseline {
+            min_y -= padding;
+        }
+        max_y += padding;
+    }
+
+    if !min_y.is_finite() || !max_y.is_finite() || max_y <= min_y {
+        return (0.0, 1.0);
+    }
+
+    (min_y, max_y)
+}
+
 fn render_kardashev_hover_content(
     ui: &mut egui::Ui,
     history: &[HistoryPoint],
@@ -732,6 +808,14 @@ fn render_kardashev_overlay(
         return;
     }
 
+    let escape_pressed = ctx.input_mut(|input| {
+        input.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
+    });
+    if escape_pressed {
+        trend_state.detail_open = false;
+        return;
+    }
+
     let series = build_history_series(
         simulation_history,
         current_sim_seconds,
@@ -741,7 +825,7 @@ fn render_kardashev_overlay(
 
     let mut still_open = true;
     let scrim_painter = ctx.layer_painter(egui::LayerId::new(
-        egui::Order::Middle,
+        egui::Order::Background,
         egui::Id::new("kardashev_overlay_scrim"),
     ));
     scrim_painter.rect_filled(
@@ -750,16 +834,32 @@ fn render_kardashev_overlay(
         egui::Color32::from_rgba_premultiplied(4, 6, 12, 104),
     );
 
-    egui::Window::new(series.title.as_str())
+    let centered_pos = {
+        let content_rect = ctx.content_rect();
+        egui::pos2(
+            content_rect.center().x - 480.0,
+            content_rect.center().y - 310.0,
+        )
+    };
+
+    let mut window = egui::Window::new(series.title.as_str())
         .id(egui::Id::new("history_overlay"))
-        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
         .collapsible(false)
         .resizable(false)
+        .movable(true)
+        .fixed_size(egui::vec2(960.0, 620.0))
         .open(&mut still_open)
-        .frame(theme::elevated_frame())
-        .show(ctx, |ui| {
-            ui.set_min_width(720.0);
-            ui.set_max_width(720.0);
+        .frame(theme::elevated_frame());
+
+    window = if let Some(last_pos) = trend_state.last_window_pos {
+        window.current_pos(last_pos)
+    } else {
+        window.default_pos(centered_pos)
+    };
+
+    let window_response = window.show(ctx, |ui| {
+            ui.set_min_width(960.0);
+            ui.set_max_width(960.0);
 
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
@@ -864,53 +964,61 @@ fn render_kardashev_overlay(
                 trend_state.axis_mode,
                 trend_state.metric,
                 trend_state.resource,
-                egui::vec2(680.0, 320.0),
+                egui::vec2(920.0, 420.0),
                 true,
             );
 
             ui.add_space(8.0);
-            if let Some(cursor) = cursor_info {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new("Cursor")
-                            .font(theme::mono(10.0))
-                            .color(theme::TEXT_DIM),
-                    );
-                    ui.separator();
-                    ui.label(
-                        egui::RichText::new(format_history_time_label(
-                            trend_state.axis_mode,
-                            current_year,
-                            current_sim_seconds,
-                            cursor.sim_seconds,
-                            true,
-                        ))
-                        .font(theme::mono(11.0))
-                        .color(theme::TEXT_VALUE),
-                    );
-                    ui.separator();
-                    ui.label(
-                        egui::RichText::new(cursor.value_text.as_str())
-                            .font(theme::mono(11.0))
-                            .color(series.accent),
-                    );
-                    if let Some(detail_text) = cursor.detail_text.as_deref() {
+            ui.allocate_ui_with_layout(
+                egui::vec2(ui.available_width(), 24.0),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    if let Some(cursor) = cursor_info {
+                        ui.label(
+                            egui::RichText::new("Cursor")
+                                .font(theme::mono(10.0))
+                                .color(theme::TEXT_DIM),
+                        );
                         ui.separator();
                         ui.label(
-                            egui::RichText::new(detail_text)
+                            egui::RichText::new(format_history_time_label(
+                                trend_state.axis_mode,
+                                current_year,
+                                current_sim_seconds,
+                                cursor.sim_seconds,
+                                true,
+                            ))
+                            .font(theme::mono(11.0))
+                            .color(theme::TEXT_VALUE),
+                        );
+                        ui.separator();
+                        ui.label(
+                            egui::RichText::new(cursor.value_text.as_str())
                                 .font(theme::mono(11.0))
-                                .color(theme::TEXT_VALUE),
+                                .color(series.accent),
+                        );
+                        if let Some(detail_text) = cursor.detail_text.as_deref() {
+                            ui.separator();
+                            ui.label(
+                                egui::RichText::new(detail_text)
+                                    .font(theme::mono(11.0))
+                                    .color(theme::TEXT_VALUE),
+                            );
+                        }
+                    } else {
+                        ui.label(
+                            egui::RichText::new("Hover the plot to inspect a point in the history.")
+                                .size(10.0)
+                                .color(theme::TEXT_DIM),
                         );
                     }
-                });
-            } else {
-                ui.label(
-                    egui::RichText::new("Hover the plot to inspect a point in the history.")
-                        .size(10.0)
-                        .color(theme::TEXT_DIM),
-                );
-            }
+                },
+            );
         });
+
+    if let Some(window_response) = window_response {
+        trend_state.last_window_pos = Some(window_response.response.rect.min);
+    }
 
     if !still_open {
         trend_state.detail_open = false;

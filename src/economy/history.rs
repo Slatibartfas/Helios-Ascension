@@ -166,58 +166,145 @@ impl SimulationHistory {
 struct HistoricEarthAnchor {
     years_ago: f64,
     population_factor: f64,
-    industrial_factor: f64,
     power_factor: f64,
+    agriculture_factor: f64,
+    bulk_industry_factor: f64,
+    electrification_factor: f64,
+    nuclear_factor: f64,
     space_factor: f64,
     survey_factor: f64,
 }
 
-const HISTORIC_EARTH_ANCHORS: [HistoricEarthAnchor; 6] = [
+const HISTORIC_EARTH_ANCHORS: [HistoricEarthAnchor; 12] = [
     HistoricEarthAnchor {
         years_ago: 100.0,
         population_factor: 0.24,
-        industrial_factor: 0.12,
-        power_factor: 0.10,
+        power_factor: 0.09,
+        agriculture_factor: 0.20,
+        bulk_industry_factor: 0.07,
+        electrification_factor: 0.04,
+        nuclear_factor: 0.0,
         space_factor: 0.0,
-        survey_factor: 0.0,
+        survey_factor: 0.02,
     },
     HistoricEarthAnchor {
-        years_ago: 70.0,
-        population_factor: 0.34,
-        industrial_factor: 0.18,
-        power_factor: 0.17,
+        years_ago: 76.0,
+        population_factor: 0.30,
+        power_factor: 0.15,
+        agriculture_factor: 0.28,
+        bulk_industry_factor: 0.12,
+        electrification_factor: 0.08,
+        nuclear_factor: 0.03,
         space_factor: 0.0,
-        survey_factor: 0.0,
+        survey_factor: 0.03,
     },
     HistoricEarthAnchor {
-        years_ago: 50.0,
-        population_factor: 0.50,
-        industrial_factor: 0.35,
-        power_factor: 0.33,
-        space_factor: 0.04,
-        survey_factor: 0.10,
+        years_ago: 69.0,
+        population_factor: 0.35,
+        power_factor: 0.18,
+        agriculture_factor: 0.32,
+        bulk_industry_factor: 0.15,
+        electrification_factor: 0.10,
+        nuclear_factor: 0.05,
+        space_factor: 0.002,
+        survey_factor: 0.04,
     },
     HistoricEarthAnchor {
-        years_ago: 25.0,
-        population_factor: 0.74,
-        industrial_factor: 0.60,
+        years_ago: 66.0,
+        population_factor: 0.37,
+        power_factor: 0.22,
+        agriculture_factor: 0.35,
+        bulk_industry_factor: 0.18,
+        electrification_factor: 0.13,
+        nuclear_factor: 0.07,
+        space_factor: 0.006,
+        survey_factor: 0.05,
+    },
+    HistoricEarthAnchor {
+        years_ago: 56.0,
+        population_factor: 0.45,
+        power_factor: 0.36,
+        agriculture_factor: 0.46,
+        bulk_industry_factor: 0.27,
+        electrification_factor: 0.24,
+        nuclear_factor: 0.22,
+        space_factor: 0.03,
+        survey_factor: 0.09,
+    },
+    HistoricEarthAnchor {
+        years_ago: 46.0,
+        population_factor: 0.54,
+        power_factor: 0.47,
+        agriculture_factor: 0.60,
+        bulk_industry_factor: 0.36,
+        electrification_factor: 0.38,
+        nuclear_factor: 0.48,
+        space_factor: 0.06,
+        survey_factor: 0.15,
+    },
+    HistoricEarthAnchor {
+        years_ago: 36.0,
+        population_factor: 0.65,
         power_factor: 0.57,
-        space_factor: 0.25,
-        survey_factor: 0.55,
+        agriculture_factor: 0.72,
+        bulk_industry_factor: 0.48,
+        electrification_factor: 0.52,
+        nuclear_factor: 0.68,
+        space_factor: 0.10,
+        survey_factor: 0.24,
     },
     HistoricEarthAnchor {
-        years_ago: 10.0,
-        population_factor: 0.90,
-        industrial_factor: 0.82,
-        power_factor: 0.78,
-        space_factor: 0.55,
-        survey_factor: 0.80,
+        years_ago: 26.0,
+        population_factor: 0.75,
+        power_factor: 0.66,
+        agriculture_factor: 0.79,
+        bulk_industry_factor: 0.58,
+        electrification_factor: 0.66,
+        nuclear_factor: 0.82,
+        space_factor: 0.15,
+        survey_factor: 0.38,
+    },
+    HistoricEarthAnchor {
+        years_ago: 16.0,
+        population_factor: 0.86,
+        power_factor: 0.82,
+        agriculture_factor: 0.90,
+        bulk_industry_factor: 0.74,
+        electrification_factor: 0.82,
+        nuclear_factor: 0.88,
+        space_factor: 0.23,
+        survey_factor: 0.60,
+    },
+    HistoricEarthAnchor {
+        years_ago: 6.0,
+        population_factor: 0.96,
+        power_factor: 0.90,
+        agriculture_factor: 0.98,
+        bulk_industry_factor: 0.93,
+        electrification_factor: 0.95,
+        nuclear_factor: 0.95,
+        space_factor: 0.45,
+        survey_factor: 0.84,
+    },
+    HistoricEarthAnchor {
+        years_ago: 2.0,
+        population_factor: 0.99,
+        power_factor: 0.98,
+        agriculture_factor: 1.0,
+        bulk_industry_factor: 0.99,
+        electrification_factor: 0.99,
+        nuclear_factor: 0.98,
+        space_factor: 0.85,
+        survey_factor: 0.97,
     },
     HistoricEarthAnchor {
         years_ago: 0.0,
         population_factor: 1.0,
-        industrial_factor: 1.0,
         power_factor: 1.0,
+        agriculture_factor: 1.0,
+        bulk_industry_factor: 1.0,
+        electrification_factor: 1.0,
+        nuclear_factor: 1.0,
         space_factor: 1.0,
         survey_factor: 1.0,
     },
@@ -255,11 +342,46 @@ fn interpolate_historic_anchor(years_ago: f64) -> HistoricEarthAnchor {
             let t = ((older.years_ago - years_ago) / span).clamp(0.0, 1.0);
             return HistoricEarthAnchor {
                 years_ago,
-                population_factor: egui_lerp(older.population_factor, newer.population_factor, t),
-                industrial_factor: egui_lerp(older.industrial_factor, newer.industrial_factor, t),
-                power_factor: egui_lerp(older.power_factor, newer.power_factor, t),
-                space_factor: egui_lerp(older.space_factor, newer.space_factor, t),
-                survey_factor: egui_lerp(older.survey_factor, newer.survey_factor, t),
+                population_factor: historic_factor_lerp(
+                    older.population_factor,
+                    newer.population_factor,
+                    t,
+                ),
+                power_factor: historic_factor_lerp(
+                    older.power_factor,
+                    newer.power_factor,
+                    t,
+                ),
+                agriculture_factor: historic_factor_lerp(
+                    older.agriculture_factor,
+                    newer.agriculture_factor,
+                    t,
+                ),
+                bulk_industry_factor: historic_factor_lerp(
+                    older.bulk_industry_factor,
+                    newer.bulk_industry_factor,
+                    t,
+                ),
+                electrification_factor: historic_factor_lerp(
+                    older.electrification_factor,
+                    newer.electrification_factor,
+                    t,
+                ),
+                nuclear_factor: historic_factor_lerp(
+                    older.nuclear_factor,
+                    newer.nuclear_factor,
+                    t,
+                ),
+                space_factor: historic_factor_lerp(
+                    older.space_factor,
+                    newer.space_factor,
+                    t,
+                ),
+                survey_factor: historic_factor_lerp(
+                    older.survey_factor,
+                    newer.survey_factor,
+                    t,
+                ),
             };
         }
     }
@@ -270,8 +392,11 @@ fn interpolate_historic_anchor(years_ago: f64) -> HistoricEarthAnchor {
         .unwrap_or(HistoricEarthAnchor {
             years_ago,
             population_factor: 1.0,
-            industrial_factor: 1.0,
             power_factor: 1.0,
+            agriculture_factor: 1.0,
+            bulk_industry_factor: 1.0,
+            electrification_factor: 1.0,
+            nuclear_factor: 1.0,
             space_factor: 1.0,
             survey_factor: 1.0,
         })
@@ -281,27 +406,61 @@ fn egui_lerp(start: f64, end: f64, t: f64) -> f64 {
     start + (end - start) * t
 }
 
-fn historic_resource_factor(resource: ResourceType, anchor: HistoricEarthAnchor) -> f64 {
-    if resource.is_biological() {
-        return anchor.population_factor;
+fn historic_factor_lerp(start: f64, end: f64, t: f64) -> f64 {
+    if start > 0.0 && end > 0.0 {
+        let log_start = start.ln();
+        let log_end = end.ln();
+        (log_start + (log_end - log_start) * t).exp()
+    } else {
+        egui_lerp(start, end, t)
     }
-    if resource.is_atmospheric_gas() {
-        return 0.65 * anchor.population_factor + 0.35 * anchor.industrial_factor;
-    }
-    if resource.is_volatile() {
-        return 0.45 * anchor.population_factor + 0.55 * anchor.industrial_factor;
-    }
-    if resource.is_exotic() {
-        return anchor.space_factor.powf(2.5);
-    }
-    if resource.is_fusion_fuel() {
-        return (0.35 * anchor.industrial_factor + 0.65 * anchor.space_factor).clamp(0.0, 1.0);
-    }
-    if resource.is_fissile() || resource.is_precious_metal() || resource.is_strategic() {
-        return anchor.industrial_factor;
-    }
+}
 
-    anchor.industrial_factor
+fn historic_resource_factor(resource: ResourceType, anchor: HistoricEarthAnchor) -> f64 {
+    use ResourceType::*;
+
+    let factor = match resource {
+        Food => anchor.agriculture_factor,
+        Water => 0.45 * anchor.population_factor
+            + 0.40 * anchor.agriculture_factor
+            + 0.15 * anchor.bulk_industry_factor,
+        Hydrogen | Ammonia | Methane => {
+            0.20 * anchor.population_factor
+                + 0.35 * anchor.bulk_industry_factor
+                + 0.45 * anchor.power_factor
+        }
+        Phosphorus => 0.25 * anchor.population_factor + 0.75 * anchor.agriculture_factor,
+        Nitrogen | Oxygen | CarbonDioxide | Argon => {
+            0.65 * anchor.population_factor + 0.35 * anchor.power_factor
+        }
+        Iron | Silicates => anchor.bulk_industry_factor,
+        Aluminum | Copper => anchor.electrification_factor,
+        Titanium | Nickel | Tungsten | Chromium | Magnesium => {
+            0.55 * anchor.bulk_industry_factor + 0.45 * anchor.electrification_factor
+        }
+        Carbon => 0.50 * anchor.bulk_industry_factor + 0.50 * anchor.electrification_factor,
+        Helium3 | Deuterium | Tritium => {
+            0.55 * anchor.power_factor
+                + 0.20 * anchor.electrification_factor
+                + 0.25 * anchor.space_factor
+        }
+        Uranium | Thorium | Plutonium => anchor.nuclear_factor,
+        Gold | Silver | Platinum => {
+            0.35 * anchor.bulk_industry_factor
+                + 0.45 * anchor.electrification_factor
+                + 0.20 * anchor.survey_factor
+        }
+        RareEarths | Lithium | Cobalt | Fluorine => {
+            0.20 * anchor.bulk_industry_factor
+                + 0.55 * anchor.electrification_factor
+                + 0.25 * anchor.nuclear_factor
+        }
+        Sulfur => 0.45 * anchor.agriculture_factor + 0.55 * anchor.bulk_industry_factor,
+        Polymers => 0.35 * anchor.population_factor + 0.65 * anchor.electrification_factor,
+        Antimatter | ExoticMatter | Metamaterials | Computronium => anchor.space_factor.powf(2.6),
+    };
+
+    factor.clamp(0.0, 1.0)
 }
 
 fn build_historic_earth_sample(
@@ -546,5 +705,30 @@ mod tests {
         history.thin_samples(500.0 * HISTORY_RECENT_STEP_SECONDS);
 
         assert!(history.samples.len() < 200);
+    }
+
+    #[test]
+    fn seeded_iron_production_is_monotonic() {
+        let current = sample_at(0.0);
+        let iron_index = resource_index(ResourceType::Iron);
+
+        let mut previous = f64::NEG_INFINITY;
+        let mut age_seconds = HISTORY_MAX_AGE_SECONDS;
+        while age_seconds > 1.0 {
+            let sample = build_historic_earth_sample(&current, age_seconds);
+            let iron_production = sample.resource_gross_production_per_month[iron_index];
+            assert!(
+                iron_production >= previous,
+                "iron production regressed at age {:.2} years: {:.6} < {:.6}",
+                age_seconds / SECONDS_PER_YEAR,
+                iron_production,
+                previous
+            );
+            previous = iron_production;
+            age_seconds -= sample_spacing_for_age(age_seconds);
+        }
+
+        let current_iron_production = current.resource_gross_production_per_month[iron_index];
+        assert!(current_iron_production >= previous);
     }
 }
