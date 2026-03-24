@@ -135,7 +135,6 @@ enum HistoryPanelMetric {
     #[default]
     Kardashev,
     PowerProduced,
-    PowerConsumed,
     Population,
     Colonies,
     Ships,
@@ -152,7 +151,6 @@ impl HistoryPanelMetric {
         match self {
             Self::Kardashev => "Kardashev Scale",
             Self::PowerProduced => "Power Produced",
-            Self::PowerConsumed => "Power Consumed",
             Self::Population => "Population",
             Self::Colonies => "Colonies",
             Self::Ships => "Ships",
@@ -187,7 +185,6 @@ impl HistoryPanelMetric {
         match self {
             Self::Kardashev => theme::CAT_STRATEGIC,
             Self::PowerProduced => theme::ACCENT,
-            Self::PowerConsumed => egui::Color32::from_rgb(255, 161, 94),
             Self::Population => egui::Color32::from_rgb(116, 224, 170),
             Self::Colonies => egui::Color32::from_rgb(236, 197, 96),
             Self::Ships => egui::Color32::from_rgb(120, 178, 255),
@@ -205,7 +202,6 @@ impl HistoryPanelMetric {
         match self {
             Self::Kardashev => "Kardashev Development".to_string(),
             Self::PowerProduced => "Power Production History".to_string(),
-            Self::PowerConsumed => "Power Consumption History".to_string(),
             Self::Population => "Population History".to_string(),
             Self::Colonies => "Colony Count History".to_string(),
             Self::Ships => "Ship Count History".to_string(),
@@ -287,7 +283,7 @@ fn format_history_value(
 ) -> String {
     match metric {
         HistoryPanelMetric::Kardashev => format!("Type {value:.3}"),
-        HistoryPanelMetric::PowerProduced | HistoryPanelMetric::PowerConsumed => {
+        HistoryPanelMetric::PowerProduced => {
             format_power(value.max(0.0))
         }
         HistoryPanelMetric::Population => format_population(value),
@@ -336,10 +332,6 @@ fn build_history_series(
                 HistoryPanelMetric::PowerProduced => (
                     sample.power_produced_watts,
                     Some(format!("Power consumed {}", format_power(sample.power_consumed_watts))),
-                ),
-                HistoryPanelMetric::PowerConsumed => (
-                    sample.power_consumed_watts,
-                    Some(format!("Power produced {}", format_power(sample.power_produced_watts))),
                 ),
                 HistoryPanelMetric::Population => (
                     sample.total_population,
@@ -405,9 +397,6 @@ fn build_history_series(
         }
         (HistoryPanelMetric::PowerProduced, Some(sample)) => {
             format!("Current consumption: {}", format_power(sample.power_consumed_watts))
-        }
-        (HistoryPanelMetric::PowerConsumed, Some(sample)) => {
-            format!("Current production: {}", format_power(sample.power_produced_watts))
         }
         (HistoryPanelMetric::Population, Some(sample)) => {
             format!("Colonies tracked: {}", sample.colony_count)
@@ -894,7 +883,6 @@ fn render_kardashev_overlay(
                         for metric in [
                             HistoryPanelMetric::Kardashev,
                             HistoryPanelMetric::PowerProduced,
-                            HistoryPanelMetric::PowerConsumed,
                             HistoryPanelMetric::Population,
                             HistoryPanelMetric::Colonies,
                             HistoryPanelMetric::Ships,

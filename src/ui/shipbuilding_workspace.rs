@@ -111,9 +111,6 @@ struct ShipbuildingSlotScanline {
 }
 
 #[derive(Component)]
-struct ShipbuildingSlotDash;
-
-#[derive(Component)]
 struct ShipbuildingSlotFrame {
     slot_id: String,
     accent: Color,
@@ -124,21 +121,23 @@ struct ShipbuildingSlotFrame {
 #[derive(Component)]
 struct ShipbuildingSlotGlow {
     slot_id: String,
+    base_width: f32,
+    base_height: f32,
     accent: Color,
+    filled: bool,
 }
 
 #[derive(Component)]
-struct ShipbuildingSlotOrbitRunner {
+struct ShipbuildingSlotAccentRail {
     slot_id: String,
-    width: f32,
-    height: f32,
-    phase_offset: f32,
+    accent: Color,
 }
 
 #[derive(Component)]
 struct ShipbuildingModuleCard {
     slot_id: String,
     module_id: String,
+    base_height: f32,
 }
 
 fn spawn_shipbuilding_workspace(mut commands: Commands) {
@@ -150,12 +149,13 @@ fn spawn_shipbuilding_workspace(mut commands: Commands) {
                 position_type: PositionType::Absolute,
                 left: Val::Px(0.0),
                 right: Val::Px(0.0),
-                top: Val::Px(72.0),
+                top: Val::Px(126.0),
                 bottom: Val::Px(42.0),
                 display: Display::None,
                 flex_direction: FlexDirection::Column,
                 padding: UiRect::all(Val::Px(12.0)),
                 row_gap: Val::Px(8.0),
+                min_height: Val::Px(0.0),
                 ..default()
             },
             BackgroundColor(Color::srgba(0.015, 0.02, 0.035, 0.96)),
@@ -165,8 +165,8 @@ fn spawn_shipbuilding_workspace(mut commands: Commands) {
                 .spawn((
                     Node {
                         width: Val::Percent(100.0),
-                        min_height: Val::Px(24.0),
-                        padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)),
+                        min_height: Val::Px(34.0),
+                        padding: UiRect::axes(Val::Px(12.0), Val::Px(6.0)),
                         border: UiRect::all(Val::Px(1.0)),
                         ..default()
                     },
@@ -190,7 +190,9 @@ fn spawn_shipbuilding_workspace(mut commands: Commands) {
                     Name::new("Shipbuilding Workspace Columns"),
                     Node {
                         width: Val::Percent(100.0),
-                        height: Val::Percent(100.0),
+                        flex_grow: 1.0,
+                        flex_basis: Val::Px(0.0),
+                        min_height: Val::Px(0.0),
                         flex_direction: FlexDirection::Row,
                         column_gap: Val::Px(10.0),
                         ..default()
@@ -265,7 +267,7 @@ fn spawn_panel<T: Component>(
     marker: T,
 ) {
     let mut node = Node {
-        height: Val::Percent(100.0),
+        min_height: Val::Px(0.0),
         flex_direction: FlexDirection::Column,
         padding: UiRect::all(Val::Px(10.0)),
         row_gap: Val::Px(8.0),
@@ -300,7 +302,9 @@ fn spawn_panel<T: Component>(
                 marker,
                 Node {
                     width: Val::Percent(100.0),
-                    height: Val::Percent(100.0),
+                    flex_grow: 1.0,
+                    flex_basis: Val::Px(0.0),
+                    min_height: Val::Px(0.0),
                     flex_direction: FlexDirection::Column,
                     row_gap: Val::Px(6.0),
                     ..default()
@@ -499,7 +503,7 @@ fn sync_shipbuilding_workspace_content(
     let active_slot = selected_hull.and_then(|hull| active_slot(hull, &ui_state));
 
     **status_text = Text::new(format!(
-        "Shipbuilding Workspace  |  F9 Switch UI  |  {:?}  |  Hulls {}  |  Designs {}  |  Hover inspect  |  Click install",
+        "Shipbuilding Workspace  |  F9 Switch UI  |  {:?}  |  Hulls {}  |  Designs {}  |  Hover inspect  |  Click slot, install module",
         backend.mode,
         available_hulls.len(),
         design_library.templates.len()
@@ -644,6 +648,7 @@ fn populate_library_panel(
                     ShipbuildingModuleCard {
                         slot_id: slot.slot_id.clone(),
                         module_id: module.id.clone(),
+                        base_height: 52.0,
                     },
                     ShipbuildingModuleButton {
                         slot_id: slot.slot_id.clone(),
@@ -651,8 +656,8 @@ fn populate_library_panel(
                     },
                     Node {
                         width: Val::Percent(100.0),
-                        height: Val::Px(62.0),
-                        padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
+                        height: Val::Px(52.0),
+                        padding: UiRect::axes(Val::Px(8.0), Val::Px(5.0)),
                         border: UiRect::all(Val::Px(1.0)),
                         ..default()
                     },
@@ -665,7 +670,7 @@ fn populate_library_panel(
                         Color::srgb(0.22, 0.35, 0.42)
                     }),
                     Text::new(format!(
-                        "{}\n{} • {:.0} t • {:.0} BP\nPower {:+.0} MW  Thrust {:.0} kN",
+                        "{}\n{}  {:.0} t  {:.0} BP\nNet {:+.0} MW  {:.0} kN",
                         module.display_name,
                         module.size,
                         module.dry_mass_t,
@@ -674,7 +679,7 @@ fn populate_library_panel(
                         module.thrust_kn,
                     )),
                     TextFont {
-                        font_size: 11.0,
+                        font_size: 10.0,
                         ..default()
                     },
                     TextColor(Color::srgb(0.88, 0.93, 0.96)),
@@ -1069,8 +1074,8 @@ fn animate_shipbuilding_slot_scanlines(
     let elapsed = time.elapsed_secs();
     for (scanline, mut node, mut color) in &mut scanlines {
         let phase = (elapsed * scanline.period_scale).fract();
-        node.top = Val::Percent(8.0 + phase * 72.0);
-        color.0.set_alpha(0.06 + (1.0 - (phase - 0.5).abs() * 2.0) * 0.12);
+        node.top = Val::Percent(8.0 + phase * 70.0);
+        color.0.set_alpha(0.14 + (1.0 - (phase - 0.5).abs() * 2.0) * 0.22);
     }
 }
 
@@ -1080,24 +1085,24 @@ fn animate_shipbuilding_slot_feedback(
     ui_state: Res<ShipbuildingUiState>,
     time: Res<Time<Real>>,
     mut glows: Query<
-        (&ShipbuildingSlotGlow, &mut BackgroundColor),
+        (&ShipbuildingSlotGlow, &mut Node, &mut BackgroundColor),
         (
             Without<ShipbuildingSlotFrame>,
-            Without<ShipbuildingSlotOrbitRunner>,
+            Without<ShipbuildingSlotAccentRail>,
+        ),
+    >,
+    mut rails: Query<
+        (&ShipbuildingSlotAccentRail, &mut Node, &mut BackgroundColor),
+        (
+            Without<ShipbuildingSlotGlow>,
+            Without<ShipbuildingSlotFrame>,
         ),
     >,
     mut frames: Query<
         (&ShipbuildingSlotFrame, &mut BackgroundColor, &mut BorderColor),
         (
             Without<ShipbuildingSlotGlow>,
-            Without<ShipbuildingSlotOrbitRunner>,
-        ),
-    >,
-    mut runners: Query<
-        (&ShipbuildingSlotOrbitRunner, &mut Node, &mut BackgroundColor),
-        (
-            Without<ShipbuildingSlotGlow>,
-            Without<ShipbuildingSlotFrame>,
+            Without<ShipbuildingSlotAccentRail>,
         ),
     >,
 ) {
@@ -1106,42 +1111,84 @@ fn animate_shipbuilding_slot_feedback(
     }
 
     let pulse = 0.5 + 0.5 * (time.elapsed_secs() * 2.0).sin();
+    let blend = (time.delta_secs() * 12.0).clamp(0.0, 1.0);
 
-    for (glow, mut background) in &mut glows {
+    for (glow, mut node, mut background) in &mut glows {
         let is_selected = ui_state.selected_slot.as_deref() == Some(glow.slot_id.as_str());
         let is_hovered = ui_state.hovered_slot.as_deref() == Some(glow.slot_id.as_str());
-        let alpha = if is_selected {
-            0.14 + pulse * 0.1
+        let target_alpha = if is_selected {
+            0.12 + pulse * 0.05
         } else if is_hovered {
-            0.11
+            0.08 + pulse * 0.02
+        } else if glow.filled {
+            0.035
         } else {
-            0.02
+            0.015
         };
-        background.0 = glow.accent.with_alpha(alpha);
+        let width_boost = if is_selected {
+            8.0
+        } else if is_hovered {
+            4.0
+        } else {
+            0.0
+        };
+        let height_boost = if is_selected {
+            6.0
+        } else if is_hovered {
+            3.0
+        } else {
+            0.0
+        };
+
+        node.width = animate_px(node.width, glow.base_width + width_boost, blend);
+        node.height = animate_px(node.height, glow.base_height + height_boost, blend);
+        background.0 = mix_color(background.0, glow.accent.with_alpha(target_alpha), blend);
+    }
+
+    for (rail, mut node, mut background) in &mut rails {
+        let is_selected = ui_state.selected_slot.as_deref() == Some(rail.slot_id.as_str());
+        let is_hovered = ui_state.hovered_slot.as_deref() == Some(rail.slot_id.as_str());
+        let target_width = if is_selected {
+            5.0
+        } else if is_hovered {
+            4.0
+        } else {
+            3.0
+        };
+        let target_alpha = if is_selected {
+            0.98
+        } else if is_hovered {
+            0.88
+        } else {
+            0.74
+        };
+
+        node.width = animate_px(node.width, target_width, blend);
+        background.0 = mix_color(background.0, rail.accent.with_alpha(target_alpha), blend);
     }
 
     for (frame, mut background, mut border) in &mut frames {
         let is_selected = ui_state.selected_slot.as_deref() == Some(frame.slot_id.as_str());
         let is_hovered = ui_state.hovered_slot.as_deref() == Some(frame.slot_id.as_str());
         let mut fill = if frame.filled {
-            Color::srgb(0.055, 0.16, 0.19)
+            Color::srgb(0.045, 0.12, 0.15)
         } else {
-            Color::srgba(0.02, 0.04, 0.065, 0.9)
+            Color::srgba(0.018, 0.032, 0.05, 0.94)
         };
 
         if is_selected {
-            fill = mix_color(fill, frame.accent, 0.14 + pulse * 0.08);
+            fill = mix_color(fill, frame.accent, 0.14 + pulse * 0.05);
             *border = BorderColor::all(mix_color(
                 Color::srgb(0.55, 0.95, 1.0),
                 frame.accent,
-                0.35 + pulse * 0.15,
+                0.45 + pulse * 0.1,
             ));
         } else if is_hovered {
-            fill = mix_color(fill, frame.accent, 0.1);
+            fill = mix_color(fill, frame.accent, 0.1 + pulse * 0.03);
             *border = BorderColor::all(mix_color(
                 Color::srgb(0.36, 0.88, 0.98),
                 frame.accent,
-                0.2,
+                0.28,
             ));
         } else if frame.previewed {
             *border = BorderColor::all(Color::srgb(0.46, 0.78, 1.0));
@@ -1153,23 +1200,6 @@ fn animate_shipbuilding_slot_feedback(
 
         background.0 = fill;
     }
-
-    for (runner, mut node, mut color) in &mut runners {
-        let is_selected = ui_state.selected_slot.as_deref() == Some(runner.slot_id.as_str());
-        node.display = if is_selected { Display::Flex } else { Display::None };
-        if !is_selected {
-            continue;
-        }
-
-        let distance = ((time.elapsed_secs() * 48.0) + runner.phase_offset * 96.0)
-            % slot_orbit_perimeter(runner.width, runner.height);
-        let (left, top, width, height) = orbit_runner_rect(distance, runner.width, runner.height);
-        node.left = Val::Px(left);
-        node.top = Val::Px(top);
-        node.width = Val::Px(width);
-        node.height = Val::Px(height);
-        color.0 = Color::srgba(0.9, 1.0, 1.0, 0.75 + pulse * 0.2);
-    }
 }
 
 fn animate_shipbuilding_module_card_feedback(
@@ -1177,31 +1207,55 @@ fn animate_shipbuilding_module_card_feedback(
     backend: Res<ShipbuildingUiBackend>,
     ui_state: Res<ShipbuildingUiState>,
     time: Res<Time<Real>>,
-    mut cards: Query<(&Interaction, &ShipbuildingModuleCard, &mut BackgroundColor, &mut BorderColor), With<Button>>,
+    mut cards: Query<
+        (
+            &Interaction,
+            &ShipbuildingModuleCard,
+            &mut Node,
+            &mut BackgroundColor,
+            &mut BorderColor,
+        ),
+        With<Button>,
+    >,
 ) {
     if active_menu.current != GameMenu::Shipbuilding || !backend.uses_native_workspace() {
         return;
     }
 
     let pulse = 0.5 + 0.5 * (time.elapsed_secs() * 2.4).sin();
-    for (interaction, card, mut background, mut border) in &mut cards {
+    let blend = (time.delta_secs() * 14.0).clamp(0.0, 1.0);
+    for (interaction, card, mut node, mut background, mut border) in &mut cards {
         let installed = ui_state.selected_modules.get(&card.slot_id) == Some(&card.module_id);
         let previewed = ui_state.preview_slot.as_deref() == Some(card.slot_id.as_str())
             && ui_state.preview_module_id.as_deref() == Some(card.module_id.as_str());
+        let hovered = *interaction == Interaction::Hovered;
+
+        node.height = animate_px(
+            node.height,
+            card.base_height
+                + if installed {
+                    2.0
+                } else if hovered {
+                    4.0
+                } else {
+                    0.0
+                },
+            blend,
+        );
 
         background.0 = if installed {
             mix_color(Color::srgb(0.1, 0.32, 0.22), Color::srgb(0.38, 0.94, 0.7), 0.08 + pulse * 0.06)
-        } else if *interaction == Interaction::Hovered {
-            Color::srgb(0.09, 0.14, 0.2)
+        } else if hovered {
+            Color::srgb(0.08, 0.13, 0.19)
         } else if previewed {
-            Color::srgb(0.12, 0.22, 0.34)
+            Color::srgb(0.1, 0.18, 0.28)
         } else {
             Color::srgb(0.055, 0.08, 0.12)
         };
 
         *border = BorderColor::all(if installed {
             Color::srgb(0.38, 0.94, 0.7)
-        } else if *interaction == Interaction::Hovered {
+        } else if hovered {
             Color::srgb(0.55, 0.95, 1.0)
         } else if previewed {
             Color::srgb(0.46, 0.78, 1.0)
@@ -1331,8 +1385,12 @@ fn slot_zone(slot: &HullSlotDefinition) -> usize {
 }
 
 fn slot_dimensions(size: &str) -> (f32, f32) {
-    let _ = size;
-    (132.0, 60.0)
+    match size {
+        "Small" => (124.0, 68.0),
+        "Medium" => (132.0, 72.0),
+        "Large" => (142.0, 78.0),
+        _ => (128.0, 70.0),
+    }
 }
 
 fn spawn_blueprint_guides(parent: &mut ChildSpawnerCommands) {
@@ -1416,7 +1474,7 @@ fn zone_left_percent(zone: usize, slot: &HullSlotDefinition, index: u32, total: 
 fn zone_top_percent(zone: usize, index: u32, total: u32, slot: &HullSlotDefinition) -> f32 {
     let columns = zone_columns(zone, total);
     let row = index / columns;
-    let row_stride = 10.5;
+    let row_stride = if columns > 1 { 15.5 } else { 13.5 };
     let base_row = 13.0 + row as f32 * row_stride;
     let slot_id = slot.slot_id.to_ascii_lowercase();
 
@@ -1432,7 +1490,7 @@ fn zone_top_percent(zone: usize, index: u32, total: u32, slot: &HullSlotDefiniti
         0.0
     };
 
-    (base_row + directional_bias).clamp(10.0, 82.0)
+    (base_row + directional_bias).clamp(10.0, 78.0)
 }
 
 fn zone_bounds(zone: usize) -> (f32, f32) {
@@ -1449,8 +1507,10 @@ fn zone_bounds(zone: usize) -> (f32, f32) {
 }
 
 fn zone_columns(zone: usize, total: u32) -> u32 {
-    let _ = (zone, total);
-    1
+    match zone {
+        6 | 7 if total >= 3 => 2,
+        _ => 1,
+    }
 }
 
 fn spawn_blueprint_slot(
@@ -1496,118 +1556,100 @@ fn spawn_blueprint_slot(
             },
             ShipbuildingSlotGlow {
                 slot_id: slot.slot_id.clone(),
+                base_width: width,
+                base_height: height,
                 accent,
+                filled,
             },
-            BackgroundColor(accent.with_alpha(if is_selected { 0.16 } else if is_hovered { 0.1 } else { 0.02 })),
+            BackgroundColor(accent.with_alpha(
+                if is_selected {
+                    0.12
+                } else if is_hovered {
+                    0.08
+                } else if filled {
+                    0.035
+                } else {
+                    0.015
+                },
+            )),
         ))
         .with_children(|slot_root| {
             slot_root.spawn((
+                ShipbuildingSlotAccentRail {
+                    slot_id: slot.slot_id.clone(),
+                    accent,
+                },
                 Node {
                     position_type: PositionType::Absolute,
                     left: Val::Px(3.0),
                     top: Val::Px(0.0),
-                    width: Val::Px(4.0),
+                    width: Val::Px(if is_selected {
+                        5.0
+                    } else if is_hovered {
+                        4.0
+                    } else {
+                        3.0
+                    }),
                     height: Val::Percent(100.0),
                     ..default()
                 },
-                BackgroundColor(accent),
+                BackgroundColor(accent.with_alpha(if is_selected {
+                    0.98
+                } else if is_hovered {
+                    0.88
+                } else {
+                    0.74
+                })),
+            ));
+
+            slot_root.spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(0.0),
+                    top: Val::Px(0.0),
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..default()
+                },
+                ShipbuildingSlotFrame {
+                    slot_id: slot.slot_id.clone(),
+                    accent,
+                    filled,
+                    previewed: is_previewed,
+                },
+                BackgroundColor(if filled {
+                    Color::srgb(0.045, 0.12, 0.15)
+                } else {
+                    Color::srgba(0.018, 0.032, 0.05, 0.94)
+                }),
+                BorderColor::all(if is_selected {
+                    Color::srgb(0.0, 0.98, 1.0)
+                } else if is_hovered {
+                    Color::srgb(0.36, 0.88, 0.98)
+                } else if is_previewed {
+                    Color::srgb(0.46, 0.78, 1.0)
+                } else if filled {
+                    Color::srgb(0.34, 0.86, 0.94)
+                } else {
+                    Color::srgba(0.16, 0.34, 0.4, 0.35)
+                }),
             ));
 
             if filled {
                 slot_root.spawn((
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: Val::Px(0.0),
-                        top: Val::Px(0.0),
-                        width: Val::Percent(100.0),
-                        height: Val::Percent(100.0),
-                        border: UiRect::all(Val::Px(2.0)),
-                        ..default()
-                    },
-                    ShipbuildingSlotFrame {
-                        slot_id: slot.slot_id.clone(),
-                        accent,
-                        filled,
-                        previewed: is_previewed,
-                    },
-                    BackgroundColor(Color::srgb(0.055, 0.16, 0.19)),
-                    BorderColor::all(if is_selected {
-                        Color::srgb(0.0, 0.98, 1.0)
-                    } else if is_hovered {
-                        Color::srgb(0.36, 0.88, 0.98)
-                    } else if is_previewed {
-                        Color::srgb(0.46, 0.78, 1.0)
-                    } else {
-                        Color::srgb(0.34, 0.86, 0.94)
-                    }),
-                ));
-                slot_root.spawn((
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: Val::Px(4.0),
-                        top: Val::Px(4.0),
-                        width: Val::Percent(91.0),
-                        height: Val::Percent(80.0),
-                        border: UiRect::all(Val::Px(1.0)),
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgba(0.03, 0.08, 0.1, 0.55)),
-                    BorderColor::all(accent.with_alpha(0.35)),
-                ));
-                slot_root.spawn((
                     ShipbuildingSlotScanline {
-                        period_scale: 0.08 + hash_phase(&slot.slot_id) * 0.06,
+                        period_scale: 0.18 + hash_phase(&slot.slot_id) * 0.1,
                     },
                     Node {
                         position_type: PositionType::Absolute,
-                        left: Val::Px(8.0),
-                        top: Val::Percent(10.0),
-                        width: Val::Percent(84.0),
+                        left: Val::Px(10.0),
+                        top: Val::Percent(12.0),
+                        width: Val::Percent(78.0),
                         height: Val::Px(3.0),
                         ..default()
                     },
-                    BackgroundColor(Color::srgba(0.72, 0.96, 1.0, 0.08)),
-                ));
-            } else {
-                slot_root.spawn((
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: Val::Px(0.0),
-                        top: Val::Px(0.0),
-                        width: Val::Percent(100.0),
-                        height: Val::Percent(100.0),
-                        border: UiRect::all(Val::Px(1.0)),
-                        ..default()
-                    },
-                    ShipbuildingSlotFrame {
-                        slot_id: slot.slot_id.clone(),
-                        accent,
-                        filled,
-                        previewed: is_previewed,
-                    },
-                    BackgroundColor(Color::srgba(0.02, 0.04, 0.065, 0.9)),
-                    BorderColor::all(Color::srgba(0.16, 0.34, 0.4, 0.35)),
-                ));
-                spawn_dashed_outline(slot_root, accent);
-            }
-
-            spawn_chamfer_notches(slot_root);
-            spawn_slot_greebles(slot_root);
-
-            if !filled {
-                slot_root.spawn((
-                    Node {
-                        position_type: PositionType::Absolute,
-                        right: Val::Px(2.0),
-                        top: Val::Px(8.0),
-                        ..default()
-                    },
-                    Text::new(vertical_watermark(slot.category)),
-                    TextFont {
-                        font_size: 8.0,
-                        ..default()
-                    },
-                    TextColor(Color::srgba(0.5, 0.85, 0.95, 0.12)),
+                    BackgroundColor(Color::srgba(0.72, 0.96, 1.0, 0.14)),
                 ));
             }
 
@@ -1615,10 +1657,10 @@ fn spawn_blueprint_slot(
                 .spawn((
                     Node {
                         position_type: PositionType::Absolute,
-                        left: Val::Px(11.0),
-                        top: Val::Px(5.0),
-                        width: Val::Px((width - 24.0).max(88.0)),
-                        height: Val::Px((height - 10.0).max(46.0)),
+                        left: Val::Px(12.0),
+                        top: Val::Px(6.0),
+                        width: Val::Px((width - 20.0).max(96.0)),
+                        height: Val::Px((height - 14.0).max(48.0)),
                         flex_direction: FlexDirection::Column,
                         row_gap: Val::Px(1.0),
                         ..default()
@@ -1644,9 +1686,13 @@ fn spawn_blueprint_slot(
                                 TextColor(Color::srgb(0.88, 0.93, 0.96)),
                             ));
                             row.spawn((
-                                Text::new(format!("{} [{}]", ascii_category_tag(slot.category), size_badge(&slot.size))),
+                                Text::new(format!(
+                                    "{} [{}]",
+                                    ascii_category_tag(slot.category),
+                                    size_badge(&slot.size)
+                                )),
                                 TextFont {
-                                    font_size: 8.5,
+                                    font_size: 7.8,
                                     ..default()
                                 },
                                 TextColor(accent),
@@ -1657,10 +1703,10 @@ fn spawn_blueprint_slot(
                         Text::new(if filled {
                             module_name
                         } else {
-                            format!("{} socket", category_text.to_ascii_uppercase())
+                            format!("{} socket", category_text)
                         }),
                         TextFont {
-                            font_size: if filled { 8.0 } else { 7.5 },
+                            font_size: if filled { 8.2 } else { 7.4 },
                             ..default()
                         },
                         TextColor(if filled {
@@ -1674,7 +1720,7 @@ fn spawn_blueprint_slot(
                         .spawn((
                             Node {
                                 width: Val::Percent(100.0),
-                                margin: UiRect::top(Val::Px(2.0)),
+                                margin: UiRect::top(Val::Px(1.0)),
                                 flex_direction: FlexDirection::Row,
                                 justify_content: JustifyContent::SpaceBetween,
                                 align_items: AlignItems::End,
@@ -1700,102 +1746,7 @@ fn spawn_blueprint_slot(
                             ));
                         });
                 });
-
-            slot_root.spawn((
-                ShipbuildingSlotOrbitRunner {
-                    slot_id: slot.slot_id.clone(),
-                    width,
-                    height,
-                    phase_offset: hash_phase(&slot.slot_id),
-                },
-                Node {
-                    position_type: PositionType::Absolute,
-                    left: Val::Px(0.0),
-                    top: Val::Px(0.0),
-                    width: Val::Px(12.0),
-                    height: Val::Px(2.0),
-                    display: if is_selected { Display::Flex } else { Display::None },
-                    ..default()
-                },
-                BackgroundColor(Color::srgba(0.9, 1.0, 1.0, 0.95)),
-            ));
         });
-}
-
-fn spawn_dashed_outline(parent: &mut ChildSpawnerCommands, border: Color) {
-    for (left, top, width, height) in [
-        (6.0, 0.0, 18.0, 2.0),
-        (32.0, 0.0, 18.0, 2.0),
-        (58.0, 0.0, 18.0, 2.0),
-        (84.0, 0.0, 12.0, 2.0),
-        (0.0, 8.0, 2.0, 14.0),
-        (0.0, 30.0, 2.0, 14.0),
-        (98.0, 8.0, 2.0, 14.0),
-        (98.0, 30.0, 2.0, 14.0),
-        (6.0, 98.0, 18.0, 2.0),
-        (32.0, 98.0, 18.0, 2.0),
-        (58.0, 98.0, 18.0, 2.0),
-        (84.0, 98.0, 12.0, 2.0),
-    ] {
-        parent.spawn((
-            ShipbuildingSlotDash,
-            Node {
-                position_type: PositionType::Absolute,
-                left: Val::Percent(left),
-                top: Val::Percent(top),
-                width: Val::Percent(width),
-                height: Val::Px(height),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(border.to_srgba().red, border.to_srgba().green, border.to_srgba().blue, 0.72)),
-        ));
-    }
-}
-
-fn spawn_chamfer_notches(parent: &mut ChildSpawnerCommands) {
-    for (left, top) in [(0.0, 0.0), (94.0, 90.0)] {
-        parent.spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                left: Val::Percent(left),
-                top: Val::Percent(top),
-                width: Val::Px(8.0),
-                height: Val::Px(8.0),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.015, 0.02, 0.035, 0.96)),
-        ));
-    }
-}
-
-fn spawn_slot_greebles(parent: &mut ChildSpawnerCommands) {
-    for top in [22.0, 48.0, 74.0] {
-        parent.spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                left: Val::Percent(10.0),
-                top: Val::Percent(top),
-                width: Val::Percent(72.0),
-                height: Val::Px(1.0),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.44, 0.72, 0.84, 0.05)),
-        ));
-    }
-
-    for left in [22.0, 48.0, 74.0] {
-        parent.spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                left: Val::Percent(left),
-                top: Val::Percent(12.0),
-                width: Val::Px(1.0),
-                height: Val::Percent(70.0),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.44, 0.72, 0.84, 0.04)),
-        ));
-    }
 }
 
 fn slot_accent_color(category: ShipModuleCategory) -> Color {
@@ -1885,24 +1836,6 @@ fn pip_bar(active: usize, total: usize) -> String {
     (0..total)
     .map(|index| if index < active { '#' } else { '.' })
         .collect()
-}
-
-fn vertical_watermark(category: ShipModuleCategory) -> String {
-    let label = match category {
-        ShipModuleCategory::FlightSystems => "THRUST",
-        ShipModuleCategory::PowerThermal => "POWER",
-        ShipModuleCategory::FuelStorage => "FUEL",
-        ShipModuleCategory::Weapons => "WEAPON",
-        ShipModuleCategory::FireControl => "TARGET",
-        ShipModuleCategory::Sensors => "SENSOR",
-        ShipModuleCategory::ArmorDefense => "DEFENSE",
-        ShipModuleCategory::CrewSystems => "CREW",
-        ShipModuleCategory::UtilitySupport => "UTILITY",
-        ShipModuleCategory::ConstructionISRU => "ISRU",
-        ShipModuleCategory::ElectronicWarfare => "EWAR",
-        ShipModuleCategory::SpecialScience => "SCIENCE",
-    };
-    label.chars().map(|character| character.to_string()).collect::<Vec<_>>().join("\n")
 }
 
 fn hash_phase(value: &str) -> f32 {
@@ -2099,36 +2032,6 @@ fn module_indicator_legend(module: &crate::shipbuilding::ShipModuleDefinition) -
     )
 }
 
-fn slot_orbit_perimeter(width: f32, height: f32) -> f32 {
-    ((width - 8.0) * 2.0 + (height - 8.0) * 2.0).max(1.0)
-}
-
-fn orbit_runner_rect(distance: f32, width: f32, height: f32) -> (f32, f32, f32, f32) {
-    let left_edge = 3.0;
-    let top_edge = 3.0;
-    let right_edge = (width - 25.0).max(left_edge);
-    let bottom_edge = (height - 5.0).max(top_edge);
-    let top_length = (right_edge - left_edge).max(1.0);
-    let side_length = (bottom_edge - top_edge).max(1.0);
-    let perimeter = top_length * 2.0 + side_length * 2.0;
-    let d = distance % perimeter;
-
-    if d < top_length {
-        (left_edge + d, top_edge, 22.0, 2.0)
-    } else if d < top_length + side_length {
-        (right_edge, top_edge + (d - top_length), 2.0, 18.0)
-    } else if d < top_length * 2.0 + side_length {
-        (
-            right_edge - (d - top_length - side_length),
-            bottom_edge,
-            22.0,
-            2.0,
-        )
-    } else {
-        (left_edge, bottom_edge - (d - top_length * 2.0 - side_length), 2.0, 18.0)
-    }
-}
-
 fn mix_color(base: Color, target: Color, amount: f32) -> Color {
     let base = base.to_srgba();
     let target = target.to_srgba();
@@ -2138,6 +2041,14 @@ fn mix_color(base: Color, target: Color, amount: f32) -> Color {
         base.blue + (target.blue - base.blue) * amount,
         base.alpha + (target.alpha - base.alpha) * amount,
     )
+}
+
+fn animate_px(value: Val, target: f32, amount: f32) -> Val {
+    let current = match value {
+        Val::Px(px) => px,
+        _ => target,
+    };
+    Val::Px(current + (target - current) * amount)
 }
 
 fn category_color(category: ShipModuleCategory) -> Color {
