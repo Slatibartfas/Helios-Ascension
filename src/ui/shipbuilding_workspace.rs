@@ -4,6 +4,10 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
 use super::shipbuilding_state::ShipbuildingUiState;
+use super::shipbuilding_tooltip::{
+    build_module_tooltip, build_slot_tooltip, prettify_slot_name, ShipbuildingTooltipContent,
+    ShipbuildingTooltipEntry, ShipbuildingTooltipTone,
+};
 use crate::game_state::{ActiveMenu, GameMenu};
 use crate::research::ResearchState;
 use crate::shipbuilding::{
@@ -234,7 +238,7 @@ fn spawn_shipbuilding_workspace(mut commands: Commands) {
                         position_type: PositionType::Absolute,
                         left: Val::Px(0.0),
                         top: Val::Px(0.0),
-                        width: Val::Px(292.0),
+                        width: Val::Px(344.0),
                         padding: UiRect::all(Val::Px(8.0)),
                         display: Display::None,
                         flex_direction: FlexDirection::Column,
@@ -257,12 +261,12 @@ fn spawn_shipbuilding_workspace(mut commands: Commands) {
                     ));
                     tooltip.spawn((
                         ShipbuildingHoverTooltipBody,
-                        Text::new(""),
-                        TextFont {
-                            font_size: 10.0,
+                        Node {
+                            width: Val::Percent(100.0),
+                            flex_direction: FlexDirection::Column,
+                            row_gap: Val::Px(3.0),
                             ..default()
                         },
-                        TextColor(Color::srgb(0.84, 0.9, 0.94)),
                     ));
                 });
         });
@@ -749,15 +753,17 @@ fn populate_library_panel(
 }
 
 fn update_shipbuilding_hover_tooltip(
+    mut commands: Commands,
     active_menu: Res<ActiveMenu>,
     backend: Res<ShipbuildingUiBackend>,
     ui_state: Res<ShipbuildingUiState>,
     shipbuilding_data: Res<ShipbuildingData>,
     research_state: Res<ResearchState>,
     primary_window: Query<&Window, With<PrimaryWindow>>,
+    tooltip_body_children: Query<&Children>,
     mut tooltip_node: Single<&mut Node, With<ShipbuildingHoverTooltip>>,
     mut tooltip_title: Single<&mut Text, (With<ShipbuildingHoverTooltipTitle>, Without<ShipbuildingHoverTooltipBody>)>,
-    mut tooltip_body: Single<&mut Text, (With<ShipbuildingHoverTooltipBody>, Without<ShipbuildingHoverTooltipTitle>)>,
+    tooltip_body: Single<Entity, (With<ShipbuildingHoverTooltipBody>, Without<ShipbuildingHoverTooltipTitle>)>,
 ) {
     if active_menu.current != GameMenu::Shipbuilding || !backend.uses_native_workspace() {
         tooltip_node.display = Display::None;
@@ -776,25 +782,22 @@ fn update_shipbuilding_hover_tooltip(
 
     if let Some(module_id) = ui_state.hovered_module_id.as_deref() {
         if let Some(module) = shipbuilding_data.get_module(module_id) {
+            let hovered_slot = ui_state.hovered_slot.as_deref().and_then(|slot_id| {
+                ui_state
+                    .selected_hull_id
+                    .as_deref()
+                    .and_then(|hull_id| shipbuilding_data.get_hull(hull_id))
+                    .and_then(|hull| hull.slot_layout.iter().find(|slot| slot.slot_id == slot_id))
+            });
+            let content = build_module_tooltip(module, hovered_slot);
+            let max_left = (window.width() - 360.0).max(0.0);
+            let max_top = (window.height() - 300.0).max(0.0);
+            let title = content.title.clone();
+            populate_native_tooltip_body(&mut commands, *tooltip_body, &tooltip_body_children, &content);
             tooltip_node.display = Display::Flex;
-            tooltip_node.left = Val::Px((cursor.x + 16.0).min(window.width() - 304.0));
-            tooltip_node.top = Val::Px((cursor.y + 12.0).min(window.height() - 176.0));
-            **tooltip_title = Text::new(module.display_name.clone());
-            **tooltip_body = Text::new(format!(
-                "{}\n{} slot\nMass {:.1} t\nBuild {:.0} BP\nNet power {:+.0} MW\nThrust {:.0} kN\nFitting: {}\nLegend: {}",
-                module.description,
-                module.size,
-                module.dry_mass_t,
-                module.build_points,
-                module.power_generation_mw - module.power_draw_mw,
-                module.thrust_kn,
-                if let Some(slot_id) = ui_state.hovered_slot.as_deref() {
-                    prettify_slot_name(slot_id)
-                } else {
-                    "Current slot".to_string()
-                },
-                module_indicator_legend(module)
-            ));
+            tooltip_node.left = Val::Px((cursor.x + 16.0).min(max_left));
+            tooltip_node.top = Val::Px((cursor.y + 12.0).min(max_top));
+            **tooltip_title = Text::new(title);
             return;
         }
     }
@@ -803,23 +806,21 @@ fn update_shipbuilding_hover_tooltip(
         if let Some(hull_id) = ui_state.selected_hull_id.as_deref() {
             if let Some(hull) = shipbuilding_data.get_hull(hull_id) {
                 if let Some(slot) = hull.slot_layout.iter().find(|slot| slot.slot_id == slot_id) {
-                    let module_preview = shipbuilding_data
-                        .compatible_modules_for_slot(slot, &research_state)
-                        .first()
-                        .map(|module| module.display_name.as_str())
-                        .unwrap_or("No compatible modules");
+                    let compatible_modules =
+                        shipbuilding_data.compatible_modules_for_slot(slot, &research_state);
+                    let installed_module = ui_state
+                        .selected_modules
+                        .get(slot_id)
+                        .and_then(|module_id| shipbuilding_data.get_module(module_id));
+                    let content = build_slot_tooltip(slot, installed_module, &compatible_modules);
+                    let max_left = (window.width() - 360.0).max(0.0);
+                    let max_top = (window.height() - 300.0).max(0.0);
+                    let title = content.title.clone();
+                    populate_native_tooltip_body(&mut commands, *tooltip_body, &tooltip_body_children, &content);
                     tooltip_node.display = Display::Flex;
-                    tooltip_node.left = Val::Px((cursor.x + 16.0).min(window.width() - 304.0));
-                    tooltip_node.top = Val::Px((cursor.y + 12.0).min(window.height() - 176.0));
-                    **tooltip_title = Text::new(prettify_slot_name(slot_id));
-                    **tooltip_body = Text::new(format!(
-                        "{}\n{} slot\n{}\nSuggested fit: {}\nLegend: {}",
-                        slot.category.display_name(),
-                        slot.size,
-                        if slot.required { "Required socket" } else { "Optional socket" },
-                        module_preview,
-                        slot_indicator_legend(slot),
-                    ));
+                    tooltip_node.left = Val::Px((cursor.x + 16.0).min(max_left));
+                    tooltip_node.top = Val::Px((cursor.y + 12.0).min(max_top));
+                    **tooltip_title = Text::new(title);
                     return;
                 }
             }
@@ -827,6 +828,82 @@ fn update_shipbuilding_hover_tooltip(
     }
 
     tooltip_node.display = Display::None;
+}
+
+fn populate_native_tooltip_body(
+    commands: &mut Commands,
+    body_entity: Entity,
+    tooltip_body_children: &Query<&Children>,
+    content: &ShipbuildingTooltipContent,
+) {
+    if let Ok(children) = tooltip_body_children.get(body_entity) {
+        for child in children.iter() {
+            commands.entity(child).despawn();
+        }
+    }
+    commands.entity(body_entity).with_children(|parent| {
+        for entry in &content.entries {
+            match entry {
+                ShipbuildingTooltipEntry::Paragraph(text) => {
+                    parent.spawn((
+                        Text::new(text.clone()),
+                        TextFont {
+                            font_size: 10.0,
+                            ..default()
+                        },
+                        TextColor(tone_color_native(ShipbuildingTooltipTone::Muted)),
+                    ));
+                }
+                ShipbuildingTooltipEntry::Stat { label, value, tone } => {
+                    parent
+                        .spawn((
+                            Node {
+                                width: Val::Percent(100.0),
+                                flex_direction: FlexDirection::Row,
+                                column_gap: Val::Px(6.0),
+                                ..default()
+                            },
+                        ))
+                        .with_children(|row| {
+                            row.spawn((
+                                Text::new(format!("{}:", label)),
+                                TextFont {
+                                    font_size: 10.5,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb(0.86, 0.93, 0.98)),
+                            ));
+                            row.spawn((
+                                Text::new(value.clone()),
+                                TextFont {
+                                    font_size: 10.0,
+                                    ..default()
+                                },
+                                TextColor(tone_color_native(*tone)),
+                            ));
+                        });
+                }
+                ShipbuildingTooltipEntry::Spacer => {
+                    parent.spawn((Node {
+                        width: Val::Px(1.0),
+                        height: Val::Px(4.0),
+                        ..default()
+                    },));
+                }
+            }
+        }
+    });
+}
+
+fn tone_color_native(tone: ShipbuildingTooltipTone) -> Color {
+    match tone {
+        ShipbuildingTooltipTone::Neutral => Color::srgb(0.84, 0.9, 0.94),
+        ShipbuildingTooltipTone::Positive => Color::srgb(0.5, 0.92, 0.62),
+        ShipbuildingTooltipTone::Warning => Color::srgb(0.98, 0.78, 0.36),
+        ShipbuildingTooltipTone::Negative => Color::srgb(1.0, 0.45, 0.4),
+        ShipbuildingTooltipTone::Accent => Color::srgb(0.55, 0.95, 1.0),
+        ShipbuildingTooltipTone::Muted => Color::srgb(0.66, 0.75, 0.8),
+    }
 }
 
 fn populate_blueprint_panel(
@@ -2163,26 +2240,6 @@ fn format_delta(delta: f64, decimals: usize) -> String {
     }
 }
 
-fn slot_indicator_legend(slot: &HullSlotDefinition) -> String {
-    format!(
-        "{}={} | [{}]={} slot | REQ/AUX=required vs optional | PWR bar=power intensity | THM=thermal state | MASS/NET=module mass and net power",
-        ascii_category_tag(slot.category),
-        slot.category.display_name(),
-        size_badge(&slot.size),
-        slot.size,
-    )
-}
-
-fn module_indicator_legend(module: &crate::shipbuilding::ShipModuleDefinition) -> String {
-    format!(
-        "{}={} | [{}]={} slot | PWR ####.=power load band | THM OK/HOT=thermal state | MASS=tons | NET=generated minus drawn power",
-        ascii_category_tag(module.category),
-        module.category.display_name(),
-        size_badge(&module.size),
-        module.size,
-    )
-}
-
 fn mix_color(base: Color, target: Color, amount: f32) -> Color {
     let base = base.to_srgba();
     let target = target.to_srgba();
@@ -2433,24 +2490,6 @@ fn category_button(category: ShipModuleCategory, selected: bool) -> impl Bundle 
         },
         TextColor(Color::srgb(0.88, 0.93, 0.96)),
     )
-}
-
-fn prettify_slot_name(slot_id: &str) -> String {
-    slot_id
-        .split('_')
-        .map(|part| {
-            let mut chars = part.chars();
-            match chars.next() {
-                Some(first) => {
-                    let mut label = first.to_uppercase().to_string();
-                    label.push_str(chars.as_str());
-                    label
-                }
-                None => String::new(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 fn select_hull_by_id(
