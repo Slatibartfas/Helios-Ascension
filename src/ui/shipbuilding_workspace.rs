@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
@@ -21,7 +23,6 @@ impl Plugin for ShipbuildingWorkspacePlugin {
                 (
                     toggle_shipbuilding_ui_backend,
                     handle_shipbuilding_workspace_interactions,
-                    animate_shipbuilding_slot_scanlines,
                     animate_shipbuilding_slot_feedback,
                     animate_shipbuilding_module_card_feedback,
                     update_shipbuilding_hover_tooltip,
@@ -106,11 +107,6 @@ struct ShipbuildingCategoryButton {
 struct ShipbuildingClearSlotButton;
 
 #[derive(Component)]
-struct ShipbuildingSlotScanline {
-    period_scale: f32,
-}
-
-#[derive(Component)]
 struct ShipbuildingSlotFrame {
     slot_id: String,
     accent: Color,
@@ -131,6 +127,18 @@ struct ShipbuildingSlotGlow {
 struct ShipbuildingSlotAccentRail {
     slot_id: String,
     accent: Color,
+}
+
+#[derive(Component)]
+struct ShipbuildingSlotBorderRunner {
+    slot_id: String,
+    width: f32,
+    height: f32,
+    phase_offset: f32,
+    accent: Color,
+    trail_offset: f32,
+    alpha_scale: f32,
+    size: f32,
 }
 
 #[derive(Component)]
@@ -361,72 +369,115 @@ fn handle_shipbuilding_workspace_interactions(
     hull_option_buttons: Query<(&Interaction, &ShipbuildingHullOptionButton), (Changed<Interaction>, With<Button>)>,
     category_buttons: Query<(&Interaction, &ShipbuildingCategoryButton), (Changed<Interaction>, With<Button>)>,
     clear_buttons: Query<&Interaction, (Changed<Interaction>, With<ShipbuildingClearSlotButton>, With<Button>)>,
-    slot_buttons: Query<(&Interaction, &ShipbuildingSlotButton), (Changed<Interaction>, With<Button>)>,
-    module_buttons: Query<(&Interaction, &ShipbuildingModuleButton), (Changed<Interaction>, With<Button>)>,
+    slot_press_buttons: Query<(&Interaction, &ShipbuildingSlotButton), (Changed<Interaction>, With<Button>)>,
+    slot_hover_buttons: Query<(&Interaction, &ShipbuildingSlotButton), With<Button>>,
+    module_press_buttons: Query<(&Interaction, &ShipbuildingModuleButton), (Changed<Interaction>, With<Button>)>,
+    module_hover_buttons: Query<(&Interaction, &ShipbuildingModuleButton), With<Button>>,
 ) {
     if active_menu.current != GameMenu::Shipbuilding || !backend.uses_native_workspace() {
         return;
     }
 
-    for interaction in &hull_dropdown_toggle {
-        if *interaction == Interaction::Pressed {
-            ui_state.show_hull_dropdown = !ui_state.show_hull_dropdown;
-        }
-    }
+    let mut content_changed = false;
+    {
+        let ui_state = ui_state.bypass_change_detection();
 
-    for (interaction, button) in &hull_option_buttons {
-        if *interaction == Interaction::Pressed {
-            select_hull_by_id(
-                &mut ui_state,
-                &shipbuilding_data,
-                &research_state,
-                button.hull_id.as_str(),
-            );
-            ui_state.show_hull_dropdown = false;
-        }
-    }
-
-    for (interaction, button) in &category_buttons {
-        if *interaction == Interaction::Pressed {
-            select_first_slot_in_category(&mut ui_state, &shipbuilding_data, button.category);
-        }
-    }
-
-    for interaction in &clear_buttons {
-        if *interaction == Interaction::Pressed {
-            if let Some(slot_id) = ui_state.selected_slot.clone() {
-                ui_state.selected_modules.remove(&slot_id);
-                ui_state.preview_slot = Some(slot_id);
-                ui_state.preview_module_id = None;
+        if ui_state.selected_slot.is_none() {
+            if let Some(hull_id) = ui_state.selected_hull_id.as_deref() {
+                if let Some(hull) = shipbuilding_data.get_hull(hull_id) {
+                    if let Some(slot) = hull.slot_layout.first() {
+                        ui_state.selected_slot = Some(slot.slot_id.clone());
+                        content_changed = true;
+                    }
+                }
             }
         }
-    }
 
-    for (interaction, slot_button) in &slot_buttons {
-        if *interaction == Interaction::Pressed {
-            ui_state.selected_slot = Some(slot_button.slot_id.clone());
-            ui_state.preview_slot = None;
-            ui_state.preview_module_id = None;
+        for interaction in &hull_dropdown_toggle {
+            if *interaction == Interaction::Pressed {
+                ui_state.show_hull_dropdown = !ui_state.show_hull_dropdown;
+                content_changed = true;
+            }
         }
-    }
 
-    let mut hovered_preview = None;
-    let mut clear_preview = false;
-    let mut hovered_slot = None;
-    let mut hovered_module = None;
-
-    for (interaction, module_button) in &module_buttons {
-        match *interaction {
-            Interaction::Pressed => {
-                ui_state.selected_slot = Some(module_button.slot_id.clone());
-                ui_state.selected_modules.insert(
-                    module_button.slot_id.clone(),
-                    module_button.module_id.clone(),
+        for (interaction, button) in &hull_option_buttons {
+            if *interaction == Interaction::Pressed {
+                select_hull_by_id(
+                    ui_state,
+                    &shipbuilding_data,
+                    &research_state,
+                    button.hull_id.as_str(),
                 );
-                ui_state.preview_slot = Some(module_button.slot_id.clone());
-                ui_state.preview_module_id = Some(module_button.module_id.clone());
+                ui_state.show_hull_dropdown = false;
+                content_changed = true;
             }
-            Interaction::Hovered => {
+        }
+
+        for (interaction, button) in &category_buttons {
+            if *interaction == Interaction::Pressed {
+                select_first_slot_in_category(ui_state, &shipbuilding_data, button.category);
+                content_changed = true;
+            }
+        }
+
+        for interaction in &clear_buttons {
+            if *interaction == Interaction::Pressed {
+                if let Some(slot_id) = ui_state.selected_slot.clone() {
+                    ui_state.selected_modules.remove(&slot_id);
+                    ui_state.preview_slot = Some(slot_id);
+                    ui_state.preview_module_id = None;
+                    content_changed = true;
+                }
+            }
+        }
+
+        for (interaction, slot_button) in &slot_press_buttons {
+            if *interaction == Interaction::Pressed {
+                ui_state.selected_slot = Some(slot_button.slot_id.clone());
+                ui_state.preview_slot = None;
+                ui_state.preview_module_id = None;
+                content_changed = true;
+            }
+        }
+
+        let mut hovered_preview = None;
+        let mut clear_preview = false;
+        let mut hovered_slot = None;
+        let mut hovered_module = None;
+
+        for (interaction, module_button) in &module_press_buttons {
+            match *interaction {
+                Interaction::Pressed => {
+                    ui_state.selected_slot = Some(module_button.slot_id.clone());
+                    ui_state.selected_modules.insert(
+                        module_button.slot_id.clone(),
+                        module_button.module_id.clone(),
+                    );
+                    ui_state.preview_slot = Some(module_button.slot_id.clone());
+                    ui_state.preview_module_id = Some(module_button.module_id.clone());
+                    content_changed = true;
+                }
+                Interaction::Hovered => {
+                }
+                Interaction::None => {
+                    if ui_state.preview_slot.as_deref() == Some(module_button.slot_id.as_str())
+                        && ui_state.preview_module_id.as_deref()
+                            == Some(module_button.module_id.as_str())
+                    {
+                        clear_preview = true;
+                    }
+                }
+            }
+        }
+
+        for (interaction, slot_button) in &slot_hover_buttons {
+            if *interaction == Interaction::Hovered {
+                hovered_slot = Some(slot_button.slot_id.clone());
+            }
+        }
+
+        for (interaction, module_button) in &module_hover_buttons {
+            if *interaction == Interaction::Hovered {
                 hovered_preview = Some((
                     module_button.slot_id.clone(),
                     module_button.module_id.clone(),
@@ -434,33 +485,35 @@ fn handle_shipbuilding_workspace_interactions(
                 hovered_module = Some(module_button.module_id.clone());
                 hovered_slot = Some(module_button.slot_id.clone());
             }
-            Interaction::None => {
-                if ui_state.preview_slot.as_deref() == Some(module_button.slot_id.as_str())
-                    && ui_state.preview_module_id.as_deref()
-                        == Some(module_button.module_id.as_str())
-                {
-                    clear_preview = true;
-                }
+        }
+
+        if let Some((slot_id, module_id)) = hovered_preview {
+            if ui_state.preview_slot.as_deref() != Some(slot_id.as_str())
+                || ui_state.preview_module_id.as_deref() != Some(module_id.as_str())
+            {
+                ui_state.preview_slot = Some(slot_id);
+                ui_state.preview_module_id = Some(module_id);
+                content_changed = true;
             }
+        } else if clear_preview
+            && (ui_state.preview_slot.is_some() || ui_state.preview_module_id.is_some())
+        {
+            ui_state.preview_slot = None;
+            ui_state.preview_module_id = None;
+            content_changed = true;
+        }
+
+        if ui_state.hovered_slot != hovered_slot
+            || ui_state.hovered_module_id != hovered_module
+        {
+            ui_state.hovered_slot = hovered_slot;
+            ui_state.hovered_module_id = hovered_module;
         }
     }
 
-    for (interaction, slot_button) in &slot_buttons {
-        if *interaction == Interaction::Hovered {
-            hovered_slot = Some(slot_button.slot_id.clone());
-        }
+    if content_changed {
+        ui_state.set_changed();
     }
-
-    if let Some((slot_id, module_id)) = hovered_preview {
-        ui_state.preview_slot = Some(slot_id);
-        ui_state.preview_module_id = Some(module_id);
-    } else if clear_preview {
-        ui_state.preview_slot = None;
-        ui_state.preview_module_id = None;
-    }
-
-    ui_state.hovered_slot = hovered_slot;
-    ui_state.hovered_module_id = hovered_module;
 }
 
 fn sync_shipbuilding_workspace_content(
@@ -481,11 +534,11 @@ fn sync_shipbuilding_workspace_content(
         return;
     }
 
-    if !backend.is_changed()
+    if !active_menu.is_changed()
+        && !backend.is_changed()
         && !ui_state.is_changed()
         && !shipbuilding_data.is_changed()
         && !design_library.is_changed()
-        && !research_state.is_changed()
     {
         return;
     }
@@ -1061,24 +1114,6 @@ fn populate_analytics_panel(
     });
 }
 
-fn animate_shipbuilding_slot_scanlines(
-    active_menu: Res<ActiveMenu>,
-    backend: Res<ShipbuildingUiBackend>,
-    time: Res<Time<Real>>,
-    mut scanlines: Query<(&ShipbuildingSlotScanline, &mut Node, &mut BackgroundColor)>,
-) {
-    if active_menu.current != GameMenu::Shipbuilding || !backend.uses_native_workspace() {
-        return;
-    }
-
-    let elapsed = time.elapsed_secs();
-    for (scanline, mut node, mut color) in &mut scanlines {
-        let phase = (elapsed * scanline.period_scale).fract();
-        node.top = Val::Percent(8.0 + phase * 70.0);
-        color.0.set_alpha(0.14 + (1.0 - (phase - 0.5).abs() * 2.0) * 0.22);
-    }
-}
-
 fn animate_shipbuilding_slot_feedback(
     active_menu: Res<ActiveMenu>,
     backend: Res<ShipbuildingUiBackend>,
@@ -1098,8 +1133,16 @@ fn animate_shipbuilding_slot_feedback(
             Without<ShipbuildingSlotFrame>,
         ),
     >,
+    mut runners: Query<
+        (&ShipbuildingSlotBorderRunner, &mut Node, &mut BackgroundColor),
+        (
+            Without<ShipbuildingSlotGlow>,
+            Without<ShipbuildingSlotFrame>,
+            Without<ShipbuildingSlotAccentRail>,
+        ),
+    >,
     mut frames: Query<
-        (&ShipbuildingSlotFrame, &mut BackgroundColor, &mut BorderColor),
+        (&ShipbuildingSlotFrame, &mut Node, &mut BackgroundColor, &mut BorderColor),
         (
             Without<ShipbuildingSlotGlow>,
             Without<ShipbuildingSlotAccentRail>,
@@ -1112,30 +1155,31 @@ fn animate_shipbuilding_slot_feedback(
 
     let pulse = 0.5 + 0.5 * (time.elapsed_secs() * 2.0).sin();
     let blend = (time.delta_secs() * 12.0).clamp(0.0, 1.0);
+    let mut slot_dimensions = HashMap::new();
 
     for (glow, mut node, mut background) in &mut glows {
         let is_selected = ui_state.selected_slot.as_deref() == Some(glow.slot_id.as_str());
         let is_hovered = ui_state.hovered_slot.as_deref() == Some(glow.slot_id.as_str());
         let target_alpha = if is_selected {
-            0.12 + pulse * 0.05
+            0.18 + pulse * 0.12
         } else if is_hovered {
-            0.08 + pulse * 0.02
+            0.1 + pulse * 0.06
         } else if glow.filled {
-            0.035
+            0.045
         } else {
-            0.015
+            0.018
         };
         let width_boost = if is_selected {
-            8.0
+            12.0
         } else if is_hovered {
-            4.0
+            6.0
         } else {
             0.0
         };
         let height_boost = if is_selected {
-            6.0
+            8.0
         } else if is_hovered {
-            3.0
+            4.0
         } else {
             0.0
         };
@@ -1143,15 +1187,20 @@ fn animate_shipbuilding_slot_feedback(
         node.width = animate_px(node.width, glow.base_width + width_boost, blend);
         node.height = animate_px(node.height, glow.base_height + height_boost, blend);
         background.0 = mix_color(background.0, glow.accent.with_alpha(target_alpha), blend);
+
+        slot_dimensions.insert(
+            glow.slot_id.clone(),
+            (val_px(node.width, glow.base_width), val_px(node.height, glow.base_height)),
+        );
     }
 
     for (rail, mut node, mut background) in &mut rails {
         let is_selected = ui_state.selected_slot.as_deref() == Some(rail.slot_id.as_str());
         let is_hovered = ui_state.hovered_slot.as_deref() == Some(rail.slot_id.as_str());
         let target_width = if is_selected {
-            5.0
+            7.0
         } else if is_hovered {
-            4.0
+            5.0
         } else {
             3.0
         };
@@ -1167,7 +1216,43 @@ fn animate_shipbuilding_slot_feedback(
         background.0 = mix_color(background.0, rail.accent.with_alpha(target_alpha), blend);
     }
 
-    for (frame, mut background, mut border) in &mut frames {
+    for (runner, mut node, mut background) in &mut runners {
+        let is_selected = ui_state.selected_slot.as_deref() == Some(runner.slot_id.as_str());
+        let is_hovered = ui_state.hovered_slot.as_deref() == Some(runner.slot_id.as_str());
+        let visible = is_selected || is_hovered;
+        let (width, height) = slot_dimensions
+            .get(&runner.slot_id)
+            .copied()
+            .unwrap_or((runner.width, runner.height));
+        let speed = if is_selected {
+            26.0
+        } else if is_hovered {
+            18.0
+        } else {
+            0.0
+        };
+        let alpha = if is_selected {
+            0.8 + pulse * 0.16
+        } else if is_hovered {
+            0.46 + pulse * 0.08
+        } else {
+            0.0
+        };
+        let perimeter = border_runner_perimeter(width, height, runner.size);
+        let distance = ((time.elapsed_secs() * speed) + runner.phase_offset * 128.0
+            - runner.trail_offset)
+            .rem_euclid(perimeter);
+        let (left, top) = border_runner_point(distance, width, height, runner.size);
+
+        node.display = if visible { Display::Flex } else { Display::None };
+        node.left = Val::Px(left);
+        node.top = Val::Px(top);
+        node.width = Val::Px(runner.size);
+        node.height = Val::Px(runner.size);
+        background.0 = runner.accent.with_alpha(alpha * runner.alpha_scale);
+    }
+
+    for (frame, mut node, mut background, mut border) in &mut frames {
         let is_selected = ui_state.selected_slot.as_deref() == Some(frame.slot_id.as_str());
         let is_hovered = ui_state.hovered_slot.as_deref() == Some(frame.slot_id.as_str());
         let mut fill = if frame.filled {
@@ -1176,24 +1261,40 @@ fn animate_shipbuilding_slot_feedback(
             Color::srgba(0.018, 0.032, 0.05, 0.94)
         };
 
+        node.border = UiRect::all(animate_px(
+            node.border.left,
+            if is_selected {
+                3.0
+            } else if is_hovered {
+                2.0
+            } else {
+                1.0
+            },
+            blend,
+        ));
+
         if is_selected {
-            fill = mix_color(fill, frame.accent, 0.14 + pulse * 0.05);
+            fill = mix_color(fill, frame.accent, 0.22 + pulse * 0.1);
             *border = BorderColor::all(mix_color(
                 Color::srgb(0.55, 0.95, 1.0),
                 frame.accent,
-                0.45 + pulse * 0.1,
+                0.62 + pulse * 0.18,
             ));
         } else if is_hovered {
-            fill = mix_color(fill, frame.accent, 0.1 + pulse * 0.03);
+            fill = mix_color(fill, frame.accent, 0.14 + pulse * 0.05);
             *border = BorderColor::all(mix_color(
                 Color::srgb(0.36, 0.88, 0.98),
                 frame.accent,
-                0.28,
+                0.38,
             ));
         } else if frame.previewed {
             *border = BorderColor::all(Color::srgb(0.46, 0.78, 1.0));
         } else if frame.filled {
-            *border = BorderColor::all(Color::srgb(0.34, 0.86, 0.94));
+            *border = BorderColor::all(mix_color(
+                Color::srgb(0.28, 0.72, 0.82),
+                frame.accent,
+                0.18,
+            ));
         } else {
             *border = BorderColor::all(Color::srgb(0.22, 0.45, 0.54));
         }
@@ -1386,23 +1487,23 @@ fn slot_zone(slot: &HullSlotDefinition) -> usize {
 
 fn slot_dimensions(size: &str) -> (f32, f32) {
     match size {
-        "Small" => (124.0, 68.0),
-        "Medium" => (132.0, 72.0),
-        "Large" => (142.0, 78.0),
-        _ => (128.0, 70.0),
+        "Small" => (126.0, 64.0),
+        "Medium" => (126.0, 68.0),
+        "Large" => (126.0, 72.0),
+        _ => (126.0, 66.0),
     }
 }
 
 fn spawn_blueprint_guides(parent: &mut ChildSpawnerCommands) {
     let sections = [
-        (8.0, "Engines"),
-        (18.0, "Fuel"),
-        (29.0, "Power"),
-        (41.0, "Support"),
-        (54.0, "Industry"),
-        (67.0, "Command"),
-        (80.0, "Defense"),
-        (90.0, "Weapons"),
+        (4.0, "Engines"),
+        (15.6, "Fuel"),
+        (27.2, "Power"),
+        (38.8, "Support"),
+        (50.4, "Industry"),
+        (62.0, "Command"),
+        (73.6, "Defense"),
+        (85.2, "Weapons"),
     ];
 
     for (left, label) in sections {
@@ -1474,43 +1575,36 @@ fn zone_left_percent(zone: usize, slot: &HullSlotDefinition, index: u32, total: 
 fn zone_top_percent(zone: usize, index: u32, total: u32, slot: &HullSlotDefinition) -> f32 {
     let columns = zone_columns(zone, total);
     let row = index / columns;
-    let row_stride = if columns > 1 { 15.5 } else { 13.5 };
-    let base_row = 13.0 + row as f32 * row_stride;
+    let row_stride = 11.5;
+    let base_row = 12.0 + row as f32 * row_stride;
     let slot_id = slot.slot_id.to_ascii_lowercase();
 
     let directional_bias = if slot_id.contains("port") || slot_id.contains("left") {
-        -5.0
+        -2.0
     } else if slot_id.contains("starboard") || slot_id.contains("right") {
-        5.0
-    } else if slot_id.contains("front") || slot_id.contains("bow") {
-        -3.0
-    } else if slot_id.contains("aft") || slot_id.contains("rear") {
-        3.0
+        2.0
     } else {
         0.0
     };
 
-    (base_row + directional_bias).clamp(10.0, 78.0)
+    (base_row + directional_bias).clamp(10.0, 85.0)
 }
 
 fn zone_bounds(zone: usize) -> (f32, f32) {
     match zone {
-        0 => (6.0, 15.0),
-        1 => (16.0, 26.0),
-        2 => (27.0, 38.0),
-        3 => (39.0, 51.0),
-        4 => (52.0, 64.0),
-        5 => (65.0, 77.0),
-        6 => (78.0, 88.0),
-        _ => (89.0, 97.0),
+        0 => (4.0, 15.0),
+        1 => (15.6, 26.6),
+        2 => (27.2, 38.2),
+        3 => (38.8, 49.8),
+        4 => (50.4, 61.4),
+        5 => (62.0, 73.0),
+        6 => (73.6, 84.6),
+        _ => (85.2, 96.2),
     }
 }
 
-fn zone_columns(zone: usize, total: u32) -> u32 {
-    match zone {
-        6 | 7 if total >= 3 => 2,
-        _ => 1,
-    }
+fn zone_columns(_zone: usize, _total: u32) -> u32 {
+    1
 }
 
 fn spawn_blueprint_slot(
@@ -1636,23 +1730,6 @@ fn spawn_blueprint_slot(
                 }),
             ));
 
-            if filled {
-                slot_root.spawn((
-                    ShipbuildingSlotScanline {
-                        period_scale: 0.18 + hash_phase(&slot.slot_id) * 0.1,
-                    },
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: Val::Px(10.0),
-                        top: Val::Percent(12.0),
-                        width: Val::Percent(78.0),
-                        height: Val::Px(3.0),
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgba(0.72, 0.96, 1.0, 0.14)),
-                ));
-            }
-
             slot_root
                 .spawn((
                     Node {
@@ -1746,6 +1823,41 @@ fn spawn_blueprint_slot(
                             ));
                         });
                 });
+
+            for (trail_offset, alpha_scale, size) in [
+                (0.0, 1.0, 6.0),
+                (8.0, 0.5, 4.5),
+                (15.0, 0.24, 3.2),
+            ] {
+                slot_root.spawn((
+                    ShipbuildingSlotBorderRunner {
+                        slot_id: slot.slot_id.clone(),
+                        width,
+                        height,
+                        phase_offset: hash_phase(&slot.slot_id),
+                        accent,
+                        trail_offset,
+                        alpha_scale,
+                        size,
+                    },
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Px(2.0),
+                        top: Val::Px(2.0),
+                        width: Val::Px(size),
+                        height: Val::Px(size),
+                        display: if is_selected || is_hovered {
+                            Display::Flex
+                        } else {
+                            Display::None
+                        },
+                        ..default()
+                    },
+                    BackgroundColor(accent.with_alpha(
+                        if is_selected { 0.86 } else { 0.5 } * alpha_scale,
+                    )),
+                ));
+            }
         });
 }
 
@@ -1841,6 +1953,45 @@ fn pip_bar(active: usize, total: usize) -> String {
 fn hash_phase(value: &str) -> f32 {
     let hash = value.bytes().fold(0_u32, |acc, byte| acc.wrapping_mul(31).wrapping_add(byte as u32));
     (hash % 100) as f32 / 100.0
+}
+
+fn border_runner_perimeter(width: f32, height: f32, size: f32) -> f32 {
+    let half = size * 0.5;
+    let min_x = -half;
+    let min_y = -half;
+    let max_x = (width - half).max(min_x);
+    let max_y = (height - half).max(min_y);
+
+    ((max_x - min_x) * 2.0 + (max_y - min_y) * 2.0).max(1.0)
+}
+
+fn border_runner_point(distance: f32, width: f32, height: f32, size: f32) -> (f32, f32) {
+    let half = size * 0.5;
+    let min_x = -half;
+    let min_y = -half;
+    let max_x = (width - half).max(min_x);
+    let max_y = (height - half).max(min_y);
+    let top_length = (max_x - min_x).max(1.0);
+    let side_length = (max_y - min_y).max(1.0);
+    let perimeter = top_length * 2.0 + side_length * 2.0;
+    let d = distance % perimeter;
+
+    if d < top_length {
+        (min_x + d, min_y)
+    } else if d < top_length + side_length {
+        (max_x, min_y + (d - top_length))
+    } else if d < top_length * 2.0 + side_length {
+        (max_x - (d - top_length - side_length), max_y)
+    } else {
+        (min_x, max_y - (d - top_length * 2.0 - side_length))
+    }
+}
+
+fn val_px(value: Val, fallback: f32) -> f32 {
+    match value {
+        Val::Px(px) => px,
+        _ => fallback,
+    }
 }
 
 fn spawn_analytics_gauge(
