@@ -10,6 +10,8 @@ use crate::economy::ResourceType;
 pub struct RefitProject {
     /// The ship entity being refit
     pub ship_entity: Entity,
+    /// The design currently installed on the ship.
+    pub old_template_id: uuid::Uuid,
     /// The new design template being applied
     pub new_template_id: uuid::Uuid,
     /// Build points cost for this refit
@@ -22,6 +24,10 @@ pub struct RefitProject {
     pub build_site: Entity,
     /// Slipway index (if applicable)
     pub slipway_id: u32,
+    /// Whether the refit is stalled waiting for resources.
+    pub awaiting_resources: bool,
+    /// Outstanding logistics requests blocking work.
+    pub blocking_request_ids: Vec<u64>,
 }
 
 impl RefitProject {

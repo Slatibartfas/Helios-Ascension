@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use super::refit::QueueRefitAction;
 use super::types::ConstructionMode;
 use crate::economy::ResourceType;
 use crate::fleets::{PropulsionType, ShipClass};
@@ -26,7 +27,7 @@ pub struct ShipDesignDraft {
 #[derive(Debug, Clone)]
 pub struct QueueShipConstructionAction {
     pub build_site: Entity,
-    pub design: ShipDesignDraft,
+    pub template_id: uuid::Uuid,
     pub integration_target_fleet: Option<Entity>,
 }
 
@@ -108,10 +109,17 @@ impl ShipConstructionProject {
 #[derive(Component, Debug, Clone, Copy, Default)]
 pub struct OrbitalStation;
 
+/// Stable linkage between a constructed ship and the design template it currently uses.
+#[derive(Component, Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct ShipDesignAssignment {
+    pub template_id: uuid::Uuid,
+}
+
 /// UI-originated shipbuilding actions to be processed in the update schedule.
 #[derive(Resource, Debug, Clone, Default)]
 pub struct PendingShipbuildingActions {
     pub queue_projects: Vec<QueueShipConstructionAction>,
+    pub queue_refits: Vec<QueueRefitAction>,
     pub cancel_projects: Vec<Entity>,
 }
 

@@ -1,5 +1,6 @@
 use super::tech_tree::{render_tech_tree_tab, tech_category_color};
 use super::*;
+use std::collections::BTreeSet;
 
 /// Info about an active/paused research project, for UI display
 #[derive(Clone, Debug)]
@@ -95,6 +96,10 @@ pub(super) fn ui_research_panels(
     if pending_research.navigate_to_available_engineering_tab {
         *selected_tab = 3;
         pending_research.navigate_to_available_engineering_tab = false;
+    }
+
+    if let Some(target) = pending_research.navigate_to_engineering_target.take() {
+        ui_prefs.selected_engineering_target = Some(target);
     }
 
     // Convert loaded handles to egui TextureIds
@@ -278,7 +283,16 @@ pub(super) fn ui_research_panels(
             0 => render_overview_tab(ui, &research_state, &tech_data, icon_textures, &research_projects, &engineering_projects, &all_teams, &team_capacity, &mut ui_prefs),
             1 => render_tech_tree_tab(ui, &research_state, &mut tech_data, icon_textures, debug_settings.enabled, &mut edit_state, &active_research, &mut pending_research, &mut debug_settings),
             2 => render_available_research_tab(ui, &research_state, &tech_data, icon_textures, &active_research, &mut pending_research, &team_capacity),
-            3 => render_available_engineering_tab(ui, &research_state, &tech_data, icon_textures),
+            3 => render_available_engineering_tab(
+                ui,
+                &research_state,
+                &tech_data,
+                icon_textures,
+                &engineering_projects,
+                &mut pending_research,
+                &team_capacity,
+                &mut ui_prefs.selected_engineering_target,
+            ),
             4 => render_bonuses_tab(ui, &research_state, &tech_data, icon_textures),
             5 => render_archive_tab(ui, &research_state, &tech_data, icon_textures),
             _ => {},
@@ -599,6 +613,46 @@ pub(super) fn render_research_tech_tooltip_content(
             }
         }
 
+        if !tech.unlocks_engineering.is_empty() {
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new("Unlocks Engineering Projects:")
+                    .strong()
+                    .color(theme::EP_TEAL),
+            );
+            for comp_id in &tech.unlocks_engineering {
+                if let Some(comp) = tech_data.get_component(comp_id) {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "  ⚙ {} ({:.0} EP)",
+                            comp.name, comp.engineering_cost
+                        ))
+                        .color(theme::EP_TEAL),
+                    );
+                } else {
+                    ui.label(
+                        egui::RichText::new(format!("  ⚙ {}", comp_id)).color(theme::EP_TEAL),
+                    );
+                }
+            }
+        }
+
+        let unlocked_hulls = tech_data.hull_unlocks.get(&tech.id);
+        if !unlocked_hulls.is_none_or(|hulls| hulls.is_empty()) {
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new("Unlocks Hull Frames:")
+                    .strong()
+                    .color(theme::ACCENT),
+            );
+            for hull in unlocked_hulls.into_iter().flatten() {
+                ui.label(
+                    egui::RichText::new(format!("  ▣ {}", hull))
+                    .color(theme::ACCENT),
+                );
+            }
+        }
+
         if !tech.modifiers.is_empty() {
             ui.add_space(4.0);
             ui.label(
@@ -887,9 +941,16 @@ fn render_available_research_tab(
                                 .size(11.0)
                                 .color(theme::TEXT_DIM),
                         );
-                        if !tech.unlocks_components.is_empty() {
+                        let engineering_unlock_count = tech
+                            .unlocks_components
+                            .iter()
+                            .chain(tech.unlocks_engineering.iter())
+                            .cloned()
+                            .collect::<BTreeSet<_>>()
+                            .len();
+                        if engineering_unlock_count > 0 {
                             ui.label(
-                                egui::RichText::new(format!("⚙{}", tech.unlocks_components.len()))
+                                egui::RichText::new(format!("⚙{}", engineering_unlock_count))
                                     .size(11.0)
                                     .color(theme::EP_TEAL),
                             );
@@ -932,6 +993,10 @@ fn render_available_engineering_tab(
     research_state: &ResearchState,
     tech_data: &TechnologiesData,
     icon_textures: &HashMap<TechCategory, egui::TextureId>,
+    engineering_projects: &Query<(&EngineeringProject, &ResearchTeam)>,
+    pending_research: &mut crate::research::PendingResearchActions,
+    team_capacity: &ResearchTeamCapacity,
+    selected_engineering_target: &mut Option<String>,
 ) {
     draw_section_title(
         ui,
@@ -964,51 +1029,81 @@ fn render_available_engineering_tab(
                 .sort_by(|a, b| a.engineering_cost.partial_cmp(&b.engineering_cost).unwrap());
 
             for component in available_components {
+                let is_preselected = selected_engineering_target
+                    .as_deref()
+                    .is_some_and(|target| target == component.id);
+                let in_progress = engineering_projects
+                    .iter()
+                    .any(|(project, _)| project.component_id == component.id);
+                let used_team_slots = engineering_projects.iter().count();
+                let can_start = !in_progress && used_team_slots < team_capacity.max_engineering_teams;
                 let parent_tech = tech_data.get_tech(&component.required_tech);
                 let cat_color = parent_tech
                     .map(|t| tech_category_color(t.category))
                     .unwrap_or(theme::AMBER);
 
-                let row = ui.horizontal(|ui| {
-                    // Component icon
-                    ui.label(egui::RichText::new("⚙").color(cat_color));
-                    // Category icon
-                    if let Some(tech) = parent_tech {
-                        if let Some(tex) = icon_textures.get(&tech.category) {
-                            ui.add(
-                                egui::Image::new(egui::load::SizedTexture::new(*tex, [16.0, 16.0]))
-                                    .tint(cat_color),
+                let row = egui::Frame::new()
+                    .fill(if is_preselected {
+                        theme::SURFACE_RAISED
+                    } else {
+                        theme::SURFACE
+                    })
+                    .stroke(if is_preselected {
+                        egui::Stroke::new(1.0, theme::ACCENT)
+                    } else {
+                        egui::Stroke::new(1.0, theme::BORDER)
+                    })
+                    .corner_radius(4.0)
+                    .inner_margin(egui::Margin::symmetric(8, 6))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("⚙").color(cat_color));
+                            if let Some(tech) = parent_tech {
+                                if let Some(tex) = icon_textures.get(&tech.category) {
+                                    ui.add(
+                                        egui::Image::new(egui::load::SizedTexture::new(*tex, [16.0, 16.0]))
+                                            .tint(cat_color),
+                                    );
+                                }
+                            }
+                            ui.label(egui::RichText::new(&component.name).strong());
+                            if let Some(tech) = parent_tech {
+                                ui.label(
+                                    egui::RichText::new(tech.category.display_name())
+                                        .size(12.0)
+                                        .color(cat_color),
+                                );
+                            }
+                            ui.add_space(8.0);
+                            ui.label(
+                                egui::RichText::new(format!("{:.0} EP", component.engineering_cost))
+                                    .color(theme::EP_TEAL),
                             );
-                        }
-                    }
-                    // Component name
-                    ui.label(egui::RichText::new(&component.name).strong());
-                    // Category
-                    if let Some(tech) = parent_tech {
-                        ui.label(
-                            egui::RichText::new(tech.category.display_name())
-                                .size(12.0)
-                                .color(cat_color),
-                        );
-                    }
-                    ui.add_space(8.0);
-                    // Cost
-                    ui.label(
-                        egui::RichText::new(format!("{:.0} EP", component.engineering_cost))
-                            .color(theme::EP_TEAL),
-                    );
-                    // From tech
-                    if let Some(tech) = parent_tech {
-                        ui.label(
-                            egui::RichText::new(format!("(from: {})", tech.name))
-                                .size(11.0)
-                                .italics()
-                                .color(theme::TEXT_DIM),
-                        );
-                    }
-                    // Start button
-                    let _ = ui.button("🔧 Start Engineering (NYI)");
-                });
+                            if let Some(tech) = parent_tech {
+                                ui.label(
+                                    egui::RichText::new(format!("(from: {})", tech.name))
+                                        .size(11.0)
+                                        .italics()
+                                        .color(theme::TEXT_DIM),
+                                );
+                            }
+                            let button_label = if in_progress {
+                                "⏳ Engineering"
+                            } else {
+                                "🔧 Start Engineering"
+                            };
+                            let start_btn = ui.add_enabled(can_start, egui::Button::new(button_label));
+                            if can_start && start_btn.clicked() {
+                                pending_research.start_engineering.push(component.id.clone());
+                            }
+                            if !can_start && !in_progress {
+                                start_btn.on_hover_text("No engineering team slots available.");
+                            }
+                        });
+                    });
+                if is_preselected {
+                    row.response.scroll_to_me(Some(egui::Align::Center));
+                }
                 // Tooltip with component details
                 row.response.on_hover_ui(|ui| {
                     ui.set_max_width(320.0);
