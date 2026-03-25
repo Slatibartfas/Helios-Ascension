@@ -27,6 +27,7 @@ pub struct ShipDesignDraft {
 pub struct QueueShipConstructionAction {
     pub build_site: Entity,
     pub design: ShipDesignDraft,
+    pub integration_target_fleet: Option<Entity>,
 }
 
 /// Current lifecycle state for a ship construction project.
@@ -55,6 +56,7 @@ pub struct ShipConstructionProject {
     pub design_name: String,
     pub hull_id: String,
     pub build_site: Entity,
+    pub integration_target_fleet: Option<Entity>,
     pub selected_modules: Vec<ShipModuleSelection>,
     pub ship_class: ShipClass,
     pub propulsion: Option<PropulsionType>,

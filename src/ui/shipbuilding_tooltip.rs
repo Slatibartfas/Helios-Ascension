@@ -1,5 +1,6 @@
 use bevy_egui::egui;
 
+use super::dashboard::format_mass_compact;
 use super::theme;
 use crate::economy::ResourceType;
 use crate::shipbuilding::{HullSlotDefinition, ShipModuleDefinition};
@@ -322,7 +323,7 @@ fn module_stat_lines(module: &ShipModuleDefinition) -> Vec<ShipbuildingTooltipEn
         push_stat(
             &mut lines,
             "Materials",
-            format_resource_costs_inline(&module.resource_costs, 4),
+            format_shipbuilding_resource_costs_inline(&module.resource_costs, 4),
             ShipbuildingTooltipTone::Muted,
         );
     }
@@ -452,16 +453,34 @@ fn push_stat(
     });
 }
 
-fn format_resource_costs_inline(costs: &[(ResourceType, f64)], max_items: usize) -> String {
+pub(super) fn format_shipbuilding_resource_costs_inline(
+    costs: &[(ResourceType, f64)],
+    max_items: usize,
+) -> String {
     let mut parts = Vec::new();
     for (index, (resource, amount)) in costs.iter().enumerate() {
         if index >= max_items {
             parts.push(format!("+{} more", costs.len() - max_items));
             break;
         }
-        parts.push(format!("{} {}", resource.display_name(), format_number(*amount)));
+        parts.push(format_shipbuilding_resource_cost(*resource, *amount));
     }
     parts.join(" | ")
+}
+
+pub(super) fn format_shipbuilding_resource_cost_lines(
+    costs: &[(ResourceType, f64)],
+    max_items: usize,
+) -> Vec<String> {
+    costs
+        .iter()
+        .take(max_items)
+        .map(|(resource, amount)| format_shipbuilding_resource_cost(*resource, *amount))
+        .collect()
+}
+
+pub(super) fn format_shipbuilding_resource_cost(resource: ResourceType, amount: f64) -> String {
+    format!("{} {}", resource.display_name(), format_mass_compact(amount))
 }
 
 fn title_case(value: &str) -> String {
