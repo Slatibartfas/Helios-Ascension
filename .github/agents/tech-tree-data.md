@@ -26,7 +26,8 @@ Help with technology definitions, engineering components, prerequisites, and unl
 
 - Technology entries belong in `technologies`.
 - Engineering component definitions belong in `components`.
-- `unlocks_components`, `unlocks_engineering`, and module `required_tech` values must reference real IDs.
+- `unlocks_components`, `unlocks_engineering`, module `required_tech`, and module `required_component_design` values must reference real IDs.
+- When ship module families share one engineering target, prefer a single technology unlock entry over duplicated parallel targets.
 - New research content that affects shipbuilding should be reflected in both ship data and documentation.
 
 ## Validation

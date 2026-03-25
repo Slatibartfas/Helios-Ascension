@@ -6,15 +6,14 @@ Helios Ascension's shipbuilding system is data-driven and currently centered on 
 
 - `assets/data/ship_hulls.ron` defines hull frames and slot layouts.
 - `assets/data/ship_modules.ron` defines ship modules and their gameplay stats.
-- `assets/data/technologies.ron` defines the research unlock path that gates advanced modules.
+- `assets/data/technologies.ron` defines the research unlock path and engineering targets that gate hulls and ship module families.
 
 The repository intentionally uses those files as the source of truth. Temporary or generated `ship_modules*.ron` snapshots should not be checked in alongside the canonical data.
 
-The gameplay data model is now paired with a **dual-backend UI** in the Shipbuilding menu:
+The gameplay data model is paired with a single native Bevy UI frontend:
 
-- `src/ui/shipbuilding_panel.rs` keeps the legacy egui workflow alive
-- `src/ui/shipbuilding_workspace.rs` provides a native Bevy UI prototype with a blueprint canvas, module library, and analytics pane
-- `src/ui/shipbuilding_state.rs` holds shared frontend state used by both backends
+- `src/ui/shipbuilding_workspace.rs` is the sole shipbuilding UI path
+- `src/ui/shipbuilding_state.rs` holds the shared frontend state consumed by that workspace
 
 ## Current Data Set
 
@@ -53,20 +52,14 @@ Additional hulls scale upward into combat, logistics, and station roles. Slot co
 
 ## Current UI Workflow
 
-### Legacy egui designer
-
-The legacy frontend remains the most conservative fallback. It is useful when validating design state, comparing with older behavior, or debugging frontend regressions.
-
-### Native workspace prototype
-
-The native workspace is intended to become the long-term shipbuilding UI. Its current design centers on:
+The native workspace is the production shipbuilding frontend. Its current design centers on:
 
 - A **blueprint canvas** that renders hull slots as cards on a schematic grid
 - A **focused-slot library** that filters compatible modules for the selected slot
 - A live **engineering analytics** pane driven by `ShipbuildingData::summarize_design()`
 - Shared preview/selection state so hovering a module can show deltas before installation
-
-Press **F9** in the Shipbuilding menu to toggle between the legacy egui designer and the native prototype.
+- Native tabs for **Design**, **Archive**, **Construction**, and **Components**
+- Direct handoff into the Research panel for engineering project selection
 
 ## Slot Placement Notes
 
@@ -87,19 +80,27 @@ When adding or editing ship content:
 3. Keep RON tuple structure exact. Missing `),` separators will break deserialization.
 4. Use only valid `ResourceType`, `ShipModuleCategory`, `ShipClass`, and `PropulsionType` enum values.
 5. If a new module requires research, add or update the matching technology entry in `assets/data/technologies.ron`.
-6. Update this document and `.github/copilot-instructions.md` when the data model or workflow changes.
-7. If a hull should display cleanly in the native blueprint workspace, add `position` data to `slot_layout` entries instead of relying on heuristic placement.
+6. If multiple modules share one engineering target, author `required_component_design` so the family unlocks through a single engineering project.
+7. Ensure the owning technology exposes that engineering target through `unlocks_engineering`; tech tooltips and engineering availability depend on that coupling.
+8. Update this document and `.github/copilot-instructions.md` when the data model or workflow changes.
+9. If a hull should display cleanly in the native blueprint workspace, add `position` data to `slot_layout` entries instead of relying on heuristic placement.
 
 ## Technology Coupling
 
-Module unlocks currently rely on `required_tech` in `assets/data/ship_modules.ron` and matching technology IDs in `assets/data/technologies.ron`.
+Ship module progression now has two explicit authored links:
+
+1. `required_tech` controls when the module family is even visible.
+2. `required_component_design` selects the engineering project that must be completed before any module in that family can be installed.
+
+When a family target is not explicitly authored in the `components` array, the runtime synthesizes the engineering definition from ship module data. That synthesis still depends on `unlocks_engineering` in `assets/data/technologies.ron` so the tech tree and Available Engineering tab expose the project correctly.
 
 For ship-related content, the intended workflow is:
 
 1. Add or update the technology in `assets/data/technologies.ron`.
 2. Add or update the module in `assets/data/ship_modules.ron`.
-3. Ensure the module's `required_tech` matches the technology ID.
-4. Validate with `cargo build` and a short `cargo run` to catch runtime RON parsing errors.
+3. If the module belongs to an existing family, point `required_component_design` at that family target instead of inventing a parallel unlock path.
+4. Ensure the module's `required_tech` and the technology's `unlocks_engineering` entry refer to the same progression step.
+5. Validate with `cargo build` and a short `cargo run` to catch runtime RON parsing errors.
 
 ## Validation
 
