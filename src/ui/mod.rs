@@ -28,7 +28,6 @@ mod fleets_panel;
 pub mod icons;
 mod research_panel;
 mod resources_bar;
-mod shipbuilding_panel;
 mod shipbuilding_state;
 mod shipbuilding_tooltip;
 mod shipbuilding_workspace;
@@ -49,7 +48,6 @@ use fleets_panel::{
 use icons::{load_menu_icons, load_research_icons, process_menu_icons, process_research_icons};
 use research_panel::ui_research_panels;
 use resources_bar::ui_resources_bar;
-use shipbuilding_panel::ui_shipbuilding_panel;
 use shipbuilding_workspace::ShipbuildingWorkspacePlugin;
 use time::advance_simulation_time;
 
@@ -125,12 +123,14 @@ pub struct ResolutionWarning {
 #[derive(Resource, Debug, Clone)]
 pub struct ResearchUiPreferences {
     pub show_inactive_warning: bool,
+    pub selected_engineering_target: Option<String>,
 }
 
 impl Default for ResearchUiPreferences {
     fn default() -> Self {
         Self {
             show_inactive_warning: true,
+            selected_engineering_target: None,
         }
     }
 }
@@ -470,10 +470,6 @@ impl Plugin for UIPlugin {
             .add_systems(
                 EguiPrimaryContextPass,
                 ui_fleets_panel.in_set(UiSystemSet::MainPanels),
-            )
-            .add_systems(
-                EguiPrimaryContextPass,
-                ui_shipbuilding_panel.in_set(UiSystemSet::MainPanels),
             )
             .add_systems(
                 EguiPrimaryContextPass,

@@ -9,12 +9,14 @@ pub mod types;
 
 pub use components::{
     LaunchCapacityState, OrbitalStation, PendingShipbuildingActions, QueueShipConstructionAction,
-    ShipConstructionProject, ShipConstructionState, ShipDesignDraft, ShipModuleSelection,
+    ShipConstructionProject, ShipConstructionState, ShipDesignAssignment, ShipDesignDraft,
+    ShipModuleSelection,
 };
 pub use data::{
     load_shipbuilding_data, HullSlotDefinition, ShipDesignLibrary, ShipDesignSummary,
     ShipHullDefinition, ShipModuleDefinition, ShipbuildingData,
 };
+pub use refit::{QueueRefitAction, RefitProject, RefitType};
 pub use slipway::{ShipyardFacility, Slipway};
 pub use types::{ConstructionMode, HullSizeTier, ShipDesignTemplate, ShipModuleCategory};
 

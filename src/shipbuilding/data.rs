@@ -121,6 +121,14 @@ pub struct ShipModuleDefinition {
     pub tags: Vec<String>,
 }
 
+impl ShipModuleDefinition {
+    pub fn engineering_project_id(&self) -> &str {
+        self.required_component_design
+            .as_deref()
+            .unwrap_or(self.id.as_str())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ShipHullsFile {
     hulls: Vec<ShipHullDefinition>,
@@ -237,10 +245,7 @@ impl ShipbuildingData {
             .required_tech
             .as_deref()
             .is_none_or(|tech| research_state.is_unlocked(tech));
-        let component_ok = module
-            .required_component_design
-            .as_deref()
-            .is_none_or(|component| research_state.is_component_completed(component));
+        let component_ok = research_state.is_component_completed(module.engineering_project_id());
 
         tech_ok && component_ok
     }
@@ -253,6 +258,16 @@ impl ShipbuildingData {
             .hulls
             .values()
             .filter(|hull| self.hull_is_unlocked(hull, research_state))
+            .collect();
+        hulls.sort_by(|left, right| left.display_name.cmp(&right.display_name));
+        hulls
+    }
+
+    pub fn hulls_unlocked_by_tech<'a>(&'a self, tech_id: &str) -> Vec<&'a ShipHullDefinition> {
+        let mut hulls: Vec<_> = self
+            .hulls
+            .values()
+            .filter(|hull| hull.required_tech.as_deref() == Some(tech_id))
             .collect();
         hulls.sort_by(|left, right| left.display_name.cmp(&right.display_name));
         hulls

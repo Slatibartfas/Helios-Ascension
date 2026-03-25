@@ -2,11 +2,11 @@ use bevy::prelude::*;
 
 use super::components::{
     LaunchCapacityState, PendingShipbuildingActions, QueueShipConstructionAction,
-    ShipConstructionProject, ShipConstructionState,
+    ShipConstructionProject, ShipConstructionState, ShipDesignAssignment,
 };
 use super::data::{ShipDesignLibrary, ShipDesignSummary, ShipHullDefinition, ShipbuildingData};
+use super::refit::{determine_refit_type, RefitProject, RefitType};
 use super::types::ConstructionMode;
-use super::ShipDesignTemplate;
 use crate::colony::{BuildingType, Colony};
 use crate::economy::budget::SECONDS_PER_YEAR;
 use crate::economy::components::LocalStockpile;
@@ -127,22 +127,84 @@ fn create_ship_resource_requests(
     request_ids
 }
 
+fn design_from_template(template: &crate::shipbuilding::ShipDesignTemplate) -> super::ShipDesignDraft {
+    super::ShipDesignDraft {
+        name: template.name.clone(),
+        hull_id: template.hull_id.clone(),
+        modules: template.modules.clone(),
+        construction_mode: template.construction_mode,
+    }
+}
+
+fn template_descends_from(
+    design_library: &ShipDesignLibrary,
+    candidate_id: uuid::Uuid,
+    ancestor_id: uuid::Uuid,
+) -> bool {
+    let mut cursor = Some(candidate_id);
+    while let Some(template_id) = cursor {
+        if template_id == ancestor_id {
+            return true;
+        }
+
+        cursor = design_library
+            .get_template(&template_id)
+            .and_then(|template| template.parent_template_id);
+    }
+
+    false
+}
+
+fn module_refit_delta(
+    old_modules: &[super::ShipModuleSelection],
+    new_modules: &[super::ShipModuleSelection],
+) -> (Vec<String>, Vec<String>) {
+    let old_by_slot: std::collections::HashMap<_, _> = old_modules
+        .iter()
+        .map(|selection| (selection.slot_id.as_str(), selection.module_id.as_str()))
+        .collect();
+    let new_by_slot: std::collections::HashMap<_, _> = new_modules
+        .iter()
+        .map(|selection| (selection.slot_id.as_str(), selection.module_id.as_str()))
+        .collect();
+
+    let mut removed = Vec::new();
+    let mut added = Vec::new();
+
+    for (slot_id, old_module_id) in &old_by_slot {
+        match new_by_slot.get(slot_id) {
+            Some(new_module_id) if *new_module_id == *old_module_id => {}
+            _ => removed.push((*old_module_id).to_string()),
+        }
+    }
+
+    for (slot_id, new_module_id) in &new_by_slot {
+        match old_by_slot.get(slot_id) {
+            Some(old_module_id) if *old_module_id == *new_module_id => {}
+            _ => added.push((*new_module_id).to_string()),
+        }
+    }
+
+    (removed, added)
+}
+
 pub fn process_pending_shipbuilding_actions(
     mut commands: Commands,
     mut actions: ResMut<PendingShipbuildingActions>,
     colonies: Query<&Colony>,
     mut stockpiles: Query<&mut LocalStockpile>,
     shipbuilding_data: Res<ShipbuildingData>,
-    mut design_library: ResMut<ShipDesignLibrary>,
+    design_library: Res<ShipDesignLibrary>,
     research_state: Res<ResearchState>,
     mut resource_requests: ResMut<PendingResourceRequests>,
     sim_time: Res<SimulationTime>,
+    ships: Query<(Entity, &ShipInstance, &ShipDesignAssignment)>,
 ) {
     let now = sim_time.elapsed_seconds();
 
     for QueueShipConstructionAction {
         build_site,
-        design,
+        template_id,
         integration_target_fleet,
     } in actions.queue_projects.drain(..)
     {
@@ -154,7 +216,12 @@ pub fn process_pending_shipbuilding_actions(
             continue;
         };
 
-        let hull = shipbuilding_data.get_hull(&design.hull_id);
+        let Some(template) = design_library.get_template(&template_id) else {
+            warn!("Ignoring shipbuilding action for missing template {}", template_id);
+            continue;
+        };
+        let design = design_from_template(template);
+        let hull = shipbuilding_data.get_hull(&template.hull_id);
 
         let Some(summary) = shipbuilding_data.summarize_design(&design, &research_state) else {
             warn!(
@@ -175,21 +242,6 @@ pub fn process_pending_shipbuilding_actions(
             );
             continue;
         }
-
-        // Create and save a design template for this construction
-        let template_id = {
-            let template = ShipDesignTemplate {
-                id: uuid::Uuid::new_v4(),
-                name: design.name.clone(),
-                hull_id: design.hull_id.clone(),
-                modules: design.modules.clone(),
-                version: design_library.latest_version(&design.name) + 1,
-                parent_template_id: None,
-                created_at_game_time: now,
-                construction_mode: design.construction_mode,
-            };
-            design_library.save_template(template)
-        };
 
         let blocking_request_ids = if let Ok(mut stockpile) = stockpiles.get_mut(build_site) {
             if stockpile.can_afford(&summary.resource_costs) {
@@ -273,6 +325,138 @@ pub fn process_pending_shipbuilding_actions(
         }
     }
 
+    for action in actions.queue_refits.drain(..) {
+        let Ok(colony) = colonies.get(action.build_site) else {
+            warn!(
+                "Ignoring refit action for non-colony entity {:?}",
+                action.build_site
+            );
+            continue;
+        };
+
+        if colony.building_count(BuildingType::Shipyard) == 0 {
+            warn!(
+                "Rejected refit at {} because no operational shipyard is present",
+                colony.name
+            );
+            continue;
+        }
+
+        let Ok((ship_entity, ship, assignment)) = ships.get(action.ship_entity) else {
+            warn!("Ignoring refit action for missing ship {:?}", action.ship_entity);
+            continue;
+        };
+
+        if ship.parked_body != action.build_site {
+            warn!(
+                "Rejected refit for ship {:?}: ship is not stationed at build site {:?}",
+                ship_entity, action.build_site
+            );
+            continue;
+        }
+
+        if assignment.template_id == action.new_template_id {
+            continue;
+        }
+
+        let Some(old_template) = design_library.get_template(&assignment.template_id) else {
+            warn!(
+                "Rejected refit for ship {:?}: missing current template {}",
+                ship_entity, assignment.template_id
+            );
+            continue;
+        };
+        let Some(new_template) = design_library.get_template(&action.new_template_id) else {
+            warn!(
+                "Rejected refit for ship {:?}: missing target template {}",
+                ship_entity, action.new_template_id
+            );
+            continue;
+        };
+
+        if !template_descends_from(&design_library, new_template.id, old_template.id) {
+            warn!(
+                "Rejected refit for ship {:?}: template {} is not an upgrade of {}",
+                ship_entity, new_template.id, old_template.id
+            );
+            continue;
+        }
+
+        if determine_refit_type(&old_template.hull_id, &new_template.hull_id) == RefitType::DifferentHull {
+            warn!(
+                "Rejected refit for ship {:?}: hull changes require reconstruction",
+                ship_entity
+            );
+            continue;
+        }
+
+        let (removed_module_ids, added_module_ids) =
+            module_refit_delta(&old_template.modules, &new_template.modules);
+        let removed_module_refs: Vec<_> = removed_module_ids.iter().map(String::as_str).collect();
+        let added_module_refs: Vec<_> = added_module_ids.iter().map(String::as_str).collect();
+        let bp_cost = RefitProject::calculate_refit_bp(
+            &removed_module_refs,
+            &added_module_refs,
+            &shipbuilding_data,
+        );
+        let resource_costs = RefitProject::calculate_refit_resources(
+            &removed_module_refs,
+            &added_module_refs,
+            &shipbuilding_data,
+        );
+
+        let blocking_request_ids = if let Ok(mut stockpile) = stockpiles.get_mut(action.build_site) {
+            if stockpile.can_afford(&resource_costs) {
+                stockpile.deduct(&resource_costs);
+                Vec::new()
+            } else {
+                let shortfalls: Vec<_> = resource_costs
+                    .iter()
+                    .filter_map(|(resource, amount)| {
+                        let shortfall = (*amount - stockpile.get(resource)).max(0.0);
+                        (shortfall > 0.0).then_some((*resource, shortfall))
+                    })
+                    .collect();
+                create_ship_resource_requests(
+                    &mut resource_requests,
+                    action.build_site,
+                    &colony.name,
+                    now,
+                    &shortfalls,
+                )
+            }
+        } else {
+            create_ship_resource_requests(
+                &mut resource_requests,
+                action.build_site,
+                &colony.name,
+                now,
+                &resource_costs,
+            )
+        };
+
+        let project_entity = commands
+            .spawn(RefitProject {
+                ship_entity,
+                old_template_id: old_template.id,
+                new_template_id: new_template.id,
+                bp_cost,
+                resource_costs,
+                progress: 0.0,
+                build_site: action.build_site,
+                slipway_id: 0,
+                awaiting_resources: !blocking_request_ids.is_empty(),
+                blocking_request_ids: blocking_request_ids.clone(),
+            })
+            .id();
+
+        for request_id in blocking_request_ids {
+            if let Some(request) = resource_requests.find_by_id_mut(request_id) {
+                request.linked_project = Some(project_entity);
+            }
+        }
+    }
+
     for entity in actions.cancel_projects.drain(..) {
         commands.entity(entity).despawn();
     }
@@ -281,6 +465,7 @@ pub fn process_pending_shipbuilding_actions(
 pub fn advance_ship_construction(
     colonies: Query<&Colony>,
     mut projects: Query<(Entity, &mut ShipConstructionProject)>,
+    mut refits: Query<(Entity, &mut RefitProject)>,
     sim_time: Res<SimulationTime>,
     mut last_elapsed: Local<f64>,
 ) {
@@ -324,36 +509,88 @@ pub fn advance_ship_construction(
         }
     }
 
+    for (_, refit) in refits.iter() {
+        if refit.awaiting_resources {
+            continue;
+        }
+
+        let colony_entity = refit.build_site;
+        if colony_bp.iter().any(|(entity, _)| *entity == colony_entity) {
+            continue;
+        }
+
+        if let Ok(colony) = colonies.get(colony_entity) {
+            let shipyards = colony.building_count(BuildingType::Shipyard) as f64;
+            if shipyards <= 0.0 {
+                continue;
+            }
+
+            let factories = colony.building_count(BuildingType::Factory) as f64;
+            let engineering_bays = colony.building_count(BuildingType::EngineeringBay) as f64;
+            let bonus = 1.0 + engineering_bays * ENGINEERING_BAY_BONUS;
+            let bp = (shipyards * SHIPYARD_BP_PER_YEAR + factories * FACTORY_SUPPORT_BP_PER_YEAR)
+                * bonus
+                * years_elapsed;
+            colony_bp.push((colony_entity, bp));
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    enum YardWorkItem {
+        Construction(Entity),
+        Refit(Entity),
+    }
+
     for (colony_entity, mut available_bp) in colony_bp {
-        let mut project_entities: Vec<Entity> = projects
+        let mut work_items: Vec<YardWorkItem> = projects
             .iter()
             .filter(|(_, project)| {
                 project.build_site == colony_entity
                     && project.is_building()
                     && !project.awaiting_resources
             })
-            .map(|(entity, _)| entity)
+            .map(|(entity, _)| YardWorkItem::Construction(entity))
             .collect();
-        project_entities.sort();
+        work_items.extend(
+            refits
+                .iter()
+                .filter(|(_, refit)| refit.build_site == colony_entity && !refit.awaiting_resources)
+                .map(|(entity, _)| YardWorkItem::Refit(entity)),
+        );
+        work_items.sort_by_key(|item| match item {
+            YardWorkItem::Construction(entity) | YardWorkItem::Refit(entity) => *entity,
+        });
 
-        for project_entity in project_entities {
+        for work_item in work_items {
             if available_bp <= 0.0 {
                 break;
             }
 
-            if let Ok((_, mut project)) = projects.get_mut(project_entity) {
-                let needed = project.required_build_points - project.progress;
-                let applied = needed.min(available_bp);
-                project.progress += applied;
-                available_bp -= applied;
+            match work_item {
+                YardWorkItem::Construction(project_entity) => {
+                    if let Ok((_, mut project)) = projects.get_mut(project_entity) {
+                        let needed = project.required_build_points - project.progress;
+                        let applied = needed.min(available_bp);
+                        project.progress += applied;
+                        available_bp -= applied;
 
-                if project.progress >= project.required_build_points {
-                    project.state = match project.construction_mode {
-                        ConstructionMode::SurfaceLaunch => ShipConstructionState::ReadyForLaunch,
-                        ConstructionMode::OrbitalAssembly | ConstructionMode::OrbitalShipyard => {
-                            ShipConstructionState::CompletedInOrbit
+                        if project.progress >= project.required_build_points {
+                            project.state = match project.construction_mode {
+                                ConstructionMode::SurfaceLaunch => ShipConstructionState::ReadyForLaunch,
+                                ConstructionMode::OrbitalAssembly | ConstructionMode::OrbitalShipyard => {
+                                    ShipConstructionState::CompletedInOrbit
+                                }
+                            };
                         }
-                    };
+                    }
+                }
+                YardWorkItem::Refit(refit_entity) => {
+                    if let Ok((_, mut refit)) = refits.get_mut(refit_entity) {
+                        let needed = refit.bp_cost - refit.progress;
+                        let applied = needed.min(available_bp);
+                        refit.progress += applied;
+                        available_bp -= applied;
+                    }
                 }
             }
         }
@@ -366,12 +603,19 @@ pub fn process_ship_launches_and_completions(
     mut last_elapsed: Local<f64>,
     colonies: Query<(Entity, &Colony, &CelestialBody)>,
     fleet_orbits: Query<&FleetOrbit, With<Fleet>>,
-    ship_instances: Query<&ShipInstance>,
     mut stockpiles: Query<&mut LocalStockpile>,
     mut budget: ResMut<GlobalBudget>,
     mut launch_state: ResMut<LaunchCapacityState>,
     mut resource_requests: ResMut<PendingResourceRequests>,
     mut projects: Query<(Entity, &mut ShipConstructionProject)>,
+    mut refits: Query<(Entity, &mut RefitProject)>,
+    mut ship_queries: ParamSet<(
+        Query<&ShipInstance>,
+        Query<(&mut ShipInstance, &mut ShipDesignAssignment)>,
+    )>,
+    design_library: Res<ShipDesignLibrary>,
+    shipbuilding_data: Res<ShipbuildingData>,
+    research_state: Res<ResearchState>,
 ) {
     let current_elapsed = sim_time.elapsed_seconds();
     let dt = current_elapsed - *last_elapsed;
@@ -415,7 +659,7 @@ pub fn process_ship_launches_and_completions(
                         project.integration_target_fleet,
                         project.build_site,
                         &fleet_orbits,
-                        &ship_instances,
+                        &ship_queries.p0(),
                     );
                     let (assigned_fleet, orbit_radius_au, stationary, sort_order) =
                         integration_target.unwrap_or((
@@ -424,13 +668,18 @@ pub fn process_ship_launches_and_completions(
                             project.is_station,
                             0,
                         ));
-                    commands.spawn(ShipInstance::new(
-                        build_ship_info(&project),
-                        project.build_site,
-                        orbit_radius_au,
-                        stationary,
-                        assigned_fleet,
-                        sort_order,
+                    commands.spawn((
+                        ShipInstance::new(
+                            build_ship_info(&project),
+                            project.build_site,
+                            orbit_radius_au,
+                            stationary,
+                            assigned_fleet,
+                            sort_order,
+                        ),
+                        ShipDesignAssignment {
+                            template_id: project.template_id,
+                        },
                     ));
                     commands.entity(entity).despawn();
                 }
@@ -501,7 +750,7 @@ pub fn process_ship_launches_and_completions(
                     project.integration_target_fleet,
                     project.build_site,
                     &fleet_orbits,
-                    &ship_instances,
+                    &ship_queries.p0(),
                 );
                 let (assigned_fleet, orbit_radius_au, stationary, sort_order) = integration_target
                     .unwrap_or((
@@ -510,17 +759,76 @@ pub fn process_ship_launches_and_completions(
                         project.is_station,
                         0,
                     ));
-                commands.spawn(ShipInstance::new(
-                    build_ship_info(&project),
-                    project.build_site,
-                    orbit_radius_au,
-                    stationary,
-                    assigned_fleet,
-                    sort_order,
+                commands.spawn((
+                    ShipInstance::new(
+                        build_ship_info(&project),
+                        project.build_site,
+                        orbit_radius_au,
+                        stationary,
+                        assigned_fleet,
+                        sort_order,
+                    ),
+                    ShipDesignAssignment {
+                        template_id: project.template_id,
+                    },
                 ));
                 commands.entity(entity).despawn();
             }
         }
+    }
+
+    let mut refit_entities: Vec<Entity> = refits.iter().map(|(entity, _)| entity).collect();
+    refit_entities.sort();
+
+    for refit_entity in refit_entities {
+        let Ok((entity, mut refit)) = refits.get_mut(refit_entity) else {
+            continue;
+        };
+
+        if refit.awaiting_resources {
+            let still_waiting = resource_requests
+                .requests
+                .iter()
+                .any(|request| request.linked_project == Some(entity) && request.is_open());
+            if still_waiting {
+                continue;
+            }
+            refit.awaiting_resources = false;
+            refit.blocking_request_ids.clear();
+        }
+
+        if refit.progress + f64::EPSILON < refit.bp_cost {
+            continue;
+        }
+
+        let Some(template) = design_library.get_template(&refit.new_template_id) else {
+            commands.entity(entity).despawn();
+            continue;
+        };
+        let draft = design_from_template(template);
+        let Some(summary) = shipbuilding_data.summarize_design(&draft, &research_state) else {
+            commands.entity(entity).despawn();
+            continue;
+        };
+
+        let mut ship_assignments = ship_queries.p1();
+        let Ok((mut ship, mut assignment)) = ship_assignments.get_mut(refit.ship_entity) else {
+            commands.entity(entity).despawn();
+            continue;
+        };
+
+        let fuel_fraction = if ship.info.max_fuel_t > 0.0 {
+            ship.info.fuel_mass_t / ship.info.max_fuel_t
+        } else {
+            0.0
+        };
+        let mut updated_info = build_ship_info_from_summary(&template.name, &summary);
+        updated_info.fuel_mass_t *= fuel_fraction.clamp(0.0, 1.0);
+        ship.info = updated_info;
+        ship.stationary = summary.is_station;
+        assignment.template_id = template.id;
+
+        commands.entity(entity).despawn();
     }
 }
 
@@ -592,6 +900,25 @@ fn build_ship_info(project: &ShipConstructionProject) -> ShipInfo {
         max_fuel_t: fuel_mass,
         thrust_kn: project.thrust_kn as f32,
         isp_s: project.isp_s as f32,
+        propulsion,
+    }
+}
+
+fn build_ship_info_from_summary(name: &str, summary: &ShipDesignSummary) -> ShipInfo {
+    let propulsion = summary.propulsion.unwrap_or(PropulsionType::Chemical);
+    let fuel_mass = summary.fuel_capacity_t.max(0.0) as f32;
+    ShipInfo {
+        name: name.to_string(),
+        class: if summary.is_station {
+            ShipClass::Station
+        } else {
+            summary.ship_class
+        },
+        dry_mass_t: summary.dry_mass_t as f32,
+        fuel_mass_t: fuel_mass,
+        max_fuel_t: fuel_mass,
+        thrust_kn: summary.thrust_kn as f32,
+        isp_s: summary.isp_s as f32,
         propulsion,
     }
 }

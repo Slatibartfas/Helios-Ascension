@@ -1,7 +1,4 @@
-use bevy_egui::egui;
-
 use super::dashboard::format_mass_compact;
-use super::theme;
 use crate::economy::ResourceType;
 use crate::shipbuilding::{HullSlotDefinition, ShipModuleDefinition};
 
@@ -162,47 +159,6 @@ pub(super) fn build_slot_tooltip(
     }
 }
 
-pub(super) fn render_shipbuilding_tooltip(ui: &mut egui::Ui, content: &ShipbuildingTooltipContent) {
-    ui.set_max_width(360.0);
-    ui.vertical(|ui| {
-        ui.label(
-            egui::RichText::new(&content.title)
-                .font(theme::heading())
-                .color(theme::ACCENT),
-        );
-        ui.add_space(4.0);
-        for entry in &content.entries {
-            match entry {
-                ShipbuildingTooltipEntry::Paragraph(text) => {
-                    ui.label(
-                        egui::RichText::new(text)
-                            .font(theme::body(9.6))
-                            .color(theme::TEXT_DIM),
-                    );
-                }
-                ShipbuildingTooltipEntry::Stat { label, value, tone } => {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label(
-                            egui::RichText::new(format!("{}:", label))
-                                .font(theme::body(9.6))
-                                .strong()
-                                .color(theme::TEXT_VALUE),
-                        );
-                        ui.label(
-                            egui::RichText::new(value)
-                                .font(theme::body(9.6))
-                                .color(tone_color(*tone)),
-                        );
-                    });
-                }
-                ShipbuildingTooltipEntry::Spacer => {
-                    ui.add_space(4.0);
-                }
-            }
-        }
-    });
-}
-
 pub(super) fn prettify_slot_name(slot_id: &str) -> String {
     slot_id
         .split('_')
@@ -336,14 +292,12 @@ fn module_stat_lines(module: &ShipModuleDefinition) -> Vec<ShipbuildingTooltipEn
             ShipbuildingTooltipTone::Warning,
         );
     }
-    if let Some(component_design) = &module.required_component_design {
-        push_stat(
-            &mut lines,
-            "Component Design",
-            title_case(component_design),
-            ShipbuildingTooltipTone::Warning,
-        );
-    }
+    push_stat(
+        &mut lines,
+        "Engineering Project",
+        title_case(module.engineering_project_id()),
+        ShipbuildingTooltipTone::Warning,
+    );
 
     lines
 }
@@ -526,13 +480,3 @@ fn format_signed_number(value: f64) -> String {
     }
 }
 
-fn tone_color(tone: ShipbuildingTooltipTone) -> egui::Color32 {
-    match tone {
-        ShipbuildingTooltipTone::Neutral => theme::TEXT_VALUE,
-        ShipbuildingTooltipTone::Positive => theme::GREEN,
-        ShipbuildingTooltipTone::Warning => theme::AMBER,
-        ShipbuildingTooltipTone::Negative => theme::RED,
-        ShipbuildingTooltipTone::Accent => theme::ACCENT,
-        ShipbuildingTooltipTone::Muted => theme::TEXT_DIM,
-    }
-}

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
@@ -13,14 +14,15 @@ use super::shipbuilding_tooltip::{
 use crate::colony::{BuildingType, Colony};
 use crate::economy::GlobalBudget;
 use crate::economy::components::LocalStockpile;
-use crate::fleets::{ActiveManeuver, Fleet, FleetOrbit};
+use crate::fleets::{ActiveManeuver, Fleet, FleetOrbit, ShipInstance};
 use crate::game_state::{ActiveMenu, GameMenu};
 use crate::plugins::solar_system::CelestialBody;
 use crate::research::{EngineeringProject, PendingResearchActions, ResearchState, TechnologiesData};
 use crate::shipbuilding::{
     HullSlotDefinition, LaunchCapacityState, PendingShipbuildingActions,
-    QueueShipConstructionAction, ShipConstructionProject, ShipDesignDraft, ShipDesignLibrary,
-    ShipDesignSummary, ShipModuleSelection, ShipbuildingData,
+    QueueRefitAction, QueueShipConstructionAction, RefitProject, ShipConstructionProject,
+    ShipDesignAssignment, ShipDesignDraft, ShipDesignLibrary, ShipDesignSummary,
+    ShipModuleSelection, ShipbuildingData,
 };
 use crate::shipbuilding::types::ShipModuleCategory;
 
@@ -46,13 +48,26 @@ type WorkspaceFleetQuery<'w, 's> = Query<
     ),
 >;
 
+type WorkspaceShipQuery<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static ShipInstance,
+        &'static ShipDesignAssignment,
+    ),
+>;
+
 #[derive(Clone)]
 struct WorkspaceDesignRow {
     template_id: uuid::Uuid,
     name: String,
     version: u32,
     hull_name: String,
+    hull_class: crate::fleets::ShipClass,
     summary: ShipDesignSummary,
+    construction_mode: crate::shipbuilding::ConstructionMode,
+    active_ship_count: usize,
 }
 
 #[derive(Clone)]
@@ -67,7 +82,8 @@ struct WorkspaceFleetRow {
 #[derive(Clone, Copy)]
 enum ShipbuildingArchiveAction {
     Open,
-    Fork,
+    Upgrade,
+    QueueRetrofits,
     Delete,
 }
 
@@ -75,43 +91,17 @@ pub(super) struct ShipbuildingWorkspacePlugin;
 
 impl Plugin for ShipbuildingWorkspacePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<ShipbuildingUiBackend>()
-            .add_systems(Startup, spawn_shipbuilding_workspace)
-            .add_systems(
-                Update,
-                (
-                    toggle_shipbuilding_ui_backend,
-                    handle_shipbuilding_workspace_interactions,
-                    animate_shipbuilding_slot_feedback,
-                    animate_shipbuilding_module_card_feedback,
-                    update_shipbuilding_hover_tooltip,
-                    sync_shipbuilding_workspace_visibility,
-                    sync_shipbuilding_workspace_content,
-                ),
-            );
+        app.add_systems(Startup, spawn_shipbuilding_workspace)
+            .add_systems(Update, handle_shipbuilding_workspace_interactions)
+            .add_systems(Update, handle_shipbuilding_archive_interactions)
+            .add_systems(Update, handle_shipbuilding_construction_interactions)
+            .add_systems(Update, handle_shipbuilding_component_interactions)
+            .add_systems(Update, animate_shipbuilding_slot_feedback)
+            .add_systems(Update, animate_shipbuilding_module_card_feedback)
+            .add_systems(Update, update_shipbuilding_hover_tooltip)
+            .add_systems(Update, sync_shipbuilding_workspace_visibility)
+            .add_systems(Update, sync_shipbuilding_workspace_content);
     }
-}
-
-#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(crate) struct ShipbuildingUiBackend {
-    pub mode: ShipbuildingUiMode,
-}
-
-impl ShipbuildingUiBackend {
-    pub(crate) fn uses_legacy_egui(&self) -> bool {
-        self.mode == ShipbuildingUiMode::LegacyEgui
-    }
-
-    pub(crate) fn uses_native_workspace(&self) -> bool {
-        self.mode == ShipbuildingUiMode::NativePrototype
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(crate) enum ShipbuildingUiMode {
-    #[default]
-    LegacyEgui,
-    NativePrototype,
 }
 
 #[derive(Component)]
@@ -256,6 +246,62 @@ struct ShipbuildingModuleCard {
     slot_id: String,
     module_id: String,
     base_height: f32,
+}
+
+#[derive(SystemParam)]
+struct ShipbuildingWorkspacePanels<'w, 's> {
+    status_text: Single<
+        'w,
+        's,
+        &'static mut Text,
+        (
+            With<ShipbuildingWorkspaceStatus>,
+            Without<ShipbuildingWorkspaceAnalytics>,
+            Without<ShipbuildingWorkspaceBlueprint>,
+        ),
+    >,
+    tabs_root: Single<
+        'w,
+        's,
+        Entity,
+        (
+            With<ShipbuildingWorkspaceTabs>,
+            Without<ShipbuildingWorkspaceLibrary>,
+            Without<ShipbuildingWorkspaceBlueprint>,
+            Without<ShipbuildingWorkspaceAnalytics>,
+        ),
+    >,
+    library_root: Single<
+        'w,
+        's,
+        Entity,
+        (
+            With<ShipbuildingWorkspaceLibrary>,
+            Without<ShipbuildingWorkspaceBlueprint>,
+            Without<ShipbuildingWorkspaceAnalytics>,
+        ),
+    >,
+    blueprint_root: Single<
+        'w,
+        's,
+        Entity,
+        (
+            With<ShipbuildingWorkspaceBlueprint>,
+            Without<ShipbuildingWorkspaceLibrary>,
+            Without<ShipbuildingWorkspaceAnalytics>,
+        ),
+    >,
+    analytics_root: Single<
+        'w,
+        's,
+        Entity,
+        (
+            With<ShipbuildingWorkspaceAnalytics>,
+            Without<ShipbuildingWorkspaceLibrary>,
+            Without<ShipbuildingWorkspaceBlueprint>,
+        ),
+    >,
+    child_lists: Query<'w, 's, &'static Children>,
 }
 
 fn spawn_shipbuilding_workspace(mut commands: Commands) {
@@ -444,15 +490,13 @@ fn spawn_panel<T: Component>(
 
 fn sync_shipbuilding_workspace_visibility(
     active_menu: Res<ActiveMenu>,
-    backend: Res<ShipbuildingUiBackend>,
     mut roots: Query<&mut Node, With<ShipbuildingWorkspaceRoot>>,
 ) {
-    if !active_menu.is_changed() && !backend.is_changed() {
+    if !active_menu.is_changed() {
         return;
     }
 
-    let display = if active_menu.current == GameMenu::Shipbuilding && backend.uses_native_workspace()
-    {
+    let display = if active_menu.current == GameMenu::Shipbuilding {
         Display::Flex
     } else {
         Display::None
@@ -463,28 +507,11 @@ fn sync_shipbuilding_workspace_visibility(
     }
 }
 
-fn toggle_shipbuilding_ui_backend(
-    active_menu: Res<ActiveMenu>,
-    input: Res<ButtonInput<KeyCode>>,
-    mut backend: ResMut<ShipbuildingUiBackend>,
-) {
-    if active_menu.current != GameMenu::Shipbuilding || !input.just_pressed(KeyCode::F9) {
-        return;
-    }
-
-    backend.mode = match backend.mode {
-        ShipbuildingUiMode::LegacyEgui => ShipbuildingUiMode::NativePrototype,
-        ShipbuildingUiMode::NativePrototype => ShipbuildingUiMode::LegacyEgui,
-    };
-
-    info!("Shipbuilding UI backend switched to {:?}", backend.mode);
-}
-
 fn handle_shipbuilding_workspace_interactions(
     active_menu: Res<ActiveMenu>,
-    mut backend: ResMut<ShipbuildingUiBackend>,
     shipbuilding_data: Res<ShipbuildingData>,
     research_state: Res<ResearchState>,
+    mut design_library: ResMut<ShipDesignLibrary>,
     mut ui_state: ResMut<ShipbuildingUiState>,
     tab_buttons: Query<(&Interaction, &ShipbuildingWorkspaceTabButton), (Changed<Interaction>, With<Button>)>,
     hull_dropdown_toggle: Query<&Interaction, (Changed<Interaction>, With<ShipbuildingHullDropdownToggle>, With<Button>)>,
@@ -495,14 +522,38 @@ fn handle_shipbuilding_workspace_interactions(
     slot_hover_buttons: Query<(&Interaction, &ShipbuildingSlotButton), With<Button>>,
     module_press_buttons: Query<(&Interaction, &ShipbuildingModuleButton), (Changed<Interaction>, With<Button>)>,
     module_hover_buttons: Query<(&Interaction, &ShipbuildingModuleButton), With<Button>>,
+    save_buttons: Query<&Interaction, (Changed<Interaction>, With<ShipbuildingSaveDesignButton>, With<Button>)>,
+    reset_buttons: Query<&Interaction, (Changed<Interaction>, With<ShipbuildingResetDesignButton>, With<Button>)>,
 ) {
-    if active_menu.current != GameMenu::Shipbuilding || !backend.uses_native_workspace() {
+    if active_menu.current != GameMenu::Shipbuilding {
         return;
     }
 
     let mut content_changed = false;
     {
-        let ui_state = ui_state.bypass_change_detection();
+        let ui_state = &mut *ui_state;
+
+        if ui_state
+            .selected_hull_id
+            .as_deref()
+            .and_then(|hull_id| shipbuilding_data.get_hull(hull_id))
+            .is_some_and(|hull| !shipbuilding_data.hull_is_unlocked(hull, &research_state))
+        {
+            if let Some(hull) = shipbuilding_data.available_hulls(&research_state).first() {
+                select_hull_by_id(ui_state, &shipbuilding_data, &research_state, &hull.id);
+            } else {
+                ui_state.selected_hull_id = None;
+                ui_state.selected_template_id = None;
+                ui_state.upgrade_source_template_id = None;
+                ui_state.design_name.clear();
+                ui_state.selected_modules.clear();
+                ui_state.selected_slot = None;
+                ui_state.preview_slot = None;
+                ui_state.preview_module_id = None;
+                ui_state.show_hull_dropdown = false;
+            }
+            content_changed = true;
+        }
 
         if ui_state.selected_slot.is_none() {
             if let Some(hull_id) = ui_state.selected_hull_id.as_deref() {
@@ -521,10 +572,24 @@ fn handle_shipbuilding_workspace_interactions(
             }
 
             ui_state.active_tab = button.tab;
-            if button.tab != ShipbuildingTab::Design {
-                backend.mode = ShipbuildingUiMode::LegacyEgui;
-            }
             content_changed = true;
+        }
+
+        for interaction in &save_buttons {
+            if *interaction == Interaction::Pressed
+                && save_current_design_template_native(&mut design_library, ui_state).is_some()
+            {
+                content_changed = true;
+            }
+        }
+
+        for interaction in &reset_buttons {
+            if *interaction == Interaction::Pressed {
+                if let Some(hull_id) = ui_state.selected_hull_id.clone() {
+                    select_hull_by_id(ui_state, &shipbuilding_data, &research_state, &hull_id);
+                    content_changed = true;
+                }
+            }
         }
 
         for interaction in &hull_dropdown_toggle {
@@ -645,35 +710,266 @@ fn handle_shipbuilding_workspace_interactions(
         }
     }
 
-    if content_changed {
-        ui_state.set_changed();
+    let _ = content_changed;
+}
+
+fn handle_shipbuilding_archive_interactions(
+    active_menu: Res<ActiveMenu>,
+    shipbuilding_data: Res<ShipbuildingData>,
+    research_state: Res<ResearchState>,
+    mut design_library: ResMut<ShipDesignLibrary>,
+    mut shipbuilding_actions: ResMut<PendingShipbuildingActions>,
+    mut ui_state: ResMut<ShipbuildingUiState>,
+    archive_select_buttons: Query<(&Interaction, &ShipbuildingArchiveSelectButton), (Changed<Interaction>, With<Button>)>,
+    archive_action_buttons: Query<(&Interaction, &ShipbuildingArchiveActionButton), (Changed<Interaction>, With<Button>)>,
+    site_buttons: Query<(&Interaction, &ShipbuildingConstructionSiteButton), (Changed<Interaction>, With<Button>)>,
+    ships: WorkspaceShipQuery,
+    projects: Query<&ShipConstructionProject>,
+    refits: Query<&RefitProject>,
+) {
+    if active_menu.current != GameMenu::Shipbuilding || ui_state.active_tab != ShipbuildingTab::Archive {
+        return;
     }
+
+    let mut content_changed = false;
+    let ui_state = &mut *ui_state;
+
+    for (interaction, button) in &archive_select_buttons {
+        if *interaction == Interaction::Pressed {
+            ui_state.selected_template_id = Some(button.template_id);
+            content_changed = true;
+        }
+    }
+
+    for (interaction, button) in &site_buttons {
+        if *interaction == Interaction::Pressed {
+            ui_state.selected_colony = Some(button.site);
+            content_changed = true;
+        }
+    }
+
+    for (interaction, button) in &archive_action_buttons {
+        if *interaction != Interaction::Pressed {
+            continue;
+        }
+
+        match button.action {
+            ShipbuildingArchiveAction::Open => {
+                if let Some(template) = design_library.get_template(&button.template_id) {
+                    ui_state.upgrade_source_template_id = None;
+                    load_template_into_ui_native(ui_state, &shipbuilding_data, &research_state, template);
+                    ui_state.active_tab = ShipbuildingTab::Design;
+                }
+            }
+            ShipbuildingArchiveAction::Upgrade => {
+                if let Some(template) = design_library.get_template(&button.template_id) {
+                    load_template_into_ui_native(ui_state, &shipbuilding_data, &research_state, template);
+                    ui_state.upgrade_source_template_id = Some(template.id);
+                    ui_state.active_tab = ShipbuildingTab::Design;
+                }
+            }
+            ShipbuildingArchiveAction::QueueRetrofits => {
+                let Some(build_site) = ui_state.selected_colony else {
+                    continue;
+                };
+                let active_refits: std::collections::HashSet<_> =
+                    refits.iter().map(|refit| refit.ship_entity).collect();
+
+                for (ship_entity, ship, assignment) in &ships {
+                    if ship.parked_body != build_site
+                        || assignment.template_id == button.template_id
+                        || active_refits.contains(&ship_entity)
+                    {
+                        continue;
+                    }
+
+                    if template_descends_from_native(
+                        &design_library,
+                        button.template_id,
+                        assignment.template_id,
+                    ) {
+                        shipbuilding_actions.queue_refits.push(QueueRefitAction {
+                            ship_entity,
+                            new_template_id: button.template_id,
+                            build_site,
+                        });
+                    }
+                }
+            }
+            ShipbuildingArchiveAction::Delete => {
+                let is_referenced = ships
+                    .iter()
+                    .any(|(_, _, assignment)| assignment.template_id == button.template_id)
+                    || projects.iter().any(|project| project.template_id == button.template_id)
+                    || refits.iter().any(|refit| {
+                        refit.old_template_id == button.template_id
+                            || refit.new_template_id == button.template_id
+                    })
+                    || template_has_descendants_native(&design_library, button.template_id);
+
+                if !is_referenced {
+                    design_library.templates.remove(&button.template_id);
+                    if ui_state.selected_template_id == Some(button.template_id) {
+                        ui_state.selected_template_id = None;
+                    }
+                    if ui_state.construction_design_id == Some(button.template_id) {
+                        ui_state.construction_design_id = None;
+                    }
+                }
+            }
+        }
+
+        content_changed = true;
+    }
+
+    let _ = content_changed;
+}
+
+fn handle_shipbuilding_construction_interactions(
+    active_menu: Res<ActiveMenu>,
+    shipbuilding_data: Res<ShipbuildingData>,
+    research_state: Res<ResearchState>,
+    design_library: Res<ShipDesignLibrary>,
+    mut shipbuilding_actions: ResMut<PendingShipbuildingActions>,
+    colonies: WorkspaceColonyQuery,
+    mut ui_state: ResMut<ShipbuildingUiState>,
+    site_buttons: Query<(&Interaction, &ShipbuildingConstructionSiteButton), (Changed<Interaction>, With<Button>)>,
+    fleet_buttons: Query<(&Interaction, &ShipbuildingConstructionFleetButton), (Changed<Interaction>, With<Button>)>,
+    construction_design_buttons: Query<(&Interaction, &ShipbuildingConstructionDesignButton), (Changed<Interaction>, With<Button>)>,
+    queue_buttons: Query<&Interaction, (Changed<Interaction>, With<ShipbuildingQueueSelectedDesignButton>, With<Button>)>,
+) {
+    if active_menu.current != GameMenu::Shipbuilding || ui_state.active_tab != ShipbuildingTab::Construction {
+        return;
+    }
+
+    let mut content_changed = false;
+    let ui_state = &mut *ui_state;
+
+    for (interaction, button) in &site_buttons {
+        if *interaction == Interaction::Pressed {
+            ui_state.selected_colony = Some(button.site);
+            ui_state.construction_target_fleet = None;
+            content_changed = true;
+        }
+    }
+
+    for (interaction, button) in &fleet_buttons {
+        if *interaction == Interaction::Pressed {
+            ui_state.construction_target_fleet = button.fleet;
+            content_changed = true;
+        }
+    }
+
+    for (interaction, button) in &construction_design_buttons {
+        if *interaction == Interaction::Pressed {
+            ui_state.construction_design_id = Some(button.template_id);
+            content_changed = true;
+        }
+    }
+
+    for interaction in &queue_buttons {
+        if *interaction != Interaction::Pressed {
+            continue;
+        }
+
+        let selected_colony = ui_state
+            .selected_colony
+            .and_then(|entity| colonies.get(entity).ok());
+        let Some(template_id) = ui_state.construction_design_id else {
+            continue;
+        };
+        let Some(template) = design_library.get_template(&template_id) else {
+            continue;
+        };
+
+        let draft = design_from_template_native(template);
+        let summary = shipbuilding_data.summarize_design(&draft, &research_state);
+        let hull = shipbuilding_data.get_hull(&template.hull_id);
+        let queue_errors = crate::shipbuilding::systems::queue_validation_errors(
+            selected_colony.map(|(_, colony, _, _)| colony),
+            hull,
+            summary.as_ref(),
+            template.construction_mode,
+        );
+
+        if queue_errors.is_empty() {
+            if let Some((build_site, _, _, _)) = selected_colony {
+                shipbuilding_actions.queue_projects.push(QueueShipConstructionAction {
+                    build_site,
+                    template_id,
+                    integration_target_fleet: ui_state.construction_target_fleet,
+                });
+                content_changed = true;
+            }
+        }
+    }
+
+    let _ = content_changed;
+}
+
+fn handle_shipbuilding_component_interactions(
+    active_menu: Res<ActiveMenu>,
+    shipbuilding_data: Res<ShipbuildingData>,
+    mut pending_research: ResMut<PendingResearchActions>,
+    mut ui_state: ResMut<ShipbuildingUiState>,
+    component_buttons: Query<(&Interaction, &ShipbuildingComponentDatabaseButton), (Changed<Interaction>, With<Button>)>,
+    open_engineering_buttons: Query<&Interaction, (Changed<Interaction>, With<ShipbuildingOpenEngineeringButton>, With<Button>)>,
+) {
+    if active_menu.current != GameMenu::Shipbuilding || ui_state.active_tab != ShipbuildingTab::Components {
+        return;
+    }
+
+    let mut content_changed = false;
+    let ui_state = &mut *ui_state;
+
+    for (interaction, button) in &component_buttons {
+        if *interaction == Interaction::Pressed {
+            ui_state.selected_component_module_id = Some(button.module_id.clone());
+            content_changed = true;
+        }
+    }
+
+    for interaction in &open_engineering_buttons {
+        if *interaction == Interaction::Pressed {
+            pending_research.navigate_to_available_engineering_tab = true;
+            pending_research.navigate_to_engineering_target = ui_state
+                .selected_component_module_id
+                .as_deref()
+                .and_then(|module_id| shipbuilding_data.get_module(module_id))
+                .map(|module| module.engineering_project_id().to_string());
+        }
+    }
+
+    let _ = content_changed;
 }
 
 fn sync_shipbuilding_workspace_content(
     mut commands: Commands,
     active_menu: Res<ActiveMenu>,
-    backend: Res<ShipbuildingUiBackend>,
     ui_state: Res<ShipbuildingUiState>,
     shipbuilding_data: Res<ShipbuildingData>,
     design_library: Res<ShipDesignLibrary>,
     research_state: Res<ResearchState>,
-    mut status_text: Single<&mut Text, (With<ShipbuildingWorkspaceStatus>, Without<ShipbuildingWorkspaceAnalytics>, Without<ShipbuildingWorkspaceBlueprint>)>,
-    tabs_root: Single<Entity, (With<ShipbuildingWorkspaceTabs>, Without<ShipbuildingWorkspaceLibrary>, Without<ShipbuildingWorkspaceBlueprint>, Without<ShipbuildingWorkspaceAnalytics>)>,
-    library_root: Single<Entity, (With<ShipbuildingWorkspaceLibrary>, Without<ShipbuildingWorkspaceBlueprint>, Without<ShipbuildingWorkspaceAnalytics>)>,
-    blueprint_root: Single<Entity, (With<ShipbuildingWorkspaceBlueprint>, Without<ShipbuildingWorkspaceLibrary>, Without<ShipbuildingWorkspaceAnalytics>)>,
-    analytics_root: Single<Entity, (With<ShipbuildingWorkspaceAnalytics>, Without<ShipbuildingWorkspaceLibrary>, Without<ShipbuildingWorkspaceBlueprint>)>,
-    child_lists: Query<&Children>,
+    technologies_data: Res<TechnologiesData>,
+    colonies: WorkspaceColonyQuery,
+    fleets: WorkspaceFleetQuery,
+    ships: WorkspaceShipQuery,
+    projects: Query<(Entity, &ShipConstructionProject)>,
+    refits: Query<(Entity, &RefitProject)>,
+    engineering_projects: Query<&EngineeringProject>,
+    launch_state: Res<LaunchCapacityState>,
+    budget: Res<GlobalBudget>,
+    mut panels: ShipbuildingWorkspacePanels,
 ) {
-    if active_menu.current != GameMenu::Shipbuilding || !backend.uses_native_workspace() {
+    if active_menu.current != GameMenu::Shipbuilding {
         return;
     }
 
     if !active_menu.is_changed()
-        && !backend.is_changed()
         && !ui_state.is_changed()
         && !shipbuilding_data.is_changed()
         && !design_library.is_changed()
+        && !matches!(ui_state.active_tab, ShipbuildingTab::Archive | ShipbuildingTab::Construction)
     {
         return;
     }
@@ -682,7 +978,8 @@ fn sync_shipbuilding_workspace_content(
     let selected_hull = ui_state
         .selected_hull_id
         .as_deref()
-        .and_then(|hull_id| shipbuilding_data.get_hull(hull_id));
+        .and_then(|hull_id| shipbuilding_data.get_hull(hull_id))
+        .filter(|hull| shipbuilding_data.hull_is_unlocked(hull, &research_state));
     let current_design = build_preview_design(&ui_state);
     let current_summary = current_design
         .as_ref()
@@ -690,45 +987,89 @@ fn sync_shipbuilding_workspace_content(
     let preview_summary = build_preview_summary(&ui_state, &shipbuilding_data, &research_state);
     let active_slot = selected_hull.and_then(|hull| active_slot(hull, &ui_state));
 
-    **status_text = Text::new(format!(
-        "Shipbuilding Workspace  |  F9 Switch UI  |  {:?}  |  Hulls {}  |  Designs {}  |  Hover inspect  |  Click slot, install module",
-        backend.mode,
+    **panels.status_text = Text::new(format!(
+        "Shipbuilding Workspace | {:?} | Hulls {} | Designs {} | Native-only workflow",
+        ui_state.active_tab,
         available_hulls.len(),
         design_library.templates.len()
     ));
 
-    clear_dynamic_children(&mut commands, *tabs_root, &child_lists);
-    clear_dynamic_children(&mut commands, *library_root, &child_lists);
-    clear_dynamic_children(&mut commands, *blueprint_root, &child_lists);
-    clear_dynamic_children(&mut commands, *analytics_root, &child_lists);
+    clear_dynamic_children(&mut commands, *panels.tabs_root, &panels.child_lists);
+    clear_dynamic_children(&mut commands, *panels.library_root, &panels.child_lists);
+    clear_dynamic_children(&mut commands, *panels.blueprint_root, &panels.child_lists);
+    clear_dynamic_children(&mut commands, *panels.analytics_root, &panels.child_lists);
 
-    populate_tab_strip(&mut commands, *tabs_root, ui_state.active_tab);
+    populate_tab_strip(&mut commands, *panels.tabs_root, ui_state.active_tab);
 
-    populate_library_panel(
-        &mut commands,
-        *library_root,
-        &available_hulls,
-        selected_hull,
-        active_slot,
-        &ui_state,
-        &shipbuilding_data,
-        &research_state,
-    );
-    populate_blueprint_panel(
-        &mut commands,
-        *blueprint_root,
-        selected_hull,
-        &ui_state,
-        &shipbuilding_data,
-    );
-    populate_analytics_panel(
-        &mut commands,
-        *analytics_root,
-        selected_hull,
-        current_summary.as_ref(),
-        preview_summary.as_ref(),
-        &ui_state,
-    );
+    match ui_state.active_tab {
+        ShipbuildingTab::Design => {
+            populate_library_panel(
+                &mut commands,
+                *panels.library_root,
+                &available_hulls,
+                selected_hull,
+                active_slot,
+                &ui_state,
+                &shipbuilding_data,
+                &research_state,
+            );
+            populate_blueprint_panel(
+                &mut commands,
+                *panels.blueprint_root,
+                selected_hull,
+                &ui_state,
+                &shipbuilding_data,
+            );
+            populate_analytics_panel(
+                &mut commands,
+                *panels.analytics_root,
+                selected_hull,
+                current_summary.as_ref(),
+                preview_summary.as_ref(),
+                &ui_state,
+            );
+        }
+        ShipbuildingTab::Archive => populate_archive_tab_native(
+            &mut commands,
+            *panels.library_root,
+            *panels.blueprint_root,
+            *panels.analytics_root,
+            &colonies,
+            &ships,
+            &refits,
+            &design_library,
+            &shipbuilding_data,
+            &research_state,
+            &ui_state,
+        ),
+        ShipbuildingTab::Construction => populate_construction_tab_native(
+            &mut commands,
+            *panels.library_root,
+            *panels.blueprint_root,
+            *panels.analytics_root,
+            &colonies,
+            &fleets,
+            &ships,
+            &projects,
+            &design_library,
+            &shipbuilding_data,
+            &research_state,
+            &launch_state,
+            &budget,
+            &ui_state,
+        ),
+        ShipbuildingTab::Components => populate_components_tab_native(
+            &mut commands,
+            *panels.library_root,
+            *panels.blueprint_root,
+            *panels.analytics_root,
+            &shipbuilding_data,
+            &technologies_data,
+            &research_state,
+            &engineering_projects,
+            &ui_state,
+        ),
+    }
 }
 
 fn populate_tab_strip(commands: &mut Commands, tabs_root: Entity, active_tab: ShipbuildingTab) {
@@ -829,11 +1170,61 @@ fn populate_library_panel(
                         .map(|slot| prettify_slot_name(&slot.slot_id))
                         .unwrap_or_else(|| "Select a slot".to_string())
                 ),
-                None => "No hull selected. Choose a hull in the legacy design tab, then switch back with F9 to inspect the native workspace.".to_string(),
+                None => "No hull selected. Use the hull controls above to seed a design directly in the native workspace.".to_string(),
             },
             12.0,
             Color::srgb(0.82, 0.87, 0.9),
         ));
+
+        parent
+            .spawn((
+                Node {
+                    width: Val::Percent(100.0),
+                    flex_direction: FlexDirection::Row,
+                    column_gap: Val::Px(8.0),
+                    ..default()
+                },
+            ))
+            .with_children(|row| {
+                row.spawn((
+                    Button,
+                    ShipbuildingSaveDesignButton,
+                    Node {
+                        flex_grow: 1.0,
+                        min_height: Val::Px(30.0),
+                        padding: UiRect::axes(Val::Px(8.0), Val::Px(6.0)),
+                        border: UiRect::all(Val::Px(1.0)),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.08, 0.18, 0.14)),
+                    BorderColor::all(Color::srgb(0.38, 0.94, 0.7)),
+                    Text::new("Save Design"),
+                    TextFont {
+                        font_size: 10.5,
+                        ..default()
+                    },
+                    TextColor(Color::srgb(0.92, 0.96, 0.98)),
+                ));
+                row.spawn((
+                    Button,
+                    ShipbuildingResetDesignButton,
+                    Node {
+                        flex_grow: 1.0,
+                        min_height: Val::Px(30.0),
+                        padding: UiRect::axes(Val::Px(8.0), Val::Px(6.0)),
+                        border: UiRect::all(Val::Px(1.0)),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.12, 0.08, 0.09)),
+                    BorderColor::all(Color::srgb(0.86, 0.42, 0.38)),
+                    Text::new("Reset Hull"),
+                    TextFont {
+                        font_size: 10.5,
+                        ..default()
+                    },
+                    TextColor(Color::srgb(0.92, 0.96, 0.98)),
+                ));
+            });
 
         if let Some(slot) = active_slot {
             parent.spawn(text_block(
@@ -933,7 +1324,6 @@ fn populate_library_panel(
 fn update_shipbuilding_hover_tooltip(
     mut commands: Commands,
     active_menu: Res<ActiveMenu>,
-    backend: Res<ShipbuildingUiBackend>,
     ui_state: Res<ShipbuildingUiState>,
     shipbuilding_data: Res<ShipbuildingData>,
     research_state: Res<ResearchState>,
@@ -943,7 +1333,7 @@ fn update_shipbuilding_hover_tooltip(
     mut tooltip_title: Single<&mut Text, (With<ShipbuildingHoverTooltipTitle>, Without<ShipbuildingHoverTooltipBody>)>,
     tooltip_body: Single<Entity, (With<ShipbuildingHoverTooltipBody>, Without<ShipbuildingHoverTooltipTitle>)>,
 ) {
-    if active_menu.current != GameMenu::Shipbuilding || !backend.uses_native_workspace() {
+    if active_menu.current != GameMenu::Shipbuilding {
         tooltip_node.display = Display::None;
         return;
     }
@@ -1366,7 +1756,6 @@ fn populate_analytics_panel(
 
 fn animate_shipbuilding_slot_feedback(
     active_menu: Res<ActiveMenu>,
-    backend: Res<ShipbuildingUiBackend>,
     ui_state: Res<ShipbuildingUiState>,
     time: Res<Time<Real>>,
     mut glows: Query<
@@ -1399,7 +1788,7 @@ fn animate_shipbuilding_slot_feedback(
         ),
     >,
 ) {
-    if active_menu.current != GameMenu::Shipbuilding || !backend.uses_native_workspace() {
+    if active_menu.current != GameMenu::Shipbuilding {
         return;
     }
 
@@ -1555,7 +1944,6 @@ fn animate_shipbuilding_slot_feedback(
 
 fn animate_shipbuilding_module_card_feedback(
     active_menu: Res<ActiveMenu>,
-    backend: Res<ShipbuildingUiBackend>,
     ui_state: Res<ShipbuildingUiState>,
     time: Res<Time<Real>>,
     mut cards: Query<
@@ -1569,7 +1957,7 @@ fn animate_shipbuilding_module_card_feedback(
         With<Button>,
     >,
 ) {
-    if active_menu.current != GameMenu::Shipbuilding || !backend.uses_native_workspace() {
+    if active_menu.current != GameMenu::Shipbuilding {
         return;
     }
 
@@ -2679,8 +3067,13 @@ fn select_hull_by_id(
     let Some(hull) = shipbuilding_data.get_hull(hull_id) else {
         return;
     };
+    if !shipbuilding_data.hull_is_unlocked(hull, research_state) {
+        return;
+    }
 
     ui_state.selected_hull_id = Some(hull.id.clone());
+    ui_state.selected_template_id = None;
+    ui_state.upgrade_source_template_id = None;
     ui_state.selected_mode = hull.default_construction_mode;
     ui_state.design_name = format!("{} Prototype", hull.display_name);
     ui_state.selected_modules.clear();
@@ -2733,6 +3126,1295 @@ fn hydrate_selected_design_native(
                 .insert(slot.slot_id.clone(), module.id.clone());
         }
     }
+}
+
+struct EngineeringStatusNative {
+    label: &'static str,
+    color: Color,
+}
+
+fn populate_archive_tab_native(
+    commands: &mut Commands,
+    library_root: Entity,
+    blueprint_root: Entity,
+    analytics_root: Entity,
+    colonies: &WorkspaceColonyQuery,
+    ships: &WorkspaceShipQuery,
+    refits: &Query<(Entity, &RefitProject)>,
+    design_library: &ShipDesignLibrary,
+    shipbuilding_data: &ShipbuildingData,
+    research_state: &ResearchState,
+    ui_state: &ShipbuildingUiState,
+) {
+    let _available_sorts = [
+        super::shipbuilding_state::DesignSort::HullType,
+        super::shipbuilding_state::DesignSort::DeltaV,
+        super::shipbuilding_state::DesignSort::Combat,
+        super::shipbuilding_state::DesignSort::Weight,
+    ];
+
+    let mut rows = build_design_browser_rows_native(design_library, shipbuilding_data, research_state, ships);
+    rows.sort_by(|left, right| compare_design_rows_native(left, right, ui_state.design_sort));
+    if ui_state.design_sort_descending {
+        rows.reverse();
+    }
+
+    let selected_row = ui_state
+        .selected_template_id
+        .and_then(|template_id| rows.iter().find(|row| row.template_id == template_id));
+    let selected_site = ui_state
+        .selected_colony
+        .and_then(|entity| colonies.get(entity).ok());
+    let selected_site_entity = selected_site.map(|(entity, _, _, _)| entity);
+    let selected_site_name = selected_site
+        .map(|(_, colony, _, _)| colony.name.clone())
+        .unwrap_or_else(|| "No retrofit site selected".to_string());
+    let selected_retrofit_candidates = selected_row
+        .map(|row| {
+            retrofit_candidate_count_native(
+                row.template_id,
+                selected_site_entity,
+                design_library,
+                ships,
+                refits,
+            )
+        })
+        .unwrap_or(0);
+    let total_retrofit_candidates = selected_row
+        .map(|row| retrofit_candidate_count_native(row.template_id, None, design_library, ships, refits))
+        .unwrap_or(0);
+    let selected_refit_count = selected_row
+        .map(|row| {
+            refits
+                .iter()
+                .filter(|(_, refit)| refit.new_template_id == row.template_id)
+                .count()
+        })
+        .unwrap_or(0);
+
+    commands.entity(library_root).with_children(|parent| {
+        parent.spawn(text_block(
+            "Design Archive".to_string(),
+            14.0,
+            Color::srgb(0.55, 0.95, 1.0),
+        ));
+        parent.spawn(text_block(
+            format!(
+                "Stored designs: {} | Sort: {}{}",
+                rows.len(),
+                ui_state.design_sort.label(),
+                if ui_state.design_sort_descending { " desc" } else { " asc" }
+            ),
+            11.0,
+            Color::srgb(0.82, 0.87, 0.9),
+        ));
+
+        if rows.is_empty() {
+            parent.spawn(text_block(
+                "No saved designs yet. Save the current draft from the Design tab to populate the archive.".to_string(),
+                11.0,
+                Color::srgb(0.6, 0.7, 0.76),
+            ));
+            return;
+        }
+
+        for row in &rows {
+            let selected = ui_state.selected_template_id == Some(row.template_id);
+            parent.spawn((
+                Button,
+                ShipbuildingArchiveSelectButton {
+                    template_id: row.template_id,
+                },
+                Node {
+                    width: Val::Percent(100.0),
+                    min_height: Val::Px(52.0),
+                    padding: UiRect::axes(Val::Px(8.0), Val::Px(6.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..default()
+                },
+                BackgroundColor(if selected {
+                    Color::srgb(0.1, 0.18, 0.24)
+                } else {
+                    Color::srgb(0.05, 0.08, 0.12)
+                }),
+                BorderColor::all(if selected {
+                    Color::srgb(0.0, 0.95, 1.0)
+                } else {
+                    Color::srgb(0.22, 0.35, 0.42)
+                }),
+                Text::new(format!(
+                    "{} v{}\n{} | {} | Active {} | {:.0} m/s",
+                    row.name,
+                    row.version,
+                    row.hull_name,
+                    row.construction_mode.display_name(),
+                    row.active_ship_count,
+                    row.summary.delta_v_ms,
+                )),
+                TextFont {
+                    font_size: 10.0,
+                    ..default()
+                },
+                TextColor(Color::srgb(0.88, 0.93, 0.96)),
+            ));
+        }
+    });
+
+    commands.entity(blueprint_root).with_children(|parent| {
+        parent.spawn(text_block(
+            "Archive Detail".to_string(),
+            15.0,
+            Color::srgb(0.55, 0.95, 1.0),
+        ));
+
+        let Some(row) = selected_row else {
+            parent.spawn(text_block(
+                "Select an archive entry to inspect it, upgrade it, or queue retrofits for older ships.".to_string(),
+                12.0,
+                Color::srgb(0.82, 0.87, 0.9),
+            ));
+            return;
+        };
+
+        parent.spawn(text_block(
+            format!(
+                "{} v{}\nHull: {}\nClass: {:?}\nMass: {}\nBuild: {:.0} BP\nActive ships: {}\nRetrofit candidates: {} total | {} at {}\nRefits in progress: {}",
+                row.name,
+                row.version,
+                row.hull_name,
+                row.hull_class,
+                format_mass_compact_tonnes(row.summary.launch_mass_t),
+                row.summary.build_points,
+                row.active_ship_count,
+                total_retrofit_candidates,
+                selected_retrofit_candidates,
+                selected_site_name,
+                selected_refit_count,
+            ),
+            12.0,
+            Color::srgb(0.84, 0.9, 0.94),
+        ));
+
+        parent.spawn((
+            Node {
+                width: Val::Percent(100.0),
+                flex_direction: FlexDirection::Row,
+                column_gap: Val::Px(8.0),
+                ..default()
+            },
+        )).with_children(|row_buttons| {
+            spawn_archive_action_button(
+                row_buttons,
+                "Open In Designer",
+                row.template_id,
+                ShipbuildingArchiveAction::Open,
+                Color::srgb(0.0, 0.95, 1.0),
+            );
+            spawn_archive_action_button(
+                row_buttons,
+                "Upgrade Design",
+                row.template_id,
+                ShipbuildingArchiveAction::Upgrade,
+                Color::srgb(0.86, 0.78, 0.34),
+            );
+            spawn_archive_action_button(
+                row_buttons,
+                "Queue Retrofits",
+                row.template_id,
+                ShipbuildingArchiveAction::QueueRetrofits,
+                Color::srgb(0.38, 0.94, 0.7),
+            );
+            spawn_archive_action_button(
+                row_buttons,
+                "Delete",
+                row.template_id,
+                ShipbuildingArchiveAction::Delete,
+                Color::srgb(1.0, 0.42, 0.38),
+            );
+        });
+
+        if !row.summary.resource_costs.is_empty() {
+            parent.spawn(text_block(
+                format!(
+                    "Material Cost\n{}",
+                    format_shipbuilding_resource_cost_lines(&row.summary.resource_costs, 6).join("\n")
+                ),
+                10.0,
+                Color::srgb(0.82, 0.87, 0.9),
+            ));
+        }
+    });
+
+    commands.entity(analytics_root).with_children(|parent| {
+        parent.spawn(text_block(
+            "Archive Metrics".to_string(),
+            14.0,
+            Color::srgb(0.55, 0.95, 1.0),
+        ));
+
+        parent.spawn(text_block(
+            format!("Retrofit Site: {}", selected_site_name),
+            11.0,
+            Color::srgb(0.82, 0.87, 0.9),
+        ));
+
+        let mut colony_rows: Vec<_> = colonies
+            .iter()
+            .filter(|(_, colony, _, _)| colony.building_count(BuildingType::Shipyard) > 0)
+            .collect();
+        colony_rows.sort_by(|left, right| left.1.name.cmp(&right.1.name));
+
+        for (entity, colony, _, _) in colony_rows {
+            let selected = ui_state.selected_colony == Some(entity);
+            parent.spawn((
+                Button,
+                ShipbuildingConstructionSiteButton { site: entity },
+                Node {
+                    width: Val::Percent(100.0),
+                    min_height: Val::Px(32.0),
+                    padding: UiRect::axes(Val::Px(8.0), Val::Px(6.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..default()
+                },
+                BackgroundColor(if selected {
+                    Color::srgb(0.1, 0.18, 0.24)
+                } else {
+                    Color::srgb(0.05, 0.08, 0.12)
+                }),
+                BorderColor::all(if selected {
+                    Color::srgb(0.0, 0.95, 1.0)
+                } else {
+                    Color::srgb(0.22, 0.35, 0.42)
+                }),
+                Text::new(format!("{} | {} shipyards", colony.name, colony.building_count(BuildingType::Shipyard))),
+                TextFont {
+                    font_size: 10.0,
+                    ..default()
+                },
+                TextColor(Color::srgb(0.88, 0.93, 0.96)),
+            ));
+        }
+
+        if let Some(row) = selected_row {
+            spawn_analytics_gauge(
+                parent,
+                "DV",
+                "Delta-V",
+                row.summary.delta_v_ms,
+                row.summary.delta_v_ms,
+                gauge_capacity(row.summary.delta_v_ms, row.summary.delta_v_ms, 100.0),
+                "m/s",
+                Color::srgb(0.0, 0.95, 1.0),
+            );
+            spawn_analytics_gauge(
+                parent,
+                "CV",
+                "Combat Value",
+                combat_score_native(&row.summary),
+                combat_score_native(&row.summary),
+                gauge_capacity(
+                    combat_score_native(&row.summary),
+                    combat_score_native(&row.summary),
+                    10.0,
+                ),
+                "",
+                Color::srgb(1.0, 0.6, 0.32),
+            );
+            spawn_analytics_gauge(
+                parent,
+                "SNS",
+                "Sensor Range",
+                row.summary.sensor_range_au,
+                row.summary.sensor_range_au,
+                gauge_capacity(row.summary.sensor_range_au, row.summary.sensor_range_au, 0.1),
+                "AU",
+                Color::srgb(0.5, 0.92, 0.9),
+            );
+            spawn_analytics_chip_row(
+                parent,
+                &[
+                    (
+                        "MASS",
+                        format_mass_compact_tonnes(row.summary.launch_mass_t),
+                        String::new(),
+                        Color::srgb(0.5, 0.86, 1.0),
+                    ),
+                    (
+                        "CREW",
+                        format!("{:.0}", row.summary.crew),
+                        String::new(),
+                        Color::srgb(0.86, 0.82, 0.58),
+                    ),
+                    (
+                        "MODE",
+                        row.construction_mode.display_name().to_string(),
+                        String::new(),
+                        Color::srgb(0.68, 0.9, 0.76),
+                    ),
+                    (
+                        "ACTIVE",
+                        row.active_ship_count.to_string(),
+                        String::new(),
+                        Color::srgb(0.5, 0.92, 0.58),
+                    ),
+                    (
+                        "RETRO",
+                        selected_retrofit_candidates.to_string(),
+                        format!("{} total", total_retrofit_candidates),
+                        Color::srgb(0.86, 0.78, 0.34),
+                    ),
+                ],
+            );
+        } else {
+            parent.spawn(text_block(
+                "Archive metrics appear here once an entry is selected.".to_string(),
+                11.0,
+                Color::srgb(0.6, 0.7, 0.76),
+            ));
+        }
+    });
+}
+
+fn populate_construction_tab_native(
+    commands: &mut Commands,
+    library_root: Entity,
+    blueprint_root: Entity,
+    analytics_root: Entity,
+    colonies: &WorkspaceColonyQuery,
+    fleets: &WorkspaceFleetQuery,
+    ships: &WorkspaceShipQuery,
+    projects: &Query<(Entity, &ShipConstructionProject)>,
+    design_library: &ShipDesignLibrary,
+    shipbuilding_data: &ShipbuildingData,
+    research_state: &ResearchState,
+    launch_state: &LaunchCapacityState,
+    budget: &GlobalBudget,
+    ui_state: &ShipbuildingUiState,
+) {
+    let design_rows = build_design_browser_rows_native(design_library, shipbuilding_data, research_state, ships);
+    let selected_colony = ui_state
+        .selected_colony
+        .and_then(|entity| colonies.get(entity).ok());
+    let fleet_rows = build_workspace_fleet_rows(
+        selected_colony.map(|(entity, _, _, _)| entity),
+        fleets,
+    );
+    let selected_design = ui_state
+        .construction_design_id
+        .and_then(|template_id| design_library.get_template(&template_id));
+    let selected_summary = selected_design.and_then(|template| {
+        shipbuilding_data.summarize_design(&design_from_template_native(template), research_state)
+    });
+    let queue_errors = selected_design
+        .map(|template| {
+            crate::shipbuilding::systems::queue_validation_errors(
+                selected_colony.map(|(_, colony, _, _)| colony),
+                shipbuilding_data.get_hull(&template.hull_id),
+                selected_summary.as_ref(),
+                template.construction_mode,
+            )
+        })
+        .unwrap_or_else(|| vec!["Select a saved design before queueing.".to_string()]);
+
+    commands.entity(library_root).with_children(|parent| {
+        parent.spawn(text_block(
+            "Build Site".to_string(),
+            14.0,
+            Color::srgb(0.55, 0.95, 1.0),
+        ));
+
+        let mut colony_rows: Vec<_> = colonies
+            .iter()
+            .filter(|(_, colony, _, _)| colony.building_count(BuildingType::Shipyard) > 0)
+            .collect();
+        colony_rows.sort_by(|left, right| left.1.name.cmp(&right.1.name));
+
+        if colony_rows.is_empty() {
+            parent.spawn(text_block(
+                "No operational shipyards found.".to_string(),
+                11.0,
+                Color::srgb(1.0, 0.55, 0.45),
+            ));
+        }
+
+        for (entity, colony, _, _) in colony_rows {
+            let selected = ui_state.selected_colony == Some(entity);
+            parent.spawn((
+                Button,
+                ShipbuildingConstructionSiteButton { site: entity },
+                Node {
+                    width: Val::Percent(100.0),
+                    min_height: Val::Px(44.0),
+                    padding: UiRect::axes(Val::Px(8.0), Val::Px(6.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..default()
+                },
+                BackgroundColor(if selected {
+                    Color::srgb(0.1, 0.18, 0.24)
+                } else {
+                    Color::srgb(0.05, 0.08, 0.12)
+                }),
+                BorderColor::all(if selected {
+                    Color::srgb(0.0, 0.95, 1.0)
+                } else {
+                    Color::srgb(0.22, 0.35, 0.42)
+                }),
+                Text::new(format!(
+                    "{}\n{} shipyards | {:.0} t/yr launch",
+                    colony.name,
+                    colony.building_count(BuildingType::Shipyard),
+                    crate::shipbuilding::systems::annual_launch_capacity_t(colony),
+                )),
+                TextFont {
+                    font_size: 10.0,
+                    ..default()
+                },
+                TextColor(Color::srgb(0.88, 0.93, 0.96)),
+            ));
+        }
+
+        parent.spawn(text_block(
+            "Fleet Routing".to_string(),
+            13.0,
+            Color::srgb(0.55, 0.95, 1.0),
+        ));
+        parent.spawn((
+            Button,
+            ShipbuildingConstructionFleetButton { fleet: None },
+            Node {
+                width: Val::Percent(100.0),
+                min_height: Val::Px(32.0),
+                padding: UiRect::axes(Val::Px(8.0), Val::Px(6.0)),
+                border: UiRect::all(Val::Px(1.0)),
+                ..default()
+            },
+            BackgroundColor(if ui_state.construction_target_fleet.is_none() {
+                Color::srgb(0.1, 0.18, 0.24)
+            } else {
+                Color::srgb(0.05, 0.08, 0.12)
+            }),
+            BorderColor::all(if ui_state.construction_target_fleet.is_none() {
+                Color::srgb(0.0, 0.95, 1.0)
+            } else {
+                Color::srgb(0.22, 0.35, 0.42)
+            }),
+            Text::new("Standalone ship pool"),
+            TextFont {
+                font_size: 10.5,
+                ..default()
+            },
+            TextColor(Color::srgb(0.88, 0.93, 0.96)),
+        ));
+
+        for fleet in &fleet_rows {
+            let selected = ui_state.construction_target_fleet == Some(fleet.entity);
+            parent.spawn((
+                Button,
+                ShipbuildingConstructionFleetButton {
+                    fleet: Some(fleet.entity),
+                },
+                Node {
+                    width: Val::Percent(100.0),
+                    min_height: Val::Px(38.0),
+                    padding: UiRect::axes(Val::Px(8.0), Val::Px(6.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..default()
+                },
+                BackgroundColor(if selected {
+                    Color::srgb(0.1, 0.18, 0.24)
+                } else {
+                    Color::srgb(0.05, 0.08, 0.12)
+                }),
+                BorderColor::all(if selected {
+                    Color::srgb(0.0, 0.95, 1.0)
+                } else {
+                    Color::srgb(0.22, 0.35, 0.42)
+                }),
+                Text::new(format!(
+                    "{}\n{:.4} AU | {} ships{}",
+                    fleet.name,
+                    fleet.orbit_radius_au,
+                    fleet.ship_count,
+                    if fleet.stationary { " | station" } else { "" },
+                )),
+                TextFont {
+                    font_size: 10.0,
+                    ..default()
+                },
+                TextColor(Color::srgb(0.88, 0.93, 0.96)),
+            ));
+        }
+    });
+
+    commands.entity(blueprint_root).with_children(|parent| {
+        parent.spawn(text_block(
+            "Queue Control".to_string(),
+            15.0,
+            Color::srgb(0.55, 0.95, 1.0),
+        ));
+
+        for row in &design_rows {
+            let selected = ui_state.construction_design_id == Some(row.template_id);
+            parent.spawn((
+                Button,
+                ShipbuildingConstructionDesignButton {
+                    template_id: row.template_id,
+                },
+                Node {
+                    width: Val::Percent(100.0),
+                    min_height: Val::Px(44.0),
+                    padding: UiRect::axes(Val::Px(8.0), Val::Px(6.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..default()
+                },
+                BackgroundColor(if selected {
+                    Color::srgb(0.1, 0.18, 0.24)
+                } else {
+                    Color::srgb(0.05, 0.08, 0.12)
+                }),
+                BorderColor::all(if selected {
+                    Color::srgb(0.0, 0.95, 1.0)
+                } else {
+                    Color::srgb(0.22, 0.35, 0.42)
+                }),
+                Text::new(format!(
+                    "{} v{}\n{} | {} | {:.0} BP",
+                    row.name,
+                    row.version,
+                    row.hull_name,
+                    row.construction_mode.display_name(),
+                    row.summary.build_points,
+                )),
+                TextFont {
+                    font_size: 10.0,
+                    ..default()
+                },
+                TextColor(Color::srgb(0.88, 0.93, 0.96)),
+            ));
+        }
+
+        if let Some(template) = selected_design {
+            parent.spawn(text_block(
+                format!(
+                    "Selected: {} v{}\nMode: {}\nMass: {}\nDelta-V: {:.0} m/s",
+                    template.name,
+                    template.version,
+                    template.construction_mode.display_name(),
+                    selected_summary
+                        .as_ref()
+                        .map(|summary| format_mass_compact_tonnes(summary.launch_mass_t))
+                        .unwrap_or_else(|| "Unknown".to_string()),
+                    selected_summary
+                        .as_ref()
+                        .map(|summary| summary.delta_v_ms)
+                        .unwrap_or_default(),
+                ),
+                11.5,
+                Color::srgb(0.84, 0.9, 0.94),
+            ));
+        }
+
+        parent.spawn((
+            Button,
+            ShipbuildingQueueSelectedDesignButton,
+            Node {
+                width: Val::Percent(100.0),
+                min_height: Val::Px(34.0),
+                padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
+                border: UiRect::all(Val::Px(1.0)),
+                ..default()
+            },
+            BackgroundColor(if queue_errors.is_empty() {
+                Color::srgb(0.08, 0.2, 0.14)
+            } else {
+                Color::srgb(0.14, 0.08, 0.09)
+            }),
+            BorderColor::all(if queue_errors.is_empty() {
+                Color::srgb(0.38, 0.94, 0.7)
+            } else {
+                Color::srgb(1.0, 0.42, 0.38)
+            }),
+            Text::new("Queue Selected Design"),
+            TextFont {
+                font_size: 11.0,
+                ..default()
+            },
+            TextColor(Color::srgb(0.92, 0.96, 0.98)),
+        ));
+
+        for error in &queue_errors {
+            parent.spawn(text_block(
+                error.clone(),
+                10.0,
+                Color::srgb(1.0, 0.55, 0.45),
+            ));
+        }
+
+        parent.spawn(text_block(
+            "If the selected fleet leaves the build site before launch or orbital completion, the ship falls back to an independent hull automatically.".to_string(),
+            9.8,
+            Color::srgb(0.6, 0.7, 0.76),
+        ));
+    });
+
+    commands.entity(analytics_root).with_children(|parent| {
+        parent.spawn(text_block(
+            format!("Shipyard Facilities | Treasury {}", crate::economy::format_currency(budget.treasury)),
+            14.0,
+            Color::srgb(0.55, 0.95, 1.0),
+        ));
+
+        let mut colony_rows: Vec<_> = colonies
+            .iter()
+            .filter(|(_, colony, _, _)| colony.building_count(BuildingType::Shipyard) > 0)
+            .collect();
+        colony_rows.sort_by(|left, right| left.1.name.cmp(&right.1.name));
+
+        for (entity, colony, _, stockpile) in colony_rows {
+            let shipyard_count = colony.building_count(BuildingType::Shipyard) as f64;
+            let available_launch = launch_state
+                .available_mass_t
+                .get(&entity)
+                .copied()
+                .unwrap_or_else(|| crate::shipbuilding::systems::annual_launch_capacity_t(colony));
+            let max_launch = crate::shipbuilding::systems::annual_launch_capacity_t(colony);
+            parent.spawn(text_block(
+                format!(
+                    "{}\n{} shipyards | {:.0} / {:.0} t launch | selected {}",
+                    colony.name,
+                    colony.building_count(BuildingType::Shipyard),
+                    available_launch,
+                    max_launch,
+                    if ui_state.selected_colony == Some(entity) { "yes" } else { "no" },
+                ),
+                11.0,
+                Color::srgb(0.84, 0.9, 0.94),
+            ));
+
+            if let Some(stockpile) = stockpile {
+                parent.spawn(text_block(
+                    format!(
+                        "Stockpile Fe {:.2} Mt | Al {:.2} Mt | Polymers {:.2} Mt",
+                        stockpile.get(&crate::economy::ResourceType::Iron),
+                        stockpile.get(&crate::economy::ResourceType::Aluminum),
+                        stockpile.get(&crate::economy::ResourceType::Polymers),
+                    ),
+                    9.8,
+                    Color::srgb(0.6, 0.7, 0.76),
+                ));
+            }
+
+            for (_, project) in projects.iter().filter(|(_, project)| project.build_site == entity) {
+                parent.spawn(text_block(
+                    format!(
+                        "  {} | {} | {:.0}% | {}",
+                        project.design_name,
+                        project.construction_mode.display_name(),
+                        project.progress_percent() * 100.0,
+                        if project.awaiting_resources {
+                            "Awaiting Resources".to_string()
+                        } else {
+                            project.state.label().to_string()
+                        }
+                    ),
+                    9.8,
+                    Color::srgb(0.82, 0.87, 0.9),
+                ));
+            }
+
+            if shipyard_count > 0.0 {
+                parent.spawn((Node { height: Val::Px(4.0), ..default() },));
+            }
+        }
+    });
+}
+
+fn populate_components_tab_native(
+    commands: &mut Commands,
+    library_root: Entity,
+    blueprint_root: Entity,
+    analytics_root: Entity,
+    shipbuilding_data: &ShipbuildingData,
+    technologies_data: &TechnologiesData,
+    research_state: &ResearchState,
+    engineering_projects: &Query<&EngineeringProject>,
+    ui_state: &ShipbuildingUiState,
+) {
+    let mut modules: Vec<_> = shipbuilding_data
+        .modules
+        .values()
+        .filter(|module| {
+            technologies_data
+                .get_component(module.engineering_project_id())
+                .is_some_and(|component| {
+                    component.required_tech.is_empty()
+                        || research_state.is_unlocked(&component.required_tech)
+                })
+        })
+        .collect();
+    modules.sort_by(|left, right| left.display_name.cmp(&right.display_name));
+    let selected_module = ui_state
+        .selected_component_module_id
+        .as_deref()
+        .and_then(|module_id| shipbuilding_data.get_module(module_id))
+        .filter(|module| modules.iter().any(|visible| visible.id == module.id))
+        .or_else(|| modules.first().copied());
+
+    commands.entity(library_root).with_children(|parent| {
+        parent.spawn(text_block(
+            "Component Database".to_string(),
+            14.0,
+            Color::srgb(0.55, 0.95, 1.0),
+        ));
+        parent.spawn(text_block(
+            format!("Available projects: {}", modules.len()),
+            11.0,
+            Color::srgb(0.82, 0.87, 0.9),
+        ));
+
+        parent
+            .spawn((
+                Node {
+                    width: Val::Percent(100.0),
+                    flex_grow: 1.0,
+                    min_height: Val::Px(0.0),
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(4.0),
+                    overflow: Overflow::scroll_y(),
+                    ..default()
+                },
+            ))
+            .with_children(|list| {
+                for module in modules {
+                    let selected = selected_module.is_some_and(|selected_module| selected_module.id == module.id);
+                    let status = engineering_status_native(
+                        Some(module.engineering_project_id()),
+                        technologies_data,
+                        research_state,
+                        engineering_projects,
+                    );
+                    let engineering_complete = research_state.is_component_completed(module.engineering_project_id());
+                    let row_background = if selected {
+                        if engineering_complete {
+                            Color::srgb(0.1, 0.18, 0.24)
+                        } else {
+                            Color::srgb(0.14, 0.14, 0.16)
+                        }
+                    } else if engineering_complete {
+                        Color::srgb(0.05, 0.08, 0.12)
+                    } else {
+                        Color::srgb(0.08, 0.08, 0.09)
+                    };
+                    let row_border = if selected {
+                        Color::srgb(0.0, 0.95, 1.0)
+                    } else if engineering_complete {
+                        Color::srgb(0.22, 0.35, 0.42)
+                    } else {
+                        Color::srgb(0.28, 0.28, 0.3)
+                    };
+                    let row_text = if selected {
+                        Color::srgb(0.88, 0.93, 0.96)
+                    } else if engineering_complete {
+                        status.color
+                    } else {
+                        Color::srgb(0.56, 0.58, 0.62)
+                    };
+                    list.spawn((
+                        Button,
+                        ShipbuildingComponentDatabaseButton {
+                            module_id: module.id.clone(),
+                        },
+                        Node {
+                            width: Val::Percent(100.0),
+                            min_height: Val::Px(52.0),
+                            padding: UiRect::axes(Val::Px(8.0), Val::Px(6.0)),
+                            border: UiRect::all(Val::Px(1.0)),
+                            ..default()
+                        },
+                        BackgroundColor(row_background),
+                        BorderColor::all(row_border),
+                        Text::new(format!(
+                            "{}\n{} | {} | {:.0} BP | {}",
+                            module.display_name,
+                            module.category.display_name(),
+                            module.size,
+                            module.build_points,
+                            status.label,
+                        )),
+                        TextFont {
+                            font_size: 9.8,
+                            ..default()
+                        },
+                        TextColor(row_text),
+                    ));
+                }
+            });
+    });
+
+    commands.entity(blueprint_root).with_children(|parent| {
+        parent.spawn(text_block(
+            "Component Detail".to_string(),
+            15.0,
+            Color::srgb(0.55, 0.95, 1.0),
+        ));
+
+        let Some(module) = selected_module else {
+            parent.spawn(text_block(
+                "No engineering projects available yet. Research new technologies to unlock ship components.".to_string(),
+                11.0,
+                Color::srgb(0.6, 0.7, 0.76),
+            ));
+            return;
+        };
+
+        let tech_name = module
+            .required_tech
+            .as_deref()
+            .and_then(|tech_id| technologies_data.get_tech(tech_id))
+            .map(|tech| tech.name.clone())
+            .unwrap_or_else(|| "No technology gate".to_string());
+        let component_name = module
+            .engineering_project_id();
+        let component_name = technologies_data
+            .get_component(component_name)
+            .map(|component| component.name.clone())
+            .unwrap_or_else(|| module.display_name.clone());
+        let status = engineering_status_native(
+            Some(module.engineering_project_id()),
+            technologies_data,
+            research_state,
+            engineering_projects,
+        );
+
+        parent.spawn(text_block(module.display_name.clone(), 14.0, Color::srgb(0.84, 0.9, 0.94)));
+        parent.spawn(text_block(module.description.clone(), 10.5, Color::srgb(0.6, 0.7, 0.76)));
+        parent.spawn(text_block(
+            format!(
+                "Category: {}\nSize: {}\nBuild: {:.0} BP\nMass: {}\nPower: {}",
+                module.category.display_name(),
+                module.size,
+                module.build_points,
+                format_mass_compact_tonnes(module.dry_mass_t),
+                format_power_profile_native(module),
+            ),
+            11.0,
+            Color::srgb(0.82, 0.87, 0.9),
+        ));
+        parent.spawn(text_block(
+            format!(
+                "Technology: {}\nEngineering: {}\nStatus: {}",
+                tech_name,
+                component_name,
+                status.label,
+            ),
+            11.0,
+            status.color,
+        ));
+        parent.spawn((
+            Button,
+            ShipbuildingOpenEngineeringButton,
+            Node {
+                width: Val::Px(220.0),
+                min_height: Val::Px(40.0),
+                padding: UiRect::axes(Val::Px(14.0), Val::Px(8.0)),
+                border: UiRect::all(Val::Px(2.0)),
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.06, 0.2, 0.24)),
+            BorderColor::all(Color::srgb(0.2, 0.92, 0.98)),
+            Text::new(match status.label {
+                "Engineering complete. Module can be installed now." => "Engineering Complete",
+                "Engineering in progress." => "Open Engineering Queue",
+                _ => "Open Component Engineering",
+            }),
+            TextFont {
+                font_size: 11.5,
+                ..default()
+            },
+            TextColor(Color::srgb(0.92, 0.96, 0.98)),
+        ));
+    });
+
+    commands.entity(analytics_root).with_children(|parent| {
+        parent.spawn(text_block(
+            "Component Analytics".to_string(),
+            14.0,
+            Color::srgb(0.55, 0.95, 1.0),
+        ));
+
+        if let Some(module) = selected_module {
+            spawn_analytics_gauge(
+                parent,
+                "BP",
+                "Build Points",
+                module.build_points,
+                module.build_points,
+                gauge_capacity(module.build_points, module.build_points, 10.0),
+                "BP",
+                Color::srgb(0.5, 0.92, 0.58),
+            );
+            spawn_analytics_gauge(
+                parent,
+                "MASS",
+                "Dry Mass",
+                module.dry_mass_t,
+                module.dry_mass_t,
+                gauge_capacity(module.dry_mass_t, module.dry_mass_t, 1.0),
+                "t",
+                Color::srgb(0.5, 0.86, 1.0),
+            );
+            spawn_analytics_gauge(
+                parent,
+                "NET",
+                "Net Power",
+                module.power_generation_mw - module.power_draw_mw,
+                module.power_generation_mw - module.power_draw_mw,
+                gauge_capacity(
+                    module.power_generation_mw - module.power_draw_mw,
+                    module.power_generation_mw - module.power_draw_mw,
+                    1.0,
+                ),
+                "MW",
+                Color::srgb(0.0, 0.95, 1.0),
+            );
+            spawn_analytics_chip_row(
+                parent,
+                &[
+                    (
+                        "THR",
+                        format!("{:.0} kN", module.thrust_kn),
+                        String::new(),
+                        Color::srgb(1.0, 0.6, 0.32),
+                    ),
+                    (
+                        "BUILD",
+                        format!("{:.0} BP/yr", module.construction_capacity_bp_per_year),
+                        String::new(),
+                        Color::srgb(0.5, 0.92, 0.9),
+                    ),
+                    (
+                        "LAUNCH",
+                        format!("{:.0} t/yr", module.launch_capacity_t_per_year),
+                        String::new(),
+                        Color::srgb(0.86, 0.82, 0.58),
+                    ),
+                ],
+            );
+
+            if !module.resource_costs.is_empty() {
+                parent.spawn(text_block(
+                    format!(
+                        "Material Cost\n{}",
+                        format_shipbuilding_resource_cost_lines(&module.resource_costs, 6).join("\n")
+                    ),
+                    10.0,
+                    Color::srgb(0.82, 0.87, 0.9),
+                ));
+            }
+        }
+    });
+}
+
+fn spawn_archive_action_button(
+    parent: &mut ChildSpawnerCommands,
+    label: &str,
+    template_id: uuid::Uuid,
+    action: ShipbuildingArchiveAction,
+    accent: Color,
+) {
+    parent.spawn((
+        Button,
+        ShipbuildingArchiveActionButton { template_id, action },
+        Node {
+            flex_grow: 1.0,
+            min_height: Val::Px(32.0),
+            padding: UiRect::axes(Val::Px(8.0), Val::Px(6.0)),
+            border: UiRect::all(Val::Px(1.0)),
+            ..default()
+        },
+        BackgroundColor(accent.with_alpha(0.14)),
+        BorderColor::all(accent),
+        Text::new(label),
+        TextFont {
+            font_size: 10.0,
+            ..default()
+        },
+        TextColor(Color::srgb(0.92, 0.96, 0.98)),
+    ));
+}
+
+fn build_workspace_fleet_rows(
+    selected_colony: Option<Entity>,
+    fleets: &WorkspaceFleetQuery,
+) -> Vec<WorkspaceFleetRow> {
+    let Some(build_site) = selected_colony else {
+        return Vec::new();
+    };
+
+    let mut rows: Vec<_> = fleets
+        .iter()
+        .filter_map(|(fleet_entity, fleet, orbit, maneuver)| {
+            if maneuver.is_some() || orbit.body != build_site {
+                return None;
+            }
+
+            Some(WorkspaceFleetRow {
+                entity: fleet_entity,
+                name: fleet.name.clone(),
+                orbit_radius_au: orbit.radius_au,
+                stationary: orbit.direction == 0.0,
+                ship_count: fleet.ships.len(),
+            })
+        })
+        .collect();
+    rows.sort_by(|left, right| left.name.cmp(&right.name));
+    rows
+}
+
+fn template_descends_from_native(
+    design_library: &ShipDesignLibrary,
+    candidate_id: uuid::Uuid,
+    ancestor_id: uuid::Uuid,
+) -> bool {
+    let mut cursor = Some(candidate_id);
+    while let Some(template_id) = cursor {
+        if template_id == ancestor_id {
+            return true;
+        }
+
+        cursor = design_library
+            .get_template(&template_id)
+            .and_then(|template| template.parent_template_id);
+    }
+
+    false
+}
+
+fn template_has_descendants_native(
+    design_library: &ShipDesignLibrary,
+    template_id: uuid::Uuid,
+) -> bool {
+    design_library
+        .templates
+        .keys()
+        .copied()
+        .filter(|candidate_id| *candidate_id != template_id)
+        .any(|candidate_id| template_descends_from_native(design_library, candidate_id, template_id))
+}
+
+fn retrofit_candidate_count_native(
+    template_id: uuid::Uuid,
+    build_site: Option<Entity>,
+    design_library: &ShipDesignLibrary,
+    ships: &WorkspaceShipQuery,
+    refits: &Query<(Entity, &RefitProject)>,
+) -> usize {
+    let active_refits: std::collections::HashSet<_> =
+        refits.iter().map(|(_, refit)| refit.ship_entity).collect();
+
+    ships
+        .iter()
+        .filter(|(ship_entity, ship, assignment)| {
+            !active_refits.contains(ship_entity)
+                && assignment.template_id != template_id
+                && build_site.is_none_or(|site| ship.parked_body == site)
+                && template_descends_from_native(design_library, template_id, assignment.template_id)
+        })
+        .count()
+}
+
+fn build_design_browser_rows_native(
+    design_library: &ShipDesignLibrary,
+    shipbuilding_data: &ShipbuildingData,
+    research_state: &ResearchState,
+    ships: &WorkspaceShipQuery,
+) -> Vec<WorkspaceDesignRow> {
+    let mut rows = Vec::new();
+    let mut active_ship_counts = HashMap::new();
+    for (_, _, assignment) in ships.iter() {
+        *active_ship_counts.entry(assignment.template_id).or_insert(0usize) += 1;
+    }
+
+    for template in design_library.all_templates() {
+        let draft = design_from_template_native(template);
+        if let Some(summary) = shipbuilding_data.summarize_design(&draft, research_state) {
+            let hull_name = shipbuilding_data
+                .get_hull(&template.hull_id)
+                .map(|hull| hull.display_name.clone())
+                .unwrap_or_else(|| template.hull_id.clone());
+            rows.push(WorkspaceDesignRow {
+                template_id: template.id,
+                name: template.name.clone(),
+                version: template.version,
+                hull_name,
+                hull_class: summary.ship_class,
+                summary,
+                construction_mode: template.construction_mode,
+                active_ship_count: active_ship_counts.get(&template.id).copied().unwrap_or(0),
+            });
+        }
+    }
+    rows
+}
+
+fn compare_design_rows_native(
+    left: &WorkspaceDesignRow,
+    right: &WorkspaceDesignRow,
+    sort: super::shipbuilding_state::DesignSort,
+) -> std::cmp::Ordering {
+    match sort {
+        super::shipbuilding_state::DesignSort::HullType => left
+            .hull_class
+            .display_name()
+            .cmp(right.hull_class.display_name())
+            .then_with(|| left.name.cmp(&right.name)),
+        super::shipbuilding_state::DesignSort::DeltaV => left
+            .summary
+            .delta_v_ms
+            .partial_cmp(&right.summary.delta_v_ms)
+            .unwrap_or(std::cmp::Ordering::Equal),
+        super::shipbuilding_state::DesignSort::Combat => combat_score_native(&left.summary)
+            .partial_cmp(&combat_score_native(&right.summary))
+            .unwrap_or(std::cmp::Ordering::Equal),
+        super::shipbuilding_state::DesignSort::Weight => left
+            .summary
+            .launch_mass_t
+            .partial_cmp(&right.summary.launch_mass_t)
+            .unwrap_or(std::cmp::Ordering::Equal),
+    }
+}
+
+fn combat_score_native(summary: &ShipDesignSummary) -> f64 {
+    summary.ordnance_capacity_t * 12.0
+        + summary.magazine_capacity_t * 6.0
+        + summary.sensor_range_au * 20.0
+        + summary.thrust_kn * 0.01
+        + summary.power_generation_mw.max(0.0) * 0.05
+}
+
+fn design_from_template_native(
+    template: &crate::shipbuilding::ShipDesignTemplate,
+) -> ShipDesignDraft {
+    ShipDesignDraft {
+        name: template.name.clone(),
+        hull_id: template.hull_id.clone(),
+        modules: template.modules.clone(),
+        construction_mode: template.construction_mode,
+    }
+}
+
+fn save_current_design_template_native(
+    design_library: &mut ShipDesignLibrary,
+    ui_state: &mut ShipbuildingUiState,
+) -> Option<uuid::Uuid> {
+    let design = build_preview_design(ui_state)?;
+    let name = if design.name.trim().is_empty() {
+        "Unnamed Design".to_string()
+    } else {
+        design.name.trim().to_string()
+    };
+
+    let parent_template_id = ui_state.upgrade_source_template_id;
+    let version = parent_template_id
+        .and_then(|template_id| design_library.get_template(&template_id).map(|template| template.version + 1))
+        .unwrap_or_else(|| design_library.latest_version(&name) + 1);
+
+    let template_id = uuid::Uuid::new_v4();
+    design_library.save_template(crate::shipbuilding::ShipDesignTemplate {
+        id: template_id,
+        name: name.clone(),
+        hull_id: design.hull_id,
+        modules: design.modules,
+        version,
+        parent_template_id,
+        created_at_game_time: 0.0,
+        construction_mode: design.construction_mode,
+    });
+
+    ui_state.selected_template_id = Some(template_id);
+    ui_state.construction_design_id = Some(template_id);
+    ui_state.upgrade_source_template_id = None;
+    Some(template_id)
+}
+
+fn load_template_into_ui_native(
+    ui_state: &mut ShipbuildingUiState,
+    shipbuilding_data: &ShipbuildingData,
+    research_state: &ResearchState,
+    template: &crate::shipbuilding::ShipDesignTemplate,
+) {
+    ui_state.selected_template_id = Some(template.id);
+    ui_state.selected_hull_id = Some(template.hull_id.clone());
+    ui_state.design_name = template.name.clone();
+    ui_state.selected_mode = template.construction_mode;
+    ui_state.selected_modules = template
+        .modules
+        .iter()
+        .map(|selection| (selection.slot_id.clone(), selection.module_id.clone()))
+        .collect();
+    ui_state.selected_slot = template.modules.first().map(|selection| selection.slot_id.clone());
+    ui_state.preview_slot = None;
+    ui_state.preview_module_id = None;
+    hydrate_selected_design_native(ui_state, shipbuilding_data, research_state);
+}
+
+fn engineering_status_native(
+    component_id: Option<&str>,
+    technologies_data: &TechnologiesData,
+    research_state: &ResearchState,
+    engineering_projects: &Query<&EngineeringProject>,
+) -> EngineeringStatusNative {
+    let Some(component_id) = component_id else {
+        return EngineeringStatusNative {
+            label: "Production-ready: no engineering project required.",
+            color: Color::srgb(0.6, 0.7, 0.76),
+        };
+    };
+
+    if research_state.is_component_completed(component_id) {
+        return EngineeringStatusNative {
+            label: "Engineering complete. Module can be installed now.",
+            color: Color::srgb(0.5, 0.92, 0.62),
+        };
+    }
+
+    if engineering_projects
+        .iter()
+        .any(|project| project.component_id == component_id)
+    {
+        return EngineeringStatusNative {
+            label: "Engineering in progress.",
+            color: Color::srgb(0.98, 0.78, 0.36),
+        };
+    }
+
+    if let Some(component) = technologies_data.get_component(component_id) {
+        if component.required_tech.is_empty() || research_state.is_unlocked(&component.required_tech) {
+            return EngineeringStatusNative {
+                label: "Engineering available. Open Research to start the project.",
+                color: Color::srgb(0.55, 0.95, 1.0),
+            };
+        }
+
+        return EngineeringStatusNative {
+            label: "Locked by prerequisite technology.",
+            color: Color::srgb(1.0, 0.45, 0.4),
+        };
+    }
+
+    EngineeringStatusNative {
+        label: "Engineering definition missing from technology data.",
+        color: Color::srgb(1.0, 0.45, 0.4),
+    }
+}
+
+fn format_power_profile_native(module: &crate::shipbuilding::ShipModuleDefinition) -> String {
+    format!(
+        "Gen {:+.1} MW | Draw {:.1} MW | Net {:+.1} MW",
+        module.power_generation_mw,
+        module.power_draw_mw,
+        module.power_generation_mw - module.power_draw_mw,
+    )
 }
 
 fn effective_design_name(ui_state: &ShipbuildingUiState, fallback_hull_name: &str) -> String {
