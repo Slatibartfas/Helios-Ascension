@@ -3,6 +3,9 @@ use bevy_egui::egui;
 
 use super::dashboard::format_mass_compact_tonnes;
 use super::shipbuilding_state::{DesignSort, ShipRosterRow, ShipbuildingTab, ShipbuildingUiState};
+use super::shipbuilding_tooltip::{
+    build_module_tooltip, build_slot_tooltip, prettify_slot_name, render_shipbuilding_tooltip,
+};
 use super::shipbuilding_workspace::ShipbuildingUiBackend;
 use super::*;
 use crate::economy::ResourceType;
@@ -986,6 +989,7 @@ fn draw_hull_editor(
         let clicked_slot = draw_ship_schematic(
             ui,
             shipbuilding_data,
+            research_state,
             hull,
             &ui_state.selected_modules,
             ui_state.selected_slot.as_deref(),
@@ -1011,6 +1015,7 @@ fn draw_hull_editor(
                     let clicked_slot = draw_ship_schematic(
                         ui,
                         shipbuilding_data,
+                        research_state,
                         hull,
                         &ui_state.selected_modules,
                         ui_state.selected_slot.as_deref(),
@@ -1027,6 +1032,7 @@ fn draw_hull_editor(
 fn draw_ship_schematic(
     ui: &mut egui::Ui,
     shipbuilding_data: &crate::shipbuilding::ShipbuildingData,
+    research_state: &crate::research::ResearchState,
     hull: &crate::shipbuilding::ShipHullDefinition,
     selected_modules: &HashMap<String, String>,
     selected_slot: Option<&str>,
@@ -1080,10 +1086,12 @@ fn draw_ship_schematic(
                         ui.add_space(6.0);
 
                         for slot in slots {
-                            let module_name = selected_modules
+                            let installed_module = selected_modules
                                 .get(&slot.slot_id)
-                                .and_then(|module_id| shipbuilding_data.get_module(module_id))
-                                .map(|module| module.display_name.as_str());
+                                .and_then(|module_id| shipbuilding_data.get_module(module_id));
+                            let module_name = installed_module.map(|module| module.display_name.as_str());
+                            let compatible_modules =
+                                shipbuilding_data.compatible_modules_for_slot(slot, research_state);
                             let response = draw_slot_card(
                                 ui,
                                 lane_width,
@@ -1091,6 +1099,9 @@ fn draw_ship_schematic(
                                 module_name,
                                 selected_slot == Some(slot.slot_id.as_str()),
                             );
+                            let content = build_slot_tooltip(slot, installed_module, &compatible_modules);
+                            let response =
+                                response.on_hover_ui(|ui| render_shipbuilding_tooltip(ui, &content));
                             if response.clicked() {
                                 clicked = Some(slot.slot_id.clone());
                             }
@@ -1288,6 +1299,9 @@ fn draw_component_browser(
                             .with(&module.id),
                         egui::Sense::click(),
                     );
+                    let content = build_module_tooltip(module, Some(slot));
+                    let click_response = click_response
+                        .on_hover_ui(|ui| render_shipbuilding_tooltip(ui, &content));
                     if click_response.clicked() {
                         ui_state
                             .selected_modules
@@ -1365,25 +1379,6 @@ fn draw_slot_card(
     );
 
     response
-}
-
-fn prettify_slot_name(slot_id: &str) -> String {
-    slot_id
-        .split('_')
-        .filter(|segment| !segment.is_empty())
-        .map(|segment| {
-            let mut chars = segment.chars();
-            match chars.next() {
-                Some(first) => {
-                    let mut word = first.to_uppercase().collect::<String>();
-                    word.push_str(chars.as_str());
-                    word
-                }
-                None => String::new(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 fn draw_current_design_summary(

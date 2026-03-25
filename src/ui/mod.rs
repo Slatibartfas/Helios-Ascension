@@ -30,6 +30,7 @@ mod research_panel;
 mod resources_bar;
 mod shipbuilding_panel;
 mod shipbuilding_state;
+mod shipbuilding_tooltip;
 mod shipbuilding_workspace;
 mod tech_tree;
 pub(super) mod theme;
