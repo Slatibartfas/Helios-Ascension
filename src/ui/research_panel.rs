@@ -1009,7 +1009,8 @@ fn render_available_engineering_tab(
         let mut available_components = Vec::new();
 
         for (comp_id, component) in &tech_data.components {
-            if research_state.is_unlocked(&component.required_tech)
+            if (component.required_tech.is_empty()
+                || research_state.is_unlocked(&component.required_tech))
                 && !research_state.is_component_completed(comp_id)
             {
                 available_components.push(component);

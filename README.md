@@ -44,7 +44,7 @@ The game now has fully functional colony management, economy, research, interste
   - **15 technology categories**: Electronics, Military, SpaceTechnology, Biology, Physics, Energy, Sociology, Construction, Propulsion, Materials, Sensors, Weapons, DefensiveSystems, LifeSupport, Industry
   - Technology tree with prerequisites and unlocks
   - Research projects progressing with research points (RP)
-  - Engineering projects for component design
+  - Engineering projects for component and ship-module families
   - Tech modifiers affecting construction costs and productivity
 
 - **Comprehensive Solar System Simulation**: 
@@ -80,7 +80,7 @@ The game now has fully functional colony management, economy, research, interste
   - Economy Panel: Financial overview and resource tracking
   - Starmap Panel: Interstellar navigation and system selection
   - Fleet Panel: Full fleet management — spawn fleets, select transfer options, gravity assists, Lagrange-point routing, refuel, and abort maneuvers
-  - Shipbuilding Panel: Vessel construction (planned)
+  - Shipbuilding Panel: Native Bevy workspace for hull design, engineering-linked component selection, construction queueing, and archive review
   
 - **Time Control**: Variable simulation speed (1 day/s to 1 year/s)
 - **Debug Inspector**: Integrated inspector using bevy_inspector_egui for runtime entity inspection
@@ -188,13 +188,14 @@ helios_ascension/
 │   ├── colony/              # Colony management & buildings
 │   ├── economy/             # Resources, budget & energy grid
 │   ├── fleets/              # Fleet management, orbital mechanics & transfer planning
-│   ├── research/            # Technology tree & engineering
+│   ├── research/            # Technology tree, engineering, and unlock catalogs
+│   ├── shipbuilding/        # Data-driven hulls, modules, projects, refit, and slipways
 │   ├── plugins/             # Bevy plugin modules
 │   │   ├── camera.rs        # Camera control system
 │   │   ├── solar_system.rs  # Celestial body simulation
 │   │   ├── starmap.rs       # Interstellar navigation
 │   │   └── ...
-│   └── ui/                  # User interface panels
+│   └── ui/                  # User interface panels, including the native shipbuilding workspace
 ├── assets/
 │   ├── data/                # Game data (buildings, tech tree, etc.)
 │   └── textures/            # Textures and visual assets
@@ -212,9 +213,10 @@ The game uses a modular plugin architecture built on Bevy's ECS (Entity Componen
 - **AstronomyPlugin**: High-precision Keplerian orbital mechanics
 - **ColonyPlugin**: Colony management with 31 building types
 - **EconomyPlugin**: Resource production, consumption, and budget tracking
-- **ResearchPlugin**: Technology tree and research progression
+- **ResearchPlugin**: Technology tree progression plus engineering targets used by ship module families
 - **FleetPlugin**: Fleet management, orbital transfer planning, gravity assists, and trajectory rendering
-- **UIPlugin**: Dashboard with time controls and interactive panels
+- **ShipbuildingPlugin**: Canonical hull/module data, construction queues, and design summaries
+- **UIPlugin**: Dashboard with time controls and interactive panels, including the native shipbuilding workspace
 - **StarmapPlugin**: Interstellar navigation and system selection
 
 ## Controls

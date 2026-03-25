@@ -271,12 +271,11 @@ When adding new UI icons (menus, research categories, etc.), applying the follow
 - Module IDs must be unique; the runtime loader stores modules in a `HashMap` keyed by ID, so duplicate IDs silently override earlier entries
 - RON edits must preserve tuple separators exactly; malformed RON often appears only at runtime during `cargo run`, not at compile time
 - `ShipModuleCategory` currently uses 12 consolidated categories: `FlightSystems`, `PowerThermal`, `FuelStorage`, `Weapons`, `FireControl`, `Sensors`, `ArmorDefense`, `CrewSystems`, `UtilitySupport`, `ConstructionISRU`, `ElectronicWarfare`, `SpecialScience`
-- The Shipbuilding menu currently has **two UI backends**:
-  - `src/ui/shipbuilding_panel.rs` = legacy egui implementation
-  - `src/ui/shipbuilding_workspace.rs` = native Bevy UI prototype with a blueprint canvas, module library, and analytics panel
-- Shared state for both backends lives in `src/ui/shipbuilding_state.rs`; avoid duplicating selection, preview, or hull state in backend-local resources unless there is a strong reason
-- The native prototype is runtime-toggleable with `F9` while the Shipbuilding menu is open; preserve that toggle unless explicitly redesigning the migration plan
+- The Shipbuilding menu now uses a single native backend:
+  - `src/ui/shipbuilding_workspace.rs` = native Bevy UI shipbuilding workspace with blueprint canvas, module library, construction/archive tabs, and analytics panel
+- `src/ui/shipbuilding_state.rs` holds the shared shipbuilding UI state; avoid duplicating selection, preview, or hull state in backend-local resources unless there is a strong reason
 - The native blueprint currently uses **heuristic slot placement** based on slot IDs/categories when `position` is not authored in `assets/data/ship_hulls.ron`; authored `position` data should be preferred for long-term layout quality
+- Ship module progression is now **engineering-first**: `required_tech` controls visibility, `required_component_design` groups module families behind a shared engineering project, and the relevant technology should advertise that family through `unlocks_engineering`
 - See [docs/SHIPBUILDING.md](../docs/SHIPBUILDING.md) for the current shipbuilding workflow and data authoring rules
 
 #### Fleet Management & Orbital Mechanics (`src/fleets/`)

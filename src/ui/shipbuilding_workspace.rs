@@ -3967,16 +3967,21 @@ fn populate_components_tab_native(
             return;
         };
 
-        let tech_name = module
-            .required_tech
-            .as_deref()
-            .and_then(|tech_id| technologies_data.get_tech(tech_id))
-            .map(|tech| tech.name.clone())
-            .unwrap_or_else(|| "No technology gate".to_string());
         let component_name = module
             .engineering_project_id();
-        let component_name = technologies_data
-            .get_component(component_name)
+        let component = technologies_data.get_component(component_name);
+        let tech_name = component
+            .and_then(|component| technologies_data.get_tech(&component.required_tech))
+            .map(|tech| tech.name.clone())
+            .or_else(|| {
+                module
+                    .required_tech
+                    .as_deref()
+                    .and_then(|tech_id| technologies_data.get_tech(tech_id))
+                    .map(|tech| tech.name.clone())
+            })
+            .unwrap_or_else(|| "Baseline project".to_string());
+        let component_name = component
             .map(|component| component.name.clone())
             .unwrap_or_else(|| module.display_name.clone());
         let status = engineering_status_native(
