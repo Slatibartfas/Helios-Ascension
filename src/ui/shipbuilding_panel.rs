@@ -2,17 +2,18 @@ use bevy::prelude::*;
 use bevy_egui::egui;
 
 use super::dashboard::format_mass_compact_tonnes;
-use super::shipbuilding_state::{DesignSort, ShipRosterRow, ShipbuildingTab, ShipbuildingUiState};
+use super::shipbuilding_state::{DesignSort, ShipbuildingTab, ShipbuildingUiState};
 use super::shipbuilding_tooltip::{
-    build_module_tooltip, build_slot_tooltip, prettify_slot_name, render_shipbuilding_tooltip,
+    build_module_tooltip, build_slot_tooltip, format_shipbuilding_resource_cost,
+    format_shipbuilding_resource_costs_inline, prettify_slot_name,
+    render_shipbuilding_tooltip,
 };
 use super::shipbuilding_workspace::ShipbuildingUiBackend;
 use super::*;
 use crate::economy::ResourceType;
 use crate::economy::components::LocalStockpile;
-use crate::fleets::{
-    AssignShipsAction, CreateFleetFromShipsAction, FleetRole, ShipClass, ShipInstance,
-};
+use crate::fleets::ShipClass;
+use crate::research::{EngineeringProject, PendingResearchActions, TechnologiesData};
 use crate::shipbuilding::{
     ConstructionMode, QueueShipConstructionAction, ShipConstructionProject, ShipConstructionState,
     ShipDesignDraft, ShipDesignLibrary, ShipDesignSummary, ShipDesignTemplate, ShipModuleSelection,
@@ -42,8 +43,6 @@ type FleetRosterQuery<'w, 's> = Query<
     ),
 >;
 
-type ShipInstanceQuery<'w, 's> = Query<'w, 's, (Entity, &'static ShipInstance)>;
-
 #[derive(Clone)]
 struct DesignBrowserRow {
     template_id: uuid::Uuid,
@@ -61,13 +60,14 @@ pub(super) fn ui_shipbuilding_panel(
     backend: Res<ShipbuildingUiBackend>,
     colonies: ShipyardColonyQuery,
     fleets: FleetRosterQuery,
-    ships: ShipInstanceQuery,
     projects: Query<(Entity, &ShipConstructionProject)>,
     shipbuilding_data: Res<crate::shipbuilding::ShipbuildingData>,
     mut design_library: ResMut<ShipDesignLibrary>,
+    technologies_data: Res<TechnologiesData>,
     research_state: Res<crate::research::ResearchState>,
+    engineering_projects: Query<&EngineeringProject>,
     mut shipbuilding_actions: ResMut<crate::shipbuilding::PendingShipbuildingActions>,
-    mut fleet_actions: ResMut<PendingFleetActions>,
+    mut pending_research: ResMut<PendingResearchActions>,
     mut ui_state: ResMut<ShipbuildingUiState>,
     launch_state: Res<crate::shipbuilding::LaunchCapacityState>,
     budget: Res<GlobalBudget>,
@@ -156,6 +156,7 @@ pub(super) fn ui_shipbuilding_panel(
                 ShipbuildingTab::Construction => draw_construction_tab(
                     ui,
                     &colonies,
+                    &fleets,
                     &projects,
                     &design_library,
                     &shipbuilding_data,
@@ -165,12 +166,13 @@ pub(super) fn ui_shipbuilding_panel(
                     &launch_state,
                     &budget,
                 ),
-                ShipbuildingTab::Ships => draw_ships_tab(
+                ShipbuildingTab::Components => draw_components_tab(
                     ui,
-                    &colonies,
-                    &ships,
-                    &fleets,
-                    &mut fleet_actions,
+                    &shipbuilding_data,
+                    &technologies_data,
+                    &research_state,
+                    &engineering_projects,
+                    &mut pending_research,
                     &mut ui_state,
                 ),
             }
@@ -187,7 +189,7 @@ fn draw_tabs(ui: &mut egui::Ui, active_tab: &mut ShipbuildingTab) {
             ShipbuildingTab::Construction,
             "Construction Control",
         );
-        tab_button(ui, active_tab, ShipbuildingTab::Ships, "Ship Roster");
+        tab_button(ui, active_tab, ShipbuildingTab::Components, "Component Database");
     });
 }
 
@@ -681,6 +683,7 @@ fn draw_archive_tab(
 fn draw_construction_tab(
     ui: &mut egui::Ui,
     colonies: &ShipyardColonyQuery,
+    fleets: &FleetRosterQuery,
     projects: &Query<(Entity, &ShipConstructionProject)>,
     design_library: &ShipDesignLibrary,
     shipbuilding_data: &crate::shipbuilding::ShipbuildingData,
@@ -720,6 +723,13 @@ fn draw_construction_tab(
 
                     draw_build_site_picker(ui, colonies, ui_state);
                     ui.add_space(8.0);
+                    draw_construction_fleet_picker(
+                        ui,
+                        selected_colony.map(|(entity, _, _, _, _)| entity),
+                        fleets,
+                        ui_state,
+                    );
+                    ui.add_space(8.0);
                     draw_design_selector_for_queue(ui, &browser_rows, ui_state);
 
                     if let Some(template_id) = ui_state.construction_design_id {
@@ -750,6 +760,8 @@ fn draw_construction_tab(
                                         QueueShipConstructionAction {
                                             build_site,
                                             design: draft,
+                                            integration_target_fleet: ui_state
+                                                .construction_target_fleet,
                                         },
                                     );
                                 }
@@ -795,69 +807,243 @@ fn draw_construction_tab(
     });
 }
 
-fn draw_ships_tab(
+fn draw_components_tab(
     ui: &mut egui::Ui,
-    colonies: &ShipyardColonyQuery,
-    ships: &ShipInstanceQuery,
-    fleets: &FleetRosterQuery,
-    fleet_actions: &mut ResMut<PendingFleetActions>,
+    shipbuilding_data: &crate::shipbuilding::ShipbuildingData,
+    technologies_data: &TechnologiesData,
+    research_state: &crate::research::ResearchState,
+    engineering_projects: &Query<&EngineeringProject>,
+    pending_research: &mut ResMut<PendingResearchActions>,
     ui_state: &mut ShipbuildingUiState,
 ) {
-    let roster = build_ship_roster_rows(colonies, ships, fleets);
+    let mut modules: Vec<_> = shipbuilding_data.modules.values().collect();
+    modules.sort_by(|left, right| left.display_name.cmp(&right.display_name));
 
-    let roster_width = (ui.available_width() * 0.52).clamp(420.0, 700.0);
-    let assignment_width = (ui.available_width() - roster_width - 12.0).max(320.0);
+    if ui_state
+        .selected_component_module_id
+        .as_deref()
+        .is_none_or(|module_id| !shipbuilding_data.modules.contains_key(module_id))
+    {
+        ui_state.selected_component_module_id = modules.first().map(|module| module.id.clone());
+    }
+
+    let selected_module = ui_state
+        .selected_component_module_id
+        .as_deref()
+        .and_then(|module_id| shipbuilding_data.get_module(module_id));
+
+    let list_width = (ui.available_width() * 0.42).clamp(320.0, 520.0);
+    let detail_width = (ui.available_width() - list_width - 12.0).max(420.0);
 
     ui.horizontal_top(|ui| {
         ui.allocate_ui_with_layout(
-            egui::vec2(roster_width, ui.available_height()),
+            egui::vec2(list_width, ui.available_height()),
             egui::Layout::top_down(egui::Align::Min),
             |ui| {
                 theme::elevated_frame().show(ui, |ui| {
                     ui.label(
-                        egui::RichText::new("Existing Ships")
+                        egui::RichText::new("Component Database")
                             .font(theme::heading())
                             .color(theme::TEXT_VALUE),
                     );
                     ui.label(
                         egui::RichText::new(
-                            "Operational hulls, their current fleet, orbital location, and transfer readiness.",
+                            "Ship modules, their unlock chain, and whether component engineering has already cleared them for production.",
                         )
                         .font(theme::body(11.0))
                         .color(theme::TEXT_DIM),
                     );
                     theme::divider(ui);
 
-                    draw_ship_roster_table(ui, &roster, ui_state);
+                    egui::ScrollArea::vertical()
+                        .id_salt("ship_component_database")
+                        .show(ui, |ui| {
+                            for module in &modules {
+                                let selected = ui_state.selected_component_module_id.as_deref()
+                                    == Some(module.id.as_str());
+                                let engineering_state = engineering_status_label(
+                                    module.required_component_design.as_deref(),
+                                    technologies_data,
+                                    research_state,
+                                    engineering_projects,
+                                );
+                                let response = egui::Frame::NONE
+                                    .fill(if selected {
+                                        theme::SURFACE_RAISED
+                                    } else {
+                                        theme::SURFACE
+                                    })
+                                    .stroke(egui::Stroke::new(1.0, theme::BORDER))
+                                    .inner_margin(egui::Margin::same(8))
+                                    .show(ui, |ui| {
+                                        ui.label(
+                                            egui::RichText::new(&module.display_name)
+                                                .font(theme::body(11.0))
+                                                .color(theme::TEXT_VALUE),
+                                        );
+                                        ui.label(
+                                            egui::RichText::new(format!(
+                                                "{} | {} | {:.0} BP | {}",
+                                                module.category.display_name(),
+                                                module.size,
+                                                module.build_points,
+                                                format_mass_compact_tonnes(module.dry_mass_t)
+                                            ))
+                                            .font(theme::body(9.5))
+                                            .color(theme::TEXT_DIM),
+                                        );
+                                        ui.label(
+                                            egui::RichText::new(engineering_state.0)
+                                                .font(theme::mono(9.0))
+                                                .color(engineering_state.1),
+                                        );
+                                    })
+                                    .response;
+
+                                if response.clicked() {
+                                    ui_state.selected_component_module_id = Some(module.id.clone());
+                                }
+                                ui.add_space(4.0);
+                            }
+                        });
                 });
             },
         );
 
         ui.add_space(12.0);
         ui.allocate_ui_with_layout(
-            egui::vec2(assignment_width, ui.available_height()),
+            egui::vec2(detail_width, ui.available_height()),
             egui::Layout::top_down(egui::Align::Min),
             |ui| {
                 theme::elevated_frame().show(ui, |ui| {
                     ui.label(
-                        egui::RichText::new("Fleet Assignment")
+                        egui::RichText::new("Component Detail")
                             .font(theme::heading())
                             .color(theme::TEXT_VALUE),
                     );
                     ui.label(
                         egui::RichText::new(
-                            "Reassign ships between fleets parked at the same body, or stand up a new empty fleet at that location.",
+                            "Review build cost, massing, power profile, tech prerequisites, and jump straight into the engineering queue when needed.",
                         )
                         .font(theme::body(11.0))
                         .color(theme::TEXT_DIM),
                     );
                     theme::divider(ui);
 
-                    draw_ship_assignment_panel(ui, &roster, fleets, fleet_actions, ui_state);
+                    let Some(module) = selected_module else {
+                        ui.label(
+                            egui::RichText::new("No ship components loaded.")
+                                .font(theme::body(11.0))
+                                .color(theme::TEXT_DIM),
+                        );
+                        return;
+                    };
+
+                    let tech_name = module
+                        .required_tech
+                        .as_deref()
+                        .and_then(|tech_id| technologies_data.get_tech(tech_id))
+                        .map(|tech| tech.name.clone())
+                        .unwrap_or_else(|| "No technology gate".to_string());
+                    let component_name = module
+                        .required_component_design
+                        .as_deref()
+                        .and_then(|component_id| technologies_data.get_component(component_id))
+                        .map(|component| component.name.clone())
+                        .unwrap_or_else(|| "No engineering project required".to_string());
+                    let engineering_state = engineering_status_label(
+                        module.required_component_design.as_deref(),
+                        technologies_data,
+                        research_state,
+                        engineering_projects,
+                    );
+
+                    ui.label(
+                        egui::RichText::new(&module.display_name)
+                            .font(theme::heading())
+                            .color(theme::TEXT_VALUE),
+                    );
+                    ui.label(
+                        egui::RichText::new(&module.description)
+                            .font(theme::body(10.5))
+                            .color(theme::TEXT_DIM),
+                    );
+                    ui.add_space(8.0);
+
+                    metrics_card(
+                        ui,
+                        "Performance",
+                        &[
+                            ("Category", module.category.display_name()),
+                            ("Size", module.size.as_str()),
+                            ("Build", &format!("{:.0} BP", module.build_points)),
+                            ("Mass", &format_mass_compact_tonnes(module.dry_mass_t)),
+                            ("Power", &format_power_profile(module)),
+                        ],
+                    );
+
+                    if !module.resource_costs.is_empty() {
+                        ui.add_space(8.0);
+                        draw_resource_costs_card(ui, "Material Cost", &module.resource_costs, 6);
+                    }
+
+                    ui.add_space(8.0);
+                    metrics_card(
+                        ui,
+                        "Unlock Chain",
+                        &[
+                            ("Technology", tech_name.as_str()),
+                            ("Engineering", component_name.as_str()),
+                            ("Status", engineering_state.0),
+                        ],
+                    );
+
+                    ui.add_space(8.0);
+                    ui.label(
+                        egui::RichText::new(engineering_state.0)
+                            .font(theme::body(10.5))
+                            .color(engineering_state.1),
+                    );
+
+                    if ui.button("Open Component Engineering").clicked() {
+                        pending_research.navigate_to_available_engineering_tab = true;
+                    }
                 });
             },
         );
     });
+}
+
+fn engineering_status_label(
+    component_id: Option<&str>,
+    technologies_data: &TechnologiesData,
+    research_state: &crate::research::ResearchState,
+    engineering_projects: &Query<&EngineeringProject>,
+) -> (&'static str, egui::Color32) {
+    let Some(component_id) = component_id else {
+        return ("Production-ready: no engineering project required.", theme::TEXT_DIM);
+    };
+
+    if research_state.is_component_completed(component_id) {
+        return ("Engineering complete. Module can be installed now.", theme::GREEN);
+    }
+
+    if engineering_projects
+        .iter()
+        .any(|project| project.component_id == component_id)
+    {
+        return ("Engineering in progress.", theme::AMBER);
+    }
+
+    if let Some(component) = technologies_data.get_component(component_id) {
+        if component.required_tech.is_empty() || research_state.is_unlocked(&component.required_tech) {
+            ("Engineering available. Open Research to start the project.", theme::ACCENT)
+        } else {
+            ("Locked by prerequisite technology.", theme::RED)
+        }
+    } else {
+        ("Engineering definition missing from technology data.", theme::RED)
+    }
 }
 
 fn design_controls(
@@ -955,9 +1141,88 @@ fn draw_build_site_picker(
                 let selected = ui_state.selected_colony == Some(entity);
                 if ui.selectable_label(selected, colony.name.clone()).clicked() {
                     ui_state.selected_colony = Some(entity);
+                    ui_state.construction_target_fleet = None;
                 }
             }
         });
+}
+
+fn draw_construction_fleet_picker(
+    ui: &mut egui::Ui,
+    selected_colony: Option<Entity>,
+    fleets: &FleetRosterQuery,
+    ui_state: &mut ShipbuildingUiState,
+) {
+    ui.label(
+        egui::RichText::new("Fleet Integration")
+            .font(theme::mono(10.0))
+            .color(theme::TEXT_DIM),
+    );
+
+    let Some(build_site) = selected_colony else {
+        ui.label(
+            egui::RichText::new("Select a build site to route completed hulls into a parked fleet.")
+                .font(theme::body(10.0))
+                .color(theme::TEXT_DIM),
+        );
+        return;
+    };
+
+    let mut fleet_rows: Vec<_> = fleets
+        .iter()
+        .filter_map(|(fleet_entity, fleet, orbit, maneuver)| {
+            if maneuver.is_some() {
+                return None;
+            }
+
+            orbit.filter(|orbit| orbit.body == build_site).map(|orbit| {
+                (
+                    fleet_entity,
+                    fleet.name.clone(),
+                    orbit.radius_au,
+                    orbit.direction == 0.0,
+                )
+            })
+        })
+        .collect();
+    fleet_rows.sort_by(|left, right| left.1.cmp(&right.1));
+
+    let selected_text = ui_state
+        .construction_target_fleet
+        .and_then(|entity| {
+            fleet_rows
+                .iter()
+                .find(|(fleet_entity, _, _, _)| *fleet_entity == entity)
+                .map(|(_, name, _, _)| name.clone())
+        })
+        .unwrap_or_else(|| "Standalone ship pool".to_string());
+
+    egui::ComboBox::from_label("Completed Ship Routing")
+        .selected_text(selected_text)
+        .show_ui(ui, |ui| {
+            ui.selectable_value(
+                &mut ui_state.construction_target_fleet,
+                None,
+                "Standalone ship pool",
+            );
+
+            for (fleet_entity, fleet_name, orbit_radius_au, stationary) in &fleet_rows {
+                let suffix = if *stationary { " | station" } else { "" };
+                ui.selectable_value(
+                    &mut ui_state.construction_target_fleet,
+                    Some(*fleet_entity),
+                    format!("{} | {:.4} AU{}", fleet_name, orbit_radius_au, suffix),
+                );
+            }
+        });
+
+    ui.label(
+        egui::RichText::new(
+            "If the selected fleet departs before launch or orbital completion, the hull falls back to an independent ship automatically.",
+        )
+        .font(theme::body(9.8))
+        .color(theme::TEXT_DIM),
+    );
 }
 
 fn draw_hull_editor(
@@ -1272,7 +1537,10 @@ fn draw_component_browser(
                                 ui.label(
                                     egui::RichText::new(format!(
                                         "Cost: {}",
-                                        format_resource_costs_inline(&module.resource_costs, 4)
+                                        format_shipbuilding_resource_costs_inline(
+                                            &module.resource_costs,
+                                            4,
+                                        )
                                     ))
                                     .font(theme::body(8.8))
                                     .color(theme::TEXT_DIM),
@@ -1862,265 +2130,6 @@ fn project_row(ui: &mut egui::Ui, project: &ShipConstructionProject) {
         });
 }
 
-fn draw_ship_roster_table(
-    ui: &mut egui::Ui,
-    roster: &[ShipRosterRow],
-    ui_state: &mut ShipbuildingUiState,
-) {
-    egui::ScrollArea::vertical()
-        .id_salt("ship_roster_table")
-        .show(ui, |ui| {
-            for row in roster {
-                let selected = ui_state.selected_ship == Some(row.ship_entity);
-                egui::Frame::NONE
-                    .fill(if selected {
-                        theme::SURFACE_RAISED
-                    } else {
-                        theme::SURFACE
-                    })
-                    .stroke(egui::Stroke::new(1.0, theme::BORDER))
-                    .inner_margin(egui::Margin::same(8))
-                    .show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            if ui
-                                .selectable_label(
-                                    selected,
-                                    format!("{} {}", row.ship_class.icon(), row.ship_name),
-                                )
-                                .clicked()
-                            {
-                                ui_state.selected_ship = Some(row.ship_entity);
-                                ui_state.assignment_target_fleet = None;
-                                if ui_state.new_fleet_name.trim().is_empty() {
-                                    ui_state.new_fleet_name = format!("{} Detached", row.ship_name);
-                                }
-                            }
-
-                            ui.vertical(|ui| {
-                                ui.label(
-                                    egui::RichText::new(format!(
-                                        "{} | {} | {}",
-                                        row.fleet_name,
-                                        row.role
-                                            .map(FleetRole::display_name)
-                                            .unwrap_or("Independent"),
-                                        row.location
-                                    ))
-                                    .font(theme::body(10.0))
-                                    .color(theme::TEXT_DIM),
-                                );
-                            });
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    ui.label(
-                                        egui::RichText::new(format!(
-                                            "Fuel {:>3.0}%",
-                                            row.fuel_fraction * 100.0
-                                        ))
-                                        .font(theme::mono(10.0))
-                                        .color(
-                                            if row.fuel_fraction > 0.5 {
-                                                theme::GREEN
-                                            } else {
-                                                theme::AMBER
-                                            },
-                                        ),
-                                    );
-                                    ui.label(
-                                        egui::RichText::new(format!("{:.0} m/s", row.delta_v_ms))
-                                            .font(theme::mono(10.0))
-                                            .color(theme::RP_BLUE),
-                                    );
-                                    ui.label(
-                                        egui::RichText::new(format_mass_compact_tonnes(
-                                            row.dry_mass_t,
-                                        ))
-                                        .font(theme::mono(10.0))
-                                        .color(theme::TEXT_VALUE),
-                                    );
-                                },
-                            );
-                        });
-                    });
-                ui.add_space(4.0);
-            }
-
-            if roster.is_empty() {
-                ui.label(
-                    egui::RichText::new("No operational ships found.")
-                        .font(theme::body(11.0))
-                        .color(theme::TEXT_DIM),
-                );
-            }
-        });
-}
-
-fn draw_ship_assignment_panel(
-    ui: &mut egui::Ui,
-    roster: &[ShipRosterRow],
-    fleets: &FleetRosterQuery,
-    fleet_actions: &mut ResMut<PendingFleetActions>,
-    ui_state: &mut ShipbuildingUiState,
-) {
-    let Some(ship_entity) = ui_state.selected_ship else {
-        ui.label(
-            egui::RichText::new(
-                "Select a ship from the roster to enable assignment and fleet creation controls.",
-            )
-            .font(theme::body(10.5))
-            .color(theme::TEXT_DIM),
-        );
-        return;
-    };
-
-    let Some(ship_row) = roster.iter().find(|row| row.ship_entity == ship_entity) else {
-        ui.label(
-            egui::RichText::new("Selected ship is no longer available.")
-                .font(theme::body(10.5))
-                .color(theme::RED),
-        );
-        return;
-    };
-
-    metrics_card(
-        ui,
-        "Selected Ship",
-        &[
-            ("Ship", ship_row.ship_name.as_str()),
-            ("Class", ship_row.ship_class.display_name()),
-            ("Fleet", ship_row.fleet_name.as_str()),
-            (
-                "Role",
-                ship_row
-                    .role
-                    .map(FleetRole::display_name)
-                    .unwrap_or("Independent"),
-            ),
-            ("Location", ship_row.location.as_str()),
-            ("Mass", &format_mass_compact_tonnes(ship_row.dry_mass_t)),
-            ("Delta-V", &format!("{:.0} m/s", ship_row.delta_v_ms)),
-        ],
-    );
-
-    ui.add_space(8.0);
-    if ship_row.in_transit {
-        ui.label(
-            egui::RichText::new("Ships in transit cannot be reassigned until the fleet is parked.")
-                .font(theme::body(10.5))
-                .color(theme::AMBER),
-        );
-        return;
-    }
-
-    let candidate_fleets: Vec<_> = fleets
-        .iter()
-        .filter_map(|(fleet_entity, _fleet, orbit, maneuver)| {
-            if Some(fleet_entity) == ship_row.fleet_entity || maneuver.is_some() {
-                return None;
-            }
-
-            orbit
-                .filter(|orbit| orbit.body == ship_row.parked_body)
-                .map(|_| fleet_entity)
-        })
-        .collect();
-
-    let mut unique_candidates = Vec::new();
-    for entity in candidate_fleets {
-        if !unique_candidates.contains(&entity) {
-            unique_candidates.push(entity);
-        }
-    }
-
-    let selected_target_name = ui_state
-        .assignment_target_fleet
-        .and_then(|entity| {
-            fleets
-                .get(entity)
-                .ok()
-                .map(|(_, fleet, _, _)| fleet.name.clone())
-        })
-        .unwrap_or_else(|| "Select destination fleet".to_string());
-
-    egui::ComboBox::from_label("Assign To Fleet")
-        .selected_text(selected_target_name)
-        .show_ui(ui, |ui| {
-            for entity in unique_candidates {
-                if let Ok((_, fleet, _, _)) = fleets.get(entity) {
-                    ui.selectable_value(
-                        &mut ui_state.assignment_target_fleet,
-                        Some(entity),
-                        fleet.name.clone(),
-                    );
-                }
-            }
-        });
-
-    if ui
-        .add_enabled(
-            ui_state.assignment_target_fleet.is_some(),
-            egui::Button::new("Assign To Fleet"),
-        )
-        .clicked()
-    {
-        if let Some(destination_fleet) = ui_state.assignment_target_fleet {
-            fleet_actions.assign_ships.push(AssignShipsAction {
-                ship_entities: vec![ship_entity],
-                destination_fleet: Some(destination_fleet),
-            });
-        }
-    }
-
-    if ui
-        .add_enabled(
-            ship_row.fleet_entity.is_some(),
-            egui::Button::new("Detach To Independent Orbit"),
-        )
-        .clicked()
-    {
-        fleet_actions.assign_ships.push(AssignShipsAction {
-            ship_entities: vec![ship_entity],
-            destination_fleet: None,
-        });
-    }
-
-    ui.add_space(10.0);
-    ui.label(
-        egui::RichText::new("Create New Fleet")
-            .font(theme::mono(10.0))
-            .color(theme::TEXT_DIM),
-    );
-    ui.text_edit_singleline(&mut ui_state.new_fleet_name);
-
-    let can_create_fleet = !ui_state.new_fleet_name.trim().is_empty();
-    if ui
-        .add_enabled(
-            can_create_fleet,
-            egui::Button::new("Create Fleet From Ship"),
-        )
-        .clicked()
-    {
-        fleet_actions
-            .create_fleets_from_ships
-            .push(CreateFleetFromShipsAction {
-                name: ui_state.new_fleet_name.trim().to_string(),
-                orbit_body: ship_row.parked_body,
-                orbit_radius_au: ship_row.parked_orbit_radius_au,
-                stationary: ship_row.stationary,
-                ship_entities: vec![ship_entity],
-            });
-    }
-
-    ui.label(
-        egui::RichText::new(
-            "Ships can now exist independently of fleets. Assign them directly, detach them back to independent orbit, or spin up a new fleet from the selected hull.",
-        )
-        .font(theme::body(10.0))
-        .color(theme::TEXT_DIM),
-    );
-}
-
 fn ensure_defaults(
     ui_state: &mut ShipbuildingUiState,
     colonies: &ShipyardColonyQuery,
@@ -2305,82 +2314,6 @@ fn combat_score(summary: &ShipDesignSummary) -> f64 {
         + summary.power_generation_mw.max(0.0) * 0.05
 }
 
-fn build_ship_roster_rows(
-    colonies: &ShipyardColonyQuery,
-    ships: &ShipInstanceQuery,
-    fleets: &FleetRosterQuery,
-) -> Vec<ShipRosterRow> {
-    let mut rows = Vec::new();
-    for (ship_entity, ship) in ships.iter() {
-        let (fleet_entity, fleet_name, role, location, in_transit) =
-            if let Some(fleet_entity) = ship.assigned_fleet {
-                if let Ok((_, fleet, orbit, maneuver)) = fleets.get(fleet_entity) {
-                    let location = if let Some(orbit) = orbit {
-                        colonies
-                            .get(orbit.body)
-                            .map(|(_, colony, _, _, _)| format!("Orbiting {}", colony.name))
-                            .unwrap_or_else(|_| "Parked in orbit".to_string())
-                    } else if let Some(maneuver) = maneuver {
-                        colonies
-                            .get(maneuver.destination_body)
-                            .map(|(_, colony, _, _, _)| format!("In transit to {}", colony.name))
-                            .unwrap_or_else(|_| "In transit".to_string())
-                    } else {
-                        "Unknown".to_string()
-                    };
-
-                    (
-                        Some(fleet_entity),
-                        fleet.name.clone(),
-                        Some(fleet.role),
-                        location,
-                        maneuver.is_some(),
-                    )
-                } else {
-                    (
-                        None,
-                        "Independent".to_string(),
-                        None,
-                        "Independent orbit".to_string(),
-                        false,
-                    )
-                }
-            } else {
-                let location = colonies
-                    .get(ship.parked_body)
-                    .map(|(_, colony, _, _, _)| format!("Holding orbit at {}", colony.name))
-                    .unwrap_or_else(|_| "Independent orbit".to_string());
-
-                (None, "Independent".to_string(), None, location, false)
-            };
-
-        rows.push(ShipRosterRow {
-            ship_entity,
-            fleet_entity,
-            fleet_name,
-            ship_name: ship.info.name.clone(),
-            ship_class: ship.info.class,
-            dry_mass_t: ship.info.dry_mass_t as f64,
-            delta_v_ms: ship.info.delta_v_ms(),
-            fuel_fraction: ship.info.fuel_fraction(),
-            role,
-            location,
-            parked_body: ship.parked_body,
-            parked_orbit_radius_au: ship.parked_orbit_radius_au,
-            stationary: ship.stationary,
-            in_transit,
-        });
-    }
-
-    rows.sort_by(|left, right| {
-        left.location
-            .cmp(&right.location)
-            .then_with(|| left.fleet_name.cmp(&right.fleet_name))
-            .then_with(|| left.ship_name.cmp(&right.ship_name))
-    });
-    rows
-}
-
 fn stat_chip(ui: &mut egui::Ui, label: &str, value: String, color: egui::Color32) {
     ui.allocate_ui_with_layout(
         egui::vec2(112.0, 44.0),
@@ -2556,18 +2489,6 @@ fn format_power_profile(module: &crate::shipbuilding::ShipModuleDefinition) -> S
     }
 }
 
-fn format_resource_costs_inline(costs: &[(ResourceType, f64)], max_items: usize) -> String {
-    let mut parts = Vec::new();
-    for (index, (resource, amount)) in costs.iter().enumerate() {
-        if index >= max_items {
-            parts.push(format!("+{} more", costs.len() - max_items));
-            break;
-        }
-        parts.push(format!("{} {:.1}", resource.display_name(), amount));
-    }
-    parts.join(" | ")
-}
-
 fn draw_resource_costs_card(
     ui: &mut egui::Ui,
     title: &str,
@@ -2584,7 +2505,11 @@ fn draw_resource_costs_card(
 
         egui::Grid::new(title).num_columns(2).show(ui, |ui| {
             for (resource, amount) in costs.iter().take(max_rows) {
-                theme::stat_row(ui, resource.display_name(), &format!("{amount:.1}"));
+                let formatted_cost = format_shipbuilding_resource_cost(*resource, *amount);
+                let display_value = formatted_cost
+                    .strip_prefix(&format!("{} ", resource.display_name()))
+                    .unwrap_or(&formatted_cost);
+                theme::stat_row(ui, resource.display_name(), display_value);
             }
 
             if costs.len() > max_rows {

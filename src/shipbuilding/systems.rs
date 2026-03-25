@@ -14,7 +14,7 @@ use crate::economy::logistics::{
     PendingResourceRequests, RequestPriority, RequestState, ResourceRequest,
 };
 use crate::economy::{GlobalBudget, ResourceType};
-use crate::fleets::{PropulsionType, ShipClass, ShipInfo, ShipInstance, AU_IN_METERS};
+use crate::fleets::{Fleet, FleetOrbit, PropulsionType, ShipClass, ShipInfo, ShipInstance, AU_IN_METERS};
 use crate::plugins::solar_system::CelestialBody;
 use crate::research::ResearchState;
 use crate::ui::SimulationTime;
@@ -140,7 +140,12 @@ pub fn process_pending_shipbuilding_actions(
 ) {
     let now = sim_time.elapsed_seconds();
 
-    for QueueShipConstructionAction { build_site, design } in actions.queue_projects.drain(..) {
+    for QueueShipConstructionAction {
+        build_site,
+        design,
+        integration_target_fleet,
+    } in actions.queue_projects.drain(..)
+    {
         let Ok(colony) = colonies.get(build_site) else {
             warn!(
                 "Ignoring shipbuilding action for non-colony entity {:?}",
@@ -226,6 +231,7 @@ pub fn process_pending_shipbuilding_actions(
                 design_name: design.name,
                 hull_id: design.hull_id,
                 build_site,
+                integration_target_fleet,
                 selected_modules,
                 ship_class: summary.ship_class,
                 propulsion: summary.propulsion,
@@ -359,6 +365,8 @@ pub fn process_ship_launches_and_completions(
     sim_time: Res<SimulationTime>,
     mut last_elapsed: Local<f64>,
     colonies: Query<(Entity, &Colony, &CelestialBody)>,
+    fleet_orbits: Query<&FleetOrbit, With<Fleet>>,
+    ship_instances: Query<&ShipInstance>,
     mut stockpiles: Query<&mut LocalStockpile>,
     mut budget: ResMut<GlobalBudget>,
     mut launch_state: ResMut<LaunchCapacityState>,
@@ -403,13 +411,26 @@ pub fn process_ship_launches_and_completions(
             ShipConstructionState::Building => {}
             ShipConstructionState::CompletedInOrbit => {
                 if let Ok((_, _, body)) = colonies.get(project.build_site) {
+                    let integration_target = integration_target_state(
+                        project.integration_target_fleet,
+                        project.build_site,
+                        &fleet_orbits,
+                        &ship_instances,
+                    );
+                    let (assigned_fleet, orbit_radius_au, stationary, sort_order) =
+                        integration_target.unwrap_or((
+                            None,
+                            insertion_orbit_radius_au(body, project.is_station),
+                            project.is_station,
+                            0,
+                        ));
                     commands.spawn(ShipInstance::new(
                         build_ship_info(&project),
                         project.build_site,
-                        insertion_orbit_radius_au(body, project.is_station),
-                        project.is_station,
-                        None,
-                        0,
+                        orbit_radius_au,
+                        stationary,
+                        assigned_fleet,
+                        sort_order,
                     ));
                     commands.entity(entity).despawn();
                 }
@@ -476,18 +497,61 @@ pub fn process_ship_launches_and_completions(
                 }
 
                 *available_capacity -= project.launch_mass_t;
+                let integration_target = integration_target_state(
+                    project.integration_target_fleet,
+                    project.build_site,
+                    &fleet_orbits,
+                    &ship_instances,
+                );
+                let (assigned_fleet, orbit_radius_au, stationary, sort_order) = integration_target
+                    .unwrap_or((
+                        None,
+                        insertion_orbit_radius_au(body, project.is_station),
+                        project.is_station,
+                        0,
+                    ));
                 commands.spawn(ShipInstance::new(
                     build_ship_info(&project),
                     project.build_site,
-                    insertion_orbit_radius_au(body, project.is_station),
-                    project.is_station,
-                    None,
-                    0,
+                    orbit_radius_au,
+                    stationary,
+                    assigned_fleet,
+                    sort_order,
                 ));
                 commands.entity(entity).despawn();
             }
         }
     }
+}
+
+fn integration_target_state(
+    target_fleet: Option<Entity>,
+    build_site: Entity,
+    fleet_orbits: &Query<&FleetOrbit, With<Fleet>>,
+    ship_instances: &Query<&ShipInstance>,
+) -> Option<(Option<Entity>, f64, bool, i32)> {
+    let fleet_entity = target_fleet?;
+    let orbit = fleet_orbits.get(fleet_entity).ok()?;
+    if orbit.body != build_site {
+        return None;
+    }
+
+    Some((
+        Some(fleet_entity),
+        orbit.radius_au,
+        orbit.direction == 0.0,
+        next_sort_order_for_fleet(ship_instances, fleet_entity),
+    ))
+}
+
+fn next_sort_order_for_fleet(ship_instances: &Query<&ShipInstance>, fleet_entity: Entity) -> i32 {
+    ship_instances
+        .iter()
+        .filter(|ship| ship.assigned_fleet == Some(fleet_entity))
+        .map(|ship| ship.sort_order)
+        .max()
+        .unwrap_or(-1)
+        + 1
 }
 
 pub fn annual_launch_capacity_t(colony: &Colony) -> f64 {

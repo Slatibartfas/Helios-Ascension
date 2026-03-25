@@ -3,18 +3,73 @@ use std::collections::HashMap;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
-use super::shipbuilding_state::ShipbuildingUiState;
+use super::dashboard::format_mass_compact_tonnes;
+use super::shipbuilding_state::{ShipbuildingTab, ShipbuildingUiState};
 use super::shipbuilding_tooltip::{
-    build_module_tooltip, build_slot_tooltip, prettify_slot_name, ShipbuildingTooltipContent,
-    ShipbuildingTooltipEntry, ShipbuildingTooltipTone,
+    build_module_tooltip, build_slot_tooltip, format_shipbuilding_resource_cost_lines,
+    prettify_slot_name, ShipbuildingTooltipContent, ShipbuildingTooltipEntry,
+    ShipbuildingTooltipTone,
 };
+use crate::colony::{BuildingType, Colony};
+use crate::economy::GlobalBudget;
+use crate::economy::components::LocalStockpile;
+use crate::fleets::{ActiveManeuver, Fleet, FleetOrbit};
 use crate::game_state::{ActiveMenu, GameMenu};
-use crate::research::ResearchState;
+use crate::plugins::solar_system::CelestialBody;
+use crate::research::{EngineeringProject, PendingResearchActions, ResearchState, TechnologiesData};
 use crate::shipbuilding::{
-    HullSlotDefinition, ShipDesignDraft, ShipDesignLibrary, ShipDesignSummary, ShipModuleSelection,
-    ShipbuildingData,
+    HullSlotDefinition, LaunchCapacityState, PendingShipbuildingActions,
+    QueueShipConstructionAction, ShipConstructionProject, ShipDesignDraft, ShipDesignLibrary,
+    ShipDesignSummary, ShipModuleSelection, ShipbuildingData,
 };
 use crate::shipbuilding::types::ShipModuleCategory;
+
+type WorkspaceColonyQuery<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static Colony,
+        &'static CelestialBody,
+        Option<&'static LocalStockpile>,
+    ),
+>;
+
+type WorkspaceFleetQuery<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static Fleet,
+        &'static FleetOrbit,
+        Option<&'static ActiveManeuver>,
+    ),
+>;
+
+#[derive(Clone)]
+struct WorkspaceDesignRow {
+    template_id: uuid::Uuid,
+    name: String,
+    version: u32,
+    hull_name: String,
+    summary: ShipDesignSummary,
+}
+
+#[derive(Clone)]
+struct WorkspaceFleetRow {
+    entity: Entity,
+    name: String,
+    orbit_radius_au: f64,
+    stationary: bool,
+    ship_count: usize,
+}
+
+#[derive(Clone, Copy)]
+enum ShipbuildingArchiveAction {
+    Open,
+    Fork,
+    Delete,
+}
 
 pub(super) struct ShipbuildingWorkspacePlugin;
 
@@ -66,6 +121,9 @@ struct ShipbuildingWorkspaceRoot;
 struct ShipbuildingWorkspaceStatus;
 
 #[derive(Component)]
+struct ShipbuildingWorkspaceTabs;
+
+#[derive(Component)]
 struct ShipbuildingWorkspaceLibrary;
 
 #[derive(Component)]
@@ -109,6 +167,54 @@ struct ShipbuildingCategoryButton {
 
 #[derive(Component)]
 struct ShipbuildingClearSlotButton;
+
+#[derive(Component)]
+struct ShipbuildingWorkspaceTabButton {
+    tab: ShipbuildingTab,
+}
+
+#[derive(Component)]
+struct ShipbuildingSaveDesignButton;
+
+#[derive(Component)]
+struct ShipbuildingResetDesignButton;
+
+#[derive(Component)]
+struct ShipbuildingArchiveSelectButton {
+    template_id: uuid::Uuid,
+}
+
+#[derive(Component)]
+struct ShipbuildingArchiveActionButton {
+    template_id: uuid::Uuid,
+    action: ShipbuildingArchiveAction,
+}
+
+#[derive(Component)]
+struct ShipbuildingConstructionSiteButton {
+    site: Entity,
+}
+
+#[derive(Component)]
+struct ShipbuildingConstructionFleetButton {
+    fleet: Option<Entity>,
+}
+
+#[derive(Component)]
+struct ShipbuildingConstructionDesignButton {
+    template_id: uuid::Uuid,
+}
+
+#[derive(Component)]
+struct ShipbuildingQueueSelectedDesignButton;
+
+#[derive(Component)]
+struct ShipbuildingComponentDatabaseButton {
+    module_id: String,
+}
+
+#[derive(Component)]
+struct ShipbuildingOpenEngineeringButton;
 
 #[derive(Component)]
 struct ShipbuildingSlotFrame {
@@ -196,6 +302,17 @@ fn spawn_shipbuilding_workspace(mut commands: Commands) {
                         TextColor(Color::srgb(0.82, 0.94, 0.98)),
                     ));
                 });
+
+            parent.spawn((
+                ShipbuildingWorkspaceTabs,
+                Node {
+                    width: Val::Percent(100.0),
+                    min_height: Val::Px(36.0),
+                    flex_direction: FlexDirection::Row,
+                    column_gap: Val::Px(8.0),
+                    ..default()
+                },
+            ));
 
             parent
                 .spawn((
@@ -365,10 +482,11 @@ fn toggle_shipbuilding_ui_backend(
 
 fn handle_shipbuilding_workspace_interactions(
     active_menu: Res<ActiveMenu>,
-    backend: Res<ShipbuildingUiBackend>,
+    mut backend: ResMut<ShipbuildingUiBackend>,
     shipbuilding_data: Res<ShipbuildingData>,
     research_state: Res<ResearchState>,
     mut ui_state: ResMut<ShipbuildingUiState>,
+    tab_buttons: Query<(&Interaction, &ShipbuildingWorkspaceTabButton), (Changed<Interaction>, With<Button>)>,
     hull_dropdown_toggle: Query<&Interaction, (Changed<Interaction>, With<ShipbuildingHullDropdownToggle>, With<Button>)>,
     hull_option_buttons: Query<(&Interaction, &ShipbuildingHullOptionButton), (Changed<Interaction>, With<Button>)>,
     category_buttons: Query<(&Interaction, &ShipbuildingCategoryButton), (Changed<Interaction>, With<Button>)>,
@@ -395,6 +513,18 @@ fn handle_shipbuilding_workspace_interactions(
                     }
                 }
             }
+        }
+
+        for (interaction, button) in &tab_buttons {
+            if *interaction != Interaction::Pressed {
+                continue;
+            }
+
+            ui_state.active_tab = button.tab;
+            if button.tab != ShipbuildingTab::Design {
+                backend.mode = ShipbuildingUiMode::LegacyEgui;
+            }
+            content_changed = true;
         }
 
         for interaction in &hull_dropdown_toggle {
@@ -529,6 +659,7 @@ fn sync_shipbuilding_workspace_content(
     design_library: Res<ShipDesignLibrary>,
     research_state: Res<ResearchState>,
     mut status_text: Single<&mut Text, (With<ShipbuildingWorkspaceStatus>, Without<ShipbuildingWorkspaceAnalytics>, Without<ShipbuildingWorkspaceBlueprint>)>,
+    tabs_root: Single<Entity, (With<ShipbuildingWorkspaceTabs>, Without<ShipbuildingWorkspaceLibrary>, Without<ShipbuildingWorkspaceBlueprint>, Without<ShipbuildingWorkspaceAnalytics>)>,
     library_root: Single<Entity, (With<ShipbuildingWorkspaceLibrary>, Without<ShipbuildingWorkspaceBlueprint>, Without<ShipbuildingWorkspaceAnalytics>)>,
     blueprint_root: Single<Entity, (With<ShipbuildingWorkspaceBlueprint>, Without<ShipbuildingWorkspaceLibrary>, Without<ShipbuildingWorkspaceAnalytics>)>,
     analytics_root: Single<Entity, (With<ShipbuildingWorkspaceAnalytics>, Without<ShipbuildingWorkspaceLibrary>, Without<ShipbuildingWorkspaceBlueprint>)>,
@@ -566,9 +697,12 @@ fn sync_shipbuilding_workspace_content(
         design_library.templates.len()
     ));
 
+    clear_dynamic_children(&mut commands, *tabs_root, &child_lists);
     clear_dynamic_children(&mut commands, *library_root, &child_lists);
     clear_dynamic_children(&mut commands, *blueprint_root, &child_lists);
     clear_dynamic_children(&mut commands, *analytics_root, &child_lists);
+
+    populate_tab_strip(&mut commands, *tabs_root, ui_state.active_tab);
 
     populate_library_panel(
         &mut commands,
@@ -595,6 +729,50 @@ fn sync_shipbuilding_workspace_content(
         preview_summary.as_ref(),
         &ui_state,
     );
+}
+
+fn populate_tab_strip(commands: &mut Commands, tabs_root: Entity, active_tab: ShipbuildingTab) {
+    commands.entity(tabs_root).with_children(|parent| {
+        for (tab, label) in [
+            (ShipbuildingTab::Design, "Design"),
+            (ShipbuildingTab::Archive, "Archive"),
+            (ShipbuildingTab::Construction, "Construction Control"),
+            (ShipbuildingTab::Components, "Component Database"),
+        ] {
+            let selected = tab == active_tab;
+            parent.spawn((
+                Button,
+                ShipbuildingWorkspaceTabButton { tab },
+                Node {
+                    min_width: Val::Px(if tab == ShipbuildingTab::Components { 188.0 } else if tab == ShipbuildingTab::Construction { 168.0 } else { 136.0 }),
+                    min_height: Val::Px(30.0),
+                    padding: UiRect::axes(Val::Px(12.0), Val::Px(6.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..default()
+                },
+                BackgroundColor(if selected {
+                    Color::srgb(0.1, 0.28, 0.34)
+                } else {
+                    Color::srgb(0.045, 0.07, 0.1)
+                }),
+                BorderColor::all(if selected {
+                    Color::srgb(0.0, 0.95, 1.0)
+                } else {
+                    Color::srgb(0.18, 0.3, 0.36)
+                }),
+                Text::new(label),
+                TextFont {
+                    font_size: 11.0,
+                    ..default()
+                },
+                TextColor(if selected {
+                    Color::srgb(0.9, 0.98, 1.0)
+                } else {
+                    Color::srgb(0.78, 0.86, 0.9)
+                }),
+            ));
+        }
+    });
 }
 
 fn build_preview_design(ui_state: &ShipbuildingUiState) -> Option<ShipDesignDraft> {
@@ -1167,13 +1345,8 @@ fn populate_analytics_panel(
                 ));
             }
 
-            let material_lines = summary
-                .resource_costs
-                .iter()
-                .take(6)
-                .map(|(resource, amount)| format!("{} {:.1}", resource.display_name(), amount))
-                .collect::<Vec<_>>()
-                .join("\n");
+            let material_lines =
+                format_shipbuilding_resource_cost_lines(&summary.resource_costs, 6).join("\n");
             parent.spawn(text_block(
                 format!(
                     "Material Cost\n{}{}",
@@ -1698,6 +1871,35 @@ fn spawn_blueprint_slot(
 ) {
     let filled = installed_module.is_some();
     let accent = slot_accent_color(slot.category);
+    let root_fill = if is_selected {
+        accent.with_alpha(0.18)
+    } else if is_hovered {
+        accent.with_alpha(0.11)
+    } else if filled {
+        accent.with_alpha(0.045)
+    } else {
+        accent.with_alpha(0.02)
+    };
+    let frame_fill = if is_selected {
+        mix_color(Color::srgb(0.04, 0.1, 0.14), accent, 0.26)
+    } else if is_hovered {
+        mix_color(Color::srgb(0.03, 0.08, 0.11), accent, 0.16)
+    } else if filled {
+        Color::srgb(0.045, 0.12, 0.15)
+    } else {
+        Color::srgba(0.018, 0.032, 0.05, 0.94)
+    };
+    let frame_border = if is_selected {
+        mix_color(Color::srgb(0.55, 0.95, 1.0), accent, 0.72)
+    } else if is_hovered {
+        mix_color(Color::srgb(0.4, 0.9, 1.0), accent, 0.42)
+    } else if is_previewed {
+        Color::srgb(0.46, 0.78, 1.0)
+    } else if filled {
+        mix_color(Color::srgb(0.34, 0.86, 0.94), accent, 0.22)
+    } else {
+        Color::srgba(0.16, 0.34, 0.4, 0.45)
+    };
     let title = prettify_slot_name(&slot.slot_id);
     let category_text = slot.category.display_name();
     let module_name = installed_module
@@ -1732,17 +1934,7 @@ fn spawn_blueprint_slot(
                 accent,
                 filled,
             },
-            BackgroundColor(accent.with_alpha(
-                if is_selected {
-                    0.12
-                } else if is_hovered {
-                    0.08
-                } else if filled {
-                    0.035
-                } else {
-                    0.015
-                },
-            )),
+            BackgroundColor(root_fill),
         ))
         .with_children(|slot_root| {
             slot_root.spawn((
@@ -1789,22 +1981,8 @@ fn spawn_blueprint_slot(
                     filled,
                     previewed: is_previewed,
                 },
-                BackgroundColor(if filled {
-                    Color::srgb(0.045, 0.12, 0.15)
-                } else {
-                    Color::srgba(0.018, 0.032, 0.05, 0.94)
-                }),
-                BorderColor::all(if is_selected {
-                    Color::srgb(0.0, 0.98, 1.0)
-                } else if is_hovered {
-                    Color::srgb(0.36, 0.88, 0.98)
-                } else if is_previewed {
-                    Color::srgb(0.46, 0.78, 1.0)
-                } else if filled {
-                    Color::srgb(0.34, 0.86, 0.94)
-                } else {
-                    Color::srgba(0.16, 0.34, 0.4, 0.35)
-                }),
+                BackgroundColor(frame_fill),
+                BorderColor::all(frame_border),
             ));
 
             slot_root
