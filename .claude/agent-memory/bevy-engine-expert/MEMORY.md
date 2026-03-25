@@ -1,0 +1,4 @@
+- Native Bevy UI in shipbuilding workspace can silently lose visible animation when content systems rebuild entity trees too often. Keep hover-only state writes change-neutral and only mark UI state changed for real content mutations.
+- For shipbuilding workspace hover detection, do not rely on `Changed<Interaction>` alone for persistent hover visuals; sample hover interactions every frame, or the highlight will appear for one frame and then clear.
+- When syncing shipbuilding workspace content, first render must consider `active_menu.is_changed()`, and unrelated simulation resources like `ResearchState` should not trigger full UI rebuilds.
+- Animated slot overlays in Bevy UI need clipping on the slot root (`Overflow::clip()`) or sweeps/scanlines will visibly extend past card borders.
