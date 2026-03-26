@@ -13,6 +13,8 @@ use super::data::TechnologiesData;
 use super::types::{ModifierType, TechCategory, TechnologyId};
 use super::PendingResearchActions;
 
+const STARTING_TECH_IDS: &[&str] = &["solar_power", "chemical_spaceframes"];
+
 /// Resource that tracks global research state
 #[derive(Resource, Debug, Clone, Default)]
 pub struct ResearchState {
@@ -666,7 +668,9 @@ pub fn initialize_baseline_technology(
             continue;
         }
 
-        if tech.research_cost <= 0.0 && tech.prerequisites.is_empty() {
+        if (tech.research_cost <= 0.0 && tech.prerequisites.is_empty())
+            || STARTING_TECH_IDS.contains(&tech.id.as_str())
+        {
             research_state.unlock_tech(tech.id.clone());
 
             // Apply modifiers
@@ -680,6 +684,32 @@ pub fn initialize_baseline_technology(
 
     if unlocked_count > 0 {
         info!("Initialized {} baseline technologies", unlocked_count);
+    }
+}
+
+/// Complete engineering projects for all technologies that are already unlocked at game start.
+/// This makes modern baseline ship components immediately buildable instead of forcing
+/// the player to engineer 2026-proven hardware like cargo modules and solar arrays.
+pub fn initialize_baseline_engineering(
+    mut research_state: ResMut<ResearchState>,
+    tech_data: Res<TechnologiesData>,
+) {
+    let mut completed_count = 0;
+
+    for component in tech_data.components.values() {
+        if research_state.is_component_completed(&component.id) {
+            continue;
+        }
+
+        if component.required_tech.is_empty() || research_state.is_unlocked(&component.required_tech)
+        {
+            research_state.complete_component(component.id.clone());
+            completed_count += 1;
+        }
+    }
+
+    if completed_count > 0 {
+        info!("Initialized {} baseline engineering projects", completed_count);
     }
 }
 

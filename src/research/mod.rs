@@ -22,8 +22,8 @@ pub use components::{
 pub use data::{load_technologies, TechnologiesData};
 pub use systems::{
     advance_engineering_projects, advance_research_projects, apply_debug_modifiers,
-    check_unlocked_technologies, initialize_baseline_technology, update_research_points,
-    ResearchState,
+    check_unlocked_technologies, initialize_baseline_engineering,
+    initialize_baseline_technology, update_research_points, ResearchState,
 };
 pub use types::{ModifierType, TechCategory, TechModifierDef, Technology, TechnologyId};
 
@@ -174,7 +174,11 @@ impl Plugin for ResearchPlugin {
             .add_systems(Startup, load_technologies)
             .add_systems(
                 PostStartup,
-                (initialize_baseline_technology, systems::merge_ship_module_engineering_catalog)
+                (
+                    systems::merge_ship_module_engineering_catalog,
+                    initialize_baseline_technology,
+                    initialize_baseline_engineering,
+                )
                     .chain(),
             )
             // Update systems
