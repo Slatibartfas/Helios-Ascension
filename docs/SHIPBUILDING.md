@@ -17,10 +17,10 @@ The gameplay data model is paired with a single native Bevy UI frontend:
 
 ## Current Data Set
 
-- 9 hull definitions in `assets/data/ship_hulls.ron`
-- 69 ship module definitions in `assets/data/ship_modules.ron`
+- 12 hull definitions in `assets/data/ship_hulls.ron`
+- 74 ship module definitions in `assets/data/ship_modules.ron`
 - 12 consolidated ship module categories in `src/shipbuilding/types.rs`
-- Tiered module progression currently implemented through tier 5 in the module data
+- Ship progression is organized around five propulsion eras: Chemical, Fission/NTR, Gas-Core or Early Fusion, Fusion Torch, and Antimatter
 
 ## Module Categories
 
@@ -48,7 +48,7 @@ The hull set currently includes four tier-1 probe and small-craft frames at the 
 - `courier_frame`
 - `lander_frame`
 
-Additional hulls scale upward into combat, logistics, and station roles. Slot compatibility is enforced through `slot_layout` category and size matching in the shipbuilding data loader and UI.
+Additional hulls scale upward into combat, logistics, station, cruiser, and interstellar-precursor roles. Slot compatibility is enforced through `slot_layout` category and size matching in the shipbuilding data loader and UI.
 
 ## Current UI Workflow
 
@@ -92,15 +92,22 @@ Ship module progression now has two explicit authored links:
 1. `required_tech` controls when the module family is even visible.
 2. `required_component_design` selects the engineering project that must be completed before any module in that family can be installed.
 
+Hull progression now has its own authored gate:
+
+1. `required_tech` on hulls represents the spaceframe or construction breakthrough needed to build that class of hull.
+2. Early hulls use `chemical_spaceframes`, midgame combatants move through `orbital_assembly_heavy` and `carbon_nanotube_frames`, and late ships rely on `fusion_superstructures` or `antimatter_containment_structures`.
+3. This prevents late propulsion families from trivially riding on modern baseline hull architecture even when slot sizes would otherwise match.
+
 When a family target is not explicitly authored in the `components` array, the runtime synthesizes the engineering definition from ship module data. That synthesis still depends on `unlocks_engineering` in `assets/data/technologies.ron` so the tech tree and Available Engineering tab expose the project correctly.
 
 For ship-related content, the intended workflow is:
 
 1. Add or update the technology in `assets/data/technologies.ron`.
 2. Add or update the module in `assets/data/ship_modules.ron`.
-3. If the module belongs to an existing family, point `required_component_design` at that family target instead of inventing a parallel unlock path.
-4. Ensure the module's `required_tech` and the technology's `unlocks_engineering` entry refer to the same progression step.
-5. Validate with `cargo build` and a short `cargo run` to catch runtime RON parsing errors.
+3. Add or update the hull in `assets/data/ship_hulls.ron` when a new propulsion era needs a new spaceframe.
+4. If the module belongs to an existing family, point `required_component_design` at that family target instead of inventing a parallel unlock path.
+5. Ensure the module's `required_tech` and the technology's `unlocks_engineering` entry refer to the same progression step.
+6. Validate with `cargo build` and a short `cargo run` to catch runtime RON parsing errors.
 
 ## Validation
 

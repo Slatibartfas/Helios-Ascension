@@ -32,12 +32,18 @@ fn default_required_slot() -> bool {
     true
 }
 
+fn default_progression_tier() -> u8 {
+    1
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShipHullDefinition {
     pub id: String,
     pub display_name: String,
     pub description: String,
     pub class: ShipClass,
+    #[serde(default = "default_progression_tier")]
+    pub tier: u8,
     pub base_build_points: f64,
     pub base_dry_mass_t: f64,
     pub default_construction_mode: ConstructionMode,
@@ -91,6 +97,8 @@ pub struct ShipModuleDefinition {
     pub description: String,
     pub category: ShipModuleCategory,
     pub size: String,
+    #[serde(default = "default_progression_tier")]
+    pub tier: u8,
     #[serde(default)]
     pub propulsion: Option<PropulsionType>,
     #[serde(default)]
@@ -218,6 +226,28 @@ pub struct ShipbuildingData {
 }
 
 impl ShipbuildingData {
+    pub fn effective_hull_build_points(&self, hull: &ShipHullDefinition) -> f64 {
+        scale_build_points(hull.base_build_points, hull.base_dry_mass_t, hull.tier, true)
+    }
+
+    pub fn effective_module_build_points(&self, module: &ShipModuleDefinition) -> f64 {
+        scale_build_points(module.build_points, module.dry_mass_t, module.tier, false)
+    }
+
+    pub fn effective_hull_resource_costs(
+        &self,
+        hull: &ShipHullDefinition,
+    ) -> Vec<ResourceCostEntry> {
+        scale_resource_costs(&hull.resource_costs, hull.tier)
+    }
+
+    pub fn effective_module_resource_costs(
+        &self,
+        module: &ShipModuleDefinition,
+    ) -> Vec<ResourceCostEntry> {
+        scale_resource_costs(&module.resource_costs, module.tier)
+    }
+
     pub fn get_hull(&self, hull_id: &str) -> Option<&ShipHullDefinition> {
         self.hulls.get(hull_id)
     }
@@ -308,10 +338,10 @@ impl ShipbuildingData {
         let mut summary = ShipDesignSummary {
             hull_name: hull.display_name.clone(),
             ship_class: hull.class,
-            build_points: hull.base_build_points,
+            build_points: self.effective_hull_build_points(hull),
             dry_mass_t: hull.base_dry_mass_t,
             launch_mass_t: hull.base_dry_mass_t,
-            resource_costs: hull.resource_costs.clone(),
+            resource_costs: self.effective_hull_resource_costs(hull),
             is_station: hull.is_station,
             ..Default::default()
         };
@@ -344,7 +374,7 @@ impl ShipbuildingData {
                 return None;
             }
 
-            summary.build_points += module.build_points;
+            summary.build_points += self.effective_module_build_points(module);
             summary.dry_mass_t += module.dry_mass_t;
             summary.power_generation_mw += module.power_generation_mw;
             summary.power_draw_mw += module.power_draw_mw;
@@ -361,7 +391,8 @@ impl ShipbuildingData {
                 }
             }
 
-            accumulate_costs(&mut summary.resource_costs, &module.resource_costs);
+            let scaled_costs = self.effective_module_resource_costs(module);
+            accumulate_costs(&mut summary.resource_costs, &scaled_costs);
         }
 
         if thrust_total > 0.0 {
@@ -381,6 +412,40 @@ impl ShipbuildingData {
 
         Some(summary)
     }
+}
+
+fn build_point_tier_multiplier(tier: u8) -> f64 {
+    match tier {
+        0 | 1 => 12.0,
+        2 => 14.0,
+        3 => 16.0,
+        4 => 18.0,
+        _ => 22.0,
+    }
+}
+
+fn resource_tier_multiplier(tier: u8) -> f64 {
+    match tier {
+        0 | 1 => 3.0,
+        2 => 4.0,
+        3 => 5.25,
+        4 => 6.5,
+        _ => 8.0,
+    }
+}
+
+fn scale_build_points(raw_build_points: f64, dry_mass_t: f64, tier: u8, is_hull: bool) -> f64 {
+    let multiplier = build_point_tier_multiplier(tier);
+    let mass_complexity = dry_mass_t.max(0.0).powf(0.8) * if is_hull { 8.0 } else { 4.0 };
+    let scaled = raw_build_points.max(1.0) * multiplier + mass_complexity;
+    ((scaled / 5.0).round() * 5.0).max(raw_build_points.max(1.0))
+}
+
+fn scale_resource_costs(costs: &[ResourceCostEntry], tier: u8) -> Vec<ResourceCostEntry> {
+    let multiplier = resource_tier_multiplier(tier);
+    costs.iter()
+        .map(|(resource, amount)| (*resource, amount * multiplier))
+        .collect()
 }
 
 /// Global library of ship design templates (designs / classes).
@@ -569,6 +634,7 @@ mod tests {
                 display_name: "Test Hull".to_string(),
                 description: String::new(),
                 class: ShipClass::Courier,
+                tier: 1,
                 base_build_points: 100.0,
                 base_dry_mass_t: 10.0,
                 default_construction_mode: ConstructionMode::SurfaceLaunch,
@@ -597,6 +663,7 @@ mod tests {
                 description: String::new(),
                 category: ShipModuleCategory::FlightSystems,
                 size: "Small".to_string(),
+                tier: 1,
                 propulsion: Some(PropulsionType::Chemical),
                 required_tech: None,
                 required_component_design: None,
@@ -629,11 +696,11 @@ mod tests {
             )
             .expect("design summary should exist");
 
-        assert_eq!(summary.build_points, 120.0);
+        assert_eq!(summary.build_points, 1505.0);
         assert_eq!(summary.dry_mass_t, 15.0);
         assert_eq!(summary.thrust_kn, 4.0);
         assert_eq!(summary.resource_costs.len(), 1);
-        assert_eq!(summary.resource_costs[0], (ResourceType::Iron, 5.0));
+        assert_eq!(summary.resource_costs[0], (ResourceType::Iron, 15.0));
     }
 
     #[test]
@@ -643,6 +710,7 @@ mod tests {
             display_name: "Orbital Hull".to_string(),
             description: String::new(),
             class: ShipClass::Frigate,
+            tier: 1,
             base_build_points: 100.0,
             base_dry_mass_t: 10.0,
             default_construction_mode: ConstructionMode::OrbitalAssembly,

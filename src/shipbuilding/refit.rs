@@ -44,13 +44,13 @@ impl RefitProject {
 
         for module_id in removed_module_ids {
             if let Some(module) = shipbuilding_data.get_module(module_id) {
-                removed_bp += module.build_points;
+                removed_bp += shipbuilding_data.effective_module_build_points(module);
             }
         }
 
         for module_id in added_module_ids {
             if let Some(module) = shipbuilding_data.get_module(module_id) {
-                added_bp += module.build_points;
+                added_bp += shipbuilding_data.effective_module_build_points(module);
             }
         }
 
@@ -69,7 +69,7 @@ impl RefitProject {
 
         for module_id in added_module_ids {
             if let Some(module) = shipbuilding_data.get_module(module_id) {
-                for (resource, amount) in &module.resource_costs {
+                for (resource, amount) in &shipbuilding_data.effective_module_resource_costs(module) {
                     if let Some((_, existing)) = costs.iter_mut().find(|(r, _)| r == resource) {
                         *existing += *amount;
                     } else {

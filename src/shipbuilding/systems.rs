@@ -19,9 +19,10 @@ use crate::plugins::solar_system::CelestialBody;
 use crate::research::ResearchState;
 use crate::ui::SimulationTime;
 
-const SHIPYARD_BP_PER_YEAR: f64 = 2_500.0;
-const FACTORY_SUPPORT_BP_PER_YEAR: f64 = 125.0;
-const ENGINEERING_BAY_BONUS: f64 = 0.05;
+const SHIPYARD_BP_PER_YEAR: f64 = 600.0;
+const FACTORY_SUPPORT_BP_PER_YEAR: f64 = 75.0;
+const FACTORIES_SUPPORTED_PER_SHIPYARD: f64 = 3.0;
+const ENGINEERING_BAY_BONUS: f64 = 0.03;
 
 const LAUNCH_SITE_CAPACITY_T_PER_YEAR: f64 = 5.0;
 const SPACE_PORT_CAPACITY_T_PER_YEAR: f64 = 40.0;
@@ -500,9 +501,11 @@ pub fn advance_ship_construction(
             }
 
             let factories = colony.building_count(BuildingType::Factory) as f64;
+            let effective_factories = factories.min(shipyards * FACTORIES_SUPPORTED_PER_SHIPYARD);
             let engineering_bays = colony.building_count(BuildingType::EngineeringBay) as f64;
             let bonus = 1.0 + engineering_bays * ENGINEERING_BAY_BONUS;
-            let bp = (shipyards * SHIPYARD_BP_PER_YEAR + factories * FACTORY_SUPPORT_BP_PER_YEAR)
+            let bp = (shipyards * SHIPYARD_BP_PER_YEAR
+                + effective_factories * FACTORY_SUPPORT_BP_PER_YEAR)
                 * bonus
                 * years_elapsed;
             colony_bp.push((colony_entity, bp));
@@ -526,9 +529,11 @@ pub fn advance_ship_construction(
             }
 
             let factories = colony.building_count(BuildingType::Factory) as f64;
+            let effective_factories = factories.min(shipyards * FACTORIES_SUPPORTED_PER_SHIPYARD);
             let engineering_bays = colony.building_count(BuildingType::EngineeringBay) as f64;
             let bonus = 1.0 + engineering_bays * ENGINEERING_BAY_BONUS;
-            let bp = (shipyards * SHIPYARD_BP_PER_YEAR + factories * FACTORY_SUPPORT_BP_PER_YEAR)
+            let bp = (shipyards * SHIPYARD_BP_PER_YEAR
+                + effective_factories * FACTORY_SUPPORT_BP_PER_YEAR)
                 * bonus
                 * years_elapsed;
             colony_bp.push((colony_entity, bp));
