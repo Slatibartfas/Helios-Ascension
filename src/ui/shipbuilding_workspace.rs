@@ -560,14 +560,6 @@ fn handle_shipbuilding_workspace_interactions(
             )>,
             With<Button>,
         ),
-        (
-            Changed<Interaction>,
-            Or<(
-                With<ShipbuildingClearSlotButton>,
-                With<ShipbuildingClearLibraryFilterButton>,
-            )>,
-            With<Button>,
-        ),
     >,
     slot_press_buttons: Query<
         (&Interaction, &ShipbuildingSlotButton),
