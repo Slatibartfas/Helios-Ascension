@@ -648,7 +648,10 @@ pub(super) fn render_research_tech_tooltip_content(
                         .color(theme::EP_TEAL),
                     );
                 } else {
-                    ui.label(egui::RichText::new(format!("  ⚙ {}", comp_id)).color(theme::EP_TEAL));
+                    ui.label(
+                        egui::RichText::new(format!("  ⚙ {}", format_component_id(comp_id)))
+                            .color(theme::EP_TEAL),
+                    );
                 }
             }
         }
