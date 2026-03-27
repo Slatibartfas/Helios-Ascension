@@ -2,7 +2,12 @@ use serde::{Deserialize, Serialize};
 
 /// High-level category for a ship module slot or component.
 ///
-/// Consolidated Aurora 4X-inspired categories (12 total) for Helios Ascension.
+/// Consolidated Aurora 4X-inspired categories for Helios Ascension.
+///
+/// The authored ship data still uses several legacy sub-categories such as
+/// `Bridges`, `Habitats`, `Magazines`, and `PointDefense`. Those remain
+/// supported here so existing RON data continues to deserialize while keeping
+/// those slot types distinct in the ship designer.
 /// Each category groups related component types across all tiers:
 ///   - FlightSystems: Flight cores, engines, RCS
 ///   - PowerThermal: Reactors (solar/fission/fusion), radiators
@@ -20,18 +25,27 @@ use serde::{Deserialize, Serialize};
 pub enum ShipModuleCategory {
     // Core operations
     FlightSystems,
+    Bridges,
     PowerThermal,
     FuelStorage,
+    CargoStorage,
     // Combat systems
     Weapons,
     FireControl,
     Sensors,
+    Magazines,
+    PointDefense,
+    Armor,
     ArmorDefense,
     // Crew & habitability
     CrewSystems,
+    Habitats,
+    Medical,
     // Support & logistics
     UtilitySupport,
+    Maintenance,
     ConstructionISRU,
+    Construction,
     ElectronicWarfare,
     SpecialScience,
 }
@@ -43,18 +57,27 @@ impl ShipModuleCategory {
         &[
             // Core operations
             FlightSystems,
+            Bridges,
             PowerThermal,
             FuelStorage,
+            CargoStorage,
             // Combat systems
             Weapons,
             FireControl,
             Sensors,
+            Magazines,
+            PointDefense,
+            Armor,
             ArmorDefense,
             // Crew & habitability
             CrewSystems,
+            Habitats,
+            Medical,
             // Support & logistics
             UtilitySupport,
+            Maintenance,
             ConstructionISRU,
+            Construction,
             ElectronicWarfare,
             SpecialScience,
         ]
@@ -64,18 +87,27 @@ impl ShipModuleCategory {
         match self {
             // Core operations
             Self::FlightSystems => "Flight Systems",
+            Self::Bridges => "Bridges",
             Self::PowerThermal => "Power & Thermal",
             Self::FuelStorage => "Fuel & Storage",
+            Self::CargoStorage => "Cargo Storage",
             // Combat systems
             Self::Weapons => "Weapons",
             Self::FireControl => "Fire Control",
             Self::Sensors => "Sensors",
+            Self::Magazines => "Magazines",
+            Self::PointDefense => "Point Defense",
+            Self::Armor => "Armor",
             Self::ArmorDefense => "Armor & Defense",
             // Crew & habitability
             Self::CrewSystems => "Crew Systems",
+            Self::Habitats => "Habitats",
+            Self::Medical => "Medical",
             // Support & logistics
             Self::UtilitySupport => "Utility & Support",
+            Self::Maintenance => "Maintenance",
             Self::ConstructionISRU => "Construction & ISRU",
+            Self::Construction => "Construction",
             Self::ElectronicWarfare => "Electronic Warfare",
             Self::SpecialScience => "Special Science",
         }
@@ -85,18 +117,27 @@ impl ShipModuleCategory {
         match self {
             // Core operations
             Self::FlightSystems => "🚀",
+            Self::Bridges => "🧭",
             Self::PowerThermal => "⚡",
             Self::FuelStorage => "⛽",
+            Self::CargoStorage => "📦",
             // Combat systems
             Self::Weapons => "🎯",
             Self::FireControl => "🎛",
             Self::Sensors => "📡",
+            Self::Magazines => "🗄",
+            Self::PointDefense => "🛡",
+            Self::Armor => "🧱",
             Self::ArmorDefense => "🛡",
             // Crew & habitability
             Self::CrewSystems => "👥",
+            Self::Habitats => "🏠",
+            Self::Medical => "⚕",
             // Support & logistics
             Self::UtilitySupport => "🔧",
+            Self::Maintenance => "🧰",
             Self::ConstructionISRU => "🏗",
+            Self::Construction => "🏗",
             Self::ElectronicWarfare => "⚠️",
             Self::SpecialScience => "🔬",
         }
