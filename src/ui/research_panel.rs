@@ -14,6 +14,19 @@ pub(super) struct ActiveProjectInfo {
     pub(super) active: bool,
 }
 
+fn format_component_id(id: &str) -> String {
+    id.split('_')
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_uppercase().chain(chars).collect(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn draw_menu_header(ui: &mut egui::Ui, title: &str, subtitle: &str) {
     ui.label(
         egui::RichText::new(title)
@@ -609,6 +622,11 @@ pub(super) fn render_research_tech_tooltip_content(
                         ))
                         .color(theme::EP_TEAL),
                     );
+                } else {
+                    ui.label(
+                        egui::RichText::new(format!("  ⚙ {}", format_component_id(comp_id)))
+                            .color(theme::EP_TEAL),
+                    );
                 }
             }
         }
@@ -630,9 +648,7 @@ pub(super) fn render_research_tech_tooltip_content(
                         .color(theme::EP_TEAL),
                     );
                 } else {
-                    ui.label(
-                        egui::RichText::new(format!("  ⚙ {}", comp_id)).color(theme::EP_TEAL),
-                    );
+                    ui.label(egui::RichText::new(format!("  ⚙ {}", comp_id)).color(theme::EP_TEAL));
                 }
             }
         }
@@ -646,10 +662,7 @@ pub(super) fn render_research_tech_tooltip_content(
                     .color(theme::ACCENT),
             );
             for hull in unlocked_hulls.into_iter().flatten() {
-                ui.label(
-                    egui::RichText::new(format!("  ▣ {}", hull))
-                    .color(theme::ACCENT),
-                );
+                ui.label(egui::RichText::new(format!("  ▣ {}", hull)).color(theme::ACCENT));
             }
         }
 
@@ -1037,7 +1050,8 @@ fn render_available_engineering_tab(
                     .iter()
                     .any(|(project, _)| project.component_id == component.id);
                 let used_team_slots = engineering_projects.iter().count();
-                let can_start = !in_progress && used_team_slots < team_capacity.max_engineering_teams;
+                let can_start =
+                    !in_progress && used_team_slots < team_capacity.max_engineering_teams;
                 let parent_tech = tech_data.get_tech(&component.required_tech);
                 let cat_color = parent_tech
                     .map(|t| tech_category_color(t.category))
@@ -1062,8 +1076,11 @@ fn render_available_engineering_tab(
                             if let Some(tech) = parent_tech {
                                 if let Some(tex) = icon_textures.get(&tech.category) {
                                     ui.add(
-                                        egui::Image::new(egui::load::SizedTexture::new(*tex, [16.0, 16.0]))
-                                            .tint(cat_color),
+                                        egui::Image::new(egui::load::SizedTexture::new(
+                                            *tex,
+                                            [16.0, 16.0],
+                                        ))
+                                        .tint(cat_color),
                                     );
                                 }
                             }
@@ -1077,8 +1094,11 @@ fn render_available_engineering_tab(
                             }
                             ui.add_space(8.0);
                             ui.label(
-                                egui::RichText::new(format!("{:.0} EP", component.engineering_cost))
-                                    .color(theme::EP_TEAL),
+                                egui::RichText::new(format!(
+                                    "{:.0} EP",
+                                    component.engineering_cost
+                                ))
+                                .color(theme::EP_TEAL),
                             );
                             if let Some(tech) = parent_tech {
                                 ui.label(
@@ -1093,9 +1113,12 @@ fn render_available_engineering_tab(
                             } else {
                                 "🔧 Start Engineering"
                             };
-                            let start_btn = ui.add_enabled(can_start, egui::Button::new(button_label));
+                            let start_btn =
+                                ui.add_enabled(can_start, egui::Button::new(button_label));
                             if can_start && start_btn.clicked() {
-                                pending_research.start_engineering.push(component.id.clone());
+                                pending_research
+                                    .start_engineering
+                                    .push(component.id.clone());
                             }
                             if !can_start && !in_progress {
                                 start_btn.on_hover_text("No engineering team slots available.");
@@ -1511,12 +1534,7 @@ fn render_bonus_detail_content(
             });
         }
     } else {
-        ui.label(
-            egui::RichText::new("No tech sources found")
-                .italics()
-                .size(10.0)
-                .color(theme::TEXT_DIM),
-        );
+        ui.label(egui::RichText::new("  ⚙ No sources").color(theme::EP_TEAL));
     }
 }
 

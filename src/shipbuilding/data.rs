@@ -627,6 +627,7 @@ mod tests {
     #[test]
     fn summarize_design_accumulates_module_stats() {
         let mut data = ShipbuildingData::default();
+        let mut research_state = ResearchState::default();
         data.hulls.insert(
             "test_hull".to_string(),
             ShipHullDefinition {
@@ -680,6 +681,7 @@ mod tests {
                 tags: Vec::new(),
             },
         );
+        research_state.complete_component("drive_1".to_string());
 
         let summary = data
             .summarize_design(
@@ -692,7 +694,7 @@ mod tests {
                     }],
                     construction_mode: ConstructionMode::SurfaceLaunch,
                 },
-                &ResearchState::default(),
+                &research_state,
             )
             .expect("design summary should exist");
 
