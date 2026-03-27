@@ -2288,15 +2288,22 @@ fn slot_zone(slot: &HullSlotDefinition) -> usize {
 
     match slot.category {
         ShipModuleCategory::FlightSystems => 0,
-        ShipModuleCategory::FuelStorage => 1,
+        ShipModuleCategory::FuelStorage | ShipModuleCategory::CargoStorage => 1,
         ShipModuleCategory::PowerThermal => 2,
         ShipModuleCategory::Sensors
         | ShipModuleCategory::UtilitySupport
+        | ShipModuleCategory::Maintenance
         | ShipModuleCategory::SpecialScience
         | ShipModuleCategory::ElectronicWarfare => 3,
-        ShipModuleCategory::ConstructionISRU => 4,
-        ShipModuleCategory::CrewSystems => 5,
-        ShipModuleCategory::ArmorDefense => 6,
+        ShipModuleCategory::ConstructionISRU | ShipModuleCategory::Construction => 4,
+        ShipModuleCategory::CrewSystems
+        | ShipModuleCategory::Bridges
+        | ShipModuleCategory::Habitats
+        | ShipModuleCategory::Medical => 5,
+        ShipModuleCategory::ArmorDefense
+        | ShipModuleCategory::Magazines
+        | ShipModuleCategory::PointDefense
+        | ShipModuleCategory::Armor => 6,
         ShipModuleCategory::Weapons | ShipModuleCategory::FireControl => 7,
     }
 }
@@ -2677,17 +2684,29 @@ fn spawn_blueprint_slot(
 fn slot_accent_color(category: ShipModuleCategory) -> Color {
     match category {
         ShipModuleCategory::FlightSystems => Color::srgb(1.0, 0.62, 0.28),
+        ShipModuleCategory::Bridges
+        |
         ShipModuleCategory::PowerThermal
         | ShipModuleCategory::Sensors
         | ShipModuleCategory::UtilitySupport
+        | ShipModuleCategory::Maintenance
         | ShipModuleCategory::SpecialScience => Color::srgb(0.26, 0.86, 1.0),
         ShipModuleCategory::Weapons
         | ShipModuleCategory::FireControl
         | ShipModuleCategory::ArmorDefense
+        | ShipModuleCategory::Magazines
+        | ShipModuleCategory::PointDefense
+        | ShipModuleCategory::Armor
         | ShipModuleCategory::ElectronicWarfare => Color::srgb(1.0, 0.34, 0.34),
-        ShipModuleCategory::FuelStorage => Color::srgb(0.56, 0.92, 0.66),
-        ShipModuleCategory::CrewSystems => Color::srgb(0.9, 0.84, 0.58),
-        ShipModuleCategory::ConstructionISRU => Color::srgb(0.96, 0.72, 0.38),
+        ShipModuleCategory::FuelStorage | ShipModuleCategory::CargoStorage => {
+            Color::srgb(0.56, 0.92, 0.66)
+        }
+        ShipModuleCategory::CrewSystems
+        | ShipModuleCategory::Habitats
+        | ShipModuleCategory::Medical => Color::srgb(0.9, 0.84, 0.58),
+        ShipModuleCategory::ConstructionISRU | ShipModuleCategory::Construction => {
+            Color::srgb(0.96, 0.72, 0.38)
+        }
     }
 }
 
@@ -2994,15 +3013,27 @@ fn animate_px(value: Val, target: f32, amount: f32) -> Val {
 fn category_color(category: ShipModuleCategory) -> Color {
     match category {
         ShipModuleCategory::FlightSystems => Color::srgb(0.35, 0.88, 1.0),
+        ShipModuleCategory::Bridges => Color::srgb(0.56, 0.82, 1.0),
         ShipModuleCategory::PowerThermal => Color::srgb(1.0, 0.76, 0.28),
-        ShipModuleCategory::FuelStorage => Color::srgb(0.45, 0.85, 0.66),
+        ShipModuleCategory::FuelStorage | ShipModuleCategory::CargoStorage => {
+            Color::srgb(0.45, 0.85, 0.66)
+        }
         ShipModuleCategory::Weapons => Color::srgb(1.0, 0.46, 0.35),
         ShipModuleCategory::FireControl => Color::srgb(0.8, 0.7, 1.0),
         ShipModuleCategory::Sensors => Color::srgb(0.5, 0.92, 0.9),
-        ShipModuleCategory::ArmorDefense => Color::srgb(0.86, 0.92, 1.0),
-        ShipModuleCategory::CrewSystems => Color::srgb(0.85, 0.82, 0.64),
+        ShipModuleCategory::Magazines => Color::srgb(0.94, 0.82, 0.58),
+        ShipModuleCategory::PointDefense => Color::srgb(1.0, 0.68, 0.54),
+        ShipModuleCategory::Armor | ShipModuleCategory::ArmorDefense => {
+            Color::srgb(0.86, 0.92, 1.0)
+        }
+        ShipModuleCategory::CrewSystems
+        | ShipModuleCategory::Habitats
+        | ShipModuleCategory::Medical => Color::srgb(0.85, 0.82, 0.64),
         ShipModuleCategory::UtilitySupport => Color::srgb(0.62, 0.85, 1.0),
-        ShipModuleCategory::ConstructionISRU => Color::srgb(0.9, 0.72, 0.45),
+        ShipModuleCategory::Maintenance => Color::srgb(0.72, 0.84, 0.94),
+        ShipModuleCategory::ConstructionISRU | ShipModuleCategory::Construction => {
+            Color::srgb(0.9, 0.72, 0.45)
+        }
         ShipModuleCategory::ElectronicWarfare => Color::srgb(1.0, 0.62, 0.78),
         ShipModuleCategory::SpecialScience => Color::srgb(0.6, 1.0, 0.8),
     }
