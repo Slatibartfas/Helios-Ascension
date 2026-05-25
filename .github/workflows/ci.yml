@@ -42,7 +42,13 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang lld libwayland-dev wayland-protocols libxkbcommon-dev libdbus-1-dev pkg-config
+          # Install all dev packages needed by Bevy and dependencies
+          sudo apt-get install -y \
+            clang lld \
+            libwayland-dev wayland-protocols libxkbcommon-dev libdbus-1-dev \
+            libasound2-dev \
+            libudev-dev \
+            pkg-config
           echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
 
       - name: Run Clippy
@@ -61,7 +67,11 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwayland-dev wayland-protocols libxkbcommon-dev libdbus-1-dev pkg-config
+          sudo apt-get install -y \
+            libwayland-dev wayland-protocols libxkbcommon-dev libdbus-1-dev \
+            libasound2-dev \
+            libudev-dev \
+            pkg-config
           echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
 
       - name: Install Rust
@@ -101,7 +111,12 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang lld libwayland-dev wayland-protocols libxkbcommon-dev libdbus-1-dev pkg-config
+          sudo apt-get install -y \
+            clang lld \
+            libwayland-dev wayland-protocols libxkbcommon-dev libdbus-1-dev \
+            libasound2-dev \
+            libudev-dev \
+            pkg-config
           echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
 
       - name: Install Rust
@@ -132,7 +147,11 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwayland-dev wayland-protocols libxkbcommon-dev libdbus-1-dev pkg-config
+          sudo apt-get install -y \
+            libwayland-dev wayland-protocols libxkbcommon-dev libdbus-1-dev \
+            libasound2-dev \
+            libudev-dev \
+            pkg-config
           echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
 
       - name: Install Rust
