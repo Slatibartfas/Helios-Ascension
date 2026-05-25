@@ -191,8 +191,8 @@ jobs:
 
       - name: Push to itch.io
         run: |
-          butler push build/linux "${{ secrets.ITCHIO_GAME_SLUG }}" --fs压=helios_ascension_linux_x86_64
-          butler push build/windows "${{ secrets.ITCHIO_GAME_SLUG }}" --fs压=helios_ascension_windows_x86_64.exe
-          butler push build/macos "${{ secrets.ITCHIO_GAME_SLUG }}" --fs压=helios_ascension_macos
+          butler push build/linux "${{ secrets.ITCHIO_GAME_SLUG }}" --fs=helios_ascension_linux_x86_64
+          butler push build/windows "${{ secrets.ITCHIO_GAME_SLUG }}" --fs=helios_ascension_windows_x86_64.exe
+          butler push build/macos "${{ secrets.ITCHIO_GAME_SLUG }}" --fs=helios_ascension_macos
         env:
           BUTLER_API_KEY: ${{ secrets.ITCHIO_API_KEY }}
