@@ -7,12 +7,11 @@
 //! - ActiveManeuver progress
 
 use bevy::prelude::*;
-use helios_ascension::fleets::{
-    ActiveManeuver, Fleet, FleetOrbit, PendingFleetActions, PlannedTransfer,
-    TransferReferenceFrame,
-};
 use helios_ascension::astronomy::KeplerOrbit;
 use helios_ascension::fleets::types::{PropulsionType, ShipClass};
+use helios_ascension::fleets::{
+    ActiveManeuver, Fleet, FleetOrbit, PendingFleetActions, PlannedTransfer, TransferReferenceFrame,
+};
 
 /// Fleet::new should create a fleet with a valid name and empty ship list.
 #[test]
@@ -111,9 +110,18 @@ fn active_maneuver_kinematic_progress() {
     };
 
     // Note: progress() uses arrival_time - departure_time as duration
-    assert!((maneuver.progress(100.0) - 0.0).abs() < 1e-6, "At departure progress should be 0");
-    assert!((maneuver.progress(200.0) - 0.5).abs() < 1e-6, "At midpoint progress should be 0.5");
-    assert!((maneuver.progress(300.0) - 1.0).abs() < 1e-6, "At arrival progress should be 1");
+    assert!(
+        (maneuver.progress(100.0) - 0.0).abs() < 1e-6,
+        "At departure progress should be 0"
+    );
+    assert!(
+        (maneuver.progress(200.0) - 0.5).abs() < 1e-6,
+        "At midpoint progress should be 0.5"
+    );
+    assert!(
+        (maneuver.progress(300.0) - 1.0).abs() < 1e-6,
+        "At arrival progress should be 1"
+    );
 }
 
 /// ActiveManeuver progress before departure should be 0.
@@ -175,14 +183,26 @@ fn active_maneuver_is_kinematic_labels() {
 
     let kinematic_labels = ["Full Thrust", "Max Speed", "Coast Phase", "Direct Hohmann"];
     for label in kinematic_labels {
-        let m = { let mut b = base(); b.option_label = label; b };
+        let m = {
+            let mut b = base();
+            b.option_label = label;
+            b
+        };
         assert!(m.is_kinematic(), "Label '{}' should be kinematic", label);
     }
 
     let non_kinematic_labels = ["Hohmann", "Bi-elliptic", "Gravity Assist"];
     for label in non_kinematic_labels {
-        let m = { let mut b = base(); b.option_label = label; b };
-        assert!(!m.is_kinematic(), "Label '{}' should NOT be kinematic", label);
+        let m = {
+            let mut b = base();
+            b.option_label = label;
+            b
+        };
+        assert!(
+            !m.is_kinematic(),
+            "Label '{}' should NOT be kinematic",
+            label
+        );
     }
 }
 
@@ -205,7 +225,11 @@ fn fuel_fraction_bounds() {
 
     // delta_v 3000 m/s, Isp 300s
     let fraction = rocket_equation_fuel_fraction(3000.0, 300.0);
-    assert!(fraction > 0.0 && fraction < 1.0, "Fuel fraction {} should be in (0,1)", fraction);
+    assert!(
+        fraction > 0.0 && fraction < 1.0,
+        "Fuel fraction {} should be in (0,1)",
+        fraction
+    );
 }
 
 /// All PropulsionType variants should produce non-negative thrust.
@@ -219,7 +243,12 @@ fn propulsion_types_all_nonzero_thrust() {
         PropulsionType::FusionTorch,
     ] {
         let thrust = pt.thrust_kn(1000.0);
-        assert!(thrust >= 0.0, "{:?} should produce non-negative thrust, got {} kN", pt, thrust);
+        assert!(
+            thrust >= 0.0,
+            "{:?} should produce non-negative thrust, got {} kN",
+            pt,
+            thrust
+        );
     }
 }
 
@@ -234,7 +263,12 @@ fn propulsion_types_all_have_isp() {
         PropulsionType::FusionTorch,
     ] {
         let isp = pt.specific_impulse_s();
-        assert!(isp > 0.0, "{:?} should have positive Isp, got {} s", pt, isp);
+        assert!(
+            isp > 0.0,
+            "{:?} should have positive Isp, got {} s",
+            pt,
+            isp
+        );
     }
 }
 
@@ -253,6 +287,10 @@ fn ship_class_display_names() {
         ShipClass::ScienceVessel,
     ] {
         let name = sc.display_name();
-        assert!(!name.is_empty(), "ShipClass {:?} should have display name", sc);
+        assert!(
+            !name.is_empty(),
+            "ShipClass {:?} should have display name",
+            sc
+        );
     }
 }

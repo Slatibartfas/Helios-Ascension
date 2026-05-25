@@ -17,7 +17,13 @@ fn solve_kepler_circular_orbit() {
     use helios_ascension::astronomy::systems::solve_kepler;
 
     // e = 0 → E should equal M for any mean anomaly
-    for mean_anomaly in [0.0, std::f64::consts::FRAC_PI_4, std::f64::consts::FRAC_PI_2, std::f64::consts::PI, 2.0] {
+    for mean_anomaly in [
+        0.0,
+        std::f64::consts::FRAC_PI_4,
+        std::f64::consts::FRAC_PI_2,
+        std::f64::consts::PI,
+        2.0,
+    ] {
         let E = solve_kepler(mean_anomaly, 0.0);
         assert!(
             (E - mean_anomaly).abs() < 1e-10,
@@ -37,7 +43,10 @@ fn solve_kepler_low_eccentricity_convergence() {
     let E = solve_kepler(1.0, 0.1);
     // M = E - e·sin(E) should hold
     let M_check = E - 0.1 * E.sin();
-    assert!((M_check - 1.0).abs() < 1e-10, "Kepler equation not satisfied for low eccentricity");
+    assert!(
+        (M_check - 1.0).abs() < 1e-10,
+        "Kepler equation not satisfied for low eccentricity"
+    );
 }
 
 /// High-eccentricity orbit (e=0.9) should still converge to acceptable precision.
@@ -48,7 +57,11 @@ fn solve_kepler_high_eccentricity() {
     let mean_anomaly = std::f64::consts::FRAC_PI_3;
     let E = solve_kepler(mean_anomaly, 0.9);
     let residual = (E - 0.9 * E.sin() - mean_anomaly).abs();
-    assert!(residual < 1e-8, "High-e orbit residual {} exceeds tolerance", residual);
+    assert!(
+        residual < 1e-8,
+        "High-e orbit residual {} exceeds tolerance",
+        residual
+    );
 }
 
 /// Edge case: mean anomaly of exactly zero should return zero eccentric anomaly.
@@ -69,7 +82,10 @@ fn kepler_orbit_circular_edge_case() {
         "circular() should give e≈0, got {}",
         orbit.eccentricity
     );
-    assert!((orbit.semi_major_axis - 2.0).abs() < 1e-10, "semi_major_axis mismatch");
+    assert!(
+        (orbit.semi_major_axis - 2.0).abs() < 1e-10,
+        "semi_major_axis mismatch"
+    );
 }
 
 /// Verify orbital mechanics via orbit_position — periapsis and apoapsis radii.
@@ -127,7 +143,11 @@ fn hohmann_transfer_earth_mars_time() {
     let (_, _, time_s, _, _) = hohmann_transfer(1.0, 1.524, GM_SUN);
     let days = time_s / 86400.0;
     // Hohmann transfer to Mars is ~259 days (0.71 years)
-    assert!(days > 200.0 && days < 350.0, "Earth→Mars Hohmann should be ~259 days, got {:.0}", days);
+    assert!(
+        days > 200.0 && days < 350.0,
+        "Earth→Mars Hohmann should be ~259 days, got {:.0}",
+        days
+    );
 }
 
 /// Transfer window: identical orbital radii should return zero wait time.
@@ -149,7 +169,10 @@ fn compute_transfer_window_identical_radii() {
 #[test]
 fn phase_dv_factor_optimal() {
     let factor = phase_dv_factor(0.0);
-    assert!((factor - 1.0).abs() < 1e-10, "Optimal phase angle should give factor=1.0");
+    assert!(
+        (factor - 1.0).abs() < 1e-10,
+        "Optimal phase angle should give factor=1.0"
+    );
 }
 
 /// Phase angle error of ±π should give max DV penalty factor.
@@ -157,7 +180,11 @@ fn phase_dv_factor_optimal() {
 fn phase_dv_factor_worst_case() {
     let factor = phase_dv_factor(std::f64::consts::PI);
     // factor = 1 + 1.4·sin²(π/2) = 1 + 1.4 = 2.4
-    assert!((factor - 2.4).abs() < 1e-10, "Worst phase should give factor=2.4, got {}", factor);
+    assert!(
+        (factor - 2.4).abs() < 1e-10,
+        "Worst phase should give factor=2.4, got {}",
+        factor
+    );
 }
 
 /// Zero inclination orbit should produce zero out-of-plane Z coordinate.
@@ -197,7 +224,10 @@ fn argument_of_periapsis_rotation() {
     };
     let pos = orbit_position_from_mean_anomaly(&orbit, 0.0);
     // r = a at periapsis; in perifocal frame periapsis is at ω=π/2 → +y
-    assert!(pos.y > 0.9, "At ω=π/2, M=0 should place body near +y direction");
+    assert!(
+        pos.y > 0.9,
+        "At ω=π/2, M=0 should place body near +y direction"
+    );
 }
 
 /// AU constant should be approximately 1.496e11 meters.

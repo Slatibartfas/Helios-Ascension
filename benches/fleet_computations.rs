@@ -5,7 +5,9 @@
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use helios_ascension::fleets::{
-    orbital_mechanics::{hohmann_transfer, calculate_transfer_options, compute_transfer_window, AU_IN_METERS, GM_SUN},
+    orbital_mechanics::{
+        calculate_transfer_options, compute_transfer_window, hohmann_transfer, AU_IN_METERS, GM_SUN,
+    },
     PropulsionType, ShipClass,
 };
 
@@ -131,10 +133,10 @@ fn bench_fleet_transfer_planning(c: &mut Criterion) {
     c.bench_function("plan_multiple_route_options", |b| {
         b.iter(|| {
             let routes = [
-                (1.0, 1.52),    // Earth to Mars
-                (1.52, 5.2),    // Mars to Jupiter
-                (5.2, 9.58),    // Jupiter to Saturn
-                (9.58, 19.2),   // Saturn to Uranus
+                (1.0, 1.52),  // Earth to Mars
+                (1.52, 5.2),  // Mars to Jupiter
+                (5.2, 9.58),  // Jupiter to Saturn
+                (9.58, 19.2), // Saturn to Uranus
             ];
             for (r1, r2) in routes {
                 let win = compute_transfer_window(r1, r2, GM_SUN, 0.0, 1.5);
@@ -170,30 +172,15 @@ fn bench_fuel_computations(c: &mut Criterion) {
     });
 
     c.bench_function("fuel_fraction_chemical", |b| {
-        b.iter(|| {
-            rocket_equation_fuel_fraction(
-                black_box(2000.0),
-                black_box(450.0),
-            )
-        });
+        b.iter(|| rocket_equation_fuel_fraction(black_box(2000.0), black_box(450.0)));
     });
 
     c.bench_function("fuel_fraction_ion", |b| {
-        b.iter(|| {
-            rocket_equation_fuel_fraction(
-                black_box(2000.0),
-                black_box(5000.0),
-            )
-        });
+        b.iter(|| rocket_equation_fuel_fraction(black_box(2000.0), black_box(5000.0)));
     });
 
     c.bench_function("fuel_fraction_fusion", |b| {
-        b.iter(|| {
-            rocket_equation_fuel_fraction(
-                black_box(5000.0),
-                black_box(50000.0),
-            )
-        });
+        b.iter(|| rocket_equation_fuel_fraction(black_box(5000.0), black_box(50000.0)));
     });
 
     c.bench_function("fuel_calculation_fleet_mass", |b| {

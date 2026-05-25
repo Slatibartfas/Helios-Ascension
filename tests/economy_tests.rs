@@ -6,12 +6,12 @@
 //! - Power grid calculations
 //! - Edge cases: zero stockpile, capped resources
 
+use helios_ascension::colony::{BuildingType, Colony};
 use helios_ascension::economy::budget::{
     calculate_colony_power_totals, GlobalBudget, ResourceRateTracker, SECONDS_PER_MONTH,
     SECONDS_PER_YEAR,
 };
 use helios_ascension::economy::types::ResourceType;
-use helios_ascension::colony::{BuildingType, Colony};
 
 /// GlobalBudget::new() should create valid initial state.
 #[test]
@@ -20,7 +20,10 @@ fn global_budget_initialization() {
     // Treasury should be positive
     assert!(budget.treasury > 0.0, "Initial treasury should be positive");
     // Should have stockpiles for several resource types
-    assert!(!budget.stockpiles.is_empty(), "Stockpiles should not be empty");
+    assert!(
+        !budget.stockpiles.is_empty(),
+        "Stockpiles should not be empty"
+    );
     // All stockpiles should be non-negative
     for (resource, &amount) in &budget.stockpiles {
         assert!(
@@ -40,7 +43,10 @@ fn consume_resource_success() {
     assert!(initial > 0.0, "Water should have initial stockpile");
 
     let result = budget.consume_resource(ResourceType::Water, 100.0);
-    assert!(result, "consume_resource should succeed when stock is sufficient");
+    assert!(
+        result,
+        "consume_resource should succeed when stock is sufficient"
+    );
     assert_eq!(
         budget.get_stockpile(&ResourceType::Water),
         initial - 100.0,
@@ -56,7 +62,10 @@ fn consume_resource_insufficient_stockpile() {
 
     // Try to consume more than available
     let result = budget.consume_resource(ResourceType::Water, initial + 1.0);
-    assert!(!result, "consume_resource should fail when stock is insufficient");
+    assert!(
+        !result,
+        "consume_resource should fail when stock is insufficient"
+    );
     assert_eq!(
         budget.get_stockpile(&ResourceType::Water),
         initial,
@@ -159,10 +168,12 @@ fn food_has_largest_cap() {
 #[test]
 fn resource_rate_tracker_default() {
     let tracker = ResourceRateTracker::default();
-    assert!(tracker.resource_rates.is_empty(), "Default rates should be empty");
+    assert!(
+        tracker.resource_rates.is_empty(),
+        "Default rates should be empty"
+    );
     assert_eq!(
-        tracker.research_rate_per_month,
-        0.0,
+        tracker.research_rate_per_month, 0.0,
         "Default research rate should be 0"
     );
 }

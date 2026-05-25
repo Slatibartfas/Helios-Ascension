@@ -97,7 +97,7 @@ fn logistics_capacity_formula() {
     colony.add_building(BuildingType::CargoTerminal);
 
     // 2×5000 + 1×20000 + 1×2000
-    let expected = 2 * 5_000.0 + 1 * 20_000.0 + 1 * 2_000.0;
+    let expected = 2.0 * 5_000.0 + 1.0 * 20_000.0 + 1.0 * 2_000.0;
     assert_eq!(
         colony.logistics_capacity(),
         expected,

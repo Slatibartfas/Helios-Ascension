@@ -3,11 +3,9 @@
 //! Tests: Keplerian orbit propagation, position calculations,
 //! coordinate transforms, and ephemeris computations.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use helios_ascension::astronomy::{
-    KeplerOrbit, orbit_position_from_mean_anomaly,
-};
 use bevy::math::DVec3;
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use helios_ascension::astronomy::{orbit_position_from_mean_anomaly, KeplerOrbit};
 
 /// Create a test orbit (Earth-like)
 fn earth_orbit() -> KeplerOrbit {
@@ -74,21 +72,11 @@ fn bench_orbit_position_from_mean_anomaly(c: &mut Criterion) {
     });
 
     c.bench_function("orbit_position_mars", |b| {
-        b.iter(|| {
-            orbit_position_from_mean_anomaly(
-                black_box(&mars),
-                black_box(2.5),
-            )
-        });
+        b.iter(|| orbit_position_from_mean_anomaly(black_box(&mars), black_box(2.5)));
     });
 
     c.bench_function("orbit_position_jupiter", |b| {
-        b.iter(|| {
-            orbit_position_from_mean_anomaly(
-                black_box(&jupiter),
-                black_box(1.0),
-            )
-        });
+        b.iter(|| orbit_position_from_mean_anomaly(black_box(&jupiter), black_box(1.0)));
     });
 
     c.bench_function("orbit_position_many_bodies", |b| {
@@ -116,12 +104,7 @@ fn bench_propagate_orbit_position(c: &mut Criterion) {
     });
 
     c.bench_function("propagate_orbit_mars_one_year", |b| {
-        b.iter(|| {
-            propagate_orbit_position(
-                black_box(&mars),
-                black_box(365.25 * 24.0 * 3600.0),
-            )
-        });
+        b.iter(|| propagate_orbit_position(black_box(&mars), black_box(365.25 * 24.0 * 3600.0)));
     });
 
     c.bench_function("propagate_orbit_earth_short_times", |b| {
@@ -168,7 +151,10 @@ fn bench_simulation_time_propagation(c: &mut Criterion) {
             let sim_time = 86400.0 * 365.25; // 1 year
             let mut positions = Vec::with_capacity(orbits.len());
             for orbit in &orbits {
-                positions.push(propagate_orbit_position(black_box(orbit), black_box(sim_time)));
+                positions.push(propagate_orbit_position(
+                    black_box(orbit),
+                    black_box(sim_time),
+                ));
             }
             black_box(positions)
         });
@@ -179,7 +165,7 @@ fn bench_high_eccentricity_orbits(c: &mut Criterion) {
     // High eccentricity orbits (comets, etc.)
     let elliptical = KeplerOrbit {
         semi_major_axis: 2.0,
-        eccentricity: 0.9,  // Very elliptical
+        eccentricity: 0.9, // Very elliptical
         inclination: 0.0,
         longitude_ascending_node: 0.0,
         argument_of_periapsis: 0.0,
@@ -188,22 +174,12 @@ fn bench_high_eccentricity_orbits(c: &mut Criterion) {
     };
 
     c.bench_function("orbit_position_high_eccentricity", |b| {
-        b.iter(|| {
-            orbit_position_from_mean_anomaly(
-                black_box(&elliptical),
-                black_box(1.0),
-            )
-        });
+        b.iter(|| orbit_position_from_mean_anomaly(black_box(&elliptical), black_box(1.0)));
     });
 
     c.bench_function("propagate_high_eccentricity_full_orbit", |b| {
         // Propagate for large time offset
-        b.iter(|| {
-            propagate_orbit_position(
-                black_box(&elliptical),
-                black_box(1e9),
-            )
-        });
+        b.iter(|| propagate_orbit_position(black_box(&elliptical), black_box(1e9)));
     });
 }
 
