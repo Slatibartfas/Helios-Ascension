@@ -172,6 +172,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: helios-ascension-${{ runner.os }}
-          path: target/release/helios_ascension
+          path: |
+            target/release/helios_ascension
+            target/release/helios_ascension.exe
           if-no-files-found: error
           retention-days: 5
