@@ -1,0 +1,23 @@
+[package]
+name = "helios_ascension_benches"
+version = "0.4.0"
+edition = "2021"
+
+[dependencies]
+# Link against the main library
+helios_ascension = { path = ".." }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "orbital_mechanics"
+harness = false
+
+[[bench]]
+name = "astronomy"
+harness = false
+
+[[bench]]
+name = "fleet_computations"
+harness = false
