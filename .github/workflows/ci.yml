@@ -9,8 +9,6 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  # wayland-sys requires pkg-config or wayland system libs; skip on CI since we only test compilation
-  WAYLAND_CLIENT_NO_PKG_CONFIG: 1
 
 jobs:
   fmt:
@@ -44,7 +42,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang lld libwayland-client0 wayland-protocols libxkbcommon0 libdbus-1-dev
+          sudo apt-get install -y clang lld libwayland-client0 wayland-protocols libxkbcommon0 libdbus-1-dev pkg-config
 
       - name: Run Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
@@ -62,7 +60,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwayland-client0 wayland-protocols libxkbcommon0 libdbus-1-dev
+          sudo apt-get install -y libwayland-client0 wayland-protocols libxkbcommon0 libdbus-1-dev pkg-config
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -101,7 +99,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang lld libwayland-client0 wayland-protocols libxkbcommon0 libdbus-1-dev
+          sudo apt-get install -y clang lld libwayland-client0 wayland-protocols libxkbcommon0 libdbus-1-dev pkg-config
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -131,7 +129,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwayland-client0 wayland-protocols libxkbcommon0 libdbus-1-dev
+          sudo apt-get install -y libwayland-client0 wayland-protocols libxkbcommon0 libdbus-1-dev pkg-config
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
