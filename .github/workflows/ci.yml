@@ -42,7 +42,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang lld libwayland-client0 wayland-protocols libxkbcommon0 libdbus-1-dev pkg-config
+          sudo apt-get install -y clang lld libwayland-dev wayland-protocols libxkbcommon-dev libdbus-1-dev pkg-config
+          echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
 
       - name: Run Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
@@ -60,7 +61,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwayland-client0 wayland-protocols libxkbcommon0 libdbus-1-dev pkg-config
+          sudo apt-get install -y libwayland-dev wayland-protocols libxkbcommon-dev libdbus-1-dev pkg-config
+          echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -99,7 +101,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang lld libwayland-client0 wayland-protocols libxkbcommon0 libdbus-1-dev pkg-config
+          sudo apt-get install -y clang lld libwayland-dev wayland-protocols libxkbcommon-dev libdbus-1-dev pkg-config
+          echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -129,7 +132,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwayland-client0 wayland-protocols libxkbcommon0 libdbus-1-dev pkg-config
+          sudo apt-get install -y libwayland-dev wayland-protocols libxkbcommon-dev libdbus-1-dev pkg-config
+          echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
