@@ -155,3 +155,44 @@ jobs:
             chmod +x "$binary_name"
             gh release upload ${{ github.ref_name }} "$binary_name" --clobber
           done
+
+  publish-itchio:
+    name: Publish to itch.io
+    needs: [create-release, build-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Linux build
+        uses: actions/download-artifact@v4
+        with:
+          name: helios-ascension-ubuntu-latest
+          path: build/linux
+
+      - name: Download Windows build
+        run: |
+          mkdir -p build/windows
+          gh release download ${{ github.ref_name }} --pattern 'helios_ascension_windows_x86_64.exe' --dir build/windows
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download macOS build
+        run: |
+          mkdir -p build/macos
+          gh release download ${{ github.ref_name }} --pattern 'helios_ascension_macos' --dir build/macos
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up butler
+        uses: moia-dev/setup-butler@v1
+        with:
+          version: '5'
+
+      - name: Push to itch.io
+        run: |
+          butler push build/linux "${{ secrets.ITCHIO_GAME_SLUG }}" --fs压=helios_ascension_linux_x86_64
+          butler push build/windows "${{ secrets.ITCHIO_GAME_SLUG }}" --fs压=helios_ascension_windows_x86_64.exe
+          butler push build/macos "${{ secrets.ITCHIO_GAME_SLUG }}" --fs压=helios_ascension_macos
+        env:
+          BUTLER_API_KEY: ${{ secrets.ITCHIO_API_KEY }}
