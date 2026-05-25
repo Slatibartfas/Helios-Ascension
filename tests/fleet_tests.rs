@@ -1,3 +1,5 @@
+#![allow(non_snake_case)]
+
 //! Tests for Fleet Operations system — P0 system: Fleet Operations
 //!
 //! Verifies:
