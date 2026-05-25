@@ -29,13 +29,11 @@ fn draw_menu_header(ui: &mut egui::Ui, title: &str, subtitle: &str) {
 
 fn draw_tab_button(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
     ui.add(
-        egui::Button::new(
-            egui::RichText::new(label).size(13.5).color(if selected {
-                theme::ACCENT
-            } else {
-                theme::TEXT
-            }),
-        )
+        egui::Button::new(egui::RichText::new(label).size(13.5).color(if selected {
+            theme::ACCENT
+        } else {
+            theme::TEXT
+        }))
         .fill(if selected {
             theme::SURFACE_RAISED
         } else {
@@ -202,11 +200,11 @@ pub(super) fn ui_research_panels(
                     ui.checkbox(&mut debug_settings.instant_research, "Instant Research");
                     ui.checkbox(&mut debug_settings.instant_engineering, "Instant Engineering");
                 });
-                
+
                 // Debug modifiers section
                 ui.add_space(5.0);
                 ui.label(egui::RichText::new("Debug Modifiers:").strong());
-                
+
                 // Display active debug modifiers
                 let mut to_remove: Option<ModifierType> = None;
                 for (modifier_type, value) in debug_settings.debug_modifiers.iter() {
@@ -221,12 +219,12 @@ pub(super) fn ui_research_panels(
                 if let Some(modifier) = to_remove {
                     debug_settings.debug_modifiers.remove(&modifier);
                 }
-                
+
                 // Add new modifier button
                 if ui.button("➕ Add Debug Modifier").clicked() {
                     debug_settings.modifier_dialog_show = true;
                 }
-                
+
                 ui.label(egui::RichText::new("⚠ Debug features are for development only and will be removed in release builds")
                     .small()
                     .italics()
@@ -242,7 +240,7 @@ pub(super) fn ui_research_panels(
                     .color(theme::TEXT_DIM));
             });
         }
-        
+
         // Tab bar
         ui.horizontal_wrapped(|ui| {
             let tabs = [
@@ -259,9 +257,9 @@ pub(super) fn ui_research_panels(
                 }
             }
         });
-        
+
         theme::divider(ui);
-        
+
         // Build rich active research info map
         let mut active_research: HashMap<String, ActiveProjectInfo> = HashMap::new();
         for (entity, proj, _team) in research_projects.iter() {
@@ -680,7 +678,11 @@ fn render_available_research_tab(
         .max_research_teams
         .saturating_sub(active_count);
 
-    draw_section_title(ui, "RESEARCH PROJECTS", "Technologies with all prerequisites met.");
+    draw_section_title(
+        ui,
+        "RESEARCH PROJECTS",
+        "Technologies with all prerequisites met.",
+    );
     ui.horizontal_wrapped(|ui| {
         ui.add_space(20.0);
         ui.label(

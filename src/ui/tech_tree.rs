@@ -740,8 +740,7 @@ pub(super) fn render_tech_tree_tab(
                 egui::pos2(held_rect.right() - 8.0, held_rect.top() - 20.0),
                 egui::pos2(tooltip_pos.x + 390.0, tooltip_pos.y + 430.0),
             );
-            let pointer_in_bridge =
-                pointer_hover_pos.is_some_and(|pos| hover_bridge.contains(pos));
+            let pointer_in_bridge = pointer_hover_pos.is_some_and(|pos| hover_bridge.contains(pos));
 
             if now <= hold_until || pointer_in_bridge {
                 if pointer_in_bridge {

@@ -322,12 +322,18 @@ impl ResourceType {
 
     /// Returns true if this is a fusion fuel resource
     pub fn is_fusion_fuel(&self) -> bool {
-        matches!(self, ResourceType::Helium3 | ResourceType::Deuterium | ResourceType::Tritium)
+        matches!(
+            self,
+            ResourceType::Helium3 | ResourceType::Deuterium | ResourceType::Tritium
+        )
     }
 
     /// Returns true if this is a fissile material
     pub fn is_fissile(&self) -> bool {
-        matches!(self, ResourceType::Uranium | ResourceType::Thorium | ResourceType::Plutonium)
+        matches!(
+            self,
+            ResourceType::Uranium | ResourceType::Thorium | ResourceType::Plutonium
+        )
     }
 
     /// Returns true if this is a precious metal
@@ -548,11 +554,19 @@ impl ResourceType {
             ),
             (
                 "Fusion Fuel",
-                vec![ResourceType::Helium3, ResourceType::Deuterium, ResourceType::Tritium],
+                vec![
+                    ResourceType::Helium3,
+                    ResourceType::Deuterium,
+                    ResourceType::Tritium,
+                ],
             ),
             (
                 "Fissiles",
-                vec![ResourceType::Uranium, ResourceType::Thorium, ResourceType::Plutonium],
+                vec![
+                    ResourceType::Uranium,
+                    ResourceType::Thorium,
+                    ResourceType::Plutonium,
+                ],
             ),
             (
                 "Precious Metals",

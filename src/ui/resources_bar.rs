@@ -59,8 +59,8 @@ pub(super) fn get_resource_icon(resource: &ResourceType) -> &'static str {
         ResourceType::Tritium => "\u{2622}",   // ☢
 
         // Fissiles
-        ResourceType::Uranium => "\u{2622}", // ☢
-        ResourceType::Thorium => "\u{26A1}", // ⚡
+        ResourceType::Uranium => "\u{2622}",    // ☢
+        ResourceType::Thorium => "\u{26A1}",    // ⚡
         ResourceType::Plutonium => "\u{1F9EA}", // 🧪
 
         // Precious
@@ -137,8 +137,10 @@ fn render_context_name_marquee(ui: &mut egui::Ui, text: &str) {
     let text_size = galley.size();
     let row_height = text_size.y.max(12.0);
     let available_width = ui.available_width().max(1.0);
-    let (rect, _) =
-        ui.allocate_exact_size(egui::vec2(available_width, row_height), egui::Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(available_width, row_height),
+        egui::Sense::hover(),
+    );
     let clip = rect;
     let painter = ui.painter().with_clip_rect(clip);
 
@@ -217,9 +219,7 @@ pub(super) fn ui_resources_bar(
                         ui.horizontal(|ui| {
                             ui.add(
                                 egui::Label::new(
-                                    egui::RichText::new("📍")
-                                        .size(15.0)
-                                        .color(theme::ACCENT),
+                                    egui::RichText::new("📍").size(15.0).color(theme::ACCENT),
                                 )
                                 .selectable(false),
                             );
@@ -609,10 +609,7 @@ pub(super) fn ui_resources_bar(
                         theme::RED
                     };
 
-                    let is_power_open = open_popup
-                        .open
-                        .as_ref()
-                        .is_some_and(|(n, _)| n == "Power");
+                    let is_power_open = open_popup.open.as_ref().is_some_and(|(n, _)| n == "Power");
 
                     // Power generation display (clickable with tooltip)
                     let response = egui::Frame::NONE
@@ -882,12 +879,9 @@ pub(super) fn ui_resources_bar(
                                     );
                                     ui.add(
                                         egui::Label::new(
-                                            egui::RichText::new(format!(
-                                                "({})",
-                                                body.system_name
-                                            ))
-                                            .size(10.5)
-                                            .color(theme::TEXT_DIM),
+                                            egui::RichText::new(format!("({})", body.system_name))
+                                                .size(10.5)
+                                                .color(theme::TEXT_DIM),
                                         )
                                         .selectable(false),
                                     );
@@ -1374,9 +1368,7 @@ pub(super) fn ui_resources_bar(
                             } else {
                                 "Unknown".to_string()
                             };
-                            let housing = colony_opt
-                                .map(|c| c.housing_capacity())
-                                .unwrap_or(0.0);
+                            let housing = colony_opt.map(|c| c.housing_capacity()).unwrap_or(0.0);
                             let growth_yr = colony_opt
                                 .map(|c| c.population_growth_per_year(1.0))
                                 .unwrap_or(0.0);
@@ -1397,10 +1389,8 @@ pub(super) fn ui_resources_bar(
                         // Name (left) + population count + growth rate (right)
                         ui.horizontal(|ui| {
                             ui.add(
-                                egui::Label::new(
-                                    egui::RichText::new(name.as_str()).size(11.0),
-                                )
-                                .selectable(false),
+                                egui::Label::new(egui::RichText::new(name.as_str()).size(11.0))
+                                    .selectable(false),
                             );
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
@@ -1524,7 +1514,10 @@ pub(super) fn ui_resources_bar(
                         .iter()
                         .filter_map(|(p, _, c)| {
                             if p.count > 0.0 {
-                                Some(c.map(|col| col.population_growth_per_year(1.0)).unwrap_or(0.0))
+                                Some(
+                                    c.map(|col| col.population_growth_per_year(1.0))
+                                        .unwrap_or(0.0),
+                                )
                             } else {
                                 None
                             }
@@ -1538,9 +1531,15 @@ pub(super) fn ui_resources_bar(
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             let (g_text, g_color) = if total_growth_month >= 1.0 {
-                                (format!("+{}/mo", format_population(total_growth_month)), theme::GREEN)
+                                (
+                                    format!("+{}/mo", format_population(total_growth_month)),
+                                    theme::GREEN,
+                                )
                             } else if total_growth_month < -1.0 {
-                                (format!("{}/mo", format_population(total_growth_month)), theme::RED)
+                                (
+                                    format!("{}/mo", format_population(total_growth_month)),
+                                    theme::RED,
+                                )
                             } else {
                                 ("\u{2014}".to_string(), theme::TEXT_DIM)
                             };

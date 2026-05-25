@@ -96,7 +96,11 @@ fn test_asteroid_classification_deserializes() {
         let body = data
             .get_body(name)
             .unwrap_or_else(|| panic!("{} should exist", name));
-        assert!(body.texture.is_none(), "{} should currently use generic dwarf rendering", name);
+        assert!(
+            body.texture.is_none(),
+            "{} should currently use generic dwarf rendering",
+            name
+        );
     }
 }
 

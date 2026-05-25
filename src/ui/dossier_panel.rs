@@ -795,8 +795,8 @@ fn draw_habitability_section(
 
     // Colony cost summary
     let gravity_g = body.surface_gravity();
-    let is_gas_giant = body.body_type == BodyType::GasGiant
-        || atmosphere.is_some_and(|a| a.is_reference_pressure);
+    let is_gas_giant =
+        body.body_type == BodyType::GasGiant || atmosphere.is_some_and(|a| a.is_reference_pressure);
     let (min_t, max_t) = surface_temp
         .map(|t| (t.min_celsius, t.max_celsius))
         .or_else(|| {
@@ -1461,14 +1461,14 @@ fn draw_resource_section(
                             .color(ACCENT),
                     )
                     .clicked()
-                {
-                    *survey = match *survey {
-                        SurveyLevel::Unsurveyed => SurveyLevel::OrbitalScan,
-                        SurveyLevel::OrbitalScan => SurveyLevel::SeismicSurvey,
-                        SurveyLevel::SeismicSurvey => SurveyLevel::CoreSample,
-                        _ => SurveyLevel::CoreSample,
-                    };
-                }
+            {
+                *survey = match *survey {
+                    SurveyLevel::Unsurveyed => SurveyLevel::OrbitalScan,
+                    SurveyLevel::OrbitalScan => SurveyLevel::SeismicSurvey,
+                    SurveyLevel::SeismicSurvey => SurveyLevel::CoreSample,
+                    _ => SurveyLevel::CoreSample,
+                };
+            }
         } else if ui
             .small_button(
                 egui::RichText::new("\u{25CE} INIT SCAN")
@@ -2011,7 +2011,12 @@ fn draw_colony_section(
         .unwrap_or(0.0_f32);
 
     let details = crate::astronomy::components::calculate_colony_cost_with_water(
-        gravity_g, min_t, max_t, atmosphere, is_gas_giant, water_bonus,
+        gravity_g,
+        min_t,
+        max_t,
+        atmosphere,
+        is_gas_giant,
+        water_bonus,
     );
 
     // Hard blocks
@@ -2023,9 +2028,11 @@ fn draw_colony_section(
                 .strong(),
         );
         ui.label(
-            egui::RichText::new("Gas giants have no solid surface. Outposts cannot be established.")
-                .font(mono_font(10.0))
-                .color(TEXT_DIM),
+            egui::RichText::new(
+                "Gas giants have no solid surface. Outposts cannot be established.",
+            )
+            .font(mono_font(10.0))
+            .color(TEXT_DIM),
         );
         return;
     }
@@ -2114,12 +2121,10 @@ fn draw_colony_section(
 
         ui.add_space(2.0);
         ui.label(
-            egui::RichText::new(
-                "Resources must be transported before construction begins.",
-            )
-            .font(mono_font(9.0))
-            .italics()
-            .color(TEXT_DIM),
+            egui::RichText::new("Resources must be transported before construction begins.")
+                .font(mono_font(9.0))
+                .italics()
+                .color(TEXT_DIM),
         );
     });
 
@@ -2147,11 +2152,13 @@ fn draw_colony_section(
         .min_size(egui::Vec2::new(200.0, 28.0)),
     );
     if btn_response.clicked() {
-        pending_actions.establish_outpost.push(EstablishOutpostRequest {
-            body_entity: entity,
-            colony_name: body.name.clone(),
-            needs_oxygen,
-        });
+        pending_actions
+            .establish_outpost
+            .push(EstablishOutpostRequest {
+                body_entity: entity,
+                colony_name: body.name.clone(),
+                needs_oxygen,
+            });
     }
     let hover = if needs_oxygen {
         "Create an outpost colony. This body has no breathable atmosphere — oxygen will \
@@ -2163,4 +2170,3 @@ fn draw_colony_section(
     };
     btn_response.on_hover_text(hover);
 }
-

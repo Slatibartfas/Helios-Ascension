@@ -28,8 +28,7 @@ pub use systems::{
 pub use types::{ModifierType, TechCategory, TechModifierDef, Technology, TechnologyId};
 
 /// Debug settings for research system
-#[derive(Resource, Debug, Clone)]
-#[derive(Default)]
+#[derive(Resource, Debug, Clone, Default)]
 pub struct ResearchDebugSettings {
     /// Whether debug mode is enabled
     pub enabled: bool,
@@ -49,10 +48,8 @@ pub struct ResearchDebugSettings {
     pub modifier_dialog_value_input: String,
 }
 
-
 /// State for the tech tree debug editing UI (context menus, edit dialogs)
-#[derive(Resource, Debug, Clone)]
-#[derive(Default)]
+#[derive(Resource, Debug, Clone, Default)]
 pub struct TechTreeEditState {
     /// Whether the "Edit Technology" window is open
     pub editing: Option<TechEditData>,
@@ -65,7 +62,6 @@ pub struct TechTreeEditState {
     /// Status message to show (e.g. "Saved", "Error: ...")
     pub status_message: Option<(String, f64)>,
 }
-
 
 /// Context menu state
 #[derive(Debug, Clone)]
