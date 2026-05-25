@@ -1,0 +1,9 @@
+{
+  "release-type": "rust",
+  "packages": {
+    ".": {
+      "version-file": "Cargo.toml",
+      "component": "helios-ascension"
+    }
+  }
+}
