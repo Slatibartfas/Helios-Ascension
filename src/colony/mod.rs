@@ -17,8 +17,8 @@ pub mod systems;
 pub mod types;
 
 pub use components::{
-    Colony, ColonyEnvironmentCosts, ColonyMorale, ConstructionProject, EstablishOutpostRequest,
-    MoraleDriver, MoraleState, PendingConstructionActions,
+    AIControlledColony, Colony, ColonyEnvironmentCosts, ColonyMorale, ConstructionProject,
+    EstablishOutpostRequest, MoraleDriver, MoraleState, PendingConstructionActions,
 };
 pub use data::{BuildingDefinition, BuildingModifierDef, BuildingsData};
 pub use systems::{

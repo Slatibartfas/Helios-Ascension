@@ -338,8 +338,10 @@ pub fn process_construction_actions(
     // Establish new outpost colonies
     let outpost_requests: Vec<_> = actions.establish_outpost.drain(..).collect();
     for req in outpost_requests {
-        let (body_entity, colony_name, needs_oxygen) =
-            (req.body_entity, req.colony_name, req.needs_oxygen);
+        let body_entity = req.body_entity;
+        let colony_name = req.colony_name;
+        let needs_oxygen = req.needs_oxygen;
+        let faction_id = req.faction_id;
 
         // Don't double-establish a colony on an already-colonized body
         if colonies.get(body_entity).is_ok() {
@@ -366,6 +368,9 @@ pub fn process_construction_actions(
 
         // Insert Population component so the growth system picks it up
         commands.entity(body_entity).insert(Population { count: 0.0 });
+
+        // Insert initial morale state (Content = 75)
+        commands.entity(body_entity).insert(ColonyMorale::new());
 
         // Attach environment costs:
         //   • O₂: 0.0001 Mt/person/yr on vacuum/non-breathable worlds (same scale as food)
@@ -397,6 +402,13 @@ pub fn process_construction_actions(
             actions.start_construction.push((body_entity, btype));
         }
 
+        // Tag as AI-controlled if this outpost is being established by an AI faction.
+        if let Some(fid) = faction_id {
+            commands.entity(body_entity).insert(
+                crate::ai::components::AIControlledColony { faction_id: fid },
+            );
+        }
+
         info!(
             "Established outpost '{}' on {:?} (needs_oxygen={}); queued {} construction projects",
             colony_name,
@@ -420,7 +432,7 @@ pub fn process_construction_actions(
 ///   - Stockpile ≥ 1 year of consumption → food_factor = 1.0
 ///   - Stockpile = 0 → food_factor = 0.5 (ship-supplied minimum)
 pub fn update_colony_growth(
-    mut colonies: Query<(Entity, &mut Colony, Option<&mut LocalStockpile>)>,
+    mut colonies: Query<(Entity, &mut Colony, Option<&ColonyMorale>, Option<&mut LocalStockpile>)>,
     ocean_query: Query<&OceanProperties>,
     mut budget: ResMut<crate::economy::GlobalBudget>,
     sim_time: Res<SimulationTime>,
@@ -442,7 +454,7 @@ pub fn update_colony_growth(
     // Process food per-colony when a LocalStockpile is present.
     // If no LocalStockpile exists (legacy / newly spawned colony), fall back
     // to the global budget so gameplay continues uninterrupted.
-    for (entity, mut colony, local_opt) in colonies.iter_mut() {
+    for (entity, mut colony, morale_opt, local_opt) in colonies.iter_mut() {
         let food_prod = colony.food_production_per_year() * years_elapsed;
         let food_cons = colony.food_consumption_per_year() * years_elapsed;
 
@@ -490,7 +502,13 @@ pub fn update_colony_growth(
             .get(entity)
             .map(|o| o.habitability_modifier())
             .unwrap_or(1.0);
-        colony.population += base_growth * ocean_modifier;
+
+        // Apply morale growth bonus (additive, not multiplicative)
+        let morale_growth = morale_opt
+            .map(|m| m.growth_bonus_per_year() * years_elapsed)
+            .unwrap_or(0.0);
+
+        colony.population += (base_growth + morale_growth) * ocean_modifier;
 
         // Hard cap: population cannot exceed available housing capacity.
         // Colonies without any housing buildings (housing == 0) are uncapped

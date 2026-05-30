@@ -330,11 +330,6 @@ mod tests {
         state.enqueue_research("FusionReactor".to_string());
         assert_eq!(state.research_queue.len(), 1);
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
 
     #[test]
     fn test_difficulty_multipliers() {
