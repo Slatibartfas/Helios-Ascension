@@ -26,7 +26,7 @@ fn test_astronomy_system_boots() {
     // Verify world can hold game entities
     world.spawn(Name::new("TestStar"));
 
-    let query = world.query::<&Name>();
+    let mut query = world.query::<&Name>();
     let names: Vec<_> = query.iter(&world).collect();
 
     assert_eq!(names.len(), 1);
@@ -97,7 +97,7 @@ fn test_component_query() {
     world.spawn((Name::new("Planet2"), Transform::from_xyz(1.5, 0.0, 0.0)));
     world.spawn(Name::new("Moon")); // No transform
 
-    let with_transform = world.query::<(&Name, &Transform)>();
+    let mut with_transform = world.query::<(&Name, &Transform)>();
     let count = with_transform.iter(&world).count();
 
     assert_eq!(count, 3, "Only entities with Transform should be counted");
