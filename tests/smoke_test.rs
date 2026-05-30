@@ -153,14 +153,13 @@ fn test_research_progression() {
         progress: f32, // 0.0 to 1.0
     }
 
-    let mut state = MockResearchState::default();
-    state.points = 100.0;
+    let state = MockResearchState { points: 100.0, ..Default::default() };
 
     // Simulate research tick
     let cost = 200.0;
-    state.progress = (state.points / cost).min(1.0);
+    let progress = (state.points / cost).min(1.0);
 
-    assert_eq!(state.progress, 0.5);
+    assert_eq!(progress, 0.5);
 }
 
 /// Test colony construction queue
