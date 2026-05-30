@@ -12,17 +12,8 @@
 //!                                              EmitNotification → notification queue
 //! ```
 
-pub mod bus;
-pub mod load_events;
-pub mod systems;
-
-// Re-exports
-pub use bus::{EventBus, EventCategory, EventSubscription, EventTag, GameEvent, SubscriptionId};
-pub use bus::EventBusPlugin;
-pub use load_events::EventsData;
-pub use systems::fire_story_event;
-
 // ─── Data model types (shared with .ron loading) ───────────────────────────────
+// Declared before module imports so that bus.rs can reference EventTag from here.
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -57,22 +48,6 @@ pub enum EventTag {
     Ancient,
     Refugee,
     Pirate,
-}
-
-/// Delayed effect — fires after a game-time offset.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DelayedEffect {
-    pub delay_seconds: f64,
-    pub effect: Effect,
-}
-
-/// An immediate or delayed mechanical effect.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Effect {
-    pub effect_type: EffectType,
-    pub target: EffectTarget,
-    pub magnitude: f64,
-    pub source_event: EventId,
 }
 
 /// What an effect operates on.
@@ -132,13 +107,20 @@ pub enum Condition {
     FactionRelationBelow { faction_id: u32, threshold: i32 },
 }
 
-/// Outcome when a choice is selected — one is chosen randomly by weight.
+/// An immediate or delayed mechanical effect.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Outcome {
-    pub weight: f64,
-    pub effects: Vec<Effect>,
-    /// If set, creates a mission with this ID template.
-    pub mission_id: Option<String>,
+pub struct Effect {
+    pub effect_type: EffectType,
+    pub target: EffectTarget,
+    pub magnitude: f64,
+    pub source_event: EventId,
+}
+
+/// Delayed effect — fires after a game-time offset.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DelayedEffect {
+    pub delay_seconds: f64,
+    pub effect: Effect,
 }
 
 /// A single choice the player can make (or none for forced events).
@@ -148,6 +130,15 @@ pub struct EventChoice {
     pub outcomes: Vec<Outcome>,
     /// Optional advisor recommendation key.
     pub ai_recommendation: Option<String>,
+}
+
+/// Outcome when a choice is selected — one is chosen randomly by weight.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Outcome {
+    pub weight: f64,
+    pub effects: Vec<Effect>,
+    /// If set, creates a mission with this ID template.
+    pub mission_id: Option<String>,
 }
 
 /// Static event definition loaded from ron files.
@@ -172,6 +163,20 @@ pub struct RandomEventPool {
     pub pool_id: String,
     pub events: Vec<EventDef>,
 }
+
+// ─── Modules ─────────────────────────────────────────────────────────────────
+
+pub mod bus;
+pub mod load_events;
+pub mod systems;
+
+// Re-exports
+pub use bus::{EventBus, EventCategory, EventSubscription, SubscriptionId};
+pub use bus::EventBusPlugin;
+pub use load_events::EventsData;
+pub use systems::fire_story_event;
+
+// ─── EventsData resource ───────────────────────────────────────────────────────
 
 /// All event data loaded from ron files.
 #[derive(Resource, Default)]

@@ -20,7 +20,8 @@ use std::sync::Arc;
 use crate::game_events::{EmitNotification, NotificationCategory};
 use crate::ui::animations::{ToastKind, ToastMessage, ToastQueue};
 
-use super::{EventCategory, EventTag, GameEvent};
+use super::{EventCategory, EventTag};
+use crate::game_events::GameEvent;
 
 /// A single event subscription.
 struct EventSubscription {

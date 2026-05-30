@@ -4,7 +4,7 @@
 //! notifications with auto-dismiss timing and camera-pan on click.
 
 use bevy::prelude::*;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use crate::plugins::music::{UiSoundKind, UiSoundRequestQueue};
 use crate::ui::animations::{ToastKind, ToastMessage, ToastQueue};

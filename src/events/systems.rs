@@ -5,6 +5,7 @@
 
 use bevy::prelude::*;
 use rand;
+use std::cell::RefCell;
 use std::sync::OnceLock;
 
 use crate::events::bus::{category_from_tags, EventBus, RandomEventTimer};
@@ -14,7 +15,7 @@ use crate::ui::animations::{ToastKind, ToastMessage, ToastQueue};
 use crate::ui::time::SimulationTime;
 
 /// Stores the previous simulation elapsed for delta computation.
-static PREV_ELAPSED: OnceLock<f64> = OnceLock::new();
+static PREV_ELAPSED: OnceLock<RefCell<f64>> = OnceLock::new();
 
 /// System: advance the random event timer each frame.
 pub fn advance_random_timer(
@@ -22,9 +23,9 @@ pub fn advance_random_timer(
     sim_time: Res<SimulationTime>,
 ) {
     let current = sim_time.elapsed_seconds();
-    let prev = PREV_ELAPSED.get_or_init(|| 0.0);
-    let delta = current - *prev;
-    *prev = current;
+    let prev_cell = PREV_ELAPSED.get_or_init(|| RefCell::new(0.0));
+    let delta = current - *prev_cell.borrow();
+    *prev_cell.borrow_mut() = current;
     timer.update(delta);
 }
 

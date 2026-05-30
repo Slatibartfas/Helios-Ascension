@@ -435,9 +435,7 @@ impl Plugin for UIPlugin {
             )
             .add_systems(
                 EguiPrimaryContextPass,
-                (ui_resources_bar, ui_top_menu_bar, ui_time_controls)
-                    .chain()
-                    .in_set(UiSystemSet::TopBar),
+                (ui_resources_bar, ui_top_menu_bar, ui_time_controls).in_set(UiSystemSet::TopBar),
             )
             .add_systems(
                 EguiPrimaryContextPass,
@@ -453,7 +451,7 @@ impl Plugin for UIPlugin {
             )
             .add_systems(
                 EguiPrimaryContextPass,
-                ui_construction_panels.in_set(UiSystemSet::MainPanels),
+                (ui_construction_panels,).in_set(UiSystemSet::MainPanels),
             )
             .add_systems(
                 EguiPrimaryContextPass,
