@@ -140,7 +140,7 @@ pub(super) fn ui_construction_panels(
             &budget,
             &contextual,
             &mut debug_settings,
-            buildings_data.as_mut(),
+            buildings_data.as_mut().map(|d| d.as_mut()),
             &mut ui_state,
             &resource_requests,
             &mut minimum_stockpiles,
@@ -152,7 +152,7 @@ pub(super) fn ui_construction_panels(
     if editor_enabled {
         render_building_editor(
             ctx,
-            buildings_data.as_mut(),
+            buildings_data.as_mut().map(|d| d.as_mut()),
             &mut edit_state,
             sim_time.elapsed_seconds(),
             cb_mode,
@@ -966,6 +966,7 @@ fn render_existing_buildings_section(
     buildings_data: Option<&mut BuildingsData>,
     cb_mode: ColorBlindMode,
 ) {
+    let buildings_data = buildings_data.clone();
     for &category in BuildingCategory::all() {
         let mut buildings_in_category: Vec<_> = category
             .buildings()
@@ -1459,7 +1460,7 @@ fn render_building_card(
     can_afford: bool,
     construction_actions: &mut PendingConstructionActions,
     card_width: f32,
-    buildings_data: Option<&crate::colony::BuildingsData>,
+    buildings_data: Option<&mut BuildingsData>,
     cb_mode: ColorBlindMode,
 ) {
     let total_bp = building.build_cost() * multiplier as f64;
