@@ -119,9 +119,9 @@ impl EventBus {
 #[derive(Resource)]
 pub struct RandomEventTimer {
     /// Simulation seconds elapsed since last random event fired.
-    elapsed_since_last_event: f64,
+    pub elapsed_since_last_event: f64,
     /// Simulation time (in seconds) when the last event fired.
-    last_event_time: f64,
+    pub last_event_time: f64,
 }
 
 impl Default for RandomEventTimer {
@@ -155,6 +155,11 @@ impl RandomEventTimer {
     /// Simulation seconds since last event.
     pub fn elapsed(&self) -> f64 {
         self.elapsed_since_last_event
+    }
+
+    /// Simulation time when the last event fired.
+    pub fn last_event_time(&self) -> f64 {
+        self.last_event_time
     }
 
     /// Whether the cooldown period has elapsed (allows next check to proceed to roll).
