@@ -11,6 +11,7 @@ pub mod plugins;
 pub mod render;
 pub mod research;
 pub mod ui;
+pub mod victory;
 
 use astronomy::AstronomyPlugin;
 use colony::ColonyPlugin;
@@ -25,6 +26,7 @@ use plugins::{
 use render::backdrop::BackdropPlugin;
 use research::ResearchPlugin;
 use ui::UIPlugin;
+use victory::VictoryPlugin;
 
 /// Minimum supported window dimensions to prevent UI overlap
 /// Full HD (1920×1080) is required for the complex strategy game UI
@@ -68,6 +70,7 @@ fn main() {
         .add_plugins(SystemPopulatorPlugin)
         .add_plugins(UIPlugin)
         .add_plugins(MusicPlugin)
+        .add_plugins(VictoryPlugin)
         // Systems
         .add_systems(Startup, setup)
         .run();

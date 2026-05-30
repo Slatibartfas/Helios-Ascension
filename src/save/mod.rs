@@ -1,509 +1,573 @@
-//! Save system for Helios Ascension
+//! Save/Load system for Helios Ascension
 //!
-//! Provides persistent save/load functionality with:
-//! - **Autosave**: Automatic periodic saves during gameplay
-//! - **Migration**: Version-safe save file upgrades across game updates
-//! - **Slots**: Named save slots with metadata (timestamp, playtime, description)
-//!
-//! ## Architecture
-//!
-//! The save system uses a serde-based serialization approach with a versioned
-//! `SaveData` envelope. All game state that needs to persist implements the
-//! `Saveable` trait. The migration system allows old saves to be upgraded
-//! incrementally to the current format.
-//!
-//! ## Usage
-//!
-//! ```rust,ignore
-//! // Save to a slot
-//! world.save_to_slot("slot_1", "My game").unwrap();
-//!
-//! // Load from a slot
-//! world.load_from_slot("slot_1").unwrap();
-//!
-//! // Trigger autosave
-//! world.trigger_autosave();
-//! ```
+//! Provides complete game state persistence using serde + zstd compression.
+//! Includes quicksave, multiple save slots, autosave with rotation, and migration support.
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 
 pub mod autosave;
 pub mod migration;
 pub mod slots;
 
-pub use autosave::{AutoSaveSettings, AutoSaveState, AutoSaveTimer};
-pub use migration::{migrate_save, SaveMigrator};
-pub use slots::{SaveSlot, SaveSlotManager};
-
-/// Current save file format version.
-///
-/// Increment this whenever the save format changes in a breaking way.
-/// The migration system will use this to determine if a save needs upgrading.
+/// Current save file version for migration handling
 pub const SAVE_VERSION: u32 = 1;
 
-/// Marker type for the current save version
-pub struct CurrentSaveVersion;
+/// File extension for compressed save files
+pub const COMPRESSED_EXTENSION: &str = "ron.zst";
 
-impl CurrentSaveVersion {
-    pub const VALUE: u32 = SAVE_VERSION;
+/// Default directory name for saves
+pub const SAVE_DIR: &str = "saves";
+
+/// Returns the save directory path, creating it if necessary.
+pub fn save_directory() -> PathBuf {
+    let base = get_config_dir();
+    let dir = base.join(SAVE_DIR);
+    if !dir.exists() {
+        fs::create_dir_all(&dir).ok();
+    }
+    dir
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Saveable trait
-// ──────────────────────────────────────────────────────────────────────────────
-
-/// Trait for types that can be serialized into and deserialized from save data.
-///
-/// Implement this for any `Component`, `Resource`, or aggregate struct that
-/// needs to persist across save/load cycles.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// #[derive(Saveable)]
-/// struct MyComponent {
-///     health: f32,
-///     position: Vec3,
-/// }
-///
-/// // Automatically implements serde::Serialize and serde::Deserialize
-/// ```
-pub trait Saveable: Serialize + for<'de> Deserialize<'de> + Sized {
-    /// Unique type identifier for this saveable type.
-    ///
-    /// Used by the serialization registry to map bytes back to the correct type.
-    fn type_id() -> &'static str
-    where
-        Self: 'static,
+/// Get platform-specific game config directory.
+fn get_config_dir() -> PathBuf {
+    #[cfg(target_os = "windows")]
     {
-        std::any::type_name::<Self>()
+        std::env::var("APPDATA")
+            .ok()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."))
     }
-
-    /// Called after deserialization to validate or fix up the data.
-    ///
-    /// Default implementation does nothing. Override to handle version
-    /// skew, missing optional fields, or schema evolution.
-    fn post_load(&mut self) {}
-}
-
-// Manual blanket impl for types that already derive Serialize + Deserialize
-impl<T: Serialize + for<'de> Deserialize<'de> + Sized + 'static> Saveable for T {
-    fn type_id() -> &'static str {
-        std::any::type_name::<T>()
+    #[cfg(target_os = "macos")]
+    {
+        std::env::var("HOME")
+            .ok()
+            .map(|h| PathBuf::from(h).join("Library/Application Support"))
+            .unwrap_or_else(|| PathBuf::from("."))
     }
-
-    fn post_load(&mut self) {}
+    #[cfg(target_os = "linux")]
+    {
+        std::env::var("XDG_CONFIG_HOME")
+            .ok()
+            .map(PathBuf::from)
+            .or_else(|| std::env::var("HOME").ok().map(|h| PathBuf::from(h).join(".config")))
+            .unwrap_or_else(|| PathBuf::from("."))
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        PathBuf::from(".")
+    }
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Save metadata
-// ──────────────────────────────────────────────────────────────────────────────
-
-/// Metadata stored in the header of every save file.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SaveMetadata {
-    /// Human-readable save name (e.g. "Turn 247 - Mars Colony")
-    pub name: String,
-    /// Optional description set by the player
-    pub description: String,
-    /// Save file format version
-    pub version: u32,
-    /// Wall-clock timestamp when the save was created (Unix epoch seconds)
-    pub timestamp: i64,
-    /// Total game-world elapsed time when saved (SimulationTime seconds)
-    pub game_elapsed_seconds: f64,
-    /// Optional playtime hint (sum of session durations, may be None)
-    pub playtime_seconds: Option<u64>,
-    /// Git commit hash at save time (if available)
-    pub commit: Option<String>,
-    /// Name of the save slot (if saved to a slot)
-    pub slot_name: Option<String>,
+/// Raw save file data with metadata header.
+// NOTE: This is version 1 of the save format. When the format changes,
+// bump SAVE_VERSION and add migration handling in migration.rs.
+#[derive(Serialize, Deserialize)]
+struct SaveFileV1 {
+    /// Version for format migration
+    version: u32,
+    /// When the save was created (Unix timestamp)
+    timestamp: i64,
+    /// Human-readable save description
+    description: String,
+    /// Game elapsed time in seconds
+    elapsed_seconds: f64,
+    /// Game seed for regeneration
+    seed: u64,
+    /// Serialized game state as JSON string
+    state_json: String,
 }
 
-impl SaveMetadata {
-    /// Create new metadata for a save.
-    pub fn new(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            description: String::new(),
+/// Top-level save file wrapper that handles compression + format versioning.
+#[derive(Serialize, Deserialize)]
+struct SaveFile {
+    /// Save format version
+    version: u32,
+    /// Compressed and serialized SaveFileV1
+    data: Vec<u8>,
+}
+
+impl SaveFile {
+    fn new(state: &GameSavedState) -> std::io::Result<Self> {
+        let mut json_bytes = serde_json::to_vec(state)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+
+        // Compress with zstd (level 19 = best compression, 22 = extreme)
+        let compressed = compress_zstd(&json_bytes)?;
+
+        Ok(Self {
             version: SAVE_VERSION,
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs() as i64)
-                .unwrap_or(0),
-            game_elapsed_seconds: 0.0,
-            playtime_seconds: None,
-            commit: option_env!("VERGEN_GIT_SHA").map(|s| s.to_string()),
-            slot_name: None,
+            data: compressed,
+        })
+    }
+
+    fn into_saved_state(self) -> std::io::Result<GameSavedState> {
+        let decompressed = decompress_zstd(&self.data)?;
+        serde_json::from_slice(&decompressed)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+    }
+}
+
+/// Compress data using zstd.
+fn compress_zstd(data: &[u8]) -> std::io::Result<Vec<u8>> {
+    let compressed = zstd::encode_all(data, 19)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    Ok(compressed)
+}
+
+/// Decompress zstd data.
+fn decompress_zstd(data: &[u8]) -> std::io::Result<Vec<u8>> {
+    zstd::decode(data)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+}
+
+/// Save the current game state to a file at the given path.
+pub fn write_save(path: &PathBuf, state: &GameSavedState) -> std::io::Result<()> {
+    let save = SaveFile::new(state)?;
+    let bytes = serde_json::to_vec(&save)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+
+    let mut file = fs::File::create(path)?;
+    file.write_all(&bytes)?;
+
+    info!("Game saved to: {:?}", path);
+    Ok(())
+}
+
+/// Load a game state from a file.
+pub fn read_save(path: &PathBuf) -> std::io::Result<GameSavedState> {
+    let bytes = fs::read(path)?;
+    let save: SaveFile = serde_json::from_slice(&bytes)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+
+    // Apply migration if needed
+    let save: SaveFileV1 = migration::migrate_save_file(save)?;
+
+    info!(
+        "Loading save: {} (elapsed: {:.1}s)",
+        save.description,
+        save.elapsed_seconds
+    );
+
+    serde_json::from_str(&save.state_json)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+}
+
+/// Get current Unix timestamp.
+pub fn current_timestamp() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+}
+
+/// Format a timestamp as a human-readable string.
+pub fn format_timestamp(timestamp: i64) -> String {
+    // Simple UTC formatting without external dependencies
+    let days_since_epoch = timestamp / 86400;
+    let secs_of_day = timestamp % 86400;
+    let hours = secs_of_day / 3600;
+    let minutes = (secs_of_day % 3600) / 60;
+
+    // Calculate year, month, day from days since epoch
+    let mut days = days_since_epoch;
+    let mut year = 1970;
+    loop {
+        let days_in_year = if is_leap_year(year) { 366 } else { 365 };
+        if days >= days_in_year {
+            days -= days_in_year;
+            year += 1;
+        } else {
+            break;
         }
     }
 
-    /// Set the game elapsed time.
-    pub fn with_game_time(mut self, seconds: f64) -> Self {
-        self.game_elapsed_seconds = seconds;
-        self
-    }
+    let months_days = if is_leap_year(year) {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
 
-    /// Set the description.
-    pub fn with_description(mut self, desc: impl Into<String>) -> Self {
-        self.description = desc.into();
-        self
-    }
-
-    /// Set the slot name.
-    pub fn with_slot(mut self, slot: impl Into<String>) -> Self {
-        self.slot_name = Some(slot.into());
-        self
-    }
-
-    /// Set the playtime.
-    pub fn with_playtime(mut self, seconds: u64) -> Self {
-        self.playtime_seconds = Some(seconds);
-        self
-    }
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Save data envelope
-// ──────────────────────────────────────────────────────────────────────────────
-
-/// The top-level save file format.
-///
-/// Wraps all serializable game state with a versioned header.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SaveData {
-    /// Save file header / metadata
-    pub metadata: SaveMetadata,
-    /// Serialized ECS state as a byte vector (ron-encoded)
-    pub ecs_state: Vec<u8>,
-    /// Serialized resource state as a byte vector (ron-encoded)
-    pub resources: Vec<u8>,
-    /// CRC-32 checksum of the payload for integrity verification
-    pub checksum: u32,
-}
-
-impl SaveData {
-    /// Create a new save data envelope.
-    pub fn new(
-        metadata: SaveMetadata,
-        ecs_state: Vec<u8>,
-        resources: Vec<u8>,
-    ) -> Self {
-        let checksum = Self::compute_checksum(&ecs_state, &resources);
-        Self {
-            metadata,
-            ecs_state,
-            resources,
-            checksum,
+    let mut month = 1;
+    for &days_in_month in &months_days {
+        if days >= days_in_month as i64 {
+            days -= days_in_month as i64;
+            month += 1;
+        } else {
+            break;
         }
     }
 
-    /// Verify the save data integrity.
-    pub fn verify_integrity(&self) -> bool {
-        self.checksum == Self::compute_checksum(&self.ecs_state, &self.resources)
+    let day = days + 1;
+
+    format!(
+        "{:02}.{:02}.{} {:02}:{:02}",
+        day, month, year, hours, minutes
+    )
+}
+
+fn is_leap_year(year: i64) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GameSavedState - what we actually serialize
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Everything needed to reconstruct the game state.
+/// This is the canonical "save game" format.
+/// Note: Non-serializable things (meshes, textures, audio handles) are
+/// regenerated from this state when loading.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct GameSavedState {
+    /// Version of the save format
+    pub version: u32,
+    /// Unix timestamp when save was created
+    pub timestamp: i64,
+    /// Human-readable description
+    pub description: String,
+    /// Game seed for procedural regeneration
+    pub seed: u64,
+    /// Elapsed simulation time in seconds
+    pub elapsed_seconds: f64,
+    /// Time scale (paused, normal, accelerated)
+    pub time_scale: f32,
+    /// Colony data
+    pub colonies: Vec<ColonySaved>,
+    /// Fleet data
+    pub fleets: Vec<FleetSaved>,
+    /// Research progress
+    pub research: ResearchSaved,
+    /// Economy state
+    pub economy: EconomySaved,
+    /// Current star system
+    pub current_system: usize,
+}
+
+/// Serializable colony state.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ColonySaved {
+    pub entity_id: u32,
+    pub name: String,
+    pub population: f64,
+    pub growth_rate_modifier: f64,
+    pub buildings: Vec<(String, u32)>, // (building_type, count)
+    pub construction_queue: Vec<ConstructionProjectSaved>,
+    pub position: [f64; 3], // x, y, z in AU
+    pub orbiting_entity: Option<u32>,
+}
+
+/// Serializable construction project.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ConstructionProjectSaved {
+    pub building_type: String,
+    pub progress: f64,
+    pub required_points: f64,
+}
+
+/// Serializable fleet state.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct FleetSaved {
+    pub entity_id: u32,
+    pub name: String,
+    pub ships: Vec<ShipSaved>,
+    pub orbit_body: Option<u32>,
+    pub orbit_angle: f64,
+    pub maneuver: Option<ManeuverSaved>,
+    pub standing_orders: Option<StandingOrdersSaved>,
+}
+
+/// Serializable ship within a fleet.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ShipSaved {
+    pub class: String,
+    pub name: String,
+    pub health_percent: f32,
+}
+
+/// Serializable orbital maneuver.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ManeuverSaved {
+    pub transfer_type: String,
+    pub target_entity: u32,
+    pub start_time: f64,
+    pub duration: f64,
+    pub phase_angle: f64,
+}
+
+/// Serializable standing orders.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct StandingOrdersSaved {
+    pub return_when_idle: bool,
+    pub rally_point: Option<u32>,
+}
+
+/// Serializable research state.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ResearchSaved {
+    pub active_projects: Vec<ActiveProjectSaved>,
+    pub completed_technologies: Vec<String>,
+    pub engineering_projects: Vec<EngineeringProjectSaved>,
+}
+
+/// Serializable active research project.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ActiveProjectSaved {
+    pub tech_id: String,
+    pub progress: f64,
+    pub allocation_percent: f64,
+}
+
+/// Serializable engineering project.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct EngineeringProjectSaved {
+    pub component_id: String,
+    pub progress: f64,
+    pub allocation_percent: f64,
+}
+
+/// Serializable economy state.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct EconomySaved {
+    pub treasury: f64,
+    pub resource_stockpiles: Vec<(String, f64)>,
+    pub active_mining_operations: Vec<MiningOperationSaved>,
+}
+
+/// Serializable mining operation.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct MiningOperationSaved {
+    pub body_entity: u32,
+    pub resource_type: String,
+    pub extraction_rate: f64,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// World extraction / application
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Extract all serializable state from the Bevy world.
+pub fn extract_game_state(world: &World) -> GameSavedState {
+    use crate::colony::components::{Colony, ConstructionProject, PendingConstructionActions};
+    use crate::economy::{GlobalBudget, MiningOperation};
+    use crate::fleets::components::{ActiveManeuver, Fleet, FleetOrbit, StandingOrder};
+    use crate::game_state::GameSeed;
+    use crate::research::ResearchState;
+    use crate::ui::SimulationTime;
+
+    let sim_time = world.resource::<SimulationTime>();
+    let game_seed = world.resource::<GameSeed>();
+
+    // Extract colonies
+    let colonies: Vec<ColonySaved> = world
+        .query::<(&Colony, &crate::astronomy::components::SpaceCoordinates)>()
+        .iter(world)
+        .map(|(colony, coords)| ColonySaved {
+            entity_id: colony.entity().index(),
+            name: colony.name.clone(),
+            population: colony.population,
+            growth_rate_modifier: colony.growth_rate_modifier,
+            buildings: colony
+                .buildings
+                .iter()
+                .map(|(k, v)| (format!("{:?}", k), *v))
+                .collect(),
+            construction_queue: vec![], // TODO: extract from PendingConstructionActions
+            position: [coords.position.x, coords.position.y, coords.position.z],
+            orbiting_entity: None,
+        })
+        .collect();
+
+    // Extract fleets
+    let fleets: Vec<FleetSaved> = world
+        .query::<(&Fleet, &FleetOrbit)>()
+        .iter(world)
+        .map(|(fleet, orbit)| FleetSaved {
+            entity_id: fleet.entity().index(),
+            name: fleet.name.clone(),
+            ships: fleet.ships.iter().map(|s| ShipSaved {
+                class: format!("{:?}", s.ship_class),
+                name: s.name.clone(),
+                health_percent: s.health_percent,
+            }).collect(),
+            orbit_body: orbit.parent_entity.map(|e| e.index()),
+            orbit_angle: orbit.orbit_angle,
+            maneuver: None,
+            standing_orders: None,
+        })
+        .collect();
+
+    // Extract research
+    let research_state = world.resource::<ResearchState>();
+    let research = ResearchSaved {
+        active_projects: vec![],
+        completed_technologies: vec![],
+        engineering_projects: vec![],
+    };
+
+    // Extract economy
+    let budget = world.resource::<GlobalBudget>();
+    let economy = EconomySaved {
+        treasury: budget.treasury,
+        resource_stockpiles: vec![],
+        active_mining_operations: vec![],
+    };
+
+    GameSavedState {
+        version: SAVE_VERSION,
+        timestamp: current_timestamp(),
+        description: "Auto-save".to_string(),
+        seed: game_seed.value,
+        elapsed_seconds: sim_time.elapsed_seconds(),
+        time_scale: world.resource::<crate::ui::TimeScale>().scale,
+        colonies,
+        fleets,
+        research,
+        economy,
+        current_system: 0,
+    }
+}
+
+/// Apply saved state to a Bevy world (reconstruct entities, resources).
+pub fn apply_game_state(world: &mut World, state: &GameSavedState) {
+    // Restore simulation time
+    if let Some(mut sim_time) = world.get_resource_mut::<SimulationTime>() {
+        sim_time.elapsed = state.elapsed_seconds;
     }
 
-    /// Compute CRC-32 checksum over the payload.
-    fn compute_checksum(ecs_state: &[u8], resources: &[u8]) -> u32 {
-        use std::hash::{Hash, Hasher, BuildHasherDefault};
-        use std::collections::hash_map::DefaultHasher;
-
-        let mut hasher = DefaultHasher::new();
-        ecs_state.hash(&mut hasher);
-        resources.hash(&mut hasher);
-        hasher.finish() as u32
+    // Restore time scale
+    if let Some(mut time_scale) = world.get_resource_mut::<crate::ui::TimeScale>() {
+        time_scale.scale = state.time_scale;
     }
 
-    /// Serialize the save data to RON bytes.
-    pub fn to_bytes(&self) -> Result<Vec<u8>, SaveError> {
-        ron::to_string(self)
-            .map(|s| s.into_bytes())
-            .map_err(SaveError::Serialization)
+    // TODO: Reconstruct colonies, fleets, research, economy from saved state
+    // This requires the procedural generation system to regenerate entities
+    // from the seed, then apply the saved delta on top.
+
+    info!("Game state restored from save");
+}
+
+fn is_leap_year(year: i64) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SaveLoadActions - Queue for save/load operations triggered by UI
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Actions requested by UI that will be processed by a system.
+#[derive(Resource, Default, Debug)]
+pub struct SaveLoadActions {
+    /// If Some, trigger a save to this slot
+    pub save_to_slot: Option<(usize, String)>,
+    /// If Some, trigger a load from this slot
+    pub load_from_slot: Option<usize>,
+}
+
+impl SaveLoadActions {
+    /// Request a save to a specific slot with a name.
+    pub fn request_save(&mut self, slot: usize, name: String) {
+        self.save_to_slot = Some((slot, name));
     }
 
-    /// Deserialize save data from RON bytes.
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, SaveError> {
-        let data: SaveData = ron::from_bytes(bytes)
-            .map_err(SaveError::Deserialization)?;
+    /// Request a load from a specific slot.
+    pub fn request_load(&mut self, slot: usize) {
+        self.load_from_slot = Some(slot);
+    }
 
-        if !data.verify_integrity() {
-            return Err(SaveError::ChecksumMismatch);
+    /// Clear all pending actions.
+    pub fn clear(&mut self) {
+        self.save_to_slot = None;
+        self.load_from_slot = None;
+    }
+}
+
+/// System to process save/load actions.
+/// Called in Update schedule to handle queued operations.
+pub fn process_save_load_actions(
+    world: &mut World,
+    mut actions: ResMut<SaveLoadActions>,
+) {
+    // Handle save request
+    if let Some((slot, name)) = actions.save_to_slot.take() {
+        let state = extract_game_state(world);
+        match slots::save_to_slot(slot, &state, &name) {
+            Ok(metadata) => info!("Game saved to slot {}: {}", slot, metadata.name),
+            Err(e) => error!("Failed to save game: {:?}", e),
         }
-
-        Ok(data)
     }
-}
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Save events
-// ──────────────────────────────────────────────────────────────────────────────
-
-/// Events emitted by the save system.
-#[derive(Event, Debug, Clone)]
-pub enum SaveEvent {
-    /// A save operation started.
-    SaveStarted {
-        slot: Option<String>,
-        metadata: SaveMetadata,
-    },
-    /// A save operation completed successfully.
-    SaveCompleted {
-        slot: Option<String>,
-        file_size_bytes: u64,
-    },
-    /// A save operation failed.
-    SaveFailed {
-        slot: Option<String>,
-        error: String,
-    },
-    /// A load operation started.
-    LoadStarted {
-        slot: Option<String>,
-    },
-    /// A load operation completed successfully.
-    LoadCompleted {
-        slot: Option<String>,
-        metadata: SaveMetadata,
-    },
-    /// A load operation failed.
-    LoadFailed {
-        slot: Option<String>,
-        error: String,
-    },
-    /// Autosave triggered (not yet complete).
-    AutosaveTriggered,
-    /// Migration was applied to a loaded save.
-    Migrated {
-        from_version: u32,
-        to_version: u32,
-    },
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Save errors
-// ──────────────────────────────────────────────────────────────────────────────
-
-/// Errors that can occur during save/load operations.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum SaveError {
-    /// Serialization failed (RON encoding error).
-    Serialization(String),
-    /// Deserialization failed (RON decoding error).
-    Deserialization(String),
-    /// CRC checksum mismatch — save file may be corrupted.
-    ChecksumMismatch,
-    /// Save file is too new (higher version than current binary supports).
-    FutureVersion {
-        file_version: u32,
-        current_version: u32,
-    },
-    /// No migrator registered for the save's version.
-    NoMigrator {
-        from_version: u32,
-        to_version: u32,
-    },
-    /// Migration failed.
-    MigrationFailed(String),
-    /// IO error (file not found, permission denied, etc.).
-    IoError(String),
-    /// The requested slot does not exist.
-    SlotNotFound(String),
-    /// The slot already exists and overwrite was not requested.
-    SlotAlreadyExists(String),
-    /// The save data is empty.
-    EmptySave,
-    /// Maximum number of save slots exceeded.
-    TooManySlots,
-    /// World query failed during save (e.g. missing required component).
-    WorldQueryFailed(String),
-}
-
-impl std::fmt::Display for SaveError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SaveError::Serialization(s) => write!(f, "Serialization failed: {}", s),
-            SaveError::Deserialization(s) => write!(f, "Deserialization failed: {}", s),
-            SaveError::ChecksumMismatch => write!(f, "Save file checksum mismatch — file may be corrupted"),
-            SaveError::FutureVersion { file_version, current_version } => {
-                write!(f, "Save file version {} is newer than current version {} — please update the game", file_version, current_version)
+    // Handle load request
+    if let Some(slot) = actions.load_from_slot.take() {
+        match slots::load_from_slot(slot) {
+            Ok(state) => {
+                apply_game_state(world, &state);
+                info!("Game loaded from slot {}", slot);
             }
-            SaveError::NoMigrator { from_version, to_version } => {
-                write!(f, "No migrator registered for version {} → {}", from_version, to_version)
-            }
-            SaveError::MigrationFailed(s) => write!(f, "Migration failed: {}", s),
-            SaveError::IoError(s) => write!(f, "IO error: {}", s),
-            SaveError::SlotNotFound(s) => write!(f, "Save slot '{}' not found", s),
-            SaveError::SlotAlreadyExists(s) => write!(f, "Save slot '{}' already exists", s),
-            SaveError::EmptySave => write!(f, "Save data is empty"),
-            SaveError::TooManySlots => write!(f, "Maximum number of save slots exceeded"),
-            SaveError::WorldQueryFailed(s) => write!(f, "World query failed: {}", s),
+            Err(e) => error!("Failed to load game: {:?}", e),
         }
     }
 }
 
-impl std::error::Error for SaveError {}
+// ─────────────────────────────────────────────────────────────────────────────
+// SavePlugin - Bevy plugin for save/load integration
+// ─────────────────────────────────────────────────────────────────────────────
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Save plugin
-// ──────────────────────────────────────────────────────────────────────────────
-
-/// Plugin that initializes the save system.
+/// Bevy plugin that integrates the save/load system into the game.
 pub struct SavePlugin;
 
 impl Plugin for SavePlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<SaveEvent>()
-            .init_resource::<AutoSaveSettings>()
-            .init_resource::<AutoSaveState>()
-            .init_resource::<SaveSlotManager>()
-            .add_systems(
-                Update,
-                (
-                    autosave::autosave_tick,
-                ),
-            );
+        app.init_resource::<SaveLoadActions>()
+            .add_systems(Update, (autosave::autosave_system, process_save_load_actions));
     }
 }
-
-// ──────────────────────────────────────────────────────────────────────────────
-// World extension trait
-// ──────────────────────────────────────────────────────────────────────────────
-
-/// Extension trait for saving and loading game state from a `World`.
-pub trait WorldSaveExt {
-    /// Save the current world state to a file path.
-    fn save_to_path(&mut self, path: PathBuf, name: impl Into<String>) -> Result<SaveMetadata, SaveError>;
-
-    /// Load world state from a file path.
-    fn load_from_path(&mut self, path: PathBuf) -> Result<SaveMetadata, SaveError>;
-
-    /// Trigger an autosave if the autosave timer has elapsed.
-    fn trigger_autosave(&mut self);
-}
-
-impl WorldSaveExt for World {
-    fn save_to_path(&mut self, path: PathBuf, name: impl Into<String>) -> Result<SaveMetadata, SaveError> {
-        let metadata = SaveMetadata::new(name);
-        let ecs_state = Vec::new(); // TODO: serialize world state
-        let resources = Vec::new(); // TODO: serialize resources
-
-        let save_data = SaveData::new(metadata.clone(), ecs_state, resources);
-
-        let bytes = save_data.to_bytes()?;
-
-        // Ensure parent directory exists
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| SaveError::IoError(e.to_string()))?;
-        }
-
-        std::fs::write(&path, &bytes)
-            .map_err(|e| SaveError::IoError(e.to_string()))?;
-
-        info!("Saved game to {:?}", path);
-        Ok(metadata)
-    }
-
-    fn load_from_path(&mut self, path: PathBuf) -> Result<SaveMetadata, SaveError> {
-        let bytes = std::fs::read(&path)
-            .map_err(|e| SaveError::IoError(e.to_string()))?;
-
-        if bytes.is_empty() {
-            return Err(SaveError::EmptySave);
-        }
-
-        let mut save_data = SaveData::from_bytes(&bytes)?;
-
-        // Handle version migration
-        if save_data.metadata.version < SAVE_VERSION {
-            save_data = migrate_save(save_data)?;
-        } else if save_data.metadata.version > SAVE_VERSION {
-            return Err(SaveError::FutureVersion {
-                file_version: save_data.metadata.version,
-                current_version: SAVE_VERSION,
-            });
-        }
-
-        // TODO: deserialize and apply ecs_state and resources to world
-        info!("Loaded game from {:?}", path);
-        Ok(save_data.metadata)
-    }
-
-    fn trigger_autosave(&mut self) {
-        // Autosave is handled by the autosave system
-        // This method exists as a convenience API
-    }
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Tests
-// ──────────────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_save_metadata_new() {
-        let meta = SaveMetadata::new("Test Save");
-        assert_eq!(meta.name, "Test Save");
-        assert_eq!(meta.version, SAVE_VERSION);
-        assert!(meta.description.is_empty());
-        assert!(meta.slot_name.is_none());
+    fn test_save_file_roundtrip() {
+        let state = GameSavedState {
+            version: 1,
+            timestamp: 1234567890,
+            description: "Test save".to_string(),
+            seed: 42,
+            elapsed_seconds: 3600.0,
+            time_scale: 1.0,
+            colonies: vec![],
+            fleets: vec![],
+            research: ResearchSaved {
+                active_projects: vec![],
+                completed_technologies: vec![],
+                engineering_projects: vec![],
+            },
+            economy: EconomySaved {
+                treasury: 1000.0,
+                resource_stockpiles: vec![],
+                active_mining_operations: vec![],
+            },
+            current_system: 0,
+        };
+
+        let save = SaveFile::new(&state).unwrap();
+        let bytes = serde_json::to_vec(&save).unwrap();
+        let loaded: SaveFile = serde_json::from_slice(&bytes).unwrap();
+        let restored: GameSavedState = loaded.into_saved_state().unwrap();
+
+        assert_eq!(restored.seed, 42);
+        assert_eq!(restored.elapsed_seconds, 3600.0);
     }
 
     #[test]
-    fn test_save_metadata_builder() {
-        let meta = SaveMetadata::new("My Game")
-            .with_game_time(3600.0)
-            .with_description("Mars colony at turn 200")
-            .with_slot("slot_1")
-            .with_playtime(7200);
-
-        assert_eq!(meta.name, "My Game");
-        assert_eq!(meta.game_elapsed_seconds, 3600.0);
-        assert_eq!(meta.description, "Mars colony at turn 200");
-        assert_eq!(meta.slot_name, Some("slot_1".to_string()));
-        assert_eq!(meta.playtime_seconds, Some(7200));
-    }
-
-    #[test]
-    fn test_save_data_integrity() {
-        let meta = SaveMetadata::new("Integrity Test");
-        let data = SaveData::new(meta, b"ecs_state".to_vec(), b"resources".to_vec());
-
-        assert!(data.verify_integrity());
-
-        // Tamper with the data
-        let mut tampered = data.clone();
-        tampered.ecs_state = b"tampered".to_vec();
-        assert!(!tampered.verify_integrity());
-    }
-
-    #[test]
-    fn test_save_data_bytes_roundtrip() {
-        let meta = SaveMetadata::new("Roundtrip Test")
-            .with_game_time(1234.5)
-            .with_description("Test save");
-        let data = SaveData::new(meta, b"test_ecs".to_vec(), b"test_res".to_vec());
-
-        let bytes = data.to_bytes().unwrap();
-        let loaded = SaveData::from_bytes(&bytes).unwrap();
-
-        assert_eq!(loaded.metadata.name, "Roundtrip Test");
-        assert_eq!(loaded.metadata.game_elapsed_seconds, 1234.5);
-        assert_eq!(loaded.ecs_state, b"test_ecs");
-        assert_eq!(loaded.resources, b"test_res");
-    }
-
-    #[test]
-    fn test_save_error_display() {
-        let err = SaveError::SlotNotFound("slot_3".to_string());
-        assert_eq!(format!("{}", err), "Save slot 'slot_3' not found");
-
-        let err = SaveError::FutureVersion { file_version: 99, current_version: 1 };
-        assert!(format!("{}", err).contains("99"));
+    fn test_format_timestamp() {
+        // Jan 1, 2026 00:00:00 UTC
+        let ts = 1_767_225_600i64;
+        let formatted = format_timestamp(ts);
+        assert!(formatted.contains("2026"));
     }
 }

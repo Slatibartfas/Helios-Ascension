@@ -1,427 +1,176 @@
-//! Autosave system
+//! Autosave system with rotation.
 //!
-//! Provides automatic periodic saving during gameplay. The autosave system
-//! runs independently of the main game loop and can be configured to save at
-//! regular intervals (wall-clock time or game-time based).
+//! Automatically saves the game every N minutes, keeping the last 3 autosaves
+//! by rotating through slots 7, 8, and 9.
 
+use super::slots::{self, AUTOSAVE_SLOTS};
+use super::{extract_game_state, GameSavedState};
 use bevy::prelude::*;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-/// Settings that control autosave behavior.
-#[derive(Resource, Debug, Clone)]
-pub struct AutoSaveSettings {
-    /// Whether autosave is enabled. Default: true.
-    pub enabled: bool,
-    /// Interval in wall-clock seconds between autosaves. Default: 300 (5 min).
-    pub interval_seconds: u64,
-    /// Maximum number of autosave backups to keep. Default: 3.
-    pub max_backups: usize,
-    /// The save slot name to use for autosaves. Default: "autosave".
-    pub slot_name: String,
-    /// Whether to pause the game during autosave. Default: false.
-    pub pause_during_save: bool,
-    /// Whether to show a notification when autosave completes. Default: true.
-    pub notify_on_complete: bool,
- /// Whether to save on game events (turn end, major battle, etc.). Default: true.
-    pub save_on_events: bool,
+/// Autosave interval in seconds (5 minutes)
+pub const AUTOSAVE_INTERVAL_SECS: u64 = 300;
+
+/// Maximum autosave files to keep
+pub const MAX_AUTOSAVES: usize = 3;
+
+/// Resource to track autosave timing.
+#[derive(Resource, Debug)]
+pub struct AutosaveTimer {
+    /// Time since last autosave in seconds
+    elapsed_secs: f64,
+    /// Whether an autosave is in progress
+    saving: AtomicBool,
 }
 
-impl Default for AutoSaveSettings {
-    fn default() -> Self {
+impl AutosaveTimer {
+    /// Create a new autosave timer.
+    pub fn new() -> Self {
         Self {
-            enabled: true,
-            interval_seconds: 300,
-            max_backups: 3,
-            slot_name: "autosave".to_string(),
-            pause_during_save: false,
-            notify_on_complete: true,
-            save_on_events: true,
+            elapsed_secs: 0.0,
+            saving: AtomicBool::new(false),
         }
     }
-}
 
-impl AutoSaveSettings {
-    /// Create settings with a custom interval.
-    pub fn with_interval(mut self, seconds: u64) -> Self {
-        self.interval_seconds = seconds;
-        self
+    /// Check if it's time to autosave.
+    pub fn should_autosave(&self) -> bool {
+        !self.saving.load(Ordering::Relaxed) && self.elapsed_secs >= AUTOSAVE_INTERVAL_SECS as f64
     }
 
-    /// Create settings with a custom slot name.
-    pub fn with_slot_name(mut self, name: impl Into<String>) -> Self {
-        self.slot_name = name.into();
-        self
-    }
-
-    /// Disable autosave.
-    pub fn disabled() -> Self {
-        Self {
-            enabled: false,
-            ..Default::default()
-        }
-    }
-}
-
-/// Runtime state for the autosave system.
-#[derive(Resource, Debug, Clone)]
-pub struct AutoSaveState {
-    /// Whether an autosave is currently in progress.
-    pub is_saving: bool,
-    /// Timestamp of the last successful autosave (Unix epoch seconds).
-    pub last_save_timestamp: i64,
-    /// Number of autosaves performed this session.
-    pub session_save_count: u32,
-    /// Whether the next autosave was triggered by a game event.
-    pub triggered_by_event: bool,
-    /// Error message from the last failed autosave, if any.
-    pub last_error: Option<String>,
-}
-
-impl Default for AutoSaveState {
-    fn default() -> Self {
-        Self {
-            is_saving: false,
-            last_save_timestamp: 0,
-            session_save_count: 0,
-            triggered_by_event: false,
-            last_error: None,
-        }
-    }
-}
-
-impl AutoSaveState {
-    /// Returns true if enough time has elapsed to trigger another autosave.
-    pub fn should_autosave(&self, settings: &AutoSaveSettings) -> bool {
-        if !settings.enabled || self.is_saving {
-            return false;
-        }
-
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-
-        let elapsed = now - self.last_save_timestamp;
-        elapsed >= settings.interval_seconds as i64 || self.triggered_by_event
-    }
-
-    /// Mark the start of an autosave operation.
-    pub fn start_save(&mut self) {
-        self.is_saving = true;
-        self.triggered_by_event = false;
-        self.last_error = None;
-    }
-
-    /// Mark the successful completion of an autosave.
-    pub fn finish_save(&mut self) {
-        self.is_saving = false;
-        self.last_save_timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-        self.session_save_count += 1;
-    }
-
-    /// Mark a failed autosave.
-    pub fn fail_save(&mut self, error: impl Into<String>) {
-        self.is_saving = false;
-        self.last_error = Some(error.into());
-    }
-
-    /// Trigger autosave on the next tick.
-    pub fn trigger_event_save(&mut self) {
-        self.triggered_by_event = true;
-    }
-}
-
-/// Timer resource for tracking autosave intervals.
-///
-/// This is separate from `AutoSaveState` because it needs to be updated
-/// by the system scheduler, not manually.
-#[derive(Resource, Debug, Clone, Default)]
-pub struct AutoSaveTimer {
-    /// Accumulated time since last autosave (wall-clock seconds).
-    accumulated_seconds: f64,
-    /// Whether the timer is paused.
-    paused: bool,
-}
-
-impl AutoSaveTimer {
-    /// Returns the accumulated time in seconds.
-    pub fn elapsed(&self) -> f64 {
-        self.accumulated_seconds
-    }
-
-    /// Resets the timer to zero.
+    /// Reset the timer after an autosave.
     pub fn reset(&mut self) {
-        self.accumulated_seconds = 0.0;
+        self.elapsed_secs = 0.0;
     }
 
-    /// Pause the timer.
-    pub fn pause(&mut self) {
-        self.paused = true;
+    /// Increment the elapsed time.
+    pub fn add_time(&mut self, delta_secs: f64) {
+        self.elapsed_secs += delta_secs;
     }
 
-    /// Resume the timer.
-    pub fn resume(&mut self) {
-        self.paused = false;
+    /// Mark autosave as started.
+    pub fn start_save(&self) {
+        self.saving.store(true, Ordering::Relaxed);
     }
 
-    /// Returns true if the timer is paused.
-    pub fn is_paused(&self) -> bool {
-        self.paused
+    /// Mark autosave as finished.
+    pub fn end_save(&self) {
+        self.saving.store(false, Ordering::Relaxed);
     }
 }
 
-/// System that ticks the autosave timer and triggers saves.
-fn autosave_tick(
-    mut timer: ResMut<AutoSaveTimer>,
-    mut state: ResMut<AutoSaveState>,
-    settings: Res<AutoSaveSettings>,
-    time: Res<Time>,
+impl Default for AutosaveTimer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Track which autosave slot to use next (rotates 7 → 8 → 9 → 7).
+#[derive(Resource, Debug)]
+pub struct AutosaveRotation {
+    /// Index into AUTOSAVE_SLOTS for the next autosave
+    next_slot_index: usize,
+}
+
+impl AutosaveRotation {
+    /// Create a new rotation tracker.
+    pub fn new() -> Self {
+        Self { next_slot_index: 0 }
+    }
+
+    /// Get the next slot to use and advance rotation.
+    pub fn next_slot(&mut self) -> usize {
+        let slot = AUTOSAVE_SLOTS[self.next_slot_index];
+        self.next_slot_index = (self.next_slot_index + 1) % AUTOSAVE_SLOTS.len();
+        slot
+    }
+
+    /// Reset rotation to first slot (useful after loading a game).
+    pub fn reset(&mut self) {
+        self.next_slot_index = 0;
+    }
+}
+
+impl Default for AutosaveRotation {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Perform an autosave, rotating through the autosave slots.
+pub fn do_autosave(
+    world: &World,
+    rotation: &mut AutosaveRotation,
+    timer: &AutosaveTimer,
+) -> std::io::Result<()> {
+    timer.start_save();
+
+    let state = extract_game_state(world);
+    let slot = rotation.next_slot();
+    let name = format!("Autosave {}", chrono_timestamp_string());
+
+    let result = slots::save_to_slot(slot, &state, &name);
+
+    timer.end_save();
+    timer.reset();
+
+    result.map(|_| ())
+}
+
+/// System to check and perform autosaves.
+/// Run this in the Update schedule.
+pub fn autosave_system(
+    time: Res<Time<Real>>,
+    mut timer: ResMut<AutosaveTimer>,
+    mut rotation: ResMut<AutosaveRotation>,
+    world: &World,
 ) {
-    if timer.is_paused() || !settings.enabled {
-        return;
-    }
+    timer.add_time(time.delta_secs_f64());
 
-    timer.accumulated_seconds += time.delta().as_secs_f64();
-
-    let interval = settings.interval_seconds as f64;
-    if timer.accumulated_seconds >= interval || state.triggered_by_event {
-        // Trigger autosave
-        timer.reset();
-        state.trigger_event_save();
-
-        info!(
-            "Autosave triggered (interval: {}s, event: {})",
-            settings.interval_seconds,
-            state.triggered_by_event
-        );
-    }
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Autosave slot management
-// ──────────────────────────────────────────────────────────────────────────────
-
-/// An autosave backup entry.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AutosaveBackup {
-    /// Slot index (0 = most recent, 1 = second most recent, etc.)
-    pub index: usize,
-    /// Timestamp when this backup was created.
-    pub timestamp: i64,
-    /// Game elapsed time when the backup was created.
-    pub game_elapsed_seconds: f64,
-    /// File path to the backup.
-    pub path: String,
-}
-
-impl AutosaveBackup {
-    /// Create a new backup entry.
-    pub fn new(index: usize, path: impl Into<String>) -> Self {
-        Self {
-            index,
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs() as i64)
-                .unwrap_or(0),
-            game_elapsed_seconds: 0.0,
-            path: path.into(),
-        }
-    }
-
-    /// Set the game elapsed time.
-    pub fn with_game_time(mut self, seconds: f64) -> Self {
-        self.game_elapsed_seconds = seconds;
-        self
-    }
-}
-
-/// Manages autosave backup rotation.
-pub struct AutosaveRotator {
-    /// The autosave slot name.
-    slot_name: String,
-    /// The directory where autosaves are stored.
-    save_dir: PathBuf,
-    /// The maximum number of backups to keep.
-    max_backups: usize,
-}
-
-impl AutosaveRotator {
-    /// Create a new autosave rotator.
-    pub fn new(slot_name: impl Into<String>, save_dir: PathBuf, max_backups: usize) -> Self {
-        Self {
-            slot_name: slot_name.into(),
-            save_dir,
-            max_backups,
-        }
-    }
-
-    /// Get the path for a given backup index.
-    pub fn backup_path(&self, index: usize) -> PathBuf {
-        if index == 0 {
-            self.save_dir.join(format!("{}.ron", self.slot_name))
+    if timer.should_autosave() {
+        if let Err(e) = do_autosave(world, &mut rotation, &timer) {
+            error!("Autosave failed: {:?}", e);
         } else {
-            self.save_dir.join(format!("{}_backup_{}.ron", self.slot_name, index))
+            info!("Autosave completed");
         }
-    }
-
-    /// Rotate backups, deleting the oldest if max is exceeded.
-    pub fn rotate(&self) -> std::io::Result<()> {
-        // Check if the primary autosave exists
-        let primary = self.backup_path(0);
-        if !primary.exists() {
-            return Ok(());
-        }
-
-        // Rotate existing backups
-        for i in (1..self.max_backups).rev() {
-            let from = self.backup_path(i - 1);
-            let to = self.backup_path(i);
-
-            if from.exists() {
-                if to.exists() {
-                    std::fs::remove_file(&to)?;
-                }
-                std::fs::rename(&from, &to)?;
-            }
-        }
-
-        // Create a new backup_0 from the current primary
-        let new_backup = self.backup_path(0);
-        if primary.exists() {
-            std::fs::copy(&primary, &new_backup)?;
-        }
-
-        Ok(())
-    }
-
-    /// Prune excess backups beyond max_backups.
-    pub fn prune(&self) -> std::io::Result<usize> {
-        let mut removed = 0;
-        for i in self.max_backups.. {
-            let path = self.backup_path(i);
-            if path.exists() {
-                std::fs::remove_file(&path)?;
-                removed += 1;
-            } else {
-                break;
-            }
-        }
-        Ok(removed)
-    }
-
-    /// List all existing backups.
-    pub fn list_backups(&self) -> Vec<AutosaveBackup> {
-        let mut backups = Vec::new();
-
-        for i in 0.. {
-            let path = self.backup_path(i);
-            if path.exists() {
-                let backup = AutosaveBackup::new(i, path.to_string_lossy().to_string());
-                backups.push(backup);
-            } else {
-                break;
-            }
-        }
-
-        backups
     }
 }
 
-use std::path::PathBuf;
+/// Get a formatted timestamp string for autosave names.
+fn chrono_timestamp_string() -> String {
+    use std::time::SystemTime;
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    format!("{}", now)
+}
+
+/// Initialize autosave resources.
+pub fn setup_autosave(app: &mut App) {
+    app.init_resource::<AutosaveTimer>()
+        .init_resource::<AutosaveRotation>()
+        .add_systems(Update, autosave_system);
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
-    use tempfile::TempDir;
 
-    fn temp_dir() -> TempDir {
-        tempfile::tempdir().unwrap()
+    #[test]
+    fn test_rotation() {
+        let mut rot = AutosaveRotation::new();
+        let slots: Vec<usize> = (0..6).map(|_| rot.next_slot()).collect();
+        // Should cycle through 7, 8, 9, 7, 8, 9
+        assert_eq!(slots, vec![7, 8, 9, 7, 8, 9]);
     }
 
     #[test]
-    fn test_autosave_settings_default() {
-        let settings = AutoSaveSettings::default();
-        assert!(settings.enabled);
-        assert_eq!(settings.interval_seconds, 300);
-        assert_eq!(settings.max_backups, 3);
-        assert_eq!(settings.slot_name, "autosave");
-    }
+    fn test_autosave_timer() {
+        let mut timer = AutosaveTimer::new();
+        assert!(!timer.should_autosave());
 
-    #[test]
-    fn test_autosave_settings_builder() {
-        let settings = AutoSaveSettings::default()
-            .with_interval(600)
-            .with_slot_name("quicksave");
-
-        assert_eq!(settings.interval_seconds, 600);
-        assert_eq!(settings.slot_name, "quicksave");
-    }
-
-    #[test]
-    fn test_autosave_state_should_autosave() {
-        let state = AutoSaveState::default();
-        let settings = AutoSaveSettings::default();
-
-        assert!(state.should_autosave(&settings));
-
-        let mut state = AutoSaveState::default();
-        state.is_saving = true;
-        assert!(!state.should_autosave(&settings));
-    }
-
-    #[test]
-    fn test_autosave_rotator_rotate() {
-        let dir = temp_dir();
-        let rotator = AutosaveRotator::new("test_autosave", dir.path().to_path_buf(), 3);
-
-        // Create the primary autosave file
-        let primary = rotator.backup_path(0);
-        std::fs::write(&primary, "save data").unwrap();
-
-        rotator.rotate().unwrap();
-
-        // Backup 0 should now exist
-        assert!(rotator.backup_path(0).exists());
-        // Backup 1 should now exist (copied from old primary)
-        assert!(rotator.backup_path(1).exists());
-    }
-
-    #[test]
-    fn test_autosave_rotator_prune() {
-        let dir = temp_dir();
-        let rotator = AutosaveRotator::new("test_autosave", dir.path().to_path_buf(), 2);
-
-        // Create 4 backup files
-        for i in 0..4 {
-            let path = rotator.backup_path(i);
-            std::fs::write(&path, format!("backup {}", i)).unwrap();
-        }
-
-        let removed = rotator.prune().unwrap();
-        assert_eq!(removed, 2); // Removed indices 2 and 3
-
-        assert!(rotator.backup_path(0).exists());
-        assert!(rotator.backup_path(1).exists());
-        assert!(!rotator.backup_path(2).exists());
-        assert!(!rotator.backup_path(3).exists());
-    }
-
-    #[test]
-    fn test_autosave_rotator_list_backups() {
-        let dir = temp_dir();
-        let rotator = AutosaveRotator::new("test_autosave", dir.path().to_path_buf(), 3);
-
-        // Create 2 backup files
-        std::fs::write(&rotator.backup_path(0), "backup 0").unwrap();
-        std::fs::write(&rotator.backup_path(1), "backup 1").unwrap();
-
-        let backups = rotator.list_backups();
-        assert_eq!(backups.len(), 2);
-        assert_eq!(backups[0].index, 0);
-        assert_eq!(backups[1].index, 1);
+        timer.add_time(AUTOSAVE_INTERVAL_SECS as f64);
+        assert!(timer.should_autosave());
     }
 }
