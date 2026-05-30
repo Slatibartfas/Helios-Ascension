@@ -1,10 +1,11 @@
+pub mod archaeology;
 pub mod astronomy;
 pub mod colony;
 pub mod economy;
 pub mod events;
+pub mod fleets;
 pub mod game_events;
 pub mod game_settings;
-pub mod fleets;
 pub mod game_state;
 pub mod plugins;
 pub mod render;

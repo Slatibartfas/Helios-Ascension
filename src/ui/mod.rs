@@ -15,6 +15,7 @@ use bevy::window::PrimaryWindow;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use std::collections::HashMap;
 
+pub mod animations;
 pub mod interaction;
 
 pub use interaction::Selection;
