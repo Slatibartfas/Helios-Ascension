@@ -18,6 +18,7 @@ pub use data::*;
 pub use systems::*;
 
 use bevy::prelude::*;
+pub use crate::fleets::components::ShipInfo;
 
 /// Plugin that adds the sensor system to the Bevy app.
 pub struct SensorPlugin;
