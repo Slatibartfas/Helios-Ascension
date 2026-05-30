@@ -548,7 +548,7 @@ pub fn sensor_sweep_system(
                     .or_insert_with(|| {
                         Contact::new(
                             sweeper_entity,
-                            sweeper_name,
+                            sweeper_name.clone(),
                             sweeper_sig,
                             elapsed,
                             friendly,
