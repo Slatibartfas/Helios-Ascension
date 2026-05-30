@@ -1,6 +1,7 @@
 use super::dashboard::format_mass_compact;
 use super::*;
 use crate::game_settings::{ColorBlindMode, GameSettings};
+use std::ops::DerefMut;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum ConstructionTab {
@@ -112,6 +113,7 @@ pub(super) fn ui_construction_panels(
     mut minimum_stockpiles: Query<&mut crate::economy::MinimumStockpile>,
     settings: Res<GameSettings>,
 ) {
+    let buildings_data = buildings_data.as_mut().map(|d| d.deref_mut());
     if active_menu.current != GameMenu::Construction {
         return;
     }
@@ -140,7 +142,7 @@ pub(super) fn ui_construction_panels(
             &budget,
             &contextual,
             &mut debug_settings,
-            Option::<ResMut<BuildingsData>>::as_mut().map(|d| d.deref_mut()),
+            buildings_data.as_mut().map(|d| d.deref_mut()),
             &mut ui_state,
             &resource_requests,
             &mut minimum_stockpiles,
@@ -152,7 +154,7 @@ pub(super) fn ui_construction_panels(
     if editor_enabled {
         render_building_editor(
             ctx,
-            Option::<ResMut<BuildingsData>>::as_mut().map(|d| d.deref_mut()),
+            buildings_data.as_mut().map(|d| d.deref_mut()),
             &mut edit_state,
             sim_time.elapsed_seconds(),
             cb_mode,
