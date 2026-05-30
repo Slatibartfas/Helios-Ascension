@@ -16,6 +16,7 @@ fn category_icon(category: NotificationCategory) -> &'static str {
     match category {
         NotificationCategory::Combat => "\u{2694}",       // ⚔ crossed swords
         NotificationCategory::Construction => "\u{1F3D7}", // 🏗 building
+        NotificationCategory::Discovery => "\u{1F30D}",    // 🌍 globe
         NotificationCategory::Research => "\u{1F4DA}",     // 📚 books
         NotificationCategory::Resource => "\u{1F4B0}",     // 💰 money bag
         NotificationCategory::Fleet => "\u{2708}",         // ✈ airplane
@@ -53,10 +54,10 @@ pub fn ui_notification_panel(
     mut contexts: EguiContexts,
     mut queue: ResMut<NotificationQueue>,
     mut camera_query: Query<&mut CameraAnchor, With<GameCamera>>,
-    mut orbit_query: Query<&mut OrbitCamera, With<GameCamera>>,
-    star_system_query: Query<(Entity, &StarSystemIcon), With<crate::astronomy::components::Selected>>,
-    bodies_query: Query<&crate::plugins::solar_system::CelestialBody>,
-    mut panel_state: Local<NotificationPanelState>,
+    _orbit_query: Query<&mut OrbitCamera, With<GameCamera>>,
+    _star_system_query: Query<(Entity, &StarSystemIcon), With<crate::astronomy::components::Selected>>,
+    _bodies_query: Query<&crate::plugins::solar_system::CelestialBody>,
+    _panel_state: Local<NotificationPanelState>,
     sim_time: Res<crate::ui::time::SimulationTime>,
 ) {
     let ctx = match contexts.ctx_mut() {
@@ -90,7 +91,7 @@ pub fn ui_notification_panel(
     }
 
     // Close button for the panel.
-    let header_height = 28.0;
+    let _header_height = 28.0;
 
     egui::Area::new("notification_panel".into())
         .fixed_pos(egui::pos2(panel_rect.min.x, panel_rect.min.y))
@@ -100,7 +101,7 @@ pub fn ui_notification_panel(
             ui.set_min_size(egui::vec2(280.0, panel_height));
 
             // Dark semi-transparent background.
-            egui::Frame::group(&theme::panel_frame())
+            egui::Frame::none()
                 .fill(egui::Color32::from_rgba_premultiplied(8, 13, 26, 230))
                 .show(ui, |ui| {
                     // ── Header ───────────────────────────────────────────
@@ -156,7 +157,8 @@ pub fn ui_notification_panel(
                                 };
 
                                 let tile_height = TILE_HEIGHT;
-                                let tile_resp = ui.allocate_new_row(tile_height);
+                                let size = egui::vec2(ui.available_width(), tile_height);
+                                let tile_resp = ui.allocate_exact_size(size, egui::Sense::click());
                                 let tile_rect = tile_resp.rect;
 
                                 // Background: flash unacknowledged warning/critical.
@@ -178,6 +180,11 @@ pub fn ui_notification_panel(
                                     egui::pos2(tile_rect.min.x + 4.0, tile_rect.max.y),
                                 );
 
+                                ui.painter().rect_filled(
+                                    tile_rect.expand(1.0),
+                                    TILE_RADIUS,
+                                    fill,
+                                );
                                 ui.painter().rect_stroke(
                                     tile_rect.expand(1.0),
                                     TILE_RADIUS,
@@ -200,18 +207,19 @@ pub fn ui_notification_panel(
                                 .color(theme::TEXT_DIM);
 
                                 let text_rect = tile_rect.shrink2(egui::vec2(14.0, 4.0));
+                                let title_str = format!("{} {}", icon, notification.title);
                                 ui.painter().text(
                                     egui::pos2(text_rect.min.x, text_rect.min.y + 2.0),
                                     egui::Align2::LEFT_TOP,
-                                    title_text.text(),
-                                    title_text.font(),
+                                    title_str.as_str(),
+                                    egui::FontId::proportional(13.0),
                                     tint,
                                 );
                                 ui.painter().text(
                                     egui::pos2(text_rect.min.x, text_rect.min.y + 18.0),
                                     egui::Align2::LEFT_TOP,
-                                    body_text.text(),
-                                    body_text.font(),
+                                    format!("{}{}", notification.body, age_suffix).as_str(),
+                                    egui::FontId::proportional(11.0),
                                     theme::TEXT_DIM,
                                 );
 
