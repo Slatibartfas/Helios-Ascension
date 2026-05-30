@@ -344,6 +344,8 @@ pub struct EstablishOutpostRequest {
     pub colony_name: String,
     /// True when the body has no breathable atmosphere — adds O₂ maintenance.
     pub needs_oxygen: bool,
+    /// Optional faction ID for AI outpost establishment.
+    pub faction_id: Option<u32>,
 }
 
 /// Per-colony continuous resource drain from the environment, driven by
@@ -358,6 +360,164 @@ pub struct ColonyEnvironmentCosts {
     pub oxygen_per_person_per_year: f64,
     /// Water consumed per person per year (Mt).
     pub water_per_person_per_year: f64,
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Morale System
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Morale state tiers used for UI display and effect lookup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MoraleState {
+    /// 90–100: +25% production, +0.5%/yr growth
+    Euphoria,
+    /// 70–89: baseline (×1.0 production, no growth bonus)
+    Content,
+    /// 50–69: -10% production
+    Discontent,
+    /// 20–49: -25% production, -0.3%/yr growth
+    Unrest,
+    /// 0–19: -50% production, -0.8%/yr growth
+    Collapse,
+}
+
+impl MoraleState {
+    /// Derive the state tier from a raw morale value (0–100).
+    pub fn from_morale(morale: f64) -> Self {
+        if morale >= 90.0 {
+            MoraleState::Euphoria
+        } else if morale >= 70.0 {
+            MoraleState::Content
+        } else if morale >= 50.0 {
+            MoraleState::Discontent
+        } else if morale >= 20.0 {
+            MoraleState::Unrest
+        } else {
+            MoraleState::Collapse
+        }
+    }
+
+    /// Production multiplier for this morale tier.
+    pub fn production_multiplier(&self) -> f64 {
+        match self {
+            MoraleState::Euphoria => 1.25,
+            MoraleState::Content => 1.0,
+            MoraleState::Discontent => 0.90,
+            MoraleState::Unrest => 0.75,
+            MoraleState::Collapse => 0.50,
+        }
+    }
+
+    /// Annual population growth bonus (positive) or penalty (negative) for this tier.
+    /// Added to the growth rate, not multiplied.
+    pub fn growth_bonus_per_year(&self) -> f64 {
+        match self {
+            MoraleState::Euphoria => 0.005,   // +0.5%/yr
+            MoraleState::Content => 0.0,
+            MoraleState::Discontent => 0.0,
+            MoraleState::Unrest => -0.003,    // -0.3%/yr
+            MoraleState::Collapse => -0.008,  // -0.8%/yr
+        }
+    }
+
+    /// CSS hex color for this morale tier.
+    pub fn color_hex(&self) -> &'static str {
+        match self {
+            MoraleState::Euphoria => "#27AE60",
+            MoraleState::Content => "#2ECC71",
+            MoraleState::Discontent => "#F1C40F",
+            MoraleState::Unrest => "#E67E22",
+            MoraleState::Collapse => "#E74C3C",
+        }
+    }
+
+    /// Short label for UI display.
+    pub fn label(&self) -> &'static str {
+        match self {
+            MoraleState::Euphoria => "Euphoria",
+            MoraleState::Content => "Content",
+            MoraleState::Discontent => "Discontent",
+            MoraleState::Unrest => "Unrest",
+            MoraleState::Collapse => "Collapse",
+        }
+    }
+
+    /// Number of filled segments in a 5-segment morale chip (1–5).
+    pub fn chip_segments(&self) -> u8 {
+        match self {
+            MoraleState::Euphoria => 5,
+            MoraleState::Content => 4,
+            MoraleState::Discontent => 3,
+            MoraleState::Unrest => 2,
+            MoraleState::Collapse => 1,
+        }
+    }
+}
+
+/// Individual morale driver identifiers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MoraleDriver {
+    Food,
+    Housing,
+    Medical,
+    Wealth,
+    Defense,
+    Unemployment,
+    Environmental,
+}
+
+impl MoraleDriver {
+    /// Human-readable label for this driver.
+    pub fn label(&self) -> &'static str {
+        match self {
+            MoraleDriver::Food => "Food",
+            MoraleDriver::Housing => "Housing",
+            MoraleDriver::Medical => "Medical",
+            MoraleDriver::Wealth => "Wealth",
+            MoraleDriver::Defense => "Defense",
+            MoraleDriver::Unemployment => "Unemployment",
+            MoraleDriver::Environmental => "Environmental",
+        }
+    }
+}
+
+/// Per-colony morale state.
+///
+/// Attached to the same entity as `Colony`.  Updated each month by
+/// `update_morale_system`.
+#[derive(Component, Debug, Clone, Serialize, Deserialize)]
+pub struct ColonyMorale {
+    /// Current raw morale value (0–100).
+    pub current_morale: f64,
+    /// Transient event modifier (e.g., festival +5, strike -8).
+    /// Resets to 0 at the start of each year.
+    pub event_modifier: f64,
+    /// History of per-driver values from the last computation.
+    /// Used by the UI to show the morale breakdown.
+    #[serde(default)]
+    pub driver_values: HashMap<MoraleDriver, f64>,
+}
+
+impl ColonyMorale {
+    /// Construct a new `ColonyMorale` with default values (Content morale).
+    pub fn new() -> Self {
+        Self {
+            current_morale: 75.0,
+            event_modifier: 0.0,
+            driver_values: HashMap::new(),
+        }
+    }
+
+    /// Derive the morale state tier from the current value.
+    pub fn state(&self) -> MoraleState {
+        MoraleState::from_morale(self.current_morale)
+    }
+}
+
+impl Default for ColonyMorale {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]

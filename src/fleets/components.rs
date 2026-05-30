@@ -438,6 +438,10 @@ pub struct SpawnFleetAction {
     pub orbit_body: Entity,
     /// Parking orbit radius in AU.
     pub orbit_radius_au: f64,
+    /// Optional faction ID for the fleet (None = player).
+    pub faction_id: Option<u32>,
+    /// Optional initial fleet role.
+    pub initial_role: Option<crate::fleets::FleetRole>,
 }
 
 /// Request to start a previously computed orbital transfer.

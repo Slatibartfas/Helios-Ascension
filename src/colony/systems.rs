@@ -1,11 +1,11 @@
 use bevy::prelude::*;
 
-use super::components::{Colony, ConstructionProject, PendingConstructionActions};
+use super::components::{Colony, ColonyMorale, ConstructionProject, PendingConstructionActions};
 use super::data::BuildingsData;
 use super::types::BuildingType;
 use super::ConstructionDebugSettings;
 use crate::astronomy::OceanProperties;
-use crate::economy::budget::SECONDS_PER_YEAR;
+use crate::economy::budget::{SECONDS_PER_MONTH, SECONDS_PER_YEAR};
 use crate::economy::components::LocalStockpile;
 use crate::economy::components::Population;
 use crate::economy::logistics::{
@@ -668,6 +668,254 @@ pub fn deduct_environment_costs(
                 budget.consume_resource(ResourceType::Oxygen, o2_needed.min(avail));
             }
         }
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Morale System
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Compute all 7 morale driver values for a single colony per year.
+///
+/// Returns a map of driver → value contribution (positive = bonus, negative =
+/// penalty).  The raw value contributions sum to the non-clamped penalty
+/// portion; the final morale formula applies the base offset and clamps.
+///
+/// The formula (from `docs/design/MORALE_SYSTEM.md`):
+/// ```
+/// morale = clamp(75 - food_penalty - housing_penalty - logistics_penalty
+///               + event_modifier, 0.0, 100.0)
+/// ```
+/// where each penalty is clamped to ≥ 0.
+pub fn morale_drivers_per_year(colony: &Colony) -> std::collections::HashMap<MoraleDriver, f64> {
+    use std::collections::HashMap;
+    let mut drivers = HashMap::new();
+
+    let pop = colony.population;
+
+    // ── Food penalty ──────────────────────────────────────────────────────────
+    // `max(0, (food_deficit / food_consumption) * 20)`
+    let food_production = colony.food_production_per_year();
+    let food_consumption = colony.food_consumption_per_year();
+    let food_penalty = if food_consumption > 0.0 && pop > 0.0 {
+        let deficit = (food_consumption - food_production).max(0.0);
+        (deficit / food_consumption) * 20.0
+    } else {
+        0.0
+    };
+    drivers.insert(MoraleDriver::Food, -food_penalty.min(30.0));
+
+    // ── Housing penalty ───────────────────────────────────────────────────────
+    // `max(0, (1 - housing_utilization) * 15)` — crowding reduces morale
+    let housing = colony.housing_capacity();
+    let housing_penalty = if housing > 0.0 && pop > 0.0 {
+        let utilization = (pop / housing).min(1.0);
+        (1.0 - utilization) * 15.0
+    } else if pop > 0.0 {
+        // No housing at all: severe overcrowding penalty
+        15.0
+    } else {
+        0.0
+    };
+    drivers.insert(MoraleDriver::Housing, -housing_penalty.min(15.0));
+
+    // ── Medical penalty ────────────────────────────────────────────────────────
+    // Medical centers boost morale: up to +10 at 30+ centers
+    let medical_count = colony.building_count(BuildingType::MedicalCenter) as f64;
+    let medical_bonus = (medical_count * 0.33).min(10.0);
+    drivers.insert(MoraleDriver::Medical, medical_bonus);
+
+    // ── Wealth bonus ───────────────────────────────────────────────────────────
+    // Wealth generation per year contributes: +0.5 per 1,000 MC/yr, capped at +10
+    let wealth_per_year = colony.wealth_generation_per_year();
+    let wealth_bonus = (wealth_per_year / 1000.0 * 0.5).min(10.0);
+    drivers.insert(MoraleDriver::Wealth, wealth_bonus);
+
+    // ── Defense bonus ─────────────────────────────────────────────────────────
+    // Ground defense batteries contribute +2 morale each, cap at +8
+    let defense_count = colony.building_count(BuildingType::GroundDefenseBattery) as f64;
+    let defense_bonus = (defense_count * 2.0).min(8.0);
+    drivers.insert(MoraleDriver::Defense, defense_bonus);
+
+    // ── Unemployment penalty ──────────────────────────────────────────────────
+    // Workforce underutilization penalises morale: +0 at 100% employment,
+    // -10 at 0% employment
+    let workforce_eff = colony.workforce_efficiency();
+    let unemployment_penalty = if pop > 0.0 {
+        (1.0 - workforce_eff) * 10.0
+    } else {
+        0.0
+    };
+    drivers.insert(MoraleDriver::Unemployment, -unemployment_penalty.min(10.0));
+
+    // ── Environmental penalty ────────────────────────────────────────────────
+    // Colonies on hostile worlds (with ColonyEnvironmentCosts) suffer a
+    // baseline environmental penalty unless they have Life Support.
+    let env_penalty = if colony.building_count(BuildingType::LifeSupport) > 0 {
+        // Has life support: -3 baseline, -2 per colony (reduced by domes)
+        let domes = colony.building_count(BuildingType::HabitatDome) as f64;
+        let underground = colony.building_count(BuildingType::UndergroundHabitat) as f64;
+        let comfort = (domes + underground) * 0.5;
+        (-3.0 + comfort).max(-5.0)
+    } else {
+        -8.0
+    };
+    drivers.insert(MoraleDriver::Environmental, env_penalty);
+
+    drivers
+}
+
+/// Maximum morale bonus achievable from housing alone (housing_utilization = 0).
+/// The housing penalty formula gives a maximum of 15 when utilization is 0.
+pub fn max_morale_from_housing() -> f64 {
+    0.0 // The housing driver caps at 0 (no penalty) when utilization = 1
+}
+
+/// Compute the maximum possible morale (euphoria ceiling) for a colony.
+pub fn max_colony_morale(colony: &Colony) -> f64 {
+    let mut drivers = morale_drivers_per_year(colony);
+    // Sum all positive driver contributions plus the base of 75
+    let positive_sum: f64 = drivers.values().filter(|&&v| v > 0.0).sum();
+    (75.0 + positive_sum).min(100.0)
+}
+
+/// System that updates colony morale each simulation tick.
+///
+/// Rate-limited to once per in-game month to avoid excessive recomputation.
+/// The system:
+/// 1. Accumulates elapsed time via `last_elapsed`
+/// 2. Every `SECONDS_PER_MONTH` (30 in-game days) recomputes all 7 drivers
+/// 3. Applies the base morale (75) and clamps to [0, 100]
+/// 4. Resets `event_modifier` at the start of each in-game year
+///
+/// `morale_effect_on_production` and `morale_effect_on_growth` are exposed
+/// for other systems to query when pre-calculating production/growth.
+pub fn update_morale_system(
+    mut colonies: Query<(Entity, &Colony, &mut ColonyMorale)>,
+    sim_time: Res<SimulationTime>,
+    mut last_elapsed: Local<f64>,
+    mut last_year: Local<u32>,
+) {
+    let current_elapsed = sim_time.elapsed_seconds();
+    let dt = current_elapsed - *last_elapsed;
+    *last_elapsed = current_elapsed;
+
+    if dt <= 0.0 {
+        return;
+    }
+
+    // Accumulate months elapsed in this tick (can be >1 at high time warp)
+    let months_this_tick = (dt / SECONDS_PER_MONTH).floor() as u32;
+    if months_this_tick == 0 {
+        return;
+    }
+
+    // Current in-game year (approximate, from total elapsed seconds)
+    let current_year = (current_elapsed / SECONDS_PER_YEAR).floor() as u32;
+
+    for (_entity, colony, mut morale) in colonies.iter_mut() {
+        // Reset event modifier at the start of each new year
+        if current_year != *last_year && months_this_tick > 0 {
+            morale.event_modifier = 0.0;
+        }
+
+        // Accumulate time for this colony
+        let months_accumulated = months_this_tick;
+
+        if months_accumulated > 0 {
+            // Compute driver values
+            let drivers = morale_drivers_per_year(colony);
+
+            // Sum penalties (negative values) and bonuses (positive values)
+            let total_penalty: f64 = drivers.values().filter(|&&v| v < 0.0).sum();
+            let total_bonus: f64 = drivers.values().filter(|&&v| v > 0.0).sum();
+
+            // Base morale = 75 (Content). Apply penalties, bonuses, and events.
+            let raw = 75.0 + total_penalty + total_bonus + morale.event_modifier;
+            morale.current_morale = raw.clamp(0.0, 100.0);
+
+            // Store driver snapshot for UI
+            morale.driver_values = drivers;
+        }
+    }
+
+    *last_year = current_year;
+}
+
+/// Returns the production multiplier for a given morale value.
+/// Used by production pre-calculation systems.
+pub fn morale_effect_on_production(morale: f64) -> f64 {
+    MoraleState::from_morale(morale).production_multiplier()
+}
+
+/// Returns the annual population growth bonus for a given morale value.
+/// This is added to (not multiplied with) the base growth rate.
+pub fn morale_effect_on_growth(morale: f64) -> f64 {
+    MoraleState::from_morale(morale).growth_bonus_per_year()
+}
+
+#[cfg(test)]
+mod morale_tests {
+    use super::*;
+
+    #[test]
+    fn test_morale_state_from_value() {
+        assert_eq!(MoraleState::from_morale(95.0), MoraleState::Euphoria);
+        assert_eq!(MoraleState::from_morale(75.0), MoraleState::Content);
+        assert_eq!(MoraleState::from_morale(60.0), MoraleState::Discontent);
+        assert_eq!(MoraleState::from_morale(30.0), MoraleState::Unrest);
+        assert_eq!(MoraleState::from_morale(10.0), MoraleState::Collapse);
+    }
+
+    #[test]
+    fn test_morale_drivers_empty_colony() {
+        let colony = Colony::new("Test".to_string(), 0.0);
+        let drivers = morale_drivers_per_year(&colony);
+
+        // Zero population → zero food consumption, zero housing penalty, zero unemployment
+        assert_eq!(drivers.get(&MoraleDriver::Food), Some(&0.0));
+        assert_eq!(drivers.get(&MoraleDriver::Housing), Some(&0.0));
+        assert_eq!(drivers.get(&MoraleDriver::Unemployment), Some(&0.0));
+    }
+
+    #[test]
+    fn test_morale_drivers_with_medical() {
+        let mut colony = Colony::new("Test".to_string(), 100_000.0);
+        colony.add_building(BuildingType::HabitatDome); // housing
+        colony.add_building(BuildingType::AgriDome);    // food
+        colony.add_building(BuildingType::MedicalCenter);
+        colony.add_building(BuildingType::MedicalCenter);
+
+        let drivers = morale_drivers_per_year(&colony);
+
+        // 2 medical centers → 2 * 0.33 = 0.66, capped at 10
+        let medical = *drivers.get(&MoraleDriver::Medical).unwrap();
+        assert!(medical > 0.0, "Medical should give positive morale: {}", medical);
+    }
+
+    #[test]
+    fn test_morale_effect_on_production() {
+        assert!((morale_effect_on_production(95.0) - 1.25).abs() < 0.001);
+        assert!((morale_effect_on_production(75.0) - 1.00).abs() < 0.001);
+        assert!((morale_effect_on_production(60.0) - 0.90).abs() < 0.001);
+        assert!((morale_effect_on_production(30.0) - 0.75).abs() < 0.001);
+        assert!((morale_effect_on_production(10.0) - 0.50).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_morale_effect_on_growth() {
+        assert!((morale_effect_on_growth(95.0) - 0.005).abs() < 0.0001);
+        assert!((morale_effect_on_growth(75.0) - 0.0).abs() < 0.0001);
+        assert!((morale_effect_on_growth(30.0) - (-0.003)).abs() < 0.0001);
+        assert!((morale_effect_on_growth(10.0) - (-0.008)).abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_colony_morale_default() {
+        let morale = ColonyMorale::new();
+        assert_eq!(morale.current_morale, 75.0);
+        assert_eq!(morale.event_modifier, 0.0);
+        assert_eq!(morale.state(), MoraleState::Content);
     }
 }
 

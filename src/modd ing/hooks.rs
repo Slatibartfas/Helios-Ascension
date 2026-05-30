@@ -131,64 +131,34 @@ impl HookRegistry {
     }
 }
 
-/// System to process colony built hooks
-pub fn process_colony_built_hooks(
-    mut events: EventReader<ColonyBuiltEvent>,
-    mut world: &mut World,
-) {
-    for event in events.read() {
-        HookRegistry::trigger(Hook::OnColonyBuilt, event, &mut world);
-    }
+/// Observer: process colony built hooks
+pub fn on_colony_built_hooks(event: Trigger<ColonyBuiltEvent>, world: &mut World) {
+    HookRegistry::trigger(Hook::OnColonyBuilt, &event, world);
 }
 
-/// System to process combat end hooks
-pub fn process_combat_end_hooks(
-    mut events: EventReader<CombatEndEvent>,
-    mut world: &mut World,
-) {
-    for event in events.read() {
-        HookRegistry::trigger(Hook::OnCombatEnd, event, &mut world);
-    }
+/// Observer: process combat end hooks
+pub fn on_combat_end_hooks(event: Trigger<CombatEndEvent>, world: &mut World) {
+    HookRegistry::trigger(Hook::OnCombatEnd, &event, world);
 }
 
-/// System to process research complete hooks
-pub fn process_research_complete_hooks(
-    mut events: EventReader<ResearchCompleteEvent>,
-    mut world: &mut World,
-) {
-    for event in events.read() {
-        HookRegistry::trigger(Hook::OnResearchComplete, event, &mut world);
-    }
+/// Observer: process research complete hooks
+pub fn on_research_complete_hooks(event: Trigger<ResearchCompleteEvent>, world: &mut World) {
+    HookRegistry::trigger(Hook::OnResearchComplete, &event, world);
 }
 
-/// System to process resource discovery hooks
-pub fn process_resource_discovery_hooks(
-    mut events: EventReader<ResourceDiscoveryEvent>,
-    mut world: &mut World,
-) {
-    for event in events.read() {
-        HookRegistry::trigger(Hook::OnResourceDiscovery, event, &mut world);
-    }
+/// Observer: process resource discovery hooks
+pub fn on_resource_discovery_hooks(event: Trigger<ResourceDiscoveryEvent>, world: &mut World) {
+    HookRegistry::trigger(Hook::OnResourceDiscovery, &event, world);
 }
 
-/// System to process ship built hooks
-pub fn process_ship_built_hooks(
-    mut events: EventReader<ShipBuiltEvent>,
-    mut world: &mut World,
-) {
-    for event in events.read() {
-        HookRegistry::trigger(Hook::OnShipBuilt, event, &mut world);
-    }
+/// Observer: process ship built hooks
+pub fn on_ship_built_hooks(event: Trigger<ShipBuiltEvent>, world: &mut World) {
+    HookRegistry::trigger(Hook::OnShipBuilt, &event, world);
 }
 
-/// System to process year tick hooks
-pub fn process_year_tick_hooks(
-    mut events: EventReader<YearTickEvent>,
-    mut world: &mut World,
-) {
-    for event in events.read() {
-        HookRegistry::trigger(Hook::OnYearTick, event, &mut world);
-    }
+/// Observer: process year tick hooks
+pub fn on_year_tick_hooks(event: Trigger<YearTickEvent>, world: &mut World) {
+    HookRegistry::trigger(Hook::OnYearTick, &event, world);
 }
 
 /// Called at startup to register any built-in mod hooks

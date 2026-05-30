@@ -5,17 +5,16 @@
 
 use bevy::prelude::*;
 use rand;
-use std::cell::RefCell;
-use std::sync::OnceLock;
+use std::sync::Mutex;
 
-use crate::events::bus::{category_from_tags, EventBus, RandomEventTimer};
-use crate::events::load_events::EventsData;
+use crate::events::bus::{EventBus, RandomEventTimer};
+use crate::events::{category_from_tags, EventsData, GameEvent};
 use crate::game_events::EmitNotification;
 use crate::ui::animations::{ToastKind, ToastMessage, ToastQueue};
 use crate::ui::time::SimulationTime;
 
 /// Stores the previous simulation elapsed for delta computation.
-static PREV_ELAPSED: OnceLock<RefCell<f64>> = OnceLock::new();
+static PREV_ELAPSED: Mutex<f64> = Mutex::new(0.0);
 
 /// System: advance the random event timer each frame.
 pub fn advance_random_timer(
@@ -23,9 +22,10 @@ pub fn advance_random_timer(
     sim_time: Res<SimulationTime>,
 ) {
     let current = sim_time.elapsed_seconds();
-    let prev_cell = PREV_ELAPSED.get_or_init(|| RefCell::new(0.0));
-    let delta = current - *prev_cell.borrow();
-    *prev_cell.borrow_mut() = current;
+    let mut prev = PREV_ELAPSED.lock().unwrap();
+    let delta = current - *prev;
+    *prev = current;
+    drop(prev);
     timer.update(delta);
 }
 
@@ -55,7 +55,7 @@ pub fn check_random_event_timing(
     sim_time: Res<SimulationTime>,
     events_data: Res<EventsData>,
     mut event_bus: ResMut<EventBus>,
-    mut notification_events: EventWriter<EmitNotification>,
+    mut commands: Commands,
     mut toast_queue: ResMut<ToastQueue>,
 ) {
     let elapsed = sim_time.elapsed_seconds();
@@ -110,7 +110,7 @@ pub fn check_random_event_timing(
     // Route to notification system
     let notification = EmitNotification::warning(&event.title, &event.description)
         .with_category(category_from_tags(&event.tags));
-    notification_events.send(notification);
+    commands.trigger(notification);
 
     // Map pool to notification tier per DELA-14 spec:
     // - Discovery/Opportunity → Casual (no toast, scrolling feed only)
@@ -142,7 +142,7 @@ pub fn check_random_event_timing(
 /// Uses ToastKind::Error with a very long duration to approximate manual dismiss.
 pub fn fire_alert_event(
     event_bus: &EventBus,
-    event_id: super::EventId,
+    event_id: String,
     title: &str,
     description: &str,
     tags: &[super::EventTag],
@@ -162,7 +162,7 @@ pub fn fire_alert_event(
 /// Per DELA-14 spec: Story milestone → Critical (full toast + banner, manual dismiss).
 pub fn fire_story_event(
     event_bus: &EventBus,
-    event_id: super::EventId,
+    event_id: String,
     title: &str,
     description: &str,
 ) -> GameEvent {

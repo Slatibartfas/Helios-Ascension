@@ -18,9 +18,9 @@ use bevy::math::DVec3;
 
 use crate::astronomy::components::SpaceCoordinates;
 use crate::astronomy::KeplerOrbit;
-use crate::fleets::components::{ActiveManeuver, Fleet, FleetOrbit, PlannedTransfer, StartTransferAction};
+use crate::fleets::components::{ActiveManeuver, Fleet, FleetOrbit, PendingFleetActions, PlannedTransfer, StartTransferAction};
 use crate::fleets::orbital_mechanics::{hohmann_transfer, GM_SUN};
-use crate::fleets::types::TransferReferenceFrame;
+use crate::fleets::TransferReferenceFrame;
 use crate::colony::components::Colony;
 use crate::plugins::solar_system::CelestialBody;
 
@@ -135,9 +135,8 @@ fn build_retreat_transfer(
         semi_major_axis: sma,
         inclination: 0.0,
         longitude_ascending_node: 0.0,
-        argument_periapsis: 0.0,
+        argument_of_periapsis: 0.0,
         mean_anomaly_epoch: 0.0,
-        epoch: 0.0,
         mean_motion: std::f64::consts::TAU / duration_s,
     };
 
@@ -145,7 +144,7 @@ fn build_retreat_transfer(
         origin_body,
         destination_body,
         reference_frame: TransferReferenceFrame::SystemBarycentric,
-        orbit_center: Entity::from_raw(0), // Sun.
+        orbit_center: Entity::from_bits(0), // Sun.
         transfer_orbit,
         duration_s,
         preserve_orbit_geometry: false,
@@ -169,32 +168,32 @@ fn issue_retreat(
     fleet_entity: Entity,
     fleet_pos: DVec3,
     faction: &AIFaction,
-    colonies: &Query<(Entity, &Colony, &SpaceCoordinates, Option<&CelestialBody>)>,
+    colonies: &Query<(Entity, &Colony, &AIControlledColony, &SpaceCoordinates, Option<&CelestialBody>)>,
     pending_fleet: &mut PendingFleetActions,
 ) {
     // Find nearest faction colony by heliocentric distance.
     let mut best_dist = f64::MAX;
     let mut best_colony_sc = DVec3::ZERO;
-    let mut best_colony_entity = Entity::from_raw(0);
+    let mut best_colony_entity: Option<Entity> = None;
 
     for &colony_entity in &faction.colonies {
-        if let Ok((_, _, sc, _)) = colonies.get(colony_entity) {
+        if let Ok((_, _, _, sc, _)) = colonies.get(colony_entity) {
             let d = (sc.position - fleet_pos).length();
             if d < best_dist {
                 best_dist = d;
                 best_colony_sc = sc.position;
-                best_colony_entity = colony_entity;
+                best_colony_entity = Some(colony_entity);
             }
         }
     }
 
-    if best_colony_entity == Entity::from_raw(0) {
+    let Some(colony_entity) = best_colony_entity else {
         info!(
             "Tactical AI: fleet entity {:?} ordered to retreat but has no faction colony",
             fleet_entity
         );
         return;
-    }
+    };
 
     let r1 = fleet_pos.length();
     let r2 = best_colony_sc.length();
@@ -222,7 +221,7 @@ fn issue_retreat(
         fleet_pos,
         best_colony_sc,
         fleet_entity,
-        best_colony_entity,
+        colony_entity,
         duration_s,
         dv2_ms,
     );

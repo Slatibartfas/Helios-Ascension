@@ -2151,6 +2151,7 @@ fn draw_colony_section(
             body_entity: entity,
             colony_name: body.name.clone(),
             needs_oxygen,
+            faction_id: None,
         });
     }
     let hover = if needs_oxygen {

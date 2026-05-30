@@ -20,11 +20,10 @@ use std::sync::Arc;
 use crate::game_events::{EmitNotification, NotificationCategory};
 use crate::ui::animations::{ToastKind, ToastMessage, ToastQueue};
 
-use super::{EventCategory, EventTag};
-use crate::game_events::GameEvent;
+use super::{EventCategory, EventTag, GameEvent};
 
 /// A single event subscription.
-struct EventSubscription {
+pub struct EventSubscription {
     callback: Arc<dyn Fn(GameEvent) + Send + Sync>,
     filter_category: Option<EventCategory>,
 }
@@ -203,7 +202,7 @@ pub fn game_event_to_notification(event: &GameEvent) -> EmitNotification {
     }
 }
 
-fn category_from_tags(tags: &[EventTag]) -> NotificationCategory {
+pub fn category_from_tags(tags: &[EventTag]) -> NotificationCategory {
     for tag in tags {
         match tag {
             EventTag::Combat => return NotificationCategory::Combat,

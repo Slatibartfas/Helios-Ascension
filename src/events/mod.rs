@@ -12,15 +12,35 @@
 //!                                              EmitNotification → notification queue
 //! ```
 
-// ─── Data model types (shared with .ron loading) ───────────────────────────────
-// Declared before module imports so that bus.rs can reference EventTag from here.
-
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Unique event identifier.
-pub type EventId = &'static str;
+/// Unique event identifier (newtype wrapper for serde compatibility).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(from = "String", into = "String")]
+pub struct EventId(pub String);
+
+impl EventId {
+    /// Get the event ID as a static str if it was constructed from a static str.
+    pub fn as_static_str(&self) -> &'static str {
+        // Leak the string to get a &'static str — safe because EventIds are
+        // typically constructed once at startup from static sources.
+        Box::leak(self.0.clone().into_boxed_str())
+    }
+}
+
+impl From<String> for EventId {
+    fn from(s: String) -> Self {
+        EventId(s)
+    }
+}
+
+impl From<EventId> for String {
+    fn from(id: EventId) -> Self {
+        id.0
+    }
+}
 
 /// Category determines how the event is triggered and displayed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -81,7 +101,7 @@ pub enum EffectType {
     /// Add a trait to a body.
     AddBodyTrait { trait_name: String },
     /// Trigger another event by ID.
-    TriggerEvent { event_id: EventId },
+    TriggerEvent { event_id: String },
     /// Modify research speed for a category.
     ModifyResearchSpeed { category: String, multiplier: f64 },
 }
@@ -98,7 +118,7 @@ pub enum Condition {
     /// Game is at a specific act (1-5).
     ActAtLeast(u8),
     /// A specific event has already fired this campaign.
-    EventFired(EventId),
+    EventFired(String),
     /// A specific body has been surveyed.
     BodySurveyed(Entity),
     /// Player fleet count is at least N.
@@ -113,7 +133,8 @@ pub struct Effect {
     pub effect_type: EffectType,
     pub target: EffectTarget,
     pub magnitude: f64,
-    pub source_event: EventId,
+    #[serde(default)]
+    pub source_event: Option<String>,
 }
 
 /// Delayed effect — fires after a game-time offset.
@@ -144,7 +165,7 @@ pub struct Outcome {
 /// Static event definition loaded from ron files.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventDef {
-    pub id: EventId,
+    pub id: String,
     pub category: EventCategory,
     pub tags: Vec<EventTag>,
     pub title: String,
@@ -154,6 +175,7 @@ pub struct EventDef {
     pub delayed_effects: Vec<DelayedEffect>,
     pub trigger_conditions: Vec<Condition>,
     pub cooldown_minutes: Option<u32>,
+    #[serde(default)]
     pub repeat: bool,
 }
 
@@ -164,24 +186,10 @@ pub struct RandomEventPool {
     pub events: Vec<EventDef>,
 }
 
-// ─── Modules ─────────────────────────────────────────────────────────────────
-
-pub mod bus;
-pub mod load_events;
-pub mod systems;
-
-// Re-exports
-pub use bus::{EventBus, EventCategory, EventSubscription, SubscriptionId};
-pub use bus::EventBusPlugin;
-pub use load_events::EventsData;
-pub use systems::fire_story_event;
-
-// ─── EventsData resource ───────────────────────────────────────────────────────
-
 /// All event data loaded from ron files.
 #[derive(Resource, Default)]
 pub struct EventsData {
-    pub story_events: HashMap<EventId, EventDef>,
+    pub story_events: HashMap<String, EventDef>,
     pub discovery_pool: Vec<EventDef>,
     pub disaster_pool: Vec<EventDef>,
     pub opportunity_pool: Vec<EventDef>,
@@ -189,7 +197,7 @@ pub struct EventsData {
 }
 
 impl EventsData {
-    pub fn get_story_event(&self, id: EventId) -> Option<&EventDef> {
+    pub fn get_story_event(&self, id: &str) -> Option<&EventDef> {
         self.story_events.get(id)
     }
 
@@ -203,3 +211,43 @@ impl EventsData {
         }
     }
 }
+
+// ─── GameEvent pub/sub payload ─────────────────────────────────────────────────
+
+/// In-game event that is published to the EventBus and consumed by subscribers.
+#[derive(Debug, Clone)]
+pub enum GameEvent {
+    /// A random event drawn from a pool.
+    Random {
+        event_id: String,
+        title: String,
+        description: String,
+        tags: Vec<EventTag>,
+    },
+    /// An immediate crisis — bypasses random roll and cooldown.
+    Alert {
+        event_id: String,
+        title: String,
+        description: String,
+        tags: Vec<EventTag>,
+    },
+    /// A story milestone event.
+    Story {
+        event_id: String,
+        title: String,
+        description: String,
+    },
+    /// Uncategorized tag event.
+    Tags(Vec<EventTag>),
+}
+
+// ─── Modules ─────────────────────────────────────────────────────────────────
+
+pub mod bus;
+pub mod load_events;
+pub mod systems;
+
+// Re-exports
+pub use bus::{EventBus, EventSubscription, SubscriptionId, category_from_tags};
+pub use bus::EventBusPlugin;
+pub use systems::fire_story_event;

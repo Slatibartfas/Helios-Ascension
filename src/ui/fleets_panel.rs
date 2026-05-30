@@ -489,6 +489,8 @@ pub(super) fn ui_fleets_panel(
                                                 ships: Vec::new(),
                                                 orbit_body: body_entity,
                                                 orbit_radius_au,
+                                                faction_id: None,
+                                                initial_role: None,
                                             },
                                         );
                                     }

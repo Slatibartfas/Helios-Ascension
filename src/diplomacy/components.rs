@@ -81,12 +81,12 @@ impl Treaty {
 }
 
 /// Treaty type variants.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum TreatyType {
     NonAggressionPact,
     TradeAgreement,
     MilitaryAlliance,
-    Vassalization,
+    Vassalization { master_id: u32, tribute_mc_per_tick: f64 },
 }
 
 /// Concrete effects of a treaty for gameplay checks.

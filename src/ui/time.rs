@@ -100,6 +100,11 @@ impl SimulationTime {
         self.start_timestamp + self.elapsed as i64
     }
 
+    /// Current tick counter (1 tick = 1 simulation second, 30 ticks/month, 360 ticks/year).
+    pub fn tick(&self) -> u64 {
+        self.elapsed as u64
+    }
+
     /// Format the current date/time as DD.MM.YYYY HH:MM
     pub fn format_date_time(&self) -> String {
         format_timestamp_date_time(self.current_timestamp())

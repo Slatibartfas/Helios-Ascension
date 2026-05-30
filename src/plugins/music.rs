@@ -25,6 +25,7 @@ impl Plugin for MusicPlugin {
         }
 
         app.init_resource::<MusicPlaylist>()
+            .init_resource::<UiSoundRequestQueue>()
             .add_systems(Startup, start_playlist)
             .add_systems(Update, advance_playlist);
     }
@@ -42,6 +43,19 @@ pub struct TrackInfo {
     /// Display title used in the attribution overlay.
     pub title: &'static str,
 }
+
+/// Kinds of UI sound effects that can be requested by game systems.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum UiSoundKind {
+    NotificationInfo,
+    NotificationWarning,
+    NotificationCritical,
+}
+
+/// Queue of UI sound effect requests — populated by game systems,
+/// consumed by the music/audio plugin to play the appropriate sound.
+#[derive(Resource, Default)]
+pub struct UiSoundRequestQueue(pub Vec<UiSoundKind>);
 
 /// Global playlist state resource.
 #[derive(Resource)]

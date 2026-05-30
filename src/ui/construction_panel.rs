@@ -126,6 +126,7 @@ pub(super) fn ui_construction_panels(
         Err(_) => return,
     };
     let cb_mode = settings.ui.color_blind_mode;
+    let editor_enabled = debug_settings.enabled;
 
     egui::CentralPanel::default()
         .frame(theme::central_frame())
@@ -139,7 +140,7 @@ pub(super) fn ui_construction_panels(
             &budget,
             &contextual,
             &mut debug_settings,
-            buildings_data.as_deref(),
+            buildings_data.as_mut().map(|d| d.as_deref_mut()),
             &mut ui_state,
             &resource_requests,
             &mut minimum_stockpiles,
@@ -148,10 +149,10 @@ pub(super) fn ui_construction_panels(
         });
 
     // Building editor dialog (rendered outside CentralPanel so it floats)
-    if debug_settings.enabled {
+    if editor_enabled {
         render_building_editor(
             ctx,
-            buildings_data.as_deref_mut(),
+            buildings_data.as_mut().map(|d| d.as_mut()),
             &mut edit_state,
             sim_time.elapsed_seconds(),
             cb_mode,
@@ -169,7 +170,7 @@ fn render_construction_panel(
     budget: &GlobalBudget,
     contextual: &crate::economy::ContextualStockpile,
     debug_settings: &mut ConstructionDebugSettings,
-    buildings_data: Option<&BuildingsData>,
+    buildings_data: Option<&mut BuildingsData>,
     ui_state: &mut ConstructionUiState,
     resource_requests: &crate::economy::PendingResourceRequests,
     minimum_stockpiles: &mut Query<&mut crate::economy::MinimumStockpile>,
@@ -558,7 +559,7 @@ fn render_construction_overview_tab(
 fn render_construction_buildings_tab(
     ui: &mut egui::Ui,
     colony: &Colony,
-    buildings_data: Option<&BuildingsData>,
+    buildings_data: Option<&mut BuildingsData>,
     cb_mode: ColorBlindMode,
 ) {
     ui.label(
@@ -702,7 +703,7 @@ fn render_construction_build_tab(
     research_state: &crate::research::ResearchState,
     contextual: &crate::economy::ContextualStockpile,
     construction_actions: &mut PendingConstructionActions,
-    buildings_data: Option<&BuildingsData>,
+    buildings_data: Option<&mut BuildingsData>,
     ui_state: &mut ConstructionUiState,
     bp_rate: f64,
     bypass_tech: bool,
@@ -909,7 +910,7 @@ fn render_construction_build_tab(
                             can_afford,
                             construction_actions,
                             card_width,
-                            buildings_data,
+                            buildings_data.as_deref(),
                             cb_mode,
                         );
                     },
@@ -962,7 +963,7 @@ fn build_card_columns(available_width: f32) -> usize {
 fn render_existing_buildings_section(
     ui: &mut egui::Ui,
     colony: &Colony,
-    buildings_data: Option<&BuildingsData>,
+    buildings_data: Option<&mut BuildingsData>,
     cb_mode: ColorBlindMode,
 ) {
     for &category in BuildingCategory::all() {
@@ -1073,7 +1074,7 @@ fn render_existing_building_card(
     building: BuildingType,
     count: u32,
     card_width: f32,
-    buildings_data: Option<&BuildingsData>,
+    buildings_data: Option<&mut BuildingsData>,
     cb_mode: ColorBlindMode,
 ) {
     let definition = buildings_data.and_then(|data| data.get(&building));
@@ -1778,7 +1779,7 @@ pub(super) fn render_building_editor(
     elapsed: f64,
     cb_mode: ColorBlindMode,
 ) {
-    let Some(data) = buildings_data else {
+    let Some(mut data) = buildings_data else {
         return;
     };
 

@@ -187,7 +187,6 @@ pub(super) fn ui_resources_bar(
     research_teams: Query<&ResearchTeam>,
     technologies: Res<TechnologiesData>,
     sim_time: Res<crate::ui::SimulationTime>,
-    time: Res<Time<Real>>,
     ui_prefs: Res<ResearchUiPreferences>,
     settings: Res<crate::game_settings::GameSettings>,
 ) {
@@ -350,7 +349,7 @@ pub(super) fn ui_resources_bar(
 
                     // Warning flash
                     let flash = if !has_active_rp && ui_prefs.show_inactive_warning {
-                        (time.elapsed_secs() * 5.0).sin().abs()
+                        (sim_time.elapsed_seconds() * 5.0).sin().abs()
                     } else {
                         0.0
                     };
@@ -481,7 +480,7 @@ pub(super) fn ui_resources_bar(
 
                     // Warning flash
                     let flash = if !has_active_ep && ui_prefs.show_inactive_warning {
-                        (time.elapsed_secs() * 5.0).sin().abs()
+                        (sim_time.elapsed_seconds() * 5.0).sin().abs()
                     } else {
                         0.0
                     };

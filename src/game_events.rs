@@ -3,7 +3,9 @@
 //! Emits typed events from game systems and manages a queue of on-screen
 //! notifications with auto-dismiss timing and camera-pan on click.
 
+use bevy::ecs::event::Event;
 use bevy::prelude::*;
+use bevy_egui::egui;
 use std::time::Instant;
 
 use crate::plugins::music::{UiSoundKind, UiSoundRequestQueue};
@@ -50,7 +52,7 @@ impl NotificationKind {
         matches!(self, NotificationKind::Info)
     }
 
-    pub fn tint(&self) -> egui::Color32 {
+    pub fn tint(&self) -> bevy_egui::egui::Color32 {
         match self {
             NotificationKind::Info => crate::ui::theme::RP_BLUE,
             NotificationKind::Warning => crate::ui::theme::AMBER,
@@ -135,7 +137,7 @@ impl NotificationQueue {
 }
 
 /// Emit this event to enqueue a notification.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Event)]
 pub struct EmitNotification {
     pub kind: NotificationKind,
     pub category: NotificationCategory,
@@ -378,64 +380,60 @@ impl Plugin for GameEventsPlugin {
         app.init_resource::<NotificationQueue>()
             .init_resource::<NotificationHistory>()
             .init_resource::<ToastQueue>()
-            .add_event::<EmitNotification>()
-            .add_systems(
-                Update, // intentionally not EguiPrimaryContextPass — runs every frame
-                (Self::process_notifications, Self::prune_expired),
-            );
+            .add_observer(on_emit_notification)
+            .add_systems(Update, Self::prune_expired);
     }
 }
 
 impl GameEventsPlugin {
-    fn process_notifications(
-        mut queue: ResMut<NotificationQueue>,
-        mut history: ResMut<NotificationHistory>,
-        mut sound_queue: ResMut<UiSoundRequestQueue>,
-        mut toast_queue: ResMut<ToastQueue>,
-        mut events: EventReader<EmitNotification>,
-    ) {
-        for event in events.read() {
-            let notification = Notification {
-                id: 0, // assigned by queue.push
-                kind: event.kind,
-                category: event.category,
-                title: event.title.clone(),
-                body: event.body.clone(),
-                entity: event.entity,
-                arrived_at: Instant::now(),
-                acknowledged: false,
-            };
-            queue.push(notification.clone());
-
-            // Add to history (newest-first, cap at MAX_HISTORY)
-            history.push(notification.clone());
-
-            // Push a toast for every notification
-            let toast_kind = match event.kind {
-                NotificationKind::Info => ToastKind::Info,
-                NotificationKind::Warning => ToastKind::Warning,
-                NotificationKind::Critical => ToastKind::Error,
-            };
-            let toast = ToastMessage::new(
-                format!("{}: {}", event.title, event.body),
-                toast_kind,
-            );
-            toast_queue.push(toast);
-
-            // Queue sound effect if requested
-            if event.play_sound {
-                let sound_kind = match event.kind {
-                    NotificationKind::Info => UiSoundKind::NotificationInfo,
-                    NotificationKind::Warning => UiSoundKind::NotificationWarning,
-                    NotificationKind::Critical => UiSoundKind::NotificationCritical,
-                };
-                sound_queue.0.push(sound_kind);
-            }
-        }
-    }
-
     fn prune_expired(mut queue: ResMut<NotificationQueue>) {
         queue.prune_expired();
+    }
+}
+
+/// Observer: handle EmitNotification events and enqueue them.
+fn on_emit_notification(
+    event: On<EmitNotification>,
+    mut queue: ResMut<NotificationQueue>,
+    mut history: ResMut<NotificationHistory>,
+    mut sound_queue: ResMut<UiSoundRequestQueue>,
+    mut toast_queue: ResMut<ToastQueue>,
+) {
+    let notification = Notification {
+        id: 0, // assigned by queue.push
+        kind: event.kind,
+        category: event.category,
+        title: event.title.clone(),
+        body: event.body.clone(),
+        entity: event.entity,
+        arrived_at: Instant::now(),
+        acknowledged: false,
+    };
+    queue.push(notification.clone());
+
+    // Add to history (newest-first, cap at MAX_HISTORY)
+    history.push(notification.clone());
+
+    // Push a toast for every notification
+    let toast_kind = match event.kind {
+        NotificationKind::Info => ToastKind::Info,
+        NotificationKind::Warning => ToastKind::Warning,
+        NotificationKind::Critical => ToastKind::Error,
+    };
+    let toast = ToastMessage::new(
+        format!("{}: {}", event.title, event.body),
+        toast_kind,
+    );
+    toast_queue.push(toast);
+
+    // Queue sound effect if requested
+    if event.play_sound {
+        let sound_kind = match event.kind {
+            NotificationKind::Info => UiSoundKind::NotificationInfo,
+            NotificationKind::Warning => UiSoundKind::NotificationWarning,
+            NotificationKind::Critical => UiSoundKind::NotificationCritical,
+        };
+        sound_queue.0.push(sound_kind);
     }
 }
 

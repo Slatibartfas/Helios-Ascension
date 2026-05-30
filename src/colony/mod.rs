@@ -17,13 +17,14 @@ pub mod systems;
 pub mod types;
 
 pub use components::{
-    Colony, ColonyEnvironmentCosts, ConstructionProject, EstablishOutpostRequest,
-    PendingConstructionActions,
+    Colony, ColonyEnvironmentCosts, ColonyMorale, ConstructionProject, EstablishOutpostRequest,
+    MoraleDriver, MoraleState, PendingConstructionActions,
 };
 pub use data::{BuildingDefinition, BuildingModifierDef, BuildingsData};
 pub use systems::{
-    advance_construction, deduct_environment_costs, process_construction_actions,
-    sync_population_from_colony, update_colony_growth, update_treasury,
+    advance_construction, deduct_environment_costs, morale_drivers_per_year,
+    morale_effect_on_growth, morale_effect_on_production, process_construction_actions,
+    sync_population_from_colony, update_colony_growth, update_morale_system, update_treasury,
 };
 pub use types::{BuildingCategory, BuildingType};
 
@@ -172,6 +173,7 @@ impl Plugin for ColonyPlugin {
                     advance_construction,
                     update_colony_growth,
                     sync_population_from_colony.after(update_colony_growth),
+                    update_morale_system.after(sync_population_from_colony),
                     update_treasury,
                     systems::deduct_maintenance_resources,
                     systems::deduct_environment_costs,

@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 
 use super::{
-    RelationsGraph, DiplomaticVictoryTracker, PlayerFaction,
+    RelationsGraph, DiplomaticVictoryTracker,
     systems::{
         reputation_drift_system,
         treaty_compliance_bonus_system,
@@ -14,7 +14,6 @@ use super::{
         ai_proposal_response_system,
         victory_tracking_system,
         stance_update_system,
-        TreatyViolationEvent,
     },
 };
 
@@ -23,15 +22,9 @@ pub struct DiplomacyPlugin;
 
 impl Plugin for DiplomacyPlugin {
     fn build(&self, app: &mut App) {
-        // Register types for reflection.
-        app.register_type::<PlayerFaction>();
-
         // Initialise resources.
         app.init_resource::<RelationsGraph>();
         app.init_resource::<DiplomaticVictoryTracker>();
-
-        // Register events.
-        app.add_event::<TreatyViolationEvent>();
 
         // Add systems — run in Update (not EguiPrimaryContextPass).
         app.add_systems(Update, reputation_drift_system);

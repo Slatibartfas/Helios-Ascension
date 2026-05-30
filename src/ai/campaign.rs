@@ -7,9 +7,10 @@
 //! - Decide tech research priorities
 //! - Update diplomatic stance
 
-use bevy::prelude::*;
 use std::collections::HashMap;
 
+use bevy::prelude::{Entity, Local, Query, Res, ResMut};
+use bevy::log::info;
 use crate::astronomy::components::SpaceCoordinates;
 use crate::colony::{Colony, PendingConstructionActions};
 use crate::economy::budget::GlobalBudget;
@@ -24,8 +25,8 @@ use crate::research::types::TechCategory;
 use crate::ui::SimulationTime;
 
 use super::components::{
-    AIDecisionContext, AIDifficulty, AIFaction, AIPersonality, AIControlledColony,
-    AIControlledFleet, AIGoals, AIFactionResearchState, DiplomaticStance,
+    AIDecisionContext, AIFaction, AIPersonality, AIControlledColony,
+    AIControlledFleet, AIGoals, AIFactionResearchState,
 };
 use crate::colony::types::BuildingType;
 use crate::fleets::types::{FleetRole, PropulsionType, ShipClass};
@@ -45,9 +46,7 @@ const AVG_SHIP_COST_MC: f64 = 50_000.0;
 /// System to run campaign AI decisions for all AI factions.
 pub fn run_campaign_ai(
     sim_time: Res<SimulationTime>,
-    world: Res<World>,
-    mut commands: Commands,
-    mut ai_factions: Query<(Entity, &mut AIFaction)>,
+    mut ai_factions: Query<(Entity, &mut AIFaction, &AIFactionResearchState)>,
     colonies: Query<(Entity, &Colony, &AIControlledColony)>,
     all_bodies: Query<(Entity, &CelestialBody, &SpaceCoordinates)>,
     mut global_budget: ResMut<GlobalBudget>,
@@ -80,26 +79,12 @@ pub fn run_campaign_ai(
     let enemy_fleets: Vec<Entity> = Vec::new();
 
     // Get all faction entities upfront to avoid borrow conflicts with get_mut below.
-    let faction_entities: Vec<Entity> = ai_factions.iter().map(|(e, _)| e).collect();
+    let faction_entities: Vec<Entity> = ai_factions.iter().map(|(e, _, _)| e).collect();
 
     for faction_entity in faction_entities {
         // SAFETY: Each entity is processed once, no aliasing.
-        let (_, mut faction) = ai_factions.get_mut(faction_entity).unwrap();
+        let (_, mut faction, faction_research) = ai_factions.get_mut(faction_entity).unwrap();
         faction.increment_tick();
-
-        // Per-faction research state — initialise if missing on the faction entity.
-        // Use a separate query to avoid conflicting with ai_factions.get_mut.
-        let faction_research = if let Ok(state) = world
-            .get_component::<AIFactionResearchState>(faction_entity)
-        {
-            state.clone()
-        } else {
-            let state = AIFactionResearchState::new(
-                faction.personality.preferred_tech_categories(),
-            );
-            commands.entity(faction_entity).insert(state.clone());
-            state
-        };
 
         let difficulty = faction.difficulty;
         let personality = faction.personality;
@@ -376,7 +361,7 @@ fn decide_fleet_build(
         AIPersonality::Scientific => ShipClass::Courier,
         AIPersonality::Balanced => ShipClass::Frigate,
     };
-    let propulsion = PropulsionType::Fusion;
+    let propulsion = PropulsionType::FusionTorch;
 
     let ships: Vec<ShipInfo> = (0..build_count)
         .map(|i| {
@@ -437,9 +422,10 @@ fn decide_research(
         focus.clone()
     };
 
-    if research_focus != faction.research_focus {
+    let changed = research_focus != faction.research_focus;
+    if changed {
         info!("[{}] AI research focus: {:?}", faction.name, research_focus);
-        faction.research_focus = research_focus;
+        faction.research_focus = research_focus.clone();
     }
 
     // Map string category names to TechCategory enum values.

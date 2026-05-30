@@ -10,16 +10,16 @@ use bevy::prelude::*;
 
 use crate::colony::Colony;
 use crate::diplomacy::RelationsGraph;
-use crate::economy::ResourcePool;
-use crate::research::{ResearchState, TechCategory};
-use crate::fleets::{Fleet, SpawnFleetAction, PendingFleetActions, ShipInfo, ShipClass, PropulsionType};
+use crate::economy::budget::GlobalBudget;
+use crate::research::ResearchState;
+use crate::fleets::{FleetRole, SpawnFleetAction, PendingFleetActions, ShipInfo, ShipClass, PropulsionType};
 use crate::plugins::solar_system::CelestialBody;
 use crate::ui::time::SimulationTime;
 use super::{Effect, EffectType, EffectTarget, DelayedEffect};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 /// Stores the previous simulation elapsed for delta computation.
-static PREV_ELAPSED: OnceLock<f64> = OnceLock::new();
+static PREV_ELAPSED: Mutex<f64> = Mutex::new(0.0);
 
 /// Pending delayed effects — ticked down each simulation frame.
 #[derive(Resource, Default)]
@@ -48,7 +48,7 @@ pub fn execute_effect(
     effect: &Effect,
     research_state: &mut ResearchState,
     relations: &mut RelationsGraph,
-    resource_pool: &mut ResourcePool,
+    global_budget: &mut GlobalBudget,
     pending_fleet_actions: &mut PendingFleetActions,
     colonies: &Query<(Entity, &Colony)>,
     bodies: &Query<(Entity, &CelestialBody)>,
@@ -70,9 +70,9 @@ pub fn execute_effect(
             // magnitude is the amount to add (can be negative)
             let amount = effect.magnitude;
             if amount >= 0.0 {
-                resource_pool.add(resource_id.clone(), amount);
+                global_budget.add_resource(resource_id.clone(), amount);
             } else {
-                resource_pool.subtract(resource_id.clone(), -amount);
+                global_budget.consume_resource(resource_id.clone(), -amount);
             }
         }
         EffectType::ModifyRelation { faction_id } => {
@@ -140,15 +140,16 @@ pub fn process_delayed_effects(
     sim_time: Res<SimulationTime>,
     mut research_state: ResMut<ResearchState>,
     mut relations: ResMut<RelationsGraph>,
-    mut resource_pool: ResMut<ResourcePool>,
+    mut global_budget: ResMut<GlobalBudget>,
     mut pending_fleet_actions: ResMut<PendingFleetActions>,
     colonies: &Query<(Entity, &Colony)>,
     bodies: &Query<(Entity, &CelestialBody)>,
 ) {
     let current = sim_time.elapsed_seconds();
-    let prev = PREV_ELAPSED.get_or_init(|| 0.0);
+    let mut prev = PREV_ELAPSED.lock().unwrap();
     let delta = current - *prev;
     *prev = current;
+    drop(prev);
 
     let mut still_pending = Vec::new();
     for mut pending in queue.effects.drain(..) {
@@ -159,7 +160,7 @@ pub fn process_delayed_effects(
                 &pending.effect,
                 &mut research_state,
                 &mut relations,
-                &mut resource_pool,
+                &mut global_budget,
                 &mut pending_fleet_actions,
                 colonies,
                 bodies,
@@ -176,7 +177,7 @@ pub fn execute_outcome_effects(
     effects: &[Effect],
     research_state: &mut ResearchState,
     relations: &mut RelationsGraph,
-    resource_pool: &mut ResourcePool,
+    global_budget: &mut GlobalBudget,
     pending_fleet_actions: &mut PendingFleetActions,
     colonies: &Query<(Entity, &Colony)>,
     bodies: &Query<(Entity, &CelestialBody)>,
@@ -186,7 +187,7 @@ pub fn execute_outcome_effects(
             effect,
             research_state,
             relations,
-            resource_pool,
+            global_budget,
             pending_fleet_actions,
             colonies,
             bodies,

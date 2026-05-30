@@ -49,7 +49,8 @@ pub fn load_events_data(mut commands: Commands) {
     // Load story events
     if let Some(file) = load_ron_file::<StoryEventsFile>("assets/data/events/story_act1.ron") {
         for event in file.events {
-            data.story_events.insert(event.id, event);
+            let id = event.id.clone();
+            data.story_events.insert(id, event);
         }
         info!("Loaded {} story events", data.story_events.len());
     } else {

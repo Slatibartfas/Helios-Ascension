@@ -152,34 +152,35 @@ impl Default for GameplaySettings {
 }
 
 /// Keybinding settings for remappable controls.
+/// Stored as string names for serde compatibility (bevy::prelude::KeyCode does not
+/// implement Serialize/Deserialize).
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct KeybindingsSettings {
-    pub camera_up: KeyCode,
-    pub camera_down: KeyCode,
-    pub camera_left: KeyCode,
-    pub camera_right: KeyCode,
-    pub camera_zoom_in: KeyCode,
-    pub camera_zoom_out: KeyCode,
-    pub camera_recenter: KeyCode,
-    pub fleet_menu: KeyCode,
-    pub transfer_planner: KeyCode,
-    pub pause: KeyCode,
+    pub camera_up: Option<String>,
+    pub camera_down: Option<String>,
+    pub camera_left: Option<String>,
+    pub camera_right: Option<String>,
+    pub camera_zoom_in: Option<String>,
+    pub camera_zoom_out: Option<String>,
+    pub camera_recenter: Option<String>,
+    pub fleet_menu: Option<String>,
+    pub transfer_planner: Option<String>,
+    pub pause: Option<String>,
 }
 
 impl Default for KeybindingsSettings {
     fn default() -> Self {
-        use bevy::input::keyboard::KeyCode::*;
         Self {
-            camera_up: KeyW,
-            camera_down: KeyS,
-            camera_left: KeyA,
-            camera_right: KeyD,
-            camera_zoom_in: KeyE,
-            camera_zoom_out: KeyQ,
-            camera_recenter: Home,
-            fleet_menu: KeyF,
-            transfer_planner: KeyT,
-            pause: Space,
+            camera_up: Some("KeyW".to_string()),
+            camera_down: Some("KeyS".to_string()),
+            camera_left: Some("KeyA".to_string()),
+            camera_right: Some("KeyD".to_string()),
+            camera_zoom_in: Some("KeyE".to_string()),
+            camera_zoom_out: Some("KeyQ".to_string()),
+            camera_recenter: Some("Home".to_string()),
+            fleet_menu: Some("KeyF".to_string()),
+            transfer_planner: Some("KeyT".to_string()),
+            pause: Some("Space".to_string()),
         }
     }
 }

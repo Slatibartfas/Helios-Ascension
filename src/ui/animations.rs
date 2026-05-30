@@ -291,7 +291,7 @@ impl SmoothProgress {
         current_displayed: f32,
         target: f32,
     ) -> f32 {
-        let dt = ui.ctx().input(|i| i.dt);
+        let dt = 0.016; // ~60fps fixed delta for smooth UI animation
         let speed = 1.0 / PROGRESS_FILL;
         let diff = target - current_displayed;
         let step = speed * dt;
@@ -380,7 +380,7 @@ impl ToastMessage {
     }
 
     /// Update animation state. Returns true if toast should be removed.
-    pub fn update(&mut self, dt: f32, time: f64) -> bool {
+    pub fn update(&mut self, _dt: f32, time: f64) -> bool {
         let elapsed = self.elapsed(time);
 
         // Slide in phase (first TOAST_SLIDE_IN seconds)
@@ -459,7 +459,7 @@ impl ToastQueue {
 
     /// Update all toasts. Removes expired ones.
     pub fn update(&mut self, dt: f32, time: f64) {
-        self.toasts.retain(|t| !t.update(dt, time));
+        self.toasts.retain_mut(|t| t.update(dt, time));
     }
 }
 
@@ -555,7 +555,7 @@ impl ResourceDelta {
     }
 
     /// Update and check if expired. Returns (current_x, current_y, alpha).
-    pub fn update(&mut self, dt: f32, time: f64) -> Option<(f32, f32, f32)> {
+    pub fn update(&mut self, _dt: f32, time: f64) -> Option<(f32, f32, f32)> {
         let elapsed = self.elapsed(time);
 
         if elapsed >= DELTA_POPUP_LIFETIME {
@@ -622,49 +622,53 @@ impl ResourceDeltaQueue {
 
     /// Update all deltas. Removes expired ones.
     pub fn update(&mut self, dt: f32, time: f64) {
-        self.deltas.retain(|d| d.update(dt, time).is_some());
+        self.deltas.retain_mut(|d| d.update(dt, time).is_some());
     }
 }
 
 /// Render resource delta popups using egui.
-pub fn render_resource_deltas(ctx: &egui::Context, deltas: &[ResourceDelta], dt: f64) {
+pub fn render_resource_deltas(ctx: &egui::Context, deltas: &mut [ResourceDelta], dt: f64) {
     if deltas.is_empty() {
         return;
     }
 
     let time = ctx.input(|i| i.time);
-    for delta in deltas.iter() {
-        if let Some((x, y, alpha)) = delta.clone().update(dt, time) {
+
+    // First loop: collect computed data (delta is mutably borrowed here)
+    let items: Vec<(f32, f32, f32, String, egui::Color32)> = deltas
+        .iter_mut()
+        .filter_map(|delta| {
+            let Some((x, y, alpha)) = delta.update(dt as f32, time) else { return None };
             let color = if delta.is_positive() {
                 crate::ui::theme::GREEN
             } else {
                 crate::ui::theme::RED
             };
+            Some((x, y, alpha, delta.formatted(), color))
+        })
+        .collect();
 
-            let text = delta.formatted();
-            let galley = ctx.fonts(|f| {
-                f.layout_no_wrap(
-                    text,
-                    egui::FontId::new(14.0, egui::FontFamily::Monospace),
-                    color.linear_multiply(alpha),
-                )
+    // Second loop: render (delta borrow is gone, ctx.fonts() can work)
+    for (x, y, alpha, text, color) in items {
+        let galley = ctx.fonts_mut(|f| f.layout_no_wrap(
+            text.clone(),
+            egui::FontId::new(14.0, egui::FontFamily::Monospace),
+            color.linear_multiply(alpha),
+        ));
+
+        let pos = egui::pos2(x - galley.size().x / 2.0, y);
+
+        egui::Area::new(egui::Id::new(format!("delta_{}_{}", x, y)))
+            .fixed_pos(pos)
+            .interactable(false)
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                ui.label(
+                    egui::RichText::new(&text)
+                        .font(egui::FontId::new(14.0, egui::FontFamily::Monospace))
+                        .color(color.linear_multiply(alpha)),
+                );
             });
-
-            // Position centered above the starting point
-            let pos = egui::pos2(x - galley.size().x / 2.0, y);
-
-            egui::Area::new(egui::Id::new(format!("delta_{}_{}", x, y)))
-                .fixed_pos(pos)
-                .interactable(false)
-                .order(egui::Order::Foreground)
-                .show(ctx, |ui| {
-                    ui.label(
-                        egui::RichText::new(&text)
-                            .font(egui::FontId::new(14.0, egui::FontFamily::Monospace))
-                            .color(color.linear_multiply(alpha)),
-                    );
-                });
-        }
     }
 }
 
