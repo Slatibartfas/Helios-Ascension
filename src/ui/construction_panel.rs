@@ -140,7 +140,7 @@ pub(super) fn ui_construction_panels(
             &budget,
             &contextual,
             &mut debug_settings,
-            buildings_data.as_mut().map(|d| d.as_mut()),
+            buildings_data.as_mut(),
             &mut ui_state,
             &resource_requests,
             &mut minimum_stockpiles,
@@ -152,7 +152,7 @@ pub(super) fn ui_construction_panels(
     if editor_enabled {
         render_building_editor(
             ctx,
-            buildings_data.as_mut().map(|d| d.as_mut()),
+            buildings_data.as_mut(),
             &mut edit_state,
             sim_time.elapsed_seconds(),
             cb_mode,
@@ -910,7 +910,7 @@ fn render_construction_build_tab(
                             can_afford,
                             construction_actions,
                             card_width,
-                            buildings_data.as_mut().map(|d| d.as_mut()),
+                            buildings_data.as_mut(),
                             cb_mode,
                         );
                     },

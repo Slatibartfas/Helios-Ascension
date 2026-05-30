@@ -33,7 +33,7 @@ pub fn calculate_signature(
     data: Option<&SensorData>,
 ) -> Signature {
     let class_map = data.map(|d| d.signature_class_map());
-    let class_def = class_map.and_then(|m| m.get(&ship_class.to_string()));
+    let class_def = class_map.and_then(|m| m.get(&ship_class.to_string()).copied());
 
     let (base_thermal, base_em, base_visual, base_neutrino) = match class_def {
         Some(c) => (c.base_thermal as f32, c.base_em as f32, c.base_visual as f32, c.base_neutrino as f32),
@@ -85,10 +85,10 @@ fn distance_km(a: &SpaceCoordinates, b: &SpaceCoordinates) -> f64 {
 /// contact resolution. If `SensorData` isn't loaded, uses default class signatures.
 pub fn update_fleet_signatures(
     mut fleet_query: Query<&mut Fleet>,
-    sensor_data: Option<ResMut<SensorData>>,
+    sensor_data: Option<Res<SensorData>>,
     _time: Res<SimulationTime>,
 ) {
-    let data = sensor_data.as_mut().map(|r| r.as_mut());
+    let data = sensor_data.as_ref().map(|r| r.as_ref());
     for mut fleet in fleet_query.iter_mut() {
         for ship in &mut fleet.ships {
             let thrust_ratio = if ship.max_fuel_t > 0.0 {

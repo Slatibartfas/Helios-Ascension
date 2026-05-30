@@ -1,5 +1,6 @@
 //! Sensor data loaded from `assets/data/sensors.ron`.
 
+use bevy::prelude::Resource;
 use serde::Deserialize;
 use std::collections::HashMap;
 
