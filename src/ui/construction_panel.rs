@@ -103,7 +103,7 @@ pub(super) fn ui_construction_panels(
     budget: Res<GlobalBudget>,
     contextual: Res<crate::economy::ContextualStockpile>,
     mut debug_settings: ResMut<ConstructionDebugSettings>,
-    mut buildings_data: Option<ResMut<BuildingsData>>,
+    buildings_data: Option<Res<BuildingsData>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut ui_state: ResMut<ConstructionUiState>,
     mut edit_state: ResMut<crate::colony::BuildingEditState>,
@@ -140,7 +140,7 @@ pub(super) fn ui_construction_panels(
             &budget,
             &contextual,
             &mut debug_settings,
-            buildings_data.as_mut().map(|d| d.as_mut()),
+            Option::<ResMut<BuildingsData>>::as_mut().map(|d| d.deref_mut()),
             &mut ui_state,
             &resource_requests,
             &mut minimum_stockpiles,
@@ -152,7 +152,7 @@ pub(super) fn ui_construction_panels(
     if editor_enabled {
         render_building_editor(
             ctx,
-            buildings_data.as_mut().map(|d| d.as_mut()),
+            Option::<ResMut<BuildingsData>>::as_mut().map(|d| d.deref_mut()),
             &mut edit_state,
             sim_time.elapsed_seconds(),
             cb_mode,
@@ -910,7 +910,7 @@ fn render_construction_build_tab(
                             can_afford,
                             construction_actions,
                             card_width,
-                            buildings_data.as_mut(),
+                            buildings_data.as_deref_mut(),
                             cb_mode,
                         );
                     },
@@ -966,7 +966,7 @@ fn render_existing_buildings_section(
     buildings_data: Option<&mut BuildingsData>,
     cb_mode: ColorBlindMode,
 ) {
-    let buildings_data = buildings_data.clone();
+    let buildings_data = buildings_data;
     for &category in BuildingCategory::all() {
         let mut buildings_in_category: Vec<_> = category
             .buildings()
