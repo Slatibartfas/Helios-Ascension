@@ -76,6 +76,8 @@ impl Default for ShipClass {
         ShipClass::Courier
     }
 }
+
+impl ShipClass {
     /// Human-readable display name.
     pub fn display_name(self) -> &'static str {
         match self {
