@@ -284,26 +284,27 @@ impl SmoothProgress {
     }
 
     /// Render a smooth progress bar that animates from current to target value.
-/// Call each frame with the current displayed value and the actual target.
-/// Returns the new displayed value for tracking.
-pub fn smooth_progress_bar_ui(
-    ui: &mut egui::Ui,
-    current_displayed: f32,
-    target: f32,
-) -> f32 {
-    let dt = ui.ctx().input(|i| i.dt);
-    let speed = 1.0 / PROGRESS_FILL;
-    let diff = target - current_displayed;
-    let step = speed * dt;
+    /// Call each frame with the current displayed value and the actual target.
+    /// Returns the new displayed value for tracking.
+    pub fn smooth_progress_bar_ui(
+        ui: &mut egui::Ui,
+        current_displayed: f32,
+        target: f32,
+    ) -> f32 {
+        let dt = ui.ctx().input(|i| i.dt);
+        let speed = 1.0 / PROGRESS_FILL;
+        let diff = target - current_displayed;
+        let step = speed * dt;
 
-    let new_displayed = if diff.abs() < step {
-        target
-    } else {
-        current_displayed + diff.signum() * step
-    };
+        let new_displayed = if diff.abs() < step {
+            target
+        } else {
+            current_displayed + diff.signum() * step
+        };
 
-    ui.add(egui::ProgressBar::new(new_displayed));
-    new_displayed
+        ui.add(egui::ProgressBar::new(new_displayed));
+        new_displayed
+    }
 }
 
 // ─── Toast Notifications ──────────────────────────────────────────────────────
