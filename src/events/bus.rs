@@ -119,9 +119,9 @@ impl EventBus {
 #[derive(Resource)]
 pub struct RandomEventTimer {
     /// Simulation seconds elapsed since last random event fired.
-    pub elapsed_since_last_event: f64,
+    pub(crate) elapsed_since_last_event: f64,
     /// Simulation time (in seconds) when the last event fired.
-    pub last_event_time: f64,
+    pub(crate) last_event_time: f64,
 }
 
 impl Default for RandomEventTimer {
