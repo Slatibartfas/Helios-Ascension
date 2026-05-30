@@ -10,6 +10,7 @@ pub mod game_state;
 pub mod plugins;
 pub mod render;
 pub mod research;
+pub mod sensors;
 pub mod ui;
 
 use astronomy::AstronomyPlugin;
@@ -24,6 +25,7 @@ use plugins::{
 };
 use render::backdrop::BackdropPlugin;
 use research::ResearchPlugin;
+use sensors::SensorPlugin;
 use ui::UIPlugin;
 
 /// Minimum supported window dimensions to prevent UI overlap
@@ -65,6 +67,7 @@ fn main() {
         .add_plugins(ColonyPlugin)
         .add_plugins(ResearchPlugin)
         .add_plugins(FleetPlugin)
+        .add_plugins(SensorPlugin)
         .add_plugins(SystemPopulatorPlugin)
         .add_plugins(UIPlugin)
         .add_plugins(MusicPlugin)

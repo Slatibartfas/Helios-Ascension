@@ -1,0 +1,136 @@
+(
+    sensor_tiers: [
+        // Tier 1: Basic —2026 baseline sensors
+        (
+            id: "basic",
+            name: "Basic Sensors",
+            tier: 1,
+            detection_range_km: 50_000.0,
+            id_range_km: 10_000.0,
+            strength: 1.0,
+            neutrino: false,
+            active_ping_range_km: 5_000.0,
+        ),
+        // Tier 2: Standard — improved detection
+        (
+            id: "standard",
+            name: "Standard Sensors",
+            tier: 2,
+            detection_range_km: 150_000.0,
+            id_range_km: 50_000.0,
+            strength: 2.5,
+            neutrino: false,
+            active_ping_range_km: 15_000.0,
+        ),
+        // Tier 3: Advanced — long-range detection
+        (
+            id: "advanced",
+            name: "Advanced Sensors",
+            tier: 3,
+            detection_range_km: 500_000.0,
+            id_range_km: 200_000.0,
+            strength: 5.0,
+            neutrino: false,
+            active_ping_range_km: 50_000.0,
+        ),
+        // Tier 4: Military — high-power detection
+        (
+            id: "military",
+            name: "Military Sensors",
+            tier: 4,
+            detection_range_km: 2_000_000.0,
+            id_range_km: 800_000.0,
+            strength: 10.0,
+            neutrino: false,
+            active_ping_range_km: 200_000.0,
+        ),
+        // Tier 5: Expert — very long range
+        (
+            id: "expert",
+            name: "Expert Sensors",
+            tier: 5,
+            detection_range_km: 8_000_000.0,
+            id_range_km: 3_000_000.0,
+            strength: 25.0,
+            neutrino: false,
+            active_ping_range_km: 800_000.0,
+        ),
+        // Tier 6: Neutrino — ignores stealth modifiers
+        (
+            id: "neutrino",
+            name: "Neutrino Sensors",
+            tier: 6,
+            detection_range_km: 15_000_000.0,
+            id_range_km: 5_000_000.0,
+            strength: 50.0,
+            neutrino: true,
+            active_ping_range_km: 1_500_000.0,
+        ),
+    ],
+    // Signature classes define base thermal/EM/visual outputs per ship class
+    signature_classes: [
+        (
+            id: "courier",
+            ship_class: "Courier",
+            base_thermal: 0.3,
+            base_em: 0.2,
+            base_visual: 0.1,
+            base_neutrino: 0.0,
+        ),
+        (
+            id: "frigate",
+            ship_class: "Frigate",
+            base_thermal: 1.0,
+            base_em: 0.5,
+            base_visual: 0.3,
+            base_neutrino: 0.0,
+        ),
+        (
+            id: "destroyer",
+            ship_class: "Destroyer",
+            base_thermal: 3.0,
+            base_em: 1.5,
+            base_visual: 0.8,
+            base_neutrino: 0.0,
+        ),
+        (
+            id: "cruiser",
+            ship_class: "Cruiser",
+            base_thermal: 8.0,
+            base_em: 4.0,
+            base_visual: 2.0,
+            base_neutrino: 0.0,
+        ),
+        (
+            id: "research_vessel",
+            ship_class: "ResearchVessel",
+            base_thermal: 1.5,
+            base_em: 0.8,
+            base_visual: 0.5,
+            base_neutrino: 0.0,
+        ),
+        (
+            id: "freighter",
+            ship_class: "Freighter",
+            base_thermal: 2.0,
+            base_em: 1.0,
+            base_visual: 0.5,
+            base_neutrino: 0.0,
+        ),
+        (
+            id: "station",
+            ship_class: "Station",
+            base_thermal: 5.0,
+            base_em: 3.0,
+            base_visual: 1.0,
+            base_neutrino: 0.0,
+        ),
+    ],
+ // Stealth mode emission multipliers
+    stealth_modes: [
+        (id: "full_power", name: "Full Power", emission_multiplier: 1.0),
+        (id: "running_silent", name: "Running Silent", emission_multiplier: 0.3),
+        (id: "dark_drive", name: "Dark Drive", emission_multiplier: 0.1),
+        (id: "hidden", name: "Hidden", emission_multiplier: 0.05),
+    ],
+)

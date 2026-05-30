@@ -1,8 +1,13 @@
 //! ECS components for the fleet management and orbital transfer system.
 
+use std::collections::HashMap;
+
 use super::types::{FleetRole, PropulsionType, ShipClass};
 use crate::astronomy::KeplerOrbit;
+use crate::sensors::{Contact, SensorSuite, Signature, StealthMode};
 use bevy::prelude::*;
+
+const DEFAULT_SENSOR_TIER: &str = "basic";
 
 /// Summary information about a single ship within a fleet.
 #[derive(Debug, Clone)]
@@ -23,15 +28,31 @@ pub struct ShipInfo {
     pub isp_s: f32,
     /// Propulsion type.
     pub propulsion: PropulsionType,
+    /// Equipped sensor suite.
+    pub sensor_suite: Option<SensorSuite>,
+    /// Current stealth mode.
+    pub stealth_mode: StealthMode,
+    /// Current signature.
+    pub signature: Signature,
 }
 
 impl ShipInfo {
     /// Create a ship with typical parameters for its class and propulsion type.
+    /// Gives the ship a default "basic" sensor suite.
     pub fn new(name: String, class: ShipClass, propulsion: PropulsionType) -> Self {
         let dry_mass = class.default_dry_mass_t();
         // fuel_fraction is of total wet mass: fuel = dry * frac/(1-frac)
         let fuel_frac = class.default_fuel_fraction();
         let fuel_mass = dry_mass * fuel_frac / (1.0 - fuel_frac);
+        // Default "basic" sensor suite — Tier 1, 50k km detection range
+        let sensor_suite = Some(SensorSuite {
+            tier_id: DEFAULT_SENSOR_TIER.to_string(),
+            detection_range_km: 50_000.0,
+            id_range_km: 10_000.0,
+            strength: 1.0,
+            neutrino: false,
+            is_active: true,
+        });
         Self {
             name,
             class,
@@ -41,6 +62,9 @@ impl ShipInfo {
             thrust_kn: propulsion.thrust_kn(dry_mass),
             isp_s: propulsion.isp_s(),
             propulsion,
+            sensor_suite,
+            stealth_mode: StealthMode::default(),
+            signature: Signature::default(),
         }
     }
 
@@ -79,6 +103,9 @@ pub struct Fleet {
     pub role: FleetRole,
     /// Ships that make up this fleet.
     pub ships: Vec<ShipInfo>,
+    /// Contacts detected by this fleet's sensors. Key is the target entity.
+    #[doc(hidden)]
+    pub contacts: HashMap<Entity, Contact>,
 }
 
 impl Fleet {
@@ -88,6 +115,7 @@ impl Fleet {
             name,
             role: FleetRole::default(),
             ships: Vec::new(),
+            contacts: HashMap::new(),
         }
     }
 
@@ -403,6 +431,8 @@ pub struct PendingFleetActions {
     pub disband_fleets: Vec<Entity>,
     /// Requests to merge several fleets into one.
     pub merge_fleets: Vec<MergeFleetAction>,
+    /// Individual ships to change stealth mode: (fleet_entity, ship_index, new_mode).
+    pub change_stealth_modes: Vec<(Entity, usize, StealthMode)>,
 }
 
 /// Merge two or more fleets: all ships from `source_fleets` are moved into
