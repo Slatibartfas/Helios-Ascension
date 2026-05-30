@@ -5,11 +5,13 @@
 
 use bevy::ecs::event::Event;
 use bevy::prelude::*;
-use bevy_egui::egui;
 use std::time::Instant;
 
 use crate::plugins::music::{UiSoundKind, UiSoundRequestQueue};
 use crate::ui::animations::{ToastKind, ToastMessage, ToastQueue};
+
+/// Color type for notification tinting.
+type NotificationColor = bevy_egui::egui::Color32;
 
 /// Notification categories for game events.
 ///
@@ -52,7 +54,7 @@ impl NotificationKind {
         matches!(self, NotificationKind::Info)
     }
 
-    pub fn tint(&self) -> bevy_egui::egui::Color32 {
+    pub fn tint(&self) -> NotificationColor {
         match self {
             NotificationKind::Info => crate::ui::theme::RP_BLUE,
             NotificationKind::Warning => crate::ui::theme::AMBER,

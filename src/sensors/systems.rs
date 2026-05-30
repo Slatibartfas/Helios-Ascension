@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use bevy::math::DVec3;
 use bevy::prelude::*;
 
 use super::components::{Contact, ContactState, SensorSuite, Signature, StealthMode};
