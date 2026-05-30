@@ -1,4 +1,3 @@
-pub mod archaeology;
 pub mod astronomy;
 pub mod colony;
 pub mod economy;
