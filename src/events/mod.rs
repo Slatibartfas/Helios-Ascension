@@ -17,8 +17,9 @@ pub mod load_events;
 pub mod systems;
 
 // Re-exports
-pub use bus::{EventBus, EventCategory, EventSubscription, EventTag, GameEvent, SubscriptionId};
+pub use bus::{EventBus, SubscriptionId};
 pub use bus::EventBusPlugin;
+pub use super::{EventCategory, EventTag, GameEvent};
 pub use load_events::EventsData;
 pub use systems::fire_story_event;
 
