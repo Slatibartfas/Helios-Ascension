@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use bevy::math::DVec3;
 use bevy::prelude::*;
 
-use super::components::{Contact, ContactState, SensorSuite, Signature, StealthMode};
+use super::components::{Contact, ContactState, Decoy, JammingSource, JammingBand, SensorSuite, SensorSweep, Signature, StealthMode};
 use super::data::{AU_IN_KM, SensorData};
 use crate::astronomy::SpaceCoordinates;
 use crate::fleets::components::Fleet;
@@ -111,6 +111,29 @@ pub fn update_fleet_signatures(
 /// Maximum simulation seconds a contact lingers after target leaves detection range.
 const CONTACT_LINGER_S: f64 = 3.0;
 
+/// Calculate the combined jamming factor for a target given its distance.
+///
+/// Iterates all jammers in range of the target and applies their band-specific
+/// reduction factors multiplicatively. Factor of 1.0 = no jamming, lower = stronger jamming.
+fn calculate_jamming_factor(
+    target_entity: Entity,
+    distance_km: f32,
+    jammer_query: &Query<&JammingSource, With<SpaceCoordinates>>,
+) -> f32 {
+    let mut factor = 1.0_f32;
+
+    for jammer in jammer_query.iter() {
+        // Check if this jammer affects the target
+        if jammer.range_km >= distance_km {
+            // Jammer is in range — apply reduction
+            let reduction = jammer.band.reduction_factor();
+            factor *= 1.0 - reduction;
+        }
+    }
+
+    factor.max(0.01) // Minimum 1% effectiveness
+}
+
 /// Process sensor detection for all sensor-equipped fleets.
 ///
 /// Systems:
@@ -118,6 +141,7 @@ const CONTACT_LINGER_S: f64 = 3.0;
 /// 2. Query all potential targets (entities with Fleet)
 /// 3. For each sensor-target pair within range:
 ///    - Fetch target's signature from its Fleet.ships
+///    - Apply jamming reduction if target has active JammingSource
 ///    - Run detection check against effective signature
 ///    - Create or update Contact in the fleet's ContactRecords
 ///    - Contacts whose target leaves detection range for >CONTACT_LINGER_S are removed
@@ -129,6 +153,7 @@ pub fn sensor_detection_system(
         With<SensorSuite>,
     >,
     target_query: Query<(Entity, &Fleet, &SpaceCoordinates)>,
+    jammer_query: Query<&JammingSource, With<SpaceCoordinates>>,
 ) {
     let elapsed = sim_time.elapsed_seconds();
     let dt = 1.0 / 60.0; // ~1 frame tick
@@ -162,7 +187,10 @@ pub fn sensor_detection_system(
 
             // Get fleet's aggregate signature (sum across ships)
             let target_sig = aggregate_fleet_signature(target_fleet);
-            let effective_sig = target_sig.effective_for(is_neutrino);
+
+            // Apply jamming reduction if target has active jammers within range
+            let jamming_factor = calculate_jamming_factor(target_entity, dist_km, &jammer_query);
+            let effective_sig = target_sig.effective_for(is_neutrino) * jamming_factor;
 
             if effective_sig <= 0.0 {
                 continue;
@@ -388,6 +416,178 @@ fn fleet_active_ping_range(fleet: &Fleet) -> f32 {
         }
     }
     best
+}
+
+// ── Jamming reveal system ─────────────────────────────────────────────────────
+
+/// Jammers broadcast their position to all enemy fleets within range.
+///
+/// Unlike detection checks, jamming reveal is unconditional — any enemy fleet
+/// within range detects the jammer regardless of whether the jammer would normally
+/// be detectable at that range.
+pub fn jamming_reveal_system(
+    sim_time: Res<SimulationTime>,
+    jammer_query: Query<(Entity, &JammingSource, &SpaceCoordinates)>,
+    mut fleet_query: Query<(Entity, &mut Fleet, &SpaceCoordinates)>,
+) {
+    let elapsed = sim_time.elapsed_seconds();
+    let dt = 1.0 / 60.0;
+
+    for (jammer_entity, jammer, jammer_pos) in jammer_query.iter() {
+        let jammer_pos = jammer_pos.position;
+
+        for (fleet_entity, mut fleet, fleet_pos) in fleet_query.iter_mut() {
+            // Jammers reveal to enemies (not self)
+            if fleet_entity == jammer_entity {
+                continue;
+            }
+
+            let diff = jammer_pos - fleet_pos.position;
+            let dist_au = diff.length();
+            let dist_km = (dist_au * AU_IN_KM) as f32;
+
+            if dist_km <= jammer.range_km {
+                // Jammer detected — add it as a contact
+                let jammer_sig = Signature {
+                    thermal: jammer.effect_strength,
+                    em: jammer.effect_strength,
+                    visual: jammer.effect_strength,
+                    neutrino: 0.0,
+                };
+
+                let contact = fleet
+                    .contacts
+                    .entry(jammer_entity)
+                    .or_insert_with(|| {
+                        Contact::new(
+                            jammer_entity,
+                            "Jamming Source".into(),
+                            jammer_sig,
+                            elapsed,
+                            false, // jammers are hostile
+                            true,
+                        )
+                    });
+
+                contact.last_detection_time = elapsed;
+                contact.tracking_pct = (contact.tracking_pct + 50.0).min(100.0);
+                contact.state = ContactState::Identified;
+                contact.in_id_range = true;
+                contact.accumulate_tracking(dt);
+                contact.update_state();
+            }
+        }
+    }
+}
+
+// ── Sensor sweep system ───────────────────────────────────────────────────────
+
+/// Process sensor sweep actions — reveals all contacts in range (including stealth)
+/// while revealing the sweeper's position to enemies.
+///
+/// Uses 5× normal active sensor power and is a one-shot reveal per tick.
+pub fn sensor_sweep_system(
+    sim_time: Res<SimulationTime>,
+    sweeper_query: Query<(Entity, &Fleet, &SpaceCoordinates), With<SensorSweep>>,
+    mut target_query: Query<(Entity, &mut Fleet, &SpaceCoordinates)>,
+) {
+    let elapsed = sim_time.elapsed_seconds();
+    let dt = 1.0 / 60.0;
+
+    for (sweeper_entity, sweeper_fleet, sweeper_pos) in sweeper_query.iter() {
+        let sweeper_pos = sweeper_pos.position;
+        let sweeper_name = sweeper_fleet.name.clone();
+
+        // Get sweep range (5× normal sensor range)
+        let (sweep_range_km, _, _, _, _) = best_fleet_sensor(sweeper_fleet);
+
+        if sweep_range_km <= 0.0 {
+            continue;
+        }
+
+        for (target_entity, mut target_fleet, target_pos) in target_query.iter_mut() {
+            if target_entity == sweeper_entity {
+                continue;
+            }
+
+            let diff = target_pos.position - sweeper_pos;
+            let dist_au = diff.length();
+            let dist_km = (dist_au * AU_IN_KM) as f32;
+
+            // Reveal all targets within sweep range, regardless of stealth
+            if dist_km <= sweep_range_km * 5.0 {
+                let target_sig = aggregate_fleet_signature(&target_fleet);
+                let friendly = is_friendly(&target_fleet);
+
+                let contact = target_fleet
+                    .contacts
+                    .entry(sweeper_entity)
+                    .or_insert_with(|| {
+                        Contact::new(
+                            sweeper_entity,
+                            sweeper_name.clone(),
+                            target_sig,
+                            elapsed,
+                            friendly,
+                            true,
+                        )
+                    });
+
+                contact.last_detection_time = elapsed;
+                contact.tracking_pct = (contact.tracking_pct + 80.0).min(100.0);
+                contact.state = ContactState::Identified;
+                contact.in_id_range = true;
+                contact.accumulate_tracking(dt);
+                contact.update_state();
+
+                // Reveal sweeper to target
+                let sweeper_sig = aggregate_fleet_signature(sweeper_fleet);
+                let contact2 = target_fleet
+                    .contacts
+                    .entry(sweeper_entity)
+                    .or_insert_with(|| {
+                        Contact::new(
+                            sweeper_entity,
+                            sweeper_name,
+                            sweeper_sig,
+                            elapsed,
+                            friendly,
+                            true,
+                        )
+                    });
+
+                contact2.last_detection_time = elapsed;
+                contact2.tracking_pct = (contact2.tracking_pct + 50.0).min(100.0);
+                contact2.state = ContactState::Detected;
+                contact2.in_id_range = true;
+                contact2.accumulate_tracking(dt);
+                contact2.update_state();
+            }
+        }
+    }
+}
+
+/// Consume (remove) SensorSweep markers after processing.
+pub fn consume_sensor_sweep(mut commands: Commands, sweep_query: Query<Entity, With<SensorSweep>>) {
+    for entity in sweep_query.iter() {
+        commands.entity(entity).remove::<SensorSweep>();
+    }
+}
+
+// ── Decoy expiration system ────────────────────────────────────────────────────
+
+/// Tick decoy timers and deactivate expired decoys.
+pub fn decoy_expiration_system(
+    sim_time: Res<SimulationTime>,
+    mut decoy_query: Query<&mut Decoy>,
+) {
+    let dt = 1.0 / 60.0;
+
+    for mut decoy in decoy_query.iter_mut() {
+        if decoy.active {
+            decoy.tick(dt);
+        }
+    }
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────

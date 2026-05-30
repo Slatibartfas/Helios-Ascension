@@ -32,6 +32,10 @@ impl Plugin for SensorPlugin {
                 systems::update_fleet_signatures,
                 systems::sensor_detection_system,
                 systems::active_sensor_ping_system,
+                systems::jamming_reveal_system,
+                systems::sensor_sweep_system,
+                systems::consume_sensor_sweep,
+                systems::decoy_expiration_system,
                 systems::update_contact_tracking,
             )
                 .chain(),

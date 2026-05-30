@@ -200,3 +200,100 @@ impl SensorSuite {
         self.strength / distance_km.powi(2)
     }
 }
+
+// ── Electronic Warfare ─────────────────────────────────────────────────────────
+
+/// Jamming band — which sensor band a jammer targets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum JammingBand {
+    Thermal,
+    EM,
+    Visual,
+    All,
+}
+
+impl JammingBand {
+    /// Reduction factor applied to enemy detection range in this band.
+    pub fn reduction_factor(&self) -> f32 {
+        match self {
+            JammingBand::Thermal => 0.40,  // −40%
+            JammingBand::EM => 0.60,       // −60%
+            JammingBand::Visual => 0.30,   // −30%
+            JammingBand::All => 0.30,      // −30% all bands
+        }
+    }
+}
+
+/// Jamming source — emits jamming interference to reduce enemy detection range.
+#[derive(Component, Debug, Clone)]
+pub struct JammingSource {
+    pub band: JammingBand,
+    pub range_km: f32,
+    pub effect_strength: f32,
+}
+
+/// Decoy type — determines signature override and power cost.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DecoyType {
+    Thermal,
+    EM,
+    Chaff,
+    Drone,
+}
+
+impl DecoyType {
+    /// Mass tonnage cost in Mt.
+    pub fn mass_cost(&self) -> f32 {
+        match self {
+            DecoyType::Thermal => 1.0,
+            DecoyType::EM => 0.5,
+            DecoyType::Chaff => 2.0,
+            DecoyType::Drone => 10.0,
+        }
+    }
+
+    /// Duration in simulation seconds before decoy expires.
+    pub fn duration_seconds(&self) -> f64 {
+        match self {
+            DecoyType::Thermal => 60.0,
+            DecoyType::EM => 120.0,
+            DecoyType::Chaff => 30.0,
+            DecoyType::Drone => 300.0,
+        }
+    }
+}
+
+/// A deployed decoy emitting a false signature to draw enemy detection attention.
+#[derive(Component, Debug, Clone)]
+pub struct Decoy {
+    pub decoy_type: DecoyType,
+    pub signature_override: Signature,
+    pub duration_seconds: f64,
+    pub active: bool,
+    pub time_remaining: f64,
+}
+
+impl Decoy {
+    pub fn new(decoy_type: DecoyType) -> Self {
+        Self {
+            decoy_type,
+            signature_override: Signature::default(),
+            duration_seconds: decoy_type.duration_seconds(),
+            active: true,
+            time_remaining: decoy_type.duration_seconds(),
+        }
+    }
+
+    pub fn tick(&mut self, dt: f64) {
+        self.time_remaining -= dt;
+        if self.time_remaining <= 0.0 {
+            self.active = false;
+        }
+    }
+}
+
+/// Marker for a fleet performing a sensor sweep this tick.
+/// Consumes 5× normal active sensor power and reveals all contacts in range
+/// (including stealth) while revealing the sweeper's position to enemies.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SensorSweep;
