@@ -91,7 +91,7 @@ pub fn ui_notification_panel(
     }
 
     // Close button for the panel.
-    let _header_height = 28.0;
+    let header_height = 28.0;
 
     egui::Area::new("notification_panel".into())
         .fixed_pos(egui::pos2(panel_rect.min.x, panel_rect.min.y))

@@ -151,7 +151,7 @@ fn render_new_game_content(
                 painter.rect_stroke(rect, 2.0, egui::Stroke::new(2.0, ACCENT), egui::StrokeKind::Outside);
             }
 
-            if rect.contains(ui.ctx().pointer_interact_pos()) && ui.ctx().input(|i| i.pointer.any_click()) {
+            if rect.contains(ui.ctx().pointer_interact_pos().unwrap_or(egui::Pos2::new(-1.0, -1.0))) && ui.ctx().input(|i| i.pointer.any_click()) {
                 galaxy_config.player_faction.color = *color;
             }
 

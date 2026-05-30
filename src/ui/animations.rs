@@ -429,47 +429,35 @@ impl ToastQueue {
     }
 
     /// Add an info toast
-    pub fn info(&mut self, text: impl Into<String>) {
+    pub fn info(&mut self, text: impl Into<String>, time: f64) {
         let mut toast = ToastMessage::new(text, ToastKind::Info);
-        toast.start_time = bevy_egui::egui::Context::current()
-            .map(|ctx| ctx.input(|i| i.time))
-            .unwrap_or(0.0);
+        toast.start_time = time;
         self.push(toast);
     }
 
     /// Add a success toast
-    pub fn success(&mut self, text: impl Into<String>) {
+    pub fn success(&mut self, text: impl Into<String>, time: f64) {
         let mut toast = ToastMessage::new(text, ToastKind::Success);
-        toast.start_time = bevy_egui::egui::Context::current()
-            .map(|ctx| ctx.input(|i| i.time))
-            .unwrap_or(0.0);
+        toast.start_time = time;
         self.push(toast);
     }
 
     /// Add a warning toast
-    pub fn warn(&mut self, text: impl Into<String>) {
+    pub fn warn(&mut self, text: impl Into<String>, time: f64) {
         let mut toast = ToastMessage::new(text, ToastKind::Warning);
-        toast.start_time = bevy_egui::egui::Context::current()
-            .map(|ctx| ctx.input(|i| i.time))
-            .unwrap_or(0.0);
+        toast.start_time = time;
         self.push(toast);
     }
 
     /// Add an error toast
-    pub fn error(&mut self, text: impl Into<String>) {
+    pub fn error(&mut self, text: impl Into<String>, time: f64) {
         let mut toast = ToastMessage::new(text, ToastKind::Error);
-        toast.start_time = bevy_egui::egui::Context::current()
-            .map(|ctx| ctx.input(|i| i.time))
-            .unwrap_or(0.0);
+        toast.start_time = time;
         self.push(toast);
     }
 
     /// Update all toasts. Removes expired ones.
-    pub fn update(&mut self, dt: f32) {
-        let time = bevy_egui::egui::Context::current()
-            .map(|ctx| ctx.input(|i| i.time))
-            .unwrap_or(0.0);
-
+    pub fn update(&mut self, dt: f32, time: f64) {
         self.toasts.retain(|t| !t.update(dt, time));
     }
 }
@@ -623,10 +611,8 @@ impl ResourceDeltaQueue {
     }
 
     /// Add a new delta popup
-    pub fn push(&mut self, delta: ResourceDelta) {
-        delta.start_time = bevy_egui::egui::Context::current()
-            .map(|ctx| ctx.input(|i| i.time))
-            .unwrap_or(0.0);
+    pub fn push(&mut self, mut delta: ResourceDelta, time: f64) {
+        delta.start_time = time;
         self.deltas.push(delta);
         while self.deltas.len() > self.max_deltas {
             self.deltas.remove(0);
@@ -634,10 +620,7 @@ impl ResourceDeltaQueue {
     }
 
     /// Update all deltas. Removes expired ones.
-    pub fn update(&mut self, dt: f32) {
-        let time = bevy_egui::egui::Context::current()
-            .map(|ctx| ctx.input(|i| i.time))
-            .unwrap_or(0.0);
+    pub fn update(&mut self, dt: f32, time: f64) {
         self.deltas.retain(|d| d.update(dt, time).is_some());
     }
 }

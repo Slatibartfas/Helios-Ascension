@@ -68,6 +68,7 @@ fn main() {
         .add_plugins(SystemPopulatorPlugin)
         .add_plugins(UIPlugin)
         .add_plugins(MusicPlugin)
+        .add_plugins(GameEventsPlugin)
         // Systems
         .add_systems(Startup, setup)
         .run();
