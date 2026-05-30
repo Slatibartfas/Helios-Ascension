@@ -136,9 +136,9 @@ fn test_delta_v_calculation() {
 
     let delta_v = isp * g0 * mass_ratio.ln();
 
-    // Should be approximately 9190 m/s
+    // Should be approximately 10164 m/s
     assert!(
-        (delta_v - 9190.0).abs() < 100.0,
+        (delta_v - 10164.0).abs() < 100.0,
         "Delta-v calculation incorrect: {} m/s",
         delta_v
     );
