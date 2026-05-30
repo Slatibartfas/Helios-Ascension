@@ -193,19 +193,6 @@ pub fn ui_notification_panel(
                                 );
                                 ui.painter().rect_filled(strip_rect, TILE_RADIUS, tint.linear_multiply(0.6));
 
-                                // Title with category icon.
-                                let icon = category_icon(notification.category);
-                                let title_text = egui::RichText::new(format!("{} {}", icon, notification.title))
-                                    .size(13.0)
-                                    .color(theme::TEXT)
-                                    .strong();
-                                let body_text = egui::RichText::new(format!(
-                                    "{}{}",
-                                    notification.body, age_suffix
-                                ))
-                                .size(11.0)
-                                .color(theme::TEXT_DIM);
-
                                 let text_rect = tile_rect.shrink2(egui::vec2(14.0, 4.0));
                                 let title_str = format!("{} {}", icon, notification.title);
                                 ui.painter().text(
