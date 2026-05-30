@@ -148,6 +148,7 @@ fn test_delta_v_calculation() {
 #[test]
 fn test_research_progression() {
     #[derive(Resource, Default)]
+    #[allow(dead_code)]
     struct MockResearchState {
         points: f32,
         progress: f32, // 0.0 to 1.0
@@ -166,6 +167,7 @@ fn test_research_progression() {
 #[test]
 fn test_construction_queue() {
     #[derive(Resource, Default)]
+    #[allow(dead_code)]
     struct MockConstructionQueue {
         queue: Vec<String>,
     }
