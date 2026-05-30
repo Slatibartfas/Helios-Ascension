@@ -1,5 +1,6 @@
 use super::dashboard::format_mass;
 use super::*;
+use crate::game_settings::GameSettings;
 
 /// Persisted state for the economy panel's selected tab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -795,6 +796,7 @@ pub(super) fn render_power_body_detail_tooltip(
     ui: &mut egui::Ui,
     body: &PowerBodyRow,
     buildings_data: Option<&BuildingsData>,
+    cb_mode: crate::game_settings::ColorBlindMode,
 ) {
     ui.set_min_width(360.0);
 
@@ -811,7 +813,7 @@ pub(super) fn render_power_body_detail_tooltip(
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.label(
                 egui::RichText::new(format_power(body.total_generation_watts))
-                    .color(theme::GREEN)
+                    .color(theme::green(cb_mode))
                     .strong(),
             );
         });
@@ -826,18 +828,18 @@ pub(super) fn render_power_body_detail_tooltip(
             0.0
         };
         let net_color = if body.net_power_watts >= 0.0 {
-            theme::GREEN
+            theme::green(cb_mode)
         } else {
-            theme::RED
+            theme::red(cb_mode)
         };
         let util_color = if colony.power_generation_watts <= 0.0 {
             theme::TEXT_DIM
         } else if utilization < 0.8 {
-            theme::GREEN
+            theme::green(cb_mode)
         } else if utilization < 1.0 {
             theme::AMBER
         } else {
-            theme::RED
+            theme::red(cb_mode)
         };
 
         let building_rows = build_colony_power_rows(colony, buildings_data);
@@ -858,16 +860,16 @@ pub(super) fn render_power_body_detail_tooltip(
                         for row in building_rows {
                             let building_net = row.produced_watts - row.consumed_watts;
                             let building_net_color = if building_net >= 0.0 {
-                                theme::GREEN
+                                theme::green(cb_mode)
                             } else {
-                                theme::RED
+                                theme::red(cb_mode)
                             };
 
                             ui.label(row.building_type.display_name());
                             ui.label(row.count.to_string());
                             ui.label(
                                 egui::RichText::new(format_power_gw(row.produced_watts))
-                                    .color(theme::GREEN)
+                                    .color(theme::green(cb_mode))
                                     .monospace(),
                             );
                             ui.label(
@@ -894,7 +896,7 @@ pub(super) fn render_power_body_detail_tooltip(
                     "Production {}",
                     format_power(colony.power_generation_watts)
                 ))
-                .color(theme::GREEN),
+                .color(theme::green(cb_mode)),
             );
             ui.label(
                 egui::RichText::new(format!("Load {}", format_power(colony.power_load_watts)))
@@ -938,7 +940,7 @@ pub(super) fn render_power_body_detail_tooltip(
                     ui.label(generator.source_type.to_string());
                     ui.label(
                         egui::RichText::new(format_power(generator.output_watts))
-                            .color(theme::GREEN)
+                            .color(theme::green(cb_mode))
                             .monospace(),
                     );
                     ui.end_row();
@@ -1120,13 +1122,13 @@ pub(super) fn build_economy_hierarchy(
 }
 
 /// Format a rate value with sign and color helper.
-fn rate_text(rate: f64, suffix: &str) -> (String, egui::Color32) {
+fn rate_text(rate: f64, suffix: &str, cb_mode: crate::game_settings::ColorBlindMode) -> (String, egui::Color32) {
     if rate.abs() < 1e-9 {
         return (format!("0{}", suffix), theme::TEXT_DIM);
     }
     let sign = if rate > 0.0 { "+" } else { "" };
     let text = format!("{}{}{}", sign, format_mass(rate), suffix);
-    let color = if rate > 0.0 { theme::GREEN } else { theme::RED };
+    let color = if rate > 0.0 { theme::green(cb_mode) } else { theme::red(cb_mode) };
     (text, color)
 }
 
@@ -1172,6 +1174,7 @@ pub(super) fn ui_economy_panels(
     buildings_data: Option<Res<BuildingsData>>,
     resource_requests: Res<crate::economy::PendingResourceRequests>,
     shipping_companies: Res<crate::economy::ShippingCompanies>,
+    settings: Res<GameSettings>,
 ) {
     if active_menu.current != GameMenu::Economy {
         return;
@@ -1187,6 +1190,8 @@ pub(super) fn ui_economy_panels(
     egui::CentralPanel::default()
         .frame(theme::central_frame())
         .show(ctx, |ui| {
+        let cb_mode = settings.ui.color_blind_mode;
+
         // Tab state (persisted across frames)
         let tab_id = ui.id().with("economy_tab");
         let mut current_tab: EconomyTab = ui
@@ -1202,9 +1207,9 @@ pub(super) fn ui_economy_panels(
         let balance = budget.balance_per_year();
         let sign = if balance >= 0.0 { "+" } else { "" };
         let balance_color = if balance >= 0.0 {
-            theme::GREEN
+            theme::green(cb_mode)
         } else {
-            theme::RED
+            theme::red(cb_mode)
         };
         ui.horizontal_wrapped(|ui| {
             draw_status_chip(
@@ -1259,7 +1264,7 @@ pub(super) fn ui_economy_panels(
 
         match current_tab {
             EconomyTab::Overview => {
-                render_econ_overview(ui, &budget, &rate_tracker, &hierarchy)
+                render_econ_overview(ui, &budget, &rate_tracker, &hierarchy, cb_mode)
             }
             EconomyTab::Resources => render_econ_resources(
                 ui,
@@ -1267,14 +1272,15 @@ pub(super) fn ui_economy_panels(
                 &rate_tracker,
                 &hierarchy,
                 buildings_data.as_deref(),
+                cb_mode,
             ),
-            EconomyTab::Colonies => render_econ_colonies(ui, &budget, &hierarchy),
-                EconomyTab::Mining => render_econ_mining(ui, &hierarchy, &mut mining_ui_state),
+            EconomyTab::Colonies => render_econ_colonies(ui, &budget, &hierarchy, cb_mode),
+            EconomyTab::Mining => render_econ_mining(ui, &hierarchy, &mut mining_ui_state, cb_mode),
             EconomyTab::PowerGrid => {
-                render_econ_power_grid(ui, &budget, &hierarchy, buildings_data.as_deref())
+                render_econ_power_grid(ui, &budget, &hierarchy, buildings_data.as_deref(), cb_mode)
             }
             EconomyTab::Logistics => {
-                render_econ_logistics(ui, &resource_requests, &shipping_companies, &budget)
+                render_econ_logistics(ui, &resource_requests, &shipping_companies, &budget, cb_mode)
             }
         }
         });
@@ -1287,6 +1293,7 @@ fn render_econ_overview(
     budget: &GlobalBudget,
     rate_tracker: &ResourceRateTracker,
     hierarchy: &[StarSystemGroup],
+    cb_mode: crate::game_settings::ColorBlindMode,
 ) {
     let populated_systems = hierarchy
         .iter()
@@ -1320,7 +1327,7 @@ fn render_econ_overview(
                             "{}/yr",
                             format_currency(budget.income_per_year)
                         ))
-                        .color(theme::GREEN),
+                        .color(theme::green(cb_mode)),
                     );
                     ui.end_row();
 
@@ -1330,15 +1337,15 @@ fn render_econ_overview(
                             "{}/yr",
                             format_currency(budget.expenses_per_year)
                         ))
-                        .color(theme::RED),
+                        .color(theme::red(cb_mode)),
                     );
                     ui.end_row();
 
                     let balance = budget.balance_per_year();
                     let (sign, color) = if balance >= 0.0 {
-                        ("+", theme::GREEN)
+                        ("+", theme::green(cb_mode))
                     } else {
-                        ("", theme::RED)
+                        ("", theme::red(cb_mode))
                     };
                     ui.label("Balance:");
                     ui.label(
@@ -1371,7 +1378,7 @@ fn render_econ_overview(
                     .show(ui, |ui| {
                         ui.label("Production:");
                         ui.label(
-                            egui::RichText::new(format_power(grid.produced)).color(theme::GREEN),
+                            egui::RichText::new(format_power(grid.produced)).color(theme::green(cb_mode)),
                         );
                         ui.end_row();
                         ui.label("Consumption:");
@@ -1381,9 +1388,9 @@ fn render_econ_overview(
                         ui.end_row();
                         ui.label("Surplus:");
                         let sc = if surplus >= 0.0 {
-                            theme::GREEN
+                            theme::green(cb_mode)
                         } else {
-                            theme::RED
+                            theme::red(cb_mode)
                         };
                         ui.label(
                             egui::RichText::new(format_power(surplus))
@@ -1393,11 +1400,11 @@ fn render_econ_overview(
                         ui.end_row();
                         ui.label("Load:");
                         let lc = if utilization < 0.8 {
-                            theme::GREEN
+                            theme::green(cb_mode)
                         } else if utilization < 1.0 {
                             theme::AMBER
                         } else {
-                            theme::RED
+                            theme::red(cb_mode)
                         };
                         ui.label(
                             egui::RichText::new(format!("{:.1}%", utilization * 100.0)).color(lc),
@@ -1476,7 +1483,7 @@ fn render_econ_overview(
                         ui.label(icon);
                         ui.label(egui::RichText::new(resource.display_name()).strong());
                         ui.label(format!("Stock: {}", format_mass(stockpile)));
-                        let (txt, col) = rate_text(rate, "/mo");
+                        let (txt, col) = rate_text(rate, "/mo", cb_mode);
                         ui.label(egui::RichText::new(txt).color(col));
                     });
                 }
@@ -1486,7 +1493,7 @@ fn render_econ_overview(
                 ui.label(
                     egui::RichText::new("All resources at healthy levels")
                         .italics()
-                        .color(theme::GREEN),
+                        .color(theme::green(cb_mode)),
                 );
             }
         });
@@ -1535,9 +1542,9 @@ fn render_econ_overview(
                         .sum();
                     let sys_net = sys_income - sys_cost;
                     let net_color = if sys_net >= 0.0 {
-                        theme::GREEN
+                        theme::green(cb_mode)
                     } else {
-                        theme::RED
+                        theme::red(cb_mode)
                     };
                     let sign = if sys_net >= 0.0 { "+" } else { "" };
 
@@ -1569,9 +1576,9 @@ fn render_econ_overview(
 
                             body_count += 1;
                             let body_color = if body_net >= 0.0 {
-                                theme::GREEN
+                                theme::green(cb_mode)
                             } else {
-                                theme::RED
+                                theme::red(cb_mode)
                             };
                             let body_sign = if body_net >= 0.0 { "+" } else { "" };
                             let body_icon = match body_entry.body_type {
@@ -1634,6 +1641,7 @@ fn render_econ_resources(
     rate_tracker: &ResourceRateTracker,
     hierarchy: &[StarSystemGroup],
     buildings_data: Option<&BuildingsData>,
+    cb_mode: crate::game_settings::ColorBlindMode,
 ) {
     draw_section_title(
         ui,
@@ -1679,7 +1687,7 @@ fn render_econ_resources(
                             );
 
                             let stock_color = if stockpile <= 0.0 {
-                                theme::RED
+                                theme::red(cb_mode)
                             } else if stockpile < 100.0 && resource.is_critical() {
                                 theme::AMBER
                             } else {
@@ -1691,7 +1699,7 @@ fn render_econ_resources(
                                     .color(stock_color),
                             );
 
-                            let (txt, col) = rate_text(rate, "/mo");
+                            let (txt, col) = rate_text(rate, "/mo", cb_mode);
                             ui.label(egui::RichText::new(txt).monospace().color(col));
                             ui.end_row();
                         }
@@ -2001,7 +2009,7 @@ fn render_econ_resources(
                                             egui::RichText::new("Production (/mo):")
                                                 .strong()
                                                 .size(11.0)
-                                                .color(theme::GREEN),
+                                                .color(theme::green(cb_mode)),
                                         );
                                         egui::Grid::new(format!(
                                             "econ_prod_{}",
@@ -2024,7 +2032,7 @@ fn render_econ_resources(
                                                     ))
                                                     .monospace()
                                                     .size(11.0)
-                                                    .color(theme::GREEN),
+                                                    .color(theme::green(cb_mode)),
                                                 );
                                                 ui.end_row();
                                             }
@@ -2036,7 +2044,7 @@ fn render_econ_resources(
                                             egui::RichText::new("Consumption (/mo):")
                                                 .strong()
                                                 .size(11.0)
-                                                .color(theme::RED),
+                                                .color(theme::red(cb_mode)),
                                         );
                                         egui::Grid::new(format!(
                                             "econ_cons_{}",
@@ -2059,7 +2067,7 @@ fn render_econ_resources(
                                                     ))
                                                     .monospace()
                                                     .size(11.0)
-                                                    .color(theme::RED),
+                                                    .color(theme::red(cb_mode)),
                                                 );
                                                 ui.end_row();
                                             }
@@ -2126,7 +2134,7 @@ fn render_econ_resources(
 
 // ---- Economy Tab: Colonies ----
 
-fn render_econ_colonies(ui: &mut egui::Ui, budget: &GlobalBudget, hierarchy: &[StarSystemGroup]) {
+fn render_econ_colonies(ui: &mut egui::Ui, budget: &GlobalBudget, hierarchy: &[StarSystemGroup], cb_mode: crate::game_settings::ColorBlindMode) {
     // Summary bar
     let all_colonies: Vec<&ColonySnapshot> = hierarchy
         .iter()
@@ -2138,7 +2146,7 @@ fn render_econ_colonies(ui: &mut egui::Ui, budget: &GlobalBudget, hierarchy: &[S
     let total_income: f64 = all_colonies.iter().map(|c| c.income_per_year).sum();
     let total_cost: f64 = all_colonies.iter().map(|c| c.operating_cost_per_year).sum();
     let net = total_income - total_cost;
-    let net_color = if net >= 0.0 { theme::GREEN } else { theme::RED };
+    let net_color = if net >= 0.0 { theme::green(cb_mode) } else { theme::red(cb_mode) };
 
     draw_section_title(ui, "COLONIES", "Population, housing, labor, and financial performance.");
     theme::elevated_frame().show(ui, |ui| {
@@ -2195,9 +2203,9 @@ fn render_econ_colonies(ui: &mut egui::Ui, budget: &GlobalBudget, hierarchy: &[S
                 .sum();
             let sys_net = sys_income - sys_cost;
             let sys_net_color = if sys_net >= 0.0 {
-                theme::GREEN
+                theme::green(cb_mode)
             } else {
-                theme::RED
+                theme::red(cb_mode)
             };
             let sys_sign = if sys_net >= 0.0 { "+" } else { "" };
 
@@ -2221,9 +2229,9 @@ fn render_econ_colonies(ui: &mut egui::Ui, budget: &GlobalBudget, hierarchy: &[S
                     let cost = colony.operating_cost_per_year;
                     let colony_net = income - cost;
                     let cn_color = if colony_net >= 0.0 {
-                        theme::GREEN
+                        theme::green(cb_mode)
                     } else {
-                        theme::RED
+                        theme::red(cb_mode)
                     };
                     let cn_sign = if colony_net >= 0.0 { "+" } else { "" };
 
@@ -2285,11 +2293,11 @@ fn render_econ_colonies(ui: &mut egui::Ui, budget: &GlobalBudget, hierarchy: &[S
 
                                 ui.label("Workforce:");
                                 let wf_color = if colony.workforce_efficiency >= 1.0 {
-                                    theme::GREEN
+                                    theme::green(cb_mode)
                                 } else if colony.workforce_efficiency >= 0.5 {
                                     theme::AMBER
                                 } else {
-                                    theme::RED
+                                    theme::red(cb_mode)
                                 };
                                 ui.label(
                                     egui::RichText::new(format!(
@@ -2302,11 +2310,11 @@ fn render_econ_colonies(ui: &mut egui::Ui, budget: &GlobalBudget, hierarchy: &[S
 
                                 ui.label("Logistics:");
                                 let log_color = if colony.logistics_efficiency >= 1.0 {
-                                    theme::GREEN
+                                    theme::green(cb_mode)
                                 } else if colony.logistics_efficiency >= 0.5 {
                                     theme::AMBER
                                 } else {
-                                    theme::RED
+                                    theme::red(cb_mode)
                                 };
                                 ui.label(
                                     egui::RichText::new(format!(
@@ -2320,14 +2328,14 @@ fn render_econ_colonies(ui: &mut egui::Ui, budget: &GlobalBudget, hierarchy: &[S
                                 ui.label("Income:");
                                 ui.label(
                                     egui::RichText::new(format!("{}/yr", format_currency(income)))
-                                        .color(theme::GREEN),
+                                        .color(theme::green(cb_mode)),
                                 );
                                 ui.end_row();
 
                                 ui.label("Operating Cost:");
                                 ui.label(
                                     egui::RichText::new(format!("{}/yr", format_currency(cost)))
-                                        .color(theme::RED),
+                                        .color(theme::red(cb_mode)),
                                 );
                                 ui.end_row();
 
@@ -2444,6 +2452,7 @@ fn render_mining_grouped_children(
     body_lookup: &std::collections::HashMap<Entity, &BodyEconomyEntry>,
     hierarchy: &std::collections::HashMap<Entity, Vec<Entity>>,
     state: &mut MiningTabUiState,
+    cb_mode: crate::game_settings::ColorBlindMode,
 ) {
     if children.is_empty() {
         return;
@@ -2463,7 +2472,7 @@ fn render_mining_grouped_children(
     }
     header.body(|ui| {
         for child in children {
-            render_mining_body_tree(ui, *child, body_lookup, hierarchy, state);
+            render_mining_body_tree(ui, *child, body_lookup, hierarchy, state, cb_mode);
         }
     });
 }
@@ -2474,6 +2483,7 @@ fn render_mining_body_tree(
     body_lookup: &std::collections::HashMap<Entity, &BodyEconomyEntry>,
     hierarchy: &std::collections::HashMap<Entity, Vec<Entity>>,
     state: &mut MiningTabUiState,
+    cb_mode: crate::game_settings::ColorBlindMode,
 ) {
     let Some(body_entry) = body_lookup.get(&entity).copied() else {
         return;
@@ -2539,7 +2549,7 @@ fn render_mining_body_tree(
     }
     header.body(|ui| {
         for child in child_planets {
-            render_mining_body_tree(ui, child, body_lookup, hierarchy, state);
+            render_mining_body_tree(ui, child, body_lookup, hierarchy, state, cb_mode);
         }
         render_mining_grouped_children(
             ui,
@@ -2548,9 +2558,10 @@ fn render_mining_body_tree(
             body_lookup,
             hierarchy,
             state,
+            cb_mode,
         );
         for child in child_moons {
-            render_mining_body_tree(ui, child, body_lookup, hierarchy, state);
+            render_mining_body_tree(ui, child, body_lookup, hierarchy, state, cb_mode);
         }
         render_mining_grouped_children(
             ui,
@@ -2559,6 +2570,7 @@ fn render_mining_body_tree(
             body_lookup,
             hierarchy,
             state,
+            cb_mode,
         );
         render_mining_grouped_children(
             ui,
@@ -2567,9 +2579,10 @@ fn render_mining_body_tree(
             body_lookup,
             hierarchy,
             state,
+            cb_mode,
         );
         for child in child_others {
-            render_mining_body_tree(ui, child, body_lookup, hierarchy, state);
+            render_mining_body_tree(ui, child, body_lookup, hierarchy, state, cb_mode);
         }
     });
 }
@@ -2579,6 +2592,7 @@ fn render_mining_body_details(
     system_name: &str,
     body_entry: &BodyEconomyEntry,
     state: &MiningTabUiState,
+    cb_mode: crate::game_settings::ColorBlindMode,
 ) {
     let visible_deposits = mining_visible_deposit_rows(body_entry, state.resource_filter);
     let estimated_total: f64 = visible_deposits.iter().map(|row| row.estimated_mt).sum();
@@ -2615,7 +2629,7 @@ fn render_mining_body_details(
                 visible_deposits.len().to_string(),
                 theme::TEXT_VALUE,
             );
-            draw_status_chip(ui, "ESTIMATE", format_mass(estimated_total), theme::GREEN);
+            draw_status_chip(ui, "ESTIMATE", format_mass(estimated_total), theme::green(cb_mode));
             draw_status_chip(
                 ui,
                 "AVG ACCESS",
@@ -2707,7 +2721,7 @@ fn render_mining_body_details(
                     }) {
                         ui.label(op.resource_type.display_name());
                         ui.label(format!("{:.2} Mt/yr", op.rate_mt_per_year));
-                        ui.label(egui::RichText::new("Active").color(theme::GREEN));
+                        ui.label(egui::RichText::new("Active").color(theme::green(cb_mode)));
                         ui.end_row();
                     }
                 });
@@ -2788,7 +2802,7 @@ fn render_mining_body_details(
                     });
                     if let Some(rate) = row.active_rate_mt_per_year {
                         ui.label(
-                            egui::RichText::new(format!("{:.2} Mt/yr", rate)).color(theme::GREEN),
+                            egui::RichText::new(format!("{:.2} Mt/yr", rate)).color(theme::green(cb_mode)),
                         );
                     } else {
                         ui.label(egui::RichText::new("Idle").color(theme::TEXT_DIM));
@@ -2803,6 +2817,7 @@ fn render_econ_mining(
     ui: &mut egui::Ui,
     hierarchy: &[StarSystemGroup],
     mining_ui_state: &mut MiningTabUiState,
+    cb_mode: crate::game_settings::ColorBlindMode,
 ) {
     draw_section_title(
         ui,
@@ -2883,7 +2898,7 @@ fn render_econ_mining(
                 visible_deposit_count.to_string(),
                 theme::TEXT_VALUE,
             );
-            draw_status_chip(ui, "VISIBLE ESTIMATE", format_mass(visible_estimate), theme::GREEN);
+            draw_status_chip(ui, "VISIBLE ESTIMATE", format_mass(visible_estimate), theme::green(cb_mode));
             draw_status_chip(ui, "ACTIVE SITES", active_sites.to_string(), theme::EP_TEAL);
         });
     });
@@ -3065,6 +3080,7 @@ fn render_econ_mining(
                                     &body_lookup,
                                     &children_by_parent,
                                     mining_ui_state,
+                                    cb_mode,
                                 );
                             }
                         });
@@ -3090,7 +3106,7 @@ fn render_econ_mining(
                 .id_salt("econ_mining_details")
                 .show(ui, |ui| {
                     if let Some((system_name, body_entry)) = selected_entry {
-                        render_mining_body_details(ui, system_name, body_entry, mining_ui_state);
+                        render_mining_body_details(ui, system_name, body_entry, mining_ui_state, cb_mode);
                     } else {
                         ui.label(
                             egui::RichText::new("Select a body from the resource ledger.")
@@ -3110,6 +3126,7 @@ fn render_econ_power_grid(
     budget: &GlobalBudget,
     hierarchy: &[StarSystemGroup],
     buildings_data: Option<&BuildingsData>,
+    cb_mode: crate::game_settings::ColorBlindMode,
 ) {
     let grid = &budget.energy_grid;
     let surplus = grid.surplus();
@@ -3119,13 +3136,13 @@ fn render_econ_power_grid(
     draw_section_title(ui, "POWER GRID", "Generation, load, and body-level power allocation.");
     theme::elevated_frame().show(ui, |ui| {
         let (status_text, status_color) = if utilization < 0.5 {
-            ("Abundant Power", theme::GREEN)
+            ("Abundant Power", theme::green(cb_mode))
         } else if utilization < 0.8 {
-            ("Healthy", theme::GREEN)
+            ("Healthy", theme::green(cb_mode))
         } else if utilization < 1.0 {
             ("Strained", theme::AMBER)
         } else {
-            ("DEFICIT — Build more power!", theme::RED)
+            ("DEFICIT — Build more power!", theme::red(cb_mode))
         };
 
         ui.horizontal(|ui| {
@@ -3151,9 +3168,9 @@ fn render_econ_power_grid(
         );
 
         let surplus_color = if surplus >= 0.0 {
-            theme::GREEN
+            theme::green(cb_mode)
         } else {
-            theme::RED
+            theme::red(cb_mode)
         };
         ui.label(
             egui::RichText::new(format!("Surplus: {}", format_power(surplus))).color(surplus_color),
@@ -3183,7 +3200,7 @@ fn render_econ_power_grid(
                             ui.label(
                                 egui::RichText::new(format_power(*wattage))
                                     .monospace()
-                                    .color(theme::GREEN),
+                                    .color(theme::green(cb_mode)),
                             );
                             ui.end_row();
                         }
@@ -3221,18 +3238,18 @@ fn render_econ_power_grid(
                         0.0
                     };
                     let net_color = if net_power >= 0.0 {
-                        theme::GREEN
+                        theme::green(cb_mode)
                     } else {
-                        theme::RED
+                        theme::red(cb_mode)
                     };
                     let util_color = if colony.power_generation_watts <= 0.0 {
                         theme::TEXT_DIM
                     } else if utilization < 0.8 {
-                        theme::GREEN
+                        theme::green(cb_mode)
                     } else if utilization < 1.0 {
                         theme::AMBER
                     } else {
-                        theme::RED
+                        theme::red(cb_mode)
                     };
 
                     egui::CollapsingHeader::new(
@@ -3269,16 +3286,16 @@ fn render_econ_power_grid(
                                 for row in building_rows {
                                     let building_net = row.produced_watts - row.consumed_watts;
                                     let building_net_color = if building_net >= 0.0 {
-                                        theme::GREEN
+                                        theme::green(cb_mode)
                                     } else {
-                                        theme::RED
+                                        theme::red(cb_mode)
                                     };
 
                                     ui.label(row.building_type.display_name());
                                     ui.label(row.count.to_string());
                                     ui.label(
                                         egui::RichText::new(format_power_gw(row.produced_watts))
-                                            .color(theme::GREEN)
+                                            .color(theme::green(cb_mode))
                                             .monospace(),
                                     );
                                     ui.label(
@@ -3302,7 +3319,7 @@ fn render_econ_power_grid(
                                     "Production {}",
                                     format_power(colony.power_generation_watts)
                                 ))
-                                .color(theme::GREEN),
+                                .color(theme::green(cb_mode)),
                             );
                             ui.label(
                                 egui::RichText::new(format!(
@@ -3404,7 +3421,7 @@ fn render_econ_power_grid(
                                         format_power(total_generation_watts)
                                     ))
                                     .size(11.0)
-                                    .color(theme::GREEN),
+                                    .color(theme::green(cb_mode)),
                                 );
                             }
 
@@ -3421,9 +3438,9 @@ fn render_econ_power_grid(
 
                             if total_generation_watts > 0.0 || colony_load_watts > 0.0 {
                                 let net_color = if net_power_watts >= 0.0 {
-                                    theme::GREEN
+                                    theme::green(cb_mode)
                                 } else {
-                                    theme::RED
+                                    theme::red(cb_mode)
                                 };
                                 ui.label(
                                     egui::RichText::new(format!(
@@ -3480,6 +3497,7 @@ fn render_econ_logistics(
     resource_requests: &crate::economy::PendingResourceRequests,
     companies: &crate::economy::ShippingCompanies,
     budget: &GlobalBudget,
+    cb_mode: crate::game_settings::ColorBlindMode,
 ) {
     use crate::economy::{RequestPriority, RequestState};
 
@@ -3535,9 +3553,9 @@ fn render_econ_logistics(
                                     .size(11.0),
                             );
                             let available_color = if company.available_freighters > 0 {
-                                theme::GREEN
+                                theme::green(cb_mode)
                             } else {
-                                theme::RED
+                                theme::red(cb_mode)
                             };
                             ui.label(
                                 egui::RichText::new(format!("{} idle", company.available_freighters))
@@ -3650,7 +3668,7 @@ fn render_econ_logistics(
                             let (state_text, state_color) = match req.state {
                                 RequestState::Pending => ("⏳ Pending", theme::TEXT_DIM),
                                 RequestState::Assigned => ("📋 Assigned", theme::AMBER),
-                                RequestState::InTransit => ("🚀 In Transit", theme::GREEN),
+                                RequestState::InTransit => ("🚀 In Transit", theme::green(cb_mode)),
                                 _ => ("?", theme::TEXT_DIM),
                             };
                             ui.label(
@@ -3703,7 +3721,7 @@ fn render_econ_logistics(
                             ui.label(
                                 egui::RichText::new(format!("{:.1} Mt", req.in_transit_mt))
                                     .size(11.0)
-                                    .color(theme::GREEN),
+                                    .color(theme::green(cb_mode)),
                             );
                             let company_name = req
                                 .assigned_company_idx

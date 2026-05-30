@@ -186,14 +186,16 @@ pub(super) fn ui_resources_bar(
     engineering_projects: Query<&EngineeringProject>,
     research_teams: Query<&ResearchTeam>,
     technologies: Res<TechnologiesData>,
-    sim_time: Res<SimulationTime>,
+    sim_time: Res<crate::ui::SimulationTime>,
     time: Res<Time<Real>>,
     ui_prefs: Res<ResearchUiPreferences>,
+    settings: Res<crate::game_settings::GameSettings>,
 ) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
         Err(_) => return,
     };
+    let cb_mode = settings.ui.color_blind_mode;
 
     // Calculate total population
     let total_population: f64 = population_query.iter().map(|(p, _, _)| p.count).sum();
@@ -913,6 +915,7 @@ pub(super) fn ui_resources_bar(
                                     ui,
                                     body,
                                     power_popup_queries.buildings_data.as_deref(),
+                                    cb_mode,
                                 );
                             });
                         }

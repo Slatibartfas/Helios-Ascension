@@ -50,6 +50,31 @@ pub const STAR_GOLD: egui::Color32 = egui::Color32::from_rgb(255, 220, 100);
 /// Gravity-assist / flyby purple accent.
 pub const GRAVITY_ASSIST: egui::Color32 = egui::Color32::from_rgb(180, 130, 255);
 
+// ─── Color-Blind Safe Variants ──────────────────────────────────────────
+
+use crate::game_settings::ColorBlindMode;
+
+/// Positive / success — color-blind aware (deuteranopia/protanopia safe).
+pub const GREEN_CB_SAFE: egui::Color32 = egui::Color32::from_rgb(80, 180, 255);
+/// Negative / danger — color-blind aware (tritanopia safe).
+pub const RED_CB_SAFE: egui::Color32 = egui::Color32::from_rgb(255, 145, 0);
+
+/// Returns a positive-color egui::Color32, choosing CB-safe variant if needed.
+pub fn green(cb_mode: ColorBlindMode) -> egui::Color32 {
+    match cb_mode {
+        ColorBlindMode::Deuteranopia | ColorBlindMode::Protanopia => GREEN_CB_SAFE,
+        ColorBlindMode::None | ColorBlindMode::Tritanopia => GREEN,
+    }
+}
+
+/// Returns a negative-color egui::Color32, choosing CB-safe variant if needed.
+pub fn red(cb_mode: ColorBlindMode) -> egui::Color32 {
+    match cb_mode {
+        ColorBlindMode::Tritanopia => RED_CB_SAFE,
+        ColorBlindMode::None | ColorBlindMode::Deuteranopia | ColorBlindMode::Protanopia => RED,
+    }
+}
+
 // ─── Text Colours ────────────────────────────────────────────────────────
 
 /// Bright foreground (primary text).
