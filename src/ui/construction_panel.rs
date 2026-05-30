@@ -1650,7 +1650,7 @@ fn render_minimum_stockpile_editor(
     }
 
     ui.columns(column_count, |ui_columns| {
-        for (column_ui, groups) in ui_columns.iter_mut().zip(columns.into_iter()) {
+        for (column_ui, groups) in ui_columns.iter_mut().zip(columns) {
             for (category_name, resources) in groups {
                 render_minimum_stockpile_group(
                     column_ui,
