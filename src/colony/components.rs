@@ -455,7 +455,7 @@ impl MoraleState {
 }
 
 /// Individual morale driver identifiers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum MoraleDriver {
     Food,
     Housing,

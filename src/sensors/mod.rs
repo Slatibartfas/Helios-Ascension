@@ -24,6 +24,7 @@ pub struct SensorPlugin;
 
 impl Plugin for SensorPlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<SensorData>();
         app.add_systems(
             Update,
             (

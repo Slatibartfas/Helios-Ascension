@@ -85,10 +85,10 @@ fn distance_km(a: &SpaceCoordinates, b: &SpaceCoordinates) -> f64 {
 /// contact resolution. If `SensorData` isn't loaded, uses default class signatures.
 pub fn update_fleet_signatures(
     mut fleet_query: Query<&mut Fleet>,
-    sensor_data: Option<Res<SensorData>>,
+    sensor_data: Option<ResMut<SensorData>>,
     _time: Res<SimulationTime>,
 ) {
-    let data = sensor_data.as_deref();
+    let data = sensor_data.as_mut().map(|r| r.as_mut());
     for mut fleet in fleet_query.iter_mut() {
         for ship in &mut fleet.ships {
             let thrust_ratio = if ship.max_fuel_t > 0.0 {
@@ -395,6 +395,7 @@ fn fleet_active_ping_range(fleet: &Fleet) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fleets::components::ShipInfo;
     use crate::fleets::types::{PropulsionType, ShipClass};
     use crate::sensors::components::{ActiveSensor, ContactState, StealthMode};
     use crate::sensors::data::SensorData;

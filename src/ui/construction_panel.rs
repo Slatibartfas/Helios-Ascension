@@ -140,7 +140,7 @@ pub(super) fn ui_construction_panels(
             &budget,
             &contextual,
             &mut debug_settings,
-            buildings_data.as_mut().map(|d| d.as_deref_mut()),
+            buildings_data.as_mut().map(|d| d.as_mut()),
             &mut ui_state,
             &resource_requests,
             &mut minimum_stockpiles,
@@ -910,7 +910,7 @@ fn render_construction_build_tab(
                             can_afford,
                             construction_actions,
                             card_width,
-                            buildings_data.as_deref(),
+                            buildings_data.as_mut().map(|d| d.as_mut()),
                             cb_mode,
                         );
                     },
@@ -1779,7 +1779,7 @@ pub(super) fn render_building_editor(
     elapsed: f64,
     cb_mode: ColorBlindMode,
 ) {
-    let Some(mut data) = buildings_data else {
+    let Some(data) = buildings_data else {
         return;
     };
 

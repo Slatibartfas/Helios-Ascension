@@ -65,7 +65,17 @@ pub enum ShipClass {
     Station,
 }
 
-impl ShipClass {
+impl std::fmt::Display for ShipClass {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.display_name())
+    }
+}
+
+impl Default for ShipClass {
+    fn default() -> Self {
+        ShipClass::Courier
+    }
+}
     /// Human-readable display name.
     pub fn display_name(self) -> &'static str {
         match self {

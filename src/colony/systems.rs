@@ -505,7 +505,7 @@ pub fn update_colony_growth(
 
         // Apply morale growth bonus (additive, not multiplicative)
         let morale_growth = morale_opt
-            .map(|m| m.growth_bonus_per_year() * years_elapsed)
+            .map(|m| m.state().growth_bonus_per_year() * years_elapsed)
             .unwrap_or(0.0);
 
         colony.population += (base_growth + morale_growth) * ocean_modifier;

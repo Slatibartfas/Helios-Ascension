@@ -42,7 +42,7 @@ pub struct StealthModeDef {
 }
 
 /// Root sensor data file structure.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Resource)]
 pub struct SensorData {
     pub sensor_tiers: Vec<SensorTierDef>,
     pub signature_classes: Vec<SignatureClassDef>,
