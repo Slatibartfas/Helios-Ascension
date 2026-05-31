@@ -774,6 +774,7 @@ fn render_construction_build_tab(
                     return true;
                 }
                 let tech_req = buildings_data
+                    .as_mut()
                     .and_then(|d| d.required_tech(b))
                     .or_else(|| b.required_tech());
                 match tech_req {
@@ -797,6 +798,7 @@ fn render_construction_build_tab(
             .iter()
             .filter(|b| {
                 let tech_req = buildings_data
+                    .as_mut()
                     .and_then(|d| d.required_tech(b))
                     .or_else(|| b.required_tech());
                 matches!(tech_req, Some(tech_id) if !research_state.is_unlocked(tech_id))
@@ -842,6 +844,7 @@ fn render_construction_build_tab(
     if ui_state.selected_build_tab == locked_tab_index {
         for building in locked {
             let tech_id = buildings_data
+                .as_mut()
                 .and_then(|d| d.required_tech(building))
                 .or_else(|| building.required_tech());
             if let Some(tech_name) = tech_id {
@@ -1079,7 +1082,7 @@ fn render_existing_building_card(
     buildings_data: Option<&mut BuildingsData>,
     cb_mode: ColorBlindMode,
 ) {
-    let definition = buildings_data.and_then(|data| data.get(&building));
+    let definition = buildings_data.as_ref().and_then(|data| data.get(&building));
     let display_name = definition
         .map(|def| def.display_name.as_str())
         .unwrap_or(building.display_name());
@@ -1466,7 +1469,7 @@ fn render_building_card(
 ) {
     let total_bp = building.build_cost() * multiplier as f64;
     let years_to_build = if bp_rate > 0.0 { total_bp / bp_rate } else { f64::INFINITY };
-    let definition = buildings_data.and_then(|data| data.get(&building));
+    let definition = buildings_data.as_ref().and_then(|data| data.get(&building));
     let operational_entries = operational_stat_entries(building, multiplier, definition, cb_mode);
     let maintenance_entries = maintenance_entries(multiplier, definition);
     let operations_summary = summarize_construction_card_entries(&operational_entries, 1);
