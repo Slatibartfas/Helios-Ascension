@@ -140,7 +140,7 @@ pub(super) fn ui_construction_panels(
             &budget,
             &contextual,
             &mut debug_settings,
-            buildings_data.as_mut().map(|d| d.as_deref_mut()),
+            buildings_data.as_mut().map(|d| d.as_mut()),
             &mut ui_state,
             &resource_requests,
             &mut minimum_stockpiles,
