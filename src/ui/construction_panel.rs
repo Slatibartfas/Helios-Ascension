@@ -104,7 +104,7 @@ pub(super) fn ui_construction_panels(
     budget: Res<GlobalBudget>,
     contextual: Res<crate::economy::ContextualStockpile>,
     mut debug_settings: ResMut<ConstructionDebugSettings>,
-    buildings_data: Option<Res<BuildingsData>>,
+    mut buildings_data: Option<ResMut<BuildingsData>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut ui_state: ResMut<ConstructionUiState>,
     mut edit_state: ResMut<crate::colony::BuildingEditState>,
@@ -113,7 +113,7 @@ pub(super) fn ui_construction_panels(
     mut minimum_stockpiles: Query<&mut crate::economy::MinimumStockpile>,
     settings: Res<GameSettings>,
 ) {
-    let buildings_data = buildings_data.as_mut().map(|d| d.deref_mut());
+    let buildings_data: Option<&mut BuildingsData> = buildings_data.as_mut().map(|d| BuildingsData::deref_mut(d));
     if active_menu.current != GameMenu::Construction {
         return;
     }
