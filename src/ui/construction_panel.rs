@@ -1,6 +1,6 @@
 use super::dashboard::format_mass_compact;
 use super::*;
-use crate::game_settings::ColorBlindMode;
+use crate::game_settings::{ColorBlindMode, GameSettings};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum ConstructionTab {
@@ -110,7 +110,9 @@ pub(super) fn ui_construction_panels(
     sim_time: Res<crate::ui::SimulationTime>,
     resource_requests: Res<crate::economy::PendingResourceRequests>,
     mut minimum_stockpiles: Query<&mut crate::economy::MinimumStockpile>,
+    settings: Res<GameSettings>,
 ) {
+    let cb_mode = settings.ui.color_blind_mode;
     if active_menu.current != GameMenu::Construction {
         return;
     }
@@ -377,7 +379,7 @@ fn render_construction_panel(
                 );
             }
             ConstructionTab::Buildings => {
-                render_construction_buildings_tab(ui, colony, buildings_data);
+                render_construction_buildings_tab(ui, colony, buildings_data.as_deref(), cb_mode);
             }
             ConstructionTab::Build => {
                 render_construction_build_tab(
@@ -550,6 +552,7 @@ fn render_construction_buildings_tab(
     ui: &mut egui::Ui,
     colony: &Colony,
     buildings_data: Option<&BuildingsData>,
+    cb_mode: ColorBlindMode,
 ) {
     ui.label(
         egui::RichText::new("BUILDINGS")
