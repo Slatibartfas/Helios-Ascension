@@ -157,6 +157,11 @@ impl RandomEventTimer {
         self.elapsed_since_last_event
     }
 
+    /// Simulation time when the last event fired.
+    pub fn last_event_time(&self) -> f64 {
+        self.last_event_time
+    }
+
     /// Whether the cooldown period has elapsed (allows next check to proceed to roll).
     pub fn cooldown_elapsed(&self) -> bool {
         self.elapsed_since_last_event >= Self::COOLDOWN_SECS

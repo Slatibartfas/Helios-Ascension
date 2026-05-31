@@ -8,7 +8,7 @@ use rand::Rng;
 use bevy::prelude::*;
 
 use crate::events::bus::{EventBus, RandomEventTimer};
-use crate::events::load_events::EventsData;
+use crate::events::EventsData;
 use crate::game_events::{EmitNotification, NotificationCategory};
 use crate::ui::animations::{ToastKind, ToastMessage, ToastQueue};
 use crate::ui::time::SimulationTime;
