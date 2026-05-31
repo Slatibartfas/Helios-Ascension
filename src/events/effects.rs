@@ -146,7 +146,10 @@ pub fn process_delayed_effects(
     bodies: &Query<(Entity, &CelestialBody)>,
 ) {
     let current = sim_time.elapsed_seconds();
-    let prev = PREV_ELAPSED.get_or_init(|| 0.0);
+    let prev = PREV_ELAPSED.get_mut().unwrap_or_else(|| {
+        PREV_ELAPSED.set(0.0).ok();
+        PREV_ELAPSED.get_mut().unwrap()
+    });
     let delta = current - *prev;
     *prev = current;
 

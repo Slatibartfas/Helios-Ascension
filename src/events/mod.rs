@@ -72,7 +72,7 @@ pub struct Effect {
     pub effect_type: EffectType,
     pub target: EffectTarget,
     pub magnitude: f64,
-    pub source_event: EventId,
+    pub source_event: String,
 }
 
 /// What an effect operates on.
@@ -106,7 +106,7 @@ pub enum EffectType {
     /// Add a trait to a body.
     AddBodyTrait { trait_name: String },
     /// Trigger another event by ID.
-    TriggerEvent { event_id: EventId },
+    TriggerEvent { event_id: String },
     /// Modify research speed for a category.
     ModifyResearchSpeed { category: String, multiplier: f64 },
 }
@@ -123,7 +123,7 @@ pub enum Condition {
     /// Game is at a specific act (1-5).
     ActAtLeast(u8),
     /// A specific event has already fired this campaign.
-    EventFired(EventId),
+    EventFired(String),
     /// A specific body has been surveyed.
     BodySurveyed(Entity),
     /// Player fleet count is at least N.
@@ -153,7 +153,7 @@ pub struct EventChoice {
 /// Static event definition loaded from ron files.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventDef {
-    pub id: EventId,
+    pub id: String,
     pub category: EventCategory,
     pub tags: Vec<EventTag>,
     pub title: String,

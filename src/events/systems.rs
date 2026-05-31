@@ -22,7 +22,10 @@ pub fn advance_random_timer(
     sim_time: Res<SimulationTime>,
 ) {
     let current = sim_time.elapsed_seconds();
-    let prev = PREV_ELAPSED.get_or_init(|| 0.0);
+    let prev = PREV_ELAPSED.get_mut().unwrap_or_else(|| {
+        PREV_ELAPSED.set(0.0).ok();
+        PREV_ELAPSED.get_mut().unwrap()
+    });
     let delta = current - *prev;
     *prev = current;
     timer.update(delta);
@@ -141,13 +144,13 @@ pub fn check_random_event_timing(
 /// Uses ToastKind::Error with a very long duration to approximate manual dismiss.
 pub fn fire_alert_event(
     event_bus: &EventBus,
-    event_id: super::EventId,
+    event_id: &str,
     title: &str,
     description: &str,
     tags: &[super::EventTag],
 ) -> GameEvent {
     let event = super::GameEvent::Alert {
-        event_id,
+        event_id: event_id.to_string(),
         title: title.to_string(),
         description: description.to_string(),
         tags: tags.to_vec(),
@@ -161,12 +164,12 @@ pub fn fire_alert_event(
 /// Per DELA-14 spec: Story milestone → Critical (full toast + banner, manual dismiss).
 pub fn fire_story_event(
     event_bus: &EventBus,
-    event_id: super::EventId,
+    event_id: &str,
     title: &str,
     description: &str,
 ) -> GameEvent {
     let event = super::GameEvent::Story {
-        event_id,
+        event_id: event_id.to_string(),
         title: title.to_string(),
         description: description.to_string(),
     };

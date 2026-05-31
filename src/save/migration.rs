@@ -326,10 +326,10 @@ mod tests {
         let migrator = SaveMigrator::new();
 
         let data = make_test_save_data(SAVE_VERSION);
-        assert!(!migrator.needs_migration(&data));
+        assert!(!SaveMigrator::needs_migration(&data));
 
         let data = make_test_save_data(SAVE_VERSION - 1);
-        assert!(migrator.needs_migration(&data));
+        assert!(SaveMigrator::needs_migration(&data));
     }
 
     #[test]
