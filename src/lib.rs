@@ -13,4 +13,3 @@ pub mod render;
 pub mod research;
 pub mod save;
 pub mod ui;
-pub mod ui_animations;
