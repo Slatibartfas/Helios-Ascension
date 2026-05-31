@@ -787,10 +787,10 @@ mod tests {
             None,
         );
         // Dark Drive: emission_mult=0.1
-        // Default Cruiser: thermal=8.0
-        // engine_thermal = 8.0 * 0.5² = 2.0
-        // thermal = 8.0 + 2.0 * 0.1 = 8.2
-        assert!((sig.thermal - 8.2).abs() < 0.01);
+        // With data=None: base_thermal=1.0 (default, no RON file loaded in tests)
+        // engine_thermal = 1.0 * 0.5² = 0.25
+        // thermal = 1.0 + 0.25 * 0.1 = 1.025
+        assert!((sig.thermal - 1.025).abs() < 0.01);
     }
 
     // ── Stealth mode emission multipliers ─────────────────────────────────────
