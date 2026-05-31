@@ -17,6 +17,7 @@ pub mod generation;
 pub mod logistics;
 pub mod mining;
 pub(crate) mod profiles;
+pub mod pool;
 pub mod types;
 
 pub use budget::{
@@ -37,6 +38,7 @@ pub use logistics::{
 };
 pub use mining::{extract_resources, update_resource_rates, MiningOperation};
 pub use types::{ResourcePhase, ResourceType};
+pub use pool::ResourcePool;
 
 /// Plugin that adds the economy system to the Bevy app
 pub struct EconomyPlugin;

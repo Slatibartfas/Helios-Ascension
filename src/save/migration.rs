@@ -57,6 +57,9 @@ pub struct SaveMigrator {
     /// Current save format version.
     current_version: u32,
 }
+    /// Current save format version.
+    current_version: u32,
+}
 
 impl SaveMigrator {
     /// Create a new migrator for the current version.
@@ -88,6 +91,7 @@ impl SaveMigrator {
     ///
     /// This is typically called during module initialization to populate
     /// the global migrator registry.
+    #[allow(dead_code)]
     pub fn register(from_version: u32, migrator: MigrationFn) {
         // Note: This modifies a LazyLock, which is thread-safe.
         // In practice, this is called during module init, not at runtime.
@@ -160,6 +164,7 @@ pub fn migrate_save(data: SaveData) -> Result<SaveData, SaveError> {
 /// - Added `playtime_seconds: Option<u64>` to `SaveMetadata`
 /// - Added `checksum: u32` to `SaveData`
 /// - Reorganized header fields
+#[allow(dead_code)]
 fn migrate_v0_to_v1(data: SaveData) -> Result<SaveData, SaveError> {
     // v0 SaveMetadata had no playtime_seconds field.
     // RON deserialization with missing fields: serde defaults Option to None.

@@ -5,7 +5,6 @@
 //! regular intervals (wall-clock time or game-time based).
 
 use bevy::prelude::*;
-use std::time::Duration;
 
 /// Settings that control autosave behavior.
 #[derive(Resource, Debug, Clone)]

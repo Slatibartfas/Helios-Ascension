@@ -1,6 +1,7 @@
 pub mod archaeology;
 pub mod astronomy;
 pub mod colony;
+pub mod diplomacy;
 pub mod economy;
 pub mod events;
 pub mod fleets;
