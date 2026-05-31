@@ -202,7 +202,7 @@ pub fn game_event_to_notification(event: &GameEvent) -> EmitNotification {
     }
 }
 
-fn category_from_tags(tags: &[EventTag]) -> NotificationCategory {
+pub(crate) fn category_from_tags(tags: &[EventTag]) -> NotificationCategory {
     for tag in tags {
         match tag {
             EventTag::Combat => return NotificationCategory::Combat,

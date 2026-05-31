@@ -8,7 +8,7 @@ use rand;
 use std::sync::OnceLock;
 
 use crate::events::bus::{category_from_tags, EventBus, RandomEventTimer};
-use crate::events::load_events::EventsData;
+use crate::events::EventsData;
 use crate::game_events::EmitNotification;
 use crate::ui::animations::{ToastKind, ToastMessage, ToastQueue};
 use crate::ui::time::SimulationTime;

@@ -13,13 +13,13 @@
 //! ```
 
 pub mod bus;
-pub mod load_events;
+pub mod effects;
 pub mod systems;
 
 // Re-exports
-pub use bus::{EventBus, EventCategory, EventSubscription, EventTag, GameEvent, SubscriptionId};
+pub use bus::{EventBus, EventCategory, EventTag, GameEvent, SubscriptionId};
 pub use bus::EventBusPlugin;
-pub use load_events::EventsData;
+pub use effects::EventsData;
 pub use systems::fire_story_event;
 
 // ─── Data model types (shared with .ron loading) ───────────────────────────────
