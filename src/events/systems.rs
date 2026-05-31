@@ -61,7 +61,7 @@ pub fn check_random_event_timing(
     sim_time: Res<SimulationTime>,
     events_data: Res<EventsData>,
     mut event_bus: ResMut<EventBus>,
-    mut notification_events: EventWriter<EmitNotification>,
+    mut notification_events: MessageWriter<EmitNotification>,
     mut toast_queue: ResMut<ToastQueue>,
 ) {
     let elapsed = sim_time.elapsed_seconds();

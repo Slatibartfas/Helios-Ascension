@@ -135,7 +135,7 @@ impl NotificationQueue {
 }
 
 /// Emit this event to enqueue a notification.
-#[derive(Debug, Clone)]
+#[derive(Message, Debug, Clone)]
 pub struct EmitNotification {
     pub kind: NotificationKind,
     pub category: NotificationCategory,
@@ -378,7 +378,7 @@ impl Plugin for GameEventsPlugin {
         app.init_resource::<NotificationQueue>()
             .init_resource::<NotificationHistory>()
             .init_resource::<ToastQueue>()
-            .add_event::<EmitNotification>()
+            .add_message::<EmitNotification>()
             .add_systems(
                 Update, // intentionally not EguiPrimaryContextPass — runs every frame
                 (Self::process_notifications, Self::prune_expired),
@@ -391,7 +391,7 @@ impl GameEventsPlugin {
         mut queue: ResMut<NotificationQueue>,
         mut history: ResMut<NotificationHistory>,
         mut toast_queue: ResMut<ToastQueue>,
-        mut events: EventReader<EmitNotification>,
+        mut events: MessageReader<EmitNotification>,
     ) {
         for event in events.read() {
             let notification = Notification {
