@@ -3,9 +3,11 @@
 //! Random event timer: checks every 5 simulation minutes, 30% roll chance,
 //! 15-min cooldown between random events. Alert events fire synchronously.
 
+use std::cell::RefCell;
+use std::sync::OnceLock;
+
 use bevy::prelude::*;
 use rand;
-use std::sync::OnceLock;
 
 use crate::events::bus::{category_from_tags, EventBus, RandomEventTimer};
 use crate::events::load_events::EventsData;
@@ -14,7 +16,9 @@ use crate::ui::animations::{ToastKind, ToastMessage, ToastQueue};
 use crate::ui::time::SimulationTime;
 
 /// Stores the previous simulation elapsed for delta computation.
-static PREV_ELAPSED: OnceLock<f64> = OnceLock::new();
+thread_local! {
+    static PREV_ELAPSED: RefCell<f64> = RefCell::new(0.0);
+}
 
 /// System: advance the random event timer each frame.
 pub fn advance_random_timer(
@@ -22,13 +26,13 @@ pub fn advance_random_timer(
     sim_time: Res<SimulationTime>,
 ) {
     let current = sim_time.elapsed_seconds();
-    let prev = PREV_ELAPSED.get_mut().unwrap_or_else(|| {
-        PREV_ELAPSED.set(0.0).ok();
-        PREV_ELAPSED.get_mut().unwrap()
+    let prev = PREV_ELAPSED.with(|cell| {
+        let mut prev = cell.borrow_mut();
+        let delta = current - *prev;
+        *prev = current;
+        delta
     });
-    let delta = current - *prev;
-    *prev = current;
-    timer.update(delta);
+    timer.update(prev);
 }
 
 /// Toast duration for important random events (e.g. disaster pool) — 8 seconds.

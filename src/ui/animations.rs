@@ -292,7 +292,7 @@ pub fn smooth_progress_bar_ui(
     current_displayed: f32,
     target: f32,
 ) -> f32 {
-    let dt = ui.ctx().input(|i| i.dt);
+    let dt = ui.ctx().input(|i| i.global_time().dt_in_seconds());
     let speed = 1.0 / PROGRESS_FILL;
     let diff = target - current_displayed;
     let step = speed * dt;
