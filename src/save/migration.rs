@@ -325,8 +325,6 @@ mod tests {
 
     #[test]
     fn test_needs_migration() {
-        let migrator = SaveMigrator::new();
-
         let data = make_test_save_data(SAVE_VERSION);
         assert!(!SaveMigrator::needs_migration(&data));
 
@@ -346,10 +344,9 @@ mod tests {
 
     #[test]
     fn test_migrate_save_future_version() {
-        let migrator = SaveMigrator::new();
         let data = make_test_save_data(SAVE_VERSION + 1);
 
-        let result = migrator.migrate(data);
+        let result = SaveMigrator::new().migrate(data);
         assert!(result.is_err());
         let err = result.unwrap_err();
         matches!(err, SaveError::FutureVersion { .. });

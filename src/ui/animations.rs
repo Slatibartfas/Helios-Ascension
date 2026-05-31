@@ -382,7 +382,7 @@ impl ToastMessage {
     }
 
     /// Update animation state. Returns true if toast should be removed.
-    pub fn update(&mut self, dt: f32, time: f64) -> bool {
+    pub fn update(&mut self, _dt: f32, time: f64) -> bool {
         let elapsed = self.elapsed(time);
 
         // Slide in phase (first TOAST_SLIDE_IN seconds)
@@ -417,14 +417,17 @@ pub struct ToastQueue {
     last_time: f64,
 }
 
-impl ToastQueue {
-    pub fn new() -> Self {
+impl Default for ToastQueue {
+    fn default() -> Self {
         Self {
             toasts: Vec::new(),
             max_visible: 5,
+            last_time: 0.0,
         }
     }
+}
 
+impl ToastQueue {
     /// Add a toast message to the queue
     pub fn push(&mut self, toast: ToastMessage) {
         self.toasts.push(toast);
@@ -466,7 +469,7 @@ impl ToastQueue {
     /// Must be called from an egui context (e.g. inside a bevy_egui system that has `ctx: &egui::Context`).
     pub fn update(&mut self, dt: f32, time: f64) {
         self.last_time = time;
-        self.toasts.retain(|t| !t.update(dt, time));
+        self.toasts = self.toasts.drain(..).filter(|t| !t.update(dt, time)).collect();
     }
 }
 
@@ -562,7 +565,7 @@ impl ResourceDelta {
     }
 
     /// Update and check if expired. Returns (current_x, current_y, alpha).
-    pub fn update(&mut self, dt: f32, time: f64) -> Option<(f32, f32, f32)> {
+    pub fn update(&mut self, _dt: f32, time: f64) -> Option<(f32, f32, f32)> {
         let elapsed = self.elapsed(time);
 
         if elapsed >= DELTA_POPUP_LIFETIME {
@@ -631,7 +634,7 @@ impl ResourceDeltaQueue {
     /// Update all deltas. Removes expired ones.
     /// Must be called from an egui context (e.g. inside a bevy_egui system that has `ctx: &egui::Context`).
     pub fn update(&mut self, dt: f32, time: f64) {
-        self.deltas.retain(|d| d.update(dt, time).is_some());
+        self.deltas = self.deltas.drain(..).filter(|d| d.update(dt, time).is_some()).collect();
     }
 }
 

@@ -18,7 +18,7 @@ pub mod systems;
 
 // Re-exports
 pub use bus::{
-    category_from_tags, EventBus, EventCategory, EventSubscription, EventTag, GameEvent,
+    category_from_tags, EventBus, EventCategory, EventSubscription, EventTag,
     RandomEventTimer, SubscriptionId,
 };
 pub use bus::EventBusPlugin;
@@ -30,6 +30,29 @@ pub use systems::fire_story_event;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+/// A game event emitted by the EventBus.
+#[derive(Debug, Clone)]
+pub enum GameEvent {
+    Alert {
+        event_id: String,
+        title: String,
+        description: String,
+        tags: Vec<EventTag>,
+    },
+    Random {
+        event_id: String,
+        title: String,
+        description: String,
+        tags: Vec<EventTag>,
+    },
+    Story {
+        event_id: String,
+        title: String,
+        description: String,
+    },
+    Tags(Vec<EventTag>),
+}
 
 use crate::economy::types::ResourceType;
 

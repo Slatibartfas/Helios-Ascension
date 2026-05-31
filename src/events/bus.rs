@@ -17,7 +17,7 @@
 use bevy::prelude::*;
 use std::sync::Arc;
 
-use crate::events::{EventCategory, EventTag};
+use crate::events::{EventCategory, EventTag, GameEvent};
 use crate::game_events::{EmitNotification, NotificationCategory};
 use crate::ui::animations::{ToastKind, ToastMessage, ToastQueue};
 
