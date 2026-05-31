@@ -585,7 +585,7 @@ fn render_construction_buildings_tab(
         .color(theme::TEXT_DIM),
     );
     ui.add_space(6.0);
-    render_existing_buildings_section(ui, colony, buildings_data.as_mut().map(|d| &*d), cb_mode);
+    render_existing_buildings_section(ui, colony, buildings_data.as_mut().map(std::ops::Deref::deref), cb_mode);
 }
 
 fn render_construction_queue_section(
