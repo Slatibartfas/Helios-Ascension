@@ -5,13 +5,16 @@
 
 use std::cell::RefCell;
 use std::sync::OnceLock;
+use std::time::Instant;
 
 use bevy::prelude::*;
 use rand;
 
 use crate::events::bus::{category_from_tags, EventBus, RandomEventTimer};
 use crate::events::load_events::EventsData;
-use crate::game_events::EmitNotification;
+use crate::game_events::{
+    EmitNotification, Notification, NotificationKind, NotificationQueue,
+};
 use crate::ui::animations::{ToastKind, ToastMessage, ToastQueue};
 use crate::ui::time::SimulationTime;
 
@@ -61,7 +64,7 @@ pub fn check_random_event_timing(
     sim_time: Res<SimulationTime>,
     events_data: Res<EventsData>,
     mut event_bus: ResMut<EventBus>,
-    mut notification_events: MessageWriter<EmitNotification>,
+    mut notification_queue: ResMut<NotificationQueue>,
     mut toast_queue: ResMut<ToastQueue>,
 ) {
     let elapsed = sim_time.elapsed_seconds();
@@ -116,7 +119,17 @@ pub fn check_random_event_timing(
     // Route to notification system
     let notification = EmitNotification::warning(&event.title, &event.description)
         .with_category(category_from_tags(&event.tags));
-    notification_events.send(notification);
+    let notification = Notification {
+        id: 0, // assigned by queue.push
+        kind: notification.kind,
+        category: notification.category,
+        title: notification.title,
+        body: notification.body,
+        entity: notification.entity,
+        arrived_at: Instant::now(),
+        acknowledged: false,
+    };
+    notification_queue.push(notification);
 
     // Map pool to notification tier per DELA-14 spec:
     // - Discovery/Opportunity → Casual (no toast, scrolling feed only)

@@ -241,7 +241,7 @@ impl SaveData {
 // ──────────────────────────────────────────────────────────────────────────────
 
 /// Events emitted by the save system.
-#[derive(Message, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub enum SaveEvent {
     /// A save operation started.
     SaveStarted {
@@ -354,7 +354,7 @@ pub struct SavePlugin;
 
 impl Plugin for SavePlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<SaveEvent>()
+        app
             .init_resource::<AutoSaveSettings>()
             .init_resource::<AutoSaveState>()
             .init_resource::<SaveSlotManager>()

@@ -135,7 +135,7 @@ impl NotificationQueue {
 }
 
 /// Emit this event to enqueue a notification.
-#[derive(Message, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct EmitNotification {
     pub kind: NotificationKind,
     pub category: NotificationCategory,
@@ -378,51 +378,14 @@ impl Plugin for GameEventsPlugin {
         app.init_resource::<NotificationQueue>()
             .init_resource::<NotificationHistory>()
             .init_resource::<ToastQueue>()
-            .add_message::<EmitNotification>()
             .add_systems(
                 Update, // intentionally not EguiPrimaryContextPass — runs every frame
-                (Self::process_notifications, Self::prune_expired),
+                (Self::prune_expired,),
             );
     }
 }
 
 impl GameEventsPlugin {
-    fn process_notifications(
-        mut queue: ResMut<NotificationQueue>,
-        mut history: ResMut<NotificationHistory>,
-        mut toast_queue: ResMut<ToastQueue>,
-        mut events: MessageReader<EmitNotification>,
-    ) {
-        for event in events.read() {
-            let notification = Notification {
-                id: 0, // assigned by queue.push
-                kind: event.kind,
-                category: event.category,
-                title: event.title.clone(),
-                body: event.body.clone(),
-                entity: event.entity,
-                arrived_at: Instant::now(),
-                acknowledged: false,
-            };
-            queue.push(notification.clone());
-
-            // Add to history (newest-first, cap at MAX_HISTORY)
-            history.push(notification.clone());
-
-            // Push a toast for every notification
-            let toast_kind = match event.kind {
-                NotificationKind::Info => ToastKind::Info,
-                NotificationKind::Warning => ToastKind::Warning,
-                NotificationKind::Critical => ToastKind::Error,
-            };
-            let toast = ToastMessage::new(
-                format!("{}: {}", event.title, event.body),
-                toast_kind,
-            );
-            toast_queue.push(toast);
-        }
-    }
-
     fn prune_expired(mut queue: ResMut<NotificationQueue>) {
         queue.prune_expired();
     }
