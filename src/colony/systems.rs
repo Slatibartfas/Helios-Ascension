@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use super::components::{Colony, ColonyMorale, ConstructionProject, PendingConstructionActions};
 use super::data::BuildingsData;
 use super::types::{BuildingType, MoraleState};
+// MoraleState: used in morale_effect_on_production, morale_effect_on_growth
 use super::{ConstructionDebugSettings, MoraleDriver};
 use crate::astronomy::OceanProperties;
 use crate::economy::budget::{SECONDS_PER_MONTH, SECONDS_PER_YEAR};
@@ -505,7 +506,7 @@ pub fn update_colony_growth(
 
         // Apply morale growth bonus (additive, not multiplicative)
         let morale_growth = morale_opt
-            .map(|m| m.growth_bonus_per_year() * years_elapsed)
+            .map(|m| m.state().growth_bonus_per_year() * years_elapsed)
             .unwrap_or(0.0);
 
         colony.population += (base_growth + morale_growth) * ocean_modifier;
