@@ -388,7 +388,7 @@ impl SaveSlotManager {
 // ──────────────────────────────────────────────────────────────────────────────
 
 mod chrono {
-    use std::time::Timestamp;
+    use std::time::SystemTime;
 
     /// A simple timestamp formatter that doesn't need the chrono crate.
     pub struct Timestamp;
@@ -396,9 +396,10 @@ mod chrono {
     impl Timestamp {
         pub fn from_timestamp(timestamp: i64, _offset_secs: i32) -> Option<Self> {
             // Unix timestamps are always UTC
-            if timestamp< 0 {
+            if timestamp < 0 {
                 return None;
             }
+            let _ = SystemTime::UNIX_EPOCH.checked_add(std::time::Duration::from_secs(timestamp as u64));
             Some(Self)
         }
 

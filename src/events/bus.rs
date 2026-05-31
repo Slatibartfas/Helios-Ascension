@@ -17,13 +17,12 @@
 use bevy::prelude::*;
 use std::sync::Arc;
 
+use crate::events::{EventCategory, EventTag};
 use crate::game_events::{EmitNotification, NotificationCategory};
 use crate::ui::animations::{ToastKind, ToastMessage, ToastQueue};
 
-use super::{EventCategory, EventTag, GameEvent};
-
 /// A single event subscription.
-struct EventSubscription {
+pub struct EventSubscription {
     callback: Arc<dyn Fn(GameEvent) + Send + Sync>,
     filter_category: Option<EventCategory>,
 }

@@ -5,6 +5,7 @@
 //! regular intervals (wall-clock time or game-time based).
 
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
 /// Settings that control autosave behavior.
 #[derive(Resource, Debug, Clone)]
@@ -173,7 +174,7 @@ impl AutoSaveTimer {
 }
 
 /// System that ticks the autosave timer and triggers saves.
-fn autosave_tick(
+pub fn autosave_tick(
     mut timer: ResMut<AutoSaveTimer>,
     mut state: ResMut<AutoSaveState>,
     settings: Res<AutoSaveSettings>,
