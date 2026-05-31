@@ -4,6 +4,9 @@ use std::collections::HashMap;
 
 use super::types::BuildingType;
 
+// Re-export MoraleState so systems.rs can find it via `use super::components`.
+pub use super::types::MoraleState;
+
 /// Marker component for a colonised celestial body
 #[derive(Component, Debug, Clone, Serialize, Deserialize)]
 pub struct Colony {
@@ -455,7 +458,7 @@ impl MoraleState {
 }
 
 /// Individual morale driver identifiers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum MoraleDriver {
     Food,
     Housing,

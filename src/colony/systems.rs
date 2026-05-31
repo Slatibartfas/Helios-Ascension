@@ -2,7 +2,7 @@ use bevy::prelude::*;
 
 use super::components::{Colony, ColonyMorale, ConstructionProject, PendingConstructionActions};
 use super::data::BuildingsData;
-use super::types::{BuildingType, MoraleState};
+use super::types::BuildingType;
 use super::{ConstructionDebugSettings, MoraleDriver};
 use crate::astronomy::OceanProperties;
 use crate::economy::budget::{SECONDS_PER_MONTH, SECONDS_PER_YEAR};
