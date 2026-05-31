@@ -26,7 +26,7 @@ use crate::ui::SimulationTime;
 
 use super::components::{
     AIDecisionContext, AIFaction, AIPersonality, AIControlledColony,
-    AIControlledFleet, AIGoals, AIFactionResearchState,
+    AIControlledFleet, AIFactionResearchState,
 };
 use crate::colony::types::BuildingType;
 use crate::fleets::types::{FleetRole, PropulsionType, ShipClass};

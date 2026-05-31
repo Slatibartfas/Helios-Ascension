@@ -3,7 +3,7 @@
 use bevy::math::DVec3;
 use bevy::prelude::*;
 
-use super::components::{Contact, ContactState, Decoy, JammingSource, JammingBand, SensorSuite, SensorSweep, Signature, StealthMode};
+use super::components::{Contact, ContactState, Decoy, JammingSource, SensorSuite, SensorSweep, Signature, StealthMode};
 use super::data::{AU_IN_KM, SensorData};
 use crate::astronomy::SpaceCoordinates;
 use crate::fleets::components::Fleet;
@@ -107,7 +107,7 @@ const CONTACT_LINGER_S: f64 = 3.0;
 /// Iterates all jammers in range of the target and applies their band-specific
 /// reduction factors multiplicatively. Factor of 1.0 = no jamming, lower = stronger jamming.
 fn calculate_jamming_factor(
-    target_entity: Entity,
+    _target_entity: Entity,
     distance_km: f32,
     jammer_query: &Query<&JammingSource, With<SpaceCoordinates>>,
 ) -> f32 {
@@ -569,7 +569,7 @@ pub fn consume_sensor_sweep(mut commands: Commands, sweep_query: Query<Entity, W
 
 /// Tick decoy timers and deactivate expired decoys.
 pub fn decoy_expiration_system(
-    sim_time: Res<SimulationTime>,
+    _sim_time: Res<SimulationTime>,
     mut decoy_query: Query<&mut Decoy>,
 ) {
     let dt = 1.0 / 60.0;
