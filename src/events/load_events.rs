@@ -4,7 +4,6 @@
 
 use bevy::prelude::*;
 use serde::Deserialize;
-use std::collections::HashMap;
 
 use super::{EventDef, EventsData};
 
