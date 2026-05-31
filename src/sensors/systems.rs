@@ -1,7 +1,5 @@
 //! ECS systems for the sensor system.
 
-use std::collections::HashMap;
-
 use bevy::math::DVec3;
 use bevy::prelude::*;
 
@@ -68,13 +66,6 @@ pub fn detection_check(
     let factor = sensor_strength / (target_signature * distance_sq);
     let time_factor = dt as f32;
     (factor * time_factor * 100.0).clamp(0.0, 100.0)
-}
-
-/// Distance between two entities in km.
-fn distance_km(a: &SpaceCoordinates, b: &SpaceCoordinates) -> f64 {
-    let diff = a.position - b.position;
-    let dist_au = diff.length();
-    dist_au * AU_IN_KM
 }
 
 // ── Signature update system ───────────────────────────────────────────────────
