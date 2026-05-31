@@ -43,21 +43,13 @@ impl SubscriptionId {
 ///
 /// Systems subscribe via `event_bus.subscribe()` and receive call back on `publish()`.
 #[derive(Resource)]
+#[derive(Default)]
 pub struct EventBus {
     subscriptions: Vec<EventSubscription>,
     active: Vec<bool>,
     next_id: u64,
 }
 
-impl Default for EventBus {
-    fn default() -> Self {
-        Self {
-            subscriptions: Vec::new(),
-            active: Vec::new(),
-            next_id: 0,
-        }
-    }
-}
 
 impl EventBus {
     /// Subscribe to events matching `category`. If `category` is `None`, receives all events.
@@ -93,14 +85,15 @@ impl EventBus {
             if !self.active[i] {
                 continue;
             }
-            let matches = match (&sub.filter_category, &event) {
+            #[allow(clippy::match_like_matches_macro)]
+            let event_matches = match (&sub.filter_category, &event) {
                 (None, _) => true,
                 (Some(EventCategory::Alert), GameEvent::Alert { .. }) => true,
                 (Some(EventCategory::Random), GameEvent::Random { .. }) => true,
                 (Some(EventCategory::Story), GameEvent::Story { .. }) => true,
                 _ => false,
             };
-            if matches {
+            if event_matches {
                 (sub.callback)(event.clone());
             }
         }

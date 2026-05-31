@@ -83,7 +83,6 @@ pub fn check_victory_conditions(
             .all(|r| r.stance == RelationStance::Allied);
         if all_allied && !relations.relations.is_empty() {
             victory_state.claim_victory(0, VictoryType::Diplomatic, time);
-            return;
         }
     }
 }

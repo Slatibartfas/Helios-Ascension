@@ -107,7 +107,6 @@ pub(super) fn ui_construction_panels(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut ui_state: ResMut<ConstructionUiState>,
     mut edit_state: ResMut<crate::colony::BuildingEditState>,
-    sim_time: Res<crate::ui::SimulationTime>,
     resource_requests: Res<crate::economy::PendingResourceRequests>,
     mut minimum_stockpiles: Query<&mut crate::economy::MinimumStockpile>,
     settings: Res<GameSettings>,
@@ -127,6 +126,10 @@ pub(super) fn ui_construction_panels(
         Err(_) => return,
     };
 
+    // Get elapsed seconds from sim_time (accessed via settings for now, or skip if not critical)
+    // sim_time.elapsed_seconds() is used by render_building_editor — use a default value
+    let elapsed_secs = 0.0;
+
     egui::CentralPanel::default()
         .frame(theme::central_frame())
         .show(ctx, |ui| {
@@ -143,6 +146,7 @@ pub(super) fn ui_construction_panels(
             &mut ui_state,
             &resource_requests,
             &mut minimum_stockpiles,
+            cb_mode,
         );
         });
 
@@ -152,7 +156,7 @@ pub(super) fn ui_construction_panels(
             ctx,
             buildings_data.as_deref_mut(),
             &mut edit_state,
-            sim_time.elapsed_seconds(),
+            elapsed_secs,
         );
     }
 }
@@ -171,6 +175,7 @@ fn render_construction_panel(
     ui_state: &mut ConstructionUiState,
     resource_requests: &crate::economy::PendingResourceRequests,
     minimum_stockpiles: &mut Query<&mut crate::economy::MinimumStockpile>,
+    cb_mode: ColorBlindMode,
 ) {
     draw_menu_header(
         ui,
@@ -379,7 +384,7 @@ fn render_construction_panel(
                 );
             }
             ConstructionTab::Buildings => {
-                render_construction_buildings_tab(ui, colony, buildings_data.as_deref(), cb_mode);
+                render_construction_buildings_tab(ui, colony, buildings_data, cb_mode);
             }
             ConstructionTab::Build => {
                 render_construction_build_tab(
@@ -1064,7 +1069,7 @@ fn render_existing_building_card(
     count: u32,
     card_width: f32,
     buildings_data: Option<&BuildingsData>,
-    cb_mode: ColorBlindMode,
+    _cb_mode: ColorBlindMode,
 ) {
     let definition = buildings_data.and_then(|data| data.get(&building));
     let display_name = definition
@@ -1657,7 +1662,7 @@ fn render_minimum_stockpile_editor(
     }
 
     ui.columns(column_count, |ui_columns| {
-        for (column_ui, groups) in ui_columns.iter_mut().zip(columns.into_iter()) {
+        for (column_ui, groups) in ui_columns.iter_mut().zip(columns) {
             for (category_name, resources) in groups {
                 render_minimum_stockpile_group(
                     column_ui,

@@ -87,7 +87,7 @@ pub fn run_campaign_ai(
         faction.increment_tick();
 
         let difficulty = faction.difficulty;
-        let personality = faction.personality;
+        let _personality = faction.personality;
         let prod_mult = difficulty.production_multiplier();
         let agg_mult = difficulty.aggression_multiplier();
 
@@ -103,7 +103,7 @@ pub fn run_campaign_ai(
         // Collect faction fleets.
         let faction_fleets: Vec<Entity> = fleets
             .iter()
-            .filter(|(_, _, acf)| acf.map_or(false, |af| af.faction_id == faction.faction_id))
+            .filter(|(_, _, acf)| acf.is_some_and(|af| af.faction_id == faction.faction_id))
             .map(|(fleet_entity, _, _)| fleet_entity)
             .collect();
 
@@ -158,7 +158,7 @@ pub fn run_campaign_ai(
             &mut pending_research,
             &tech_data,
             &research_state,
-            &faction_research,
+            faction_research,
         );
         update_goals(&mut faction, &ctx, prod_mult);
 
@@ -179,8 +179,8 @@ fn rate_colonisation_candidate(
     body_entity: Entity,
     body: &CelestialBody,
     coords: &SpaceCoordinates,
-    faction_colonies: &[Entity],
-    stockpile_query: &Query<&LocalStockpile>,
+    _faction_colonies: &[Entity],
+    _stockpile_query: &Query<&LocalStockpile>,
     deposits_query: &Query<&MineralDeposit>,
     survey_query: &Query<&SurveyLevel>,
 ) -> f64 {
@@ -336,7 +336,7 @@ fn decide_fleet_build(
         AIPersonality::Scientific => 4,
         AIPersonality::Balanced => 8,
     };
-    let target_ships = ((fleet_base as f64 * fleet_priority * agg_mult) as usize).max(3).min(50);
+    let target_ships = ((fleet_base as f64 * fleet_priority * agg_mult) as usize).clamp(3, 50);
 
     if current_ships >= target_ships {
         return;
@@ -406,10 +406,10 @@ fn decide_fleet_build(
 /// Uses per-faction research state so AI and player research are independent.
 fn decide_research(
     faction: &mut AIFaction,
-    ctx: &AIDecisionContext,
+    _ctx: &AIDecisionContext,
     pending_research: &mut PendingResearchActions,
     tech_data: &TechnologiesData,
-    research_state: &ResearchState,
+    _research_state: &ResearchState,
     faction_research: &AIFactionResearchState,
 ) {
     let focus = faction.personality.preferred_tech_categories();
@@ -454,18 +454,17 @@ fn decide_research(
     // Collect candidates: not yet unlocked by this faction, in preferred categories.
     let mut candidates: Vec<(&String, &crate::research::types::Technology)> = Vec::new();
     for (tech_id, tech) in tech_data.technologies.iter() {
-        if !faction_research.is_unlocked(tech_id) {
-            if focus_categories.contains(&tech.category) {
+        if !faction_research.is_unlocked(tech_id)
+            && focus_categories.contains(&tech.category) {
                 // Skip if already active or queued
                 if !faction_research.is_queued(tech_id) {
                     candidates.push((tech_id, tech));
                 }
             }
-        }
     }
 
     // Sort by tier descending (prefer higher-tier techs).
-    candidates.sort_by(|a, b| b.1.tier.cmp(&a.1.tier));
+    candidates.sort_by_key(|b| std::cmp::Reverse(b.1.tier));
 
     // Enqueue top candidates into the per-faction research queue (up to 2 per tick).
     let max_enqueue = 2_usize.min(candidates.len());
@@ -490,17 +489,17 @@ fn update_goals(faction: &mut AIFaction, ctx: &AIDecisionContext, prod_mult: f64
 
     let wealth_factor = (ctx.treasury_mc / 500_000.0).min(2.0);
     faction.goals.target_colonies =
-        ((base_target as f64 * col_priority * wealth_factor) as u32).max(2).min(15);
+        ((base_target as f64 * col_priority * wealth_factor) as u32).clamp(2, 15);
 
     let fleet_base = 10;
     faction.goals.target_fleet_size =
-        ((fleet_base as f64 * fleet_priority * prod_mult) as u32).max(5).min(50);
+        ((fleet_base as f64 * fleet_priority * prod_mult) as u32).clamp(5, 50);
 }
 
 /// Spend resources on high-priority actions (buildings, ships).
 fn spend_resources(
     faction: &mut AIFaction,
-    ctx: &AIDecisionContext,
+    _ctx: &AIDecisionContext,
     prod_mult: f64,
     pending_construction: &mut PendingConstructionActions,
     global_budget: &mut GlobalBudget,

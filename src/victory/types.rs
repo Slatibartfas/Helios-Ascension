@@ -106,7 +106,7 @@ impl VictoryState {
         }
 
         self.endgame_screen_visible = true;
-        self.player_has_won = (faction == 0);
+        self.player_has_won = faction == 0;
     }
 
     /// Check if the player is the first to achieve any victory.

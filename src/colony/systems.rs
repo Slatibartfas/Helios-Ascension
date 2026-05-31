@@ -791,7 +791,7 @@ pub fn max_morale_from_housing() -> f64 {
 
 /// Compute the maximum possible morale (euphoria ceiling) for a colony.
 pub fn max_colony_morale(colony: &Colony) -> f64 {
-    let mut drivers = morale_drivers_per_year(colony);
+    let drivers = morale_drivers_per_year(colony);
     // Sum all positive driver contributions plus the base of 75
     let positive_sum: f64 = drivers.values().filter(|&&v| v > 0.0).sum();
     (75.0 + positive_sum).min(100.0)

@@ -6,10 +6,12 @@ use std::collections::HashMap;
 
 /// Difficulty level for AI opponents.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum AIDifficulty {
     /// 50% production efficiency, passive expansion, conservative combat
     Easy,
     /// 75% production efficiency, balanced strategy
+    #[default]
     Normal,
     /// 100% production efficiency, aggressive expansion, smart combat
     Hard,
@@ -44,14 +46,10 @@ impl AIDifficulty {
     }
 }
 
-impl Default for AIDifficulty {
-    fn default() -> Self {
-        AIDifficulty::Normal
-    }
-}
 
 /// AI personality archetypes that define strategic behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum AIPersonality {
     /// Prioritises military production and fleet strength.
     /// Aggressive expansion, focuses on weapons and propulsion tech.
@@ -64,6 +62,7 @@ pub enum AIPersonality {
     Scientific,
     /// Balanced approach across all dimensions.
     /// Flexible strategy adapts to competition.
+    #[default]
     Balanced,
 }
 
@@ -110,11 +109,6 @@ impl AIPersonality {
     }
 }
 
-impl Default for AIPersonality {
-    fn default() -> Self {
-        AIPersonality::Balanced
-    }
-}
 
 /// Core AI faction component — attached to an entity that represents an AI player.
 #[derive(Component, Debug, Clone, Serialize, Deserialize)]
@@ -201,7 +195,7 @@ impl AIFaction {
     /// Whether this AI should make decisions this tick.
     /// Decisions happen every N ticks based on difficulty.
     pub fn should_decide(&self, tick_interval: u32) -> bool {
-        self.tick_counter % tick_interval == 0
+        self.tick_counter.is_multiple_of(tick_interval)
     }
 }
 

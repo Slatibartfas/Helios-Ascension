@@ -48,8 +48,10 @@ impl FleetRole {
 
 /// Classes of ships that can be built and flown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub enum ShipClass {
     /// Small, fast courier for urgent cargo and personnel transfer
+    #[default]
     Courier,
     /// Medium all-purpose combat and exploration vessel
     Frigate,
@@ -71,11 +73,6 @@ impl std::fmt::Display for ShipClass {
     }
 }
 
-impl Default for ShipClass {
-    fn default() -> Self {
-        ShipClass::Courier
-    }
-}
 
 impl ShipClass {
     /// Human-readable display name.
