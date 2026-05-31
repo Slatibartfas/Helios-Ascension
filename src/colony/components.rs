@@ -4,6 +4,10 @@ use std::collections::HashMap;
 
 use super::types::BuildingType;
 
+// Re-export MoraleState so that systems.rs and other modules that import
+// via `use super::components` get it without needing a separate `use` line.
+pub use super::types::MoraleState;
+
 /// Marker component for a colonised celestial body
 #[derive(Component, Debug, Clone, Serialize, Deserialize)]
 pub struct Colony {
