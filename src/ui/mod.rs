@@ -19,6 +19,7 @@ pub mod interaction;
 
 pub use interaction::Selection;
 
+pub mod animations;
 mod construction_panel;
 pub mod cursors;
 mod dashboard;
