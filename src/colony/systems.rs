@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 
-use super::components::{Colony, ColonyMorale, ConstructionProject, PendingConstructionActions};
+use super::components::{Colony, ColonyMorale, ConstructionProject, MoraleState, PendingConstructionActions};
 use super::data::BuildingsData;
-use super::types::{BuildingType, MoraleState};
+use super::types::BuildingType;
 // MoraleState: used in morale_effect_on_production, morale_effect_on_growth
 use super::{ConstructionDebugSettings, MoraleDriver};
 use crate::astronomy::OceanProperties;

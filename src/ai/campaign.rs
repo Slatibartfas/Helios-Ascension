@@ -179,8 +179,8 @@ fn rate_colonisation_candidate(
     body_entity: Entity,
     body: &CelestialBody,
     coords: &SpaceCoordinates,
-    faction_colonies: &[Entity],
-    stockpile_query: &Query<&LocalStockpile>,
+    _faction_colonies: &[Entity],
+    _stockpile_query: &Query<&LocalStockpile>,
     deposits_query: &Query<&MineralDeposit>,
     survey_query: &Query<&SurveyLevel>,
 ) -> f64 {
@@ -406,10 +406,10 @@ fn decide_fleet_build(
 /// Uses per-faction research state so AI and player research are independent.
 fn decide_research(
     faction: &mut AIFaction,
-    ctx: &AIDecisionContext,
+    _ctx: &AIDecisionContext,
     pending_research: &mut PendingResearchActions,
     tech_data: &TechnologiesData,
-    research_state: &ResearchState,
+    _research_state: &ResearchState,
     faction_research: &AIFactionResearchState,
 ) {
     let focus = faction.personality.preferred_tech_categories();
@@ -500,7 +500,7 @@ fn update_goals(faction: &mut AIFaction, ctx: &AIDecisionContext, prod_mult: f64
 /// Spend resources on high-priority actions (buildings, ships).
 fn spend_resources(
     faction: &mut AIFaction,
-    ctx: &AIDecisionContext,
+    _ctx: &AIDecisionContext,
     prod_mult: f64,
     pending_construction: &mut PendingConstructionActions,
     global_budget: &mut GlobalBudget,
