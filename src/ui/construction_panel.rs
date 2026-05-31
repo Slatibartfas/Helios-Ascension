@@ -113,7 +113,7 @@ pub(super) fn ui_construction_panels(
     mut minimum_stockpiles: Query<&mut crate::economy::MinimumStockpile>,
     settings: Res<GameSettings>,
 ) {
-    let buildings_data: Option<&mut BuildingsData> = buildings_data.as_mut().map(|d| BuildingsData::deref_mut(d));
+    let buildings_data: Option<&mut BuildingsData> = buildings_data.as_mut().map(|d| DerefMut::deref_mut(d));
     if active_menu.current != GameMenu::Construction {
         return;
     }
