@@ -6,6 +6,7 @@ pub mod astronomy;
 pub mod colony;
 pub mod economy;
 pub mod fleets;
+pub mod game_events;
 pub mod game_state;
 pub mod plugins;
 pub mod render;
@@ -16,6 +17,7 @@ use astronomy::AstronomyPlugin;
 use colony::ColonyPlugin;
 use economy::EconomyPlugin;
 use fleets::FleetPlugin;
+use game_events::GameEventsPlugin;
 use game_state::GameStatePlugin;
 use plugins::{
     atmosphere::AtmospherePlugin, camera::CameraPlugin, music::MusicPlugin,
