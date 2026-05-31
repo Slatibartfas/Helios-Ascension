@@ -700,7 +700,10 @@ pub fn deduct_environment_costs(
 /// portion; the final morale formula applies the base offset and clamps.
 ///
 /// The formula (from `docs/design/MORALE_SYSTEM.md`):
-/// `morale = clamp(75 − Σpenalties + event_modifier, 0.0, 100.0)`,
+/// ```ignore
+/// morale = clamp(75 - food_penalty - housing_penalty - logistics_penalty
+///               + event_modifier, 0.0, 100.0)
+/// ```
 /// where each penalty is clamped to ≥ 0.
 pub fn morale_drivers_per_year(colony: &Colony) -> std::collections::HashMap<MoraleDriver, f64> {
     use std::collections::HashMap;
