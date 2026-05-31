@@ -356,8 +356,24 @@ mod tests {
 
     #[test]
     fn test_combat_decision_easy_retreat() {
-        let our = Fleet::new("Weak".to_string());
-        let enemy = Fleet::new("Strong".to_string());
+        let mut our = Fleet::new("Weak".to_string());
+        let mut enemy = Fleet::new("Strong".to_string());
+        // Weak=100t vs Strong=1000t → ratio=0.1, Easy retreat thresh=0.4 → retreat
+        let weak = ShipInfo::new("W".into(), ShipClass::Courier, PropulsionType::Chemical);
+        let strong = ShipInfo::new("S".into(), ShipClass::Cruiser, PropulsionType::FusionTorch);
+        // Override dry_mass_t to get exact strength values:
+        // calculate_fleet_strength = sum(dry_mass_t * 0.5)
+        // Weak: 100 * 0.5 = 50, Strong: 1000 * 0.5 = 500 → ratio=0.1
+        let mut w = weak;
+        w.dry_mass_t = 100.0;
+        w.fuel_mass_t = 0.0;
+        w.max_fuel_t = 0.0;
+        let mut s = strong;
+        s.dry_mass_t = 1000.0;
+        s.fuel_mass_t = 0.0;
+        s.max_fuel_t = 0.0;
+        our.ships.push(w);
+        enemy.ships.push(s);
         let decision = evaluate_combat(&our, &enemy, AIDifficulty::Easy, AIPersonality::Balanced);
         // Very weak fleet vs strong enemy → retreat threshold on Easy is lowest.
         assert!(matches!(decision, CombatDecision::Retreat));
@@ -365,8 +381,22 @@ mod tests {
 
     #[test]
     fn test_combat_decision_overwhelming_advantage() {
-        let our = Fleet::new("Strong".to_string());
-        let enemy = Fleet::new("Weak".to_string());
+        let mut our = Fleet::new("Strong".to_string());
+        let mut enemy = Fleet::new("Weak".to_string());
+        // Strong=1000t vs Weak=100t → ratio=10.0, Hard engage thresh=1.2
+        // Militarist also requires ratio > 1.2 * 1.5 = 1.8 → satisfied
+        let strong = ShipInfo::new("S".into(), ShipClass::Cruiser, PropulsionType::FusionTorch);
+        let weak = ShipInfo::new("W".into(), ShipClass::Courier, PropulsionType::Chemical);
+        let mut s = strong;
+        s.dry_mass_t = 1000.0;
+        s.fuel_mass_t = 0.0;
+        s.max_fuel_t = 0.0;
+        let mut w = weak;
+        w.dry_mass_t = 100.0;
+        w.fuel_mass_t = 0.0;
+        w.max_fuel_t = 0.0;
+        our.ships.push(s);
+        enemy.ships.push(w);
         let decision = evaluate_combat(&our, &enemy, AIDifficulty::Hard, AIPersonality::Militarist);
         // Strong fleet vs weak + militarist → definitely engage.
         assert!(matches!(decision, CombatDecision::Engage));

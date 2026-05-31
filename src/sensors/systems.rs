@@ -271,15 +271,24 @@ fn best_fleet_sensor(fleet: &Fleet) -> (f32, f32, f32, bool, bool) {
     (best_detection, best_id, best_strength, neutrino, has_active)
 }
 
-/// Aggregate signatures across all ships in a fleet (maximum per band).
+/// Aggregate signatures across all ships in a fleet (sum per band).
+/// Recomputes each ship's signature since `ShipInfo::new()` leaves signature as
+/// `Signature::default()` — callers need real computed values.
 fn aggregate_fleet_signature(fleet: &Fleet) -> Signature {
     let mut total = Signature::default();
 
     for ship in &fleet.ships {
-        total.thermal += ship.signature.thermal;
-        total.em += ship.signature.em;
-        total.visual += ship.signature.visual;
-        total.neutrino += ship.signature.neutrino;
+        // Recalculate since ShipInfo::new() leaves signature as zero/default.
+        let thrust_ratio = if ship.max_fuel_t > 0.0 {
+            ship.fuel_fraction()
+        } else {
+            1.0
+        };
+        let computed = calculate_signature(ship.class, ship.stealth_mode, thrust_ratio, None);
+        total.thermal += computed.thermal;
+        total.em += computed.em;
+        total.visual += computed.visual;
+        total.neutrino += computed.neutrino;
     }
 
     total
