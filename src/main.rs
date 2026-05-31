@@ -2,16 +2,23 @@ use bevy::prelude::*;
 use bevy::window::{WindowResizeConstraints, WindowResolution};
 use bevy_egui::EguiPlugin;
 
+pub mod archaeology;
 pub mod astronomy;
 pub mod colony;
+pub mod diplomacy;
 pub mod economy;
+pub mod events;
 pub mod fleets;
+pub mod game_events;
+pub mod game_settings;
 pub mod game_state;
 pub mod plugins;
 pub mod render;
 pub mod research;
 pub mod sensors;
 pub mod ui;
+pub mod ai;
+pub mod victory;
 
 use astronomy::AstronomyPlugin;
 use colony::ColonyPlugin;
@@ -27,6 +34,7 @@ use render::backdrop::BackdropPlugin;
 use research::ResearchPlugin;
 use sensors::SensorPlugin;
 use ui::UIPlugin;
+use game_events::GameEventsPlugin;
 
 /// Minimum supported window dimensions to prevent UI overlap
 /// Full HD (1920×1080) is required for the complex strategy game UI
