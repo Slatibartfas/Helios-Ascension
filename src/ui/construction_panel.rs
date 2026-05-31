@@ -1,6 +1,6 @@
 use super::dashboard::format_mass_compact;
 use super::*;
-use crate::game_settings::{ColorBlindMode, GameSettings};
+use crate::game_settings::ColorBlindMode;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum ConstructionTab {
@@ -110,9 +110,7 @@ pub(super) fn ui_construction_panels(
     sim_time: Res<crate::ui::SimulationTime>,
     resource_requests: Res<crate::economy::PendingResourceRequests>,
     mut minimum_stockpiles: Query<&mut crate::economy::MinimumStockpile>,
-    settings: Res<GameSettings>,
 ) {
-    let mut buildings_data = buildings_data.as_mut().map(|d| &mut **d);
     if active_menu.current != GameMenu::Construction {
         return;
     }
@@ -126,8 +124,6 @@ pub(super) fn ui_construction_panels(
         Ok(ctx) => ctx,
         Err(_) => return,
     };
-    let cb_mode = settings.ui.color_blind_mode;
-    let editor_enabled = debug_settings.enabled;
 
     egui::CentralPanel::default()
         .frame(theme::central_frame())
@@ -141,22 +137,20 @@ pub(super) fn ui_construction_panels(
             &budget,
             &contextual,
             &mut debug_settings,
-            buildings_data.as_mut().map(|d| &mut **d),
+            buildings_data.as_deref(),
             &mut ui_state,
             &resource_requests,
             &mut minimum_stockpiles,
-            cb_mode,
         );
         });
 
     // Building editor dialog (rendered outside CentralPanel so it floats)
-    if editor_enabled {
+    if debug_settings.enabled {
         render_building_editor(
             ctx,
-            buildings_data.as_mut().map(|d| &mut **d),
+            buildings_data.as_deref_mut(),
             &mut edit_state,
             sim_time.elapsed_seconds(),
-            cb_mode,
         );
     }
 }
@@ -171,11 +165,10 @@ fn render_construction_panel(
     budget: &GlobalBudget,
     contextual: &crate::economy::ContextualStockpile,
     debug_settings: &mut ConstructionDebugSettings,
-    buildings_data: Option<&mut BuildingsData>,
+    buildings_data: Option<&BuildingsData>,
     ui_state: &mut ConstructionUiState,
     resource_requests: &crate::economy::PendingResourceRequests,
     minimum_stockpiles: &mut Query<&mut crate::economy::MinimumStockpile>,
-    cb_mode: ColorBlindMode,
 ) {
     draw_menu_header(
         ui,
@@ -190,7 +183,7 @@ fn render_construction_panel(
                 ui.label(
                     egui::RichText::new("DEBUG MODE")
                         .font(theme::heading())
-                        .color(theme::red(cb_mode)),
+                        .color(theme::RED),
                 );
                 ui.label(
                     egui::RichText::new("(Press F12 to toggle)")
@@ -227,7 +220,7 @@ fn render_construction_panel(
     }
 
     let balance = budget.balance_per_year();
-    let balance_color = if balance >= 0.0 { theme::green(cb_mode) } else { theme::red(cb_mode) };
+    let balance_color = if balance >= 0.0 { theme::GREEN } else { theme::RED };
     let sign = if balance >= 0.0 { "+" } else { "" };
     ui.horizontal_wrapped(|ui| {
         draw_status_chip(
@@ -381,11 +374,10 @@ fn render_construction_panel(
                     &queue,
                     construction_actions,
                     resource_requests,
-                    cb_mode,
                 );
             }
             ConstructionTab::Buildings => {
-                render_construction_buildings_tab(ui, colony, buildings_data, cb_mode);
+                render_construction_buildings_tab(ui, colony, buildings_data);
             }
             ConstructionTab::Build => {
                 render_construction_build_tab(
@@ -399,7 +391,6 @@ fn render_construction_panel(
                     bp_rate,
                     bypass_tech,
                     free_build,
-                    cb_mode,
                 );
             }
             ConstructionTab::Stockpiles => {
@@ -417,7 +408,6 @@ fn render_construction_overview_tab(
     queue: &[(Entity, &ConstructionProject)],
     construction_actions: &mut PendingConstructionActions,
     resource_requests: &crate::economy::PendingResourceRequests,
-    cb_mode: ColorBlindMode,
 ) {
     ui.label(
         egui::RichText::new("COLONY OVERVIEW")
@@ -441,11 +431,11 @@ fn render_construction_overview_tab(
 
         let workforce_eff = colony.workforce_efficiency();
         let wf_color = if workforce_eff >= 1.0 {
-            theme::green(cb_mode)
+            theme::GREEN
         } else if workforce_eff >= 0.5 {
             theme::AMBER
         } else {
-            theme::red(cb_mode)
+            theme::RED
         };
         ui.horizontal(|ui| {
             ui.label(
@@ -461,18 +451,18 @@ fn render_construction_overview_tab(
                 ui.label(
                     egui::RichText::new("understaffed")
                         .size(11.0)
-                        .color(theme::red(cb_mode)),
+                        .color(theme::RED),
                 );
             }
         });
 
         let efficiency = colony.logistics_efficiency();
         let eff_color = if efficiency >= 1.0 {
-            theme::green(cb_mode)
+            theme::GREEN
         } else if efficiency >= 0.5 {
             theme::AMBER
         } else {
-            theme::red(cb_mode)
+            theme::RED
         };
         ui.horizontal(|ui| {
             ui.label("Logistics:");
@@ -508,7 +498,7 @@ fn render_construction_overview_tab(
         let cost = colony.operating_cost_per_year();
         if income > 0.0 || cost > 0.0 {
             let colony_balance = income - cost;
-            let cb_color = if colony_balance >= 0.0 { theme::green(cb_mode) } else { theme::red(cb_mode) };
+            let cb_color = if colony_balance >= 0.0 { theme::GREEN } else { theme::RED };
             let sign = if colony_balance >= 0.0 { "+" } else { "" };
             ui.horizontal(|ui| {
                 ui.label(format!("Income: {}/yr", format_currency(income)));
@@ -530,7 +520,7 @@ fn render_construction_overview_tab(
         ui.separator();
         ui.label(
             egui::RichText::new(format!("Output: {:.1} BP/year", bp_rate))
-                .color(theme::green(cb_mode))
+                .color(theme::GREEN)
                 .strong(),
         );
         ui.label(egui::RichText::new("Base: 1 BP/yr + 10 BP/yr per Factory").size(11.0).color(theme::TEXT_DIM));
@@ -553,15 +543,13 @@ fn render_construction_overview_tab(
         construction_actions,
         resource_requests,
         true,
-        cb_mode,
     );
 }
 
 fn render_construction_buildings_tab(
     ui: &mut egui::Ui,
     colony: &Colony,
-    buildings_data: Option<&mut BuildingsData>,
-    cb_mode: ColorBlindMode,
+    buildings_data: Option<&BuildingsData>,
 ) {
     ui.label(
         egui::RichText::new("BUILDINGS")
@@ -596,7 +584,6 @@ fn render_construction_queue_section(
     construction_actions: &mut PendingConstructionActions,
     resource_requests: &crate::economy::PendingResourceRequests,
     show_heading: bool,
-    cb_mode: ColorBlindMode,
 ) {
     if show_heading {
         ui.label(
@@ -646,7 +633,7 @@ fn render_construction_queue_section(
                             let _ = req.eta_seconds;
                             egui::RichText::new("🚀 In transit")
                                 .size(11.0)
-                                .color(theme::green(cb_mode))
+                                .color(theme::GREEN)
                         }
                         _ => egui::RichText::new("⏳ Awaiting resources")
                             .size(11.0)
@@ -704,12 +691,11 @@ fn render_construction_build_tab(
     research_state: &crate::research::ResearchState,
     contextual: &crate::economy::ContextualStockpile,
     construction_actions: &mut PendingConstructionActions,
-    buildings_data: Option<&mut BuildingsData>,
+    buildings_data: Option<&BuildingsData>,
     ui_state: &mut ConstructionUiState,
     bp_rate: f64,
     bypass_tech: bool,
     free_build: bool,
-    cb_mode: ColorBlindMode,
 ) {
     ui.label(
         egui::RichText::new("BUILD")
@@ -720,7 +706,7 @@ fn render_construction_build_tab(
         ui.horizontal(|ui| {
             ui.label(
                 egui::RichText::new(format!("Output: {:.1} BP/year", bp_rate))
-                    .color(theme::green(cb_mode))
+                    .color(theme::GREEN)
                     .strong(),
             );
             ui.label(egui::RichText::new("i").small())
@@ -774,7 +760,6 @@ fn render_construction_build_tab(
                     return true;
                 }
                 let tech_req = buildings_data
-                    .as_mut()
                     .and_then(|d| d.required_tech(b))
                     .or_else(|| b.required_tech());
                 match tech_req {
@@ -798,7 +783,6 @@ fn render_construction_build_tab(
             .iter()
             .filter(|b| {
                 let tech_req = buildings_data
-                    .as_mut()
                     .and_then(|d| d.required_tech(b))
                     .or_else(|| b.required_tech());
                 matches!(tech_req, Some(tech_id) if !research_state.is_unlocked(tech_id))
@@ -844,7 +828,6 @@ fn render_construction_build_tab(
     if ui_state.selected_build_tab == locked_tab_index {
         for building in locked {
             let tech_id = buildings_data
-                .as_mut()
                 .and_then(|d| d.required_tech(building))
                 .or_else(|| building.required_tech());
             if let Some(tech_name) = tech_id {
@@ -914,8 +897,7 @@ fn render_construction_build_tab(
                             can_afford,
                             construction_actions,
                             card_width,
-                            buildings_data.as_deref_mut(),
-                            cb_mode,
+                            buildings_data,
                         );
                     },
                 );
@@ -967,10 +949,9 @@ fn build_card_columns(available_width: f32) -> usize {
 fn render_existing_buildings_section(
     ui: &mut egui::Ui,
     colony: &Colony,
-    buildings_data: Option<&mut BuildingsData>,
+    buildings_data: Option<&BuildingsData>,
     cb_mode: ColorBlindMode,
 ) {
-    let buildings_data = buildings_data;
     for &category in BuildingCategory::all() {
         let mut buildings_in_category: Vec<_> = category
             .buildings()
@@ -1079,10 +1060,10 @@ fn render_existing_building_card(
     building: BuildingType,
     count: u32,
     card_width: f32,
-    buildings_data: Option<&mut BuildingsData>,
+    buildings_data: Option<&BuildingsData>,
     cb_mode: ColorBlindMode,
 ) {
-    let definition = buildings_data.as_ref().and_then(|data| data.get(&building));
+    let definition = buildings_data.and_then(|data| data.get(&building));
     let display_name = definition
         .map(|def| def.display_name.as_str())
         .unwrap_or(building.display_name());
@@ -1094,7 +1075,7 @@ fn render_existing_building_card(
         .unwrap_or(building.icon());
     let workers = building.workforce_required() as u64 * count as u64;
 
-    let operational_entries = operational_stat_entries(building, count, definition, cb_mode);
+    let operational_entries = operational_stat_entries(building, count, definition);
     let upkeep_entries = maintenance_entries(count, definition);
     let operations_summary = summarize_card_entries(&operational_entries, 1);
     let upkeep_summary = summarize_card_entries(&upkeep_entries, 2);
@@ -1323,7 +1304,6 @@ fn operational_stat_entries(
     building: BuildingType,
     multiplier: u32,
     definition: Option<&crate::colony::BuildingDefinition>,
-    cb_mode: ColorBlindMode,
 ) -> Vec<(String, egui::Color32)> {
     let multiplier = multiplier as f64;
     let mut entries = Vec::new();
@@ -1331,7 +1311,7 @@ fn operational_stat_entries(
     if matches!(building, BuildingType::Factory) {
         entries.push((
             format!("+{} BP/yr construction speed", format_card_scalar(10.0 * multiplier)),
-            theme::green(cb_mode),
+            theme::GREEN,
         ));
     }
 
@@ -1341,42 +1321,42 @@ fn operational_stat_entries(
             let entry = match modifier.modifier_type.as_str() {
                 "MiningEfficiency" => Some((
                     format!("+{}% mining output", format_card_scalar(total)),
-                    theme::green(cb_mode),
+                    theme::GREEN,
                 )),
                 "DeepMiningEfficiency" => Some((
                     format!("+{}% deep mining output", format_card_scalar(total)),
-                    theme::green(cb_mode),
+                    theme::GREEN,
                 )),
                 "BulkMiningEfficiency" => Some((
                     format!("+{}% bulk mining output", format_card_scalar(total)),
-                    theme::green(cb_mode),
+                    theme::GREEN,
                 )),
                 "AtmosphericHarvesting" => Some((
                     format!("+{}/yr atmospheric harvest", format_mass_compact(total)),
-                    theme::green(cb_mode),
+                    theme::GREEN,
                 )),
                 "ChemicalProcessing" => Some((
                     format!("+{} chemical processing/yr", format_card_scalar(total)),
-                    theme::green(cb_mode),
+                    theme::GREEN,
                 )),
                 "PowerGeneration" => Some((
                     format!("+{} GW power output", format_card_scalar(total)),
-                    theme::green(cb_mode),
+                    theme::GREEN,
                 )),
                 "ResearchSpeed" => Some((
                     format!("+{}% research speed", format_card_scalar(total)),
-                    theme::green(cb_mode),
+                    theme::GREEN,
                 )),
                 "EngineeringSpeed" => Some((
                     format!("+{}% engineering speed", format_card_scalar(total)),
-                    theme::green(cb_mode),
+                    theme::GREEN,
                 )),
                 "PopulationGrowth" => Some((
                     format!("+{}% population growth", format_card_scalar(total)),
-                    theme::green(cb_mode),
+                    theme::GREEN,
                 )),
                 "ConstructionCost" => {
-                    let color = if total <= 0.0 { theme::green(cb_mode) } else { theme::red(cb_mode) };
+                    let color = if total <= 0.0 { theme::GREEN } else { theme::RED };
                     Some((
                         format!("{:+}% construction costs", total.round()),
                         color,
@@ -1384,7 +1364,7 @@ fn operational_stat_entries(
                 }
                 "StorageCapacity" => Some((
                     format!("+{}% stockpile capacity", format_card_scalar(total * 100.0)),
-                    theme::green(cb_mode),
+                    theme::GREEN,
                 )),
                 _ => None,
             };
@@ -1400,7 +1380,7 @@ fn operational_stat_entries(
             building
                 .effects_summary()
                 .iter()
-                .map(|line| ((*line).to_string(), theme::green(cb_mode))),
+                .map(|line| ((*line).to_string(), theme::GREEN)),
         );
     }
 
@@ -1464,13 +1444,12 @@ fn render_building_card(
     can_afford: bool,
     construction_actions: &mut PendingConstructionActions,
     card_width: f32,
-    buildings_data: Option<&mut BuildingsData>,
-    cb_mode: ColorBlindMode,
+    buildings_data: Option<&crate::colony::BuildingsData>,
 ) {
     let total_bp = building.build_cost() * multiplier as f64;
     let years_to_build = if bp_rate > 0.0 { total_bp / bp_rate } else { f64::INFINITY };
-    let definition = buildings_data.as_ref().and_then(|data| data.get(&building));
-    let operational_entries = operational_stat_entries(building, multiplier, definition, cb_mode);
+    let definition = buildings_data.and_then(|data| data.get(&building));
+    let operational_entries = operational_stat_entries(building, multiplier, definition);
     let maintenance_entries = maintenance_entries(multiplier, definition);
     let operations_summary = summarize_construction_card_entries(&operational_entries, 1);
     let upkeep_summary = summarize_construction_card_entries(&maintenance_entries, 2);
@@ -1562,7 +1541,7 @@ fn render_building_card(
                     let rt_opt = crate::colony::data::parse_resource_type(r);
                     let available = rt_opt.map(|rt| contextual.get(&rt)).unwrap_or(0.0);
                     let ok = available >= total_needed;
-                    let color = if ok { theme::green(cb_mode) } else { theme::red(cb_mode) };
+                    let color = if ok { theme::GREEN } else { theme::RED };
                     let icon = rt_opt
                         .as_ref()
                         .map(|rt| super::resources_bar::get_resource_icon(rt))
@@ -1579,10 +1558,10 @@ fn render_building_card(
                 .map(|(text, _)| text.as_str())
                 .collect::<Vec<_>>()
                 .join(" | ");
-            let summary_color = if cost_entries.iter().take(2).all(|(_, color)| *color == theme::green(cb_mode)) {
-                theme::green(cb_mode)
+            let summary_color = if cost_entries.iter().take(2).all(|(_, color)| *color == theme::GREEN) {
+                theme::GREEN
             } else {
-                theme::red(cb_mode)
+                theme::RED
             };
             ui.add(
                 egui::Label::new(
@@ -1675,7 +1654,7 @@ fn render_minimum_stockpile_editor(
     }
 
     ui.columns(column_count, |ui_columns| {
-        for (column_ui, groups) in ui_columns.iter_mut().zip(columns) {
+        for (column_ui, groups) in ui_columns.iter_mut().zip(columns.into_iter()) {
             for (category_name, resources) in groups {
                 render_minimum_stockpile_group(
                     column_ui,
@@ -1782,7 +1761,6 @@ pub(super) fn render_building_editor(
     buildings_data: Option<&mut BuildingsData>,
     edit_state: &mut crate::colony::BuildingEditState,
     elapsed: f64,
-    cb_mode: ColorBlindMode,
 ) {
     let Some(data) = buildings_data else {
         return;
@@ -1803,9 +1781,9 @@ pub(super) fn render_building_editor(
                 if age < 4.0 {
                     let alpha = ((4.0 - age) / 2.0).min(1.0) as f32;
                     let color = if msg.starts_with("Error") {
-                        theme::red(cb_mode)
+                        theme::RED
                     } else {
-                        theme::green(cb_mode)
+                        theme::GREEN
                     };
                     ui.colored_label(color.linear_multiply(alpha), msg.as_str());
                 } else {

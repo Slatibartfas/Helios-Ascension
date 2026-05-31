@@ -15,12 +15,12 @@ use bevy::window::PrimaryWindow;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use std::collections::HashMap;
 
-pub mod animations;
 pub mod interaction;
 
 pub use interaction::Selection;
 
 mod construction_panel;
+pub mod animations;
 pub mod cursors;
 mod dashboard;
 mod dossier_panel;
@@ -259,7 +259,7 @@ impl FleetUiState {
 /// by grouping systems into named sets instead of using `.chain()` on
 /// large heterogeneous tuples.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-pub enum UiSystemSet {
+enum UiSystemSet {
     /// Resource bar & top menu (rendered first)
     TopBar,
     /// Dashboard, research, construction, economy panels
@@ -433,24 +433,27 @@ impl Plugin for UIPlugin {
                 )
                     .chain(),
             )
-            .add_systems(EguiPrimaryContextPass, ui_resources_bar)
-            .add_systems(EguiPrimaryContextPass, ui_top_menu_bar)
-            .add_systems(EguiPrimaryContextPass, ui_time_controls)
             .add_systems(
                 EguiPrimaryContextPass,
-                ui_dashboard,
+                (ui_resources_bar, ui_top_menu_bar, ui_time_controls)
+                    .chain()
+                    .in_set(UiSystemSet::TopBar),
             )
             .add_systems(
                 EguiPrimaryContextPass,
-                dossier_panel::ui_planet_dossier,
+                ui_dashboard.in_set(UiSystemSet::MainPanels),
             )
             .add_systems(
                 EguiPrimaryContextPass,
-                ui_research_panels,
+                dossier_panel::ui_planet_dossier.in_set(UiSystemSet::MainPanels),
             )
             .add_systems(
                 EguiPrimaryContextPass,
-                ui_construction_panels,
+                ui_research_panels.in_set(UiSystemSet::MainPanels),
+            )
+            .add_systems(
+                EguiPrimaryContextPass,
+                ui_construction_panels.in_set(UiSystemSet::MainPanels),
             )
             .add_systems(
                 EguiPrimaryContextPass,
@@ -466,27 +469,15 @@ impl Plugin for UIPlugin {
             )
             .add_systems(
                 EguiPrimaryContextPass,
-                ui_hover_tooltip.in_set(UiSystemSet::Overlays),
-            )
-            .add_systems(
-                EguiPrimaryContextPass,
-                ui_starmap_hover_tooltip.in_set(UiSystemSet::Overlays),
-            )
-            .add_systems(
-                EguiPrimaryContextPass,
-                ui_starmap_labels.in_set(UiSystemSet::Overlays),
-            )
-            .add_systems(
-                EguiPrimaryContextPass,
-                ui_resolution_warning.in_set(UiSystemSet::Overlays),
-            )
-            .add_systems(
-                EguiPrimaryContextPass,
-                ui_transfer_planner_popup.in_set(UiSystemSet::Overlays),
-            )
-            .add_systems(
-                EguiPrimaryContextPass,
-                ui_lp_click_handler.in_set(UiSystemSet::Overlays),
+                (
+                    ui_hover_tooltip,
+                    ui_starmap_hover_tooltip,
+                    ui_starmap_labels,
+                    ui_resolution_warning,
+                    ui_transfer_planner_popup,
+                    ui_lp_click_handler,
+                )
+                    .in_set(UiSystemSet::Overlays),
             )
             // UI utility systems
             .add_systems(
@@ -506,7 +497,7 @@ impl Plugin for UIPlugin {
             // Must run in Update (inside egui's frame), not PostUpdate (context is closed).
             .add_systems(
                 EguiPrimaryContextPass,
-                capture_egui_panel_bounds,
+                capture_egui_panel_bounds.after(UiSystemSet::Overlays),
             );
     }
 }
