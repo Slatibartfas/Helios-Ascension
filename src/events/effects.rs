@@ -54,25 +54,17 @@ pub fn execute_effect(
     bodies: &Query<(Entity, &CelestialBody)>,
 ) {
     match &effect.effect_type {
-        EffectType::GrantTech => {
-            // effect.target carries the tech_id in magnitude (as a string via effect.source_event coupling)
-            // We use the Effect.source_event as the event_id for logging, but GrantTech effect
-            // requires a tech_id. In the RON format, the convention is magnitude carries the ID
-            // when cast appropriately. We decode it from the effect's associated data.
-            // Since Effect.effect_type is a flat enum, we use a companion resource or assume
-            // the tech_id is stored in magnitude as a parsed f64 cast...
-            // Actually: GrantTech carries its tech_id as a String in a dedicated field of the enum variant.
-            // But EffectType is an enum with data, so we access it via the variant.
-            let tech_id = effect.source_event; // source_event is EventId which is &'static str — we store tech_id there for GrantTech
-            research_state.unlock_tech(tech_id.to_string());
+        EffectType::GrantTech { tech_id } => {
+            // GrantTech carries the tech_id directly in the variant
+            research_state.unlock_tech(tech_id.clone());
         }
         EffectType::ModifyResources { resource_id } => {
             // magnitude is the amount to add (can be negative)
             let amount = effect.magnitude;
             if amount >= 0.0 {
-                resource_pool.add(resource_id.clone(), amount);
+                resource_pool.add(*resource_id, amount);
             } else {
-                resource_pool.subtract(resource_id.clone(), -amount);
+                resource_pool.subtract(*resource_id, -amount);
             }
         }
         EffectType::ModifyRelation { faction_id } => {

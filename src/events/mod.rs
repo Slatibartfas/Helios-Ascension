@@ -28,6 +28,8 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::economy::types::ResourceType;
+
 /// Unique event identifier.
 pub type EventId = &'static str;
 
@@ -94,9 +96,9 @@ pub enum EffectTarget {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EffectType {
     /// Grant a technology by ID.
-    GrantTech,
+    GrantTech { tech_id: String },
     /// Add or remove resources (resource_id, amount).
-    ModifyResources { resource_id: String },
+    ModifyResources { resource_id: ResourceType },
     /// Change diplomatic relation (faction_id, delta).
     ModifyRelation { faction_id: u32 },
     /// Apply a stability modifier to a colony.

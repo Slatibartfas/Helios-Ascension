@@ -57,9 +57,6 @@ pub struct SaveMigrator {
     /// Current save format version.
     current_version: u32,
 }
-    /// Current save format version.
-    current_version: u32,
-}
 
 impl SaveMigrator {
     /// Create a new migrator for the current version.
