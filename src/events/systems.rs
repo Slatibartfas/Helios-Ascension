@@ -60,7 +60,7 @@ pub fn check_random_event_timing(
     mut timer: ResMut<RandomEventTimer>,
     sim_time: Res<SimulationTime>,
     events_data: Res<EventsData>,
-    mut event_bus: ResMut<EventBus>,
+    event_bus: ResMut<EventBus>,
     mut notification_queue: ResMut<NotificationQueue>,
     mut toast_queue: ResMut<ToastQueue>,
 ) {
