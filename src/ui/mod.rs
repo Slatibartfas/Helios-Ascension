@@ -259,7 +259,7 @@ impl FleetUiState {
 /// by grouping systems into named sets instead of using `.chain()` on
 /// large heterogeneous tuples.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-enum UiSystemSet {
+pub enum UiSystemSet {
     /// Resource bar & top menu (rendered first)
     TopBar,
     /// Dashboard, research, construction, economy panels
