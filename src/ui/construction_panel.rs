@@ -585,7 +585,7 @@ fn render_construction_buildings_tab(
         .color(theme::TEXT_DIM),
     );
     ui.add_space(6.0);
-    render_existing_buildings_section(ui, colony, buildings_data.as_mut(), cb_mode);
+    render_existing_buildings_section(ui, colony, buildings_data.as_ref(), cb_mode);
 }
 
 fn render_construction_queue_section(
@@ -892,6 +892,7 @@ fn render_construction_build_tab(
         ui.horizontal_top(|ui| {
             for building in chunk {
                 let costs = buildings_data
+                    .as_ref()
                     .map(|d| d.resource_costs(building))
                     .unwrap_or(&[]);
                 let can_afford = free_build
@@ -1077,7 +1078,7 @@ fn render_existing_building_card(
     building: BuildingType,
     count: u32,
     card_width: f32,
-    buildings_data: Option<&BuildingsData>,
+    buildings_data: Option<&mut BuildingsData>,
     cb_mode: ColorBlindMode,
 ) {
     let definition = buildings_data.as_ref().and_then(|data| data.get(&building));
