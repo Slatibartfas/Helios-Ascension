@@ -270,10 +270,11 @@ impl SaveSlotManager {
         name: impl Into<String>,
     ) -> Result<SaveMetadata, SaveError> {
         let path = self.save_path(slot_id);
+        let path_for_meta = path.clone();
         let meta = world.save_to_path(path, name)?;
 
         // Update slot metadata
-        let file_size = std::fs::metadata(&path)
+        let file_size = std::fs::metadata(&path_for_meta)
             .map(|m| m.len())
             .unwrap_or(0);
 
@@ -331,13 +332,15 @@ impl SaveSlotManager {
         slot_id: &str,
         new_name: impl Into<String>,
     ) -> Result<(), SaveError> {
+        // Compute meta_path BEFORE get_mut to avoid borrow conflict
+        let meta_path = self.meta_path(slot_id);
+
         let slot = self.slots.get_mut(slot_id)
             .ok_or_else(|| SaveError::SlotNotFound(slot_id.to_string()))?;
 
         slot.display_name = new_name.into();
 
         // Write updated metadata
-        let meta_path = self.meta_path(slot_id);
         if let Ok(bytes) = ron::to_string(&*slot) {
             std::fs::write(&meta_path, bytes).ok();
         }
@@ -347,13 +350,15 @@ impl SaveSlotManager {
 
     /// Toggle the favorite status of a slot.
     pub fn toggle_favorite(&mut self, slot_id: &str) -> Result<bool, SaveError> {
+        // Compute meta_path BEFORE get_mut to avoid borrow conflict
+        let meta_path = self.meta_path(slot_id);
+
         let slot = self.slots.get_mut(slot_id)
             .ok_or_else(|| SaveError::SlotNotFound(slot_id.to_string()))?;
 
         slot.is_favorite = !slot.is_favorite;
 
         // Write updated metadata
-        let meta_path = self.meta_path(slot_id);
         if let Ok(bytes) = ron::to_string(&*slot) {
             std::fs::write(&meta_path, bytes).ok();
         }
