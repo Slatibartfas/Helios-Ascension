@@ -589,7 +589,6 @@ mod tests {
     use crate::fleets::components::ShipInfo;
     use crate::fleets::types::{PropulsionType, ShipClass};
     use crate::sensors::components::{ActiveSensor, ContactState, StealthMode};
-    
 
     // ── Signature ─────────────────────────────────────────────────────────────
 
