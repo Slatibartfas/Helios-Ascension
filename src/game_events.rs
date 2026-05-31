@@ -5,9 +5,9 @@
 
 use bevy::prelude::*;
 use bevy_egui::egui;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use crate::ui::animations::{ToastKind, ToastMessage, ToastQueue};
+use crate::ui::animations::ToastQueue;
 
 /// Notification categories for game events.
 ///

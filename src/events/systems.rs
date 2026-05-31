@@ -4,7 +4,6 @@
 //! 15-min cooldown between random events. Alert events fire synchronously.
 
 use std::cell::RefCell;
-use std::sync::OnceLock;
 use std::time::Instant;
 
 use bevy::prelude::*;
@@ -12,9 +11,7 @@ use rand;
 
 use crate::events::bus::{category_from_tags, EventBus, RandomEventTimer};
 use crate::events::load_events::EventsData;
-use crate::game_events::{
-    EmitNotification, Notification, NotificationKind, NotificationQueue,
-};
+use crate::game_events::{EmitNotification, Notification};
 use crate::ui::animations::{ToastKind, ToastMessage, ToastQueue};
 use crate::ui::time::SimulationTime;
 

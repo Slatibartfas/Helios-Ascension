@@ -7,6 +7,7 @@
 //! that `process_delayed_effects` ticks down each frame.
 
 use bevy::prelude::*;
+use std::cell::RefCell;
 
 use crate::colony::Colony;
 use crate::diplomacy::RelationsGraph;
@@ -16,10 +17,11 @@ use crate::fleets::{Fleet, SpawnFleetAction, PendingFleetActions, ShipInfo, Ship
 use crate::plugins::solar_system::CelestialBody;
 use crate::ui::time::SimulationTime;
 use super::{Effect, EffectType, EffectTarget, DelayedEffect};
-use std::sync::OnceLock;
 
 /// Stores the previous simulation elapsed for delta computation.
-static PREV_ELAPSED: OnceLock<f64> = OnceLock::new();
+thread_local! {
+    static PREV_ELAPSED: RefCell<f64> = RefCell::new(0.0);
+}
 
 /// Pending delayed effects — ticked down each simulation frame.
 #[derive(Resource, Default)]
@@ -138,12 +140,12 @@ pub fn process_delayed_effects(
     bodies: &Query<(Entity, &CelestialBody)>,
 ) {
     let current = sim_time.elapsed_seconds();
-    let prev = PREV_ELAPSED.get_mut().unwrap_or_else(|| {
-        PREV_ELAPSED.set(0.0).ok();
-        PREV_ELAPSED.get_mut().unwrap()
+    let delta = PREV_ELAPSED.with(|cell| {
+        let mut prev = cell.borrow_mut();
+        let d = current - *prev;
+        *prev = current;
+        d
     });
-    let delta = current - *prev;
-    *prev = current;
 
     let mut still_pending = Vec::new();
     for mut pending in queue.effects.drain(..) {
