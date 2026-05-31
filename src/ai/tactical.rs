@@ -271,7 +271,7 @@ pub fn run_tactical_ai(
             continue;
         }
 
-        for (fleet_entity, fleet, ai_control, orbit) in ai_fleets.iter() {
+        for (fleet_entity, fleet, _ai_control, _orbit) in ai_fleets.iter() {
             if fleet.ships.is_empty() {
                 continue;
             }

@@ -87,7 +87,7 @@ pub fn run_campaign_ai(
         faction.increment_tick();
 
         let difficulty = faction.difficulty;
-        let personality = faction.personality;
+        let _personality = faction.personality;
         let prod_mult = difficulty.production_multiplier();
         let agg_mult = difficulty.aggression_multiplier();
 

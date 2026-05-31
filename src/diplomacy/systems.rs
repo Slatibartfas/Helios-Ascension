@@ -330,7 +330,7 @@ pub enum ProposalDecision {
 }
 
 /// Generate a counter-proposal based on AI personality.
-fn counter_proposal(proposal: &DiplomaticProposal, ai: &AIFaction) -> DiplomaticProposal {
+fn counter_proposal(proposal: &DiplomaticProposal, _ai: &AIFaction) -> DiplomaticProposal {
     let mut counter = proposal.clone();
     counter.id = proposal.id.wrapping_add(1000); // New ID
     counter.from_faction = proposal.to_faction;
