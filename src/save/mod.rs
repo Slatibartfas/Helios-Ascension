@@ -220,7 +220,7 @@ impl SaveData {
     pub fn to_bytes(&self) -> Result<Vec<u8>, SaveError> {
         ron::to_string(self)
             .map(|s| s.into_bytes())
-            .map_err(SaveError::Serialization)
+            .map_err(|e| SaveError::Serialization(e.to_string()))
     }
 
     /// Deserialize save data from RON bytes.

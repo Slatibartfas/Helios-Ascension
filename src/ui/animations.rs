@@ -294,7 +294,7 @@ pub fn smooth_progress_bar_ui(
     current_displayed: f32,
     target: f32,
 ) -> f32 {
-    let dt = ui.ctx().input(|i| i.global_time().dt_in_seconds());
+    let dt = ui.ctx().input(|i| i.time() as f32);
     let speed = 1.0 / PROGRESS_FILL;
     let diff = target - current_displayed;
     let step = speed * dt;
@@ -408,7 +408,7 @@ impl ToastMessage {
     }
 }
 
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub struct ToastQueue {
     pub toasts: Vec<ToastMessage>,
     pub max_visible: usize,
@@ -469,7 +469,13 @@ impl ToastQueue {
     /// Must be called from an egui context (e.g. inside a bevy_egui system that has `ctx: &egui::Context`).
     pub fn update(&mut self, dt: f32, time: f64) {
         self.last_time = time;
-        self.toasts = self.toasts.drain(..).filter(|t| !t.update(dt, time)).collect();
+        let mut survivors = Vec::new();
+        for t in &mut self.toasts {
+            if !t.update(dt, time) {
+                survivors.push(t.clone());
+            }
+        }
+        self.toasts = survivors;
     }
 }
 
@@ -634,7 +640,13 @@ impl ResourceDeltaQueue {
     /// Update all deltas. Removes expired ones.
     /// Must be called from an egui context (e.g. inside a bevy_egui system that has `ctx: &egui::Context`).
     pub fn update(&mut self, dt: f32, time: f64) {
-        self.deltas = self.deltas.drain(..).filter(|d| d.update(dt, time).is_some()).collect();
+        let mut survivors = Vec::new();
+        for d in &mut self.deltas {
+            if d.update(dt, time).is_some() {
+                survivors.push(d.clone());
+            }
+        }
+        self.deltas = survivors;
     }
 }
 
@@ -646,7 +658,7 @@ pub fn render_resource_deltas(ctx: &egui::Context, deltas: &[ResourceDelta], dt:
 
     let time = ctx.input(|i| i.time);
     for delta in deltas.iter() {
-        if let Some((x, y, alpha)) = delta.clone().update(dt, time) {
+        if let Some((x, y, alpha)) = delta.clone().update(dt as f32, time) {
             let color = if delta.is_positive() {
                 crate::ui::theme::GREEN
             } else {

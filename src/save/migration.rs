@@ -45,7 +45,7 @@ type MigrationFn = fn(SaveData) -> Result<SaveData, SaveError>;
 /// Global migrator registry.
 static MIGRATORS: std::sync::LazyLock<HashMap<u32, MigrationFn>> =
     std::sync::LazyLock::new(|| {
-        let mut map = HashMap::new();
+        let map = HashMap::new();
         // Register migrators here as versions are added
         // map.insert(0, migrate_v0_to_v1);
         map

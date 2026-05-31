@@ -335,7 +335,6 @@ use std::path::PathBuf;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
     use tempfile::TempDir;
 
     fn temp_dir() -> TempDir {
