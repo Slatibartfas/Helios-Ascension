@@ -100,7 +100,7 @@ impl SimulationTime {
         self.start_timestamp + self.elapsed as i64
     }
 
-    /// Current tick counter (1 tick = 1 simulation second, 30 ticks/month, 360 ticks/year).
+    /// Current tick counter. 1 tick = 1 simulation second since epoch.
     pub fn tick(&self) -> u64 {
         self.elapsed as u64
     }
