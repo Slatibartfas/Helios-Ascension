@@ -355,7 +355,7 @@ mod tests {
     fn test_calculate_fleet_strength() {
         let fleet = Fleet {
             name: "Test Fleet".to_string(),
-            role: FleetRole::Patrol,
+            role: FleetRole::Survey,
             ships: vec![ShipInfo::new(
                 "Ship1".to_string(),
                 ShipClass::Frigate,
@@ -371,7 +371,7 @@ mod tests {
         // ratio = 500*0.5 / (30000*0.5) = 250/15000 = 0.017 < 0.4 (Easy retreat)
         let our = Fleet {
             name: "Weak".to_string(),
-            role: FleetRole::Patrol,
+            role: FleetRole::Survey,
             ships: vec![ShipInfo::new(
                 "Scout".to_string(),
                 ShipClass::Courier,
@@ -380,7 +380,7 @@ mod tests {
         };
         let enemy = Fleet {
             name: "Strong".to_string(),
-            role: FleetRole::Patrol,
+            role: FleetRole::Transport,
             ships: vec![ShipInfo::new(
                 "Capital Ship".to_string(),
                 ShipClass::Cruiser,
