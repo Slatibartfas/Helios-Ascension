@@ -17,7 +17,10 @@ pub mod plugins;
 pub mod render;
 pub mod research;
 pub mod ui;
+pub mod save;
 pub mod victory;
+
+use save::SavePlugin;
 
 use astronomy::AstronomyPlugin;
 use colony::ColonyPlugin;
@@ -77,6 +80,7 @@ fn main() {
         .add_plugins(UIPlugin)
         .add_plugins(MusicPlugin)
         .add_plugins(GameEventsPlugin)
+        .add_plugins(SavePlugin)
         // Systems
         .add_systems(Startup, setup)
         .run();

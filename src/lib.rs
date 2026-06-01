@@ -13,4 +13,5 @@ pub mod render;
 pub mod research;
 pub mod ui;
 pub mod ai;
+pub mod save;
 pub mod victory;
