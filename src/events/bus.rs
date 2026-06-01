@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use crate::events::{EventCategory, EventTag, GameEvent};
 use crate::game_events::{EmitNotification, NotificationCategory};
-use crate::ui::animations::{ToastKind, ToastMessage, ToastQueue};
+use crate::ui::animations::ToastQueue;
 
 /// A single event subscription.
 pub struct EventSubscription {
@@ -201,7 +201,7 @@ pub fn game_event_to_notification(event: &GameEvent) -> EmitNotification {
     }
 }
 
-fn category_from_tags(tags: &[EventTag]) -> NotificationCategory {
+pub fn category_from_tags(tags: &[EventTag]) -> NotificationCategory {
     for tag in tags {
         match tag {
             EventTag::Combat => return NotificationCategory::Combat,

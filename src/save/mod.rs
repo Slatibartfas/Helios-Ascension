@@ -207,7 +207,7 @@ impl SaveData {
 
     /// Compute CRC-32 checksum over the payload.
     fn compute_checksum(ecs_state: &[u8], resources: &[u8]) -> u32 {
-        use std::hash::{Hash, Hasher, BuildHasherDefault};
+        use std::hash::{Hash, Hasher};
         use std::collections::hash_map::DefaultHasher;
 
         let mut hasher = DefaultHasher::new();

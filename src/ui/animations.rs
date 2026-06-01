@@ -12,7 +12,6 @@
 
 use bevy::prelude::*;
 use bevy_egui::egui;
-use std::collections::HashMap;
 
 // ─── Timing Constants ─────────────────────────────────────────────────────────
 
@@ -294,7 +293,7 @@ pub fn smooth_progress_bar_ui(
     current_displayed: f32,
     target: f32,
 ) -> f32 {
-    let dt = ui.ctx().input(|i| i.global_time().dt_in_seconds());
+    let dt = ui.ctx().input(|i| i.time).dt_in_seconds();
     let speed = 1.0 / PROGRESS_FILL;
     let diff = target - current_displayed;
     let step = speed * dt;
@@ -668,11 +667,12 @@ pub fn render_resource_deltas(ctx: &egui::Context, deltas: &[ResourceDelta], dt:
             let text = delta.formatted();
             let text_for_layout = text.clone();
             let galley = ctx.fonts(|f| {
-                f.layout_no_wrap(
-                    text_for_layout,
-                    egui::FontId::new(14.0, egui::FontFamily::Monospace),
-                    color.linear_multiply(alpha),
-                )
+                let mut job = egui::text::LayoutJob::default();
+                job.text = egui::RichText::new(&text_for_layout)
+                    .font(egui::FontId::new(14.0, egui::FontFamily::Monospace))
+                    .color(color.linear_multiply(alpha));
+                job.wrap = egui::text::Wrap::Disabled;
+                f.layout_job(job)
             });
 
             // Position centered above the starting point

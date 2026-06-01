@@ -16,7 +16,7 @@
 //!   autosave.meta.ron
 //! ```
 
-use crate::save::{SaveData, SaveError, SaveMetadata, WorldSaveExt};
+use crate::save::{SaveError, SaveMetadata, WorldSaveExt};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
