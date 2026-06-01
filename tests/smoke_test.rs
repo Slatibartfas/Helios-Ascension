@@ -8,9 +8,9 @@ use bevy::prelude::*;
 // Import game plugins - these should be the actual game plugins
 // For now, this demonstrates the structure
 
-/// Test that the game state plugin initializes correctly
+/// Test that minimal app can be created and updated
 #[test]
-fn test_game_state_initialization() {
+fn test_minimal_app_creation() {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
 
