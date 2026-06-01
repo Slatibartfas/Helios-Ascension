@@ -107,7 +107,7 @@ impl AIPersonality {
 }
 
 /// Core AI faction component — attached to an entity that represents an AI player.
-#[derive(Component, Debug, Clone, Serialize, Deserialize)]
+#[derive(Component, Debug, Clone, Deserialize)]
 pub struct AIFaction {
     /// Unique faction identifier.
     pub faction_id: u32,

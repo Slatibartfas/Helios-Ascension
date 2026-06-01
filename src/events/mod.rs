@@ -22,11 +22,9 @@ use std::collections::HashMap;
 pub struct EventId(pub String);
 
 impl EventId {
-    /// Get the event ID as a static str if it was constructed from a static str.
-    pub fn as_static_str(&self) -> &'static str {
-        // Leak the string to get a &'static str — safe because EventIds are
-        // typically constructed once at startup from static sources.
-        Box::leak(self.0.clone().into_boxed_str())
+    /// Get the event ID as a str borrowed from the inner String.
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
@@ -74,11 +72,11 @@ pub enum EventTag {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum EffectTarget {
     /// Apply to a specific colony entity.
-    Colony(Entity),
+    Colony(u32),
     /// Apply to a specific fleet entity.
-    Fleet(Entity),
+    Fleet(u32),
     /// Apply to a specific star/body entity.
-    Body(Entity),
+    Body(u32),
     /// Apply globally to the whole empire.
     Global,
     /// Apply to a random entity matching criteria.
@@ -120,7 +118,7 @@ pub enum Condition {
     /// A specific event has already fired this campaign.
     EventFired(String),
     /// A specific body has been surveyed.
-    BodySurveyed(Entity),
+    BodySurveyed(u32),
     /// Player fleet count is at least N.
     FleetCountAtLeast(u32),
     /// Faction relation is below a threshold.

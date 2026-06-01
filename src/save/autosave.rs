@@ -38,6 +38,11 @@ impl AutosaveTimer {
         !self.saving.load(Ordering::Relaxed) && self.elapsed_secs >= AUTOSAVE_INTERVAL_SECS as f64
     }
 
+    /// Get elapsed seconds (for testing).
+    pub fn elapsed_secs(&self) -> f64 {
+        self.elapsed_secs
+    }
+
     /// Reset the timer after an autosave.
     pub fn reset(&mut self) {
         self.elapsed_secs = 0.0;
@@ -101,7 +106,7 @@ impl Default for AutosaveRotation {
 pub fn do_autosave(
     world: &World,
     rotation: &mut AutosaveRotation,
-    timer: &AutosaveTimer,
+    timer: &mut AutosaveTimer,
 ) -> std::io::Result<()> {
     timer.start_save();
 
@@ -119,16 +124,15 @@ pub fn do_autosave(
 
 /// System to check and perform autosaves.
 /// Run this in the Update schedule.
-pub fn autosave_system(
-    time: Res<Time<Real>>,
-    mut timer: ResMut<AutosaveTimer>,
-    mut rotation: ResMut<AutosaveRotation>,
-    world: &World,
-) {
+pub fn autosave_system(world: &mut World) {
+    let time = world.resource::<Time<Real>>();
+    let mut timer = world.resource_mut::<AutosaveTimer>();
+    let mut rotation = world.resource_mut::<AutosaveRotation>();
+
     timer.add_time(time.delta_secs_f64());
 
     if timer.should_autosave() {
-        if let Err(e) = do_autosave(world, &mut rotation, &timer) {
+        if let Err(e) = do_autosave(world, &mut rotation, &mut timer) {
             error!("Autosave failed: {:?}", e);
         } else {
             info!("Autosave completed");

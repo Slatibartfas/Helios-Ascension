@@ -120,7 +120,7 @@ fn compress_zstd(data: &[u8]) -> std::io::Result<Vec<u8>> {
 
 /// Decompress zstd data.
 fn decompress_zstd(data: &[u8]) -> std::io::Result<Vec<u8>> {
-    zstd::decode(data)
+    zstd::decode_all(data)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
 }
 

@@ -117,4 +117,7 @@ fn setup(mut commands: Commands) {
 
     // Set clear color to deep black for space
     commands.insert_resource(ClearColor(Color::srgb(0.01, 0.01, 0.02)));
+
+    // Initialize game settings so UI panels that expect Res<GameSettings> can find it
+    commands.insert_resource(GameSettings::default());
 }

@@ -11,8 +11,8 @@
 use helios_ascension::save::{
     autosave::{AutosaveRotation, AutosaveTimer, AUTOSAVE_INTERVAL_SECS},
     slots::{
-        delete_slot, get_slot_metadata, list_slots, load_from_slot, quicksave, save_to_slot,
-        has_quicksave, QUICKSAVE_SLOT, AUTOSAVE_SLOTS,
+        delete_slot, get_slot_metadata, list_slots, load_from_slot, quicksave, quickload,
+        save_to_slot, has_quicksave, QUICKSAVE_SLOT, AUTOSAVE_SLOTS,
     },
     GameSavedState, ColonySaved, FleetSaved, ShipSaved, ResearchSaved,
     EconomySaved, MiningOperationSaved,
@@ -303,7 +303,7 @@ fn test_save_slot_metadata() {
     assert_eq!(meta.slot, slot);
     assert_eq!(meta.name, "Metadata Test");
     assert!(meta.elapsed_seconds > 0.0);
-    assert!(meta.file_size > 0.0);
+    assert!(meta.file_size > 0);
 
     cleanup_test_save_dir();
 }
@@ -373,7 +373,7 @@ fn test_autosave_timer_initialization() {
     let timer = AutosaveTimer::new();
 
     assert!(!timer.should_autosave());
-    assert_eq!(timer.elapsed_secs, 0.0);
+    assert_eq!(timer.elapsed_secs(), 0.0);
 }
 
 #[test]
@@ -399,7 +399,7 @@ fn test_autosave_timer_reset() {
 
     timer.reset();
     assert!(!timer.should_autosave());
-    assert_eq!(timer.elapsed_secs, 0.0);
+    assert_eq!(timer.elapsed_secs(), 0.0);
 }
 
 #[test]
