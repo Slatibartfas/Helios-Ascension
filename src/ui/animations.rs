@@ -667,11 +667,12 @@ pub fn render_resource_deltas(ctx: &egui::Context, deltas: &[ResourceDelta], dt:
             let text = delta.formatted();
             let text_for_layout = text.clone();
             let galley = ctx.fonts(|f| {
-                f.layout_job(egui::text::LayoutJob::simple_singleline(
-                    text_for_layout,
-                    egui::FontId::new(14.0, egui::FontFamily::Monospace),
-                    color.linear_multiply(alpha),
-                ))
+                let mut job = egui::text::LayoutJob::default();
+                job.text = text_for_layout;
+                job.font_id = egui::FontId::new(14.0, egui::FontFamily::Monospace);
+                job.color = color.linear_multiply(alpha);
+                job.wrap = egui::text::Wrap::Disabled;
+                f.layout_job(job)
             });
 
             // Position centered above the starting point

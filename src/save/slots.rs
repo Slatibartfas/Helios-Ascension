@@ -186,7 +186,7 @@ impl SaveSlotManager {
             let meta_path = self.meta_path(slot_id);
 
             if let Ok(bytes) = std::fs::read(&meta_path) {
-                if let Ok(slot) = ron::from_bytes::<SaveSlot>(&bytes) {
+                if let Ok(slot) = ron::de::from_bytes::<SaveSlot>(&bytes) {
                     self.slots.insert(slot_id.to_string(), slot);
                 }
             }

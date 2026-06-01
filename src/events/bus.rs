@@ -21,7 +21,7 @@ use crate::events::EventCategory;
 use crate::events::EventTag;
 use super::GameEvent;
 use crate::game_events::{EmitNotification, NotificationCategory};
-use crate::ui::animations::ToastQueue; // Required by game_event_to_notification
+use crate::ui::animations::ToastQueue;
 
 /// A single event subscription.
 pub struct EventSubscription {

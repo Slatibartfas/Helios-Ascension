@@ -225,7 +225,7 @@ impl SaveData {
 
     /// Deserialize save data from RON bytes.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, SaveError> {
-        let data: SaveData = ron::from_bytes(bytes)
+        let data: SaveData = ron::de::from_bytes(bytes)
             .map_err(SaveError::Deserialization)?;
 
         if !data.verify_integrity() {
