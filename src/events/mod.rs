@@ -18,11 +18,10 @@ pub mod systems;
 
 // Re-exports
 pub use bus::{
-    category_from_tags, EventBus, EventCategory, EventSubscription, EventTag,
+    category_from_tags, EventBus, EventCategory, EventSubscription, EventTag, GameEvent,
     RandomEventTimer, SubscriptionId,
 };
 pub use bus::EventBusPlugin;
-pub use load_events::EventsData;
 pub use systems::fire_story_event;
 
 // ─── Data model types (shared with .ron loading) ───────────────────────────────
