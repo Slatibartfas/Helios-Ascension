@@ -32,9 +32,6 @@
 //! - **v1**: Current format — added metadata.playtime_seconds,
 //!           added checksum field, reorganized header
 
-#[macro_use]
-extern crate log;
-
 use crate::save::{SaveData, SaveError, SaveMetadata, SAVE_VERSION};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -120,7 +117,7 @@ impl SaveMigrator {
             });
         }
 
-        info!(
+        bevy::log::info!(
             "Migrating save from version {} to {}",
             from_version, to_version
         );
@@ -140,7 +137,7 @@ impl SaveMigrator {
             current_from += 1;
             data.metadata.version = current_from;
 
-            info!("Migrated save to version {}", current_from);
+            bevy::log::info!("Migrated save to version {}", current_from);
         }
 
         Ok(data)
@@ -175,7 +172,7 @@ fn migrate_v0_to_v1(data: SaveData) -> Result<SaveData, SaveError> {
     // playtime_seconds was added in v1, so it defaults to None for old saves.
     // No data transformation needed — the deserialization already handled it.
 
-    info!(
+    bevy::log::info!(
         "Migrated save metadata: name='{}', version={}",
         metadata.name, metadata.version
     );
