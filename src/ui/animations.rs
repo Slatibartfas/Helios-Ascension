@@ -293,7 +293,7 @@ pub fn smooth_progress_bar_ui(
     current_displayed: f32,
     target: f32,
 ) -> f32 {
-    let dt = ui.ctx().input(|i| i.time);
+    let dt = ui.ctx().input(|i| i.time) as f32;
     let speed = 1.0 / PROGRESS_FILL;
     let diff = target - current_displayed;
     let step = speed * dt;
@@ -667,10 +667,10 @@ pub fn render_resource_deltas(ctx: &egui::Context, deltas: &[ResourceDelta], dt:
             let text = delta.formatted();
             let text_for_layout = text.clone();
             let galley = ctx.fonts(|f| {
-                f.layout_job(egui::text::LayoutJob::single_line(
-                    egui::RichText::new(&text_for_layout)
-                        .font(egui::FontId::new(14.0, egui::FontFamily::Monospace))
-                        .color(color.linear_multiply(alpha)),
+                f.layout_job(egui::text::LayoutJob::simple_singleline(
+                    text_for_layout,
+                    egui::FontId::new(14.0, egui::FontFamily::Monospace),
+                    color.linear_multiply(alpha),
                 ))
             });
 

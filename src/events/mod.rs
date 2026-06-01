@@ -16,9 +16,9 @@ pub mod bus;
 pub mod load_events;
 pub mod systems;
 
-// Re-exports
+// Re-exports — GameEvent is defined directly in this module
 pub use bus::{
-    GameEvent, EventBus, EventSubscription,
+    EventBus, EventSubscription,
     RandomEventTimer, SubscriptionId,
 };
 pub use bus::EventBusPlugin;
