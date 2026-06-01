@@ -18,7 +18,7 @@ pub mod systems;
 
 // Re-exports
 pub use bus::{
-    EventBus, EventSubscription,
+    GameEvent, EventBus, EventSubscription,
     RandomEventTimer, SubscriptionId,
 };
 pub use bus::EventBusPlugin;

@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use crate::events::{EventCategory, EventTag, GameEvent};
 use crate::game_events::{EmitNotification, NotificationCategory};
-use crate::ui::animations::ToastQueue;
+use crate::ui::animations::ToastQueue; // Required by game_event_to_notification
 
 /// A single event subscription.
 pub struct EventSubscription {

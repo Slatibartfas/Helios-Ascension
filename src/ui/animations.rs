@@ -293,7 +293,7 @@ pub fn smooth_progress_bar_ui(
     current_displayed: f32,
     target: f32,
 ) -> f32 {
-    let dt = ui.ctx().input(|i| i.time).dt_in_seconds();
+    let dt = ui.ctx().input(|i| i.time);
     let speed = 1.0 / PROGRESS_FILL;
     let diff = target - current_displayed;
     let step = speed * dt;
@@ -667,12 +667,11 @@ pub fn render_resource_deltas(ctx: &egui::Context, deltas: &[ResourceDelta], dt:
             let text = delta.formatted();
             let text_for_layout = text.clone();
             let galley = ctx.fonts(|f| {
-                let mut job = egui::text::LayoutJob::default();
-                job.text = egui::RichText::new(&text_for_layout)
-                    .font(egui::FontId::new(14.0, egui::FontFamily::Monospace))
-                    .color(color.linear_multiply(alpha));
-                job.wrap = egui::text::Wrap::Disabled;
-                f.layout_job(job)
+                f.layout_job(egui::text::LayoutJob::single_line(
+                    egui::RichText::new(&text_for_layout)
+                        .font(egui::FontId::new(14.0, egui::FontFamily::Monospace))
+                        .color(color.linear_multiply(alpha)),
+                ))
             });
 
             // Position centered above the starting point

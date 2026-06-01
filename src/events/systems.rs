@@ -15,7 +15,6 @@ use crate::ui::animations::{ToastKind, ToastMessage, ToastQueue};
 use crate::ui::time::SimulationTime;
 
 /// Stores the previous simulation elapsed for delta computation.
-#[allow(unused_doc_comments)]
 thread_local! {
     static PREV_ELAPSED: RefCell<f64> = RefCell::new(0.0);
 }

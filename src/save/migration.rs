@@ -32,6 +32,9 @@
 //! - **v1**: Current format — added metadata.playtime_seconds,
 //!           added checksum field, reorganized header
 
+#[macro_use]
+extern crate log;
+
 use crate::save::{SaveData, SaveError, SaveMetadata, SAVE_VERSION};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
