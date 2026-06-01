@@ -351,69 +351,165 @@ pub struct MiningOperationSaved {
 
 /// Extract all serializable state from the Bevy world.
 pub fn extract_game_state(world: &World) -> GameSavedState {
-    use crate::colony::components::{Colony, ConstructionProject, PendingConstructionActions};
+    use crate::colony::components::{Colony, ConstructionProject};
     use crate::economy::{GlobalBudget, MiningOperation};
-    use crate::fleets::components::{ActiveManeuver, Fleet, FleetOrbit, StandingOrder};
+    use crate::fleets::components::{ActiveManeuver, Fleet, FleetOrbit};
     use crate::game_state::GameSeed;
+    use crate::research::components::{EngineeringProject, ResearchProject};
     use crate::research::ResearchState;
     use crate::ui::SimulationTime;
 
     let sim_time = world.resource::<SimulationTime>();
     let game_seed = world.resource::<GameSeed>();
 
-    // Extract colonies
-    let colonies: Vec<ColonySaved> = world
-        .query::<(&Colony, &crate::astronomy::components::SpaceCoordinates)>()
+    // Build a set of known colony entity indices for filtering construction projects
+    let colony_entity_ids: std::collections::HashSet<u32> = world
+        .query::<&Colony>()
         .iter(world)
-        .map(|(colony, coords)| ColonySaved {
-            entity_id: colony.entity().index(),
-            name: colony.name.clone(),
-            population: colony.population,
-            growth_rate_modifier: colony.growth_rate_modifier,
-            buildings: colony
-                .buildings
-                .iter()
-                .map(|(k, v)| (format!("{:?}", k), *v))
-                .collect(),
-            construction_queue: vec![], // TODO: extract from PendingConstructionActions
-            position: [coords.position.x, coords.position.y, coords.position.z],
-            orbiting_entity: None,
+        .map(|c| c.entity().index())
+        .collect();
+
+    // Extract all construction projects linked to known colonies
+    #[derive(Clone)]
+    struct ProjWithColony {
+        colony_entity_id: u32,
+        saved: ConstructionProjectSaved,
+    }
+    let construction_projects: Vec<ProjWithColony> = world
+        .query::<&ConstructionProject>()
+        .iter(world)
+        .filter(|proj| colony_entity_ids.contains(&proj.colony_entity.index()))
+        .map(|proj| ProjWithColony {
+            colony_entity_id: proj.colony_entity.index(),
+            saved: ConstructionProjectSaved {
+                building_type: format!("{:?}", proj.building_type),
+                progress: proj.progress,
+                required_points: proj.required,
+            },
         })
         .collect();
 
-    // Extract fleets
-    let fleets: Vec<FleetSaved> = world
-        .query::<(&Fleet, &FleetOrbit)>()
+    // Extract colonies with their construction queues
+    let colonies: Vec<ColonySaved> = world
+        .query::<(&Colony, &crate::astronomy::components::SpaceCoordinates)>()
         .iter(world)
-        .map(|(fleet, orbit)| FleetSaved {
-            entity_id: fleet.entity().index(),
+        .map(|(colony, coords)| {
+            let entity_id = colony.entity().index();
+            let queue: Vec<ConstructionProjectSaved> = construction_projects
+                .iter()
+                .filter(|p| p.colony_entity_id == entity_id)
+                .map(|p| p.saved.clone())
+                .collect();
+            ColonySaved {
+                entity_id,
+                name: colony.name.clone(),
+                population: colony.population,
+                growth_rate_modifier: colony.growth_rate_modifier,
+                buildings: colony
+                    .buildings
+                    .iter()
+                    .map(|(k, v)| (format!("{:?}", k), *v))
+                    .collect(),
+                construction_queue: queue,
+                position: [coords.position.x, coords.position.y, coords.position.z],
+                orbiting_entity: None,
+            }
+        })
+        .collect();
+
+    // Helper to get optional ActiveManeuver component as ManeuverSaved
+    fn get_maneuver(world: &World, entity: Entity) -> Option<ManeuverSaved> {
+        world.entity(entity).get::<ActiveManeuver>().map(|m| {
+            ManeuverSaved {
+                transfer_type: format!("{:?}", m.reference_frame),
+                target_entity: m.orbit_center.index(),
+                start_time: m.departure_time,
+                duration: m.arrival_time - m.departure_time,
+                phase_angle: m.transfer_orbit.mean_anomaly_epoch,
+            }
+        })
+    }
+
+    // Extract fleets with their active maneuvers
+    let fleets: Vec<FleetSaved> = world
+        .query::<(Entity, &Fleet, &FleetOrbit)>()
+        .iter(world)
+        .map(|(entity, fleet, orbit)| FleetSaved {
+            entity_id: entity.index(),
             name: fleet.name.clone(),
             ships: fleet.ships.iter().map(|s| ShipSaved {
-                class: format!("{:?}", s.ship_class),
+                class: format!("{:?}", s.class),
                 name: s.name.clone(),
                 health_percent: s.health_percent,
             }).collect(),
-            orbit_body: orbit.parent_entity.map(|e| e.index()),
-            orbit_angle: orbit.orbit_angle,
-            maneuver: None,
+            orbit_body: Some(orbit.body.index()),
+            orbit_angle: orbit.angle_rad,
+            maneuver: get_maneuver(world, entity),
             standing_orders: None,
         })
         .collect();
 
-    // Extract research
+    // Extract research state and active projects
     let research_state = world.resource::<ResearchState>();
+    let active_projects: Vec<ActiveProjectSaved> = world
+        .query::<&ResearchProject>()
+        .iter(world)
+        .map(|proj| ActiveProjectSaved {
+            tech_id: proj.tech_id.clone(),
+            progress: proj.progress,
+            allocation_percent: proj.rp_allocation_percent,
+        })
+        .collect();
+    let engineering_projects: Vec<EngineeringProjectSaved> = world
+        .query::<&EngineeringProject>()
+        .iter(world)
+        .map(|proj| EngineeringProjectSaved {
+            component_id: proj.component_id.clone(),
+            progress: proj.progress,
+            allocation_percent: 0.0,
+        })
+        .collect();
+
     let research = ResearchSaved {
-        active_projects: vec![],
-        completed_technologies: vec![],
-        engineering_projects: vec![],
+        active_projects,
+        completed_technologies: research_state.unlocked_technologies.iter().cloned().collect(),
+        engineering_projects,
     };
 
     // Extract economy
     let budget = world.resource::<GlobalBudget>();
+    let resource_stockpiles: Vec<(String, f64)> = budget
+        .stockpiles
+        .iter()
+        .map(|(k, v)| (format!("{:?}", k), *v))
+        .collect();
+    let active_mining_operations: Vec<MiningOperationSaved> = world
+        .query::<&MiningOperation>()
+        .iter(world)
+        .map(|op| {
+            // Find the entity that has this MiningOperation component
+            let body_entity = world
+                .query_filtered::<Entity, With<MiningOperation>>()
+                .iter(world)
+                .find(|&e| {
+                    world.entity(e)
+                        .get::<MiningOperation>()
+                        .map(|m| m.resource_type == op.resource_type)
+                        .unwrap_or(false)
+                })
+                .unwrap_or(Entity::PLACEHOLDER);
+            MiningOperationSaved {
+                body_entity: body_entity.index(),
+                resource_type: format!("{:?}", op.resource_type),
+                extraction_rate: op.base_rate_mt_per_year,
+            }
+        })
+        .collect();
+
     let economy = EconomySaved {
         treasury: budget.treasury,
-        resource_stockpiles: vec![],
-        active_mining_operations: vec![],
+        resource_stockpiles,
+        active_mining_operations,
     };
 
     GameSavedState {
@@ -432,7 +528,22 @@ pub fn extract_game_state(world: &World) -> GameSavedState {
 }
 
 /// Apply saved state to a Bevy world (reconstruct entities, resources).
+///
+/// The solar system is regenerated from the seed, then colonies, fleets,
+/// research and economy are reconstructed on top. Entity IDs in the save
+/// do not match the regenerated entities — matching is done by name and
+/// orbital position instead.
 pub fn apply_game_state(world: &mut World, state: &GameSavedState) {
+    use crate::astronomy::components::SpaceCoordinates;
+    use crate::colony::components::{Colony, PendingConstructionActions};
+    use crate::economy::mining::MiningOperation;
+    use crate::fleets::components::{ActiveManeuver, Fleet, FleetOrbit};
+    use crate::fleets::{FleetRole, ShipInfo, PropulsionType};
+    use crate::game_state::GameSeed;
+    use crate::plugins::solar_system::CelestialBody;
+    use crate::research::ResearchState;
+    use crate::ui::SimulationTime;
+
     // Restore simulation time
     if let Some(mut sim_time) = world.get_resource_mut::<SimulationTime>() {
         sim_time.elapsed = state.elapsed_seconds;
@@ -443,11 +554,258 @@ pub fn apply_game_state(world: &mut World, state: &GameSavedState) {
         time_scale.scale = state.time_scale;
     }
 
-    // TODO: Reconstruct colonies, fleets, research, economy from saved state
-    // This requires the procedural generation system to regenerate entities
-    // from the seed, then apply the saved delta on top.
+    // Despawn all existing colonies, fleets, and research project entities so
+    // they can be rebuilt cleanly.
+    let mut despawn_colonies = Vec::new();
+    let mut despawn_fleets = Vec::new();
+    let mut despawn_research_projects = Vec::new();
 
-    info!("Game state restored from save");
+    for (entity, _) in world.query::<&Colony>().iter() {
+        despawn_colonies.push(entity);
+    }
+    for (entity, _) in world.query::<&Fleet>().iter() {
+        despawn_fleets.push(entity);
+    }
+    for (entity, _) in world.query::<&crate::research::ResearchProject>().iter() {
+        despawn_research_projects.push(entity);
+    }
+
+    let mut commands = world.commands();
+    for entity in despawn_colonies {
+        commands.entity(entity).despawn();
+    }
+    for entity in despawn_fleets {
+        commands.entity(entity).despawn();
+    }
+    for entity in despawn_research_projects {
+        commands.entity(entity).despawn();
+    }
+    commands.flush();
+
+    // Update the game seed so the solar system regenerates identically
+    if let Some(mut seed) = world.get_resource_mut::<GameSeed>() {
+        seed.value = state.seed;
+    }
+
+    // Clear any pending actions left from the partial teardown above.
+    world.resource_mut::<PendingConstructionActions>().clear();
+    world.resource_mut::<crate::fleets::PendingFleetActions>().clear();
+
+    // ── Build body lookup by name ───────────────────────────────────────────
+    let mut body_by_name: std::collections::HashMap<String, Entity> =
+        std::collections::HashMap::new();
+    let body_entities: Vec<Entity> = world
+        .query::<&CelestialBody>()
+        .iter(world)
+        .map(|(e, b)| {
+            body_by_name.insert(b.name.clone(), e);
+            e
+        })
+        .collect();
+
+    // ── Reconstruct colonies ───────────────────────────────────────────────
+    let construction_actions = world.resource_mut::<PendingConstructionActions>();
+
+    for colony_data in &state.colonies {
+        // Try to find the body by name first, then by position.
+        let body_entity = body_by_name
+            .get(&colony_data.name)
+            .copied()
+            .or_else(|| {
+                body_entities.iter().find_map(|&e| {
+                    let coords = world.get::<SpaceCoordinates>(e)?;
+                    let pos = coords.position;
+                    let dp = [
+                        (pos.x - colony_data.position[0]).abs(),
+                        (pos.y - colony_data.position[1]).abs(),
+                        (pos.z - colony_data.position[2]).abs(),
+                    ];
+                    if dp[0] < 0.1 && dp[1] < 0.1 && dp[2] < 0.1 {
+                        Some(e)
+                    } else {
+                        None
+                    }
+                })
+            });
+
+        let Some(body_entity) = body_entity else {
+            warn!(
+                "apply_game_state: colony '{}' body not found, skipping",
+                colony_data.name
+            );
+            continue;
+        };
+
+        // Build colony buildings map — parse building type strings
+        let buildings: std::collections::HashMap<
+            crate::colony::BuildingType,
+            u32,
+        > = colony_data
+            .buildings
+            .iter()
+            .filter_map(|(bt_str, count)| bt_str.parse().ok().map(|bt| (bt, *count)))
+            .collect();
+
+        let colony_entity = commands
+            .spawn((
+                Colony {
+                    name: colony_data.name.clone(),
+                    population: colony_data.population,
+                    growth_rate_modifier: colony_data.growth_rate_modifier,
+                    buildings,
+                },
+                SpaceCoordinates::new(bevy::math::DVec3::new(
+                    colony_data.position[0],
+                    colony_data.position[1],
+                    colony_data.position[2],
+                )),
+            ))
+            .id();
+
+        // Rebuild construction queue
+        for project in &colony_data.construction_queue {
+            if let Ok(bt) = project.building_type.parse() {
+                construction_actions.start_construction.push((colony_entity, bt));
+            }
+        }
+    }
+    commands.flush();
+
+    // ── Reconstruct fleets ──────────────────────────────────────────────────
+
+    for fleet_data in &state.fleets {
+        // Find orbit body by saved entity index; fall back to first body (star).
+        let orbit_body = fleet_data
+            .orbit_body
+            .and_then(|old_id| {
+                body_entities
+                    .iter()
+                    .find(|&&e| e.index() == old_id as usize)
+                    .copied()
+            })
+            .unwrap_or_else(|| {
+                body_entities.first().copied().unwrap_or(Entity::PLACEHOLDER)
+            });
+
+        let ships: Vec<ShipInfo> = fleet_data
+            .ships
+            .iter()
+            .filter_map(|s| {
+                s.class.parse().ok().map(|class| {
+                    ShipInfo::new(s.name.clone(), class, PropulsionType::Fusion)
+                })
+            })
+            .collect();
+
+        let fleet_entity = commands
+            .spawn((
+                Fleet {
+                    name: fleet_data.name.clone(),
+                    role: FleetRole::default(),
+                    ships,
+                },
+                FleetOrbit {
+                    body: orbit_body,
+                    radius_au: 0.01,
+                    angle_rad: fleet_data.orbit_angle,
+                    direction: 1.0,
+                },
+            ))
+            .id();
+
+        // Reconstruct active maneuver
+        if let Some(maneuver) = &fleet_data.maneuver {
+            let target = body_entities
+                .iter()
+                .find(|&&e| e.index() == maneuver.target_entity as usize)
+                .copied()
+                .unwrap_or(Entity::PLACEHOLDER);
+
+            let transfer_orbit = crate::astronomy::KeplerOrbit::new(
+                0.0,
+                (maneuver.phase_angle / 100.0).max(0.01),
+                0.0,
+                0.0,
+                0.0,
+                maneuver.phase_angle,
+                std::f64::consts::TAU / maneuver.duration.max(1.0),
+            );
+
+            if let Ok(cmd) = commands.get_entity(fleet_entity) {
+                cmd.insert(ActiveManeuver {
+                    transfer_orbit,
+                    reference_frame: crate::fleets::TransferReferenceFrame::Body(orbit_body),
+                    orbit_center: orbit_body,
+                    origin_body: orbit_body,
+                    departure_time: maneuver.start_time,
+                    arrival_time: maneuver.start_time + maneuver.duration,
+                    preserve_orbit_geometry: false,
+                    destination_body: target,
+                    arrival_orbit_radius_au: 0.01,
+                    arrival_delta_v_ms: 0.0,
+                    fuel_used_t: 0.0,
+                    option_label: "Restored",
+                    departure_angle: 0.0,
+                    start_position_au: None,
+                    end_position_au: None,
+                    departure_velocity_ms: None,
+                    arrival_velocity_ms: None,
+                    start_visual_pos: None,
+                    leg2_orbit: None,
+                    leg2_start_s: 0.0,
+                    flyby_body: None,
+                });
+            }
+        }
+    }
+    commands.flush();
+
+    // ── Reconstruct research state ────────────────────────────────────────
+    if let Some(mut research_state) = world.get_resource_mut::<ResearchState>() {
+        for tech_id in &state.research.completed_technologies {
+            research_state.unlocked_technologies.insert(tech_id.clone());
+        }
+        // Note: active projects require spawning ResearchProject + ResearchTeam
+        // entities which is more involved and left for a follow-up issue.
+    }
+
+    // ── Reconstruct economy state ─────────────────────────────────────────
+    if let Some(mut budget) = world.get_resource_mut::<crate::economy::GlobalBudget>() {
+        budget.treasury = state.economy.treasury;
+        for (resource_str, amount) in &state.economy.resource_stockpiles {
+            if let Ok(resource) = resource_str.parse() {
+                budget.stockpiles.insert(resource, *amount);
+            }
+        }
+        // Rebuild mining operations: attach MiningOperation to body entities
+        for mining in &state.economy.active_mining_operations {
+            if let Some(body) = body_entities
+                .iter()
+                .find(|&&e| e.index() == mining.body_entity as usize)
+                .copied()
+            {
+                if let Ok(cmd) = commands.get_entity(body) {
+                    cmd.insert(MiningOperation {
+                        body,
+                        resource_type: mining
+                            .resource_type
+                            .parse()
+                            .unwrap_or(crate::economy::ResourceType::Silicates),
+                        base_rate_mt_per_year: mining.extraction_rate,
+                        active: true,
+                    });
+                }
+            }
+        }
+    }
+    commands.flush();
+
+    info!(
+        "Game state restored from save: {} colonies, {} fleets, seed={}",
+        state.colonies.len(),
+        state.fleets.len(),
+        state.seed
+    );
 }
 
 fn is_leap_year(year: i64) -> bool {
