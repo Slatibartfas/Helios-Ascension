@@ -93,6 +93,31 @@ fn draw_tab_button(
     )
 }
 
+pub(super) fn ui_building_editor_panel(
+    mut contexts: EguiContexts,
+    debug_settings: Res<ConstructionDebugSettings>,
+    mut buildings_data: Option<ResMut<BuildingsData>>,
+    mut edit_state: ResMut<crate::colony::BuildingEditState>,
+    sim_time: Res<crate::ui::SimulationTime>,
+    settings: Res<GameSettings>,
+) {
+    if !debug_settings.enabled {
+        return;
+    }
+    let ctx = match contexts.ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
+    };
+    let cb_mode = settings.ui.color_blind_mode;
+    render_building_editor(
+        ctx,
+        buildings_data.as_mut().map(|d| d.as_mut()),
+        &mut edit_state,
+        sim_time.elapsed_seconds(),
+        cb_mode,
+    );
+}
+
 pub(super) fn ui_construction_panels(
     mut contexts: EguiContexts,
     active_menu: Res<ActiveMenu>,
@@ -106,8 +131,6 @@ pub(super) fn ui_construction_panels(
     mut buildings_data: Option<ResMut<BuildingsData>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut ui_state: ResMut<ConstructionUiState>,
-    mut edit_state: ResMut<crate::colony::BuildingEditState>,
-    sim_time: Res<crate::ui::SimulationTime>,
     resource_requests: Res<crate::economy::PendingResourceRequests>,
     mut minimum_stockpiles: Query<&mut crate::economy::MinimumStockpile>,
     settings: Res<GameSettings>,
@@ -126,7 +149,6 @@ pub(super) fn ui_construction_panels(
         Err(_) => return,
     };
     let cb_mode = settings.ui.color_blind_mode;
-    let editor_enabled = debug_settings.enabled;
 
     egui::CentralPanel::default()
         .frame(theme::central_frame())
@@ -148,16 +170,7 @@ pub(super) fn ui_construction_panels(
         );
         });
 
-    // Building editor dialog (rendered outside CentralPanel so it floats)
-    if editor_enabled {
-        render_building_editor(
-            ctx,
-            buildings_data.as_mut().map(|d| d.as_mut()),
-            &mut edit_state,
-            sim_time.elapsed_seconds(),
-            cb_mode,
-        );
-    }
+    // Building editor dialog moved to ui_building_editor_panel system
 }
 
 /// Render the construction panel showing colonies, buildings, and construction queues.

@@ -37,7 +37,7 @@ mod transfer_planner;
 pub use icons::{MenuIcons, ResearchIcons};
 pub use time::{SimulationTime, TimeScale};
 
-use construction_panel::ui_construction_panels;
+use construction_panel::{ui_building_editor_panel, ui_construction_panels};
 use dashboard::{ui_dashboard, ui_time_controls};
 use economy_panel::ui_economy_panels;
 use fleets_panel::{
@@ -451,6 +451,10 @@ impl Plugin for UIPlugin {
             .add_systems(
                 EguiPrimaryContextPass,
                 ui_construction_panels,
+            )
+            .add_systems(
+                EguiPrimaryContextPass,
+                ui_building_editor_panel,
             )
             .add_systems(
                 EguiPrimaryContextPass,
