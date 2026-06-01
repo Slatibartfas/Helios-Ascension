@@ -351,24 +351,69 @@ mod tests {
 
     #[test]
     fn test_calculate_fleet_strength() {
-        let fleet = Fleet::new("Test Fleet".to_string());
+        let fleet = Fleet {
+            name: "Test Fleet".to_string(),
+            role: FleetRole::Patrol,
+            ships: vec![ShipInfo::new(
+                "Ship1".to_string(),
+                ShipClass::Frigate,
+                PropulsionType::Chemical,
+            )],
+        };
         assert!(calculate_fleet_strength(&fleet) >= 1.0);
     }
 
     #[test]
     fn test_combat_decision_easy_retreat() {
-        let our = Fleet::new("Weak".to_string());
-        let enemy = Fleet::new("Strong".to_string());
+        // Small ship for us (Courier 500t), large for enemy (Cruiser 30000t)
+        // ratio = 500*0.5 / (30000*0.5) = 250/15000 = 0.017 < 0.4 (Easy retreat)
+        let our = Fleet {
+            name: "Weak".to_string(),
+            role: FleetRole::Patrol,
+            ships: vec![ShipInfo::new(
+                "Scout".to_string(),
+                ShipClass::Courier,
+                PropulsionType::Chemical,
+            )],
+        };
+        let enemy = Fleet {
+            name: "Strong".to_string(),
+            role: FleetRole::Patrol,
+            ships: vec![ShipInfo::new(
+                "Capital Ship".to_string(),
+                ShipClass::Cruiser,
+                PropulsionType::NuclearThermal,
+            )],
+        };
         let decision = evaluate_combat(&our, &enemy, AIDifficulty::Easy, AIPersonality::Balanced);
-        // Very weak fleet vs strong enemy → retreat threshold on Easy is lowest.
+        // Weak fleet vs strong enemy → retreat threshold on Easy is lowest.
         assert!(matches!(decision, CombatDecision::Retreat));
     }
 
     #[test]
     fn test_combat_decision_overwhelming_advantage() {
-        let our = Fleet::new("Strong".to_string());
-        let enemy = Fleet::new("Weak".to_string());
-        let decision = evaluate_combat(&our, &enemy, AIDifficulty::Hard, AIPersonality::Militarist);
+        // Large ship for us (Cruiser 30000t), small for enemy (Courier 500t)
+        // ratio = 15000/250 = 60 > 1.2 (Hard engage threshold)
+        let our = Fleet {
+            name: "Strong".to_string(),
+            role: FleetRole::Attack,
+            ships: vec![ShipInfo::new(
+                "Capital Ship".to_string(),
+                ShipClass::Cruiser,
+                PropulsionType::NuclearThermal,
+            )],
+        };
+        let enemy = Fleet {
+            name: "Weak".to_string(),
+            role: FleetRole::Unassigned,
+            ships: vec![ShipInfo::new(
+                "Scout".to_string(),
+                ShipClass::Courier,
+                PropulsionType::Chemical,
+            )],
+        };
+        let decision =
+            evaluate_combat(&our, &enemy, AIDifficulty::Hard, AIPersonality::Militarist);
         // Strong fleet vs weak + militarist → definitely engage.
         assert!(matches!(decision, CombatDecision::Engage));
     }
