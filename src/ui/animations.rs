@@ -666,9 +666,10 @@ pub fn render_resource_deltas(ctx: &egui::Context, deltas: &[ResourceDelta], dt:
             };
 
             let text = delta.formatted();
+            let text_for_layout = text.clone();
             let galley = ctx.fonts(|f| {
                 f.layout_no_wrap(
-                    text,
+                    text_for_layout,
                     egui::FontId::new(14.0, egui::FontFamily::Monospace),
                     color.linear_multiply(alpha),
                 )
