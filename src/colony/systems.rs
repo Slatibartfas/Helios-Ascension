@@ -701,7 +701,7 @@ pub fn deduct_environment_costs(
 /// portion; the final morale formula applies the base offset and clamps.
 ///
 /// The formula (from `docs/design/MORALE_SYSTEM.md`):
-/// ```
+/// ```ignore
 /// morale = clamp(75 - food_penalty - housing_penalty - logistics_penalty
 ///               + event_modifier, 0.0, 100.0)
 /// ```
