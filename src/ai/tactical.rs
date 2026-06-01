@@ -348,6 +348,8 @@ pub fn run_tactical_ai(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fleets::components::ShipInfo;
+    use crate::fleets::types::{FleetRole, PropulsionType, ShipClass};
 
     #[test]
     fn test_calculate_fleet_strength() {
