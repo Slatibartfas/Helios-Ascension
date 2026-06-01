@@ -36,7 +36,7 @@ use bevy::prelude::*;
 
 use campaign::run_campaign_ai;
 use tactical::run_tactical_ai;
-use components::{AIFaction, AIPersonality, AIDifficulty, AIControlledColony, AIControlledFleet, AIFactionResearchState};
+use components::{AIFaction, AIPersonality, AIDifficulty, AIControlledColony, AIFactionResearchState};
 
 /// AI Faction plugin — provides autonomous opponent behavior.
 pub struct AIFactionPlugin;

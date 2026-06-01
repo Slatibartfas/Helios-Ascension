@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// Global game settings that persist across sessions.
-#[derive(Resource, Serialize, Deserialize, Clone, Debug)]
+#[derive(Resource, Serialize, Deserialize, Clone, Debug, Default)]
 pub struct GameSettings {
     pub graphics: GraphicsSettings,
     pub audio: AudioSettings,
@@ -15,19 +15,6 @@ pub struct GameSettings {
     pub gameplay: GameplaySettings,
     pub keybindings: KeybindingsSettings,
     pub ui: UiSettings,
-}
-
-impl Default for GameSettings {
-    fn default() -> Self {
-        Self {
-            graphics: GraphicsSettings::default(),
-            audio: AudioSettings::default(),
-            difficulty: DifficultySettings::default(),
-            gameplay: GameplaySettings::default(),
-            keybindings: KeybindingsSettings::default(),
-            ui: UiSettings::default(),
-        }
-    }
 }
 
 /// Graphics display settings.

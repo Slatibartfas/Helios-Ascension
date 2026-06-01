@@ -5,7 +5,6 @@
 
 use bevy::ecs::event::Event;
 use bevy::prelude::*;
-use bevy_egui::egui;
 use std::time::Instant;
 
 use crate::plugins::music::{UiSoundKind, UiSoundRequestQueue};

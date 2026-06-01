@@ -144,7 +144,7 @@ pub fn reputation_drift_system(
 ) {
     let ticks_per_month = 30.0_f64;
     let tick = time.tick();
-    let drift = if (tick % ticks_per_month as u64) == 0 { 1.0 } else { 0.0 };
+    let drift = if tick.is_multiple_of(ticks_per_month as u64) { 1.0 } else { 0.0 };
 
     if drift > 0.0 {
         for relation in &mut relations.relations {
@@ -162,7 +162,7 @@ pub fn treaty_compliance_bonus_system(
     mut relations: ResMut<RelationsGraph>,
 ) {
     let ticks_per_year = 360.0_f64;
-    if (time.tick() % ticks_per_year as u64) != 0 {
+    if !time.tick().is_multiple_of(ticks_per_year as u64) {
         return;
     }
 
@@ -363,11 +363,11 @@ pub fn ai_proposal_generation_system(
     // AI proposes every 180-360 ticks
     let tick = time.tick();
     let proposal_interval = 240_u64;
-    if tick % proposal_interval != 0 {
+    if !tick.is_multiple_of(proposal_interval) {
         return;
     }
 
-    for (entity, ai) in &ai_factions {
+    for (_entity, ai) in &ai_factions {
         if !ai.should_decide(4) {
             continue;
         }

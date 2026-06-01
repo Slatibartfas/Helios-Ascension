@@ -153,7 +153,7 @@ impl PanelFades {
 
     /// Get or create a fade state for a panel.
     pub fn get_or_insert(&mut self, name: &str) -> &mut PanelFade {
-        self.fades.entry(name.to_string()).or_insert_with(PanelFade::new)
+        self.fades.entry(name.to_string()).or_default()
     }
 
     /// Update all panel fade animations. Returns alpha for named panel (if exists).
@@ -637,7 +637,7 @@ pub fn render_resource_deltas(ctx: &egui::Context, deltas: &mut [ResourceDelta],
     let items: Vec<(f32, f32, f32, String, egui::Color32)> = deltas
         .iter_mut()
         .filter_map(|delta| {
-            let Some((x, y, alpha)) = delta.update(dt as f32, time) else { return None };
+            let (x, y, alpha) = delta.update(dt as f32, time)?;
             let color = if delta.is_positive() {
                 crate::ui::theme::GREEN
             } else {

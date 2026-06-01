@@ -2,16 +2,22 @@ use bevy::prelude::*;
 use bevy::window::{WindowResizeConstraints, WindowResolution};
 use bevy_egui::EguiPlugin;
 
+pub mod ai;
+pub mod archaeology;
 pub mod astronomy;
 pub mod colony;
+pub mod diplomacy;
 pub mod economy;
+pub mod events;
 pub mod fleets;
 pub mod game_events;
+pub mod game_settings;
 pub mod game_state;
 pub mod plugins;
 pub mod render;
 pub mod research;
 pub mod ui;
+pub mod victory;
 
 use astronomy::AstronomyPlugin;
 use colony::ColonyPlugin;

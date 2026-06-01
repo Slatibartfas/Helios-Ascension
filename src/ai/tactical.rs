@@ -77,14 +77,14 @@ pub fn evaluate_combat(
         return CombatDecision::Retreat;
     }
 
-    if ratio > engage_thresh {
-        if personality == AIPersonality::Militarist || ratio > engage_thresh * 1.5 {
-            info!(
-                "Tactical AI: ratio {:.2} > {:.2} engage threshold — ENGAGE",
-                ratio, engage_thresh
-            );
-            return CombatDecision::Engage;
-        }
+    if ratio > engage_thresh
+        && (personality == AIPersonality::Militarist || ratio > engage_thresh * 1.5)
+    {
+        info!(
+            "Tactical AI: ratio {:.2} > {:.2} engage threshold — ENGAGE",
+            ratio, engage_thresh
+        );
+        return CombatDecision::Engage;
     }
 
     CombatDecision::Hold
@@ -263,8 +263,8 @@ pub fn run_tactical_ai(
         // Build list of enemy fleet positions.
         let enemy_fleets: Vec<(Entity, DVec3)> = all_fleets
             .iter()
-            .filter(|(_, _, _, acf)| acf.map_or(true, |af| af.faction_id != faction_id))
-            .filter_map(|(e, _, sc, _)| Some((e, sc.position)))
+            .filter(|(_, _, _, acf)| acf.is_none_or(|af| af.faction_id != faction_id))
+            .map(|(e, _, sc, _)| (e, sc.position))
             .collect();
 
         if enemy_fleets.is_empty() {
