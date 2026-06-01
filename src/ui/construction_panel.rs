@@ -585,7 +585,7 @@ fn render_construction_buildings_tab(
         .color(theme::TEXT_DIM),
     );
     ui.add_space(6.0);
-    render_existing_buildings_section(ui, colony, buildings_data.as_mut().map(std::ops::Deref::deref), cb_mode);
+    render_existing_buildings_section(ui, colony, buildings_data.as_mut(), cb_mode);
 }
 
 fn render_construction_queue_section(
@@ -967,7 +967,7 @@ fn build_card_columns(available_width: f32) -> usize {
 fn render_existing_buildings_section(
     ui: &mut egui::Ui,
     colony: &Colony,
-    buildings_data: Option<&BuildingsData>,
+    buildings_data: Option<&mut BuildingsData>,
     cb_mode: ColorBlindMode,
 ) {
     for &category in BuildingCategory::all() {
@@ -1078,7 +1078,7 @@ fn render_existing_building_card(
     building: BuildingType,
     count: u32,
     card_width: f32,
-    buildings_data: Option<&BuildingsData>,
+    buildings_data: Option<&mut BuildingsData>,
     cb_mode: ColorBlindMode,
 ) {
     let definition = buildings_data.as_ref().and_then(|data| data.get(&building));
