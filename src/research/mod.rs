@@ -170,8 +170,14 @@ impl Plugin for ResearchPlugin {
             .init_resource::<TechTreeEditState>()
             .init_resource::<PendingResearchActions>()
             .init_resource::<ResearchTeamCapacity>()
-            // Startup systems
-            .add_systems(Startup, load_technologies)
+            // Startup systems.
+            // NOTE: `load_technologies` is no longer registered here. The
+            // canonical RON data loader (DataLoaderPlugin, see
+            // `src/data_loader/mod.rs`) is the single entry point for all
+            // `assets/data/*.ron` files. It dispatches to `load_technologies`
+            // during its own startup pass. Keeping the call out of this
+            // plugin avoids double-loading and preserves the architecture
+            // baseline's "single canonical loader" invariant.
             .add_systems(PostStartup, initialize_baseline_technology)
             // Update systems
             .add_systems(

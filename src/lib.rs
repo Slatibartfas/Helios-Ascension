@@ -1,5 +1,6 @@
 pub mod astronomy;
 pub mod colony;
+pub mod data_loader;
 pub mod economy;
 pub mod fleets;
 pub mod game_state;

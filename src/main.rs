@@ -4,6 +4,7 @@ use bevy_egui::EguiPlugin;
 
 pub mod astronomy;
 pub mod colony;
+pub mod data_loader;
 pub mod economy;
 pub mod fleets;
 pub mod game_state;
@@ -14,6 +15,7 @@ pub mod ui;
 
 use astronomy::AstronomyPlugin;
 use colony::ColonyPlugin;
+use data_loader::DataLoaderPlugin;
 use economy::EconomyPlugin;
 use fleets::FleetPlugin;
 use game_state::GameStatePlugin;
@@ -49,6 +51,9 @@ fn main() {
         }))
         // Debug UI (egui)
         .add_plugins(EguiPlugin::default())
+        // Canonical RON data loader (DELA-3). Must run before any plugin
+        // that reads canonical data (research, colony, fleets, ...).
+        .add_plugins(DataLoaderPlugin)
         // Game plugins - Order matters for dependencies
         .add_plugins(GameStatePlugin)
         .add_plugins(AstronomyPlugin)
