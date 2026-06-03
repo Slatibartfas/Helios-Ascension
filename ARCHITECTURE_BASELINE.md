@@ -60,22 +60,28 @@ Canonical files:
 ```
 push / PR opened
   -> Ubuntu latest runner
+  -> Install Rust stable (dtolnay/rust-toolchain)
+  -> Install Linux system deps (libwayland-dev, libxkbcommon-dev, libx11-dev, etc.)
   -> cargo build --release --locked
   -> cargo test --locked
   -> PR gate: must pass to merge
   -> human co-sign required for main/master
 ```
 
+**System dependencies note:** Bevy uses Wayland/X11 on Linux. CI must install `libwayland-dev`, `libxkbcommon-dev`, `libx11-dev`, `libxcb-*` and `pkg-config` before `cargo build`.
+
 ---
 
 ## 5. Cargo Config Audit
 
-Ryzen 7 5825U (8C/16T):
-- `jobs = 4` — safe; leaves headroom for codegen parallelism
-- `codegen-units = 16` on release — safe; prevents thread starvation
-- No `runner` override for standard targets — correct
+Existing `.cargo/config.toml` (unchanged from main):
 
-**Finding:** No thread over-allocation risk. Config is clean.
+- LLD linker for `x86_64-unknown-linux-gnu` — 2-5x faster linking
+- No `jobs` override — Bevy compilation defaults to safe value
+- No `codegen-units` override — release profile in `Cargo.toml` controls it (`codegen-units = 1`)
+- No `runner` override for standard targets
+
+**Audit finding:** No thread over-allocation risk. Config is clean and correct for CI.
 
 ---
 
