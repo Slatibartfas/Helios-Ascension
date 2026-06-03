@@ -28,7 +28,11 @@ jobs:
             libxcb-render0-dev \
             libxcb-shape0-dev \
             libxcb-xfixes0-dev \
+            libasound2-dev \
+            libudev-dev \
             libssl-dev \
+            clang \
+            lld \
             pkg-config
 
       - name: Cache cargo registry
