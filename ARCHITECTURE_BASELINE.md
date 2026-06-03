@@ -35,6 +35,13 @@ end:
 - No secondary `EguiUserApp` instances
 - All UI drawn in systems scheduled after `EguiPlugin`
 
+**Pattern reference:** see [`UI_PATTERNS.md`](UI_PATTERNS.md) for the
+canonical recipe (context access via `EguiContexts::ctx_mut()`, theme
+helpers in `src/ui/theme.rs`, system-set layering, and the worked
+`technologies_panel_system` example introduced in DELA-4). Any new panel
+should be added by following the recipe in §6 of that document; if a
+deviation is needed, document it there.
+
 ---
 
 ## 3. RON Data Pipeline

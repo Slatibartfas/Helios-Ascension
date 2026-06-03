@@ -29,6 +29,7 @@ pub mod icons;
 mod research_panel;
 mod resources_bar;
 mod tech_tree;
+mod technologies_panel;
 pub(super) mod theme;
 pub mod time;
 mod transfer_planner;
@@ -465,6 +466,15 @@ impl Plugin for UIPlugin {
             .add_systems(
                 EguiPrimaryContextPass,
                 ui_fleet_action_bar.in_set(UiSystemSet::MainPanels),
+            )
+            // First egui panel: read-only view of the loaded tech tree.
+            // Renders unconditionally so the data pipeline is observable
+            // from app startup. Not gated on a menu — this is a CTO data
+            // verification surface, not a player UI; the LGD's research
+            // screen will replace it.
+            .add_systems(
+                EguiPrimaryContextPass,
+                technologies_panel::technologies_panel_system,
             )
             .add_systems(
                 EguiPrimaryContextPass,
