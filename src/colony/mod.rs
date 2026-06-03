@@ -162,8 +162,13 @@ impl Plugin for ColonyPlugin {
             .init_resource::<PendingConstructionActions>()
             .init_resource::<ConstructionDebugSettings>()
             .init_resource::<BuildingEditState>()
-            // Startup systems
-            .add_systems(Startup, data::load_buildings)
+            // NOTE: `load_buildings` is no longer registered here. The
+            // canonical RON data loader (DataLoaderPlugin, see
+            // `src/data_loader/mod.rs`) is the single entry point for all
+            // `assets/data/*.ron` files. It dispatches to `load_buildings`
+            // during its own startup pass. Keeping the call out of this
+            // plugin avoids double-loading and preserves the architecture
+            // baseline's "single canonical loader" invariant.
             // Update systems
             .add_systems(
                 Update,

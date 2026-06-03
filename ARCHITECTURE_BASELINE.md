@@ -53,6 +53,13 @@ Canonical files:
 
 **Rule:** No RON layout changes without CTO + LGD joint review.
 
+**Implementation:** `DataLoaderPlugin` (see `DATA_LOADER.md`) is the
+single, canonical entry point for loading RON data. It is registered
+in `main.rs` immediately after `EguiPlugin` and before any game
+plugin. The plugin's `LoadedDataManifest` resource is the observable
+surface of the pipeline; all loaders must plug in here rather than
+registering their own `Startup` systems.
+
 ---
 
 ## 4. CI Loop
