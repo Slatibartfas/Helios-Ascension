@@ -167,6 +167,7 @@ pub fn draw_lagrange_point_rings(
             .unwrap_or((DVec3::ZERO, SOLAR_MASS_KG));
 
         let r_hill = a_au * (m_planet / (3.0 * host_star_mass)).powf(1.0 / 3.0);
+
         // Host star GM used for LP transfer option metadata.
         let host_star_gm = ORBIT_G * host_star_mass;
 
@@ -449,15 +450,12 @@ pub fn handle_lp_hover(
     for (i, m) in lp_markers.markers.iter().enumerate() {
         let to_marker = m.render_pos - ray.origin;
         let proj = to_marker.dot(*ray.direction);
-        if proj <= 0.0 {
-            continue;
-        }
+        if proj <= 0.0 { continue; }
         let closest = ray.origin + *ray.direction * proj;
         let dist = (m.render_pos - closest).length();
-        if dist < m.hit_radius
-            && best.is_none_or(|(_, prev_proj)| proj < prev_proj) {
-                best = Some((i, proj));
-            }
+        if dist < m.hit_radius && best.is_none_or(|(_, prev_proj)| proj < prev_proj) {
+            best = Some((i, proj));
+        }
     }
 
     lp_markers.hovered_index = best.map(|(i, _)| i);
