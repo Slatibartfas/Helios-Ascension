@@ -3080,6 +3080,40 @@
             ],
             tier: 6,
         ),
+        // ========================================
+        // DELA-5 PROPULSION ERA ADDITIONS (LGD)
+        // 2 new techs at the entry of the propulsion era. Additive — no
+        // existing techs are renamed, retiered, or re-prereqed. See
+        // PROPULSION_ERA_TECH_TREE.md for the full design.
+        // ========================================
+        (
+            id: "propulsion_testing_protocols",
+            name: "Propulsion Testing Protocols",
+            category: Propulsion,
+            description: "Standardised engine test stands, static-fire procedures, and propellant validation. Era entry point. DELA-5.",
+            research_cost: 1500.0,
+            prerequisites: ["basic_industry"],
+            unlocks_components: [],
+            unlocks_engineering: ["test_stand_facility", "static_fire_pad"],
+            modifiers: [
+                (modifier_type: EngineeringSpeed, value: 5.0),
+            ],
+            tier: 1,
+        ),
+        (
+            id: "solar_electric_propulsion",
+            name: "Solar Electric Propulsion",
+            category: Propulsion,
+            description: "High-Isp gridded ion thrusters powered by solar arrays. Low thrust, high efficiency, ideal for inner-system cargo. DELA-5.",
+            research_cost: 5500.0,
+            prerequisites: ["ion_propulsion"],
+            unlocks_components: ["sep_thruster_panel", "sep_power_controller"],
+            unlocks_engineering: ["sep_cargo_drive", "sep_probe_bus"],
+            modifiers: [
+                (modifier_type: ShipMaintenance, value: -3.0),
+            ],
+            tier: 2,
+        ),
     ],
     components: [
         (
@@ -3513,6 +3547,26 @@
             description: "Reality-anchored invulnerability field.",
             engineering_cost: 4500000.0,
             tier: 9,
+        ),
+        // ========================================
+        // DELA-5 PROPULSION ERA ADDITIONS — COMPONENTS (LGD)
+        // 2 new components for the new solar_electric_propulsion tech.
+        // ========================================
+        (
+            id: "sep_thruster_panel",
+            name: "SEP Thruster Panel",
+            category: Propulsion,
+            description: "Gridded-ion thruster panel with xenon feed. High-Isp, low-thrust. For SEP-driven cargo. DELA-5.",
+            engineering_cost: 3000.0,
+            tier: 2,
+        ),
+        (
+            id: "sep_power_controller",
+            name: "SEP Power Controller",
+            category: Propulsion,
+            description: "Power processing unit for solar-electric propulsion. Conditions solar array output for the thruster bus. DELA-5.",
+            engineering_cost: 2500.0,
+            tier: 2,
         ),
     ],
 )
