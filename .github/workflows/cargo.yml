@@ -23,6 +23,11 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Install Linux system dependencies (Bevy 0.18)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev libasound2-dev libwayland-dev pkg-config libxkbcommon-dev liblzma-dev libssl-dev
+
       - name: Cache cargo registry & target
         uses: Swatinem/rust-cache@v2
         with:
