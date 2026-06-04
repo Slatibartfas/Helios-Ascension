@@ -12,6 +12,7 @@ use bevy::prelude::*;
 
 pub mod components;
 pub mod data;
+pub mod eras;
 pub mod systems;
 pub mod types;
 
@@ -20,12 +21,13 @@ pub use components::{
     ResearchTeam, ResearchTeamCapacity,
 };
 pub use data::{load_technologies, TechnologiesData};
+pub use eras::{load_eras, Era, ErasData};
 pub use systems::{
     advance_engineering_projects, advance_research_projects, apply_debug_modifiers,
     check_unlocked_technologies, initialize_baseline_technology, update_research_points,
     ResearchState,
 };
-pub use types::{ModifierType, TechCategory, TechModifierDef, Technology, TechnologyId};
+pub use types::{ModifierType, TechCategory, TechEra, TechModifierDef, Technology, TechnologyId};
 
 /// Debug settings for research system
 #[derive(Resource, Debug, Clone)]

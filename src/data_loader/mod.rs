@@ -56,6 +56,7 @@ use std::path::{Path, PathBuf};
 
 use crate::colony::data::load_buildings;
 use crate::research::data::load_technologies;
+use crate::research::eras::load_eras;
 
 // ---------------------------------------------------------------------------
 // Plugin
@@ -188,7 +189,7 @@ pub const DATA_DIR: &str = "assets/data";
 fn classify(basename: &str) -> DataFileKind {
     match basename {
         // Loader-owned: this plugin inserts a typed Resource.
-        "buildings.ron" | "technologies.ron" => DataFileKind::LoaderOwned,
+        "buildings.ron" | "technologies.ron" | "eras.ron" => DataFileKind::LoaderOwned,
 
         // Owned by another plugin: syntax check only, do not double-insert.
         "solar_system.ron" | "planet_textures.ron" => DataFileKind::OwnedByOtherPlugin,
@@ -352,6 +353,21 @@ fn dispatch_known_loader(world: &mut World, basename: &str) {
                 );
             }
         }
+        "eras.ron" => {
+            info!(
+                target: "data_loader",
+                "Dispatching typed loader: eras -> ErasData"
+            );
+            let mut system = IntoSystem::into_system(load_eras);
+            system.initialize(world);
+            if let Err(e) = system.run((), world) {
+                error!(
+                    target: "data_loader",
+                    "Typed loader 'load_eras' failed: {:?}",
+                    e
+                );
+            }
+        }
         _ => {
             // classify() and this match must stay in sync. If you see this
             // branch, add a new arm above.
@@ -372,15 +388,18 @@ fn dispatch_known_loader(world: &mut World, basename: &str) {
 fn log_loaded_data_smoke_check(
     manifest: Res<LoadedDataManifest>,
     tech_data: Option<Res<crate::research::TechnologiesData>>,
+    era_data: Option<Res<crate::research::ErasData>>,
 ) {
     let tech_count = tech_data
         .as_ref()
         .map(|d| d.technologies.len())
         .unwrap_or(0);
+    let era_count = era_data.as_ref().map(|d| d.eras.len()).unwrap_or(0);
     info!(
         target: "data_loader",
-        "Smoke check: {} technologies loaded from manifest ({} files total, {} errors, {} awaiting loader)",
+        "Smoke check: {} technologies, {} eras loaded from manifest ({} files total, {} errors, {} awaiting loader)",
         tech_count,
+        era_count,
         manifest.entries.len(),
         manifest.error_count(),
         manifest.awaiting_loader_count(),
@@ -452,6 +471,7 @@ mod tests {
     fn classify_known_files() {
         assert_eq!(classify("buildings.ron"), DataFileKind::LoaderOwned);
         assert_eq!(classify("technologies.ron"), DataFileKind::LoaderOwned);
+        assert_eq!(classify("eras.ron"), DataFileKind::LoaderOwned);
         assert_eq!(
             classify("solar_system.ron"),
             DataFileKind::OwnedByOtherPlugin

@@ -1,0 +1,48 @@
+// 5-era progression tree — canonical schema (DELA-6).
+//
+// This file is the source of truth for the high-level era framing
+// described in `PROPULSION_ERA_TECH_TREE.md` §1. The CTO schema
+// (DELA-6) added:
+//   - `TechEra` enum in `src/research/types.rs`
+//   - `Technology::era: Option<TechEra>` on every row in
+//     `technologies.ron`
+//   - The `Era` struct, `ErasData` resource, and `load_eras` loader
+//     in `src/research/eras.rs`
+//
+// The LGD will follow up to assign each of the existing 303 techs
+// to an era; this file is the schema and the era definitions only.
+// Year ranges are indicative (per §1 of the propulsion-era proposal).
+(
+    eras: [
+        (
+            id: Foundations,
+            description: "Build an industrial base. Electronics, physics, materials, basic industry. Earth-bound.",
+            start_year: 0,
+            end_year: Some(30),
+        ),
+        (
+            id: SpaceOperations,
+            description: "LEO to cislunar. Orbital construction, satellites, life support, basic space infrastructure.",
+            start_year: 30,
+            end_year: Some(80),
+        ),
+        (
+            id: Propulsion,
+            description: "Mars, asteroid belt, outer planets. Drives the player's reach curve. Gates the next era via a fusion or antimatter drive.",
+            start_year: 80,
+            end_year: Some(250),
+        ),
+        (
+            id: HabitationColonization,
+            description: "Self-sustaining colonies, terraforming, biospheres, interstellar precursor missions.",
+            start_year: 250,
+            end_year: Some(400),
+        ),
+        (
+            id: DefenseIndustry,
+            description: "Star-forts, deep-space industry, multi-star logistics, endgame scale.",
+            start_year: 400,
+            end_year: None,
+        ),
+    ],
+)

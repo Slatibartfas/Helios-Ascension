@@ -1219,6 +1219,7 @@ pub(super) fn render_tech_edit_dialog(
                     unlocks_engineering: Vec::new(),
                     modifiers: edit_data.modifiers,
                     tier,
+                    era: None,
                 };
                 tech_data.technologies.insert(edit_data.id, new_tech);
             }

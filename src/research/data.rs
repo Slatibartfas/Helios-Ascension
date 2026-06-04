@@ -135,6 +135,7 @@ mod tests {
             unlocks_engineering: vec![],
             modifiers: vec![],
             tier: 1,
+            era: None,
         };
 
         data.technologies.insert("test_tech".to_string(), tech);
@@ -158,6 +159,7 @@ mod tests {
             unlocks_engineering: vec![],
             modifiers: vec![],
             tier: 1,
+            era: None,
         };
 
         let tech2 = Technology {
@@ -171,6 +173,7 @@ mod tests {
             unlocks_engineering: vec![],
             modifiers: vec![],
             tier: 2,
+            era: None,
         };
 
         data.technologies.insert("tech1".to_string(), tech1);

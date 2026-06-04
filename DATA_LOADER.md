@@ -97,6 +97,7 @@ The plugin parses and inserts a typed `Resource`.
 |------|------------------|-----------------|
 | `technologies.ron` | `TechnologiesData` (in `research`) | `research::data::load_technologies` |
 | `buildings.ron` | `BuildingsData` (in `colony`) | `colony::data::load_buildings` |
+| `eras.ron` | `ErasData` (in `research`) | `research::eras::load_eras` |
 
 ### `DataFileKind::OwnedByOtherPlugin`
 
@@ -181,19 +182,57 @@ its own startup pass.
 2. Define the typed `Resource` in the owning module
    (`src/<domain>/types.rs` or similar).
 3. Write a `load_<thing>(mut commands: Commands)` function in
-   `<domain>::data`, mirroring the existing `load_technologies` /
-   `load_buildings` pattern.
+   `<domain>::data` (or, for a new sub-domain, a new module under
+   `src/<domain>/`). Mirror the existing `load_technologies` /
+   `load_buildings` / `load_eras` pattern: read with
+   `fs::read_to_string`, parse with `ron::from_str` into a
+   module-private file struct, insert the typed `Resource` via
+   `commands.insert_resource`, and fall back to the empty default on
+   any error so the game still boots.
 4. Add a `DataFileKind::LoaderOwned` arm to `classify()` in
    `src/data_loader/mod.rs` that matches the new filename.
-5. Add a `dispatch_known_loader` arm that calls the new function.
-6. Update the table in §4 above.
-7. Add at least one integration test under `tests/`.
+5. Add a `dispatch_known_loader` arm that calls the new function via
+   `IntoSystem`, and import the function at the top of
+   `src/data_loader/mod.rs`.
+6. If the smoke-check summary should mention the new resource (it
+   should for any user-facing count), add the typed `Resource` to the
+   `log_loaded_data_smoke_check` system signature and log it.
+7. Update the table in §4 above.
+8. Add at least one integration test under `tests/`. The two existing
+   unit tests in `src/data_loader/mod.rs` (`classify_known_files`,
+   `all_present_ron_files_parse_as_value`) cover the dispatch and the
+   generic syntax check automatically.
 
 If the file is owned by another plugin (i.e., a different plugin already
 parses it), use `OwnedByOtherPlugin` instead — the plugin will only
 syntax-check it. Do **not** add it as `LoaderOwned` if some other plugin
 also loads it; the manifest will report a `ParseError` if the schemas
 disagree and that surfaces the conflict.
+
+### Worked example: `eras.ron` (DELA-6)
+
+The DELA-6 follow-up added the 5-era progression tree (`eras.ron`) as
+the third `LoaderOwned` file. The full diff touched:
+
+* `src/research/types.rs` — added the `TechEra` enum (5 variants:
+  `Foundations`, `SpaceOperations`, `Propulsion`,
+  `HabitationColonization`, `DefenseIndustry`) with `display_name()`,
+  `icon()`, and `all()` helpers; added `era: Option<TechEra>` to
+  `Technology` (with `#[serde(default)]` so existing
+  `technologies.ron` rows still parse).
+* `src/research/eras.rs` *(new)* — `Era` struct, `ErasData` resource,
+  `ErasFile` (module-private), and `load_eras` system.
+* `src/research/mod.rs` — `pub mod eras;` and re-exports
+  (`load_eras`, `Era`, `ErasData`).
+* `src/data_loader/mod.rs` — `eras.ron` arm in `classify()`,
+  `dispatch_known_loader` arm for `load_eras`, and
+  `era_data` query in the smoke-check summary.
+* `assets/data/eras.ron` *(new)* — the 5 era rows.
+* `DATA_LOADER.md` — this section.
+
+LGD follow-ups (out of scope for DELA-6): assign each of the existing
+303 techs in `technologies.ron` to an era, and revise the
+era descriptions in `eras.ron` if the design shifts.
 
 ---
 

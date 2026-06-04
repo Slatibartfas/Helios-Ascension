@@ -23,6 +23,66 @@ pub enum TechCategory {
     Industry,
 }
 
+/// A high-level era in the game's progression.
+///
+/// Eras are the **coarse strategic buckets** the player moves through over
+/// the course of a campaign. A technology may belong to at most one era
+/// (see `Technology::era`); categories are orthogonal to eras and remain
+/// the per-technology axis used for UI sorting, prerequisites, and balance.
+///
+/// The canonical 5-era framing is defined in
+/// `PROPULSION_ERA_TECH_TREE.md` §1 and ships in `assets/data/eras.ron`.
+/// LGD assigns each existing technology to an era in a follow-up issue;
+/// this enum is the schema only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum TechEra {
+    /// Era 1: build an industrial base on Earth.
+    Foundations,
+    /// Era 2: LEO → cislunar space operations.
+    SpaceOperations,
+    /// Era 3: Mars, asteroid belt, outer planets; the propulsion frontier.
+    Propulsion,
+    /// Era 4: self-sustaining colonies, terraforming, biospheres.
+    HabitationColonization,
+    /// Era 5: star-forts, deep-space industry, endgame scale.
+    DefenseIndustry,
+}
+
+impl TechEra {
+    /// Get display name for the era.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            TechEra::Foundations => "Foundations",
+            TechEra::SpaceOperations => "Space Operations",
+            TechEra::Propulsion => "Propulsion",
+            TechEra::HabitationColonization => "Habitation & Colonization",
+            TechEra::DefenseIndustry => "Defense & Industry",
+        }
+    }
+
+    /// Get icon for the era.
+    pub fn icon(&self) -> &'static str {
+        match self {
+            TechEra::Foundations => "🏛️",
+            TechEra::SpaceOperations => "🛰️",
+            TechEra::Propulsion => "🚀",
+            TechEra::HabitationColonization => "🌱",
+            TechEra::DefenseIndustry => "🛡️",
+        }
+    }
+
+    /// Get all eras in canonical order (1 → 5).
+    pub fn all() -> &'static [TechEra] {
+        &[
+            TechEra::Foundations,
+            TechEra::SpaceOperations,
+            TechEra::Propulsion,
+            TechEra::HabitationColonization,
+            TechEra::DefenseIndustry,
+        ]
+    }
+}
+
 impl TechCategory {
     /// Get display name for the category
     pub fn display_name(&self) -> &'static str {
@@ -111,6 +171,11 @@ pub struct Technology {
     pub modifiers: Vec<TechModifierDef>,
     /// Tier/level of the technology (for UI organization)
     pub tier: u32,
+    /// Era this technology belongs to. Optional for backward compatibility
+    /// with `technologies.ron` rows predating the era schema; the LGD will
+    /// assign each of the existing 303 techs to an era in a follow-up.
+    #[serde(default)]
+    pub era: Option<TechEra>,
 }
 
 /// Definition of a technology modifier (from data file)
@@ -218,6 +283,31 @@ mod tests {
     fn test_tech_category_all() {
         let all = TechCategory::all();
         assert_eq!(all.len(), 15);
+    }
+
+    #[test]
+    fn test_tech_era_display() {
+        assert_eq!(TechEra::Foundations.display_name(), "Foundations");
+        assert_eq!(
+            TechEra::HabitationColonization.display_name(),
+            "Habitation & Colonization"
+        );
+        assert_eq!(TechEra::DefenseIndustry.display_name(), "Defense & Industry");
+    }
+
+    #[test]
+    fn test_tech_era_all() {
+        let all = TechEra::all();
+        assert_eq!(all.len(), 5);
+        assert_eq!(all[0], TechEra::Foundations);
+        assert_eq!(all[4], TechEra::DefenseIndustry);
+    }
+
+    #[test]
+    fn test_tech_era_icon_nonempty() {
+        for era in TechEra::all() {
+            assert!(!era.icon().is_empty(), "icon missing for {:?}", era);
+        }
     }
 
     #[test]
