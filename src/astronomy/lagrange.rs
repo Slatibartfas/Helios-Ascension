@@ -172,7 +172,8 @@ pub fn draw_lagrange_point_rings(
         let host_star_gm = ORBIT_G * host_star_mass;
 
         let p3d = anchored_sc.position;
-        let Some(lp_positions) = absolute_star_planet_lp_positions(host_star_pos, p3d, a_au, r_hill)
+        let Some(lp_positions) =
+            absolute_star_planet_lp_positions(host_star_pos, p3d, a_au, r_hill)
         else {
             return;
         };
@@ -450,7 +451,9 @@ pub fn handle_lp_hover(
     for (i, m) in lp_markers.markers.iter().enumerate() {
         let to_marker = m.render_pos - ray.origin;
         let proj = to_marker.dot(*ray.direction);
-        if proj <= 0.0 { continue; }
+        if proj <= 0.0 {
+            continue;
+        }
         let closest = ray.origin + *ray.direction * proj;
         let dist = (m.render_pos - closest).length();
         if dist < m.hit_radius && best.is_none_or(|(_, prev_proj)| proj < prev_proj) {

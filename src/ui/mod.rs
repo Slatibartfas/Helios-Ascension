@@ -71,8 +71,8 @@ use crate::fleets::orbital_mechanics::{
 };
 use crate::fleets::{
     ActiveManeuver, Fleet, FleetOrbit, MergeFleetAction, PendingFleetActions, PlannedTransfer,
-    StartTransferAction, TransferOption, TransferReferenceFrame, TransferWindowInfo,
-    AU_IN_METERS, GM_SUN, G_CONST,
+    StartTransferAction, TransferOption, TransferReferenceFrame, TransferWindowInfo, AU_IN_METERS,
+    GM_SUN, G_CONST,
 };
 use crate::game_state::{ActiveMenu, GameMenu};
 use crate::plugins::camera::{
@@ -1269,7 +1269,7 @@ fn ui_resolution_warning(
         .show(ctx, |ui| {
             ui.set_min_width(520.0);
             ui.set_max_width(520.0);
-            
+
             ui.vertical_centered(|ui| {
                 ui.add_space(10.0);
                 ui.label(
@@ -1381,7 +1381,7 @@ fn ui_resolution_warning(
             });
 
             ui.add_space(4.0);
-            
+
             dismiss
         });
 

@@ -495,14 +495,16 @@ pub(super) fn apply_special_body_profile(
 
             // Oxygen: 21% of atmosphere — ~100 Mt/yr industrial
             {
-                let mut dep = MineralDeposit::new(1_100_000_000.0, 7_700_000.0, 0.0, 0.7692308, 0.21);
+                let mut dep =
+                    MineralDeposit::new(1_100_000_000.0, 7_700_000.0, 0.0, 0.7692308, 0.21);
                 dep.is_atmospheric = true;
                 resources.add_deposit(ResourceType::Oxygen, dep);
             }
 
             // Carbon Dioxide: 0.04% of atmosphere — ~35 Mt/yr industrial
             {
-                let mut dep = MineralDeposit::new(2_200_000.0, 2_200_000.0, 0.0, 0.26923078, 0.0004);
+                let mut dep =
+                    MineralDeposit::new(2_200_000.0, 2_200_000.0, 0.0, 0.26923078, 0.0004);
                 dep.is_atmospheric = true;
                 resources.add_deposit(ResourceType::CarbonDioxide, dep);
             }

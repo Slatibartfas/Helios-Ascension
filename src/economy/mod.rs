@@ -21,9 +21,9 @@ pub mod types;
 
 pub use budget::{
     calculate_colony_power_totals, format_currency, format_power, update_civilization_score,
-    update_contextual_stockpile, update_power_grid, update_storage_capacity,
-    ColonyPowerTotals, ContextualStockpile, EnergyGrid, GlobalBudget, ResourceRateTracker,
-    SECONDS_PER_MONTH, SECONDS_PER_YEAR,
+    update_contextual_stockpile, update_power_grid, update_storage_capacity, ColonyPowerTotals,
+    ContextualStockpile, EnergyGrid, GlobalBudget, ResourceRateTracker, SECONDS_PER_MONTH,
+    SECONDS_PER_YEAR,
 };
 pub use company::{ShippingCompanies, ShippingCompany};
 pub use components::{

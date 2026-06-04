@@ -463,19 +463,18 @@ pub fn handle_body_selection(
             }
             selection_state.last_click_time = current_time;
             selection_state.last_clicked_entity = Some(entity);
-        } else if right_click
-            && ui.fleet_ui_state.selected_fleet.is_some() {
-                info!("Right clicked celestial body: {} (entity {:?}) with fleet selected, opening transfer planner", name, entity);
-                ui.fleet_ui_state.target_body = Some(entity);
-                ui.fleet_ui_state.target_lagrange = None;
-                ui.fleet_ui_state.target_fleet = None;
-                ui.fleet_ui_state.computed_options.clear();
-                ui.fleet_ui_state.planned_transfer = None;
-                ui.fleet_ui_state.selected_option = 0;
-                ui.fleet_ui_state.selected_gravity_assist = None;
-                ui.fleet_ui_state.show_transfer_popup = true;
-                ui.fleet_ui_state.departure_offset_days = -1.0; // Signal to auto-set to next window
-            }
+        } else if right_click && ui.fleet_ui_state.selected_fleet.is_some() {
+            info!("Right clicked celestial body: {} (entity {:?}) with fleet selected, opening transfer planner", name, entity);
+            ui.fleet_ui_state.target_body = Some(entity);
+            ui.fleet_ui_state.target_lagrange = None;
+            ui.fleet_ui_state.target_fleet = None;
+            ui.fleet_ui_state.computed_options.clear();
+            ui.fleet_ui_state.planned_transfer = None;
+            ui.fleet_ui_state.selected_option = 0;
+            ui.fleet_ui_state.selected_gravity_assist = None;
+            ui.fleet_ui_state.show_transfer_popup = true;
+            ui.fleet_ui_state.departure_offset_days = -1.0; // Signal to auto-set to next window
+        }
     } else if left_click {
         selection_state.last_clicked_entity = None;
     }

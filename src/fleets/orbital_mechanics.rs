@@ -602,7 +602,13 @@ fn stumpff_s(z: f64) -> f64 {
     }
 }
 
-fn lambert_time_of_flight_s(z: f64, r1_m: f64, r2_m: f64, a_param: f64, gm: f64) -> Option<(f64, f64)> {
+fn lambert_time_of_flight_s(
+    z: f64,
+    r1_m: f64,
+    r2_m: f64,
+    a_param: f64,
+    gm: f64,
+) -> Option<(f64, f64)> {
     let c = stumpff_c(z);
     let s = stumpff_s(z);
     if !c.is_finite() || !s.is_finite() || c <= 0.0 {
@@ -792,9 +798,11 @@ fn solve_lambert_transfer_branch(
         let ctheta = r1_vec.dot(r2_vec) / (r1_mag * r2_mag);
         let a_sqrt = a_param.abs().sqrt();
         let _term = ((r2_mag - r1_mag) * (r2_mag + r1_mag) * a_param
-            + a_param * a_param * (r2_mag - r1_mag).powi(2)).sqrt();
+            + a_param * a_param * (r2_mag - r1_mag).powi(2))
+        .sqrt();
         let sqrt_term = ((z + a_param - a_sqrt * ctheta).powi(2)
-            - 4.0 * a_param * (z - a_sqrt * ctheta)).sqrt();
+            - 4.0 * a_param * (z - a_sqrt * ctheta))
+            .sqrt();
         let f_deriv = -(a_param / (2.0 * r1_mag.powi(2))) * (1.0 / a_sqrt + 1.0 / sqrt_term);
         let g_deriv = (a_param.powi(3) / system_gm).sqrt() * (1.0 / sqrt_term - 1.0 / a_sqrt);
         if g_deriv.abs() > 1e-12 {
@@ -848,7 +856,8 @@ pub(crate) fn solve_lambert_transfer(
         let arrival_error = (propagated_arrival - dest_pos_au).length();
         let angular_momentum = (origin_pos_au * AU_IN_METERS).cross(v1_ms);
         let plane_alignment = if plane_normal_len_sq > 1e-18 {
-            angular_momentum.dot(plane_normal) / (angular_momentum.length() * plane_normal.length()).max(1e-12)
+            angular_momentum.dot(plane_normal)
+                / (angular_momentum.length() * plane_normal.length()).max(1e-12)
         } else {
             0.0
         };
@@ -948,7 +957,11 @@ fn fitted_cross_star_ballistic_options(
     }
 
     let start_true_anomaly = if outward { 0.0 } else { PI };
-    let end_true_anomaly = if outward { delta_theta } else { PI + delta_theta };
+    let end_true_anomaly = if outward {
+        delta_theta
+    } else {
+        PI + delta_theta
+    };
     let start_mean_anomaly = mean_anomaly_from_true_anomaly(eccentricity, start_true_anomaly);
     let mut end_mean_anomaly = mean_anomaly_from_true_anomaly(eccentricity, end_true_anomaly);
     if end_mean_anomaly < start_mean_anomaly {
@@ -972,8 +985,9 @@ fn fitted_cross_star_ballistic_options(
     let v_circ2 = (system_gm / r2_m).sqrt();
     let v_transfer1 = (system_gm * (2.0 / r1_m - 1.0 / semi_major_axis_m)).sqrt();
     let v_transfer2 = (system_gm * (2.0 / r2_m - 1.0 / semi_major_axis_m)).sqrt();
-    let local_escape_capture_floor = circular_escape_injection_dv(origin_host_gm, origin_host_radius_au)
-        + circular_escape_injection_dv(dest_host_gm, dest_host_radius_au);
+    let local_escape_capture_floor =
+        circular_escape_injection_dv(origin_host_gm, origin_host_radius_au)
+            + circular_escape_injection_dv(dest_host_gm, dest_host_radius_au);
 
     let efficient = TransferOption {
         label: "Curved Efficient",
@@ -1641,11 +1655,7 @@ pub fn compute_burn_time_s(total_dv_ms: f64, fleet_accel_ms2: f64, avg_isp_s: f3
 /// - `options`: mutable slice of options to update (typically `computed_options`).
 /// - `fleet_accel_ms2`: fleet minimum acceleration (m/s²) — bottleneck ship.
 /// - `avg_isp_s`: fleet thrust-weighted average specific impulse (s).
-pub fn apply_thrust_limits(
-    options: &mut [TransferOption],
-    fleet_accel_ms2: f64,
-    avg_isp_s: f32,
-) {
+pub fn apply_thrust_limits(options: &mut [TransferOption], fleet_accel_ms2: f64, avg_isp_s: f32) {
     for opt in options.iter_mut() {
         if opt.label == "Full Thrust" {
             continue; // already a continuous-thrust model; no adjustment needed
@@ -1985,7 +1995,9 @@ mod tests {
         assert_eq!(options[2].label, "Curved Fast");
         assert!(options[0].total_delta_v_ms.is_finite() && options[0].total_delta_v_ms > 0.0);
         assert!(options[0].transfer_time_s.is_finite() && options[0].transfer_time_s > 0.0);
-        assert!(options.iter().all(|option| option.transfer_orbit_override.is_some()));
+        assert!(options
+            .iter()
+            .all(|option| option.transfer_orbit_override.is_some()));
         assert!(options[1].total_delta_v_ms > options[0].total_delta_v_ms);
         assert!(options[2].total_delta_v_ms > options[1].total_delta_v_ms);
     }

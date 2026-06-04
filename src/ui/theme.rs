@@ -120,23 +120,23 @@ pub fn central_frame() -> egui::Frame {
     egui::Frame::NONE
         .fill(BG_SOLID)
         .stroke(egui::Stroke::new(1.0, BORDER))
-    .inner_margin(egui::Margin::same(8))
+        .inner_margin(egui::Margin::same(8))
 }
 
 /// Frame for prominent section cards inside full-screen menus.
 pub fn section_frame() -> egui::Frame {
     egui::Frame::NONE
-    .inner_margin(egui::Margin::same(2))
+        .inner_margin(egui::Margin::same(2))
         .corner_radius(4.0)
 }
 
 /// Slightly raised variant used for nested summary blocks.
 pub fn elevated_frame() -> egui::Frame {
     egui::Frame::NONE
-    .fill(SURFACE)
-    .stroke(egui::Stroke::new(1.0, BORDER))
-    .inner_margin(egui::Margin::same(8))
-    .corner_radius(3.0)
+        .fill(SURFACE)
+        .stroke(egui::Stroke::new(1.0, BORDER))
+        .inner_margin(egui::Margin::same(8))
+        .corner_radius(3.0)
 }
 
 /// Frame for tooltip popups.

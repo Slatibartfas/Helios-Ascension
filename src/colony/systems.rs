@@ -160,11 +160,7 @@ pub fn process_construction_actions(
                     // Get the local stockpile for this specific colony entity.
                     let can_pay_local = local_stockpile_query
                         .get(colony_entity)
-                        .map(|(_, _, ls)| {
-                            costs_typed
-                                .iter()
-                                .all(|(rt, need)| ls.get(rt) >= *need)
-                        })
+                        .map(|(_, _, ls)| costs_typed.iter().all(|(rt, need)| ls.get(rt) >= *need))
                         .unwrap_or(false);
 
                     if can_pay_local {
@@ -204,9 +200,9 @@ pub fn process_construction_actions(
                             }
                         }
 
-                        let can_pay_system = costs_typed
-                            .iter()
-                            .all(|(rt, need)| system_available.get(rt).copied().unwrap_or(0.0) >= *need);
+                        let can_pay_system = costs_typed.iter().all(|(rt, need)| {
+                            system_available.get(rt).copied().unwrap_or(0.0) >= *need
+                        });
 
                         if can_pay_system {
                             // Draw from system pool (current behaviour preserved).
@@ -355,7 +351,9 @@ pub fn process_construction_actions(
         commands.entity(body_entity).insert(colony);
 
         // Insert an initial local stockpile (empty — resources must be transported)
-        commands.entity(body_entity).insert(LocalStockpile::default());
+        commands
+            .entity(body_entity)
+            .insert(LocalStockpile::default());
 
         // Attach a MinimumStockpile with basic life-support thresholds so that
         // private freighters automatically keep the outpost stocked.
@@ -365,17 +363,19 @@ pub fn process_construction_actions(
         commands.entity(body_entity).insert(minimum);
 
         // Insert Population component so the growth system picks it up
-        commands.entity(body_entity).insert(Population { count: 0.0 });
+        commands
+            .entity(body_entity)
+            .insert(Population { count: 0.0 });
 
         // Attach environment costs:
         //   • O₂: 0.0001 Mt/person/yr on vacuum/non-breathable worlds (same scale as food)
         //   • Water: 0.00005 Mt/person/yr on all outposts
-        commands.entity(body_entity).insert(
-            crate::colony::components::ColonyEnvironmentCosts {
+        commands
+            .entity(body_entity)
+            .insert(crate::colony::components::ColonyEnvironmentCosts {
                 oxygen_per_person_per_year: if needs_oxygen { 0.0001 } else { 0.0 },
                 water_per_person_per_year: 0.00005,
-            },
-        );
+            });
 
         // Queue the starter building package:
         //   - LifeSupport × 1      : basic air/water recycling
@@ -600,9 +600,7 @@ pub fn deduct_maintenance_resources(
 /// `update_colony_growth`).  The `Population` ECS component is what the UI
 /// queries to display population counts.  This system keeps them in sync so
 /// the top-right population counter and dossier panel stay up-to-date.
-pub fn sync_population_from_colony(
-    mut query: Query<(&Colony, &mut Population)>,
-) {
+pub fn sync_population_from_colony(mut query: Query<(&Colony, &mut Population)>) {
     for (colony, mut pop) in query.iter_mut() {
         pop.count = colony.population;
     }

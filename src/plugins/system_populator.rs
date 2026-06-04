@@ -1392,8 +1392,7 @@ fn populate_host_bodies(
             .reduce(f64::min)
         {
             let max_star_vis = (inner_sma_au as f32) * (SCALING_FACTOR as f32) * 0.12;
-            let current =
-                calculate_visual_radius(BodyType::Star, star_data.radius_sol * 695700.0);
+            let current = calculate_visual_radius(BodyType::Star, star_data.radius_sol * 695700.0);
             if current > max_star_vis && max_star_vis > 2.0 {
                 if let Ok(mut body) = commands.get_entity(star_entity) {
                     body.insert(CelestialBody {
@@ -1548,10 +1547,7 @@ fn spawn_star_entity_with_metallicity(
             mass: (star_data.mass_sol * 1.989e30) as f64,
             radius: star_data.radius_sol * 695700.0,
             body_type: BodyType::Star,
-            visual_radius: calculate_visual_radius(
-                BodyType::Star,
-                star_data.radius_sol * 695700.0,
-            ),
+            visual_radius: calculate_visual_radius(BodyType::Star, star_data.radius_sol * 695700.0),
             asteroid_class: None,
         },
         StellarProperties::new(star_data.luminosity_sol, star_data.temp_k),

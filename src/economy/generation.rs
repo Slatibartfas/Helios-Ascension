@@ -1507,8 +1507,8 @@ mod tests {
             );
 
             // More specific: should be in the billions of Mt range
-            assert!(total_water_mt > 1e9 && total_water_mt < 1e10, 
-                "Mars water should be in billions of Mt range (scientific: 4.6×10^9 Mt), found: {:.2e} Mt", 
+            assert!(total_water_mt > 1e9 && total_water_mt < 1e10,
+                "Mars water should be in billions of Mt range (scientific: 4.6×10^9 Mt), found: {:.2e} Mt",
                 total_water_mt);
         }
     }
@@ -1552,8 +1552,8 @@ mod tests {
             );
 
             // More specific: should be in the hundreds of Mt range
-            assert!(total_water_mt > 200.0 && total_water_mt < 2000.0, 
-                "Moon water should be in hundreds of Mt range (scientific: 600 Mt), found: {:.2e} Mt", 
+            assert!(total_water_mt > 200.0 && total_water_mt < 2000.0,
+                "Moon water should be in hundreds of Mt range (scientific: 600 Mt), found: {:.2e} Mt",
                 total_water_mt);
         }
     }
@@ -1792,8 +1792,8 @@ mod tests {
         }
 
         if aluminum_fraction > 0.0 {
-            assert!((0.05..=0.12).contains(&aluminum_fraction), 
-                "Inner planet aluminum should be 5-12% (realistic crustal abundance), found: {:.1}%", 
+            assert!((0.05..=0.12).contains(&aluminum_fraction),
+                "Inner planet aluminum should be 5-12% (realistic crustal abundance), found: {:.1}%",
                 aluminum_fraction * 100.0);
         }
 
@@ -1897,8 +1897,8 @@ mod tests {
                 let deep_fraction = deep / total;
 
                 // Proven should be << 1% for planets (Earth's proven iron ~200 Gt out of millions of Gt total)
-                assert!(proven_fraction < 0.01, 
-                    "Planetary proven reserves should be <1% of total (realistic crustal access), found: {:.4}%", 
+                assert!(proven_fraction < 0.01,
+                    "Planetary proven reserves should be <1% of total (realistic crustal access), found: {:.4}%",
                     proven_fraction * 100.0);
 
                 // Deep should be larger than proven but still small
@@ -1913,8 +1913,8 @@ mod tests {
 
                 // Bulk should be the vast majority
                 let bulk_fraction = bulk / total;
-                assert!(bulk_fraction > 0.89, 
-                    "Bulk reserves should be >89% of total for planets (most inaccessible), found: {:.1}%", 
+                assert!(bulk_fraction > 0.89,
+                    "Bulk reserves should be >89% of total for planets (most inaccessible), found: {:.1}%",
                     bulk_fraction * 100.0);
             }
         }
@@ -1946,8 +1946,8 @@ mod tests {
                 let proven_fraction = proven / total;
 
                 // Asteroids should have much higher proven fraction (30-70%)
-                assert!(proven_fraction > 0.25, 
-                    "Asteroid proven reserves should be >25% of total (fully accessible), found: {:.1}%", 
+                assert!(proven_fraction > 0.25,
+                    "Asteroid proven reserves should be >25% of total (fully accessible), found: {:.1}%",
                     proven_fraction * 100.0);
                 assert!(
                     proven_fraction < 0.75,

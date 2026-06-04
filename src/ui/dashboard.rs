@@ -1,5 +1,5 @@
-use super::*;
 use super::dossier_panel::{paint_resource_tile, ResourceTileDisplay};
+use super::*;
 use crate::astronomy::components::FloatingOrigin;
 use crate::plugins::solar_system_data::AsteroidClass;
 use std::cell::RefCell;
@@ -512,9 +512,7 @@ fn render_fleet_ledger_tree(
     sim_time: &SimulationTime,
 ) {
     let mut fleets: Vec<(Entity, &Fleet, Option<&FleetOrbit>, Option<&ActiveManeuver>)> =
-        fleet_query
-            .iter()
-            .collect();
+        fleet_query.iter().collect();
     fleets.sort_by(|a, b| a.1.name.cmp(&b.1.name));
 
     if fleets.is_empty() {
@@ -866,7 +864,12 @@ pub(super) fn ui_dashboard(
     mut fleet_ui_state: ResMut<FleetUiState>,
     fleet_query: Query<(Entity, &Fleet, Option<&FleetOrbit>, Option<&ActiveManeuver>)>,
     // Resource query for system survey/resource summaries
-    resource_query: Query<(&SystemId, &CelestialBody, &PlanetResources, Option<&SurveyLevel>)>,
+    resource_query: Query<(
+        &SystemId,
+        &CelestialBody,
+        &PlanetResources,
+        Option<&SurveyLevel>,
+    )>,
     // Ledger queries
     all_bodies_query: Query<(
         Entity,
@@ -1145,15 +1148,15 @@ pub(super) fn ui_dashboard(
                     // Placeholder for other menus
                     ui.heading(active_menu.current.name());
                     ui.separator();
-                    
+
                     ui.label(
                         egui::RichText::new("Coming Soon")
                             .size(16.0)
                             .color(theme::TEXT_DIM)
                     );
-                    
+
                     ui.add_space(10.0);
-                    
+
                     match active_menu.current {
                         GameMenu::Main => {
                             ui.label("Main menu options:");
@@ -1212,7 +1215,7 @@ pub(super) fn ui_dashboard(
 
     if active_menu.current == GameMenu::Starmap {
         if let Some((_star_entity, star_icon, _)) = selected_star_system {
-        // Show star system details
+            // Show star system details
             render_star_system_panel(
                 ctx,
                 star_icon,
@@ -1456,7 +1459,12 @@ fn render_star_system_panel(
         Option<&KeplerOrbit>,
         Option<&SystemId>,
     )>,
-    resource_query: &Query<(&SystemId, &CelestialBody, &PlanetResources, Option<&SurveyLevel>)>,
+    resource_query: &Query<(
+        &SystemId,
+        &CelestialBody,
+        &PlanetResources,
+        Option<&SurveyLevel>,
+    )>,
     nearby_stars: &Res<NearbyStarsData>,
 ) {
     let panel_frame = theme::panel_frame();
@@ -1669,9 +1677,7 @@ fn render_star_system_panel(
                     let surveyed_body_count = resource_bodies
                         .iter()
                         .filter(|(_, _, _, survey_level)| {
-                            survey_level
-                                .copied()
-                                .unwrap_or(SurveyLevel::Unsurveyed)
+                            survey_level.copied().unwrap_or(SurveyLevel::Unsurveyed)
                                 != SurveyLevel::Unsurveyed
                         })
                         .count();
@@ -1691,9 +1697,7 @@ fn render_star_system_panel(
 
                     let mut discovered_resources: HashMap<ResourceType, f64> = HashMap::new();
                     for (_, _, resources, survey_level) in &resource_bodies {
-                        let survey_level = survey_level
-                            .copied()
-                            .unwrap_or(SurveyLevel::Unsurveyed);
+                        let survey_level = survey_level.copied().unwrap_or(SurveyLevel::Unsurveyed);
                         if survey_level == SurveyLevel::Unsurveyed {
                             continue;
                         }
@@ -1792,7 +1796,10 @@ fn total_resource_expectation_weight(resources: &PlanetResources) -> f64 {
         .sum()
 }
 
-fn discovered_resource_expectation_weight(resources: &PlanetResources, survey_level: SurveyLevel) -> f64 {
+fn discovered_resource_expectation_weight(
+    resources: &PlanetResources,
+    survey_level: SurveyLevel,
+) -> f64 {
     resources
         .deposits
         .values()

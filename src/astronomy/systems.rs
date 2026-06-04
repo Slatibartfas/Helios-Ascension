@@ -1862,7 +1862,11 @@ mod tests {
         app.update();
 
         let star_pos = app.world().get::<SpaceCoordinates>(star).unwrap().position;
-        let planet_pos = app.world().get::<SpaceCoordinates>(planet).unwrap().position;
+        let planet_pos = app
+            .world()
+            .get::<SpaceCoordinates>(planet)
+            .unwrap()
+            .position;
         let moon_pos = app.world().get::<SpaceCoordinates>(moon).unwrap().position;
 
         assert!((star_pos - DVec3::new(12.0, 0.0, 0.0)).length() < 1e-10);
