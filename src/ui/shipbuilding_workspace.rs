@@ -7,12 +7,12 @@ use bevy::window::PrimaryWindow;
 
 use super::dashboard::format_mass_compact_tonnes;
 use super::shipbuilding_state::{ShipbuildingTab, ShipbuildingUiState};
-use super::theme;
 use super::shipbuilding_tooltip::{
     build_module_tooltip, build_slot_tooltip, format_shipbuilding_resource_cost_lines,
     prettify_slot_name, ShipbuildingTooltipContent, ShipbuildingTooltipEntry,
     ShipbuildingTooltipTone,
 };
+use super::theme;
 use crate::colony::{BuildingType, Colony};
 use crate::economy::components::LocalStockpile;
 use crate::economy::GlobalBudget;
@@ -4156,7 +4156,8 @@ fn populate_construction_tab_native(
 
         if projects.is_empty() {
             parent.spawn(text_block(
-                "No ships are under construction. Save a design and queue it to begin building.".to_string(),
+                "No ships are under construction. Save a design and queue it to begin building."
+                    .to_string(),
                 11.0,
                 Color::srgb(0.6, 0.7, 0.76),
             ));
