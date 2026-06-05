@@ -12,6 +12,7 @@ use super::shipbuilding_tooltip::{
     prettify_slot_name, ShipbuildingTooltipContent, ShipbuildingTooltipEntry,
     ShipbuildingTooltipTone,
 };
+use super::theme;
 use crate::colony::{BuildingType, Colony};
 use crate::economy::components::LocalStockpile;
 use crate::economy::GlobalBudget;
@@ -88,9 +89,15 @@ impl Plugin for ShipbuildingWorkspacePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, spawn_shipbuilding_workspace)
             .add_systems(Update, handle_shipbuilding_workspace_interactions)
+            .add_systems(Update, handle_shipbuilding_tab_switch_buttons)
             .add_systems(Update, handle_shipbuilding_archive_interactions)
             .add_systems(Update, handle_shipbuilding_construction_interactions)
             .add_systems(Update, handle_shipbuilding_component_interactions)
+            .add_systems(
+                Update,
+                handle_shipbuilding_keyboard_navigation
+                    .before(handle_shipbuilding_workspace_interactions),
+            )
             .add_systems(Update, animate_shipbuilding_slot_feedback)
             .add_systems(Update, animate_shipbuilding_module_card_feedback)
             .add_systems(Update, update_shipbuilding_hover_tooltip)
@@ -166,6 +173,11 @@ struct ShipbuildingClearLibraryFilterButton;
 #[derive(Component)]
 struct ShipbuildingWorkspaceTabButton {
     tab: ShipbuildingTab,
+}
+
+#[derive(Component)]
+struct ShipbuildingTabSwitchButton {
+    target: ShipbuildingTab,
 }
 
 #[derive(Component)]
@@ -518,6 +530,7 @@ fn handle_shipbuilding_workspace_interactions(
     research_state: Res<ResearchState>,
     mut design_library: ResMut<ShipDesignLibrary>,
     mut ui_state: ResMut<ShipbuildingUiState>,
+    time: Res<Time>,
     tab_buttons: Query<
         (&Interaction, &ShipbuildingWorkspaceTabButton),
         (Changed<Interaction>, With<Button>),
@@ -563,19 +576,18 @@ fn handle_shipbuilding_workspace_interactions(
         (Changed<Interaction>, With<Button>),
     >,
     module_hover_buttons: Query<(&Interaction, &ShipbuildingModuleButton), With<Button>>,
-    save_buttons: Query<
-        &Interaction,
+    save_reset_buttons: Query<
         (
-            Changed<Interaction>,
-            With<ShipbuildingSaveDesignButton>,
-            With<Button>,
+            &Interaction,
+            Has<ShipbuildingSaveDesignButton>,
+            Has<ShipbuildingResetDesignButton>,
         ),
-    >,
-    reset_buttons: Query<
-        &Interaction,
         (
             Changed<Interaction>,
-            With<ShipbuildingResetDesignButton>,
+            Or<(
+                With<ShipbuildingSaveDesignButton>,
+                With<ShipbuildingResetDesignButton>,
+            )>,
             With<Button>,
         ),
     >,
@@ -637,16 +649,15 @@ fn handle_shipbuilding_workspace_interactions(
             content_changed = true;
         }
 
-        for interaction in &save_buttons {
-            if *interaction == Interaction::Pressed
+        for (interaction, is_save, is_reset) in &save_reset_buttons {
+            if *interaction != Interaction::Pressed {
+                continue;
+            }
+            if is_save
                 && save_current_design_template_native(&mut design_library, ui_state).is_some()
             {
                 content_changed = true;
-            }
-        }
-
-        for interaction in &reset_buttons {
-            if *interaction == Interaction::Pressed {
+            } else if is_reset {
                 if let Some(hull_id) = ui_state.selected_hull_id.clone() {
                     select_hull_by_id(ui_state, &shipbuilding_data, &research_state, &hull_id);
                     content_changed = true;
@@ -770,12 +781,42 @@ fn handle_shipbuilding_workspace_interactions(
         }
 
         if ui_state.hovered_slot != hovered_slot || ui_state.hovered_module_id != hovered_module {
+            let now = time.elapsed_secs();
+            ui_state.module_hover_started_at = if hovered_module.is_some() {
+                Some(now)
+            } else {
+                None
+            };
+            ui_state.slot_hover_started_at = if hovered_slot.is_some() {
+                Some(now)
+            } else {
+                None
+            };
             ui_state.hovered_slot = hovered_slot;
             ui_state.hovered_module_id = hovered_module;
         }
     }
 
     let _ = content_changed;
+}
+
+fn handle_shipbuilding_tab_switch_buttons(
+    active_menu: Res<ActiveMenu>,
+    mut ui_state: ResMut<ShipbuildingUiState>,
+    tab_switch_buttons: Query<
+        (&Interaction, &ShipbuildingTabSwitchButton),
+        (Changed<Interaction>, With<Button>),
+    >,
+) {
+    if active_menu.current != GameMenu::Shipbuilding {
+        return;
+    }
+
+    for (interaction, button) in &tab_switch_buttons {
+        if *interaction == Interaction::Pressed {
+            ui_state.active_tab = button.target;
+        }
+    }
 }
 
 fn handle_shipbuilding_archive_interactions(
@@ -1365,7 +1406,7 @@ fn populate_library_panel(
                     slot.size
                 ),
                 13.0,
-                category_color(slot.category),
+                theme::module_category_color(slot.category),
             ));
 
             parent.spawn((
@@ -1612,6 +1653,7 @@ fn update_shipbuilding_hover_tooltip(
     shipbuilding_data: Res<ShipbuildingData>,
     research_state: Res<ResearchState>,
     primary_window: Query<&Window, With<PrimaryWindow>>,
+    time: Res<Time>,
     tooltip_body_children: Query<&Children>,
     mut tooltip_node: Single<&mut Node, With<ShipbuildingHoverTooltip>>,
     mut tooltip_title: Single<
@@ -1629,6 +1671,13 @@ fn update_shipbuilding_hover_tooltip(
         ),
     >,
 ) {
+    // GRA-17: 250 ms hover latency for the shipbuilding tooltip. Both the slot
+    // and module paths are gated on their respective *hover_started_at fields
+    // (set by handle_shipbuilding_workspace_interactions when the hovered
+    // target changes). This system is Bevy UI (see populate_native_tooltip_body
+    // which spawns Text/Node children), not egui, so the EguiPrimaryContextPass
+    // contingency from the GRA-13 assessment is not required.
+    const HOVER_LATENCY_SECS: f32 = 0.25;
     if active_menu.current != GameMenu::Shipbuilding {
         tooltip_node.display = Display::None;
         return;
@@ -1653,21 +1702,32 @@ fn update_shipbuilding_hover_tooltip(
                     .and_then(|hull_id| shipbuilding_data.get_hull(hull_id))
                     .and_then(|hull| hull.slot_layout.iter().find(|slot| slot.slot_id == slot_id))
             });
-            let content = build_module_tooltip(module, hovered_slot);
-            let max_left = (window.width() - 360.0).max(0.0);
-            let max_top = (window.height() - 300.0).max(0.0);
-            let title = content.title.clone();
-            populate_native_tooltip_body(
-                &mut commands,
-                *tooltip_body,
-                &tooltip_body_children,
-                &content,
-            );
-            tooltip_node.display = Display::Flex;
-            tooltip_node.left = Val::Px((cursor.x + 16.0).min(max_left));
-            tooltip_node.top = Val::Px((cursor.y + 12.0).min(max_top));
-            **tooltip_title = Text::new(title);
-            return;
+            // GRA-17: only render the module tooltip after the hover latency.
+            let module_elapsed = ui_state
+                .module_hover_started_at
+                .map(|t| time.elapsed_secs() - t)
+                .unwrap_or(0.0);
+            if module_elapsed >= HOVER_LATENCY_SECS {
+                let content = build_module_tooltip(module, hovered_slot);
+                let max_left = (window.width() - 360.0).max(0.0);
+                let max_top = (window.height() - 300.0).max(0.0);
+                let title = content.title.clone();
+                populate_native_tooltip_body(
+                    &mut commands,
+                    *tooltip_body,
+                    &tooltip_body_children,
+                    &content,
+                );
+                tooltip_node.display = Display::Flex;
+                // GRA-17: clamp(0.0, max_left) keeps the tooltip on-screen when
+                // the cursor is in the top-right (where cursor.x + 16.0 can
+                // exceed max_left and .min alone would still leave the tooltip
+                // off the right edge).
+                tooltip_node.left = Val::Px((cursor.x + 16.0).clamp(0.0, max_left));
+                tooltip_node.top = Val::Px((cursor.y + 12.0).clamp(0.0, max_top));
+                **tooltip_title = Text::new(title);
+                return;
+            }
         }
     }
 
@@ -1675,27 +1735,39 @@ fn update_shipbuilding_hover_tooltip(
         if let Some(hull_id) = ui_state.selected_hull_id.as_deref() {
             if let Some(hull) = shipbuilding_data.get_hull(hull_id) {
                 if let Some(slot) = hull.slot_layout.iter().find(|slot| slot.slot_id == slot_id) {
-                    let compatible_modules =
-                        shipbuilding_data.compatible_modules_for_slot(slot, &research_state);
-                    let installed_module = ui_state
-                        .selected_modules
-                        .get(slot_id)
-                        .and_then(|module_id| shipbuilding_data.get_module(module_id));
-                    let content = build_slot_tooltip(slot, installed_module, &compatible_modules);
-                    let max_left = (window.width() - 360.0).max(0.0);
-                    let max_top = (window.height() - 300.0).max(0.0);
-                    let title = content.title.clone();
-                    populate_native_tooltip_body(
-                        &mut commands,
-                        *tooltip_body,
-                        &tooltip_body_children,
-                        &content,
-                    );
-                    tooltip_node.display = Display::Flex;
-                    tooltip_node.left = Val::Px((cursor.x + 16.0).min(max_left));
-                    tooltip_node.top = Val::Px((cursor.y + 12.0).min(max_top));
-                    **tooltip_title = Text::new(title);
-                    return;
+                    // GRA-17: only render the slot tooltip after the hover latency.
+                    let slot_elapsed = ui_state
+                        .slot_hover_started_at
+                        .map(|t| time.elapsed_secs() - t)
+                        .unwrap_or(0.0);
+                    if slot_elapsed >= HOVER_LATENCY_SECS {
+                        let compatible_modules =
+                            shipbuilding_data.compatible_modules_for_slot(slot, &research_state);
+                        let installed_module = ui_state
+                            .selected_modules
+                            .get(slot_id)
+                            .and_then(|module_id| shipbuilding_data.get_module(module_id));
+                        let content =
+                            build_slot_tooltip(slot, installed_module, &compatible_modules);
+                        let max_left = (window.width() - 360.0).max(0.0);
+                        let max_top = (window.height() - 300.0).max(0.0);
+                        let title = content.title.clone();
+                        populate_native_tooltip_body(
+                            &mut commands,
+                            *tooltip_body,
+                            &tooltip_body_children,
+                            &content,
+                        );
+                        tooltip_node.display = Display::Flex;
+                        // GRA-17: clamp(0.0, max_left) keeps the tooltip on-screen when
+                        // the cursor is in the top-right (where cursor.x + 16.0 can
+                        // exceed max_left and .min alone would still leave the tooltip
+                        // off the right edge).
+                        tooltip_node.left = Val::Px((cursor.x + 16.0).clamp(0.0, max_left));
+                        tooltip_node.top = Val::Px((cursor.y + 12.0).clamp(0.0, max_top));
+                        **tooltip_title = Text::new(title);
+                        return;
+                    }
                 }
             }
         }
@@ -2620,7 +2692,7 @@ fn spawn_blueprint_slot(
     height: f32,
 ) {
     let filled = installed_module.is_some();
-    let accent = slot_accent_color(slot.category);
+    let accent = theme::module_slot_accent_color(slot.category);
     let root_fill = if is_selected {
         accent.with_alpha(0.18)
     } else if is_hovered {
@@ -2856,34 +2928,6 @@ fn spawn_blueprint_slot(
                 ));
             }
         });
-}
-
-fn slot_accent_color(category: ShipModuleCategory) -> Color {
-    match category {
-        ShipModuleCategory::FlightSystems => Color::srgb(1.0, 0.62, 0.28),
-        ShipModuleCategory::Bridges
-        | ShipModuleCategory::PowerThermal
-        | ShipModuleCategory::Sensors
-        | ShipModuleCategory::UtilitySupport
-        | ShipModuleCategory::Maintenance
-        | ShipModuleCategory::SpecialScience => Color::srgb(0.26, 0.86, 1.0),
-        ShipModuleCategory::Weapons
-        | ShipModuleCategory::FireControl
-        | ShipModuleCategory::ArmorDefense
-        | ShipModuleCategory::Magazines
-        | ShipModuleCategory::PointDefense
-        | ShipModuleCategory::Armor
-        | ShipModuleCategory::ElectronicWarfare => Color::srgb(1.0, 0.34, 0.34),
-        ShipModuleCategory::FuelStorage | ShipModuleCategory::CargoStorage => {
-            Color::srgb(0.56, 0.92, 0.66)
-        }
-        ShipModuleCategory::CrewSystems
-        | ShipModuleCategory::Habitats
-        | ShipModuleCategory::Medical => Color::srgb(0.9, 0.84, 0.58),
-        ShipModuleCategory::ConstructionISRU | ShipModuleCategory::Construction => {
-            Color::srgb(0.96, 0.72, 0.38)
-        }
-    }
 }
 
 fn size_badge(size: &str) -> &'static str {
@@ -3186,35 +3230,6 @@ fn animate_px(value: Val, target: f32, amount: f32) -> Val {
     Val::Px(current + (target - current) * amount)
 }
 
-fn category_color(category: ShipModuleCategory) -> Color {
-    match category {
-        ShipModuleCategory::FlightSystems => Color::srgb(0.35, 0.88, 1.0),
-        ShipModuleCategory::Bridges => Color::srgb(0.56, 0.82, 1.0),
-        ShipModuleCategory::PowerThermal => Color::srgb(1.0, 0.76, 0.28),
-        ShipModuleCategory::FuelStorage | ShipModuleCategory::CargoStorage => {
-            Color::srgb(0.45, 0.85, 0.66)
-        }
-        ShipModuleCategory::Weapons => Color::srgb(1.0, 0.46, 0.35),
-        ShipModuleCategory::FireControl => Color::srgb(0.8, 0.7, 1.0),
-        ShipModuleCategory::Sensors => Color::srgb(0.5, 0.92, 0.9),
-        ShipModuleCategory::Magazines => Color::srgb(0.94, 0.82, 0.58),
-        ShipModuleCategory::PointDefense => Color::srgb(1.0, 0.68, 0.54),
-        ShipModuleCategory::Armor | ShipModuleCategory::ArmorDefense => {
-            Color::srgb(0.86, 0.92, 1.0)
-        }
-        ShipModuleCategory::CrewSystems
-        | ShipModuleCategory::Habitats
-        | ShipModuleCategory::Medical => Color::srgb(0.85, 0.82, 0.64),
-        ShipModuleCategory::UtilitySupport => Color::srgb(0.62, 0.85, 1.0),
-        ShipModuleCategory::Maintenance => Color::srgb(0.72, 0.84, 0.94),
-        ShipModuleCategory::ConstructionISRU | ShipModuleCategory::Construction => {
-            Color::srgb(0.9, 0.72, 0.45)
-        }
-        ShipModuleCategory::ElectronicWarfare => Color::srgb(1.0, 0.62, 0.78),
-        ShipModuleCategory::SpecialScience => Color::srgb(0.6, 1.0, 0.8),
-    }
-}
-
 fn text_block(text: String, size: f32, color: Color) -> impl Bundle {
     (
         Text::new(text),
@@ -3425,7 +3440,7 @@ fn category_button(category: ShipModuleCategory, selected: bool) -> impl Bundle 
             Color::srgb(0.055, 0.08, 0.12)
         }),
         BorderColor::all(if selected {
-            category_color(category)
+            theme::module_category_color(category)
         } else {
             Color::srgb(0.22, 0.35, 0.42)
         }),
@@ -3604,6 +3619,27 @@ fn populate_archive_tab_native(
                 "No saved designs yet. Save the current draft from the Design tab to populate the archive.".to_string(),
                 11.0,
                 Color::srgb(0.6, 0.7, 0.76),
+            ));
+            parent.spawn((
+                Button,
+                ShipbuildingTabSwitchButton {
+                    target: ShipbuildingTab::Design,
+                },
+                Node {
+                    width: Val::Percent(100.0),
+                    min_height: Val::Px(34.0),
+                    padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..default()
+                },
+                BackgroundColor(Color::srgb(0.08, 0.2, 0.24)),
+                BorderColor::all(Color::srgb(0.2, 0.92, 0.98)),
+                Text::new("Open Ship Designer"),
+                TextFont {
+                    font_size: 11.0,
+                    ..default()
+                },
+                TextColor(Color::srgb(0.92, 0.96, 0.98)),
             ));
             return;
         }
@@ -4164,6 +4200,36 @@ fn populate_construction_tab_native(
             Color::srgb(0.55, 0.95, 1.0),
         ));
 
+        if projects.is_empty() {
+            parent.spawn(text_block(
+                "No ships are under construction. Save a design and queue it to begin building."
+                    .to_string(),
+                11.0,
+                Color::srgb(0.6, 0.7, 0.76),
+            ));
+            parent.spawn((
+                Button,
+                ShipbuildingTabSwitchButton {
+                    target: ShipbuildingTab::Design,
+                },
+                Node {
+                    width: Val::Percent(100.0),
+                    min_height: Val::Px(34.0),
+                    padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..default()
+                },
+                BackgroundColor(Color::srgb(0.08, 0.2, 0.24)),
+                BorderColor::all(Color::srgb(0.2, 0.92, 0.98)),
+                Text::new("Open Ship Designer"),
+                TextFont {
+                    font_size: 11.0,
+                    ..default()
+                },
+                TextColor(Color::srgb(0.92, 0.96, 0.98)),
+            ));
+        }
+
         let mut colony_rows: Vec<_> = colonies
             .iter()
             .filter(|(_, colony, _, _)| colony.building_count(BuildingType::Shipyard) > 0)
@@ -4271,6 +4337,14 @@ fn populate_components_tab_native(
         .or_else(|| modules.first().copied());
 
     commands.entity(library_root).with_children(|parent| {
+        if ui_state.selected_component_module_id.is_none() {
+            parent.spawn(text_block(
+                "Click a module in the list below to inspect its components.".to_string(),
+                11.0,
+                Color::srgb(0.6, 0.7, 0.76),
+            ));
+        }
+
         parent.spawn(text_block(
             "Component Database".to_string(),
             14.0,
@@ -4858,5 +4932,486 @@ fn effective_design_name(ui_state: &ShipbuildingUiState, fallback_hull_name: &st
         format!("{} Prototype", fallback_hull_name)
     } else {
         ui_state.design_name.trim().to_string()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ShipbuildingNavArrow {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ShipbuildingNavKey {
+    Tab { shift: bool },
+    Arrow(ShipbuildingNavArrow),
+    Enter,
+    Escape,
+}
+
+/// Map a single `ButtonInput<KeyCode>` snapshot to at most one navigation key.
+/// Returns `None` if no nav key was just pressed. Order is deterministic so a
+/// frame with multiple keys pressed picks one (Esc > Enter > Tab > arrows).
+pub(crate) fn detect_navigation_key(keyboard: &ButtonInput<KeyCode>) -> Option<ShipbuildingNavKey> {
+    if keyboard.just_pressed(KeyCode::Escape) {
+        return Some(ShipbuildingNavKey::Escape);
+    }
+    if keyboard.just_pressed(KeyCode::Enter) || keyboard.just_pressed(KeyCode::NumpadEnter) {
+        return Some(ShipbuildingNavKey::Enter);
+    }
+    if keyboard.just_pressed(KeyCode::Tab) {
+        let shift = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
+        return Some(ShipbuildingNavKey::Tab { shift });
+    }
+    if keyboard.just_pressed(KeyCode::ArrowRight) {
+        return Some(ShipbuildingNavKey::Arrow(ShipbuildingNavArrow::Right));
+    }
+    if keyboard.just_pressed(KeyCode::ArrowLeft) {
+        return Some(ShipbuildingNavKey::Arrow(ShipbuildingNavArrow::Left));
+    }
+    if keyboard.just_pressed(KeyCode::ArrowUp) {
+        return Some(ShipbuildingNavKey::Arrow(ShipbuildingNavArrow::Up));
+    }
+    if keyboard.just_pressed(KeyCode::ArrowDown) {
+        return Some(ShipbuildingNavKey::Arrow(ShipbuildingNavArrow::Down));
+    }
+    None
+}
+
+/// Pure state transition for the slot grid: given the focused hull's layout and
+/// the current `selected_slot`, return the slot the user is moving to (or
+/// `None` to clear). Behavior:
+///   * `Escape` always clears.
+///   * `Enter` returns the current slot unchanged (library already binds to it).
+///   * `Tab` / `Shift+Tab` cycles through `slot_layout` in declaration order.
+///   * Arrows cycle within the same `slot_zone`, ordered by `position` (x for
+///     Left/Right, y for Up/Down). Slots without a `position` fall back to
+///     `slot_layout` declaration order as a stable tiebreak.
+pub(crate) fn next_slot_for_key(
+    hull: &crate::shipbuilding::ShipHullDefinition,
+    current: Option<&str>,
+    key: ShipbuildingNavKey,
+) -> Option<String> {
+    if hull.slot_layout.is_empty() {
+        return match key {
+            ShipbuildingNavKey::Escape => None,
+            _ => current.map(String::from),
+        };
+    }
+
+    match key {
+        ShipbuildingNavKey::Escape => None,
+        ShipbuildingNavKey::Enter => current.map(String::from),
+        ShipbuildingNavKey::Tab { shift } => {
+            let count = hull.slot_layout.len();
+            let current_idx =
+                current.and_then(|sid| hull.slot_layout.iter().position(|s| s.slot_id == sid));
+            let next_idx = match current_idx {
+                Some(i) if shift => (i + count - 1) % count,
+                Some(i) => (i + 1) % count,
+                None if shift => count - 1,
+                None => 0,
+            };
+            Some(hull.slot_layout[next_idx].slot_id.clone())
+        }
+        ShipbuildingNavKey::Arrow(direction) => arrow_next_slot(hull, current, direction),
+    }
+}
+
+fn arrow_next_slot(
+    hull: &crate::shipbuilding::ShipHullDefinition,
+    current: Option<&str>,
+    direction: ShipbuildingNavArrow,
+) -> Option<String> {
+    let current_idx =
+        current.and_then(|sid| hull.slot_layout.iter().position(|s| s.slot_id == sid));
+
+    let current_zone = current_idx.map(|i| slot_zone(&hull.slot_layout[i]));
+    let current_pos = current_idx.and_then(|i| hull.slot_layout[i].position);
+
+    let mut candidates: Vec<&HullSlotDefinition> = hull
+        .slot_layout
+        .iter()
+        .filter(|s| current_zone.is_none_or(|z| slot_zone(s) == z))
+        .collect();
+
+    if candidates.is_empty() {
+        return None;
+    }
+
+    candidates.sort_by(|a, b| {
+        let axis = |s: &HullSlotDefinition| {
+            s.position.map(|p| match direction {
+                ShipbuildingNavArrow::Left | ShipbuildingNavArrow::Right => p.0,
+                ShipbuildingNavArrow::Up | ShipbuildingNavArrow::Down => p.1,
+            })
+        };
+        match (axis(a), axis(b)) {
+            (Some(ka), Some(kb)) => match direction {
+                ShipbuildingNavArrow::Left | ShipbuildingNavArrow::Down => {
+                    ka.partial_cmp(&kb).unwrap_or(std::cmp::Ordering::Equal)
+                }
+                ShipbuildingNavArrow::Right | ShipbuildingNavArrow::Up => {
+                    kb.partial_cmp(&ka).unwrap_or(std::cmp::Ordering::Equal)
+                }
+            },
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        }
+    });
+
+    match current_pos {
+        Some((x, y)) => {
+            let moved = candidates.iter().find(|s| {
+                let sp = s.position.unwrap_or((x, y));
+                match direction {
+                    ShipbuildingNavArrow::Left => sp.0 < x,
+                    ShipbuildingNavArrow::Right => sp.0 > x,
+                    ShipbuildingNavArrow::Down => sp.1 < y,
+                    ShipbuildingNavArrow::Up => sp.1 > y,
+                }
+            });
+            moved
+                .map(|s| s.slot_id.clone())
+                .or_else(|| match direction {
+                    ShipbuildingNavArrow::Left | ShipbuildingNavArrow::Down => {
+                        candidates.last().map(|s| s.slot_id.clone())
+                    }
+                    ShipbuildingNavArrow::Right | ShipbuildingNavArrow::Up => {
+                        candidates.first().map(|s| s.slot_id.clone())
+                    }
+                })
+        }
+        None => match direction {
+            ShipbuildingNavArrow::Left | ShipbuildingNavArrow::Down => {
+                candidates.last().map(|s| s.slot_id.clone())
+            }
+            ShipbuildingNavArrow::Right | ShipbuildingNavArrow::Up => {
+                candidates.first().map(|s| s.slot_id.clone())
+            }
+        },
+    }
+}
+
+/// System that wires keyboard input to `ShipbuildingUiState::selected_slot` for
+/// the focused hull's slot grid. Active only when the shipbuilding menu is
+/// open. Skips when egui is consuming keyboard input (e.g. the module library
+/// filter `TextEdit` from GRA-13.C has focus) so the two systems don't fight.
+fn handle_shipbuilding_keyboard_navigation(
+    active_menu: Res<ActiveMenu>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    shipbuilding_data: Res<ShipbuildingData>,
+    mut ui_state: ResMut<ShipbuildingUiState>,
+    mut egui_contexts: bevy_egui::EguiContexts,
+) {
+    if !matches!(active_menu.current, GameMenu::Shipbuilding) {
+        return;
+    }
+
+    if let Ok(ctx) = egui_contexts.ctx_mut() {
+        if ctx.wants_keyboard_input() {
+            return;
+        }
+    }
+
+    let Some(key) = detect_navigation_key(&keyboard) else {
+        return;
+    };
+
+    let Some(hull_id) = ui_state.selected_hull_id.clone() else {
+        return;
+    };
+    let Some(hull) = shipbuilding_data.get_hull(&hull_id) else {
+        return;
+    };
+
+    if matches!(key, ShipbuildingNavKey::Escape) {
+        if ui_state.selected_slot.is_some() {
+            ui_state.selected_slot = None;
+        }
+        return;
+    }
+
+    if matches!(key, ShipbuildingNavKey::Enter) {
+        // Library render already binds to `selected_slot`. Enter is a no-op for
+        // state but signals "the library should focus on this slot" to any
+        // future render hook.
+        return;
+    }
+
+    let next = next_slot_for_key(hull, ui_state.selected_slot.as_deref(), key);
+    if let Some(slot_id) = next {
+        ui_state.selected_slot = Some(slot_id);
+    }
+}
+
+#[cfg(test)]
+mod keyboard_navigation_tests {
+    use super::*;
+    use crate::fleets::ShipClass;
+    use crate::shipbuilding::types::ShipModuleCategory;
+
+    fn make_slot(
+        id: &str,
+        category: ShipModuleCategory,
+        pos: Option<(f32, f32)>,
+    ) -> HullSlotDefinition {
+        HullSlotDefinition {
+            slot_id: id.to_string(),
+            category,
+            size: "Small".to_string(),
+            required: true,
+            position: pos,
+            rotation_deg: None,
+        }
+    }
+
+    fn make_hull(slots: Vec<HullSlotDefinition>) -> crate::shipbuilding::ShipHullDefinition {
+        crate::shipbuilding::ShipHullDefinition {
+            id: "test-hull".to_string(),
+            display_name: "Test Hull".to_string(),
+            description: String::new(),
+            class: ShipClass::Courier,
+            tier: 1,
+            base_build_points: 0.0,
+            base_dry_mass_t: 0.0,
+            default_construction_mode: crate::shipbuilding::ConstructionMode::SurfaceLaunch,
+            surface_launchable: true,
+            orbital_only: false,
+            is_station: false,
+            size_tier: None,
+            required_tech: None,
+            resource_costs: Vec::new(),
+            slot_layout: slots,
+            tags: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn tab_cycles_through_five_slots_in_order() {
+        let hull = make_hull(vec![
+            make_slot(
+                "drive_main",
+                ShipModuleCategory::FlightSystems,
+                Some((0.1, 0.5)),
+            ),
+            make_slot(
+                "reactor_main",
+                ShipModuleCategory::PowerThermal,
+                Some((0.5, 0.6)),
+            ),
+            make_slot(
+                "cargo_bay",
+                ShipModuleCategory::CargoStorage,
+                Some((0.3, 0.3)),
+            ),
+            make_slot(
+                "command_bridge",
+                ShipModuleCategory::Bridges,
+                Some((0.5, 0.9)),
+            ),
+            make_slot("weapon_main", ShipModuleCategory::Weapons, Some((0.5, 0.1))),
+        ]);
+        let mut current = hull.slot_layout[0].slot_id.clone();
+        for expected in &hull.slot_layout[1..] {
+            let next = next_slot_for_key(
+                &hull,
+                Some(&current),
+                ShipbuildingNavKey::Tab { shift: false },
+            );
+            assert_eq!(next.as_deref(), Some(expected.slot_id.as_str()));
+            current = next.unwrap();
+        }
+        let next = next_slot_for_key(
+            &hull,
+            Some(&current),
+            ShipbuildingNavKey::Tab { shift: false },
+        );
+        assert_eq!(next.as_deref(), Some(hull.slot_layout[0].slot_id.as_str()));
+    }
+
+    #[test]
+    fn shift_tab_cycles_in_reverse_and_wraps() {
+        let hull = make_hull(vec![
+            make_slot(
+                "drive_main",
+                ShipModuleCategory::FlightSystems,
+                Some((0.1, 0.5)),
+            ),
+            make_slot(
+                "reactor_main",
+                ShipModuleCategory::PowerThermal,
+                Some((0.5, 0.6)),
+            ),
+            make_slot("weapon_main", ShipModuleCategory::Weapons, Some((0.5, 0.1))),
+        ]);
+        let next = next_slot_for_key(
+            &hull,
+            Some("weapon_main"),
+            ShipbuildingNavKey::Tab { shift: true },
+        );
+        assert_eq!(next.as_deref(), Some("reactor_main"));
+
+        let next = next_slot_for_key(
+            &hull,
+            Some("drive_main"),
+            ShipbuildingNavKey::Tab { shift: true },
+        );
+        assert_eq!(next.as_deref(), Some("weapon_main"));
+    }
+
+    #[test]
+    fn tab_with_no_current_selection_picks_first_or_last_by_shift() {
+        let hull = make_hull(vec![
+            make_slot(
+                "drive_main",
+                ShipModuleCategory::FlightSystems,
+                Some((0.1, 0.5)),
+            ),
+            make_slot(
+                "reactor_main",
+                ShipModuleCategory::PowerThermal,
+                Some((0.5, 0.6)),
+            ),
+        ]);
+        let next = next_slot_for_key(&hull, None, ShipbuildingNavKey::Tab { shift: false });
+        assert_eq!(next.as_deref(), Some("drive_main"));
+        let next = next_slot_for_key(&hull, None, ShipbuildingNavKey::Tab { shift: true });
+        assert_eq!(next.as_deref(), Some("reactor_main"));
+    }
+
+    #[test]
+    fn arrows_cycle_within_same_zone() {
+        let hull = make_hull(vec![
+            make_slot(
+                "weapon_laser_port",
+                ShipModuleCategory::Weapons,
+                Some((0.2, 0.5)),
+            ),
+            make_slot(
+                "weapon_laser_starboard",
+                ShipModuleCategory::Weapons,
+                Some((0.8, 0.5)),
+            ),
+        ]);
+        let next = next_slot_for_key(
+            &hull,
+            Some("weapon_laser_port"),
+            ShipbuildingNavKey::Arrow(ShipbuildingNavArrow::Right),
+        );
+        assert_eq!(next.as_deref(), Some("weapon_laser_starboard"));
+        let next = next_slot_for_key(
+            &hull,
+            Some("weapon_laser_starboard"),
+            ShipbuildingNavKey::Arrow(ShipbuildingNavArrow::Left),
+        );
+        assert_eq!(next.as_deref(), Some("weapon_laser_port"));
+    }
+
+    #[test]
+    fn arrows_do_not_cross_zones() {
+        let hull = make_hull(vec![
+            make_slot(
+                "drive_main",
+                ShipModuleCategory::FlightSystems,
+                Some((0.1, 0.5)),
+            ),
+            make_slot("weapon_main", ShipModuleCategory::Weapons, Some((0.9, 0.5))),
+        ]);
+        let next = next_slot_for_key(
+            &hull,
+            Some("weapon_main"),
+            ShipbuildingNavKey::Arrow(ShipbuildingNavArrow::Right),
+        );
+        // Only one weapon slot exists, so Right wraps to the slot itself.
+        assert_eq!(next.as_deref(), Some("weapon_main"));
+    }
+
+    #[test]
+    fn vertical_arrows_use_y_axis() {
+        let hull = make_hull(vec![
+            make_slot(
+                "reactor_top",
+                ShipModuleCategory::PowerThermal,
+                Some((0.5, 0.8)),
+            ),
+            make_slot(
+                "reactor_bottom",
+                ShipModuleCategory::PowerThermal,
+                Some((0.5, 0.2)),
+            ),
+        ]);
+        let next = next_slot_for_key(
+            &hull,
+            Some("reactor_bottom"),
+            ShipbuildingNavKey::Arrow(ShipbuildingNavArrow::Up),
+        );
+        assert_eq!(next.as_deref(), Some("reactor_top"));
+        let next = next_slot_for_key(
+            &hull,
+            Some("reactor_top"),
+            ShipbuildingNavKey::Arrow(ShipbuildingNavArrow::Down),
+        );
+        assert_eq!(next.as_deref(), Some("reactor_bottom"));
+    }
+
+    #[test]
+    fn escape_clears_selection() {
+        let hull = make_hull(vec![make_slot(
+            "drive_main",
+            ShipModuleCategory::FlightSystems,
+            Some((0.1, 0.5)),
+        )]);
+        let next = next_slot_for_key(&hull, Some("drive_main"), ShipbuildingNavKey::Escape);
+        assert_eq!(next, None);
+    }
+
+    #[test]
+    fn enter_is_noop_for_state() {
+        let hull = make_hull(vec![make_slot(
+            "drive_main",
+            ShipModuleCategory::FlightSystems,
+            Some((0.1, 0.5)),
+        )]);
+        let next = next_slot_for_key(&hull, Some("drive_main"), ShipbuildingNavKey::Enter);
+        assert_eq!(next.as_deref(), Some("drive_main"));
+    }
+
+    #[test]
+    fn empty_hull_returns_none_for_escape_and_current_for_others() {
+        let hull = make_hull(Vec::new());
+        assert_eq!(
+            next_slot_for_key(&hull, None, ShipbuildingNavKey::Tab { shift: false }),
+            None
+        );
+        assert_eq!(
+            next_slot_for_key(&hull, Some("stale"), ShipbuildingNavKey::Escape),
+            None
+        );
+    }
+
+    #[test]
+    fn stale_current_falls_back_to_layout_order() {
+        let hull = make_hull(vec![
+            make_slot(
+                "drive_main",
+                ShipModuleCategory::FlightSystems,
+                Some((0.1, 0.5)),
+            ),
+            make_slot(
+                "reactor_main",
+                ShipModuleCategory::PowerThermal,
+                Some((0.5, 0.6)),
+            ),
+        ]);
+        let next = next_slot_for_key(
+            &hull,
+            Some("does_not_exist"),
+            ShipbuildingNavKey::Tab { shift: false },
+        );
+        assert_eq!(next.as_deref(), Some("drive_main"));
     }
 }

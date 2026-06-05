@@ -55,6 +55,8 @@ pub(crate) struct ShipbuildingUiState {
     pub hovered_slot: Option<String>,
     pub hovered_module_id: Option<String>,
     pub library_filter_query: String,
+    pub slot_hover_started_at: Option<f32>,
+    pub module_hover_started_at: Option<f32>,
 }
 
 impl Default for ShipbuildingUiState {
@@ -80,6 +82,8 @@ impl Default for ShipbuildingUiState {
             hovered_slot: None,
             hovered_module_id: None,
             library_filter_query: String::new(),
+            slot_hover_started_at: None,
+            module_hover_started_at: None,
         }
     }
 }
