@@ -4956,9 +4956,7 @@ pub(crate) enum ShipbuildingNavKey {
 /// Map a single `ButtonInput<KeyCode>` snapshot to at most one navigation key.
 /// Returns `None` if no nav key was just pressed. Order is deterministic so a
 /// frame with multiple keys pressed picks one (Esc > Enter > Tab > arrows).
-pub(crate) fn detect_navigation_key(
-    keyboard: &ButtonInput<KeyCode>,
-) -> Option<ShipbuildingNavKey> {
+pub(crate) fn detect_navigation_key(keyboard: &ButtonInput<KeyCode>) -> Option<ShipbuildingNavKey> {
     if keyboard.just_pressed(KeyCode::Escape) {
         return Some(ShipbuildingNavKey::Escape);
     }
@@ -4966,8 +4964,7 @@ pub(crate) fn detect_navigation_key(
         return Some(ShipbuildingNavKey::Enter);
     }
     if keyboard.just_pressed(KeyCode::Tab) {
-        let shift =
-            keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
+        let shift = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
         return Some(ShipbuildingNavKey::Tab { shift });
     }
     if keyboard.just_pressed(KeyCode::ArrowRight) {
@@ -5011,8 +5008,8 @@ pub(crate) fn next_slot_for_key(
         ShipbuildingNavKey::Enter => current.map(String::from),
         ShipbuildingNavKey::Tab { shift } => {
             let count = hull.slot_layout.len();
-            let current_idx = current
-                .and_then(|sid| hull.slot_layout.iter().position(|s| s.slot_id == sid));
+            let current_idx =
+                current.and_then(|sid| hull.slot_layout.iter().position(|s| s.slot_id == sid));
             let next_idx = match current_idx {
                 Some(i) if shift => (i + count - 1) % count,
                 Some(i) => (i + 1) % count,
@@ -5030,8 +5027,7 @@ fn arrow_next_slot(
     current: Option<&str>,
     direction: ShipbuildingNavArrow,
 ) -> Option<String> {
-    let current_idx =
-        current.and_then(|sid| hull.slot_layout.iter().position(|s| s.slot_id == sid));
+    let current_idx = current.and_then(|sid| hull.slot_layout.iter().position(|s| s.slot_id == sid));
 
     let current_zone = current_idx.map(|i| slot_zone(&hull.slot_layout[i]));
     let current_pos = current_idx.and_then(|i| hull.slot_layout[i].position);
@@ -5079,14 +5075,16 @@ fn arrow_next_slot(
                     ShipbuildingNavArrow::Up => sp.1 > y,
                 }
             });
-            moved.map(|s| s.slot_id.clone()).or_else(|| match direction {
-                ShipbuildingNavArrow::Left | ShipbuildingNavArrow::Down => {
-                    candidates.last().map(|s| s.slot_id.clone())
-                }
-                ShipbuildingNavArrow::Right | ShipbuildingNavArrow::Up => {
-                    candidates.first().map(|s| s.slot_id.clone())
-                }
-            })
+            moved
+                .map(|s| s.slot_id.clone())
+                .or_else(|| match direction {
+                    ShipbuildingNavArrow::Left | ShipbuildingNavArrow::Down => {
+                        candidates.last().map(|s| s.slot_id.clone())
+                    }
+                    ShipbuildingNavArrow::Right | ShipbuildingNavArrow::Up => {
+                        candidates.first().map(|s| s.slot_id.clone())
+                    }
+                })
         }
         None => match direction {
             ShipbuildingNavArrow::Left | ShipbuildingNavArrow::Down => {
