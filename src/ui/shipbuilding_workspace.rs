@@ -7,6 +7,7 @@ use bevy::window::PrimaryWindow;
 
 use super::dashboard::format_mass_compact_tonnes;
 use super::shipbuilding_state::{ShipbuildingTab, ShipbuildingUiState};
+use super::theme;
 use super::shipbuilding_tooltip::{
     build_module_tooltip, build_slot_tooltip, format_shipbuilding_resource_cost_lines,
     prettify_slot_name, ShipbuildingTooltipContent, ShipbuildingTooltipEntry,
@@ -1365,7 +1366,7 @@ fn populate_library_panel(
                     slot.size
                 ),
                 13.0,
-                category_color(slot.category),
+                theme::module_category_color(slot.category),
             ));
 
             parent.spawn((
@@ -2620,7 +2621,7 @@ fn spawn_blueprint_slot(
     height: f32,
 ) {
     let filled = installed_module.is_some();
-    let accent = slot_accent_color(slot.category);
+    let accent = theme::module_slot_accent_color(slot.category);
     let root_fill = if is_selected {
         accent.with_alpha(0.18)
     } else if is_hovered {
@@ -2856,34 +2857,6 @@ fn spawn_blueprint_slot(
                 ));
             }
         });
-}
-
-fn slot_accent_color(category: ShipModuleCategory) -> Color {
-    match category {
-        ShipModuleCategory::FlightSystems => Color::srgb(1.0, 0.62, 0.28),
-        ShipModuleCategory::Bridges
-        | ShipModuleCategory::PowerThermal
-        | ShipModuleCategory::Sensors
-        | ShipModuleCategory::UtilitySupport
-        | ShipModuleCategory::Maintenance
-        | ShipModuleCategory::SpecialScience => Color::srgb(0.26, 0.86, 1.0),
-        ShipModuleCategory::Weapons
-        | ShipModuleCategory::FireControl
-        | ShipModuleCategory::ArmorDefense
-        | ShipModuleCategory::Magazines
-        | ShipModuleCategory::PointDefense
-        | ShipModuleCategory::Armor
-        | ShipModuleCategory::ElectronicWarfare => Color::srgb(1.0, 0.34, 0.34),
-        ShipModuleCategory::FuelStorage | ShipModuleCategory::CargoStorage => {
-            Color::srgb(0.56, 0.92, 0.66)
-        }
-        ShipModuleCategory::CrewSystems
-        | ShipModuleCategory::Habitats
-        | ShipModuleCategory::Medical => Color::srgb(0.9, 0.84, 0.58),
-        ShipModuleCategory::ConstructionISRU | ShipModuleCategory::Construction => {
-            Color::srgb(0.96, 0.72, 0.38)
-        }
-    }
 }
 
 fn size_badge(size: &str) -> &'static str {
@@ -3186,35 +3159,6 @@ fn animate_px(value: Val, target: f32, amount: f32) -> Val {
     Val::Px(current + (target - current) * amount)
 }
 
-fn category_color(category: ShipModuleCategory) -> Color {
-    match category {
-        ShipModuleCategory::FlightSystems => Color::srgb(0.35, 0.88, 1.0),
-        ShipModuleCategory::Bridges => Color::srgb(0.56, 0.82, 1.0),
-        ShipModuleCategory::PowerThermal => Color::srgb(1.0, 0.76, 0.28),
-        ShipModuleCategory::FuelStorage | ShipModuleCategory::CargoStorage => {
-            Color::srgb(0.45, 0.85, 0.66)
-        }
-        ShipModuleCategory::Weapons => Color::srgb(1.0, 0.46, 0.35),
-        ShipModuleCategory::FireControl => Color::srgb(0.8, 0.7, 1.0),
-        ShipModuleCategory::Sensors => Color::srgb(0.5, 0.92, 0.9),
-        ShipModuleCategory::Magazines => Color::srgb(0.94, 0.82, 0.58),
-        ShipModuleCategory::PointDefense => Color::srgb(1.0, 0.68, 0.54),
-        ShipModuleCategory::Armor | ShipModuleCategory::ArmorDefense => {
-            Color::srgb(0.86, 0.92, 1.0)
-        }
-        ShipModuleCategory::CrewSystems
-        | ShipModuleCategory::Habitats
-        | ShipModuleCategory::Medical => Color::srgb(0.85, 0.82, 0.64),
-        ShipModuleCategory::UtilitySupport => Color::srgb(0.62, 0.85, 1.0),
-        ShipModuleCategory::Maintenance => Color::srgb(0.72, 0.84, 0.94),
-        ShipModuleCategory::ConstructionISRU | ShipModuleCategory::Construction => {
-            Color::srgb(0.9, 0.72, 0.45)
-        }
-        ShipModuleCategory::ElectronicWarfare => Color::srgb(1.0, 0.62, 0.78),
-        ShipModuleCategory::SpecialScience => Color::srgb(0.6, 1.0, 0.8),
-    }
-}
-
 fn text_block(text: String, size: f32, color: Color) -> impl Bundle {
     (
         Text::new(text),
@@ -3425,7 +3369,7 @@ fn category_button(category: ShipModuleCategory, selected: bool) -> impl Bundle 
             Color::srgb(0.055, 0.08, 0.12)
         }),
         BorderColor::all(if selected {
-            category_color(category)
+            theme::module_category_color(category)
         } else {
             Color::srgb(0.22, 0.35, 0.42)
         }),
