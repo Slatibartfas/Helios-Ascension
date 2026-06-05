@@ -7,7 +7,10 @@
 //! up as more panels migrate to the theme — suppress dead_code for this module.
 #![allow(dead_code)]
 
+use bevy::prelude::Color;
 use bevy_egui::egui;
+
+use crate::shipbuilding::types::ShipModuleCategory;
 
 // ─── Core Palette ────────────────────────────────────────────────────────
 
@@ -184,6 +187,70 @@ pub fn category_color(category: &str) -> egui::Color32 {
         "Strategic" => CAT_STRATEGIC,
         "Exotic" => CAT_EXOTIC,
         _ => TEXT_DIM,
+    }
+}
+
+// ─── Ship Module Category Colours ────────────────────────────────────────
+
+/// Accent colour for a ship-module category, used for slot borders and other
+/// heavy UI chrome where the visual emphasis must read at a glance.
+pub fn module_slot_accent_color(category: ShipModuleCategory) -> Color {
+    match category {
+        ShipModuleCategory::FlightSystems => Color::srgb(1.0, 0.62, 0.28),
+        ShipModuleCategory::Bridges
+        | ShipModuleCategory::PowerThermal
+        | ShipModuleCategory::Sensors
+        | ShipModuleCategory::UtilitySupport
+        | ShipModuleCategory::Maintenance
+        | ShipModuleCategory::SpecialScience => Color::srgb(0.26, 0.86, 1.0),
+        ShipModuleCategory::Weapons
+        | ShipModuleCategory::FireControl
+        | ShipModuleCategory::ArmorDefense
+        | ShipModuleCategory::Magazines
+        | ShipModuleCategory::PointDefense
+        | ShipModuleCategory::Armor
+        | ShipModuleCategory::ElectronicWarfare => Color::srgb(1.0, 0.34, 0.34),
+        ShipModuleCategory::FuelStorage | ShipModuleCategory::CargoStorage => {
+            Color::srgb(0.56, 0.92, 0.66)
+        }
+        ShipModuleCategory::CrewSystems
+        | ShipModuleCategory::Habitats
+        | ShipModuleCategory::Medical => Color::srgb(0.9, 0.84, 0.58),
+        ShipModuleCategory::ConstructionISRU | ShipModuleCategory::Construction => {
+            Color::srgb(0.96, 0.72, 0.38)
+        }
+    }
+}
+
+/// Detail / chip colour for a ship-module category — used for category
+/// buttons, badges, and other small UI marks where the slot-accent palette
+/// would be too saturated.
+pub fn module_category_color(category: ShipModuleCategory) -> Color {
+    match category {
+        ShipModuleCategory::FlightSystems => Color::srgb(0.35, 0.88, 1.0),
+        ShipModuleCategory::Bridges => Color::srgb(0.56, 0.82, 1.0),
+        ShipModuleCategory::PowerThermal => Color::srgb(1.0, 0.76, 0.28),
+        ShipModuleCategory::FuelStorage | ShipModuleCategory::CargoStorage => {
+            Color::srgb(0.45, 0.85, 0.66)
+        }
+        ShipModuleCategory::Weapons => Color::srgb(1.0, 0.46, 0.35),
+        ShipModuleCategory::FireControl => Color::srgb(0.8, 0.7, 1.0),
+        ShipModuleCategory::Sensors => Color::srgb(0.5, 0.92, 0.9),
+        ShipModuleCategory::Magazines => Color::srgb(0.94, 0.82, 0.58),
+        ShipModuleCategory::PointDefense => Color::srgb(1.0, 0.68, 0.54),
+        ShipModuleCategory::Armor | ShipModuleCategory::ArmorDefense => {
+            Color::srgb(0.86, 0.92, 1.0)
+        }
+        ShipModuleCategory::CrewSystems
+        | ShipModuleCategory::Habitats
+        | ShipModuleCategory::Medical => Color::srgb(0.85, 0.82, 0.64),
+        ShipModuleCategory::UtilitySupport => Color::srgb(0.62, 0.85, 1.0),
+        ShipModuleCategory::Maintenance => Color::srgb(0.72, 0.84, 0.94),
+        ShipModuleCategory::ConstructionISRU | ShipModuleCategory::Construction => {
+            Color::srgb(0.9, 0.72, 0.45)
+        }
+        ShipModuleCategory::ElectronicWarfare => Color::srgb(1.0, 0.62, 0.78),
+        ShipModuleCategory::SpecialScience => Color::srgb(0.6, 1.0, 0.8),
     }
 }
 
