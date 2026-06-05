@@ -5278,8 +5278,16 @@ mod keyboard_navigation_tests {
     #[test]
     fn arrows_do_not_cross_zones() {
         let hull = make_hull(vec![
-            make_slot("drive_main", ShipModuleCategory::FlightSystems, Some((0.1, 0.5))),
-            make_slot("weapon_main", ShipModuleCategory::Weapons, Some((0.9, 0.5))),
+            make_slot(
+                "drive_main",
+                ShipModuleCategory::FlightSystems,
+                Some((0.1, 0.5)),
+            ),
+            make_slot(
+                "weapon_main",
+                ShipModuleCategory::Weapons,
+                Some((0.9, 0.5)),
+            ),
         ]);
         let next = next_slot_for_key(
             &hull,
@@ -5293,7 +5301,11 @@ mod keyboard_navigation_tests {
     #[test]
     fn vertical_arrows_use_y_axis() {
         let hull = make_hull(vec![
-            make_slot("reactor_top", ShipModuleCategory::PowerThermal, Some((0.5, 0.8))),
+            make_slot(
+                "reactor_top",
+                ShipModuleCategory::PowerThermal,
+                Some((0.5, 0.8)),
+            ),
             make_slot(
                 "reactor_bottom",
                 ShipModuleCategory::PowerThermal,
@@ -5316,18 +5328,22 @@ mod keyboard_navigation_tests {
 
     #[test]
     fn escape_clears_selection() {
-        let hull = make_hull(vec![
-            make_slot("drive_main", ShipModuleCategory::FlightSystems, Some((0.1, 0.5))),
-        ]);
+        let hull = make_hull(vec![make_slot(
+            "drive_main",
+            ShipModuleCategory::FlightSystems,
+            Some((0.1, 0.5)),
+        )]);
         let next = next_slot_for_key(&hull, Some("drive_main"), ShipbuildingNavKey::Escape);
         assert_eq!(next, None);
     }
 
     #[test]
     fn enter_is_noop_for_state() {
-        let hull = make_hull(vec![
-            make_slot("drive_main", ShipModuleCategory::FlightSystems, Some((0.1, 0.5))),
-        ]);
+        let hull = make_hull(vec![make_slot(
+            "drive_main",
+            ShipModuleCategory::FlightSystems,
+            Some((0.1, 0.5)),
+        )]);
         let next = next_slot_for_key(&hull, Some("drive_main"), ShipbuildingNavKey::Enter);
         assert_eq!(next.as_deref(), Some("drive_main"));
     }
@@ -5348,8 +5364,16 @@ mod keyboard_navigation_tests {
     #[test]
     fn stale_current_falls_back_to_layout_order() {
         let hull = make_hull(vec![
-            make_slot("drive_main", ShipModuleCategory::FlightSystems, Some((0.1, 0.5))),
-            make_slot("reactor_main", ShipModuleCategory::PowerThermal, Some((0.5, 0.6))),
+            make_slot(
+                "drive_main",
+                ShipModuleCategory::FlightSystems,
+                Some((0.1, 0.5)),
+            ),
+            make_slot(
+                "reactor_main",
+                ShipModuleCategory::PowerThermal,
+                Some((0.5, 0.6)),
+            ),
         ]);
         let next = next_slot_for_key(
             &hull,
