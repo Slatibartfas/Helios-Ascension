@@ -1394,7 +1394,7 @@ fn populate_library_panel(
             let query_trimmed = ui_state.library_filter_query.trim();
             let filtered_modules: Vec<&crate::shipbuilding::ShipModuleDefinition> =
                 if query_trimmed.is_empty() {
-                    all_compatible.iter().copied().collect()
+                    all_compatible.to_vec()
                 } else {
                     let q = query_trimmed.to_lowercase();
                     all_compatible
