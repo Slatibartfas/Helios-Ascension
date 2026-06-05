@@ -5027,7 +5027,8 @@ fn arrow_next_slot(
     current: Option<&str>,
     direction: ShipbuildingNavArrow,
 ) -> Option<String> {
-    let current_idx = current.and_then(|sid| hull.slot_layout.iter().position(|s| s.slot_id == sid));
+    let current_idx =
+        current.and_then(|sid| hull.slot_layout.iter().position(|s| s.slot_id == sid));
 
     let current_zone = current_idx.map(|i| slot_zone(&hull.slot_layout[i]));
     let current_pos = current_idx.and_then(|i| hull.slot_layout[i].position);
@@ -5194,10 +5195,26 @@ mod keyboard_navigation_tests {
     #[test]
     fn tab_cycles_through_five_slots_in_order() {
         let hull = make_hull(vec![
-            make_slot("drive_main", ShipModuleCategory::FlightSystems, Some((0.1, 0.5))),
-            make_slot("reactor_main", ShipModuleCategory::PowerThermal, Some((0.5, 0.6))),
-            make_slot("cargo_bay", ShipModuleCategory::CargoStorage, Some((0.3, 0.3))),
-            make_slot("command_bridge", ShipModuleCategory::Bridges, Some((0.5, 0.9))),
+            make_slot(
+                "drive_main",
+                ShipModuleCategory::FlightSystems,
+                Some((0.1, 0.5)),
+            ),
+            make_slot(
+                "reactor_main",
+                ShipModuleCategory::PowerThermal,
+                Some((0.5, 0.6)),
+            ),
+            make_slot(
+                "cargo_bay",
+                ShipModuleCategory::CargoStorage,
+                Some((0.3, 0.3)),
+            ),
+            make_slot(
+                "command_bridge",
+                ShipModuleCategory::Bridges,
+                Some((0.5, 0.9)),
+            ),
             make_slot("weapon_main", ShipModuleCategory::Weapons, Some((0.5, 0.1))),
         ]);
         let mut current = hull.slot_layout[0].slot_id.clone();
@@ -5210,16 +5227,27 @@ mod keyboard_navigation_tests {
             assert_eq!(next.as_deref(), Some(expected.slot_id.as_str()));
             current = next.unwrap();
         }
-        let next =
-            next_slot_for_key(&hull, Some(&current), ShipbuildingNavKey::Tab { shift: false });
+        let next = next_slot_for_key(
+            &hull,
+            Some(&current),
+            ShipbuildingNavKey::Tab { shift: false },
+        );
         assert_eq!(next.as_deref(), Some(hull.slot_layout[0].slot_id.as_str()));
     }
 
     #[test]
     fn shift_tab_cycles_in_reverse_and_wraps() {
         let hull = make_hull(vec![
-            make_slot("drive_main", ShipModuleCategory::FlightSystems, Some((0.1, 0.5))),
-            make_slot("reactor_main", ShipModuleCategory::PowerThermal, Some((0.5, 0.6))),
+            make_slot(
+                "drive_main",
+                ShipModuleCategory::FlightSystems,
+                Some((0.1, 0.5)),
+            ),
+            make_slot(
+                "reactor_main",
+                ShipModuleCategory::PowerThermal,
+                Some((0.5, 0.6)),
+            ),
             make_slot("weapon_main", ShipModuleCategory::Weapons, Some((0.5, 0.1))),
         ]);
         let next = next_slot_for_key(
@@ -5240,8 +5268,16 @@ mod keyboard_navigation_tests {
     #[test]
     fn tab_with_no_current_selection_picks_first_or_last_by_shift() {
         let hull = make_hull(vec![
-            make_slot("drive_main", ShipModuleCategory::FlightSystems, Some((0.1, 0.5))),
-            make_slot("reactor_main", ShipModuleCategory::PowerThermal, Some((0.5, 0.6))),
+            make_slot(
+                "drive_main",
+                ShipModuleCategory::FlightSystems,
+                Some((0.1, 0.5)),
+            ),
+            make_slot(
+                "reactor_main",
+                ShipModuleCategory::PowerThermal,
+                Some((0.5, 0.6)),
+            ),
         ]);
         let next = next_slot_for_key(&hull, None, ShipbuildingNavKey::Tab { shift: false });
         assert_eq!(next.as_deref(), Some("drive_main"));
@@ -5252,7 +5288,11 @@ mod keyboard_navigation_tests {
     #[test]
     fn arrows_cycle_within_same_zone() {
         let hull = make_hull(vec![
-            make_slot("weapon_laser_port", ShipModuleCategory::Weapons, Some((0.2, 0.5))),
+            make_slot(
+                "weapon_laser_port",
+                ShipModuleCategory::Weapons,
+                Some((0.2, 0.5)),
+            ),
             make_slot(
                 "weapon_laser_starboard",
                 ShipModuleCategory::Weapons,
