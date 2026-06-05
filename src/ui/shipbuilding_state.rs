@@ -54,6 +54,7 @@ pub(crate) struct ShipbuildingUiState {
     pub show_hull_dropdown: bool,
     pub hovered_slot: Option<String>,
     pub hovered_module_id: Option<String>,
+    pub library_filter_query: String,
 }
 
 impl Default for ShipbuildingUiState {
@@ -78,6 +79,7 @@ impl Default for ShipbuildingUiState {
             show_hull_dropdown: false,
             hovered_slot: None,
             hovered_module_id: None,
+            library_filter_query: String::new(),
         }
     }
 }

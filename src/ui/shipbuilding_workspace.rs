@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use bevy::ecs::system::SystemParam;
+use bevy::input::keyboard::KeyboardInput;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
@@ -94,7 +95,11 @@ impl Plugin for ShipbuildingWorkspacePlugin {
             .add_systems(Update, animate_shipbuilding_module_card_feedback)
             .add_systems(Update, update_shipbuilding_hover_tooltip)
             .add_systems(Update, sync_shipbuilding_workspace_visibility)
-            .add_systems(Update, sync_shipbuilding_workspace_content);
+            .add_systems(Update, sync_shipbuilding_workspace_content)
+            .add_systems(
+                Update,
+                sync_library_filter_keyboard.before(sync_shipbuilding_workspace_content),
+            );
     }
 }
 
@@ -151,6 +156,12 @@ struct ShipbuildingCategoryButton {
 
 #[derive(Component)]
 struct ShipbuildingClearSlotButton;
+
+#[derive(Component)]
+struct ShipbuildingLibraryFilterInput;
+
+#[derive(Component)]
+struct ShipbuildingClearLibraryFilterButton;
 
 #[derive(Component)]
 struct ShipbuildingWorkspaceTabButton {
@@ -535,6 +546,14 @@ fn handle_shipbuilding_workspace_interactions(
             With<Button>,
         ),
     >,
+    clear_filter_buttons: Query<
+        &Interaction,
+        (
+            Changed<Interaction>,
+            With<ShipbuildingClearLibraryFilterButton>,
+            With<Button>,
+        ),
+    >,
     slot_press_buttons: Query<
         (&Interaction, &ShipbuildingSlotButton),
         (Changed<Interaction>, With<Button>),
@@ -671,6 +690,13 @@ fn handle_shipbuilding_workspace_interactions(
                     ui_state.preview_module_id = None;
                     content_changed = true;
                 }
+            }
+        }
+
+        for interaction in &clear_filter_buttons {
+            if *interaction == Interaction::Pressed && !ui_state.library_filter_query.is_empty() {
+                ui_state.library_filter_query.clear();
+                content_changed = true;
             }
         }
 
@@ -1364,59 +1390,120 @@ fn populate_library_panel(
                 TextColor(Color::srgb(0.94, 0.84, 0.84)),
             ));
 
-            for module in shipbuilding_data.compatible_modules_for_slot(slot, research_state) {
-                let installed = ui_state.selected_modules.get(&slot.slot_id) == Some(&module.id);
-                let previewed = ui_state.preview_slot.as_deref() == Some(slot.slot_id.as_str())
-                    && ui_state.preview_module_id.as_deref() == Some(module.id.as_str());
-                let color = if installed {
-                    Color::srgb(0.1, 0.32, 0.22)
-                } else if previewed {
-                    Color::srgb(0.12, 0.22, 0.34)
+            spawn_library_filter_row(parent, &ui_state.library_filter_query);
+
+            let all_compatible = shipbuilding_data.compatible_modules_for_slot(slot, research_state);
+            let query_trimmed = ui_state.library_filter_query.trim();
+            let filtered_modules: Vec<&crate::shipbuilding::ShipModuleDefinition> =
+                if query_trimmed.is_empty() {
+                    all_compatible.iter().copied().collect()
                 } else {
-                    Color::srgb(0.055, 0.08, 0.12)
+                    let q = query_trimmed.to_lowercase();
+                    all_compatible
+                        .iter()
+                        .copied()
+                        .filter(|m| {
+                            m.display_name.to_lowercase().contains(&q)
+                                || m.id.to_lowercase().contains(&q)
+                                || m.tags.iter().any(|t| t.to_lowercase().contains(&q))
+                        })
+                        .collect()
                 };
 
+            if !all_compatible.is_empty() && filtered_modules.is_empty() {
                 parent.spawn((
-                    Button,
-                    ShipbuildingModuleCard {
-                        slot_id: slot.slot_id.clone(),
-                        module_id: module.id.clone(),
-                        base_height: 52.0,
-                    },
-                    ShipbuildingModuleButton {
-                        slot_id: slot.slot_id.clone(),
-                        module_id: module.id.clone(),
-                    },
                     Node {
                         width: Val::Percent(100.0),
-                        height: Val::Px(52.0),
-                        padding: UiRect::axes(Val::Px(8.0), Val::Px(5.0)),
+                        min_height: Val::Px(28.0),
+                        padding: UiRect::axes(Val::Px(8.0), Val::Px(6.0)),
                         border: UiRect::all(Val::Px(1.0)),
                         ..default()
                     },
-                    BackgroundColor(color),
-                    BorderColor::all(if installed {
-                        Color::srgb(0.38, 0.94, 0.7)
+                    BackgroundColor(Color::srgba(0.12, 0.1, 0.07, 0.92)),
+                    BorderColor::all(Color::srgb(0.62, 0.42, 0.28)),
+                ))
+                .with_children(|empty| {
+                    empty.spawn(text_block(
+                        format!("No modules match '{}'.", query_trimmed),
+                        11.0,
+                        Color::srgb(0.92, 0.78, 0.62),
+                    ));
+                    empty.spawn((
+                        Button,
+                        ShipbuildingClearLibraryFilterButton,
+                        Node {
+                            min_height: Val::Px(22.0),
+                            padding: UiRect::axes(Val::Px(8.0), Val::Px(2.0)),
+                            border: UiRect::all(Val::Px(1.0)),
+                            ..default()
+                        },
+                        BackgroundColor(Color::srgb(0.18, 0.12, 0.08)),
+                        BorderColor::all(Color::srgb(0.78, 0.52, 0.36)),
+                        Text::new("Clear"),
+                        TextFont {
+                            font_size: 10.0,
+                            ..default()
+                        },
+                        TextColor(Color::srgb(0.96, 0.86, 0.74)),
+                    ));
+                });
+            } else {
+                for module in filtered_modules {
+                    let installed =
+                        ui_state.selected_modules.get(&slot.slot_id) == Some(&module.id);
+                    let previewed = ui_state.preview_slot.as_deref()
+                        == Some(slot.slot_id.as_str())
+                        && ui_state.preview_module_id.as_deref() == Some(module.id.as_str());
+                    let color = if installed {
+                        Color::srgb(0.1, 0.32, 0.22)
                     } else if previewed {
-                        Color::srgb(0.55, 0.95, 1.0)
+                        Color::srgb(0.12, 0.22, 0.34)
                     } else {
-                        Color::srgb(0.22, 0.35, 0.42)
-                    }),
-                    Text::new(format!(
-                        "{}\n{}  {:.0} t  {:.0} BP\nNet {:+.0} MW  {:.0} kN",
-                        module.display_name,
-                        module.size,
-                        module.dry_mass_t,
-                        module.build_points,
-                        module.power_generation_mw - module.power_draw_mw,
-                        module.thrust_kn,
-                    )),
-                    TextFont {
-                        font_size: 10.0,
-                        ..default()
-                    },
-                    TextColor(Color::srgb(0.88, 0.93, 0.96)),
-                ));
+                        Color::srgb(0.055, 0.08, 0.12)
+                    };
+
+                    parent.spawn((
+                        Button,
+                        ShipbuildingModuleCard {
+                            slot_id: slot.slot_id.clone(),
+                            module_id: module.id.clone(),
+                            base_height: 52.0,
+                        },
+                        ShipbuildingModuleButton {
+                            slot_id: slot.slot_id.clone(),
+                            module_id: module.id.clone(),
+                        },
+                        Node {
+                            width: Val::Percent(100.0),
+                            height: Val::Px(52.0),
+                            padding: UiRect::axes(Val::Px(8.0), Val::Px(5.0)),
+                            border: UiRect::all(Val::Px(1.0)),
+                            ..default()
+                        },
+                        BackgroundColor(color),
+                        BorderColor::all(if installed {
+                            Color::srgb(0.38, 0.94, 0.7)
+                        } else if previewed {
+                            Color::srgb(0.55, 0.95, 1.0)
+                        } else {
+                            Color::srgb(0.22, 0.35, 0.42)
+                        }),
+                        Text::new(format!(
+                            "{}\n{}  {:.0} t  {:.0} BP\nNet {:+.0} MW  {:.0} kN",
+                            module.display_name,
+                            module.size,
+                            module.dry_mass_t,
+                            module.build_points,
+                            module.power_generation_mw - module.power_draw_mw,
+                            module.thrust_kn,
+                        )),
+                        TextFont {
+                            font_size: 10.0,
+                            ..default()
+                        },
+                        TextColor(Color::srgb(0.88, 0.93, 0.96)),
+                    ));
+                }
             }
         } else {
             parent.spawn(text_block(
@@ -1426,6 +1513,94 @@ fn populate_library_panel(
             ));
         }
     });
+}
+
+fn spawn_library_filter_row(parent: &mut ChildSpawnerCommands, query: &str) {
+    let trimmed = query.trim();
+    let display_text = if trimmed.is_empty() {
+        "type to filter compatible modules…".to_string()
+    } else {
+        query.to_string()
+    };
+    let display_color = if trimmed.is_empty() {
+        Color::srgb(0.5, 0.6, 0.66)
+    } else {
+        Color::srgb(0.95, 0.98, 1.0)
+    };
+
+    parent
+        .spawn((
+            Node {
+                width: Val::Percent(100.0),
+                min_height: Val::Px(24.0),
+                padding: UiRect::axes(Val::Px(8.0), Val::Px(4.0)),
+                border: UiRect::all(Val::Px(1.0)),
+                flex_direction: FlexDirection::Row,
+                align_items: AlignItems::Center,
+                column_gap: Val::Px(6.0),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.04, 0.07, 0.11, 0.92)),
+            BorderColor::all(Color::srgb(0.22, 0.72, 0.86)),
+            ShipbuildingLibraryFilterInput,
+        ))
+        .with_children(|row| {
+            row.spawn(text_block("Filter:".to_string(), 11.0, Color::srgb(0.55, 0.95, 1.0)));
+            row.spawn(text_block(display_text, 11.0, display_color));
+        });
+}
+
+fn sync_library_filter_keyboard(
+    active_menu: Res<ActiveMenu>,
+    mut ui_state: ResMut<ShipbuildingUiState>,
+    mut keyboard_events: MessageReader<KeyboardInput>,
+) {
+    if active_menu.current != GameMenu::Shipbuilding {
+        return;
+    }
+    if ui_state.selected_slot.is_none() {
+        return;
+    }
+
+    let mut changed = false;
+    for event in keyboard_events.read() {
+        if !event.state.is_pressed() {
+            continue;
+        }
+        match &event.logical_key {
+            bevy::input::keyboard::Key::Backspace => {
+                if !ui_state.library_filter_query.is_empty() {
+                    ui_state.library_filter_query.pop();
+                    changed = true;
+                }
+            }
+            bevy::input::keyboard::Key::Escape => {
+                if !ui_state.library_filter_query.is_empty() {
+                    ui_state.library_filter_query.clear();
+                    changed = true;
+                }
+            }
+            _ => {
+                if let Some(inserted) = event.text.as_deref() {
+                    if inserted.chars().all(is_library_filter_printable) {
+                        ui_state.library_filter_query.push_str(inserted);
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+
+    if changed {
+        ui_state.set_changed();
+    }
+}
+
+fn is_library_filter_printable(c: char) -> bool {
+    if c.is_ascii_control() {
+        return false;
+    }
+    !matches!(c, '\u{e000}'..='\u{f8ff}')
 }
 
 fn update_shipbuilding_hover_tooltip(
