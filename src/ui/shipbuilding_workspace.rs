@@ -525,6 +525,7 @@ fn handle_shipbuilding_workspace_interactions(
     research_state: Res<ResearchState>,
     mut design_library: ResMut<ShipDesignLibrary>,
     mut ui_state: ResMut<ShipbuildingUiState>,
+    time: Res<Time>,
     tab_buttons: Query<
         (&Interaction, &ShipbuildingWorkspaceTabButton),
         (Changed<Interaction>, With<Button>),
@@ -792,6 +793,17 @@ fn handle_shipbuilding_workspace_interactions(
         }
 
         if ui_state.hovered_slot != hovered_slot || ui_state.hovered_module_id != hovered_module {
+            let now = time.elapsed_seconds();
+            ui_state.module_hover_started_at = if hovered_module.is_some() {
+                Some(now)
+            } else {
+                None
+            };
+            ui_state.slot_hover_started_at = if hovered_slot.is_some() {
+                Some(now)
+            } else {
+                None
+            };
             ui_state.hovered_slot = hovered_slot;
             ui_state.hovered_module_id = hovered_module;
         }
@@ -1653,6 +1665,7 @@ fn update_shipbuilding_hover_tooltip(
     shipbuilding_data: Res<ShipbuildingData>,
     research_state: Res<ResearchState>,
     primary_window: Query<&Window, With<PrimaryWindow>>,
+    time: Res<Time>,
     tooltip_body_children: Query<&Children>,
     mut tooltip_node: Single<&mut Node, With<ShipbuildingHoverTooltip>>,
     mut tooltip_title: Single<
@@ -1670,6 +1683,13 @@ fn update_shipbuilding_hover_tooltip(
         ),
     >,
 ) {
+    // GRA-17: 250 ms hover latency for the shipbuilding tooltip. Both the slot
+    // and module paths are gated on their respective *hover_started_at fields
+    // (set by handle_shipbuilding_workspace_interactions when the hovered
+    // target changes). This system is Bevy UI (see populate_native_tooltip_body
+    // which spawns Text/Node children), not egui, so the EguiPrimaryContextPass
+    // contingency from the GRA-13 assessment is not required.
+    const HOVER_LATENCY_SECS: f64 = 0.25;
     if active_menu.current != GameMenu::Shipbuilding {
         tooltip_node.display = Display::None;
         return;
@@ -1694,21 +1714,32 @@ fn update_shipbuilding_hover_tooltip(
                     .and_then(|hull_id| shipbuilding_data.get_hull(hull_id))
                     .and_then(|hull| hull.slot_layout.iter().find(|slot| slot.slot_id == slot_id))
             });
-            let content = build_module_tooltip(module, hovered_slot);
-            let max_left = (window.width() - 360.0).max(0.0);
-            let max_top = (window.height() - 300.0).max(0.0);
-            let title = content.title.clone();
-            populate_native_tooltip_body(
-                &mut commands,
-                *tooltip_body,
-                &tooltip_body_children,
-                &content,
-            );
-            tooltip_node.display = Display::Flex;
-            tooltip_node.left = Val::Px((cursor.x + 16.0).min(max_left));
-            tooltip_node.top = Val::Px((cursor.y + 12.0).min(max_top));
-            **tooltip_title = Text::new(title);
-            return;
+            // GRA-17: only render the module tooltip after the hover latency.
+            let module_elapsed = ui_state
+                .module_hover_started_at
+                .map(|t| time.elapsed_seconds() - t)
+                .unwrap_or(0.0);
+            if module_elapsed >= HOVER_LATENCY_SECS {
+                let content = build_module_tooltip(module, hovered_slot);
+                let max_left = (window.width() - 360.0).max(0.0);
+                let max_top = (window.height() - 300.0).max(0.0);
+                let title = content.title.clone();
+                populate_native_tooltip_body(
+                    &mut commands,
+                    *tooltip_body,
+                    &tooltip_body_children,
+                    &content,
+                );
+                tooltip_node.display = Display::Flex;
+                // GRA-17: clamp(0.0, max_left) keeps the tooltip on-screen when
+                // the cursor is in the top-right (where cursor.x + 16.0 can
+                // exceed max_left and .min alone would still leave the tooltip
+                // off the right edge).
+                tooltip_node.left = Val::Px((cursor.x + 16.0).clamp(0.0, max_left));
+                tooltip_node.top = Val::Px((cursor.y + 12.0).clamp(0.0, max_top));
+                **tooltip_title = Text::new(title);
+                return;
+            }
         }
     }
 
@@ -1716,27 +1747,39 @@ fn update_shipbuilding_hover_tooltip(
         if let Some(hull_id) = ui_state.selected_hull_id.as_deref() {
             if let Some(hull) = shipbuilding_data.get_hull(hull_id) {
                 if let Some(slot) = hull.slot_layout.iter().find(|slot| slot.slot_id == slot_id) {
-                    let compatible_modules =
-                        shipbuilding_data.compatible_modules_for_slot(slot, &research_state);
-                    let installed_module = ui_state
-                        .selected_modules
-                        .get(slot_id)
-                        .and_then(|module_id| shipbuilding_data.get_module(module_id));
-                    let content = build_slot_tooltip(slot, installed_module, &compatible_modules);
-                    let max_left = (window.width() - 360.0).max(0.0);
-                    let max_top = (window.height() - 300.0).max(0.0);
-                    let title = content.title.clone();
-                    populate_native_tooltip_body(
-                        &mut commands,
-                        *tooltip_body,
-                        &tooltip_body_children,
-                        &content,
-                    );
-                    tooltip_node.display = Display::Flex;
-                    tooltip_node.left = Val::Px((cursor.x + 16.0).min(max_left));
-                    tooltip_node.top = Val::Px((cursor.y + 12.0).min(max_top));
-                    **tooltip_title = Text::new(title);
-                    return;
+                    // GRA-17: only render the slot tooltip after the hover latency.
+                    let slot_elapsed = ui_state
+                        .slot_hover_started_at
+                        .map(|t| time.elapsed_seconds() - t)
+                        .unwrap_or(0.0);
+                    if slot_elapsed >= HOVER_LATENCY_SECS {
+                        let compatible_modules =
+                            shipbuilding_data.compatible_modules_for_slot(slot, &research_state);
+                        let installed_module = ui_state
+                            .selected_modules
+                            .get(slot_id)
+                            .and_then(|module_id| shipbuilding_data.get_module(module_id));
+                        let content =
+                            build_slot_tooltip(slot, installed_module, &compatible_modules);
+                        let max_left = (window.width() - 360.0).max(0.0);
+                        let max_top = (window.height() - 300.0).max(0.0);
+                        let title = content.title.clone();
+                        populate_native_tooltip_body(
+                            &mut commands,
+                            *tooltip_body,
+                            &tooltip_body_children,
+                            &content,
+                        );
+                        tooltip_node.display = Display::Flex;
+                        // GRA-17: clamp(0.0, max_left) keeps the tooltip on-screen when
+                        // the cursor is in the top-right (where cursor.x + 16.0 can
+                        // exceed max_left and .min alone would still leave the tooltip
+                        // off the right edge).
+                        tooltip_node.left = Val::Px((cursor.x + 16.0).clamp(0.0, max_left));
+                        tooltip_node.top = Val::Px((cursor.y + 12.0).clamp(0.0, max_top));
+                        **tooltip_title = Text::new(title);
+                        return;
+                    }
                 }
             }
         }
