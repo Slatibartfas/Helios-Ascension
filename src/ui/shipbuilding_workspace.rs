@@ -159,6 +159,11 @@ struct ShipbuildingWorkspaceTabButton {
 }
 
 #[derive(Component)]
+struct ShipbuildingTabSwitchButton {
+    target: ShipbuildingTab,
+}
+
+#[derive(Component)]
 struct ShipbuildingSaveDesignButton;
 
 #[derive(Component)]
@@ -512,6 +517,10 @@ fn handle_shipbuilding_workspace_interactions(
         (&Interaction, &ShipbuildingWorkspaceTabButton),
         (Changed<Interaction>, With<Button>),
     >,
+    tab_switch_buttons: Query<
+        (&Interaction, &ShipbuildingTabSwitchButton),
+        (Changed<Interaction>, With<Button>),
+    >,
     hull_dropdown_toggle: Query<
         &Interaction,
         (
@@ -617,6 +626,15 @@ fn handle_shipbuilding_workspace_interactions(
             }
 
             ui_state.active_tab = button.tab;
+            content_changed = true;
+        }
+
+        for (interaction, button) in &tab_switch_buttons {
+            if *interaction != Interaction::Pressed {
+                continue;
+            }
+
+            ui_state.active_tab = button.target;
             content_changed = true;
         }
 
@@ -3372,6 +3390,27 @@ fn populate_archive_tab_native(
                 11.0,
                 Color::srgb(0.6, 0.7, 0.76),
             ));
+            parent.spawn((
+                Button,
+                ShipbuildingTabSwitchButton {
+                    target: ShipbuildingTab::Design,
+                },
+                Node {
+                    width: Val::Percent(100.0),
+                    min_height: Val::Px(34.0),
+                    padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..default()
+                },
+                BackgroundColor(Color::srgb(0.08, 0.2, 0.24)),
+                BorderColor::all(Color::srgb(0.2, 0.92, 0.98)),
+                Text::new("Open Ship Designer"),
+                TextFont {
+                    font_size: 11.0,
+                    ..default()
+                },
+                TextColor(Color::srgb(0.92, 0.96, 0.98)),
+            ));
             return;
         }
 
@@ -3931,6 +3970,35 @@ fn populate_construction_tab_native(
             Color::srgb(0.55, 0.95, 1.0),
         ));
 
+        if projects.is_empty() {
+            parent.spawn(text_block(
+                "No ships are under construction. Save a design and queue it to begin building.".to_string(),
+                11.0,
+                Color::srgb(0.6, 0.7, 0.76),
+            ));
+            parent.spawn((
+                Button,
+                ShipbuildingTabSwitchButton {
+                    target: ShipbuildingTab::Design,
+                },
+                Node {
+                    width: Val::Percent(100.0),
+                    min_height: Val::Px(34.0),
+                    padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..default()
+                },
+                BackgroundColor(Color::srgb(0.08, 0.2, 0.24)),
+                BorderColor::all(Color::srgb(0.2, 0.92, 0.98)),
+                Text::new("Open Ship Designer"),
+                TextFont {
+                    font_size: 11.0,
+                    ..default()
+                },
+                TextColor(Color::srgb(0.92, 0.96, 0.98)),
+            ));
+        }
+
         let mut colony_rows: Vec<_> = colonies
             .iter()
             .filter(|(_, colony, _, _)| colony.building_count(BuildingType::Shipyard) > 0)
@@ -4038,6 +4106,14 @@ fn populate_components_tab_native(
         .or_else(|| modules.first().copied());
 
     commands.entity(library_root).with_children(|parent| {
+        if ui_state.selected_component_module_id.is_none() {
+            parent.spawn(text_block(
+                "Click a module in the list below to inspect its components.".to_string(),
+                11.0,
+                Color::srgb(0.6, 0.7, 0.76),
+            ));
+        }
+
         parent.spawn(text_block(
             "Component Database".to_string(),
             14.0,
