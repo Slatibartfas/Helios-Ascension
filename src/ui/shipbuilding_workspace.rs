@@ -5321,11 +5321,7 @@ mod keyboard_navigation_tests {
                 ShipModuleCategory::FlightSystems,
                 Some((0.1, 0.5)),
             ),
-            make_slot(
-                "weapon_main",
-                ShipModuleCategory::Weapons,
-                Some((0.9, 0.5)),
-            ),
+            make_slot("weapon_main", ShipModuleCategory::Weapons, Some((0.9, 0.5))),
         ]);
         let next = next_slot_for_key(
             &hull,
