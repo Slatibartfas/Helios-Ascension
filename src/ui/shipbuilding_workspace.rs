@@ -5107,11 +5107,11 @@ fn handle_shipbuilding_keyboard_navigation(
     mut ui_state: ResMut<ShipbuildingUiState>,
     egui_contexts: bevy_egui::EguiContexts,
 ) {
-    if !matches!(active_menu.0, Some(GameMenu::Shipbuilding)) {
+    if !matches!(active_menu.current, GameMenu::Shipbuilding) {
         return;
     }
 
-    if let Ok(ctx) = egui_contexts.ctx() {
+    if let Ok(ctx) = egui_contexts.ctx_mut() {
         if ctx.wants_keyboard_input() {
             return;
         }
