@@ -539,18 +539,17 @@ fn handle_shipbuilding_workspace_interactions(
         (Changed<Interaction>, With<Button>),
     >,
     clear_buttons: Query<
-        &Interaction,
         (
-            Changed<Interaction>,
-            With<ShipbuildingClearSlotButton>,
-            With<Button>,
+            &Interaction,
+            Has<ShipbuildingClearSlotButton>,
+            Has<ShipbuildingClearLibraryFilterButton>,
         ),
-    >,
-    clear_filter_buttons: Query<
-        &Interaction,
         (
             Changed<Interaction>,
-            With<ShipbuildingClearLibraryFilterButton>,
+            Or<(
+                With<ShipbuildingClearSlotButton>,
+                With<ShipbuildingClearLibraryFilterButton>,
+            )>,
             With<Button>,
         ),
     >,
@@ -682,19 +681,18 @@ fn handle_shipbuilding_workspace_interactions(
             }
         }
 
-        for interaction in &clear_buttons {
-            if *interaction == Interaction::Pressed {
+        for (interaction, is_clear_slot, is_clear_filter) in &clear_buttons {
+            if *interaction != Interaction::Pressed {
+                continue;
+            }
+            if is_clear_slot {
                 if let Some(slot_id) = ui_state.selected_slot.clone() {
                     ui_state.selected_modules.remove(&slot_id);
                     ui_state.preview_slot = Some(slot_id);
                     ui_state.preview_module_id = None;
                     content_changed = true;
                 }
-            }
-        }
-
-        for interaction in &clear_filter_buttons {
-            if *interaction == Interaction::Pressed && !ui_state.library_filter_query.is_empty() {
+            } else if is_clear_filter && !ui_state.library_filter_query.is_empty() {
                 ui_state.library_filter_query.clear();
                 content_changed = true;
             }
