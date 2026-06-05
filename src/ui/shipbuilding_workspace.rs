@@ -92,6 +92,11 @@ impl Plugin for ShipbuildingWorkspacePlugin {
             .add_systems(Update, handle_shipbuilding_archive_interactions)
             .add_systems(Update, handle_shipbuilding_construction_interactions)
             .add_systems(Update, handle_shipbuilding_component_interactions)
+            .add_systems(
+                Update,
+                handle_shipbuilding_keyboard_navigation
+                    .before(handle_shipbuilding_workspace_interactions),
+            )
             .add_systems(Update, animate_shipbuilding_slot_feedback)
             .add_systems(Update, animate_shipbuilding_module_card_feedback)
             .add_systems(Update, update_shipbuilding_hover_tooltip)
@@ -4709,5 +4714,428 @@ fn effective_design_name(ui_state: &ShipbuildingUiState, fallback_hull_name: &st
         format!("{} Prototype", fallback_hull_name)
     } else {
         ui_state.design_name.trim().to_string()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ShipbuildingNavArrow {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ShipbuildingNavKey {
+    Tab { shift: bool },
+    Arrow(ShipbuildingNavArrow),
+    Enter,
+    Escape,
+}
+
+/// Map a single `ButtonInput<KeyCode>` snapshot to at most one navigation key.
+/// Returns `None` if no nav key was just pressed. Order is deterministic so a
+/// frame with multiple keys pressed picks one (Esc > Enter > Tab > arrows).
+pub(crate) fn detect_navigation_key(
+    keyboard: &ButtonInput<KeyCode>,
+) -> Option<ShipbuildingNavKey> {
+    if keyboard.just_pressed(KeyCode::Escape) {
+        return Some(ShipbuildingNavKey::Escape);
+    }
+    if keyboard.just_pressed(KeyCode::Enter) || keyboard.just_pressed(KeyCode::NumpadEnter) {
+        return Some(ShipbuildingNavKey::Enter);
+    }
+    if keyboard.just_pressed(KeyCode::Tab) {
+        let shift =
+            keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
+        return Some(ShipbuildingNavKey::Tab { shift });
+    }
+    if keyboard.just_pressed(KeyCode::ArrowRight) {
+        return Some(ShipbuildingNavKey::Arrow(ShipbuildingNavArrow::Right));
+    }
+    if keyboard.just_pressed(KeyCode::ArrowLeft) {
+        return Some(ShipbuildingNavKey::Arrow(ShipbuildingNavArrow::Left));
+    }
+    if keyboard.just_pressed(KeyCode::ArrowUp) {
+        return Some(ShipbuildingNavKey::Arrow(ShipbuildingNavArrow::Up));
+    }
+    if keyboard.just_pressed(KeyCode::ArrowDown) {
+        return Some(ShipbuildingNavKey::Arrow(ShipbuildingNavArrow::Down));
+    }
+    None
+}
+
+/// Pure state transition for the slot grid: given the focused hull's layout and
+/// the current `selected_slot`, return the slot the user is moving to (or
+/// `None` to clear). Behavior:
+///   * `Escape` always clears.
+///   * `Enter` returns the current slot unchanged (library already binds to it).
+///   * `Tab` / `Shift+Tab` cycles through `slot_layout` in declaration order.
+///   * Arrows cycle within the same `slot_zone`, ordered by `position` (x for
+///     Left/Right, y for Up/Down). Slots without a `position` fall back to
+///     `slot_layout` declaration order as a stable tiebreak.
+pub(crate) fn next_slot_for_key(
+    hull: &crate::shipbuilding::ShipHullDefinition,
+    current: Option<&str>,
+    key: ShipbuildingNavKey,
+) -> Option<String> {
+    if hull.slot_layout.is_empty() {
+        return match key {
+            ShipbuildingNavKey::Escape => None,
+            _ => current.map(String::from),
+        };
+    }
+
+    match key {
+        ShipbuildingNavKey::Escape => None,
+        ShipbuildingNavKey::Enter => current.map(String::from),
+        ShipbuildingNavKey::Tab { shift } => {
+            let count = hull.slot_layout.len();
+            let current_idx = current
+                .and_then(|sid| hull.slot_layout.iter().position(|s| s.slot_id == sid));
+            let next_idx = match current_idx {
+                Some(i) if shift => (i + count - 1) % count,
+                Some(i) => (i + 1) % count,
+                None if shift => count - 1,
+                None => 0,
+            };
+            Some(hull.slot_layout[next_idx].slot_id.clone())
+        }
+        ShipbuildingNavKey::Arrow(direction) => arrow_next_slot(hull, current, direction),
+    }
+}
+
+fn arrow_next_slot(
+    hull: &crate::shipbuilding::ShipHullDefinition,
+    current: Option<&str>,
+    direction: ShipbuildingNavArrow,
+) -> Option<String> {
+    let current_idx =
+        current.and_then(|sid| hull.slot_layout.iter().position(|s| s.slot_id == sid));
+
+    let current_zone = current_idx.map(|i| slot_zone(&hull.slot_layout[i]));
+    let current_pos = current_idx.and_then(|i| hull.slot_layout[i].position);
+
+    let mut candidates: Vec<&HullSlotDefinition> = hull
+        .slot_layout
+        .iter()
+        .filter(|s| current_zone.is_none_or(|z| slot_zone(s) == z))
+        .collect();
+
+    if candidates.is_empty() {
+        return None;
+    }
+
+    candidates.sort_by(|a, b| {
+        let axis = |s: &HullSlotDefinition| {
+            s.position.map(|p| match direction {
+                ShipbuildingNavArrow::Left | ShipbuildingNavArrow::Right => p.0,
+                ShipbuildingNavArrow::Up | ShipbuildingNavArrow::Down => p.1,
+            })
+        };
+        match (axis(a), axis(b)) {
+            (Some(ka), Some(kb)) => match direction {
+                ShipbuildingNavArrow::Left | ShipbuildingNavArrow::Down => {
+                    ka.partial_cmp(&kb).unwrap_or(std::cmp::Ordering::Equal)
+                }
+                ShipbuildingNavArrow::Right | ShipbuildingNavArrow::Up => {
+                    kb.partial_cmp(&ka).unwrap_or(std::cmp::Ordering::Equal)
+                }
+            },
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        }
+    });
+
+    match current_pos {
+        Some((x, y)) => {
+            let moved = candidates.iter().find(|s| {
+                let sp = s.position.unwrap_or((x, y));
+                match direction {
+                    ShipbuildingNavArrow::Left => sp.0 < x,
+                    ShipbuildingNavArrow::Right => sp.0 > x,
+                    ShipbuildingNavArrow::Down => sp.1 < y,
+                    ShipbuildingNavArrow::Up => sp.1 > y,
+                }
+            });
+            moved.map(|s| s.slot_id.clone()).or_else(|| match direction {
+                ShipbuildingNavArrow::Left | ShipbuildingNavArrow::Down => {
+                    candidates.last().map(|s| s.slot_id.clone())
+                }
+                ShipbuildingNavArrow::Right | ShipbuildingNavArrow::Up => {
+                    candidates.first().map(|s| s.slot_id.clone())
+                }
+            })
+        }
+        None => match direction {
+            ShipbuildingNavArrow::Left | ShipbuildingNavArrow::Down => {
+                candidates.last().map(|s| s.slot_id.clone())
+            }
+            ShipbuildingNavArrow::Right | ShipbuildingNavArrow::Up => {
+                candidates.first().map(|s| s.slot_id.clone())
+            }
+        },
+    }
+}
+
+/// System that wires keyboard input to `ShipbuildingUiState::selected_slot` for
+/// the focused hull's slot grid. Active only when the shipbuilding menu is
+/// open. Skips when egui is consuming keyboard input (e.g. the module library
+/// filter `TextEdit` from GRA-13.C has focus) so the two systems don't fight.
+fn handle_shipbuilding_keyboard_navigation(
+    active_menu: Res<ActiveMenu>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    shipbuilding_data: Res<ShipbuildingData>,
+    mut ui_state: ResMut<ShipbuildingUiState>,
+    egui_contexts: bevy_egui::EguiContexts,
+) {
+    if !matches!(active_menu.0, Some(GameMenu::Shipbuilding)) {
+        return;
+    }
+
+    if let Ok(ctx) = egui_contexts.ctx() {
+        if ctx.wants_keyboard_input() {
+            return;
+        }
+    }
+
+    let Some(key) = detect_navigation_key(&keyboard) else {
+        return;
+    };
+
+    let Some(hull_id) = ui_state.selected_hull_id.clone() else {
+        return;
+    };
+    let Some(hull) = shipbuilding_data.get_hull(&hull_id) else {
+        return;
+    };
+
+    if matches!(key, ShipbuildingNavKey::Escape) {
+        if ui_state.selected_slot.is_some() {
+            ui_state.selected_slot = None;
+        }
+        return;
+    }
+
+    if matches!(key, ShipbuildingNavKey::Enter) {
+        // Library render already binds to `selected_slot`. Enter is a no-op for
+        // state but signals "the library should focus on this slot" to any
+        // future render hook.
+        return;
+    }
+
+    let next = next_slot_for_key(hull, ui_state.selected_slot.as_deref(), key);
+    if let Some(slot_id) = next {
+        ui_state.selected_slot = Some(slot_id);
+    }
+}
+
+#[cfg(test)]
+mod keyboard_navigation_tests {
+    use super::*;
+    use crate::fleets::ShipClass;
+    use crate::shipbuilding::types::ShipModuleCategory;
+
+    fn make_slot(
+        id: &str,
+        category: ShipModuleCategory,
+        pos: Option<(f32, f32)>,
+    ) -> HullSlotDefinition {
+        HullSlotDefinition {
+            slot_id: id.to_string(),
+            category,
+            size: "Small".to_string(),
+            required: true,
+            position: pos,
+            rotation_deg: None,
+        }
+    }
+
+    fn make_hull(slots: Vec<HullSlotDefinition>) -> crate::shipbuilding::ShipHullDefinition {
+        crate::shipbuilding::ShipHullDefinition {
+            id: "test-hull".to_string(),
+            display_name: "Test Hull".to_string(),
+            description: String::new(),
+            class: ShipClass::Courier,
+            tier: 1,
+            base_build_points: 0.0,
+            base_dry_mass_t: 0.0,
+            default_construction_mode: crate::shipbuilding::ConstructionMode::SurfaceLaunch,
+            surface_launchable: true,
+            orbital_only: false,
+            is_station: false,
+            size_tier: None,
+            required_tech: None,
+            resource_costs: Vec::new(),
+            slot_layout: slots,
+            tags: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn tab_cycles_through_five_slots_in_order() {
+        let hull = make_hull(vec![
+            make_slot("drive_main", ShipModuleCategory::FlightSystems, Some((0.1, 0.5))),
+            make_slot("reactor_main", ShipModuleCategory::PowerThermal, Some((0.5, 0.6))),
+            make_slot("cargo_bay", ShipModuleCategory::CargoStorage, Some((0.3, 0.3))),
+            make_slot("command_bridge", ShipModuleCategory::Bridges, Some((0.5, 0.9))),
+            make_slot("weapon_main", ShipModuleCategory::Weapons, Some((0.5, 0.1))),
+        ]);
+        let mut current = hull.slot_layout[0].slot_id.clone();
+        for expected in &hull.slot_layout[1..] {
+            let next = next_slot_for_key(
+                &hull,
+                Some(&current),
+                ShipbuildingNavKey::Tab { shift: false },
+            );
+            assert_eq!(next.as_deref(), Some(expected.slot_id.as_str()));
+            current = next.unwrap();
+        }
+        let next =
+            next_slot_for_key(&hull, Some(&current), ShipbuildingNavKey::Tab { shift: false });
+        assert_eq!(next.as_deref(), Some(hull.slot_layout[0].slot_id.as_str()));
+    }
+
+    #[test]
+    fn shift_tab_cycles_in_reverse_and_wraps() {
+        let hull = make_hull(vec![
+            make_slot("drive_main", ShipModuleCategory::FlightSystems, Some((0.1, 0.5))),
+            make_slot("reactor_main", ShipModuleCategory::PowerThermal, Some((0.5, 0.6))),
+            make_slot("weapon_main", ShipModuleCategory::Weapons, Some((0.5, 0.1))),
+        ]);
+        let next = next_slot_for_key(
+            &hull,
+            Some("weapon_main"),
+            ShipbuildingNavKey::Tab { shift: true },
+        );
+        assert_eq!(next.as_deref(), Some("reactor_main"));
+
+        let next = next_slot_for_key(
+            &hull,
+            Some("drive_main"),
+            ShipbuildingNavKey::Tab { shift: true },
+        );
+        assert_eq!(next.as_deref(), Some("weapon_main"));
+    }
+
+    #[test]
+    fn tab_with_no_current_selection_picks_first_or_last_by_shift() {
+        let hull = make_hull(vec![
+            make_slot("drive_main", ShipModuleCategory::FlightSystems, Some((0.1, 0.5))),
+            make_slot("reactor_main", ShipModuleCategory::PowerThermal, Some((0.5, 0.6))),
+        ]);
+        let next = next_slot_for_key(&hull, None, ShipbuildingNavKey::Tab { shift: false });
+        assert_eq!(next.as_deref(), Some("drive_main"));
+        let next = next_slot_for_key(&hull, None, ShipbuildingNavKey::Tab { shift: true });
+        assert_eq!(next.as_deref(), Some("reactor_main"));
+    }
+
+    #[test]
+    fn arrows_cycle_within_same_zone() {
+        let hull = make_hull(vec![
+            make_slot("weapon_laser_port", ShipModuleCategory::Weapons, Some((0.2, 0.5))),
+            make_slot(
+                "weapon_laser_starboard",
+                ShipModuleCategory::Weapons,
+                Some((0.8, 0.5)),
+            ),
+        ]);
+        let next = next_slot_for_key(
+            &hull,
+            Some("weapon_laser_port"),
+            ShipbuildingNavKey::Arrow(ShipbuildingNavArrow::Right),
+        );
+        assert_eq!(next.as_deref(), Some("weapon_laser_starboard"));
+        let next = next_slot_for_key(
+            &hull,
+            Some("weapon_laser_starboard"),
+            ShipbuildingNavKey::Arrow(ShipbuildingNavArrow::Left),
+        );
+        assert_eq!(next.as_deref(), Some("weapon_laser_port"));
+    }
+
+    #[test]
+    fn arrows_do_not_cross_zones() {
+        let hull = make_hull(vec![
+            make_slot("drive_main", ShipModuleCategory::FlightSystems, Some((0.1, 0.5))),
+            make_slot("weapon_main", ShipModuleCategory::Weapons, Some((0.9, 0.5))),
+        ]);
+        let next = next_slot_for_key(
+            &hull,
+            Some("weapon_main"),
+            ShipbuildingNavKey::Arrow(ShipbuildingNavArrow::Right),
+        );
+        // Only one weapon slot exists, so Right wraps to the slot itself.
+        assert_eq!(next.as_deref(), Some("weapon_main"));
+    }
+
+    #[test]
+    fn vertical_arrows_use_y_axis() {
+        let hull = make_hull(vec![
+            make_slot("reactor_top", ShipModuleCategory::PowerThermal, Some((0.5, 0.8))),
+            make_slot(
+                "reactor_bottom",
+                ShipModuleCategory::PowerThermal,
+                Some((0.5, 0.2)),
+            ),
+        ]);
+        let next = next_slot_for_key(
+            &hull,
+            Some("reactor_bottom"),
+            ShipbuildingNavKey::Arrow(ShipbuildingNavArrow::Up),
+        );
+        assert_eq!(next.as_deref(), Some("reactor_top"));
+        let next = next_slot_for_key(
+            &hull,
+            Some("reactor_top"),
+            ShipbuildingNavKey::Arrow(ShipbuildingNavArrow::Down),
+        );
+        assert_eq!(next.as_deref(), Some("reactor_bottom"));
+    }
+
+    #[test]
+    fn escape_clears_selection() {
+        let hull = make_hull(vec![
+            make_slot("drive_main", ShipModuleCategory::FlightSystems, Some((0.1, 0.5))),
+        ]);
+        let next = next_slot_for_key(&hull, Some("drive_main"), ShipbuildingNavKey::Escape);
+        assert_eq!(next, None);
+    }
+
+    #[test]
+    fn enter_is_noop_for_state() {
+        let hull = make_hull(vec![
+            make_slot("drive_main", ShipModuleCategory::FlightSystems, Some((0.1, 0.5))),
+        ]);
+        let next = next_slot_for_key(&hull, Some("drive_main"), ShipbuildingNavKey::Enter);
+        assert_eq!(next.as_deref(), Some("drive_main"));
+    }
+
+    #[test]
+    fn empty_hull_returns_none_for_escape_and_current_for_others() {
+        let hull = make_hull(Vec::new());
+        assert_eq!(
+            next_slot_for_key(&hull, None, ShipbuildingNavKey::Tab { shift: false }),
+            None
+        );
+        assert_eq!(
+            next_slot_for_key(&hull, Some("stale"), ShipbuildingNavKey::Escape),
+            None
+        );
+    }
+
+    #[test]
+    fn stale_current_falls_back_to_layout_order() {
+        let hull = make_hull(vec![
+            make_slot("drive_main", ShipModuleCategory::FlightSystems, Some((0.1, 0.5))),
+            make_slot("reactor_main", ShipModuleCategory::PowerThermal, Some((0.5, 0.6))),
+        ]);
+        let next = next_slot_for_key(
+            &hull,
+            Some("does_not_exist"),
+            ShipbuildingNavKey::Tab { shift: false },
+        );
+        assert_eq!(next.as_deref(), Some("drive_main"));
     }
 }
