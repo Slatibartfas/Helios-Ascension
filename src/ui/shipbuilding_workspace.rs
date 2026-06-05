@@ -1545,7 +1545,11 @@ fn spawn_library_filter_row(parent: &mut ChildSpawnerCommands, query: &str) {
             ShipbuildingLibraryFilterInput,
         ))
         .with_children(|row| {
-            row.spawn(text_block("Filter:".to_string(), 11.0, Color::srgb(0.55, 0.95, 1.0)));
+            row.spawn(text_block(
+                "Filter:".to_string(),
+                11.0,
+                Color::srgb(0.55, 0.95, 1.0),
+            ));
             row.spawn(text_block(display_text, 11.0, display_color));
         });
 }
