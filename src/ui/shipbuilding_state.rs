@@ -55,8 +55,8 @@ pub(crate) struct ShipbuildingUiState {
     pub hovered_slot: Option<String>,
     pub hovered_module_id: Option<String>,
     pub library_filter_query: String,
-    pub slot_hover_started_at: Option<f64>,
-    pub module_hover_started_at: Option<f64>,
+    pub slot_hover_started_at: Option<f32>,
+    pub module_hover_started_at: Option<f32>,
 }
 
 impl Default for ShipbuildingUiState {

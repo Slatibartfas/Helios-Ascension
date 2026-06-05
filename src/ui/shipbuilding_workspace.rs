@@ -1677,7 +1677,7 @@ fn update_shipbuilding_hover_tooltip(
     // target changes). This system is Bevy UI (see populate_native_tooltip_body
     // which spawns Text/Node children), not egui, so the EguiPrimaryContextPass
     // contingency from the GRA-13 assessment is not required.
-    const HOVER_LATENCY_SECS: f64 = 0.25;
+    const HOVER_LATENCY_SECS: f32 = 0.25;
     if active_menu.current != GameMenu::Shipbuilding {
         tooltip_node.display = Display::None;
         return;
