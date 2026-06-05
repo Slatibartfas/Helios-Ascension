@@ -5105,7 +5105,7 @@ fn handle_shipbuilding_keyboard_navigation(
     keyboard: Res<ButtonInput<KeyCode>>,
     shipbuilding_data: Res<ShipbuildingData>,
     mut ui_state: ResMut<ShipbuildingUiState>,
-    egui_contexts: bevy_egui::EguiContexts,
+    mut egui_contexts: bevy_egui::EguiContexts,
 ) {
     if !matches!(active_menu.current, GameMenu::Shipbuilding) {
         return;
