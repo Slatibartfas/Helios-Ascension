@@ -88,6 +88,7 @@ impl Plugin for ShipbuildingWorkspacePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, spawn_shipbuilding_workspace)
             .add_systems(Update, handle_shipbuilding_workspace_interactions)
+            .add_systems(Update, handle_shipbuilding_tab_switch_buttons)
             .add_systems(Update, handle_shipbuilding_archive_interactions)
             .add_systems(Update, handle_shipbuilding_construction_interactions)
             .add_systems(Update, handle_shipbuilding_component_interactions)
@@ -517,10 +518,6 @@ fn handle_shipbuilding_workspace_interactions(
         (&Interaction, &ShipbuildingWorkspaceTabButton),
         (Changed<Interaction>, With<Button>),
     >,
-    tab_switch_buttons: Query<
-        (&Interaction, &ShipbuildingTabSwitchButton),
-        (Changed<Interaction>, With<Button>),
-    >,
     hull_dropdown_toggle: Query<
         &Interaction,
         (
@@ -626,15 +623,6 @@ fn handle_shipbuilding_workspace_interactions(
             }
 
             ui_state.active_tab = button.tab;
-            content_changed = true;
-        }
-
-        for (interaction, button) in &tab_switch_buttons {
-            if *interaction != Interaction::Pressed {
-                continue;
-            }
-
-            ui_state.active_tab = button.target;
             content_changed = true;
         }
 
@@ -771,6 +759,25 @@ fn handle_shipbuilding_workspace_interactions(
     }
 
     let _ = content_changed;
+}
+
+fn handle_shipbuilding_tab_switch_buttons(
+    active_menu: Res<ActiveMenu>,
+    mut ui_state: ResMut<ShipbuildingUiState>,
+    tab_switch_buttons: Query<
+        (&Interaction, &ShipbuildingTabSwitchButton),
+        (Changed<Interaction>, With<Button>),
+    >,
+) {
+    if active_menu.current != GameMenu::Shipbuilding {
+        return;
+    }
+
+    for (interaction, button) in &tab_switch_buttons {
+        if *interaction == Interaction::Pressed {
+            ui_state.active_tab = button.target;
+        }
+    }
 }
 
 fn handle_shipbuilding_archive_interactions(
