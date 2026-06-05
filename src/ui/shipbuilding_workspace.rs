@@ -560,6 +560,14 @@ fn handle_shipbuilding_workspace_interactions(
             With<Button>,
         ),
     >,
+    clear_filter_buttons: Query<
+        &Interaction,
+        (
+            Changed<Interaction>,
+            With<ShipbuildingClearLibraryFilterButton>,
+            With<Button>,
+        ),
+    >,
     slot_press_buttons: Query<
         (&Interaction, &ShipbuildingSlotButton),
         (Changed<Interaction>, With<Button>),
@@ -700,6 +708,13 @@ fn handle_shipbuilding_workspace_interactions(
                     content_changed = true;
                 }
             } else if is_clear_filter && !ui_state.library_filter_query.is_empty() {
+                ui_state.library_filter_query.clear();
+                content_changed = true;
+            }
+        }
+
+        for interaction in &clear_filter_buttons {
+            if *interaction == Interaction::Pressed && !ui_state.library_filter_query.is_empty() {
                 ui_state.library_filter_query.clear();
                 content_changed = true;
             }
