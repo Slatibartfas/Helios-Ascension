@@ -1,8 +1,7 @@
 use bevy::prelude::*;
-use bevy::render::{
-    settings::{Backends, RenderCreation, WgpuSettings},
-    RenderPlugin,
-};
+#[cfg(target_os = "windows")]
+use bevy::render::settings::{Backends, RenderCreation, WgpuSettings};
+use bevy::render::RenderPlugin;
 use bevy::window::{PresentMode, WindowResizeConstraints, WindowResolution};
 use bevy_egui::EguiPlugin;
 
@@ -88,6 +87,7 @@ fn main() {
 }
 
 fn render_plugin_settings() -> RenderPlugin {
+    #[cfg_attr(not(target_os = "windows"), allow(unused_mut))]
     let mut plugin = RenderPlugin::default();
 
     #[cfg(target_os = "windows")]
