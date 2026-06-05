@@ -14,6 +14,7 @@ pub mod budget;
 pub mod company;
 pub mod components;
 pub mod generation;
+pub mod history;
 pub mod logistics;
 pub mod mining;
 pub(crate) mod profiles;
@@ -31,6 +32,10 @@ pub use components::{
     SpectralClass, StarSystem,
 };
 pub use generation::{generate_ring_resources, generate_solar_system_resources};
+pub use history::{
+    kardashev_scale_from_watts, record_simulation_history, SimulationHistory,
+    SimulationHistorySample, SurveyHistoryStats, HISTORY_MAX_AGE_SECONDS, HISTORY_MAX_AGE_YEARS,
+};
 pub use logistics::{
     check_minimum_stockpile_requests, complete_deliveries, prune_old_requests, MinimumStockpile,
     PendingResourceRequests, RequestPriority, RequestState, ResourceRequest,
@@ -48,6 +53,7 @@ impl Plugin for EconomyPlugin {
             .init_resource::<GlobalBudget>()
             .init_resource::<ResourceRateTracker>()
             .init_resource::<ContextualStockpile>()
+            .init_resource::<SimulationHistory>()
             // Logistics resources
             .init_resource::<PendingResourceRequests>()
             .init_resource::<ShippingCompanies>()
@@ -78,6 +84,10 @@ impl Plugin for EconomyPlugin {
                     complete_deliveries.after(company::process_company_ai),
                     company::update_company_fleets.after(complete_deliveries),
                     prune_old_requests.after(complete_deliveries),
+                    record_simulation_history
+                        .after(update_resource_rates)
+                        .after(update_civilization_score)
+                        .after(crate::colony::sync_population_from_colony),
                 ),
             );
     }
