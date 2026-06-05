@@ -515,7 +515,10 @@ mod atmosphere_tests {
         let small_asteroid_mass = 1.0e15; // kg (very small)
         let small_asteroid_radius = 1.0; // km
         assert!(
-            !AtmosphereComposition::can_retain_atmosphere(small_asteroid_mass, small_asteroid_radius),
+            !AtmosphereComposition::can_retain_atmosphere(
+                small_asteroid_mass,
+                small_asteroid_radius
+            ),
             "Small asteroid should not be able to retain an atmosphere"
         );
     }
@@ -848,13 +851,13 @@ mod atmosphere_tests {
         // Override all parameters
         earth.derive_scattering_params(
             1.0,
-            Some(10.0),             // scale height override
-            Some((1.0, 0.0, 0.0)),  // pure red rayleigh
-            Some(5.0),              // strong rayleigh
-            Some(0.1),              // mie override
-            Some(0.9),              // mie_g override
-            Some((0.5, 0.5, 0.5)),  // grey haze
-            Some(2.0),              // double intensity
+            Some(10.0),            // scale height override
+            Some((1.0, 0.0, 0.0)), // pure red rayleigh
+            Some(5.0),             // strong rayleigh
+            Some(0.1),             // mie override
+            Some(0.9),             // mie_g override
+            Some((0.5, 0.5, 0.5)), // grey haze
+            Some(2.0),             // double intensity
         );
 
         assert!((earth.scale_height_km - 10.0).abs() < 0.01);
@@ -1091,7 +1094,9 @@ mod procedural_generation_tests {
     //! Tests the complete workflow: frost line calculation, system architecture generation,
     //! planet spawning, asteroid belts, cometary clouds, and metallicity bonuses.
 
-    use super::{calculate_frost_line, map_star_to_system_architecture, PlanetType, SpaceCoordinates};
+    use super::{
+        calculate_frost_line, map_star_to_system_architecture, PlanetType, SpaceCoordinates,
+    };
     use crate::economy::components::{OrbitsBody, PlanetResources, SpectralClass, StarSystem};
     use crate::economy::generation::generate_solar_system_resources;
     use crate::economy::types::ResourceType;
@@ -1235,7 +1240,8 @@ mod procedural_generation_tests {
     fn test_rocky_planets_inside_frost_line() {
         let mut rng = StdRng::seed_from_u64(11111);
 
-        let architecture = map_star_to_system_architecture("Test Star", 1.0, 1.0, 0, &[], 0, &mut rng);
+        let architecture =
+            map_star_to_system_architecture("Test Star", 1.0, 1.0, 0, &[], 0, &mut rng);
 
         let frost_line = architecture.frost_line_au;
 
@@ -1282,7 +1288,8 @@ mod procedural_generation_tests {
     fn test_gas_giants_outside_frost_line() {
         let mut rng = StdRng::seed_from_u64(22222);
 
-        let architecture = map_star_to_system_architecture("Test Star", 1.0, 1.0, 0, &[], 0, &mut rng);
+        let architecture =
+            map_star_to_system_architecture("Test Star", 1.0, 1.0, 0, &[], 0, &mut rng);
 
         let frost_line = architecture.frost_line_au;
 
@@ -1314,7 +1321,8 @@ mod procedural_generation_tests {
     fn test_asteroid_belt_generation() {
         let mut rng = StdRng::seed_from_u64(33333);
 
-        let architecture = map_star_to_system_architecture("Test Star", 1.0, 1.0, 0, &[], 0, &mut rng);
+        let architecture =
+            map_star_to_system_architecture("Test Star", 1.0, 1.0, 0, &[], 0, &mut rng);
 
         if let Some(belt) = &architecture.asteroid_belt {
             // Belt should be in reasonable location
@@ -1346,7 +1354,8 @@ mod procedural_generation_tests {
     fn test_cometary_cloud_generation() {
         let mut rng = StdRng::seed_from_u64(44444);
 
-        let architecture = map_star_to_system_architecture("Test Star", 1.0, 1.0, 0, &[], 0, &mut rng);
+        let architecture =
+            map_star_to_system_architecture("Test Star", 1.0, 1.0, 0, &[], 0, &mut rng);
 
         if let Some(cloud) = &architecture.cometary_cloud {
             // Cloud should be beyond the immediate planetary zone.
@@ -1379,7 +1388,8 @@ mod procedural_generation_tests {
     fn test_procedural_planet_kepler_orbit_conversion() {
         let mut rng = StdRng::seed_from_u64(55555);
 
-        let architecture = map_star_to_system_architecture("Test Star", 1.0, 1.0, 0, &[], 0, &mut rng);
+        let architecture =
+            map_star_to_system_architecture("Test Star", 1.0, 1.0, 0, &[], 0, &mut rng);
 
         // Test conversion to KeplerOrbit for all generated planets
         for planet in architecture.rocky_planets.iter() {

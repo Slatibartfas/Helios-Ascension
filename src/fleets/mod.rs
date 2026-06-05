@@ -118,11 +118,11 @@ mod fleet_thrust_tests {
 
 #[cfg(test)]
 mod ga_transfer_tests {
-    use super::{
-        ActiveManeuver, Fleet, FleetOrbit, PendingFleetActions, PlannedTransfer, StartTransferAction,
-        TransferReferenceFrame,
-    };
     use super::systems::process_fleet_actions;
+    use super::{
+        ActiveManeuver, Fleet, FleetOrbit, PendingFleetActions, PlannedTransfer,
+        StartTransferAction, TransferReferenceFrame,
+    };
     use crate::astronomy::{KeplerOrbit, SpaceCoordinates};
     use crate::plugins::solar_system::CelestialBody;
     use crate::plugins::solar_system_data::BodyType;
