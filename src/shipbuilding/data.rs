@@ -227,7 +227,12 @@ pub struct ShipbuildingData {
 
 impl ShipbuildingData {
     pub fn effective_hull_build_points(&self, hull: &ShipHullDefinition) -> f64 {
-        scale_build_points(hull.base_build_points, hull.base_dry_mass_t, hull.tier, true)
+        scale_build_points(
+            hull.base_build_points,
+            hull.base_dry_mass_t,
+            hull.tier,
+            true,
+        )
     }
 
     pub fn effective_module_build_points(&self, module: &ShipModuleDefinition) -> f64 {
@@ -443,7 +448,8 @@ fn scale_build_points(raw_build_points: f64, dry_mass_t: f64, tier: u8, is_hull:
 
 fn scale_resource_costs(costs: &[ResourceCostEntry], tier: u8) -> Vec<ResourceCostEntry> {
     let multiplier = resource_tier_multiplier(tier);
-    costs.iter()
+    costs
+        .iter()
         .map(|(resource, amount)| (*resource, amount * multiplier))
         .collect()
 }

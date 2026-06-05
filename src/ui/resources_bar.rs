@@ -188,9 +188,7 @@ impl HistoryPanelMetric {
             Self::Population => egui::Color32::from_rgb(116, 224, 170),
             Self::Colonies => egui::Color32::from_rgb(236, 197, 96),
             Self::Ships => egui::Color32::from_rgb(120, 178, 255),
-            Self::SurveyCoverage | Self::SurveyedBodies => {
-                egui::Color32::from_rgb(121, 235, 210)
-            }
+            Self::SurveyCoverage | Self::SurveyedBodies => egui::Color32::from_rgb(121, 235, 210),
             Self::ResourceStockpile
             | Self::ResourceNetRate
             | Self::ResourceProduction
@@ -276,16 +274,10 @@ fn format_monthly_throughput(value: f64) -> String {
     format!("{} /mo", format_mass(value))
 }
 
-fn format_history_value(
-    metric: HistoryPanelMetric,
-    value: f64,
-    resource: ResourceType,
-) -> String {
+fn format_history_value(metric: HistoryPanelMetric, value: f64, resource: ResourceType) -> String {
     match metric {
         HistoryPanelMetric::Kardashev => format!("Type {value:.3}"),
-        HistoryPanelMetric::PowerProduced => {
-            format_power(value.max(0.0))
-        }
+        HistoryPanelMetric::PowerProduced => format_power(value.max(0.0)),
         HistoryPanelMetric::Population => format_population(value),
         HistoryPanelMetric::Colonies
         | HistoryPanelMetric::Ships
@@ -331,7 +323,10 @@ fn build_history_series(
                 }
                 HistoryPanelMetric::PowerProduced => (
                     sample.power_produced_watts,
-                    Some(format!("Power consumed {}", format_power(sample.power_consumed_watts))),
+                    Some(format!(
+                        "Power consumed {}",
+                        format_power(sample.power_consumed_watts)
+                    )),
                 ),
                 HistoryPanelMetric::Population => (
                     sample.total_population,
@@ -339,7 +334,10 @@ fn build_history_series(
                 ),
                 HistoryPanelMetric::Colonies => (
                     sample.colony_count as f64,
-                    Some(format!("Population {}", format_population(sample.total_population))),
+                    Some(format!(
+                        "Population {}",
+                        format_population(sample.total_population)
+                    )),
                 ),
                 HistoryPanelMetric::Ships => (
                     sample.ship_count as f64,
@@ -350,19 +348,29 @@ fn build_history_series(
                     let total = sample.survey.total_bodies.max(1);
                     (
                         surveyed as f64 * 100.0 / total as f64,
-                        Some(format!("{surveyed}/{} bodies surveyed", sample.survey.total_bodies)),
+                        Some(format!(
+                            "{surveyed}/{} bodies surveyed",
+                            sample.survey.total_bodies
+                        )),
                     )
                 }
                 HistoryPanelMetric::SurveyedBodies => {
                     let surveyed = surveyed_body_count(sample);
                     (
                         surveyed as f64,
-                        Some(format!("{} total bodies tracked", sample.survey.total_bodies)),
+                        Some(format!(
+                            "{} total bodies tracked",
+                            sample.survey.total_bodies
+                        )),
                     )
                 }
                 HistoryPanelMetric::ResourceStockpile => (
                     sample.resource_amount(resource),
-                    Some(format!("{} ({})", resource.display_name(), resource.symbol())),
+                    Some(format!(
+                        "{} ({})",
+                        resource.display_name(),
+                        resource.symbol()
+                    )),
                 ),
                 HistoryPanelMetric::ResourceNetRate => (
                     sample.resource_net_rate(resource),
@@ -370,11 +378,17 @@ fn build_history_series(
                 ),
                 HistoryPanelMetric::ResourceProduction => (
                     sample.resource_gross_production_rate(resource),
-                    Some(format!("{} gross monthly production", resource.display_name())),
+                    Some(format!(
+                        "{} gross monthly production",
+                        resource.display_name()
+                    )),
                 ),
                 HistoryPanelMetric::ResourceConsumption => (
                     sample.resource_gross_consumption_rate(resource),
-                    Some(format!("{} gross monthly consumption", resource.display_name())),
+                    Some(format!(
+                        "{} gross monthly consumption",
+                        resource.display_name()
+                    )),
                 ),
             };
 
@@ -393,10 +407,16 @@ fn build_history_series(
         .unwrap_or_else(|| "Awaiting history samples".to_string());
     let supporting_text = match (metric, simulation_history.latest()) {
         (HistoryPanelMetric::Kardashev, Some(sample)) => {
-            format!("Power production: {}", format_power(sample.power_produced_watts.max(1.0)))
+            format!(
+                "Power production: {}",
+                format_power(sample.power_produced_watts.max(1.0))
+            )
         }
         (HistoryPanelMetric::PowerProduced, Some(sample)) => {
-            format!("Current consumption: {}", format_power(sample.power_consumed_watts))
+            format!(
+                "Current consumption: {}",
+                format_power(sample.power_consumed_watts)
+            )
         }
         (HistoryPanelMetric::Population, Some(sample)) => {
             format!("Colonies tracked: {}", sample.colony_count)
@@ -454,8 +474,8 @@ fn format_history_time_label(
     target_sim_seconds: f64,
     with_fraction: bool,
 ) -> String {
-    let years_ago = ((current_sim_seconds - target_sim_seconds) / crate::economy::SECONDS_PER_YEAR)
-        .max(0.0);
+    let years_ago =
+        ((current_sim_seconds - target_sim_seconds) / crate::economy::SECONDS_PER_YEAR).max(0.0);
     match axis_mode {
         HistoryTimeAxisMode::RelativeYears => {
             if years_ago <= 0.25 {
@@ -528,7 +548,10 @@ fn render_history_plot(
         let t = tick as f64 / 4.0;
         let x = egui::lerp(plot_rect.left()..=plot_rect.right(), t as f32);
         painter.line_segment(
-            [egui::pos2(x, plot_rect.top()), egui::pos2(x, plot_rect.bottom())],
+            [
+                egui::pos2(x, plot_rect.top()),
+                egui::pos2(x, plot_rect.bottom()),
+            ],
             egui::Stroke::new(1.0, theme::BORDER.linear_multiply(0.6)),
         );
 
@@ -553,7 +576,10 @@ fn render_history_plot(
         let t = tick as f64 / 3.0;
         let y = egui::lerp(plot_rect.bottom()..=plot_rect.top(), t as f32);
         painter.line_segment(
-            [egui::pos2(plot_rect.left(), y), egui::pos2(plot_rect.right(), y)],
+            [
+                egui::pos2(plot_rect.left(), y),
+                egui::pos2(plot_rect.right(), y),
+            ],
             egui::Stroke::new(1.0, theme::BORDER.linear_multiply(0.35)),
         );
 
@@ -580,11 +606,7 @@ fn render_history_plot(
     if let Some(last) = series.points.last() {
         let current_pos = to_screen(last.sim_seconds, last.value);
         painter.circle_filled(current_pos, 3.5, theme::ACCENT);
-        painter.circle_stroke(
-            current_pos,
-            5.0,
-            egui::Stroke::new(1.0, theme::ACCENT_DIM),
-        );
+        painter.circle_stroke(current_pos, 5.0, egui::Stroke::new(1.0, theme::ACCENT_DIM));
     }
 
     if interactive {
@@ -664,7 +686,11 @@ fn compute_history_y_bounds(series: &HistorySeriesData, metric: HistoryPanelMetr
     let raw_min = values[0];
     let raw_max = *values.last().unwrap_or(&1.0);
     let non_negative_series = raw_min >= 0.0;
-    let latest_value = series.points.last().map(|point| point.value).unwrap_or(raw_max);
+    let latest_value = series
+        .points
+        .last()
+        .map(|point| point.value)
+        .unwrap_or(raw_max);
     let use_zero_baseline = non_negative_series
         && match metric {
             HistoryPanelMetric::SurveyCoverage => true,
@@ -797,9 +823,8 @@ fn render_kardashev_overlay(
         return;
     }
 
-    let escape_pressed = ctx.input_mut(|input| {
-        input.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
-    });
+    let escape_pressed =
+        ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
     if escape_pressed {
         trend_state.detail_open = false;
         return;
@@ -847,162 +872,162 @@ fn render_kardashev_overlay(
     };
 
     let window_response = window.show(ctx, |ui| {
-            ui.set_min_width(960.0);
-            ui.set_max_width(960.0);
+        ui.set_min_width(960.0);
+        ui.set_max_width(960.0);
 
-            ui.horizontal(|ui| {
-                ui.vertical(|ui| {
-                    ui.label(
-                        egui::RichText::new(series.headline.as_str())
-                            .font(theme::title())
-                            .color(series.accent),
-                    );
-                    ui.label(
-                        egui::RichText::new(series.supporting_text.as_str())
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                ui.label(
+                    egui::RichText::new(series.headline.as_str())
+                        .font(theme::title())
+                        .color(series.accent),
+                );
+                ui.label(
+                    egui::RichText::new(series.supporting_text.as_str())
                         .font(theme::mono(11.0))
                         .color(theme::TEXT_DIM),
-                    );
-                });
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Close").clicked() {
-                        trend_state.detail_open = false;
+                );
+            });
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("Close").clicked() {
+                    trend_state.detail_open = false;
+                }
+            });
+        });
+
+        ui.add_space(8.0);
+        ui.horizontal_wrapped(|ui| {
+            ui.label(
+                egui::RichText::new("Metric")
+                    .font(theme::mono(10.0))
+                    .color(theme::TEXT_DIM),
+            );
+            egui::ComboBox::from_id_salt("history_panel_metric")
+                .selected_text(trend_state.metric.selection_label(trend_state.resource))
+                .show_ui(ui, |ui| {
+                    for metric in [
+                        HistoryPanelMetric::Kardashev,
+                        HistoryPanelMetric::PowerProduced,
+                        HistoryPanelMetric::Population,
+                        HistoryPanelMetric::Colonies,
+                        HistoryPanelMetric::Ships,
+                        HistoryPanelMetric::SurveyCoverage,
+                        HistoryPanelMetric::SurveyedBodies,
+                        HistoryPanelMetric::ResourceStockpile,
+                        HistoryPanelMetric::ResourceNetRate,
+                        HistoryPanelMetric::ResourceProduction,
+                        HistoryPanelMetric::ResourceConsumption,
+                    ] {
+                        ui.selectable_value(&mut trend_state.metric, metric, metric.label());
                     }
                 });
-            });
 
-            ui.add_space(8.0);
-            ui.horizontal_wrapped(|ui| {
+            if trend_state.metric.is_resource_metric() {
+                ui.separator();
                 ui.label(
-                    egui::RichText::new("Metric")
+                    egui::RichText::new("Resource")
                         .font(theme::mono(10.0))
                         .color(theme::TEXT_DIM),
                 );
-                egui::ComboBox::from_id_salt("history_panel_metric")
-                    .selected_text(trend_state.metric.selection_label(trend_state.resource))
+                egui::ComboBox::from_id_salt("history_panel_resource")
+                    .selected_text(format!(
+                        "{} {}",
+                        get_resource_icon(&trend_state.resource),
+                        trend_state.resource.display_name()
+                    ))
                     .show_ui(ui, |ui| {
-                        for metric in [
-                            HistoryPanelMetric::Kardashev,
-                            HistoryPanelMetric::PowerProduced,
-                            HistoryPanelMetric::Population,
-                            HistoryPanelMetric::Colonies,
-                            HistoryPanelMetric::Ships,
-                            HistoryPanelMetric::SurveyCoverage,
-                            HistoryPanelMetric::SurveyedBodies,
-                            HistoryPanelMetric::ResourceStockpile,
-                            HistoryPanelMetric::ResourceNetRate,
-                            HistoryPanelMetric::ResourceProduction,
-                            HistoryPanelMetric::ResourceConsumption,
-                        ] {
-                            ui.selectable_value(&mut trend_state.metric, metric, metric.label());
+                        for resource in ResourceType::all() {
+                            ui.selectable_value(
+                                &mut trend_state.resource,
+                                *resource,
+                                format!(
+                                    "{} {}",
+                                    get_resource_icon(resource),
+                                    resource.display_name()
+                                ),
+                            );
                         }
                     });
+            }
 
-                if trend_state.metric.is_resource_metric() {
-                    ui.separator();
+            ui.separator();
+            ui.label(
+                egui::RichText::new("Time Axis")
+                    .font(theme::mono(10.0))
+                    .color(theme::TEXT_DIM),
+            );
+            ui.selectable_value(
+                &mut trend_state.axis_mode,
+                HistoryTimeAxisMode::RelativeYears,
+                "Years Ago",
+            );
+            ui.selectable_value(
+                &mut trend_state.axis_mode,
+                HistoryTimeAxisMode::CalendarYears,
+                "Calendar Years",
+            );
+        });
+
+        ui.add_space(8.0);
+        let cursor_info = render_history_plot(
+            ui,
+            &series,
+            current_sim_seconds,
+            current_year,
+            trend_state.axis_mode,
+            trend_state.metric,
+            trend_state.resource,
+            egui::vec2(920.0, 420.0),
+            true,
+        );
+
+        ui.add_space(8.0);
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), 24.0),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                if let Some(cursor) = cursor_info {
                     ui.label(
-                        egui::RichText::new("Resource")
+                        egui::RichText::new("Cursor")
                             .font(theme::mono(10.0))
                             .color(theme::TEXT_DIM),
                     );
-                    egui::ComboBox::from_id_salt("history_panel_resource")
-                        .selected_text(format!(
-                            "{} {}",
-                            get_resource_icon(&trend_state.resource),
-                            trend_state.resource.display_name()
+                    ui.separator();
+                    ui.label(
+                        egui::RichText::new(format_history_time_label(
+                            trend_state.axis_mode,
+                            current_year,
+                            current_sim_seconds,
+                            cursor.sim_seconds,
+                            true,
                         ))
-                        .show_ui(ui, |ui| {
-                            for resource in ResourceType::all() {
-                                ui.selectable_value(
-                                    &mut trend_state.resource,
-                                    *resource,
-                                    format!(
-                                        "{} {}",
-                                        get_resource_icon(resource),
-                                        resource.display_name()
-                                    ),
-                                );
-                            }
-                        });
-                }
-
-                ui.separator();
-                ui.label(
-                    egui::RichText::new("Time Axis")
-                        .font(theme::mono(10.0))
-                        .color(theme::TEXT_DIM),
-                );
-                ui.selectable_value(
-                    &mut trend_state.axis_mode,
-                    HistoryTimeAxisMode::RelativeYears,
-                    "Years Ago",
-                );
-                ui.selectable_value(
-                    &mut trend_state.axis_mode,
-                    HistoryTimeAxisMode::CalendarYears,
-                    "Calendar Years",
-                );
-            });
-
-            ui.add_space(8.0);
-            let cursor_info = render_history_plot(
-                ui,
-                &series,
-                current_sim_seconds,
-                current_year,
-                trend_state.axis_mode,
-                trend_state.metric,
-                trend_state.resource,
-                egui::vec2(920.0, 420.0),
-                true,
-            );
-
-            ui.add_space(8.0);
-            ui.allocate_ui_with_layout(
-                egui::vec2(ui.available_width(), 24.0),
-                egui::Layout::left_to_right(egui::Align::Center),
-                |ui| {
-                    if let Some(cursor) = cursor_info {
-                        ui.label(
-                            egui::RichText::new("Cursor")
-                                .font(theme::mono(10.0))
-                                .color(theme::TEXT_DIM),
-                        );
-                        ui.separator();
-                        ui.label(
-                            egui::RichText::new(format_history_time_label(
-                                trend_state.axis_mode,
-                                current_year,
-                                current_sim_seconds,
-                                cursor.sim_seconds,
-                                true,
-                            ))
+                        .font(theme::mono(11.0))
+                        .color(theme::TEXT_VALUE),
+                    );
+                    ui.separator();
+                    ui.label(
+                        egui::RichText::new(cursor.value_text.as_str())
                             .font(theme::mono(11.0))
-                            .color(theme::TEXT_VALUE),
-                        );
+                            .color(series.accent),
+                    );
+                    if let Some(detail_text) = cursor.detail_text.as_deref() {
                         ui.separator();
                         ui.label(
-                            egui::RichText::new(cursor.value_text.as_str())
+                            egui::RichText::new(detail_text)
                                 .font(theme::mono(11.0))
-                                .color(series.accent),
-                        );
-                        if let Some(detail_text) = cursor.detail_text.as_deref() {
-                            ui.separator();
-                            ui.label(
-                                egui::RichText::new(detail_text)
-                                    .font(theme::mono(11.0))
-                                    .color(theme::TEXT_VALUE),
-                            );
-                        }
-                    } else {
-                        ui.label(
-                            egui::RichText::new("Hover the plot to inspect a point in the history.")
-                                .size(10.0)
-                                .color(theme::TEXT_DIM),
+                                .color(theme::TEXT_VALUE),
                         );
                     }
-                },
-            );
-        });
+                } else {
+                    ui.label(
+                        egui::RichText::new("Hover the plot to inspect a point in the history.")
+                            .size(10.0)
+                            .color(theme::TEXT_DIM),
+                    );
+                }
+            },
+        );
+    });
 
     if let Some(window_response) = window_response {
         trend_state.last_window_pos = Some(window_response.response.rect.min);

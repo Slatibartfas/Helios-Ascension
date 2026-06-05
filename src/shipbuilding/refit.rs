@@ -69,7 +69,8 @@ impl RefitProject {
 
         for module_id in added_module_ids {
             if let Some(module) = shipbuilding_data.get_module(module_id) {
-                for (resource, amount) in &shipbuilding_data.effective_module_resource_costs(module) {
+                for (resource, amount) in &shipbuilding_data.effective_module_resource_costs(module)
+                {
                     if let Some((_, existing)) = costs.iter_mut().find(|(r, _)| r == resource) {
                         *existing += *amount;
                     } else {

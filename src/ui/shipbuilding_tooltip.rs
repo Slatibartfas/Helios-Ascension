@@ -34,7 +34,9 @@ pub(super) fn build_module_tooltip(
     let mut entries = Vec::new();
 
     if !module.description.is_empty() {
-        entries.push(ShipbuildingTooltipEntry::Paragraph(module.description.clone()));
+        entries.push(ShipbuildingTooltipEntry::Paragraph(
+            module.description.clone(),
+        ));
         entries.push(ShipbuildingTooltipEntry::Spacer);
     }
 
@@ -58,7 +60,11 @@ pub(super) fn build_module_tooltip(
             format!(
                 "{} ({})",
                 prettify_slot_name(&slot.slot_id),
-                if slot.required { "required" } else { "optional" }
+                if slot.required {
+                    "required"
+                } else {
+                    "optional"
+                }
             ),
             ShipbuildingTooltipTone::Muted,
         );
@@ -214,7 +220,10 @@ fn module_stat_lines(module: &ShipModuleDefinition) -> Vec<ShipbuildingTooltipEn
         push_stat(
             &mut lines,
             "Net Power",
-            format!("{} MW", format_signed_number(module.power_generation_mw - module.power_draw_mw)),
+            format!(
+                "{} MW",
+                format_signed_number(module.power_generation_mw - module.power_draw_mw)
+            ),
             if module.power_generation_mw - module.power_draw_mw >= 0.0 {
                 ShipbuildingTooltipTone::Positive
             } else {
@@ -302,10 +311,7 @@ fn module_stat_lines(module: &ShipModuleDefinition) -> Vec<ShipbuildingTooltipEn
     lines
 }
 
-fn format_attribute(
-    name: &str,
-    value: f64,
-) -> Option<(String, String, ShipbuildingTooltipTone)> {
+fn format_attribute(name: &str, value: f64) -> Option<(String, String, ShipbuildingTooltipTone)> {
     if value.abs() <= f64::EPSILON {
         return None;
     }
@@ -434,7 +440,11 @@ pub(super) fn format_shipbuilding_resource_cost_lines(
 }
 
 pub(super) fn format_shipbuilding_resource_cost(resource: ResourceType, amount: f64) -> String {
-    format!("{} {}", resource.display_name(), format_mass_compact(amount))
+    format!(
+        "{} {}",
+        resource.display_name(),
+        format_mass_compact(amount)
+    )
 }
 
 fn title_case(value: &str) -> String {
@@ -479,4 +489,3 @@ fn format_signed_number(value: f64) -> String {
         format!("-{}", format_number(value.abs()))
     }
 }
-

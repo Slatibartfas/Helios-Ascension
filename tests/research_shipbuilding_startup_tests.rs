@@ -21,9 +21,14 @@ fn startup_completes_baseline_ship_component_engineering() {
     let shipbuilding_data = app.world().resource::<ShipbuildingData>();
     let technologies_data = app.world().resource::<TechnologiesData>();
 
-    assert!(!shipbuilding_data.modules.is_empty(), "ship modules should load at startup");
     assert!(
-        technologies_data.get_component("probe_avionics_core").is_some(),
+        !shipbuilding_data.modules.is_empty(),
+        "ship modules should load at startup"
+    );
+    assert!(
+        technologies_data
+            .get_component("probe_avionics_core")
+            .is_some(),
         "merged ship module engineering catalog should expose probe avionics"
     );
     assert!(

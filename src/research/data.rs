@@ -68,13 +68,15 @@ impl TechnologiesData {
                 .clone()
                 .or_else(|| self.unlocking_tech_for_component(&component_id))
                 .unwrap_or_default();
-            self.components.entry(component_id.clone()).or_insert_with(|| ComponentDefinition {
-                id: component_id,
-                name: module.display_name.clone(),
-                description: module.description.clone(),
-                engineering_cost: module.build_points.max(1.0),
-                required_tech,
-            });
+            self.components
+                .entry(component_id.clone())
+                .or_insert_with(|| ComponentDefinition {
+                    id: component_id,
+                    name: module.display_name.clone(),
+                    description: module.description.clone(),
+                    engineering_cost: module.build_points.max(1.0),
+                    required_tech,
+                });
         }
 
         self.hull_unlocks.clear();
@@ -85,7 +87,11 @@ impl TechnologiesData {
             self.hull_unlocks
                 .entry(tech_id.clone())
                 .or_default()
-                .push(format!("{} ({})", hull.display_name, hull.class.display_name()));
+                .push(format!(
+                    "{} ({})",
+                    hull.display_name,
+                    hull.class.display_name()
+                ));
         }
 
         for hulls in self.hull_unlocks.values_mut() {

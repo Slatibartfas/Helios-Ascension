@@ -2685,8 +2685,7 @@ fn slot_accent_color(category: ShipModuleCategory) -> Color {
     match category {
         ShipModuleCategory::FlightSystems => Color::srgb(1.0, 0.62, 0.28),
         ShipModuleCategory::Bridges
-        |
-        ShipModuleCategory::PowerThermal
+        | ShipModuleCategory::PowerThermal
         | ShipModuleCategory::Sensors
         | ShipModuleCategory::UtilitySupport
         | ShipModuleCategory::Maintenance

@@ -14,7 +14,9 @@ use crate::economy::logistics::{
     PendingResourceRequests, RequestPriority, RequestState, ResourceRequest,
 };
 use crate::economy::{GlobalBudget, ResourceType};
-use crate::fleets::{Fleet, FleetOrbit, PropulsionType, ShipClass, ShipInfo, ShipInstance, AU_IN_METERS};
+use crate::fleets::{
+    Fleet, FleetOrbit, PropulsionType, ShipClass, ShipInfo, ShipInstance, AU_IN_METERS,
+};
 use crate::plugins::solar_system::CelestialBody;
 use crate::research::ResearchState;
 use crate::ui::SimulationTime;
@@ -128,7 +130,9 @@ fn create_ship_resource_requests(
     request_ids
 }
 
-fn design_from_template(template: &crate::shipbuilding::ShipDesignTemplate) -> super::ShipDesignDraft {
+fn design_from_template(
+    template: &crate::shipbuilding::ShipDesignTemplate,
+) -> super::ShipDesignDraft {
     super::ShipDesignDraft {
         name: template.name.clone(),
         hull_id: template.hull_id.clone(),
@@ -218,7 +222,10 @@ pub fn process_pending_shipbuilding_actions(
         };
 
         let Some(template) = design_library.get_template(&template_id) else {
-            warn!("Ignoring shipbuilding action for missing template {}", template_id);
+            warn!(
+                "Ignoring shipbuilding action for missing template {}",
+                template_id
+            );
             continue;
         };
         let design = design_from_template(template);
@@ -344,7 +351,10 @@ pub fn process_pending_shipbuilding_actions(
         }
 
         let Ok((ship_entity, ship, assignment)) = ships.get(action.ship_entity) else {
-            warn!("Ignoring refit action for missing ship {:?}", action.ship_entity);
+            warn!(
+                "Ignoring refit action for missing ship {:?}",
+                action.ship_entity
+            );
             continue;
         };
 
@@ -383,7 +393,9 @@ pub fn process_pending_shipbuilding_actions(
             continue;
         }
 
-        if determine_refit_type(&old_template.hull_id, &new_template.hull_id) == RefitType::DifferentHull {
+        if determine_refit_type(&old_template.hull_id, &new_template.hull_id)
+            == RefitType::DifferentHull
+        {
             warn!(
                 "Rejected refit for ship {:?}: hull changes require reconstruction",
                 ship_entity
@@ -406,7 +418,8 @@ pub fn process_pending_shipbuilding_actions(
             &shipbuilding_data,
         );
 
-        let blocking_request_ids = if let Ok(mut stockpile) = stockpiles.get_mut(action.build_site) {
+        let blocking_request_ids = if let Ok(mut stockpile) = stockpiles.get_mut(action.build_site)
+        {
             if stockpile.can_afford(&resource_costs) {
                 stockpile.deduct(&resource_costs);
                 Vec::new()
@@ -581,8 +594,11 @@ pub fn advance_ship_construction(
 
                         if project.progress >= project.required_build_points {
                             project.state = match project.construction_mode {
-                                ConstructionMode::SurfaceLaunch => ShipConstructionState::ReadyForLaunch,
-                                ConstructionMode::OrbitalAssembly | ConstructionMode::OrbitalShipyard => {
+                                ConstructionMode::SurfaceLaunch => {
+                                    ShipConstructionState::ReadyForLaunch
+                                }
+                                ConstructionMode::OrbitalAssembly
+                                | ConstructionMode::OrbitalShipyard => {
                                     ShipConstructionState::CompletedInOrbit
                                 }
                             };

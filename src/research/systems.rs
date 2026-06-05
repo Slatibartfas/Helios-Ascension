@@ -387,16 +387,19 @@ pub fn process_pending_engineering(
         }
 
         let Some(component) = tech_data.get_component(&component_id) else {
-            warn!("Cannot start engineering for unknown component: {}", component_id);
+            warn!(
+                "Cannot start engineering for unknown component: {}",
+                component_id
+            );
             continue;
         };
 
-        if !component.required_tech.is_empty() && !research_state.is_unlocked(&component.required_tech)
+        if !component.required_tech.is_empty()
+            && !research_state.is_unlocked(&component.required_tech)
         {
             warn!(
                 "Cannot start engineering for '{}': prerequisite tech '{}' not unlocked",
-                component.name,
-                component.required_tech
+                component.name, component.required_tech
             );
             continue;
         }
@@ -701,7 +704,8 @@ pub fn initialize_baseline_engineering(
             continue;
         }
 
-        if component.required_tech.is_empty() || research_state.is_unlocked(&component.required_tech)
+        if component.required_tech.is_empty()
+            || research_state.is_unlocked(&component.required_tech)
         {
             research_state.complete_component(component.id.clone());
             completed_count += 1;
@@ -709,7 +713,10 @@ pub fn initialize_baseline_engineering(
     }
 
     if completed_count > 0 {
-        info!("Initialized {} baseline engineering projects", completed_count);
+        info!(
+            "Initialized {} baseline engineering projects",
+            completed_count
+        );
     }
 }
 
