@@ -340,10 +340,7 @@ impl BuildingType {
             // ── Mining & Industry ────────────────────────────────────────
             BuildingType::Mine => &["+24.4% mining efficiency"],
             BuildingType::Refinery => &["+13% mining efficiency"],
-            BuildingType::Factory => &[
-                "+10 BP/yr construction speed",
-                "-5% construction costs",
-            ],
+            BuildingType::Factory => &["+10 BP/yr construction speed", "-5% construction costs"],
             BuildingType::ChemicalPlant => &[
                 "+0.15 Mt/yr hydrogen",
                 "+0.14 Mt/yr ammonia",
@@ -360,12 +357,14 @@ impl BuildingType {
             BuildingType::MassDriver => &["+5,000 logistics capacity"],
             BuildingType::OrbitalLift => &["+20,000 logistics capacity"],
             BuildingType::CargoTerminal => &["+2,000 logistics capacity"],
-            // ── Power ─────────────────────────────────────────────────── 
+            // ── Power ───────────────────────────────────────────────────
             BuildingType::SolarPower => &["+5 GW power output"],
             BuildingType::FissionReactor => &["+20 GW power output", "Fuel: Uranium"],
             BuildingType::FusionReactor => &["+40 GW power output", "Fuel: He-3 + Deuterium"],
             BuildingType::DTFusionReactor => &["+50 GW power output", "Fuel: Deuterium + Tritium"],
-            BuildingType::DHe3FusionReactor => &["+45 GW power output", "Fuel: Deuterium + Helium-3"],
+            BuildingType::DHe3FusionReactor => {
+                &["+45 GW power output", "Fuel: Deuterium + Helium-3"]
+            }
             BuildingType::ThoriumReactor => &["+24 GW power output", "Fuel: Thorium"],
             BuildingType::BreederReactor => &["+22 GW power output", "+Plutonium bred/yr"],
             BuildingType::WindFarm => &["+3 GW power output"],
@@ -374,22 +373,10 @@ impl BuildingType {
             BuildingType::CoalPowerPlant => &["+10 GW power output", "Burns: Coal"],
             BuildingType::NaturalGasPlant => &["+12 GW power output", "Burns: Natural Gas"],
             // ── Population & Growth ──────────────────────────────────────
-            BuildingType::Farm => &[
-                "+1,000 Mt/yr food",
-                "Feeds ~10M people",
-            ],
-            BuildingType::AgriDome => &[
-                "+4 Mt/yr food",
-                "Feeds ~40K people (enclosed)",
-            ],
-            BuildingType::Greenhouse => &[
-                "+500 Mt/yr food",
-                "Feeds ~5M people",
-            ],
-            BuildingType::AquacultureFacility => &[
-                "+750 Mt/yr food",
-                "Feeds ~7.5M people",
-            ],
+            BuildingType::Farm => &["+1,000 Mt/yr food", "Feeds ~10M people"],
+            BuildingType::AgriDome => &["+4 Mt/yr food", "Feeds ~40K people (enclosed)"],
+            BuildingType::Greenhouse => &["+500 Mt/yr food", "Feeds ~5M people"],
+            BuildingType::AquacultureFacility => &["+750 Mt/yr food", "Feeds ~7.5M people"],
             BuildingType::MedicalCenter => &["+0.03% population growth rate per centre"],
             BuildingType::WaterTreatmentPlant => &["+2% population growth rate"],
             BuildingType::DesalinationPlant => &["+1% population growth rate"],
@@ -516,15 +503,11 @@ impl BuildingType {
             | BuildingType::Farm
             | BuildingType::MedicalCenter
             | BuildingType::Greenhouse
-            | BuildingType::AquacultureFacility => {
-                BuildingCategory::Population
-            }
+            | BuildingType::AquacultureFacility => BuildingCategory::Population,
             BuildingType::ResearchLab
             | BuildingType::EngineeringBay
             | BuildingType::AiCluster
-            | BuildingType::DataCenter => {
-                BuildingCategory::Research
-            }
+            | BuildingType::DataCenter => BuildingCategory::Research,
             BuildingType::CommercialHub
             | BuildingType::FinancialCenter
             | BuildingType::TradePort => BuildingCategory::Financial,
@@ -532,9 +515,7 @@ impl BuildingType {
             | BuildingType::MissileSilo
             | BuildingType::LaunchSite
             | BuildingType::SpacePort
-            | BuildingType::GroundDefenseBattery => {
-                BuildingCategory::Military
-            }
+            | BuildingType::GroundDefenseBattery => BuildingCategory::Military,
             BuildingType::Warehouse => BuildingCategory::Logistics,
         }
     }
@@ -812,7 +793,10 @@ mod tests {
         assert_eq!(BuildingType::Mine.display_name(), "Mine");
         assert_eq!(BuildingType::MassDriver.display_name(), "Mass Driver");
         assert_eq!(BuildingType::FusionReactor.display_name(), "Fusion Reactor");
-        assert_eq!(BuildingType::DTFusionReactor.display_name(), "D-T Fusion Reactor");
+        assert_eq!(
+            BuildingType::DTFusionReactor.display_name(),
+            "D-T Fusion Reactor"
+        );
         assert_eq!(BuildingType::DeepDrill.display_name(), "Deep Drill");
         assert_eq!(BuildingType::Shipyard.display_name(), "Shipyard");
     }

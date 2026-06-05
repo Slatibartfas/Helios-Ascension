@@ -119,7 +119,10 @@ impl ShippingCompany {
             self.treasury_mc -= FREIGHTER_COST_MC;
             self.freighter_count += 1;
             self.available_freighters += 1;
-            info!("{} purchased a new freighter (total: {})", self.name, self.freighter_count);
+            info!(
+                "{} purchased a new freighter (total: {})",
+                self.name, self.freighter_count
+            );
             true
         } else {
             false
@@ -150,10 +153,7 @@ impl Default for ShippingCompanies {
 ///
 /// Uses the body's `SpaceCoordinates` when available.  Falls back to a
 /// 1.0 AU default (Earth-level) if the component is absent.
-fn estimate_transit_seconds(
-    dest_entity: Entity,
-    coords_query: &Query<&SpaceCoordinates>,
-) -> f64 {
+fn estimate_transit_seconds(dest_entity: Entity, coords_query: &Query<&SpaceCoordinates>) -> f64 {
     // SpaceCoordinates are in AU (the rendering scale).
     let distance_au = coords_query
         .get(dest_entity)
@@ -203,9 +203,11 @@ pub fn process_company_ai(
     pending_indices.sort_by(|&a, &b| {
         let ra = &requests.requests[a];
         let rb = &requests.requests[b];
-        rb.priority
-            .cmp(&ra.priority)
-            .then(ra.created_at_seconds.partial_cmp(&rb.created_at_seconds).unwrap_or(std::cmp::Ordering::Equal))
+        rb.priority.cmp(&ra.priority).then(
+            ra.created_at_seconds
+                .partial_cmp(&rb.created_at_seconds)
+                .unwrap_or(std::cmp::Ordering::Equal),
+        )
     });
 
     if pending_indices.is_empty() {
@@ -292,11 +294,7 @@ pub fn process_company_ai(
         let eta_days = transit_s / (SECONDS_PER_YEAR / 365.25);
         info!(
             "{}: dispatched freighter — {:?} {:.1} Mt → {} (ETA {:.0} days)",
-            company.name,
-            req.resource,
-            actual_dispatched,
-            req.destination_name,
-            eta_days,
+            company.name, req.resource, actual_dispatched, req.destination_name, eta_days,
         );
     }
 }

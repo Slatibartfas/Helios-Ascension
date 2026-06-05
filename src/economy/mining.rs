@@ -43,7 +43,10 @@ fn industrial_process_rule(modifier_type: &str) -> Option<IndustrialProcessRule>
         "AmmoniaSynthesis" => Some(IndustrialProcessRule {
             output: ResourceType::Ammonia,
             required_tech: None,
-            inputs_per_output: &[(ResourceType::Nitrogen, 0.82), (ResourceType::Methane, 0.71)],
+            inputs_per_output: &[
+                (ResourceType::Nitrogen, 0.82),
+                (ResourceType::Methane, 0.71),
+            ],
         }),
         "PolymerSynthesis" => Some(IndustrialProcessRule {
             output: ResourceType::Polymers,
@@ -64,7 +67,10 @@ fn industrial_process_rule(modifier_type: &str) -> Option<IndustrialProcessRule>
     }
 }
 
-fn process_is_unlocked(rule: &IndustrialProcessRule, research_state: Option<&ResearchState>) -> bool {
+fn process_is_unlocked(
+    rule: &IndustrialProcessRule,
+    research_state: Option<&ResearchState>,
+) -> bool {
     match rule.required_tech {
         Some(tech_id) => research_state.is_some_and(|state| state.is_unlocked(tech_id)),
         None => true,
@@ -76,10 +82,7 @@ fn combined_available(
     budget: &GlobalBudget,
     resource: ResourceType,
 ) -> f64 {
-    local_opt
-        .as_ref()
-        .map_or(0.0, |local| local.get(&resource))
-        + budget.get_stockpile(&resource)
+    local_opt.as_ref().map_or(0.0, |local| local.get(&resource)) + budget.get_stockpile(&resource)
 }
 
 fn consume_with_fallback(
@@ -477,7 +480,12 @@ pub fn update_resource_rates(
     mining_ops: Query<(Entity, &MiningOperation, Option<&PlanetResources>)>,
     research_buildings: Query<&crate::research::components::ResearchBuilding>,
     engineering_facilities: Query<&crate::research::components::EngineeringFacility>,
-    colony_query: Query<(Entity, &Colony, Option<&PlanetResources>, Option<&LocalStockpile>)>,
+    colony_query: Query<(
+        Entity,
+        &Colony,
+        Option<&PlanetResources>,
+        Option<&LocalStockpile>,
+    )>,
     buildings_data: Option<Res<BuildingsData>>,
     budget: Res<GlobalBudget>,
     research_state: Res<crate::research::ResearchState>,
@@ -716,8 +724,10 @@ pub fn update_resource_rates(
                             if required <= 0.0 {
                                 continue;
                             }
-                            let available =
-                                simulated_available.get(input_resource).copied().unwrap_or(0.0);
+                            let available = simulated_available
+                                .get(input_resource)
+                                .copied()
+                                .unwrap_or(0.0);
                             scale = scale.min((available / required).clamp(0.0, 1.0));
                         }
 

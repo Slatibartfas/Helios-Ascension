@@ -12,7 +12,7 @@ impl Plugin for CometVfxPlugin {
         if !app.is_plugin_added::<HanabiPlugin>() {
             app.add_plugins(HanabiPlugin);
         }
-        
+
         app.insert_resource(CometTailResources::default())
             .add_systems(Startup, setup_comet_effects)
             .add_systems(Update, (
@@ -58,10 +58,10 @@ fn setup_comet_effects(
     // - Blue-to-transparent gradient
     // - Additive blending (done via EffectBundle configuration later, or Material)
     // - Physics: "SolarWind" acceleration away from Sun
-    
+
     // Properties are now defined on the writer before building the graph
     // (Old lines removed)
-    
+
     // Color Gradient: Bright Cyan/Blue -> Transparent (HDR Intensity for Bloom)
     let mut ion_gradient = Gradient::new();
     ion_gradient.add_key(0.0, Vec4::new(2.0, 4.0, 10.0, 1.0)); // Ultra-bright Blue core
@@ -69,7 +69,7 @@ fn setup_comet_effects(
     ion_gradient.add_key(1.0, Vec4::new(0.0, 0.2, 1.0, 0.0)); // Fade out
 
     let mut writer = ExprWriter::new();
-    
+
     // Define properties to be updated every frame
     let solar_wind_prop = writer.add_property("solar_wind_force", (Vec3::Y * 50.0).into()); // Vector3: Direction * Strength
     let comet_vel_prop = writer.add_property("comet_velocity", Vec3::ZERO.into());
@@ -79,7 +79,7 @@ fn setup_comet_effects(
         Attribute::POSITION,
         writer.lit(Vec3::ZERO).expr(),
     );
-    
+
     // Init: Lifetime (randomized)
     let init_age = SetAttributeModifier::new(
         Attribute::AGE,
@@ -93,10 +93,10 @@ fn setup_comet_effects(
     // Init: High initial velocity to shoot out, or just let the wind take it?
     // "High-velocity particles". Let's give them some initial push plus the wind.
     // The wind dominates.
-    
+
     let particle_size = SetAttributeModifier::new(
         Attribute::SIZE,
-        writer.lit(0.5).expr(), 
+        writer.lit(0.5).expr(),
     );
 
     // Init: Velocity = Comet Velocity (Type I follows the nucleus closely but is pushed by wind)
@@ -125,9 +125,9 @@ fn setup_comet_effects(
     .init(init_vel_ion)
     .update(update_accel)
     .render(ColorOverLifetimeModifier { gradient: ion_gradient })
-    .render(SizeOverLifetimeModifier { 
-        gradient: Gradient::constant(Vec2::splat(1.0)), 
-        screen_space_size: false 
+    .render(SizeOverLifetimeModifier {
+        gradient: Gradient::constant(Vec2::splat(1.0)),
+        screen_space_size: false
     });
 
     // -----------------------------------------------------------------------
@@ -138,9 +138,9 @@ fn setup_comet_effects(
     // - Inherit 90% comet velocity
     // - Radiation pressure (weaker away from sun)
     // - Drag/Damping
-    
+
     // Properties are now defined on writer_dust
-    
+
     let mut dust_gradient = Gradient::new();
     dust_gradient.add_key(0.0, Vec4::new(1.5, 1.35, 1.2, 1.0)); // HDR Reflective White/Yellow
     dust_gradient.add_key(1.0, Vec4::new(0.8, 0.7, 0.5, 0.0)); // Fade to dusty brown/transparent
@@ -154,14 +154,14 @@ fn setup_comet_effects(
         Attribute::POSITION,
         writer_dust.lit(Vec3::ZERO).expr(),
     );
-    
+
     // Init: Velocity = Comet Velocity * 0.99 (Almost matches nucleus, allowing wind to curve it naturally)
     // Need to access property 'comet_velocity' in Init
     let init_vel_dust = SetAttributeModifier::new(
         Attribute::VELOCITY,
         writer_dust.prop(comet_vel_prop).mul(writer_dust.lit(0.99)).expr(),
     );
-    
+
     let init_lifetime_dust = SetAttributeModifier::new(
         Attribute::LIFETIME,
         writer_dust.lit(4.0).uniform(writer_dust.lit(6.0)).expr(),
@@ -197,9 +197,9 @@ fn setup_comet_effects(
     .update(update_rad_pressure)
     .update(update_drag)
     .render(ColorOverLifetimeModifier { gradient: dust_gradient })
-    .render(SizeOverLifetimeModifier { 
-        gradient: Gradient::constant(Vec2::splat(1.0)), 
-        screen_space_size: false 
+    .render(SizeOverLifetimeModifier {
+        gradient: Gradient::constant(Vec2::splat(1.0)),
+        screen_space_size: false
     });
 
     resources.ion_tail = effects.add(ion_effect);
@@ -235,7 +235,7 @@ fn attach_comet_tails(
         // Ion Tail
         commands.spawn(ParticleEffectBundle {
             effect: ParticleEffect::new(resources.ion_tail.clone()),
-            transform: Transform::IDENTITY, 
+            transform: Transform::IDENTITY,
             ..default()
         })
         .insert(Name::new("Ion Tail"))
@@ -278,7 +278,7 @@ fn update_comet_vectors(
         }
 
         let comet_pos = comet_transform.translation();
-        
+
         // Handle potential teleportation from origin (if the check in attach_comet_tails wasn't enough)
         // If last position was at origin and now we are far away, it's an initialization jump.
         // Reset last_position without calculating a massive velocity.
@@ -298,8 +298,8 @@ fn update_comet_vectors(
         let distance = to_comet.length();
         let dir_away_from_sun = to_comet.normalize_or_zero();
 
-        // Strength falls off with distance? Or constant "wind speed"? 
-        // Prompt says "Apply a ... acceleration vector". 
+        // Strength falls off with distance? Or constant "wind speed"?
+        // Prompt says "Apply a ... acceleration vector".
         // Real solar wind drops off, but let's keep it simple or visual.
         // Let's make it strong enough to be visible.
         let solar_wind_strength = 20.0; // Tunable

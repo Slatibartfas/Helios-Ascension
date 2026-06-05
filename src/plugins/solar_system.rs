@@ -17,8 +17,8 @@ use crate::astronomy::{
     OceanType, OrbitPath, SpaceCoordinates, StellarProperties, SurfaceTemperature, SCALING_FACTOR,
 };
 use crate::colony::{BuildingType, Colony};
-use crate::economy::components::{LocalStockpile, Population, SurveyLevel};
 use crate::economy::budget::GlobalBudget;
+use crate::economy::components::{LocalStockpile, Population, SurveyLevel};
 use crate::plugins::camera::{CameraAnchor, GameCamera};
 use crate::ui::SimulationTime;
 
@@ -846,7 +846,11 @@ pub fn setup_solar_system(
 
             // Airless rocky planets (no atmosphere data) are "barren" — e.g. Mercury.
             if body_data.body_type == BodyType::Planet && body_data.atmosphere.is_none() {
-                return if seed.is_multiple_of(2) { "barren" } else { "rock" };
+                return if seed.is_multiple_of(2) {
+                    "barren"
+                } else {
+                    "rock"
+                };
             }
 
             // mimic the logic used in starmap classification so categories agree
@@ -944,22 +948,22 @@ pub fn setup_solar_system(
                 // Wind ~9.9%, Solar ~11.0%.
                 // Wind + Solar combined ≈ 20.8% of delivered output, with total effective
                 // generation ≈ 3.65 TW and ~14.5% reserve over the 3.19 TW starting load.
-                (BuildingType::SolarPower, 320),       // 320 × 1.25 = 400 GW
-                (BuildingType::CoalPowerPlant, 195),   // 195 × 6.0 = 1,170 GW
-                (BuildingType::NaturalGasPlant, 135),  // 135 × 6.0 = 810 GW
-                (BuildingType::HydroelectricDam, 82),  // 82 × 6.75 = 553.5 GW
-                (BuildingType::WindFarm, 400),         // 400 × 0.9 = 360 GW
-                (BuildingType::FissionReactor, 20),    // 20 × 18 = 360 GW
+                (BuildingType::SolarPower, 320), // 320 × 1.25 = 400 GW
+                (BuildingType::CoalPowerPlant, 195), // 195 × 6.0 = 1,170 GW
+                (BuildingType::NaturalGasPlant, 135), // 135 × 6.0 = 810 GW
+                (BuildingType::HydroelectricDam, 82), // 82 × 6.75 = 553.5 GW
+                (BuildingType::WindFarm, 400),   // 400 × 0.9 = 360 GW
+                (BuildingType::FissionReactor, 20), // 20 × 18 = 360 GW
                 // Water
                 (BuildingType::WaterTreatmentPlant, 500),
                 // Research & Tech (high power consumers)
                 (BuildingType::ResearchLab, 500),
-                (BuildingType::DataCenter, 100),       // 100 × 500 MW = 50 GW (realistic for early game)
-                (BuildingType::AiCluster, 10),        // 10 × 2000 MW = 20 GW (very advanced tech)
+                (BuildingType::DataCenter, 100), // 100 × 500 MW = 50 GW (realistic for early game)
+                (BuildingType::AiCluster, 10),   // 10 × 2000 MW = 20 GW (very advanced tech)
                 // Space access
                 (BuildingType::LaunchSite, 200),
                 (BuildingType::SpacePort, 50),
-                (BuildingType::Shipyard, 50),         // Heavy consumer - reduced
+                (BuildingType::Shipyard, 50), // Heavy consumer - reduced
                 // Economy
                 (BuildingType::FinancialCenter, 100),
                 (BuildingType::CommercialHub, 500),
@@ -1880,7 +1884,6 @@ fn create_asteroid_mesh(visual_radius: f32, physical_radius_km: f32, seed: u64) 
 
     mesh
 }
-
 
 /// PostStartup system that attaches a `LocalStockpile` and `MinimumStockpile`
 /// to every colony entity.
