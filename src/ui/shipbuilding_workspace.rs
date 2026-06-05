@@ -576,19 +576,18 @@ fn handle_shipbuilding_workspace_interactions(
         (Changed<Interaction>, With<Button>),
     >,
     module_hover_buttons: Query<(&Interaction, &ShipbuildingModuleButton), With<Button>>,
-    save_buttons: Query<
-        &Interaction,
+    save_reset_buttons: Query<
         (
-            Changed<Interaction>,
-            With<ShipbuildingSaveDesignButton>,
-            With<Button>,
+            &Interaction,
+            Has<ShipbuildingSaveDesignButton>,
+            Has<ShipbuildingResetDesignButton>,
         ),
-    >,
-    reset_buttons: Query<
-        &Interaction,
         (
             Changed<Interaction>,
-            With<ShipbuildingResetDesignButton>,
+            Or<(
+                With<ShipbuildingSaveDesignButton>,
+                With<ShipbuildingResetDesignButton>,
+            )>,
             With<Button>,
         ),
     >,
@@ -650,16 +649,15 @@ fn handle_shipbuilding_workspace_interactions(
             content_changed = true;
         }
 
-        for interaction in &save_buttons {
-            if *interaction == Interaction::Pressed
+        for (interaction, is_save, is_reset) in &save_reset_buttons {
+            if *interaction != Interaction::Pressed {
+                continue;
+            }
+            if is_save
                 && save_current_design_template_native(&mut design_library, ui_state).is_some()
             {
                 content_changed = true;
-            }
-        }
-
-        for interaction in &reset_buttons {
-            if *interaction == Interaction::Pressed {
+            } else if is_reset {
                 if let Some(hull_id) = ui_state.selected_hull_id.clone() {
                     select_hull_by_id(ui_state, &shipbuilding_data, &research_state, &hull_id);
                     content_changed = true;
@@ -783,7 +781,7 @@ fn handle_shipbuilding_workspace_interactions(
         }
 
         if ui_state.hovered_slot != hovered_slot || ui_state.hovered_module_id != hovered_module {
-            let now = time.elapsed_seconds();
+            let now = time.elapsed_secs();
             ui_state.module_hover_started_at = if hovered_module.is_some() {
                 Some(now)
             } else {
@@ -1707,7 +1705,7 @@ fn update_shipbuilding_hover_tooltip(
             // GRA-17: only render the module tooltip after the hover latency.
             let module_elapsed = ui_state
                 .module_hover_started_at
-                .map(|t| time.elapsed_seconds() - t)
+                .map(|t| time.elapsed_secs() - t)
                 .unwrap_or(0.0);
             if module_elapsed >= HOVER_LATENCY_SECS {
                 let content = build_module_tooltip(module, hovered_slot);
@@ -1740,7 +1738,7 @@ fn update_shipbuilding_hover_tooltip(
                     // GRA-17: only render the slot tooltip after the hover latency.
                     let slot_elapsed = ui_state
                         .slot_hover_started_at
-                        .map(|t| time.elapsed_seconds() - t)
+                        .map(|t| time.elapsed_secs() - t)
                         .unwrap_or(0.0);
                     if slot_elapsed >= HOVER_LATENCY_SECS {
                         let compatible_modules =
