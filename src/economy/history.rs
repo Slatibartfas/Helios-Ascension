@@ -136,9 +136,8 @@ impl SimulationHistory {
             }
 
             let spacing = sample_spacing_for_age(age_seconds.max(0.0));
-            let should_keep = last_kept_sim_seconds.is_none_or(|last_kept| {
-                (last_kept - sample.sim_seconds) >= spacing - 1.0
-            });
+            let should_keep = last_kept_sim_seconds
+                .is_none_or(|last_kept| (last_kept - sample.sim_seconds) >= spacing - 1.0);
             if should_keep {
                 kept_reversed.push(sample.clone());
                 last_kept_sim_seconds = Some(sample.sim_seconds);
@@ -347,11 +346,7 @@ fn interpolate_historic_anchor(years_ago: f64) -> HistoricEarthAnchor {
                     newer.population_factor,
                     t,
                 ),
-                power_factor: historic_factor_lerp(
-                    older.power_factor,
-                    newer.power_factor,
-                    t,
-                ),
+                power_factor: historic_factor_lerp(older.power_factor, newer.power_factor, t),
                 agriculture_factor: historic_factor_lerp(
                     older.agriculture_factor,
                     newer.agriculture_factor,
@@ -367,21 +362,9 @@ fn interpolate_historic_anchor(years_ago: f64) -> HistoricEarthAnchor {
                     newer.electrification_factor,
                     t,
                 ),
-                nuclear_factor: historic_factor_lerp(
-                    older.nuclear_factor,
-                    newer.nuclear_factor,
-                    t,
-                ),
-                space_factor: historic_factor_lerp(
-                    older.space_factor,
-                    newer.space_factor,
-                    t,
-                ),
-                survey_factor: historic_factor_lerp(
-                    older.survey_factor,
-                    newer.survey_factor,
-                    t,
-                ),
+                nuclear_factor: historic_factor_lerp(older.nuclear_factor, newer.nuclear_factor, t),
+                space_factor: historic_factor_lerp(older.space_factor, newer.space_factor, t),
+                survey_factor: historic_factor_lerp(older.survey_factor, newer.survey_factor, t),
             };
         }
     }
@@ -421,9 +404,11 @@ fn historic_resource_factor(resource: ResourceType, anchor: HistoricEarthAnchor)
 
     let factor = match resource {
         Food => anchor.agriculture_factor,
-        Water => 0.45 * anchor.population_factor
-            + 0.40 * anchor.agriculture_factor
-            + 0.15 * anchor.bulk_industry_factor,
+        Water => {
+            0.45 * anchor.population_factor
+                + 0.40 * anchor.agriculture_factor
+                + 0.15 * anchor.bulk_industry_factor
+        }
         Hydrogen | Ammonia | Methane => {
             0.20 * anchor.population_factor
                 + 0.35 * anchor.bulk_industry_factor
@@ -506,7 +491,8 @@ fn build_historic_earth_sample(
         .iter()
         .enumerate()
         .map(|(index, resource)| {
-            current.resource_net_rates_per_month[index] * historic_resource_factor(*resource, anchor)
+            current.resource_net_rates_per_month[index]
+                * historic_resource_factor(*resource, anchor)
         })
         .collect();
     let resource_gross_production_per_month = ResourceType::all()
@@ -575,7 +561,10 @@ fn collect_current_snapshot(
     let mut resource_stockpiles = vec![0.0; ResourceType::all().len()];
     for (index, resource) in ResourceType::all().iter().copied().enumerate() {
         resource_stockpiles[index] = budget.get_stockpile(&resource)
-            + local_stockpiles.iter().map(|stockpile| stockpile.get(&resource)).sum::<f64>();
+            + local_stockpiles
+                .iter()
+                .map(|stockpile| stockpile.get(&resource))
+                .sum::<f64>();
     }
 
     let resource_net_rates_per_month = ResourceType::all()
@@ -688,7 +677,10 @@ mod tests {
         history.record_snapshot(sample_at(0.0));
 
         let first = history.samples.first().expect("history should be seeded");
-        let last = history.samples.last().expect("history should contain current snapshot");
+        let last = history
+            .samples
+            .last()
+            .expect("history should contain current snapshot");
 
         assert!(first.sim_seconds <= -HISTORY_MAX_AGE_SECONDS + HISTORY_ARCHIVE_STEP_SECONDS);
         assert!((last.sim_seconds - 0.0).abs() < 1.0);
