@@ -28,6 +28,9 @@ mod fleets_panel;
 pub mod icons;
 mod research_panel;
 mod resources_bar;
+mod shipbuilding_state;
+mod shipbuilding_tooltip;
+mod shipbuilding_workspace;
 mod tech_tree;
 pub(super) mod theme;
 pub mod time;
@@ -45,6 +48,7 @@ use fleets_panel::{
 use icons::{load_menu_icons, load_research_icons, process_menu_icons, process_research_icons};
 use research_panel::ui_research_panels;
 use resources_bar::ui_resources_bar;
+use shipbuilding_workspace::ShipbuildingWorkspacePlugin;
 use time::advance_simulation_time;
 
 use crate::astronomy::components::{CurrentStarSystem, SystemId};
@@ -95,10 +99,11 @@ use crate::research::{
 /// Used when walking up the hierarchy to find the heliocentric SMA.
 const MIN_HELIOCENTRIC_SMA_AU: f64 = 0.05;
 
-/// Minimum supported window dimensions to prevent UI overlap
-/// Full HD (1920×1080) is required for the complex strategy game UI
-const MIN_WINDOW_WIDTH: f32 = 1920.0;
-const MIN_WINDOW_HEIGHT: f32 = 1080.0;
+/// Minimum supported window dimensions before showing the low-resolution warning.
+/// The UI is now intended to remain usable at 1280×720, even though larger
+/// windows still provide a better strategic overview.
+const MIN_WINDOW_WIDTH: f32 = 1280.0;
+const MIN_WINDOW_HEIGHT: f32 = 720.0;
 
 /// Tracks which ledger category groups are currently expanded in the bodies panel.
 /// Cleared at the start of each `ui_dashboard` frame, then repopulated as the
@@ -118,12 +123,14 @@ pub struct ResolutionWarning {
 #[derive(Resource, Debug, Clone)]
 pub struct ResearchUiPreferences {
     pub show_inactive_warning: bool,
+    pub selected_engineering_target: Option<String>,
 }
 
 impl Default for ResearchUiPreferences {
     fn default() -> Self {
         Self {
             show_inactive_warning: true,
+            selected_engineering_target: None,
         }
     }
 }
@@ -395,6 +402,7 @@ impl Plugin for UIPlugin {
         app
             // Egui plugin is added in `main.rs` (explicit bevy_egui integration)
             .add_plugins(cursors::CursorPlugin)
+            .add_plugins(ShipbuildingWorkspacePlugin)
             // Resources
             .init_resource::<Selection>()
             .init_resource::<TimeScale>()
@@ -404,6 +412,7 @@ impl Plugin for UIPlugin {
             .init_resource::<ResolutionWarning>()
             .init_resource::<ExpandedLedgerGroups>()
             .init_resource::<construction_panel::ConstructionUiState>()
+            .init_resource::<shipbuilding_state::ShipbuildingUiState>()
             // ActiveMenu is now initialized in GameStatePlugin
             // to allow access in camera/starmap plugins
             // Load menu icons at startup

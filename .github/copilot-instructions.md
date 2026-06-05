@@ -64,6 +64,14 @@ helios_ascension/
 │   │   ├── data.rs          # Technology data loading from RON
 │   │   ├── systems.rs       # Research progression, tech unlocks
 │   │   └── mod.rs           # ResearchPlugin
+│   ├── shipbuilding/        # Data-driven hulls, modules, projects, refit, slipways
+│   │   ├── components.rs    # Shipbuilding resources, projects, design drafts
+│   │   ├── data.rs          # Hull/module RON loading and design summaries
+│   │   ├── refit.rs         # Design upgrade and refit logic
+│   │   ├── slipway.rs       # Construction capacity and slipway helpers
+│   │   ├── systems.rs       # Project progression and queue processing
+│   │   ├── types.rs         # ShipModuleCategory, design templates, construction modes
+│   │   └── mod.rs           # ShipbuildingPlugin
 │   ├── plugins/             # Game systems
 │   │   ├── camera.rs        # Camera movement, anchoring & ViewMode
 │   │   ├── music.rs         # Background music playlist & CC-BY attribution overlay
@@ -87,6 +95,9 @@ helios_ascension/
 │       ├── tech_tree.rs           # Tech tree tab, edit dialog, category colors
 │       ├── construction_panel.rs  # Construction queue UI
 │       ├── economy_panel.rs       # Economy/budget UI
+│       ├── shipbuilding_state.rs  # Shared shipbuilding UI state across backends
+│       ├── shipbuilding_panel.rs  # Legacy egui shipbuilding designer
+│       ├── shipbuilding_workspace.rs # Native Bevy UI shipbuilding workspace prototype
 │       ├── fleets_panel.rs        # Fleet list, detail, orbit/maneuver status, FleetUiState
 │       ├── transfer_planner.rs    # Transfer planner sub-panel (destination, options, LP transfers)
 │       └── interaction.rs         # Selection management
@@ -95,6 +106,8 @@ helios_ascension/
 │   │   └── music/           # Background music (CC-BY 4.0, Scott Buckley)
 │   ├── data/
 │   │   ├── buildings.ron    # 47 building definitions
+│   │   ├── ship_hulls.ron   # Hull frames and slot layouts
+│   │   ├── ship_modules.ron # Canonical ship module definitions
 │   │   ├── technologies.ron # Technology tree data
 │   │   ├── solar_system.ron # Solar system configuration
 │   │   └── nearest_stars_raw.json # Star catalog
@@ -102,6 +115,7 @@ helios_ascension/
 ├── docs/
 │   ├── MODDING.md           # Texture & celestial body modding guide
 │   ├── RESEARCH_MODDING.md  # Technology tree modding guide
+│   ├── SHIPBUILDING.md      # Shipbuilding data and workflow reference
 │   └── ...                  # Other reference docs
 └── tests/                   # Integration tests
 ```
@@ -247,7 +261,22 @@ When adding new UI icons (menus, research categories, etc.), applying the follow
 - Tech modifiers affect construction costs, productivity, and capabilities
 - **Data-driven**: All technologies defined in `assets/data/technologies.ron` — add techs without touching Rust code
 - Debug menu (F12) for instant research
-- See [docs/RESEARCH_MODDING.md](docs/RESEARCH_MODDING.md) for the full modding guide (modifier types, component definitions, balancing)
+- See [docs/RESEARCH_MODDING.md](../docs/RESEARCH_MODDING.md) for the full modding guide (modifier types, component definitions, balancing)
+
+#### Shipbuilding (`src/shipbuilding/`)
+- `ShipbuildingPlugin` manages data-driven hulls, modules, design summaries, and construction project progression
+- Canonical ship data lives in `assets/data/ship_hulls.ron` and `assets/data/ship_modules.ron`
+- Do **not** create or keep generated `ship_modules*.ron` snapshots in `assets/data/`; they become stale and cause ambiguity about the source of truth
+- Module unlocks are coupled to the tech tree through `required_tech` in `assets/data/ship_modules.ron` and matching IDs in `assets/data/technologies.ron`
+- Module IDs must be unique; the runtime loader stores modules in a `HashMap` keyed by ID, so duplicate IDs silently override earlier entries
+- RON edits must preserve tuple separators exactly; malformed RON often appears only at runtime during `cargo run`, not at compile time
+- `ShipModuleCategory` currently uses 12 consolidated categories: `FlightSystems`, `PowerThermal`, `FuelStorage`, `Weapons`, `FireControl`, `Sensors`, `ArmorDefense`, `CrewSystems`, `UtilitySupport`, `ConstructionISRU`, `ElectronicWarfare`, `SpecialScience`
+- The Shipbuilding menu now uses a single native backend:
+  - `src/ui/shipbuilding_workspace.rs` = native Bevy UI shipbuilding workspace with blueprint canvas, module library, construction/archive tabs, and analytics panel
+- `src/ui/shipbuilding_state.rs` holds the shared shipbuilding UI state; avoid duplicating selection, preview, or hull state in backend-local resources unless there is a strong reason
+- The native blueprint currently uses **heuristic slot placement** based on slot IDs/categories when `position` is not authored in `assets/data/ship_hulls.ron`; authored `position` data should be preferred for long-term layout quality
+- Ship module progression is now **engineering-first**: `required_tech` controls visibility, `required_component_design` groups module families behind a shared engineering project, and the relevant technology should advertise that family through `unlocks_engineering`
+- See [docs/SHIPBUILDING.md](../docs/SHIPBUILDING.md) for the current shipbuilding workflow and data authoring rules
 
 #### Fleet Management & Orbital Mechanics (`src/fleets/`)
 - **`FleetPlugin`** manages fleet spawning, transfer planning, and ECS lifecycle
@@ -302,7 +331,7 @@ When adding new UI icons (menus, research categories, etc.), applying the follow
 #### Celestial Body & Texture Modding
 - All solar system data defined in `assets/data/solar_system.ron`
 - Add custom textures by setting the `texture` field in the RON file — no code changes needed
-- See [docs/MODDING.md](docs/MODDING.md) for the full texture and body modding guide
+- See [docs/MODDING.md](../docs/MODDING.md) for the full texture and body modding guide
 
 #### Celestial Bodies & Astronomy
 - All astronomical data is based on real NASA/IAU sources
@@ -388,6 +417,7 @@ When adding new UI icons (menus, research categories, etc.), applying the follow
 - **Cleanliness**: Maintain a clean project root. Move detailed docs to `docs/`, `docs/design/`, or `docs/archive/`.
 - **Maintenance**: ALWAYS prefer updating existing documents over creating new ones. Consolidate related information.
 - **Synchronization**: Ensure every code change is reflected in the relevant documentation immediately.
+- **Canonical Data Files**: For shipbuilding and tech-tree work, keep a single source of truth in the main `assets/data/*.ron` files and delete one-off generated variants after consolidation.
 - **Review**: Regularly scan detailed documentation (`docs/`) to ensure it matches the current codebase state.
 - **Reference Material Only**: Documentation in `docs/` should be reference material (guides, architecture, APIs), not progress reports or PR summaries.
 - Document all public APIs with `///` doc comments
@@ -399,6 +429,7 @@ When adding new UI icons (menus, research categories, etc.), applying the follow
 - All egui-using systems must be placed in the `EguiPrimaryContextPass` schedule (from `bevy_egui`), **not** `Update`
 - This is required because `bevy_egui` 0.36+ runs its context setup in a separate pass; calling `available_rect()` before the context is ready causes a panic
 - Example: `.add_systems(EguiPrimaryContextPass, my_egui_system)`
+- This applies to **egui systems only**. Native Bevy UI systems such as `src/ui/shipbuilding_workspace.rs` stay in normal Bevy schedules like `Startup` or `Update`
 
 ### Bevy 0.18 Feature Collections
 - Bevy 0.18 introduced high-level cargo feature collections: `2d`, `3d`, `ui`

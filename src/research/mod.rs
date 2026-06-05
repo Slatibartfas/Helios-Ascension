@@ -22,8 +22,8 @@ pub use components::{
 pub use data::{load_technologies, TechnologiesData};
 pub use systems::{
     advance_engineering_projects, advance_research_projects, apply_debug_modifiers,
-    check_unlocked_technologies, initialize_baseline_technology, update_research_points,
-    ResearchState,
+    check_unlocked_technologies, initialize_baseline_engineering, initialize_baseline_technology,
+    update_research_points, ResearchState,
 };
 pub use types::{ModifierType, TechCategory, TechModifierDef, Technology, TechnologyId};
 
@@ -140,6 +140,8 @@ impl TechEditData {
 pub struct PendingResearchActions {
     /// Tech IDs that the user wants to begin researching.
     pub start_research: Vec<TechnologyId>,
+    /// Component or engineering target IDs that the user wants to begin engineering.
+    pub start_engineering: Vec<String>,
     /// Tech IDs that the user wants to pause researching (preserves progress, frees team slot).
     pub stop_research: Vec<TechnologyId>,
     /// Tech IDs that the user wants to resume researching.
@@ -150,6 +152,8 @@ pub struct PendingResearchActions {
     pub navigate_to_available_tab: bool,
     /// Whether to navigate to the Available Engineering tab.
     pub navigate_to_available_engineering_tab: bool,
+    /// Preferred engineering target to preselect after navigating to the engineering tab.
+    pub navigate_to_engineering_target: Option<String>,
     /// Updated allocation percentages: (tech_id, new_percent)
     pub update_allocations: Vec<(TechnologyId, f64)>,
 }
@@ -168,13 +172,22 @@ impl Plugin for ResearchPlugin {
             .init_resource::<ResearchTeamCapacity>()
             // Startup systems
             .add_systems(Startup, load_technologies)
-            .add_systems(PostStartup, initialize_baseline_technology)
+            .add_systems(
+                PostStartup,
+                (
+                    systems::merge_ship_module_engineering_catalog,
+                    initialize_baseline_technology,
+                    initialize_baseline_engineering,
+                )
+                    .chain(),
+            )
             // Update systems
             .add_systems(
                 Update,
                 (
                     update_research_points,
                     systems::process_pending_research,
+                    systems::process_pending_engineering,
                     systems::process_stop_research,
                     systems::process_allocation_updates,
                     advance_research_projects,

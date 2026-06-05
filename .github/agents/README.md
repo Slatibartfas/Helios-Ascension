@@ -75,6 +75,28 @@ Claude Code provides built-in agents that can be invoked via the `Agent` tool. B
 - Consider Bevy plugin patterns
 - Reference existing implementations in `src/plugins/`
 
+### 6. Shipbuilding Data Agent
+
+**Use for**: Editing hulls, ship modules, slot categories, construction data, and ship tech coupling
+
+**Best practices for this project**:
+- Treat `assets/data/ship_hulls.ron` and `assets/data/ship_modules.ron` as canonical
+- Check `src/shipbuilding/data.rs`, `src/shipbuilding/types.rs`, and `src/research/data.rs` before adding new fields or enum values
+- Verify module IDs stay unique and enum/resource names match Rust definitions exactly
+- Prefer shared `required_component_design` family IDs over one-off engineering targets for module variants
+- Keep `required_tech`, `required_component_design`, and tech `unlocks_engineering` entries aligned so shipbuilding and research do not drift apart
+- Validate with `cargo build` and a short `cargo run` because RON and duplicate-ID issues surface at runtime
+
+### 7. Tech Tree Data Agent
+
+**Use for**: Editing `assets/data/technologies.ron`, engineering components, prerequisites, and module unlock coupling
+
+**Best practices for this project**:
+- Keep technologies in the `technologies` array and engineering components in the `components` array
+- Check unlock coupling between `unlocks_components`, `unlocks_engineering`, engineering definitions, ship module `required_tech`, and ship module `required_component_design`
+- Preserve RON structure carefully during bulk edits
+- Update `docs/SHIPBUILDING.md` and `.github/copilot-instructions.md` when data workflow changes
+
 ---
 
 ## How to Use These Agents
@@ -111,3 +133,5 @@ This invokes the built-in simplify skill which reviews changed code for reuse, q
 | Plan implementation | `Plan` | Architecture & steps |
 | Debug issues | `general-purpose` | Root cause analysis |
 | Update docs | `Explore` | Find related code |
+| Shipbuilding data work | custom prompt | Hulls, modules, slot/category coupling |
+| Tech tree data work | custom prompt | Technologies, prerequisites, engineering coupling |

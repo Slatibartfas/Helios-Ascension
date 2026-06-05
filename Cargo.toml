@@ -48,6 +48,9 @@ rand = "0.9"
 serde_json = "1.0.149"
 image = "0.25"
 
+# UUIDs for stable entity identification
+uuid = { version = "1.0", features = ["serde", "v4"] }
+
 [profile.dev]
 opt-level = 1
 

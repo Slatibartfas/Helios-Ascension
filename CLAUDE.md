@@ -43,9 +43,10 @@ src/
 ├── colony/          # Buildings, construction, population growth
 ├── economy/         # Resources, mining, budget, energy grid
 ├── fleets/         # Ships, maneuvers, Hohmann transfers
-├── research/       # Technology tree, unlocks
+├── research/       # Technology tree, engineering, unlock catalogs
+├── shipbuilding/   # Hull/module data, construction projects, refit, slipways
 ├── plugins/        # Camera, music, solar_system, atmosphere, visual effects
-├── ui/             # Egui panels: dashboard, research, construction, economy, fleets
+├── ui/             # Dashboard, research panels, and native shipbuilding workspace
 └── render/         # Skybox, backdrop
 ```
 
@@ -90,8 +91,17 @@ All egui systems must run in `EguiPrimaryContextPass`, not `Update`:
 
 - Buildings: `assets/data/buildings.ron`
 - Technologies: `assets/data/technologies.ron`
+- Ship hulls: `assets/data/ship_hulls.ron`
+- Ship modules: `assets/data/ship_modules.ron`
 - Solar system: `assets/data/solar_system.ron`
 - Stars: `assets/data/nearest_stars_raw.json`
+
+### Shipbuilding Progression
+
+- `src/ui/shipbuilding_workspace.rs` is the only shipbuilding UI path
+- Ship module families should use `required_component_design` to share one engineering project instead of creating parallel unlock paths
+- The corresponding technology should expose that family via `unlocks_engineering` so the tech tree and engineering list stay synchronized
+- Validate ship data changes with both `cargo build` and `cargo run`; malformed RON and bad IDs are still runtime failures
 
 ## Fleet Mechanics
 

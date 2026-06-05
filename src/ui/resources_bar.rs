@@ -97,6 +97,947 @@ pub(super) struct OpenResourcePopup {
     open: Option<(String, egui::Rect)>,
 }
 
+const HISTORY_PANEL_SECONDS: f64 = crate::economy::HISTORY_MAX_AGE_SECONDS;
+
+#[derive(Debug, Clone)]
+struct HistoryPoint {
+    sim_seconds: f64,
+    value: f64,
+    value_text: String,
+    detail_text: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct HistorySeriesData {
+    title: String,
+    headline: String,
+    supporting_text: String,
+    accent: egui::Color32,
+    points: Vec<HistoryPoint>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum HistoryTimeAxisMode {
+    #[default]
+    RelativeYears,
+    CalendarYears,
+}
+
+#[derive(Debug, Clone)]
+struct HistoryCursorInfo {
+    sim_seconds: f64,
+    value_text: String,
+    detail_text: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum HistoryPanelMetric {
+    #[default]
+    Kardashev,
+    PowerProduced,
+    Population,
+    Colonies,
+    Ships,
+    SurveyCoverage,
+    SurveyedBodies,
+    ResourceStockpile,
+    ResourceNetRate,
+    ResourceProduction,
+    ResourceConsumption,
+}
+
+impl HistoryPanelMetric {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Kardashev => "Kardashev Scale",
+            Self::PowerProduced => "Power Produced",
+            Self::Population => "Population",
+            Self::Colonies => "Colonies",
+            Self::Ships => "Ships",
+            Self::SurveyCoverage => "Survey Coverage",
+            Self::SurveyedBodies => "Surveyed Bodies",
+            Self::ResourceStockpile => "Resource Stockpile",
+            Self::ResourceNetRate => "Resource Net Rate",
+            Self::ResourceProduction => "Resource Production",
+            Self::ResourceConsumption => "Resource Consumption",
+        }
+    }
+
+    fn selection_label(self, resource: ResourceType) -> String {
+        if self.is_resource_metric() {
+            format!("{}: {}", self.label(), resource.display_name())
+        } else {
+            self.label().to_string()
+        }
+    }
+
+    fn is_resource_metric(self) -> bool {
+        matches!(
+            self,
+            Self::ResourceStockpile
+                | Self::ResourceNetRate
+                | Self::ResourceProduction
+                | Self::ResourceConsumption
+        )
+    }
+
+    fn accent(self, resource: ResourceType) -> egui::Color32 {
+        match self {
+            Self::Kardashev => theme::CAT_STRATEGIC,
+            Self::PowerProduced => theme::ACCENT,
+            Self::Population => egui::Color32::from_rgb(116, 224, 170),
+            Self::Colonies => egui::Color32::from_rgb(236, 197, 96),
+            Self::Ships => egui::Color32::from_rgb(120, 178, 255),
+            Self::SurveyCoverage | Self::SurveyedBodies => egui::Color32::from_rgb(121, 235, 210),
+            Self::ResourceStockpile
+            | Self::ResourceNetRate
+            | Self::ResourceProduction
+            | Self::ResourceConsumption => get_category_color(resource.category()),
+        }
+    }
+
+    fn title(self, resource: ResourceType) -> String {
+        match self {
+            Self::Kardashev => "Kardashev Development".to_string(),
+            Self::PowerProduced => "Power Production History".to_string(),
+            Self::Population => "Population History".to_string(),
+            Self::Colonies => "Colony Count History".to_string(),
+            Self::Ships => "Ship Count History".to_string(),
+            Self::SurveyCoverage => "Survey Coverage History".to_string(),
+            Self::SurveyedBodies => "Surveyed Bodies History".to_string(),
+            Self::ResourceStockpile => format!("{} Stockpile History", resource.display_name()),
+            Self::ResourceNetRate => format!("{} Net Flow History", resource.display_name()),
+            Self::ResourceProduction => {
+                format!("{} Gross Production History", resource.display_name())
+            }
+            Self::ResourceConsumption => {
+                format!("{} Gross Consumption History", resource.display_name())
+            }
+        }
+    }
+}
+
+pub(super) struct KardashevTrendState {
+    detail_open: bool,
+    axis_mode: HistoryTimeAxisMode,
+    metric: HistoryPanelMetric,
+    resource: ResourceType,
+    last_window_pos: Option<egui::Pos2>,
+}
+
+impl Default for KardashevTrendState {
+    fn default() -> Self {
+        Self {
+            detail_open: false,
+            axis_mode: HistoryTimeAxisMode::RelativeYears,
+            metric: HistoryPanelMetric::Kardashev,
+            resource: ResourceType::Iron,
+            last_window_pos: None,
+        }
+    }
+}
+
+impl KardashevTrendState {
+    fn open_metric(&mut self, metric: HistoryPanelMetric) {
+        self.detail_open = true;
+        self.metric = metric;
+    }
+}
+
+fn surveyed_body_count(sample: &crate::economy::SimulationHistorySample) -> u32 {
+    sample
+        .survey
+        .total_bodies
+        .saturating_sub(sample.survey.unsurveyed)
+}
+
+fn build_kardashev_history(
+    simulation_history: &crate::economy::SimulationHistory,
+    current_sim_seconds: f64,
+) -> Vec<HistoryPoint> {
+    simulation_history
+        .samples_within_window(current_sim_seconds, HISTORY_PANEL_SECONDS)
+        .map(|sample| {
+            let power = sample.power_produced_watts.max(1.0);
+            let kardashev = crate::economy::kardashev_scale_from_watts(power);
+            HistoryPoint {
+                sim_seconds: sample.sim_seconds,
+                value: kardashev,
+                value_text: format!("Type {kardashev:.3}"),
+                detail_text: Some(format!("Power production {}", format_power(power))),
+            }
+        })
+        .collect()
+}
+
+fn format_monthly_throughput(value: f64) -> String {
+    format!("{} /mo", format_mass(value))
+}
+
+fn format_history_value(metric: HistoryPanelMetric, value: f64, resource: ResourceType) -> String {
+    match metric {
+        HistoryPanelMetric::Kardashev => format!("Type {value:.3}"),
+        HistoryPanelMetric::PowerProduced => format_power(value.max(0.0)),
+        HistoryPanelMetric::Population => format_population(value),
+        HistoryPanelMetric::Colonies
+        | HistoryPanelMetric::Ships
+        | HistoryPanelMetric::SurveyedBodies => format!("{value:.0}"),
+        HistoryPanelMetric::SurveyCoverage => format!("{value:.1}%"),
+        HistoryPanelMetric::ResourceStockpile => format_mass(value),
+        HistoryPanelMetric::ResourceNetRate => format_rate_monthly(value).0,
+        HistoryPanelMetric::ResourceProduction | HistoryPanelMetric::ResourceConsumption => {
+            let _ = resource;
+            format_monthly_throughput(value)
+        }
+    }
+}
+
+fn format_history_axis_value(
+    metric: HistoryPanelMetric,
+    value: f64,
+    resource: ResourceType,
+) -> String {
+    match metric {
+        HistoryPanelMetric::Kardashev => format!("{value:.3}"),
+        HistoryPanelMetric::SurveyCoverage => format!("{value:.0}%"),
+        _ => format_history_value(metric, value, resource),
+    }
+}
+
+fn build_history_series(
+    simulation_history: &crate::economy::SimulationHistory,
+    current_sim_seconds: f64,
+    metric: HistoryPanelMetric,
+    resource: ResourceType,
+) -> HistorySeriesData {
+    let points: Vec<HistoryPoint> = simulation_history
+        .samples_within_window(current_sim_seconds, HISTORY_PANEL_SECONDS)
+        .map(|sample| {
+            let (value, detail_text) = match metric {
+                HistoryPanelMetric::Kardashev => {
+                    let power = sample.power_produced_watts.max(1.0);
+                    (
+                        crate::economy::kardashev_scale_from_watts(power),
+                        Some(format!("Power production {}", format_power(power))),
+                    )
+                }
+                HistoryPanelMetric::PowerProduced => (
+                    sample.power_produced_watts,
+                    Some(format!(
+                        "Power consumed {}",
+                        format_power(sample.power_consumed_watts)
+                    )),
+                ),
+                HistoryPanelMetric::Population => (
+                    sample.total_population,
+                    Some(format!("Colonies {}", sample.colony_count)),
+                ),
+                HistoryPanelMetric::Colonies => (
+                    sample.colony_count as f64,
+                    Some(format!(
+                        "Population {}",
+                        format_population(sample.total_population)
+                    )),
+                ),
+                HistoryPanelMetric::Ships => (
+                    sample.ship_count as f64,
+                    Some(format!("Colonies {}", sample.colony_count)),
+                ),
+                HistoryPanelMetric::SurveyCoverage => {
+                    let surveyed = surveyed_body_count(sample);
+                    let total = sample.survey.total_bodies.max(1);
+                    (
+                        surveyed as f64 * 100.0 / total as f64,
+                        Some(format!(
+                            "{surveyed}/{} bodies surveyed",
+                            sample.survey.total_bodies
+                        )),
+                    )
+                }
+                HistoryPanelMetric::SurveyedBodies => {
+                    let surveyed = surveyed_body_count(sample);
+                    (
+                        surveyed as f64,
+                        Some(format!(
+                            "{} total bodies tracked",
+                            sample.survey.total_bodies
+                        )),
+                    )
+                }
+                HistoryPanelMetric::ResourceStockpile => (
+                    sample.resource_amount(resource),
+                    Some(format!(
+                        "{} ({})",
+                        resource.display_name(),
+                        resource.symbol()
+                    )),
+                ),
+                HistoryPanelMetric::ResourceNetRate => (
+                    sample.resource_net_rate(resource),
+                    Some(format!("{} net monthly flow", resource.display_name())),
+                ),
+                HistoryPanelMetric::ResourceProduction => (
+                    sample.resource_gross_production_rate(resource),
+                    Some(format!(
+                        "{} gross monthly production",
+                        resource.display_name()
+                    )),
+                ),
+                HistoryPanelMetric::ResourceConsumption => (
+                    sample.resource_gross_consumption_rate(resource),
+                    Some(format!(
+                        "{} gross monthly consumption",
+                        resource.display_name()
+                    )),
+                ),
+            };
+
+            HistoryPoint {
+                sim_seconds: sample.sim_seconds,
+                value,
+                value_text: format_history_value(metric, value, resource),
+                detail_text,
+            }
+        })
+        .collect();
+
+    let headline = points
+        .last()
+        .map(|point| point.value_text.clone())
+        .unwrap_or_else(|| "Awaiting history samples".to_string());
+    let supporting_text = match (metric, simulation_history.latest()) {
+        (HistoryPanelMetric::Kardashev, Some(sample)) => {
+            format!(
+                "Power production: {}",
+                format_power(sample.power_produced_watts.max(1.0))
+            )
+        }
+        (HistoryPanelMetric::PowerProduced, Some(sample)) => {
+            format!(
+                "Current consumption: {}",
+                format_power(sample.power_consumed_watts)
+            )
+        }
+        (HistoryPanelMetric::Population, Some(sample)) => {
+            format!("Colonies tracked: {}", sample.colony_count)
+        }
+        (HistoryPanelMetric::Colonies, Some(sample)) => {
+            format!("Population: {}", format_population(sample.total_population))
+        }
+        (HistoryPanelMetric::Ships, Some(sample)) => {
+            format!("Colony count: {}", sample.colony_count)
+        }
+        (HistoryPanelMetric::SurveyCoverage | HistoryPanelMetric::SurveyedBodies, Some(sample)) => {
+            let surveyed = surveyed_body_count(sample);
+            format!("Surveyed bodies: {surveyed}/{}", sample.survey.total_bodies)
+        }
+        (HistoryPanelMetric::ResourceStockpile, _) => {
+            format!("{} ({})", resource.display_name(), resource.category())
+        }
+        (HistoryPanelMetric::ResourceNetRate, _) => {
+            format!("{} net flow per month", resource.display_name())
+        }
+        (HistoryPanelMetric::ResourceProduction, _) => {
+            format!("{} gross production per month", resource.display_name())
+        }
+        (HistoryPanelMetric::ResourceConsumption, _) => {
+            format!("{} gross consumption per month", resource.display_name())
+        }
+        (_, None) => format!(
+            "Last {:.0} years, oldest on the left",
+            crate::economy::HISTORY_MAX_AGE_YEARS
+        ),
+    };
+
+    HistorySeriesData {
+        title: metric.title(resource),
+        headline,
+        supporting_text,
+        accent: metric.accent(resource),
+        points,
+    }
+}
+
+fn current_calendar_year(sim_time: &SimulationTime) -> f64 {
+    sim_time
+        .format_date_time()
+        .split(['.', ' '])
+        .nth(2)
+        .and_then(|year| year.parse::<f64>().ok())
+        .unwrap_or(2026.0)
+}
+
+fn format_history_time_label(
+    axis_mode: HistoryTimeAxisMode,
+    current_year: f64,
+    current_sim_seconds: f64,
+    target_sim_seconds: f64,
+    with_fraction: bool,
+) -> String {
+    let years_ago =
+        ((current_sim_seconds - target_sim_seconds) / crate::economy::SECONDS_PER_YEAR).max(0.0);
+    match axis_mode {
+        HistoryTimeAxisMode::RelativeYears => {
+            if years_ago <= 0.25 {
+                "Now".to_string()
+            } else if with_fraction {
+                format!("{years_ago:.1}y ago")
+            } else {
+                format!("{years_ago:.0}y ago")
+            }
+        }
+        HistoryTimeAxisMode::CalendarYears => {
+            let year = current_year - years_ago;
+            if with_fraction {
+                format!("{year:.1}")
+            } else {
+                format!("{year:.0}")
+            }
+        }
+    }
+}
+
+fn render_history_plot(
+    ui: &mut egui::Ui,
+    series: &HistorySeriesData,
+    current_sim_seconds: f64,
+    current_year: f64,
+    axis_mode: HistoryTimeAxisMode,
+    metric: HistoryPanelMetric,
+    resource: ResourceType,
+    desired_size: egui::Vec2,
+    interactive: bool,
+) -> Option<HistoryCursorInfo> {
+    let sense = egui::Sense::hover();
+    let (rect, response) = ui.allocate_exact_size(desired_size, sense);
+    let painter = ui.painter();
+
+    painter.rect_filled(rect, 4.0, theme::SURFACE);
+    painter.rect_stroke(
+        rect,
+        4.0,
+        egui::Stroke::new(1.0, theme::BORDER),
+        egui::StrokeKind::Outside,
+    );
+
+    if series.points.len() < 2 {
+        painter.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "Awaiting history samples",
+            theme::body(11.0),
+            theme::TEXT_DIM,
+        );
+        return None;
+    }
+
+    let plot_rect = rect.shrink2(egui::vec2(10.0, 16.0));
+    let window_start = current_sim_seconds - HISTORY_PANEL_SECONDS;
+    let (min_y, max_y) = compute_history_y_bounds(series, metric);
+
+    let to_screen = |sim_seconds: f64, value: f64| {
+        let x_t = ((sim_seconds - window_start) / HISTORY_PANEL_SECONDS).clamp(0.0, 1.0);
+        let y_t = ((value - min_y) / (max_y - min_y)).clamp(0.0, 1.0);
+        egui::pos2(
+            plot_rect.left() + plot_rect.width() * x_t as f32,
+            plot_rect.bottom() - plot_rect.height() * y_t as f32,
+        )
+    };
+
+    for tick in 0..=4 {
+        let t = tick as f64 / 4.0;
+        let x = egui::lerp(plot_rect.left()..=plot_rect.right(), t as f32);
+        painter.line_segment(
+            [
+                egui::pos2(x, plot_rect.top()),
+                egui::pos2(x, plot_rect.bottom()),
+            ],
+            egui::Stroke::new(1.0, theme::BORDER.linear_multiply(0.6)),
+        );
+
+        let tick_sim_seconds = window_start + HISTORY_PANEL_SECONDS * t;
+        let label = format_history_time_label(
+            axis_mode,
+            current_year,
+            current_sim_seconds,
+            tick_sim_seconds,
+            false,
+        );
+        painter.text(
+            egui::pos2(x, rect.bottom() - 2.0),
+            egui::Align2::CENTER_BOTTOM,
+            label,
+            theme::mono(10.0),
+            theme::TEXT_HINT,
+        );
+    }
+
+    for tick in 0..=3 {
+        let t = tick as f64 / 3.0;
+        let y = egui::lerp(plot_rect.bottom()..=plot_rect.top(), t as f32);
+        painter.line_segment(
+            [
+                egui::pos2(plot_rect.left(), y),
+                egui::pos2(plot_rect.right(), y),
+            ],
+            egui::Stroke::new(1.0, theme::BORDER.linear_multiply(0.35)),
+        );
+
+        let value = min_y + (max_y - min_y) * t;
+        painter.text(
+            egui::pos2(plot_rect.left() + 2.0, y - 2.0),
+            egui::Align2::LEFT_BOTTOM,
+            format_history_axis_value(metric, value, resource),
+            theme::mono(10.0),
+            theme::TEXT_HINT,
+        );
+    }
+
+    let line_points: Vec<egui::Pos2> = series
+        .points
+        .iter()
+        .map(|point| to_screen(point.sim_seconds, point.value))
+        .collect();
+    painter.add(egui::Shape::line(
+        line_points,
+        egui::Stroke::new(2.0, series.accent),
+    ));
+
+    if let Some(last) = series.points.last() {
+        let current_pos = to_screen(last.sim_seconds, last.value);
+        painter.circle_filled(current_pos, 3.5, theme::ACCENT);
+        painter.circle_stroke(current_pos, 5.0, egui::Stroke::new(1.0, theme::ACCENT_DIM));
+    }
+
+    if interactive {
+        if let Some(pointer_pos) = response.hover_pos().filter(|pos| plot_rect.contains(*pos)) {
+            let fraction = ((pointer_pos.x - plot_rect.left()) / plot_rect.width()).clamp(0.0, 1.0);
+            let target_sim_seconds = window_start + HISTORY_PANEL_SECONDS * fraction as f64;
+            let nearest_point = series.points.iter().min_by(|left, right| {
+                let left_distance = (left.sim_seconds - target_sim_seconds).abs();
+                let right_distance = (right.sim_seconds - target_sim_seconds).abs();
+                left_distance
+                    .partial_cmp(&right_distance)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })?;
+
+            let nearest_pos = to_screen(nearest_point.sim_seconds, nearest_point.value);
+            painter.line_segment(
+                [
+                    egui::pos2(nearest_pos.x, plot_rect.top()),
+                    egui::pos2(nearest_pos.x, plot_rect.bottom()),
+                ],
+                egui::Stroke::new(1.0, theme::ACCENT),
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(plot_rect.left(), nearest_pos.y),
+                    egui::pos2(plot_rect.right(), nearest_pos.y),
+                ],
+                egui::Stroke::new(1.0, theme::ACCENT_DIM),
+            );
+            painter.circle_filled(nearest_pos, 4.0, theme::ACCENT);
+
+            return Some(HistoryCursorInfo {
+                sim_seconds: nearest_point.sim_seconds,
+                value_text: nearest_point.value_text.clone(),
+                detail_text: nearest_point.detail_text.clone(),
+            });
+        }
+    }
+
+    None
+}
+
+fn percentile_sorted(sorted_values: &[f64], percentile: f64) -> f64 {
+    if sorted_values.is_empty() {
+        return 0.0;
+    }
+
+    let clamped = percentile.clamp(0.0, 1.0);
+    let index = ((sorted_values.len() - 1) as f64 * clamped).round() as usize;
+    sorted_values[index.min(sorted_values.len() - 1)]
+}
+
+fn is_resource_history_metric(metric: HistoryPanelMetric) -> bool {
+    matches!(
+        metric,
+        HistoryPanelMetric::ResourceStockpile
+            | HistoryPanelMetric::ResourceNetRate
+            | HistoryPanelMetric::ResourceProduction
+            | HistoryPanelMetric::ResourceConsumption
+    )
+}
+
+fn compute_history_y_bounds(series: &HistorySeriesData, metric: HistoryPanelMetric) -> (f64, f64) {
+    let mut values: Vec<f64> = series
+        .points
+        .iter()
+        .map(|point| point.value)
+        .filter(|value| value.is_finite())
+        .collect();
+
+    if values.is_empty() {
+        return (0.0, 1.0);
+    }
+
+    values.sort_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
+
+    let raw_min = values[0];
+    let raw_max = *values.last().unwrap_or(&1.0);
+    let non_negative_series = raw_min >= 0.0;
+    let latest_value = series
+        .points
+        .last()
+        .map(|point| point.value)
+        .unwrap_or(raw_max);
+    let use_zero_baseline = non_negative_series
+        && match metric {
+            HistoryPanelMetric::SurveyCoverage => true,
+            _ => raw_min <= (raw_max * 0.25),
+        };
+
+    let mut min_y = if use_zero_baseline { 0.0 } else { raw_min };
+    let mut max_y = raw_max;
+    let value_scale = raw_max.abs().max(raw_min.abs()).max(latest_value.abs());
+    let tiny_padding = value_scale.max(1.0e-9) * 0.25;
+
+    if values.len() >= 8 && use_zero_baseline {
+        let robust_percentile = if is_resource_history_metric(metric) {
+            0.85
+        } else {
+            0.95
+        };
+        let robust_max = percentile_sorted(&values, robust_percentile).max(0.0);
+        let high_outlier_count = values
+            .iter()
+            .filter(|value| **value > robust_max * 2.5)
+            .count();
+
+        if robust_max > 0.0 && raw_max > robust_max * 6.0 && high_outlier_count <= 2 {
+            max_y = robust_max.max(latest_value);
+        }
+
+        if is_resource_history_metric(metric) && latest_value > 0.0 {
+            let current_scale_ceiling = (latest_value * 12.0).max(percentile_sorted(&values, 0.75));
+            if max_y > current_scale_ceiling * 2.0 {
+                max_y = current_scale_ceiling.max(latest_value);
+            }
+        }
+    }
+
+    if (max_y - min_y).abs() < 0.01 {
+        if use_zero_baseline {
+            max_y = (max_y + tiny_padding).max(tiny_padding * 2.0);
+        } else {
+            min_y -= tiny_padding;
+            max_y += tiny_padding;
+        }
+    } else {
+        let padding = (max_y - min_y) * 0.12;
+        if !use_zero_baseline {
+            min_y -= padding;
+        }
+        max_y += padding;
+    }
+
+    if !min_y.is_finite() || !max_y.is_finite() || max_y <= min_y {
+        return (0.0, 1.0);
+    }
+
+    (min_y, max_y)
+}
+
+fn render_kardashev_hover_content(
+    ui: &mut egui::Ui,
+    history: &[HistoryPoint],
+    current_sim_seconds: f64,
+    current_year: f64,
+    current_kardashev: f64,
+    current_power: f64,
+) {
+    ui.set_min_width(260.0);
+    ui.vertical(|ui| {
+        ui.label(
+            egui::RichText::new("Kardashev Development")
+                .font(theme::heading())
+                .color(theme::CAT_STRATEGIC),
+        );
+        ui.label(
+            egui::RichText::new(format!(
+                "Last {:.0} years, oldest on the left",
+                crate::economy::HISTORY_MAX_AGE_YEARS
+            ))
+            .size(10.0)
+            .color(theme::TEXT_DIM),
+        );
+        ui.add_space(4.0);
+        let hover_series = HistorySeriesData {
+            title: "Kardashev Development".to_string(),
+            headline: format!("Type {current_kardashev:.3}"),
+            supporting_text: format!("Power production: {}", format_power(current_power)),
+            accent: HistoryPanelMetric::Kardashev.accent(ResourceType::Iron),
+            points: history.to_vec(),
+        };
+        let _ = render_history_plot(
+            ui,
+            &hover_series,
+            current_sim_seconds,
+            current_year,
+            HistoryTimeAxisMode::RelativeYears,
+            HistoryPanelMetric::Kardashev,
+            ResourceType::Iron,
+            egui::vec2(240.0, 120.0),
+            false,
+        );
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(format!("Type {current_kardashev:.3}"))
+                    .strong()
+                    .color(theme::CAT_STRATEGIC),
+            );
+            ui.separator();
+            ui.label(
+                egui::RichText::new(format_power(current_power))
+                    .monospace()
+                    .color(theme::TEXT_VALUE),
+            );
+        });
+        ui.label(
+            egui::RichText::new("Click to open the full overlay")
+                .size(10.0)
+                .color(theme::TEXT_HINT),
+        );
+    });
+}
+
+fn render_kardashev_overlay(
+    ctx: &egui::Context,
+    trend_state: &mut KardashevTrendState,
+    simulation_history: &crate::economy::SimulationHistory,
+    current_sim_seconds: f64,
+    current_year: f64,
+) {
+    if !trend_state.detail_open {
+        return;
+    }
+
+    let escape_pressed =
+        ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+    if escape_pressed {
+        trend_state.detail_open = false;
+        return;
+    }
+
+    let series = build_history_series(
+        simulation_history,
+        current_sim_seconds,
+        trend_state.metric,
+        trend_state.resource,
+    );
+
+    let mut still_open = true;
+    let scrim_painter = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Background,
+        egui::Id::new("kardashev_overlay_scrim"),
+    ));
+    scrim_painter.rect_filled(
+        ctx.content_rect(),
+        0.0,
+        egui::Color32::from_rgba_premultiplied(4, 6, 12, 104),
+    );
+
+    let centered_pos = {
+        let content_rect = ctx.content_rect();
+        egui::pos2(
+            content_rect.center().x - 480.0,
+            content_rect.center().y - 310.0,
+        )
+    };
+
+    let mut window = egui::Window::new(series.title.as_str())
+        .id(egui::Id::new("history_overlay"))
+        .collapsible(false)
+        .resizable(false)
+        .movable(true)
+        .fixed_size(egui::vec2(960.0, 620.0))
+        .open(&mut still_open)
+        .frame(theme::elevated_frame());
+
+    window = if let Some(last_pos) = trend_state.last_window_pos {
+        window.current_pos(last_pos)
+    } else {
+        window.default_pos(centered_pos)
+    };
+
+    let window_response = window.show(ctx, |ui| {
+        ui.set_min_width(960.0);
+        ui.set_max_width(960.0);
+
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                ui.label(
+                    egui::RichText::new(series.headline.as_str())
+                        .font(theme::title())
+                        .color(series.accent),
+                );
+                ui.label(
+                    egui::RichText::new(series.supporting_text.as_str())
+                        .font(theme::mono(11.0))
+                        .color(theme::TEXT_DIM),
+                );
+            });
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("Close").clicked() {
+                    trend_state.detail_open = false;
+                }
+            });
+        });
+
+        ui.add_space(8.0);
+        ui.horizontal_wrapped(|ui| {
+            ui.label(
+                egui::RichText::new("Metric")
+                    .font(theme::mono(10.0))
+                    .color(theme::TEXT_DIM),
+            );
+            egui::ComboBox::from_id_salt("history_panel_metric")
+                .selected_text(trend_state.metric.selection_label(trend_state.resource))
+                .show_ui(ui, |ui| {
+                    for metric in [
+                        HistoryPanelMetric::Kardashev,
+                        HistoryPanelMetric::PowerProduced,
+                        HistoryPanelMetric::Population,
+                        HistoryPanelMetric::Colonies,
+                        HistoryPanelMetric::Ships,
+                        HistoryPanelMetric::SurveyCoverage,
+                        HistoryPanelMetric::SurveyedBodies,
+                        HistoryPanelMetric::ResourceStockpile,
+                        HistoryPanelMetric::ResourceNetRate,
+                        HistoryPanelMetric::ResourceProduction,
+                        HistoryPanelMetric::ResourceConsumption,
+                    ] {
+                        ui.selectable_value(&mut trend_state.metric, metric, metric.label());
+                    }
+                });
+
+            if trend_state.metric.is_resource_metric() {
+                ui.separator();
+                ui.label(
+                    egui::RichText::new("Resource")
+                        .font(theme::mono(10.0))
+                        .color(theme::TEXT_DIM),
+                );
+                egui::ComboBox::from_id_salt("history_panel_resource")
+                    .selected_text(format!(
+                        "{} {}",
+                        get_resource_icon(&trend_state.resource),
+                        trend_state.resource.display_name()
+                    ))
+                    .show_ui(ui, |ui| {
+                        for resource in ResourceType::all() {
+                            ui.selectable_value(
+                                &mut trend_state.resource,
+                                *resource,
+                                format!(
+                                    "{} {}",
+                                    get_resource_icon(resource),
+                                    resource.display_name()
+                                ),
+                            );
+                        }
+                    });
+            }
+
+            ui.separator();
+            ui.label(
+                egui::RichText::new("Time Axis")
+                    .font(theme::mono(10.0))
+                    .color(theme::TEXT_DIM),
+            );
+            ui.selectable_value(
+                &mut trend_state.axis_mode,
+                HistoryTimeAxisMode::RelativeYears,
+                "Years Ago",
+            );
+            ui.selectable_value(
+                &mut trend_state.axis_mode,
+                HistoryTimeAxisMode::CalendarYears,
+                "Calendar Years",
+            );
+        });
+
+        ui.add_space(8.0);
+        let cursor_info = render_history_plot(
+            ui,
+            &series,
+            current_sim_seconds,
+            current_year,
+            trend_state.axis_mode,
+            trend_state.metric,
+            trend_state.resource,
+            egui::vec2(920.0, 420.0),
+            true,
+        );
+
+        ui.add_space(8.0);
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), 24.0),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                if let Some(cursor) = cursor_info {
+                    ui.label(
+                        egui::RichText::new("Cursor")
+                            .font(theme::mono(10.0))
+                            .color(theme::TEXT_DIM),
+                    );
+                    ui.separator();
+                    ui.label(
+                        egui::RichText::new(format_history_time_label(
+                            trend_state.axis_mode,
+                            current_year,
+                            current_sim_seconds,
+                            cursor.sim_seconds,
+                            true,
+                        ))
+                        .font(theme::mono(11.0))
+                        .color(theme::TEXT_VALUE),
+                    );
+                    ui.separator();
+                    ui.label(
+                        egui::RichText::new(cursor.value_text.as_str())
+                            .font(theme::mono(11.0))
+                            .color(series.accent),
+                    );
+                    if let Some(detail_text) = cursor.detail_text.as_deref() {
+                        ui.separator();
+                        ui.label(
+                            egui::RichText::new(detail_text)
+                                .font(theme::mono(11.0))
+                                .color(theme::TEXT_VALUE),
+                        );
+                    }
+                } else {
+                    ui.label(
+                        egui::RichText::new("Hover the plot to inspect a point in the history.")
+                            .size(10.0)
+                            .color(theme::TEXT_DIM),
+                    );
+                }
+            },
+        );
+    });
+
+    if let Some(window_response) = window_response {
+        trend_state.last_window_pos = Some(window_response.response.rect.min);
+    }
+
+    if !still_open {
+        trend_state.detail_open = false;
+    }
+}
+
 #[derive(SystemParam)]
 pub(super) struct ResourceBarPowerQueries<'w, 's> {
     body_query: Query<
@@ -122,6 +1063,13 @@ pub(super) struct ResourceBarPowerQueries<'w, 's> {
         With<crate::plugins::solar_system::Star>,
     >,
     buildings_data: Option<Res<'w, BuildingsData>>,
+}
+
+#[derive(SystemParam)]
+pub(super) struct ResourceBarUiRuntime<'w> {
+    sim_time: Res<'w, SimulationTime>,
+    time: Res<'w, Time<Real>>,
+    ui_prefs: Res<'w, ResearchUiPreferences>,
 }
 
 const CONTEXT_TILE_WIDTH: f32 = 88.0;
@@ -188,14 +1136,24 @@ pub(super) fn ui_resources_bar(
     engineering_projects: Query<&EngineeringProject>,
     research_teams: Query<&ResearchTeam>,
     technologies: Res<TechnologiesData>,
-    sim_time: Res<SimulationTime>,
-    time: Res<Time<Real>>,
-    ui_prefs: Res<ResearchUiPreferences>,
+    sim_history: Res<crate::economy::SimulationHistory>,
+    ui_runtime: ResourceBarUiRuntime,
+    mut kardashev_trend: Local<KardashevTrendState>,
 ) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
         Err(_) => return,
     };
+
+    let sim_time = &ui_runtime.sim_time;
+    let time = &ui_runtime.time;
+    let ui_prefs = &ui_runtime.ui_prefs;
+
+    let current_sim_seconds = sim_time.elapsed_seconds();
+    let current_power = budget.energy_grid.produced.max(1.0);
+    let current_kardashev = crate::economy::kardashev_scale_from_watts(current_power);
+    let current_year = current_calendar_year(sim_time);
+    let kardashev_history = build_kardashev_history(&sim_history, current_sim_seconds);
 
     // Calculate total population
     let total_population: f64 = population_query.iter().map(|(p, _, _)| p.count).sum();
@@ -586,17 +1544,61 @@ pub(super) fn ui_resources_bar(
                     // Kardashev scale calculation (based on total power)
                     // type I: 10^16 W, Type II: 10^26 W. Scale is logarithmic.
                     // K = (log10(Power_in_Watts) - 6) / 10 is the Carl Sagan formula.
-                    let produced_watts = budget.energy_grid.produced.max(1.0); // avoid log(0) or negative
-                    let kardashev = (produced_watts.log10() - 6.0) / 10.0;
+                    let kardashev_response = egui::Frame::NONE
+                        .inner_margin(egui::Margin::symmetric(3, 2))
+                        .show(ui, |ui| {
+                            ui.horizontal_centered(|ui| {
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(format!(
+                                            "Type {:.3}",
+                                            current_kardashev
+                                        ))
+                                        .size(14.0)
+                                        .color(theme::CAT_STRATEGIC),
+                                    )
+                                    .selectable(false),
+                                );
+                            });
+                        })
+                        .response;
 
-                    ui.add(
-                        egui::Label::new(
-                            egui::RichText::new(format!("Type {:.3}", kardashev.max(0.0)))
-                                .size(14.0)
-                                .color(theme::CAT_STRATEGIC),
-                        )
-                        .selectable(false),
-                    );
+                    let kardashev_interact = kardashev_response.interact(egui::Sense::click());
+                    if kardashev_interact.hovered() || kardashev_trend.detail_open {
+                        ui.painter().rect_stroke(
+                            kardashev_interact.rect,
+                            2.0,
+                            egui::Stroke::new(1.0, theme::CAT_STRATEGIC),
+                            egui::StrokeKind::Outside,
+                        );
+                    }
+
+                    if kardashev_interact.hovered() && !kardashev_trend.detail_open {
+                        ctx.request_repaint();
+                    }
+
+                    let kardashev_hover = kardashev_interact
+                        .clone()
+                        .on_hover_cursor(egui::CursorIcon::PointingHand);
+                    if !kardashev_trend.detail_open {
+                        kardashev_hover.on_hover_ui(|ui| {
+                            theme::tooltip_frame().show(ui, |ui| {
+                                render_kardashev_hover_content(
+                                    ui,
+                                    &kardashev_history,
+                                    current_sim_seconds,
+                                    current_year,
+                                    current_kardashev,
+                                    current_power,
+                                );
+                            });
+                        });
+                    }
+
+                    if kardashev_interact.clicked() {
+                        open_popup.open = None;
+                        kardashev_trend.open_metric(HistoryPanelMetric::Kardashev);
+                    }
 
                     ui.separator();
 
@@ -1724,6 +2726,14 @@ pub(super) fn ui_resources_bar(
             open_popup.open = None;
         }
     }
+
+    render_kardashev_overlay(
+        ctx,
+        &mut kardashev_trend,
+        &sim_history,
+        current_sim_seconds,
+        current_year,
+    );
 }
 
 pub(super) fn format_population(count: f64) -> String {

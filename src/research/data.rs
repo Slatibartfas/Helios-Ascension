@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 
+use crate::shipbuilding::ShipbuildingData;
+
 use super::types::{ComponentDefinition, Technology, TechnologyId};
 
 /// Resource that holds all technology definitions loaded from data files
@@ -12,6 +14,8 @@ pub struct TechnologiesData {
     pub technologies: HashMap<TechnologyId, Technology>,
     /// All component definitions
     pub components: HashMap<String, ComponentDefinition>,
+    /// Human-readable hull unlocks grouped by technology ID.
+    pub hull_unlocks: HashMap<TechnologyId, Vec<String>>,
 }
 
 impl TechnologiesData {
@@ -41,6 +45,57 @@ impl TechnologiesData {
                 .all(|prereq| unlocked.contains(prereq))
         } else {
             false
+        }
+    }
+
+    fn unlocking_tech_for_component(&self, component_id: &str) -> Option<String> {
+        self.technologies.values().find_map(|tech| {
+            if tech.unlocks_components.iter().any(|id| id == component_id)
+                || tech.unlocks_engineering.iter().any(|id| id == component_id)
+            {
+                Some(tech.id.clone())
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn merge_ship_modules_as_components(&mut self, shipbuilding_data: &ShipbuildingData) {
+        for module in shipbuilding_data.modules.values() {
+            let component_id = module.engineering_project_id().to_string();
+            let required_tech = module
+                .required_tech
+                .clone()
+                .or_else(|| self.unlocking_tech_for_component(&component_id))
+                .unwrap_or_default();
+            self.components
+                .entry(component_id.clone())
+                .or_insert_with(|| ComponentDefinition {
+                    id: component_id,
+                    name: module.display_name.clone(),
+                    description: module.description.clone(),
+                    engineering_cost: module.build_points.max(1.0),
+                    required_tech,
+                });
+        }
+
+        self.hull_unlocks.clear();
+        for hull in shipbuilding_data.hulls.values() {
+            let Some(tech_id) = hull.required_tech.as_ref() else {
+                continue;
+            };
+            self.hull_unlocks
+                .entry(tech_id.clone())
+                .or_default()
+                .push(format!(
+                    "{} ({})",
+                    hull.display_name,
+                    hull.class.display_name()
+                ));
+        }
+
+        for hulls in self.hull_unlocks.values_mut() {
+            hulls.sort();
         }
     }
 }

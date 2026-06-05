@@ -736,63 +736,117 @@ fn render_fleet_ledger_tree(
 }
 
 /// Compact mass format for tight UI tiles — no space before unit, single decimal.
+/// Input is in MEGATONS and preserves the long-standing UI semantics used
+/// across colony, dossier, and economy panels.
 pub(super) fn format_mass_compact(megatons: f64) -> String {
     let abs_val = megatons.abs();
     if abs_val < 1e-9 {
         return "0".to_string();
     }
     if abs_val < 0.001 {
-        let t = megatons * 1_000_000.0;
-        return if t.abs() < 10.0 {
-            format!("{:.1}t", t)
+        let tonnes = megatons * 1_000_000.0;
+        if tonnes.abs() < 10.0 {
+            format!("{:.1}t", tonnes)
         } else {
-            format!("{:.0}t", t)
-        };
-    }
-    if abs_val < 1.0 {
+            format!("{:.0}t", tonnes)
+        }
+    } else if abs_val < 1.0 {
         let kt = megatons * 1000.0;
-        return if kt.abs() < 10.0 {
+        if kt.abs() < 10.0 {
             format!("{:.1}kt", kt)
         } else {
             format!("{:.0}kt", kt)
-        };
-    }
-    if abs_val < 1000.0 {
-        return if abs_val < 10.0 {
+        }
+    } else if abs_val < 1000.0 {
+        if abs_val < 10.0 {
             format!("{:.1}Mt", megatons)
         } else {
             format!("{:.0}Mt", megatons)
-        };
-    }
-    if abs_val < 1_000_000.0 {
+        }
+    } else if abs_val < 1_000_000.0 {
         let gt = megatons / 1000.0;
-        return if gt.abs() < 10.0 {
+        if gt.abs() < 10.0 {
             format!("{:.1}Gt", gt)
         } else {
             format!("{:.0}Gt", gt)
-        };
-    }
-    if abs_val < 1_000_000_000.0 {
+        }
+    } else if abs_val < 1_000_000_000.0 {
         let tt = megatons / 1_000_000.0;
-        return if tt.abs() < 10.0 {
+        if tt.abs() < 10.0 {
             format!("{:.1}Tt", tt)
         } else {
             format!("{:.0}Tt", tt)
-        };
-    }
-    if abs_val < 1_000_000_000_000.0 {
+        }
+    } else if abs_val < 1_000_000_000_000.0 {
         let pt = megatons / 1_000_000_000.0;
-        return if pt.abs() < 10.0 {
+        if pt.abs() < 10.0 {
             format!("{:.1}Pt", pt)
         } else {
             format!("{:.0}Pt", pt)
-        };
-    }
-    let et = megatons / 1_000_000_000_000.0;
-    if et.abs() < 10.0 {
-        format!("{:.1}Et", et)
+        }
     } else {
-        format!("{:.0}Et", et)
+        let et = megatons / 1_000_000_000_000.0;
+        if et.abs() < 10.0 {
+            format!("{:.1}Et", et)
+        } else {
+            format!("{:.0}Et", et)
+        }
+    }
+}
+
+pub(super) fn format_mass_compact_tonnes(tonnes: f64) -> String {
+    let abs_val = tonnes.abs();
+    if abs_val < 1e-9 {
+        return "0".to_string();
+    }
+    if abs_val < 0.001 {
+        let g = tonnes * 1_000_000.0;
+        if g.abs() < 10.0 {
+            format!("{:.1}g", g)
+        } else {
+            format!("{:.0}g", g)
+        }
+    } else if abs_val < 1.0 {
+        let kg = tonnes * 1000.0;
+        if kg.abs() < 10.0 {
+            format!("{:.1}kg", kg)
+        } else {
+            format!("{:.0}kg", kg)
+        }
+    } else if abs_val < 1000.0 {
+        if abs_val < 10.0 {
+            format!("{:.1}t", abs_val)
+        } else {
+            format!("{:.0}t", abs_val)
+        }
+    } else if abs_val < 1_000_000.0 {
+        let kt = abs_val / 1000.0;
+        if kt < 10.0 {
+            format!("{:.1}kt", kt)
+        } else {
+            format!("{:.0}kt", kt)
+        }
+    } else if abs_val < 1_000_000_000.0 {
+        let mt = abs_val / 1_000_000.0;
+        if mt < 10.0 {
+            format!("{:.1}Mt", mt)
+        } else {
+            format!("{:.0}Mt", mt)
+        }
+    } else if abs_val < 1_000_000_000_000.0 {
+        let gt = abs_val / 1_000_000_000.0;
+        if gt < 10.0 {
+            format!("{:.1}Gt", gt)
+        } else {
+            format!("{:.0}Gt", gt)
+        }
+    } else {
+        let tt = abs_val / 1_000_000_000_000.0;
+        if tt < 10.0 {
+            format!("{:.1}Tt", tt)
+        } else {
+            format!("{:.0}Tt", tt)
+        }
     }
 }
 
@@ -895,6 +949,7 @@ pub(super) fn ui_dashboard(
         || active_menu.current == GameMenu::Construction
         || active_menu.current == GameMenu::Economy
         || active_menu.current == GameMenu::Fleets
+        || active_menu.current == GameMenu::Shipbuilding
     {
         return;
     }

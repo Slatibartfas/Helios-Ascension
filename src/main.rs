@@ -1,5 +1,8 @@
 use bevy::prelude::*;
-use bevy::window::{WindowResizeConstraints, WindowResolution};
+#[cfg(target_os = "windows")]
+use bevy::render::settings::{Backends, RenderCreation, WgpuSettings};
+use bevy::render::RenderPlugin;
+use bevy::window::{PresentMode, WindowResizeConstraints, WindowResolution};
 use bevy_egui::EguiPlugin;
 
 pub mod astronomy;
@@ -10,6 +13,7 @@ pub mod game_state;
 pub mod plugins;
 pub mod render;
 pub mod research;
+pub mod shipbuilding;
 pub mod ui;
 
 use astronomy::AstronomyPlugin;
@@ -24,29 +28,37 @@ use plugins::{
 };
 use render::backdrop::BackdropPlugin;
 use research::ResearchPlugin;
+use shipbuilding::ShipbuildingPlugin;
 use ui::UIPlugin;
 
-/// Minimum supported window dimensions to prevent UI overlap
-/// Full HD (1920×1080) is required for the complex strategy game UI
-const MIN_WINDOW_WIDTH: f32 = 1920.0;
-const MIN_WINDOW_HEIGHT: f32 = 1080.0;
+/// Minimum supported window dimensions.
+///
+/// The UI is now responsive enough to remain usable below 1080p, which avoids
+/// forcing oversized swap chains on smaller Windows displays.
+const MIN_WINDOW_WIDTH: f32 = 1280.0;
+const MIN_WINDOW_HEIGHT: f32 = 720.0;
 
 fn main() {
     App::new()
         // Bevy default plugins with custom window configuration
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "Helios Ascension".to_string(),
-                resolution: WindowResolution::new(1920, 1080),
-                resize_constraints: WindowResizeConstraints {
-                    min_width: MIN_WINDOW_WIDTH,
-                    min_height: MIN_WINDOW_HEIGHT,
+        .add_plugins(
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "Helios Ascension".to_string(),
+                        resolution: WindowResolution::new(1920, 1080),
+                        present_mode: PresentMode::Fifo,
+                        resize_constraints: WindowResizeConstraints {
+                            min_width: MIN_WINDOW_WIDTH,
+                            min_height: MIN_WINDOW_HEIGHT,
+                            ..default()
+                        },
+                        ..default()
+                    }),
                     ..default()
-                },
-                ..default()
-            }),
-            ..default()
-        }))
+                })
+                .set(render_plugin_settings()),
+        )
         // Debug UI (egui)
         .add_plugins(EguiPlugin::default())
         // Game plugins - Order matters for dependencies
@@ -65,12 +77,30 @@ fn main() {
         .add_plugins(ColonyPlugin)
         .add_plugins(ResearchPlugin)
         .add_plugins(FleetPlugin)
+        .add_plugins(ShipbuildingPlugin)
         .add_plugins(SystemPopulatorPlugin)
         .add_plugins(UIPlugin)
         .add_plugins(MusicPlugin)
         // Systems
         .add_systems(Startup, setup)
         .run();
+}
+
+fn render_plugin_settings() -> RenderPlugin {
+    #[cfg_attr(not(target_os = "windows"), allow(unused_mut))]
+    let mut plugin = RenderPlugin::default();
+
+    #[cfg(target_os = "windows")]
+    {
+        // Intel Arc + Vulkan has been intermittently failing during swap-chain acquisition
+        // on startup. Prefer DX12 on Windows to avoid the unrecoverable surface loss path.
+        plugin.render_creation = RenderCreation::Automatic(WgpuSettings {
+            backends: Some(Backends::DX12),
+            ..default()
+        });
+    }
+
+    plugin
 }
 
 fn setup(mut commands: Commands) {

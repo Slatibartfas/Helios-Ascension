@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
 
 use crate::colony::{BuildingsData, Colony};
+use crate::shipbuilding::ShipbuildingData;
 use crate::ui::SimulationTime;
 
 use super::components::{
@@ -11,6 +12,8 @@ use super::components::{
 use super::data::TechnologiesData;
 use super::types::{ModifierType, TechCategory, TechnologyId};
 use super::PendingResearchActions;
+
+const STARTING_TECH_IDS: &[&str] = &["solar_power", "chemical_spaceframes"];
 
 /// Resource that tracks global research state
 #[derive(Resource, Debug, Clone, Default)]
@@ -357,6 +360,90 @@ pub fn advance_engineering_projects(
     }
 }
 
+pub fn process_pending_engineering(
+    mut commands: Commands,
+    mut pending: ResMut<PendingResearchActions>,
+    tech_data: Res<TechnologiesData>,
+    research_state: Res<ResearchState>,
+    team_capacity: Res<ResearchTeamCapacity>,
+    existing_projects: Query<(&EngineeringProject, &ResearchTeam)>,
+) {
+    if pending.start_engineering.is_empty() {
+        return;
+    }
+
+    let active_component_ids: HashSet<String> = existing_projects
+        .iter()
+        .map(|(project, _)| project.component_id.clone())
+        .collect();
+    let active_count = existing_projects.iter().count();
+    let mut startable_components = Vec::new();
+
+    for component_id in pending.start_engineering.drain(..) {
+        if research_state.is_component_completed(&component_id)
+            || active_component_ids.contains(&component_id)
+        {
+            continue;
+        }
+
+        let Some(component) = tech_data.get_component(&component_id) else {
+            warn!(
+                "Cannot start engineering for unknown component: {}",
+                component_id
+            );
+            continue;
+        };
+
+        if !component.required_tech.is_empty()
+            && !research_state.is_unlocked(&component.required_tech)
+        {
+            warn!(
+                "Cannot start engineering for '{}': prerequisite tech '{}' not unlocked",
+                component.name, component.required_tech
+            );
+            continue;
+        }
+
+        if active_count + startable_components.len() >= team_capacity.max_engineering_teams {
+            warn!(
+                "Cannot start engineering: all {} engineering team slots are in use",
+                team_capacity.max_engineering_teams
+            );
+            continue;
+        }
+
+        startable_components.push(component_id);
+    }
+
+    for component_id in startable_components {
+        if let Some(component) = tech_data.get_component(&component_id) {
+            let specialty = tech_data
+                .get_tech(&component.required_tech)
+                .map(|tech| tech.category);
+            info!("Starting engineering on: {}", component.name);
+            commands.spawn((
+                EngineeringProject::new(
+                    component_id.clone(),
+                    component.engineering_cost,
+                    Entity::PLACEHOLDER,
+                ),
+                ResearchTeam::new_engineering(
+                    format!("Engineering: {}", component.name),
+                    "Default Engineer".to_string(),
+                    specialty,
+                ),
+            ));
+        }
+    }
+}
+
+pub fn merge_ship_module_engineering_catalog(
+    mut tech_data: ResMut<TechnologiesData>,
+    shipbuilding_data: Res<ShipbuildingData>,
+) {
+    tech_data.merge_ship_modules_as_components(&shipbuilding_data);
+}
+
 /// System to check and display newly unlocked technologies
 pub fn check_unlocked_technologies(
     _tech_data: Res<TechnologiesData>,
@@ -584,7 +671,9 @@ pub fn initialize_baseline_technology(
             continue;
         }
 
-        if tech.research_cost <= 0.0 && tech.prerequisites.is_empty() {
+        if (tech.research_cost <= 0.0 && tech.prerequisites.is_empty())
+            || STARTING_TECH_IDS.contains(&tech.id.as_str())
+        {
             research_state.unlock_tech(tech.id.clone());
 
             // Apply modifiers
@@ -598,6 +687,36 @@ pub fn initialize_baseline_technology(
 
     if unlocked_count > 0 {
         info!("Initialized {} baseline technologies", unlocked_count);
+    }
+}
+
+/// Complete engineering projects for all technologies that are already unlocked at game start.
+/// This makes modern baseline ship components immediately buildable instead of forcing
+/// the player to engineer 2026-proven hardware like cargo modules and solar arrays.
+pub fn initialize_baseline_engineering(
+    mut research_state: ResMut<ResearchState>,
+    tech_data: Res<TechnologiesData>,
+) {
+    let mut completed_count = 0;
+
+    for component in tech_data.components.values() {
+        if research_state.is_component_completed(&component.id) {
+            continue;
+        }
+
+        if component.required_tech.is_empty()
+            || research_state.is_unlocked(&component.required_tech)
+        {
+            research_state.complete_component(component.id.clone());
+            completed_count += 1;
+        }
+    }
+
+    if completed_count > 0 {
+        info!(
+            "Initialized {} baseline engineering projects",
+            completed_count
+        );
     }
 }
 

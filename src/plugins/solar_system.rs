@@ -963,7 +963,7 @@ pub fn setup_solar_system(
                 // Space access
                 (BuildingType::LaunchSite, 200),
                 (BuildingType::SpacePort, 50),
-                (BuildingType::Shipyard, 50), // Heavy consumer - reduced
+                (BuildingType::Shipyard, 18), // Still dominant, but no longer enough to trivialize ship construction timelines
                 // Economy
                 (BuildingType::FinancialCenter, 100),
                 (BuildingType::CommercialHub, 500),

@@ -70,6 +70,49 @@ impl ShipInfo {
     }
 }
 
+/// Authoritative ship entity used by construction, assignment, and fleet caching.
+#[derive(Component, Debug, Clone)]
+pub struct ShipInstance {
+    /// Full ship performance and mass data.
+    pub info: ShipInfo,
+    /// Current body the ship is parked around when not in transit.
+    pub parked_body: Entity,
+    /// Parking orbit radius in AU.
+    pub parked_orbit_radius_au: f64,
+    /// Whether the ship should remain fixed like a station.
+    pub stationary: bool,
+    /// Fleet this ship is currently assigned to, if any.
+    pub assigned_fleet: Option<Entity>,
+    /// Stable ordering inside the assigned fleet cache.
+    pub sort_order: i32,
+}
+
+impl ShipInstance {
+    /// Create a new ship entity from a fleet-facing ship record.
+    pub fn new(
+        info: ShipInfo,
+        parked_body: Entity,
+        parked_orbit_radius_au: f64,
+        stationary: bool,
+        assigned_fleet: Option<Entity>,
+        sort_order: i32,
+    ) -> Self {
+        Self {
+            info,
+            parked_body,
+            parked_orbit_radius_au,
+            stationary,
+            assigned_fleet,
+            sort_order,
+        }
+    }
+
+    /// Return a fleet-cache copy of this ship.
+    pub fn as_ship_info(&self) -> ShipInfo {
+        self.info.clone()
+    }
+}
+
 /// A named collection of ships orbiting (or transferring between) celestial bodies.
 #[derive(Component, Debug, Clone)]
 pub struct Fleet {
@@ -397,6 +440,10 @@ pub struct PendingFleetActions {
     pub change_fleet_roles: Vec<(Entity, FleetRole)>,
     /// Requests to transfer ships between fleets.
     pub transfer_ships: Vec<TransferShipsAction>,
+    /// Requests to assign concrete ship entities directly to fleets.
+    pub assign_ships: Vec<AssignShipsAction>,
+    /// Requests to create a new fleet and immediately attach ships to it.
+    pub create_fleets_from_ships: Vec<CreateFleetFromShipsAction>,
     /// Requests to scrap individual ships.
     pub scrap_ships: Vec<(Entity, usize)>,
     /// Requests to disband fleets (confirmed by the player).
@@ -427,6 +474,30 @@ pub struct TransferShipsAction {
     pub ship_indices: Vec<usize>,
 }
 
+/// Request to assign ship entities to a fleet without going through fleet-local indices.
+#[derive(Debug, Clone)]
+pub struct AssignShipsAction {
+    /// Ship entities to update.
+    pub ship_entities: Vec<Entity>,
+    /// Destination fleet, or `None` to leave the ships independent.
+    pub destination_fleet: Option<Entity>,
+}
+
+/// Request to create a fleet and attach specific ships to it immediately.
+#[derive(Debug, Clone)]
+pub struct CreateFleetFromShipsAction {
+    /// Display name for the new fleet.
+    pub name: String,
+    /// Body the fleet will orbit initially.
+    pub orbit_body: Entity,
+    /// Parking orbit radius in AU.
+    pub orbit_radius_au: f64,
+    /// Whether the spawned fleet should remain fixed like an orbital station.
+    pub stationary: bool,
+    /// Ship entities that should be assigned to the new fleet.
+    pub ship_entities: Vec<Entity>,
+}
+
 /// Request to spawn a new fleet in orbit around a body.
 #[derive(Debug, Clone)]
 pub struct SpawnFleetAction {
@@ -438,6 +509,8 @@ pub struct SpawnFleetAction {
     pub orbit_body: Entity,
     /// Parking orbit radius in AU.
     pub orbit_radius_au: f64,
+    /// True when the spawned fleet should remain fixed like an orbital station.
+    pub stationary: bool,
 }
 
 /// Request to start a previously computed orbital transfer.
