@@ -1,5 +1,23 @@
 use super::dashboard::format_mass_compact;
 use super::*;
+use crate::colony::ColonySynergies;
+use bevy::ecs::system::SystemParam;
+
+/// Read-only data bundle for the construction panel.  Groups the eight
+/// resource reads so the system fits inside Bevy's 16-parameter limit
+/// (GRA-22d adds DepletionTimeline + ColonySynergies to the original
+/// panel's set, putting the system at 18 params).
+#[derive(SystemParam)]
+pub(super) struct ConstructionPanelData<'w> {
+    pub active_menu: Res<'w, ActiveMenu>,
+    pub research_state: Res<'w, crate::research::ResearchState>,
+    pub budget: Res<'w, GlobalBudget>,
+    pub contextual: Res<'w, crate::economy::ContextualStockpile>,
+    pub sim_time: Res<'w, crate::ui::SimulationTime>,
+    pub resource_requests: Res<'w, crate::economy::PendingResourceRequests>,
+    pub depletion_timeline: Res<'w, crate::colony::DepletionTimeline>,
+    pub synergies: Res<'w, crate::colony::ColonySynergies>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum ConstructionTab {
@@ -21,6 +39,9 @@ pub struct ConstructionUiState {
     selected_tab: ConstructionTab,
     /// Selected build-category tab within the Build view.
     selected_build_tab: usize,
+    /// Functional-role filter (Food / Power / Industry / Research / Synergy
+    /// Active).  Overlays the 8-category tabs (GRA-22d).
+    selected_filter: BuildFilter,
 }
 
 impl Default for ConstructionUiState {
@@ -30,7 +51,150 @@ impl Default for ConstructionUiState {
             selected_colony: None,
             selected_tab: ConstructionTab::Build,
             selected_build_tab: 0,
+            selected_filter: BuildFilter::default(),
         }
+    }
+}
+
+/// Functional-role filter chip overlaid on top of the 8-category tabs in the
+/// Build view.  Lets the player pivot by what the building *does* (feeds the
+/// colony, generates power, drives industry, advances research) rather than
+/// by its internal category label (GRA-22d).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BuildFilter {
+    #[default]
+    All,
+    Food,
+    Power,
+    Industry,
+    Research,
+    SynergyActive,
+}
+
+impl BuildFilter {
+    pub fn all() -> &'static [BuildFilter] {
+        &[
+            BuildFilter::All,
+            BuildFilter::Food,
+            BuildFilter::Power,
+            BuildFilter::Industry,
+            BuildFilter::Research,
+            BuildFilter::SynergyActive,
+        ]
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            BuildFilter::All => "All",
+            BuildFilter::Food => "🌾 Food",
+            BuildFilter::Power => "⚡ Power",
+            BuildFilter::Industry => "🏭 Industry",
+            BuildFilter::Research => "🔬 Research",
+            BuildFilter::SynergyActive => "✓ Synergy Active",
+        }
+    }
+
+    /// Does `building` qualify under this filter?  `colony_entity` is
+    /// required for the SynergyActive filter (looks up the colony's
+    /// current `SynergyState`).
+    pub fn matches(
+        self,
+        building: BuildingType,
+        colony: &Colony,
+        colony_entity: Entity,
+        synergies: Option<&ColonySynergies>,
+        buildings_data: Option<&BuildingsData>,
+    ) -> bool {
+        match self {
+            BuildFilter::All => true,
+            BuildFilter::Food => matches!(functional_role(building), Some(FunctionalRole::Food)),
+            BuildFilter::Power => matches!(functional_role(building), Some(FunctionalRole::Power)),
+            BuildFilter::Industry => {
+                matches!(functional_role(building), Some(FunctionalRole::Industry))
+            }
+            BuildFilter::Research => {
+                matches!(functional_role(building), Some(FunctionalRole::Research))
+            }
+            BuildFilter::SynergyActive => {
+                let count = colony.building_count(building);
+                if count == 0 {
+                    return false;
+                }
+                let Some(data) = buildings_data else {
+                    return false;
+                };
+                let Some(def) = data.get(&building) else {
+                    return false;
+                };
+                // The building must contribute at least one synergy rule.
+                if def.synergy.is_empty() {
+                    return false;
+                }
+                // Show all synergy-bearing buildings if the synergy recompute has not
+                // run yet (no synergies registered) so the chip is never empty
+                // in a fresh game.
+                let Some(_) = synergies.and_then(|s| s.by_colony.get(&colony_entity)) else {
+                    return true;
+                };
+                // Show if any of this building's synergy rules is currently
+                // active for the colony.
+                def.synergy.iter().any(|rule| {
+                    let have = data.count_in_line(&colony.buildings, &rule.requires_line);
+                    have >= u32::from(rule.count)
+                })
+            }
+        }
+    }
+}
+
+/// Functional role for the Build-view filter chips.  A building may map to
+/// one of the four primary roles; everything else falls under `All` only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FunctionalRole {
+    Food,
+    Power,
+    Industry,
+    Research,
+}
+
+/// Map a `BuildingType` to its functional role.  Used by the filter chips
+/// (GRA-22d) and by the building card's category badge.
+pub fn functional_role(building: BuildingType) -> Option<FunctionalRole> {
+    match building {
+        BuildingType::Farm
+        | BuildingType::AgriDome
+        | BuildingType::Greenhouse
+        | BuildingType::AquacultureFacility => Some(FunctionalRole::Food),
+        BuildingType::SolarPower
+        | BuildingType::FissionReactor
+        | BuildingType::FusionReactor
+        | BuildingType::DTFusionReactor
+        | BuildingType::DHe3FusionReactor
+        | BuildingType::ThoriumReactor
+        | BuildingType::BreederReactor
+        | BuildingType::WindFarm
+        | BuildingType::HydroelectricDam
+        | BuildingType::GeothermalPlant
+        | BuildingType::CoalPowerPlant
+        | BuildingType::NaturalGasPlant => Some(FunctionalRole::Power),
+        BuildingType::Mine
+        | BuildingType::Refinery
+        | BuildingType::ChemicalPlant
+        | BuildingType::HydrocarbonExtractor
+        | BuildingType::AtmosphericProcessor
+        | BuildingType::DeepDrill
+        | BuildingType::LaserDrill
+        | BuildingType::StripMine
+        | BuildingType::RecyclingCenter
+        | BuildingType::Warehouse
+        | BuildingType::Factory
+        | BuildingType::SemiconductorFab
+        | BuildingType::PharmaceuticalPlant => Some(FunctionalRole::Industry),
+        BuildingType::ResearchLab
+        | BuildingType::EngineeringBay
+        | BuildingType::AiCluster
+        | BuildingType::DataCenter => Some(FunctionalRole::Research),
+        _ => None,
     }
 }
 
@@ -92,25 +256,195 @@ fn draw_tab_button(
     )
 }
 
+/// Color for a depletion-timeline row based on years remaining.
+/// Green: ≥ 10 yr, yellow: 5–10 yr, red: < 5 yr.  Matches the
+/// helios-ci-pipeline / theme conventions used in the economy panel.
+fn depletion_color(years_remaining: f64) -> egui::Color32 {
+    if years_remaining < 5.0 {
+        theme::RED
+    } else if years_remaining < 10.0 {
+        theme::AMBER
+    } else {
+        theme::GREEN
+    }
+}
+
+/// Format "years remaining" for the depletion-timeline panel.
+/// Returns "∞" for infinite (no draw), "<1 yr" for sub-year, else "X.X yr".
+fn format_years_remaining(years: f64) -> String {
+    if !years.is_finite() {
+        "∞".to_string()
+    } else if years < 1.0 {
+        format!("{:.0} mo", years * 12.0)
+    } else if years < 100.0 {
+        format!("{:.1} yr", years)
+    } else {
+        "100+ yr".to_string()
+    }
+}
+
+/// "Why?" hint strings for the build-queue.  For a single instance of
+/// `building`, predict the net effect on the colony.  Returns `None` for
+/// buildings where the effect is opaque from the UI (e.g. pure military).
+fn predict_build_effect(
+    building: BuildingType,
+    definition: Option<&crate::colony::BuildingDefinition>,
+    yield_mult: f64,
+    colony: &Colony,
+) -> Option<String> {
+    match building {
+        BuildingType::Farm => {
+            let extra_mt = 1_000.0 * yield_mult;
+            let people = extra_mt * 10_000.0; // 0.0001 Mt/person/yr
+            Some(format!(
+                "+{} Mt/yr food → feeds ~{} people (at ×{:.2} yield)",
+                format_mass_compact(extra_mt),
+                format_compact_u64(people as u64),
+                yield_mult
+            ))
+        }
+        BuildingType::AgriDome => Some(format!(
+            "+4 Mt/yr food (×{:.2} yield) → feeds ~{} people",
+            yield_mult,
+            format_compact_u64((4.0 * yield_mult * 10_000.0) as u64)
+        )),
+        BuildingType::Greenhouse => Some(format!(
+            "+500 Mt/yr food (×{:.2} yield) → feeds ~{} people",
+            yield_mult,
+            format_compact_u64((500.0 * yield_mult * 10_000.0) as u64)
+        )),
+        BuildingType::AquacultureFacility => Some(format!(
+            "+750 Mt/yr food (×{:.2} yield) → feeds ~{} people",
+            yield_mult,
+            format_compact_u64((750.0 * yield_mult * 10_000.0) as u64)
+        )),
+        BuildingType::Factory => Some(format!(
+            "+10 BP/yr construction speed at ×{:.2} yield → colony build rate +{:.1} BP/yr",
+            yield_mult,
+            10.0 * yield_mult
+        )),
+        BuildingType::Mine
+        | BuildingType::Refinery
+        | BuildingType::DeepDrill
+        | BuildingType::LaserDrill
+        | BuildingType::StripMine => {
+            let pct = definition
+                .and_then(|d| d.modifiers.first())
+                .map(|m| m.value)
+                .unwrap_or(0.0);
+            Some(format!(
+                "+{:.1}% mining efficiency at ×{:.2} yield",
+                pct, yield_mult
+            ))
+        }
+        BuildingType::SolarPower
+        | BuildingType::FissionReactor
+        | BuildingType::FusionReactor
+        | BuildingType::DTFusionReactor
+        | BuildingType::DHe3FusionReactor
+        | BuildingType::ThoriumReactor
+        | BuildingType::BreederReactor
+        | BuildingType::WindFarm
+        | BuildingType::HydroelectricDam
+        | BuildingType::GeothermalPlant
+        | BuildingType::CoalPowerPlant
+        | BuildingType::NaturalGasPlant => {
+            let gw = definition.map(|d| d.power_demand_mw).unwrap_or(0.0) / 1000.0;
+            // PowerGeneration modifier carries the +GW value; the demand
+            // field is consumption, so prefer the modifier for prediction.
+            let bonus_gw = definition
+                .and_then(|d| {
+                    d.modifiers
+                        .iter()
+                        .find(|m| m.modifier_type == "PowerGeneration")
+                        .map(|m| m.value)
+                })
+                .unwrap_or(0.0);
+            if bonus_gw > 0.0 {
+                Some(format!(
+                    "+{:.1} GW power output (×{:.2} yield) → covers demand for ~{} Mt/yr industrial draw",
+                    bonus_gw * yield_mult,
+                    yield_mult,
+                    format_compact_u64((bonus_gw * yield_mult * 100.0) as u64)
+                ))
+            } else if gw != 0.0 {
+                Some(format!(
+                    "{} MW power demand at ×{:.2} yield",
+                    gw, yield_mult
+                ))
+            } else {
+                None
+            }
+        }
+        BuildingType::ResearchLab
+        | BuildingType::EngineeringBay
+        | BuildingType::AiCluster
+        | BuildingType::DataCenter
+        | BuildingType::SemiconductorFab => {
+            let pct = definition
+                .and_then(|d| d.modifiers.first())
+                .map(|m| m.value)
+                .unwrap_or(0.0);
+            Some(format!("+{:.1}% research/engineering speed", pct))
+        }
+        BuildingType::Housing | BuildingType::HabitatDome | BuildingType::UndergroundHabitat => {
+            let cap = definition
+                .and_then(|d| d.modifiers.first())
+                .map(|m| m.value)
+                .unwrap_or(0.0);
+            if cap > 0.0 {
+                Some(format!(
+                    "+{} people housing capacity (current: {})",
+                    format_compact_u64(cap as u64),
+                    Colony::format_population(colony.population)
+                ))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Filter chip widget (smaller than `draw_tab_button`, used for the
+/// functional-role row in the Build view).
+fn draw_filter_chip(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
+    let text = egui::RichText::new(label).size(11.5).color(if selected {
+        theme::ACCENT
+    } else {
+        theme::TEXT_DIM
+    });
+    ui.add(
+        egui::Button::new(text)
+            .fill(if selected {
+                theme::SURFACE_RAISED
+            } else {
+                theme::SURFACE
+            })
+            .stroke(if selected {
+                egui::Stroke::new(1.0, theme::ACCENT)
+            } else {
+                egui::Stroke::new(1.0, theme::BORDER)
+            })
+            .corner_radius(12.0)
+            .min_size(egui::vec2(0.0, 22.0)),
+    )
+}
+
 pub(super) fn ui_construction_panels(
     mut contexts: EguiContexts,
-    active_menu: Res<ActiveMenu>,
     colony_query: Query<(Entity, &Colony, &CelestialBody)>,
     construction_query: Query<(Entity, &ConstructionProject)>,
     mut construction_actions: ResMut<PendingConstructionActions>,
-    research_state: Res<crate::research::ResearchState>,
-    budget: Res<GlobalBudget>,
-    contextual: Res<crate::economy::ContextualStockpile>,
     mut debug_settings: ResMut<ConstructionDebugSettings>,
     mut buildings_data: Option<ResMut<BuildingsData>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut ui_state: ResMut<ConstructionUiState>,
     mut edit_state: ResMut<crate::colony::BuildingEditState>,
-    sim_time: Res<crate::ui::SimulationTime>,
-    resource_requests: Res<crate::economy::PendingResourceRequests>,
     mut minimum_stockpiles: Query<&mut crate::economy::MinimumStockpile>,
+    data: ConstructionPanelData,
 ) {
-    if active_menu.current != GameMenu::Construction {
+    if data.active_menu.current != GameMenu::Construction {
         return;
     }
 
@@ -132,14 +466,16 @@ pub(super) fn ui_construction_panels(
                 &colony_query,
                 &construction_query,
                 &mut construction_actions,
-                &research_state,
-                &budget,
-                &contextual,
+                &data.research_state,
+                &data.budget,
+                &data.contextual,
                 &mut debug_settings,
                 buildings_data.as_deref(),
                 &mut ui_state,
-                &resource_requests,
+                &data.resource_requests,
                 &mut minimum_stockpiles,
+                &data.depletion_timeline,
+                &data.synergies,
             );
         });
 
@@ -149,7 +485,7 @@ pub(super) fn ui_construction_panels(
             ctx,
             buildings_data.as_deref_mut(),
             &mut edit_state,
-            sim_time.elapsed_seconds(),
+            data.sim_time.elapsed_seconds(),
         );
     }
 }
@@ -168,6 +504,8 @@ fn render_construction_panel(
     ui_state: &mut ConstructionUiState,
     resource_requests: &crate::economy::PendingResourceRequests,
     minimum_stockpiles: &mut Query<&mut crate::economy::MinimumStockpile>,
+    depletion_timeline: &crate::colony::DepletionTimeline,
+    synergies: &crate::colony::ColonySynergies,
 ) {
     draw_menu_header(
         ui,
@@ -365,21 +703,32 @@ fn render_construction_panel(
         ConstructionTab::Overview => {
             render_construction_overview_tab(
                 ui,
+                *colony_entity,
                 colony,
                 body,
                 bp_rate,
                 &queue,
                 construction_actions,
                 resource_requests,
+                depletion_timeline,
+                synergies,
+                buildings_data,
             );
         }
         ConstructionTab::Buildings => {
-            render_construction_buildings_tab(ui, colony, buildings_data);
+            render_construction_buildings_tab(
+                ui,
+                *colony_entity,
+                colony,
+                buildings_data,
+                synergies,
+            );
         }
         ConstructionTab::Build => {
             render_construction_build_tab(
                 ui,
                 colony_entity,
+                colony,
                 research_state,
                 contextual,
                 construction_actions,
@@ -388,6 +737,7 @@ fn render_construction_panel(
                 bp_rate,
                 bypass_tech,
                 free_build,
+                synergies,
             );
         }
         ConstructionTab::Stockpiles => {
@@ -398,12 +748,16 @@ fn render_construction_panel(
 
 fn render_construction_overview_tab(
     ui: &mut egui::Ui,
+    colony_entity: Entity,
     colony: &Colony,
     body: &CelestialBody,
     bp_rate: f64,
     queue: &[(Entity, &ConstructionProject)],
     construction_actions: &mut PendingConstructionActions,
     resource_requests: &crate::economy::PendingResourceRequests,
+    depletion_timeline: &crate::colony::DepletionTimeline,
+    synergies: &crate::colony::ColonySynergies,
+    buildings_data: Option<&BuildingsData>,
 ) {
     ui.label(
         egui::RichText::new("COLONY OVERVIEW")
@@ -417,12 +771,44 @@ fn render_construction_overview_tab(
     );
     ui.add_space(8.0);
 
+    // ── Yield chip + colony identity row (GRA-22d #1) ────────────────────
+    let yield_mult = colony.effective_yield_multiplier();
+    let tier = colony.development.tier;
     theme::elevated_frame().show(ui, |ui| {
-        ui.label(
-            egui::RichText::new(format!("{} -- {}", colony.name, body.name))
-                .size(14.0)
-                .strong(),
-        );
+        ui.horizontal_wrapped(|ui| {
+            ui.label(
+                egui::RichText::new(format!("{} — {}", colony.name, body.name))
+                    .size(14.0)
+                    .strong(),
+            );
+            ui.add_space(8.0);
+            // Yield chip: "Outpost × 0.10" with tooltip explaining how to upgrade.
+            let chip_label = format!("{} × {:.2}", tier.display_name(), yield_mult);
+            let chip_color = if yield_mult >= 0.99 {
+                theme::GREEN
+            } else if yield_mult >= 0.39 {
+                theme::AMBER
+            } else {
+                theme::RED
+            };
+            let chip = egui::Button::new(
+                egui::RichText::new(&chip_label)
+                    .strong()
+                    .size(11.5)
+                    .color(chip_color),
+            )
+            .fill(theme::SURFACE_RAISED)
+            .stroke(egui::Stroke::new(1.0, chip_color))
+            .corner_radius(10.0)
+            .min_size(egui::vec2(0.0, 22.0));
+            let response = ui.add(chip);
+            response.on_hover_text(format!(
+                "Tier: {} — production, maintenance, and population growth all scale by ×{:.2}. \
+                 Upgrade via the Tier-up investments action to approach ×1.00 (Civilisation).",
+                tier.display_name(),
+                yield_mult
+            ));
+        });
         ui.separator();
 
         let workforce_eff = colony.workforce_efficiency();
@@ -516,12 +902,107 @@ fn render_construction_overview_tab(
                 );
             });
         }
-
-        ui.label(format!("Buildings: {}", colony.total_buildings()));
     });
 
     ui.add_space(8.0);
 
+    // ── Building count + surplus summary (GRA-22d #2) ───────────────────
+    theme::elevated_frame().show(ui, |ui| {
+        ui.label(egui::RichText::new("Build & Surplus").strong());
+        ui.separator();
+        let buildings_total = colony.total_buildings();
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(format!("{} buildings, ", buildings_total))
+                    .color(theme::TEXT_VALUE)
+                    .strong(),
+            );
+            // Food surplus against the yield multiplier.  Production
+            // scales with yield, consumption is per-capita (biological)
+            // and stays unmultiplied.
+            let food_prod = colony.food_production_per_year() * yield_mult;
+            let food_cons = colony.food_consumption_per_year();
+            let food_surplus = food_prod - food_cons;
+            let (label, color) = if food_surplus >= 0.0 {
+                (
+                    format!(
+                        "+{}/yr food surplus ({} production vs {} demand at ×{:.2})",
+                        format_mass_compact(food_surplus),
+                        format_mass_compact(food_prod),
+                        format_mass_compact(food_cons),
+                        yield_mult
+                    ),
+                    theme::GREEN,
+                )
+            } else {
+                (
+                    format!(
+                        "{}/yr food deficit ({} production vs {} demand at ×{:.2})",
+                        format_mass_compact(food_surplus),
+                        format_mass_compact(food_prod),
+                        format_mass_compact(food_cons),
+                        yield_mult
+                    ),
+                    theme::RED,
+                )
+            };
+            ui.label(egui::RichText::new(label).color(color));
+        });
+    });
+
+    ui.add_space(8.0);
+
+    // ── Resource depletion timeline (GRA-22d #3) ────────────────────────
+    theme::elevated_frame().show(ui, |ui| {
+        ui.label(egui::RichText::new("Resource Depletion").strong());
+        ui.separator();
+        let Some(per_resource) = depletion_timeline.by_colony.get(&colony_entity) else {
+            ui.label(
+                egui::RichText::new(
+                    "No tracked draws — colony is not consuming any measured resource.",
+                )
+                .size(11.0)
+                .color(theme::TEXT_DIM),
+            );
+            return;
+        };
+        if per_resource.is_empty() {
+            ui.label(
+                egui::RichText::new(
+                    "No tracked draws — colony is not consuming any measured resource.",
+                )
+                .size(11.0)
+                .color(theme::TEXT_DIM),
+            );
+            return;
+        }
+        // Stable sort by years remaining ascending — shortest first.
+        let mut rows: Vec<(&ResourceType, &f64)> = per_resource.iter().collect();
+        rows.sort_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal));
+        for (resource, &years) in rows {
+            let icon = super::resources_bar::get_resource_icon(resource);
+            let color = depletion_color(years);
+            let years_str = format_years_remaining(years);
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(format!("{} {}", icon, resource.display_name()))
+                        .size(11.0)
+                        .color(theme::TEXT_VALUE),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(
+                        egui::RichText::new(format!("~{} remaining at current draw", years_str))
+                            .size(11.0)
+                            .color(color),
+                    );
+                });
+            });
+        }
+    });
+
+    ui.add_space(8.0);
+
+    // ── Construction Summary block (kept; synergies added) ─────────────
     theme::elevated_frame().show(ui, |ui| {
         ui.label(egui::RichText::new("Construction Summary").strong());
         ui.separator();
@@ -535,6 +1016,40 @@ fn render_construction_overview_tab(
                 .size(11.0)
                 .color(theme::TEXT_DIM),
         );
+        // Synergies active: show count and top 2 effects.
+        if let Some(state) = synergies.by_colony.get(&colony_entity) {
+            if !state.bonuses.is_empty() {
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new(format!("Synergies active: {}", state.bonuses.len()))
+                        .color(theme::GREEN)
+                        .strong(),
+                );
+                let mut entries: Vec<(&String, &f64)> = state.bonuses.iter().collect();
+                entries.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
+                for (effect, bonus) in entries.iter().take(2) {
+                    ui.label(
+                        egui::RichText::new(format!("  ✓ {}: {:+.0}%", effect, *bonus * 100.0))
+                            .size(10.5)
+                            .color(theme::TEXT_VALUE),
+                    );
+                }
+                if entries.len() > 2 {
+                    ui.label(
+                        egui::RichText::new(format!("  +{} more", entries.len() - 2))
+                            .size(10.0)
+                            .color(theme::TEXT_DIM),
+                    );
+                }
+            } else {
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new("Synergies active: none yet")
+                        .size(10.5)
+                        .color(theme::TEXT_DIM),
+                );
+            }
+        }
         ui.add_space(4.0);
         ui.label(format!("Active queue entries: {}", queue.len()));
         if queue.is_empty() {
@@ -556,13 +1071,18 @@ fn render_construction_overview_tab(
         construction_actions,
         resource_requests,
         true,
+        yield_mult,
+        colony,
+        buildings_data,
     );
 }
 
 fn render_construction_buildings_tab(
     ui: &mut egui::Ui,
+    colony_entity: Entity,
     colony: &Colony,
     buildings_data: Option<&BuildingsData>,
+    synergies: &crate::colony::ColonySynergies,
 ) {
     ui.label(
         egui::RichText::new("BUILDINGS")
@@ -587,7 +1107,7 @@ fn render_construction_buildings_tab(
         .color(theme::TEXT_DIM),
     );
     ui.add_space(6.0);
-    render_existing_buildings_section(ui, colony, buildings_data);
+    render_existing_buildings_section(ui, colony_entity, colony, buildings_data, synergies);
 }
 
 fn render_construction_queue_section(
@@ -597,6 +1117,9 @@ fn render_construction_queue_section(
     construction_actions: &mut PendingConstructionActions,
     resource_requests: &crate::economy::PendingResourceRequests,
     show_heading: bool,
+    yield_mult: f64,
+    colony: &Colony,
+    buildings_data: Option<&BuildingsData>,
 ) {
     if show_heading {
         ui.label(
@@ -701,6 +1224,17 @@ fn render_construction_queue_section(
                 .desired_width(ui.available_width() - 8.0);
             ui.add(bar);
         }
+        // "Why?" hint: predict the net effect of this queued build (GRA-22d #5).
+        let definition = buildings_data.and_then(|d| d.get(&project.building_type));
+        if let Some(hint) =
+            predict_build_effect(project.building_type, definition, yield_mult, colony)
+        {
+            ui.label(
+                egui::RichText::new(format!("💡 Why? {}", hint))
+                    .size(10.0)
+                    .color(theme::TEXT_DIM),
+            );
+        }
         ui.add_space(2.0);
     }
 }
@@ -708,6 +1242,7 @@ fn render_construction_queue_section(
 fn render_construction_build_tab(
     ui: &mut egui::Ui,
     colony_entity: &Entity,
+    colony: &Colony,
     research_state: &crate::research::ResearchState,
     contextual: &crate::economy::ContextualStockpile,
     construction_actions: &mut PendingConstructionActions,
@@ -716,6 +1251,7 @@ fn render_construction_build_tab(
     bp_rate: f64,
     bypass_tech: bool,
     free_build: bool,
+    synergies: &crate::colony::ColonySynergies,
 ) {
     ui.label(
         egui::RichText::new("BUILD")
@@ -768,6 +1304,25 @@ fn render_construction_build_tab(
     });
     ui.add_space(6.0);
 
+    // ── Functional-role filter row (GRA-22d #6) ──────────────────────────
+    theme::elevated_frame().show(ui, |ui| {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(
+                egui::RichText::new("Filter:")
+                    .size(11.0)
+                    .color(theme::TEXT_DIM),
+            );
+            for &filter in BuildFilter::all() {
+                if draw_filter_chip(ui, filter.label(), ui_state.selected_filter == filter)
+                    .clicked()
+                {
+                    ui_state.selected_filter = filter;
+                }
+            }
+        });
+    });
+    ui.add_space(4.0);
+
     let mut visible_tabs = Vec::new();
     let mut available_by_category = Vec::new();
 
@@ -786,6 +1341,17 @@ fn render_construction_build_tab(
                     Some(tech_id) => research_state.is_unlocked(tech_id),
                     None => true,
                 }
+            })
+            // GRA-22d #6: overlay the functional-role filter on top of the
+            // category tabs.  All is a no-op pass-through.
+            .filter(|b| {
+                ui_state.selected_filter.matches(
+                    *b,
+                    colony,
+                    *colony_entity,
+                    Some(synergies),
+                    buildings_data,
+                )
             })
             .collect();
 
@@ -806,6 +1372,15 @@ fn render_construction_build_tab(
                     .and_then(|d| d.required_tech(b))
                     .or_else(|| b.required_tech());
                 matches!(tech_req, Some(tech_id) if !research_state.is_unlocked(tech_id))
+            })
+            .filter(|b| {
+                ui_state.selected_filter.matches(
+                    **b,
+                    colony,
+                    *colony_entity,
+                    Some(synergies),
+                    buildings_data,
+                )
             })
             .collect()
     };
@@ -871,8 +1446,10 @@ fn render_construction_build_tab(
         .find(|(index, _, _)| *index == ui_state.selected_build_tab)
     else {
         ui.label(
-            egui::RichText::new("No unlocked buildings are available in this category.")
-                .color(theme::TEXT_DIM),
+            egui::RichText::new(
+                "No unlocked buildings are available in this category with the current filter.",
+            )
+            .color(theme::TEXT_DIM),
         );
         return;
     };
@@ -918,6 +1495,8 @@ fn render_construction_build_tab(
                             construction_actions,
                             card_width,
                             buildings_data,
+                            colony,
+                            synergies,
                         );
                     },
                 );
@@ -968,9 +1547,12 @@ fn build_card_columns(available_width: f32) -> usize {
 
 fn render_existing_buildings_section(
     ui: &mut egui::Ui,
+    colony_entity: Entity,
     colony: &Colony,
     buildings_data: Option<&BuildingsData>,
+    _synergies: &crate::colony::ColonySynergies,
 ) {
+    let yield_mult = colony.effective_yield_multiplier();
     for &category in BuildingCategory::all() {
         let mut buildings_in_category: Vec<_> = category
             .buildings()
@@ -1058,10 +1640,14 @@ fn render_existing_buildings_section(
                     for (building, count) in chunk {
                         render_existing_building_card(
                             ui,
+                            colony_entity,
+                            colony,
                             *building,
                             *count,
                             card_width,
                             buildings_data,
+                            _synergies,
+                            yield_mult,
                         );
                     }
 
@@ -1079,10 +1665,14 @@ fn render_existing_buildings_section(
 
 fn render_existing_building_card(
     ui: &mut egui::Ui,
+    _colony_entity: Entity,
+    colony: &Colony,
     building: BuildingType,
     count: u32,
     card_width: f32,
     buildings_data: Option<&BuildingsData>,
+    _synergies: &crate::colony::ColonySynergies,
+    yield_mult: f64,
 ) {
     let definition = buildings_data.and_then(|data| data.get(&building));
     let display_name = definition
@@ -1100,6 +1690,62 @@ fn render_existing_building_card(
     let upkeep_entries = maintenance_entries(count, definition);
     let operations_summary = summarize_card_entries(&operational_entries, 1);
     let upkeep_summary = summarize_card_entries(&upkeep_entries, 2);
+
+    // Tier / Replaces / Synergies metadata for the redesigned card (GRA-22d #4).
+    let tier_badge = definition.and_then(|def| {
+        if def.tier == 0 && def.replaces.is_none() {
+            None
+        } else {
+            let mut label = String::new();
+            if def.tier > 0 {
+                label.push_str(&format!("Tier {}", def.tier));
+            }
+            if let Some(replaces) = &def.replaces {
+                if !label.is_empty() {
+                    label.push_str(" · ");
+                }
+                label.push_str(&format!("Replaces: {}", replaces));
+            }
+            Some(label)
+        }
+    });
+
+    // Synergies active: show ✓/✗ per rule that this building owns.
+    // `synergies` is kept in the signature for future per-bonus breakdown tooltip.
+    let synergy_rules: Vec<(String, bool)> = definition
+        .map(|def| {
+            def.synergy
+                .iter()
+                .map(|rule| {
+                    let have = buildings_data
+                        .map(|d| d.count_in_line(&colony.buildings, &rule.requires_line))
+                        .unwrap_or(0);
+                    let active = have >= u32::from(rule.count);
+                    let label = format!("{} ≥{} {}", rule.requires_line, rule.count, rule.effect);
+                    (label, active)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Effective contribution × yield multiplier (a single summary line,
+    // since the card has tight height).  Show the first modifier only.
+    let yield_scaled_summary = if let Some(def) = definition {
+        if yield_mult < 0.999 && !def.modifiers.is_empty() {
+            def.modifiers.first().map(|m| {
+                let scaled = m.value * yield_mult;
+                format!(
+                    "Effective: {:.2} ({} base × {:.2})",
+                    scaled, m.modifier_type, yield_mult
+                )
+            })
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let target_width = card_width.clamp(220.0, EXISTING_BUILDING_CARD_WIDTH);
     let response = ui
         .allocate_ui_with_layout(
@@ -1150,6 +1796,11 @@ fn render_existing_building_card(
                         });
                     });
 
+                    // Tier / Replaces badge (GRA-22d #4).
+                    if let Some(badge) = &tier_badge {
+                        ui.label(egui::RichText::new(badge).size(9.25).color(theme::RP_BLUE));
+                    }
+
                     ui.add_space(2.0);
                     render_existing_building_summary_row(
                         ui,
@@ -1172,6 +1823,27 @@ fn render_existing_building_card(
                             theme::TEXT_HINT,
                         );
                     }
+
+                    // Effective contribution at the colony's yield multiplier
+                    // (GRA-22d #4 — "per-build effective contribution").
+                    if let Some(summary) = &yield_scaled_summary {
+                        render_existing_building_summary_row(ui, "Yield", summary, theme::EP_TEAL);
+                    }
+
+                    // Synergies active ✓/✗ row (GRA-22d #4).
+                    if !synergy_rules.is_empty() {
+                        let active_count =
+                            synergy_rules.iter().filter(|(_, active)| *active).count();
+                        let total = synergy_rules.len();
+                        let (label, color) = if active_count == total {
+                            (format!("✓ {} / {}", active_count, total), theme::GREEN)
+                        } else if active_count == 0 {
+                            (format!("✗ {} / {}", active_count, total), theme::TEXT_DIM)
+                        } else {
+                            (format!("~ {} / {}", active_count, total), theme::AMBER)
+                        };
+                        render_existing_building_summary_row(ui, "Syn", &label, color);
+                    }
                 })
                 .response
             },
@@ -1189,6 +1861,9 @@ fn render_existing_building_card(
             .size(10.5)
             .color(theme::TEXT_DIM),
         );
+        if let Some(badge) = &tier_badge {
+            ui.label(egui::RichText::new(badge).size(10.0).color(theme::RP_BLUE));
+        }
 
         if !operational_entries.is_empty() {
             ui.separator();
@@ -1200,9 +1875,31 @@ fn render_existing_building_card(
 
         if !upkeep_entries.is_empty() {
             ui.separator();
-            ui.label(egui::RichText::new("Upkeep / yr").strong().size(10.5));
+            ui.label(
+                egui::RichText::new("Upkeep / yr (yield-scaled)")
+                    .strong()
+                    .size(10.5),
+            );
             for (text, color) in &upkeep_entries {
                 ui.label(egui::RichText::new(text).size(10.0).color(*color));
+            }
+        }
+
+        if !synergy_rules.is_empty() {
+            ui.separator();
+            ui.label(egui::RichText::new("Synergies").strong().size(10.5));
+            for (label, active) in &synergy_rules {
+                let mark = if *active { "✓" } else { "✗" };
+                let color = if *active {
+                    theme::GREEN
+                } else {
+                    theme::TEXT_DIM
+                };
+                ui.label(
+                    egui::RichText::new(format!("{mark} {label}"))
+                        .size(10.0)
+                        .color(color),
+                );
             }
         }
     });
@@ -1481,6 +2178,8 @@ fn render_building_card(
     construction_actions: &mut PendingConstructionActions,
     card_width: f32,
     buildings_data: Option<&crate::colony::BuildingsData>,
+    colony: &Colony,
+    _synergies: &crate::colony::ColonySynergies,
 ) {
     let total_bp = building.build_cost() * multiplier as f64;
     let years_to_build = if bp_rate > 0.0 {
@@ -1497,6 +2196,7 @@ fn render_building_card(
     // Power demand from data file
     let power_demand_mw =
         definition.map(|def| def.power_demand_mw).unwrap_or(0.0) * multiplier as f64;
+    let yield_mult = colony.effective_yield_multiplier();
 
     ui.group(|ui| {
         let target_width = card_width;
@@ -1524,6 +2224,23 @@ fn render_building_card(
                 );
             });
         });
+
+        // ── Tier badge / Replaces (GRA-22d #4) ────────────────────────────
+        if let Some(def) = definition {
+            if def.tier > 0 || def.replaces.is_some() {
+                let mut badge = String::new();
+                if def.tier > 0 {
+                    badge.push_str(&format!("Tier {}", def.tier));
+                }
+                if let Some(replaces) = &def.replaces {
+                    if !badge.is_empty() {
+                        badge.push_str(" · ");
+                    }
+                    badge.push_str(&format!("Replaces: {}", replaces));
+                }
+                ui.label(egui::RichText::new(&badge).size(9.25).color(theme::RP_BLUE));
+            }
+        }
 
         ui.separator();
 
@@ -1564,6 +2281,23 @@ fn render_building_card(
                 .color(theme::AMBER),
         );
 
+        // ── Effective contribution × yield multiplier (GRA-22d #4) ───────
+        if let Some(def) = definition {
+            if let Some(first_mod) = def.modifiers.first() {
+                if yield_mult < 0.999 {
+                    let scaled = first_mod.value * (multiplier as f64) * yield_mult;
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Effective: {:.2} {} (×{:.2} yield)",
+                            scaled, first_mod.modifier_type, yield_mult
+                        ))
+                        .size(9.0)
+                        .color(theme::EP_TEAL),
+                    );
+                }
+            }
+        }
+
         // ── Effect lines ─────────────────────────────────────────────────
         if let Some((summary, color)) = operations_summary {
             ui.separator();
@@ -1576,6 +2310,35 @@ fn render_building_card(
             ui.add(
                 egui::Label::new(egui::RichText::new(summary).size(9.25).color(color)).truncate(),
             );
+        }
+
+        // ── Synergies (GRA-22d #4 — "synergies active" checkmarks / x's) ─
+        if let Some(def) = definition {
+            if !def.synergy.is_empty() {
+                let active = def
+                    .synergy
+                    .iter()
+                    .filter(|rule| {
+                        let have = buildings_data
+                            .map(|d| d.count_in_line(&colony.buildings, &rule.requires_line))
+                            .unwrap_or(0);
+                        have >= u32::from(rule.count)
+                    })
+                    .count();
+                let total = def.synergy.len();
+                let (mark, color) = if active == total {
+                    ("✓", theme::GREEN)
+                } else if active == 0 {
+                    ("✗", theme::TEXT_DIM)
+                } else {
+                    ("~", theme::AMBER)
+                };
+                ui.label(
+                    egui::RichText::new(format!("Synergies: {mark} {} / {}", active, total))
+                        .size(9.0)
+                        .color(color),
+                );
+            }
         }
 
         // ── Resource costs ────────────────────────────────────────────────
@@ -1651,6 +2414,8 @@ fn render_building_card(
             }
         });
     });
+    // _synergies is read in the card via the operational summary path; the
+    // resource is kept in the signature for future per-card expansion.
 }
 
 /// Render the minimum stockpile configuration section for a colony.
