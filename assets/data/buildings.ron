@@ -76,7 +76,7 @@
             modifiers: [
                 // 2026 reference: 1 dome = half of world population (8.1B ÷ 2).
                 // Operator bar: 1 colony building ≈ world total.
-                (modifier_type: "HousingCapacity", value: 4_000_000_000.0),
+                (modifier_type: "HousingCapacity", value: 4000000000.0),
             ],
             power_demand_mw: 150.0,
         ),
@@ -103,7 +103,7 @@
             modifiers: [
                 // 2026 reference: 1 complex = world population (8.1B).
                 // Operator bar: 1 colony building ≈ world total.
-                (modifier_type: "HousingCapacity", value: 8_000_000_000.0),
+                (modifier_type: "HousingCapacity", value: 8000000000.0),
             ],
             power_demand_mw: 50.0,
         ),
@@ -131,7 +131,7 @@
             ],
             modifiers: [
                 // 2026 reference: 1 habitat = quarter of world population.
-                (modifier_type: "HousingCapacity", value: 2_000_000_000.0),
+                (modifier_type: "HousingCapacity", value: 2000000000.0),
             ],
             power_demand_mw: 300.0,
         ),
@@ -757,7 +757,7 @@
                 // 2026 reference: world food production (cereals + all) ~9,000 Mt/yr
                 // (FAO 2024; cereals ~2,900 Mt/yr cereals alone, ~9 Gt total).
                 // Operator bar: 1 farm ≈ world food total.
-                (modifier_type: "FoodProduction", value: 9_000.0),
+                (modifier_type: "FoodProduction", value: 9000.0),
             ],
             power_demand_mw: 30.0,
         ),
