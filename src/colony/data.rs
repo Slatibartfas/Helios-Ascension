@@ -62,7 +62,16 @@ impl BuildingDefinition {
 /// Data file format for buildings
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct BuildingsFile {
+    /// Colony-population / per-build worker-unit conversion factor. Read by Rust
+    /// in GRA-22b as `pub const POPULATION_SCALE_MULTIPLIER: f64`. Defaults to
+    /// `100.0` so existing RON files written before GRA-22a still parse.
+    #[serde(default = "default_population_scale_multiplier")]
+    population_scale_multiplier: f64,
     buildings: Vec<BuildingDefinition>,
+}
+
+fn default_population_scale_multiplier() -> f64 {
+    100.0
 }
 
 /// Resource that holds all building definitions loaded from data files
@@ -438,5 +447,37 @@ mod tests {
             );
         }
         // If file doesn't exist in test env, that's OK
+    }
+
+    #[test]
+    fn test_every_building_has_4_to_6_maintenance_resources() {
+        // GRA-22a acceptance criterion: every building must have 4–6
+        // maintenance resources, so disabling a resource type noticeably
+        // weakens or shuts down the building. Full audit (synergy/tiers) is
+        // GRA-22c; this is the data-only seed.
+        let path = "assets/data/buildings.ron";
+        let contents = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => return, // File not available in test env; skip.
+        };
+        let data = match ron::from_str::<BuildingsFile>(&contents) {
+            Ok(d) => d,
+            Err(_) => panic!("buildings.ron should parse (RON schema may be invalid)"),
+        };
+        assert!(
+            data.population_scale_multiplier > 0.0,
+            "population_scale_multiplier must be positive, got {}",
+            data.population_scale_multiplier
+        );
+        for def in &data.buildings {
+            let n = def.maintenance_resources.len();
+            assert!(
+                (4..=6).contains(&n),
+                "{} has {} maintenance resources (expected 4–6): {:?}",
+                def.id,
+                n,
+                def.maintenance_resources
+            );
+        }
     }
 }
