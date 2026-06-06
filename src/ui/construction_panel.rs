@@ -130,10 +130,10 @@ impl BuildFilter {
                 if def.synergy.is_empty() {
                     return false;
                 }
-                let Some(state) = synergies.and_then(|s| s.by_colony.get(&colony_entity)) else {
-                    // Synergy recompute has not run yet (no synergies
-                    // registered) — show all synergy-bearing buildings so
-                    // the chip is never empty in a fresh game.
+                // Show all synergy-bearing buildings if the synergy recompute has not
+                // run yet (no synergies registered) so the chip is never empty
+                // in a fresh game.
+                let Some(_) = synergies.and_then(|s| s.by_colony.get(&colony_entity)) else {
                     return true;
                 };
                 // Show if any of this building's synergy rules is currently
@@ -141,7 +141,7 @@ impl BuildFilter {
                 def.synergy.iter().any(|rule| {
                     let have = data.count_in_line(&colony.buildings, &rule.requires_line);
                     have >= u32::from(rule.count)
-                }) || state.bonuses.values().any(|v| *v > 0.0)
+                })
             }
         }
     }
@@ -983,14 +983,6 @@ fn render_construction_overview_tab(
             let icon = super::resources_bar::get_resource_icon(resource);
             let color = depletion_color(years);
             let years_str = format_years_remaining(years);
-            let total_draw_yr = {
-                // Read the draw from the timeline by inverting: years =
-                // stockpile / draw → draw = stockpile / years.  The
-                // timeline doesn't keep stockpile so we omit the absolute
-                // draw here; the Overview chip and the section header
-                // already convey magnitude.
-                String::new()
-            };
             ui.horizontal(|ui| {
                 ui.label(
                     egui::RichText::new(format!("{} {}", icon, resource.display_name()))
@@ -998,15 +990,11 @@ fn render_construction_overview_tab(
                         .color(theme::TEXT_VALUE),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let text = if total_draw_yr.is_empty() {
-                        format!("~{} remaining at current draw", years_str)
-                    } else {
-                        format!(
-                            "~{} remaining at current draw ({})",
-                            years_str, total_draw_yr
-                        )
-                    };
-                    ui.label(egui::RichText::new(text).size(11.0).color(color));
+                    ui.label(
+                        egui::RichText::new(format!("~{} remaining at current draw", years_str))
+                            .size(11.0)
+                            .color(color),
+                    );
                 });
             });
         }
@@ -1562,7 +1550,7 @@ fn render_existing_buildings_section(
     colony_entity: Entity,
     colony: &Colony,
     buildings_data: Option<&BuildingsData>,
-    synergies: &crate::colony::ColonySynergies,
+    _synergies: &crate::colony::ColonySynergies,
 ) {
     let yield_mult = colony.effective_yield_multiplier();
     for &category in BuildingCategory::all() {
@@ -1683,7 +1671,7 @@ fn render_existing_building_card(
     count: u32,
     card_width: f32,
     buildings_data: Option<&BuildingsData>,
-    synergies: &crate::colony::ColonySynergies,
+    _synergies: &crate::colony::ColonySynergies,
     yield_mult: f64,
 ) {
     let definition = buildings_data.and_then(|data| data.get(&building));
@@ -1723,7 +1711,7 @@ fn render_existing_building_card(
     });
 
     // Synergies active: show ✓/✗ per rule that this building owns.
-    let synergy_state = synergies.by_colony.get(&colony_entity);
+    // `synergies` is kept in the signature for future per-bonus breakdown tooltip.
     let synergy_rules: Vec<(String, bool)> = definition
         .map(|def| {
             def.synergy
@@ -1915,7 +1903,6 @@ fn render_existing_building_card(
             }
         }
     });
-    let _ = synergy_state; // reserved for future per-bonus breakdown tooltip
 }
 
 fn render_existing_building_summary_row(
@@ -2192,7 +2179,7 @@ fn render_building_card(
     card_width: f32,
     buildings_data: Option<&crate::colony::BuildingsData>,
     colony: &Colony,
-    synergies: &crate::colony::ColonySynergies,
+    _synergies: &crate::colony::ColonySynergies,
 ) {
     let total_bp = building.build_cost() * multiplier as f64;
     let years_to_build = if bp_rate > 0.0 {
@@ -2427,9 +2414,8 @@ fn render_building_card(
             }
         });
     });
-    // synergies is read in the card via the operational summary path; the
+    // _synergies is read in the card via the operational summary path; the
     // resource is kept in the signature for future per-card expansion.
-    let _ = synergies;
 }
 
 /// Render the minimum stockpile configuration section for a colony.
