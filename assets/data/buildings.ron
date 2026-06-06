@@ -54,7 +54,7 @@
         (
             id: "HabitatDome",
             display_name: "Habitat Dome",
-            description: "Pressurised arcology housing ~4B residents (half-world scale)",
+            description: "Pressurised arcology housing ~50M residents (district-scale)",
             icon: "🏠",
             category: "Infrastructure",
             build_points: 800.0,
@@ -74,16 +74,18 @@
                 ("Nitrogen", 0.5),
             ],
             modifiers: [
-                // 2026 reference: 1 dome = half of world population (8.1B ÷ 2).
-                // Operator bar: 1 colony building ≈ world total.
-                (modifier_type: "HousingCapacity", value: 4000000000.0),
+                // 2026 reference: 1 dome = city district (~50M residents).
+                // The hardcoded constant in src/colony/components.rs::housing_capacity
+                // is the source of truth; this value is documentation until
+                // GRA-22b teaches the code to read the modifier from RON.
+                (modifier_type: "HousingCapacity", value: 50000000.0),
             ],
             power_demand_mw: 150.0,
         ),
         (
             id: "Housing",
             display_name: "Housing Complex",
-            description: "City-block-scale residential complex, housing ~8B residents (world population)",
+            description: "City-block-scale residential complex, housing ~25M residents",
             icon: "🏙",
             category: "Infrastructure",
             build_points: 200.0,
@@ -101,16 +103,18 @@
                 ("Sulfur", 0.0005),
             ],
             modifiers: [
-                // 2026 reference: 1 complex = world population (8.1B).
-                // Operator bar: 1 colony building ≈ world total.
-                (modifier_type: "HousingCapacity", value: 8000000000.0),
+                // 2026 reference: 1 complex = 25M residents (city-block scale).
+                // Earth (8.1B pop) needs ~324 complexes. Source of truth is
+                // src/colony/components.rs::housing_capacity; this value is
+                // documentation until GRA-22b reads it from RON.
+                (modifier_type: "HousingCapacity", value: 25000000.0),
             ],
             power_demand_mw: 50.0,
         ),
         (
             id: "UndergroundHabitat",
             display_name: "Underground Habitat",
-            description: "Buried habitat for airless or hostile bodies, housing ~2B residents (lunar scale)",
+            description: "Buried habitat for airless or hostile bodies, housing ~30M residents",
             icon: "⛏",
             category: "Infrastructure",
             build_points: 1200.0,
@@ -130,8 +134,9 @@
                 ("Nitrogen", 0.2),
             ],
             modifiers: [
-                // 2026 reference: 1 habitat = quarter of world population.
-                (modifier_type: "HousingCapacity", value: 2000000000.0),
+                // 2026 reference: 1 habitat = 30M residents (airless-body scale).
+                // Source of truth: src/colony/components.rs::housing_capacity.
+                (modifier_type: "HousingCapacity", value: 30000000.0),
             ],
             power_demand_mw: 300.0,
         ),
