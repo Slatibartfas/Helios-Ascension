@@ -168,11 +168,12 @@ Technology progression and engineering projects.
 Electronics, Military, SpaceTechnology, Biology, Physics, Energy, Sociology, Construction, Propulsion, Materials, Sensors, Weapons, DefensiveSystems, LifeSupport, Industry
 
 #### ShipbuildingPlugin (`src/shipbuilding/`)
-Modular ship and station design, construction queues, and the first slice of launch-aware production flow.
+Modular ship and station design, construction queues, refit, slipways, and the first slice of launch-aware production flow. The plugin follows the standard `mod.rs` + `data.rs` + `systems.rs` + `components.rs` + `types.rs` layout, with `refit.rs` and `slipway.rs` added for the design-upgrade and construction-capacity sub-domains.
 
 **Components:**
 - `ShipConstructionProject`: Active ship or station project with build progress, selected construction mode, and resulting launch/orbit state
 - `OrbitalStation`: Marker reserved for immobile station assets once completed projects spawn into the fleet layer
+- Design drafts, refit state, and slipway state (see `components.rs` for the full list)
 
 **Resources:**
 - `ShipbuildingData`: Hull and module definitions loaded from `assets/data/ship_hulls.ron` and `assets/data/ship_modules.ron`
@@ -182,6 +183,17 @@ Modular ship and station design, construction queues, and the first slice of lau
 - `load_shipbuilding_data`: Loads hull and module definitions at startup
 - `process_pending_shipbuilding_actions`: Validates selected hull/module combinations against research unlocks and local facilities
 - `advance_ship_construction`: Advances queued projects using shipyard throughput, then transitions them to `ReadyForLaunch` or `CompletedInOrbit`
+- Refit systems (`refit.rs`): design upgrade, technology gating, and module replacement
+- Slipway systems (`slipway.rs`): construction capacity, throughput, and queue helpers
+
+**Sub-module map:**
+- `mod.rs` — `ShipbuildingPlugin` and the system set chain
+- `components.rs` — ship-design / construction-project resources and design drafts
+- `data.rs` — RON loading for `assets/data/ship_hulls.ron` and `assets/data/ship_modules.ron`, design summaries
+- `systems.rs` — queue validation, shipyard throughput progression, project lifecycle
+- `types.rs` — `ShipModuleCategory` (21-variant consolidated + legacy taxonomy), `HullSizeTier`, `ConstructionMode`, `ShipDesignTemplate`
+- `refit.rs` — design upgrade / refit logic (technology gating, module replacement)
+- `slipway.rs` — construction capacity and slipway helpers
 
 **Current scope:**
 - Data-driven hulls and module families for the first shipbuilder slice
@@ -381,11 +393,13 @@ src/
 │   ├── systems.rs       # Fleet position, maneuver execution, visualisation
 │   ├── types.rs         # ShipClass, PropulsionType
 │   └── mod.rs           # FleetPlugin
-├── shipbuilding/        # Modular hull/module data, ship construction queues, progression
+├── shipbuilding/        # Modular hull/module data, ship construction queues, refit, slipways
 │   ├── components.rs    # ShipDesignDraft, ShipConstructionProject, pending actions
 │   ├── data.rs          # Hull and module definitions + design summaries
+│   ├── refit.rs         # Design upgrade and refit logic (technology gating, module replacement)
+│   ├── slipway.rs       # Construction capacity and slipway helpers
 │   ├── systems.rs       # Queue validation and shipyard throughput progression
-│   ├── types.rs         # ConstructionMode and ShipModuleCategory
+│   ├── types.rs         # ShipModuleCategory (21 variants), HullSizeTier, ConstructionMode, ShipDesignTemplate
 │   └── mod.rs           # ShipbuildingPlugin
 ├── plugins/             # Game systems
 │   ├── camera.rs        # Camera movement, anchoring & ViewMode
