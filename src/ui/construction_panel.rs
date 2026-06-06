@@ -1,5 +1,22 @@
 use super::dashboard::format_mass_compact;
 use super::*;
+use bevy::ecs::system::SystemParam;
+
+/// Read-only data bundle for the construction panel.  Groups the eight
+/// resource reads so the system fits inside Bevy's 16-parameter limit
+/// (GRA-22d adds DepletionTimeline + ColonySynergies to the original
+/// panel's set, putting the system at 18 params).
+#[derive(SystemParam)]
+pub(super) struct ConstructionPanelData<'w> {
+    pub active_menu: Res<'w, ActiveMenu>,
+    pub research_state: Res<'w, crate::research::ResearchState>,
+    pub budget: Res<'w, GlobalBudget>,
+    pub contextual: Res<'w, crate::economy::ContextualStockpile>,
+    pub sim_time: Res<'w, crate::ui::SimulationTime>,
+    pub resource_requests: Res<'w, crate::economy::PendingResourceRequests>,
+    pub depletion_timeline: Res<'w, crate::colony::DepletionTimeline>,
+    pub synergies: Res<'w, crate::colony::ColonySynergies>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum ConstructionTab {
@@ -415,25 +432,18 @@ fn draw_filter_chip(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Res
 
 pub(super) fn ui_construction_panels(
     mut contexts: EguiContexts,
-    active_menu: Res<ActiveMenu>,
     colony_query: Query<(Entity, &Colony, &CelestialBody)>,
     construction_query: Query<(Entity, &ConstructionProject)>,
     mut construction_actions: ResMut<PendingConstructionActions>,
-    research_state: Res<crate::research::ResearchState>,
-    budget: Res<GlobalBudget>,
-    contextual: Res<crate::economy::ContextualStockpile>,
     mut debug_settings: ResMut<ConstructionDebugSettings>,
     mut buildings_data: Option<ResMut<BuildingsData>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut ui_state: ResMut<ConstructionUiState>,
     mut edit_state: ResMut<crate::colony::BuildingEditState>,
-    sim_time: Res<crate::ui::SimulationTime>,
-    resource_requests: Res<crate::economy::PendingResourceRequests>,
     mut minimum_stockpiles: Query<&mut crate::economy::MinimumStockpile>,
-    depletion_timeline: Res<crate::colony::DepletionTimeline>,
-    synergies: Res<crate::colony::ColonySynergies>,
+    data: ConstructionPanelData,
 ) {
-    if active_menu.current != GameMenu::Construction {
+    if data.active_menu.current != GameMenu::Construction {
         return;
     }
 
@@ -455,16 +465,16 @@ pub(super) fn ui_construction_panels(
                 &colony_query,
                 &construction_query,
                 &mut construction_actions,
-                &research_state,
-                &budget,
-                &contextual,
+                &data.research_state,
+                &data.budget,
+                &data.contextual,
                 &mut debug_settings,
                 buildings_data.as_deref(),
                 &mut ui_state,
-                &resource_requests,
+                &data.resource_requests,
                 &mut minimum_stockpiles,
-                &depletion_timeline,
-                &synergies,
+                &data.depletion_timeline,
+                &data.synergies,
             );
         });
 
@@ -474,7 +484,7 @@ pub(super) fn ui_construction_panels(
             ctx,
             buildings_data.as_deref_mut(),
             &mut edit_state,
-            sim_time.elapsed_seconds(),
+            data.sim_time.elapsed_seconds(),
         );
     }
 }
@@ -692,7 +702,7 @@ fn render_construction_panel(
         ConstructionTab::Overview => {
             render_construction_overview_tab(
                 ui,
-                colony_entity,
+                *colony_entity,
                 colony,
                 body,
                 bp_rate,
@@ -705,7 +715,13 @@ fn render_construction_panel(
             );
         }
         ConstructionTab::Buildings => {
-            render_construction_buildings_tab(ui, colony_entity, colony, buildings_data, synergies);
+            render_construction_buildings_tab(
+                ui,
+                *colony_entity,
+                colony,
+                buildings_data,
+                synergies,
+            );
         }
         ConstructionTab::Build => {
             render_construction_build_tab(
@@ -1024,7 +1040,7 @@ fn render_construction_overview_tab(
                 entries.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
                 for (effect, bonus) in entries.iter().take(2) {
                     ui.label(
-                        egui::RichText::new(format!("  ✓ {}: {:+.0}%", effect, bonus * 100.0))
+                        egui::RichText::new(format!("  ✓ {}: {:+.0}%", effect, *bonus * 100.0))
                             .size(10.5)
                             .color(theme::TEXT_VALUE),
                     );
@@ -1341,7 +1357,7 @@ fn render_construction_build_tab(
             // category tabs.  All is a no-op pass-through.
             .filter(|b| {
                 ui_state.selected_filter.matches(
-                    *b,
+                    **b,
                     colony,
                     *colony_entity,
                     Some(synergies),
@@ -1370,7 +1386,7 @@ fn render_construction_build_tab(
             })
             .filter(|b| {
                 ui_state.selected_filter.matches(
-                    *b,
+                    **b,
                     colony,
                     *colony_entity,
                     Some(synergies),
