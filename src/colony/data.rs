@@ -219,7 +219,7 @@ pub fn audit_buildings(buildings: &[BuildingDefinition]) -> Vec<String> {
 }
 
 /// Parse a BuildingType from its variant name string (as used in buildings.ron)
-fn parse_building_type(id: &str) -> Option<BuildingType> {
+pub(super) fn parse_building_type(id: &str) -> Option<BuildingType> {
     match id {
         "LifeSupport" => Some(BuildingType::LifeSupport),
         "HabitatDome" => Some(BuildingType::HabitatDome),

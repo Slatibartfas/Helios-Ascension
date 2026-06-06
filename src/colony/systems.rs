@@ -1154,9 +1154,9 @@ mod tests {
             },
         );
         defs.insert(
-            BuildingType::HydroponicsFarm,
+            BuildingType::AgriDome,
             BuildingDefinition {
-                id: "HydroponicsFarm".to_string(),
+                id: "AgriDome".to_string(),
                 display_name: "Hydroponics Farm".to_string(),
                 description: "T1 farm".to_string(),
                 icon: "🌱".to_string(),
@@ -1325,7 +1325,7 @@ mod tests {
         app.world_mut()
             .resource_mut::<PendingConstructionActions>()
             .start_construction
-            .push((colony_entity, BuildingType::HydroponicsFarm));
+            .push((colony_entity, BuildingType::AgriDome));
 
         let mut sched = bevy::ecs::schedule::Schedule::default();
         sched.add_systems(process_construction_actions);
@@ -1344,7 +1344,7 @@ mod tests {
             "one Farm should have been replaced by the HydroponicsFarm"
         );
         assert_eq!(
-            colony.building_count(BuildingType::HydroponicsFarm),
+            colony.building_count(BuildingType::AgriDome),
             1,
             "HydroponicsFarm should be present (instant build)"
         );
@@ -1380,7 +1380,7 @@ mod tests {
         app.world_mut()
             .resource_mut::<PendingConstructionActions>()
             .start_construction
-            .push((colony_entity, BuildingType::HydroponicsFarm));
+            .push((colony_entity, BuildingType::AgriDome));
 
         let mut sched = bevy::ecs::schedule::Schedule::default();
         sched.add_systems(process_construction_actions);
@@ -1393,7 +1393,7 @@ mod tests {
             .expect("colony still exists");
 
         assert_eq!(colony.building_count(BuildingType::Farm), 0);
-        assert_eq!(colony.building_count(BuildingType::HydroponicsFarm), 1);
+        assert_eq!(colony.building_count(BuildingType::AgriDome), 1);
     }
 
     /// Acceptance test #2: a Mine with 2 Refineries and 1 Factory in the
