@@ -31,6 +31,27 @@ pub struct BuildingModifierDef {
     pub value: f64,
 }
 
+/// A synergy rule: when the colony has at least `count` buildings whose
+/// `line` matches `requires_line`, the listed `effect` gets a flat additive
+/// `bonus` (e.g. `0.10` = +10%).  Civ-VI-style adjacency, data-only —
+/// activated/deactivated purely by colony composition at recompute time.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SynergyRule {
+    /// Line of buildings that must be present in the colony (e.g. "Refinery").
+    /// Counted across the *colony*, not the same line as the building that
+    /// owns the rule.
+    pub requires_line: String,
+    /// Minimum count of that line required to activate the bonus.
+    pub count: u8,
+    /// Effect name to bump.  Multiple rules targeting the same effect
+    /// sum additively (e.g. two Mine buildings each with a +5% mining
+    /// synergy give +10% total).
+    pub effect: String,
+    /// Additive bonus applied per qualifying rule, in the same units as
+    /// the consuming system reads (e.g. 0.10 = +10% mining efficiency).
+    pub bonus: f64,
+}
+
 /// A building definition loaded from the data file
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildingDefinition {
@@ -52,7 +73,8 @@ pub struct BuildingDefinition {
     pub required_tech: String,
     /// Resources consumed from stockpile on construction
     pub resource_costs: Vec<ResourceCostEntry>,
-    /// Resources consumed per year for maintenance
+    /// Resources consumed per year for maintenance.  GRA-22c audit
+    /// enforces 4–6 entries per building — see [`audit_buildings`].
     pub maintenance_resources: Vec<ResourceCostEntry>,
     /// Modifiers applied while this building is operational
     pub modifiers: Vec<BuildingModifierDef>,
@@ -60,6 +82,28 @@ pub struct BuildingDefinition {
     /// Defaults to 0 if not specified in the data file.
     #[serde(default)]
     pub power_demand_mw: f64,
+    /// Tier within the building's line.  0 = base, 1+ = upgrades that
+    /// replace a predecessor in the same line (see `replaces`).
+    /// Default 0 so existing RON entries without this field continue
+    /// to deserialize.
+    #[serde(default)]
+    pub tier: u8,
+    /// Optional line name (e.g. `Some("Farm")`).  All buildings that
+    /// share a `line` belong to the same upgrade path; `tier` orders
+    /// them, `replaces` declares the predecessor.
+    #[serde(default)]
+    pub line: Option<String>,
+    /// Optional predecessor `id` (BuildingType variant name) that this
+    /// building replaces in the colony.  When non-None and the colony
+    /// has at least one of the predecessor, building this one decrements
+    /// the predecessor by one.  Tier-0 buildings leave this as `None`.
+    #[serde(default)]
+    pub replaces: Option<String>,
+    /// Synergy rules granted by this building when active.  Summed
+    /// across the colony at recompute time.  Default empty for
+    /// buildings without adjacency (the common case).
+    #[serde(default)]
+    pub synergy: Vec<SynergyRule>,
 }
 
 impl BuildingDefinition {
@@ -123,6 +167,55 @@ impl BuildingsData {
             .get(building_type)
             .and_then(|d| d.required_tech_opt())
     }
+
+    /// Sum of `line == name` buildings across the colony, using the
+    /// per-building `line` field on the definition.  Returns 0 if
+    /// `BuildingsData` is not present.  Used by `recompute_synergies`
+    /// and exposed for the unit tests.
+    pub fn count_in_line(
+        &self,
+        colony_buildings: &std::collections::HashMap<BuildingType, u32>,
+        name: &str,
+    ) -> u32 {
+        colony_buildings
+            .iter()
+            .filter_map(|(bt, count)| {
+                self.definitions
+                    .get(bt)
+                    .and_then(|d| d.line.as_deref())
+                    .and_then(|line| (line == name).then_some(*count))
+            })
+            .sum()
+    }
+}
+
+/// GRA-22c maintenance audit: every building must consume 4–6 distinct
+/// resources for upkeep (per plan §4.7).  Buildings outside this range
+/// indicate a balance regression that should be caught at load time.
+pub const MAINTENANCE_AUDIT_MIN: usize = 4;
+pub const MAINTENANCE_AUDIT_MAX: usize = 6;
+
+/// Run the 4–6 maintenance audit across a building set.  Returns the
+/// list of violations (empty == pass).  Distinct resources are checked
+/// — duplicate entries in `maintenance_resources` count as one.
+pub fn audit_buildings(buildings: &[BuildingDefinition]) -> Vec<String> {
+    let mut errors = Vec::new();
+    for def in buildings {
+        let mut seen: Vec<&str> = Vec::new();
+        for (name, _) in &def.maintenance_resources {
+            if !seen.contains(&name.as_str()) {
+                seen.push(name.as_str());
+            }
+        }
+        let n = seen.len();
+        if !(MAINTENANCE_AUDIT_MIN..=MAINTENANCE_AUDIT_MAX).contains(&n) {
+            errors.push(format!(
+                "{}: maintenance has {} distinct resource(s), expected [{}, {}]",
+                def.id, n, MAINTENANCE_AUDIT_MIN, MAINTENANCE_AUDIT_MAX
+            ));
+        }
+    }
+    errors
 }
 
 /// Parse a BuildingType from its variant name string (as used in buildings.ron)
@@ -201,6 +294,37 @@ pub fn load_buildings(mut commands: Commands) {
                     } else {
                         warn!("Unknown building type ID in data file: {}", def.id);
                     }
+                }
+
+                // GRA-22c: load-time maintenance audit (4–6 distinct
+                // resources per building, per plan §4.7).  We *warn* on
+                // violations rather than panic, so debug builds still
+                // run and the operator can see the data regressions
+                // without a hard crash.  The accompanying unit test
+                // (`test_audit_buildings_*`) is the strict pass/fail gate.
+                let violations = audit_buildings(
+                    buildings_data
+                        .definitions
+                        .values()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .as_slice(),
+                );
+                if !violations.is_empty() {
+                    for v in &violations {
+                        warn!("buildings.ron audit: {}", v);
+                    }
+                    warn!(
+                        "buildings.ron audit: {} maintenance-range violation(s) (expected {}–{} distinct resources per building)",
+                        violations.len(),
+                        MAINTENANCE_AUDIT_MIN,
+                        MAINTENANCE_AUDIT_MAX,
+                    );
+                } else {
+                    info!(
+                        "buildings.ron audit: all {} buildings have {}-{} maintenance resources",
+                        count, MAINTENANCE_AUDIT_MIN, MAINTENANCE_AUDIT_MAX
+                    );
                 }
 
                 info!(
@@ -401,6 +525,10 @@ mod tests {
             maintenance_resources: vec![],
             modifiers: vec![],
             power_demand_mw: 0.0,
+            tier: 0,
+            line: None,
+            replaces: None,
+            synergy: vec![],
         };
         assert!(def.required_tech_opt().is_none());
 
@@ -434,6 +562,10 @@ mod tests {
                 maintenance_resources: vec![("Iron".to_string(), 0.1)],
                 modifiers: vec![],
                 power_demand_mw: 250.0,
+                tier: 0,
+                line: Some("Mine".to_string()),
+                replaces: None,
+                synergy: vec![],
             },
         );
 
@@ -493,5 +625,166 @@ mod tests {
                 def.maintenance_resources
             );
         }
+    }
+
+    // ── GRA-22c: tier / line / replaces / synergy fields + audit helper ─
+
+    fn make_def(id: &str, maint: &[&str]) -> BuildingDefinition {
+        BuildingDefinition {
+            id: id.to_string(),
+            display_name: id.to_string(),
+            description: "test".to_string(),
+            icon: "?".to_string(),
+            category: "Test".to_string(),
+            build_points: 100.0,
+            workforce: 10,
+            required_tech: "".to_string(),
+            resource_costs: vec![],
+            maintenance_resources: maint.iter().map(|n| ((*n).to_string(), 0.1)).collect(),
+            modifiers: vec![],
+            power_demand_mw: 0.0,
+            tier: 0,
+            line: None,
+            replaces: None,
+            synergy: vec![],
+        }
+    }
+
+    #[test]
+    fn test_audit_buildings_pass_at_four() {
+        // Lower bound: 4 distinct maintenance resources is accepted.
+        let defs = vec![make_def("OK", &["Iron", "Copper", "Water", "Polymers"])];
+        assert!(audit_buildings(&defs).is_empty());
+    }
+
+    #[test]
+    fn test_audit_buildings_pass_at_six() {
+        // Upper bound: 6 distinct maintenance resources is accepted.
+        let defs = vec![make_def(
+            "OK",
+            &[
+                "Iron",
+                "Copper",
+                "Water",
+                "Polymers",
+                "Sulfur",
+                "RareEarths",
+            ],
+        )];
+        assert!(audit_buildings(&defs).is_empty());
+    }
+
+    #[test]
+    fn test_audit_buildings_fail_below_four() {
+        // 3 distinct maintenance resources — must report a violation.
+        let defs = vec![make_def("Bad", &["Iron", "Copper", "Water"])];
+        let errs = audit_buildings(&defs);
+        assert_eq!(errs.len(), 1, "expected 1 violation, got {:?}", errs);
+        assert!(errs[0].contains("Bad"), "error should name the building");
+        assert!(errs[0].contains("3"), "error should report the count");
+    }
+
+    #[test]
+    fn test_audit_buildings_fail_above_six() {
+        // 7 distinct maintenance resources — must report a violation.
+        let defs = vec![make_def(
+            "Bad",
+            &[
+                "Iron",
+                "Copper",
+                "Water",
+                "Polymers",
+                "Sulfur",
+                "RareEarths",
+                "Lithium",
+            ],
+        )];
+        let errs = audit_buildings(&defs);
+        assert_eq!(errs.len(), 1, "expected 1 violation, got {:?}", errs);
+        assert!(errs[0].contains("Bad"), "error should name the building");
+        assert!(errs[0].contains("7"), "error should report the count");
+    }
+
+    #[test]
+    fn test_audit_buildings_dedupes_repeats() {
+        // Duplicate resource names in the maintenance list count as one.
+        // 5 entries with a duplicate Iron = 4 distinct → still passes.
+        let def = BuildingDefinition {
+            id: "DupIron".to_string(),
+            maintenance_resources: vec![
+                ("Iron".to_string(), 0.1),
+                ("Iron".to_string(), 0.05), // duplicate
+                ("Copper".to_string(), 0.1),
+                ("Water".to_string(), 0.1),
+                ("Polymers".to_string(), 0.1),
+            ],
+            ..make_def("DupIron", &["Iron", "Copper", "Water", "Polymers"])
+        };
+        assert!(audit_buildings(&[def]).is_empty());
+    }
+
+    #[test]
+    fn test_audit_buildings_cumulative() {
+        // Multiple violations across multiple buildings are reported in one pass.
+        let defs = vec![
+            make_def("A", &["Iron", "Copper", "Water"]), // 3 — too few
+            make_def(
+                "B",
+                &[
+                    "Iron",
+                    "Copper",
+                    "Water",
+                    "Polymers",
+                    "Sulfur",
+                    "RareEarths",
+                    "Lithium",
+                ],
+            ), // 7 — too many
+            make_def("C", &["Iron", "Copper", "Water", "Polymers"]), // 4 — pass
+        ];
+        let errs = audit_buildings(&defs);
+        assert_eq!(errs.len(), 2, "expected 2 violations, got {:?}", errs);
+        assert!(errs.iter().any(|e| e.starts_with("A:")));
+        assert!(errs.iter().any(|e| e.starts_with("B:")));
+    }
+
+    #[test]
+    fn test_synergy_rule_roundtrip() {
+        // SynergyRule serialises + deserialises with the same field order
+        // the RON entries will use.
+        let rule = SynergyRule {
+            requires_line: "Refinery".to_string(),
+            count: 2,
+            effect: "MiningEfficiency".to_string(),
+            bonus: 0.10,
+        };
+        let ron = ron::to_string(&rule).expect("serialize");
+        let back: SynergyRule = ron::from_str(&ron).expect("deserialize");
+        assert_eq!(rule, back);
+    }
+
+    #[test]
+    fn test_building_definition_default_serde() {
+        // The new fields (tier/line/replaces/synergy) must all default so
+        // existing RON entries that lack them keep deserialising.
+        let minimal = r#"(
+            id: "X",
+            display_name: "X",
+            description: "x",
+            icon: "?",
+            category: "Test",
+            build_points: 1.0,
+            workforce: 1,
+            required_tech: "",
+            resource_costs: [],
+            maintenance_resources: [("Iron", 0.1), ("Copper", 0.1), ("Water", 0.1), ("Polymers", 0.1)],
+            modifiers: [],
+        )"#;
+        let def: BuildingDefinition = ron::from_str(minimal).expect("parse minimal RON");
+        assert_eq!(def.tier, 0);
+        assert_eq!(def.line, None);
+        assert_eq!(def.replaces, None);
+        assert!(def.synergy.is_empty());
+        assert_eq!(def.power_demand_mw, 0.0);
     }
 }
