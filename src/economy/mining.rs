@@ -816,8 +816,15 @@ pub fn update_resource_rates(
 
     // 3. Add net colony food rate (production - population consumption)
     for (entity, colony, _, _) in colony_query.iter() {
-        let food_production_per_month =
-            colony.food_production_per_year() * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
+        // Per GRA-22 §4.5: agricultural production scales with the colony's
+        // `ColonyDevelopment` yield multiplier, matching the rest of the
+        // rates in this function.  An Outpost at ×0.10 reports the same rate
+        // the sim extracts/consumes.  Consumption is per-capita (biological)
+        // and stays unmultiplied.
+        let food_yield_mult = colony.effective_yield_multiplier();
+        let food_production_per_month = colony.food_production_per_year()
+            * food_yield_mult
+            * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
         let food_consumption_per_month =
             colony.food_consumption_per_year() * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
         if food_production_per_month > f64::EPSILON {
