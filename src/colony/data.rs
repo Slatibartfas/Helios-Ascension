@@ -19,6 +19,18 @@ use super::types::BuildingType;
 /// pre-scale numbers anywhere in the sim.
 pub const POPULATION_SCALE_MULTIPLIER: f64 = 100.0;
 
+/// Atmosphere availability for a building.  Used to hide or grey out
+/// cross-atmosphere buildings in the construction panel (GRA-27).
+/// `Breathable` matches a body whose `AtmosphereComposition.breathable`
+/// is `true`; `None` matches a body with no atmosphere (vacuum /
+/// trace gases only).  Buildings that should be buildable on every
+/// kind of body include both variants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AtmosphereKind {
+    Breathable,
+    None,
+}
+
 /// A single resource cost entry: (resource_name, amount)
 pub type ResourceCostEntry = (String, f64);
 
@@ -104,6 +116,19 @@ pub struct BuildingDefinition {
     /// buildings without adjacency (the common case).
     #[serde(default)]
     pub synergy: Vec<SynergyRule>,
+    /// Atmosphere kinds this building can be constructed under.
+    /// The construction panel filters the available and locked
+    /// lists against the currently selected body's
+    /// `AtmosphereComposition.breathable` (GRA-27).  Defaults to
+    /// `[Breathable, None]` so existing RON entries without the
+    /// field continue to parse.
+    #[serde(default = "default_available_atmospheres")]
+    pub available_atmospheres: Vec<AtmosphereKind>,
+}
+
+/// Default atmosphere availability: buildable on every body kind.
+fn default_available_atmospheres() -> Vec<AtmosphereKind> {
+    vec![AtmosphereKind::Breathable, AtmosphereKind::None]
 }
 
 impl BuildingDefinition {
@@ -168,6 +193,23 @@ impl BuildingsData {
             .and_then(|d| d.required_tech_opt())
     }
 
+    /// Is the given building constructible on a body with the given
+    /// atmosphere?  `body_breathable = None` means the body's
+    /// atmosphere is unknown (e.g. before the body has been
+    /// spawned) — pass-through: all buildings available.  The free
+    /// function [`building_is_available_on`] is the source of truth;
+    /// this method just threads the `&self` for convenience.
+    pub fn is_available_on(
+        &self,
+        building_type: &BuildingType,
+        body_breathable: Option<bool>,
+    ) -> bool {
+        let Some(def) = self.definitions.get(building_type) else {
+            return true;
+        };
+        building_is_available_on(def, body_breathable)
+    }
+
     /// Sum of `line == name` buildings across the colony, using the
     /// per-building `line` field on the definition.  Returns 0 if
     /// `BuildingsData` is not present.  Used by `recompute_synergies`
@@ -187,6 +229,27 @@ impl BuildingsData {
             })
             .sum()
     }
+}
+
+/// Pure-logic predicate for the GRA-27 atmosphere filter.  Given a
+/// building's `available_atmospheres` list and a body's
+/// `breathable` flag, return `true` when the building is constructible
+/// on that body.  `body_breathable = None` is the "atmosphere
+/// unknown" pass-through: all buildings available (used during
+/// initial UI bootstrap before the body has an
+/// `AtmosphereComposition`).
+///
+/// A building with an empty `available_atmospheres` list is
+/// deliberately hidden on every body — useful for build-cancel /
+/// event-driven buildings, but not used in the current RON.
+pub fn building_is_available_on(def: &BuildingDefinition, body_breathable: Option<bool>) -> bool {
+    let Some(breathable) = body_breathable else {
+        return true;
+    };
+    def.available_atmospheres.iter().any(|a| match a {
+        AtmosphereKind::Breathable => breathable,
+        AtmosphereKind::None => !breathable,
+    })
 }
 
 /// GRA-22c maintenance audit: every building must consume 4–6 distinct
@@ -529,6 +592,7 @@ mod tests {
             line: None,
             replaces: None,
             synergy: vec![],
+            available_atmospheres: default_available_atmospheres(),
         };
         assert!(def.required_tech_opt().is_none());
 
@@ -566,6 +630,7 @@ mod tests {
                 line: Some("Mine".to_string()),
                 replaces: None,
                 synergy: vec![],
+                available_atmospheres: default_available_atmospheres(),
             },
         );
 
@@ -647,6 +712,7 @@ mod tests {
             line: None,
             replaces: None,
             synergy: vec![],
+            available_atmospheres: default_available_atmospheres(),
         }
     }
 
@@ -765,8 +831,9 @@ mod tests {
 
     #[test]
     fn test_building_definition_default_serde() {
-        // The new fields (tier/line/replaces/synergy) must all default so
-        // existing RON entries that lack them keep deserialising.
+        // The new fields (tier/line/replaces/synergy/available_atmospheres)
+        // must all default so existing RON entries that lack them keep
+        // deserialising.
         let minimal = r#"(
             id: "X",
             display_name: "X",
@@ -786,5 +853,233 @@ mod tests {
         assert_eq!(def.replaces, None);
         assert!(def.synergy.is_empty());
         assert_eq!(def.power_demand_mw, 0.0);
+        assert_eq!(
+            def.available_atmospheres,
+            vec![AtmosphereKind::Breathable, AtmosphereKind::None],
+            "missing field must default to both kinds"
+        );
+    }
+
+    // ── GRA-27: atmosphere-availability field & filter logic ───────────
+
+    #[test]
+    fn test_available_atmospheres_default_is_both() {
+        // Minimal RON with no `available_atmospheres` field → the
+        // serde default kicks in, giving both kinds so existing
+        // RON keeps parsing.
+        let minimal = r#"(
+            id: "X",
+            display_name: "X",
+            description: "x",
+            icon: "?",
+            category: "Test",
+            build_points: 1.0,
+            workforce: 1,
+            required_tech: "",
+            resource_costs: [],
+            maintenance_resources: [("Iron", 0.1), ("Copper", 0.1), ("Water", 0.1), ("Polymers", 0.1)],
+            modifiers: [],
+        )"#;
+        let def: BuildingDefinition = ron::from_str(minimal).expect("parse minimal RON");
+        assert_eq!(
+            def.available_atmospheres,
+            vec![AtmosphereKind::Breathable, AtmosphereKind::None]
+        );
+    }
+
+    #[test]
+    fn test_available_atmospheres_specific_breathable() {
+        // RON with `[Breathable]` parses to a single-element list.
+        let ron = r#"(
+            id: "Farm",
+            display_name: "Farm",
+            description: "open-air",
+            icon: "F",
+            category: "Food",
+            build_points: 100.0,
+            workforce: 50,
+            required_tech: "",
+            resource_costs: [],
+            maintenance_resources: [("Iron", 0.1), ("Copper", 0.1), ("Water", 0.1), ("Polymers", 0.1)],
+            modifiers: [],
+            available_atmospheres: [Breathable],
+        )"#;
+        let def: BuildingDefinition = ron::from_str(ron).expect("parse Farm RON");
+        assert_eq!(def.available_atmospheres, vec![AtmosphereKind::Breathable]);
+    }
+
+    #[test]
+    fn test_available_atmospheres_specific_none() {
+        // RON with `[None]` parses to a single-element list.  This is
+        // the canonical "off-world only" building (AgriDome,
+        // UndergroundHabitat).
+        let ron = r#"(
+            id: "AgriDome",
+            display_name: "AgriDome",
+            description: "closed env",
+            icon: "A",
+            category: "Food",
+            build_points: 100.0,
+            workforce: 50,
+            required_tech: "hydroponics",
+            resource_costs: [],
+            maintenance_resources: [("Iron", 0.1), ("Copper", 0.1), ("Water", 0.1), ("Polymers", 0.1)],
+            modifiers: [],
+            available_atmospheres: [None],
+        )"#;
+        let def: BuildingDefinition = ron::from_str(ron).expect("parse AgriDome RON");
+        assert_eq!(def.available_atmospheres, vec![AtmosphereKind::None]);
+    }
+
+    #[test]
+    fn test_atmosphere_filter_passes_when_match() {
+        // Farm is `[Breathable]`.  Earth (breathable) → available.
+        let def = def_with_availability("Farm", vec![AtmosphereKind::Breathable]);
+        assert!(building_is_available_on(&def, Some(true)));
+        // Pass-through when the body's atmosphere is not known yet.
+        assert!(building_is_available_on(&def, None));
+
+        // Both kinds → always available regardless of the body.
+        let any = def_with_availability(
+            "Any",
+            vec![AtmosphereKind::Breathable, AtmosphereKind::None],
+        );
+        assert!(building_is_available_on(&any, Some(true)));
+        assert!(building_is_available_on(&any, Some(false)));
+    }
+
+    #[test]
+    fn test_atmosphere_filter_fails_when_mismatch() {
+        // Farm is `[Breathable]`.  Moon (not breathable) → unavailable.
+        let farm = def_with_availability("Farm", vec![AtmosphereKind::Breathable]);
+        assert!(!building_is_available_on(&farm, Some(false)));
+
+        // And the symmetric case: AgriDome is `[None]`, so it must
+        // be hidden on Earth.
+        let agri = def_with_availability("AgriDome", vec![AtmosphereKind::None]);
+        assert!(!building_is_available_on(&agri, Some(true)));
+        assert!(building_is_available_on(&agri, Some(false)));
+    }
+
+    // Helper used by the failure-case test to keep it focused.
+    fn def_with_availability(id: &str, atms: Vec<AtmosphereKind>) -> BuildingDefinition {
+        BuildingDefinition {
+            id: id.to_string(),
+            display_name: id.to_string(),
+            description: "test".to_string(),
+            icon: "?".to_string(),
+            category: "Test".to_string(),
+            build_points: 100.0,
+            workforce: 10,
+            required_tech: "".to_string(),
+            resource_costs: vec![],
+            maintenance_resources: vec![],
+            modifiers: vec![],
+            power_demand_mw: 0.0,
+            tier: 0,
+            line: None,
+            replaces: None,
+            synergy: vec![],
+            available_atmospheres: atms,
+        }
+    }
+
+    // ── GRA-27: Earth vs Moon integration (construction-panel view) ────
+    //
+    // These tests build a `BuildingsData` populated with the four
+    // cross-atmosphere buildings (Farm/Greenhouse = [Breathable],
+    // AgriDome/UndergroundHabitat = [None]) and exercise the
+    // `is_available_on` accessor the UI calls.  The intent is to
+    // mirror what the player sees in the construction panel:
+    //
+    //   - On Earth (breathable): Farm shows up, AgriDome is hidden.
+    //   - On the Moon (no atmosphere): AgriDome shows up, Farm is
+    //     hidden.
+    //
+    // `hydroponics` is a hard gate for AgriDome, so it is not in
+    // "available" on Earth *both* because of atmosphere AND because
+    // of tech.  We don't try to model the tech-gate here — that is
+    // covered by the existing `required_tech` plumbing — we only
+    // check the atmosphere axis.
+
+    fn make_cross_atmosphere_data() -> BuildingsData {
+        let mut data = BuildingsData::default();
+        let mut add = |bt: BuildingType, atms: Vec<AtmosphereKind>| {
+            data.definitions.insert(
+                bt,
+                BuildingDefinition {
+                    id: format!("{:?}", bt),
+                    display_name: format!("{:?}", bt),
+                    description: "cross-atmo test".to_string(),
+                    icon: "?".to_string(),
+                    category: "Test".to_string(),
+                    build_points: 100.0,
+                    workforce: 10,
+                    required_tech: "".to_string(),
+                    resource_costs: vec![],
+                    maintenance_resources: vec![],
+                    modifiers: vec![],
+                    power_demand_mw: 0.0,
+                    tier: 0,
+                    line: None,
+                    replaces: None,
+                    synergy: vec![],
+                    available_atmospheres: atms,
+                },
+            );
+        };
+        add(BuildingType::Farm, vec![AtmosphereKind::Breathable]);
+        add(BuildingType::Greenhouse, vec![AtmosphereKind::Breathable]);
+        add(BuildingType::AgriDome, vec![AtmosphereKind::None]);
+        add(BuildingType::UndergroundHabitat, vec![AtmosphereKind::None]);
+        // A default building for control: buildable everywhere.
+        add(BuildingType::Mine, default_available_atmospheres());
+        data
+    }
+
+    #[test]
+    fn test_earth_simulation_breathable_body() {
+        // body_breathable = true (Earth).
+        let data = make_cross_atmosphere_data();
+
+        // Farm: buildable on Earth.
+        assert!(data.is_available_on(&BuildingType::Farm, Some(true)));
+        // Greenhouse: buildable on Earth.
+        assert!(data.is_available_on(&BuildingType::Greenhouse, Some(true)));
+        // AgriDome: closed-env, must be hidden on Earth.
+        assert!(!data.is_available_on(&BuildingType::AgriDome, Some(true)));
+        // UndergroundHabitat: must be hidden on Earth.
+        assert!(!data.is_available_on(&BuildingType::UndergroundHabitat, Some(true)));
+        // Mine: default both, always available.
+        assert!(data.is_available_on(&BuildingType::Mine, Some(true)));
+    }
+
+    #[test]
+    fn test_moon_simulation_vacuum_body() {
+        // body_breathable = false (Moon).
+        let data = make_cross_atmosphere_data();
+
+        // Farm: open-air, must be hidden on the Moon.
+        assert!(!data.is_available_on(&BuildingType::Farm, Some(false)));
+        // Greenhouse: open-air, must be hidden on the Moon.
+        assert!(!data.is_available_on(&BuildingType::Greenhouse, Some(false)));
+        // AgriDome: buildable on the Moon (with hydroponics unlocked —
+        // tech gate is checked separately by the UI).
+        assert!(data.is_available_on(&BuildingType::AgriDome, Some(false)));
+        // UndergroundHabitat: buildable on the Moon.
+        assert!(data.is_available_on(&BuildingType::UndergroundHabitat, Some(false)));
+        // Mine: default both, always available.
+        assert!(data.is_available_on(&BuildingType::Mine, Some(false)));
+    }
+
+    #[test]
+    fn test_atmosphere_filter_passthrough_when_unknown() {
+        // When the body has no `AtmosphereComposition` yet, every
+        // building is "available" — the UI's pre-spawn bootstrap
+        // view must not be empty.
+        let data = make_cross_atmosphere_data();
+        assert!(data.is_available_on(&BuildingType::Farm, None));
+        assert!(data.is_available_on(&BuildingType::AgriDome, None));
+        assert!(data.is_available_on(&BuildingType::Mine, None));
     }
 }
