@@ -17,13 +17,16 @@ pub mod systems;
 pub mod types;
 
 pub use components::{
-    Colony, ColonyEnvironmentCosts, ConstructionProject, EstablishOutpostRequest,
-    PendingConstructionActions,
+    Colony, ColonyDevelopment, ColonyEnvironmentCosts, ColonyTier, ConstructionProject,
+    EstablishOutpostRequest, PendingConstructionActions, CITY_YIELD_MULTIPLIER,
+    CIVILISATION_YIELD_MULTIPLIER, OUTPOST_YIELD_MULTIPLIER, SETTLEMENT_YIELD_MULTIPLIER,
 };
 pub use data::{BuildingDefinition, BuildingModifierDef, BuildingsData};
+pub use systems::DepletionTimeline;
 pub use systems::{
-    advance_construction, deduct_environment_costs, process_construction_actions,
-    sync_population_from_colony, update_colony_growth, update_treasury,
+    advance_construction, compute_depletion_timeline, deduct_environment_costs,
+    process_construction_actions, sync_population_from_colony, update_colony_growth,
+    update_treasury,
 };
 pub use types::{BuildingCategory, BuildingType};
 
@@ -161,6 +164,7 @@ impl Plugin for ColonyPlugin {
             .init_resource::<PendingConstructionActions>()
             .init_resource::<ConstructionDebugSettings>()
             .init_resource::<BuildingEditState>()
+            .init_resource::<DepletionTimeline>()
             // Startup systems
             .add_systems(Startup, data::load_buildings)
             // Update systems
@@ -174,6 +178,7 @@ impl Plugin for ColonyPlugin {
                     update_treasury,
                     systems::deduct_maintenance_resources,
                     systems::deduct_environment_costs,
+                    systems::compute_depletion_timeline,
                 )
                     .chain()
                     .after(crate::economy::extract_resources),

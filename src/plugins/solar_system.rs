@@ -921,7 +921,11 @@ pub fn setup_solar_system(
         if body_data.name == "Earth" {
             entity_commands.insert(SurveyLevel::CoreSample);
 
-            let mut colony = Colony::new("Earth".to_string(), 8.2e9); // 8.2 Billion
+            // Earth is a Civilisation-tier homeworld (× 1.00 yield).  Founding
+            // a colony (i.e. `Colony::new()`) defaults to the Outpost tier
+            // (× 0.10) per GRA-22 §4.5; the homeworld is the only colony
+            // that starts above the Outpost package.
+            let mut colony = Colony::new_civilisation("Earth".to_string(), 8.2e9); // 8.2 Billion
 
             // Add initial infrastructure
             let base_buildings = [

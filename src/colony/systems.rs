@@ -1,6 +1,9 @@
 use bevy::prelude::*;
+use std::collections::HashMap;
 
-use super::components::{Colony, ConstructionProject, PendingConstructionActions};
+use super::components::{
+    Colony, ColonyEnvironmentCosts, ConstructionProject, PendingConstructionActions,
+};
 use super::data::BuildingsData;
 use super::types::BuildingType;
 use super::ConstructionDebugSettings;
@@ -13,6 +16,16 @@ use crate::economy::logistics::{
 };
 use crate::economy::types::ResourceType;
 use crate::ui::SimulationTime;
+
+/// Snapshot of "years remaining at the current draw" for every consumed
+/// resource on every colony.  Written by [`compute_depletion_timeline`] and
+/// read by the construction-panel UI (GRA-22d).
+#[derive(Resource, Debug, Clone, Default)]
+pub struct DepletionTimeline {
+    /// `colony_entity → resource → years_remaining`.
+    /// Missing entries mean either no draw or no local stockpile to deplete.
+    pub by_colony: HashMap<Entity, HashMap<ResourceType, f64>>,
+}
 
 /// System that advances construction projects based on factory output.
 ///
@@ -443,7 +456,12 @@ pub fn update_colony_growth(
     // If no LocalStockpile exists (legacy / newly spawned colony), fall back
     // to the global budget so gameplay continues uninterrupted.
     for (entity, mut colony, local_opt) in colonies.iter_mut() {
-        let food_prod = colony.food_production_per_year() * years_elapsed;
+        // ColonyDevelopment yield multiplier (Outpost × 0.10 … Civilisation × 1.00)
+        // scales production and population growth.  Food *consumption* is
+        // per-capita and not yield-scaled — a population of N eats the same
+        // amount of food regardless of how industrialised their colony is.
+        let yield_mult = colony.effective_yield_multiplier();
+        let food_prod = colony.food_production_per_year() * yield_mult * years_elapsed;
         let food_cons = colony.food_consumption_per_year() * years_elapsed;
 
         let food_factor = if let Some(mut ls) = local_opt {
@@ -485,7 +503,8 @@ pub fn update_colony_growth(
             }
         };
 
-        let base_growth = colony.population_growth_per_year(food_factor) * years_elapsed;
+        let base_growth =
+            colony.population_growth_per_year(food_factor) * yield_mult * years_elapsed;
         let ocean_modifier = ocean_query
             .get(entity)
             .map(|o| o.habitability_modifier())
@@ -529,8 +548,13 @@ pub fn update_treasury(
     let mut total_expenses = 0.0;
 
     for colony in colonies.iter() {
-        total_income += colony.wealth_generation_per_year();
-        total_expenses += colony.operating_cost_per_year();
+        // Per GRA-22 §4.7: wealth and operating cost both scale with the
+        // colony's development yield multiplier.  An outpost at ×0.10
+        // produces one-tenth of a civilisation's wealth *and* costs
+        // one-tenth to maintain.
+        let yield_mult = colony.effective_yield_multiplier();
+        total_income += colony.wealth_generation_per_year() * yield_mult;
+        total_expenses += colony.operating_cost_per_year() * yield_mult;
     }
 
     budget.income_per_year = total_income;
@@ -572,10 +596,14 @@ pub fn deduct_maintenance_resources(
     }
 
     for (colony, mut local_opt) in colonies.iter_mut() {
+        // Per GRA-22 §4.7: maintenance is scaled by the colony's development
+        // yield multiplier.  Same factor as output — a small base costs less
+        // in absolute terms to keep alive.
+        let yield_mult = colony.effective_yield_multiplier();
         for (building_type, count) in &colony.buildings {
             let maintenance = data.maintenance_resources(building_type);
             for (resource_name, annual_amount) in maintenance {
-                let amount = annual_amount * f64::from(*count) * years_elapsed;
+                let amount = annual_amount * f64::from(*count) * years_elapsed * yield_mult;
                 if let Some(rt) = super::data::parse_resource_type(resource_name) {
                     if let Some(ref mut ls) = local_opt {
                         // Use local stockpile
@@ -669,6 +697,100 @@ pub fn deduct_environment_costs(
     }
 }
 
+/// System that derives "years remaining at the current draw" for every
+/// consumed resource on every colony and writes the snapshot to
+/// [`DepletionTimeline`].
+///
+/// Joins `ColonyPlugin::build` in the same `chain()` group as the other
+/// colony systems; runs after [`deduct_maintenance_resources`] and
+/// [`deduct_environment_costs`] so the per-colony draw it sees is the
+/// same draw that has just been applied.  Output is consumed by the
+/// construction-panel UI (GRA-22d).
+///
+/// Population-driven draws (food, water, O₂) are *not* yield-scaled —
+/// they are per-capita biological needs.  Building-driven draws
+/// (maintenance) are yield-scaled by the same factor as the production
+/// they cost.
+pub fn compute_depletion_timeline(
+    colonies: Query<(
+        Entity,
+        &Colony,
+        Option<&ColonyEnvironmentCosts>,
+        Option<&LocalStockpile>,
+    )>,
+    buildings_data: Option<Res<BuildingsData>>,
+    mut timeline: ResMut<DepletionTimeline>,
+) {
+    timeline.by_colony.clear();
+
+    for (entity, colony, env_opt, local_opt) in colonies.iter() {
+        let mut annual_draw: HashMap<ResourceType, f64> = HashMap::new();
+        let yield_mult = colony.effective_yield_multiplier();
+
+        // 1. Building maintenance — yield-scaled (per GRA-22 §4.7).
+        //    The maintenance loop is a no-op when `BuildingsData` is
+        //    absent or empty; the per-capita and food loops below still
+        //    run so the UI gets biological needs even before the data
+        //    file is loaded.
+        if let Some(ref data) = buildings_data {
+            for (building_type, count) in &colony.buildings {
+                if *count == 0 {
+                    continue;
+                }
+                let maintenance = data.maintenance_resources(building_type);
+                for (resource_name, annual_amount) in maintenance {
+                    if let Some(rt) = super::data::parse_resource_type(resource_name) {
+                        let amount = annual_amount * f64::from(*count) * yield_mult;
+                        *annual_draw.entry(rt).or_insert(0.0) += amount;
+                    }
+                }
+            }
+        }
+
+        // 2. Per-capita environment draws (water, O₂) — biological, not scaled.
+        if let Some(env) = env_opt {
+            let pop = colony.population;
+            if pop > 0.0 {
+                if env.water_per_person_per_year > 0.0 {
+                    let water = env.water_per_person_per_year * pop;
+                    *annual_draw.entry(ResourceType::Water).or_insert(0.0) += water;
+                }
+                if env.oxygen_per_person_per_year > 0.0 {
+                    let o2 = env.oxygen_per_person_per_year * pop;
+                    *annual_draw.entry(ResourceType::Oxygen).or_insert(0.0) += o2;
+                }
+            }
+        }
+
+        // 3. Food consumption — per-capita, not scaled.
+        let food_cons = colony.food_consumption_per_year();
+        if food_cons > 0.0 {
+            *annual_draw.entry(ResourceType::Food).or_insert(0.0) += food_cons;
+        }
+
+        // Compute years_remaining against the colony's local stockpile.
+        let mut per_resource: HashMap<ResourceType, f64> = HashMap::new();
+        if let Some(ls) = local_opt {
+            for (rt, &stockpile) in &ls.stockpiles {
+                if stockpile <= 0.0 {
+                    continue;
+                }
+                if let Some(&draw) = annual_draw.get(rt) {
+                    if draw > 0.0 {
+                        per_resource.insert(*rt, stockpile / draw);
+                    }
+                }
+            }
+        }
+
+        // Only register colonies that have at least one tracked draw, so
+        // the UI can distinguish "no draw to show" from "draw present".
+        if !per_resource.is_empty() {
+            timeline.by_colony.insert(entity, per_resource);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -730,5 +852,162 @@ mod tests {
         project.progress = project.required;
         assert_eq!(project.progress_percent(), 1.0);
         assert!(project.is_complete());
+    }
+
+    // ── compute_depletion_timeline (GRA-24) ─────────────────────────────
+
+    /// Spin up a minimal Bevy app that owns a `BuildingsData` resource, a `DepletionTimeline`
+    /// resource, and one colony with a known stockpile and a known draw. Returns the `App`
+    /// so the test can query the timeline after running the system.
+    ///
+    /// `buildings_data` carries the maintenance draw profile; pass an
+    /// empty `BuildingsData::default()` to test the no-draw case.
+    fn build_depletion_app(
+        colony: Colony,
+        stockpile: std::collections::HashMap<ResourceType, f64>,
+        buildings_data: BuildingsData,
+    ) -> App {
+        let mut app = App::new();
+        app.init_resource::<DepletionTimeline>();
+        app.insert_resource(buildings_data);
+
+        let world = app.world_mut();
+        let mut entity = world.spawn((colony, LocalStockpile::default()));
+        // Populate the LocalStockpile via direct field write — the helper
+        // `add` method is on `LocalStockpile` itself.
+        if let Some(mut ls) = entity.get_mut::<LocalStockpile>() {
+            for (rt, amt) in &stockpile {
+                ls.stockpiles.insert(*rt, *amt);
+            }
+        }
+        let _ = entity.id();
+        app
+    }
+
+    /// Build a `BuildingsData` containing a single Refinery definition
+    /// with the maintenance profile used in the GRA-24 acceptance test
+    /// (Water 0.5 Mt/yr, plus a few trace materials so the test would
+    /// also catch accidental zero-allocation).
+    fn refinery_buildings_data() -> BuildingsData {
+        use crate::colony::data::BuildingDefinition;
+        use std::collections::HashMap;
+        let mut defs: HashMap<BuildingType, BuildingDefinition> = HashMap::new();
+        defs.insert(
+            BuildingType::Refinery,
+            BuildingDefinition {
+                id: "Refinery".to_string(),
+                display_name: "Refinery".to_string(),
+                description: "Test refines raw ores into usable materials".to_string(),
+                icon: "🏭".to_string(),
+                category: "Industry".to_string(),
+                build_points: 600.0,
+                workforce: 6000,
+                required_tech: "".to_string(),
+                resource_costs: vec![("Iron".to_string(), 133.0)],
+                maintenance_resources: vec![
+                    ("Water".to_string(), 0.5),
+                    ("Sulfur".to_string(), 0.008),
+                ],
+                modifiers: vec![],
+                power_demand_mw: 500.0,
+            },
+        );
+        BuildingsData { definitions: defs }
+    }
+
+    #[test]
+    fn test_compute_depletion_timeline_known_draw() {
+        // Known draw test (GRA-24 acceptance criterion).
+        // Setup: a Civilisation colony with one Refinery and a 5.0 Mt
+        // local Water stockpile.  At ×1.00 yield the Refinery draws
+        // exactly 0.5 Mt/yr of Water → years_remaining = 10.0 yr.
+        let mut colony = Colony::new_civilisation("Earth".to_string(), 1_000_000.0);
+        colony.add_building(BuildingType::Refinery);
+
+        let mut stockpile = std::collections::HashMap::new();
+        stockpile.insert(ResourceType::Water, 5.0);
+
+        let mut app = build_depletion_app(colony, stockpile, refinery_buildings_data());
+
+        // Drive the system manually — we only need a single tick of the
+        // computation, not the full chain.
+        use bevy::ecs::schedule::Schedule;
+        let mut sched = Schedule::default();
+        sched.add_systems(compute_depletion_timeline);
+        sched.run(app.world_mut());
+
+        // Read the timeline.
+        let timeline = app.world().resource::<DepletionTimeline>();
+        assert_eq!(timeline.by_colony.len(), 1, "expected one colony entry");
+        let per_colony = timeline
+            .by_colony
+            .values()
+            .next()
+            .expect("colony should have a timeline entry");
+        let years = per_colony
+            .get(&ResourceType::Water)
+            .expect("Water should have a years-remaining entry");
+        assert!(
+            (years - 10.0).abs() < 1e-6,
+            "5.0 Mt / 0.5 Mt/yr = 10.0 yr (Civilisation ×1.00), got {}",
+            years,
+        );
+    }
+
+    #[test]
+    fn test_compute_depletion_timeline_outpost_yields_ten_year_runway() {
+        // Same draw as the test above, but the colony is an Outpost
+        // (×0.10).  The Refinery draws 0.5 × 0.10 = 0.05 Mt/yr of Water,
+        // so a 5.0 Mt stockpile lasts 100 years — i.e. 10× longer than
+        // the civilisation case.
+        let mut colony = Colony::new("Moon".to_string(), 5_000.0);
+        colony.add_building(BuildingType::Refinery);
+
+        let mut stockpile = std::collections::HashMap::new();
+        stockpile.insert(ResourceType::Water, 5.0);
+
+        let mut app = build_depletion_app(colony, stockpile, refinery_buildings_data());
+
+        let mut sched = bevy::ecs::schedule::Schedule::default();
+        sched.add_systems(compute_depletion_timeline);
+        sched.run(app.world_mut());
+
+        let timeline = app.world().resource::<DepletionTimeline>();
+        let per_colony = timeline
+            .by_colony
+            .values()
+            .next()
+            .expect("colony should have a timeline entry");
+        let years = per_colony
+            .get(&ResourceType::Water)
+            .expect("Water should have a years-remaining entry");
+        assert!(
+            (years - 100.0).abs() < 1e-6,
+            "5.0 Mt / 0.05 Mt/yr = 100.0 yr (Outpost ×0.10), got {}",
+            years,
+        );
+    }
+
+    #[test]
+    fn test_compute_depletion_timeline_empty_when_no_demand() {
+        // Negative case: a colony with no buildings, no local stockpile,
+        // and no per-capita draw against anything it owns → the timeline
+        // is empty.  (Without the `if !per_resource.is_empty()` guard the
+        // system would still insert an empty entry per colony; the guard
+        // keeps the UI's "no data" signal distinct from "draws are
+        // tracked but trivial".)
+        let colony = Colony::new("Moon".to_string(), 5_000.0);
+        let mut app = build_depletion_app(
+            colony,
+            std::collections::HashMap::new(),
+            BuildingsData::default(),
+        );
+
+        let mut sched = bevy::ecs::schedule::Schedule::default();
+        sched.add_systems(compute_depletion_timeline);
+        sched.run(app.world_mut());
+
+        let timeline = app.world().resource::<DepletionTimeline>();
+        assert!(timeline.by_colony.is_empty());
     }
 }

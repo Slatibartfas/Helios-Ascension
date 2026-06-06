@@ -4,6 +4,87 @@ use std::collections::HashMap;
 
 use super::types::BuildingType;
 
+/// Default yield multipliers for each [`ColonyTier`].
+///
+/// A new colony starts at the Outpost tier and is upgraded by the player
+/// (`investments` field on [`ColonyDevelopment`]) toward Civilisation parity
+/// with the homeworld.  These multipliers are the **2026-anchored** values
+/// agreed in the GRA-22 v2 plan: an outpost on a hostile body produces (and
+/// costs to maintain) one-tenth of a civilisation-scale colony.
+pub const OUTPOST_YIELD_MULTIPLIER: f64 = 0.10;
+pub const SETTLEMENT_YIELD_MULTIPLIER: f64 = 0.40;
+pub const CITY_YIELD_MULTIPLIER: f64 = 0.70;
+pub const CIVILISATION_YIELD_MULTIPLIER: f64 = 1.00;
+
+/// Development tier of a colony.
+///
+/// Drives the colony's `yield_multiplier`: production, population growth,
+/// and maintenance all scale by this factor.  Tier upgrades are the player's
+/// "this is no longer a tent city" decision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ColonyTier {
+    /// A handful of pressurised buildings on a hostile world (×0.10).
+    Outpost,
+    /// A small, self-sufficient town (×0.40).
+    Settlement,
+    /// An industrial city with mature infrastructure (×0.70).
+    City,
+    /// A peer to the homeworld in output and consumption (×1.00).
+    Civilisation,
+}
+
+impl ColonyTier {
+    /// Canonical yield multiplier for this tier.
+    pub fn yield_multiplier(self) -> f64 {
+        match self {
+            ColonyTier::Outpost => OUTPOST_YIELD_MULTIPLIER,
+            ColonyTier::Settlement => SETTLEMENT_YIELD_MULTIPLIER,
+            ColonyTier::City => CITY_YIELD_MULTIPLIER,
+            ColonyTier::Civilisation => CIVILISATION_YIELD_MULTIPLIER,
+        }
+    }
+
+    /// Display label for the UI (e.g. "Outpost × 0.10").
+    pub fn display_name(self) -> &'static str {
+        match self {
+            ColonyTier::Outpost => "Outpost",
+            ColonyTier::Settlement => "Settlement",
+            ColonyTier::City => "City",
+            ColonyTier::Civilisation => "Civilisation",
+        }
+    }
+}
+
+/// Colony development state — the multi-scale lens through which the colony
+/// system reads "how industrialised is this place?".
+///
+/// `yield_multiplier` is a *data* field: it composes multiplicatively with
+/// the base RON rate, with tech modifiers, and with any future maintenance
+/// modifiers.  Type is `f64` to absorb the 2026 world production realism bar
+/// (per GRA-23 + GRA-24 operator note).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ColonyDevelopment {
+    /// Current development tier.
+    pub tier: ColonyTier,
+    /// Multiplier applied to production, maintenance, and population growth.
+    /// 0.10 for a brand-new Outpost, 1.00 for a Civilisation-tier world.
+    pub yield_multiplier: f64,
+    /// Number of tier-upgrade investments the player has applied.
+    /// `tier` is *derived* from this in the upgrade action; `yield_multiplier`
+    /// is the source of truth used by the systems.
+    pub investments: u32,
+}
+
+impl Default for ColonyDevelopment {
+    fn default() -> Self {
+        Self {
+            tier: ColonyTier::Outpost,
+            yield_multiplier: OUTPOST_YIELD_MULTIPLIER,
+            investments: 0,
+        }
+    }
+}
+
 /// Marker component for a colonised celestial body
 #[derive(Component, Debug, Clone, Serialize, Deserialize)]
 pub struct Colony {
@@ -15,17 +96,64 @@ pub struct Colony {
     pub growth_rate_modifier: f64,
     /// Number of completed buildings by type
     pub buildings: HashMap<BuildingType, u32>,
+    /// Development state (tier, yield multiplier, upgrade count).
+    /// Every founding colony starts at the Outpost tier with the Outpost
+    /// yield multiplier; the homeworld is initialised to `Civilisation` at
+    /// ×1.00 by the solar system populator.
+    pub development: ColonyDevelopment,
 }
 
 impl Colony {
-    /// Create a new colony with the given name and initial population
+    /// Found a new colony at the **Outpost** tier with the Outpost yield
+    /// multiplier (×0.10).  This is the path used by the
+    /// "Establish Outpost" player action and by the bulk of test fixtures.
     pub fn new(name: String, initial_population: f64) -> Self {
+        Self::new_with_tier(
+            name,
+            initial_population,
+            ColonyTier::Outpost,
+            OUTPOST_YIELD_MULTIPLIER,
+        )
+    }
+
+    /// Construct a colony at an explicit tier and yield multiplier.
+    /// Use this for the homeworld (Civilisation × 1.00) and for tests that
+    /// need to assert yield-multiplier relationships.
+    pub fn new_with_tier(
+        name: String,
+        initial_population: f64,
+        tier: ColonyTier,
+        yield_multiplier: f64,
+    ) -> Self {
         Self {
             name,
             population: initial_population,
             growth_rate_modifier: 1.0,
             buildings: HashMap::new(),
+            development: ColonyDevelopment {
+                tier,
+                yield_multiplier,
+                investments: 0,
+            },
         }
+    }
+
+    /// Convenience: a Civilisation-tier colony at ×1.00 yield.
+    /// Used for the homeworld and for "Earth × 1.0" regression tests.
+    pub fn new_civilisation(name: String, initial_population: f64) -> Self {
+        Self::new_with_tier(
+            name,
+            initial_population,
+            ColonyTier::Civilisation,
+            CIVILISATION_YIELD_MULTIPLIER,
+        )
+    }
+
+    /// Multiplier applied to production, maintenance, and population growth
+    /// in the colony systems.  Source of truth is the `development` data
+    /// field; the helper is the one-stop read for sim code and UI.
+    pub fn effective_yield_multiplier(&self) -> f64 {
+        self.development.yield_multiplier
     }
 
     /// Get the count of a specific building type
@@ -567,5 +695,135 @@ mod tests {
 
         colony.add_building(BuildingType::Mine); // cost 400, maint = 400*0.05 = 20
         assert!((colony.operating_cost_per_year() - 20.0).abs() < 0.001);
+    }
+
+    // ── ColonyDevelopment / yield-multiplier helpers ───────────────────
+
+    #[test]
+    fn test_colony_founding_starts_at_outpost() {
+        // Per GRA-22 §4.5: every colony created via the founding path
+        // (`Colony::new`) is an Outpost at × 0.10.  This is what the
+        // "Establish Outpost" UI action spawns and what test fixtures get
+        // by default.
+        let colony = Colony::new("Luna".to_string(), 5_000.0);
+        assert_eq!(colony.development.tier, ColonyTier::Outpost);
+        assert!((colony.effective_yield_multiplier() - OUTPOST_YIELD_MULTIPLIER).abs() < 1e-9);
+        assert!((colony.effective_yield_multiplier() - 0.10).abs() < 1e-9);
+        assert_eq!(colony.development.investments, 0);
+    }
+
+    #[test]
+    fn test_civilisation_colony_full_yield() {
+        // Per GRA-22 §4.5: a Civilisation-tier colony operates at × 1.00.
+        // This is the homeworld initial state and the "Earth × 1.0 yield
+        // produces same totals as today" regression baseline.
+        let earth = Colony::new_civilisation("Earth".to_string(), 8.2e9);
+        assert_eq!(earth.development.tier, ColonyTier::Civilisation);
+        assert!((earth.effective_yield_multiplier() - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_settlement_and_city_intermediate_tiers() {
+        let settlement = Colony::new_with_tier(
+            "Mars".to_string(),
+            1_000_000.0,
+            ColonyTier::Settlement,
+            SETTLEMENT_YIELD_MULTIPLIER,
+        );
+        assert_eq!(settlement.development.tier, ColonyTier::Settlement);
+        assert!((settlement.effective_yield_multiplier() - 0.40).abs() < 1e-9);
+
+        let city = Colony::new_with_tier(
+            "Mars2".to_string(),
+            5_000_000.0,
+            ColonyTier::City,
+            CITY_YIELD_MULTIPLIER,
+        );
+        assert_eq!(city.development.tier, ColonyTier::City);
+        assert!((city.effective_yield_multiplier() - 0.70).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_outpost_yield_is_ten_percent_of_civilisation() {
+        // Binding acceptance criterion: a new colony's effective yield is
+        // 10× less than a civilisation's, on every output and on
+        // maintenance.  Asserted at the helper level — systems multiply
+        // the helper output by `effective_yield_multiplier()` at the call
+        // site, so the 10× relationship flows through unchanged.
+        //
+        // Both colonies share the same population so that workforce-driven
+        // multipliers (e.g. `workforce_efficiency` in wealth generation)
+        // cancel out and the yield multiplier is the *only* multiplier
+        // under test.
+        let pop = 1_000_000.0_f64;
+        let mut outpost = Colony::new_with_tier(
+            "Moon".to_string(),
+            pop,
+            ColonyTier::Outpost,
+            OUTPOST_YIELD_MULTIPLIER,
+        );
+        let mut earth = Colony::new_with_tier(
+            "Earth-test".to_string(),
+            pop,
+            ColonyTier::Civilisation,
+            CIVILISATION_YIELD_MULTIPLIER,
+        );
+
+        // Same single building, same base helper output.
+        outpost.add_building(BuildingType::Farm);
+        earth.add_building(BuildingType::Farm);
+
+        let outpost_food =
+            outpost.food_production_per_year() * outpost.effective_yield_multiplier();
+        let earth_food = earth.food_production_per_year() * earth.effective_yield_multiplier();
+        assert!(
+            (earth_food / outpost_food - 10.0).abs() < 1e-6,
+            "Earth food / Outpost food should be 10×, got {:.4}×",
+            earth_food / outpost_food,
+        );
+
+        // Wealth has the same relationship (same population, so the only
+        // multiplier is the yield multiplier).
+        outpost.add_building(BuildingType::CommercialHub);
+        earth.add_building(BuildingType::CommercialHub);
+        let outpost_wealth =
+            outpost.wealth_generation_per_year() * outpost.effective_yield_multiplier();
+        let earth_wealth = earth.wealth_generation_per_year() * earth.effective_yield_multiplier();
+        assert!(
+            (earth_wealth / outpost_wealth - 10.0).abs() < 1e-6,
+            "Earth wealth / Outpost wealth should be 10×, got {:.4}×",
+            earth_wealth / outpost_wealth,
+        );
+
+        // Operating cost has the same relationship.  The Mine build cost
+        // is 400 BP, so 5%/yr = 20 MC/yr base.  Earth: 20 × 1.0; Outpost: 20 × 0.10.
+        outpost.add_building(BuildingType::Mine);
+        earth.add_building(BuildingType::Mine);
+        let outpost_op = outpost.operating_cost_per_year() * outpost.effective_yield_multiplier();
+        let earth_op = earth.operating_cost_per_year() * earth.effective_yield_multiplier();
+        assert!(
+            (earth_op / outpost_op - 10.0).abs() < 1e-6,
+            "Earth op-cost / Outpost op-cost should be 10×, got {:.4}×",
+            earth_op / outpost_op,
+        );
+    }
+
+    #[test]
+    fn test_earth_yield_one_unchanged() {
+        // Regression check (per GRA-22 §8 / GRA-24 acceptance criteria):
+        // a Civilisation-tier colony must produce the *same* base helper
+        // totals as today's calibration.  The yield multiplier is
+        // multiplied at the system call site, not inside the helper, so
+        // the helper itself stays at × 1.00.
+        let mut earth = Colony::new_civilisation("Earth".to_string(), 8.2e9);
+        earth.add_building(BuildingType::Farm); // 1,000 Mt/yr at × 1.00
+        assert!(
+            (earth.food_production_per_year() - 1_000.0).abs() < 0.001,
+            "Earth × 1.0 must keep today's Farm output (1,000 Mt/yr)",
+        );
+        assert!(
+            (earth.effective_yield_multiplier() - 1.0).abs() < 1e-9,
+            "Earth's effective yield must be 1.00",
+        );
     }
 }
