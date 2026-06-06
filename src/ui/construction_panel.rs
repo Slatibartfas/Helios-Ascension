@@ -1,5 +1,6 @@
 use super::dashboard::format_mass_compact;
 use super::*;
+use crate::colony::building_is_available_on;
 use crate::colony::ColonySynergies;
 use bevy::ecs::system::SystemParam;
 
@@ -613,16 +614,16 @@ fn render_construction_panel(
     // -- Colony selector --
     let selected_valid = ui_state
         .selected_colony
-        .map(|e| colonies.iter().any(|(ce, _, _)| *ce == e))
+        .map(|e| colonies.iter().any(|(ce, _, _, _)| *ce == e))
         .unwrap_or(false);
     if !selected_valid {
-        ui_state.selected_colony = colonies.first().map(|(e, _, _)| *e);
+        ui_state.selected_colony = colonies.first().map(|(e, _, _, _)| *e);
     }
 
     let current_name = ui_state
         .selected_colony
-        .and_then(|e| colonies.iter().find(|(ce, _, _)| *ce == e))
-        .map(|(_, c, _)| c.name.clone())
+        .and_then(|e| colonies.iter().find(|(ce, _, _, _)| *ce == e))
+        .map(|(_, c, _, _)| c.name.clone())
         .unwrap_or_default();
 
     ui.horizontal(|ui| {
@@ -640,7 +641,7 @@ fn render_construction_panel(
             )
             .width((ui.available_width() - 12.0).max(240.0))
             .show_ui(ui, |ui| {
-                for (entity, colony, _) in &colonies {
+                for (entity, colony, _, _) in &colonies {
                     let label = format!(
                         "{} ({})",
                         colony.name,
