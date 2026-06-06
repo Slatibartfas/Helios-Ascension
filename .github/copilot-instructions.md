@@ -95,9 +95,9 @@ helios_ascension/
 │       ├── tech_tree.rs           # Tech tree tab, edit dialog, category colors
 │       ├── construction_panel.rs  # Construction queue UI
 │       ├── economy_panel.rs       # Economy/budget UI
-│       ├── shipbuilding_state.rs  # Shared shipbuilding UI state across backends
-│       ├── shipbuilding_panel.rs  # Legacy egui shipbuilding designer
-│       ├── shipbuilding_workspace.rs # Native Bevy UI shipbuilding workspace prototype
+│       ├── shipbuilding_state.rs  # Shared shipbuilding UI state (selected hull, focused slot, queued builds)
+│       ├── shipbuilding_workspace.rs # Native Bevy UI shipbuilding workspace (Logistics Hub / Design Blueprint / Engineering Analytics)
+│       ├── shipbuilding_tooltip.rs # Slot hover tooltips and module compatibility hints
 │       ├── fleets_panel.rs        # Fleet list, detail, orbit/maneuver status, FleetUiState
 │       ├── transfer_planner.rs    # Transfer planner sub-panel (destination, options, LP transfers)
 │       └── interaction.rs         # Selection management
