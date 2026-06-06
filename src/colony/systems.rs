@@ -461,8 +461,7 @@ pub fn update_colony_growth(
         // per-capita and not yield-scaled — a population of N eats the same
         // amount of food regardless of how industrialised their colony is.
         let yield_mult = colony.effective_yield_multiplier();
-        let food_prod =
-            colony.food_production_per_year() * yield_mult * years_elapsed;
+        let food_prod = colony.food_production_per_year() * yield_mult * years_elapsed;
         let food_cons = colony.food_consumption_per_year() * years_elapsed;
 
         let food_factor = if let Some(mut ls) = local_opt {
@@ -604,8 +603,7 @@ pub fn deduct_maintenance_resources(
         for (building_type, count) in &colony.buildings {
             let maintenance = data.maintenance_resources(building_type);
             for (resource_name, annual_amount) in maintenance {
-                let amount =
-                    annual_amount * f64::from(*count) * years_elapsed * yield_mult;
+                let amount = annual_amount * f64::from(*count) * years_elapsed * yield_mult;
                 if let Some(rt) = super::data::parse_resource_type(resource_name) {
                     if let Some(ref mut ls) = local_opt {
                         // Use local stockpile

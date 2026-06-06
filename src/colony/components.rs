@@ -707,9 +707,7 @@ mod tests {
         // by default.
         let colony = Colony::new("Luna".to_string(), 5_000.0);
         assert_eq!(colony.development.tier, ColonyTier::Outpost);
-        assert!(
-            (colony.effective_yield_multiplier() - OUTPOST_YIELD_MULTIPLIER).abs() < 1e-9
-        );
+        assert!((colony.effective_yield_multiplier() - OUTPOST_YIELD_MULTIPLIER).abs() < 1e-9);
         assert!((colony.effective_yield_multiplier() - 0.10).abs() < 1e-9);
         assert_eq!(colony.development.investments, 0);
     }
@@ -759,7 +757,8 @@ mod tests {
         outpost.add_building(BuildingType::Farm);
         earth.add_building(BuildingType::Farm);
 
-        let outpost_food = outpost.food_production_per_year() * outpost.effective_yield_multiplier();
+        let outpost_food =
+            outpost.food_production_per_year() * outpost.effective_yield_multiplier();
         let earth_food = earth.food_production_per_year() * earth.effective_yield_multiplier();
         assert!(
             (earth_food / outpost_food - 10.0).abs() < 1e-6,
@@ -772,8 +771,7 @@ mod tests {
         earth.add_building(BuildingType::CommercialHub);
         let outpost_wealth =
             outpost.wealth_generation_per_year() * outpost.effective_yield_multiplier();
-        let earth_wealth =
-            earth.wealth_generation_per_year() * earth.effective_yield_multiplier();
+        let earth_wealth = earth.wealth_generation_per_year() * earth.effective_yield_multiplier();
         assert!(
             (earth_wealth / outpost_wealth - 10.0).abs() < 1e-6,
             "Earth wealth / Outpost wealth should be 10×, got {:.4}×",

@@ -18,17 +18,17 @@ pub mod types;
 
 pub use components::{
     Colony, ColonyDevelopment, ColonyEnvironmentCosts, ColonyTier, ConstructionProject,
-    EstablishOutpostRequest, PendingConstructionActions, CIVILISATION_YIELD_MULTIPLIER,
-    CITY_YIELD_MULTIPLIER, OUTPOST_YIELD_MULTIPLIER, SETTLEMENT_YIELD_MULTIPLIER,
+    EstablishOutpostRequest, PendingConstructionActions, CITY_YIELD_MULTIPLIER,
+    CIVILISATION_YIELD_MULTIPLIER, OUTPOST_YIELD_MULTIPLIER, SETTLEMENT_YIELD_MULTIPLIER,
 };
 pub use data::{BuildingDefinition, BuildingModifierDef, BuildingsData};
+pub use systems::DepletionTimeline;
 pub use systems::{
     advance_construction, compute_depletion_timeline, deduct_environment_costs,
     process_construction_actions, sync_population_from_colony, update_colony_growth,
     update_treasury,
 };
 pub use types::{BuildingCategory, BuildingType};
-pub use systems::DepletionTimeline;
 
 /// Debug settings for construction system (toggled with F12 on Construction menu)
 #[derive(Resource, Debug, Clone, Default)]

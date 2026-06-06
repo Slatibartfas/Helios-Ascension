@@ -5,6 +5,20 @@ use std::fs;
 
 use super::types::BuildingType;
 
+/// 2026-calibrated population scale multiplier.
+///
+/// Mirrors the `population_scale_multiplier: 100.0` field on the
+/// `buildings.ron` root introduced by GRA-22a (LGD, PR #84 draft).
+/// One Rust constant here is the single source of truth that the
+/// colony founding path, building-derived per-person rates, and
+/// the GRA-25/26 system work all read; the LGD RON field falls
+/// back to this value when the field is absent.
+///
+/// Per the operator's 2026-06-06 realism bar: types are wide (f64),
+/// scale is exposed explicitly, no hardcoded multiplication of
+/// pre-scale numbers anywhere in the sim.
+pub const POPULATION_SCALE_MULTIPLIER: f64 = 100.0;
+
 /// A single resource cost entry: (resource_name, amount)
 pub type ResourceCostEntry = (String, f64);
 
