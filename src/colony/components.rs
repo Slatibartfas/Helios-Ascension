@@ -750,8 +750,24 @@ mod tests {
         // maintenance.  Asserted at the helper level — systems multiply
         // the helper output by `effective_yield_multiplier()` at the call
         // site, so the 10× relationship flows through unchanged.
-        let mut outpost = Colony::new("Moon".to_string(), 5_000.0);
-        let mut earth = Colony::new_civilisation("Earth".to_string(), 8.2e9);
+        //
+        // Both colonies share the same population so that workforce-driven
+        // multipliers (e.g. `workforce_efficiency` in wealth generation)
+        // cancel out and the yield multiplier is the *only* multiplier
+        // under test.
+        let pop = 1_000_000.0_f64;
+        let mut outpost = Colony::new_with_tier(
+            "Moon".to_string(),
+            pop,
+            ColonyTier::Outpost,
+            OUTPOST_YIELD_MULTIPLIER,
+        );
+        let mut earth = Colony::new_with_tier(
+            "Earth-test".to_string(),
+            pop,
+            ColonyTier::Civilisation,
+            CIVILISATION_YIELD_MULTIPLIER,
+        );
 
         // Same single building, same base helper output.
         outpost.add_building(BuildingType::Farm);
@@ -766,7 +782,8 @@ mod tests {
             earth_food / outpost_food,
         );
 
-        // Wealth has the same relationship.
+        // Wealth has the same relationship (same population, so the only
+        // multiplier is the yield multiplier).
         outpost.add_building(BuildingType::CommercialHub);
         earth.add_building(BuildingType::CommercialHub);
         let outpost_wealth =
@@ -778,8 +795,10 @@ mod tests {
             earth_wealth / outpost_wealth,
         );
 
-        // Maintenance has the same relationship.  Mine costs 400 BP, so
-        // operating cost is 20 MC/yr base.  Earth: 20 × 1.0; Outpost: 20 × 0.10.
+        // Operating cost has the same relationship.  The Mine build cost
+        // is 400 BP, so 5%/yr = 20 MC/yr base.  Earth: 20 × 1.0; Outpost: 20 × 0.10.
+        outpost.add_building(BuildingType::Mine);
+        earth.add_building(BuildingType::Mine);
         let outpost_op = outpost.operating_cost_per_year() * outpost.effective_yield_multiplier();
         let earth_op = earth.operating_cost_per_year() * earth.effective_yield_multiplier();
         assert!(
