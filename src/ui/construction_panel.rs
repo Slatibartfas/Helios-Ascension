@@ -130,12 +130,15 @@ impl BuildFilter {
                 if def.synergy.is_empty() {
                     return false;
                 }
-                // Show all synergy-bearing buildings if the synergy recompute has not
-                // run yet (no synergies registered) so the chip is never empty
-                // in a fresh game.
-                let Some(_) = synergies.and_then(|s| s.by_colony.get(&colony_entity)) else {
+                // Show all synergy-bearing buildings if the synergy recompute has
+                // not run yet (no synergies registered) so the chip is never
+                // empty in a fresh game.
+                if synergies
+                    .and_then(|s| s.by_colony.get(&colony_entity))
+                    .is_none()
+                {
                     return true;
-                };
+                }
                 // Show if any of this building's synergy rules is currently
                 // active for the colony.
                 def.synergy.iter().any(|rule| {
