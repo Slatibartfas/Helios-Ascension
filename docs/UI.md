@@ -5,9 +5,9 @@
 Helios Ascension currently uses a mixed UI stack:
 
 - **egui** for the main dashboard, resource bar, research, economy, construction, and most overlays
-- **Native Bevy UI** for the experimental shipbuilding workspace prototype
+- **Native Bevy UI** for the shipbuilding workspace (Logistics Hub / Design Blueprint / Engineering Analytics)
 
-Most of the game still follows the egui workflow, but the Shipbuilding menu now has an alternate retained-mode workspace intended to support a more spatial, blueprint-oriented design flow.
+The Shipbuilding menu is the only panel that uses the native Bevy UI stack; it is the canonical shipbuilding UI, not an alternate. Every other panel follows the egui workflow.
 
 ## Main Dashboard
 
@@ -184,20 +184,11 @@ Track resources, production, and budget.
 
 ## Shipbuilding Panel
 
-The Shipbuilding menu now supports two frontends for the same underlying shipbuilding data.
+The Shipbuilding menu is implemented as a native Bevy UI workspace — there is no egui fallback. It is the only path for designing hull layouts, picking modules into slots, queueing ships, and inspecting live engineering metrics.
 
-### Backends
+### Workspace Layout
 
-- **Legacy egui designer**: the original list-and-form workflow
-- **Native Bevy workspace prototype**: a three-column engineering workspace
-
-### Runtime Toggle
-
-- Press **F9** while the Shipbuilding menu is open to switch between the egui designer and the native prototype
-
-### Native Workspace Layout
-
-The native prototype is divided into three panes:
+The workspace is divided into three panes:
 
 1. **Logistics Hub**
 
@@ -211,11 +202,9 @@ Slot cards arranged on a schematic canvas, with hover and selection states for s
 
 Gauge-style metrics for delta-v, thrust, mass, acceleration, power, thermal capacity, sensor range, build points, fuel, and cargo, plus supplemental chip metrics for crew, docking, ISRU, generation/load, and ordnance.
 
-### Current Prototype Constraints
+### Known Constraints
 
-- Blueprint placement is still partly heuristic because many hull slots in `assets/data/ship_hulls.ron` do not yet have authored `position` values
-- The native workspace is functional, but still considered a prototype rather than the final shipbuilding UX
-- The egui version remains available as the fallback workflow during iteration
+- Blueprint placement is still partly heuristic on hulls whose slots in `assets/data/ship_hulls.ron` do not yet have authored `position` values. Hulls without authored positions fall back to a deterministic layout by slot index.
 
 ## Tooltips & Interaction
 
@@ -261,7 +250,6 @@ Hover over star icons in starmap view to see:
 ## Keyboard Shortcuts
 
 - **F12**: Toggle debug settings (when in Construction or Research panels)
-- **F9**: Toggle shipbuilding backend while in the Shipbuilding menu
 - **Space**: Pause/resume simulation
 - **ESC**: Close current panel or deselect
 
@@ -317,7 +305,6 @@ Hover over star icons in starmap view to see:
 Planned UI improvements:
 
 - Fleet management panel with ship controls
-- Shipbuilding workspace migration from prototype to full replacement of the legacy egui panel
 - Diplomacy panel for faction relations
 - Advanced filters and sorting in all panels
 - Customizable layouts and hotkeys

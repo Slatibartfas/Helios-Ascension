@@ -228,7 +228,9 @@ Egui-based dashboard with time controls, body info, and resource display. The mo
 - `dashboard.rs`: Main survey panel, time controls bar, star system detail panel
 - `research_panel.rs`: Full research/engineering UI including interactive tech tree
 - `construction_panel.rs`: Construction queue panel
-- `shipbuilding_panel.rs`: Modular hull design, component selection, and ship/station build queues
+- `shipbuilding_workspace.rs`: Native Bevy UI shipbuilding workspace (Logistics Hub, Design Blueprint, Engineering Analytics; hull design, module selection, ship/station build queues)
+- `shipbuilding_state.rs`: Shared shipbuilding UI state (selected hull, focused slot, queued builds) consumed by the workspace and the resource-side construction systems
+- `shipbuilding_tooltip.rs`: Slot hover tooltips and module compatibility hints for the workspace
 - `economy_panel.rs`: Economy overview, per-resource rates, colony/mining/power tabs
 - `fleets_panel.rs`: Fleet list, detail view, `FleetUiState`, transfer planner, LP transfers
 - `interaction.rs`: `Selection` resource, body selection helpers
