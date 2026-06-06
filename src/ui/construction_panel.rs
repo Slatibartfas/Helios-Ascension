@@ -1646,7 +1646,7 @@ fn render_existing_buildings_section(
                             *count,
                             card_width,
                             buildings_data,
-                            synergies,
+                            _synergies,
                             yield_mult,
                         );
                     }
