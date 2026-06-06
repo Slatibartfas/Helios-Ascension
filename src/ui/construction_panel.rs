@@ -1665,7 +1665,7 @@ fn render_existing_buildings_section(
 
 fn render_existing_building_card(
     ui: &mut egui::Ui,
-    colony_entity: Entity,
+    _colony_entity: Entity,
     colony: &Colony,
     building: BuildingType,
     count: u32,
