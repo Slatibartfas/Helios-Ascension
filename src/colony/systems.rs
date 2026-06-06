@@ -868,7 +868,7 @@ mod tests {
         // for the negative case).
         app.insert_resource(BuildingsData::default());
 
-        let mut world = app.world_mut();
+        let world = app.world_mut();
         let mut entity = world.spawn((colony, LocalStockpile::default()));
         // Populate the LocalStockpile via direct field write — the helper
         // `add` method is on `LocalStockpile` itself.
@@ -897,9 +897,6 @@ mod tests {
 
         // Drive the system manually — we only need a single tick of the
         // computation, not the full chain.
-        let schedule = app.world_mut().schedule();
-        // The system is registered in ColonyPlugin::build; we just call it
-        // directly to keep the test focused.
         use bevy::ecs::schedule::Schedule;
         let mut sched = Schedule::default();
         sched.add_systems(compute_depletion_timeline);
