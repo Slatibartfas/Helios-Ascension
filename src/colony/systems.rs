@@ -875,7 +875,7 @@ pub fn recompute_synergies(
 
     for (entity, colony) in colonies.iter() {
         let mut state = SynergyState::default();
-        for (building_type, _count) in &colony.buildings {
+        for building_type in colony.buildings.keys() {
             let Some(def) = data.get(building_type) else {
                 continue;
             };
@@ -1360,7 +1360,7 @@ mod tests {
         use crate::colony::ConstructionDebugSettings;
         use crate::economy::logistics::PendingResourceRequests;
 
-        let mut colony = Colony::new("Moon".to_string(), 1_000.0);
+        let colony = Colony::new("Moon".to_string(), 1_000.0);
         // No Farm present.
 
         let mut app = App::new();
