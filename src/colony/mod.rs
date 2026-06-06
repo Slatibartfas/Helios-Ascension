@@ -21,12 +21,12 @@ pub use components::{
     EstablishOutpostRequest, PendingConstructionActions, CITY_YIELD_MULTIPLIER,
     CIVILISATION_YIELD_MULTIPLIER, OUTPOST_YIELD_MULTIPLIER, SETTLEMENT_YIELD_MULTIPLIER,
 };
-pub use data::{BuildingDefinition, BuildingModifierDef, BuildingsData};
+pub use data::{BuildingDefinition, BuildingModifierDef, BuildingsData, SynergyRule};
 pub use systems::DepletionTimeline;
 pub use systems::{
     advance_construction, compute_depletion_timeline, deduct_environment_costs,
-    process_construction_actions, sync_population_from_colony, update_colony_growth,
-    update_treasury,
+    process_construction_actions, recompute_synergies, sync_population_from_colony,
+    update_colony_growth, update_treasury, ColonySynergies, SynergyState,
 };
 pub use types::{BuildingCategory, BuildingType};
 
@@ -165,6 +165,7 @@ impl Plugin for ColonyPlugin {
             .init_resource::<ConstructionDebugSettings>()
             .init_resource::<BuildingEditState>()
             .init_resource::<DepletionTimeline>()
+            .init_resource::<ColonySynergies>()
             // Startup systems
             .add_systems(Startup, data::load_buildings)
             // Update systems
@@ -173,6 +174,7 @@ impl Plugin for ColonyPlugin {
                 (
                     process_construction_actions,
                     advance_construction,
+                    recompute_synergies.after(advance_construction),
                     update_colony_growth,
                     sync_population_from_colony.after(update_colony_growth),
                     update_treasury,

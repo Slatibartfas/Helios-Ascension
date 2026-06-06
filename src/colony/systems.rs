@@ -27,6 +27,34 @@ pub struct DepletionTimeline {
     pub by_colony: HashMap<Entity, HashMap<ResourceType, f64>>,
 }
 
+/// Per-colony synergy state, recomputed each tick from current building
+/// composition (GRA-22c plan §4.6).  `bonuses` is an additive map keyed
+/// by effect name (e.g. `"MiningEfficiency"` → `+0.10`).  Multiple
+/// buildings contributing to the same effect sum.
+///
+/// Read by gameplay systems (mining, construction) and by the
+/// construction-panel UI (GRA-22d "Synergies active" badge).
+#[derive(Resource, Debug, Clone, Default)]
+pub struct ColonySynergies {
+    /// `colony_entity → SynergyState`.
+    pub by_colony: HashMap<Entity, SynergyState>,
+}
+
+/// Additive bonuses per effect name for a single colony.  Multiple
+/// bonuses on the same effect from different buildings sum.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SynergyState {
+    /// `effect_name → additive_bonus`.  E.g. `+0.10` mining efficiency.
+    pub bonuses: HashMap<String, f64>,
+}
+
+impl SynergyState {
+    /// Add `bonus` to the entry for `effect`, initialising to 0.0 first.
+    pub fn add(&mut self, effect: &str, bonus: f64) {
+        *self.bonuses.entry(effect.to_string()).or_insert(0.0) += bonus;
+    }
+}
+
 /// System that advances construction projects based on factory output.
 ///
 /// Each factory on the colony contributes 10 build points per year of
@@ -296,6 +324,32 @@ pub fn process_construction_actions(
                             // If nothing was actually missing (somehow), don't block.
                             if blocking_request_ids.is_empty() {
                                 awaiting = false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // GRA-25 tier replacement (per GRA-22c plan §4.6): when a player
+        // queues a building whose `replaces` field names a tier-(N-1)
+        // predecessor and the colony has at least one of it, decrement
+        // the predecessor by one *before* the project is spawned.  The
+        // new building still pays its own resource cost (its own
+        // `resource_costs`); the predecessor is removed because the
+        // upgrade is strictly better, not because the cost is refunded.
+        if let Some(ref data) = buildings_data {
+            if let Some(def) = data.get(&building_type) {
+                if let Some(prev_id) = def.replaces.as_deref() {
+                    if let Some(prev_type) = super::data::parse_building_type(prev_id) {
+                        if let Ok(mut colony) = colonies.get_mut(colony_entity) {
+                            if colony.remove_one_building(prev_type) {
+                                info!(
+                                    "Tier replacement: {} removed from {} (replaced by {})",
+                                    prev_id,
+                                    colony.name,
+                                    building_type.display_name()
+                                );
                             }
                         }
                     }
@@ -791,6 +845,53 @@ pub fn compute_depletion_timeline(
     }
 }
 
+/// Recompute per-colony synergy bonuses (GRA-22c plan §4.6).
+///
+/// For each colony:
+///   - For every owned building with a non-empty `synergy` list, walk the
+///     rules.  For each rule, count how many buildings in the colony
+///     belong to `requires_line` (per the `line` field on the def).  If
+///     that count meets `rule.count`, add `rule.bonus` to
+///     `state.bonuses[rule.effect]`.
+///   - Store the resulting `SynergyState` in `ColonySynergies.by_colony`.
+///
+/// O(buildings²) per colony in the worst case; at 51 buildings and a
+/// handful of synergy rules per building the absolute cost is
+/// microseconds.  The system is cheap enough to run every tick from
+/// the colony chain — no event-driven scheduler needed.
+pub fn recompute_synergies(
+    colonies: Query<(Entity, &Colony)>,
+    buildings_data: Option<Res<BuildingsData>>,
+    mut synergies: ResMut<ColonySynergies>,
+) {
+    synergies.by_colony.clear();
+
+    let Some(data) = buildings_data else {
+        return;
+    };
+    if data.definitions.is_empty() {
+        return;
+    }
+
+    for (entity, colony) in colonies.iter() {
+        let mut state = SynergyState::default();
+        for building_type in colony.buildings.keys() {
+            let Some(def) = data.get(building_type) else {
+                continue;
+            };
+            for rule in &def.synergy {
+                let have = data.count_in_line(&colony.buildings, &rule.requires_line);
+                if have >= u32::from(rule.count) {
+                    state.add(&rule.effect, rule.bonus);
+                }
+            }
+        }
+        if !state.bonuses.is_empty() {
+            synergies.by_colony.insert(entity, state);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -910,6 +1011,10 @@ mod tests {
                 ],
                 modifiers: vec![],
                 power_demand_mw: 500.0,
+                tier: 0,
+                line: None,
+                replaces: None,
+                synergy: vec![],
             },
         );
         BuildingsData { definitions: defs }
@@ -1009,5 +1114,384 @@ mod tests {
 
         let timeline = app.world().resource::<DepletionTimeline>();
         assert!(timeline.by_colony.is_empty());
+    }
+
+    // ── GRA-25 (GRA-22c): tier replacement + synergy recompute ─────────
+
+    /// Build a `BuildingsData` with Farm and HydroponicsFarm in the same
+    /// line, where HydroponicsFarm declares `replaces: "Farm"` and tier 1.
+    /// Maintenance entries are 4 distinct resources so the audit accepts
+    /// them.
+    fn farm_line_buildings_data() -> BuildingsData {
+        use crate::colony::data::BuildingDefinition;
+        use std::collections::HashMap;
+        let mut defs: HashMap<BuildingType, BuildingDefinition> = HashMap::new();
+        defs.insert(
+            BuildingType::Farm,
+            BuildingDefinition {
+                id: "Farm".to_string(),
+                display_name: "Farm".to_string(),
+                description: "T0 farm".to_string(),
+                icon: "🌾".to_string(),
+                category: "Industry".to_string(),
+                build_points: 200.0,
+                workforce: 1000,
+                required_tech: "".to_string(),
+                resource_costs: vec![("Iron".to_string(), 1.0)],
+                maintenance_resources: vec![
+                    ("Water".to_string(), 0.5),
+                    ("Phosphorus".to_string(), 0.01),
+                    ("Polymers".to_string(), 0.002),
+                    ("Sulfur".to_string(), 0.001),
+                    ("Food".to_string(), 0.05),
+                ],
+                modifiers: vec![],
+                power_demand_mw: 50.0,
+                tier: 0,
+                line: Some("Farm".to_string()),
+                replaces: None,
+                synergy: vec![],
+            },
+        );
+        defs.insert(
+            BuildingType::AgriDome,
+            BuildingDefinition {
+                id: "AgriDome".to_string(),
+                display_name: "Hydroponics Farm".to_string(),
+                description: "T1 farm".to_string(),
+                icon: "🌱".to_string(),
+                category: "Industry".to_string(),
+                build_points: 400.0,
+                workforce: 800,
+                required_tech: "hydroponics".to_string(),
+                resource_costs: vec![("Iron".to_string(), 1.5), ("Polymers".to_string(), 0.5)],
+                maintenance_resources: vec![
+                    ("Water".to_string(), 0.4),
+                    ("Phosphorus".to_string(), 0.008),
+                    ("Polymers".to_string(), 0.005),
+                    ("Sulfur".to_string(), 0.0008),
+                    ("Food".to_string(), 0.04),
+                ],
+                modifiers: vec![],
+                power_demand_mw: 80.0,
+                tier: 1,
+                line: Some("Farm".to_string()),
+                replaces: Some("Farm".to_string()),
+                synergy: vec![],
+            },
+        );
+        BuildingsData { definitions: defs }
+    }
+
+    /// Build a `BuildingsData` with Mine (with synergy rules),
+    /// Refinery, and Factory — enough to exercise the Civ-VI-style
+    /// "Mine with 2 Refineries" + "Mine with 1 Factory" pattern from
+    /// the plan §4.6.
+    fn mine_synergy_buildings_data() -> BuildingsData {
+        use crate::colony::data::{BuildingDefinition, SynergyRule};
+        use std::collections::HashMap;
+        let mut defs: HashMap<BuildingType, BuildingDefinition> = HashMap::new();
+        defs.insert(
+            BuildingType::Mine,
+            BuildingDefinition {
+                id: "Mine".to_string(),
+                display_name: "Mine".to_string(),
+                description: "Surface mine".to_string(),
+                icon: "⛏".to_string(),
+                category: "Industry".to_string(),
+                build_points: 400.0,
+                workforce: 2000,
+                required_tech: "".to_string(),
+                resource_costs: vec![("Iron".to_string(), 5.0)],
+                maintenance_resources: vec![
+                    ("Iron".to_string(), 0.01),
+                    ("Copper".to_string(), 0.005),
+                    ("Water".to_string(), 0.05),
+                    ("Polymers".to_string(), 0.002),
+                    ("Sulfur".to_string(), 0.0005),
+                ],
+                modifiers: vec![],
+                power_demand_mw: 250.0,
+                tier: 0,
+                line: Some("Mine".to_string()),
+                replaces: None,
+                synergy: vec![
+                    SynergyRule {
+                        requires_line: "Refinery".to_string(),
+                        count: 2,
+                        effect: "MiningEfficiency".to_string(),
+                        bonus: 0.10,
+                    },
+                    SynergyRule {
+                        requires_line: "Factory".to_string(),
+                        count: 1,
+                        effect: "ConstructionSpeed".to_string(),
+                        bonus: 0.05,
+                    },
+                ],
+            },
+        );
+        defs.insert(
+            BuildingType::Refinery,
+            BuildingDefinition {
+                id: "Refinery".to_string(),
+                display_name: "Refinery".to_string(),
+                description: "Refines ore".to_string(),
+                icon: "🏭".to_string(),
+                category: "Industry".to_string(),
+                build_points: 600.0,
+                workforce: 6000,
+                required_tech: "".to_string(),
+                resource_costs: vec![("Iron".to_string(), 1.0)],
+                maintenance_resources: vec![
+                    ("Water".to_string(), 0.5),
+                    ("Iron".to_string(), 0.01),
+                    ("Copper".to_string(), 0.005),
+                    ("Polymers".to_string(), 0.002),
+                    ("Sulfur".to_string(), 0.008),
+                ],
+                modifiers: vec![],
+                power_demand_mw: 500.0,
+                tier: 0,
+                line: Some("Refinery".to_string()),
+                replaces: None,
+                synergy: vec![],
+            },
+        );
+        defs.insert(
+            BuildingType::Factory,
+            BuildingDefinition {
+                id: "Factory".to_string(),
+                display_name: "Factory".to_string(),
+                description: "Builds stuff".to_string(),
+                icon: "🏗".to_string(),
+                category: "Industry".to_string(),
+                build_points: 300.0,
+                workforce: 12000,
+                required_tech: "".to_string(),
+                resource_costs: vec![("Iron".to_string(), 2.0)],
+                maintenance_resources: vec![
+                    ("Iron".to_string(), 0.02),
+                    ("Copper".to_string(), 0.01),
+                    ("Water".to_string(), 0.1),
+                    ("Polymers".to_string(), 0.005),
+                    ("RareEarths".to_string(), 0.001),
+                ],
+                modifiers: vec![],
+                power_demand_mw: 300.0,
+                tier: 0,
+                line: Some("Factory".to_string()),
+                replaces: None,
+                synergy: vec![],
+            },
+        );
+        BuildingsData { definitions: defs }
+    }
+
+    /// End-to-end test: queue a HydroponicsFarm while a Farm exists in
+    /// the colony.  With debug `instant_build` + `free_construction` the
+    /// new building is added immediately and the Farm is replaced
+    /// (GRA-22c plan §4.6 acceptance test #1).
+    #[test]
+    fn test_tier_replacement_hydroponics_farm_replaces_farm() {
+        use crate::colony::components::PendingConstructionActions;
+        use crate::colony::ConstructionDebugSettings;
+        use crate::economy::logistics::PendingResourceRequests;
+
+        let mut colony = Colony::new("Test".to_string(), 1_000.0);
+        colony.add_building(BuildingType::Farm);
+        colony.add_building(BuildingType::Farm);
+        assert_eq!(colony.building_count(BuildingType::Farm), 2);
+
+        let mut app = App::new();
+        app.init_resource::<PendingConstructionActions>();
+        app.init_resource::<PendingResourceRequests>();
+        app.insert_resource(ConstructionDebugSettings {
+            enabled: true,
+            free_construction: true,
+            instant_build: true,
+            bypass_tech_requirements: false,
+        });
+        app.insert_resource(farm_line_buildings_data());
+        app.init_resource::<crate::ui::SimulationTime>();
+        // No `SystemId` component on the colony → `colony_sys_query`
+        // returns `Err` → treated as "no system" by the resource check;
+        // `free_construction` above makes the resource path a no-op so
+        // the test does not need a real system.
+
+        let colony_entity = app.world_mut().spawn(colony).id();
+
+        // Queue a HydroponicsFarm
+        app.world_mut()
+            .resource_mut::<PendingConstructionActions>()
+            .start_construction
+            .push((colony_entity, BuildingType::AgriDome));
+
+        let mut sched = bevy::ecs::schedule::Schedule::default();
+        sched.add_systems(process_construction_actions);
+        sched.run(app.world_mut());
+
+        let colony = app
+            .world()
+            .entity(colony_entity)
+            .get::<Colony>()
+            .expect("colony still exists");
+
+        // 2 Farms − 1 (replaced) = 1 Farm, 1 HydroponicsFarm added.
+        assert_eq!(
+            colony.building_count(BuildingType::Farm),
+            1,
+            "one Farm should have been replaced by the HydroponicsFarm"
+        );
+        assert_eq!(
+            colony.building_count(BuildingType::AgriDome),
+            1,
+            "HydroponicsFarm should be present (instant build)"
+        );
+    }
+
+    /// Counter-test: building a tier-N when the colony has *no*
+    /// predecessor must NOT add a phantom decrement or error out.
+    /// The HydroponicsFarm is still added, but no Farm is removed
+    /// (there was none to remove).
+    #[test]
+    fn test_tier_replacement_no_predecessor_is_no_op() {
+        use crate::colony::components::PendingConstructionActions;
+        use crate::colony::ConstructionDebugSettings;
+        use crate::economy::logistics::PendingResourceRequests;
+
+        let colony = Colony::new("Moon".to_string(), 1_000.0);
+        // No Farm present.
+
+        let mut app = App::new();
+        app.init_resource::<PendingConstructionActions>();
+        app.init_resource::<PendingResourceRequests>();
+        app.insert_resource(ConstructionDebugSettings {
+            enabled: true,
+            free_construction: true,
+            instant_build: true,
+            bypass_tech_requirements: false,
+        });
+        app.insert_resource(farm_line_buildings_data());
+        app.init_resource::<crate::ui::SimulationTime>();
+
+        let colony_entity = app.world_mut().spawn(colony).id();
+
+        app.world_mut()
+            .resource_mut::<PendingConstructionActions>()
+            .start_construction
+            .push((colony_entity, BuildingType::AgriDome));
+
+        let mut sched = bevy::ecs::schedule::Schedule::default();
+        sched.add_systems(process_construction_actions);
+        sched.run(app.world_mut());
+
+        let colony = app
+            .world()
+            .entity(colony_entity)
+            .get::<Colony>()
+            .expect("colony still exists");
+
+        assert_eq!(colony.building_count(BuildingType::Farm), 0);
+        assert_eq!(colony.building_count(BuildingType::AgriDome), 1);
+    }
+
+    /// Acceptance test #2: a Mine with 2 Refineries and 1 Factory in the
+    /// same colony gets +10% mining and +5% construction (synergy
+    /// recompute, GRA-22c plan §4.6).
+    #[test]
+    fn test_synergy_recompute_mine_with_refineries_and_factory() {
+        let mut colony = Colony::new_civilisation("Earth".to_string(), 1_000_000.0);
+        colony.add_building(BuildingType::Mine);
+        colony.add_building(BuildingType::Refinery);
+        colony.add_building(BuildingType::Refinery);
+        colony.add_building(BuildingType::Factory);
+
+        let mut app = App::new();
+        app.init_resource::<ColonySynergies>();
+        app.insert_resource(mine_synergy_buildings_data());
+        app.world_mut().spawn(colony);
+
+        let mut sched = bevy::ecs::schedule::Schedule::default();
+        sched.add_systems(recompute_synergies);
+        sched.run(app.world_mut());
+
+        let synergies = app.world().resource::<ColonySynergies>();
+        assert_eq!(synergies.by_colony.len(), 1, "one colony with synergies");
+        let state = synergies
+            .by_colony
+            .values()
+            .next()
+            .expect("colony should have a synergy entry");
+
+        let mining = state
+            .bonuses
+            .get("MiningEfficiency")
+            .copied()
+            .unwrap_or(0.0);
+        let construction = state
+            .bonuses
+            .get("ConstructionSpeed")
+            .copied()
+            .unwrap_or(0.0);
+
+        assert!(
+            (mining - 0.10).abs() < 1e-9,
+            "expected +10% mining (2 Refineries), got {}",
+            mining
+        );
+        assert!(
+            (construction - 0.05).abs() < 1e-9,
+            "expected +5% construction (1 Factory), got {}",
+            construction
+        );
+    }
+
+    /// Counter-test: a Mine with 1 Refinery and 0 Factories must NOT
+    /// activate either synergy (under threshold).
+    #[test]
+    fn test_synergy_recompute_under_threshold_inactive() {
+        let mut colony = Colony::new_civilisation("Mars".to_string(), 1_000_000.0);
+        colony.add_building(BuildingType::Mine);
+        colony.add_building(BuildingType::Refinery);
+        // 1 Refinery: MiningEfficiency rule needs 2 → inactive
+        // 0 Factories: ConstructionSpeed rule needs 1 → inactive
+
+        let mut app = App::new();
+        app.init_resource::<ColonySynergies>();
+        app.insert_resource(mine_synergy_buildings_data());
+        app.world_mut().spawn(colony);
+
+        let mut sched = bevy::ecs::schedule::Schedule::default();
+        sched.add_systems(recompute_synergies);
+        sched.run(app.world_mut());
+
+        let synergies = app.world().resource::<ColonySynergies>();
+        // No synergies active → colony omitted from by_colony.
+        assert!(
+            synergies.by_colony.is_empty(),
+            "no bonuses should activate; got {:?}",
+            synergies.by_colony
+        );
+    }
+
+    /// Counter-test: an empty BuildingsData (or one with no synergy
+    /// rules) produces an empty `ColonySynergies`.  Guards against the
+    /// "load before data" race.
+    #[test]
+    fn test_synergy_recompute_no_data_is_no_op() {
+        let colony = Colony::new("Test".to_string(), 1_000.0);
+
+        let mut app = App::new();
+        app.init_resource::<ColonySynergies>();
+        // Note: no BuildingsData resource inserted.
+        app.world_mut().spawn(colony);
+
+        let mut sched = bevy::ecs::schedule::Schedule::default();
+        sched.add_systems(recompute_synergies);
+        sched.run(app.world_mut());
+
+        let synergies = app.world().resource::<ColonySynergies>();
+        assert!(synergies.by_colony.is_empty());
     }
 }

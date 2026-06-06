@@ -166,6 +166,26 @@ impl Colony {
         *self.buildings.entry(building_type).or_insert(0) += 1;
     }
 
+    /// Decrement the count of `predecessor` by one, removing the entry
+    /// at zero.  Returns `true` if a building was actually removed.
+    ///
+    /// Used by GRA-22c tier-replacement: when a player queues a tier-N
+    /// building (e.g. `HydroponicsFarm`) while the colony has the
+    /// predecessor (e.g. `Farm`), the predecessor count drops by one.
+    pub fn remove_one_building(&mut self, predecessor: BuildingType) -> bool {
+        match self.buildings.entry(predecessor) {
+            std::collections::hash_map::Entry::Occupied(mut o) => {
+                let v = o.get_mut();
+                *v = v.saturating_sub(1);
+                if *v == 0 {
+                    o.remove();
+                }
+                true
+            }
+            std::collections::hash_map::Entry::Vacant(_) => false,
+        }
+    }
+
     /// Get total number of buildings
     pub fn total_buildings(&self) -> u32 {
         self.buildings.values().sum()
