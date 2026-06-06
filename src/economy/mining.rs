@@ -250,6 +250,12 @@ pub fn extract_resources(
                 // MiningEfficiency    → Proven Crustal  (Mine, Refinery, etc.)
                 // DeepMiningEfficiency→ Deep Deposits   (DeepDrill, LaserDrill)
                 // BulkMiningEfficiency→ Planetary Bulk  (StripMine, BulkExcavator)
+                //
+                // Every rate is scaled by the colony's `ColonyDevelopment` yield
+                // multiplier (per GRA-22 §4.5).  An Outpost on a hostile body
+                // produces one-tenth of a Civilisation's output with the same
+                // buildings; the deposit share logic is unchanged.
+                let yield_mult = colony.effective_yield_multiplier();
                 let mut surface_rate = 0.0_f64;
                 let mut deep_rate = 0.0_f64;
                 let mut bulk_rate = 0.0_f64;
@@ -264,16 +270,16 @@ pub fn extract_resources(
                         for modifier in &def.modifiers {
                             match modifier.modifier_type.as_str() {
                                 "MiningEfficiency" => {
-                                    surface_rate += modifier.value * count as f64;
+                                    surface_rate += modifier.value * count as f64 * yield_mult;
                                 }
                                 "DeepMiningEfficiency" => {
-                                    deep_rate += modifier.value * count as f64;
+                                    deep_rate += modifier.value * count as f64 * yield_mult;
                                 }
                                 "BulkMiningEfficiency" => {
-                                    bulk_rate += modifier.value * count as f64;
+                                    bulk_rate += modifier.value * count as f64 * yield_mult;
                                 }
                                 "AtmosphericHarvesting" => {
-                                    total_atmo_rate += modifier.value * count as f64;
+                                    total_atmo_rate += modifier.value * count as f64 * yield_mult;
                                 }
                                 _ => {}
                             }
@@ -433,7 +439,13 @@ pub fn extract_resources(
                             continue;
                         }
 
-                        let desired_output = modifier.value * count as f64 * years_elapsed;
+                        // Per GRA-22 §4.5: industrial synthesis scales with the
+                        // colony's development yield multiplier.  Inputs and
+                        // outputs both move — a ChemicalPlant on an Outpost
+                        // produces a tenth of a Civilisation's output and
+                        // consumes a tenth of the inputs.
+                        let desired_output =
+                            modifier.value * count as f64 * yield_mult * years_elapsed;
                         let actual_output =
                             feasible_output_amount(desired_output, &rule, &local_opt, &budget);
 
@@ -566,6 +578,11 @@ pub fn update_resource_rates(
     if let Some(data) = &buildings_data {
         for (entity, colony, resources_opt, local_opt) in colony_query.iter() {
             if let Some(resources) = resources_opt {
+                // Yield multiplier (per GRA-22 §4.5) — an Outpost at ×0.10
+                // must report the same rate the sim extracts, so the UI's
+                // depletion-timeline chip matches the depletion that
+                // `extract_resources` actually applies.
+                let yield_mult = colony.effective_yield_multiplier();
                 let mut surface_rate = 0.0_f64;
                 let mut deep_rate = 0.0_f64;
                 let mut bulk_rate = 0.0_f64;
@@ -579,16 +596,16 @@ pub fn update_resource_rates(
                         for modifier in &def.modifiers {
                             match modifier.modifier_type.as_str() {
                                 "MiningEfficiency" => {
-                                    surface_rate += modifier.value * count as f64;
+                                    surface_rate += modifier.value * count as f64 * yield_mult;
                                 }
                                 "DeepMiningEfficiency" => {
-                                    deep_rate += modifier.value * count as f64;
+                                    deep_rate += modifier.value * count as f64 * yield_mult;
                                 }
                                 "BulkMiningEfficiency" => {
-                                    bulk_rate += modifier.value * count as f64;
+                                    bulk_rate += modifier.value * count as f64 * yield_mult;
                                 }
                                 "AtmosphericHarvesting" => {
-                                    total_atmo_rate += modifier.value * count as f64;
+                                    total_atmo_rate += modifier.value * count as f64 * yield_mult;
                                 }
                                 _ => {}
                             }
@@ -738,8 +755,11 @@ pub fn update_resource_rates(
                             continue;
                         }
 
-                        let desired_monthly_output =
-                            modifier.value * count as f64 * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
+                        // Yield-scaled (matches `extract_resources`).
+                        let desired_monthly_output = modifier.value
+                            * count as f64
+                            * yield_mult
+                            * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
                         if desired_monthly_output <= 0.0 {
                             continue;
                         }
@@ -825,6 +845,10 @@ pub fn update_resource_rates(
     // 4. Subtract maintenance consumption so rates show NET balance
     if let Some(data) = &buildings_data {
         for (entity, colony, _, _) in colony_query.iter() {
+            // Per GRA-22 §4.7: maintenance is scaled by the same yield
+            // multiplier as the production it costs.  Reported rate must
+            // match the actual draw in `deduct_maintenance_resources`.
+            let yield_mult = colony.effective_yield_multiplier();
             for (building_type, &count) in &colony.buildings {
                 if count == 0 {
                     continue;
@@ -832,9 +856,11 @@ pub fn update_resource_rates(
                 let maintenance = data.maintenance_resources(building_type);
                 for (resource_name, annual_amount) in maintenance {
                     if let Some(rt) = crate::colony::data::parse_resource_type(resource_name) {
-                        // annual → monthly
-                        let monthly_cost =
-                            annual_amount * (count as f64) * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
+                        // annual → monthly, yield-scaled
+                        let monthly_cost = annual_amount
+                            * (count as f64)
+                            * yield_mult
+                            * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
                         add_consumption(
                             &mut rates,
                             &mut consumption_rates,
