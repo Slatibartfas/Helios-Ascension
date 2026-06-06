@@ -692,6 +692,63 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_production_ron_cross_atmosphere_values() {
+        // GRA-27 acceptance: the four cross-atmosphere buildings in the
+        // production RON must carry the values the CTO plan (and LGD
+        // brief) committed to.  If LGD changes a value, this test must
+        // be updated *with* the data change so the test suite
+        // exercises the production RON (and not the `#[serde(default)]`
+        // fallback).  Buildings *not* in this list should fall back to
+        // `[Breathable, None]`.
+        let path = "assets/data/buildings.ron";
+        let contents = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => return, // File not available in test env; skip.
+        };
+        let data = match ron::from_str::<BuildingsFile>(&contents) {
+            Ok(d) => d,
+            Err(_) => panic!("buildings.ron should parse (RON schema may be invalid)"),
+        };
+
+        let by_id: std::collections::HashMap<&str, &BuildingDefinition> =
+            data.buildings.iter().map(|d| (d.id.as_str(), d)).collect();
+
+        // Off-world only (closed environment).
+        assert_eq!(
+            by_id["AgriDome"].available_atmospheres,
+            vec![AtmosphereKind::None],
+            "AgriDome must be [None] per the CTO plan"
+        );
+        assert_eq!(
+            by_id["UndergroundHabitat"].available_atmospheres,
+            vec![AtmosphereKind::None],
+            "UndergroundHabitat must be [None] per the CTO plan"
+        );
+
+        // Atmosphere-only (open-air).
+        assert_eq!(
+            by_id["Farm"].available_atmospheres,
+            vec![AtmosphereKind::Breathable],
+            "Farm must be [Breathable] per the CTO plan"
+        );
+        assert_eq!(
+            by_id["Greenhouse"].available_atmospheres,
+            vec![AtmosphereKind::Breathable],
+            "Greenhouse must be [Breathable] per the CTO plan"
+        );
+
+        // A default building: confirm the serde default kicks in for
+        // entries that don't declare the field.  `Mine` is a safe
+        // choice — it's been on main since GRA-22a and does not need
+        // an atmosphere constraint.
+        assert_eq!(
+            by_id["Mine"].available_atmospheres,
+            vec![AtmosphereKind::Breathable, AtmosphereKind::None],
+            "Mine must default to both kinds (no atmosphere gate)"
+        );
+    }
+
     // ── GRA-22c: tier / line / replaces / synergy fields + audit helper ─
 
     fn make_def(id: &str, maint: &[&str]) -> BuildingDefinition {
