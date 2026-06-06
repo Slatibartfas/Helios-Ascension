@@ -1,5 +1,6 @@
 use super::dashboard::format_mass_compact;
 use super::*;
+use crate::colony::ColonySynergies;
 use bevy::ecs::system::SystemParam;
 
 /// Read-only data bundle for the construction panel.  Groups the eight
@@ -1357,7 +1358,7 @@ fn render_construction_build_tab(
             // category tabs.  All is a no-op pass-through.
             .filter(|b| {
                 ui_state.selected_filter.matches(
-                    **b,
+                    *b,
                     colony,
                     *colony_entity,
                     Some(synergies),
