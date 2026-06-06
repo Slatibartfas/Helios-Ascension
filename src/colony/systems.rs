@@ -852,20 +852,21 @@ mod tests {
     // ── compute_depletion_timeline (GRA-24) ─────────────────────────────
 
     /// Spin up a minimal Bevy app that owns a `BuildingsData` resource, a `DepletionTimeline`
-    /// resource, and one colony with a known stockpile and a known draw. Returns the `App`
-    /// so the test can query the timeline after running the system.
+    /// resource, and one colony with a known stockpile and a known draw.
+    ///
+    /// `buildings_data` controls whether the system runs to completion (a
+    /// non-empty definition set) or early-returns with an empty timeline
+    /// (an empty default).  Tests that need a specific draw rate pass a
+    /// hand-built `BuildingsData` with a single building whose
+    /// `maintenance_resources` match the rate the test wants to assert.
     fn build_depletion_app(
         colony: Colony,
         stockpile: std::collections::HashMap<ResourceType, f64>,
+        buildings_data: BuildingsData,
     ) -> App {
-        use crate::colony::data::BuildingsData;
         let mut app = App::new();
         app.init_resource::<DepletionTimeline>();
-        // Synthesise an empty BuildingsData (the system early-returns when
-        // the resource is empty; the assertion below uses a custom draw
-        // that doesn't depend on RON data, so an empty resource is fine
-        // for the negative case).
-        app.insert_resource(BuildingsData::default());
+        app.insert_resource(buildings_data);
 
         let world = app.world_mut();
         let mut entity = world.spawn((colony, LocalStockpile::default()));
@@ -880,19 +881,50 @@ mod tests {
         app
     }
 
+    /// Build a `BuildingsData` containing a single Refinery definition
+    /// with the maintenance profile used in the GRA-24 acceptance test
+    /// (Water 0.5 Mt/yr, plus a few trace materials so the test would
+    /// also catch accidental zero-allocation).
+    fn refinery_buildings_data() -> BuildingsData {
+        use crate::colony::data::BuildingDefinition;
+        use std::collections::HashMap;
+        let mut defs: HashMap<BuildingType, BuildingDefinition> = HashMap::new();
+        defs.insert(
+            BuildingType::Refinery,
+            BuildingDefinition {
+                id: "Refinery".to_string(),
+                display_name: "Refinery".to_string(),
+                description: "Test refines raw ores into usable materials".to_string(),
+                icon: "🏭".to_string(),
+                category: "Industry".to_string(),
+                build_points: 600.0,
+                workforce: 6000,
+                required_tech: "".to_string(),
+                resource_costs: vec![("Iron".to_string(), 133.0)],
+                maintenance_resources: vec![
+                    ("Water".to_string(), 0.5),
+                    ("Sulfur".to_string(), 0.008),
+                ],
+                modifiers: vec![],
+                power_demand_mw: 500.0,
+            },
+        );
+        BuildingsData { definitions: defs }
+    }
+
     #[test]
     fn test_compute_depletion_timeline_known_draw() {
         // Known draw test (GRA-24 acceptance criterion).
-        // Setup: a Civilisation colony with a single Farm and a 2,000 Mt
-        // local food stockpile.  At ×1.00 yield the Farm draws exactly
-        // 1,000 Mt/yr → years_remaining = 2.000 yr.
+        // Setup: a Civilisation colony with one Refinery and a 5.0 Mt
+        // local Water stockpile.  At ×1.00 yield the Refinery draws
+        // exactly 0.5 Mt/yr of Water → years_remaining = 10.0 yr.
         let mut colony = Colony::new_civilisation("Earth".to_string(), 1_000_000.0);
-        colony.add_building(BuildingType::Farm);
+        colony.add_building(BuildingType::Refinery);
 
         let mut stockpile = std::collections::HashMap::new();
-        stockpile.insert(ResourceType::Food, 2_000.0);
+        stockpile.insert(ResourceType::Water, 5.0);
 
-        let mut app = build_depletion_app(colony, stockpile);
+        let mut app = build_depletion_app(colony, stockpile, refinery_buildings_data());
 
         // Drive the system manually — we only need a single tick of the
         // computation, not the full chain.
@@ -910,27 +942,28 @@ mod tests {
             .next()
             .expect("colony should have a timeline entry");
         let years = per_colony
-            .get(&ResourceType::Food)
-            .expect("Food should have a years-remaining entry");
+            .get(&ResourceType::Water)
+            .expect("Water should have a years-remaining entry");
         assert!(
-            (years - 2.0).abs() < 1e-6,
-            "2,000 Mt / 1,000 Mt/yr = 2.0 yr, got {}",
+            (years - 10.0).abs() < 1e-6,
+            "5.0 Mt / 0.5 Mt/yr = 10.0 yr (Civilisation ×1.00), got {}",
             years,
         );
     }
 
     #[test]
     fn test_compute_depletion_timeline_outpost_yields_ten_year_runway() {
-        // Same draw as the test above, but the colony is an Outpost (×0.10).
-        // The Farm draws 1,000 × 0.10 = 100 Mt/yr, so a 2,000 Mt stockpile
-        // lasts 20 years — i.e. 10× longer than the civilisation case.
+        // Same draw as the test above, but the colony is an Outpost
+        // (×0.10).  The Refinery draws 0.5 × 0.10 = 0.05 Mt/yr of Water,
+        // so a 5.0 Mt stockpile lasts 100 years — i.e. 10× longer than
+        // the civilisation case.
         let mut colony = Colony::new("Moon".to_string(), 5_000.0);
-        colony.add_building(BuildingType::Farm);
+        colony.add_building(BuildingType::Refinery);
 
         let mut stockpile = std::collections::HashMap::new();
-        stockpile.insert(ResourceType::Food, 2_000.0);
+        stockpile.insert(ResourceType::Water, 5.0);
 
-        let mut app = build_depletion_app(colony, stockpile);
+        let mut app = build_depletion_app(colony, stockpile, refinery_buildings_data());
 
         let mut sched = bevy::ecs::schedule::Schedule::default();
         sched.add_systems(compute_depletion_timeline);
@@ -943,11 +976,11 @@ mod tests {
             .next()
             .expect("colony should have a timeline entry");
         let years = per_colony
-            .get(&ResourceType::Food)
-            .expect("Food should have a years-remaining entry");
+            .get(&ResourceType::Water)
+            .expect("Water should have a years-remaining entry");
         assert!(
-            (years - 20.0).abs() < 1e-6,
-            "2,000 Mt / 100 Mt/yr = 20.0 yr (Outpost ×0.10), got {}",
+            (years - 100.0).abs() < 1e-6,
+            "5.0 Mt / 0.05 Mt/yr = 100.0 yr (Outpost ×0.10), got {}",
             years,
         );
     }
@@ -958,7 +991,11 @@ mod tests {
         // empty timeline, so the UI chip renders as "no data" instead of
         // false negatives.
         let colony = Colony::new("Moon".to_string(), 5_000.0);
-        let mut app = build_depletion_app(colony, std::collections::HashMap::new());
+        let mut app = build_depletion_app(
+            colony,
+            std::collections::HashMap::new(),
+            BuildingsData::default(),
+        );
 
         let mut sched = bevy::ecs::schedule::Schedule::default();
         sched.add_systems(compute_depletion_timeline);
