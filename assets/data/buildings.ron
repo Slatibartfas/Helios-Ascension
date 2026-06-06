@@ -83,7 +83,7 @@
         (
             id: "Housing",
             display_name: "Housing Complex",
-            description: "City-block-scale residential complex, housing ~8B residents (world population)",
+            description: "City-block-scale residential complex, housing ~800M residents (1/10 world scale)",
             icon: "🏙",
             category: "Infrastructure",
             build_points: 200.0,
@@ -101,9 +101,13 @@
                 ("Sulfur", 0.0005),
             ],
             modifiers: [
-                // 2026 reference: 1 complex = world population (8.1B).
-                // Operator bar: 1 colony building ≈ world total.
-                (modifier_type: "HousingCapacity", value: 8000000000.0),
+                // 2026 reference: 1 complex = 1/10 world population (8.1B ÷ 10).
+                // Operator bar: 1 colony building ≈ 1/10 world total — matches
+                // the ~10-builds-for-Earth design target from GRA-22a (issue
+                // description: "player reaches Earth's calibrated totals with
+                // ~10 Farms instead of ~780"). 1-Housing-covers-all-of-Earth
+                // was too large per operator PR review.
+                (modifier_type: "HousingCapacity", value: 800000000.0),
             ],
             power_demand_mw: 50.0,
         ),
@@ -703,12 +707,12 @@
         (
             id: "AgriDome",
             display_name: "Agricultural Dome",
-            description: "Closed-environment food production, 180 Mt/yr (lunar/Mars scale)",
+            description: "Closed-environment food production for off-world colonies (Moon, Mars, asteroids), 180 Mt/yr. Requires Hydroponics tech — not buildable on Earth from start.",
             icon: "🥬",
             category: "Population",
             build_points: 600.0,
             workforce: 3000,
-            required_tech: "",
+            required_tech: "hydroponics",
             resource_costs: [
                 ("Iron", 100.0),
                 ("Silicates", 67.0),
