@@ -141,7 +141,7 @@ impl BuildFilter {
                 def.synergy.iter().any(|rule| {
                     let have = data.count_in_line(&colony.buildings, &rule.requires_line);
                     have >= u32::from(rule.count)
-                }) || state.bonuses.values().any(|v| *v > 0.0)
+                })
             }
         }
     }
