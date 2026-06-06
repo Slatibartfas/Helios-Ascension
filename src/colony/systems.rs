@@ -851,10 +851,9 @@ mod tests {
 
     // ── compute_depletion_timeline (GRA-24) ─────────────────────────────
 
-    /// Spin up a minimal Bevy app that owns a `BuildingsData` resource, a
-    /// `DepletionTimeline` resource, and one colony with a known stockpile
-    /// and a known draw.  Returns the `App` so the test can query the
-    /// timeline after running the system.
+    /// Spin up a minimal Bevy app that owns a `BuildingsData` resource, a `DepletionTimeline`
+    /// resource, and one colony with a known stockpile and a known draw. Returns the `App`
+    /// so the test can query the timeline after running the system.
     fn build_depletion_app(
         colony: Colony,
         stockpile: std::collections::HashMap<ResourceType, f64>,
