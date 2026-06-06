@@ -723,25 +723,26 @@ pub fn compute_depletion_timeline(
 ) {
     timeline.by_colony.clear();
 
-    let data = match buildings_data {
-        Some(ref d) if !d.definitions.is_empty() => d,
-        _ => return,
-    };
-
     for (entity, colony, env_opt, local_opt) in colonies.iter() {
         let mut annual_draw: HashMap<ResourceType, f64> = HashMap::new();
         let yield_mult = colony.effective_yield_multiplier();
 
         // 1. Building maintenance — yield-scaled (per GRA-22 §4.7).
-        for (building_type, count) in &colony.buildings {
-            if *count == 0 {
-                continue;
-            }
-            let maintenance = data.maintenance_resources(building_type);
-            for (resource_name, annual_amount) in maintenance {
-                if let Some(rt) = super::data::parse_resource_type(resource_name) {
-                    let amount = annual_amount * f64::from(*count) * yield_mult;
-                    *annual_draw.entry(rt).or_insert(0.0) += amount;
+        //    The maintenance loop is a no-op when `BuildingsData` is
+        //    absent or empty; the per-capita and food loops below still
+        //    run so the UI gets biological needs even before the data
+        //    file is loaded.
+        if let Some(ref data) = buildings_data {
+            for (building_type, count) in &colony.buildings {
+                if *count == 0 {
+                    continue;
+                }
+                let maintenance = data.maintenance_resources(building_type);
+                for (resource_name, annual_amount) in maintenance {
+                    if let Some(rt) = super::data::parse_resource_type(resource_name) {
+                        let amount = annual_amount * f64::from(*count) * yield_mult;
+                        *annual_draw.entry(rt).or_insert(0.0) += amount;
+                    }
                 }
             }
         }
@@ -782,7 +783,11 @@ pub fn compute_depletion_timeline(
             }
         }
 
-        timeline.by_colony.insert(entity, per_resource);
+        // Only register colonies that have at least one tracked draw, so
+        // the UI can distinguish "no draw to show" from "draw present".
+        if !per_resource.is_empty() {
+            timeline.by_colony.insert(entity, per_resource);
+        }
     }
 }
 
@@ -852,13 +857,11 @@ mod tests {
     // ── compute_depletion_timeline (GRA-24) ─────────────────────────────
 
     /// Spin up a minimal Bevy app that owns a `BuildingsData` resource, a `DepletionTimeline`
-    /// resource, and one colony with a known stockpile and a known draw.
+    /// resource, and one colony with a known stockpile and a known draw. Returns the `App`
+    /// so the test can query the timeline after running the system.
     ///
-    /// `buildings_data` controls whether the system runs to completion (a
-    /// non-empty definition set) or early-returns with an empty timeline
-    /// (an empty default).  Tests that need a specific draw rate pass a
-    /// hand-built `BuildingsData` with a single building whose
-    /// `maintenance_resources` match the rate the test wants to assert.
+    /// `buildings_data` carries the maintenance draw profile; pass an
+    /// empty `BuildingsData::default()` to test the no-draw case.
     fn build_depletion_app(
         colony: Colony,
         stockpile: std::collections::HashMap<ResourceType, f64>,
@@ -986,10 +989,13 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_depletion_timeline_empty_when_no_buildings_data() {
-        // Negative case: no BuildingsData → system early-returns with an
-        // empty timeline, so the UI chip renders as "no data" instead of
-        // false negatives.
+    fn test_compute_depletion_timeline_empty_when_no_demand() {
+        // Negative case: a colony with no buildings, no local stockpile,
+        // and no per-capita draw against anything it owns → the timeline
+        // is empty.  (Without the `if !per_resource.is_empty()` guard the
+        // system would still insert an empty entry per colony; the guard
+        // keeps the UI's "no data" signal distinct from "draws are
+        // tracked but trivial".)
         let colony = Colony::new("Moon".to_string(), 5_000.0);
         let mut app = build_depletion_app(
             colony,
