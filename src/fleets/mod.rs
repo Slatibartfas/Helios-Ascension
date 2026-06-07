@@ -15,9 +15,9 @@ pub mod types;
 pub mod visuals;
 
 pub use components::{
-    ActiveManeuver, AssignShipsAction, CreateFleetFromShipsAction, Fleet, FleetOrbit,
-    MergeFleetAction, PendingFleetActions, PlannedTransfer, ShipInfo, ShipInstance,
-    SpawnFleetAction, StartTransferAction, TransferReferenceFrame,
+    ActiveManeuver, AssignLogisticsRequestAction, AssignShipsAction, CreateFleetFromShipsAction,
+    Fleet, FleetOrbit, MergeFleetAction, PendingFleetActions, PlannedTransfer, ShipInfo,
+    ShipInstance, SpawnFleetAction, StartTransferAction, TransferReferenceFrame,
 };
 pub use orbital_mechanics::{
     apply_thrust_limits, calculate_transfer_options, calculate_transfer_options_phased,

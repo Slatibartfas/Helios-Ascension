@@ -4,9 +4,11 @@ use crate::astronomy::components::SpaceCoordinates;
 use crate::economy::hohmann_round_trip_seconds;
 use crate::economy::LocalStockpile;
 use crate::economy::PendingResourceRequests;
+use crate::economy::RequestPriority;
 use crate::economy::RequestState;
 use crate::economy::ResourceRequest;
 use crate::fleets::components::ShipInfo;
+use crate::fleets::ShipClass;
 
 const SHIP_MANIFEST_ACTIONS_WIDTH: f32 = 122.0;
 const SHIP_MANIFEST_ROW_HEIGHT: f32 = 24.0;
