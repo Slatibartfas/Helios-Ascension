@@ -30,7 +30,6 @@ impl Plugin for ShipbuildingPlugin {
         app.init_resource::<PendingShipbuildingActions>()
             .init_resource::<LaunchCapacityState>()
             .init_resource::<ShipDesignLibrary>()
-            .add_systems(Startup, load_shipbuilding_data)
             // GRA-40: freighter template loading must run after hull + module
             // data is loaded (the loader validates against ShipbuildingData),
             // and the migration shim must run after the registry is populated
