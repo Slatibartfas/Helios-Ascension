@@ -137,6 +137,7 @@
                 // 2026 reference: 1 habitat = quarter of world population.
                 (modifier_type: "HousingCapacity", value: 2000000000.0),
             ],
+            available_atmospheres: [None],
             power_demand_mw: 300.0,
         ),
 
@@ -733,6 +734,7 @@
                 // Operator bar: 1 dome ≈ moon-base food share.
                 (modifier_type: "FoodProduction", value: 180.0),
             ],
+            available_atmospheres: [None],
             power_demand_mw: 200.0,
         ),
         (
@@ -763,6 +765,7 @@
                 // Operator bar: 1 farm ≈ world food total.
                 (modifier_type: "FoodProduction", value: 9000.0),
             ],
+            available_atmospheres: [Breathable],
             power_demand_mw: 30.0,
         ),
         (
@@ -1358,6 +1361,7 @@
                 // 2026 reference: greenhouse/vertical-farm share ~50% of food total.
                 (modifier_type: "FoodProduction", value: 5000.0),
             ],
+            available_atmospheres: [Breathable],
             power_demand_mw: 100.0,
         ),
         (
