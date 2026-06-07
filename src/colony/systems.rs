@@ -990,6 +990,7 @@ mod tests {
     /// (Water 0.5 Mt/yr, plus a few trace materials so the test would
     /// also catch accidental zero-allocation).
     fn refinery_buildings_data() -> BuildingsData {
+        use crate::colony::data::AtmosphereKind;
         use crate::colony::data::BuildingDefinition;
         use std::collections::HashMap;
         let mut defs: HashMap<BuildingType, BuildingDefinition> = HashMap::new();
@@ -1015,6 +1016,7 @@ mod tests {
                 line: None,
                 replaces: None,
                 synergy: vec![],
+                available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
             },
         );
         BuildingsData { definitions: defs }
@@ -1123,6 +1125,7 @@ mod tests {
     /// Maintenance entries are 4 distinct resources so the audit accepts
     /// them.
     fn farm_line_buildings_data() -> BuildingsData {
+        use crate::colony::data::AtmosphereKind;
         use crate::colony::data::BuildingDefinition;
         use std::collections::HashMap;
         let mut defs: HashMap<BuildingType, BuildingDefinition> = HashMap::new();
@@ -1151,6 +1154,7 @@ mod tests {
                 line: Some("Farm".to_string()),
                 replaces: None,
                 synergy: vec![],
+                available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
             },
         );
         defs.insert(
@@ -1178,6 +1182,7 @@ mod tests {
                 line: Some("Farm".to_string()),
                 replaces: Some("Farm".to_string()),
                 synergy: vec![],
+                available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
             },
         );
         BuildingsData { definitions: defs }
@@ -1188,6 +1193,7 @@ mod tests {
     /// "Mine with 2 Refineries" + "Mine with 1 Factory" pattern from
     /// the plan §4.6.
     fn mine_synergy_buildings_data() -> BuildingsData {
+        use crate::colony::data::AtmosphereKind;
         use crate::colony::data::{BuildingDefinition, SynergyRule};
         use std::collections::HashMap;
         let mut defs: HashMap<BuildingType, BuildingDefinition> = HashMap::new();
@@ -1229,6 +1235,7 @@ mod tests {
                         bonus: 0.05,
                     },
                 ],
+                available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
             },
         );
         defs.insert(
@@ -1256,6 +1263,7 @@ mod tests {
                 line: Some("Refinery".to_string()),
                 replaces: None,
                 synergy: vec![],
+                available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
             },
         );
         defs.insert(
@@ -1283,6 +1291,7 @@ mod tests {
                 line: Some("Factory".to_string()),
                 replaces: None,
                 synergy: vec![],
+                available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
             },
         );
         BuildingsData { definitions: defs }

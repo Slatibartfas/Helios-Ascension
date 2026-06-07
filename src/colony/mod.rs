@@ -21,7 +21,10 @@ pub use components::{
     EstablishOutpostRequest, PendingConstructionActions, CITY_YIELD_MULTIPLIER,
     CIVILISATION_YIELD_MULTIPLIER, OUTPOST_YIELD_MULTIPLIER, SETTLEMENT_YIELD_MULTIPLIER,
 };
-pub use data::{BuildingDefinition, BuildingModifierDef, BuildingsData, SynergyRule};
+pub use data::{
+    building_is_available_on, AtmosphereKind, BuildingDefinition, BuildingModifierDef,
+    BuildingsData, SynergyRule,
+};
 pub use systems::DepletionTimeline;
 pub use systems::{
     advance_construction, compute_depletion_timeline, deduct_environment_costs,

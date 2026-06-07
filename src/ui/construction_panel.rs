@@ -1,5 +1,6 @@
 use super::dashboard::format_mass_compact;
 use super::*;
+use crate::colony::building_is_available_on;
 use crate::colony::ColonySynergies;
 use bevy::ecs::system::SystemParam;
 
@@ -436,7 +437,12 @@ fn draw_filter_chip(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Res
 
 pub(super) fn ui_construction_panels(
     mut contexts: EguiContexts,
-    colony_query: Query<(Entity, &Colony, &CelestialBody)>,
+    colony_query: Query<(
+        Entity,
+        &Colony,
+        &CelestialBody,
+        Option<&AtmosphereComposition>,
+    )>,
     construction_query: Query<(Entity, &ConstructionProject)>,
     mut construction_actions: ResMut<PendingConstructionActions>,
     mut debug_settings: ResMut<ConstructionDebugSettings>,
@@ -496,7 +502,12 @@ pub(super) fn ui_construction_panels(
 /// Render the construction panel showing colonies, buildings, and construction queues.
 fn render_construction_panel(
     ui: &mut egui::Ui,
-    colony_query: &Query<(Entity, &Colony, &CelestialBody)>,
+    colony_query: &Query<(
+        Entity,
+        &Colony,
+        &CelestialBody,
+        Option<&AtmosphereComposition>,
+    )>,
     construction_query: &Query<(Entity, &ConstructionProject)>,
     construction_actions: &mut ResMut<PendingConstructionActions>,
     research_state: &crate::research::ResearchState,
@@ -603,16 +614,16 @@ fn render_construction_panel(
     // -- Colony selector --
     let selected_valid = ui_state
         .selected_colony
-        .map(|e| colonies.iter().any(|(ce, _, _)| *ce == e))
+        .map(|e| colonies.iter().any(|(ce, _, _, _)| *ce == e))
         .unwrap_or(false);
     if !selected_valid {
-        ui_state.selected_colony = colonies.first().map(|(e, _, _)| *e);
+        ui_state.selected_colony = colonies.first().map(|(e, _, _, _)| *e);
     }
 
     let current_name = ui_state
         .selected_colony
-        .and_then(|e| colonies.iter().find(|(ce, _, _)| *ce == e))
-        .map(|(_, c, _)| c.name.clone())
+        .and_then(|e| colonies.iter().find(|(ce, _, _, _)| *ce == e))
+        .map(|(_, c, _, _)| c.name.clone())
         .unwrap_or_default();
 
     ui.horizontal(|ui| {
@@ -630,7 +641,7 @@ fn render_construction_panel(
             )
             .width((ui.available_width() - 12.0).max(240.0))
             .show_ui(ui, |ui| {
-                for (entity, colony, _) in &colonies {
+                for (entity, colony, _, _) in &colonies {
                     let label = format!(
                         "{} ({})",
                         colony.name,
@@ -652,11 +663,16 @@ fn render_construction_panel(
         Some(e) => e,
         None => return,
     };
-    let (colony_entity, colony, body) =
-        match colonies.iter().find(|(e, _, _)| *e == selected_entity) {
+    let (colony_entity, colony, body, atmosphere) =
+        match colonies.iter().find(|(e, _, _, _)| *e == selected_entity) {
             Some(c) => c,
             None => return,
         };
+    // GRA-27: pull the body's `breathable` flag for the atmosphere
+    // filter.  `None` means the body has no `AtmosphereComposition`
+    // yet (pre-game-start, or an atmosphere-less body that hasn't
+    // been populated); the UI filter treats that as a pass-through.
+    let body_breathable: Option<bool> = atmosphere.map(|a| a.breathable);
 
     let bypass_tech = debug_settings.enabled && debug_settings.bypass_tech_requirements;
     let free_build = debug_settings.enabled && debug_settings.free_construction;
@@ -740,6 +756,7 @@ fn render_construction_panel(
                 bp_rate,
                 bypass_tech,
                 free_build,
+                body_breathable,
                 synergies,
             );
         }
@@ -1254,6 +1271,7 @@ fn render_construction_build_tab(
     bp_rate: f64,
     bypass_tech: bool,
     free_build: bool,
+    body_breathable: Option<bool>,
     synergies: &crate::colony::ColonySynergies,
 ) {
     ui.label(
@@ -1356,6 +1374,19 @@ fn render_construction_build_tab(
                     buildings_data,
                 )
             })
+            // GRA-27: cross-atmosphere filter.  Sits below the
+            // functional-role chip and below the tech check so the
+            // F12 `bypass_tech_requirements` debug toggle still shows
+            // everything regardless of body atmosphere.
+            .filter(|b| {
+                let Some(breathable) = body_breathable else {
+                    return true;
+                };
+                let Some(def) = buildings_data.and_then(|d| d.get(b)) else {
+                    return true;
+                };
+                building_is_available_on(def, Some(breathable))
+            })
             .collect();
 
         if !available.is_empty() {
@@ -1384,6 +1415,21 @@ fn render_construction_build_tab(
                     Some(synergies),
                     buildings_data,
                 )
+            })
+            // GRA-27: same cross-atmosphere filter as the available
+            // chain.  A building is hidden (not just locked) on a
+            // body whose atmosphere it does not match, even if its
+            // tech is still locked — surfacing it in the Locked tab
+            // would mislead the player about what they could ever
+            // build there.
+            .filter(|b| {
+                let Some(breathable) = body_breathable else {
+                    return true;
+                };
+                let Some(def) = buildings_data.and_then(|d| d.get(b)) else {
+                    return true;
+                };
+                building_is_available_on(def, Some(breathable))
             })
             .collect()
     };
