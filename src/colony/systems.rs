@@ -269,12 +269,13 @@ pub fn process_construction_actions(
                                     linked_project: None, // filled in after project spawn
                                     payment_made: false,
                                     completed_at_seconds: None,
+                                    assignee_fleet_id: None,
                                 });
                                 blocking_request_ids.push(req_id);
                                 awaiting = true;
 
                                 warn!(
-                                    "Construction '{}' at {}: {:?} {:.1} Mt not available in system — requesting delivery",
+                                    "Construction '{}' at {}: {:?} {:.1} Mt not available locally — requesting delivery",
                                     building_type.display_name(),
                                     colony_name,
                                     rt,

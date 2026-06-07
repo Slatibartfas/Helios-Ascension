@@ -38,8 +38,9 @@ pub use history::{
 };
 pub use logistics::{
     apply_default_life_support_minimums, check_minimum_stockpile_requests, complete_deliveries,
-    prune_old_requests, MinimumStockpile, PendingResourceRequests, RequestPriority, RequestState,
-    ResourceRequest, DEFAULT_LIFE_SUPPORT_OXYGEN_MT, DEFAULT_LIFE_SUPPORT_WATER_MT,
+    hohmann_round_trip_seconds, process_fleet_logistics_assignments, prune_old_requests,
+    MinimumStockpile, PendingResourceRequests, RequestPriority, RequestState, ResourceRequest,
+    DEFAULT_LIFE_SUPPORT_OXYGEN_MT, DEFAULT_LIFE_SUPPORT_WATER_MT,
 };
 pub use mining::{extract_resources, update_resource_rates, MiningOperation};
 pub use types::{ResourcePhase, ResourceType};
@@ -81,6 +82,11 @@ impl Plugin for EconomyPlugin {
                     // check_minimum_stockpile_requests must run after extraction/drains
                     // so it reads up-to-date stockpile values.
                     check_minimum_stockpile_requests.after(extract_resources),
+                    // Player fleet manual request assignment (GRA-33 / PR-B) runs
+                    // after the same gate as the company AI but is ordered before
+                    // it so manual assignments take precedence over the AI.
+                    logistics::process_fleet_logistics_assignments
+                        .after(check_minimum_stockpile_requests),
                     company::process_company_ai.after(check_minimum_stockpile_requests),
                     complete_deliveries.after(company::process_company_ai),
                     company::update_company_fleets.after(complete_deliveries),
