@@ -11,7 +11,7 @@ Inspired by **Aurora 4X** (player-directed logistics) and **Distant Worlds 2** (
 | 1 | Resource locality (`LocalStockpile` per body, no system-pool fallback) | ✅ Shipped (v0.4.x) | `src/economy/components.rs`, `src/colony/systems.rs`, `src/economy/budget.rs` |
 | 1 | `ResourceRequest` + `PendingResourceRequests`; construction emits requests when local is short | ✅ Shipped (v0.4.x) | `src/economy/logistics.rs`, `src/colony/systems.rs` |
 | 1 | Construction panel shows "Waiting for freighter" / "Awaiting resources" | ✅ Shipped (v0.4.x) | `src/ui/construction_panel.rs` |
-| 2 | Fleet panel — assign a player Freighter to an open request | 🟡 In Progress (GRA-33) | `src/ui/fleets_panel.rs` (data-layer plumbing in PR #98; UI in progress on `coder/gra-33-fleet-panel-manual-assign`) |
+| 2 | Fleet panel — assign a player Freighter to an open request | ✅ Shipped (v0.4.x) | `src/ui/fleets_panel.rs` ([PR #99](https://github.com/Slatibartfas/Helios-Ascension/pull/99)) |
 | 3 | Private `ShippingCompany` AI + payment + buy-ship loop | ✅ Shipped (v0.4.x) | `src/economy/company.rs` |
 | 4 | `MinimumStockpile` per colony + default Life Support thresholds + per-tick system | ✅ Shipped (v0.4.x) | `src/economy/logistics.rs` |
 
@@ -236,12 +236,12 @@ The top resource bar continues to show **system-wide aggregates** for at-a-glanc
 - [x] Generate construction requests when a building is queued and resources aren't locally available
 - [x] Show open requests in construction panel ("Waiting for: Iron 500 Mt")
 
-### Phase 2 — Player-directed transport (v0.4.3) 🟡 In Progress (GRA-33)
-- [ ] Fleet panel lists open resource requests at each body
-- [ ] Assign a Freighter fleet to a request from the Fleet panel
-- [ ] Fleet arrival auto-delivers cargo and closes the request
+### Phase 2 — Player-directed transport (v0.4.3) ✅ Shipped
+- [x] Fleet panel lists open resource requests at each body
+- [x] Assign a Freighter fleet to a request from the Fleet panel
+- [x] Fleet arrival auto-delivers cargo and closes the request
 
-> Tracking issue: [GRA-33](https://paperclip/GRA/issues/GRA-33). The Coder owns this; the data-layer plumbing (assignee_fleet_id on `ResourceRequest`, `process_fleet_logistics_assignments` system) was prototyped in [PR #98](https://github.com/Slatibartfas/Helios-Ascension/pull/98) (closed because it was based on pre-merge main) and needs a fresh branch off `811e768`. UI work is in progress on `coder/gra-33-fleet-panel-manual-assign`.
+> Shipped in [PR #99](https://github.com/Slatibartfas/Helios-Ascension/pull/99) — `assignee_fleet_id` on `ResourceRequest`, `process_fleet_logistics_assignments` system, Logistics section in the Fleet panel.
 
 ### Phase 3 — Private shipping companies (v0.4.4) ✅ Shipped
 - [x] `ShippingCompany` ECS resource (Vec of companies)
