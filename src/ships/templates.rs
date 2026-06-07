@@ -191,6 +191,14 @@ impl FreighterTemplateRegistry {
             // `best_tier` is the minimum across slots — we don't
             // over-promise: a slot that can't yet upgrade still
             // installs its default.
+            //
+            // The RON stores upgrade_path tiers starting at 2 (the
+            // Coder's validator rejects tier <= 1, see
+            // `validate_template`), reserving tier 0 for "default" and
+            // tier 1 as an unused slot.  The LGD's design contract is
+            // "0 = default, 1 = first upgrade, 2 = second upgrade".
+            // Subtract 1 so the public `best_tier` matches the design
+            // doc + the worked example in the tests.
             let template_best_tier = template
                 .cargo_slots
                 .iter()
@@ -198,7 +206,7 @@ impl FreighterTemplateRegistry {
                     slot.upgrade_path
                         .iter()
                         .filter(|step| tech_check(&step.required_tech))
-                        .map(|step| step.tier)
+                        .map(|step| step.tier.saturating_sub(1))
                         .max()
                         .unwrap_or(0)
                 })
