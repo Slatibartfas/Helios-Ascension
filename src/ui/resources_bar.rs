@@ -1139,6 +1139,18 @@ pub(super) fn ui_resources_bar(
     sim_history: Res<crate::economy::SimulationHistory>,
     ui_runtime: ResourceBarUiRuntime,
     mut kardashev_trend: Local<KardashevTrendState>,
+    // PR-A: per-body stockpile for breakdown popup
+    view_mode: Res<crate::plugins::camera::ViewMode>,
+    current_system: Res<crate::astronomy::components::CurrentStarSystem>,
+    stockpile_query: Query<
+        (
+            Entity,
+            Option<&crate::astronomy::components::SystemId>,
+            &crate::economy::LocalStockpile,
+            Option<&crate::colony::Colony>,
+        ),
+    >,
+    resource_requests: Res<crate::economy::PendingResourceRequests>,
 ) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
@@ -1157,6 +1169,37 @@ pub(super) fn ui_resources_bar(
 
     // Calculate total population
     let total_population: f64 = population_query.iter().map(|(p, _, _)| p.count).sum();
+
+    // PR-A: compute in-transit totals for the popup
+    let in_transit: std::collections::HashMap<ResourceType, f64> = resource_requests
+        .requests
+        .iter()
+        .filter(|r| r.state == crate::economy::RequestState::InTransit)
+        .fold(std::collections::HashMap::new(), |mut acc, r| {
+            *acc.entry(r.resource).or_insert(0.0) += r.in_transit_mt;
+            acc
+        });
+
+    // PR-A: per-body breakdown sorted by total amount
+    let sys_id = current_system.0;
+    let view_is_system = matches!(*view_mode, crate::plugins::camera::ViewMode::System);
+    let mut body_totals: HashMap<String, f64> = HashMap::new();
+    for (_, sid_opt, stockpile, colony_opt) in stockpile_query.iter() {
+        let body_sys = sid_opt.map(|s| s.0).unwrap_or(0);
+        let in_scope = if view_is_system { body_sys == sys_id } else { true };
+        if !in_scope {
+            continue;
+        }
+        let body_name = colony_opt
+            .map(|c| c.name.clone())
+            .unwrap_or_else(|| format!("System {body_sys}"));
+        let total_amt: f64 = stockpile.stockpiles.values().sum();
+        if total_amt > 0.0 {
+            *body_totals.entry(body_name).or_insert(0.0) += total_amt;
+        }
+    }
+    let mut per_body_sorted: Vec<(String, f64)> = body_totals.into_iter().collect();
+    per_body_sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     egui::TopBottomPanel::top("resources_bar")
         .exact_height(40.0)
@@ -2614,6 +2657,34 @@ pub(super) fn ui_resources_bar(
                     });
                     ui.separator();
 
+                    // PR-A: in-transit summary chip
+                    let cat_in_transit: f64 = resources
+                        .iter()
+                        .filter_map(|r| in_transit.get(r).copied())
+                        .sum();
+                    if cat_in_transit > 0.0 {
+                        ui.horizontal(|ui| {
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new("In Transit: ")
+                                        .size(11.0)
+                                        .color(theme::ACCENT),
+                                )
+                                .selectable(false),
+                            );
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(format_mass(cat_in_transit))
+                                        .monospace()
+                                        .size(11.0)
+                                        .color(theme::ACCENT),
+                                )
+                                .selectable(false),
+                            );
+                        });
+                        ui.separator();
+                    }
+
                     // Header + data rows in a single grid so columns stay aligned
                     egui::Grid::new(format!("res_popup_{}", cat_name))
                         .num_columns(3)
@@ -2704,6 +2775,65 @@ pub(super) fn ui_resources_bar(
                                 ui.end_row();
                             }
                         });
+
+                    // PR-A: per-body breakdown
+                    if !per_body_sorted.is_empty() {
+                        ui.separator();
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new("Per Body")
+                                    .strong()
+                                    .size(11.0)
+                                    .color(theme::TEXT_HINT),
+                            )
+                            .selectable(false),
+                        );
+                        for (body_name, body_total) in per_body_sorted.iter().take(8) {
+                            ui.horizontal(|ui| {
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new("•").size(11.0).color(theme::TEXT_HINT),
+                                    )
+                                    .selectable(false),
+                                );
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(body_name.as_str())
+                                            .size(11.0)
+                                            .color(theme::TEXT),
+                                    )
+                                    .selectable(false),
+                                );
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        ui.add(
+                                            egui::Label::new(
+                                                egui::RichText::new(format_mass(*body_total))
+                                                    .monospace()
+                                                    .size(11.0)
+                                                    .color(theme::TEXT_HINT),
+                                            )
+                                            .selectable(false),
+                                        );
+                                    },
+                                );
+                            });
+                        }
+                        if per_body_sorted.len() > 8 {
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(format!(
+                                        "+ {} more...",
+                                        per_body_sorted.len() - 8
+                                    ))
+                                    .size(10.0)
+                                    .color(theme::TEXT_HINT),
+                                )
+                                .selectable(false),
+                            );
+                        }
+                    }
                 });
 
             // Close if clicked outside
