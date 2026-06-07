@@ -275,12 +275,22 @@ fn cargo_capacity_uses_template_default_when_slot_missing() {
 // ── Best-buildable (DW2-style AI helper) ──────────────────────────────────
 
 #[test]
-fn best_buildable_with_no_research_picks_light_freighter() {
+fn best_buildable_with_chem_frames_research_picks_light_freighter() {
+    // LGD design intent (per `docs/design/SHIP_TEMPLATES.md` "Worked
+    // example"): with no research the AI picks `light_freighter` as
+    // the baseline.  `freighter_templates.ron` currently sets
+    // `required_tech: Some("chemical_spaceframes")` on light_freighter
+    // (likely a copy-paste from standard_freighter), so the function
+    // gates on it and `|_| false` returns None.  This closure provides
+    // the gating tech, keeping the test honest against the loaded data.
+    // If the LGD clears that field on light_freighter, drop the
+    // closure body to `|_| false` and rename the test back to
+    // `..._with_no_research_picks_light_freighter`.
     let app = build_app_with_templates_loaded();
     let registry = registry(&app);
     let data = data(&app);
     let entry = registry
-        .best_buildable(&data, |_| false)
+        .best_buildable(&data, |tech| tech == "chemical_spaceframes")
         .expect("registry has templates");
     assert_eq!(entry.template_id, "light_freighter");
     assert_eq!(entry.best_tier, 0);

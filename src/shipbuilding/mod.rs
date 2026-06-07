@@ -34,11 +34,13 @@ impl Plugin for ShipbuildingPlugin {
             // GRA-40: freighter template loading must run after hull + module
             // data is loaded (the loader validates against ShipbuildingData),
             // and the migration shim must run after the registry is populated
-            // (so it can resolve the light_freighter template).  Chain them
-            // explicitly; the default Startup schedule is otherwise unordered.
+            // (so it can resolve the light_freighter template).  Chain all
+            // three explicitly; the default Startup schedule is otherwise
+            // unordered and the 3 would race in parallel (Bevy 0.18).
             .add_systems(
                 Startup,
                 (
+                    load_shipbuilding_data,
                     ship_templates::load_freighter_templates,
                     crate::ships::migration::migrate_legacy_freighters,
                 )
