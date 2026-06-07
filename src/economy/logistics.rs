@@ -24,9 +24,7 @@ use crate::colony::components::ConstructionProject;
 use crate::economy::components::LocalStockpile;
 use crate::economy::types::ResourceType;
 use crate::economy::GlobalBudget;
-use crate::fleets::{
-    AssignLogisticsRequestAction, FleetOrbit, PendingFleetActions, ShipClass, AU_IN_METERS, GM_SUN,
-};
+use crate::fleets::{FleetOrbit, PendingFleetActions, ShipClass, AU_IN_METERS, GM_SUN};
 use crate::shipbuilding::ShipConstructionProject;
 use crate::ui::SimulationTime;
 
@@ -535,10 +533,10 @@ pub fn prune_old_requests(
 /// to reach the destination after the fleet departs, assuming same-ΔV return
 /// leg.  Falls back to 30 in-game days if either body's coordinates are
 /// missing or the formula returns a non-finite / non-positive value.
-pub fn hohmann_round_trip_seconds(
+pub fn hohmann_round_trip_seconds<F: bevy::ecs::query::QueryFilter>(
     current_body: Entity,
     source_body: Entity,
-    coords_query: &Query<&SpaceCoordinates>,
+    coords_query: &Query<&SpaceCoordinates, F>,
 ) -> f64 {
     let r1 = coords_query
         .get(current_body)
@@ -589,7 +587,8 @@ pub fn hohmann_round_trip_seconds(
 pub fn process_fleet_logistics_assignments(
     mut actions: ResMut<PendingFleetActions>,
     mut requests: ResMut<PendingResourceRequests>,
-    mut stockpiles: Query<&mut LocalStockpile>,
+    stockpiles: Query<(Entity, &LocalStockpile)>,
+    mut stockpiles_mut: Query<&mut LocalStockpile>,
     fleet_query: Query<(&FleetOrbit, Option<&crate::fleets::components::Fleet>), ()>,
     sim_time: Res<SimulationTime>,
     coords_query: Query<&SpaceCoordinates>,
@@ -661,7 +660,7 @@ pub fn process_fleet_logistics_assignments(
             if remaining <= 0.0 {
                 break;
             }
-            if let Ok(mut ls) = stockpiles.get_mut(*src_entity) {
+            if let Ok(mut ls) = stockpiles_mut.get_mut(*src_entity) {
                 let taken = ls.consume(req.resource, remaining);
                 if taken > 0.0 && actual_source.is_none() {
                     actual_source = Some(*src_entity);

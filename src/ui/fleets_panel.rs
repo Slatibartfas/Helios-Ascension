@@ -295,7 +295,7 @@ pub(super) fn ui_fleets_panel(
     mut fleet_ui_state: ResMut<FleetUiState>,
     sim_time: Res<SimulationTime>,
     pending_resource_requests: Res<PendingResourceRequests>,
-    stockpiles: Query<&LocalStockpile>,
+    stockpiles: Query<(Entity, &LocalStockpile)>,
     coords_query: Query<&SpaceCoordinates, Without<Fleet>>,
 ) {
     if active_menu.current != GameMenu::Fleets {
@@ -1286,7 +1286,7 @@ fn has_freighter_ship(fleet: &Fleet) -> bool {
 /// body itself is returned so the ETA computation has a sensible coordinate.
 fn pick_eta_source_for_request(
     request: &ResourceRequest,
-    stockpiles: &Query<&LocalStockpile>,
+    stockpiles: &Query<(Entity, &LocalStockpile)>,
 ) -> Entity {
     if let Some(src) = request.source_body {
         return src;
@@ -1316,7 +1316,7 @@ fn render_logistics_section(
     fleet_entity: Entity,
     maybe_orbit: Option<&FleetOrbit>,
     pending_resource_requests: &PendingResourceRequests,
-    stockpiles: &Query<&LocalStockpile>,
+    stockpiles: &Query<(Entity, &LocalStockpile)>,
     coords_query: &Query<&SpaceCoordinates, Without<Fleet>>,
     pending_actions: &mut PendingFleetActions,
     _body_query: &Query<(
@@ -1468,7 +1468,7 @@ fn render_fleet_detail(
     pending_actions: &mut PendingFleetActions,
     elapsed: f64,
     pending_resource_requests: &PendingResourceRequests,
-    stockpiles: &Query<&LocalStockpile>,
+    stockpiles: &Query<(Entity, &LocalStockpile)>,
     coords_query: &Query<&SpaceCoordinates, Without<Fleet>>,
 ) {
     // ── Fleet header ─────────────────────────────────────────────────────────
