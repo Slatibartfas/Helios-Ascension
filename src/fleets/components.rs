@@ -255,6 +255,15 @@ impl Fleet {
             .reduce(f64::min)
             .unwrap_or(0.0)
     }
+
+    /// True if the fleet contains at least one ship of `ShipClass::Freighter`.
+    ///
+    /// Used to gate logistics actions and the in-transit visibility filter
+    /// (GRA-37.d / GRA-41).  Combat / survey / transport-without-freighter
+    /// fleets are unaffected by the visibility toggle.
+    pub fn has_freighter_ship(&self) -> bool {
+        self.ships.iter().any(|s| s.class == ShipClass::Freighter)
+    }
 }
 
 /// Stable circular parking orbit for a fleet around a celestial body.
