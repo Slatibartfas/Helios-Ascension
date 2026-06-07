@@ -148,8 +148,10 @@ pub fn advance_construction(
 ///   `ResourceRequest` per missing resource (Construction priority) and spawns
 ///   the project with `awaiting_resources = true`.  The project will not
 ///   accumulate build points until the delivery arrives.
-/// - Same-system pool fallback is retained as a secondary check when no
-///   colony-local stockpile component exists (legacy / debug path).
+/// - Local-only model (GRA-31 PR-A): same-system bodies are **not** drained
+///   to fund construction.  Resources must be delivered from external sources
+///   (player freighters, AI shipping companies) via the `ResourceRequest`
+///   pipeline.
 /// - In debug mode with `free_construction`, resource costs are bypassed.
 /// - In debug mode with `instant_build`, buildings are added immediately.
 pub fn process_construction_actions(
@@ -158,7 +160,6 @@ pub fn process_construction_actions(
     mut colonies: Query<&mut Colony>,
     buildings_data: Option<Res<BuildingsData>>,
     debug_settings: Res<ConstructionDebugSettings>,
-    colony_sys_query: Query<Option<&crate::astronomy::components::SystemId>>,
     mut local_stockpile_query: Query<(
         Entity,
         Option<&crate::astronomy::components::SystemId>,
@@ -212,15 +213,14 @@ pub fn process_construction_actions(
                             }
                         }
                     } else {
-                        // Determine which resources are missing from the colony's local stockpile
-                        // and which can be covered by the same-system pool.
-                        let sys_id = colony_sys_query
-                            .get(colony_entity)
-                            .ok()
-                            .flatten()
-                            .map(|s| s.0);
+                        // Local stockpile is short.  Local-only construction model
+                        // (GRA-31 PR-A): do not drain resources from other bodies in
+                        // the same system.  Instead, request the full missing cost
+                        // and let the delivery system add resources to the local
+                        // stockpile before construction advances.
 
-                        // Get current local stockpile for the colony.
+                        // Snapshot the colony's local stockpile so we only request
+                        // the *remainder* (cost minus what is already on hand).
                         let colony_local: std::collections::HashMap<ResourceType, f64> =
                             local_stockpile_query
                                 .get(colony_entity)
@@ -229,102 +229,63 @@ pub fn process_construction_actions(
                                 })
                                 .unwrap_or_default();
 
-                        // Sum the available resources across the same system (for pool check).
-                        let mut system_available: std::collections::HashMap<ResourceType, f64> =
-                            std::collections::HashMap::new();
-                        for (_, sid_opt, ls) in local_stockpile_query.iter() {
-                            let body_sys = sid_opt.map(|s| s.0);
-                            if sys_id.is_none() || body_sys == sys_id {
-                                for (rt, &amt) in &ls.stockpiles {
-                                    *system_available.entry(*rt).or_insert(0.0) += amt;
-                                }
+                        let colony_name = colonies
+                            .get(colony_entity)
+                            .map(|c| c.name.clone())
+                            .unwrap_or_else(|_| format!("{colony_entity:?}"));
+
+                        // Generate one request per missing resource type.
+                        // `costs_typed` contains the *full* cost; we request the full
+                        // amount so that construction can proceed once everything arrives.
+                        for (rt, full_cost) in &costs_typed {
+                            if *full_cost <= 0.0 {
+                                continue;
+                            }
+                            // Only add a request if there isn't one already for this colony+resource.
+                            if resource_requests.has_open_request_for(colony_entity, *rt) {
+                                awaiting = true;
+                                continue;
+                            }
+
+                            // Credit the colony's existing local stock toward the cost;
+                            // only request the remainder that truly needs to be delivered.
+                            let already_local: f64 = colony_local.get(rt).copied().unwrap_or(0.0);
+                            let need_delivered = (*full_cost - already_local).max(0.0);
+
+                            if need_delivered > 0.0 {
+                                let req_id = resource_requests.add(ResourceRequest {
+                                    id: 0,
+                                    destination_body: colony_entity,
+                                    destination_name: colony_name.clone(),
+                                    resource: *rt,
+                                    amount_mt: need_delivered,
+                                    priority: RequestPriority::Construction,
+                                    state: RequestState::Pending,
+                                    in_transit_mt: 0.0,
+                                    eta_seconds: None,
+                                    assigned_company_idx: None,
+                                    created_at_seconds: now,
+                                    source_body: None,
+                                    linked_project: None, // filled in after project spawn
+                                    payment_made: false,
+                                    completed_at_seconds: None,
+                                });
+                                blocking_request_ids.push(req_id);
+                                awaiting = true;
+
+                                warn!(
+                                    "Construction '{}' at {}: {:?} {:.1} Mt not available in system — requesting delivery",
+                                    building_type.display_name(),
+                                    colony_name,
+                                    rt,
+                                    need_delivered
+                                );
                             }
                         }
 
-                        let can_pay_system = costs_typed.iter().all(|(rt, need)| {
-                            system_available.get(rt).copied().unwrap_or(0.0) >= *need
-                        });
-
-                        if can_pay_system {
-                            // Draw from system pool (current behaviour preserved).
-                            let mut remaining: std::collections::HashMap<ResourceType, f64> =
-                                costs_typed.iter().cloned().collect();
-                            for (_, sid_opt, mut ls) in local_stockpile_query.iter_mut() {
-                                let body_sys = sid_opt.map(|s| s.0);
-                                if sys_id.is_none() || body_sys == sys_id {
-                                    for (rt, need) in remaining.iter_mut() {
-                                        if *need > 0.0 {
-                                            let taken = ls.consume(*rt, *need);
-                                            *need -= taken;
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            // Resources not fully available in the system.
-                            // Do NOT partially deduct from the system pool — that would leave
-                            // stockpiles inconsistent while the project waits for delivery.
-                            // Instead, request the full cost and let the delivery system add
-                            // resources to the local stockpile before construction advances.
-                            let colony_name = colonies
-                                .get(colony_entity)
-                                .map(|c| c.name.clone())
-                                .unwrap_or_else(|_| format!("{colony_entity:?}"));
-
-                            // Generate one request per missing resource type.
-                            // `costs_typed` contains the *full* cost; we request the full
-                            // amount so that construction can proceed once everything arrives.
-                            for (rt, full_cost) in &costs_typed {
-                                if *full_cost <= 0.0 {
-                                    continue;
-                                }
-                                // Only add a request if there isn't one already for this colony+resource.
-                                if resource_requests.has_open_request_for(colony_entity, *rt) {
-                                    awaiting = true;
-                                    continue;
-                                }
-
-                                // Credit the colony's existing local stock toward the cost;
-                                // only request the remainder that truly needs to be delivered.
-                                let already_local: f64 =
-                                    colony_local.get(rt).copied().unwrap_or(0.0);
-                                let need_delivered = (*full_cost - already_local).max(0.0);
-
-                                if need_delivered > 0.0 {
-                                    let req_id = resource_requests.add(ResourceRequest {
-                                        id: 0,
-                                        destination_body: colony_entity,
-                                        destination_name: colony_name.clone(),
-                                        resource: *rt,
-                                        amount_mt: need_delivered,
-                                        priority: RequestPriority::Construction,
-                                        state: RequestState::Pending,
-                                        in_transit_mt: 0.0,
-                                        eta_seconds: None,
-                                        assigned_company_idx: None,
-                                        created_at_seconds: now,
-                                        source_body: None,
-                                        linked_project: None, // filled in after project spawn
-                                        payment_made: false,
-                                        completed_at_seconds: None,
-                                    });
-                                    blocking_request_ids.push(req_id);
-                                    awaiting = true;
-
-                                    warn!(
-                                        "Construction '{}' at {}: {:?} {:.1} Mt not available in system — requesting delivery",
-                                        building_type.display_name(),
-                                        colony_name,
-                                        rt,
-                                        need_delivered
-                                    );
-                                }
-                            }
-
-                            // If nothing was actually missing (somehow), don't block.
-                            if blocking_request_ids.is_empty() {
-                                awaiting = false;
-                            }
+                        // If nothing was actually missing (somehow), don't block.
+                        if blocking_request_ids.is_empty() {
+                            awaiting = false;
                         }
                     }
                 }
@@ -1323,10 +1284,8 @@ mod tests {
         });
         app.insert_resource(farm_line_buildings_data());
         app.init_resource::<crate::ui::SimulationTime>();
-        // No `SystemId` component on the colony → `colony_sys_query`
-        // returns `Err` → treated as "no system" by the resource check;
         // `free_construction` above makes the resource path a no-op so
-        // the test does not need a real system.
+        // the test does not need to seed a `LocalStockpile` or system.
 
         let colony_entity = app.world_mut().spawn(colony).id();
 
@@ -1502,5 +1461,260 @@ mod tests {
 
         let synergies = app.world().resource::<ColonySynergies>();
         assert!(synergies.by_colony.is_empty());
+    }
+
+    // ── GRA-31 PR-A: local-only construction ────────────────────────────
+
+    /// Build a `BuildingsData` with a single `Factory` that costs 100 Mt of
+    /// Iron — the simplest cost profile that exercises the request path.
+    fn iron_factory_buildings_data() -> BuildingsData {
+        use crate::colony::data::AtmosphereKind;
+        use crate::colony::data::BuildingDefinition;
+        let mut defs: HashMap<BuildingType, BuildingDefinition> = HashMap::new();
+        defs.insert(
+            BuildingType::Factory,
+            BuildingDefinition {
+                id: "Factory".to_string(),
+                display_name: "Factory".to_string(),
+                description: "Test factory for local-only construction test".to_string(),
+                icon: "🏭".to_string(),
+                category: "Industry".to_string(),
+                build_points: 600.0,
+                workforce: 6000,
+                required_tech: "".to_string(),
+                resource_costs: vec![("Iron".to_string(), 100.0)],
+                maintenance_resources: vec![
+                    ("Water".to_string(), 0.5),
+                    ("Sulfur".to_string(), 0.008),
+                ],
+                modifiers: vec![],
+                power_demand_mw: 500.0,
+                tier: 0,
+                line: None,
+                replaces: None,
+                synergy: vec![],
+                available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
+            },
+        );
+        BuildingsData { definitions: defs }
+    }
+
+    /// Regression test for GRA-31 PR-A: when a colony's local stockpile is
+    /// short, construction must **not** drain resources from other bodies in
+    /// the same system.  A `ResourceRequest` is created instead, with the
+    /// full cost (the local shortfall in this case = the full cost).
+    #[test]
+    fn test_no_system_pool_fallback() {
+        use crate::astronomy::components::SystemId;
+        use crate::economy::logistics::PendingResourceRequests;
+
+        let mut app = App::new();
+        app.init_resource::<crate::ui::SimulationTime>();
+        app.insert_resource(iron_factory_buildings_data());
+        app.init_resource::<PendingResourceRequests>();
+        app.init_resource::<PendingConstructionActions>();
+        // Disable debug-mode cost bypass so the cost path actually runs.
+        app.insert_resource(ConstructionDebugSettings {
+            enabled: false,
+            free_construction: false,
+            instant_build: false,
+            bypass_tech_requirements: false,
+        });
+
+        // Two bodies in the same system (sys 0).  The colony body has an
+        // empty local stockpile; the sister body has plenty of Iron.
+        // Pre-PR-A, the `can_pay_system` branch would have drained 100 Mt
+        // from the sister body.  Post-PR-A, the sister body must be
+        // untouched and a `ResourceRequest` for 100 Mt Iron must be created.
+        let sister_entity = app
+            .world_mut()
+            .spawn((
+                SystemId(0),
+                LocalStockpile::with_stockpiles([(ResourceType::Iron, 1_000.0)]),
+            ))
+            .id();
+
+        let colony = Colony::new("TestColony".to_string(), 100.0);
+        let colony_entity = app
+            .world_mut()
+            .spawn((
+                colony,
+                SystemId(0),
+                LocalStockpile::new(), // empty
+            ))
+            .id();
+
+        // Queue a Factory (costs 100 Mt Iron).  Colony's local is empty,
+        // sister body has 1000 Mt Iron — old code would drain from sister.
+        app.world_mut()
+            .resource_mut::<PendingConstructionActions>()
+            .start_construction
+            .push((colony_entity, BuildingType::Factory));
+
+        let mut sched = bevy::ecs::schedule::Schedule::default();
+        sched.add_systems(process_construction_actions);
+        sched.run(app.world_mut());
+
+        // Sister body's Iron must be UNCHANGED.  This is the assertion the
+        // PR-A change is meant to guarantee.
+        let sister_stockpile = app
+            .world()
+            .entity(sister_entity)
+            .get::<LocalStockpile>()
+            .expect("sister body still has LocalStockpile");
+        assert_eq!(
+            sister_stockpile.get(&ResourceType::Iron),
+            1_000.0,
+            "sister body's Iron must not be drained by colony construction"
+        );
+
+        // Colony's local Iron must still be zero (we only requested
+        // delivery, not deducted).
+        let colony_stockpile = app
+            .world()
+            .entity(colony_entity)
+            .get::<LocalStockpile>()
+            .expect("colony still has LocalStockpile");
+        assert_eq!(
+            colony_stockpile.get(&ResourceType::Iron),
+            0.0,
+            "colony's local Iron must be unchanged (delivery is pending)"
+        );
+
+        // A `ResourceRequest` must exist for the colony with amount_mt == 100.
+        // Copy the matching request into an owned value so we don't hold a
+        // long-lived borrow of the world.
+        let (req_amount, req_priority, req_id) = {
+            let requests = app.world().resource::<PendingResourceRequests>();
+            let iron_requests: Vec<&ResourceRequest> = requests
+                .requests
+                .iter()
+                .filter(|r| r.destination_body == colony_entity && r.resource == ResourceType::Iron)
+                .collect();
+            assert_eq!(
+                iron_requests.len(),
+                1,
+                "expected exactly one Iron request for the colony, got {}",
+                iron_requests.len()
+            );
+            let req = iron_requests[0];
+            (req.amount_mt, req.priority, req.id)
+        };
+        assert!(
+            (req_amount - 100.0).abs() < 1e-9,
+            "request amount must be 100 Mt (full cost), got {}",
+            req_amount
+        );
+        assert_eq!(
+            req_priority,
+            RequestPriority::Construction,
+            "construction-cost requests must be Construction priority"
+        );
+
+        // A blocking `ConstructionProject` should be spawned, with
+        // `awaiting_resources = true` because the Iron is not yet on hand.
+        let projects: Vec<(Entity, bool, Option<u64>)> = {
+            let world = app.world_mut();
+            world
+                .query::<&ConstructionProject>()
+                .iter(world)
+                .map(|p| (p.colony_entity, p.awaiting_resources, p.blocking_request_id))
+                .collect()
+        };
+        let mut found_blocked_project = false;
+        for (colony_e, awaiting, blocking_id) in projects {
+            if colony_e == colony_entity {
+                found_blocked_project = true;
+                assert!(awaiting, "project must be marked awaiting_resources");
+                assert_eq!(
+                    blocking_id,
+                    Some(req_id),
+                    "project must record the blocking request id"
+                );
+            }
+        }
+        assert!(
+            found_blocked_project,
+            "expected a ConstructionProject to be spawned for the colony"
+        );
+    }
+
+    /// Counter-test: when the colony's own `LocalStockpile` does have
+    /// enough Iron, construction must deduct locally and **not** create a
+    /// `ResourceRequest`.  This guards the other branch of the same
+    /// system from regressing.
+    #[test]
+    fn test_local_only_deducts_from_colony_when_affordable() {
+        use crate::astronomy::components::SystemId;
+        use crate::economy::logistics::PendingResourceRequests;
+
+        let mut app = App::new();
+        app.init_resource::<crate::ui::SimulationTime>();
+        app.insert_resource(iron_factory_buildings_data());
+        app.init_resource::<PendingResourceRequests>();
+        app.init_resource::<PendingConstructionActions>();
+        app.insert_resource(ConstructionDebugSettings {
+            enabled: false,
+            free_construction: false,
+            instant_build: false,
+            bypass_tech_requirements: false,
+        });
+
+        // Sister body in the same system, with 1000 Mt Iron — to verify it
+        // is not touched (control case: neither branch should drain it).
+        let sister_entity = app
+            .world_mut()
+            .spawn((
+                SystemId(0),
+                LocalStockpile::with_stockpiles([(ResourceType::Iron, 1_000.0)]),
+            ))
+            .id();
+
+        // Colony with enough Iron locally.
+        let colony = Colony::new("TestColony".to_string(), 100.0);
+        let colony_entity = app
+            .world_mut()
+            .spawn((
+                colony,
+                SystemId(0),
+                LocalStockpile::with_stockpiles([(ResourceType::Iron, 200.0)]),
+            ))
+            .id();
+
+        app.world_mut()
+            .resource_mut::<PendingConstructionActions>()
+            .start_construction
+            .push((colony_entity, BuildingType::Factory));
+
+        let mut sched = bevy::ecs::schedule::Schedule::default();
+        sched.add_systems(process_construction_actions);
+        sched.run(app.world_mut());
+
+        // Sister body untouched.
+        let sister = app
+            .world()
+            .entity(sister_entity)
+            .get::<LocalStockpile>()
+            .unwrap();
+        assert_eq!(sister.get(&ResourceType::Iron), 1_000.0);
+
+        // Colony's Iron must be deducted by exactly 100 Mt.
+        let colony_stockpile = app
+            .world()
+            .entity(colony_entity)
+            .get::<LocalStockpile>()
+            .unwrap();
+        assert!(
+            (colony_stockpile.get(&ResourceType::Iron) - 100.0).abs() < 1e-9,
+            "colony Iron should drop from 200 to 100, got {}",
+            colony_stockpile.get(&ResourceType::Iron)
+        );
+
+        // No requests should have been created.
+        let requests = app.world().resource::<PendingResourceRequests>();
+        assert!(
+            requests.requests.is_empty(),
+            "no ResourceRequest should be created when the colony can pay locally"
+        );
     }
 }
