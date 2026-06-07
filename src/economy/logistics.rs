@@ -4,7 +4,9 @@
 //! body's *local* stockpile does not have enough materials, a `ResourceRequest`
 //! is created.  Requests are fulfilled either by:
 //!
-//! 1. A player-controlled Freighter fleet (manual — future fleet-panel integration).
+//! 1. A player-controlled Freighter fleet (manual — see
+//!    `process_fleet_logistics_assignments` and the fleet-panel Logistics
+//!    section in `ui::fleets_panel`).
 //! 2. A private `ShippingCompany` AI (automated — see `company.rs`).
 //!
 //! When resources arrive the linked `ConstructionProject` is unblocked
@@ -17,10 +19,12 @@
 use bevy::prelude::*;
 use std::collections::HashMap;
 
+use crate::astronomy::components::SpaceCoordinates;
 use crate::colony::components::ConstructionProject;
 use crate::economy::components::LocalStockpile;
 use crate::economy::types::ResourceType;
 use crate::economy::GlobalBudget;
+use crate::fleets::{FleetOrbit, PendingFleetActions, ShipClass, AU_IN_METERS, GM_SUN};
 use crate::shipbuilding::ShipConstructionProject;
 use crate::ui::SimulationTime;
 
@@ -118,6 +122,11 @@ pub struct ResourceRequest {
     /// SimulationTime (seconds) when this request transitioned to Delivered or Expired.
     /// `None` while the request is still open.
     pub completed_at_seconds: Option<f64>,
+    /// Player-controlled freighter fleet that manually took this request via the
+    /// fleet panel.  `None` for company-AI or maintenance-created requests.  When
+    /// set, `assigned_company_idx` is `None` and the request is no longer offered
+    /// to the `ShippingCompany` AI.
+    pub assignee_fleet_id: Option<Entity>,
 }
 
 impl ResourceRequest {
@@ -297,6 +306,7 @@ pub fn check_minimum_stockpile_requests(
                 linked_project: None,
                 payment_made: false,
                 completed_at_seconds: None,
+                assignee_fleet_id: None,
             });
 
             debug!(
@@ -507,6 +517,197 @@ pub fn prune_old_requests(
     requests.prune(sim_time.elapsed_seconds());
 }
 
+// ── Player fleet assignment (GRA-33 / PR-B) ───────────────────────────────────
+
+/// Hohmann round-trip transfer time in seconds between two bodies around a
+/// common central body (typically the local star).
+///
+/// Uses the heliocentric distances of both bodies (from `SpaceCoordinates`)
+/// and `GM_SUN` as the gravitational parameter.  For moon-to-moon transfers
+/// this is an approximation, but it matches the scale used by the existing
+/// `ShippingCompany` AI's distance-based placeholder estimator and is
+/// sufficient for v0.4 ETA display.
+///
+/// Returns the time in seconds for the *round trip* (current → source →
+/// current) — i.e. the time the player should expect the resources to take
+/// to reach the destination after the fleet departs, assuming same-ΔV return
+/// leg.  Falls back to 30 in-game days if either body's coordinates are
+/// missing or the formula returns a non-finite / non-positive value.
+pub fn hohmann_round_trip_seconds<F: bevy::ecs::query::QueryFilter>(
+    current_body: Entity,
+    source_body: Entity,
+    coords_query: &Query<&SpaceCoordinates, F>,
+) -> f64 {
+    let r1 = coords_query
+        .get(current_body)
+        .map(|sc| sc.position.length().max(0.05))
+        .unwrap_or(1.0);
+    let r2 = coords_query
+        .get(source_body)
+        .map(|sc| sc.position.length().max(0.05))
+        .unwrap_or(1.0);
+
+    let a = (r1 + r2) * 0.5; // semi-major axis in AU
+    let a_m = a * AU_IN_METERS;
+    // Half-period of the transfer ellipse: π · √(a³ / GM)
+    let t_one_way = std::f64::consts::PI * (a_m.powi(3) / GM_SUN).sqrt();
+
+    // Sanity clamp: Hohmann around Sol between 0.1 AU and 50 AU gives
+    // ~3 days to ~250 years.  A 30-day floor handles missing coordinates.
+    let fallback = 30.0 * 86_400.0;
+    let round_trip = (2.0 * t_one_way).max(fallback);
+    if !round_trip.is_finite() || round_trip <= 0.0 {
+        fallback
+    } else {
+        round_trip
+    }
+}
+
+/// Manually assign player freighter fleets to open `ResourceRequest`s.
+///
+/// Drains `PendingFleetActions::assign_logistics_requests` (one entry per
+/// click of the **Assign** button in the fleet-panel Logistics section).
+/// For each action, the system:
+///
+/// 1. Looks up the request and the fleet.
+/// 2. Validates that:
+///    * the request is still `Pending` and the fleet is alive;
+///    * the fleet is in orbit at the request's destination body;
+///    * the fleet contains at least one `ShipClass::Freighter`.
+/// 3. Locates a source `LocalStockpile` with enough of the requested
+///    resource, using the same first-fit-largest logic as
+///    `company::process_company_ai` (sort candidate bodies by amount
+///    descending, consume until the request is satisfied).
+/// 4. Flips the request to `InTransit`, records the assignee fleet, and sets
+///    `eta_seconds = now + 2·Hohmann(current → source)` as the
+///    round-trip delivery ETA.
+///
+/// On arrival, the existing `complete_deliveries` system handles the resource
+/// delivery and request closure; this PR adds no delivery code.
+pub fn process_fleet_logistics_assignments(
+    mut actions: ResMut<PendingFleetActions>,
+    mut requests: ResMut<PendingResourceRequests>,
+    stockpiles: Query<(Entity, &LocalStockpile)>,
+    mut stockpiles_mut: Query<&mut LocalStockpile>,
+    fleet_query: Query<(&FleetOrbit, Option<&crate::fleets::components::Fleet>), ()>,
+    sim_time: Res<SimulationTime>,
+    coords_query: Query<&SpaceCoordinates>,
+) {
+    if actions.assign_logistics_requests.is_empty() {
+        return;
+    }
+
+    let now = sim_time.elapsed_seconds();
+
+    for action in actions.assign_logistics_requests.drain(..) {
+        // Look up the request.
+        let Some(req) = requests.find_by_id_mut(action.request_id) else {
+            warn!(
+                "process_fleet_logistics_assignments: request id {} not found (fleet {:?})",
+                action.request_id, action.fleet
+            );
+            continue;
+        };
+
+        if !matches!(req.state, RequestState::Pending) {
+            warn!(
+                "process_fleet_logistics_assignments: request id {} no longer Pending (state {:?}); ignoring assign from fleet {:?}",
+                action.request_id, req.state, action.fleet
+            );
+            continue;
+        }
+
+        // Look up the fleet.
+        let Ok((orbit, maybe_fleet)) = fleet_query.get(action.fleet) else {
+            warn!(
+                "process_fleet_logistics_assignments: fleet {:?} not found for request id {}",
+                action.fleet, action.request_id
+            );
+            continue;
+        };
+
+        if orbit.body != req.destination_body {
+            warn!(
+                "process_fleet_logistics_assignments: fleet {:?} is at body {:?} but request id {} targets {:?}",
+                action.fleet, orbit.body, action.request_id, req.destination_body
+            );
+            continue;
+        }
+
+        // The fleet must contain at least one Freighter-class ship.
+        let has_freighter = maybe_fleet
+            .map(|f| f.ships.iter().any(|s| s.class == ShipClass::Freighter))
+            .unwrap_or(false);
+        if !has_freighter {
+            warn!(
+                "process_fleet_logistics_assignments: fleet {:?} has no Freighter-class ship; cannot assign request id {}",
+                action.fleet, action.request_id
+            );
+            continue;
+        }
+
+        // Pick a source body (first-fit-largest, same as company AI).
+        let mut sources: Vec<(Entity, f64)> = stockpiles
+            .iter()
+            .map(|(e, ls)| (e, ls.get(&req.resource)))
+            .filter(|(_, amt)| *amt > 0.0)
+            .collect();
+        sources.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let mut remaining = req.amount_mt;
+        let mut actual_source: Option<Entity> = None;
+        for (src_entity, _) in &sources {
+            if remaining <= 0.0 {
+                break;
+            }
+            if let Ok(mut ls) = stockpiles_mut.get_mut(*src_entity) {
+                let taken = ls.consume(req.resource, remaining);
+                if taken > 0.0 && actual_source.is_none() {
+                    actual_source = Some(*src_entity);
+                }
+                remaining -= taken;
+            }
+        }
+
+        let actual_dispatched = req.amount_mt - remaining;
+        if actual_dispatched <= 0.0 {
+            // No body had any of the resource — refund nothing and leave the
+            // request Pending.  The player can re-attempt once stockpiles
+            // recover, or the company AI / maintenance checks will pick it up.
+            warn!(
+                "process_fleet_logistics_assignments: no source body has {:?} for request id {}; request stays Pending",
+                req.resource, action.request_id
+            );
+            continue;
+        }
+
+        // Round-trip ETA from fleet's current body to the actual source body.
+        let source_for_eta = actual_source.unwrap_or(req.destination_body);
+        let transit_s =
+            hohmann_round_trip_seconds(req.destination_body, source_for_eta, &coords_query);
+
+        req.in_transit_mt = actual_dispatched;
+        req.eta_seconds = Some(now + transit_s);
+        req.state = RequestState::InTransit;
+        req.assignee_fleet_id = Some(action.fleet);
+        if req.source_body.is_none() {
+            req.source_body = actual_source;
+        }
+
+        let transit_days = transit_s / 86_400.0;
+        info!(
+            "Fleet {:?}: assigned request id {} — {:?} {:.1} Mt → {} (source {:?}, ETA {:.0} days)",
+            action.fleet,
+            action.request_id,
+            req.resource,
+            actual_dispatched,
+            req.destination_name,
+            actual_source,
+            transit_days,
+        );
+    }
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -560,6 +761,7 @@ mod tests {
             linked_project: None,
             payment_made: false,
             completed_at_seconds: None,
+            assignee_fleet_id: None,
         });
 
         assert_eq!(id, 0);
@@ -591,6 +793,7 @@ mod tests {
             linked_project: None,
             payment_made: false,
             completed_at_seconds: None,
+            assignee_fleet_id: None,
         });
 
         assert!(pool.has_open_request_for(entity, ResourceType::Iron));
@@ -620,6 +823,7 @@ mod tests {
             linked_project: None,
             payment_made: false,
             completed_at_seconds: None,
+            assignee_fleet_id: None,
         });
 
         // current_sim_seconds much larger than HISTORY_KEEP_S → should be pruned

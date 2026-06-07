@@ -123,6 +123,7 @@ fn create_ship_resource_requests(
             linked_project: None,
             payment_made: false,
             completed_at_seconds: None,
+            assignee_fleet_id: None,
         });
         request_ids.push(request_id);
     }
@@ -754,6 +755,7 @@ pub fn process_ship_launches_and_completions(
                                     linked_project: Some(entity),
                                     payment_made: false,
                                     completed_at_seconds: None,
+                                    assignee_fleet_id: None,
                                 });
                                 project.blocking_request_ids.push(request_id);
                             }

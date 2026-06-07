@@ -1,6 +1,14 @@
 use super::transfer_planner::render_transfer_planner;
 use super::*;
+use crate::astronomy::components::SpaceCoordinates;
+use crate::economy::hohmann_round_trip_seconds;
+use crate::economy::LocalStockpile;
+use crate::economy::PendingResourceRequests;
+use crate::economy::RequestPriority;
+use crate::economy::RequestState;
+use crate::economy::ResourceRequest;
 use crate::fleets::components::ShipInfo;
+use crate::fleets::ShipClass;
 
 const SHIP_MANIFEST_ACTIONS_WIDTH: f32 = 122.0;
 const SHIP_MANIFEST_ROW_HEIGHT: f32 = 24.0;
@@ -286,6 +294,9 @@ pub(super) fn ui_fleets_panel(
     mut pending_actions: ResMut<PendingFleetActions>,
     mut fleet_ui_state: ResMut<FleetUiState>,
     sim_time: Res<SimulationTime>,
+    pending_resource_requests: Res<PendingResourceRequests>,
+    stockpiles: Query<(Entity, &LocalStockpile)>,
+    coords_query: Query<&SpaceCoordinates, Without<Fleet>>,
 ) {
     if active_menu.current != GameMenu::Fleets {
         return;
@@ -541,6 +552,9 @@ pub(super) fn ui_fleets_panel(
                                                     &mut fleet_ui_state,
                                                     &mut pending_actions,
                                                     elapsed,
+                                                    &pending_resource_requests,
+                                                    &stockpiles,
+                                                    &coords_query,
                                                 );
                                             });
                                     } else {
@@ -1256,6 +1270,186 @@ fn render_fleet_name_marquee(
     }
 }
 
+/// True if the fleet contains at least one ship of `ShipClass::Freighter`.
+///
+/// Used to gate the Logistics section of the fleet panel — only freighter
+/// fleets can be assigned to `ResourceRequest`s.
+fn has_freighter_ship(fleet: &Fleet) -> bool {
+    fleet.ships.iter().any(|s| s.class == ShipClass::Freighter)
+}
+
+/// Pick the best representative source body for a request's ETA display.
+///
+/// When the request has an explicit `source_body` we use that, otherwise we
+/// fall back to the body with the largest current `LocalStockpile` of the
+/// requested resource.  If no matching stockpile is found, the destination
+/// body itself is returned so the ETA computation has a sensible coordinate.
+fn pick_eta_source_for_request(
+    request: &ResourceRequest,
+    stockpiles: &Query<(Entity, &LocalStockpile)>,
+) -> Entity {
+    if let Some(src) = request.source_body {
+        return src;
+    }
+    let mut best: Option<(Entity, f64)> = None;
+    for (entity, ls) in stockpiles.iter() {
+        let amt = ls.get(&request.resource);
+        if amt > 0.0 && best.is_none_or(|(_, b)| amt > b) {
+            // Strict greater-than — ties keep the first (smaller-entity) body.
+            best = Some((entity, amt));
+        }
+    }
+    best.map(|(e, _)| e).unwrap_or(request.destination_body)
+}
+
+/// Render the **Logistics** section of the fleet panel.
+///
+/// Lists open `ResourceRequest`s at the fleet's current body and provides an
+/// **Assign** button per request that queues an
+/// `AssignLogisticsRequestAction`.  Each row shows the resource, amount,
+/// priority, source body, and the fleet's projected Hohmann round-trip ETA.
+///
+/// Section is a no-op for fleets that are currently in transfer
+/// (`maybe_orbit == None`) — there's no destination to assign against.
+#[allow(clippy::too_many_arguments)]
+fn render_logistics_section(
+    ui: &mut egui::Ui,
+    fleet_entity: Entity,
+    maybe_orbit: Option<&FleetOrbit>,
+    pending_resource_requests: &PendingResourceRequests,
+    stockpiles: &Query<(Entity, &LocalStockpile)>,
+    coords_query: &Query<&SpaceCoordinates, Without<Fleet>>,
+    pending_actions: &mut PendingFleetActions,
+    _body_query: &Query<(
+        Entity,
+        &CelestialBody,
+        &SpaceCoordinates,
+        Option<&KeplerOrbit>,
+        Option<&LogicalParent>,
+    )>,
+) {
+    ui.group(|ui| {
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new("📦 LOGISTICS")
+                    .strong()
+                    .size(13.0)
+                    .color(theme::RP_BLUE),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(
+                    egui::RichText::new("Open delivery requests at this body")
+                        .italics()
+                        .color(theme::TEXT_DIM)
+                        .size(11.0),
+                );
+            });
+        });
+        theme::divider(ui);
+
+        let Some(orbit) = maybe_orbit else {
+            ui.label(
+                egui::RichText::new("Fleet is in transit — no destination to assign against.")
+                    .italics()
+                    .color(theme::TEXT_DIM),
+            );
+            return;
+        };
+
+        // Collect Pending requests for the fleet's destination body.
+        let mut at_body: Vec<&ResourceRequest> = pending_resource_requests
+            .requests
+            .iter()
+            .filter(|r| {
+                r.destination_body == orbit.body
+                    && r.state == RequestState::Pending
+                    && r.assignee_fleet_id.is_none()
+            })
+            .collect();
+        // Stable order: higher priority first, then oldest id first within tier.
+        at_body.sort_by(|a, b| b.priority.cmp(&a.priority).then(a.id.cmp(&b.id)));
+
+        if at_body.is_empty() {
+            ui.label(
+                egui::RichText::new("No open requests at this body.")
+                    .italics()
+                    .color(theme::TEXT_DIM),
+            );
+            return;
+        }
+
+        egui::Grid::new("logistics_request_grid")
+            .num_columns(4)
+            .spacing([12.0, 4.0])
+            .striped(true)
+            .min_col_width(40.0)
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new("Resource").strong().size(11.0));
+                ui.label(egui::RichText::new("Amount").strong().size(11.0));
+                ui.label(egui::RichText::new("ETA").strong().size(11.0));
+                ui.label(egui::RichText::new("").strong());
+                ui.end_row();
+
+                for request in at_body {
+                    let priority_color = match request.priority {
+                        RequestPriority::Emergency => theme::RED,
+                        RequestPriority::Construction => theme::RP_BLUE,
+                        RequestPriority::Maintenance => theme::TEXT_VALUE,
+                        RequestPriority::Trade => theme::TEXT_DIM,
+                    };
+
+                    ui.horizontal(|ui| {
+                        ui.colored_label(
+                            priority_color,
+                            egui::RichText::new(format!("{:?}", request.priority)).size(10.0),
+                        );
+                        ui.label(
+                            egui::RichText::new(format!("{:?}", request.resource))
+                                .strong()
+                                .size(12.0),
+                        );
+                    });
+                    ui.label(
+                        egui::RichText::new(format!("{:.1} Mt", request.amount_mt)).size(12.0),
+                    );
+
+                    let eta_source = pick_eta_source_for_request(request, stockpiles);
+                    let transit_s =
+                        hohmann_round_trip_seconds(orbit.body, eta_source, coords_query);
+                    let transit_days = (transit_s / 86_400.0).round() as i64;
+                    ui.label(
+                        egui::RichText::new(format!("~{transit_days} d"))
+                            .size(11.0)
+                            .color(theme::TEXT_DIM),
+                    );
+
+                    if ui
+                        .add(
+                            egui::Button::new(egui::RichText::new("Assign").size(11.0))
+                                .min_size(egui::Vec2::new(64.0, 22.0)),
+                        )
+                        .on_hover_text(format!(
+                            "Assign this fleet to deliver {:.1} Mt of {:?} to {} (ETA ~{} days).",
+                            request.amount_mt,
+                            request.resource,
+                            request.destination_name,
+                            transit_days
+                        ))
+                        .clicked()
+                    {
+                        pending_actions.assign_logistics_requests.push(
+                            crate::fleets::components::AssignLogisticsRequestAction {
+                                fleet: fleet_entity,
+                                request_id: request.id,
+                            },
+                        );
+                    }
+                    ui.end_row();
+                }
+            });
+    });
+}
+
 /// Render the right panel: fleet details (ship manifest, stats, status) and transfer planner.
 #[allow(clippy::too_many_arguments)]
 fn render_fleet_detail(
@@ -1274,6 +1468,9 @@ fn render_fleet_detail(
     fleet_ui_state: &mut FleetUiState,
     pending_actions: &mut PendingFleetActions,
     elapsed: f64,
+    pending_resource_requests: &PendingResourceRequests,
+    stockpiles: &Query<(Entity, &LocalStockpile)>,
+    coords_query: &Query<&SpaceCoordinates, Without<Fleet>>,
 ) {
     // ── Fleet header ─────────────────────────────────────────────────────────
     // Row 1: fleet name + ✏ button (full width, no competing right-side controls)
@@ -1462,6 +1659,25 @@ fn render_fleet_detail(
         {
             fleet_ui_state.show_transfer_popup = true;
         }
+    }
+
+    // ── Logistics section (GRA-33 / PR-B) ─────────────────────────────────
+    // Only meaningful for fleets that contain a `ShipClass::Freighter` and
+    // are currently in orbit (i.e. not on a transfer).  Lists open
+    // `ResourceRequest`s at the fleet's current body and exposes an
+    // **Assign** button per request that queues an `AssignLogisticsRequestAction`.
+    if has_freighter_ship(fleet) {
+        ui.separator();
+        render_logistics_section(
+            ui,
+            fleet_entity,
+            maybe_orbit,
+            pending_resource_requests,
+            stockpiles,
+            coords_query,
+            pending_actions,
+            body_query,
+        );
     }
 }
 

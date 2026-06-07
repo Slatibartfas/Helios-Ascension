@@ -450,6 +450,12 @@ pub struct PendingFleetActions {
     pub disband_fleets: Vec<Entity>,
     /// Requests to merge several fleets into one.
     pub merge_fleets: Vec<MergeFleetAction>,
+    /// Requests to manually assign a freighter fleet to a logistics
+    /// `ResourceRequest` (GRA-33 / PR-B player-agency layer).  The fleet must be
+    /// in orbit at the request's destination body and contain at least one
+    /// `ShipClass::Freighter`.  Consumed by `process_fleet_logistics_assignments`
+    /// in `economy::logistics`.
+    pub assign_logistics_requests: Vec<AssignLogisticsRequestAction>,
 }
 
 /// Merge two or more fleets: all ships from `source_fleets` are moved into
@@ -481,6 +487,23 @@ pub struct AssignShipsAction {
     pub ship_entities: Vec<Entity>,
     /// Destination fleet, or `None` to leave the ships independent.
     pub destination_fleet: Option<Entity>,
+}
+
+/// Request to manually assign a freighter fleet to an open `ResourceRequest`
+/// from the fleet panel (GRA-33 / PR-B).
+///
+/// The action is queued by the UI when the player clicks **Assign** in the
+/// fleet-panel Logistics section.  `process_fleet_logistics_assignments`
+/// (in `economy::logistics`) consumes the queue, validates the fleet/request
+/// pairing, deducts the request amount from the source `LocalStockpile`
+/// (first-fit-largest), and flips the request to `InTransit` with the fleet's
+/// Hohmann round-trip ETA.
+#[derive(Debug, Clone, Copy)]
+pub struct AssignLogisticsRequestAction {
+    /// The freighter fleet entity (must be in orbit at the request's destination).
+    pub fleet: Entity,
+    /// The `ResourceRequest` id (`PendingResourceRequests::requests[i].id`).
+    pub request_id: u64,
 }
 
 /// Request to create a fleet and attach specific ships to it immediately.
