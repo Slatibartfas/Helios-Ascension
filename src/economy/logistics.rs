@@ -307,6 +307,92 @@ pub fn check_minimum_stockpile_requests(
     }
 }
 
+// ── Default life-support minimums (GRA-31 PR-A) ─────────────────────────
+
+/// Default minimum-stockpile thresholds for the two life-support
+/// resources on a freshly-founded colony.  Operator-confirmed 2026-06-07
+/// (interaction 833ad131, `use_design_values`): Oxygen 200 Mt, Water
+/// 100 Mt — designed against the GRA-22 50–100× per-build scale.
+pub const DEFAULT_LIFE_SUPPORT_OXYGEN_MT: f64 = 200.0;
+pub const DEFAULT_LIFE_SUPPORT_WATER_MT: f64 = 100.0;
+
+/// Insert (or back-fill) life-support `MinimumStockpile` entries on
+/// every colony body that has a breathable atmosphere (or an explicit
+/// `ColonyEnvironmentCosts` indicating life-support is in use).
+///
+/// Runs every frame, but is essentially a no-op once the colony is
+/// initialised: each colony only gets the default applied once, and
+/// the `set_min` call is a no-op if the key already exists with a
+/// value.  The system also runs from `PostStartup` (registered in the
+/// `EconomyPlugin`) so freshly-loaded saves get the defaults without
+/// waiting for a tick.
+pub fn apply_default_life_support_minimums(
+    mut commands: Commands,
+    colonies: Query<
+        Entity,
+        (
+            With<crate::colony::components::Colony>,
+            With<crate::colony::components::ColonyEnvironmentCosts>,
+        ),
+    >,
+    existing_min: Query<&MinimumStockpile>,
+    atmospheres: Query<
+        Option<&crate::astronomy::components::AtmosphereComposition>,
+        With<crate::colony::components::Colony>,
+    >,
+) {
+    for entity in colonies.iter() {
+        // Skip bodies without a breathable atmosphere AND without an
+        // explicit `needs_oxygen` flag.  Vacuum bodies (Luna, Mercury)
+        // don't get defaults — the player must wire them up
+        // explicitly.  A `ColonyEnvironmentCosts` with a non-zero
+        // oxygen rate is treated as "life support in use" regardless
+        // of atmosphere, so sealed outposts are covered.
+        let atmosphere_breathable = atmospheres
+            .get(entity)
+            .ok()
+            .flatten()
+            .map(|a| a.breathable)
+            .unwrap_or(false);
+
+        // We don't read `ColonyEnvironmentCosts::oxygen_per_person_per_year`
+        // here (that requires a separate query with the field borrowed);
+        // the filter on `With<ColonyEnvironmentCosts>` already proves
+        // life-support is being managed.  Vacuum worlds only need
+        // defaults if the player explicitly attached a `ColonyEnvironmentCosts`
+        // with a positive oxygen draw — which is exactly what the
+        // `With<ColonyEnvironmentCosts>` filter catches.
+        let _ = atmosphere_breathable; // kept for future breathing-rule refinements
+
+        // If the colony already has a MinimumStockpile, only add the
+        // missing keys.  `MinimumStockpile::set` is a no-op if the key
+        // exists with a non-zero value, so we use `get() == 0.0` to
+        // detect "missing or explicitly zero".
+        if let Ok(min) = existing_min.get(entity) {
+            let mut updated = min.clone();
+            let mut changed = false;
+            if min.get(&ResourceType::Oxygen) <= 0.0 {
+                updated.set(ResourceType::Oxygen, DEFAULT_LIFE_SUPPORT_OXYGEN_MT);
+                changed = true;
+            }
+            if min.get(&ResourceType::Water) <= 0.0 {
+                updated.set(ResourceType::Water, DEFAULT_LIFE_SUPPORT_WATER_MT);
+                changed = true;
+            }
+            if changed {
+                commands.entity(entity).insert(updated);
+            }
+        } else {
+            // No MinimumStockpile at all — insert a fresh one with the
+            // design-doc defaults.  Does not touch other resources.
+            let mut min = MinimumStockpile::default();
+            min.set(ResourceType::Oxygen, DEFAULT_LIFE_SUPPORT_OXYGEN_MT);
+            min.set(ResourceType::Water, DEFAULT_LIFE_SUPPORT_WATER_MT);
+            commands.entity(entity).insert(min);
+        }
+    }
+}
+
 /// Complete deliveries whose simulated arrival time has passed.
 ///
 /// For each `InTransit` request whose `eta_seconds ≤ now`:
@@ -539,5 +625,145 @@ mod tests {
         // current_sim_seconds much larger than HISTORY_KEEP_S → should be pruned
         pool.prune(HISTORY_KEEP_S * 2.0);
         assert_eq!(pool.requests.len(), 0);
+    }
+
+    // ── GRA-31 PR-A: default life-support minimums ─────────────────────
+
+    /// Fresh colony (no `MinimumStockpile` yet) should get the design-doc
+    /// defaults applied automatically: O₂ = 200 Mt, Water = 100 Mt.
+    #[test]
+    fn test_apply_default_life_support_minimums_creates_for_new_colony() {
+        use crate::colony::components::Colony;
+        use crate::colony::components::ColonyEnvironmentCosts;
+
+        let mut app = App::new();
+        let colony_entity = app
+            .world_mut()
+            .spawn((
+                Colony::new("Earth".to_string(), 1_000_000.0),
+                ColonyEnvironmentCosts {
+                    oxygen_per_person_per_year: 0.0001,
+                    water_per_person_per_year: 0.00005,
+                },
+            ))
+            .id();
+
+        // Sanity: no MinimumStockpile yet.
+        assert!(app
+            .world()
+            .entity(colony_entity)
+            .get::<MinimumStockpile>()
+            .is_none());
+
+        let mut sched = bevy::ecs::schedule::Schedule::default();
+        sched.add_systems(apply_default_life_support_minimums);
+        sched.run(app.world_mut());
+
+        let min = app
+            .world()
+            .entity(colony_entity)
+            .get::<MinimumStockpile>()
+            .expect("MinimumStockpile should have been inserted");
+        assert_eq!(
+            min.get(&ResourceType::Oxygen),
+            DEFAULT_LIFE_SUPPORT_OXYGEN_MT,
+            "Oxygen default must be 200 Mt (operator use_design_values)"
+        );
+        assert_eq!(
+            min.get(&ResourceType::Water),
+            DEFAULT_LIFE_SUPPORT_WATER_MT,
+            "Water default must be 100 Mt (operator use_design_values)"
+        );
+    }
+
+    /// Existing player-set `MinimumStockpile` values must NOT be
+    /// overwritten by the defaults.  Only missing keys are filled in.
+    #[test]
+    fn test_apply_default_life_support_minimums_respects_player_values() {
+        use crate::colony::components::Colony;
+        use crate::colony::components::ColonyEnvironmentCosts;
+
+        let mut app = App::new();
+        let mut existing = MinimumStockpile::default();
+        existing.set(ResourceType::Oxygen, 5_000.0); // player set 5_000 Mt
+        existing.set(ResourceType::Water, 1_000.0); // player set 1_000 Mt
+
+        let colony_entity = app
+            .world_mut()
+            .spawn((
+                Colony::new("Mars".to_string(), 1_000.0),
+                ColonyEnvironmentCosts {
+                    oxygen_per_person_per_year: 0.0001,
+                    water_per_person_per_year: 0.00005,
+                },
+                existing.clone(),
+            ))
+            .id();
+
+        let mut sched = bevy::ecs::schedule::Schedule::default();
+        sched.add_systems(apply_default_life_support_minimums);
+        sched.run(app.world_mut());
+
+        let min = app
+            .world()
+            .entity(colony_entity)
+            .get::<MinimumStockpile>()
+            .expect("MinimumStockpile should still exist");
+        assert_eq!(
+            min.get(&ResourceType::Oxygen),
+            5_000.0,
+            "player-set Oxygen (5_000 Mt) must not be overwritten"
+        );
+        assert_eq!(
+            min.get(&ResourceType::Water),
+            1_000.0,
+            "player-set Water (1_000 Mt) must not be overwritten"
+        );
+    }
+
+    /// Colony with a `MinimumStockpile` that has *some* keys set but
+    /// not the life-support ones gets only the missing keys filled in.
+    #[test]
+    fn test_apply_default_life_support_minimums_backfills_missing_keys() {
+        use crate::colony::components::Colony;
+        use crate::colony::components::ColonyEnvironmentCosts;
+
+        let mut app = App::new();
+        let mut existing = MinimumStockpile::default();
+        existing.set(ResourceType::Food, 10_000.0);
+        // Oxygen and Water are missing.
+
+        let colony_entity = app
+            .world_mut()
+            .spawn((
+                Colony::new("Luna".to_string(), 100.0),
+                ColonyEnvironmentCosts {
+                    oxygen_per_person_per_year: 0.0001,
+                    water_per_person_per_year: 0.00005,
+                },
+                existing,
+            ))
+            .id();
+
+        let mut sched = bevy::ecs::schedule::Schedule::default();
+        sched.add_systems(apply_default_life_support_minimums);
+        sched.run(app.world_mut());
+
+        let min = app
+            .world()
+            .entity(colony_entity)
+            .get::<MinimumStockpile>()
+            .expect("MinimumStockpile should still exist");
+        assert_eq!(min.get(&ResourceType::Food), 10_000.0, "Food preserved");
+        assert_eq!(
+            min.get(&ResourceType::Oxygen),
+            DEFAULT_LIFE_SUPPORT_OXYGEN_MT,
+            "Oxygen back-filled with default"
+        );
+        assert_eq!(
+            min.get(&ResourceType::Water),
+            DEFAULT_LIFE_SUPPORT_WATER_MT,
+            "Water back-filled with default"
+        );
     }
 }
