@@ -197,7 +197,7 @@ New file: `assets/data/freighter_templates.ron` (flat under `assets/data/`, sibl
 | `description` | string | yes | One-paragraph description in the existing tech/hull voice. |
 | `base_hull` | string | yes | `id` of an entry in `ship_hulls.ron`. Must exist at load (validated at startup). |
 | `era_tier` | u32 | yes | 1–3 (current scope). Higher = better cargo scaling, requires higher tech. |
-| `required_tech` | `Option<String>` | yes | Tech id (e.g. `"chemical_spaceframes"`) that must be researched before this template can be built. Matches the pattern used by hulls. |
+| `required_tech` | `Option<String>` | yes | Tech id that gates the **template** on top of the hull's gate. `None` means the template adds no extra gate; the hull's own `required_tech` (if any) still applies. The `light_freighter` template uses `None` because the design intent is "no research → light_freighter baseline" (the hull's `chemical_spaceframes` is the actual gate). |
 | `cargo_slots` | list of cargo_slot | yes | The cargo slots this template exposes. Empty list = pure tanker, no cargo capacity (e.g. `cryogenic_tanker_frame` in a future expansion). |
 | `cargo_slots[].hull_slot_id` | string | yes | Matches a `slot_id` in the base hull's `slot_layout`. Slot must have `category: CargoStorage`. |
 | `cargo_slots[].default_module` | string | yes | Module id from `ship_modules.ron` installed at slot.build_tier (initial build). |
@@ -241,7 +241,7 @@ The Coder's loader MUST enforce:
 3. Every `default_module` and `upgrade_path[].module` exists in `ship_modules.ron` and has `category: CargoStorage`.
 4. Every `required_tech` (in template and in upgrade path) is a valid tech id (not necessarily researched at load — just a known id).
 5. Within one `cargo_slots[].upgrade_path`, tier numbers are unique and ordered ascending.
-6. The base hull's `required_tech` ⊆ this template's `required_tech` (a freighter template cannot unlock before its hull can be built).
+6. **If the template has `required_tech`**, it must equal the hull's `required_tech` (template gate is the hull gate or an additional, equal gate; the data shape is a single string so "additional" isn't expressible, hence equality). **If the template has `required_tech: None`**, no constraint — the hull's `required_tech` (if any) is the effective build gate, and the template inherits it. The original "subset" wording was too strict: it forbade a no-research baseline template on a tech-gated hull, which contradicts the `light_freighter` design intent. The Coder implements rule 6 as: `(hull, template) = (Some(a), Some(b))` requires `a == b`; `(Some(_), None)` is permitted; `(None, Some(_))` is permitted; `(None, None)` is permitted.
 
 A failure on any of these is a hard loader error. The Coder writes a `tests/freighter_templates_data_tests.rs` test that loads the file and asserts the rules.
 

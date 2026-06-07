@@ -23,7 +23,17 @@
             description: "Single-slot bulk hauler for short cislunar logistics. Cargo capacity is constrained by hull volume; tech upgrades do not change this template.",
             base_hull: "freighter_frame",
             era_tier: 1,
-            required_tech: Some("chemical_spaceframes"),
+            // GRA-40 follow-up: light_freighter is the no-research
+            // baseline. Its gate is the hull's required_tech
+            // (chemical_spaceframes); the template itself adds nothing
+            // on top. This matches the design doc's "Worked example"
+            // and the migration shim (1:1 map of legacy
+            // ShipClass::Freighter -> light_freighter must be reachable
+            // without further research). The Coder's validation rule
+            // 6 is relaxed in the matching docs/design change to
+            // allow (hull: Some, template: None) — the template
+            // inherits the hull's gate when its own gate is absent.
+            required_tech: None,
             cargo_slots: [
                 (
                     hull_slot_id: "cargo_a",
