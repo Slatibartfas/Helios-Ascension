@@ -142,8 +142,12 @@ impl Plugin for AutoFreightPlugin {
 pub fn auto_freight_loop(
     mut companies: ResMut<ShippingCompanies>,
     mut requests: ResMut<PendingResourceRequests>,
-    stockpiles_read: Query<(Entity, &LocalStockpile)>,
-    mut stockpiles_mut: Query<&mut LocalStockpile>,
+    // Bevy 0.18 forbids having two `Query` system params that both touch
+    // the same component (B0001).  We need a read pass (compute the source
+    // list + total) and a write pass (consume from each chosen body), so
+    // fold them into a single `Query<(Entity, &mut LocalStockpile)>` and
+    // use sequential `iter()` / `get_mut()` calls within the system.
+    mut stockpiles: Query<(Entity, &mut LocalStockpile)>,
     idle_freight_fleets: Query<
         (Entity, &Fleet, &FleetOrbit),
         Without<crate::fleets::ActiveManeuver>,
@@ -244,8 +248,7 @@ pub fn auto_freight_loop(
         if !deduct_from_source(
             &req_snapshot.resource,
             req_snapshot.amount_mt,
-            &stockpiles_read,
-            &mut stockpiles_mut,
+            &mut stockpiles,
         ) {
             // No body has the resource.  Don't emit a no-design event here
             // — that's a *production* problem, not a *freight* problem.
@@ -323,13 +326,17 @@ fn maybe_emit_no_design(
 /// only if the full amount was satisfied.  Mirrors the logic in
 /// `logistics::process_fleet_logistics_assignments` and
 /// `company::process_company_ai`.
+///
+/// We use a single `Query<(Entity, &mut LocalStockpile)>` rather than a
+/// read+mut pair because Bevy 0.18 rejects that combination as B0001.
+/// The `iter()` borrow is dropped at the end of the first `collect()`,
+/// which releases the conflict before we call `get_mut()` below.
 fn deduct_from_source(
     resource: &ResourceType,
     amount: f64,
-    stockpiles_read: &Query<(Entity, &LocalStockpile)>,
-    stockpiles_mut: &mut Query<&mut LocalStockpile>,
+    stockpiles: &mut Query<(Entity, &mut LocalStockpile)>,
 ) -> bool {
-    let mut sources: Vec<(Entity, f64)> = stockpiles_read
+    let mut sources: Vec<(Entity, f64)> = stockpiles
         .iter()
         .map(|(e, ls)| (e, ls.get(resource)))
         .filter(|(_, amt)| *amt > 0.0)
@@ -346,7 +353,7 @@ fn deduct_from_source(
         if remaining <= 0.0 {
             break;
         }
-        if let Ok(mut ls) = stockpiles_mut.get_mut(*src_entity) {
+        if let Ok((_, mut ls)) = stockpiles.get_mut(*src_entity) {
             let taken = ls.consume(*resource, remaining);
             remaining -= taken;
         }
