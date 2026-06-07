@@ -81,7 +81,6 @@ This design **reuses the existing `cargo_hold_mk2` and `cargo_hold_mk3` techs fr
 The tier 2 → tier 3 progression mirrors the existing tier 1 → tier 2 hull progression (e.g. `freighter_frame` requires `chemical_spaceframes`; `cryogenic_tanker_frame` requires `orbital_construction`). Tech that already gates hull scale is the natural prerequisite for slot scale.
 
 ### Engineering projects referenced
-
 | Project id | Display name | Size | Tier | Required tech | `cargo_capacity_t` |
 |------------|--------------|------|------|---------------|--------------------|
 | `cargo_bay_large` | Standard Bulk Cargo Bay | Large | 1 | `basic_space_tech` | 50 |
@@ -93,7 +92,6 @@ The tier 2 → tier 3 progression mirrors the existing tier 1 → tier 2 hull pr
 | `cargo_armored_mk3_medium` | Heavy Armored Logistics Pod Mk3 | Medium | 3 | `cargo_hold_mk3` | 130 |
 
 These modules were added to `assets/data/ship_modules.ron` in GRA-10 alongside the two techs. They follow the existing `cargo_pod_medium` / `cargo_bay_medium` / `cargo_armored_medium` shape (same fields, same `category: CargoStorage`, same `propulsion: None`). Slot size must match module size (Medium slot ↔ Medium module, Large slot ↔ Large module) — the Coder's loader rejects mismatches at startup.
-
 ---
 
 ## RON Schema
@@ -101,7 +99,6 @@ These modules were added to `assets/data/ship_modules.ron` in GRA-10 alongside t
 New file: `assets/data/freighter_templates.ron` (flat under `assets/data/`, sibling to `buildings.ron` / `ship_hulls.ron` / `ship_modules.ron`).
 
 > **Path deviation from the original GRA-40 issue scope.** The original issue description said `assets/data/ships/freighter_templates.ron`. This design moves it to `assets/data/freighter_templates.ron` (no `ships/` subdirectory) for consistency with the existing flat layout. LGD reasoning: the `assets/data/` directory has no `ships/` subfolder today — `ship_hulls.ron` and `ship_modules.ron` both live at the `assets/data/` root. Adding a subdirectory just for freighter templates would split related files across two locations and is an unnecessary deviation from the established pattern. The Coder's loader path is `assets/data/freighter_templates.ron`.
-
 ```ron
 (
     templates: [
@@ -202,8 +199,7 @@ New file: `assets/data/freighter_templates.ron` (flat under `assets/data/`, sibl
 | `cargo_slots[].hull_slot_id` | string | yes | Matches a `slot_id` in the base hull's `slot_layout`. Slot must have `category: CargoStorage`. |
 | `cargo_slots[].default_module` | string | yes | Module id from `ship_modules.ron` installed at slot.build_tier (initial build). |
 | `cargo_slots[].upgrade_path` | list of upgrade_step | yes | Ordered low-to-high tier. Empty list = no upgrades possible. |
-| `upgrade_path[].tier` | u32 | yes | **1-indexed to match the existing hull/tech tier system.** The tier at which this upgrade is applied. `2` = Mk2, `3` = Mk3. The baseline (tier 1) is implicit in `default_module` and does not appear in `upgrade_path`. Must be unique per slot. |
-| `upgrade_path[].module` | string | yes | Module id installed at this tier. Must be a `CargoStorage` module. |
+| `upgrade_path[].tier` | u32 | yes | **1-indexed to match the existing hull/tech tier system.** The tier at which this upgrade is applied. `2` = Mk2, `3` = Mk3. The baseline (tier 1) is implicit in `default_module` and does not appear in `upgrade_path`. Must be unique per slot. || `upgrade_path[].module` | string | yes | Module id installed at this tier. Must be a `CargoStorage` module. |
 | `upgrade_path[].required_tech` | string | yes | Tech id that gates this upgrade. Same string the technology system uses. |
 | `tags` | list of string | yes | Free-form tags. Mirror hull tags. |
 
@@ -231,7 +227,6 @@ fn installed_module(slot: &CargoSlot, upgrade_tier: u32) -> &str {
 ```
 
 The RON's 1-indexed `upgrade_path[].tier` field stays aligned with `hull.tier` / `tech.tier` (which are also 1-indexed throughout `ship_hulls.ron` and `technologies.ron`). The component's 0-indexed `upgrade_tier` makes the array-indexing arithmetic clean: `upgrade_path[upgrade_tier - 1]`. Resolution (a) per the editorial note in the LGD sign-off comment.
-
 ### Validation rules (load-time)
 
 The Coder's loader MUST enforce:
