@@ -32,6 +32,8 @@ use crate::economy::logistics::{PendingResourceRequests, RequestPriority, Reques
 use crate::economy::GlobalBudget;
 use crate::ui::SimulationTime;
 
+pub use crate::economy::auto_freight::CompanyAIPolicy;
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 /// Approximate transit days per AU of distance for chemical-propulsion freighters.
@@ -77,10 +79,18 @@ pub struct ShippingCompany {
     pub total_deliveries: u32,
     /// Reliability score 0.0–1.0 (future: affects player preference).
     pub reputation: f32,
+    /// AI policy governing automated freight behaviour (GRA-38).
+    /// `AutoFreight` is the default for new companies (DW2-style opt-out);
+    /// `Manual` companies never auto-assign freighters.
+    pub policy: CompanyAIPolicy,
 }
 
 impl ShippingCompany {
     /// Create a new company with the given name and starting freighter count.
+    ///
+    /// The default `policy` is `CompanyAIPolicy::AutoFreight` (DW2-style
+    /// opt-out — see GRA-38 / GRA-37).  Use [`ShippingCompany::with_policy`]
+    /// to spawn a `Manual` company.
     pub fn new(name: impl Into<String>, freighters: u32, treasury_mc: f64) -> Self {
         Self {
             name: name.into(),
@@ -89,7 +99,14 @@ impl ShippingCompany {
             available_freighters: freighters,
             total_deliveries: 0,
             reputation: 0.5,
+            policy: CompanyAIPolicy::default(),
         }
+    }
+
+    /// Set the AI policy for this company.  Builder-style helper.
+    pub fn with_policy(mut self, policy: CompanyAIPolicy) -> Self {
+        self.policy = policy;
+        self
     }
 
     /// True if the company can take on another delivery run.
@@ -215,6 +232,14 @@ pub fn process_company_ai(
     }
 
     for (company_idx, company) in companies.companies.iter_mut().enumerate() {
+        if company.policy != CompanyAIPolicy::AutoFreight {
+            // GRA-38: Manual companies do not auto-assign their abstract
+            // freighters.  The player must take delivery via the fleet
+            // panel's manual-assign path.  The companion auto-freight
+            // system (in `auto_freight.rs`) respects the same policy
+            // when recruiting idle player fleets.
+            continue;
+        }
         if !company.has_freighter_available() {
             continue;
         }

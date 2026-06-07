@@ -1192,7 +1192,7 @@ pub(super) fn ui_economy_panels(
     star_query: Query<(&CelestialBody, &SystemId), With<crate::plugins::solar_system::Star>>,
     buildings_data: Option<Res<BuildingsData>>,
     resource_requests: Res<crate::economy::PendingResourceRequests>,
-    shipping_companies: Res<crate::economy::ShippingCompanies>,
+    mut shipping_companies: ResMut<crate::economy::ShippingCompanies>,
 ) {
     if active_menu.current != GameMenu::Economy {
         return;
@@ -1295,7 +1295,7 @@ pub(super) fn ui_economy_panels(
                     render_econ_power_grid(ui, &budget, &hierarchy, buildings_data.as_deref())
                 }
                 EconomyTab::Logistics => {
-                    render_econ_logistics(ui, &resource_requests, &shipping_companies, &budget)
+                    render_econ_logistics(ui, &resource_requests, &mut shipping_companies, &budget)
                 }
             }
         });
@@ -3554,10 +3554,10 @@ fn render_econ_power_grid(
 fn render_econ_logistics(
     ui: &mut egui::Ui,
     resource_requests: &crate::economy::PendingResourceRequests,
-    companies: &crate::economy::ShippingCompanies,
+    companies: &mut crate::economy::ShippingCompanies,
     budget: &GlobalBudget,
 ) {
-    use crate::economy::{RequestPriority, RequestState};
+    use crate::economy::{CompanyAIPolicy, RequestPriority, RequestState};
 
     draw_section_title(
         ui,
@@ -3584,7 +3584,7 @@ fn render_econ_logistics(
                 );
             } else {
                 egui::Grid::new("shipping_companies")
-                    .num_columns(5)
+                    .num_columns(6)
                     .striped(true)
                     .spacing([12.0, 4.0])
                     .show(ui, |ui| {
@@ -3593,9 +3593,10 @@ fn render_econ_logistics(
                         ui.label(egui::RichText::new("Fleet").strong().size(11.0));
                         ui.label(egui::RichText::new("Available").strong().size(11.0));
                         ui.label(egui::RichText::new("Deliveries").strong().size(11.0));
+                        ui.label(egui::RichText::new("AI Policy").strong().size(11.0));
                         ui.end_row();
 
-                        for company in &companies.companies {
+                        for company in &mut companies.companies {
                             ui.label(egui::RichText::new(&company.name).size(12.0).strong());
                             ui.label(
                                 egui::RichText::new(format_currency(company.treasury_mc))
@@ -3623,6 +3624,35 @@ fn render_econ_logistics(
                                 egui::RichText::new(format!("{}", company.total_deliveries))
                                     .size(11.0),
                             );
+                            // GRA-38: per-company AI policy toggle.  Default
+                            // is AutoFreight (DW2-style opt-out).  Player
+                            // can switch a specific company to Manual to
+                            // keep it as a passive treasury / reputation
+                            // holder.
+                            let policy_before = company.policy;
+                            egui::ComboBox::from_id_salt(format!(
+                                "company_policy_{}",
+                                company.name
+                            ))
+                            .selected_text(company.policy.to_string())
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut company.policy,
+                                    CompanyAIPolicy::AutoFreight,
+                                    "🤖 Auto-Freight",
+                                );
+                                ui.selectable_value(
+                                    &mut company.policy,
+                                    CompanyAIPolicy::Manual,
+                                    "✋ Manual",
+                                );
+                            });
+                            if company.policy != policy_before {
+                                info!(
+                                    "GRA-38: company {} AI policy changed {:?} → {:?}",
+                                    company.name, policy_before, company.policy
+                                );
+                            }
                             ui.end_row();
                         }
                     });
