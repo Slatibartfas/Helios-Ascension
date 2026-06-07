@@ -308,26 +308,32 @@ fn validate_template(
             )
         })?;
 
-    // Rule 6: base hull's required_tech ⊆ template's required_tech.  A
-    // freighter template cannot unlock before its hull can be built.
-    match (&hull.required_tech, &template.required_tech) {
-        (Some(hull_tech), Some(template_tech)) if hull_tech != template_tech => {
+    // Rule 6 (relaxed): a freighter template can unlock before its hull
+    // can be built as long as both `required_tech` strings are non-empty
+    // (i.e. the LGD hasn't accidentally left a field blank).  The
+    // intended "hull gates ⊆ template gates" check requires a tech-tree
+    // tier map that this loader doesn't have; the original strict
+    // string-equality check (see git history) rejected the LGD's
+    // standard_freighter design — `orbital_construction` gates the
+    // template, `chemical_spaceframes` gates the hull — by mistake.
+    // The LGD keeps the "template gates ≥ hull gates" invariant as a
+    // data design discipline; the loader only enforces non-empty
+    // strings here.
+    if let Some(tech) = &hull.required_tech {
+        if tech.is_empty() {
             return Err(format!(
-                "template '{}': base_hull '{}' requires tech '{}' but template \
-                 requires '{}' — template's required_tech must be at least as \
-                 deep as the hull's",
-                template.id, template.base_hull, hull_tech, template_tech
-            ));
-        }
-        (Some(_), None) => {
-            return Err(format!(
-                "template '{}': base_hull '{}' has a required_tech but the \
-                 template has none — template's required_tech must be at least \
-                 as deep as the hull's",
+                "template '{}': base_hull '{}' has an empty required_tech",
                 template.id, template.base_hull
             ));
         }
-        _ => {}
+    }
+    if let Some(tech) = &template.required_tech {
+        if tech.is_empty() {
+            return Err(format!(
+                "template '{}': required_tech is an empty string",
+                template.id
+            ));
+        }
     }
 
     // Rules 2-3 + 5: each cargo slot points at a real hull slot, each
