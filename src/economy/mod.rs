@@ -37,8 +37,9 @@ pub use history::{
     SimulationHistorySample, SurveyHistoryStats, HISTORY_MAX_AGE_SECONDS, HISTORY_MAX_AGE_YEARS,
 };
 pub use logistics::{
-    check_minimum_stockpile_requests, complete_deliveries, prune_old_requests, MinimumStockpile,
-    PendingResourceRequests, RequestPriority, RequestState, ResourceRequest,
+    apply_default_life_support_minimums, check_minimum_stockpile_requests, complete_deliveries,
+    prune_old_requests, MinimumStockpile, PendingResourceRequests, RequestPriority, RequestState,
+    ResourceRequest, DEFAULT_LIFE_SUPPORT_OXYGEN_MT, DEFAULT_LIFE_SUPPORT_WATER_MT,
 };
 pub use mining::{extract_resources, update_resource_rates, MiningOperation};
 pub use types::{ResourcePhase, ResourceType};
@@ -84,6 +85,11 @@ impl Plugin for EconomyPlugin {
                     complete_deliveries.after(company::process_company_ai),
                     company::update_company_fleets.after(complete_deliveries),
                     prune_old_requests.after(complete_deliveries),
+                    // GRA-31 PR-A: backfill life-support minimums on any
+                    // colony missing the defaults.  Cheap; runs in
+                    // `Update` so freshly-spawned colonies are covered
+                    // without an explicit `Add<Colony>` trigger.
+                    apply_default_life_support_minimums,
                     record_simulation_history
                         .after(update_resource_rates)
                         .after(update_civilization_score)
