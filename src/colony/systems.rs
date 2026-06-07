@@ -229,6 +229,7 @@ pub fn process_construction_actions(
                                 })
                                 .unwrap_or_default();
 
+<<<<<<< Updated upstream
                         // Sum the available resources across the same system (for pool check).
                         let mut system_available: std::collections::HashMap<ResourceType, f64> =
                             std::collections::HashMap::new();
@@ -238,6 +239,55 @@ pub fn process_construction_actions(
                                 for (rt, &amt) in &ls.stockpiles {
                                     *system_available.entry(*rt).or_insert(0.0) += amt;
                                 }
+=======
+                        // Generate one request per missing resource type.
+                        // `costs_typed` contains the *full* cost; we request the full
+                        // amount so that construction can proceed once everything arrives.
+                        for (rt, full_cost) in &costs_typed {
+                            if *full_cost <= 0.0 {
+                                continue;
+                            }
+                            // Only add a request if there isn't one already for this colony+resource.
+                            if resource_requests.has_open_request_for(colony_entity, *rt) {
+                                awaiting = true;
+                                continue;
+                            }
+
+                            // Credit the colony's existing local stock toward the cost;
+                            // only request the remainder that truly needs to be delivered.
+                            let already_local: f64 = colony_local.get(rt).copied().unwrap_or(0.0);
+                            let need_delivered = (*full_cost - already_local).max(0.0);
+
+                            if need_delivered > 0.0 {
+                                let req_id = resource_requests.add(ResourceRequest {
+                                    id: 0,
+                                    destination_body: colony_entity,
+                                    destination_name: colony_name.clone(),
+                                    resource: *rt,
+                                    amount_mt: need_delivered,
+                                    priority: RequestPriority::Construction,
+                                    state: RequestState::Pending,
+                                    in_transit_mt: 0.0,
+                                    eta_seconds: None,
+                                    assigned_company_idx: None,
+                                    created_at_seconds: now,
+                                    source_body: None,
+                                    linked_project: None, // filled in after project spawn
+                                    payment_made: false,
+                                    completed_at_seconds: None,
+                                    assignee_fleet_id: None,
+                                });
+                                blocking_request_ids.push(req_id);
+                                awaiting = true;
+
+                                warn!(
+                                    "Construction '{}' at {}: {:?} {:.1} Mt not available locally — requesting delivery",
+                                    building_type.display_name(),
+                                    colony_name,
+                                    rt,
+                                    need_delivered
+                                );
+>>>>>>> Stashed changes
                             }
                         }
 
@@ -307,6 +357,7 @@ pub fn process_construction_actions(
                                         linked_project: None, // filled in after project spawn
                                         payment_made: false,
                                         completed_at_seconds: None,
+                                        assignee_fleet_id: None,
                                     });
                                     blocking_request_ids.push(req_id);
                                     awaiting = true;
