@@ -765,19 +765,28 @@ mod tests {
     }
 
     #[test]
-    fn best_buildable_with_no_research_returns_light() {
+    fn best_buildable_with_no_research_returns_none() {
+        let data = build_minimal_shipbuilding_data();
+        let mut registry = FreighterTemplateRegistry::default();
+        registry.insert(light_freighter_template());
+        let entry = registry.best_buildable(&data, |_| false);
+        assert!(entry.is_none(), "expected None with no research");
+    }
+
+    #[test]
+    fn best_buildable_with_chem_frames_research_returns_light() {
         let data = build_minimal_shipbuilding_data();
         let mut registry = FreighterTemplateRegistry::default();
         registry.insert(light_freighter_template());
         let entry = registry
-            .best_buildable(&data, |_| false)
+            .best_buildable(&data, |tech| tech == "chemical_spaceframes")
             .expect("registry has a template");
         assert_eq!(entry.template_id, "light_freighter");
         assert_eq!(entry.best_tier, 0);
     }
 
     #[test]
-    fn best_buildable_with_mk2_research_prefers_standard_at_tier_1() {
+    fn best_buildable_with_mk2_and_chem_frames_research_returns_standard_at_tier_0() {
         let data = build_minimal_shipbuilding_data();
         let mut registry = FreighterTemplateRegistry::default();
         registry.insert(FreighterTemplate {
@@ -806,10 +815,12 @@ mod tests {
             tags: vec![],
         });
         let entry = registry
-            .best_buildable(&data, |tech| tech == "cargo_hold_mk2")
+            .best_buildable(&data, |tech| {
+                tech == "cargo_hold_mk2" || tech == "chemical_spaceframes"
+            })
             .expect("registry has a template");
         assert_eq!(entry.template_id, "standard_freighter");
-        // Slot A caps at tier 0; slot B caps at tier 1 (mk2).  Template's
+        // Slot A caps at tier 0; slot B caps at tier 2 (mk2).  Template's
         // best tier is the minimum across slots, so 0.
         assert_eq!(entry.best_tier, 0);
     }
