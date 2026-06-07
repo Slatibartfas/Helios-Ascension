@@ -19,7 +19,7 @@
 
 use std::collections::HashSet;
 
-use helios_ascension::economy::PendingResourceRequests;
+use helios_ascension::economy::{GlobalBudget, PendingResourceRequests};
 use helios_ascension::fleets::{PropulsionType, ShipClass, ShipInfo, ShipInstance};
 use helios_ascension::research::ResearchPlugin;
 use helios_ascension::shipbuilding::{ShipbuildingData, ShipbuildingPlugin};
@@ -36,11 +36,14 @@ use bevy::prelude::*;
 fn build_app_with_templates_loaded() -> App {
     let mut app = App::new();
     // ShipbuildingPlugin's Update chain includes
-    // `process_pending_shipbuilding_actions`, which requires
-    // `PendingResourceRequests` (owned by EconomyPlugin, not loaded here)
-    // and `SimulationTime` (a custom resource, not part of MinimalPlugins).
-    // Insert defaults so the Update schedule can boot on `app.update()`.
+    // `process_pending_shipbuilding_actions` (needs `PendingResourceRequests`)
+    // and `process_ship_launches_and_completions` (needs `GlobalBudget`).
+    // Both are owned by EconomyPlugin, not loaded by the test.  Also
+    // `SimulationTime` (custom, not in MinimalPlugins).  Insert defaults
+    // so the Update schedule can boot on `app.update()`.  Pattern lifted
+    // from `research_shipbuilding_startup_tests.rs`.
     app.add_plugins(MinimalPlugins)
+        .insert_resource(GlobalBudget::default())
         .insert_resource(PendingResourceRequests::default())
         .insert_resource(SimulationTime::new())
         .add_plugins(ResearchPlugin)
