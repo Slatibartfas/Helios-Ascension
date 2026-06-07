@@ -28,6 +28,7 @@ mod fleets_panel;
 pub mod icons;
 mod research_panel;
 mod resources_bar;
+mod settings;
 mod shipbuilding_state;
 mod shipbuilding_tooltip;
 mod shipbuilding_workspace;
@@ -35,6 +36,8 @@ mod tech_tree;
 pub(super) mod theme;
 pub mod time;
 mod transfer_planner;
+
+pub use settings::Settings;
 
 pub use icons::{MenuIcons, ResearchIcons};
 pub use time::{SimulationTime, TimeScale};
@@ -408,6 +411,7 @@ impl Plugin for UIPlugin {
             .init_resource::<TimeScale>()
             .init_resource::<SimulationTime>()
             .init_resource::<ResearchUiPreferences>()
+            .init_resource::<Settings>()
             .init_resource::<FleetUiState>()
             .init_resource::<ResolutionWarning>()
             .init_resource::<ExpandedLedgerGroups>()

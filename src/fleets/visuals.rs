@@ -15,7 +15,7 @@ use crate::astronomy::{
 use crate::plugins::camera::{GameCamera, OrbitCamera, ViewMode};
 use crate::plugins::solar_system::{CelestialBody, LogicalParent};
 use crate::plugins::solar_system_data::BodyType;
-use crate::ui::{FleetUiState, SimulationTime, TimeScale};
+use crate::ui::{FleetUiState, Settings, SimulationTime, TimeScale};
 
 /// Marker component for entities that have a fleet mesh sphere.
 #[derive(Component)]
@@ -1372,7 +1372,7 @@ fn compute_gravity_assist_arc(
 /// Heliocentric transfers continue to use the physics-accurate Keplerian arc.
 pub fn draw_fleet_trajectories(
     mut gizmos: Gizmos,
-    fleet_query: Query<(Entity, &ActiveManeuver, Option<&FleetOrbit>), With<Fleet>>,
+    fleet_query: Query<(Entity, &Fleet, &ActiveManeuver, Option<&FleetOrbit>), With<Fleet>>,
     center_coords: Query<&SpaceCoordinates, Without<Fleet>>,
     body_query: Query<(&Transform, &CelestialBody, Option<&LogicalParent>), Without<Fleet>>,
     kepler_query: Query<&KeplerOrbit, Without<Fleet>>,
@@ -1383,6 +1383,7 @@ pub fn draw_fleet_trajectories(
     sim_time: Res<SimulationTime>,
     real_time: Res<Time<Real>>,
     time_scale: Res<TimeScale>,
+    settings: Res<Settings>,
 ) {
     let origin_offset = floating_origin
         .as_ref()
@@ -1402,7 +1403,7 @@ pub fn draw_fleet_trajectories(
 
     fleet_ui_state.waiting_orbit_count = 0;
 
-    for (entity, maneuver, maybe_orbit) in fleet_query.iter() {
+    for (entity, fleet, maneuver, maybe_orbit) in fleet_query.iter() {
         // In System view only draw for the selected fleet, in Starmap always draw.
         if *view_mode == ViewMode::System {
             match fleet_ui_state.selected_fleet {
@@ -1410,6 +1411,13 @@ pub fn draw_fleet_trajectories(
                 None => continue, // No fleet selected → hide all trajectories
                 _ => {}
             }
+        }
+
+        // GRA-41: hide the system-map transit gizmo for freighter fleets when
+        // the player has toggled "Show freighters in transit" off.  Combat and
+        // other fleet classes (no `ShipClass::Freighter` ship) are unaffected.
+        if !settings.show_freighters_in_transit && fleet.has_freighter_ship() {
+            continue;
         }
 
         let center_is_star = maneuver.reference_frame.is_barycentric()

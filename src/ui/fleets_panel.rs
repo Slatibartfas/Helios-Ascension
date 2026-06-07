@@ -8,7 +8,6 @@ use crate::economy::RequestPriority;
 use crate::economy::RequestState;
 use crate::economy::ResourceRequest;
 use crate::fleets::components::ShipInfo;
-use crate::fleets::ShipClass;
 
 const SHIP_MANIFEST_ACTIONS_WIDTH: f32 = 122.0;
 const SHIP_MANIFEST_ROW_HEIGHT: f32 = 24.0;
@@ -293,6 +292,7 @@ pub(super) fn ui_fleets_panel(
     colony_query: Query<(Entity, &Colony)>,
     mut pending_actions: ResMut<PendingFleetActions>,
     mut fleet_ui_state: ResMut<FleetUiState>,
+    mut settings: ResMut<Settings>,
     sim_time: Res<SimulationTime>,
     pending_resource_requests: Res<PendingResourceRequests>,
     stockpiles: Query<(Entity, &LocalStockpile)>,
@@ -333,6 +333,16 @@ pub(super) fn ui_fleets_panel(
                 );
                 ui.separator();
                 draw_status_chip(ui, "IN TRANSIT", in_transit.to_string(), theme::RP_BLUE);
+                ui.separator();
+                ui.checkbox(
+                    &mut settings.show_freighters_in_transit,
+                    "Show freighters in transit",
+                )
+                .on_hover_text(
+                    "When off, freighter fleets are hidden from this list and the system-map \
+                     transit arcs.  Useful when auto-freight (GRA-37.a) generates a lot of \
+                     moving traffic.",
+                );
             });
 
             theme::divider(ui);
@@ -371,6 +381,7 @@ pub(super) fn ui_fleets_panel(
                                             &mut fleet_ui_state,
                                             &mut pending_actions,
                                             elapsed,
+                                            &settings,
                                         );
                                     });
 
@@ -792,6 +803,7 @@ fn render_fleet_list(
     fleet_ui_state: &mut FleetUiState,
     pending_actions: &mut PendingFleetActions,
     elapsed: f64,
+    settings: &Settings,
 ) {
     struct FEntry {
         entity: Entity,
@@ -808,6 +820,16 @@ fn render_fleet_list(
 
     let mut entries: Vec<FEntry> = fleet_query
         .iter()
+        .filter(|(_, fleet, _, maybe_maneuver, _)| {
+            // GRA-41: hide in-transit freighter fleets when the player
+            // has toggled the visibility off.  Combat / survey fleets
+            // (no `ShipClass::Freighter` ship) are unaffected.
+            if settings.show_freighters_in_transit {
+                return true;
+            }
+            let in_transit = maybe_maneuver.is_some();
+            !(in_transit && fleet.has_freighter_ship())
+        })
         .map(|(entity, fleet, maybe_orbit, maybe_maneuver, _)| {
             let in_transit = maybe_maneuver.is_some();
             let (location_text, star_name) = if let Some(orbit) = maybe_orbit {
@@ -1270,14 +1292,6 @@ fn render_fleet_name_marquee(
     }
 }
 
-/// True if the fleet contains at least one ship of `ShipClass::Freighter`.
-///
-/// Used to gate the Logistics section of the fleet panel — only freighter
-/// fleets can be assigned to `ResourceRequest`s.
-fn has_freighter_ship(fleet: &Fleet) -> bool {
-    fleet.ships.iter().any(|s| s.class == ShipClass::Freighter)
-}
-
 /// Pick the best representative source body for a request's ETA display.
 ///
 /// When the request has an explicit `source_body` we use that, otherwise we
@@ -1666,7 +1680,7 @@ fn render_fleet_detail(
     // are currently in orbit (i.e. not on a transfer).  Lists open
     // `ResourceRequest`s at the fleet's current body and exposes an
     // **Assign** button per request that queues an `AssignLogisticsRequestAction`.
-    if has_freighter_ship(fleet) {
+    if fleet.has_freighter_ship() {
         ui.separator();
         render_logistics_section(
             ui,
