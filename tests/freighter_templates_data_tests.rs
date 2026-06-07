@@ -186,8 +186,6 @@ fn template_required_tech_strings_are_non_empty() {
                 template.id
             );
         }
-            _ => {}
-        }
     }
 }
 
