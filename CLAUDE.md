@@ -87,6 +87,14 @@ All egui systems must run in `EguiPrimaryContextPass`, not `Update`:
 .add_systems(EguiPrimaryContextPass, my_egui_system)
 ```
 
+### Localized Resources
+
+Resources in Helios are **physical** — they live on a specific body and have to be moved by ship to be used elsewhere. There are three layers:
+
+- **`LocalStockpile`** is a `Component` on every body that produces, stores, or consumes resources. It is a `HashMap<ResourceType, f64>` in megatonnes; production (mining, atmospheric harvesting, food) deposits here, and consumption (maintenance, food, construction materials) deducts here. Construction draws **only** from the destination body's `LocalStockpile` — there is no system-pool fallback. When local materials are short, the construction system publishes a `ResourceRequest` and the building waits for delivery. See `src/economy/components.rs` (`LocalStockpile`) and `src/colony/systems.rs` (`process_construction_actions`).
+- **`ContextualStockpile`** is a view-scoped `Resource` that aggregates `LocalStockpile`s for the player UI. The `update_contextual_stockpile` system reads `ViewMode` and `CurrentStarSystem` and sums: in **System view**, every body in the active star system; in **Starmap view**, every body across all systems. The label (`"Sol System"` vs `"All Systems"`) is set on the resource and surfaced in the top resource bar marquee. Construction does **not** read this — it is display-only. See `src/economy/budget.rs` (`ContextualStockpile`, `update_contextual_stockpile`).
+- **Request / delivery flow.** When a body needs materials it cannot produce locally, a `ResourceRequest` is created in `PendingResourceRequests` (an ECS `Resource`). Requests have a `RequestPriority` (`Emergency` > `Construction` > `Maintenance` > `Trade`) and a `RequestState` (`Pending` → `Assigned` → `InTransit` → `Delivered`, or `Expired`). Triggers: construction that exceeds local stock, `MinimumStockpile` thresholds falling below their configured level, and life-support shortfalls (Emergency). Delivery is done by either a private `ShippingCompany` AI (see `src/economy/company.rs`) or a player-assigned Freighter fleet; `complete_deliveries` credits the destination `LocalStockpile` and unblocks the linked `ConstructionProject` when all linked requests are delivered. See `src/economy/logistics.rs`.
+
 ### Data-Driven Design
 
 - Buildings: `assets/data/buildings.ron`

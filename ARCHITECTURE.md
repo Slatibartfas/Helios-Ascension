@@ -118,6 +118,18 @@ Manages colonies, buildings, and construction.
 - `ContextualStockpile` is retained **display-only**; construction will read local `LocalStockpile` only
 - See `docs/design/LOGISTICS_NETWORK.md` for the full design specification.
 
+#### 4a. Resource Locality & Logistics (v0.4.x, shipped)
+
+Resources in Helios are physical. They live on a specific body and must be transported by ship to be used elsewhere. The model has three layers:
+
+- **`LocalStockpile`** (`src/economy/components.rs:501`) is a `Component` on every body that produces, stores, or consumes resources. It is a `HashMap<ResourceType, f64>` in megatonnes; production deposits here, consumption deducts here. Construction draws **only** from the destination body's `LocalStockpile`; if local materials are short, `process_construction_actions` (`src/colony/systems.rs:140`) publishes a `ResourceRequest` and sets `ConstructionProject::awaiting_resources = true` until delivery arrives.
+- **`ContextualStockpile`** (`src/economy/budget.rs:506`) is a view-scoped `Resource` aggregating `LocalStockpile`s for the player UI. The `update_contextual_stockpile` system reads `ViewMode` and `CurrentStarSystem` and sums: in **System view**, every body in the active star system; in **Starmap view**, every body across all systems. The label (`"Sol System"` vs `"All Systems"`) is set on the resource and surfaced in the top resource bar marquee (`src/ui/resources_bar.rs:1196`). Construction does **not** read this — it is display-only.
+- **Request / delivery flow.** When a body needs materials it cannot produce locally, a `ResourceRequest` is created in `PendingResourceRequests` (ECS `Resource`; see `src/economy/logistics.rs`). Requests carry a `RequestPriority` (`Emergency` > `Construction` > `Maintenance` > `Trade`) and a `RequestState` (`Pending` → `Assigned` → `InTransit` → `Delivered`, or `Expired`). Triggers: construction that exceeds local stock, `MinimumStockpile` thresholds falling below their configured level, and life-support shortfalls (Emergency). Delivery is performed either by a private `ShippingCompany` AI (`src/economy/company.rs`) or by a player-assigned Freighter fleet from the Fleet panel. The `complete_deliveries` system credits the destination `LocalStockpile` and unblocks the linked `ConstructionProject` when all linked requests are `Delivered`.
+
+UI surfaces: the construction panel shows "⏳ Awaiting resources" / "⏳ Waiting for freighter" badges per project (`src/ui/construction_panel.rs:1177`); the top resource bar reads the `ContextualStockpile` for the current view and switches its label between `"Sol System"` and `"All Systems"` accordingly; the Economy panel's Logistics tab lists open requests, company registry, and recent deliveries (`src/ui/economy_panel.rs:3551`).
+
+See `docs/design/LOGISTICS_NETWORK.md` for the full design specification.
+
 > See `docs/COLONIES.md` for the player-facing guide.
 
 #### 5. EconomyPlugin (`src/economy/`)

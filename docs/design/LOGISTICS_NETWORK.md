@@ -4,6 +4,19 @@ Design specification for the intra-system resource transport system (v0.4.x).
 
 Inspired by **Aurora 4X** (player-directed logistics) and **Distant Worlds 2** (private sector automation).
 
+## Status
+
+| Phase | Feature | Status | Implementation |
+|-------|---------|--------|----------------|
+| 1 | Resource locality (`LocalStockpile` per body, no system-pool fallback) | ✅ Shipped (v0.4.x) | `src/economy/components.rs`, `src/colony/systems.rs`, `src/economy/budget.rs` |
+| 1 | `ResourceRequest` + `PendingResourceRequests`; construction emits requests when local is short | ✅ Shipped (v0.4.x) | `src/economy/logistics.rs`, `src/colony/systems.rs` |
+| 1 | Construction panel shows "Waiting for freighter" / "Awaiting resources" | ✅ Shipped (v0.4.x) | `src/ui/construction_panel.rs` |
+| 2 | Fleet panel — assign a player Freighter to an open request | 🟡 In Progress (GRA-33) | `src/ui/fleets_panel.rs` (data-layer plumbing in PR #98; UI in progress on `coder/gra-33-fleet-panel-manual-assign`) |
+| 3 | Private `ShippingCompany` AI + payment + buy-ship loop | ✅ Shipped (v0.4.x) | `src/economy/company.rs` |
+| 4 | `MinimumStockpile` per colony + default Life Support thresholds + per-tick system | ✅ Shipped (v0.4.x) | `src/economy/logistics.rs` |
+
+The doc below describes the design that was implemented. Section §[Resource Locality](#resource-locality) and §[Implementation Roadmap](#implementation-roadmap) mark which items are now in production.
+
 ---
 
 ## Table of Contents
@@ -16,7 +29,7 @@ Inspired by **Aurora 4X** (player-directed logistics) and **Distant Worlds 2** (
 6. [Minimum Stockpile Settings](#minimum-stockpile-settings)
 7. [UI Design](#ui-design)
 8. [Implementation Roadmap](#implementation-roadmap)
-9. [Data Structures (Planned)](#data-structures-planned)
+9. [Data Structures](#data-structures)
 
 ---
 
@@ -38,13 +51,11 @@ Inspired by **Aurora 4X** (player-directed logistics) and **Distant Worlds 2** (
 
 Resources are pooled **system-wide** in a `ContextualStockpile`.  Construction on any body draws from any other body in the same system without requiring physical transport.  Only interstellar supply requires a Freighter fleet.
 
-### Planned state (v0.4+)
+### Current state (v0.4+ — Shipped)
 
-Each body (planet, moon, asteroid, station) has its own **local stockpile** (`LocalStockpile` component).  Resources are **physically located** on a specific body and must be carried by a ship to be used elsewhere.
+Each body (planet, moon, asteroid, station) has its own **local stockpile** (`LocalStockpile` component in `src/economy/components.rs`).  Resources are **physically located** on a specific body and must be carried by a ship to be used elsewhere.  Construction draws **only** from the destination body's `LocalStockpile`; when local materials are short the construction system publishes a `ResourceRequest` and the project is set to `awaiting_resources` until delivery arrives.
 
-**Aggregated display is retained**: the Economy panel and resource bar still show *system-wide totals* so the player can see the big picture.  Individual body stockpiles are visible in the Survey / dossier panel.
-
-> **Note:** The `ContextualStockpile` aggregation (used for display) already exists in the codebase.  The change is to **stop using it as a construction input** — construction will draw from the destination body's local stockpile only.
+**Aggregated display is retained**: the `ContextualStockpile` resource (built every frame by `update_contextual_stockpile` in `src/economy/budget.rs`) sums stockpiles for the current view scope — bodies in the active star system when in **System view**, every body across all systems when in **Starmap view** — and is used by the top resource bar and the Economy panel.  Construction does **not** read this resource; it is display-only.
 
 ---
 
@@ -61,34 +72,46 @@ Whenever a body needs resources it cannot produce locally, it **publishes a reso
 | Minimum stockpile below threshold | Replenishment run to reach the configured minimum |
 | Life support shortfall | Emergency O₂ or Water resupply |
 
-### Request fields (planned)
+### Request fields (shipped)
 
 ```rust
 struct ResourceRequest {
+    id: u64,
     destination_body: Entity,       // where resources should go
+    destination_name: String,       // for UI display
     resource: ResourceType,
     amount_mt: f64,                 // megatonnes requested
     priority: RequestPriority,      // Emergency > Construction > Maintenance > Trade
-    expires_at: Option<f64>,        // SimulationTime; None = persistent
-    fulfilled_by: Option<Entity>,   // fleet or company assigned
+    state: RequestState,            // lifecycle (see below)
+    in_transit_mt: f64,             // ≤ amount_mt
+    eta_seconds: Option<f64>,       // SimulationTime arrival
+    assigned_company_idx: Option<usize>,
+    created_at_seconds: f64,
+    source_body: Option<Entity>,
+    linked_project: Option<Entity>, // ConstructionProject blocked on this request
+    payment_made: bool,
+    completed_at_seconds: Option<f64>,
 }
 
-enum RequestPriority {
-    Emergency,      // life support failure — highest price paid
-    Construction,   // building queue blocked
-    Maintenance,    // minimum stockpile below threshold
-    Trade,          // profitable surplus/deficit balancing
-}
+enum RequestPriority { Trade, Maintenance, Construction, Emergency }
+enum RequestState    { Pending, Assigned, InTransit, Delivered, Expired }
 ```
+
+Full type lives in `src/economy/logistics.rs`; the live collection is the
+`PendingResourceRequests` ECS `Resource` (initialised in `src/colony/systems.rs`).
 
 ### Request lifecycle
 
 ```
-Created → Pending → Assigned → In-Transit → Delivered → Closed
+Created → Pending → Assigned → InTransit → Delivered
                  ↘ Expired (if ship never assigned in time)
 ```
 
-Open requests are visible in the **Logistics panel** (planned) and can be manually assigned to player fleets.
+State transitions are driven by the `ShippingCompany` AI (`src/economy/company.rs`)
+for automated fulfilment and by the Fleet panel (manual assignment) for player
+freighters.  The `complete_deliveries` system credits the destination
+`LocalStockpile` on arrival and unblocks the linked `ConstructionProject` when
+all linked requests are `Delivered`.
 
 ---
 
@@ -207,51 +230,81 @@ The top resource bar continues to show **system-wide aggregates** for at-a-glanc
 
 ## Implementation Roadmap
 
-### Phase 1 — Resource locality (v0.4.2)
-- [ ] Stop construction from reading `ContextualStockpile`; read destination body `LocalStockpile` only
-- [ ] Create `ResourceRequest` component and `PendingResourceRequests` resource
-- [ ] Generate construction requests when a building is queued and resources aren't locally available
-- [ ] Show open requests in construction panel ("Waiting for: Iron 500 Mt")
+### Phase 1 — Resource locality (v0.4.2) ✅ Shipped
+- [x] Stop construction from reading `ContextualStockpile`; read destination body `LocalStockpile` only
+- [x] Create `ResourceRequest` component and `PendingResourceRequests` resource
+- [x] Generate construction requests when a building is queued and resources aren't locally available
+- [x] Show open requests in construction panel ("Waiting for: Iron 500 Mt")
 
-### Phase 2 — Player-directed transport (v0.4.3)
+### Phase 2 — Player-directed transport (v0.4.3) 🟡 In Progress (GRA-33)
 - [ ] Fleet panel lists open resource requests at each body
 - [ ] Assign a Freighter fleet to a request from the Fleet panel
 - [ ] Fleet arrival auto-delivers cargo and closes the request
 
-### Phase 3 — Private shipping companies (v0.4.4)
-- [ ] `ShippingCompany` ECS resource (Vec of companies)
-- [ ] AI tick: scan requests → assign nearest freighter → execute transfer
-- [ ] Payment system: deduct from `GlobalBudget`, add to company treasury
-- [ ] Company fleet expansion: buy ships at shipyards when treasury threshold met
-- [ ] UI: company registry in Logistics panel, fleet icons on starmap
+> Tracking issue: [GRA-33](https://paperclip/GRA/issues/GRA-33). The Coder owns this; the data-layer plumbing (assignee_fleet_id on `ResourceRequest`, `process_fleet_logistics_assignments` system) was prototyped in [PR #98](https://github.com/Slatibartfas/Helios-Ascension/pull/98) (closed because it was based on pre-merge main) and needs a fresh branch off `811e768`. UI work is in progress on `coder/gra-33-fleet-panel-manual-assign`.
 
-### Phase 4 — Minimum stockpile (v0.4.5)
-- [ ] `MinimumStockpile` component: `HashMap<ResourceType, f64>` per colony
-- [ ] System generates Maintenance requests when below threshold
-- [ ] Default minimums for Life Support resources (O₂, Water, Uranium)
-- [ ] UI in colony dossier: per-resource minimum input fields with ETA display
+### Phase 3 — Private shipping companies (v0.4.4) ✅ Shipped
+- [x] `ShippingCompany` ECS resource (Vec of companies)
+- [x] AI tick: scan requests → assign nearest freighter → execute transfer
+- [x] Payment system: deduct from `GlobalBudget`, add to company treasury
+- [x] Company fleet expansion: buy ships at shipyards when treasury threshold met
+- [x] UI: company registry in Logistics panel, fleet icons on starmap
+
+### Phase 4 — Minimum stockpile (v0.4.5) ✅ Shipped
+- [x] `MinimumStockpile` component: `HashMap<ResourceType, f64>` per colony
+- [x] System generates Maintenance requests when below threshold
+- [x] Default minimums for Life Support resources (O₂ 200 Mt, Water 100 Mt — PR #97; Uranium deferred)
+- [x] UI in construction panel: per-resource minimum input fields (`render_minimum_stockpile_editor` in `src/ui/construction_panel.rs:2473`)
 
 ---
 
-## Data Structures (Planned)
+## Data Structures
+
+The types below are the **shipped** shapes, lifted from the implementation files
+so the design doc and the code stay in lockstep.  See the `// src/...` links for
+the canonical definition.
 
 ```rust
-// economy/logistics.rs (new file)
+// src/economy/components.rs
 
-#[derive(Component, Default)]
+#[derive(Component, Debug, Clone, Serialize, Deserialize, Default)]
+pub struct LocalStockpile {
+    pub stockpiles: HashMap<ResourceType, f64>,  // Mt
+}
+
+// src/economy/budget.rs
+
+#[derive(Resource, Debug, Clone, Default)]
+pub struct ContextualStockpile {
+    pub stockpiles: HashMap<ResourceType, f64>,         // view-scoped sum
+    pub context_label: String,                         // "Sol System" / "All Systems"
+    pub active_system_id: Option<usize>,
+}
+
+// src/economy/logistics.rs
+
+#[derive(Component, Default, Clone, Debug)]
 pub struct MinimumStockpile {
     pub thresholds: HashMap<ResourceType, f64>,  // Mt
 }
 
-#[derive(Component)]
+#[derive(Debug, Clone)]
 pub struct ResourceRequest {
+    pub id: u64,
     pub destination_body: Entity,
+    pub destination_name: String,
     pub resource: ResourceType,
     pub amount_mt: f64,
     pub priority: RequestPriority,
-    pub expires_at: Option<f64>,
-    pub fulfilled_by: Option<Entity>,
+    pub state: RequestState,
     pub in_transit_mt: f64,
+    pub eta_seconds: Option<f64>,
+    pub assigned_company_idx: Option<usize>,
+    pub created_at_seconds: f64,
+    pub source_body: Option<Entity>,
+    pub linked_project: Option<Entity>,
+    pub payment_made: bool,
+    pub completed_at_seconds: Option<f64>,
 }
 
 #[derive(Default, Resource)]
@@ -259,7 +312,13 @@ pub struct PendingResourceRequests {
     pub requests: Vec<ResourceRequest>,
 }
 
-// economy/company.rs (new file)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RequestPriority { Trade, Maintenance, Construction, Emergency }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequestState { Pending, Assigned, InTransit, Delivered, Expired }
+
+// src/economy/company.rs
 
 #[derive(Resource, Default)]
 pub struct ShippingCompanies {
@@ -286,7 +345,11 @@ pub struct CompanyFreighter {
 
 - **Aurora 4X**: Manual freight assignments, player-managed supply lines
 - **Distant Worlds 2**: Private sector handles most logistics; player sets policies and minimum stocks
-- `src/economy/components.rs` — `LocalStockpile` (existing per-body stockpile)
-- `src/economy/budget.rs` — `ContextualStockpile` (existing aggregation, retained for display)
-- `src/colony/systems.rs` — `process_construction_actions` (current same-system draw, to be changed)
-- `src/fleets/orbital_mechanics.rs` — transfer physics (company ships reuse same code)
+- `src/economy/components.rs` — `LocalStockpile` (per-body stockpile)
+- `src/economy/budget.rs` — `ContextualStockpile` (view-scoped aggregate, display-only)
+- `src/economy/logistics.rs` — `ResourceRequest`, `PendingResourceRequests`, `MinimumStockpile`, request-flow systems
+- `src/economy/company.rs` — `ShippingCompany` AI, payment, fleet expansion
+- `src/colony/systems.rs` — `process_construction_actions` (emits `ResourceRequest` when local is short)
+- `src/ui/construction_panel.rs` — "Awaiting resources" / "Waiting for freighter" badges
+- `src/ui/fleets_panel.rs` — manual freighter → request assignment
+- `src/fleets/orbital_mechanics.rs` — transfer physics reused by company ships
