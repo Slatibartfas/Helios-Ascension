@@ -401,10 +401,16 @@ mod tests {
     }
 
     /// Init the resources the auto-freight system reads / mutates.
+    ///
+    /// The plugin normally handles this in `AutoFreightPlugin::build`, but
+    /// the unit tests run the system directly against a bare-bones `App`,
+    /// so we have to mirror the initialization.
     fn init_econ_resources(world: &mut World) {
         world.init_resource::<PendingResourceRequests>();
         world.init_resource::<ShippingCompanies>();
         world.init_resource::<SimulationTime>();
+        world.init_resource::<AutoFreightNotificationState>();
+        world.init_resource::<Messages<FreighterNoDesignAvailable>>();
     }
 
     /// Build a `Pending` `ResourceRequest` at the given body for `Iron`.
