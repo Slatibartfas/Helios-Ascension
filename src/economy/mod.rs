@@ -10,6 +10,7 @@
 
 use bevy::prelude::*;
 
+pub mod auto_freight;
 pub mod budget;
 pub mod company;
 pub mod components;
@@ -20,6 +21,10 @@ pub mod mining;
 pub(crate) mod profiles;
 pub mod types;
 
+pub use auto_freight::{
+    auto_freight_loop, AutoFreightNotificationState, AutoFreightPlugin, CompanyAIPolicy,
+    FreighterNoDesignAvailable,
+};
 pub use budget::{
     calculate_colony_power_totals, format_currency, format_power, update_civilization_score,
     update_contextual_stockpile, update_power_grid, update_storage_capacity, ColonyPowerTotals,
@@ -102,6 +107,7 @@ impl Plugin for EconomyPlugin {
                         .after(crate::colony::sync_population_from_colony)
                         .after(crate::fleets::systems::sync_ship_instance_locations),
                 ),
-            );
+            )
+            .add_plugins(AutoFreightPlugin);
     }
 }
