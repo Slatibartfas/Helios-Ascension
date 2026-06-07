@@ -1295,6 +1295,7 @@ fn pick_eta_source_for_request(
     for (entity, ls) in stockpiles.iter() {
         let amt = ls.get(&request.resource);
         if amt > 0.0 && best.is_none_or(|(_, b)| amt > b) {
+            // Strict greater-than — ties keep the first (smaller-entity) body.
             best = Some((entity, amt));
         }
     }
