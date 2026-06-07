@@ -1,0 +1,100 @@
+// === GRA-40: Freighter template definitions (LGD) ===
+// Aurora-4X-style same-base-ship-better-cargo-per-tech-level progression.
+// RON-driven, modder-first. See docs/design/SHIP_TEMPLATES.md.
+//
+// Loader rules (enforced by the Coder's load-time validation in
+// tests/freighter_templates_data_tests.rs):
+//   1. base_hull must reference a valid id in ship_hulls.ron.
+//   2. Each cargo_slots[].hull_slot_id must exist in the base hull's
+//      slot_layout and have category: CargoStorage. Module size must
+//      match slot size (Medium slot -> Medium module, Large slot ->
+//      Large module).
+//   3. Each default_module and upgrade_path[].module must reference a
+//      valid id in ship_modules.ron with category: CargoStorage.
+//   4. Each required_tech must be a known tech id (string).
+//   5. Within a single cargo_slot, upgrade_path[].tier values are unique
+//      and ordered ascending.
+
+(
+    templates: [
+        (
+            id: "light_freighter",
+            display_name: "Light Orbital Freighter",
+            description: "Single-slot bulk hauler for short cislunar logistics. Cargo capacity is constrained by hull volume; tech upgrades do not change this template.",
+            base_hull: "freighter_frame",
+            era_tier: 1,
+            required_tech: Some("chemical_spaceframes"),
+            cargo_slots: [
+                (
+                    hull_slot_id: "cargo_a",
+                    default_module: "cargo_pod_medium",
+                    upgrade_path: [],
+                ),
+                (
+                    hull_slot_id: "cargo_b",
+                    default_module: "cargo_pod_medium",
+                    upgrade_path: [],
+                ),
+            ],
+            tags: ["logistics", "freighter", "early"],
+        ),
+        (
+            id: "standard_freighter",
+            display_name: "Standard Orbital Freighter",
+            description: "Two-slot medium freighter whose second cargo slot accepts Mk2 reinforcement once the CargoHold Mk2 research line completes.",
+            base_hull: "freighter_frame",
+            era_tier: 2,
+            required_tech: Some("orbital_construction"),
+            cargo_slots: [
+                (
+                    hull_slot_id: "cargo_a",
+                    default_module: "cargo_pod_medium",
+                    upgrade_path: [],
+                ),
+                (
+                    hull_slot_id: "cargo_b",
+                    default_module: "cargo_pod_medium",
+                    upgrade_path: [
+                        (tier: 2, module: "cargo_pod_mk2_medium", required_tech: "cargo_hold_mk2"),
+                    ],
+                ),
+            ],
+            tags: ["logistics", "freighter", "mid-game"],
+        ),
+        (
+            id: "heavy_freighter",
+            display_name: "Heavy Industrial Freighter",
+            description: "Three-slot bulk freighter built on a CNT-framed hull: two large bays and one medium bay. Mk2 and Mk3 slot upgrades compound on top of the larger footprint; full upgrade requires the CargoHold Mk3 research line.",
+            base_hull: "bulk_cargo_frame",
+            era_tier: 3,
+            required_tech: Some("carbon_nanotube_frames"),
+            cargo_slots: [
+                (
+                    hull_slot_id: "cargo_a",
+                    default_module: "cargo_bay_large",
+                    upgrade_path: [
+                        (tier: 2, module: "cargo_bay_mk2_large", required_tech: "cargo_hold_mk2"),
+                        (tier: 3, module: "cargo_bay_mk3_large", required_tech: "cargo_hold_mk3"),
+                    ],
+                ),
+                (
+                    hull_slot_id: "cargo_b",
+                    default_module: "cargo_bay_large",
+                    upgrade_path: [
+                        (tier: 2, module: "cargo_bay_mk2_large", required_tech: "cargo_hold_mk2"),
+                        (tier: 3, module: "cargo_bay_mk3_large", required_tech: "cargo_hold_mk3"),
+                    ],
+                ),
+                (
+                    hull_slot_id: "cargo_c",
+                    default_module: "cargo_pod_medium",
+                    upgrade_path: [
+                        (tier: 2, module: "cargo_pod_mk2_medium", required_tech: "cargo_hold_mk2"),
+                        (tier: 3, module: "cargo_pod_mk3_medium", required_tech: "cargo_hold_mk3"),
+                    ],
+                ),
+            ],
+            tags: ["logistics", "freighter", "bulk", "late-game", "cnt"],
+        ),
+    ],
+)
