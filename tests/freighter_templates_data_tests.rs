@@ -48,6 +48,18 @@ fn build_app_with_templates_loaded() -> App {
         .insert_resource(SimulationTime::new())
         .add_plugins(ResearchPlugin)
         .add_plugins(ShipbuildingPlugin);
+    // Sanity check: the loader resolves RON files relative to the test
+    // process's cwd, which is the package root for `cargo test`.  If this
+    // fails the RON path is wrong and every loader assertion below will
+    // silently return empty.  Bail loudly with the resolved path so the
+    // CI log points at the real cause.
+    let freighter_path = std::path::Path::new("assets/data/freighter_templates.ron");
+    assert!(
+        freighter_path.exists(),
+        "freighter_templates.ron missing at {} (cwd = {:?})",
+        freighter_path.display(),
+        std::env::current_dir().ok(),
+    );
     // Run one frame so Startup systems fire (load_shipbuilding_data,
     // load_freighter_templates, migrate_legacy_freighters) and the Update
     // chain ticks once.
