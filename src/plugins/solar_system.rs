@@ -1930,13 +1930,14 @@ pub fn initialize_colony_stockpiles(
             ])
         };
 
-        // Default minimum stockpile thresholds — conservative values for
-        // critical life-support resources so freighters keep the colony topped up.
+        // Default minimum stockpile thresholds — Life Support minimums as
+        // confirmed by operator (GRA-31 design interaction): O₂=200 Mt, Water=100 Mt.
         let mut minimum = MinimumStockpile::default();
         if colony.name != "Earth" {
             // Outposts need steady resupply of core consumables.
+            minimum.set(ResourceType::Oxygen, 200.0);
+            minimum.set(ResourceType::Water, 100.0);
             minimum.set(ResourceType::Food, 5_000.0);
-            minimum.set(ResourceType::Water, 2.0);
         }
 
         commands.entity(entity).insert(stockpile);

@@ -158,7 +158,6 @@ pub fn process_construction_actions(
     mut colonies: Query<&mut Colony>,
     buildings_data: Option<Res<BuildingsData>>,
     debug_settings: Res<ConstructionDebugSettings>,
-    colony_sys_query: Query<Option<&crate::astronomy::components::SystemId>>,
     mut local_stockpile_query: Query<(
         Entity,
         Option<&crate::astronomy::components::SystemId>,
@@ -212,15 +211,18 @@ pub fn process_construction_actions(
                             }
                         }
                     } else {
-                        // Determine which resources are missing from the colony's local stockpile
-                        // and which can be covered by the same-system pool.
-                        let sys_id = colony_sys_query
+                        // Local stockpile cannot pay — create resource requests for the
+                        // shortfall.  Resources are physical and live on the destination
+                        // body; they must be transported by freighter before construction
+                        // can advance.  This is the Aurora-4X local model: no system-pool
+                        // fallback that lets a colony draw from other bodies directly.
+                        let colony_name = colonies
                             .get(colony_entity)
-                            .ok()
-                            .flatten()
-                            .map(|s| s.0);
+                            .map(|c| c.name.clone())
+                            .unwrap_or_else(|_| format!("{colony_entity:?}"));
 
-                        // Get current local stockpile for the colony.
+                        // Get current local stockpile for the colony (used to credit
+                        // already-present resources toward the cost).
                         let colony_local: std::collections::HashMap<ResourceType, f64> =
                             local_stockpile_query
                                 .get(colony_entity)
@@ -229,102 +231,59 @@ pub fn process_construction_actions(
                                 })
                                 .unwrap_or_default();
 
-                        // Sum the available resources across the same system (for pool check).
-                        let mut system_available: std::collections::HashMap<ResourceType, f64> =
-                            std::collections::HashMap::new();
-                        for (_, sid_opt, ls) in local_stockpile_query.iter() {
-                            let body_sys = sid_opt.map(|s| s.0);
-                            if sys_id.is_none() || body_sys == sys_id {
-                                for (rt, &amt) in &ls.stockpiles {
-                                    *system_available.entry(*rt).or_insert(0.0) += amt;
-                                }
+                        // Generate one request per missing resource type.
+                        // `costs_typed` contains the *full* cost; we request the full
+                        // amount so that construction can proceed once everything arrives.
+                        for (rt, full_cost) in &costs_typed {
+                            if *full_cost <= 0.0 {
+                                continue;
+                            }
+                            // Only add a request if there isn't one already for this colony+resource.
+                            if resource_requests.has_open_request_for(colony_entity, *rt) {
+                                awaiting = true;
+                                continue;
+                            }
+
+                            // Credit the colony's existing local stock toward the cost;
+                            // only request the remainder that truly needs to be delivered.
+                            let already_local: f64 =
+                                colony_local.get(rt).copied().unwrap_or(0.0);
+                            let need_delivered = (*full_cost - already_local).max(0.0);
+
+                            if need_delivered > 0.0 {
+                                let req_id = resource_requests.add(ResourceRequest {
+                                    id: 0,
+                                    destination_body: colony_entity,
+                                    destination_name: colony_name.clone(),
+                                    resource: *rt,
+                                    amount_mt: need_delivered,
+                                    priority: RequestPriority::Construction,
+                                    state: RequestState::Pending,
+                                    in_transit_mt: 0.0,
+                                    eta_seconds: None,
+                                    assigned_company_idx: None,
+                                    created_at_seconds: now,
+                                    source_body: None,
+                                    linked_project: None, // filled in after project spawn
+                                    payment_made: false,
+                                    completed_at_seconds: None,
+                                });
+                                blocking_request_ids.push(req_id);
+                                awaiting = true;
+
+                                warn!(
+                                    "Construction '{}' at {}: {:?} {:.1} Mt not available locally — requesting delivery",
+                                    building_type.display_name(),
+                                    colony_name,
+                                    rt,
+                                    need_delivered
+                                );
                             }
                         }
 
-                        let can_pay_system = costs_typed.iter().all(|(rt, need)| {
-                            system_available.get(rt).copied().unwrap_or(0.0) >= *need
-                        });
-
-                        if can_pay_system {
-                            // Draw from system pool (current behaviour preserved).
-                            let mut remaining: std::collections::HashMap<ResourceType, f64> =
-                                costs_typed.iter().cloned().collect();
-                            for (_, sid_opt, mut ls) in local_stockpile_query.iter_mut() {
-                                let body_sys = sid_opt.map(|s| s.0);
-                                if sys_id.is_none() || body_sys == sys_id {
-                                    for (rt, need) in remaining.iter_mut() {
-                                        if *need > 0.0 {
-                                            let taken = ls.consume(*rt, *need);
-                                            *need -= taken;
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            // Resources not fully available in the system.
-                            // Do NOT partially deduct from the system pool — that would leave
-                            // stockpiles inconsistent while the project waits for delivery.
-                            // Instead, request the full cost and let the delivery system add
-                            // resources to the local stockpile before construction advances.
-                            let colony_name = colonies
-                                .get(colony_entity)
-                                .map(|c| c.name.clone())
-                                .unwrap_or_else(|_| format!("{colony_entity:?}"));
-
-                            // Generate one request per missing resource type.
-                            // `costs_typed` contains the *full* cost; we request the full
-                            // amount so that construction can proceed once everything arrives.
-                            for (rt, full_cost) in &costs_typed {
-                                if *full_cost <= 0.0 {
-                                    continue;
-                                }
-                                // Only add a request if there isn't one already for this colony+resource.
-                                if resource_requests.has_open_request_for(colony_entity, *rt) {
-                                    awaiting = true;
-                                    continue;
-                                }
-
-                                // Credit the colony's existing local stock toward the cost;
-                                // only request the remainder that truly needs to be delivered.
-                                let already_local: f64 =
-                                    colony_local.get(rt).copied().unwrap_or(0.0);
-                                let need_delivered = (*full_cost - already_local).max(0.0);
-
-                                if need_delivered > 0.0 {
-                                    let req_id = resource_requests.add(ResourceRequest {
-                                        id: 0,
-                                        destination_body: colony_entity,
-                                        destination_name: colony_name.clone(),
-                                        resource: *rt,
-                                        amount_mt: need_delivered,
-                                        priority: RequestPriority::Construction,
-                                        state: RequestState::Pending,
-                                        in_transit_mt: 0.0,
-                                        eta_seconds: None,
-                                        assigned_company_idx: None,
-                                        created_at_seconds: now,
-                                        source_body: None,
-                                        linked_project: None, // filled in after project spawn
-                                        payment_made: false,
-                                        completed_at_seconds: None,
-                                    });
-                                    blocking_request_ids.push(req_id);
-                                    awaiting = true;
-
-                                    warn!(
-                                        "Construction '{}' at {}: {:?} {:.1} Mt not available in system — requesting delivery",
-                                        building_type.display_name(),
-                                        colony_name,
-                                        rt,
-                                        need_delivered
-                                    );
-                                }
-                            }
-
-                            // If nothing was actually missing (somehow), don't block.
-                            if blocking_request_ids.is_empty() {
-                                awaiting = false;
-                            }
+                        // If nothing was actually missing (somehow), don't block.
+                        if blocking_request_ids.is_empty() {
+                            awaiting = false;
                         }
                     }
                 }
