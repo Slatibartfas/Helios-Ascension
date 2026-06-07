@@ -71,16 +71,16 @@ This is a one-pass O(slots) sum. Cache invalidation is simple: the cache is per 
 
 ## Tech Upgrade Matrix
 
-Two new tech entries land in `assets/data/technologies.ron`:
+This design **reuses the existing `cargo_hold_mk2` and `cargo_hold_mk3` techs from `assets/data/technologies.ron`**, both already in `main` from GRA-10 (PR #80). No new tech entries are added by GRA-40; no `technologies.ron` RON pass is required.
 
-| Tech id | Name | Category | Tier | Prereqs | Unlocks |
-|---------|------|----------|------|---------|---------|
-| `cargo_hold_mk2` | Standardized Cargo Hold Mk2 | SpaceTechnology | 2 | `in_situ_resource`, `orbital_construction` | Engineering projects: `cargo_pod_mk2_medium`, `cargo_bay_mk2_large`, `cargo_armored_mk2_medium`. Slot upgrade: tier 2 on standard and heavy templates. |
-| `cargo_hold_mk3` | Heavy-Lift Cargo Hold Mk3 | SpaceTechnology | 3 | `cargo_hold_mk2`, `carbon_nanotube_frames` | Engineering projects: `cargo_pod_mk3_medium`, `cargo_bay_mk3_large`, `cargo_armored_mk3_medium`. Slot upgrade: tier 3 on heavy template only. |
+| Tech id | Tier | Prereqs | `unlocks_engineering` (per `technologies.ron`) | Slot upgrade unlocked |
+|---------|------|---------|------------------------------------------------|----------------------|
+| `cargo_hold_mk2` | 2 | `in_situ_resource`, `orbital_construction` | `cargo_pod_mk2_medium`, `cargo_bay_mk2_large`, `cargo_armored_mk2_medium` | Tier 2 on standard and heavy templates. |
+| `cargo_hold_mk3` | 3 | `cargo_hold_mk2`, `carbon_nanotube_frames` | `cargo_pod_mk3_medium`, `cargo_bay_mk3_large`, `cargo_armored_mk3_medium` | Tier 3 on heavy template only. |
 
 The tier 2 → tier 3 progression mirrors the existing tier 1 → tier 2 hull progression (e.g. `freighter_frame` requires `chemical_spaceframes`; `cryogenic_tanker_frame` requires `orbital_construction`). Tech that already gates hull scale is the natural prerequisite for slot scale.
 
-### Engineering projects added
+### Engineering projects referenced
 
 | Project id | Display name | Size | Tier | Required tech | `cargo_capacity_t` |
 |------------|--------------|------|------|---------------|--------------------|
@@ -92,17 +92,15 @@ The tier 2 → tier 3 progression mirrors the existing tier 1 → tier 2 hull pr
 | `cargo_armored_mk2_medium` | Armored Logistics Pod Mk2 | Medium | 2 | `cargo_hold_mk2` | 65 |
 | `cargo_armored_mk3_medium` | Heavy Armored Logistics Pod Mk3 | Medium | 3 | `cargo_hold_mk3` | 130 |
 
-These seven new modules are added to `assets/data/ship_modules.ron`. They follow the existing `cargo_pod_medium` / `cargo_bay_medium` / `cargo_armored_medium` shape (same fields, same `category: CargoStorage`, same `propulsion: None`). Slot size must match module size (Medium slot ↔ Medium module, Large slot ↔ Large module) — the Coder's loader rejects mismatches at startup.
-
-### Tech description voice
-
-The two new tech entries use the same neutral, technical, slightly-dry voice as the rest of the file. No marketing fluff, no second person. Example text is in §[RON Schema](#ron-schema).
+These modules were added to `assets/data/ship_modules.ron` in GRA-10 alongside the two techs. They follow the existing `cargo_pod_medium` / `cargo_bay_medium` / `cargo_armored_medium` shape (same fields, same `category: CargoStorage`, same `propulsion: None`). Slot size must match module size (Medium slot ↔ Medium module, Large slot ↔ Large module) — the Coder's loader rejects mismatches at startup.
 
 ---
 
 ## RON Schema
 
-New file: `assets/data/freighter_templates.ron` (per the GRA-40 scope: a new file at the `assets/data/` root, not in a new subdirectory — keeps with the existing `buildings.ron` / `ship_hulls.ron` / `ship_modules.ron` convention. The `assets/data/ships/freighter_templates.ron` path mentioned in the original scope is changed here for consistency with existing file layout; the Coder should load it from `assets/data/freighter_templates.ron`).
+New file: `assets/data/freighter_templates.ron` (flat under `assets/data/`, sibling to `buildings.ron` / `ship_hulls.ron` / `ship_modules.ron`).
+
+> **Path deviation from the original GRA-40 issue scope.** The original issue description said `assets/data/ships/freighter_templates.ron`. This design moves it to `assets/data/freighter_templates.ron` (no `ships/` subdirectory) for consistency with the existing flat layout. LGD reasoning: the `assets/data/` directory has no `ships/` subfolder today — `ship_hulls.ron` and `ship_modules.ron` both live at the `assets/data/` root. Adding a subdirectory just for freighter templates would split related files across two locations and is an unnecessary deviation from the established pattern. The Coder's loader path is `assets/data/freighter_templates.ron`.
 
 ```ron
 (
@@ -202,12 +200,37 @@ New file: `assets/data/freighter_templates.ron` (per the GRA-40 scope: a new fil
 | `required_tech` | `Option<String>` | yes | Tech id (e.g. `"chemical_spaceframes"`) that must be researched before this template can be built. Matches the pattern used by hulls. |
 | `cargo_slots` | list of cargo_slot | yes | The cargo slots this template exposes. Empty list = pure tanker, no cargo capacity (e.g. `cryogenic_tanker_frame` in a future expansion). |
 | `cargo_slots[].hull_slot_id` | string | yes | Matches a `slot_id` in the base hull's `slot_layout`. Slot must have `category: CargoStorage`. |
-| `cargo_slots[].default_module` | string | yes | Module id from `ship_modules.ron` installed at tier 0 (initial build). |
+| `cargo_slots[].default_module` | string | yes | Module id from `ship_modules.ron` installed at slot.build_tier (initial build). |
 | `cargo_slots[].upgrade_path` | list of upgrade_step | yes | Ordered low-to-high tier. Empty list = no upgrades possible. |
-| `upgrade_path[].tier` | u32 | yes | 1 = default, 2 = Mk2, 3 = Mk3. Must be unique per slot. |
+| `upgrade_path[].tier` | u32 | yes | **1-indexed to match the existing hull/tech tier system.** The tier at which this upgrade is applied. `2` = Mk2, `3` = Mk3. The baseline (tier 1) is implicit in `default_module` and does not appear in `upgrade_path`. Must be unique per slot. |
 | `upgrade_path[].module` | string | yes | Module id installed at this tier. Must be a `CargoStorage` module. |
 | `upgrade_path[].required_tech` | string | yes | Tech id that gates this upgrade. Same string the technology system uses. |
 | `tags` | list of string | yes | Free-form tags. Mirror hull tags. |
+
+### Tier-index mapping (RON 1-indexed → component 0-indexed)
+
+The Coder's per-entity component stores the **current upgrade state** as `slot.upgrade_tier: u32`, **0-indexed**:
+
+| `slot.upgrade_tier` | Meaning | Module installed |
+|---------------------|---------|------------------|
+| `0` | Baseline (no upgrade applied) | `cargo_slots[].default_module` |
+| `1` | Mk2 applied | `cargo_slots[].upgrade_path[0].module` (i.e. the entry whose `tier` field equals `2`) |
+| `2` | Mk3 applied | `cargo_slots[].upgrade_path[1].module` (i.e. the entry whose `tier` field equals `3`) |
+| `N ≥ 1` | Nth upgrade applied | `cargo_slots[].upgrade_path[N - 1].module` |
+
+Lookup rule, spelled out for the Coder:
+
+```
+fn installed_module(slot: &CargoSlot, upgrade_tier: u32) -> &str {
+    if upgrade_tier == 0 {
+        &slot.default_module
+    } else {
+        &slot.upgrade_path[(upgrade_tier - 1) as usize].module
+    }
+}
+```
+
+The RON's 1-indexed `upgrade_path[].tier` field stays aligned with `hull.tier` / `tech.tier` (which are also 1-indexed throughout `ship_hulls.ron` and `technologies.ron`). The component's 0-indexed `upgrade_tier` makes the array-indexing arithmetic clean: `upgrade_path[upgrade_tier - 1]`. Resolution (a) per the editorial note in the LGD sign-off comment.
 
 ### Validation rules (load-time)
 
