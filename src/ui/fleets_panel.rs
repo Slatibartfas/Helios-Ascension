@@ -1294,7 +1294,7 @@ fn pick_eta_source_for_request(
     let mut best: Option<(Entity, f64)> = None;
     for (entity, ls) in stockpiles.iter() {
         let amt = ls.get(&request.resource);
-        if amt > 0.0 && best.map_or(true, |(_, b)| amt > b) {
+        if amt > 0.0 && best.is_none_or(|(_, b)| amt > b) {
             best = Some((entity, amt));
         }
     }
