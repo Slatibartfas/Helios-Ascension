@@ -42,6 +42,18 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: cargo test
+        # GRA-53 / PR-#112 follow-up: cap cargo at 2 parallel jobs to
+        # reduce peak memory. The `ubuntu-latest` runner SIGTERMs
+        # `cargo test --all` mid-compile at ~4–4:25 min (exit 143,
+        # variable by runner instance) — most likely OOM on a 7 GB
+        # runner pulling the workspace's Bevy 0.18 test binary
+        # through the link. Capping at 2 jobs cuts peak memory by
+        # ~half; the compile is ~2× slower (~10 min) but well under
+        # the 30-min job timeout. See GRA-61 follow-up for the
+        # long-term fix (self-hosted runner, sccache, or split test
+        # binary).
+        env:
+          CARGO_BUILD_JOBS: 2
         run: cargo test --all
 
       - name: cargo doc
