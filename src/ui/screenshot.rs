@@ -46,7 +46,9 @@ use bevy_egui::EguiContexts;
 use bevy_egui::EguiPrimaryContextPass;
 
 mod screenshot_state;
-pub use screenshot_state::{InflightCapture, PendingScreenshotAction, QueuedCapture, ScreenshotSlots};
+pub use screenshot_state::{
+    InflightCapture, PendingScreenshotAction, QueuedCapture, ScreenshotSlots,
+};
 
 // ---------------------------------------------------------------------------
 // Heavy imports — gated behind `#[cfg(not(test))]` so the test target's
