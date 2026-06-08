@@ -4232,12 +4232,12 @@ mod shipping_overview_tests {
         // Two companies, three requests, one delivered.  The build
         // helper should produce two rows whose aggregations match the
         // hand-computed expected values below.
-        let mut companies = ShippingCompanies::default();
-        // Make sure we have exactly two known companies with known state.
-        companies.companies = vec![
-            ShippingCompany::new("Helios Freight Co.", 3, 50_000.0),
-            ShippingCompany::new("Solar Carriers Ltd.", 1, 20_000.0),
-        ];
+        let mut companies = ShippingCompanies {
+            companies: vec![
+                ShippingCompany::new("Helios Freight Co.", 3, 50_000.0),
+                ShippingCompany::new("Solar Carriers Ltd.", 1, 20_000.0),
+            ],
+        };
 
         // Window: now is 100.0; window covers [100 - 60*86_400, 100].
         // Anything with created_at < (100 - WINDOW_S) is outside the window.
@@ -4331,8 +4331,9 @@ mod shipping_overview_tests {
     #[test]
     fn in_transit_count_uses_total_minus_idle() {
         // When a company has dispatched freighters, in_transit = total - idle.
-        let mut companies = ShippingCompanies::default();
-        companies.companies = vec![ShippingCompany::new("Co.", 5, 0.0)];
+        let mut companies = ShippingCompanies {
+            companies: vec![ShippingCompany::new("Co.", 5, 0.0)],
+        };
         companies.companies[0].available_freighters = 2; // 3 in transit
         let pool = PendingResourceRequests::default();
         let rows = build_shipping_overview_rows(&companies, &pool, 0.0);
@@ -4344,8 +4345,9 @@ mod shipping_overview_tests {
     fn treasury_delta_reflects_window_anchor() {
         // After rolling the window, treasury_delta = 0 again.  A new
         // delivery inside the rolled window is a non-zero delta.
-        let mut companies = ShippingCompanies::default();
-        companies.companies = vec![ShippingCompany::new("Co.", 1, 10_000.0)];
+        let mut companies = ShippingCompanies {
+            companies: vec![ShippingCompany::new("Co.", 1, 10_000.0)],
+        };
         companies.companies[0].treasury_window_start_mc = 9_000.0;
         companies.companies[0].treasury_window_start_seconds = 0.0;
         companies.companies[0].treasury_mc = 10_000.0; // +1000 in window
@@ -4358,12 +4360,13 @@ mod shipping_overview_tests {
     fn rows_sort_by_fulfillment_desc_then_name() {
         // Company A: 100% fulfillment, Company B: 0%, Company C: 50%.
         // Expected order: A, C, B.
-        let mut companies = ShippingCompanies::default();
-        companies.companies = vec![
-            ShippingCompany::new("Bravo", 1, 0.0),
-            ShippingCompany::new("Alpha", 1, 0.0),
-            ShippingCompany::new("Charlie", 1, 0.0),
-        ];
+        let mut companies = ShippingCompanies {
+            companies: vec![
+                ShippingCompany::new("Bravo", 1, 0.0),
+                ShippingCompany::new("Alpha", 1, 0.0),
+                ShippingCompany::new("Charlie", 1, 0.0),
+            ],
+        };
         let mut pool = PendingResourceRequests::default();
         let now = 100.0;
         let inside = now - 1.0;
