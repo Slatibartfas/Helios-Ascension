@@ -117,8 +117,9 @@ When you launch the game, you'll see:
 
 ### Construction Panel
 - Select a colony to manage
-- View **47 building types** across 8 categories (Infrastructure, Industry, Logistics, Power, Population, Research, Financial, Military)
+- View **51 building types** across 8 categories (Infrastructure, Industry, Logistics, Power, Population, Research, Financial, Military)
 - Each building card shows green **effect lines** (e.g. "+25M housing capacity", "+1,000 Mt/yr food") so you know exactly what you're building
+- Cards display **tier**, **synergy flags** (related buildings within range), and an **atmosphere availability** filter for cross-atmosphere buildings
 - Queue construction projects with configurable multipliers (×1 / ×5 / ×10)
 - Monitor build progress and queue
 - See `docs/COLONIES.md` for the full building reference
@@ -171,18 +172,22 @@ When you're ready to expand beyond Earth:
    - Gas giants and bodies with gravity > 3 g cannot be colonised.
    - Harsh worlds show an amber ⚠ warning — still colonisable, but expensive to maintain.
 3. Review the **starter package** (Life Support, Housing Complex, Fission Reactors, Agri Domes) and the **per-person running costs** (water, and oxygen on airless worlds).
-4. **Before clicking** — make sure the system stockpile has enough Iron, Silicates, and Uranium to build the starter buildings.  Resources pool across all bodies in the same star system.
-5. Click **Establish Outpost**.  The starter buildings are queued and will begin building as soon as materials are available.
+4. **Before clicking** — make sure the **destination body** has the required materials in its local stockpile. New colonies start with **zero local stockpile**, even on resources that exist elsewhere in the system. Resources are **per-body**; the Economy panel shows system-wide totals for visibility, but construction draws locally.
+5. Click **Establish Outpost**. If materials are missing, the game creates **resource requests** at the new colony. You can:
+   - **Manually assign a Freighter fleet** to deliver them from the **Fleet** panel.
+   - **Wait for a private shipping company** to pick them up automatically (it will charge your treasury per the shipping formula and dispatch its nearest available freighter).
+6. The starter buildings are queued and will begin building as soon as materials arrive.
 
-> **Tip:** Resources in any Earth system body (including Earth itself) count as one pool for Luna or Mars construction.  No explicit freight action needed within a system.
+> **Tip:** The system-wide aggregate hides the per-body split. Open the **Logistics** subpanel of the Economy panel to see per-body stockpiles, open requests, in-transit shipments, and the company registry. Default minimums on Life Support bodies (O₂ = 200 Mt, Water = 100 Mt) will auto-create Maintenance-priority requests whenever the colony dips below them.
 
-For interstellar outposts, you must first send a **Freighter** fleet carrying the required materials.  See `docs/COLONIES.md` for the full workflow.
+For interstellar outposts, you must first send a **Freighter** fleet carrying the required materials — even more so, since inter-system bodies are not in your local logistics network at all. See `docs/COLONIES.md` for the full workflow.
 
 ### Resource Management
-- Monitor your stockpiles in the Economy panel
+- Monitor your **per-body** stockpiles in the Economy panel (the system-wide aggregate is for visibility only)
 - Build mines to extract resources
 - Ensure adequate power generation
-- Maintain logistics efficiency with cargo terminals and mass drivers
+- Use **Freighter fleets** (yours or AI shipping companies) to move materials between bodies
+- Configure **minimum stockpile thresholds** per colony so companies auto-top-up your outposts
 
 ### Time Control
 - Start with 1 day/second for learning
