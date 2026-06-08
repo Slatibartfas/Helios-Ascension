@@ -45,7 +45,7 @@ use bevy_egui::egui;
 use bevy_egui::EguiContexts;
 use bevy_egui::EguiPrimaryContextPass;
 
-mod screenshot_state;
+use super::screenshot_state;
 pub use screenshot_state::{
     InflightCapture, PendingScreenshotAction, QueuedCapture, ScreenshotSlots,
 };

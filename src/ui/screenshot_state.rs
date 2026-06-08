@@ -7,6 +7,7 @@
 //! `ubuntu-latest`). The `bevy_egui` integration and the actual capture
 //! spawn live in `screenshot.rs`.
 
+use bevy::prelude::*;
 use std::collections::VecDeque;
 use std::path::PathBuf;
 
