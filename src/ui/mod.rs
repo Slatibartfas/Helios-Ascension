@@ -47,6 +47,7 @@ use dashboard::{ui_dashboard, ui_time_controls};
 use economy_panel::ui_economy_panels;
 use fleets_panel::{
     switch_anchor_on_arrival, ui_fleet_action_bar, ui_fleets_panel, ui_transfer_planner_popup,
+    ShippingCompanyFilter,
 };
 use icons::{load_menu_icons, load_research_icons, process_menu_icons, process_research_icons};
 use research_panel::ui_research_panels;
@@ -412,6 +413,7 @@ impl Plugin for UIPlugin {
             .init_resource::<SimulationTime>()
             .init_resource::<ResearchUiPreferences>()
             .init_resource::<Settings>()
+            .init_resource::<ShippingCompanyFilter>()
             .init_resource::<FleetUiState>()
             .init_resource::<ResolutionWarning>()
             .init_resource::<ExpandedLedgerGroups>()

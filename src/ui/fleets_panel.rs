@@ -9,6 +9,17 @@ use crate::economy::RequestState;
 use crate::economy::ResourceRequest;
 use crate::fleets::components::ShipInfo;
 
+/// Filter applied to the fleet list when navigating from the Private
+/// Shipping overview panel (GRA-37.e).  `None` shows every fleet
+/// (default); `Some(idx)` restricts the list to fleets currently bound
+/// to `ShippingCompanies.companies[idx]` via an `Assigned` / `InTransit`
+/// `ResourceRequest` (i.e. the freighter fleets the company is using).
+///
+/// The filter is set by clicking a row in the overview panel and cleared
+/// by the player via the "× Clear filter" chip in the fleets header.
+#[derive(Resource, Debug, Default, Clone, Copy)]
+pub struct ShippingCompanyFilter(pub Option<usize>);
+
 const SHIP_MANIFEST_ACTIONS_WIDTH: f32 = 122.0;
 const SHIP_MANIFEST_ROW_HEIGHT: f32 = 24.0;
 const SHIP_MANIFEST_INNER_PADDING_X: f32 = 8.0;
@@ -297,6 +308,8 @@ pub(super) fn ui_fleets_panel(
     pending_resource_requests: Res<PendingResourceRequests>,
     stockpiles: Query<(Entity, &LocalStockpile)>,
     coords_query: Query<&SpaceCoordinates, Without<Fleet>>,
+    shipping_companies: Res<crate::economy::ShippingCompanies>,
+    mut shipping_company_filter: ResMut<ShippingCompanyFilter>,
 ) {
     if active_menu.current != GameMenu::Fleets {
         return;
@@ -309,6 +322,24 @@ pub(super) fn ui_fleets_panel(
 
     let elapsed = sim_time.elapsed_seconds();
 
+    // Build the set of fleet entities that match the company filter
+    // (GRA-37.e click-through from the Private Shipping overview).  A
+    // fleet matches if any non-terminal `ResourceRequest` links it to the
+    // filtered company.  When the filter is `None`, the set is empty and
+    // every fleet passes through.
+    let company_filter_set: std::collections::HashSet<Entity> = match shipping_company_filter.0 {
+        Some(company_idx) => pending_resource_requests
+            .requests
+            .iter()
+            .filter(|r| {
+                r.assigned_company_idx == Some(company_idx)
+                    && matches!(r.state, RequestState::Assigned | RequestState::InTransit)
+            })
+            .filter_map(|r| r.assignee_fleet_id)
+            .collect(),
+        None => std::collections::HashSet::new(),
+    };
+
     egui::CentralPanel::default()
         .frame(theme::central_frame())
         .show(ctx, |ui| {
@@ -317,6 +348,38 @@ pub(super) fn ui_fleets_panel(
                 "FLEETS",
                 "Force composition, orbital posture, and transfer planning.",
             );
+
+            // ── Company-filter chip (GRA-37.e) ──────────────────────────────
+            if let Some(company_idx) = shipping_company_filter.0 {
+                let company_name = shipping_companies
+                    .companies
+                    .get(company_idx)
+                    .map(|c| c.name.as_str())
+                    .unwrap_or("(unknown)");
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "🔍 Filtered to company: {}  ({} fleets)",
+                            company_name,
+                            company_filter_set.len()
+                        ))
+                        .color(theme::ACCENT)
+                        .size(12.0),
+                    );
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new("× Clear").size(11.0).color(theme::RED),
+                            )
+                            .min_size(egui::vec2(64.0, 20.0)),
+                        )
+                        .clicked()
+                    {
+                        shipping_company_filter.0 = None;
+                    }
+                });
+                theme::divider(ui);
+            }
 
             // ── Top summary bar ──────────────────────────────────────────────────
             let fleet_count = fleet_query.iter().count();
@@ -382,6 +445,7 @@ pub(super) fn ui_fleets_panel(
                                             &mut pending_actions,
                                             elapsed,
                                             &settings,
+                                            &company_filter_set,
                                         );
                                     });
 
@@ -804,6 +868,7 @@ fn render_fleet_list(
     pending_actions: &mut PendingFleetActions,
     elapsed: f64,
     settings: &Settings,
+    company_filter_set: &std::collections::HashSet<Entity>,
 ) {
     struct FEntry {
         entity: Entity,
@@ -820,7 +885,12 @@ fn render_fleet_list(
 
     let mut entries: Vec<FEntry> = fleet_query
         .iter()
-        .filter(|(_, fleet, _, maybe_maneuver, _)| {
+        .filter(|(entity, fleet, _, maybe_maneuver, _)| {
+            // GRA-37.e: when the company filter is active, keep only the
+            // fleets that the filtered company is currently using.
+            if !company_filter_set.is_empty() && !company_filter_set.contains(entity) {
+                return false;
+            }
             // GRA-41: hide in-transit freighter fleets when the player
             // has toggled the visibility off.  Combat / survey fleets
             // (no `ShipClass::Freighter` ship) are unaffected.

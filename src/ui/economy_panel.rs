@@ -11,6 +11,7 @@ enum EconomyTab {
     Mining,
     PowerGrid,
     Logistics,
+    PrivateShipping,
 }
 
 impl From<u8> for EconomyTab {
@@ -22,6 +23,7 @@ impl From<u8> for EconomyTab {
             3 => EconomyTab::Mining,
             4 => EconomyTab::PowerGrid,
             5 => EconomyTab::Logistics,
+            6 => EconomyTab::PrivateShipping,
             _ => EconomyTab::Overview,
         }
     }
@@ -36,6 +38,7 @@ impl From<EconomyTab> for u8 {
             EconomyTab::Mining => 3,
             EconomyTab::PowerGrid => 4,
             EconomyTab::Logistics => 5,
+            EconomyTab::PrivateShipping => 6,
         }
     }
 }
@@ -1172,7 +1175,7 @@ fn group_has_population_or_colonies(group: &StarSystemGroup) -> bool {
 /// prepared for future expansion with stations and mining ships.
 pub(super) fn ui_economy_panels(
     mut contexts: EguiContexts,
-    active_menu: Res<ActiveMenu>,
+    mut active_menu: ResMut<ActiveMenu>,
     budget: Res<GlobalBudget>,
     contextual: Res<crate::economy::ContextualStockpile>,
     rate_tracker: Res<ResourceRateTracker>,
@@ -1193,6 +1196,8 @@ pub(super) fn ui_economy_panels(
     buildings_data: Option<Res<BuildingsData>>,
     resource_requests: Res<crate::economy::PendingResourceRequests>,
     mut shipping_companies: ResMut<crate::economy::ShippingCompanies>,
+    mut shipping_company_filter: ResMut<super::fleets_panel::ShippingCompanyFilter>,
+    settings: Res<Settings>,
 ) {
     if active_menu.current != GameMenu::Economy {
         return;
@@ -1261,6 +1266,7 @@ pub(super) fn ui_economy_panels(
                     (EconomyTab::Mining, "⛏ Mining"),
                     (EconomyTab::PowerGrid, "⚡ Power Grid"),
                     (EconomyTab::Logistics, "🚚 Logistics"),
+                    (EconomyTab::PrivateShipping, "🚢 Private Shipping"),
                 ];
                 for (tab, label) in &tabs {
                     let selected = current_tab == *tab;
@@ -1296,6 +1302,23 @@ pub(super) fn ui_economy_panels(
                 }
                 EconomyTab::Logistics => {
                     render_econ_logistics(ui, &resource_requests, &mut shipping_companies, &budget)
+                }
+                EconomyTab::PrivateShipping => {
+                    let clicked = render_shipping_overview(
+                        ui,
+                        &resource_requests,
+                        &shipping_companies,
+                        &budget,
+                        settings.show_freighters_in_transit,
+                    );
+                    if let Some(company_idx) = clicked {
+                        // AC#3 click-through: filter the Fleets panel
+                        // and switch the active menu.  Both happen in
+                        // the same frame; the Fleets panel reads the
+                        // filter on its next tick.
+                        shipping_company_filter.0 = Some(company_idx);
+                        active_menu.current = GameMenu::Fleets;
+                    }
                 }
             }
         });
@@ -3814,4 +3837,587 @@ fn render_econ_logistics(
             });
         }
     });
+}
+
+// ---- Economy Tab: Private Shipping (GRA-37.e) ---------------------------------
+
+/// Per-company aggregated row for the Private Shipping overview.
+struct ShippingOverviewRow {
+    company_idx: usize,
+    name: String,
+    policy: crate::economy::CompanyAIPolicy,
+    freighter_count: u32,
+    available_freighters: u32,
+    in_transit: u32,
+    /// Open demand in megatons, grouped by `ResourceType`.  Uses
+    /// `HashMap` because `ResourceType` derives `Hash + Eq` but not `Ord`.
+    open_demand_by_resource: std::collections::HashMap<crate::economy::ResourceType, f64>,
+    /// 0.0..=1.0 — fraction of requests created in the last `WINDOW_S` that
+    /// have transitioned to `Delivered`.  `None` when no requests were
+    /// created in the window (avoid divide-by-zero).
+    fulfillment_rate: Option<f64>,
+    /// `treasury_mc - treasury_window_start_mc` — positive = net earned,
+    /// negative = net spent.  See `ShippingCompany::maybe_roll_treasury_window`.
+    treasury_delta_mc: f64,
+}
+
+/// Length of the rolling window (seconds) for the fulfillment-rate and
+/// treasury-delta columns.  Matches the per-company treasury window.
+const SHIPPING_OVERVIEW_WINDOW_S: f64 = 60.0 * 86_400.0;
+
+fn build_shipping_overview_rows(
+    companies: &crate::economy::ShippingCompanies,
+    resource_requests: &crate::economy::PendingResourceRequests,
+    now: f64,
+) -> Vec<ShippingOverviewRow> {
+    let window_start = now - SHIPPING_OVERVIEW_WINDOW_S;
+    let mut rows: Vec<ShippingOverviewRow> = companies
+        .companies
+        .iter()
+        .enumerate()
+        .map(|(idx, c)| {
+            let in_transit = c.freighter_count.saturating_sub(c.available_freighters);
+            let mut open_demand_by_resource: std::collections::HashMap<
+                crate::economy::ResourceType,
+                f64,
+            > = Default::default();
+            for req in resource_requests.requests.iter() {
+                if req.assigned_company_idx != Some(idx) || !req.is_open() {
+                    continue;
+                }
+                *open_demand_by_resource.entry(req.resource).or_insert(0.0) += req.amount_mt;
+            }
+
+            // Fulfillment rate: of the requests created in the window
+            // targeting this company, what fraction has been delivered?
+            // Excludes `Expired` and `InTransit` — only counts outcomes.
+            let mut created_in_window = 0u32;
+            let mut delivered_in_window = 0u32;
+            for req in resource_requests.requests.iter() {
+                if req.assigned_company_idx != Some(idx) {
+                    continue;
+                }
+                if req.created_at_seconds < window_start {
+                    continue;
+                }
+                created_in_window += 1;
+                if matches!(req.state, crate::economy::RequestState::Delivered) {
+                    delivered_in_window += 1;
+                }
+            }
+            let fulfillment_rate = if created_in_window == 0 {
+                None
+            } else {
+                Some(delivered_in_window as f64 / created_in_window as f64)
+            };
+
+            let treasury_delta_mc = c.treasury_mc - c.treasury_window_start_mc;
+
+            ShippingOverviewRow {
+                company_idx: idx,
+                name: c.name.clone(),
+                policy: c.policy,
+                freighter_count: c.freighter_count,
+                available_freighters: c.available_freighters,
+                in_transit,
+                open_demand_by_resource,
+                fulfillment_rate,
+                treasury_delta_mc,
+            }
+        })
+        .collect();
+
+    // Default sort: fulfillment rate desc (None treated as 0.0 so untested
+    // companies sort to the bottom), then by name for stable presentation.
+    rows.sort_by(|a, b| {
+        let ar = a.fulfillment_rate.unwrap_or(0.0);
+        let br = b.fulfillment_rate.unwrap_or(0.0);
+        br.partial_cmp(&ar)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.name.cmp(&b.name))
+    });
+    rows
+}
+
+/// Render the Private Shipping overview (GRA-37.e) — one row per
+/// `ShippingCompany` with freighter counts, open demand by cargo, a
+/// rolling-window fulfillment rate, treasury delta, and AI policy.
+/// Clicking a company row navigates to the Fleets panel filtered to
+/// that company (sets `ShippingCompanyFilter`).
+///
+/// Returns the index of the clicked company row (if any); the caller is
+/// responsible for setting `ShippingCompanyFilter` and switching
+/// `ActiveMenu` to `Fleets` (action-queue decoupling — see
+/// `helios-architecture`).
+fn render_shipping_overview(
+    ui: &mut egui::Ui,
+    resource_requests: &crate::economy::PendingResourceRequests,
+    companies: &crate::economy::ShippingCompanies,
+    budget: &GlobalBudget,
+    show_freighters_in_transit: bool,
+) -> Option<usize> {
+    let mut clicked: Option<usize> = None;
+
+    draw_section_title(
+        ui,
+        "PRIVATE SHIPPING",
+        "Per-company freight capacity, open demand, and recent throughput. \
+         Click a row to open the Fleets panel filtered to that company.",
+    );
+    theme::divider(ui);
+
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        // ── Header chips ─────────────────────────────────────────────────────
+        let total_open_mt: f64 = resource_requests.open_requests().map(|r| r.amount_mt).sum();
+        let total_companies = companies.companies.len();
+        let total_freighters: u32 = companies.companies.iter().map(|c| c.freighter_count).sum();
+        let total_idle: u32 = companies
+            .companies
+            .iter()
+            .map(|c| c.available_freighters)
+            .sum();
+
+        ui.horizontal_wrapped(|ui| {
+            draw_status_chip(
+                ui,
+                "COMPANIES",
+                total_companies.to_string(),
+                theme::TEXT_VALUE,
+            );
+            ui.separator();
+            draw_status_chip(
+                ui,
+                "FLEETERS",
+                format!("{}/{}", total_idle, total_freighters),
+                theme::RP_BLUE,
+            );
+            ui.separator();
+            draw_status_chip(
+                ui,
+                "OPEN DEMAND",
+                format!("{:.1} Mt", total_open_mt),
+                theme::AMBER,
+            );
+            ui.separator();
+            draw_status_chip(ui, "WINDOW", "60 in-game days".to_string(), theme::TEXT_DIM);
+        });
+
+        ui.add_space(6.0);
+        let _ = budget; // budget surfaced via Logistics tab; kept for symmetry
+
+        // ── Rows ─────────────────────────────────────────────────────────────
+        if companies.companies.is_empty() {
+            ui.label(
+                egui::RichText::new("No private shipping companies active yet.")
+                    .italics()
+                    .color(theme::TEXT_DIM),
+            );
+            return;
+        }
+
+        // Use a single fixed timestamp (the latest `created_at_seconds`) for
+        // windowing.  We don't read `SimulationTime` here so this fn stays
+        // testable in isolation — the data is freshly read on each frame.
+        let now = resource_requests
+            .requests
+            .iter()
+            .map(|r| r.completed_at_seconds.unwrap_or(r.created_at_seconds))
+            .fold(0.0_f64, f64::max);
+
+        let rows = build_shipping_overview_rows(companies, resource_requests, now);
+
+        // AC#4: hide the in-transit column when the GRA-41 setting is off.
+        let num_cols = if show_freighters_in_transit { 7 } else { 6 };
+
+        theme::elevated_frame().show(ui, |ui| {
+            egui::Grid::new("shipping_overview_grid")
+                .num_columns(num_cols)
+                .striped(true)
+                .spacing([14.0, 4.0])
+                .min_col_width(60.0)
+                .show(ui, |ui| {
+                    // Header row.
+                    ui.label(egui::RichText::new("Company").strong().size(11.0));
+                    ui.label(
+                        egui::RichText::new("Fleet (idle / total)")
+                            .strong()
+                            .size(11.0),
+                    );
+                    if show_freighters_in_transit {
+                        ui.label(egui::RichText::new("In Transit").strong().size(11.0));
+                    }
+                    ui.label(egui::RichText::new("Open Demand").strong().size(11.0));
+                    ui.label(egui::RichText::new("Fulfill (60d)").strong().size(11.0));
+                    ui.label(egui::RichText::new("Δ Treasury").strong().size(11.0));
+                    ui.label(egui::RichText::new("AI").strong().size(11.0));
+                    ui.end_row();
+
+                    for row in &rows {
+                        // Company name (clickable row → click-through).
+                        let name_response = ui.add(
+                            egui::Label::new(egui::RichText::new(&row.name).size(12.0).strong())
+                                .sense(egui::Sense::click()),
+                        );
+                        if name_response.clicked() {
+                            clicked = Some(row.company_idx);
+                        }
+                        name_response.on_hover_text(format!(
+                            "Click to open the Fleets panel filtered to {}",
+                            row.name
+                        ));
+
+                        // Fleet (idle / total).
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "{} / {}",
+                                row.available_freighters, row.freighter_count
+                            ))
+                            .size(11.0),
+                        );
+
+                        // In Transit (in_transit == total - idle).  Hidden
+                        // when GRA-41 setting is off.
+                        if show_freighters_in_transit {
+                            let in_transit_text = format!("{}", row.in_transit);
+                            let in_transit_color = if row.in_transit == 0 {
+                                theme::TEXT_DIM
+                            } else {
+                                theme::GREEN
+                            };
+                            ui.label(
+                                egui::RichText::new(in_transit_text)
+                                    .size(11.0)
+                                    .color(in_transit_color),
+                            );
+                        }
+
+                        // Open Demand — flat list of (resource, mt) chips.
+                        if row.open_demand_by_resource.is_empty() {
+                            ui.label(egui::RichText::new("—").size(11.0).color(theme::TEXT_DIM));
+                        } else {
+                            let summary: String = row
+                                .open_demand_by_resource
+                                .iter()
+                                .map(|(r, mt)| format!("{} {:.1}", r.symbol(), mt))
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            ui.label(egui::RichText::new(summary).size(11.0));
+                        }
+
+                        // Fulfillment rate.
+                        let (rate_text, rate_color) = match row.fulfillment_rate {
+                            Some(r) => {
+                                let pct = (r * 100.0).round() as u32;
+                                let color = if r >= 0.9 {
+                                    theme::GREEN
+                                } else if r >= 0.5 {
+                                    theme::AMBER
+                                } else {
+                                    theme::RED
+                                };
+                                (format!("{pct}%"), color)
+                            }
+                            None => ("—".to_string(), theme::TEXT_DIM),
+                        };
+                        ui.label(egui::RichText::new(rate_text).size(11.0).color(rate_color));
+
+                        // Treasury delta (window).
+                        let delta = row.treasury_delta_mc;
+                        let (delta_text, delta_color) = if delta.abs() < 0.005 {
+                            ("0 MC".to_string(), theme::TEXT_DIM)
+                        } else if delta > 0.0 {
+                            (
+                                format!("+{} MC", format_currency_short(delta)),
+                                theme::GREEN,
+                            )
+                        } else {
+                            (format!("-{} MC", format_currency_short(-delta)), theme::RED)
+                        };
+                        ui.label(
+                            egui::RichText::new(delta_text)
+                                .size(11.0)
+                                .color(delta_color),
+                        );
+
+                        // AI policy indicator.
+                        let (icon, color) = match row.policy {
+                            crate::economy::CompanyAIPolicy::AutoFreight => {
+                                ("🤖 Auto", theme::ACCENT)
+                            }
+                            crate::economy::CompanyAIPolicy::Manual => {
+                                ("✋ Manual", theme::TEXT_DIM)
+                            }
+                        };
+                        ui.label(egui::RichText::new(icon).size(11.0).color(color));
+
+                        ui.end_row();
+                    }
+                });
+        });
+
+        ui.add_space(6.0);
+        let in_transit_hint = if show_freighters_in_transit {
+            "The \"In Transit\" column is filtered by the \"Show freighters in transit\" \
+             toggle in the Fleets panel (GRA-41) — turn it off to hide the column here too."
+        } else {
+            "The \"In Transit\" column is currently hidden (GRA-41 \"Show freighters in \
+             transit\" toggle is off in the Fleets panel)."
+        };
+        ui.label(
+            egui::RichText::new(format!("💡 {in_transit_hint}"))
+                .size(10.5)
+                .color(theme::TEXT_DIM),
+        );
+    });
+
+    clicked
+}
+
+/// Compact MC formatter for delta column (1.2K / 1.5M / 2.3B style).
+fn format_currency_short(mc: f64) -> String {
+    let abs = mc.abs();
+    if abs >= 1.0e9 {
+        format!("{:.1}B", abs / 1.0e9)
+    } else if abs >= 1.0e6 {
+        format!("{:.1}M", abs / 1.0e6)
+    } else if abs >= 1.0e3 {
+        format!("{:.1}K", abs / 1.0e3)
+    } else {
+        format!("{:.1}", abs)
+    }
+}
+
+// ── Tests (GRA-37.e acceptance) ───────────────────────────────────────────────
+
+#[cfg(test)]
+mod shipping_overview_tests {
+    use super::*;
+    use crate::economy::company::ShippingCompany;
+    use crate::economy::{
+        CompanyAIPolicy, PendingResourceRequests, RequestPriority, RequestState, ResourceRequest,
+        ResourceType, ShippingCompanies,
+    };
+    use bevy::prelude::Entity;
+
+    fn req(
+        assigned_company_idx: Option<usize>,
+        resource: ResourceType,
+        amount_mt: f64,
+        state: RequestState,
+        created_at_seconds: f64,
+        completed_at_seconds: Option<f64>,
+    ) -> ResourceRequest {
+        ResourceRequest {
+            id: 0,
+            destination_body: Entity::PLACEHOLDER,
+            destination_name: "Earth".into(),
+            resource,
+            amount_mt,
+            priority: RequestPriority::Maintenance,
+            state,
+            in_transit_mt: amount_mt,
+            eta_seconds: None,
+            assigned_company_idx,
+            created_at_seconds,
+            source_body: None,
+            linked_project: None,
+            payment_made: false,
+            completed_at_seconds,
+            assignee_fleet_id: None,
+        }
+    }
+
+    #[test]
+    fn rows_aggregate_per_company() {
+        // Two companies, three requests, one delivered.  The build
+        // helper should produce two rows whose aggregations match the
+        // hand-computed expected values below.
+        let companies = ShippingCompanies {
+            companies: vec![
+                ShippingCompany::new("Helios Freight Co.", 3, 50_000.0),
+                ShippingCompany::new("Solar Carriers Ltd.", 1, 20_000.0),
+            ],
+        };
+
+        // Window: now is 100.0; window covers [100 - 60*86_400, 100].
+        // Anything with created_at < (100 - WINDOW_S) is outside the window.
+        let now = 100.0;
+        let inside = now - 1.0;
+        let outside = now - (SHIPPING_OVERVIEW_WINDOW_S + 1.0);
+
+        let mut pool = PendingResourceRequests::default();
+        // 1 open, 1 in-transit, both for company 0 — open demand by resource
+        // should sum two resources (Food + Water) for company 0.
+        pool.requests.push(req(
+            Some(0),
+            ResourceType::Food,
+            10.0,
+            RequestState::Pending,
+            inside,
+            None,
+        ));
+        pool.requests.push(req(
+            Some(0),
+            ResourceType::Water,
+            5.0,
+            RequestState::InTransit,
+            inside,
+            None,
+        ));
+        // 1 delivered for company 0, with created_at OUTSIDE the window —
+        // it does NOT count toward the in-window fulfillment rate but
+        // its `is_open() == false` keeps it out of open demand too.
+        pool.requests.push(req(
+            Some(0),
+            ResourceType::Iron,
+            3.0,
+            RequestState::Delivered,
+            outside,
+            Some(outside + 0.5),
+        ));
+        // 1 open for company 1, but created OUTSIDE the window so it
+        // doesn't count toward fulfillment-rate denominator (and stays
+        // an "open demand" item — is_open() == true regardless of age).
+        pool.requests.push(req(
+            Some(1),
+            ResourceType::Oxygen,
+            4.0,
+            RequestState::Pending,
+            outside,
+            None,
+        ));
+
+        let rows = build_shipping_overview_rows(&companies, &pool, now);
+        assert_eq!(rows.len(), 2);
+
+        // Sort: company 0 fulfillment 0% (no created-in-window requests
+        // that were delivered — only Pending/InTransit created inside),
+        // company 1 fulfillment None.  Row 0 wins by name (Helios
+        // Freight Co. < Solar Carriers Ltd. when both rates are 0).
+        let r0 = &rows[0];
+        assert_eq!(r0.company_idx, 0);
+        assert_eq!(r0.name, "Helios Freight Co.");
+        assert_eq!(r0.freighter_count, 3);
+        assert_eq!(r0.available_freighters, 3);
+        assert_eq!(r0.in_transit, 0);
+        // Open demand: Food 10.0 + Water 5.0; the Delivered one is
+        // `is_open() == false` so excluded.
+        assert_eq!(
+            r0.open_demand_by_resource.get(&ResourceType::Food),
+            Some(&10.0)
+        );
+        assert_eq!(
+            r0.open_demand_by_resource.get(&ResourceType::Water),
+            Some(&5.0)
+        );
+        // 2 created inside the window, 0 delivered (the only Delivered
+        // was created outside the window) → 0/2 = 0.0.
+        assert_eq!(r0.fulfillment_rate, Some(0.0));
+        // Treasury delta: company 0 hasn't earned/spent (treasury unchanged).
+        assert_eq!(r0.treasury_delta_mc, 0.0);
+        assert!(matches!(r0.policy, CompanyAIPolicy::AutoFreight));
+
+        // Row 1 is company 1.
+        let r1 = &rows[1];
+        assert_eq!(r1.company_idx, 1);
+        assert_eq!(r1.freighter_count, 1);
+        assert_eq!(r1.in_transit, 0);
+        assert_eq!(
+            r1.open_demand_by_resource.get(&ResourceType::Oxygen),
+            Some(&4.0)
+        );
+        assert_eq!(r1.fulfillment_rate, None);
+        assert_eq!(r1.treasury_delta_mc, 0.0);
+    }
+
+    #[test]
+    fn in_transit_count_uses_total_minus_idle() {
+        // When a company has dispatched freighters, in_transit = total - idle.
+        let mut companies = ShippingCompanies {
+            companies: vec![ShippingCompany::new("Co.", 5, 0.0)],
+        };
+        companies.companies[0].available_freighters = 2; // 3 in transit
+        let pool = PendingResourceRequests::default();
+        let rows = build_shipping_overview_rows(&companies, &pool, 0.0);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].in_transit, 3);
+    }
+
+    #[test]
+    fn treasury_delta_reflects_window_anchor() {
+        // After rolling the window, treasury_delta = 0 again.  A new
+        // delivery inside the rolled window is a non-zero delta.
+        let mut companies = ShippingCompanies {
+            companies: vec![ShippingCompany::new("Co.", 1, 10_000.0)],
+        };
+        companies.companies[0].treasury_window_start_mc = 9_000.0;
+        companies.companies[0].treasury_window_start_seconds = 0.0;
+        companies.companies[0].treasury_mc = 10_000.0; // +1000 in window
+        let pool = PendingResourceRequests::default();
+        let rows = build_shipping_overview_rows(&companies, &pool, 100.0);
+        assert_eq!(rows[0].treasury_delta_mc, 1_000.0);
+    }
+
+    #[test]
+    fn rows_sort_by_fulfillment_desc_then_name() {
+        // Company A: 100% fulfillment, Company B: 0%, Company C: 50%.
+        // Expected order: A, C, B.
+        let companies = ShippingCompanies {
+            companies: vec![
+                ShippingCompany::new("Bravo", 1, 0.0),
+                ShippingCompany::new("Alpha", 1, 0.0),
+                ShippingCompany::new("Charlie", 1, 0.0),
+            ],
+        };
+        let mut pool = PendingResourceRequests::default();
+        let now = 100.0;
+        let inside = now - 1.0;
+        // Alpha 100%: 1 created, 1 delivered.
+        pool.requests.push(req(
+            Some(1),
+            ResourceType::Food,
+            1.0,
+            RequestState::Delivered,
+            inside,
+            Some(inside + 1.0),
+        ));
+        // Charlie 50%: 2 created, 1 delivered.
+        pool.requests.push(req(
+            Some(2),
+            ResourceType::Food,
+            1.0,
+            RequestState::Delivered,
+            inside,
+            Some(inside + 1.0),
+        ));
+        pool.requests.push(req(
+            Some(2),
+            ResourceType::Food,
+            1.0,
+            RequestState::Pending,
+            inside,
+            None,
+        ));
+        // Bravo 0%: 1 created, 0 delivered.
+        pool.requests.push(req(
+            Some(0),
+            ResourceType::Food,
+            1.0,
+            RequestState::Pending,
+            inside,
+            None,
+        ));
+        let rows = build_shipping_overview_rows(&companies, &pool, now);
+        let names: Vec<&str> = rows.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, vec!["Alpha", "Charlie", "Bravo"]);
+    }
+
+    #[test]
+    fn format_currency_short_rounds_by_magnitude() {
+        assert_eq!(format_currency_short(0.0), "0.0");
+        assert_eq!(format_currency_short(500.0), "500.0");
+        assert_eq!(format_currency_short(1_500.0), "1.5K");
+        assert_eq!(format_currency_short(2_500_000.0), "2.5M");
+        assert_eq!(format_currency_short(1.2e10), "12.0B");
+    }
 }
