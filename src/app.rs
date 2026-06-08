@@ -1,11 +1,8 @@
 //! Helios Ascension app builder.
 //!
-//! Single source of truth for the plugin order. Both `main.rs` (the live
-//! game) and `bin/screenshot.rs` (the headless capture) call
+//! Single source of truth for the plugin order. The live game
+//! (`main.rs`) and any future test / harness entry point call
 //! [`build_helios_app`] so they cannot drift apart.
-//!
-//! Custom-window behaviour (live play vs. headless capture) is layered in
-//! by the caller, not by this function.
 
 use bevy::prelude::*;
 #[cfg(target_os = "windows")]
@@ -84,9 +81,9 @@ pub fn build_helios_app() -> App {
     app
 }
 
-/// Default scene setup shared by every entry point. In the live game this
-/// creates the deep-space background; the screenshot binary relies on it
-/// so the captured frames are not pitch-black.
+/// Default scene setup shared by every entry point. The deep-space
+/// background and ambient/directional lights are visible to the
+/// `Shift+F12` screenshot path so manual captures are not pitch-black.
 pub fn setup_default_scene(mut commands: Commands, clear_color: Option<ResMut<ClearColor>>) {
     commands.insert_resource(GlobalAmbientLight {
         color: Color::srgb(0.7, 0.75, 1.0),

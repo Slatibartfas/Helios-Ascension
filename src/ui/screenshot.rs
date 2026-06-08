@@ -1,34 +1,44 @@
-//! Screenshot pipeline + headless baseline capture.
+//! Live screenshot capture (Shift+F12).
 //!
-//! Two capture surfaces, one shared write path:
+//! Pressing `Shift+F12` enqueues a capture against the current
+//! [`ScreenshotSlots`] slot, advances to the next slot (wrapping at the
+//! end), and writes the PNG to `docs/UI/baselines/manual/{slot}.png`.
 //!
-//! 1. **Live manual capture** — `Shift+F12` cycles through 5 named slots and
-//!    writes to `docs/UI/baselines/manual/{slot}.png`. Useful for transient
-//!    states the manifest cannot predict (tooltips, dropdowns, dialogs).
+//! ## Design
 //!
-//! 2. **Headless manifest capture** — `cargo run --bin screenshot --
-//!    --manifest tools/screenshot_manifest_v1.ron --out docs/UI/baselines/v1`
-//!    iterates a RON manifest of `(slot, menu, submenu_path, wait_frames)`
-//!    entries, switching the active menu between captures.
+//! * `PendingScreenshotAction` holds a FIFO queue + a single in-flight
+//!   slot. The pump runs in `Update` so it does not block the egui
+//!   pass.
+//! * `Screenshot::primary_window()` + a `save_to_disk` observer do the
+//!   actual GPU readback. The observer writes the PNG via the
+//!   `image` crate.
+//! * The capture is **manual** — a human runs the game locally, hits
+//!   `Shift+F12` while looking at the menu they care about, and
+//!   commits the resulting PNG. A previous headless bin
+//!   (`src/bin/screenshot.rs`, removed 2026-06-09) tried to drive this
+//!   from a RON manifest under `xvfb-run`, but its test target
+//!   compile footprint exceeded the runner's 30-min window. The
+//!   pipeline is unchanged; the manifest is gone.
+//! * Submenus (Construction: buildings/ships/defenses, Research: tech
+//!   tree/available/engineering, Economy: logistics/mining/resources/
+//!   ..., Fleets: list/details, etc.) do not need a separate code
+//!   path — the operator captures each one manually and names the
+//!   file accordingly. Re-introducing a manifest driver is parked.
 //!
-//! The submenu-extension baseline (GRA-60) does not require new code: it ships
-//! a second manifest (`tools/screenshot_manifest_v1.1.ron`) that reuses this
-//! pipeline unchanged.
+//! ## Why `Shift+F12`
 //!
-//! Both paths enqueue `QueuedCapture` items; the capture pump drains the queue
-//! using Bevy 0.18's `Screenshot` + `ScreenshotCaptured` observer API and
-//! writes PNGs via the `image` crate (via `save_to_disk`).
+//! F1–F11 are bound to menu switches in `src/ui/mod.rs:786-796`; bare
+//! F12 is the construction/research debug toggle in
+//! `src/ui/research_panel.rs:129` and
+//! `src/ui/construction_panel.rs:461`. `Shift+F12` is the only clean
+//! slot in that family.
 
-use bevy::app::AppExit;
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use bevy_egui::egui;
 use bevy_egui::EguiContexts;
 use bevy_egui::EguiPrimaryContextPass;
-use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-
-use crate::game_state::{ActiveMenu, GameMenu};
 
 // ---------------------------------------------------------------------------
 // Resources
@@ -36,9 +46,9 @@ use crate::game_state::{ActiveMenu, GameMenu};
 
 /// Manual capture state for the `Shift+F12` live keybind.
 ///
-/// Slots default to a sensible 5-name set; `load_slots` overrides from
-/// `assets/data/ui/screenshot_slots.ron` if present. The current slot index
-/// advances on every capture, wrapping at the end.
+/// Slot names default to a sensible 5-name set; `load_slots` overrides
+/// from `assets/data/ui/screenshot_slots.ron` if present. The current
+/// slot index advances on every capture, wrapping at the end.
 #[derive(Resource, Debug, Clone)]
 pub struct ScreenshotSlots {
     pub names: Vec<String>,
@@ -79,24 +89,12 @@ impl ScreenshotSlots {
 pub struct PendingScreenshotAction {
     pub queue: Vec<QueuedCapture>,
     pub inflight: Option<InflightCapture>,
-    /// When true, the app exits once the queue drains. Set by the
-    /// headless binary; ignored in live use.
-    pub exit_when_drained: bool,
-    /// Frames to wait *after* the queue + inflight both drain before
-    /// the app actually exits. Gives the last `Screenshot`'s observer
-    /// time to fire. Set by the headless binary.
-    pub post_drain_frames: u32,
 }
 
 #[derive(Debug, Clone)]
 pub struct QueuedCapture {
     pub slot_name: String,
-    pub menu: Option<GameMenu>,
     pub out_path: PathBuf,
-    /// Frames to wait *after* the menu switch before triggering the
-    /// capture. The egui panel needs a few frames to settle its layout.
-    pub wait_frames: u32,
-    pub frames_remaining: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -104,7 +102,8 @@ pub struct InflightCapture {
     pub slot_name: String,
     /// Frames to wait for the render-thread observer to fire. Bevy 0.18
     /// runs the readback async; 10 frames at 60 fps is comfortable on
-    /// a CI machine where the GPU readback may queue behind other work.
+    /// a desktop GPU and gives a CI readback a chance to queue behind
+    /// other work.
     pub frames_remaining: u32,
 }
 
@@ -116,39 +115,6 @@ impl PendingScreenshotAction {
     pub fn is_idle(&self) -> bool {
         self.queue.is_empty() && self.inflight.is_none()
     }
-}
-
-// ---------------------------------------------------------------------------
-// RON manifest types (used by the headless binary)
-// ---------------------------------------------------------------------------
-
-/// Top-level manifest. Loaded from `tools/screenshot_manifest_v1.ron`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ScreenshotManifest {
-    pub version: String,
-    pub out_dir: String,
-    pub entries: Vec<ManifestEntry>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ManifestEntry {
-    /// Filename (without `.png`). Becomes `docs/UI/baselines/{out_dir}/{name}.png`.
-    pub name: String,
-    /// One of the 11 `GameMenu` variants (case-insensitive). Aliases are
-    /// supported — see `parse_menu`.
-    pub menu: String,
-    /// Optional submenu path. Reserved for the v1.1 manifest (GRA-60). For
-    /// v1, leave empty — the manifest drives the top-level baseline.
-    #[serde(default)]
-    pub submenu_path: Vec<String>,
-    /// Frames to wait after switching the menu before capturing. Default 60
-    /// (1 s at 60 fps). Bump for heavier panels (Construction, Research).
-    #[serde(default = "default_wait")]
-    pub wait_frames: u32,
-}
-
-fn default_wait() -> u32 {
-    60
 }
 
 // ---------------------------------------------------------------------------
@@ -193,10 +159,7 @@ fn screenshot_keybind_system(
     let out_path = slots.out_dir.join(format!("{slot_name}.png"));
     pending.enqueue(QueuedCapture {
         slot_name,
-        menu: None, // capture whatever the current active menu is
         out_path,
-        wait_frames: 0,
-        frames_remaining: 0,
     });
     slots.advance();
 }
@@ -205,17 +168,10 @@ fn screenshot_keybind_system(
 ///
 /// State machine:
 ///   1. `inflight` is `Some` → decrement its frame counter, drop when done.
-///   2. `inflight` is `None` and `queue` has an entry → apply menu switch,
-///      wait out the requested `wait_frames`, then spawn `Screenshot` and
-///      move the entry to `inflight`.
-///   3. Both empty + `exit_when_drained` → wait `post_drain_frames` for the
-///      last observer to fire, then send `AppExit::Success`.
-fn screenshot_capture_pump(
-    mut commands: Commands,
-    mut pending: ResMut<PendingScreenshotAction>,
-    mut active_menu: ResMut<ActiveMenu>,
-    mut exit: MessageWriter<AppExit>,
-) {
+///   2. `inflight` is `None` and `queue` has an entry → spawn `Screenshot`
+///      and move the entry to `inflight`.
+///   3. Both empty → idle.
+fn screenshot_capture_pump(mut commands: Commands, mut pending: ResMut<PendingScreenshotAction>) {
     // Step 1: drain an in-flight capture.
     if let Some(mut inflight) = pending.inflight.take() {
         if inflight.frames_remaining > 0 {
@@ -227,31 +183,9 @@ fn screenshot_capture_pump(
     }
 
     // Step 2: pop the next capture.
-    let Some(mut next) = pending.queue.pop() else {
-        // Step 3: idle. If we are exiting, hold for post_drain_frames
-        // before signalling AppExit so the final Screenshot's observer
-        // has a chance to fire.
-        if pending.exit_when_drained {
-            if pending.post_drain_frames > 0 {
-                pending.post_drain_frames -= 1;
-                return;
-            }
-            info!("[screenshot] queue drained, exiting");
-            exit.write(AppExit::Success);
-        }
+    let Some(next) = pending.queue.pop() else {
         return;
     };
-
-    // Apply the menu switch up front; the wait_frames countdown lets the
-    // panel settle before we trigger the readback.
-    if let Some(menu) = next.menu {
-        active_menu.current = menu;
-    }
-    if next.frames_remaining > 0 {
-        next.frames_remaining -= 1;
-        pending.queue.push(next);
-        return;
-    }
 
     // Spawn the screenshot. The observer writes the PNG.
     let path = next.out_path.clone();
@@ -267,29 +201,6 @@ fn screenshot_capture_pump(
         slot_name: next.slot_name,
         frames_remaining: 10,
     });
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Convert a manifest's string menu name to a `GameMenu`. Returns `None` for
-/// unknown names — the manifest loader should error out on those.
-pub fn parse_menu(s: &str) -> Option<GameMenu> {
-    Some(match s.to_ascii_lowercase().as_str() {
-        "survey" => GameMenu::Survey,
-        "starmap" => GameMenu::Starmap,
-        "main" | "menu" => GameMenu::Main,
-        "construction" => GameMenu::Construction,
-        "research" => GameMenu::Research,
-        "fleets" | "fleet" => GameMenu::Fleets,
-        "shipbuilding" | "ship_design" | "ship-design" => GameMenu::Shipbuilding,
-        "economy" | "statistics" | "stats" => GameMenu::Economy,
-        "personnel" | "officers" => GameMenu::Personnel,
-        "intel" | "intelligence" => GameMenu::Intel,
-        "diplomacy" => GameMenu::Diplomacy,
-        _ => return None,
-    })
 }
 
 #[cfg(test)]
@@ -310,29 +221,15 @@ mod tests {
     }
 
     #[test]
-    fn parse_menu_handles_aliases() {
-        assert_eq!(parse_menu("shipbuilding"), Some(GameMenu::Shipbuilding));
-        assert_eq!(parse_menu("ship_design"), Some(GameMenu::Shipbuilding));
-        assert_eq!(parse_menu("SHIP_DESIGN"), Some(GameMenu::Shipbuilding));
-        assert_eq!(parse_menu("logistics"), None);
-    }
-
-    #[test]
     fn queue_drains_in_fifo_order() {
         let mut p = PendingScreenshotAction::default();
         p.enqueue(QueuedCapture {
             slot_name: "a".into(),
-            menu: None,
             out_path: "a.png".into(),
-            wait_frames: 0,
-            frames_remaining: 0,
         });
         p.enqueue(QueuedCapture {
             slot_name: "b".into(),
-            menu: None,
             out_path: "b.png".into(),
-            wait_frames: 0,
-            frames_remaining: 0,
         });
         let first = p.queue.pop().unwrap();
         assert_eq!(first.slot_name, "a");
