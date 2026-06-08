@@ -46,3 +46,10 @@ jobs:
 
       - name: cargo doc
         run: cargo doc --no-deps
+
+      - name: Audit B0001 query patterns
+        run: |
+          # Print (not gate) candidate B0001 query conflicts. See
+          # scripts/audit_b0001.py and CLAUDE.md. Set --strict to make
+          # this fail the build on any 'risk' candidates.
+          python3 scripts/audit_b0001.py src
