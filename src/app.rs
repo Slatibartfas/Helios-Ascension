@@ -87,7 +87,7 @@ pub fn build_helios_app() -> App {
 /// Default scene setup shared by every entry point. In the live game this
 /// creates the deep-space background; the screenshot binary relies on it
 /// so the captured frames are not pitch-black.
-pub fn setup_default_scene(mut commands: Commands, mut clear_color: Option<ResMut<ClearColor>>) {
+pub fn setup_default_scene(mut commands: Commands, clear_color: Option<ResMut<ClearColor>>) {
     commands.insert_resource(GlobalAmbientLight {
         color: Color::srgb(0.7, 0.75, 1.0),
         brightness: 8.0,
