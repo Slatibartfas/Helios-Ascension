@@ -1,8 +1,8 @@
 # Helios Ascension - Development Roadmap
 
-## Current Status: v0.4.0 - Building System Overhaul & Logistics
+## Current Status: v0.4.0 - Building & Logistics Overhaul ✅ SHIPPED
 
-Major refactor in progress to transform the game from simple point-to-point resource management into a deep logistics simulation with AI competition and meaningful progression.
+The building system overhaul and localized logistics network are now live. Resources are stored per-body, freighters (player and AI) carry them, and private shipping companies automate long-haul deliveries. v0.4.x follow-ups (late-game hardening, Mega/Gigaton freighters, inter-system logistics) are tracked in a new section below.
 
 ## v0.3.0: Fleet & Orbital Transfer System Complete ✅
 
@@ -10,24 +10,24 @@ The game has a fully implemented fleet management system with realistic orbital 
 
 ---
 
-## v0.4.0: Building System Overhaul & Localized Logistics (IN PROGRESS)
+## v0.4.0: Building System Overhaul & Localized Logistics ✅ COMPLETE
 
 Transform the building system to offer much more variety and player choices, with resources now stored per-body rather than globally.
 
-### 4.1 Building System Redesign
-- [ ] Expand building types for greater variety and specialization
-- [ ] Have buildings consume all resources by adding more and update the existing ones
-- [ ] Building tiers with upgrade paths
-- [ ] Unique building effects and strategic choices
-- [ ] Building synergies
-- [ ] Remove global resources — each body/ship/station has its own storage
+### 4.1 Building System Redesign ✅
+- [x] Expand building types for greater variety and specialization (now **51** building types, up from 31)
+- [x] Have buildings consume all resources by adding more and update the existing ones
+- [x] Building tiers with upgrade paths
+- [x] Unique building effects and strategic choices
+- [x] Building synergies
+- [x] Remove global resources — each body/ship/station has its own storage
 
-### 4.2 Localized Resource Storage
-- [ ] Per-body resource stockpiles (planets, moons, asteroids)
-- [ ] Per-ship resource storage (cargo capacity)
-- [ ] Per-station resource storage
-- [ ] Resource transfer mechanics between locations
-- [ ] Storage capacity limits per location
+### 4.2 Localized Resource Storage ✅
+- [x] Per-body resource stockpiles (planets, moons, asteroids)
+- [x] Per-ship resource storage (cargo capacity)
+- [x] Per-station resource storage
+- [x] Resource transfer mechanics between locations (Freighter fleets + automated shipping)
+- [x] Storage capacity limits per location
 
 ### 4.3 Logistics Network
 
@@ -35,44 +35,74 @@ Inspired by Aurora 4X (player-directed logistics) and Distant Worlds 2 (private 
 
 **Core mechanic:** Every solar system has its own logistics network.  Resources are physically located on individual bodies and must be carried by Freighter ships to be used elsewhere.  The UI shows aggregated system-wide stockpiles for visibility, but construction and consumption draw from **local stockpiles only**.
 
-**Resource requests:**
-- [ ] `ResourceRequest` component generated when construction needs materials not present locally
-- [ ] Requests generated when an outpost is founded (full starter-package materials needed at destination)
-- [ ] Priority tiers: Emergency → Construction → Maintenance → Trade
-- [ ] Requests visible in a new **Logistics** panel tab
+**Resource requests (Phase 1):** ✅
+- [x] `ResourceRequest` component generated when construction needs materials not present locally
+- [x] Requests generated when an outpost is founded (full starter-package materials needed at destination)
+- [x] Priority tiers: Emergency → Construction → Maintenance → Trade
+- [x] Requests visible in the new **Logistics** panel tab (Private Shipping overview — subpanel)
 
-**Player-directed transport (Phase 2):**
-- [ ] Fleet panel lists open resource requests at each body
-- [ ] Assign a Freighter fleet to a specific request from the Fleet panel
-- [ ] Fleet arrival auto-delivers cargo and closes the request
-- [ ] Manual control for players who prefer Aurora 4X-style micromanagement
+**Player-directed transport (Phase 2):** ✅
+- [x] Fleet panel lists open resource requests at each body
+- [x] Assign a Freighter fleet to a specific request from the Fleet panel
+- [x] Fleet arrival auto-delivers cargo and closes the request
+- [x] Manual control for players who prefer Aurora 4X-style micromanagement
 
-**Private shipping companies (Phase 3):**
-- [ ] `ShippingCompany` resource — AI-controlled freighter fleets operating autonomously
-- [ ] Companies scan open requests and assign their nearest available freighter
-- [ ] Payment: credits deducted from player treasury → credited to company
-- [ ] Payment formula: `base_rate × amount_mt × distance_au × priority_multiplier`
-- [ ] Companies reinvest profits to purchase additional ships at shipyards
-- [ ] Starting state: one company with 2–3 chemical freighters at Earth; new companies emerge as economy grows
-- [ ] Company fleet icons visible on starmap; hover to see active routes
-- [ ] Company registry in Logistics panel (name, ship count, active routes, treasury)
+**Private shipping companies (Phase 3):** ✅
+- [x] `ShippingCompany` resource — AI-controlled freighter fleets operating autonomously
+- [x] Companies scan open requests and assign their nearest available freighter
+- [x] Payment: credits deducted from player treasury → credited to company
+- [x] Payment formula: `base_rate × amount_mt × distance_au × priority_multiplier`
+- [x] Companies reinvest profits to purchase additional ships at shipyards
+- [x] Starting state: one company with 2–3 chemical freighters at Earth; new companies emerge as economy grows
+- [ ] Company fleet icons visible on starmap; hover to see active routes _(deferred — see follow-ups)_
+- [x] Company registry in Logistics panel (name, ship count, active routes, treasury)
 
-**Minimum stockpile (Phase 4):**
-- [ ] Per-colony, per-resource minimum stockpile threshold (player-configured)
-- [ ] When local stockpile drops below threshold → auto-create Maintenance-priority request
-- [ ] Freighter (player or company) dispatched to top up the colony
-- [ ] Default minimums for Life Support bodies: O₂ = 200 Mt, Water = 100 Mt
-- [ ] UI: minimum input field per resource row in colony dossier with ETA display
-- [ ] "In transit" indicator on resource bar showing amount en route
+**Minimum stockpile (Phase 4):** ✅
+- [x] Per-colony, per-resource minimum stockpile threshold (player-configurable per resource)
+- [x] When local stockpile drops below threshold → auto-create Maintenance-priority request
+- [x] Freighter (player or company) dispatched to top up the colony
+- [x] Default minimums for Life Support bodies: O₂ = 200 Mt, Water = 100 Mt (Uranium default deferred)
+- [x] UI: minimum input field per resource row in colony dossier with ETA display
+- [x] "In transit" indicator on resource bar showing amount en route
 
-See `docs/design/LOGISTICS_NETWORK.md` for the full design specification.
+See `docs/design/LOGISTICS_NETWORK.md` for the full design specification and per-phase shipped status.
 
-### 4.4 Ship & Station Designer
-- [ ] Modular ship design interface
-- [ ] Component selection (hulls, engines, cargo bays, weapons)
-- [ ] Station module builder
-- [ ] Design cost calculation
-- [ ] Ship/station naming
+### 4.4 Ship & Station Designer 🟡 PARTIAL
+- [x] Modular ship design interface (native Bevy workspace, engineering-linked component selection)
+- [x] Component selection (hulls, engines, cargo bays, weapons, sensors, life support)
+- [ ] Station module builder _(see v0.4.x follow-ups)_
+- [x] Design cost calculation
+- [x] Ship/station naming
+- [x] Freighter template system: light / mid / heavy freighter hulls with cargo-bay-derived capacity
+- [x] Legacy `standard_freighter` migration shim to the new template system
+
+---
+
+## v0.4.x — Late-Game Logistics Follow-ups 🆕
+
+The 0.4.0 release shipped a workable end-to-end logistics loop, but it is **MVP for early-to-mid game**. Late-game players will hit scaling, capacity, and missing-mechanic limits. Tracked as 0.4.x patches (small Rust delta, mostly RON + UI), to be sequenced into 0.5:
+
+- [ ] **Inter-system logistics** — current design is intra-system only; no market, no shared pool, no convoy routes between stars
+- [ ] **Shipping-capacity market** — no auction, dynamic pricing, or capacity reservation; one-company scenario doesn't exercise competing bidders
+- [ ] **Mega / Gigaton freighter hulls** — design accepted (`docs/design/MEGA_GIGATON_FREIGHTER_TIERS.md`); Rust delta = one additive `SlotSize::XLarge` variant, parked for 0.4.2+
+- [ ] **Logistics network congestion / routing** — no traffic awareness, no lane capacity, no priority preemption
+- [ ] **Outpost `ResourceRequest` auto-generation at founding** — review whether the current implementation is fully wired (the spec says yes, but the per-building `ResourceRequest` trigger path is not yet end-to-end tested)
+- [ ] **Uranium default minimum for fission colonies** — deferred from 0.4 Phase 4
+- [ ] **Company fleet icons on starmap** — deferred from 0.4 Phase 3
+- [ ] **Save/load** — not yet implemented; would expose logistics state to the persistence layer
+- [ ] **Logistics panel as a top-level tab** — currently surfaced as a subpanel of the Economy panel
+- [ ] **`predict_build_effect` cost model rework** — hardcoded food rates caught at the 0.4 boundary; separate LGD schema refactor
+
+### Open questions for LGD (logistics depth vs game pacing)
+
+These were surfaced during the 0.4 review and need design input before they land in code:
+
+1. Should private shipping companies be **opt-in** (default off) or **opt-out** (default on, balanced by treasury pressure)?
+2. At what **empire size** (colony count or annual resource throughput) should the **Mega / Gigaton** hulls become available?
+3. Do we want **bidding wars** between companies, or is **first-come-first-served** good enough for 0.4.x?
+4. Is **inter-system logistics** a 0.4.x patch or a 0.5+ feature that informs the Exploration milestone?
+
+See `helios-lgd/docs/design/` for the working design notes.
 
 ---
 
@@ -263,40 +293,50 @@ Progression-locked tech tree aligned with exploration milestones.
   - Background music playlist (CC-BY, Scott Buckley)
   - Atmospheric scattering shader (Rayleigh + Mie)
 
-- **v0.4.0** - Building & Logistics Overhaul (IN PROGRESS)
-  - Building system redesign with more variety
-  - Per-body/ship/station resource storage (no more global resources)
-  - AI logistics ships from private companies
-  - Ship and station designer
+- **v0.4.0** - Building & Logistics Overhaul ✅ COMPLETE
+  - 51 building types (was 31) with 4–6-resource maintenance, tiers, and synergies
+  - Per-body resource stockpiles (planets, moons, asteroids, ships, stations)
+  - Resource request system (Emergency → Construction → Maintenance → Trade priorities)
+  - Player-directed freight (assign a Freighter fleet to a request from the Fleet panel)
+  - Private shipping companies — AI freighters, treasury → company credit, auto-reinvest
+  - Per-colony minimum stockpile editor (default O₂ = 200 Mt, Water = 100 Mt for Life Support bodies)
+  - In-transit resource indicator on the resource bar
+  - Atmosphere-availability field on cross-atmosphere buildings
+  - Construction panel rebuild — yield chip, depletion timeline, redesigned cards
+  - Native Bevy shipbuilding workspace (hulls, modules, engineering-linked components, construction queueing, archive)
+  - Freighter template system (light / mid / heavy) + legacy `standard_freighter` migration shim
+  - Company freighter construction (companies build their own freighters at shipyards)
+  - Private shipping overview subpanel + in-transit freighter filter in Fleet panel
+  - 0.4.x follow-ups (late-game logistics hardening) tracked above
 
-- **v0.5.0** - Exploration & Progression ✅ NEXT
+- **v0.5.0** - Exploration & Progression (NEXT)
   - Survey system rework (progressive discovery)
   - Personnel system (scientists, generals, governors)
   - Sequential expansion (probes → rovers → stations → bases)
   - Notification and event system
 
-- **v0.6.0** - AI Competition ✅
+- **v0.6.0** - AI Competition
   - AI factions with distinct behaviors
   - Competition for resources and territory
   - Diplomatic system
 
-- **v0.7.0** - Financial System ✅
+- **v0.7.0** - Financial System
   - Corporate budget management
   - Trade economy with markets
   - Taxation and revenue
 
-- **v0.8.0** - Technology Rework ✅
+- **v0.8.0** - Technology Rework
   - Progression-locked tech tree
   - Exploration milestones unlock tech
   - New personnel roles
 
-- **v0.9.0** - Balance & Polish ✅
+- **v0.9.0** - Balance & Polish
   - Game balance (mining, research, economy)
   - UI/UX improvements
   - Audio completion
   - Performance optimization
 
-- **v1.0.0** - Release ✅
+- **v1.0.0** - Release
   - Feature complete
   - Balanced gameplay
   - Full documentation
@@ -309,14 +349,14 @@ Progression-locked tech tree aligned with exploration milestones.
 Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute to the project.
 
 Priority areas for contribution:
-1. Building system redesign
-2. Logistics and AI freighters
-3. Personnel system
-4. UI/UX design
-5. Game balance
+1. Late-game logistics hardening (inter-system, market, Mega/Gigaton hulls)
+2. Personnel system
+3. UI/UX design
+4. Game balance
+5. Save/load system
 
 ---
 
 *This roadmap is subject to change based on development priorities.*
 
-Last Updated: 2026-03-06
+Last Updated: 2026-06-08

@@ -1,29 +1,40 @@
 # Helios-Ascension
 A 4X grand strategy game with realistic orbital mechanics and a big focus on resource management, logistics and research. Climb the Kardashev scale starting at 0.7 and expand your civilization across the stars!
 
-## Current Status: v0.3.0 - Fleet & Orbital Transfer System Implemented ✨
+## Current Status: v0.4.0 - Building & Logistics Overhaul ✨
 
-The game now has fully functional colony management, economy, research, interstellar navigation, and a complete fleet movement system with realistic orbital mechanics!
+The building system has been reworked to 2026-world-production scale, resources are now stored **per body** (no more global pool), freighters and private shipping companies carry materials between colonies, and you can build modular ships in the native Bevy shipbuilding workspace. Late-game logistics hardening is in flight as 0.4.x patches (see `ROADMAP.md`).
 
 ## Features
 
 ### Core Game Systems
 
 - **Colony Management**: Establish and manage colonies across the solar system
-  - **47 building types** across 8 categories (Infrastructure, Industry, Logistics, Power, Population, Research, Financial, Military)
-  - Each building has meaningful civilisation-scale output (e.g. Housing Complex = 25M residents, Farm = 1,000 Mt/yr food for ~10M people)
+  - **51 building types** across 8 categories (Infrastructure, Industry, Logistics, Power, Population, Research, Financial, Military)
+  - Each building has meaningful civilisation-scale output (e.g. Housing Complex = 25M residents, Farm = 1,000 Mt/yr food for ~10M people) — calibrated so a single Earth building ≈ the 2026 world production total for its dominant resource
+  - **Building tiers with upgrade paths**, **synergies** between related buildings, and **atmosphere-availability** filtering for cross-atmosphere buildings
   - Construction cards show green effect lines so players know exactly what each building does
   - Construction queue system with resource costs and build times
   - Workforce allocation and efficiency management
   - Population growth and housing systems
-  - Building maintenance and operating costs
+  - Building maintenance and operating costs (4–6 distinct resources per building, audited)
 
 - **Economy & Resources**: Deep resource management with real scarcity
   - **37 resource types**: Volatiles, gases, construction materials, precious metals, fissiles, and specialty materials
+  - **Per-body resource stockpiles** — every colonised body, ship, and station has its own local stockpile; the UI shows aggregated system-wide totals for visibility, but construction and consumption draw locally
   - Mining operations to extract resources from celestial bodies
-  - Resource stockpiles, production rates, and consumption tracking
-  - Global budget management with income and expenses
+  - **Resource request system** with priority tiers (Emergency → Construction → Maintenance → Trade)
+  - **Per-colony minimum stockpile editor** with in-transit ETA — defaults O₂ = 200 Mt, Water = 100 Mt on Life Support bodies
+  - Treasury management with income and expenses
   - Energy grid with power generation (solar, fission, fusion) and distribution
+
+- **Logistics & Shipping**: Move materials between bodies
+  - **Player-directed freight** — assign a Freighter fleet to a resource request from the Fleet panel; arrival auto-delivers and closes the request
+  - **Private shipping companies** — AI-controlled freighter fleets that scan open requests, dispatch their nearest freighter, and bid on your credits (default: one company with 2–3 chemical freighters at Earth)
+  - **Freighter template system** — light / mid / heavy freighter hulls with cargo-bay-derived capacity, data-driven in `assets/data/ship_hulls.ron`
+  - **Company freighter construction** — companies reinvest profits and order new hulls from your shipyards
+  - **Private shipping overview subpanel** — registry of companies, active routes, treasury, ship counts
+  - **In-transit filter** in the Fleet panel to show only freighters currently hauling cargo
 
 - **Fleet Management & Orbital Mechanics**: Command fleets across the solar system
   - **7 ship classes**: Courier, Frigate, Destroyer, Cruiser, Research Vessel, Freighter, Station
@@ -79,8 +90,9 @@ The game now has fully functional colony management, economy, research, interste
   - Research Panel: Technology tree browser and project selection
   - Economy Panel: Financial overview and resource tracking
   - Starmap Panel: Interstellar navigation and system selection
-  - Fleet Panel: Full fleet management — spawn fleets, select transfer options, gravity assists, Lagrange-point routing, refuel, and abort maneuvers
-  - Shipbuilding Panel: Native Bevy workspace for hull design, engineering-linked component selection, construction queueing, and archive review
+  - Fleet Panel: Full fleet management — spawn fleets, select transfer options, gravity assists, Lagrange-point routing, refuel, abort maneuvers, **and assign a fleet to a resource request**
+  - Shipbuilding Panel: Native Bevy workspace for hull design, engineering-linked component selection, construction queueing, archive review, and **freighter template selection**
+  - Economy subpanel: **Private Shipping overview** — list of companies, active routes, treasury, in-transit shipments
   
 - **Time Control**: Variable simulation speed (1 day/s to 1 year/s)
 - **Debug Inspector**: Integrated inspector using bevy_inspector_egui for runtime entity inspection
@@ -211,12 +223,12 @@ The game uses a modular plugin architecture built on Bevy's ECS (Entity Componen
 - **CameraPlugin**: 3D camera movement and automatic view transitions
 - **SolarSystemPlugin**: Manages celestial bodies and orbital mechanics
 - **AstronomyPlugin**: High-precision Keplerian orbital mechanics
-- **ColonyPlugin**: Colony management with 31 building types
-- **EconomyPlugin**: Resource production, consumption, and budget tracking
+- **ColonyPlugin**: Colony management with 51 building types (tiers, synergies, 4–6-resource maintenance)
+- **EconomyPlugin**: Per-body resource stockpiles, production, consumption, budget tracking, **resource request lifecycle, private shipping company AI, auto-freight dispatch**
 - **ResearchPlugin**: Technology tree progression plus engineering targets used by ship module families
-- **FleetPlugin**: Fleet management, orbital transfer planning, gravity assists, and trajectory rendering
-- **ShipbuildingPlugin**: Canonical hull/module data, construction queues, and design summaries
-- **UIPlugin**: Dashboard with time controls and interactive panels, including the native shipbuilding workspace
+- **FleetPlugin**: Fleet management, orbital transfer planning, gravity assists, trajectory rendering, **manual freight assignment**
+- **ShipbuildingPlugin**: Canonical hull/module data, construction queues, design summaries, **freighter template system + legacy `standard_freighter` migration shim**
+- **UIPlugin**: Dashboard with time controls and interactive panels, including the native shipbuilding workspace and the **per-body resource bar with in-transit indicator**
 - **StarmapPlugin**: Interstellar navigation and system selection
 
 ## Controls
@@ -298,8 +310,9 @@ Helios Ascension is designed to be data-driven and moddable without touching Rus
 📖 **See [docs/RESEARCH_MODDING.md](docs/RESEARCH_MODDING.md)** for the full technology modding guide, including all modifier types, component definitions, and balancing guidelines.
 
 ### Buildings
-- ✅ **Data-driven buildings**: All 31 building types defined in `assets/data/buildings.ron`
-- ✅ **Custom buildings**: Add new construction options with resource costs and effects
+- ✅ **Data-driven buildings**: All **51** building types defined in `assets/data/buildings.ron`
+- ✅ **Custom buildings**: Add new construction options with resource costs, maintenance resources, atmosphere requirements, tiers, and synergy flags
+- ✅ **No code change needed** for new building types — add a RON entry, restart, and the building appears in the Construction panel
 
 ## Development
 
