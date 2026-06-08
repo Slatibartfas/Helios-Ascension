@@ -638,6 +638,7 @@ pub fn process_ship_launches_and_completions(
     design_library: Res<ShipDesignLibrary>,
     shipbuilding_data: Res<ShipbuildingData>,
     research_state: Res<ResearchState>,
+    freighter_registry: Res<crate::ships::templates::FreighterTemplateRegistry>,
 ) {
     let current_elapsed = sim_time.elapsed_seconds();
     let dt = current_elapsed - *last_elapsed;
@@ -690,19 +691,32 @@ pub fn process_ship_launches_and_completions(
                             project.is_station,
                             0,
                         ));
-                    commands.spawn((
-                        ShipInstance::new(
-                            build_ship_info(&project),
-                            project.build_site,
-                            orbit_radius_au,
-                            stationary,
-                            assigned_fleet,
-                            sort_order,
-                        ),
-                        ShipDesignAssignment {
-                            template_id: project.template_id,
-                        },
-                    ));
+                    let ship_entity = commands
+                        .spawn((
+                            ShipInstance::new(
+                                build_ship_info(&project),
+                                project.build_site,
+                                orbit_radius_au,
+                                stationary,
+                                assigned_fleet,
+                                sort_order,
+                            ),
+                            ShipDesignAssignment {
+                                template_id: project.template_id,
+                            },
+                        ))
+                        .id();
+                    if let Some((template_ref, marker, slots)) = freighter_template_components(
+                        &freighter_registry,
+                        &research_state,
+                        &project,
+                    ) {
+                        commands
+                            .entity(ship_entity)
+                            .insert(template_ref)
+                            .insert(marker)
+                            .insert(slots);
+                    }
                     commands.entity(entity).despawn();
                 }
             }
@@ -782,19 +796,30 @@ pub fn process_ship_launches_and_completions(
                         project.is_station,
                         0,
                     ));
-                commands.spawn((
-                    ShipInstance::new(
-                        build_ship_info(&project),
-                        project.build_site,
-                        orbit_radius_au,
-                        stationary,
-                        assigned_fleet,
-                        sort_order,
-                    ),
-                    ShipDesignAssignment {
-                        template_id: project.template_id,
-                    },
-                ));
+                let ship_entity = commands
+                    .spawn((
+                        ShipInstance::new(
+                            build_ship_info(&project),
+                            project.build_site,
+                            orbit_radius_au,
+                            stationary,
+                            assigned_fleet,
+                            sort_order,
+                        ),
+                        ShipDesignAssignment {
+                            template_id: project.template_id,
+                        },
+                    ))
+                    .id();
+                if let Some((template_ref, marker, slots)) =
+                    freighter_template_components(&freighter_registry, &research_state, &project)
+                {
+                    commands
+                        .entity(ship_entity)
+                        .insert(template_ref)
+                        .insert(marker)
+                        .insert(slots);
+                }
                 commands.entity(entity).despawn();
             }
         }
@@ -906,6 +931,51 @@ pub fn launch_resource_costs(launch_mass_t: f64) -> Vec<(ResourceType, f64)> {
             launch_mass_t * LAUNCH_POLYMERS_PER_TON_MT,
         ),
     ]
+}
+
+/// Build the freighter-template components to bundle with a newly-spawned
+/// `ShipInstance`.  Returns a tuple `(ShipTemplateRef, Vec<ShipSlot>)` if
+/// the project matches a registered freighter template; returns `None`
+/// for non-freighter classes or when no template matches the hull — the
+/// migration shim
+/// (`crate::ships::migration::migrate_legacy_freighters`) is the
+/// catch-all for the legacy case and only runs at startup, so most
+/// non-freighter classes simply won't get template components here and
+/// that's fine.
+fn freighter_template_components(
+    registry: &crate::ships::templates::FreighterTemplateRegistry,
+    research_state: &ResearchState,
+    project: &ShipConstructionProject,
+) -> Option<(
+    crate::ships::components::ShipTemplateRef,
+    crate::ships::components::FreighterTemplateMarker,
+    crate::ships::components::FreighterSlots,
+)> {
+    use crate::ships::components::{
+        FreighterSlots, FreighterTemplateMarker, ShipSlot, ShipTemplateRef,
+    };
+
+    let hull_id = &project.hull_id;
+    let template_id = crate::ships::migration::default_template_for_hull(
+        registry,
+        project.ship_class,
+        hull_id,
+        research_state,
+    )?;
+
+    let template = registry.get(&template_id)?;
+
+    let slots: Vec<ShipSlot> = template
+        .cargo_slots
+        .iter()
+        .map(|slot| ShipSlot::new(&slot.hull_slot_id, &slot.default_module, 0))
+        .collect();
+
+    Some((
+        ShipTemplateRef::new(template_id),
+        FreighterTemplateMarker,
+        FreighterSlots::new(slots),
+    ))
 }
 
 fn build_ship_info(project: &ShipConstructionProject) -> ShipInfo {

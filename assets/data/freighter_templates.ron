@@ -20,10 +20,10 @@
         (
             id: "light_freighter",
             display_name: "Light Orbital Freighter",
-            description: "Single-slot bulk hauler for short cislunar logistics. Cargo capacity is constrained by hull volume; tech upgrades do not change this template.",
+            description: "Single-slot bulk hauler for short cislunar logistics. Cargo capacity is constrained by hull volume; tech upgrades do not change this template. No-research baseline per `docs/design/SHIP_TEMPLATES.md` \"Worked example\" — the AI must always be able to fall back to this template.",
             base_hull: "freighter_frame",
             era_tier: 1,
-            required_tech: Some("chemical_spaceframes"),
+            required_tech: None,
             cargo_slots: [
                 (
                     hull_slot_id: "cargo_a",
