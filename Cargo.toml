@@ -5,6 +5,7 @@ edition = "2021"
 authors = ["Alexander Klingspor"]
 description = "A 4X Grand Strategy game with realistic orbital mechanics"
 license = "MIT"
+# cache-bust 2026-06-09: remove `screenshot` bin (PR #112 refactor).
 
 [lib]
 name = "helios_ascension"
