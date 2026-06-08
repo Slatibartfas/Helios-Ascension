@@ -529,8 +529,8 @@ mod tests {
     }
 
     /// Build a minimal `ShipbuildingData` with a `freighter_frame` hull
-    /// + a `cargo_pod_medium` module.  The `light_freighter` template
-    /// used by the test below binds these.
+    /// + a `cargo_pod_medium` module.  The `light_freighter` template used
+    /// by the test below binds these.
     fn build_minimal_shipbuilding_data() -> ShipbuildingData {
         let mut data = ShipbuildingData::default();
         data.hulls.insert(
