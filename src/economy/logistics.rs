@@ -587,8 +587,14 @@ pub fn hohmann_round_trip_seconds<F: bevy::ecs::query::QueryFilter>(
 pub fn process_fleet_logistics_assignments(
     mut actions: ResMut<PendingFleetActions>,
     mut requests: ResMut<PendingResourceRequests>,
-    stockpiles: Query<(Entity, &LocalStockpile)>,
-    mut stockpiles_mut: Query<&mut LocalStockpile>,
+    // Bevy 0.18 forbids having two `Query` system params that both touch
+    // the same component (B0001).  We need a read pass (compute the source
+    // list) and a write pass (consume from each chosen body), so fold them
+    // into a single `Query<(Entity, &mut LocalStockpile)>` and use
+    // sequential `iter()` / `get_mut()` calls within the system.  This
+    // matches the pattern in `company::process_company_ai` and
+    // `auto_freight::auto_freight_loop`.
+    mut stockpiles: Query<(Entity, &mut LocalStockpile)>,
     fleet_query: Query<(&FleetOrbit, Option<&crate::fleets::components::Fleet>), ()>,
     sim_time: Res<SimulationTime>,
     coords_query: Query<&SpaceCoordinates>,
@@ -660,7 +666,7 @@ pub fn process_fleet_logistics_assignments(
             if remaining <= 0.0 {
                 break;
             }
-            if let Ok(mut ls) = stockpiles_mut.get_mut(*src_entity) {
+            if let Ok((_, mut ls)) = stockpiles.get_mut(*src_entity) {
                 let taken = ls.consume(req.resource, remaining);
                 if taken > 0.0 && actual_source.is_none() {
                     actual_source = Some(*src_entity);
