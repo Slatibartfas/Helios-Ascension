@@ -3849,8 +3849,9 @@ struct ShippingOverviewRow {
     freighter_count: u32,
     available_freighters: u32,
     in_transit: u32,
-    /// Open demand in megatons, grouped by `ResourceType`.
-    open_demand_by_resource: std::collections::BTreeMap<crate::economy::ResourceType, f64>,
+    /// Open demand in megatons, grouped by `ResourceType`.  Uses
+    /// `HashMap` because `ResourceType` derives `Hash + Eq` but not `Ord`.
+    open_demand_by_resource: std::collections::HashMap<crate::economy::ResourceType, f64>,
     /// 0.0..=1.0 — fraction of requests created in the last `WINDOW_S` that
     /// have transitioned to `Delivered`.  `None` when no requests were
     /// created in the window (avoid divide-by-zero).
@@ -3876,7 +3877,7 @@ fn build_shipping_overview_rows(
         .enumerate()
         .map(|(idx, c)| {
             let in_transit = c.freighter_count.saturating_sub(c.available_freighters);
-            let mut open_demand_by_resource: std::collections::BTreeMap<
+            let mut open_demand_by_resource: std::collections::HashMap<
                 crate::economy::ResourceType,
                 f64,
             > = Default::default();
@@ -4194,7 +4195,7 @@ mod shipping_overview_tests {
     use crate::economy::company::ShippingCompany;
     use crate::economy::{
         CompanyAIPolicy, PendingResourceRequests, RequestPriority, RequestState, ResourceRequest,
-        ResourceType,
+        ResourceType, ShippingCompanies,
     };
     use bevy::prelude::Entity;
 
@@ -4268,7 +4269,7 @@ mod shipping_overview_tests {
         // its `is_open() == false` keeps it out of open demand too.
         pool.requests.push(req(
             Some(0),
-            ResourceType::Metals,
+            ResourceType::Iron,
             3.0,
             RequestState::Delivered,
             outside,
