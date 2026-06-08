@@ -4232,7 +4232,7 @@ mod shipping_overview_tests {
         // Two companies, three requests, one delivered.  The build
         // helper should produce two rows whose aggregations match the
         // hand-computed expected values below.
-        let mut companies = ShippingCompanies {
+        let companies = ShippingCompanies {
             companies: vec![
                 ShippingCompany::new("Helios Freight Co.", 3, 50_000.0),
                 ShippingCompany::new("Solar Carriers Ltd.", 1, 20_000.0),
@@ -4360,7 +4360,7 @@ mod shipping_overview_tests {
     fn rows_sort_by_fulfillment_desc_then_name() {
         // Company A: 100% fulfillment, Company B: 0%, Company C: 50%.
         // Expected order: A, C, B.
-        let mut companies = ShippingCompanies {
+        let companies = ShippingCompanies {
             companies: vec![
                 ShippingCompany::new("Bravo", 1, 0.0),
                 ShippingCompany::new("Alpha", 1, 0.0),
