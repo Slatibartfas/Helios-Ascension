@@ -20,7 +20,6 @@
 //! writes PNGs via the `image` crate (via `save_to_disk`).
 
 use bevy::app::AppExit;
-use bevy::ecs::event::EventWriter;
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use bevy_egui::egui;
@@ -215,7 +214,7 @@ fn screenshot_capture_pump(
     mut commands: Commands,
     mut pending: ResMut<PendingScreenshotAction>,
     mut active_menu: ResMut<ActiveMenu>,
-    mut exit: EventWriter<AppExit>,
+    mut exit: MessageWriter<AppExit>,
 ) {
     // Step 1: drain an in-flight capture.
     if let Some(mut inflight) = pending.inflight.take() {
