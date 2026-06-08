@@ -93,7 +93,9 @@ fn main() {
 
     // Make sure the menu we drive starts from a known-good state.
     {
-        let mut active = app.world_mut().resource_mut::<helios_ascension::game_state::ActiveMenu>();
+        let mut active = app
+            .world_mut()
+            .resource_mut::<helios_ascension::game_state::ActiveMenu>();
         active.current = GameMenu::Main;
     }
 
