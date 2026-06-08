@@ -79,6 +79,20 @@ Positional/rotational calculations must be **analytical** (compute from total el
 - State transitions: `NextState::set()` always triggers transitions; use `set_if_neq()` to skip
 - Materials: bind groups use `@group(3)` in WGSL shaders
 - Bloom: `bevy::post_process::bloom::Bloom`
+- **B0001 (dual-Query rule):** a system function MUST NOT declare two
+  separate `Query<...>` system parameters that both yield access to the
+  same component (e.g. one `Query<(Entity, &LocalStockpile)>` and one
+  `Query<&mut LocalStockpile>`). Bevy 0.18 rejects this with **error B0001**
+  on the first schedule tick — `cargo build` and `cargo test` do not catch
+  it, only `cargo run` does. The canonical fix is to fold the two queries
+  into a single `Query<(Entity, &mut T)>` and call `iter()` then
+  `get_mut(entity)` in sequence (see `process_company_ai`,
+  `auto_freight_loop`, `process_fleet_logistics_assignments`).
+  Acceptable alternatives:
+  - `ParamSet<(Query<...>, Query<...>, ...)>` when you need both at once.
+  - Filters that are statically disjoint (`With<A>` vs `Without<A>`) — see
+    `propagate_orbits` for a `ParamSet` example with disjoint reads.
+  Audit helper: `python3 scripts/audit_b0001.py src` (runs in CI).
 
 ### Egui Scheduling
 
