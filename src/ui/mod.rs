@@ -17,6 +17,7 @@ use std::collections::HashMap;
 
 pub mod interaction;
 pub mod screenshot;
+mod screenshot_state;
 
 pub use interaction::Selection;
 
