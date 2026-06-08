@@ -458,9 +458,14 @@ mod tests {
         // Another delivery inside the window: anchor unchanged.
         c.complete_delivery(2_000.0, TREASURY_WINDOW_S - 1.0);
         assert_eq!(c.treasury_window_start_mc, 5_000.0);
-        // Delivery after the window end: anchor rolls to current treasury.
+        assert_eq!(c.treasury_mc, 8_000.0);
+        // Delivery after the window end: anchor rolls to the pre-payment
+        // treasury (8_000), then the +500 is added on top.  Subsequent
+        // callers (e.g. the panel) will see the rolled anchor vs. the
+        // current treasury and report the in-window delta.
         c.complete_delivery(500.0, TREASURY_WINDOW_S + 1.0);
-        assert_eq!(c.treasury_window_start_mc, c.treasury_mc);
+        assert_eq!(c.treasury_window_start_mc, 8_000.0);
+        assert_eq!(c.treasury_mc, 8_500.0);
         assert_eq!(c.treasury_window_start_seconds, TREASURY_WINDOW_S + 1.0);
     }
 

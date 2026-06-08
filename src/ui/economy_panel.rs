@@ -4275,13 +4275,15 @@ mod shipping_overview_tests {
             outside,
             Some(outside + 0.5),
         ));
-        // 1 open for company 1, no deliveries → fulfillment = None.
+        // 1 open for company 1, but created OUTSIDE the window so it
+        // doesn't count toward fulfillment-rate denominator (and stays
+        // an "open demand" item — is_open() == true regardless of age).
         pool.requests.push(req(
             Some(1),
             ResourceType::Oxygen,
             4.0,
             RequestState::Pending,
-            inside,
+            outside,
             None,
         ));
 
