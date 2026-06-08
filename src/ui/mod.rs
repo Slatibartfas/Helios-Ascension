@@ -16,6 +16,7 @@ use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use std::collections::HashMap;
 
 pub mod interaction;
+pub mod screenshot;
 
 pub use interaction::Selection;
 
@@ -407,6 +408,7 @@ impl Plugin for UIPlugin {
             // Egui plugin is added in `main.rs` (explicit bevy_egui integration)
             .add_plugins(cursors::CursorPlugin)
             .add_plugins(ShipbuildingWorkspacePlugin)
+            .add_plugins(screenshot::ScreenshotPlugin)
             // Resources
             .init_resource::<Selection>()
             .init_resource::<TimeScale>()

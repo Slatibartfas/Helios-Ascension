@@ -1,3 +1,4 @@
+pub mod app;
 pub mod astronomy;
 pub mod colony;
 pub mod economy;
