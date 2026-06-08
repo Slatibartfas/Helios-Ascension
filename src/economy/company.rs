@@ -62,6 +62,13 @@ const BUY_SHIP_THRESHOLD_MC: f64 = 100_000.0;
 /// Cost of one new company freighter (Mega-Credits).
 const FREIGHTER_COST_MC: f64 = 80_000.0;
 
+/// Length of the rolling treasury-delta window in seconds (60 in-game days).
+/// Powers the per-company "Δ Treasury" column in the Private Shipping overview
+/// panel (GRA-37.e).  When the simulation clock advances past
+/// `treasury_window_start_seconds + WINDOW_S`, the window is rolled: the
+/// starting treasury is re-anchored and the delta resets to zero.
+const TREASURY_WINDOW_S: f64 = 60.0 * 86_400.0;
+
 // ── Data structures ───────────────────────────────────────────────────────────
 
 /// A private autonomous freight operator.
@@ -83,6 +90,14 @@ pub struct ShippingCompany {
     /// `AutoFreight` is the default for new companies (DW2-style opt-out);
     /// `Manual` companies never auto-assign freighters.
     pub policy: CompanyAIPolicy,
+    /// Treasury value (MC) at the start of the current rolling window.
+    /// The overview panel reports `treasury_mc - treasury_window_start_mc`
+    /// as the per-window net change.  See `TREASURY_WINDOW_S`.
+    pub treasury_window_start_mc: f64,
+    /// Simulation time (seconds) when the current rolling window started.
+    /// Zero until the first roll, which is harmless (every delivery
+    /// pre-roll is inside the same window as the spawn point).
+    pub treasury_window_start_seconds: f64,
 }
 
 impl ShippingCompany {
@@ -100,6 +115,8 @@ impl ShippingCompany {
             total_deliveries: 0,
             reputation: 0.5,
             policy: CompanyAIPolicy::default(),
+            treasury_window_start_mc: treasury_mc,
+            treasury_window_start_seconds: 0.0,
         }
     }
 
@@ -121,8 +138,20 @@ impl ShippingCompany {
         }
     }
 
+    /// Roll the rolling treasury-delta window if `now` is past its end.
+    /// Called from the two mutation paths (`complete_delivery`,
+    /// `try_buy_freighter`) so the rolling anchor stays in lockstep with
+    /// the actual treasury changes.
+    fn maybe_roll_treasury_window(&mut self, now: f64) {
+        if now - self.treasury_window_start_seconds > TREASURY_WINDOW_S {
+            self.treasury_window_start_mc = self.treasury_mc;
+            self.treasury_window_start_seconds = now;
+        }
+    }
+
     /// Return a freighter after delivery completes and credit the payment.
-    pub fn complete_delivery(&mut self, payment_mc: f64) {
+    pub fn complete_delivery(&mut self, payment_mc: f64, now: f64) {
+        self.maybe_roll_treasury_window(now);
         self.available_freighters = self.available_freighters.saturating_add(1);
         self.freighter_count = self.freighter_count.max(self.available_freighters);
         self.treasury_mc += payment_mc;
@@ -131,7 +160,8 @@ impl ShippingCompany {
     }
 
     /// Purchase an additional freighter if treasury allows.
-    pub fn try_buy_freighter(&mut self) -> bool {
+    pub fn try_buy_freighter(&mut self, now: f64) -> bool {
+        self.maybe_roll_treasury_window(now);
         if self.treasury_mc >= BUY_SHIP_THRESHOLD_MC {
             self.treasury_mc -= FREIGHTER_COST_MC;
             self.freighter_count += 1;
@@ -333,7 +363,10 @@ pub fn update_company_fleets(
     mut requests: ResMut<PendingResourceRequests>,
     coords_query: Query<&SpaceCoordinates>,
     mut budget: ResMut<GlobalBudget>,
+    sim_time: Res<SimulationTime>,
 ) {
+    let now = sim_time.elapsed_seconds();
+
     // For each newly-delivered request: return the freighter and pay the company.
     for req in requests.requests.iter_mut() {
         if req.state != RequestState::Delivered {
@@ -361,13 +394,13 @@ pub fn update_company_fleets(
         // treasury never goes negative) and credit the company with what was paid.
         let actual_payment = payment.min(budget.treasury.max(0.0));
         budget.treasury -= actual_payment;
-        company.complete_delivery(actual_payment);
+        company.complete_delivery(actual_payment, now);
         req.payment_made = true;
     }
 
     // Let well-funded companies expand their fleets.
     for company in companies.companies.iter_mut() {
-        company.try_buy_freighter();
+        company.try_buy_freighter(now);
     }
 }
 
@@ -391,7 +424,7 @@ mod tests {
         let mut c = ShippingCompany::new("Test Co.", 1, 0.0);
         c.assign_freighter();
         assert!(!c.has_freighter_available());
-        c.complete_delivery(1_000.0);
+        c.complete_delivery(1_000.0, 0.0);
         assert!(c.has_freighter_available());
         assert_eq!(c.total_deliveries, 1);
         assert_eq!(c.treasury_mc, 1_000.0);
@@ -400,7 +433,7 @@ mod tests {
     #[test]
     fn test_buy_freighter_sufficient_funds() {
         let mut c = ShippingCompany::new("Rich Co.", 1, BUY_SHIP_THRESHOLD_MC + 1.0);
-        let bought = c.try_buy_freighter();
+        let bought = c.try_buy_freighter(0.0);
         assert!(bought);
         assert_eq!(c.freighter_count, 2);
         assert!((c.treasury_mc - (BUY_SHIP_THRESHOLD_MC + 1.0 - FREIGHTER_COST_MC)).abs() < 0.01);
@@ -409,9 +442,26 @@ mod tests {
     #[test]
     fn test_buy_freighter_insufficient_funds() {
         let mut c = ShippingCompany::new("Poor Co.", 1, 1_000.0);
-        let bought = c.try_buy_freighter();
+        let bought = c.try_buy_freighter(0.0);
         assert!(!bought);
         assert_eq!(c.freighter_count, 1);
+    }
+
+    #[test]
+    fn test_treasury_window_rolls_after_window_s() {
+        let mut c = ShippingCompany::new("Rolling Co.", 1, 5_000.0);
+        assert_eq!(c.treasury_window_start_mc, 5_000.0);
+        // First delivery at t=0: no roll (now - 0 = 0, not > WINDOW_S).
+        c.complete_delivery(1_000.0, 0.0);
+        assert_eq!(c.treasury_mc, 6_000.0);
+        assert_eq!(c.treasury_window_start_mc, 5_000.0);
+        // Another delivery inside the window: anchor unchanged.
+        c.complete_delivery(2_000.0, TREASURY_WINDOW_S - 1.0);
+        assert_eq!(c.treasury_window_start_mc, 5_000.0);
+        // Delivery after the window end: anchor rolls to current treasury.
+        c.complete_delivery(500.0, TREASURY_WINDOW_S + 1.0);
+        assert_eq!(c.treasury_window_start_mc, c.treasury_mc);
+        assert_eq!(c.treasury_window_start_seconds, TREASURY_WINDOW_S + 1.0);
     }
 
     #[test]
