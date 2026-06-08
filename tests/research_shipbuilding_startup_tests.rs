@@ -6,8 +6,8 @@ use helios_ascension::shipbuilding::{ShipbuildingData, ShipbuildingPlugin};
 use helios_ascension::ui::SimulationTime;
 
 #[test]
-#[ignore = "flaky on main since GRA-40 (#104): cargo_module not completed. \
-           TODO: file child issue + fix (see GRA-39 final-lap comment)."]
+#[ignore = "pre-existing GRA-40 (#104) regression: cargo_module not completed. \
+           Tracked in GRA-46."]
 fn startup_completes_baseline_ship_component_engineering() {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
