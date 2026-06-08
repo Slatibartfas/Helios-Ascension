@@ -237,7 +237,7 @@ fn screenshot_capture_pump(
                 return;
             }
             info!("[screenshot] queue drained, exiting");
-            exit.send(AppExit::Success);
+            exit.write(AppExit::Success);
         }
         return;
     };
