@@ -420,7 +420,7 @@ fn spawn_company_ship_project(
         build_site,
         integration_target_fleet: None,
         selected_modules,
-        ship_class: hull_def.class.clone(),
+        ship_class: hull_def.class,
         propulsion: None,
         progress: 0.0,
         required_build_points,
@@ -442,7 +442,7 @@ fn spawn_company_ship_project(
         construction_capacity_bp_per_year: 0.0,
         launch_capacity_t_per_year: 0.0,
         is_station: hull_def.is_station,
-        construction_mode: hull_def.default_construction_mode.clone(),
+        construction_mode: hull_def.default_construction_mode,
         state: ShipConstructionState::Building,
         awaiting_resources: false,
         blocking_request_ids: Vec::new(),
@@ -512,10 +512,8 @@ mod tests {
     use crate::economy::logistics::{RequestPriority, ResourceRequest};
     use crate::economy::ResourceType;
     use crate::fleets::ShipClass;
-    use crate::shipbuilding::data::{
-        HullSlotDefinition, ShipHullDefinition, ShipModuleCategory, ShipModuleDefinition,
-    };
-    use crate::shipbuilding::types::ConstructionMode;
+    use crate::shipbuilding::data::{HullSlotDefinition, ShipHullDefinition, ShipModuleDefinition};
+    use crate::shipbuilding::types::{ConstructionMode, ShipModuleCategory};
 
     /// Build a colony with a Shipyard at the given `body_entity`.
     fn spawn_colony_with_shipyard(world: &mut World, name: &str) -> Entity {
@@ -688,11 +686,8 @@ mod tests {
         // Top up the home body's local stockpile with enough Iron to
         // build the freighter locally.
         {
-            let mut ls = app
-                .world_mut()
-                .entity_mut(home_body)
-                .get_mut::<LocalStockpile>()
-                .unwrap();
+            let mut entity_mut = app.world_mut().entity_mut(home_body);
+            let mut ls = entity_mut.get_mut::<LocalStockpile>().unwrap();
             ls.add(ResourceType::Iron, 1_000.0);
         }
 
