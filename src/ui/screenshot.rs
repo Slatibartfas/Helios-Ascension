@@ -19,7 +19,8 @@
 //! using Bevy 0.18's `Screenshot` + `ScreenshotCaptured` observer API and
 //! writes PNGs via the `image` crate (via `save_to_disk`).
 
-use bevy::app::{AppExit, EventWriter};
+use bevy::app::AppExit;
+use bevy::ecs::event::EventWriter;
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use bevy_egui::egui;
