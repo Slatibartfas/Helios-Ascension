@@ -89,6 +89,12 @@ pub struct ShipConstructionProject {
     pub resource_costs: Vec<(ResourceType, f64)>,
     pub launch_resource_costs: Vec<(ResourceType, f64)>,
     pub launch_credit_cost_mc: f64,
+    /// GRA-39: when this build was queued by a `ShippingCompany` AI
+    /// (auto-build), the index into `ShippingCompanies::companies` that
+    /// owns the project.  `None` for player-queued builds.  Used by the
+    /// auto-build system to count active builds per company and enforce
+    /// the per-company cap.
+    pub building_company_idx: Option<usize>,
 }
 
 impl ShipConstructionProject {
