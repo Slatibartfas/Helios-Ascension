@@ -61,6 +61,12 @@ impl TechnologiesData {
     }
 
     pub fn merge_ship_modules_as_components(&mut self, shipbuilding_data: &ShipbuildingData) {
+        // Group every ship module by its resolved engineering-project ID, then pick the
+        // lowest-tier candidate. Without this, HashMap iteration order would select a
+        // random tier — the GRA-40 ship module catalog (PR #104) added 6 more
+        // cargo_module entries, which surfaced in the startup test as a non-deterministic
+        // baseline-engineering failure (cargo_module kept the tier-2/3 required_tech).
+        let mut candidates: HashMap<String, Vec<(u8, ComponentDefinition)>> = HashMap::new();
         for module in shipbuilding_data.modules.values() {
             let component_id = module.engineering_project_id().to_string();
             let required_tech = module
@@ -68,15 +74,29 @@ impl TechnologiesData {
                 .clone()
                 .or_else(|| self.unlocking_tech_for_component(&component_id))
                 .unwrap_or_default();
-            self.components
-                .entry(component_id.clone())
-                .or_insert_with(|| ComponentDefinition {
-                    id: component_id,
-                    name: module.display_name.clone(),
-                    description: module.description.clone(),
-                    engineering_cost: module.build_points.max(1.0),
-                    required_tech,
-                });
+            let definition = ComponentDefinition {
+                id: component_id.clone(),
+                name: module.display_name.clone(),
+                description: module.description.clone(),
+                engineering_cost: module.build_points.max(1.0),
+                required_tech,
+            };
+            candidates
+                .entry(component_id)
+                .or_default()
+                .push((module.tier, definition));
+        }
+
+        for (component_id, mut entries) in candidates {
+            // Sort by tier ascending, then by required_tech ascending for determinism.
+            entries.sort_by(|a, b| {
+                a.0.cmp(&b.0)
+                    .then_with(|| a.1.required_tech.cmp(&b.1.required_tech))
+            });
+            let (_, definition) = entries.into_iter().next().expect("non-empty");
+            // Only insert if the component is not already present (preserves the prior
+            // behavior when `components` is pre-populated from technologies.ron).
+            self.components.entry(component_id).or_insert(definition);
         }
 
         self.hull_unlocks.clear();
@@ -175,6 +195,9 @@ pub fn load_technologies(mut commands: Commands) {
 mod tests {
     use super::*;
     use crate::research::types::TechCategory;
+    use crate::shipbuilding::data::ShipModuleDefinition;
+    use crate::shipbuilding::types::ShipModuleCategory;
+    use crate::shipbuilding::ShipbuildingData;
 
     #[test]
     fn test_technologies_data_get_tech() {
@@ -237,5 +260,83 @@ mod tests {
 
         let unlocked = vec!["tech1".to_string()];
         assert!(data.check_prerequisites("tech2", &unlocked));
+    }
+
+    fn stub_module(id: &str, tier: u8, required_tech: Option<&str>) -> ShipModuleDefinition {
+        ShipModuleDefinition {
+            id: id.to_string(),
+            display_name: id.to_string(),
+            description: String::new(),
+            category: ShipModuleCategory::CargoStorage,
+            size: "Medium".to_string(),
+            tier,
+            propulsion: None,
+            required_tech: required_tech.map(str::to_string),
+            required_component_design: Some("cargo_module".to_string()),
+            power_generation_mw: 0.0,
+            power_draw_mw: 0.0,
+            thrust_kn: 0.0,
+            isp_s: 0.0,
+            dry_mass_t: 0.0,
+            build_points: 30.0,
+            construction_capacity_bp_per_year: 0.0,
+            launch_capacity_t_per_year: 0.0,
+            resource_costs: Vec::new(),
+            attribute_values: Vec::new(),
+            tags: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn test_merge_ship_modules_picks_lowest_tier_required_tech() {
+        // GRA-46 regression: cargo_pod_medium (tier 1, basic_space_tech) and
+        // cargo_pod_mk2_medium (tier 2, cargo_hold_mk2) both resolve to the
+        // engineering project "cargo_module". The merge must always pick the
+        // tier-1 module so cargo_module is baseline-completable.
+        let mut shipbuilding = ShipbuildingData::default();
+        shipbuilding.modules.insert(
+            "cargo_pod_mk2_medium".to_string(),
+            stub_module("cargo_pod_mk2_medium", 2, Some("cargo_hold_mk2")),
+        );
+        shipbuilding.modules.insert(
+            "cargo_pod_medium".to_string(),
+            stub_module("cargo_pod_medium", 1, Some("basic_space_tech")),
+        );
+
+        let mut data = TechnologiesData::default();
+        data.merge_ship_modules_as_components(&shipbuilding);
+
+        let cargo_module = data
+            .get_component("cargo_module")
+            .expect("cargo_module should be merged");
+        assert_eq!(
+            cargo_module.required_tech, "basic_space_tech",
+            "merge must pick the tier-1 module's required_tech regardless of insertion order"
+        );
+    }
+
+    #[test]
+    fn test_merge_ship_modules_survives_reverse_insertion_order() {
+        // Insert the tier-3 module first to exercise the determinism guarantee —
+        // before GRA-46 the merge would have kept tier 3 (cargo_hold_mk3).
+        let mut shipbuilding = ShipbuildingData::default();
+        shipbuilding.modules.insert(
+            "cargo_pod_mk3_medium".to_string(),
+            stub_module("cargo_pod_mk3_medium", 3, Some("cargo_hold_mk3")),
+        );
+        shipbuilding.modules.insert(
+            "cargo_bay_mk2_large".to_string(),
+            stub_module("cargo_bay_mk2_large", 2, Some("cargo_hold_mk2")),
+        );
+        shipbuilding.modules.insert(
+            "cargo_pod_medium".to_string(),
+            stub_module("cargo_pod_medium", 1, Some("basic_space_tech")),
+        );
+
+        let mut data = TechnologiesData::default();
+        data.merge_ship_modules_as_components(&shipbuilding);
+
+        let cargo_module = data.get_component("cargo_module").unwrap();
+        assert_eq!(cargo_module.required_tech, "basic_space_tech");
     }
 }
