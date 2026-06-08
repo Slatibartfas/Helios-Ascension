@@ -3580,9 +3580,7 @@ fn render_econ_logistics(
     companies: &mut crate::economy::ShippingCompanies,
     budget: &GlobalBudget,
 ) {
-    use crate::economy::{
-        CompanyAIPolicy, CompanyBuildPolicy, RequestPriority, RequestState,
-    };
+    use crate::economy::{CompanyAIPolicy, CompanyBuildPolicy, RequestPriority, RequestState};
 
     draw_section_title(
         ui,
@@ -3718,11 +3716,13 @@ fn render_econ_logistics(
                                     company.active_builds, company.max_active_builds
                                 ))
                                 .size(11.0)
-                                .color(if company.active_builds >= company.max_active_builds {
-                                    theme::AMBER
-                                } else {
-                                    theme::TEXT
-                                }),
+                                .color(
+                                    if company.active_builds >= company.max_active_builds {
+                                        theme::AMBER
+                                    } else {
+                                        theme::TEXT
+                                    },
+                                ),
                             );
                             ui.end_row();
                         }

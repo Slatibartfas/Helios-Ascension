@@ -233,9 +233,7 @@ pub fn auto_build_loop(
         // then template id lex).  We do NOT pick by cheapest cargo; the
         // design intent is to grow capacity, and the BP tie-break
         // naturally constrains cost.
-        let best = registry.best_buildable(&shipbuilding_data, |t| {
-            research_state.is_unlocked(t)
-        });
+        let best = registry.best_buildable(&shipbuilding_data, |t| research_state.is_unlocked(t));
         let Some(entry) = best else {
             maybe_emit_no_design(
                 company_idx,
@@ -248,11 +246,7 @@ pub fn auto_build_loop(
         };
 
         // Treasury gate + deduction.
-        let build_cost_mc = match build_cost_mc_for_entry(
-            &registry,
-            &shipbuilding_data,
-            &entry,
-        ) {
+        let build_cost_mc = match build_cost_mc_for_entry(&registry, &shipbuilding_data, &entry) {
             Some(c) => c,
             None => continue,
         };
@@ -381,8 +375,7 @@ fn spawn_company_ship_project(
         })
         .collect();
     let module_count = selected_modules.len();
-    let required_build_points =
-        template_uniform_cost(shipbuilding_data, template, entry.best_tier);
+    let required_build_points = template_uniform_cost(shipbuilding_data, template, entry.best_tier);
 
     // Cargo capacity sum.
     let mut cargo_capacity_t = 0.0;
@@ -682,7 +675,10 @@ mod tests {
         let home_body = spawn_colony_with_shipyard(app.world_mut(), "Home");
         let mut data = build_minimal_shipbuilding_data();
         // Resources to actually build the freighter locally.
-        data.modules.get_mut("cargo_pod_medium").unwrap().build_points = 10.0;
+        data.modules
+            .get_mut("cargo_pod_medium")
+            .unwrap()
+            .build_points = 10.0;
         app.world_mut().insert_resource(data);
 
         let mut registry = FreighterTemplateRegistry::default();
@@ -730,11 +726,7 @@ mod tests {
             research.unlock_tech("chemical_spaceframes".to_string());
         }
 
-        let treasury_before = app
-            .world()
-            .resource::<ShippingCompanies>()
-            .companies[0]
-            .treasury_mc;
+        let treasury_before = app.world().resource::<ShippingCompanies>().companies[0].treasury_mc;
 
         // Run the system once.
         schedule.add_systems(auto_build_loop);
@@ -767,22 +759,14 @@ mod tests {
         );
 
         // Treasury must have been debited.
-        let treasury_after = app
-            .world()
-            .resource::<ShippingCompanies>()
-            .companies[0]
-            .treasury_mc;
+        let treasury_after = app.world().resource::<ShippingCompanies>().companies[0].treasury_mc;
         assert!(
             treasury_after < treasury_before,
             "treasury must decrease after the build is queued"
         );
 
         // `active_builds` cache must be 1.
-        let active = app
-            .world()
-            .resource::<ShippingCompanies>()
-            .companies[0]
-            .active_builds;
+        let active = app.world().resource::<ShippingCompanies>().companies[0].active_builds;
         assert_eq!(active, 1, "company.active_builds should be 1");
 
         // The original request must still be Pending (the build doesn't

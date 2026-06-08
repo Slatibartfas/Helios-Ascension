@@ -32,8 +32,8 @@ use crate::economy::logistics::{PendingResourceRequests, RequestPriority, Reques
 use crate::economy::GlobalBudget;
 use crate::ui::SimulationTime;
 
-pub use crate::economy::auto_freight::CompanyAIPolicy;
 pub use crate::economy::auto_build::CompanyBuildPolicy;
+pub use crate::economy::auto_freight::CompanyAIPolicy;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
