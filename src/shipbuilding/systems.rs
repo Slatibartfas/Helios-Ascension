@@ -324,6 +324,8 @@ pub fn process_pending_shipbuilding_actions(
                 resource_costs: summary.resource_costs,
                 launch_resource_costs: launch_resource_costs(summary.launch_mass_t),
                 launch_credit_cost_mc: summary.launch_mass_t * LAUNCH_CREDIT_COST_PER_TON_MC,
+                // Player-queued builds: no owning company.
+                building_company_idx: None,
             })
             .id();
 

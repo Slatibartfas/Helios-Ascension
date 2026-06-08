@@ -3580,7 +3580,7 @@ fn render_econ_logistics(
     companies: &mut crate::economy::ShippingCompanies,
     budget: &GlobalBudget,
 ) {
-    use crate::economy::{CompanyAIPolicy, RequestPriority, RequestState};
+    use crate::economy::{CompanyAIPolicy, CompanyBuildPolicy, RequestPriority, RequestState};
 
     draw_section_title(
         ui,
@@ -3607,7 +3607,7 @@ fn render_econ_logistics(
                 );
             } else {
                 egui::Grid::new("shipping_companies")
-                    .num_columns(6)
+                    .num_columns(8)
                     .striped(true)
                     .spacing([12.0, 4.0])
                     .show(ui, |ui| {
@@ -3617,6 +3617,8 @@ fn render_econ_logistics(
                         ui.label(egui::RichText::new("Available").strong().size(11.0));
                         ui.label(egui::RichText::new("Deliveries").strong().size(11.0));
                         ui.label(egui::RichText::new("AI Policy").strong().size(11.0));
+                        ui.label(egui::RichText::new("Build Policy").strong().size(11.0));
+                        ui.label(egui::RichText::new("Queued").strong().size(11.0));
                         ui.end_row();
 
                         for company in &mut companies.companies {
@@ -3676,6 +3678,52 @@ fn render_econ_logistics(
                                     company.name, policy_before, company.policy
                                 );
                             }
+                            // GRA-39: per-company build policy toggle.
+                            // Default is Manual (opt-in).  A company with
+                            // no `home_body` (e.g. the seeded defaults) is
+                            // a no-op even on AutoBuild — the auto-build
+                            // loop skips it.
+                            let build_policy_before = company.build_policy;
+                            egui::ComboBox::from_id_salt(format!(
+                                "company_build_policy_{}",
+                                company.name
+                            ))
+                            .selected_text(company.build_policy.to_string())
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut company.build_policy,
+                                    CompanyBuildPolicy::AutoBuild,
+                                    "🏗 Auto-Build",
+                                );
+                                ui.selectable_value(
+                                    &mut company.build_policy,
+                                    CompanyBuildPolicy::Manual,
+                                    "✋ Manual",
+                                );
+                            });
+                            if company.build_policy != build_policy_before {
+                                info!(
+                                    "GRA-39: company {} build policy changed {:?} → {:?}",
+                                    company.name, build_policy_before, company.build_policy
+                                );
+                            }
+                            // GRA-39: queued-builds column.  Reads the
+                            // cached `active_builds` written by
+                            // `auto_build_loop` each tick.
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "{} / {}",
+                                    company.active_builds, company.max_active_builds
+                                ))
+                                .size(11.0)
+                                .color(
+                                    if company.active_builds >= company.max_active_builds {
+                                        theme::AMBER
+                                    } else {
+                                        theme::TEXT
+                                    },
+                                ),
+                            );
                             ui.end_row();
                         }
                     });

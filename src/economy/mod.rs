@@ -10,6 +10,7 @@
 
 use bevy::prelude::*;
 
+pub mod auto_build;
 pub mod auto_freight;
 pub mod budget;
 pub mod company;
@@ -21,6 +22,10 @@ pub mod mining;
 pub(crate) mod profiles;
 pub mod types;
 
+pub use auto_build::{
+    auto_build_loop, AutoBuildNotificationState, AutoBuildPlugin, CompanyBuildPolicy,
+    FreighterBuildNoDesignAvailable,
+};
 pub use auto_freight::{
     auto_freight_loop, AutoFreightNotificationState, AutoFreightPlugin, CompanyAIPolicy,
     FreighterNoDesignAvailable,
@@ -108,6 +113,7 @@ impl Plugin for EconomyPlugin {
                         .after(crate::fleets::systems::sync_ship_instance_locations),
                 ),
             )
-            .add_plugins(AutoFreightPlugin);
+            .add_plugins(AutoFreightPlugin)
+            .add_plugins(AutoBuildPlugin);
     }
 }

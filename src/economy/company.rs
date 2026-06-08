@@ -32,6 +32,7 @@ use crate::economy::logistics::{PendingResourceRequests, RequestPriority, Reques
 use crate::economy::GlobalBudget;
 use crate::ui::SimulationTime;
 
+pub use crate::economy::auto_build::CompanyBuildPolicy;
 pub use crate::economy::auto_freight::CompanyAIPolicy;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -69,6 +70,11 @@ const FREIGHTER_COST_MC: f64 = 80_000.0;
 /// starting treasury is re-anchored and the delta resets to zero.
 const TREASURY_WINDOW_S: f64 = 60.0 * 86_400.0;
 
+/// Default cap on simultaneous auto-builds per company (GRA-39 AC #3).
+/// Players can override per company via a future UI control; the field is
+/// public on `ShippingCompany`.
+pub const DEFAULT_MAX_ACTIVE_BUILDS: u32 = 2;
+
 // ── Data structures ───────────────────────────────────────────────────────────
 
 /// A private autonomous freight operator.
@@ -98,6 +104,26 @@ pub struct ShippingCompany {
     /// Zero until the first roll, which is harmless (every delivery
     /// pre-roll is inside the same window as the spawn point).
     pub treasury_window_start_seconds: f64,
+    /// Auto-build policy governing whether the company queues freighter
+    /// construction at its home body when freight demand goes unmet (GRA-39).
+    /// `Manual` is the default — player has to opt in per company.
+    /// Companies without a `home_body` (e.g. seeded placeholder companies)
+    /// can never auto-build regardless of this policy.
+    pub build_policy: CompanyBuildPolicy,
+    /// Colony entity that the company considers its home — used both as the
+    /// build site for auto-construction and as the destination-body filter
+    /// for the demand heuristic.  `None` means "no fixed home" (placeholder
+    /// companies and the default seeded companies).
+    pub home_body: Option<Entity>,
+    /// Maximum number of `ShipConstructionProject`s this company may have in
+    /// flight at once.  Prevents a runaway queue when the demand heuristic
+    /// keeps firing.
+    pub max_active_builds: u32,
+    /// Cached count of active (state == `Building`) freighter builds owned
+    /// by this company, recomputed each tick by `auto_build_loop` and read
+    /// by the company panel UI.  Players can't set this; the AI system owns
+    /// it.
+    pub active_builds: u32,
 }
 
 impl ShippingCompany {
@@ -117,12 +143,28 @@ impl ShippingCompany {
             policy: CompanyAIPolicy::default(),
             treasury_window_start_mc: treasury_mc,
             treasury_window_start_seconds: 0.0,
+            build_policy: CompanyBuildPolicy::default(),
+            home_body: None,
+            max_active_builds: DEFAULT_MAX_ACTIVE_BUILDS,
+            active_builds: 0,
         }
     }
 
     /// Set the AI policy for this company.  Builder-style helper.
     pub fn with_policy(mut self, policy: CompanyAIPolicy) -> Self {
         self.policy = policy;
+        self
+    }
+
+    /// Set the build policy for this company.  Builder-style helper.
+    pub fn with_build_policy(mut self, policy: CompanyBuildPolicy) -> Self {
+        self.build_policy = policy;
+        self
+    }
+
+    /// Set the company's home body.  Builder-style helper.
+    pub fn with_home_body(mut self, body: Entity) -> Self {
+        self.home_body = Some(body);
         self
     }
 
