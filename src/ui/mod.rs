@@ -659,9 +659,16 @@ fn ui_top_menu_bar(
             for (idx, &menu) in GameMenu::all().iter().enumerate() {
                 let is_active = active_menu.current == menu;
 
-                // compute tooltip with corresponding F-key
+                // compute tooltip with corresponding F-key. The key is
+                // rendered through `theme::kbd_shortcut_label` so it picks
+                // up the project's keycap style (bold mono, accent colour)
+                // and stays consistent with the dashboard speed controls.
                 let hotkey_label = format!("F{}", idx + 1);
-                let tooltip_text = format!("{} (hotkey {})", menu.name(), hotkey_label);
+                let tooltip_text = format!(
+                    "{} (hotkey {})",
+                    menu.name(),
+                    theme::kbd_shortcut_label(&hotkey_label),
+                );
 
                 if let Some(map) = texture_map.as_ref() {
                     if let Some(texture_id) = map.get(&menu) {

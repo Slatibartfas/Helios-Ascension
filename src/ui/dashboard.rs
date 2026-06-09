@@ -1408,7 +1408,11 @@ pub(super) fn ui_time_controls(
                         .stroke(egui::Stroke::new(0.5, theme::BORDER))
                         .fill(theme::SURFACE)
                     };
-                    let tooltip = format!("{} (hotkey {})", SPEED_LABELS[i], SPEED_HOTKEYS[i]);
+                    let tooltip = format!(
+                        "{} (hotkey {})",
+                        SPEED_LABELS[i],
+                        theme::kbd_shortcut_label(SPEED_HOTKEYS[i]),
+                    );
                     if ui
                         .add_sized([60.0, 36.0], btn)
                         .on_hover_text(tooltip)
