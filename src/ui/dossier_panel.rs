@@ -844,7 +844,7 @@ fn draw_habitability_section(
             )
         } else if details.total_cost <= 4.0 {
             (
-                egui::Color32::from_rgb(200, 200, 50),
+                theme::DIFFICULTY_MODERATE,
                 "Moderate ",
                 format!("{:.1}/10", details.total_cost),
             )
@@ -918,13 +918,7 @@ fn draw_habitability_section(
                     ui.colored_label(color, format!("  {} +{:.1} / {:.0}", name, val, max));
                 }
             };
-            line(
-                ui,
-                egui::Color32::from_rgb(100, 180, 255),
-                "Cold",
-                details.cold_cost,
-                3.0,
-            );
+            line(ui, theme::BODY_TERRESTRIAL, "Cold", details.cold_cost, 3.0);
             line(ui, RED_ACCENT, "Heat", details.heat_cost, 3.0);
             line(ui, AMBER, "Atmosphere", details.atmosphere_cost, 3.0);
             line(ui, AMBER, "Pressure", details.pressure_cost, 2.0);
@@ -1062,30 +1056,11 @@ fn draw_radar_chart(ui: &mut egui::Ui, scores: &[f32; 5]) {
 
 // ─── Atmosphere Bar ──────────────────────────────────────────────────────
 
-/// Gas name -> colour mapping.
+/// Gas name -> colour mapping. Delegates to `theme::gas_color` so the
+/// atmospheric palette is shared with any other surface that wants to
+/// colour-code gases consistently.
 fn gas_color(name: &str) -> egui::Color32 {
-    let lower = name.to_lowercase();
-    if lower.starts_with("n2") || lower.starts_with("nitrogen") {
-        egui::Color32::from_rgb(26, 82, 118) // Deep blue
-    } else if lower.starts_with("o2") || lower.starts_with("oxygen") {
-        egui::Color32::from_rgb(0, 200, 220) // Cyan
-    } else if lower.starts_with("co2") || lower.starts_with("carbon d") {
-        egui::Color32::from_rgb(230, 126, 34) // Amber
-    } else if lower.starts_with("ar") || lower.starts_with("argon") {
-        egui::Color32::from_rgb(86, 101, 115) // Slate
-    } else if lower.starts_with("ch4") || lower.starts_with("methane") {
-        egui::Color32::from_rgb(243, 156, 18) // Gold
-    } else if lower.starts_with("h2") || lower.starts_with("hydrogen") {
-        egui::Color32::from_rgb(174, 214, 241) // Pale blue
-    } else if lower.starts_with("he") || lower.starts_with("helium") {
-        egui::Color32::from_rgb(213, 245, 227) // Light mint
-    } else if lower.starts_with("so2") || lower.starts_with("sulfur") {
-        egui::Color32::from_rgb(180, 160, 30) // Olive yellow
-    } else if lower.starts_with("ne") || lower.starts_with("neon") {
-        egui::Color32::from_rgb(255, 100, 100) // Neon red
-    } else {
-        egui::Color32::from_rgb(80, 80, 100) // Generic grey-blue
-    }
+    theme::gas_color(name)
 }
 
 fn draw_atmosphere_section(ui: &mut egui::Ui, entity: Entity, atmo: &AtmosphereComposition) {
@@ -1318,38 +1293,14 @@ fn draw_atmosphere_bar(ui: &mut egui::Ui, gases: &[AtmosphericGas]) {
 
 fn draw_ocean_section(ui: &mut egui::Ui, ocean: &OceanProperties) {
     let (icon, label, color) = if ocean.is_subsurface {
-        (
-            "\u{25C8}",
-            "SUBSURFACE OCEAN",
-            egui::Color32::from_rgb(100, 180, 220),
-        )
+        ("\u{25C8}", "SUBSURFACE OCEAN", theme::OCEAN_SUBSURFACE)
     } else {
         match ocean.ocean_type {
-            OceanType::Water => (
-                "\u{25C9}",
-                "SURFACE OCEAN (WATER)",
-                egui::Color32::from_rgb(64, 164, 223),
-            ),
-            OceanType::Methane => (
-                "\u{25C9}",
-                "METHANE LAKES",
-                egui::Color32::from_rgb(180, 140, 60),
-            ),
-            OceanType::Hydrocarbon => (
-                "\u{25C9}",
-                "HYDROCARBON LAKES",
-                egui::Color32::from_rgb(180, 140, 60),
-            ),
-            OceanType::Ammonia => (
-                "\u{25C9}",
-                "AMMONIA OCEAN",
-                egui::Color32::from_rgb(160, 120, 200),
-            ),
-            OceanType::Subsurface => (
-                "\u{25C8}",
-                "SUBSURFACE OCEAN",
-                egui::Color32::from_rgb(100, 180, 220),
-            ),
+            OceanType::Water => ("\u{25C9}", "SURFACE OCEAN (WATER)", theme::OCEAN_WATER),
+            OceanType::Methane => ("\u{25C9}", "METHANE LAKES", theme::OCEAN_METHANE),
+            OceanType::Hydrocarbon => ("\u{25C9}", "HYDROCARBON LAKES", theme::OCEAN_HYDROCARBON),
+            OceanType::Ammonia => ("\u{25C9}", "AMMONIA OCEAN", theme::OCEAN_AMMONIA),
+            OceanType::Subsurface => ("\u{25C8}", "SUBSURFACE OCEAN", theme::OCEAN_SUBSURFACE),
         }
     };
 
@@ -1388,7 +1339,7 @@ fn draw_ocean_section(ui: &mut egui::Ui, ocean: &OceanProperties) {
         (GREEN_ACCENT, format!("+{:.0}% growth", (hab - 1.0) * 100.0))
     } else if hab > 1.0 {
         (
-            egui::Color32::from_rgb(100, 220, 100),
+            theme::STATUS_SUCCESS_DIM,
             format!("+{:.0}% growth", (hab - 1.0) * 100.0),
         )
     } else if hab < 1.0 {
@@ -1611,7 +1562,7 @@ pub(super) fn paint_resource_tile(
                     painter.circle_stroke(
                         egui::Pos2::new(cx, pip_y),
                         pip_r,
-                        egui::Stroke::new(0.5, egui::Color32::from_rgb(40, 45, 55)),
+                        egui::Stroke::new(0.5, theme::BORDER_DIM),
                     );
                 }
             }
@@ -1622,7 +1573,7 @@ pub(super) fn paint_resource_tile(
                 egui::Align2::CENTER_CENTER,
                 resource.symbol(),
                 mono_font(10.0),
-                egui::Color32::from_rgb(50, 55, 65),
+                theme::SURFACE_RAISED_2,
             );
         }
         ResourceTileDisplay::Unknown => {
@@ -1784,13 +1735,7 @@ fn draw_resource_tile(
                     1 => "Trace",
                     _ => "None",
                 };
-                let tier_color = match tier {
-                    5 => ACCENT,
-                    4 => egui::Color32::from_rgb(120, 200, 255),
-                    3 => egui::Color32::from_rgb(180, 200, 220),
-                    2 => TEXT_DIM,
-                    _ => egui::Color32::from_rgb(80, 90, 100),
-                };
+                let tier_color = theme::tier_color(tier);
                 let tier_dots: String =
                     "\u{25CF}".repeat(tier as usize) + &"\u{25CB}".repeat(5 - tier as usize);
                 ui.horizontal(|ui| {
@@ -2103,7 +2048,7 @@ fn draw_colony_section(
         ui.label(
             egui::RichText::new("• 💧 Water: 50 t/person/yr  (recycling losses)")
                 .font(mono_font(10.0))
-                .color(egui::Color32::from_rgb(100, 180, 255)),
+                .color(theme::BODY_TERRESTRIAL),
         );
         if needs_oxygen {
             ui.label(

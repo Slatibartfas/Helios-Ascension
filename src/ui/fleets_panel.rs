@@ -1029,7 +1029,7 @@ fn render_fleet_list(
                     ui.painter().rect_filled(
                         rect.expand(1.0),
                         row_rounding,
-                        egui::Color32::from_rgb(0, 55, 70),
+                        theme::BUTTON_ACTIVE_BG,
                     );
                     ui.painter().rect_stroke(
                         rect.expand(1.0),

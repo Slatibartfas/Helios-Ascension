@@ -157,7 +157,7 @@ fn render_body_row(
         // Show anchor indicator (⚓) when anchored - not clickable, just informational
         if is_anchored {
             ui.add(egui::Label::new(
-                egui::RichText::new("⚓").color(egui::Color32::from_rgb(255, 200, 100)),
+                egui::RichText::new("⚓").color(theme::ANCHOR),
             ));
         } else {
             ui.add_space(20.0); // Keep consistent spacing
@@ -318,7 +318,7 @@ fn render_body_tree(
                 // Show anchor indicator (⚓) when anchored - not clickable, just informational
                 if is_anchored {
                     ui.add(egui::Label::new(
-                        egui::RichText::new("⚓").color(egui::Color32::from_rgb(255, 200, 100)),
+                        egui::RichText::new("⚓").color(theme::ANCHOR),
                     ));
                 } else {
                     ui.add_space(20.0); // Keep consistent spacing
@@ -589,11 +589,8 @@ fn render_fleet_ledger_tree(
             // Selection / hover background — identical to fleet-panel list rows.
             let rounding = egui::CornerRadius::same(3);
             if is_selected {
-                ui.painter().rect_filled(
-                    rect.expand(1.0),
-                    rounding,
-                    egui::Color32::from_rgb(0, 55, 70),
-                );
+                ui.painter()
+                    .rect_filled(rect.expand(1.0), rounding, theme::BUTTON_ACTIVE_BG);
                 ui.painter().rect_stroke(
                     rect.expand(1.0),
                     rounding,
@@ -1350,11 +1347,7 @@ pub(super) fn ui_time_controls(
             ui.horizontal(|ui| {
                 // ── Pause button ──────────────────────────────────────────
                 let pause_fill = if is_paused {
-                    // Blend surface → red based on blink
-                    let r = (13.0 + 100.0 * blink) as u8;
-                    let g = (17.0f32 * (1.0 - blink * 0.8)) as u8;
-                    let b = (23.0f32 * (1.0 - blink * 0.9)) as u8;
-                    egui::Color32::from_rgb(r, g, b)
+                    theme::pause_button_fill(blink)
                 } else {
                     theme::SURFACE
                 };

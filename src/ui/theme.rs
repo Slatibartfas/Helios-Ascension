@@ -10,6 +10,9 @@
 use bevy::prelude::Color;
 use bevy_egui::egui;
 
+use crate::astronomy::OceanType;
+use crate::plugins::solar_system_data::BodyType;
+use crate::research::types::TechCategory;
 use crate::shipbuilding::types::ShipModuleCategory;
 
 // ─── Core Palette ────────────────────────────────────────────────────────
@@ -85,6 +88,259 @@ pub const CAT_PRECIOUS: egui::Color32 = egui::Color32::from_rgb(255, 215, 0);
 pub const CAT_STRATEGIC: egui::Color32 = egui::Color32::from_rgb(180, 120, 255);
 /// Exotic materials (Antimatter, Exotic Matter, Metamaterials, Computronium)
 pub const CAT_EXOTIC: egui::Color32 = egui::Color32::from_rgb(255, 60, 120);
+
+// ─── Body Type Colours ──────────────────────────────────────────────────
+//
+// Display colours for celestial body types — used by the dossier, starmap,
+// and any panel that labels or chips a body. Promoted from the local palette
+// that used to live in `dossier_panel.rs`.
+
+/// Star — bright golden, used for stellar bodies and stellar markers.
+pub const BODY_STAR: egui::Color32 = egui::Color32::from_rgb(255, 220, 100);
+/// Terrestrial planet — pale cyan-blue, used for rocky worlds.
+pub const BODY_TERRESTRIAL: egui::Color32 = egui::Color32::from_rgb(100, 180, 255);
+/// Gas giant — saturn-tan, used for Jupiter/Neptune-class worlds.
+pub const BODY_GAS_GIANT: egui::Color32 = egui::Color32::from_rgb(230, 200, 130);
+/// Dwarf planet — dim brown, used for Ceres/Pluto-class.
+pub const BODY_DWARF_PLANET: egui::Color32 = egui::Color32::from_rgb(180, 140, 90);
+/// Moon — pale grey-blue, used for natural satellites.
+pub const BODY_MOON: egui::Color32 = egui::Color32::from_rgb(180, 180, 200);
+/// Asteroid — dusty brown, used for belt objects and individual rocks.
+pub const BODY_ASTEROID: egui::Color32 = egui::Color32::from_rgb(160, 130, 90);
+/// Comet — pale cyan, used for icy visitors.
+pub const BODY_COMET: egui::Color32 = egui::Color32::from_rgb(140, 200, 240);
+/// Ring — pale tan, used for planetary ring systems.
+pub const BODY_RING: egui::Color32 = egui::Color32::from_rgb(200, 180, 140);
+
+/// Get the display colour for a celestial body type.
+pub fn body_type_color(body_type: BodyType) -> egui::Color32 {
+    match body_type {
+        BodyType::Star => BODY_STAR,
+        BodyType::Planet => BODY_TERRESTRIAL,
+        BodyType::GasGiant => BODY_GAS_GIANT,
+        BodyType::DwarfPlanet => BODY_DWARF_PLANET,
+        BodyType::Moon => BODY_MOON,
+        BodyType::Asteroid => BODY_ASTEROID,
+        BodyType::Comet => BODY_COMET,
+        BodyType::Ring => BODY_RING,
+    }
+}
+
+// ─── Atmospheric Gas Colours ────────────────────────────────────────────
+//
+// The 10-colour palette that used to live privately in `dossier_panel.rs`'s
+// `gas_color` helper. Each gas gets a named constant; `gas_color(name)` is
+// the case-insensitive prefix dispatcher used by the dossier atmosphere
+// section.
+
+/// Nitrogen / N₂ — deep blue.
+pub const GAS_N2: egui::Color32 = egui::Color32::from_rgb(26, 82, 118);
+/// Oxygen / O₂ — cyan.
+pub const GAS_O2: egui::Color32 = egui::Color32::from_rgb(0, 200, 220);
+/// Carbon dioxide / CO₂ — amber.
+pub const GAS_CO2: egui::Color32 = egui::Color32::from_rgb(230, 126, 34);
+/// Argon / Ar — slate.
+pub const GAS_AR: egui::Color32 = egui::Color32::from_rgb(86, 101, 115);
+/// Methane / CH₄ — gold.
+pub const GAS_CH4: egui::Color32 = egui::Color32::from_rgb(243, 156, 18);
+/// Hydrogen / H₂ — pale blue.
+pub const GAS_H2: egui::Color32 = egui::Color32::from_rgb(174, 214, 241);
+/// Helium / He — light mint.
+pub const GAS_HE: egui::Color32 = egui::Color32::from_rgb(213, 245, 227);
+/// Sulfur dioxide / SO₂ — olive yellow.
+pub const GAS_SO2: egui::Color32 = egui::Color32::from_rgb(180, 160, 30);
+/// Neon / Ne — neon red.
+pub const GAS_NE: egui::Color32 = egui::Color32::from_rgb(255, 100, 100);
+/// Default gas colour — generic grey-blue for unrecognised gases.
+pub const GAS_DEFAULT: egui::Color32 = egui::Color32::from_rgb(80, 80, 100);
+
+/// Get the colour for an atmospheric gas by name (case-insensitive prefix).
+pub fn gas_color(name: &str) -> egui::Color32 {
+    let lower = name.to_lowercase();
+    if lower.starts_with("n2") || lower.starts_with("nitrogen") {
+        GAS_N2
+    } else if lower.starts_with("o2") || lower.starts_with("oxygen") {
+        GAS_O2
+    } else if lower.starts_with("co2") || lower.starts_with("carbon d") {
+        GAS_CO2
+    } else if lower.starts_with("ar") || lower.starts_with("argon") {
+        GAS_AR
+    } else if lower.starts_with("ch4") || lower.starts_with("methane") {
+        GAS_CH4
+    } else if lower.starts_with("h2") || lower.starts_with("hydrogen") {
+        GAS_H2
+    } else if lower.starts_with("he") || lower.starts_with("helium") {
+        GAS_HE
+    } else if lower.starts_with("so2") || lower.starts_with("sulfur") {
+        GAS_SO2
+    } else if lower.starts_with("ne") || lower.starts_with("neon") {
+        GAS_NE
+    } else {
+        GAS_DEFAULT
+    }
+}
+
+// ─── Ocean / Surface Liquid Colours ─────────────────────────────────────
+
+/// Surface water ocean — clear blue.
+pub const OCEAN_WATER: egui::Color32 = egui::Color32::from_rgb(64, 164, 223);
+/// Methane lake — golden brown (Titan).
+pub const OCEAN_METHANE: egui::Color32 = egui::Color32::from_rgb(180, 140, 60);
+/// Hydrocarbon lake — same as methane (Titan-style).
+pub const OCEAN_HYDROCARBON: egui::Color32 = OCEAN_METHANE;
+/// Ammonia ocean — purple.
+pub const OCEAN_AMMONIA: egui::Color32 = egui::Color32::from_rgb(160, 120, 200);
+/// Subsurface ocean — pale cyan, used for Europa/Enceladus-style sub-ice oceans.
+pub const OCEAN_SUBSURFACE: egui::Color32 = egui::Color32::from_rgb(100, 180, 220);
+
+/// Get the display colour for an ocean type.
+pub fn ocean_color(ocean_type: OceanType) -> egui::Color32 {
+    match ocean_type {
+        OceanType::Water => OCEAN_WATER,
+        OceanType::Methane => OCEAN_METHANE,
+        OceanType::Hydrocarbon => OCEAN_HYDROCARBON,
+        OceanType::Ammonia => OCEAN_AMMONIA,
+        OceanType::Subsurface => OCEAN_SUBSURFACE,
+    }
+}
+
+// ─── Status Colours ─────────────────────────────────────────────────────
+
+/// Warning — amber-yellow status (deficits, attention needed).
+pub const STATUS_WARN: egui::Color32 = egui::Color32::from_rgb(255, 200, 0);
+/// Error — red status (failures, critical).
+pub const STATUS_ERROR: egui::Color32 = egui::Color32::from_rgb(255, 100, 100);
+/// Success — green status (positive, complete).
+pub const STATUS_SUCCESS: egui::Color32 = egui::Color32::from_rgb(100, 255, 100);
+/// Success-dim — dimmer green for secondary positive highlights.
+pub const STATUS_SUCCESS_DIM: egui::Color32 = egui::Color32::from_rgb(100, 220, 100);
+/// Neutral — light grey for plain/informational text.
+pub const STATUS_NEUTRAL: egui::Color32 = egui::Color32::from_rgb(220, 220, 220);
+/// Muted — mid grey for inactive/disabled UI.
+pub const STATUS_MUTED: egui::Color32 = egui::Color32::from_rgb(180, 180, 180);
+
+// ─── Anchor / Marker ────────────────────────────────────────────────────
+
+/// Anchor / marker — orange-gold for ⚓ glyphs and similar emphasis marks.
+pub const ANCHOR: egui::Color32 = egui::Color32::from_rgb(255, 200, 100);
+
+// ─── Selected-Button / Active-Item Background ───────────────────────────
+
+/// Dark teal background used for the active/selected state of row buttons
+/// and time-scale presets — sits between `SURFACE_RAISED` and `ACCENT` so
+/// the bright `ACCENT` text reads cleanly on top.
+pub const BUTTON_ACTIVE_BG: egui::Color32 = egui::Color32::from_rgb(0, 55, 70);
+
+// ─── Surface Variants ───────────────────────────────────────────────────
+
+/// Dim border for fine sub-elements (axis pips, thin dividers) that should
+/// be slightly darker than `BORDER` so they read as inset rather than chrome.
+pub const BORDER_DIM: egui::Color32 = egui::Color32::from_rgb(40, 45, 55);
+/// Slightly lighter variant of `SURFACE` for resource-symbol tiles where
+/// `SURFACE` would blend into the panel background.
+pub const SURFACE_RAISED_2: egui::Color32 = egui::Color32::from_rgb(50, 55, 65);
+
+// ─── Difficulty / Tier Colours ──────────────────────────────────────────
+
+/// Moderate difficulty — yellow used in the dossier cost-indicator chips.
+pub const DIFFICULTY_MODERATE: egui::Color32 = egui::Color32::from_rgb(200, 200, 50);
+/// Star-icon (solar system view) — yellow used for the ★ glyph in dossier headers.
+pub const SOLAR_STAR: egui::Color32 = egui::Color32::from_rgb(200, 200, 50);
+/// Tier 4 (high) — bright cyan, used in dossier resource-availability chips.
+pub const TIER_4: egui::Color32 = egui::Color32::from_rgb(120, 200, 255);
+/// Tier 3 (mid) — pale blue.
+pub const TIER_3: egui::Color32 = egui::Color32::from_rgb(180, 200, 220);
+/// Tier ≤ 2 / unknown — dim grey.
+pub const TIER_OTHER: egui::Color32 = egui::Color32::from_rgb(80, 90, 100);
+
+/// Get the dossier tier colour for a numeric tier (0..=5).
+pub fn tier_color(tier: u8) -> egui::Color32 {
+    match tier {
+        5 => ACCENT,
+        4 => TIER_4,
+        3 => TIER_3,
+        2 => TEXT_DIM,
+        _ => TIER_OTHER,
+    }
+}
+
+// ─── Tech Tree Node State Colours ───────────────────────────────────────
+//
+// Drawn on the tech-tree canvas (see `tech_tree.rs`). Each state has a
+// dimmer base colour plus a brighter "in-path" variant so the player's
+// planned-research path stands out against ambient available research.
+
+/// Node fill — unlocked, ambient.
+pub const TECH_NODE_UNLOCKED: egui::Color32 = egui::Color32::from_rgb(25, 70, 25);
+/// Node fill — unlocked, in path.
+pub const TECH_NODE_UNLOCKED_PATH: egui::Color32 = egui::Color32::from_rgb(30, 90, 30);
+/// Node fill — researching, ambient.
+pub const TECH_NODE_RESEARCHING: egui::Color32 = egui::Color32::from_rgb(15, 50, 95);
+/// Node fill — researching, in path.
+pub const TECH_NODE_RESEARCHING_PATH: egui::Color32 = egui::Color32::from_rgb(20, 60, 110);
+/// Node fill — available, ambient.
+pub const TECH_NODE_AVAILABLE: egui::Color32 = egui::Color32::from_rgb(70, 60, 15);
+/// Node fill — available, in path.
+pub const TECH_NODE_AVAILABLE_PATH: egui::Color32 = egui::Color32::from_rgb(90, 75, 15);
+/// Node fill — locked, ambient.
+pub const TECH_NODE_LOCKED: egui::Color32 = egui::Color32::from_rgb(45, 45, 50);
+/// Node fill — locked, in path.
+pub const TECH_NODE_LOCKED_PATH: egui::Color32 = egui::Color32::from_rgb(60, 60, 60);
+/// Node text — unlocked (light green for visibility on dark green).
+pub const TECH_TEXT_UNLOCKED: egui::Color32 = egui::Color32::from_rgb(180, 255, 180);
+/// Node text — available (warm cream on amber background).
+pub const TECH_TEXT_AVAILABLE: egui::Color32 = egui::Color32::from_rgb(255, 240, 180);
+
+/// Compute the tech-tree node fill colour from a (in_path, unlocked,
+/// researching, can_research) tuple — replaces the duplicated match arms
+/// in `tech_tree.rs` that previously had 8 hardcoded `Color32::from_rgb`.
+#[allow(clippy::too_many_arguments)]
+pub fn tech_node_color(
+    in_path: bool,
+    unlocked: bool,
+    researching: bool,
+    can_research: bool,
+) -> egui::Color32 {
+    match (in_path, unlocked, researching, can_research) {
+        (true, true, _, _) => TECH_NODE_UNLOCKED_PATH,
+        (true, _, true, _) => TECH_NODE_RESEARCHING_PATH,
+        (true, _, _, true) => TECH_NODE_AVAILABLE_PATH,
+        (true, _, _, _) => TECH_NODE_LOCKED_PATH,
+        (false, true, _, _) => TECH_NODE_UNLOCKED,
+        (false, _, true, _) => TECH_NODE_RESEARCHING,
+        (false, _, _, true) => TECH_NODE_AVAILABLE,
+        (false, _, _, _) => TECH_NODE_LOCKED,
+    }
+}
+
+// ─── Resources Bar Metric Colours ───────────────────────────────────────
+//
+// History-panel series accents. The Kardashev / PowerProduced values
+// delegate to existing tokens; the rest are bespoke to keep distinct
+// metrics visually distinct in the bar chart legend.
+
+/// Population metric — pale green.
+pub const RB_POPULATION: egui::Color32 = egui::Color32::from_rgb(116, 224, 170);
+/// Colonies metric — warm gold.
+pub const RB_COLONIES: egui::Color32 = egui::Color32::from_rgb(236, 197, 96);
+/// Ships metric — pale blue.
+pub const RB_SHIPS: egui::Color32 = egui::Color32::from_rgb(120, 178, 255);
+/// Survey coverage / surveyed bodies — pale teal.
+pub const RB_SURVEY: egui::Color32 = egui::Color32::from_rgb(121, 235, 210);
+/// Housing bar full-fill — pale blue used when the housing capacity bar
+/// is below 85% (RED/AMBER handle the over-budget states).
+pub const RB_HOUSING: egui::Color32 = egui::Color32::from_rgb(100, 180, 255);
+
+// ─── Misc Helpers ───────────────────────────────────────────────────────
+
+/// Compute the blink-pulsed fill colour for the dashboard's pause button.
+/// `blink` is a 0.0..=1.0 alpha value driven by the time-controls animation.
+pub fn pause_button_fill(blink: f32) -> egui::Color32 {
+    let r = (13.0 + 100.0 * blink) as u8;
+    let g = (17.0f32 * (1.0 - blink * 0.8)) as u8;
+    let b = (23.0f32 * (1.0 - blink * 0.9)) as u8;
+    egui::Color32::from_rgb(r, g, b)
+}
 
 // ─── Font Helpers ────────────────────────────────────────────────────────
 
@@ -251,6 +507,32 @@ pub fn module_category_color(category: ShipModuleCategory) -> Color {
         }
         ShipModuleCategory::ElectronicWarfare => Color::srgb(1.0, 0.62, 0.78),
         ShipModuleCategory::SpecialScience => Color::srgb(0.6, 1.0, 0.8),
+    }
+}
+
+// ─── Tech Category Colours ──────────────────────────────────────────────
+
+/// Get the colour for a technology research category — drives the tech
+/// tree's per-category borders, labels, and category band backgrounds.
+/// Centralised here so panels beyond the tech tree can pick up the same
+/// category tint.
+pub fn tech_category_color(category: TechCategory) -> egui::Color32 {
+    match category {
+        TechCategory::Electronics => egui::Color32::from_rgb(100, 150, 255),
+        TechCategory::Propulsion => egui::Color32::from_rgb(255, 150, 50),
+        TechCategory::Energy => egui::Color32::from_rgb(255, 255, 50),
+        TechCategory::Physics => egui::Color32::from_rgb(150, 100, 255),
+        TechCategory::Military => egui::Color32::from_rgb(255, 50, 50),
+        TechCategory::Weapons => egui::Color32::from_rgb(200, 50, 50),
+        TechCategory::DefensiveSystems => egui::Color32::from_rgb(50, 150, 255),
+        TechCategory::Materials => egui::Color32::from_rgb(150, 150, 50),
+        TechCategory::Construction => egui::Color32::from_rgb(200, 150, 100),
+        TechCategory::Biology => egui::Color32::from_rgb(50, 255, 150),
+        TechCategory::Sensors => egui::Color32::from_rgb(100, 255, 255),
+        TechCategory::SpaceTechnology => egui::Color32::from_rgb(150, 200, 255),
+        TechCategory::Sociology => egui::Color32::from_rgb(255, 150, 200),
+        TechCategory::LifeSupport => GREEN,
+        TechCategory::Industry => egui::Color32::from_rgb(180, 180, 50),
     }
 }
 
