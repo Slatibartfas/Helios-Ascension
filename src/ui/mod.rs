@@ -19,6 +19,9 @@ pub mod interaction;
 
 pub use interaction::Selection;
 
+pub mod screenshot;
+mod screenshot_state;
+
 mod construction_panel;
 pub mod cursors;
 mod dashboard;
@@ -512,7 +515,13 @@ impl Plugin for UIPlugin {
             .add_systems(
                 EguiPrimaryContextPass,
                 capture_egui_panel_bounds.after(UiSystemSet::Overlays),
-            );
+            )
+            // Screenshot plugin (Shift+F12 manual capture, 5 named slots).
+            // Pure data + keybind + capture pump; the heavy
+            // `bevy::render::view::screenshot` import is gated under
+            // `#[cfg(not(test))]` so the test target's incremental compile
+            // stays within the GHA 5:00 cliff.
+            .add_plugins(screenshot::ScreenshotPlugin);
     }
 }
 

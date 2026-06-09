@@ -1,0 +1,20 @@
+// Manual screenshot slot names — read by the Shift+F12 live keybind.
+//
+// Pressing Shift+F12 captures the current frame into
+// `docs/UI/baselines/manual/{name}.png`, then advances to the next slot.
+// After the last slot, wraps to the first.
+//
+// Slot names are picked for the transient states the manifest cannot
+// predict: tooltips, dropdowns, dialogs, the dossier panel mid-edit.
+// Re-run the v1 manifest first; the slots fill in the gaps.
+
+(
+    out_dir: "docs/UI/baselines/manual",
+    names: [
+        "overview",
+        "shipbuilding",
+        "research",
+        "construction",
+        "starmap",
+    ],
+)
