@@ -704,7 +704,7 @@ fn ui_top_menu_bar(
                             );
                         }
 
-                        let resp = resp.on_hover_ui(&render_tooltip);
+                        let resp = resp.on_hover_ui(render_tooltip);
                         if resp.clicked() {
                             active_menu.current = menu;
                             match menu {
@@ -737,7 +737,7 @@ fn ui_top_menu_bar(
                                 .fill(theme::SURFACE)
                         };
 
-                        if ui.add(button).on_hover_ui(&render_tooltip).clicked() {
+                        if ui.add(button).on_hover_ui(render_tooltip).clicked() {
                             active_menu.current = menu;
                             match menu {
                                 GameMenu::Starmap => switch_to_starmap_menu(
@@ -770,7 +770,7 @@ fn ui_top_menu_bar(
                             .fill(theme::SURFACE)
                     };
 
-                    if ui.add(button).on_hover_ui(&render_tooltip).clicked() {
+                    if ui.add(button).on_hover_ui(render_tooltip).clicked() {
                         active_menu.current = menu;
                         match menu {
                             GameMenu::Starmap => switch_to_starmap_menu(
