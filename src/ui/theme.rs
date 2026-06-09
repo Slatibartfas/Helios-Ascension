@@ -192,14 +192,12 @@ pub const OCEAN_HYDROCARBON: egui::Color32 = OCEAN_METHANE;
 pub const OCEAN_AMMONIA: egui::Color32 = egui::Color32::from_rgb(160, 120, 200);
 /// Subsurface ocean — pale cyan, used for Europa/Enceladus-style sub-ice oceans.
 pub const OCEAN_SUBSURFACE: egui::Color32 = egui::Color32::from_rgb(100, 180, 220);
-/// Methane surface ocean — warm amber (distinct from lakes).
-pub const OCEAN_METHANE_WARM: egui::Color32 = egui::Color32::from_rgb(200, 150, 50);
 
 /// Get the display colour for an ocean type.
 pub fn ocean_color(ocean_type: OceanType) -> egui::Color32 {
     match ocean_type {
         OceanType::Water => OCEAN_WATER,
-        OceanType::Methane => OCEAN_METHANE_WARM,
+        OceanType::Methane => OCEAN_METHANE,
         OceanType::Hydrocarbon => OCEAN_HYDROCARBON,
         OceanType::Ammonia => OCEAN_AMMONIA,
         OceanType::Subsurface => OCEAN_SUBSURFACE,

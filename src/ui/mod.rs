@@ -1111,7 +1111,7 @@ fn ui_hover_tooltip(
                                         ("\u{1F30A}", "Water Ocean", theme::OCEAN_WATER)
                                     }
                                     crate::astronomy::OceanType::Methane => {
-                                        ("\u{1F7E0}", "Methane Ocean", theme::OCEAN_METHANE_WARM)
+                                        ("\u{1F7E0}", "Methane Ocean", theme::OCEAN_METHANE)
                                     }
                                     crate::astronomy::OceanType::Hydrocarbon => {
                                         ("\u{26FD}", "Hydrocarbon Lakes", theme::OCEAN_HYDROCARBON)
