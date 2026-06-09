@@ -185,10 +185,10 @@ impl HistoryPanelMetric {
         match self {
             Self::Kardashev => theme::CAT_STRATEGIC,
             Self::PowerProduced => theme::ACCENT,
-            Self::Population => egui::Color32::from_rgb(116, 224, 170),
-            Self::Colonies => egui::Color32::from_rgb(236, 197, 96),
-            Self::Ships => egui::Color32::from_rgb(120, 178, 255),
-            Self::SurveyCoverage | Self::SurveyedBodies => egui::Color32::from_rgb(121, 235, 210),
+            Self::Population => theme::RB_POPULATION,
+            Self::Colonies => theme::RB_COLONIES,
+            Self::Ships => theme::RB_SHIPS,
+            Self::SurveyCoverage | Self::SurveyedBodies => theme::RB_SURVEY,
             Self::ResourceStockpile
             | Self::ResourceNetRate
             | Self::ResourceProduction
@@ -2483,7 +2483,7 @@ pub(super) fn ui_resources_bar(
                         } else if housing_fill > 0.85 {
                             theme::AMBER
                         } else {
-                            egui::Color32::from_rgb(100, 180, 255)
+                            theme::RB_HOUSING
                         };
                         let (rect, _) = ui.allocate_exact_size(
                             egui::vec2(ui.available_width(), 4.0),

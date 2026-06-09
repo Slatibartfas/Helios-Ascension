@@ -397,25 +397,8 @@ pub(super) fn render_tech_tree_tab(
             let is_selected = selected_tech.as_ref() == Some(&tech.id);
 
             // Node fill color — use darker/muted tones so white text is always readable
-            let node_color = if is_in_path {
-                if is_unlocked {
-                    egui::Color32::from_rgb(30, 90, 30)
-                } else if is_researching {
-                    egui::Color32::from_rgb(20, 60, 110)
-                } else if can_research {
-                    egui::Color32::from_rgb(90, 75, 15)
-                } else {
-                    egui::Color32::from_rgb(60, 60, 60)
-                }
-            } else if is_unlocked {
-                egui::Color32::from_rgb(25, 70, 25)
-            } else if is_researching {
-                egui::Color32::from_rgb(15, 50, 95)
-            } else if can_research {
-                egui::Color32::from_rgb(70, 60, 15)
-            } else {
-                egui::Color32::from_rgb(45, 45, 50)
-            };
+            let node_color =
+                theme::tech_node_color(is_in_path, is_unlocked, is_researching, can_research);
 
             let category_color = tech_category_color(tech.category);
 
@@ -448,9 +431,9 @@ pub(super) fn render_tech_tree_tab(
             let text_color = if is_in_path {
                 egui::Color32::WHITE
             } else if is_unlocked {
-                egui::Color32::from_rgb(180, 255, 180)
+                theme::TECH_TEXT_UNLOCKED
             } else if can_research {
-                egui::Color32::from_rgb(255, 240, 180)
+                theme::TECH_TEXT_AVAILABLE
             } else {
                 theme::TEXT_DIM
             };
@@ -1276,23 +1259,8 @@ pub(super) fn save_technologies_to_file(tech_data: &TechnologiesData) {
     }
 }
 
-/// Get the unique category color for a TechCategory
+/// Get the unique category color for a TechCategory. Delegates to
+/// `theme::tech_category_color` so the palette is defined in one place.
 pub(super) fn tech_category_color(cat: TechCategory) -> egui::Color32 {
-    match cat {
-        TechCategory::Electronics => egui::Color32::from_rgb(100, 150, 255),
-        TechCategory::Propulsion => egui::Color32::from_rgb(255, 150, 50),
-        TechCategory::Energy => egui::Color32::from_rgb(255, 255, 50),
-        TechCategory::Physics => egui::Color32::from_rgb(150, 100, 255),
-        TechCategory::Military => egui::Color32::from_rgb(255, 50, 50),
-        TechCategory::Weapons => egui::Color32::from_rgb(200, 50, 50),
-        TechCategory::DefensiveSystems => egui::Color32::from_rgb(50, 150, 255),
-        TechCategory::Materials => egui::Color32::from_rgb(150, 150, 50),
-        TechCategory::Construction => egui::Color32::from_rgb(200, 150, 100),
-        TechCategory::Biology => egui::Color32::from_rgb(50, 255, 150),
-        TechCategory::Sensors => egui::Color32::from_rgb(100, 255, 255),
-        TechCategory::SpaceTechnology => egui::Color32::from_rgb(150, 200, 255),
-        TechCategory::Sociology => egui::Color32::from_rgb(255, 150, 200),
-        TechCategory::LifeSupport => theme::GREEN,
-        TechCategory::Industry => egui::Color32::from_rgb(180, 180, 50),
-    }
+    theme::tech_category_color(cat)
 }

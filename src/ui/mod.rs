@@ -1104,38 +1104,24 @@ fn ui_hover_tooltip(
                         // Ocean indicator
                         if let Some(ocean) = ocean_props {
                             let (icon, text, color) = if ocean.is_subsurface {
-                                (
-                                    "\u{1F9CA}",
-                                    "Subsurface Ocean",
-                                    egui::Color32::from_rgb(100, 180, 220),
-                                )
+                                ("\u{1F9CA}", "Subsurface Ocean", theme::OCEAN_SUBSURFACE)
                             } else {
                                 match ocean.ocean_type {
-                                    crate::astronomy::OceanType::Water => (
-                                        "\u{1F30A}",
-                                        "Water Ocean",
-                                        egui::Color32::from_rgb(64, 164, 223),
-                                    ),
-                                    crate::astronomy::OceanType::Methane => (
-                                        "\u{1F7E0}",
-                                        "Methane Ocean",
-                                        egui::Color32::from_rgb(200, 150, 50),
-                                    ),
-                                    crate::astronomy::OceanType::Hydrocarbon => (
-                                        "\u{26FD}",
-                                        "Hydrocarbon Lakes",
-                                        egui::Color32::from_rgb(180, 140, 60),
-                                    ),
-                                    crate::astronomy::OceanType::Ammonia => (
-                                        "\u{1F7E3}",
-                                        "Ammonia Ocean",
-                                        egui::Color32::from_rgb(160, 120, 200),
-                                    ),
-                                    crate::astronomy::OceanType::Subsurface => (
-                                        "\u{1F9CA}",
-                                        "Subsurface Ocean",
-                                        egui::Color32::from_rgb(100, 180, 220),
-                                    ),
+                                    crate::astronomy::OceanType::Water => {
+                                        ("\u{1F30A}", "Water Ocean", theme::OCEAN_WATER)
+                                    }
+                                    crate::astronomy::OceanType::Methane => {
+                                        ("\u{1F7E0}", "Methane Ocean", theme::OCEAN_METHANE_WARM)
+                                    }
+                                    crate::astronomy::OceanType::Hydrocarbon => {
+                                        ("\u{26FD}", "Hydrocarbon Lakes", theme::OCEAN_HYDROCARBON)
+                                    }
+                                    crate::astronomy::OceanType::Ammonia => {
+                                        ("\u{1F7E3}", "Ammonia Ocean", theme::OCEAN_AMMONIA)
+                                    }
+                                    crate::astronomy::OceanType::Subsurface => {
+                                        ("\u{1F9CA}", "Subsurface Ocean", theme::OCEAN_SUBSURFACE)
+                                    }
                                 }
                             };
                             ui.horizontal(|ui| {
@@ -1299,14 +1285,14 @@ fn ui_resolution_warning(
                 ui.label(
                     egui::RichText::new("⚠")
                         .size(56.0)
-                        .color(egui::Color32::from_rgb(255, 200, 0))
+                        .color(theme::STATUS_WARN)
                 );
                 ui.add_space(10.0);
                 ui.label(
                     egui::RichText::new("Low Resolution Detected")
                         .size(18.0)
                         .strong()
-                        .color(egui::Color32::from_rgb(255, 220, 100))
+                        .color(theme::STAR_GOLD)
                 );
             });
 
@@ -1322,7 +1308,7 @@ fn ui_resolution_warning(
                             egui::RichText::new(format!("{}×{}", current_width as u32, current_height as u32))
                                 .strong()
                                 .size(15.0)
-                                .color(egui::Color32::from_rgb(255, 100, 100))
+                                .color(theme::STATUS_ERROR)
                         );
                     });
                 });
@@ -1333,7 +1319,7 @@ fn ui_resolution_warning(
                             egui::RichText::new(format!("{}×{} (Full HD)", MIN_WINDOW_WIDTH as u32, MIN_WINDOW_HEIGHT as u32))
                                 .strong()
                                 .size(15.0)
-                                .color(egui::Color32::from_rgb(100, 255, 100))
+                                .color(theme::STATUS_SUCCESS)
                         );
                     });
                 });
@@ -1364,7 +1350,7 @@ fn ui_resolution_warning(
             ui.label(
                 egui::RichText::new("At lower resolutions, these elements will overlap and become difficult or impossible to use.")
                     .size(12.0)
-                    .color(egui::Color32::from_rgb(220, 220, 220))
+                    .color(theme::STATUS_NEUTRAL)
             );
 
             ui.add_space(12.0);
@@ -1395,7 +1381,7 @@ fn ui_resolution_warning(
                     egui::RichText::new("You may continue, but expect UI issues.")
                         .size(11.0)
                         .italics()
-                        .color(egui::Color32::from_rgb(180, 180, 180))
+                        .color(theme::STATUS_MUTED)
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button(egui::RichText::new("I Understand").size(14.0)).clicked() {
