@@ -895,7 +895,7 @@ fn render_kardashev_overlay(
             });
         });
 
-        ui.add_space(8.0);
+        ui.add_space(theme::Spacing::sm);
         ui.horizontal_wrapped(|ui| {
             ui.label(
                 egui::RichText::new("Metric")
@@ -968,7 +968,7 @@ fn render_kardashev_overlay(
             );
         });
 
-        ui.add_space(8.0);
+        ui.add_space(theme::Spacing::sm);
         let cursor_info = render_history_plot(
             ui,
             &series,
@@ -981,7 +981,7 @@ fn render_kardashev_overlay(
             true,
         );
 
-        ui.add_space(8.0);
+        ui.add_space(theme::Spacing::sm);
         ui.allocate_ui_with_layout(
             egui::vec2(ui.available_width(), 24.0),
             egui::Layout::left_to_right(egui::Align::Center),

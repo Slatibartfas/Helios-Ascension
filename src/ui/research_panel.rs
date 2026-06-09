@@ -828,7 +828,7 @@ fn render_available_research_tab(
                                 Some(info),
                             );
                         });
-                        ui.add_space(8.0);
+                        ui.add_space(theme::Spacing::sm);
                         // Interactive controls outside the tooltip scope
                         ui.add(
                             egui::ProgressBar::new(info.progress_percent)
@@ -947,7 +947,7 @@ fn render_available_research_tab(
                                 .size(12.0)
                                 .color(cat_color),
                         );
-                        ui.add_space(8.0);
+                        ui.add_space(theme::Spacing::sm);
                         ui.label(
                             egui::RichText::new(format!("{:.0} RP", tech.research_cost))
                                 .color(theme::RP_BLUE),
@@ -1095,7 +1095,7 @@ fn render_available_engineering_tab(
                                         .color(cat_color),
                                 );
                             }
-                            ui.add_space(8.0);
+                            ui.add_space(theme::Spacing::sm);
                             ui.label(
                                 egui::RichText::new(format!(
                                     "{:.0} EP",
@@ -1456,7 +1456,7 @@ fn render_bonuses_tab(
                     egui::Frame::NONE
                         .fill(egui::Color32::from_rgba_unmultiplied(13, 17, 23, 245))
                         .stroke(egui::Stroke::new(border_width, border_color))
-                        .inner_margin(10.0)
+                        .inner_margin(theme::Spacing::md)
                         .corner_radius(4.0)
                         .show(ui, |ui| {
                             ui.set_max_width(280.0);

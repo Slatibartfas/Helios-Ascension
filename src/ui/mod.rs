@@ -979,7 +979,7 @@ fn ui_hover_tooltip(
                     egui::Frame::NONE
                         .fill(egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245))
                         .stroke(egui::Stroke::new(2.0, theme::ACCENT_DIM))
-                        .inner_margin(12.0)
+                        .inner_margin(theme::Spacing::lg)
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 ui.label(
@@ -1070,7 +1070,7 @@ fn ui_hover_tooltip(
                 egui::Frame::NONE
                     .fill(egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245))
                     .stroke(egui::Stroke::new(2.0, theme::ACCENT_DIM))
-                    .inner_margin(12.0)
+                    .inner_margin(theme::Spacing::lg)
                     .show(ui, |ui| {
                         // Use horizontal layout to prevent narrow wrapping
                         ui.horizontal(|ui| {
@@ -1203,7 +1203,7 @@ fn ui_starmap_hover_tooltip(
                 egui::Frame::NONE
                     .fill(egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245))
                     .stroke(egui::Stroke::new(2.0, theme::AMBER))
-                    .inner_margin(12.0)
+                    .inner_margin(theme::Spacing::lg)
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(
@@ -1297,7 +1297,7 @@ fn ui_resolution_warning(
             });
 
             ui.separator();
-            ui.add_space(12.0);
+            ui.add_space(theme::Spacing::lg);
 
             // Current vs Required
             ui.group(|ui| {
@@ -1325,7 +1325,7 @@ fn ui_resolution_warning(
                 });
             });
 
-            ui.add_space(12.0);
+            ui.add_space(theme::Spacing::lg);
 
             // Explanation
             ui.label(
@@ -1346,16 +1346,16 @@ fn ui_resolution_warning(
                 ui.label("• Detailed celestial body information");
                 ui.label("• Technology tree visualization");
             });
-            ui.add_space(8.0);
+            ui.add_space(theme::Spacing::sm);
             ui.label(
                 egui::RichText::new("At lower resolutions, these elements will overlap and become difficult or impossible to use.")
                     .size(12.0)
                     .color(theme::STATUS_NEUTRAL)
             );
 
-            ui.add_space(12.0);
+            ui.add_space(theme::Spacing::lg);
             ui.separator();
-            ui.add_space(8.0);
+            ui.add_space(theme::Spacing::sm);
 
             // Solutions
             ui.label(
@@ -1373,7 +1373,7 @@ fn ui_resolution_warning(
 
             ui.add_space(16.0);
             ui.separator();
-            ui.add_space(8.0);
+            ui.add_space(theme::Spacing::sm);
 
             let mut dismiss = false;
             ui.horizontal(|ui| {

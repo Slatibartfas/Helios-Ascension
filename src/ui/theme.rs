@@ -15,6 +15,30 @@ use crate::plugins::solar_system_data::BodyType;
 use crate::research::types::TechCategory;
 use crate::shipbuilding::types::ShipModuleCategory;
 
+// ─── Spacing Scale ──────────────────────────────────────────────────────
+//
+// Single source of truth for the 4-px-based spacing grid. Every panel,
+// sub-section, and intra-element gap in `src/ui/` should reference one of
+// these constants instead of inlining literal f32 values. The scale is
+// deliberately small (5 stops) so panels stay visually coherent.
+
+/// Spacing scale in pixels, 4-px-based grid.
+///
+/// * `xs` — hairline gap (e.g. tight separators).
+/// * `sm` — small gap between related elements (most common; default
+///   intra-row spacing).
+/// * `md` — medium gap (panel inner padding, section breathing room).
+/// * `lg` — large gap (sub-section separation, generous tooltip padding).
+/// * `xl` — extra-large gap (top-level panel separation).
+#[allow(non_snake_case, non_upper_case_globals)]
+pub mod Spacing {
+    pub const xs: f32 = 4.0;
+    pub const sm: f32 = 8.0;
+    pub const md: f32 = 10.0;
+    pub const lg: f32 = 12.0;
+    pub const xl: f32 = 16.0;
+}
+
 // ─── Core Palette ────────────────────────────────────────────────────────
 
 /// Deep navy background at high opacity — used for panel fills.
@@ -371,7 +395,7 @@ pub fn panel_frame() -> egui::Frame {
     egui::Frame::NONE
         .fill(BG)
         .stroke(egui::Stroke::new(1.0, BORDER))
-        .inner_margin(egui::Margin::same(10))
+        .inner_margin(egui::Margin::same(Spacing::md as i8))
 }
 
 /// Frame for central panels (fully opaque).
@@ -379,7 +403,7 @@ pub fn central_frame() -> egui::Frame {
     egui::Frame::NONE
         .fill(BG_SOLID)
         .stroke(egui::Stroke::new(1.0, BORDER))
-        .inner_margin(egui::Margin::same(8))
+        .inner_margin(egui::Margin::same(Spacing::sm as i8))
 }
 
 /// Frame for prominent section cards inside full-screen menus.
@@ -394,7 +418,7 @@ pub fn elevated_frame() -> egui::Frame {
     egui::Frame::NONE
         .fill(SURFACE)
         .stroke(egui::Stroke::new(1.0, BORDER))
-        .inner_margin(egui::Margin::same(8))
+        .inner_margin(egui::Margin::same(Spacing::sm as i8))
         .corner_radius(3.0)
 }
 
@@ -403,7 +427,7 @@ pub fn tooltip_frame() -> egui::Frame {
     egui::Frame::NONE
         .fill(egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245))
         .stroke(egui::Stroke::new(1.5, ACCENT_DIM))
-        .inner_margin(egui::Margin::same(10))
+        .inner_margin(egui::Margin::same(Spacing::md as i8))
         .corner_radius(4.0)
 }
 

@@ -149,15 +149,10 @@ pub(super) fn ui_planet_dossier(
         return;
     };
 
-    let panel_frame = egui::Frame::NONE
-        .fill(BG_FILL)
-        .stroke(egui::Stroke::new(1.0, BORDER))
-        .inner_margin(egui::Margin::same(10));
-
     egui::SidePanel::right("selection_panel")
         .min_width(340.0)
         .max_width(420.0)
-        .frame(panel_frame)
+        .frame(theme::panel_frame())
         .show(ctx, |ui| {
             egui::ScrollArea::vertical()
                 .id_salt("dossier_scroll")
@@ -539,7 +534,7 @@ fn section_divider(ui: &mut egui::Ui) {
         y,
         egui::Stroke::new(1.0, BORDER),
     );
-    ui.add_space(8.0);
+    ui.add_space(theme::Spacing::sm);
 }
 
 fn draw_star_properties_section(
@@ -782,7 +777,7 @@ fn draw_habitability_section(
                     .font(mono_font(10.0))
                     .color(TEXT_DIM),
             );
-            ui.add_space(8.0);
+            ui.add_space(theme::Spacing::sm);
             // Button is disabled until the terraforming system is implemented
             ui.add_enabled(
                 false,
@@ -1090,7 +1085,7 @@ fn draw_atmosphere_section(ui: &mut egui::Ui, entity: Entity, atmo: &AtmosphereC
                 .color(TEXT_VALUE),
         );
 
-        ui.add_space(8.0);
+        ui.add_space(theme::Spacing::sm);
 
         // Breathability indicator
         let (breath_icon, breath_color, breath_tip) = if atmo.breathable {
