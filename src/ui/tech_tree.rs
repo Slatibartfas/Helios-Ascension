@@ -630,7 +630,7 @@ pub(super) fn render_tech_tree_tab(
                         .small()
                         .color(theme::AMBER),
                     );
-                    ui.add_space(8.0);
+                    ui.add_space(theme::Spacing::sm);
                     ui.horizontal(|ui| {
                         if ui.button("🗑 Delete").clicked() {
                             do_delete = Some(del_id.clone());

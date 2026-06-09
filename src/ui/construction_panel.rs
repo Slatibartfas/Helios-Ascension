@@ -599,7 +599,7 @@ fn render_construction_panel(
 
     if colonies.is_empty() {
         theme::elevated_frame().show(ui, |ui| {
-            ui.add_space(12.0);
+            ui.add_space(theme::Spacing::lg);
             ui.label(
                 egui::RichText::new("NO COLONIES ONLINE")
                     .font(theme::heading())
@@ -632,7 +632,7 @@ fn render_construction_panel(
                 .font(theme::heading())
                 .color(theme::ACCENT),
         );
-        ui.add_space(12.0);
+        ui.add_space(theme::Spacing::lg);
         egui::ComboBox::from_id_salt("colony_selector")
             .selected_text(
                 egui::RichText::new(&current_name)
@@ -789,7 +789,7 @@ fn render_construction_overview_tab(
             .size(11.0)
             .color(theme::TEXT_DIM),
     );
-    ui.add_space(8.0);
+    ui.add_space(theme::Spacing::sm);
 
     // ── Yield chip + colony identity row (GRA-22d #1) ────────────────────
     let yield_mult = colony.effective_yield_multiplier();
@@ -801,7 +801,7 @@ fn render_construction_overview_tab(
                     .size(14.0)
                     .strong(),
             );
-            ui.add_space(8.0);
+            ui.add_space(theme::Spacing::sm);
             // Yield chip: "Outpost × 0.10" with tooltip explaining how to upgrade.
             let chip_label = format!("{} × {:.2}", tier.display_name(), yield_mult);
             let chip_color = if yield_mult >= 0.99 {
@@ -924,7 +924,7 @@ fn render_construction_overview_tab(
         }
     });
 
-    ui.add_space(8.0);
+    ui.add_space(theme::Spacing::sm);
 
     // ── Building count + surplus summary (GRA-22d #2) ───────────────────
     theme::elevated_frame().show(ui, |ui| {
@@ -970,7 +970,7 @@ fn render_construction_overview_tab(
         });
     });
 
-    ui.add_space(8.0);
+    ui.add_space(theme::Spacing::sm);
 
     // ── Resource depletion timeline (GRA-22d #3) ────────────────────────
     theme::elevated_frame().show(ui, |ui| {
@@ -1020,7 +1020,7 @@ fn render_construction_overview_tab(
         }
     });
 
-    ui.add_space(8.0);
+    ui.add_space(theme::Spacing::sm);
 
     // ── Construction Summary block (kept; synergies added) ─────────────
     theme::elevated_frame().show(ui, |ui| {
@@ -1083,7 +1083,7 @@ fn render_construction_overview_tab(
         }
     });
 
-    ui.add_space(8.0);
+    ui.add_space(theme::Spacing::sm);
     render_construction_queue_section(
         ui,
         queue,
@@ -1110,7 +1110,7 @@ fn render_construction_buildings_tab(
             .color(theme::ACCENT),
     );
     if colony.total_buildings() == 0 {
-        ui.add_space(12.0);
+        ui.add_space(theme::Spacing::lg);
         ui.label(
             egui::RichText::new("No completed buildings yet.")
                 .size(13.0)
@@ -1149,7 +1149,7 @@ fn render_construction_queue_section(
         );
     }
     if queue.is_empty() {
-        ui.add_space(12.0);
+        ui.add_space(theme::Spacing::lg);
         ui.label(
             egui::RichText::new("No active construction projects.")
                 .size(13.0)
@@ -2525,7 +2525,7 @@ fn render_minimum_stockpile_editor(
         for (column_ui, groups) in ui_columns.iter_mut().zip(columns) {
             for (category_name, resources) in groups {
                 render_minimum_stockpile_group(column_ui, category_name, &resources, &mut minimum);
-                column_ui.add_space(8.0);
+                column_ui.add_space(theme::Spacing::sm);
             }
         }
     });
@@ -2781,7 +2781,7 @@ pub(super) fn render_building_editor(
                                     ui.end_row();
                                 });
 
-                            ui.add_space(8.0);
+                            ui.add_space(theme::Spacing::sm);
 
                             // ── Resource Costs ──
                             ui.label(egui::RichText::new("Resource Costs (construction)").strong());

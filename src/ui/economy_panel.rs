@@ -1394,7 +1394,7 @@ fn render_econ_overview(
                 });
         });
 
-        ui.add_space(8.0);
+        ui.add_space(theme::Spacing::sm);
 
         ui.columns(2, |cols| {
             theme::elevated_frame().show(&mut cols[0], |ui| {
@@ -1496,7 +1496,7 @@ fn render_econ_overview(
             });
         });
 
-        ui.add_space(8.0);
+        ui.add_space(theme::Spacing::sm);
 
         theme::elevated_frame().show(ui, |ui| {
             ui.label(
@@ -1535,7 +1535,7 @@ fn render_econ_overview(
             }
         });
 
-        ui.add_space(8.0);
+        ui.add_space(theme::Spacing::sm);
 
         theme::elevated_frame().show(ui, |ui| {
             ui.label(
@@ -1743,7 +1743,7 @@ fn render_econ_resources(
             });
         }
 
-        ui.add_space(8.0);
+        ui.add_space(theme::Spacing::sm);
 
         // Research & Engineering rates
         theme::elevated_frame().show(ui, |ui| {
@@ -1778,7 +1778,7 @@ fn render_econ_resources(
                 });
         });
 
-        ui.add_space(8.0);
+        ui.add_space(theme::Spacing::sm);
 
         // Per-system resource production breakdown
         theme::elevated_frame().show(ui, |ui| {
@@ -2150,7 +2150,7 @@ fn render_econ_resources(
         });
 
         // Placeholder for future sources
-        ui.add_space(8.0);
+        ui.add_space(theme::Spacing::sm);
         theme::elevated_frame().show(ui, |ui| {
             ui.label(
                 egui::RichText::new("🚧 Future Sources")
@@ -2440,7 +2440,7 @@ fn render_econ_colonies(ui: &mut egui::Ui, budget: &GlobalBudget, hierarchy: &[S
         }
 
         // Future: Stations section placeholder
-        ui.add_space(8.0);
+        ui.add_space(theme::Spacing::sm);
         theme::elevated_frame().show(ui, |ui| {
             ui.label(
                 egui::RichText::new("🛸 Stations")
@@ -2649,7 +2649,7 @@ fn render_mining_body_details(
             .font(theme::body(11.5))
             .color(theme::TEXT_DIM),
     );
-    ui.add_space(8.0);
+    ui.add_space(theme::Spacing::sm);
 
     theme::elevated_frame().show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
@@ -2676,7 +2676,7 @@ fn render_mining_body_details(
         });
     });
 
-    ui.add_space(8.0);
+    ui.add_space(theme::Spacing::sm);
     ui.label(
         egui::RichText::new(match body_entry.survey_level {
             SurveyLevel::OrbitalScan => {
@@ -2697,7 +2697,7 @@ fn render_mining_body_details(
     );
 
     if let Some(colony) = &body_entry.colony {
-        ui.add_space(8.0);
+        ui.add_space(theme::Spacing::sm);
         theme::elevated_frame().show(ui, |ui| {
             draw_section_title(
                 ui,
@@ -2728,7 +2728,7 @@ fn render_mining_body_details(
     }
 
     if active_ops > 0 {
-        ui.add_space(8.0);
+        ui.add_space(theme::Spacing::sm);
         theme::elevated_frame().show(ui, |ui| {
             draw_section_title(
                 ui,
@@ -2772,7 +2772,7 @@ fn render_mining_body_details(
         });
     }
 
-    ui.add_space(8.0);
+    ui.add_space(theme::Spacing::sm);
     theme::elevated_frame().show(ui, |ui| {
         draw_section_title(
             ui,
@@ -2962,7 +2962,7 @@ fn render_econ_mining(
         });
     });
 
-    ui.add_space(8.0);
+    ui.add_space(theme::Spacing::sm);
     theme::elevated_frame().show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             ui.label(
@@ -3054,7 +3054,7 @@ fn render_econ_mining(
         });
     });
 
-    ui.add_space(8.0);
+    ui.add_space(theme::Spacing::sm);
 
     if visible_groups.is_empty() {
         ui.add_space(20.0);
@@ -3285,7 +3285,7 @@ fn render_econ_power_grid(
                         }
                     });
             });
-            ui.add_space(8.0);
+            ui.add_space(theme::Spacing::sm);
         }
 
         let mut colony_power: Vec<&ColonySnapshot> = hierarchy
@@ -3423,7 +3423,7 @@ fn render_econ_power_grid(
                     });
                 }
             });
-            ui.add_space(8.0);
+            ui.add_space(theme::Spacing::sm);
         }
 
         // Per-system power breakdown
@@ -3552,7 +3552,7 @@ fn render_econ_power_grid(
         });
 
         // Future sources
-        ui.add_space(8.0);
+        ui.add_space(theme::Spacing::sm);
         theme::elevated_frame().show(ui, |ui| {
             ui.label(
                 egui::RichText::new("🚧 Future Power Sources")
@@ -3730,7 +3730,7 @@ fn render_econ_logistics(
             }
         });
 
-        ui.add_space(8.0);
+        ui.add_space(theme::Spacing::sm);
 
         // ── Treasury Info ─────────────────────────────────────────────────────
         theme::elevated_frame().show(ui, |ui| {
@@ -3762,7 +3762,7 @@ fn render_econ_logistics(
             let _ = total_paid;
         });
 
-        ui.add_space(8.0);
+        ui.add_space(theme::Spacing::sm);
 
         // ── Open Resource Requests ────────────────────────────────────────────
         let open: Vec<_> = resource_requests.open_requests().collect();
@@ -3837,7 +3837,7 @@ fn render_econ_logistics(
             }
         });
 
-        ui.add_space(8.0);
+        ui.add_space(theme::Spacing::sm);
 
         // ── Recent Deliveries ─────────────────────────────────────────────────
         if !delivered.is_empty() {

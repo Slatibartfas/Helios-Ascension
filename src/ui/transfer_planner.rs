@@ -3072,7 +3072,7 @@ pub(super) fn render_transfer_planner(
                 if !hides_calendar_eta {
                     let dep_s = fleet_ui_state.departure_offset_days * 86_400.0;
                     let total_eta_s = dep_s + sel_option.transfer_time_s;
-                    ui.add_space(12.0);
+                    ui.add_space(theme::Spacing::lg);
                     ui.label(
                         egui::RichText::new(format!("ETA  {}", format_duration(total_eta_s)))
                             .size(12.0)
