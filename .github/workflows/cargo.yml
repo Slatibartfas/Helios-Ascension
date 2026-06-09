@@ -35,6 +35,9 @@ jobs:
           workspaces: |
             .
 
+      - name: Setup sccache
+        uses: mozilla/sccache-action@v0.0.4
+
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
 
@@ -43,6 +46,8 @@ jobs:
 
       - name: cargo test
         run: cargo test --all
+        env:
+          RUSTC_WRAPPER: sccache
 
       - name: cargo doc
         run: cargo doc --no-deps
