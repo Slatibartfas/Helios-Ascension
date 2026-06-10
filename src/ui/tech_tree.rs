@@ -1495,4 +1495,52 @@ mod tests {
             None
         );
     }
+
+    #[test]
+    fn nav_down_picks_closest_in_y() {
+        let map = map_of(&[
+            ("start", pos(0.0, 0.0)),
+            ("far_below", pos(5.0, 400.0)),
+            ("near_below", pos(50.0, 80.0)),
+        ]);
+        // Score(near) = 80 + 0.5*50 = 105; Score(far) = 400 + 0.5*5 = 402.5.
+        assert_eq!(
+            nearest_tech_in_direction(&map, Some("start"), TechNavDirection::Down),
+            Some("near_below".to_string())
+        );
+    }
+
+    #[test]
+    fn nav_up_picks_closest_in_y_above() {
+        let map = map_of(&[
+            ("start", pos(0.0, 100.0)),
+            ("just_above", pos(50.0, 20.0)),
+            ("way_above", pos(5.0, -300.0)),
+        ]);
+        assert_eq!(
+            nearest_tech_in_direction(&map, Some("start"), TechNavDirection::Up),
+            Some("just_above".to_string())
+        );
+    }
+
+    #[test]
+    fn nav_stale_current_falls_back_to_top_left() {
+        let map = map_of(&[
+            ("a", pos(0.0, 0.0)),
+            ("b", pos(10.0, 10.0)),
+        ]);
+        // current id doesn't exist → should still return a valid id.
+        let next = nearest_tech_in_direction(&map, Some("ghost"), TechNavDirection::Right);
+        assert_eq!(next, Some("a".to_string()));
+    }
+
+    #[test]
+    fn nav_key_from_arrow_keys() {
+        assert_eq!(TechNavDirection::from_key(egui::Key::ArrowUp), Some(TechNavDirection::Up));
+        assert_eq!(TechNavDirection::from_key(egui::Key::ArrowDown), Some(TechNavDirection::Down));
+        assert_eq!(TechNavDirection::from_key(egui::Key::ArrowLeft), Some(TechNavDirection::Left));
+        assert_eq!(TechNavDirection::from_key(egui::Key::ArrowRight), Some(TechNavDirection::Right));
+        assert_eq!(TechNavDirection::from_key(egui::Key::Enter), None);
+        assert_eq!(TechNavDirection::from_key(egui::Key::Space), None);
+    }
 }

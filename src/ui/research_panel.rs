@@ -42,7 +42,7 @@ fn draw_menu_header(ui: &mut egui::Ui, title: &str, subtitle: &str) {
 }
 
 fn draw_tab_button(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
-    ui.add(
+    let resp = ui.add(
         egui::Button::new(egui::RichText::new(label).size(13.5).color(if selected {
             theme::ACCENT
         } else {
@@ -59,7 +59,9 @@ fn draw_tab_button(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Resp
             egui::Stroke::new(1.0, theme::BORDER)
         })
         .corner_radius(4.0),
-    )
+    );
+    theme::paint_focus_ring(ui.painter(), resp.rect, resp.has_focus());
+    resp
 }
 
 fn draw_section_title(ui: &mut egui::Ui, title: &str, subtitle: &str) {
