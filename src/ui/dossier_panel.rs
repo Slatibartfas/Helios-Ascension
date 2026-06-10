@@ -1488,7 +1488,7 @@ fn draw_resource_compact(
 ) {
     let mut rows: Vec<(ResourceType, f64)> = Vec::new();
     for (_category, items) in ResourceType::by_category() {
-        for r in items {
+        for r in &items {
             if !r.is_mineable() {
                 continue;
             }
