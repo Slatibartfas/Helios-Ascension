@@ -39,6 +39,8 @@ fn render_selectable_label(ui: &mut egui::Ui, is_selected: bool, name: &str) -> 
         theme::body(14.0),
         text_color,
     );
+    // Keyboard-focus ring (Tab/Shift+Tab cycles through the body ledger)
+    theme::paint_focus_ring(ui.painter(), row_rect, response.has_focus());
 
     response
 }
