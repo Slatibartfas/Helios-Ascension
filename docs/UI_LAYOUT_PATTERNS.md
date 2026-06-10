@@ -25,7 +25,7 @@ Every panel — egui or Bevy UI — is built from one or more of the four
 | 1 | Top menu bar | egui | `src/ui/mod.rs:600-805` (`ui_top_menu_bar`) |
 | 2 | Right-side ledger | egui | `src/ui/dossier_panel.rs` (`ui_planet_dossier`) |
 | 3 | Tabbed workspace (3 panes) | Bevy UI | `src/ui/shipbuilding_workspace.rs:5417` |
-| 4 | In-panel sub-tab strip | egui | `src/ui/construction_panel.rs:680-720` |
+| 4 | In-panel sub-tab strip | egui | `src/ui/construction_panel.rs:697-719` |
 
 Panels can compose multiple patterns. The Shipbuilding workspace is
 *Pattern 3 + Pattern 4*. The Construction menu is *Pattern 4 + the
@@ -60,7 +60,7 @@ contract; this section codifies the *layout* contract.
 - **Tooltip:** `theme::tooltip_frame()` + bold-mono `theme::kbd_shortcut_label("F1")`
   chip — see `src/ui/mod.rs:660-685` for the canonical tooltip block.
 - **Hotkey:** `F1`..`F11` mapped by index into `GameMenu::all()`. Defined
-  in `src/ui/mod.rs:813-823`. **`Escape`** toggles between the active
+  in `src/ui/mod.rs:827-839`. **`Escape`** toggles between the active
   `GameMenu` and the base view (Survey for `ViewMode::System`, Starmap
   for `ViewMode::Starmap`).
 - **Click semantics:** clicking an icon switches `active_menu.current`
@@ -256,7 +256,7 @@ collapse bespoke implementations onto the patterns above.
 | Starmap            | `src/ui/dashboard.rs` (starmap view) | P1 + (none) | — | mostly tokens |
 | Main               | `src/ui/dashboard.rs` (main menu overlay) | P2 + modal | — | tokens; menu is a single ledger |
 | Construction       | `src/ui/construction_panel.rs:3000` | P4 + P4 (nested) | C (GRA-68) | bespoke `ConstructionTab` + `BuildFilter` |
-| Research           | `src/ui/research_panel.rs:1688` + `tech_tree.rs:1298` | P4 (categories) | D (GRA-69) | inline category loop at `research_panel.rs:1580`; duplicate group-by-category in Archive |
+| Research           | `src/ui/research_panel.rs:1688` + `tech_tree.rs:1298` | P4 (categories) | D (GRA-69) | inline category loop at `research_panel.rs:1582`; duplicate group-by-category in Archive |
 | Fleets             | `src/ui/fleets_panel.rs:2422` | P1 (only) | — | flat list, no sub-tabs; company-filter chip |
 | Shipbuilding       | `src/ui/shipbuilding_workspace.rs:5417` (Bevy UI) | P3 + P4 (mirror) | D + E (GRA-69 + GRA-70) | `populate_tab_strip` literal regression at lines 1241-1283 |
 | Economy            | `src/ui/economy_panel.rs:4471` (+ fleets/transfer_planner panels) | P4 (7-way) + P2 (Colonies tab) | F (GRA-71) | bespoke `EconomyTab` with 7 variants |
@@ -282,8 +282,8 @@ collapse bespoke implementations onto the patterns above.
 | --- | ----- | -------------------------------- | --------------- |
 | A   | GRA-66 (this doc) | (doc only) | `docs/UI_LAYOUT_PATTERNS.md` |
 | B   | GRA-67 (Coder) | `theme::tab_strip<T>`, `theme::section_h1/h2/h3`, `theme::ledger_panel<T>`, `theme::tab_strip_bevy` + `Tab` trait + `theme::Color` (Bevy mirror) | `src/ui/theme.rs` (+~200 lines), `src/ui/tab.rs` (new, ~50 lines) |
-| C   | GRA-68 (Coder) | replace `construction_panel.rs:680-720` bespoke strip with `theme::tab_strip<ConstructionTab>`; collapse `selected_build_tab: usize` + `BuildFilter` into a single primitive | `src/ui/construction_panel.rs` (-~100 lines net) |
-| D   | GRA-69 (Coder) | replace `research_panel.rs:1580` category loop with `theme::tab_strip<TechCategory>`; share the strip in Archive; replace shipbuilding `Color::srgb(...)` literals at lines 1241-1283 with `theme::Color` | `src/ui/research_panel.rs` (-~50 lines), `src/ui/shipbuilding_workspace.rs` (no semantic change) |
+| C   | GRA-68 (Coder) | replace `construction_panel.rs:697-719` bespoke strip with `theme::tab_strip<ConstructionTab>`; collapse `selected_build_tab: usize` + `BuildFilter` into a single primitive | `src/ui/construction_panel.rs` (-~100 lines net) |
+| D   | GRA-69 (Coder) | replace `research_panel.rs:1582` category loop with `theme::tab_strip<TechCategory>`; share the strip in Archive; replace shipbuilding `Color::srgb(...)` literals at lines 1241-1283 with `theme::Color` | `src/ui/research_panel.rs` (-~50 lines), `src/ui/shipbuilding_workspace.rs` (no semantic change) |
 | E   | GRA-70 (Coder) | parameterise the 3-pane shell as `WorkspaceShell { tabs_root, library_root, canvas_root, analytics_root }`; apply `theme::section_h1` headers | `src/ui/shipbuilding_workspace.rs` (largest PR, ~1.5 d) |
 | F   | GRA-71 (Coder) | 7-way `theme::tab_strip<EconomyTab>`; `theme::ledger_panel<T>` for the Colonies tab + (demonstration) Construction Overview | `src/ui/economy_panel.rs` (~1 d) |
 | G   | GRA-72 (operator) | `docs/UI.md` §8 (new "Layout patterns" cross-reference) + visual sign-off | `docs/UI.md` (+~20 lines) |
