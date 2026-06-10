@@ -1,6 +1,101 @@
 use super::research_panel::{render_research_tech_tooltip_content, ActiveProjectInfo};
 use super::*;
 
+/// Direction for tech-tree keyboard navigation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum TechNavDirection {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+impl TechNavDirection {
+    /// Build from a pressed arrow key, or `None` if the key isn't an arrow.
+    pub(super) fn from_key(key: egui::Key) -> Option<Self> {
+        match key {
+            egui::Key::ArrowUp => Some(Self::Up),
+            egui::Key::ArrowDown => Some(Self::Down),
+            egui::Key::ArrowLeft => Some(Self::Left),
+            egui::Key::ArrowRight => Some(Self::Right),
+            _ => None,
+        }
+    }
+}
+
+/// Find the next tech to select given the current selection (or `None` to
+/// pick a starting node) and a direction.
+///
+/// Pure / testable: the caller passes the full `node_positions` map (tech
+/// id → node centre) and gets back the id of the best neighbour. If
+/// `current_id` is `None`, the function picks the top-left-most node so
+/// arrow-key navigation always starts somewhere deterministic. If the
+/// `node_positions` map is empty (no techs at all), the function returns
+/// `None`.
+///
+/// The neighbour score is `primary_dist + 0.5 * secondary_dist`: nodes
+/// that are primarily in the requested direction win, but ties on the
+/// primary axis are broken by the secondary axis so the player moves to
+/// the closest *aligned* neighbour rather than a perpendicular one.
+pub(super) fn nearest_tech_in_direction(
+    node_positions: &std::collections::HashMap<String, egui::Pos2>,
+    current_id: Option<&str>,
+    direction: TechNavDirection,
+) -> Option<String> {
+    if node_positions.is_empty() {
+        return None;
+    }
+
+    let current_pos = current_id.and_then(|id| node_positions.get(id));
+
+    // No current selection → pick the top-left-most node so the player
+    // always lands somewhere visible when they first press an arrow.
+    let Some(current_pos) = current_pos else {
+        return node_positions
+            .iter()
+            .min_by(|a, b| {
+                a.1.y
+                    .partial_cmp(&b.1.y)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then(
+                        a.1.x
+                            .partial_cmp(&b.1.x)
+                            .unwrap_or(std::cmp::Ordering::Equal),
+                    )
+            })
+            .map(|(id, _)| id.clone());
+    };
+
+    let mut best: Option<(f32, String)> = None;
+    for (id, pos) in node_positions {
+        if Some(id.as_str()) == current_id {
+            continue;
+        }
+        let dx = pos.x - current_pos.x;
+        let dy = pos.y - current_pos.y;
+
+        let (is_in_direction, primary, secondary) = match direction {
+            TechNavDirection::Right => (dx > 0.0, dx, dy.abs()),
+            TechNavDirection::Left => (dx < 0.0, -dx, dy.abs()),
+            TechNavDirection::Down => (dy > 0.0, dy, dx.abs()),
+            TechNavDirection::Up => (dy < 0.0, -dy, dx.abs()),
+        };
+        if !is_in_direction {
+            continue;
+        }
+        // Equal-cost fallback: same primary distance, pick the one whose
+        // y is closer to the current node's y (Left/Right) or x is
+        // closer (Up/Down). Achieved by weighting secondary at 0.5 so
+        // a primary-axis match wins, but a perpendicular overshoot is
+        // still penalised.
+        let score = primary + 0.5 * secondary;
+        if best.as_ref().is_none_or(|(s, _)| score < *s) {
+            best = Some((score, id.clone()));
+        }
+    }
+    best.map(|(_, id)| id)
+}
+
 /// Render the Tech Tree tab
 pub(super) fn render_tech_tree_tab(
     ui: &mut egui::Ui,
@@ -15,6 +110,11 @@ pub(super) fn render_tech_tree_tab(
 ) {
     ui.heading("Technology Tree - Graph View");
     ui.label("Pan: Middle mouse drag | Zoom: Mouse wheel | Click: Select tech & highlight path");
+    ui.label(
+        egui::RichText::new("Arrows: Move focus | Enter: Start research on selected | Esc: Clear")
+            .small()
+            .color(theme::TEXT_DIM),
+    );
     if debug_enabled {
         ui.label(
             egui::RichText::new(
@@ -382,6 +482,61 @@ pub(super) fn render_tech_tree_tab(
         .iter()
         .cloned()
         .collect();
+
+    // ---------- keyboard navigation ----------
+    // Arrow keys move the selection spatially between tech nodes. Enter
+    // starts research on the selected tech (mirrors the tooltip button).
+    // Skipped when a text field has focus (edit dialog, prereq filter,
+    // etc.) or when no techs are present.
+    if !node_positions.is_empty()
+        && !ui.ctx().wants_keyboard_input()
+        && edit_state.context_menu.is_none()
+    {
+        let nav_dir: Option<TechNavDirection> = ui.input_mut(|i| {
+            [
+                egui::Key::ArrowUp,
+                egui::Key::ArrowDown,
+                egui::Key::ArrowLeft,
+                egui::Key::ArrowRight,
+            ]
+            .iter()
+            .find_map(|k| {
+                if i.consume_key(egui::Modifiers::NONE, *k) {
+                    TechNavDirection::from_key(*k)
+                } else {
+                    None
+                }
+            })
+        });
+        if let Some(dir) = nav_dir {
+            if let Some(next_id) =
+                nearest_tech_in_direction(&node_positions, selected_tech.as_deref(), dir)
+            {
+                selected_tech = Some(next_id);
+            }
+        }
+
+        // Enter starts research on the currently selected tech, mirroring
+        // the "🔬 Start Research" button in the node tooltip. Same gate as
+        // the arrow keys so a text-editor focus swallows the press first.
+        let enter_pressed =
+            ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+        if enter_pressed {
+            if let Some(ref sel_id) = selected_tech {
+                if let Some(sel_tech) = tech_data.technologies.get(sel_id) {
+                    let already_unlocked = research_state.is_unlocked(&sel_tech.id);
+                    let already_researching = active_research.contains_key(&sel_tech.id);
+                    if !already_unlocked
+                        && !already_researching
+                        && tech_data.check_prerequisites(&sel_tech.id, &unlocked_ids)
+                    {
+                        pending_research.start_research.push(sel_tech.id.clone());
+                        pending_research.navigate_to_available_tab = true;
+                    }
+                }
+            }
+        }
+    }
 
     for (tech_id, center) in &node_positions {
         if let Some(tech) = tech_data.technologies.get(tech_id) {
@@ -1263,4 +1418,138 @@ pub(super) fn save_technologies_to_file(tech_data: &TechnologiesData) {
 /// `theme::tech_category_color` so the palette is defined in one place.
 pub(super) fn tech_category_color(cat: TechCategory) -> egui::Color32 {
     theme::tech_category_color(cat)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn pos(x: f32, y: f32) -> egui::Pos2 {
+        egui::Pos2::new(x, y)
+    }
+
+    fn map_of(positions: &[(&str, egui::Pos2)]) -> HashMap<String, egui::Pos2> {
+        positions
+            .iter()
+            .map(|(id, p)| (id.to_string(), *p))
+            .collect()
+    }
+
+    #[test]
+    fn nav_empty_returns_none() {
+        let map = HashMap::new();
+        assert!(nearest_tech_in_direction(&map, None, TechNavDirection::Right).is_none());
+    }
+
+    #[test]
+    fn nav_no_selection_picks_top_left() {
+        let map = map_of(&[
+            ("a", pos(50.0, 200.0)),
+            ("b", pos(20.0, 30.0)),
+            ("c", pos(200.0, 5.0)),
+        ]);
+        // Top-left = smallest y, tiebreaker = smallest x → "c" (y=5) before "b" (y=30).
+        assert_eq!(
+            nearest_tech_in_direction(&map, None, TechNavDirection::Right),
+            Some("c".to_string())
+        );
+    }
+
+    #[test]
+    fn nav_right_picks_closest_in_x() {
+        let map = map_of(&[
+            ("start", pos(0.0, 0.0)),
+            ("right_far", pos(300.0, 5.0)),
+            ("right_near", pos(80.0, 50.0)),
+        ]);
+        // "right_near" wins: smaller primary (80 < 300), and the secondary
+        // penalty (|dy|=50) only adds 25 to the score vs |dy|=5 adding 2.5.
+        // Score(near) = 80 + 0.5*50 = 105; Score(far) = 300 + 0.5*5 = 302.5.
+        assert_eq!(
+            nearest_tech_in_direction(&map, Some("start"), TechNavDirection::Right),
+            Some("right_near".to_string())
+        );
+    }
+
+    #[test]
+    fn nav_left_excludes_right_node() {
+        let map = map_of(&[
+            ("start", pos(0.0, 0.0)),
+            ("to_the_right", pos(100.0, 0.0)),
+            ("to_the_left", pos(-50.0, 0.0)),
+        ]);
+        // Right of start is excluded by direction filter.
+        assert_eq!(
+            nearest_tech_in_direction(&map, Some("start"), TechNavDirection::Left),
+            Some("to_the_left".to_string())
+        );
+    }
+
+    #[test]
+    fn nav_returns_none_when_no_neighbour_in_direction() {
+        let map = map_of(&[("start", pos(0.0, 0.0)), ("only", pos(10.0, 0.0))]);
+        // Asking Left from "start" → no node to the left.
+        assert_eq!(
+            nearest_tech_in_direction(&map, Some("start"), TechNavDirection::Left),
+            None
+        );
+    }
+
+    #[test]
+    fn nav_down_picks_closest_in_y() {
+        let map = map_of(&[
+            ("start", pos(0.0, 0.0)),
+            ("far_below", pos(5.0, 400.0)),
+            ("near_below", pos(50.0, 80.0)),
+        ]);
+        // Score(near) = 80 + 0.5*50 = 105; Score(far) = 400 + 0.5*5 = 402.5.
+        assert_eq!(
+            nearest_tech_in_direction(&map, Some("start"), TechNavDirection::Down),
+            Some("near_below".to_string())
+        );
+    }
+
+    #[test]
+    fn nav_up_picks_closest_in_y_above() {
+        let map = map_of(&[
+            ("start", pos(0.0, 100.0)),
+            ("just_above", pos(50.0, 20.0)),
+            ("way_above", pos(5.0, -300.0)),
+        ]);
+        assert_eq!(
+            nearest_tech_in_direction(&map, Some("start"), TechNavDirection::Up),
+            Some("just_above".to_string())
+        );
+    }
+
+    #[test]
+    fn nav_stale_current_falls_back_to_top_left() {
+        let map = map_of(&[("a", pos(0.0, 0.0)), ("b", pos(10.0, 10.0))]);
+        // current id doesn't exist → should still return a valid id.
+        let next = nearest_tech_in_direction(&map, Some("ghost"), TechNavDirection::Right);
+        assert_eq!(next, Some("a".to_string()));
+    }
+
+    #[test]
+    fn nav_key_from_arrow_keys() {
+        assert_eq!(
+            TechNavDirection::from_key(egui::Key::ArrowUp),
+            Some(TechNavDirection::Up)
+        );
+        assert_eq!(
+            TechNavDirection::from_key(egui::Key::ArrowDown),
+            Some(TechNavDirection::Down)
+        );
+        assert_eq!(
+            TechNavDirection::from_key(egui::Key::ArrowLeft),
+            Some(TechNavDirection::Left)
+        );
+        assert_eq!(
+            TechNavDirection::from_key(egui::Key::ArrowRight),
+            Some(TechNavDirection::Right)
+        );
+        assert_eq!(TechNavDirection::from_key(egui::Key::Enter), None);
+        assert_eq!(TechNavDirection::from_key(egui::Key::Space), None);
+    }
 }

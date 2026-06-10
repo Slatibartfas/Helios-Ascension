@@ -2794,7 +2794,10 @@ fn spawn_blueprint_slot(
                     top: Val::Px(0.0),
                     width: Val::Percent(100.0),
                     height: Val::Percent(100.0),
-                    border: UiRect::all(Val::Px(1.0)),
+                    // Selected slots get a 2-px frame (vs 1-px default) so
+                    // the keyboard-focused slot reads as a clear focus ring
+                    // against the dense blueprint canvas.
+                    border: UiRect::all(Val::Px(if is_selected { 2.0 } else { 1.0 })),
                     ..default()
                 },
                 ShipbuildingSlotFrame {

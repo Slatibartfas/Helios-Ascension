@@ -663,14 +663,22 @@ fn ui_top_menu_bar(
                 // rendered through `theme::kbd_shortcut_label` so it picks
                 // up the project's keycap style (bold mono, accent colour)
                 // and stays consistent with the dashboard speed controls.
-                let hotkey_label = format!("F{}", idx + 1);
+                // The first nine menus also accept the number-key alias
+                // (1..9), shown as a second keycap.
+                let fkey_label = format!("F{}", idx + 1);
+                let numkey_label = format!("{}", idx + 1);
+                let show_numkey = idx < 9;
                 let menu_name = menu.name();
                 let render_tooltip = |ui: &mut egui::Ui| {
                     theme::tooltip_frame().show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new(menu_name).color(theme::TEXT));
                             ui.label(egui::RichText::new("(hotkey ").color(theme::TEXT_DIM));
-                            ui.label(theme::kbd_shortcut_label(&hotkey_label));
+                            ui.label(theme::kbd_shortcut_label(&fkey_label));
+                            if show_numkey {
+                                ui.label(egui::RichText::new("/").color(theme::TEXT_DIM));
+                                ui.label(theme::kbd_shortcut_label(&numkey_label));
+                            }
                             ui.label(egui::RichText::new(")").color(theme::TEXT_DIM));
                         });
                     });
@@ -703,6 +711,9 @@ fn ui_top_menu_bar(
                                 egui::StrokeKind::Outside,
                             );
                         }
+
+                        // Keyboard-focus ring (visible even when the menu isn't active)
+                        theme::paint_focus_ring(ui.painter(), resp.rect, resp.has_focus());
 
                         let resp = resp.on_hover_ui(render_tooltip);
                         if resp.clicked() {
@@ -737,7 +748,9 @@ fn ui_top_menu_bar(
                                 .fill(theme::SURFACE)
                         };
 
-                        if ui.add(button).on_hover_ui(render_tooltip).clicked() {
+                        let resp = ui.add(button).on_hover_ui(render_tooltip);
+                        theme::paint_focus_ring(ui.painter(), resp.rect, resp.has_focus());
+                        if resp.clicked() {
                             active_menu.current = menu;
                             match menu {
                                 GameMenu::Starmap => switch_to_starmap_menu(
@@ -770,7 +783,9 @@ fn ui_top_menu_bar(
                             .fill(theme::SURFACE)
                     };
 
-                    if ui.add(button).on_hover_ui(render_tooltip).clicked() {
+                    let resp = ui.add(button).on_hover_ui(render_tooltip);
+                    theme::paint_focus_ring(ui.painter(), resp.rect, resp.has_focus());
+                    if resp.clicked() {
                         active_menu.current = menu;
                         match menu {
                             GameMenu::Starmap => switch_to_starmap_menu(
@@ -815,9 +830,28 @@ fn ui_top_menu_bar(
             egui::Key::F10,
             egui::Key::F11,
         ];
+        // Number-key aliases (1..9) for the first nine menus. The original
+        // F-key scheme stayed; numbers are a discoverable alternative for
+        // players who reach for the digit row before the function row.
+        let numkeys = [
+            egui::Key::Num1,
+            egui::Key::Num2,
+            egui::Key::Num3,
+            egui::Key::Num4,
+            egui::Key::Num5,
+            egui::Key::Num6,
+            egui::Key::Num7,
+            egui::Key::Num8,
+            egui::Key::Num9,
+        ];
         let intent: Option<HotkeyIntent> = ctx.input_mut(|i| {
             for (idx, &fkey) in fkeys.iter().enumerate() {
                 if i.consume_key(egui::Modifiers::NONE, fkey) {
+                    return Some(HotkeyIntent::SetMenu(idx));
+                }
+            }
+            for (idx, &nkey) in numkeys.iter().enumerate() {
+                if i.consume_key(egui::Modifiers::NONE, nkey) {
                     return Some(HotkeyIntent::SetMenu(idx));
                 }
             }

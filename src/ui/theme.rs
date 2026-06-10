@@ -255,6 +255,45 @@ pub const ANCHOR: egui::Color32 = egui::Color32::from_rgb(255, 200, 100);
 /// the bright `ACCENT` text reads cleanly on top.
 pub const BUTTON_ACTIVE_BG: egui::Color32 = egui::Color32::from_rgb(0, 55, 70);
 
+// ─── Focus Ring ─────────────────────────────────────────────────────────
+//
+// egui 0.33 does not draw an automatic focus ring on most widgets, so any
+// panel that wants a visible keyboard-focus indicator needs to draw one
+// itself via `theme::focus_ring_stroke()`. The colour is a desaturated
+// cyan-amber so it reads as "active, not pressed" against the dark
+// `SURFACE` / `SURFACE_RAISED` widget backgrounds and doesn't get confused
+// with the bright cyan `ACCENT` used for hover / selection.
+
+/// Focus ring stroke colour — drawn around widgets that currently hold
+/// keyboard focus. Pairs with `focus_ring_stroke()` for a ready-to-paint
+/// [`egui::Stroke`].
+pub const FOCUS_RING: egui::Color32 = egui::Color32::from_rgb(255, 200, 80);
+/// Standard focus-ring width in points. Use the version returned by
+/// `focus_ring_stroke()` so panels don't have to remember the width.
+pub const FOCUS_RING_WIDTH: f32 = 1.75;
+
+/// Build the standard focus-ring stroke (colour + width).
+pub fn focus_ring_stroke() -> egui::Stroke {
+    egui::Stroke::new(FOCUS_RING_WIDTH, FOCUS_RING)
+}
+
+/// Draw a focus ring around `rect` if `focused` is true. Convenience helper
+/// for the common "ring around a button when it has keyboard focus" pattern —
+/// callers that already have a `Rect` (e.g. from `response.rect`) and
+/// already know the focus state can call this rather than open-coding the
+/// `painter.rect_stroke` call.
+pub fn paint_focus_ring(painter: &egui::Painter, rect: egui::Rect, focused: bool) {
+    if !focused {
+        return;
+    }
+    painter.rect_stroke(
+        rect.expand(2.0),
+        3.0,
+        focus_ring_stroke(),
+        egui::StrokeKind::Outside,
+    );
+}
+
 // ─── Surface Variants ───────────────────────────────────────────────────
 
 /// Dim border for fine sub-elements (axis pips, thin dividers) that should
