@@ -663,11 +663,10 @@ fn ui_top_menu_bar(
                 // rendered through `theme::kbd_shortcut_label` so it picks
                 // up the project's keycap style (bold mono, accent colour)
                 // and stays consistent with the dashboard speed controls.
-                // The first nine menus also accept the number-key alias
-                // (1..9), shown as a second keycap.
+                // No number-key alias: digits 1-5 are bound to game-speed
+                // presets in dashboard.rs and digits 6-9 are reserved for
+                // future speed tiers, so they cannot double as menu openers.
                 let fkey_label = format!("F{}", idx + 1);
-                let numkey_label = format!("{}", idx + 1);
-                let show_numkey = idx < 9;
                 let menu_name = menu.name();
                 let render_tooltip = |ui: &mut egui::Ui| {
                     theme::tooltip_frame().show(ui, |ui| {
@@ -675,10 +674,6 @@ fn ui_top_menu_bar(
                             ui.label(egui::RichText::new(menu_name).color(theme::TEXT));
                             ui.label(egui::RichText::new("(hotkey ").color(theme::TEXT_DIM));
                             ui.label(theme::kbd_shortcut_label(&fkey_label));
-                            if show_numkey {
-                                ui.label(egui::RichText::new("/").color(theme::TEXT_DIM));
-                                ui.label(theme::kbd_shortcut_label(&numkey_label));
-                            }
                             ui.label(egui::RichText::new(")").color(theme::TEXT_DIM));
                         });
                     });
@@ -817,6 +812,18 @@ fn ui_top_menu_bar(
             SetMenu(usize),
             Escape,
         }
+        // F11 is reserved for the screenshot pipeline (GRA-53, PR-0 of the
+        // UI harmonization roadmap); see `screenshot_state` for the slot
+        // and keybind contract. F12 stays as the construction/research
+        // debug toggle.
+        //
+        // Number-key aliases (added in GRA-57, removed per operator
+        // sign-off on GRA-59): digits 1-5 are bound to game-speed presets
+        // in `dashboard.rs` (see `speed_keys` + `SPEED_PRESETS`), so
+        // doubling them as menu openers caused the game to speed up
+        // whenever the player tried to open a menu. Numbers stay
+        // reserved for the dashboard speed tier ladder; menus open
+        // exclusively via F1-F11.
         let fkeys = [
             egui::Key::F1,
             egui::Key::F2,
@@ -830,28 +837,9 @@ fn ui_top_menu_bar(
             egui::Key::F10,
             egui::Key::F11,
         ];
-        // Number-key aliases (1..9) for the first nine menus. The original
-        // F-key scheme stayed; numbers are a discoverable alternative for
-        // players who reach for the digit row before the function row.
-        let numkeys = [
-            egui::Key::Num1,
-            egui::Key::Num2,
-            egui::Key::Num3,
-            egui::Key::Num4,
-            egui::Key::Num5,
-            egui::Key::Num6,
-            egui::Key::Num7,
-            egui::Key::Num8,
-            egui::Key::Num9,
-        ];
         let intent: Option<HotkeyIntent> = ctx.input_mut(|i| {
             for (idx, &fkey) in fkeys.iter().enumerate() {
                 if i.consume_key(egui::Modifiers::NONE, fkey) {
-                    return Some(HotkeyIntent::SetMenu(idx));
-                }
-            }
-            for (idx, &nkey) in numkeys.iter().enumerate() {
-                if i.consume_key(egui::Modifiers::NONE, nkey) {
                     return Some(HotkeyIntent::SetMenu(idx));
                 }
             }
