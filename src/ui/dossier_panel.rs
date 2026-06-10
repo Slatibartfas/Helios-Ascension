@@ -333,7 +333,7 @@ fn draw_dossier_header(
                                     "Semi-major axis: average orbital distance from the parent body.",
                                 )
                             };
-                            stat_row_with_tooltip(ui, "DISTANCE", &value_str, tooltip);
+                            theme::stat_row_with_tooltip(ui, "DISTANCE", &value_str, tooltip);
                         }
                     } else if let Some(c) = coords {
                         let star_pos = find_star_position(
@@ -342,7 +342,7 @@ fn draw_dossier_header(
                             all_bodies_query,
                         );
                         let distance_au = (c.position - star_pos).length();
-                        stat_row_with_tooltip(
+                        theme::stat_row_with_tooltip(
                             ui,
                             "DISTANCE",
                             &format!("{distance_au:.3} AU"),
@@ -351,19 +351,19 @@ fn draw_dossier_header(
                     }
                 }
 
-                stat_row_with_tooltip(
+                theme::stat_row_with_tooltip(
                     ui,
                     "RADIUS",
                     &format!("{:.1} km", body.radius),
                     "Mean body radius in kilometers.",
                 );
-                stat_row_with_tooltip(
+                theme::stat_row_with_tooltip(
                     ui,
                     "MASS",
                     &format!("{:.2e} kg", body.mass),
                     "Total mass of the body in kilograms.",
                 );
-                stat_row_with_tooltip(
+                theme::stat_row_with_tooltip(
                     ui,
                     "GRAVITY",
                     &format!("{:.2} g", body.surface_gravity()),
@@ -372,7 +372,7 @@ fn draw_dossier_header(
 
                 if let Some(pop) = population {
                     if pop.count > 0.0 {
-                        stat_row_with_tooltip(
+                        theme::stat_row_with_tooltip(
                             ui,
                             "POP",
                             &format_population(pop.count),
@@ -400,19 +400,19 @@ fn draw_dossier_header(
                     .num_columns(2)
                     .spacing([12.0, 2.0])
                     .show(ui, |ui| {
-                        stat_row_with_tooltip(
+                        theme::stat_row_with_tooltip(
                             ui,
                             "SMA",
                             &format!("{:.4} AU", orbit.semi_major_axis),
                             "Semi-major axis: average orbital distance from the parent body.",
                         );
-                        stat_row_with_tooltip(
+                        theme::stat_row_with_tooltip(
                             ui,
                             "ECC",
                             &format!("{:.5}", orbit.eccentricity),
                             "Eccentricity: 0 is circular; higher values are more elongated.",
                         );
-                        stat_row_with_tooltip(
+                        theme::stat_row_with_tooltip(
                             ui,
                             "INC",
                             &format!("{:.2}\u{00B0}", orbit.inclination.to_degrees()),
@@ -424,14 +424,14 @@ fn draw_dossier_header(
                         );
                         let period_d = period_s / 86400.0;
                         if period_d < 365.0 {
-                            stat_row_with_tooltip(
+                            theme::stat_row_with_tooltip(
                                 ui,
                                 "PERIOD",
                                 &format!("{period_d:.1} d"),
                                 "Time required to complete one full orbit.",
                             );
                         } else {
-                            stat_row_with_tooltip(
+                            theme::stat_row_with_tooltip(
                                 ui,
                                 "PERIOD",
                                 &format!("{:.2} yr", period_d / 365.25),
@@ -492,36 +492,6 @@ fn find_star_position(
         }
     }
     bevy::math::DVec3::ZERO
-}
-
-/// Render a dim-label + mono-value row in the stats grid.
-fn stat_row(ui: &mut egui::Ui, label: &str, value: &str) {
-    ui.label(
-        egui::RichText::new(label)
-            .font(mono_font(10.0))
-            .color(TEXT_DIM),
-    );
-    ui.label(
-        egui::RichText::new(value)
-            .font(mono_font(12.0))
-            .color(TEXT_VALUE),
-    );
-    ui.end_row();
-}
-
-fn stat_row_with_tooltip(ui: &mut egui::Ui, label: &str, value: &str, tooltip: &str) {
-    let label_response = ui.label(
-        egui::RichText::new(label)
-            .font(mono_font(10.0))
-            .color(TEXT_DIM),
-    );
-    label_response.on_hover_text(tooltip);
-    ui.label(
-        egui::RichText::new(value)
-            .font(mono_font(12.0))
-            .color(TEXT_VALUE),
-    );
-    ui.end_row();
 }
 
 /// Thin horizontal tactical divider.
@@ -588,19 +558,19 @@ fn draw_star_properties_section(
         .num_columns(2)
         .spacing([16.0, 4.0])
         .show(ui, |ui| {
-            stat_row(ui, "TYPE", &spectral_type);
-            stat_row(ui, "LUMINOSITY", &format!("{luminosity_sol:.3} L☉"));
-            stat_row(ui, "TEMP", &format!("{temperature_kelvin:.0} K"));
-            stat_row(ui, "MASS", &format!("{mass_sol:.2} M☉"));
-            stat_row(ui, "RADIUS", &format!("{radius_sol:.2} R☉"));
-            stat_row(ui, "FROST LINE", &format!("{frost_line_au:.2} AU"));
-            stat_row(
+            theme::stat_row(ui, "TYPE", &spectral_type);
+            theme::stat_row(ui, "LUMINOSITY", &format!("{luminosity_sol:.3} L☉"));
+            theme::stat_row(ui, "TEMP", &format!("{temperature_kelvin:.0} K"));
+            theme::stat_row(ui, "MASS", &format!("{mass_sol:.2} M☉"));
+            theme::stat_row(ui, "RADIUS", &format!("{radius_sol:.2} R☉"));
+            theme::stat_row(ui, "FROST LINE", &format!("{frost_line_au:.2} AU"));
+            theme::stat_row(
                 ui,
                 "HZ",
                 &format!("{:.2}-{:.2} AU", habitable_zone.0, habitable_zone.1),
             );
             if let Some(metallicity) = metallicity {
-                stat_row(ui, "METALLICITY", &format!("[Fe/H] {metallicity:+.2}"));
+                theme::stat_row(ui, "METALLICITY", &format!("[Fe/H] {metallicity:+.2}"));
             }
         });
 }
@@ -1311,9 +1281,9 @@ fn draw_ocean_section(ui: &mut egui::Ui, ocean: &OceanProperties) {
         .spacing([16.0, 2.0])
         .show(ui, |ui| {
             if ocean.is_subsurface {
-                stat_row(ui, "LOCATION", "Beneath ice crust");
+                theme::stat_row(ui, "LOCATION", "Beneath ice crust");
             } else {
-                stat_row(
+                theme::stat_row(
                     ui,
                     "COVERAGE",
                     &format!("{:.0}%", ocean.surface_fraction * 100.0),
@@ -1325,7 +1295,7 @@ fn draw_ocean_section(ui: &mut egui::Ui, ocean: &OceanProperties) {
             } else {
                 format!("{:.0} m", ocean.mean_depth_km * 1000.0)
             };
-            stat_row(ui, "DEPTH", &depth_text);
+            theme::stat_row(ui, "DEPTH", &depth_text);
         });
 
     // Habitability modifier

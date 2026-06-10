@@ -388,6 +388,46 @@ pub fn body(size: f32) -> egui::FontId {
     egui::FontId::new(size, egui::FontFamily::Proportional)
 }
 
+// ─── Text Builders ───────────────────────────────────────────────────────
+//
+// Standard text builders used across all panels so label / value / caption
+// rendering stays consistent. Every panel that draws a label, a value, or a
+// caption should reach for these instead of re-rolling the same
+// `RichText::new(text).font(mono(N)).color(TEXT_DIM)` chain.
+//
+//   * `label(text)`        — small uppercase stat-row label (mono 10pt, dim)
+//   * `value(text)`        — stat-row value (mono 12pt, bright)
+//   * `caption(text)`      — explanatory hint under a value (body 10pt, hint)
+//   * `kbd_shortcut_label(text)` — keycap-style chip for a F-key / hotkey
+//     label in a tooltip. Bold mono in the accent colour so the key
+//     stands out from the surrounding explanatory text.
+
+/// Small uppercase stat-row label (e.g. `DISTANCE`, `MASS`).
+pub fn label(text: impl Into<String>) -> egui::RichText {
+    egui::RichText::new(text).font(mono(10.0)).color(TEXT_DIM)
+}
+
+/// Stat-row value, brighter than the label so the eye lands on it.
+pub fn value(text: impl Into<String>) -> egui::RichText {
+    egui::RichText::new(text).font(mono(12.0)).color(TEXT_VALUE)
+}
+
+/// Explanatory caption / hint under a value. Proportional font, very dim so
+/// it doesn't compete with the data it annotates.
+pub fn caption(text: impl Into<String>) -> egui::RichText {
+    egui::RichText::new(text).font(body(10.0)).color(TEXT_HINT)
+}
+
+/// Keycap-style chip for a hotkey label (`F1`, `Shift+F12`, `1`, `Esc`…).
+/// Bold mono in the accent colour so the key reads as a discrete affordance
+/// inside a tooltip or near a button.
+pub fn kbd_shortcut_label(text: impl Into<String>) -> egui::RichText {
+    egui::RichText::new(text)
+        .font(mono(10.0))
+        .color(ACCENT)
+        .strong()
+}
+
 // ─── Common Widgets ──────────────────────────────────────────────────────
 
 /// Standard dark panel frame used by side panels.
@@ -445,8 +485,27 @@ pub fn divider(ui: &mut egui::Ui) {
 }
 
 /// Draw a dim-label + value row in a grid.
+///
+/// Must be called inside an `egui::Grid` (the `end_row()` advances to the
+/// next row). Labels and values use the standard `theme::label` /
+/// `theme::value` builders so every panel renders the same typographic
+/// scale.
 pub fn stat_row(ui: &mut egui::Ui, label: &str, value: &str) {
     ui.label(egui::RichText::new(label).font(mono(10.0)).color(TEXT_DIM));
+    ui.label(
+        egui::RichText::new(value)
+            .font(mono(12.0))
+            .color(TEXT_VALUE),
+    );
+    ui.end_row();
+}
+
+/// Like [`stat_row`] but the label cell shows a hover tooltip. The dossier
+/// uses this to expand acronym-style stat names (`DISTANCE`, `GRAVITY`)
+/// without crowding the value column.
+pub fn stat_row_with_tooltip(ui: &mut egui::Ui, label: &str, value: &str, tooltip: &str) {
+    let label_response = ui.label(egui::RichText::new(label).font(mono(10.0)).color(TEXT_DIM));
+    label_response.on_hover_text(tooltip);
     ui.label(
         egui::RichText::new(value)
             .font(mono(12.0))
