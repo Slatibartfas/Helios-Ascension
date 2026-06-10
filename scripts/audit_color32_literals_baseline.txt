@@ -5,18 +5,18 @@
 
 src/ui/dashboard.rs:1360  egui::Color32::from_rgba_unmultiplied(231, 76, 60, alpha),
 src/ui/dashboard.rs:1366  egui::RichText::new("⏸ PAUSED").color(egui::Color32::from_rgba_unmultiplied(
-src/ui/dossier_panel.rs:946  egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(0, 242, 255, 60)),
-src/ui/dossier_panel.rs:964  let fill_color = egui::Color32::from_rgba_premultiplied(0, 242, 255, 18);
-src/ui/dossier_panel.rs:1157  egui::Color32::from_rgba_premultiplied(20, 20, 30, 230)
-src/ui/dossier_panel.rs:1159  egui::Color32::from_rgba_premultiplied(255, 255, 255, 220)
-src/ui/dossier_panel.rs:1208  egui::Color32::from_rgba_premultiplied(255, 255, 255, 60)
-src/ui/dossier_panel.rs:1210  egui::Color32::from_rgba_premultiplied(0, 0, 0, 80)
-src/ui/dossier_panel.rs:1492  let fill_color = egui::Color32::from_rgba_premultiplied(
-src/ui/dossier_panel.rs:1514  egui::Color32::from_rgba_premultiplied(220, 230, 240, (180.0 * brightness) as u8),
+src/ui/dossier_panel.rs:995  egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(0, 242, 255, 60)),
+src/ui/dossier_panel.rs:1013  let fill_color = egui::Color32::from_rgba_premultiplied(0, 242, 255, 18);
+src/ui/dossier_panel.rs:1206  egui::Color32::from_rgba_premultiplied(20, 20, 30, 230)
+src/ui/dossier_panel.rs:1208  egui::Color32::from_rgba_premultiplied(255, 255, 255, 220)
+src/ui/dossier_panel.rs:1257  egui::Color32::from_rgba_premultiplied(255, 255, 255, 60)
+src/ui/dossier_panel.rs:1259  egui::Color32::from_rgba_premultiplied(0, 0, 0, 80)
+src/ui/dossier_panel.rs:1616  let fill_color = egui::Color32::from_rgba_premultiplied(
+src/ui/dossier_panel.rs:1638  egui::Color32::from_rgba_premultiplied(220, 230, 240, (180.0 * brightness) as u8),
 src/ui/fleets_panel.rs:171  egui::Color32::from_rgba_premultiplied(0, 140, 160, 42)
-src/ui/mod.rs:1015  .fill(egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245))
-src/ui/mod.rs:1106  .fill(egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245))
-src/ui/mod.rs:1239  .fill(egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245))
+src/ui/mod.rs:1016  .fill(egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245))
+src/ui/mod.rs:1107  .fill(egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245))
+src/ui/mod.rs:1240  .fill(egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245))
 src/ui/research_panel.rs:1278  egui::Color32::from_rgba_unmultiplied(13, 17, 23, 120),
 src/ui/research_panel.rs:1359  egui::Color32::from_rgba_unmultiplied(13, 17, 23, 120),
 src/ui/research_panel.rs:1459  .fill(egui::Color32::from_rgba_unmultiplied(13, 17, 23, 245))

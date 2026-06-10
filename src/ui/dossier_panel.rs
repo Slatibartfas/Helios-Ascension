@@ -6,9 +6,18 @@
 //! - Habitability radar chart (5 colony-cost axes)
 //! - Resource periodic grid with depth-fill tiles
 //! - Dark tactical palette (#0A0F1E + #00F2FF accents)
+//!
+//! PR-B (GRA-67) wires the dossier as the *demonstration panel* for the
+//! new `theme::section_h1` / `section_h2` / `ledger_panel` primitives. The
+//! body-name title and the "STAR PROPERTIES" header now go through
+//! `section_h1` / `section_h2`; the Resources section is wrapped in
+//! `ledger_panel` to demonstrate the Pattern 2 collapsible shell. The
+//! remaining bespoke `RichText::new(...).font(heading_font()).color(...)`
+//! calls are left for downstream PRs to sweep.
 
 use super::dashboard::{format_mass, format_mass_compact, format_rate_monthly};
 use super::resources_bar::format_population;
+use super::tab::Tab;
 use super::theme::{
     self, ACCENT, ACCENT_DIM, AMBER, BG, BORDER, GREEN, RED, SURFACE, TEXT_DIM, TEXT_VALUE,
 };
@@ -19,6 +28,7 @@ use crate::astronomy::components::{
 use crate::astronomy::nearby_stars::NearbyStarsData;
 use crate::economy::components::{SpectralClass, StarSystem};
 use crate::plugins::solar_system_data::{AsteroidClass, BodyType};
+use std::borrow::Cow;
 use std::f32::consts::TAU;
 
 /// Format asteroid class for display with description
@@ -45,14 +55,39 @@ const RED_ACCENT: egui::Color32 = RED;
 /// Positive / green accent
 const GREEN_ACCENT: egui::Color32 = GREEN;
 
+/// Sub-views for the Resources ledger. The first variant is the
+/// `Default` so callers using `tab_strip(..., DossierResourceView::default(), ...)`
+/// get the existing by-category grid. PR-B introduces the enum as
+/// `theme::tab_strip<T: Tab>` proof; full migration of the dossier UX
+/// to per-entity persistent state is parked for the next v2 PR.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub(super) enum DossierResourceView {
+    #[default]
+    ByCategory,
+    Compact,
+}
+
+impl Tab for DossierResourceView {
+    fn id(&self) -> &'static str {
+        match self {
+            DossierResourceView::ByCategory => "by_category",
+            DossierResourceView::Compact => "compact",
+        }
+    }
+    fn label(&self) -> Cow<'static, str> {
+        match self {
+            DossierResourceView::ByCategory => Cow::Borrowed("By Category"),
+            DossierResourceView::Compact => Cow::Borrowed("Compact"),
+        }
+    }
+    fn icon(&self) -> Option<&'static str> {
+        None
+    }
+}
+
 /// Section header font
 fn heading_font() -> egui::FontId {
     theme::heading()
-}
-
-/// Body name font
-fn title_font() -> egui::FontId {
-    theme::title()
 }
 
 /// Monospace value font
@@ -231,14 +266,37 @@ pub(super) fn ui_planet_dossier(
                     // ── Resource Grid ───────────────────────────────
                     if let Some(res) = resources {
                         section_divider(ui);
-                        draw_resource_section(
-                            ui,
-                            entity,
-                            res,
-                            survey_level.as_deref_mut(),
-                            &mut commands,
-                            &rate_tracker,
-                        );
+                        // PR-B (GRA-67) wraps the resource section in
+                        // `theme::ledger_panel` to demonstrate the Pattern 2
+                        // collapsible shell. The `()` token is the canonical
+                        // "no filter" choice — the generic is reserved for
+                        // future typed callback tokens.
+                        let mut active_view: DossierResourceView = ui
+                            .data(|d| d.get_temp(egui::Id::new("dossier_resource_view")))
+                            .unwrap_or_default();
+                        theme::ledger_panel(ui, "dossier_resources", "RESOURCES", &(), |ui| {
+                            let next = theme::tab_strip(
+                                ui,
+                                &[
+                                    DossierResourceView::ByCategory,
+                                    DossierResourceView::Compact,
+                                ],
+                                active_view,
+                                |selected| active_view = selected,
+                            );
+                            ui.data_mut(|d| {
+                                d.insert_temp(egui::Id::new("dossier_resource_view"), next)
+                            });
+                            draw_resource_section(
+                                ui,
+                                entity,
+                                res,
+                                survey_level.as_deref_mut(),
+                                &mut commands,
+                                &rate_tracker,
+                                next,
+                            );
+                        });
                     }
 
                     // ── Outpost / Colony ───────────────────────────
@@ -284,11 +342,7 @@ fn draw_dossier_header(
     )>,
 ) {
     // Body name
-    ui.label(
-        egui::RichText::new(&body.name)
-            .font(title_font())
-            .color(ACCENT),
-    );
+    theme::section_h1(ui, &body.name);
 
     // Category caption - with special formatting for asteroid spectral types
     if let Some(cat) = category {
@@ -547,12 +601,7 @@ fn draw_star_properties_section(
         1.77 * (luminosity_sol as f64).sqrt(),
     );
 
-    ui.label(
-        egui::RichText::new("STAR PROPERTIES")
-            .font(heading_font())
-            .color(ACCENT),
-    );
-    ui.add_space(6.0);
+    theme::section_h2(ui, "STAR PROPERTIES");
 
     egui::Grid::new("star_properties_grid")
         .num_columns(2)
@@ -1335,14 +1384,8 @@ fn draw_resource_section(
     survey_level: Option<&mut SurveyLevel>,
     commands: &mut Commands,
     rate_tracker: &ResourceRateTracker,
+    view: DossierResourceView,
 ) {
-    ui.label(
-        egui::RichText::new("RESOURCES")
-            .font(heading_font())
-            .color(TEXT_DIM),
-    );
-    ui.add_space(2.0);
-
     // Survey status
     let current_level = survey_level
         .as_deref()
@@ -1397,27 +1440,104 @@ fn draw_resource_section(
         }
     });
 
-    ui.add_space(6.0);
-
     if current_level == SurveyLevel::Unsurveyed {
         ui.colored_label(TEXT_DIM, "Perform orbital scan to detect resources.");
         return;
     }
 
-    // Resource periodic grid
-    draw_resource_grid(ui, resources, current_level, rate_tracker, entity);
+    ui.add_space(theme::Spacing::xs);
 
-    // Summary line
-    ui.add_space(4.0);
+    // PR-B (GRA-67) — `theme::section_h3` introduces each sub-section.
+    // The "By Category" tab keeps the existing visual identity; the
+    // "Compact" tab swaps in a flat one-line-per-deposit list.
+    match view {
+        DossierResourceView::ByCategory => {
+            theme::section_h3(ui, "DEPOSITS");
+            draw_resource_grid(ui, resources, current_level, rate_tracker, entity);
+        }
+        DossierResourceView::Compact => {
+            theme::section_h3(ui, "DEPOSITS \u{2014} COMPACT");
+            draw_resource_compact(ui, resources, current_level, rate_tracker, entity);
+        }
+    }
+
+    // Summary line — `section_h3` frames the totals so the visual
+    // hierarchy reads as [RESOURCES] → [DEPOSITS] → [SUMMARY].
+    ui.add_space(theme::Spacing::xs);
+    theme::section_h3(ui, "SUMMARY");
     ui.label(
         egui::RichText::new(format!(
             "VIABLE {}  \u{2502}  VALUE {:.1}",
             resources.viable_count(),
             resources.total_value()
         ))
-        .font(mono_font(9.0))
-        .color(TEXT_DIM),
+        .font(mono_font(10.0))
+        .color(TEXT_VALUE),
     );
+}
+
+/// Flat sorted list of mineable deposits. Demonstrates the
+/// `DossierResourceView::Compact` tab alternative — each deposit is
+/// rendered as one row: symbol, name, viable mass, monthly balance.
+fn draw_resource_compact(
+    ui: &mut egui::Ui,
+    resources: &PlanetResources,
+    survey_level: SurveyLevel,
+    rate_tracker: &ResourceRateTracker,
+    entity: Entity,
+) {
+    let mut rows: Vec<(ResourceType, f64)> = Vec::new();
+    for (_category, items) in ResourceType::by_category() {
+        for r in items {
+            if !r.is_mineable() {
+                continue;
+            }
+            if let Some(d) = resources.get_deposit(r) {
+                if d.reserve.total_mass() > 0.001 {
+                    let discovered = survey_level.discovered_amount(&d.reserve);
+                    rows.push((*r, discovered));
+                }
+            }
+        }
+    }
+    // Sort by discovered mass descending so the most important deposits
+    // appear first; secondary sort by symbol for determinism.
+    rows.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    if rows.is_empty() {
+        ui.colored_label(TEXT_DIM, "No deposits visible at current survey level.");
+        return;
+    }
+
+    egui::Grid::new("dossier_resource_compact")
+        .num_columns(4)
+        .spacing([12.0, 2.0])
+        .show(ui, |ui| {
+            for (resource, discovered) in rows {
+                let sym = resource.symbol();
+                let name = resource.display_name();
+                let mass = format_mass_compact(discovered);
+                let rate = rate_tracker.get_entity_resource_rate(entity, &resource);
+                let (rate_text, _rate_color) = format_rate_monthly(rate);
+                ui.label(egui::RichText::new(sym).font(mono_font(11.0)).color(ACCENT));
+                ui.label(
+                    egui::RichText::new(name)
+                        .font(mono_font(10.0))
+                        .color(TEXT_VALUE),
+                );
+                ui.label(
+                    egui::RichText::new(mass)
+                        .font(mono_font(10.0))
+                        .color(TEXT_VALUE),
+                );
+                ui.label(
+                    egui::RichText::new(rate_text)
+                        .font(mono_font(9.0))
+                        .color(TEXT_DIM),
+                );
+                ui.end_row();
+            }
+        });
 }
 
 /// Determine deposit magnitude tier (0–5) from total mass in megatons.

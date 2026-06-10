@@ -70,3 +70,14 @@ jobs:
           # the workflow for promoting them into theme.rs constants.
           python3 scripts/audit_color32_literals.py --strict \
             --baseline scripts/audit_color32_literals_baseline.txt src
+
+      - name: Audit hardcoded Bevy Color literals
+        run: |
+          # GRA-67 (PR-B) extends the colour-token audit to the Bevy UI
+          # 0.18 side. Same model as the egui audit: theme.rs is the
+          # only authorised home for raw colour literals; everything
+          # else either uses a `theme::Color::*` constant or appears
+          # in scripts/audit_bevy_color_literals_baseline.txt.
+          # Non-blocking while PR-D migrates shipbuilding_workspace.rs.
+          python3 scripts/audit_bevy_color_literals.py --strict \
+            --baseline scripts/audit_bevy_color_literals_baseline.txt src

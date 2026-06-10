@@ -1,0 +1,376 @@
+# Bevy Color literal audit baseline.
+# One violation per line: <file>:<line>  <literal>
+# Regenerate with: python3 scripts/audit_bevy_color_literals.py --emit-baseline
+# Move entries out as they're promoted to src/ui/theme.rs Color constants.
+
+src/astronomy/components.rs:190  Self::new(Color::srgba(0.5, 0.5, 0.5, 0.3))
+src/astronomy/lagrange.rs:136  Color::srgba(1.0, 1.0, 0.3, 1.0) // bright yellow when hovered
+src/astronomy/lagrange.rs:138  Color::srgba(0.50, 0.80, 1.0, 0.90) // default blue-cyan
+src/astronomy/selection.rs:1101  Color::srgb(0.3, 0.65, 0.85)
+src/astronomy/selection.rs:1104  Color::srgb(0.5, 0.9, 1.0)
+src/astronomy/systems.rs:758  let segment_color = Color::srgba(
+src/astronomy/systems.rs:821  let color = Color::srgba(
+src/astronomy/systems.rs:976  let ion_base_color = Color::srgba(0.7, 0.85, 1.0, brightness * 0.6);
+src/astronomy/systems.rs:977  let ion_tip_color = Color::srgba(0.5, 0.75, 1.0, 0.0);
+src/astronomy/systems.rs:1010  let dust_base_color = Color::srgba(1.0, 0.85, 0.4, brightness * 0.5);
+src/astronomy/systems.rs:1011  let dust_tip_color = Color::srgba(1.0, 0.7, 0.2, 0.0);
+src/astronomy/systems.rs:1241  let color = Color::srgba(
+src/astronomy/systems.rs:1298  let color = Color::srgba(
+src/astronomy/systems.rs:1325  let color = Color::srgba(0.9, 0.95, 1.0, coma_alpha * 0.5);
+src/astronomy/systems.rs:1332  let jet_color = Color::srgba(0.95, 0.95, 1.0, coma_alpha * 0.7);
+src/fleets/visuals.rs:279  |_| Color::srgba(1.0, 0.75, 0.15, 0.50),
+src/fleets/visuals.rs:292  |_| Color::srgba(1.0, 0.75, 0.15, 0.28),
+src/fleets/visuals.rs:297  let cross_color = Color::srgba(1.0, 0.75, 0.15, 0.65);
+src/fleets/visuals.rs:1626  Color::linear_rgba(0.50, 0.05, 0.80, 0.10),
+src/fleets/visuals.rs:1651  Color::linear_rgba(0.55, 0.05, 0.85, alpha),
+src/fleets/visuals.rs:1656  let tick_col = Color::linear_rgba(0.65, 0.10, 0.90, 0.65);
+src/fleets/visuals.rs:1692  Color::linear_rgba(0.50, 0.05, 0.80, 0.10),
+src/fleets/visuals.rs:1706  Color::linear_rgba(0.55, 0.05, 0.85, alpha),
+src/fleets/visuals.rs:1712  let tick_col = Color::linear_rgba(0.65, 0.10, 0.90, 0.65);
+src/fleets/visuals.rs:1744  Color::linear_rgba(
+src/fleets/visuals.rs:1971  Color::linear_rgba(
+src/fleets/visuals.rs:2029  Color::linear_rgba(
+src/fleets/visuals.rs:2079  Color::linear_rgba(
+src/fleets/visuals.rs:2222  Color::linear_rgba(
+src/fleets/visuals.rs:2269  Color::linear_rgba(
+src/fleets/visuals.rs:2404  let color = Color::srgba(0.15, 1.0, 0.35, 1.0);
+src/fleets/visuals.rs:2405  let dim = Color::srgba(0.15, 1.0, 0.35, 0.35);
+src/fleets/visuals.rs:2457  Color::srgba(0.3, 0.8, 1.0, 0.9) // cyan while in transit
+src/fleets/visuals.rs:2459  Color::srgba(0.2, 0.9, 0.3, 0.9) // green while in orbit
+src/fleets/visuals.rs:2508  Color::srgba(0.3, 0.8, 1.0, 1.0) // cyan in transit
+src/fleets/visuals.rs:2510  Color::srgba(0.2, 0.9, 0.3, 1.0) // green in orbit
+src/fleets/visuals.rs:2534  base_color: Color::srgb(0.3, 0.9, 0.4),
+src/fleets/visuals.rs:2568  mat.base_color = Color::srgb(1.0, 0.92, 0.2);
+src/fleets/visuals.rs:2572  mat.base_color = Color::srgb(0.3, 0.9, 0.4);
+src/fleets/visuals.rs:3179  Color::srgba(0.2, 0.9, 0.3, 0.30),
+src/fleets/visuals.rs:3198  Color::srgba(0.2, 0.9, 0.3, 0.15),
+src/fleets/visuals.rs:3206  Color::srgba(0.3, 0.8, 1.0, 0.35),
+src/fleets/visuals.rs:3218  Color::srgba(0.2, 0.9, 0.3, 0.20),
+src/fleets/visuals.rs:3227  Color::srgba(0.3, 0.8, 1.0, 0.35),
+src/fleets/visuals.rs:3410  |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+src/fleets/visuals.rs:3414  let lp_color = Color::srgba(0.5, 0.85, 1.0, 0.85);
+src/fleets/visuals.rs:3509  |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+src/fleets/visuals.rs:3516  |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+src/fleets/visuals.rs:3521  let fleet_color = Color::srgba(1.0, 0.4, 0.1, 0.9);
+src/fleets/visuals.rs:3812  |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+src/fleets/visuals.rs:3846  |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+src/fleets/visuals.rs:3867  Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f)
+src/fleets/visuals.rs:3895  |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+src/fleets/visuals.rs:3902  |f| Color::srgba(1.0, 0.75, 0.15, 0.70 - 0.35 * f),
+src/fleets/visuals.rs:4051  Color::srgba(0.3, 1.0, 0.4, 0.80 - 0.35 * f)
+src/fleets/visuals.rs:4056  Color::srgba(1.0, 0.3, 0.8, 0.80 - 0.35 * f)
+src/fleets/visuals.rs:4061  let node_color = Color::srgba(1.0, 1.0, 0.3, 0.9);
+src/main.rs:114  color: Color::srgb(0.7, 0.75, 1.0), // Cool blue-white starlight tint
+src/main.rs:125  color: Color::srgb(0.6, 0.65, 0.8), // Slightly cool galactic tint
+src/main.rs:137  commands.insert_resource(ClearColor(Color::srgb(0.01, 0.01, 0.02)));
+src/plugins/solar_system.rs:345  Color::srgb(
+src/plugins/solar_system.rs:354  Color::srgb(
+src/plugins/solar_system.rs:363  Color::srgb(
+src/plugins/solar_system.rs:372  Color::srgb(
+src/plugins/solar_system.rs:381  Color::srgb(
+src/plugins/solar_system.rs:390  Color::srgb(
+src/plugins/solar_system.rs:399  Color::srgb(
+src/plugins/solar_system.rs:415  Color::srgb(brightness * 0.85, brightness * 0.90, brightness * 1.0)
+src/plugins/solar_system.rs:420  Color::srgb(brightness * 1.1, brightness * 0.85, brightness * 0.65)
+src/plugins/solar_system.rs:425  Color::srgb(brightness * 1.0, brightness * 0.95, brightness * 0.85)
+src/plugins/solar_system.rs:430  Color::srgb(brightness * 1.2, brightness * 0.75, brightness * 0.6)
+src/plugins/solar_system.rs:436  Color::srgb(brightness + tint, brightness, brightness - tint * 0.5)
+src/plugins/solar_system.rs:443  Color::srgb(
+src/plugins/solar_system.rs:457  Color::srgb(brightness * 0.95, brightness * 0.95, brightness * 1.0)
+src/plugins/solar_system.rs:462  Color::srgb(
+src/plugins/solar_system.rs:471  Color::srgb(brightness, brightness * 0.97, brightness * 0.95)
+src/plugins/solar_system.rs:476  Color::srgb(brightness * 0.9, brightness * 0.92, brightness * 1.05)
+src/plugins/solar_system.rs:481  Color::srgb(brightness * 1.05, brightness * 0.92, brightness * 0.8)
+src/plugins/solar_system.rs:487  Color::srgb(
+src/plugins/solar_system.rs:727  let base_color = Color::srgb(body_data.color.0, body_data.color.1, body_data.color.2);
+src/plugins/solar_system.rs:730  (Color::srgb(1.0, 1.0, 1.0), 0.7, 0.0)
+src/plugins/solar_system.rs:1510  (Color::srgba(1.0, 0.82, 0.5, 0.82), true)
+src/plugins/solar_system.rs:1514  (Color::srgba(0.4, 0.75, 1.0, 0.85), true)
+src/plugins/solar_system.rs:1518  (Color::srgba(0.25, 0.45, 0.75, 0.7), false)
+src/plugins/solar_system.rs:1522  (Color::srgba(0.65, 0.65, 0.65, 0.5), true)
+src/plugins/solar_system.rs:1527  (Color::srgba(0.3, 0.55, 0.22, 0.45), false)
+src/plugins/solar_system.rs:1531  (Color::srgba(1.0, 0.8, 0.3, 0.65), false)
+src/plugins/solar_system.rs:1533  BodyType::Ring => (Color::srgba(0.0, 0.0, 0.0, 0.0), false),
+src/plugins/solar_system_data.rs:343  Color::srgb(
+src/plugins/starmap.rs:348  base_color: Color::srgb(1.0, 0.95, 0.7),
+src/plugins/starmap.rs:405  base_color: Color::srgb(r, g, b),
+src/plugins/starmap.rs:599  Color::srgb(base, base * 0.95, base * 0.88),
+src/plugins/starmap.rs:607  Color::srgb(base, base * 0.96, base * 0.92),
+src/plugins/starmap.rs:615  Color::srgb(base, base * 0.98, base * 0.94),
+src/plugins/starmap.rs:623  Color::srgb(base, base * 0.96, base * 0.92),
+src/plugins/starmap.rs:631  Color::srgb(base, base, base),
+src/plugins/starmap.rs:639  Color::srgb(base * 0.98, base, base * 0.97),
+src/plugins/starmap.rs:647  Color::srgb(base * 0.96, base * 0.98, base),
+src/plugins/starmap.rs:655  Color::srgb(base * 0.98, base * 0.99, base),
+src/plugins/starmap.rs:663  Color::srgb(base * 0.99, base * 0.99, base),
+src/plugins/starmap.rs:671  Color::srgb(base, base, base),
+src/plugins/starmap.rs:679  Color::srgb(base, base * 0.98, base * 0.96),
+src/plugins/starmap.rs:687  Color::srgb(base, base * 0.98, base * 0.95),
+src/plugins/starmap.rs:695  Color::srgb(base * 0.97, base * 0.99, base),
+src/plugins/starmap.rs:703  Color::srgb(b, (b * 0.95).min(1.0), (b * 0.90).min(1.0)),
+src/plugins/starmap.rs:711  Color::srgb(base, base, base),
+src/plugins/starmap.rs:719  Color::srgb(base, base * 0.98, base * 0.96),
+src/plugins/starmap.rs:727  Color::srgb(base * 0.98, base, base * 0.97),
+src/plugins/starmap.rs:735  Color::srgb(base * 0.99, base * 0.99, base),
+src/plugins/starmap.rs:743  Color::srgb(base * 0.98, base * 0.99, base),
+src/plugins/starmap.rs:751  Color::srgb(base, base * 0.98, base * 0.95),
+src/plugins/starmap.rs:759  Color::srgb(base * 0.97, base, base * 0.96),
+src/plugins/starmap.rs:838  Color::srgb(1.0, 0.95, 0.8) // Default yellow star
+src/plugins/starmap.rs:841  BodyType::Planet | BodyType::DwarfPlanet => Color::srgb(0.5, 0.5, 0.7),
+src/plugins/starmap.rs:842  BodyType::GasGiant => Color::srgb(0.9, 0.8, 0.6),
+src/plugins/starmap.rs:843  BodyType::Moon => Color::srgb(0.6, 0.6, 0.6),
+src/plugins/starmap.rs:844  BodyType::Asteroid => Color::srgb(0.4, 0.4, 0.3),
+src/plugins/starmap.rs:845  BodyType::Comet => Color::srgb(0.7, 0.8, 0.9),
+src/plugins/system_populator.rs:1566  Color::srgba(1.0, 0.85, 0.4, 0.55),
+src/plugins/system_populator.rs:1730  OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.85)), // Lighter blue — planets
+src/plugins/system_populator.rs:1873  OrbitPath::new(Color::srgba(0.4, 0.75, 1.0, 0.85)), // Lighter blue — planets
+src/plugins/system_populator.rs:1975  OrbitPath::new(Color::srgba(0.25, 0.45, 0.75, 0.7)), // Darker blue — dwarf planets
+src/plugins/system_populator.rs:2118  OrbitPath::with_fade(Color::srgba(0.3, 0.55, 0.22, 0.45), 5.0), // Dark green, steep fade — asteroids
+src/plugins/system_populator.rs:2229  OrbitPath::new(Color::srgba(1.0, 0.8, 0.3, 0.65)), // Yellow — comets
+src/plugins/system_populator.rs:2802  OrbitPath::new(Color::srgba(0.65, 0.65, 0.65, 0.5)), // Grey — moons
+src/ui/shipbuilding_workspace.rs:342  BackgroundColor(Color::srgba(0.015, 0.02, 0.035, 0.96)),
+src/ui/shipbuilding_workspace.rs:354  BackgroundColor(Color::srgba(0.03, 0.08, 0.12, 0.96)),
+src/ui/shipbuilding_workspace.rs:355  BorderColor::all(Color::srgb(0.22, 0.72, 0.86)),
+src/ui/shipbuilding_workspace.rs:365  TextColor(Color::srgb(0.82, 0.94, 0.98)),
+src/ui/shipbuilding_workspace.rs:429  BackgroundColor(Color::srgba(0.02, 0.04, 0.07, 0.96)),
+src/ui/shipbuilding_workspace.rs:430  BorderColor::all(Color::srgb(0.22, 0.72, 0.86)),
+src/ui/shipbuilding_workspace.rs:440  TextColor(Color::srgb(0.55, 0.95, 1.0)),
+src/ui/shipbuilding_workspace.rs:481  BackgroundColor(Color::srgba(0.03, 0.05, 0.08, 0.92)),
+src/ui/shipbuilding_workspace.rs:482  BorderColor::all(Color::srgb(0.15, 0.78, 0.88)),
+src/ui/shipbuilding_workspace.rs:491  TextColor(Color::srgb(0.55, 0.95, 1.0)),
+src/ui/shipbuilding_workspace.rs:1267  Color::srgb(0.1, 0.28, 0.34)
+src/ui/shipbuilding_workspace.rs:1269  Color::srgb(0.045, 0.07, 0.1)
+src/ui/shipbuilding_workspace.rs:1272  Color::srgb(0.0, 0.95, 1.0)
+src/ui/shipbuilding_workspace.rs:1274  Color::srgb(0.18, 0.3, 0.36)
+src/ui/shipbuilding_workspace.rs:1282  Color::srgb(0.9, 0.98, 1.0)
+src/ui/shipbuilding_workspace.rs:1284  Color::srgb(0.78, 0.86, 0.9)
+src/ui/shipbuilding_workspace.rs:1348  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:1371  BackgroundColor(Color::srgb(0.08, 0.18, 0.14)),
+src/ui/shipbuilding_workspace.rs:1372  BorderColor::all(Color::srgb(0.38, 0.94, 0.7)),
+src/ui/shipbuilding_workspace.rs:1378  TextColor(Color::srgb(0.92, 0.96, 0.98)),
+src/ui/shipbuilding_workspace.rs:1390  BackgroundColor(Color::srgb(0.12, 0.08, 0.09)),
+src/ui/shipbuilding_workspace.rs:1391  BorderColor::all(Color::srgb(0.86, 0.42, 0.38)),
+src/ui/shipbuilding_workspace.rs:1397  TextColor(Color::srgb(0.92, 0.96, 0.98)),
+src/ui/shipbuilding_workspace.rs:1422  BackgroundColor(Color::srgb(0.13, 0.08, 0.09)),
+src/ui/shipbuilding_workspace.rs:1423  BorderColor::all(Color::srgb(0.58, 0.3, 0.32)),
+src/ui/shipbuilding_workspace.rs:1429  TextColor(Color::srgb(0.94, 0.84, 0.84)),
+src/ui/shipbuilding_workspace.rs:1461  BackgroundColor(Color::srgba(0.12, 0.1, 0.07, 0.92)),
+src/ui/shipbuilding_workspace.rs:1462  BorderColor::all(Color::srgb(0.62, 0.42, 0.28)),
+src/ui/shipbuilding_workspace.rs:1468  Color::srgb(0.92, 0.78, 0.62),
+src/ui/shipbuilding_workspace.rs:1479  BackgroundColor(Color::srgb(0.18, 0.12, 0.08)),
+src/ui/shipbuilding_workspace.rs:1480  BorderColor::all(Color::srgb(0.78, 0.52, 0.36)),
+src/ui/shipbuilding_workspace.rs:1486  TextColor(Color::srgb(0.96, 0.86, 0.74)),
+src/ui/shipbuilding_workspace.rs:1497  Color::srgb(0.1, 0.32, 0.22)
+src/ui/shipbuilding_workspace.rs:1499  Color::srgb(0.12, 0.22, 0.34)
+src/ui/shipbuilding_workspace.rs:1501  Color::srgb(0.055, 0.08, 0.12)
+src/ui/shipbuilding_workspace.rs:1524  Color::srgb(0.38, 0.94, 0.7)
+src/ui/shipbuilding_workspace.rs:1526  Color::srgb(0.55, 0.95, 1.0)
+src/ui/shipbuilding_workspace.rs:1528  Color::srgb(0.22, 0.35, 0.42)
+src/ui/shipbuilding_workspace.rs:1543  TextColor(Color::srgb(0.88, 0.93, 0.96)),
+src/ui/shipbuilding_workspace.rs:1551  Color::srgb(0.6, 0.7, 0.76),
+src/ui/shipbuilding_workspace.rs:1565  Color::srgb(0.5, 0.6, 0.66)
+src/ui/shipbuilding_workspace.rs:1567  Color::srgb(0.95, 0.98, 1.0)
+src/ui/shipbuilding_workspace.rs:1582  BackgroundColor(Color::srgba(0.04, 0.07, 0.11, 0.92)),
+src/ui/shipbuilding_workspace.rs:1583  BorderColor::all(Color::srgb(0.22, 0.72, 0.86)),
+src/ui/shipbuilding_workspace.rs:1590  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:1818  TextColor(Color::srgb(0.86, 0.93, 0.98)),
+src/ui/shipbuilding_workspace.rs:1844  ShipbuildingTooltipTone::Neutral => Color::srgb(0.84, 0.9, 0.94),
+src/ui/shipbuilding_workspace.rs:1845  ShipbuildingTooltipTone::Positive => Color::srgb(0.5, 0.92, 0.62),
+src/ui/shipbuilding_workspace.rs:1846  ShipbuildingTooltipTone::Warning => Color::srgb(0.98, 0.78, 0.36),
+src/ui/shipbuilding_workspace.rs:1847  ShipbuildingTooltipTone::Negative => Color::srgb(1.0, 0.45, 0.4),
+src/ui/shipbuilding_workspace.rs:1848  ShipbuildingTooltipTone::Accent => Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:1849  ShipbuildingTooltipTone::Muted => Color::srgb(0.66, 0.75, 0.8),
+src/ui/shipbuilding_workspace.rs:1865  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:1879  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:1891  BackgroundColor(Color::srgba(0.018, 0.032, 0.055, 0.94)),
+src/ui/shipbuilding_workspace.rs:1892  BorderColor::all(Color::srgb(0.15, 0.78, 0.88)),
+src/ui/shipbuilding_workspace.rs:1935  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:1950  Color::srgb(0.0, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:1960  Color::srgb(0.96, 0.54, 0.28),
+src/ui/shipbuilding_workspace.rs:1970  Color::srgb(0.5, 0.86, 1.0),
+src/ui/shipbuilding_workspace.rs:1980  Color::srgb(0.66, 0.96, 0.7),
+src/ui/shipbuilding_workspace.rs:1990  Color::srgb(0.0, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:2000  Color::srgb(1.0, 0.64, 0.24),
+src/ui/shipbuilding_workspace.rs:2010  Color::srgb(0.5, 0.92, 0.9),
+src/ui/shipbuilding_workspace.rs:2020  Color::srgb(0.5, 0.92, 0.58),
+src/ui/shipbuilding_workspace.rs:2030  Color::srgb(0.45, 0.85, 0.66),
+src/ui/shipbuilding_workspace.rs:2040  Color::srgb(0.86, 0.82, 0.58),
+src/ui/shipbuilding_workspace.rs:2050  Color::srgb(0.86, 0.82, 0.58),
+src/ui/shipbuilding_workspace.rs:2056  Color::srgb(0.82, 0.9, 0.96),
+src/ui/shipbuilding_workspace.rs:2062  Color::srgb(0.9, 0.72, 0.45),
+src/ui/shipbuilding_workspace.rs:2074  Color::srgb(0.0, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:2080  Color::srgb(1.0, 0.64, 0.24),
+src/ui/shipbuilding_workspace.rs:2086  Color::srgb(1.0, 0.46, 0.35),
+src/ui/shipbuilding_workspace.rs:2100  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:2110  Color::srgb(1.0, 0.55, 0.45),
+src/ui/shipbuilding_workspace.rs:2127  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:2290  Color::srgb(0.045, 0.12, 0.15)
+src/ui/shipbuilding_workspace.rs:2292  Color::srgba(0.018, 0.032, 0.05, 0.94)
+src/ui/shipbuilding_workspace.rs:2310  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:2317  BorderColor::all(mix_color(Color::srgb(0.36, 0.88, 0.98), frame.accent, 0.38));
+src/ui/shipbuilding_workspace.rs:2319  *border = BorderColor::all(Color::srgb(0.46, 0.78, 1.0));
+src/ui/shipbuilding_workspace.rs:2322  BorderColor::all(mix_color(Color::srgb(0.28, 0.72, 0.82), frame.accent, 0.18));
+src/ui/shipbuilding_workspace.rs:2324  *border = BorderColor::all(Color::srgb(0.22, 0.45, 0.54));
+src/ui/shipbuilding_workspace.rs:2373  Color::srgb(0.1, 0.32, 0.22),
+src/ui/shipbuilding_workspace.rs:2374  Color::srgb(0.38, 0.94, 0.7),
+src/ui/shipbuilding_workspace.rs:2378  Color::srgb(0.08, 0.13, 0.19)
+src/ui/shipbuilding_workspace.rs:2380  Color::srgb(0.1, 0.18, 0.28)
+src/ui/shipbuilding_workspace.rs:2382  Color::srgb(0.055, 0.08, 0.12)
+src/ui/shipbuilding_workspace.rs:2386  Color::srgb(0.38, 0.94, 0.7)
+src/ui/shipbuilding_workspace.rs:2388  Color::srgb(0.55, 0.95, 1.0)
+src/ui/shipbuilding_workspace.rs:2390  Color::srgb(0.46, 0.78, 1.0)
+src/ui/shipbuilding_workspace.rs:2392  Color::srgb(0.22, 0.35, 0.42)
+src/ui/shipbuilding_workspace.rs:2591  BackgroundColor(Color::srgba(0.18, 0.55, 0.64, 0.18)),
+src/ui/shipbuilding_workspace.rs:2606  TextColor(Color::srgb(0.52, 0.8, 0.88)),
+src/ui/shipbuilding_workspace.rs:2620  BackgroundColor(Color::srgba(0.18, 0.55, 0.64, 0.12)),
+src/ui/shipbuilding_workspace.rs:2706  mix_color(Color::srgb(0.04, 0.1, 0.14), accent, 0.26)
+src/ui/shipbuilding_workspace.rs:2708  mix_color(Color::srgb(0.03, 0.08, 0.11), accent, 0.16)
+src/ui/shipbuilding_workspace.rs:2710  Color::srgb(0.045, 0.12, 0.15)
+src/ui/shipbuilding_workspace.rs:2712  Color::srgba(0.018, 0.032, 0.05, 0.94)
+src/ui/shipbuilding_workspace.rs:2715  mix_color(Color::srgb(0.55, 0.95, 1.0), accent, 0.72)
+src/ui/shipbuilding_workspace.rs:2717  mix_color(Color::srgb(0.4, 0.9, 1.0), accent, 0.42)
+src/ui/shipbuilding_workspace.rs:2719  Color::srgb(0.46, 0.78, 1.0)
+src/ui/shipbuilding_workspace.rs:2721  mix_color(Color::srgb(0.34, 0.86, 0.94), accent, 0.22)
+src/ui/shipbuilding_workspace.rs:2723  Color::srgba(0.16, 0.34, 0.4, 0.45)
+src/ui/shipbuilding_workspace.rs:2839  TextColor(Color::srgb(0.88, 0.93, 0.96)),
+src/ui/shipbuilding_workspace.rs:2866  Color::srgb(0.78, 0.86, 0.9)
+src/ui/shipbuilding_workspace.rs:2868  Color::srgba(0.7, 0.85, 0.92, 0.32)
+src/ui/shipbuilding_workspace.rs:2888  TextColor(Color::srgb(0.82, 0.87, 0.9)),
+src/ui/shipbuilding_workspace.rs:2896  TextColor(Color::srgb(0.78, 0.84, 0.88)),
+src/ui/shipbuilding_workspace.rs:3104  TextColor(Color::srgb(0.84, 0.9, 0.94)),
+src/ui/shipbuilding_workspace.rs:3116  BackgroundColor(Color::srgba(0.03, 0.05, 0.08, 0.98)),
+src/ui/shipbuilding_workspace.rs:3117  BorderColor::all(Color::srgb(0.22, 0.35, 0.42)),
+src/ui/shipbuilding_workspace.rs:3142  BackgroundColor(Color::srgba(0.45, 0.92, 0.56, 0.55)),
+src/ui/shipbuilding_workspace.rs:3154  BackgroundColor(Color::srgba(1.0, 0.38, 0.3, 0.55)),
+src/ui/shipbuilding_workspace.rs:3191  Color::srgb(0.84, 0.9, 0.94),
+src/ui/shipbuilding_workspace.rs:3197  Color::srgb(0.68, 0.9, 0.76),
+src/ui/shipbuilding_workspace.rs:3220  Color::srgba(
+src/ui/shipbuilding_workspace.rs:3256  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:3266  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:3286  BackgroundColor(Color::srgb(0.045, 0.07, 0.1)),
+src/ui/shipbuilding_workspace.rs:3287  BorderColor::all(Color::srgb(0.22, 0.48, 0.58)),
+src/ui/shipbuilding_workspace.rs:3305  Color::srgb(0.6, 0.7, 0.76),
+src/ui/shipbuilding_workspace.rs:3322  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:3384  BackgroundColor(Color::srgb(0.06, 0.11, 0.16)),
+src/ui/shipbuilding_workspace.rs:3386  Color::srgb(0.0, 0.95, 1.0)
+src/ui/shipbuilding_workspace.rs:3388  Color::srgb(0.22, 0.48, 0.58)
+src/ui/shipbuilding_workspace.rs:3395  TextColor(Color::srgb(0.88, 0.93, 0.96)),
+src/ui/shipbuilding_workspace.rs:3411  Color::srgb(0.1, 0.18, 0.22)
+src/ui/shipbuilding_workspace.rs:3413  Color::srgb(0.045, 0.07, 0.1)
+src/ui/shipbuilding_workspace.rs:3416  Color::srgb(0.0, 0.95, 1.0)
+src/ui/shipbuilding_workspace.rs:3418  Color::srgb(0.18, 0.3, 0.36)
+src/ui/shipbuilding_workspace.rs:3425  TextColor(Color::srgb(0.88, 0.93, 0.96)),
+src/ui/shipbuilding_workspace.rs:3441  Color::srgb(0.1, 0.18, 0.22)
+src/ui/shipbuilding_workspace.rs:3443  Color::srgb(0.055, 0.08, 0.12)
+src/ui/shipbuilding_workspace.rs:3448  Color::srgb(0.22, 0.35, 0.42)
+src/ui/shipbuilding_workspace.rs:3455  TextColor(Color::srgb(0.88, 0.93, 0.96)),
+src/ui/shipbuilding_workspace.rs:3607  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:3617  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:3624  Color::srgb(0.6, 0.7, 0.76),
+src/ui/shipbuilding_workspace.rs:3638  BackgroundColor(Color::srgb(0.08, 0.2, 0.24)),
+src/ui/shipbuilding_workspace.rs:3639  BorderColor::all(Color::srgb(0.2, 0.92, 0.98)),
+src/ui/shipbuilding_workspace.rs:3645  TextColor(Color::srgb(0.92, 0.96, 0.98)),
+src/ui/shipbuilding_workspace.rs:3665  Color::srgb(0.1, 0.18, 0.24)
+src/ui/shipbuilding_workspace.rs:3667  Color::srgb(0.05, 0.08, 0.12)
+src/ui/shipbuilding_workspace.rs:3670  Color::srgb(0.0, 0.95, 1.0)
+src/ui/shipbuilding_workspace.rs:3672  Color::srgb(0.22, 0.35, 0.42)
+src/ui/shipbuilding_workspace.rs:3687  TextColor(Color::srgb(0.88, 0.93, 0.96)),
+src/ui/shipbuilding_workspace.rs:3696  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:3703  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:3724  Color::srgb(0.84, 0.9, 0.94),
+src/ui/shipbuilding_workspace.rs:3740  Color::srgb(0.0, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:3747  Color::srgb(0.86, 0.78, 0.34),
+src/ui/shipbuilding_workspace.rs:3754  Color::srgb(0.38, 0.94, 0.7),
+src/ui/shipbuilding_workspace.rs:3761  Color::srgb(1.0, 0.42, 0.38),
+src/ui/shipbuilding_workspace.rs:3772  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:3781  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:3787  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:3809  Color::srgb(0.1, 0.18, 0.24)
+src/ui/shipbuilding_workspace.rs:3811  Color::srgb(0.05, 0.08, 0.12)
+src/ui/shipbuilding_workspace.rs:3814  Color::srgb(0.0, 0.95, 1.0)
+src/ui/shipbuilding_workspace.rs:3816  Color::srgb(0.22, 0.35, 0.42)
+src/ui/shipbuilding_workspace.rs:3827  TextColor(Color::srgb(0.88, 0.93, 0.96)),
+src/ui/shipbuilding_workspace.rs:3840  Color::srgb(0.0, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:3854  Color::srgb(1.0, 0.6, 0.32),
+src/ui/shipbuilding_workspace.rs:3868  Color::srgb(0.5, 0.92, 0.9),
+src/ui/shipbuilding_workspace.rs:3877  Color::srgb(0.5, 0.86, 1.0),
+src/ui/shipbuilding_workspace.rs:3883  Color::srgb(0.86, 0.82, 0.58),
+src/ui/shipbuilding_workspace.rs:3889  Color::srgb(0.68, 0.9, 0.76),
+src/ui/shipbuilding_workspace.rs:3895  Color::srgb(0.5, 0.92, 0.58),
+src/ui/shipbuilding_workspace.rs:3901  Color::srgb(0.86, 0.78, 0.34),
+src/ui/shipbuilding_workspace.rs:3909  Color::srgb(0.6, 0.7, 0.76),
+src/ui/shipbuilding_workspace.rs:3959  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:3972  Color::srgb(1.0, 0.55, 0.45),
+src/ui/shipbuilding_workspace.rs:3989  Color::srgb(0.1, 0.18, 0.24)
+src/ui/shipbuilding_workspace.rs:3991  Color::srgb(0.05, 0.08, 0.12)
+src/ui/shipbuilding_workspace.rs:3994  Color::srgb(0.0, 0.95, 1.0)
+src/ui/shipbuilding_workspace.rs:3996  Color::srgb(0.22, 0.35, 0.42)
+src/ui/shipbuilding_workspace.rs:4008  TextColor(Color::srgb(0.88, 0.93, 0.96)),
+src/ui/shipbuilding_workspace.rs:4015  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:4028  Color::srgb(0.1, 0.18, 0.24)
+src/ui/shipbuilding_workspace.rs:4030  Color::srgb(0.05, 0.08, 0.12)
+src/ui/shipbuilding_workspace.rs:4033  Color::srgb(0.0, 0.95, 1.0)
+src/ui/shipbuilding_workspace.rs:4035  Color::srgb(0.22, 0.35, 0.42)
+src/ui/shipbuilding_workspace.rs:4042  TextColor(Color::srgb(0.88, 0.93, 0.96)),
+src/ui/shipbuilding_workspace.rs:4060  Color::srgb(0.1, 0.18, 0.24)
+src/ui/shipbuilding_workspace.rs:4062  Color::srgb(0.05, 0.08, 0.12)
+src/ui/shipbuilding_workspace.rs:4065  Color::srgb(0.0, 0.95, 1.0)
+src/ui/shipbuilding_workspace.rs:4067  Color::srgb(0.22, 0.35, 0.42)
+src/ui/shipbuilding_workspace.rs:4080  TextColor(Color::srgb(0.88, 0.93, 0.96)),
+src/ui/shipbuilding_workspace.rs:4089  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:4107  Color::srgb(0.1, 0.18, 0.24)
+src/ui/shipbuilding_workspace.rs:4109  Color::srgb(0.05, 0.08, 0.12)
+src/ui/shipbuilding_workspace.rs:4112  Color::srgb(0.0, 0.95, 1.0)
+src/ui/shipbuilding_workspace.rs:4114  Color::srgb(0.22, 0.35, 0.42)
+src/ui/shipbuilding_workspace.rs:4128  TextColor(Color::srgb(0.88, 0.93, 0.96)),
+src/ui/shipbuilding_workspace.rs:4149  Color::srgb(0.84, 0.9, 0.94),
+src/ui/shipbuilding_workspace.rs:4164  Color::srgb(0.08, 0.2, 0.14)
+src/ui/shipbuilding_workspace.rs:4166  Color::srgb(0.14, 0.08, 0.09)
+src/ui/shipbuilding_workspace.rs:4169  Color::srgb(0.38, 0.94, 0.7)
+src/ui/shipbuilding_workspace.rs:4171  Color::srgb(1.0, 0.42, 0.38)
+src/ui/shipbuilding_workspace.rs:4178  TextColor(Color::srgb(0.92, 0.96, 0.98)),
+src/ui/shipbuilding_workspace.rs:4185  Color::srgb(1.0, 0.55, 0.45),
+src/ui/shipbuilding_workspace.rs:4192  Color::srgb(0.6, 0.7, 0.76),
+src/ui/shipbuilding_workspace.rs:4203  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:4211  Color::srgb(0.6, 0.7, 0.76),
+src/ui/shipbuilding_workspace.rs:4225  BackgroundColor(Color::srgb(0.08, 0.2, 0.24)),
+src/ui/shipbuilding_workspace.rs:4226  BorderColor::all(Color::srgb(0.2, 0.92, 0.98)),
+src/ui/shipbuilding_workspace.rs:4232  TextColor(Color::srgb(0.92, 0.96, 0.98)),
+src/ui/shipbuilding_workspace.rs:4264  Color::srgb(0.84, 0.9, 0.94),
+src/ui/shipbuilding_workspace.rs:4276  Color::srgb(0.6, 0.7, 0.76),
+src/ui/shipbuilding_workspace.rs:4297  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:4347  Color::srgb(0.6, 0.7, 0.76),
+src/ui/shipbuilding_workspace.rs:4354  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:4359  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:4386  Color::srgb(0.1, 0.18, 0.24)
+src/ui/shipbuilding_workspace.rs:4388  Color::srgb(0.14, 0.14, 0.16)
+src/ui/shipbuilding_workspace.rs:4391  Color::srgb(0.05, 0.08, 0.12)
+src/ui/shipbuilding_workspace.rs:4393  Color::srgb(0.08, 0.08, 0.09)
+src/ui/shipbuilding_workspace.rs:4396  Color::srgb(0.0, 0.95, 1.0)
+src/ui/shipbuilding_workspace.rs:4398  Color::srgb(0.22, 0.35, 0.42)
+src/ui/shipbuilding_workspace.rs:4400  Color::srgb(0.28, 0.28, 0.3)
+src/ui/shipbuilding_workspace.rs:4403  Color::srgb(0.88, 0.93, 0.96)
+src/ui/shipbuilding_workspace.rs:4407  Color::srgb(0.56, 0.58, 0.62)
+src/ui/shipbuilding_workspace.rs:4445  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:4452  Color::srgb(0.6, 0.7, 0.76),
+src/ui/shipbuilding_workspace.rs:4481  parent.spawn(text_block(module.display_name.clone(), 14.0, Color::srgb(0.84, 0.9, 0.94)));
+src/ui/shipbuilding_workspace.rs:4482  parent.spawn(text_block(module.description.clone(), 10.5, Color::srgb(0.6, 0.7, 0.76)));
+src/ui/shipbuilding_workspace.rs:4493  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:4515  BackgroundColor(Color::srgb(0.06, 0.2, 0.24)),
+src/ui/shipbuilding_workspace.rs:4516  BorderColor::all(Color::srgb(0.2, 0.92, 0.98)),
+src/ui/shipbuilding_workspace.rs:4526  TextColor(Color::srgb(0.92, 0.96, 0.98)),
+src/ui/shipbuilding_workspace.rs:4534  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:4546  Color::srgb(0.5, 0.92, 0.58),
+src/ui/shipbuilding_workspace.rs:4556  Color::srgb(0.5, 0.86, 1.0),
+src/ui/shipbuilding_workspace.rs:4570  Color::srgb(0.0, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:4579  Color::srgb(1.0, 0.6, 0.32),
+src/ui/shipbuilding_workspace.rs:4585  Color::srgb(0.5, 0.92, 0.9),
+src/ui/shipbuilding_workspace.rs:4591  Color::srgb(0.86, 0.82, 0.58),
+src/ui/shipbuilding_workspace.rs:4604  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:4638  TextColor(Color::srgb(0.92, 0.96, 0.98)),
+src/ui/shipbuilding_workspace.rs:4881  color: Color::srgb(0.6, 0.7, 0.76),
+src/ui/shipbuilding_workspace.rs:4888  color: Color::srgb(0.5, 0.92, 0.62),
+src/ui/shipbuilding_workspace.rs:4898  color: Color::srgb(0.98, 0.78, 0.36),
+src/ui/shipbuilding_workspace.rs:4908  color: Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:4914  color: Color::srgb(1.0, 0.45, 0.4),
+src/ui/shipbuilding_workspace.rs:4920  color: Color::srgb(1.0, 0.45, 0.4),

@@ -35,6 +35,7 @@ mod settings;
 mod shipbuilding_state;
 mod shipbuilding_tooltip;
 mod shipbuilding_workspace;
+mod tab;
 mod tech_tree;
 pub(super) mod theme;
 pub mod time;
