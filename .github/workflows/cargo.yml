@@ -53,3 +53,20 @@ jobs:
           # scripts/audit_b0001.py and CLAUDE.md. Set --strict to make
           # this fail the build on any 'risk' candidates.
           python3 scripts/audit_b0001.py src
+
+  ui-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Audit hardcoded Color32 literals
+        run: |
+          # Fails the build on any new hardcoded `Color32::from_*` call
+          # outside src/ui/theme.rs. Known violations are listed in
+          # scripts/audit_color32_literals_baseline.txt and tolerated;
+          # see docs/UI.md "Contribution Rules" for the rationale and
+          # the workflow for promoting them into theme.rs constants.
+          python3 scripts/audit_color32_literals.py --strict \
+            --baseline scripts/audit_color32_literals_baseline.txt src

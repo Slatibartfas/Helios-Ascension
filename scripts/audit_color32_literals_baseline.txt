@@ -1,0 +1,30 @@
+# Color32 literal audit baseline.
+# One violation per line: <file>:<line>  <literal>
+# Regenerate with: python3 scripts/audit_color32_literals.py --emit-baseline
+# Move entries out as they're promoted to src/ui/theme.rs constants.
+
+src/ui/dashboard.rs:1360  egui::Color32::from_rgba_unmultiplied(231, 76, 60, alpha),
+src/ui/dashboard.rs:1366  egui::RichText::new("⏸ PAUSED").color(egui::Color32::from_rgba_unmultiplied(
+src/ui/dossier_panel.rs:946  egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(0, 242, 255, 60)),
+src/ui/dossier_panel.rs:964  let fill_color = egui::Color32::from_rgba_premultiplied(0, 242, 255, 18);
+src/ui/dossier_panel.rs:1157  egui::Color32::from_rgba_premultiplied(20, 20, 30, 230)
+src/ui/dossier_panel.rs:1159  egui::Color32::from_rgba_premultiplied(255, 255, 255, 220)
+src/ui/dossier_panel.rs:1208  egui::Color32::from_rgba_premultiplied(255, 255, 255, 60)
+src/ui/dossier_panel.rs:1210  egui::Color32::from_rgba_premultiplied(0, 0, 0, 80)
+src/ui/dossier_panel.rs:1492  let fill_color = egui::Color32::from_rgba_premultiplied(
+src/ui/dossier_panel.rs:1514  egui::Color32::from_rgba_premultiplied(220, 230, 240, (180.0 * brightness) as u8),
+src/ui/fleets_panel.rs:171  egui::Color32::from_rgba_premultiplied(0, 140, 160, 42)
+src/ui/mod.rs:1027  .fill(egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245))
+src/ui/mod.rs:1118  .fill(egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245))
+src/ui/mod.rs:1251  .fill(egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245))
+src/ui/research_panel.rs:1278  egui::Color32::from_rgba_unmultiplied(13, 17, 23, 120),
+src/ui/research_panel.rs:1359  egui::Color32::from_rgba_unmultiplied(13, 17, 23, 120),
+src/ui/research_panel.rs:1459  .fill(egui::Color32::from_rgba_unmultiplied(13, 17, 23, 245))
+src/ui/resources_bar.rs:848  egui::Color32::from_rgba_premultiplied(4, 6, 12, 104),
+src/ui/tech_tree.rs:331  egui::Color32::from_rgba_unmultiplied(cat_color.r(), cat_color.g(), cat_color.b(), 18);
+src/ui/tech_tree.rs:333  egui::Color32::from_rgba_unmultiplied(cat_color.r(), cat_color.g(), cat_color.b(), 40);
+src/ui/tech_tree.rs:389  egui::Color32::from_rgba_unmultiplied(
+src/ui/tech_tree.rs:439  egui::Color32::from_rgba_premultiplied(255, 200, 0, 255)
+src/ui/tech_tree.rs:441  egui::Color32::from_rgba_premultiplied(100, 255, 100, 80)
+src/ui/tech_tree.rs:443  egui::Color32::from_rgba_premultiplied(120, 120, 120, 60)
+src/ui/tech_tree.rs:916  .fill(egui::Color32::from_rgba_unmultiplied(13, 17, 23, 245))
