@@ -28,12 +28,14 @@ use std::borrow::Cow;
 /// current `*Tab` enum is `Copy` already (they're plain fieldless
 /// variants). `PartialEq` lets the primitive compare `*tab` against
 /// the `active` argument to pick the active styling.
+#[allow(dead_code)]
 pub trait Tab: Copy + PartialEq {
     /// Stable identifier for egui's `Id` system. Two panels must not
     /// share an `id` if their strips could ever be visible at the same
     /// time — egui will reuse the response state otherwise. Convention:
     /// the enum variant's snake_case name (e.g. `"overview"`,
     /// `"buildings"`).
+    #[allow(dead_code)]
     fn id(&self) -> &'static str;
 
     /// Human-readable label rendered inside the tab button. The trait
