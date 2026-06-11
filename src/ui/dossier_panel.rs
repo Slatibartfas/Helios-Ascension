@@ -2253,8 +2253,8 @@ fn draw_anomaly_card(
     egui::Frame::group(ui.style())
         .fill(SURFACE)
         .stroke(egui::Stroke::new(1.0, BORDER))
-        .rounding(egui::Rounding::same(4.0))
-        .inner_margin(egui::Margin::same(8.0))
+        .corner_radius(4.0)
+        .inner_margin(egui::Margin::same(8))
         .show(ui, |ui| {
             // Header row: name + badge.
             ui.horizontal(|ui| {

@@ -93,7 +93,7 @@ pub fn surface_anomaly_events(
                 }
                 // Roll the false-positive rate. A roll above
                 // `false_positive_rate` is a real detection.
-                let roll: f32 = rng.gen();
+                let roll: f32 = rng.random();
                 if roll < def.false_positive_rate {
                     continue;
                 }
