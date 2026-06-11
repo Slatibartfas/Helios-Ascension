@@ -332,10 +332,8 @@ pub(super) fn render_tech_tree_tab(
     // ---------- draw category background panes (horizontal bands) ----------
     for band in &category_bands {
         let cat_color = tech_category_color(band.category);
-        let bg_color =
-            egui::Color32::from_rgba_unmultiplied(cat_color.r(), cat_color.g(), cat_color.b(), 18);
-        let border_color =
-            egui::Color32::from_rgba_unmultiplied(cat_color.r(), cat_color.g(), cat_color.b(), 40);
+        let bg_color = theme::with_alpha(cat_color, 18);
+        let border_color = theme::with_alpha(cat_color, 40);
         let pane_rect = egui::Rect::from_min_size(
             egui::Pos2::new(origin_x - pane_pad, band.y_start),
             egui::Vec2::new(total_tier_width + pane_pad * 2.0, band.height),
@@ -391,12 +389,7 @@ pub(super) fn render_tech_tree_tab(
                 egui::Align2::CENTER_CENTER,
                 *word,
                 font_cat_word.clone(),
-                egui::Color32::from_rgba_unmultiplied(
-                    cat_color.r(),
-                    cat_color.g(),
-                    cat_color.b(),
-                    200,
-                ),
+                theme::with_alpha(cat_color, 200),
             );
         }
     }
@@ -441,11 +434,11 @@ pub(super) fn render_tech_tree_tab(
                         path_techs.contains(&tech.id) && path_techs.contains(prereq_id);
                     let is_prereq_unlocked = research_state.is_unlocked(prereq_id);
                     let line_color = if is_in_path {
-                        egui::Color32::from_rgba_premultiplied(255, 200, 0, 255)
+                        theme::PREREQ_IN_PATH
                     } else if is_prereq_unlocked {
-                        egui::Color32::from_rgba_premultiplied(100, 255, 100, 80)
+                        theme::PREREQ_UNLOCKED
                     } else {
-                        egui::Color32::from_rgba_premultiplied(120, 120, 120, 60)
+                        theme::PREREQ_DEFAULT
                     };
                     let w = if is_in_path { 2.5 * zoom } else { 1.0 * zoom };
                     // From right edge of prereq to left edge of tech
@@ -918,7 +911,7 @@ pub(super) fn render_tech_tree_tab(
                 .resizable(false)
                 .title_bar(false)
                 .frame(egui::Frame::popup(ui.ctx().style().as_ref())
-                    .fill(egui::Color32::from_rgba_unmultiplied(13, 17, 23, 245))
+                    .fill(theme::TOOLTIP_BG_ALT)
                     .stroke(egui::Stroke::new(2.0, tech_category_color(tech.category))))
                 .show(ui.ctx(), |ui| {
                     render_research_tech_tooltip_content(

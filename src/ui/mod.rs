@@ -1020,7 +1020,7 @@ fn ui_hover_tooltip(
                 .show(ctx, |ui| {
                     ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                     egui::Frame::NONE
-                        .fill(egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245))
+                        .fill(theme::TOOLTIP_BG)
                         .stroke(egui::Stroke::new(2.0, theme::ACCENT_DIM))
                         .inner_margin(theme::Spacing::lg)
                         .show(ui, |ui| {
@@ -1111,7 +1111,7 @@ fn ui_hover_tooltip(
             .show(ctx, |ui| {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                 egui::Frame::NONE
-                    .fill(egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245))
+                    .fill(theme::TOOLTIP_BG)
                     .stroke(egui::Stroke::new(2.0, theme::ACCENT_DIM))
                     .inner_margin(theme::Spacing::lg)
                     .show(ui, |ui| {
@@ -1244,7 +1244,7 @@ fn ui_starmap_hover_tooltip(
             .show(ctx, |ui| {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                 egui::Frame::NONE
-                    .fill(egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245))
+                    .fill(theme::TOOLTIP_BG)
                     .stroke(egui::Stroke::new(2.0, theme::AMBER))
                     .inner_margin(theme::Spacing::lg)
                     .show(ui, |ui| {

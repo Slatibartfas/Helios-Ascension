@@ -306,6 +306,21 @@ pub const BORDER_DIM: egui::Color32 = egui::Color32::from_rgb(40, 45, 55);
 /// `SURFACE` would blend into the panel background.
 pub const SURFACE_RAISED_2: egui::Color32 = egui::Color32::from_rgb(50, 55, 65);
 
+// ─── Tooltip & Overlay Surfaces ────────────────────────────────────────
+//
+// Semi-transparent panel fills used by tooltip frames in `src/ui/mod.rs`
+// and the tech-tree popover in `src/ui/tech_tree.rs`. Pulled out of inline
+// `from_rgba_unmultiplied(...)` calls so the audit script has a single
+// home for them. Alpha 245 keeps the underlying scene visible (~4% bleed).
+
+/// Tooltip frame fill — used by the 3 shipbuilding/misc hover tooltips
+/// in `src/ui/mod.rs` (LP hover, library hover, blueprint hover).
+pub const TOOLTIP_BG: egui::Color32 = egui::Color32::from_rgba_unmultiplied_const(12, 16, 28, 245);
+/// Tech-tree popover fill — same nominal hue as `SURFACE` but at 245 alpha
+/// so the grid behind the tooltip remains slightly visible.
+pub const TOOLTIP_BG_ALT: egui::Color32 =
+    egui::Color32::from_rgba_unmultiplied_const(13, 17, 23, 245);
+
 // ─── Difficulty / Tier Colours ──────────────────────────────────────────
 
 /// Moderate difficulty — yellow used in the dossier cost-indicator chips.
@@ -379,6 +394,23 @@ pub fn tech_node_color(
     }
 }
 
+// ─── Tech-Tree Prerequisite Edge Colours ────────────────────────────────
+//
+// Drawn by `tech_tree.rs` as the connector-line colour between a tech
+// node and its prerequisites. The in-path variant is opaque (255) so
+// the planned-research line pops; the unlocked/default variants are
+// faint (80/60 alpha) so non-path edges recede into the background.
+
+/// Prereq edge — both ends of the connector are in the player's research path.
+pub const PREREQ_IN_PATH: egui::Color32 = egui::Color32::from_rgba_premultiplied(255, 200, 0, 255);
+/// Prereq edge — the prerequisite is already unlocked (and at least one
+/// end is not in path). Pale green to signal "this gate is met".
+pub const PREREQ_UNLOCKED: egui::Color32 =
+    egui::Color32::from_rgba_premultiplied(100, 255, 100, 80);
+/// Prereq edge — default state. Dim grey so the line is visible without
+/// drawing attention.
+pub const PREREQ_DEFAULT: egui::Color32 = egui::Color32::from_rgba_premultiplied(120, 120, 120, 60);
+
 // ─── Resources Bar Metric Colours ───────────────────────────────────────
 //
 // History-panel series accents. The Kardashev / PowerProduced values
@@ -398,6 +430,14 @@ pub const RB_SURVEY: egui::Color32 = egui::Color32::from_rgb(121, 235, 210);
 pub const RB_HOUSING: egui::Color32 = egui::Color32::from_rgb(100, 180, 255);
 
 // ─── Misc Helpers ───────────────────────────────────────────────────────
+
+/// Return `c` with its alpha channel replaced by `a` (channels left
+/// unmultiplied). The audit script flags `Color32::from_rgba_unmultiplied`
+/// even when the source colour is a runtime value, so dynamic-alpha call
+/// sites should reach for this helper instead of inlining the constructor.
+pub fn with_alpha(c: egui::Color32, a: u8) -> egui::Color32 {
+    egui::Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), a)
+}
 
 /// Compute the blink-pulsed fill colour for the dashboard's pause button.
 /// `blink` is a 0.0..=1.0 alpha value driven by the time-controls animation.
