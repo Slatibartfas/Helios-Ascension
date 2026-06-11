@@ -128,243 +128,242 @@ src/plugins/system_populator.rs:1975  OrbitPath::new(Color::srgba(0.25, 0.45, 0.
 src/plugins/system_populator.rs:2118  OrbitPath::with_fade(Color::srgba(0.3, 0.55, 0.22, 0.45), 5.0), // Dark green, steep fade — asteroids
 src/plugins/system_populator.rs:2229  OrbitPath::new(Color::srgba(1.0, 0.8, 0.3, 0.65)), // Yellow — comets
 src/plugins/system_populator.rs:2802  OrbitPath::new(Color::srgba(0.65, 0.65, 0.65, 0.5)), // Grey — moons
-src/ui/shipbuilding_workspace.rs:342  BackgroundColor(Color::srgba(0.015, 0.02, 0.035, 0.96)),
-src/ui/shipbuilding_workspace.rs:354  BackgroundColor(Color::srgba(0.03, 0.08, 0.12, 0.96)),
-src/ui/shipbuilding_workspace.rs:355  BorderColor::all(Color::srgb(0.22, 0.72, 0.86)),
-src/ui/shipbuilding_workspace.rs:365  TextColor(Color::srgb(0.82, 0.94, 0.98)),
-src/ui/shipbuilding_workspace.rs:429  BackgroundColor(Color::srgba(0.02, 0.04, 0.07, 0.96)),
-src/ui/shipbuilding_workspace.rs:430  BorderColor::all(Color::srgb(0.22, 0.72, 0.86)),
-src/ui/shipbuilding_workspace.rs:440  TextColor(Color::srgb(0.55, 0.95, 1.0)),
-src/ui/shipbuilding_workspace.rs:481  BackgroundColor(Color::srgba(0.03, 0.05, 0.08, 0.92)),
-src/ui/shipbuilding_workspace.rs:482  BorderColor::all(Color::srgb(0.15, 0.78, 0.88)),
-src/ui/shipbuilding_workspace.rs:491  TextColor(Color::srgb(0.55, 0.95, 1.0)),
-src/ui/shipbuilding_workspace.rs:1355  Color::srgb(0.82, 0.87, 0.9),
-src/ui/shipbuilding_workspace.rs:1378  BackgroundColor(Color::srgb(0.08, 0.18, 0.14)),
-src/ui/shipbuilding_workspace.rs:1379  BorderColor::all(Color::srgb(0.38, 0.94, 0.7)),
-src/ui/shipbuilding_workspace.rs:1385  TextColor(Color::srgb(0.92, 0.96, 0.98)),
-src/ui/shipbuilding_workspace.rs:1397  BackgroundColor(Color::srgb(0.12, 0.08, 0.09)),
-src/ui/shipbuilding_workspace.rs:1398  BorderColor::all(Color::srgb(0.86, 0.42, 0.38)),
-src/ui/shipbuilding_workspace.rs:1404  TextColor(Color::srgb(0.92, 0.96, 0.98)),
-src/ui/shipbuilding_workspace.rs:1429  BackgroundColor(Color::srgb(0.13, 0.08, 0.09)),
-src/ui/shipbuilding_workspace.rs:1430  BorderColor::all(Color::srgb(0.58, 0.3, 0.32)),
-src/ui/shipbuilding_workspace.rs:1436  TextColor(Color::srgb(0.94, 0.84, 0.84)),
-src/ui/shipbuilding_workspace.rs:1468  BackgroundColor(Color::srgba(0.12, 0.1, 0.07, 0.92)),
-src/ui/shipbuilding_workspace.rs:1469  BorderColor::all(Color::srgb(0.62, 0.42, 0.28)),
-src/ui/shipbuilding_workspace.rs:1475  Color::srgb(0.92, 0.78, 0.62),
-src/ui/shipbuilding_workspace.rs:1486  BackgroundColor(Color::srgb(0.18, 0.12, 0.08)),
-src/ui/shipbuilding_workspace.rs:1487  BorderColor::all(Color::srgb(0.78, 0.52, 0.36)),
-src/ui/shipbuilding_workspace.rs:1493  TextColor(Color::srgb(0.96, 0.86, 0.74)),
-src/ui/shipbuilding_workspace.rs:1504  Color::srgb(0.1, 0.32, 0.22)
-src/ui/shipbuilding_workspace.rs:1506  Color::srgb(0.12, 0.22, 0.34)
-src/ui/shipbuilding_workspace.rs:1508  Color::srgb(0.055, 0.08, 0.12)
-src/ui/shipbuilding_workspace.rs:1531  Color::srgb(0.38, 0.94, 0.7)
-src/ui/shipbuilding_workspace.rs:1533  Color::srgb(0.55, 0.95, 1.0)
-src/ui/shipbuilding_workspace.rs:1535  Color::srgb(0.22, 0.35, 0.42)
-src/ui/shipbuilding_workspace.rs:1550  TextColor(Color::srgb(0.88, 0.93, 0.96)),
-src/ui/shipbuilding_workspace.rs:1558  Color::srgb(0.6, 0.7, 0.76),
-src/ui/shipbuilding_workspace.rs:1572  Color::srgb(0.5, 0.6, 0.66)
-src/ui/shipbuilding_workspace.rs:1574  Color::srgb(0.95, 0.98, 1.0)
-src/ui/shipbuilding_workspace.rs:1589  BackgroundColor(Color::srgba(0.04, 0.07, 0.11, 0.92)),
-src/ui/shipbuilding_workspace.rs:1590  BorderColor::all(Color::srgb(0.22, 0.72, 0.86)),
-src/ui/shipbuilding_workspace.rs:1597  Color::srgb(0.55, 0.95, 1.0),
-src/ui/shipbuilding_workspace.rs:1825  TextColor(Color::srgb(0.86, 0.93, 0.98)),
-src/ui/shipbuilding_workspace.rs:1851  ShipbuildingTooltipTone::Neutral => Color::srgb(0.84, 0.9, 0.94),
-src/ui/shipbuilding_workspace.rs:1852  ShipbuildingTooltipTone::Positive => Color::srgb(0.5, 0.92, 0.62),
-src/ui/shipbuilding_workspace.rs:1853  ShipbuildingTooltipTone::Warning => Color::srgb(0.98, 0.78, 0.36),
-src/ui/shipbuilding_workspace.rs:1854  ShipbuildingTooltipTone::Negative => Color::srgb(1.0, 0.45, 0.4),
-src/ui/shipbuilding_workspace.rs:1855  ShipbuildingTooltipTone::Accent => Color::srgb(0.55, 0.95, 1.0),
-src/ui/shipbuilding_workspace.rs:1856  ShipbuildingTooltipTone::Muted => Color::srgb(0.66, 0.75, 0.8),
-src/ui/shipbuilding_workspace.rs:1872  Color::srgb(0.82, 0.87, 0.9),
-src/ui/shipbuilding_workspace.rs:1886  Color::srgb(0.82, 0.87, 0.9),
-src/ui/shipbuilding_workspace.rs:1898  BackgroundColor(Color::srgba(0.018, 0.032, 0.055, 0.94)),
-src/ui/shipbuilding_workspace.rs:1899  BorderColor::all(Color::srgb(0.15, 0.78, 0.88)),
-src/ui/shipbuilding_workspace.rs:1942  Color::srgb(0.82, 0.87, 0.9),
-src/ui/shipbuilding_workspace.rs:1957  Color::srgb(0.0, 0.95, 1.0),
-src/ui/shipbuilding_workspace.rs:1967  Color::srgb(0.96, 0.54, 0.28),
-src/ui/shipbuilding_workspace.rs:1977  Color::srgb(0.5, 0.86, 1.0),
-src/ui/shipbuilding_workspace.rs:1987  Color::srgb(0.66, 0.96, 0.7),
+src/ui/shipbuilding_workspace.rs:381  BackgroundColor(Color::srgba(0.015, 0.02, 0.035, 0.96)),
+src/ui/shipbuilding_workspace.rs:393  BackgroundColor(Color::srgba(0.03, 0.08, 0.12, 0.96)),
+src/ui/shipbuilding_workspace.rs:394  BorderColor::all(Color::srgb(0.22, 0.72, 0.86)),
+src/ui/shipbuilding_workspace.rs:404  TextColor(Color::srgb(0.82, 0.94, 0.98)),
+src/ui/shipbuilding_workspace.rs:468  BackgroundColor(Color::srgba(0.02, 0.04, 0.07, 0.96)),
+src/ui/shipbuilding_workspace.rs:469  BorderColor::all(Color::srgb(0.22, 0.72, 0.86)),
+src/ui/shipbuilding_workspace.rs:479  TextColor(Color::srgb(0.55, 0.95, 1.0)),
+src/ui/shipbuilding_workspace.rs:520  BackgroundColor(Color::srgba(0.03, 0.05, 0.08, 0.92)),
+src/ui/shipbuilding_workspace.rs:521  BorderColor::all(Color::srgb(0.15, 0.78, 0.88)),
+src/ui/shipbuilding_workspace.rs:1395  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:1418  BackgroundColor(Color::srgb(0.08, 0.18, 0.14)),
+src/ui/shipbuilding_workspace.rs:1419  BorderColor::all(Color::srgb(0.38, 0.94, 0.7)),
+src/ui/shipbuilding_workspace.rs:1425  TextColor(Color::srgb(0.92, 0.96, 0.98)),
+src/ui/shipbuilding_workspace.rs:1437  BackgroundColor(Color::srgb(0.12, 0.08, 0.09)),
+src/ui/shipbuilding_workspace.rs:1438  BorderColor::all(Color::srgb(0.86, 0.42, 0.38)),
+src/ui/shipbuilding_workspace.rs:1444  TextColor(Color::srgb(0.92, 0.96, 0.98)),
+src/ui/shipbuilding_workspace.rs:1469  BackgroundColor(Color::srgb(0.13, 0.08, 0.09)),
+src/ui/shipbuilding_workspace.rs:1470  BorderColor::all(Color::srgb(0.58, 0.3, 0.32)),
+src/ui/shipbuilding_workspace.rs:1476  TextColor(Color::srgb(0.94, 0.84, 0.84)),
+src/ui/shipbuilding_workspace.rs:1508  BackgroundColor(Color::srgba(0.12, 0.1, 0.07, 0.92)),
+src/ui/shipbuilding_workspace.rs:1509  BorderColor::all(Color::srgb(0.62, 0.42, 0.28)),
+src/ui/shipbuilding_workspace.rs:1515  Color::srgb(0.92, 0.78, 0.62),
+src/ui/shipbuilding_workspace.rs:1526  BackgroundColor(Color::srgb(0.18, 0.12, 0.08)),
+src/ui/shipbuilding_workspace.rs:1527  BorderColor::all(Color::srgb(0.78, 0.52, 0.36)),
+src/ui/shipbuilding_workspace.rs:1533  TextColor(Color::srgb(0.96, 0.86, 0.74)),
+src/ui/shipbuilding_workspace.rs:1544  Color::srgb(0.1, 0.32, 0.22)
+src/ui/shipbuilding_workspace.rs:1546  Color::srgb(0.12, 0.22, 0.34)
+src/ui/shipbuilding_workspace.rs:1548  Color::srgb(0.055, 0.08, 0.12)
+src/ui/shipbuilding_workspace.rs:1571  Color::srgb(0.38, 0.94, 0.7)
+src/ui/shipbuilding_workspace.rs:1573  Color::srgb(0.55, 0.95, 1.0)
+src/ui/shipbuilding_workspace.rs:1575  Color::srgb(0.22, 0.35, 0.42)
+src/ui/shipbuilding_workspace.rs:1590  TextColor(Color::srgb(0.88, 0.93, 0.96)),
+src/ui/shipbuilding_workspace.rs:1598  Color::srgb(0.6, 0.7, 0.76),
+src/ui/shipbuilding_workspace.rs:1612  Color::srgb(0.5, 0.6, 0.66)
+src/ui/shipbuilding_workspace.rs:1614  Color::srgb(0.95, 0.98, 1.0)
+src/ui/shipbuilding_workspace.rs:1629  BackgroundColor(Color::srgba(0.04, 0.07, 0.11, 0.92)),
+src/ui/shipbuilding_workspace.rs:1630  BorderColor::all(Color::srgb(0.22, 0.72, 0.86)),
+src/ui/shipbuilding_workspace.rs:1637  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:1865  TextColor(Color::srgb(0.86, 0.93, 0.98)),
+src/ui/shipbuilding_workspace.rs:1891  ShipbuildingTooltipTone::Neutral => Color::srgb(0.84, 0.9, 0.94),
+src/ui/shipbuilding_workspace.rs:1892  ShipbuildingTooltipTone::Positive => Color::srgb(0.5, 0.92, 0.62),
+src/ui/shipbuilding_workspace.rs:1893  ShipbuildingTooltipTone::Warning => Color::srgb(0.98, 0.78, 0.36),
+src/ui/shipbuilding_workspace.rs:1894  ShipbuildingTooltipTone::Negative => Color::srgb(1.0, 0.45, 0.4),
+src/ui/shipbuilding_workspace.rs:1895  ShipbuildingTooltipTone::Accent => Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:1896  ShipbuildingTooltipTone::Muted => Color::srgb(0.66, 0.75, 0.8),
+src/ui/shipbuilding_workspace.rs:1912  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:1926  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:1938  BackgroundColor(Color::srgba(0.018, 0.032, 0.055, 0.94)),
+src/ui/shipbuilding_workspace.rs:1939  BorderColor::all(Color::srgb(0.15, 0.78, 0.88)),
+src/ui/shipbuilding_workspace.rs:1982  Color::srgb(0.82, 0.87, 0.9),
 src/ui/shipbuilding_workspace.rs:1997  Color::srgb(0.0, 0.95, 1.0),
-src/ui/shipbuilding_workspace.rs:2007  Color::srgb(1.0, 0.64, 0.24),
-src/ui/shipbuilding_workspace.rs:2017  Color::srgb(0.5, 0.92, 0.9),
-src/ui/shipbuilding_workspace.rs:2027  Color::srgb(0.5, 0.92, 0.58),
-src/ui/shipbuilding_workspace.rs:2037  Color::srgb(0.45, 0.85, 0.66),
-src/ui/shipbuilding_workspace.rs:2047  Color::srgb(0.86, 0.82, 0.58),
-src/ui/shipbuilding_workspace.rs:2057  Color::srgb(0.86, 0.82, 0.58),
-src/ui/shipbuilding_workspace.rs:2063  Color::srgb(0.82, 0.9, 0.96),
-src/ui/shipbuilding_workspace.rs:2069  Color::srgb(0.9, 0.72, 0.45),
-src/ui/shipbuilding_workspace.rs:2081  Color::srgb(0.0, 0.95, 1.0),
-src/ui/shipbuilding_workspace.rs:2087  Color::srgb(1.0, 0.64, 0.24),
-src/ui/shipbuilding_workspace.rs:2093  Color::srgb(1.0, 0.46, 0.35),
-src/ui/shipbuilding_workspace.rs:2107  Color::srgb(0.82, 0.87, 0.9),
-src/ui/shipbuilding_workspace.rs:2117  Color::srgb(1.0, 0.55, 0.45),
-src/ui/shipbuilding_workspace.rs:2134  Color::srgb(0.82, 0.87, 0.9),
-src/ui/shipbuilding_workspace.rs:2297  Color::srgb(0.045, 0.12, 0.15)
-src/ui/shipbuilding_workspace.rs:2299  Color::srgba(0.018, 0.032, 0.05, 0.94)
-src/ui/shipbuilding_workspace.rs:2317  Color::srgb(0.55, 0.95, 1.0),
-src/ui/shipbuilding_workspace.rs:2324  BorderColor::all(mix_color(Color::srgb(0.36, 0.88, 0.98), frame.accent, 0.38));
-src/ui/shipbuilding_workspace.rs:2326  *border = BorderColor::all(Color::srgb(0.46, 0.78, 1.0));
-src/ui/shipbuilding_workspace.rs:2329  BorderColor::all(mix_color(Color::srgb(0.28, 0.72, 0.82), frame.accent, 0.18));
-src/ui/shipbuilding_workspace.rs:2331  *border = BorderColor::all(Color::srgb(0.22, 0.45, 0.54));
-src/ui/shipbuilding_workspace.rs:2380  Color::srgb(0.1, 0.32, 0.22),
-src/ui/shipbuilding_workspace.rs:2381  Color::srgb(0.38, 0.94, 0.7),
-src/ui/shipbuilding_workspace.rs:2385  Color::srgb(0.08, 0.13, 0.19)
-src/ui/shipbuilding_workspace.rs:2387  Color::srgb(0.1, 0.18, 0.28)
-src/ui/shipbuilding_workspace.rs:2389  Color::srgb(0.055, 0.08, 0.12)
-src/ui/shipbuilding_workspace.rs:2393  Color::srgb(0.38, 0.94, 0.7)
-src/ui/shipbuilding_workspace.rs:2395  Color::srgb(0.55, 0.95, 1.0)
-src/ui/shipbuilding_workspace.rs:2397  Color::srgb(0.46, 0.78, 1.0)
-src/ui/shipbuilding_workspace.rs:2399  Color::srgb(0.22, 0.35, 0.42)
-src/ui/shipbuilding_workspace.rs:2598  BackgroundColor(Color::srgba(0.18, 0.55, 0.64, 0.18)),
-src/ui/shipbuilding_workspace.rs:2613  TextColor(Color::srgb(0.52, 0.8, 0.88)),
-src/ui/shipbuilding_workspace.rs:2627  BackgroundColor(Color::srgba(0.18, 0.55, 0.64, 0.12)),
-src/ui/shipbuilding_workspace.rs:2713  mix_color(Color::srgb(0.04, 0.1, 0.14), accent, 0.26)
-src/ui/shipbuilding_workspace.rs:2715  mix_color(Color::srgb(0.03, 0.08, 0.11), accent, 0.16)
-src/ui/shipbuilding_workspace.rs:2717  Color::srgb(0.045, 0.12, 0.15)
-src/ui/shipbuilding_workspace.rs:2719  Color::srgba(0.018, 0.032, 0.05, 0.94)
-src/ui/shipbuilding_workspace.rs:2722  mix_color(Color::srgb(0.55, 0.95, 1.0), accent, 0.72)
-src/ui/shipbuilding_workspace.rs:2724  mix_color(Color::srgb(0.4, 0.9, 1.0), accent, 0.42)
-src/ui/shipbuilding_workspace.rs:2726  Color::srgb(0.46, 0.78, 1.0)
-src/ui/shipbuilding_workspace.rs:2728  mix_color(Color::srgb(0.34, 0.86, 0.94), accent, 0.22)
-src/ui/shipbuilding_workspace.rs:2730  Color::srgba(0.16, 0.34, 0.4, 0.45)
-src/ui/shipbuilding_workspace.rs:2846  TextColor(Color::srgb(0.88, 0.93, 0.96)),
-src/ui/shipbuilding_workspace.rs:2873  Color::srgb(0.78, 0.86, 0.9)
-src/ui/shipbuilding_workspace.rs:2875  Color::srgba(0.7, 0.85, 0.92, 0.32)
-src/ui/shipbuilding_workspace.rs:2895  TextColor(Color::srgb(0.82, 0.87, 0.9)),
-src/ui/shipbuilding_workspace.rs:2903  TextColor(Color::srgb(0.78, 0.84, 0.88)),
-src/ui/shipbuilding_workspace.rs:3111  TextColor(Color::srgb(0.84, 0.9, 0.94)),
-src/ui/shipbuilding_workspace.rs:3123  BackgroundColor(Color::srgba(0.03, 0.05, 0.08, 0.98)),
-src/ui/shipbuilding_workspace.rs:3124  BorderColor::all(Color::srgb(0.22, 0.35, 0.42)),
-src/ui/shipbuilding_workspace.rs:3149  BackgroundColor(Color::srgba(0.45, 0.92, 0.56, 0.55)),
-src/ui/shipbuilding_workspace.rs:3161  BackgroundColor(Color::srgba(1.0, 0.38, 0.3, 0.55)),
-src/ui/shipbuilding_workspace.rs:3198  Color::srgb(0.84, 0.9, 0.94),
-src/ui/shipbuilding_workspace.rs:3204  Color::srgb(0.68, 0.9, 0.76),
-src/ui/shipbuilding_workspace.rs:3227  Color::srgba(
-src/ui/shipbuilding_workspace.rs:3263  Color::srgb(0.55, 0.95, 1.0),
-src/ui/shipbuilding_workspace.rs:3273  Color::srgb(0.82, 0.87, 0.9),
-src/ui/shipbuilding_workspace.rs:3293  BackgroundColor(Color::srgb(0.045, 0.07, 0.1)),
-src/ui/shipbuilding_workspace.rs:3294  BorderColor::all(Color::srgb(0.22, 0.48, 0.58)),
-src/ui/shipbuilding_workspace.rs:3312  Color::srgb(0.6, 0.7, 0.76),
-src/ui/shipbuilding_workspace.rs:3329  Color::srgb(0.55, 0.95, 1.0),
-src/ui/shipbuilding_workspace.rs:3391  BackgroundColor(Color::srgb(0.06, 0.11, 0.16)),
-src/ui/shipbuilding_workspace.rs:3393  Color::srgb(0.0, 0.95, 1.0)
-src/ui/shipbuilding_workspace.rs:3395  Color::srgb(0.22, 0.48, 0.58)
-src/ui/shipbuilding_workspace.rs:3402  TextColor(Color::srgb(0.88, 0.93, 0.96)),
-src/ui/shipbuilding_workspace.rs:3418  Color::srgb(0.1, 0.18, 0.22)
-src/ui/shipbuilding_workspace.rs:3420  Color::srgb(0.045, 0.07, 0.1)
-src/ui/shipbuilding_workspace.rs:3423  Color::srgb(0.0, 0.95, 1.0)
-src/ui/shipbuilding_workspace.rs:3425  Color::srgb(0.18, 0.3, 0.36)
-src/ui/shipbuilding_workspace.rs:3432  TextColor(Color::srgb(0.88, 0.93, 0.96)),
-src/ui/shipbuilding_workspace.rs:3448  Color::srgb(0.1, 0.18, 0.22)
-src/ui/shipbuilding_workspace.rs:3450  Color::srgb(0.055, 0.08, 0.12)
-src/ui/shipbuilding_workspace.rs:3455  Color::srgb(0.22, 0.35, 0.42)
-src/ui/shipbuilding_workspace.rs:3462  TextColor(Color::srgb(0.88, 0.93, 0.96)),
-src/ui/shipbuilding_workspace.rs:3614  Color::srgb(0.55, 0.95, 1.0),
-src/ui/shipbuilding_workspace.rs:3624  Color::srgb(0.82, 0.87, 0.9),
-src/ui/shipbuilding_workspace.rs:3631  Color::srgb(0.6, 0.7, 0.76),
-src/ui/shipbuilding_workspace.rs:3645  BackgroundColor(Color::srgb(0.08, 0.2, 0.24)),
-src/ui/shipbuilding_workspace.rs:3646  BorderColor::all(Color::srgb(0.2, 0.92, 0.98)),
-src/ui/shipbuilding_workspace.rs:3652  TextColor(Color::srgb(0.92, 0.96, 0.98)),
-src/ui/shipbuilding_workspace.rs:3672  Color::srgb(0.1, 0.18, 0.24)
-src/ui/shipbuilding_workspace.rs:3674  Color::srgb(0.05, 0.08, 0.12)
-src/ui/shipbuilding_workspace.rs:3677  Color::srgb(0.0, 0.95, 1.0)
-src/ui/shipbuilding_workspace.rs:3679  Color::srgb(0.22, 0.35, 0.42)
-src/ui/shipbuilding_workspace.rs:3694  TextColor(Color::srgb(0.88, 0.93, 0.96)),
-src/ui/shipbuilding_workspace.rs:3703  Color::srgb(0.55, 0.95, 1.0),
-src/ui/shipbuilding_workspace.rs:3710  Color::srgb(0.82, 0.87, 0.9),
-src/ui/shipbuilding_workspace.rs:3731  Color::srgb(0.84, 0.9, 0.94),
-src/ui/shipbuilding_workspace.rs:3747  Color::srgb(0.0, 0.95, 1.0),
-src/ui/shipbuilding_workspace.rs:3754  Color::srgb(0.86, 0.78, 0.34),
-src/ui/shipbuilding_workspace.rs:3761  Color::srgb(0.38, 0.94, 0.7),
-src/ui/shipbuilding_workspace.rs:3768  Color::srgb(1.0, 0.42, 0.38),
-src/ui/shipbuilding_workspace.rs:3779  Color::srgb(0.82, 0.87, 0.9),
-src/ui/shipbuilding_workspace.rs:3788  Color::srgb(0.55, 0.95, 1.0),
-src/ui/shipbuilding_workspace.rs:3794  Color::srgb(0.82, 0.87, 0.9),
-src/ui/shipbuilding_workspace.rs:3816  Color::srgb(0.1, 0.18, 0.24)
-src/ui/shipbuilding_workspace.rs:3818  Color::srgb(0.05, 0.08, 0.12)
-src/ui/shipbuilding_workspace.rs:3821  Color::srgb(0.0, 0.95, 1.0)
-src/ui/shipbuilding_workspace.rs:3823  Color::srgb(0.22, 0.35, 0.42)
-src/ui/shipbuilding_workspace.rs:3834  TextColor(Color::srgb(0.88, 0.93, 0.96)),
-src/ui/shipbuilding_workspace.rs:3847  Color::srgb(0.0, 0.95, 1.0),
-src/ui/shipbuilding_workspace.rs:3861  Color::srgb(1.0, 0.6, 0.32),
-src/ui/shipbuilding_workspace.rs:3875  Color::srgb(0.5, 0.92, 0.9),
-src/ui/shipbuilding_workspace.rs:3884  Color::srgb(0.5, 0.86, 1.0),
-src/ui/shipbuilding_workspace.rs:3890  Color::srgb(0.86, 0.82, 0.58),
-src/ui/shipbuilding_workspace.rs:3896  Color::srgb(0.68, 0.9, 0.76),
-src/ui/shipbuilding_workspace.rs:3902  Color::srgb(0.5, 0.92, 0.58),
-src/ui/shipbuilding_workspace.rs:3908  Color::srgb(0.86, 0.78, 0.34),
-src/ui/shipbuilding_workspace.rs:3916  Color::srgb(0.6, 0.7, 0.76),
-src/ui/shipbuilding_workspace.rs:3966  Color::srgb(0.55, 0.95, 1.0),
-src/ui/shipbuilding_workspace.rs:3979  Color::srgb(1.0, 0.55, 0.45),
-src/ui/shipbuilding_workspace.rs:3996  Color::srgb(0.1, 0.18, 0.24)
-src/ui/shipbuilding_workspace.rs:3998  Color::srgb(0.05, 0.08, 0.12)
-src/ui/shipbuilding_workspace.rs:4001  Color::srgb(0.0, 0.95, 1.0)
-src/ui/shipbuilding_workspace.rs:4003  Color::srgb(0.22, 0.35, 0.42)
-src/ui/shipbuilding_workspace.rs:4015  TextColor(Color::srgb(0.88, 0.93, 0.96)),
-src/ui/shipbuilding_workspace.rs:4022  Color::srgb(0.55, 0.95, 1.0),
-src/ui/shipbuilding_workspace.rs:4035  Color::srgb(0.1, 0.18, 0.24)
-src/ui/shipbuilding_workspace.rs:4037  Color::srgb(0.05, 0.08, 0.12)
-src/ui/shipbuilding_workspace.rs:4040  Color::srgb(0.0, 0.95, 1.0)
-src/ui/shipbuilding_workspace.rs:4042  Color::srgb(0.22, 0.35, 0.42)
-src/ui/shipbuilding_workspace.rs:4049  TextColor(Color::srgb(0.88, 0.93, 0.96)),
-src/ui/shipbuilding_workspace.rs:4067  Color::srgb(0.1, 0.18, 0.24)
-src/ui/shipbuilding_workspace.rs:4069  Color::srgb(0.05, 0.08, 0.12)
-src/ui/shipbuilding_workspace.rs:4072  Color::srgb(0.0, 0.95, 1.0)
-src/ui/shipbuilding_workspace.rs:4074  Color::srgb(0.22, 0.35, 0.42)
-src/ui/shipbuilding_workspace.rs:4087  TextColor(Color::srgb(0.88, 0.93, 0.96)),
-src/ui/shipbuilding_workspace.rs:4096  Color::srgb(0.55, 0.95, 1.0),
-src/ui/shipbuilding_workspace.rs:4114  Color::srgb(0.1, 0.18, 0.24)
-src/ui/shipbuilding_workspace.rs:4116  Color::srgb(0.05, 0.08, 0.12)
-src/ui/shipbuilding_workspace.rs:4119  Color::srgb(0.0, 0.95, 1.0)
-src/ui/shipbuilding_workspace.rs:4121  Color::srgb(0.22, 0.35, 0.42)
-src/ui/shipbuilding_workspace.rs:4135  TextColor(Color::srgb(0.88, 0.93, 0.96)),
-src/ui/shipbuilding_workspace.rs:4156  Color::srgb(0.84, 0.9, 0.94),
-src/ui/shipbuilding_workspace.rs:4171  Color::srgb(0.08, 0.2, 0.14)
-src/ui/shipbuilding_workspace.rs:4173  Color::srgb(0.14, 0.08, 0.09)
-src/ui/shipbuilding_workspace.rs:4176  Color::srgb(0.38, 0.94, 0.7)
-src/ui/shipbuilding_workspace.rs:4178  Color::srgb(1.0, 0.42, 0.38)
-src/ui/shipbuilding_workspace.rs:4185  TextColor(Color::srgb(0.92, 0.96, 0.98)),
-src/ui/shipbuilding_workspace.rs:4192  Color::srgb(1.0, 0.55, 0.45),
-src/ui/shipbuilding_workspace.rs:4199  Color::srgb(0.6, 0.7, 0.76),
-src/ui/shipbuilding_workspace.rs:4210  Color::srgb(0.55, 0.95, 1.0),
-src/ui/shipbuilding_workspace.rs:4218  Color::srgb(0.6, 0.7, 0.76),
-src/ui/shipbuilding_workspace.rs:4232  BackgroundColor(Color::srgb(0.08, 0.2, 0.24)),
-src/ui/shipbuilding_workspace.rs:4233  BorderColor::all(Color::srgb(0.2, 0.92, 0.98)),
-src/ui/shipbuilding_workspace.rs:4239  TextColor(Color::srgb(0.92, 0.96, 0.98)),
-src/ui/shipbuilding_workspace.rs:4271  Color::srgb(0.84, 0.9, 0.94),
-src/ui/shipbuilding_workspace.rs:4283  Color::srgb(0.6, 0.7, 0.76),
-src/ui/shipbuilding_workspace.rs:4304  Color::srgb(0.82, 0.87, 0.9),
-src/ui/shipbuilding_workspace.rs:4354  Color::srgb(0.6, 0.7, 0.76),
-src/ui/shipbuilding_workspace.rs:4361  Color::srgb(0.55, 0.95, 1.0),
-src/ui/shipbuilding_workspace.rs:4366  Color::srgb(0.82, 0.87, 0.9),
-src/ui/shipbuilding_workspace.rs:4393  Color::srgb(0.1, 0.18, 0.24)
-src/ui/shipbuilding_workspace.rs:4395  Color::srgb(0.14, 0.14, 0.16)
-src/ui/shipbuilding_workspace.rs:4398  Color::srgb(0.05, 0.08, 0.12)
-src/ui/shipbuilding_workspace.rs:4400  Color::srgb(0.08, 0.08, 0.09)
-src/ui/shipbuilding_workspace.rs:4403  Color::srgb(0.0, 0.95, 1.0)
-src/ui/shipbuilding_workspace.rs:4405  Color::srgb(0.22, 0.35, 0.42)
-src/ui/shipbuilding_workspace.rs:4407  Color::srgb(0.28, 0.28, 0.3)
-src/ui/shipbuilding_workspace.rs:4410  Color::srgb(0.88, 0.93, 0.96)
-src/ui/shipbuilding_workspace.rs:4414  Color::srgb(0.56, 0.58, 0.62)
-src/ui/shipbuilding_workspace.rs:4452  Color::srgb(0.55, 0.95, 1.0),
-src/ui/shipbuilding_workspace.rs:4459  Color::srgb(0.6, 0.7, 0.76),
-src/ui/shipbuilding_workspace.rs:4488  parent.spawn(text_block(module.display_name.clone(), 14.0, Color::srgb(0.84, 0.9, 0.94)));
-src/ui/shipbuilding_workspace.rs:4489  parent.spawn(text_block(module.description.clone(), 10.5, Color::srgb(0.6, 0.7, 0.76)));
-src/ui/shipbuilding_workspace.rs:4500  Color::srgb(0.82, 0.87, 0.9),
-src/ui/shipbuilding_workspace.rs:4522  BackgroundColor(Color::srgb(0.06, 0.2, 0.24)),
-src/ui/shipbuilding_workspace.rs:4523  BorderColor::all(Color::srgb(0.2, 0.92, 0.98)),
-src/ui/shipbuilding_workspace.rs:4533  TextColor(Color::srgb(0.92, 0.96, 0.98)),
-src/ui/shipbuilding_workspace.rs:4541  Color::srgb(0.55, 0.95, 1.0),
-src/ui/shipbuilding_workspace.rs:4553  Color::srgb(0.5, 0.92, 0.58),
-src/ui/shipbuilding_workspace.rs:4563  Color::srgb(0.5, 0.86, 1.0),
-src/ui/shipbuilding_workspace.rs:4577  Color::srgb(0.0, 0.95, 1.0),
-src/ui/shipbuilding_workspace.rs:4586  Color::srgb(1.0, 0.6, 0.32),
-src/ui/shipbuilding_workspace.rs:4592  Color::srgb(0.5, 0.92, 0.9),
-src/ui/shipbuilding_workspace.rs:4598  Color::srgb(0.86, 0.82, 0.58),
-src/ui/shipbuilding_workspace.rs:4611  Color::srgb(0.82, 0.87, 0.9),
-src/ui/shipbuilding_workspace.rs:4645  TextColor(Color::srgb(0.92, 0.96, 0.98)),
-src/ui/shipbuilding_workspace.rs:4888  color: Color::srgb(0.6, 0.7, 0.76),
-src/ui/shipbuilding_workspace.rs:4895  color: Color::srgb(0.5, 0.92, 0.62),
-src/ui/shipbuilding_workspace.rs:4905  color: Color::srgb(0.98, 0.78, 0.36),
-src/ui/shipbuilding_workspace.rs:4915  color: Color::srgb(0.55, 0.95, 1.0),
-src/ui/shipbuilding_workspace.rs:4921  color: Color::srgb(1.0, 0.45, 0.4),
-src/ui/shipbuilding_workspace.rs:4927  color: Color::srgb(1.0, 0.45, 0.4),
+src/ui/shipbuilding_workspace.rs:2007  Color::srgb(0.96, 0.54, 0.28),
+src/ui/shipbuilding_workspace.rs:2017  Color::srgb(0.5, 0.86, 1.0),
+src/ui/shipbuilding_workspace.rs:2027  Color::srgb(0.66, 0.96, 0.7),
+src/ui/shipbuilding_workspace.rs:2037  Color::srgb(0.0, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:2047  Color::srgb(1.0, 0.64, 0.24),
+src/ui/shipbuilding_workspace.rs:2057  Color::srgb(0.5, 0.92, 0.9),
+src/ui/shipbuilding_workspace.rs:2067  Color::srgb(0.5, 0.92, 0.58),
+src/ui/shipbuilding_workspace.rs:2077  Color::srgb(0.45, 0.85, 0.66),
+src/ui/shipbuilding_workspace.rs:2087  Color::srgb(0.86, 0.82, 0.58),
+src/ui/shipbuilding_workspace.rs:2097  Color::srgb(0.86, 0.82, 0.58),
+src/ui/shipbuilding_workspace.rs:2103  Color::srgb(0.82, 0.9, 0.96),
+src/ui/shipbuilding_workspace.rs:2109  Color::srgb(0.9, 0.72, 0.45),
+src/ui/shipbuilding_workspace.rs:2121  Color::srgb(0.0, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:2127  Color::srgb(1.0, 0.64, 0.24),
+src/ui/shipbuilding_workspace.rs:2133  Color::srgb(1.0, 0.46, 0.35),
+src/ui/shipbuilding_workspace.rs:2147  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:2157  Color::srgb(1.0, 0.55, 0.45),
+src/ui/shipbuilding_workspace.rs:2174  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:2337  Color::srgb(0.045, 0.12, 0.15)
+src/ui/shipbuilding_workspace.rs:2339  Color::srgba(0.018, 0.032, 0.05, 0.94)
+src/ui/shipbuilding_workspace.rs:2357  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:2364  BorderColor::all(mix_color(Color::srgb(0.36, 0.88, 0.98), frame.accent, 0.38));
+src/ui/shipbuilding_workspace.rs:2366  *border = BorderColor::all(Color::srgb(0.46, 0.78, 1.0));
+src/ui/shipbuilding_workspace.rs:2369  BorderColor::all(mix_color(Color::srgb(0.28, 0.72, 0.82), frame.accent, 0.18));
+src/ui/shipbuilding_workspace.rs:2371  *border = BorderColor::all(Color::srgb(0.22, 0.45, 0.54));
+src/ui/shipbuilding_workspace.rs:2420  Color::srgb(0.1, 0.32, 0.22),
+src/ui/shipbuilding_workspace.rs:2421  Color::srgb(0.38, 0.94, 0.7),
+src/ui/shipbuilding_workspace.rs:2425  Color::srgb(0.08, 0.13, 0.19)
+src/ui/shipbuilding_workspace.rs:2427  Color::srgb(0.1, 0.18, 0.28)
+src/ui/shipbuilding_workspace.rs:2429  Color::srgb(0.055, 0.08, 0.12)
+src/ui/shipbuilding_workspace.rs:2433  Color::srgb(0.38, 0.94, 0.7)
+src/ui/shipbuilding_workspace.rs:2435  Color::srgb(0.55, 0.95, 1.0)
+src/ui/shipbuilding_workspace.rs:2437  Color::srgb(0.46, 0.78, 1.0)
+src/ui/shipbuilding_workspace.rs:2439  Color::srgb(0.22, 0.35, 0.42)
+src/ui/shipbuilding_workspace.rs:2638  BackgroundColor(Color::srgba(0.18, 0.55, 0.64, 0.18)),
+src/ui/shipbuilding_workspace.rs:2653  TextColor(Color::srgb(0.52, 0.8, 0.88)),
+src/ui/shipbuilding_workspace.rs:2667  BackgroundColor(Color::srgba(0.18, 0.55, 0.64, 0.12)),
+src/ui/shipbuilding_workspace.rs:2753  mix_color(Color::srgb(0.04, 0.1, 0.14), accent, 0.26)
+src/ui/shipbuilding_workspace.rs:2755  mix_color(Color::srgb(0.03, 0.08, 0.11), accent, 0.16)
+src/ui/shipbuilding_workspace.rs:2757  Color::srgb(0.045, 0.12, 0.15)
+src/ui/shipbuilding_workspace.rs:2759  Color::srgba(0.018, 0.032, 0.05, 0.94)
+src/ui/shipbuilding_workspace.rs:2762  mix_color(Color::srgb(0.55, 0.95, 1.0), accent, 0.72)
+src/ui/shipbuilding_workspace.rs:2764  mix_color(Color::srgb(0.4, 0.9, 1.0), accent, 0.42)
+src/ui/shipbuilding_workspace.rs:2766  Color::srgb(0.46, 0.78, 1.0)
+src/ui/shipbuilding_workspace.rs:2768  mix_color(Color::srgb(0.34, 0.86, 0.94), accent, 0.22)
+src/ui/shipbuilding_workspace.rs:2770  Color::srgba(0.16, 0.34, 0.4, 0.45)
+src/ui/shipbuilding_workspace.rs:2886  TextColor(Color::srgb(0.88, 0.93, 0.96)),
+src/ui/shipbuilding_workspace.rs:2913  Color::srgb(0.78, 0.86, 0.9)
+src/ui/shipbuilding_workspace.rs:2915  Color::srgba(0.7, 0.85, 0.92, 0.32)
+src/ui/shipbuilding_workspace.rs:2935  TextColor(Color::srgb(0.82, 0.87, 0.9)),
+src/ui/shipbuilding_workspace.rs:2943  TextColor(Color::srgb(0.78, 0.84, 0.88)),
+src/ui/shipbuilding_workspace.rs:3151  TextColor(Color::srgb(0.84, 0.9, 0.94)),
+src/ui/shipbuilding_workspace.rs:3163  BackgroundColor(Color::srgba(0.03, 0.05, 0.08, 0.98)),
+src/ui/shipbuilding_workspace.rs:3164  BorderColor::all(Color::srgb(0.22, 0.35, 0.42)),
+src/ui/shipbuilding_workspace.rs:3189  BackgroundColor(Color::srgba(0.45, 0.92, 0.56, 0.55)),
+src/ui/shipbuilding_workspace.rs:3201  BackgroundColor(Color::srgba(1.0, 0.38, 0.3, 0.55)),
+src/ui/shipbuilding_workspace.rs:3238  Color::srgb(0.84, 0.9, 0.94),
+src/ui/shipbuilding_workspace.rs:3244  Color::srgb(0.68, 0.9, 0.76),
+src/ui/shipbuilding_workspace.rs:3267  Color::srgba(
+src/ui/shipbuilding_workspace.rs:3303  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:3313  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:3333  BackgroundColor(Color::srgb(0.045, 0.07, 0.1)),
+src/ui/shipbuilding_workspace.rs:3334  BorderColor::all(Color::srgb(0.22, 0.48, 0.58)),
+src/ui/shipbuilding_workspace.rs:3352  Color::srgb(0.6, 0.7, 0.76),
+src/ui/shipbuilding_workspace.rs:3369  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:3431  BackgroundColor(Color::srgb(0.06, 0.11, 0.16)),
+src/ui/shipbuilding_workspace.rs:3433  Color::srgb(0.0, 0.95, 1.0)
+src/ui/shipbuilding_workspace.rs:3435  Color::srgb(0.22, 0.48, 0.58)
+src/ui/shipbuilding_workspace.rs:3442  TextColor(Color::srgb(0.88, 0.93, 0.96)),
+src/ui/shipbuilding_workspace.rs:3458  Color::srgb(0.1, 0.18, 0.22)
+src/ui/shipbuilding_workspace.rs:3460  Color::srgb(0.045, 0.07, 0.1)
+src/ui/shipbuilding_workspace.rs:3463  Color::srgb(0.0, 0.95, 1.0)
+src/ui/shipbuilding_workspace.rs:3465  Color::srgb(0.18, 0.3, 0.36)
+src/ui/shipbuilding_workspace.rs:3472  TextColor(Color::srgb(0.88, 0.93, 0.96)),
+src/ui/shipbuilding_workspace.rs:3488  Color::srgb(0.1, 0.18, 0.22)
+src/ui/shipbuilding_workspace.rs:3490  Color::srgb(0.055, 0.08, 0.12)
+src/ui/shipbuilding_workspace.rs:3495  Color::srgb(0.22, 0.35, 0.42)
+src/ui/shipbuilding_workspace.rs:3502  TextColor(Color::srgb(0.88, 0.93, 0.96)),
+src/ui/shipbuilding_workspace.rs:3654  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:3664  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:3671  Color::srgb(0.6, 0.7, 0.76),
+src/ui/shipbuilding_workspace.rs:3685  BackgroundColor(Color::srgb(0.08, 0.2, 0.24)),
+src/ui/shipbuilding_workspace.rs:3686  BorderColor::all(Color::srgb(0.2, 0.92, 0.98)),
+src/ui/shipbuilding_workspace.rs:3692  TextColor(Color::srgb(0.92, 0.96, 0.98)),
+src/ui/shipbuilding_workspace.rs:3712  Color::srgb(0.1, 0.18, 0.24)
+src/ui/shipbuilding_workspace.rs:3714  Color::srgb(0.05, 0.08, 0.12)
+src/ui/shipbuilding_workspace.rs:3717  Color::srgb(0.0, 0.95, 1.0)
+src/ui/shipbuilding_workspace.rs:3719  Color::srgb(0.22, 0.35, 0.42)
+src/ui/shipbuilding_workspace.rs:3734  TextColor(Color::srgb(0.88, 0.93, 0.96)),
+src/ui/shipbuilding_workspace.rs:3743  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:3750  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:3771  Color::srgb(0.84, 0.9, 0.94),
+src/ui/shipbuilding_workspace.rs:3787  Color::srgb(0.0, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:3794  Color::srgb(0.86, 0.78, 0.34),
+src/ui/shipbuilding_workspace.rs:3801  Color::srgb(0.38, 0.94, 0.7),
+src/ui/shipbuilding_workspace.rs:3808  Color::srgb(1.0, 0.42, 0.38),
+src/ui/shipbuilding_workspace.rs:3819  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:3828  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:3834  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:3856  Color::srgb(0.1, 0.18, 0.24)
+src/ui/shipbuilding_workspace.rs:3858  Color::srgb(0.05, 0.08, 0.12)
+src/ui/shipbuilding_workspace.rs:3861  Color::srgb(0.0, 0.95, 1.0)
+src/ui/shipbuilding_workspace.rs:3863  Color::srgb(0.22, 0.35, 0.42)
+src/ui/shipbuilding_workspace.rs:3874  TextColor(Color::srgb(0.88, 0.93, 0.96)),
+src/ui/shipbuilding_workspace.rs:3887  Color::srgb(0.0, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:3901  Color::srgb(1.0, 0.6, 0.32),
+src/ui/shipbuilding_workspace.rs:3915  Color::srgb(0.5, 0.92, 0.9),
+src/ui/shipbuilding_workspace.rs:3924  Color::srgb(0.5, 0.86, 1.0),
+src/ui/shipbuilding_workspace.rs:3930  Color::srgb(0.86, 0.82, 0.58),
+src/ui/shipbuilding_workspace.rs:3936  Color::srgb(0.68, 0.9, 0.76),
+src/ui/shipbuilding_workspace.rs:3942  Color::srgb(0.5, 0.92, 0.58),
+src/ui/shipbuilding_workspace.rs:3948  Color::srgb(0.86, 0.78, 0.34),
+src/ui/shipbuilding_workspace.rs:3956  Color::srgb(0.6, 0.7, 0.76),
+src/ui/shipbuilding_workspace.rs:4006  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:4019  Color::srgb(1.0, 0.55, 0.45),
+src/ui/shipbuilding_workspace.rs:4036  Color::srgb(0.1, 0.18, 0.24)
+src/ui/shipbuilding_workspace.rs:4038  Color::srgb(0.05, 0.08, 0.12)
+src/ui/shipbuilding_workspace.rs:4041  Color::srgb(0.0, 0.95, 1.0)
+src/ui/shipbuilding_workspace.rs:4043  Color::srgb(0.22, 0.35, 0.42)
+src/ui/shipbuilding_workspace.rs:4055  TextColor(Color::srgb(0.88, 0.93, 0.96)),
+src/ui/shipbuilding_workspace.rs:4062  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:4075  Color::srgb(0.1, 0.18, 0.24)
+src/ui/shipbuilding_workspace.rs:4077  Color::srgb(0.05, 0.08, 0.12)
+src/ui/shipbuilding_workspace.rs:4080  Color::srgb(0.0, 0.95, 1.0)
+src/ui/shipbuilding_workspace.rs:4082  Color::srgb(0.22, 0.35, 0.42)
+src/ui/shipbuilding_workspace.rs:4089  TextColor(Color::srgb(0.88, 0.93, 0.96)),
+src/ui/shipbuilding_workspace.rs:4107  Color::srgb(0.1, 0.18, 0.24)
+src/ui/shipbuilding_workspace.rs:4109  Color::srgb(0.05, 0.08, 0.12)
+src/ui/shipbuilding_workspace.rs:4112  Color::srgb(0.0, 0.95, 1.0)
+src/ui/shipbuilding_workspace.rs:4114  Color::srgb(0.22, 0.35, 0.42)
+src/ui/shipbuilding_workspace.rs:4127  TextColor(Color::srgb(0.88, 0.93, 0.96)),
+src/ui/shipbuilding_workspace.rs:4136  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:4154  Color::srgb(0.1, 0.18, 0.24)
+src/ui/shipbuilding_workspace.rs:4156  Color::srgb(0.05, 0.08, 0.12)
+src/ui/shipbuilding_workspace.rs:4159  Color::srgb(0.0, 0.95, 1.0)
+src/ui/shipbuilding_workspace.rs:4161  Color::srgb(0.22, 0.35, 0.42)
+src/ui/shipbuilding_workspace.rs:4175  TextColor(Color::srgb(0.88, 0.93, 0.96)),
+src/ui/shipbuilding_workspace.rs:4196  Color::srgb(0.84, 0.9, 0.94),
+src/ui/shipbuilding_workspace.rs:4211  Color::srgb(0.08, 0.2, 0.14)
+src/ui/shipbuilding_workspace.rs:4213  Color::srgb(0.14, 0.08, 0.09)
+src/ui/shipbuilding_workspace.rs:4216  Color::srgb(0.38, 0.94, 0.7)
+src/ui/shipbuilding_workspace.rs:4218  Color::srgb(1.0, 0.42, 0.38)
+src/ui/shipbuilding_workspace.rs:4225  TextColor(Color::srgb(0.92, 0.96, 0.98)),
+src/ui/shipbuilding_workspace.rs:4232  Color::srgb(1.0, 0.55, 0.45),
+src/ui/shipbuilding_workspace.rs:4239  Color::srgb(0.6, 0.7, 0.76),
+src/ui/shipbuilding_workspace.rs:4250  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:4258  Color::srgb(0.6, 0.7, 0.76),
+src/ui/shipbuilding_workspace.rs:4272  BackgroundColor(Color::srgb(0.08, 0.2, 0.24)),
+src/ui/shipbuilding_workspace.rs:4273  BorderColor::all(Color::srgb(0.2, 0.92, 0.98)),
+src/ui/shipbuilding_workspace.rs:4279  TextColor(Color::srgb(0.92, 0.96, 0.98)),
+src/ui/shipbuilding_workspace.rs:4311  Color::srgb(0.84, 0.9, 0.94),
+src/ui/shipbuilding_workspace.rs:4323  Color::srgb(0.6, 0.7, 0.76),
+src/ui/shipbuilding_workspace.rs:4344  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:4394  Color::srgb(0.6, 0.7, 0.76),
+src/ui/shipbuilding_workspace.rs:4401  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:4406  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:4433  Color::srgb(0.1, 0.18, 0.24)
+src/ui/shipbuilding_workspace.rs:4435  Color::srgb(0.14, 0.14, 0.16)
+src/ui/shipbuilding_workspace.rs:4438  Color::srgb(0.05, 0.08, 0.12)
+src/ui/shipbuilding_workspace.rs:4440  Color::srgb(0.08, 0.08, 0.09)
+src/ui/shipbuilding_workspace.rs:4443  Color::srgb(0.0, 0.95, 1.0)
+src/ui/shipbuilding_workspace.rs:4445  Color::srgb(0.22, 0.35, 0.42)
+src/ui/shipbuilding_workspace.rs:4447  Color::srgb(0.28, 0.28, 0.3)
+src/ui/shipbuilding_workspace.rs:4450  Color::srgb(0.88, 0.93, 0.96)
+src/ui/shipbuilding_workspace.rs:4454  Color::srgb(0.56, 0.58, 0.62)
+src/ui/shipbuilding_workspace.rs:4492  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:4499  Color::srgb(0.6, 0.7, 0.76),
+src/ui/shipbuilding_workspace.rs:4528  parent.spawn(text_block(module.display_name.clone(), 14.0, Color::srgb(0.84, 0.9, 0.94)));
+src/ui/shipbuilding_workspace.rs:4529  parent.spawn(text_block(module.description.clone(), 10.5, Color::srgb(0.6, 0.7, 0.76)));
+src/ui/shipbuilding_workspace.rs:4540  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:4562  BackgroundColor(Color::srgb(0.06, 0.2, 0.24)),
+src/ui/shipbuilding_workspace.rs:4563  BorderColor::all(Color::srgb(0.2, 0.92, 0.98)),
+src/ui/shipbuilding_workspace.rs:4573  TextColor(Color::srgb(0.92, 0.96, 0.98)),
+src/ui/shipbuilding_workspace.rs:4581  Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:4593  Color::srgb(0.5, 0.92, 0.58),
+src/ui/shipbuilding_workspace.rs:4603  Color::srgb(0.5, 0.86, 1.0),
+src/ui/shipbuilding_workspace.rs:4617  Color::srgb(0.0, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:4626  Color::srgb(1.0, 0.6, 0.32),
+src/ui/shipbuilding_workspace.rs:4632  Color::srgb(0.5, 0.92, 0.9),
+src/ui/shipbuilding_workspace.rs:4638  Color::srgb(0.86, 0.82, 0.58),
+src/ui/shipbuilding_workspace.rs:4651  Color::srgb(0.82, 0.87, 0.9),
+src/ui/shipbuilding_workspace.rs:4685  TextColor(Color::srgb(0.92, 0.96, 0.98)),
+src/ui/shipbuilding_workspace.rs:4928  color: Color::srgb(0.6, 0.7, 0.76),
+src/ui/shipbuilding_workspace.rs:4935  color: Color::srgb(0.5, 0.92, 0.62),
+src/ui/shipbuilding_workspace.rs:4945  color: Color::srgb(0.98, 0.78, 0.36),
+src/ui/shipbuilding_workspace.rs:4955  color: Color::srgb(0.55, 0.95, 1.0),
+src/ui/shipbuilding_workspace.rs:4961  color: Color::srgb(1.0, 0.45, 0.4),
+src/ui/shipbuilding_workspace.rs:4967  color: Color::srgb(1.0, 0.45, 0.4),

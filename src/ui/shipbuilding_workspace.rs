@@ -1193,18 +1193,25 @@ fn sync_shipbuilding_workspace_content(
         design_library.templates.len()
     ));
 
-    clear_dynamic_children(&mut commands, *panels.tabs_root, &panels.child_lists);
-    clear_dynamic_children(&mut commands, *panels.library_root, &panels.child_lists);
-    clear_dynamic_children(&mut commands, *panels.blueprint_root, &panels.child_lists);
-    clear_dynamic_children(&mut commands, *panels.analytics_root, &panels.child_lists);
+    // Build the parameterised shell once and hand it to every
+    // populator below. The shell is `Copy`, so the non-design
+    // populators (Archive / Construction / Components) can still
+    // receive the individual `Entity` roots without changing their
+    // signatures.
+    let shell = panels.shell();
 
-    populate_tab_strip(&mut commands, *panels.tabs_root, ui_state.active_tab);
+    clear_dynamic_children(&mut commands, shell.tabs_root, &panels.child_lists);
+    clear_dynamic_children(&mut commands, shell.library_root, &panels.child_lists);
+    clear_dynamic_children(&mut commands, shell.blueprint_root, &panels.child_lists);
+    clear_dynamic_children(&mut commands, shell.analytics_root, &panels.child_lists);
+
+    populate_tab_strip(&mut commands, shell, ui_state.active_tab);
 
     match ui_state.active_tab {
         ShipbuildingTab::Design => {
             populate_library_panel(
                 &mut commands,
-                *panels.library_root,
+                shell,
                 &available_hulls,
                 selected_hull,
                 active_slot,
@@ -1214,14 +1221,14 @@ fn sync_shipbuilding_workspace_content(
             );
             populate_blueprint_panel(
                 &mut commands,
-                *panels.blueprint_root,
+                shell,
                 selected_hull,
                 &ui_state,
                 &shipbuilding_data,
             );
             populate_analytics_panel(
                 &mut commands,
-                *panels.analytics_root,
+                shell,
                 selected_hull,
                 current_summary.as_ref(),
                 preview_summary.as_ref(),
@@ -1230,9 +1237,9 @@ fn sync_shipbuilding_workspace_content(
         }
         ShipbuildingTab::Archive => populate_archive_tab_native(
             &mut commands,
-            *panels.library_root,
-            *panels.blueprint_root,
-            *panels.analytics_root,
+            shell.library_root,
+            shell.blueprint_root,
+            shell.analytics_root,
             &colonies,
             &ships,
             &refits,
@@ -1243,9 +1250,9 @@ fn sync_shipbuilding_workspace_content(
         ),
         ShipbuildingTab::Construction => populate_construction_tab_native(
             &mut commands,
-            *panels.library_root,
-            *panels.blueprint_root,
-            *panels.analytics_root,
+            shell.library_root,
+            shell.blueprint_root,
+            shell.analytics_root,
             &colonies,
             &fleets,
             &ships,
@@ -1259,9 +1266,9 @@ fn sync_shipbuilding_workspace_content(
         ),
         ShipbuildingTab::Components => populate_components_tab_native(
             &mut commands,
-            *panels.library_root,
-            *panels.blueprint_root,
-            *panels.analytics_root,
+            shell.library_root,
+            shell.blueprint_root,
+            shell.analytics_root,
             &shipbuilding_data,
             &technologies_data,
             &research_state,
@@ -1271,8 +1278,8 @@ fn sync_shipbuilding_workspace_content(
     }
 }
 
-fn populate_tab_strip(commands: &mut Commands, tabs_root: Entity, active_tab: ShipbuildingTab) {
-    commands.entity(tabs_root).with_children(|parent| {
+fn populate_tab_strip(commands: &mut Commands, shell: WorkspaceShell, active_tab: ShipbuildingTab) {
+    commands.entity(shell.tabs_root).with_children(|parent| {
         for (tab, label) in [
             (ShipbuildingTab::Design, "Design"),
             (ShipbuildingTab::Archive, "Archive"),
@@ -1360,7 +1367,7 @@ fn clear_dynamic_children(commands: &mut Commands, entity: Entity, child_lists: 
 
 fn populate_library_panel(
     commands: &mut Commands,
-    library_root: Entity,
+    shell: WorkspaceShell,
     available_hulls: &[&crate::shipbuilding::ShipHullDefinition],
     selected_hull: Option<&crate::shipbuilding::ShipHullDefinition>,
     active_slot: Option<&HullSlotDefinition>,
@@ -1368,7 +1375,7 @@ fn populate_library_panel(
     shipbuilding_data: &ShipbuildingData,
     research_state: &ResearchState,
 ) {
-    commands.entity(library_root).with_children(|parent| {
+    commands.entity(shell.library_root).with_children(|parent| {
         spawn_hull_controls(parent, available_hulls, selected_hull, ui_state);
         spawn_category_controls(parent, selected_hull, ui_state);
 
@@ -1892,12 +1899,12 @@ fn tone_color_native(tone: ShipbuildingTooltipTone) -> Color {
 
 fn populate_blueprint_panel(
     commands: &mut Commands,
-    blueprint_root: Entity,
+    shell: WorkspaceShell,
     selected_hull: Option<&crate::shipbuilding::ShipHullDefinition>,
     ui_state: &ShipbuildingUiState,
     shipbuilding_data: &ShipbuildingData,
 ) {
-    commands.entity(blueprint_root).with_children(|parent| {
+    commands.entity(shell.blueprint_root).with_children(|parent| {
         let Some(hull) = selected_hull else {
             parent.spawn(text_block(
                 "No hull selected yet. The native blueprint becomes active once a hull is chosen in the existing ship design workflow.".to_string(),
@@ -1961,13 +1968,13 @@ fn populate_blueprint_panel(
 
 fn populate_analytics_panel(
     commands: &mut Commands,
-    analytics_root: Entity,
+    shell: WorkspaceShell,
     selected_hull: Option<&crate::shipbuilding::ShipHullDefinition>,
     current_summary: Option<&ShipDesignSummary>,
     preview_summary: Option<&ShipDesignSummary>,
     ui_state: &ShipbuildingUiState,
 ) {
-    commands.entity(analytics_root).with_children(|parent| {
+    commands.entity(shell.analytics_root).with_children(|parent| {
         if selected_hull.is_none() {
             parent.spawn(text_block(
                 "No design summary available yet. Once a hull and slots are selected, this panel will show live engineering metrics and bar-driven capacity usage.".to_string(),
