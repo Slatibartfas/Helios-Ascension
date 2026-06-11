@@ -41,8 +41,8 @@ pub use systems::{
     process_analysis_queue, surface_anomaly_events, update_survey_summary, SimulationTime,
 };
 pub use types::{
-    default_method_specificity, AnomalyState, AnomalyType, EvidenceKind, SurveyDimension,
-    SurveyMethod, CONFIDENCE_DECAY_PER_YEAR, DATA_POINT_CONFIDENCE_BUMP,
+    default_method_specificity, AnomalyState, AnomalyType, EvidenceKind, EvidencePoint,
+    SurveyDimension, SurveyMethod, CONFIDENCE_DECAY_PER_YEAR, DATA_POINT_CONFIDENCE_BUMP,
     DEFAULT_ACTIVATION_THRESHOLD, INITIAL_CONFIDENCE, MAX_CONFIDENCE, MAX_TIER,
     MIN_ACTIVATION_THRESHOLD, REFUTATION_REARM_THRESHOLD, RETRY_PRESSURE_DECAY_PER_YEAR,
     RETRY_PRESSURE_PER_VERIFICATION, RETRY_PRESSURE_THRESHOLD_REDUCTION, STALE_CONFIDENCE,

@@ -600,6 +600,7 @@ mod tests {
             replaces: None,
             synergy: vec![],
             available_atmospheres: default_available_atmospheres(),
+            required_anomalies: vec![],
         };
         assert!(def.required_tech_opt().is_none());
 
@@ -638,6 +639,7 @@ mod tests {
                 replaces: None,
                 synergy: vec![],
                 available_atmospheres: default_available_atmospheres(),
+                required_anomalies: vec![],
             },
         );
 
@@ -777,6 +779,7 @@ mod tests {
             replaces: None,
             synergy: vec![],
             available_atmospheres: default_available_atmospheres(),
+            required_anomalies: vec![],
         }
     }
 
@@ -1045,6 +1048,7 @@ mod tests {
             replaces: None,
             synergy: vec![],
             available_atmospheres: atms,
+            required_anomalies: vec![],
         }
     }
 
@@ -1089,6 +1093,7 @@ mod tests {
                     replaces: None,
                     synergy: vec![],
                     available_atmospheres: atms,
+                    required_anomalies: vec![],
                 },
             );
         };

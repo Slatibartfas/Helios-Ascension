@@ -17,4 +17,4 @@ src/ui/fleets_panel.rs:171  egui::Color32::from_rgba_premultiplied(0, 140, 160, 
 src/ui/research_panel.rs:1278  egui::Color32::from_rgba_unmultiplied(13, 17, 23, 120),
 src/ui/research_panel.rs:1359  egui::Color32::from_rgba_unmultiplied(13, 17, 23, 120),
 src/ui/research_panel.rs:1459  .fill(egui::Color32::from_rgba_unmultiplied(13, 17, 23, 245))
-src/ui/resources_bar.rs:845  egui::Color32::from_rgba_premultiplied(4, 6, 12, 104),
+src/ui/resources_bar.rs:848  egui::Color32::from_rgba_premultiplied(4, 6, 12, 104),

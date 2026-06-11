@@ -325,7 +325,10 @@ pub(super) fn ui_planet_dossier(
                     }
 
                     // ── Anomaly cards (PR-C) ───────────────────────
-                    if let Some(survey_state) = survey_state {
+                    // SurveyState is read via a separate query to keep
+                    // the dossier body_query under the 16-field
+                    // SystemParam cap (helios-bevy-018-systemparam-cap).
+                    if let Ok(survey_state) = survey_state_query.get(entity) {
                         section_divider(ui);
                         draw_anomaly_section(ui, survey_state, &anomaly_registry, &sim_time);
                     }

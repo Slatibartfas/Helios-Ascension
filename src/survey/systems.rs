@@ -85,7 +85,7 @@ pub fn surface_anomaly_events(
                     continue;
                 }
                 if !axes_meet_threshold(
-                    state,
+                    &*state,
                     def.detection_axes.iter().copied(),
                     def.detection_threshold,
                 ) {
@@ -552,7 +552,7 @@ mod tests {
     use super::*;
     use super::super::components::DetectedAnomaly;
     use super::super::types::{
-        AnomalyState, EvidenceKind, MAX_CONFIDENCE, REFUTATION_REARM_THRESHOLD,
+        AnomalyState, AnomalyType, EvidenceKind, MAX_CONFIDENCE, REFUTATION_REARM_THRESHOLD,
         RETRY_PRESSURE_PER_VERIFICATION, RETRY_PRESSURE_THRESHOLD_REDUCTION,
     };
     use crate::colony::types::BuildingType;

@@ -573,6 +573,7 @@ fn render_construction_panel(
         &Colony,
         &CelestialBody,
         Option<&AtmosphereComposition>,
+        Option<&crate::survey::components::SurveyState>,
     )>,
     construction_query: &Query<(Entity, &ConstructionProject)>,
     construction_actions: &mut ResMut<PendingConstructionActions>,
@@ -707,7 +708,7 @@ fn render_construction_panel(
             )
             .width((ui.available_width() - 12.0).max(240.0))
             .show_ui(ui, |ui| {
-                for (entity, colony, _, _) in &colonies {
+                for (entity, colony, _, _, _) in &colonies {
                     let label = format!(
                         "{} ({})",
                         colony.name,
