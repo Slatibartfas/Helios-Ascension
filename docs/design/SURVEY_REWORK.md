@@ -68,10 +68,10 @@ The `discovered_amount()` function (`src/economy/components.rs:280`) maps each l
 
 ### UI surface
 
-- **Body dossier** (`src/ui/dossier_panel.rs:1415-1505`): shows `SURVEY: ORBITAL / SEISMIC / CORE SAMPLE` plus an UPGRADE button. Click to bump one level. The button is always enabled.
+- **Body dossier** (`src/ui/dossier_panel.rs:1331-1421`, function `draw_resource_section`): shows `SURVEY: ORBITAL / SEISMIC / CORE SAMPLE` plus an UPGRADE button (currently at `src/ui/dossier_panel.rs:1375`). Click to bump one level. The button is always enabled.
 - **Mining panel** (`src/ui/economy_panel.rs:111-142`): a `MiningSurveyFilter` enum filters the mining body list by `Surveyed / Seismic+ / CoreOnly`. The filter is a UI-only view-state — it does not affect what the body actually yields, which is already gated by `discovered_amount()`.
-- **Starmap system summary** (`src/ui/dashboard.rs:1714-1826`): a system-wide `SURVEY %` and a `SURVEYED BODIES` count, plus a tile grid showing the union of resources discovered across all bodies in the active system. The percentage is `(discovered_weight / total_weight) × 100` over the `ResourceReserve.total_mass()` sum.
-- **History ledger** (`src/economy/history.rs:544-557`): per-era count of bodies in each level for analytics.
+- **Starmap system summary** (`src/ui/dashboard.rs:1722-1852`): a system-wide `SURVEY %` and a `SURVEYED BODIES` count, plus a tile grid showing the union of resources discovered across all bodies in the active system. The percentage is `(discovered_weight / total_weight) × 100` over the `ResourceReserve.total_mass()` sum.
+- **History ledger** (`src/economy/history.rs:553-557`, the `match survey_level` arm): per-era count of bodies in each level for analytics.
 
 ### What it doesn't do
 
@@ -389,6 +389,8 @@ This is the player's question: "When can I start mining this resource, and what 
 
 The mining efficiency ramps as the player invests in deeper survey. This means **the early-game choice between "cheap orbital scan" and "expensive lander" is real**: cheap gives you the existence of the resource and a 40% mining rate; expensive gives you the deposit map and full efficiency.
 
+The numbers in this table are the **default** curve. The Coder reads them from `assets/data/survey/mining_efficiency.ron` (see §[Data-Driven Surface: New RON Files]); a modder can rebalance the curve (e.g. make tier 2 a 25% rate instead of 40%, or push full efficiency to tier 5) without recompiling Rust. The table is the *balance* sheet the player reads; the RON file is the *config* sheet a modder edits.
+
 ### Refining the existing `discovered_amount()`
 
 The current `discovered_amount()` function (`src/economy/components.rs:280`) returns a fixed slice per `SurveyLevel`. The new system replaces it with a function that takes a `(MineralDeposit, DimensionFidelity)` pair and returns a confidence-weighted estimate. The estimate's `low_estimate / mid_estimate / high_estimate` triplet is shown in the UI so the player knows the uncertainty.
@@ -427,7 +429,7 @@ The "coolness" of an anomaly (used for media coverage, fame, and player satisfac
 
 ## Data-Driven Surface: New RON Files
 
-The new design adds three RON files and modifies `technologies.ron`. The CTO/Coder can place these in the existing `assets/data/` directory or create a `survey/` subdir; the LGD recommendation is the subdir for namespace clarity.
+The new design adds six RON files and modifies `technologies.ron`. The CTO/Coder can place these in the existing `assets/data/` directory or create a `survey/` subdir; the LGD recommendation is the subdir for namespace clarity.
 
 | File | Purpose | New entries |
 |------|---------|-------------|
@@ -436,6 +438,7 @@ The new design adds three RON files and modifies `technologies.ron`. The CTO/Cod
 | `assets/data/survey/missions.ron` | Mission templates (what a single "send probe" click costs in time/resources) | ~10 mission templates (flyby_recon, orbital_imaging, surface_lander_v1, …) |
 | `assets/data/survey/anomalies.ron` | Anomaly types, discovery methods, effects | ~12 anomaly types |
 | `assets/data/survey/tiers.ron` | Per-dimension tier semantics (what tier 3 of "subsurface" means exactly) | 8 dimensions × 6 tiers = 48 rows |
+| `assets/data/survey/mining_efficiency.ron` | Per-(resource class, dimension, tier) mining efficiency ramp; gates when mining is unlocked and at what yield. Powers §[Resource Reveal Matrix]. | One row per (resource_class, dimension, min_tier) tuple; ~24 rows for the default 4 resource classes × 6 tiers × the unlock thresholds. Modder-editable. |
 | `assets/data/technologies.ron` (modified) | 9 new techs as per §Tech Tree Integration | 9 entries |
 
 The schema for each file is fixed but the contents are entirely data. A modder can add a new dimension (e.g. "magnetosphere") by:
@@ -445,6 +448,39 @@ The schema for each file is fixed but the contents are entirely data. A modder c
 4. (Optionally) adding an anomaly type to `anomalies.ron`
 
 No Rust change. No recompile. RON modding is the player-influence path.
+
+### Mining efficiency entries
+
+`mining_efficiency.ron` is the data-driven form of §[Resource Reveal Matrix]. One row per `(resource_class, dimension, min_tier)` tuple; the Coder reads it at survey-state evaluation time to compute the player's actual mining yield. Suggested shape:
+
+```ron
+(
+    id: "proven_crustal_min_deposits_t2",
+    resource_class: "ShallowOre",        // matches a tag in solar_system.ron's deposit entries
+    dimension: "MineralDeposits",
+    min_tier: 2,                         // mining unlocks at this dimension tier
+    efficiency_pct: 40.0,                // 40% of nominal yield until tier 4
+    requires_confirmation: false,        // tier 2 is "suspected"; no deposit-pin yet
+),
+(
+    id: "proven_crustal_min_deposits_t4",
+    resource_class: "ShallowOre",
+    dimension: "MineralDeposits",
+    min_tier: 4,
+    efficiency_pct: 100.0,               // tier 4 unlocks full yield
+    requires_confirmation: false,
+),
+(
+    id: "deep_deposits_subsurface_t5",
+    resource_class: "DeepOre",
+    dimension: "SubsurfaceStructure",
+    min_tier: 5,
+    efficiency_pct: 100.0,
+    requires_confirmation: true,         // mantle/core access requires drill rig
+),
+```
+
+Modders rebalance the curve by editing this file. The Coder exposes a `MiningEfficiencyRegistry` resource; the dossier UI looks up the relevant row to show the player the current `low / mid / high` estimate.
 
 ---
 
