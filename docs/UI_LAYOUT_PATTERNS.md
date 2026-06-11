@@ -22,9 +22,9 @@ Every panel — egui or Bevy UI — is built from one or more of the four
 
 | # | Pattern | Stack | Reference implementation |
 | - | ------- | ----- | ------------------------ |
-| 1 | Top menu bar | egui | `src/ui/mod.rs:600-805` (`ui_top_menu_bar`) |
+| 1 | Top menu bar | egui | `src/ui/mod.rs:603-889` (`ui_top_menu_bar`) |
 | 2 | Right-side ledger | egui | `src/ui/dossier_panel.rs` (`ui_planet_dossier`) |
-| 3 | Tabbed workspace (3 panes) | Bevy UI | `src/ui/shipbuilding_workspace.rs:5417` |
+| 3 | Tabbed workspace (3 panes) | Bevy UI | `src/ui/shipbuilding_workspace.rs:1241-1289` (`populate_tab_strip`) |
 | 4 | In-panel sub-tab strip | egui | `src/ui/construction_panel.rs:697-719` |
 
 Panels can compose multiple patterns. The Shipbuilding workspace is
@@ -54,13 +54,13 @@ contract; this section codifies the *layout* contract.
   fixed-height strip). Rendered in `UiSystemSet::TopBar` so it
   reserves space before any side panel.
 - **Items:** one icon button per `GameMenu` variant, ordered by
-  `GameMenu::all()` (`src/game_state.rs:75-87`).
+  `GameMenu::all()` (`src/game_state.rs:74-88`).
 - **Active state:** icon tinted `theme::ACCENT` + 2px stroke ring around
   the widget at `theme::ACCENT`. Inactive icons tinted `theme::ICON_INACTIVE`.
 - **Tooltip:** `theme::tooltip_frame()` + bold-mono `theme::kbd_shortcut_label("F1")`
-  chip — see `src/ui/mod.rs:660-685` for the canonical tooltip block.
+  chip — see `src/ui/mod.rs:663-686` for the canonical tooltip block.
 - **Hotkey:** `F1`..`F11` mapped by index into `GameMenu::all()`. Defined
-  in `src/ui/mod.rs:827-839`. **`Escape`** toggles between the active
+  in `src/ui/mod.rs:828-840`. **`Escape`** toggles between the active
   `GameMenu` and the base view (Survey for `ViewMode::System`, Starmap
   for `ViewMode::Starmap`).
 - **Click semantics:** clicking an icon switches `active_menu.current`
@@ -74,7 +74,7 @@ contract; this section codifies the *layout* contract.
   navigation goes through the `GameMenu` enum, not through a parallel
   row.
 - Do not use number-key 1..5 inside panels for sub-tab navigation —
-  the speed-preset bindings at `src/ui/dashboard.rs:1322-1326` (Digit1..5)
+  the speed-preset bindings at `src/ui/dashboard.rs:1321-1326` (Digit1..5)
   own those keys. (GRA-57's 1-9 numkey sub-tab aliases collided with
   those and were reverted in PR #119.)
 
@@ -255,14 +255,14 @@ collapse bespoke implementations onto the patterns above.
 | Survey             | `src/ui/dashboard.rs` (system view) | P1 + (none) | — | mostly tokens |
 | Starmap            | `src/ui/dashboard.rs` (starmap view) | P1 + (none) | — | mostly tokens |
 | Main               | `src/ui/dashboard.rs` (main menu overlay) | P2 + modal | — | tokens; menu is a single ledger |
-| Construction       | `src/ui/construction_panel.rs:3000` | P4 + P4 (nested) | C (GRA-68) | bespoke `ConstructionTab` + `BuildFilter` |
-| Research           | `src/ui/research_panel.rs:1688` + `tech_tree.rs:1298` | P4 (categories) | D (GRA-69) | inline category loop at `research_panel.rs:1582`; duplicate group-by-category in Archive |
-| Fleets             | `src/ui/fleets_panel.rs:2422` | P1 (only) | — | flat list, no sub-tabs; company-filter chip |
-| Shipbuilding       | `src/ui/shipbuilding_workspace.rs:5417` (Bevy UI) | P3 + P4 (mirror) | D + E (GRA-69 + GRA-70) | `populate_tab_strip` literal regression at lines 1241-1283 |
-| Economy            | `src/ui/economy_panel.rs:4471` (+ fleets/transfer_planner panels) | P4 (7-way) + P2 (Colonies tab) | F (GRA-71) | bespoke `EconomyTab` with 7 variants |
+| Construction       | `src/ui/construction_panel.rs:24` (`ConstructionTab` enum) | P4 + P4 (nested) | C (GRA-68) | bespoke `ConstructionTab` + `BuildFilter` |
+| Research           | `src/ui/research_panel.rs:1688-1690` + `src/ui/tech_tree.rs:1298` | P4 (categories) | D (GRA-69) | inline category loop at `research_panel.rs:1582`; duplicate group-by-category in Archive |
+| Fleets             | `src/ui/fleets_panel.rs:286` (`ui_fleets_panel`) | P1 (only) | — | flat list, no sub-tabs; company-filter chip |
+| Shipbuilding       | `src/ui/shipbuilding_workspace.rs:1241-1289` (`populate_tab_strip`, Bevy UI) | P3 + P4 (mirror) | D + E (GRA-69 + GRA-70) | `populate_tab_strip` literal regression at lines 1241-1283 |
+| Economy            | `src/ui/economy_panel.rs:6` (`EconomyTab` enum, 7 variants) | P4 (7-way) + P2 (Colonies tab) | F (GRA-71) | bespoke `EconomyTab` with 7 variants |
 | Personnel, Intel, Diplomacy | (panels not yet implemented) | P1 + TBD | future chain | not in scope for v2 |
-| (modal)            | `src/ui/dossier_panel.rs:2172` | P2 | ref only | the reference P2 implementation |
-| (modal)            | `src/ui/resources_bar.rs:3072` | (none) | — | persistent HUD strip, not a panel |
+| (modal)            | `src/ui/dossier_panel.rs:103` (`ui_planet_dossier`) | P2 | ref only | the reference P2 implementation |
+| (modal)            | `src/ui/resources_bar.rs:1154` (`ui_resources_bar`) | (none) | — | persistent HUD strip, not a panel |
 
 **Composition rules:**
 
@@ -293,7 +293,7 @@ collapse bespoke implementations onto the patterns above.
 When a new `GameMenu` variant lands (e.g. Personnel, Intel, Diplomacy):
 
 1. Open the *top menu bar* slot via the `GameMenu::all()` order in
-   `src/game_state.rs:75-87`. Add the icon asset under
+   `src/game_state.rs:74-88`. Add the icon asset under
    `assets/textures/ui/menu/<name>.png`. Pattern 1.
 2. Pick a primary pattern from the four above. Default to P2 (ledger)
    for read-only information; default to P4 (sub-tab strip) for
