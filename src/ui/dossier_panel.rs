@@ -19,7 +19,8 @@ use super::dashboard::{format_mass, format_mass_compact, format_rate_monthly};
 use super::resources_bar::format_population;
 use super::tab::Tab;
 use super::theme::{
-    self, ACCENT, ACCENT_DIM, AMBER, BG, BORDER, GREEN, RED, SURFACE, TEXT_DIM, TEXT_VALUE,
+    self, ACCENT, ACCENT_DIM, AMBER, BG, BORDER, GREEN, RED, SURFACE, SURFACE_RAISED, TEXT_DIM,
+    TEXT_VALUE,
 };
 use super::*;
 use crate::astronomy::components::{
@@ -28,6 +29,7 @@ use crate::astronomy::components::{
 use crate::astronomy::nearby_stars::NearbyStarsData;
 use crate::economy::components::{SpectralClass, StarSystem};
 use crate::plugins::solar_system_data::{AsteroidClass, BodyType};
+use crate::survey::{ExtractionSite, LandingSite, SurveyState, LANDING_SITE_EVAL_THRESHOLD};
 use std::borrow::Cow;
 use std::f32::consts::TAU;
 
@@ -114,6 +116,7 @@ pub(super) fn ui_planet_dossier(
         Option<&AtmosphereComposition>,
         Option<&crate::plugins::starmap::PlanetCategory>,
         Option<&mut SurveyLevel>,
+        Option<&SurveyState>,
         Option<&Population>,
         Option<&SurfaceTemperature>,
         Option<&StellarProperties>,
@@ -171,6 +174,7 @@ pub(super) fn ui_planet_dossier(
         atmosphere,
         category_opt,
         mut survey_level,
+        survey_state,
         population,
         surface_temp,
         stellar_props,
@@ -317,6 +321,24 @@ pub(super) fn ui_planet_dossier(
                             ocean_props,
                             &mut pending_actions,
                         );
+                    }
+
+                    // ── Landing / Extraction Sites (PR-D GRA-82) ──
+                    // Asteroids show extraction sites, all other solid
+                    // bodies show landing sites. Stars / rings / gas
+                    // giants skip this section. When no `SurveyState`
+                    // is attached, show a stub "perform a survey
+                    // mission" hint.
+                    let show_sites = matches!(
+                        body.body_type,
+                        BodyType::Planet
+                            | BodyType::Moon
+                            | BodyType::DwarfPlanet
+                            | BodyType::Asteroid
+                    );
+                    if show_sites {
+                        section_divider(ui);
+                        draw_landing_sites_section(ui, body, survey_state, entity);
                     }
                 });
         });
@@ -1474,6 +1496,306 @@ fn draw_resource_section(
         .font(mono_font(10.0))
         .color(TEXT_VALUE),
     );
+}
+
+// ─── Landing / Extraction Sites (PR-D GRA-82) ─────────────────────────────
+
+/// Section title shown for non-asteroid solid bodies.
+const LANDING_SITES_HEADER: &str = "LANDING SITES";
+/// Section title shown for asteroids.
+const EXTRACTION_SITES_HEADER: &str = "EXTRACTION SITES";
+
+/// Draw the landing / extraction site evaluation section.
+///
+/// Renders one of three states:
+/// 1. **No `SurveyState`** — the legacy `SurveyLevel` enum hasn't been
+///    migrated to a `SurveyState` component yet. Show a hint to
+///    "perform a survey mission" so the player knows the dependency.
+/// 2. **Below threshold** — survey is in progress but the
+///    `landing_site_eval_coverage` is below the 0.6 trigger. Show
+///    the coverage bar with a "continue surveying" hint.
+/// 3. **At or above threshold** — list the candidate sites
+///    (top 5 by composite score) with their blocker annotations.
+fn draw_landing_sites_section(
+    ui: &mut egui::Ui,
+    body: &CelestialBody,
+    survey_state: Option<&SurveyState>,
+    _entity: Entity,
+) {
+    let is_asteroid = body.body_type == BodyType::Asteroid;
+    let header = if is_asteroid {
+        EXTRACTION_SITES_HEADER
+    } else {
+        LANDING_SITES_HEADER
+    };
+    theme::section_h2(ui, header);
+
+    let Some(state) = survey_state else {
+        ui.colored_label(
+            TEXT_DIM,
+            "Run a survey mission to evaluate candidate sites.",
+        );
+        return;
+    };
+
+    let coverage = state.landing_site_eval_coverage();
+    draw_coverage_bar(ui, coverage);
+
+    if coverage < LANDING_SITE_EVAL_THRESHOLD {
+        let pct = (coverage * 100.0) as u32;
+        ui.colored_label(
+            TEXT_DIM,
+            format!(
+                "Survey coverage {}% — {}% required to evaluate sites.",
+                pct,
+                (LANDING_SITE_EVAL_THRESHOLD * 100.0) as u32
+            ),
+        );
+        return;
+    }
+
+    if is_asteroid {
+        draw_extraction_site_list(ui, &state.extraction_sites);
+    } else {
+        draw_landing_site_list(ui, &state.landing_sites);
+    }
+}
+
+/// Draw the landing-site-evaluation coverage bar (a thin progress
+/// strip with a tick mark at the 0.6 trigger). Used as the visual
+/// cue that "you can see sites" vs "keep surveying".
+fn draw_coverage_bar(ui: &mut egui::Ui, coverage: f32) {
+    let (response, painter) = ui.allocate_painter(
+        egui::Vec2::new(ui.available_width(), 6.0),
+        egui::Sense::hover(),
+    );
+    let rect = response.rect;
+    let bar_bg = SURFACE_RAISED;
+    painter.rect_filled(rect, 1.0, bar_bg);
+
+    // Filled portion — green above threshold, blue below.
+    let fill_w = rect.width() * coverage.clamp(0.0, 1.0);
+    let fill_color = if coverage >= LANDING_SITE_EVAL_THRESHOLD {
+        GREEN_ACCENT
+    } else {
+        egui::Color32::LIGHT_BLUE
+    };
+    if fill_w > 0.0 {
+        let fill_rect = egui::Rect::from_min_size(rect.min, egui::Vec2::new(fill_w, rect.height()));
+        painter.rect_filled(fill_rect, 1.0, fill_color);
+    }
+
+    // Threshold tick mark.
+    let tick_x = rect.min.x + rect.width() * LANDING_SITE_EVAL_THRESHOLD;
+    let tick_top = egui::Pos2::new(tick_x, rect.min.y);
+    let tick_bottom = egui::Pos2::new(tick_x, rect.max.y);
+    painter.line_segment(
+        [tick_top, tick_bottom],
+        egui::Stroke::new(1.0, egui::Color32::WHITE),
+    );
+
+    ui.add_space(theme::Spacing::xs);
+}
+
+/// Draw the sorted, top-5 list of landing sites. The composite score
+/// is the sort key (descending). Each row shows the site name, lat /
+/// lon, composite, and a tooltip with the per-axis sub-scores +
+/// blockers.
+fn draw_landing_site_list(ui: &mut egui::Ui, sites: &[LandingSite]) {
+    if sites.is_empty() {
+        ui.colored_label(TEXT_DIM, "No candidate sites yet.");
+        return;
+    }
+    let mut sorted: Vec<&LandingSite> = sites.iter().collect();
+    sorted.sort_by(|a, b| {
+        b.composite_score()
+            .partial_cmp(&a.composite_score())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let top = sorted.iter().take(5);
+    ui.add_space(theme::Spacing::xs);
+    for (idx, site) in top.enumerate() {
+        draw_landing_site_row(ui, idx + 1, site);
+    }
+}
+
+fn draw_extraction_site_list(ui: &mut egui::Ui, sites: &[ExtractionSite]) {
+    if sites.is_empty() {
+        ui.colored_label(TEXT_DIM, "No candidate extraction sites yet.");
+        return;
+    }
+    let mut sorted: Vec<&ExtractionSite> = sites.iter().collect();
+    sorted.sort_by(|a, b| {
+        b.composite_score()
+            .partial_cmp(&a.composite_score())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let top = sorted.iter().take(5);
+    ui.add_space(theme::Spacing::xs);
+    for (idx, site) in top.enumerate() {
+        draw_extraction_site_row(ui, idx + 1, site);
+    }
+}
+
+fn draw_landing_site_row(ui: &mut egui::Ui, rank: usize, site: &LandingSite) {
+    let composite = site.composite_score();
+    let composite_pct = (composite * 100.0) as u32;
+    let color = if composite >= 0.7 {
+        GREEN_ACCENT
+    } else if composite >= 0.5 {
+        egui::Color32::LIGHT_BLUE
+    } else {
+        AMBER
+    };
+
+    let response = ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new(format!("#{rank}"))
+                .font(mono_font(9.0))
+                .color(TEXT_DIM),
+        );
+        ui.label(
+            egui::RichText::new(&site.name)
+                .font(mono_font(11.0))
+                .color(TEXT_VALUE),
+        );
+        ui.label(
+            egui::RichText::new(format!(
+                "{:.0}\u{00B0},{:.0}\u{00B0}",
+                site.latitude, site.longitude
+            ))
+            .font(mono_font(9.0))
+            .color(TEXT_DIM),
+        );
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.label(
+                egui::RichText::new(format!("{composite_pct}%"))
+                    .font(mono_font(11.0))
+                    .color(color)
+                    .strong(),
+            );
+        });
+    });
+    response.response.on_hover_text(site_tooltip_text(site));
+    ui.add_space(2.0);
+}
+
+fn draw_extraction_site_row(ui: &mut egui::Ui, rank: usize, site: &ExtractionSite) {
+    let composite = site.composite_score();
+    let composite_pct = (composite * 100.0) as u32;
+    let color = if composite >= 0.7 {
+        GREEN_ACCENT
+    } else if composite >= 0.5 {
+        egui::Color32::LIGHT_BLUE
+    } else {
+        AMBER
+    };
+
+    let response = ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new(format!("#{rank}"))
+                .font(mono_font(9.0))
+                .color(TEXT_DIM),
+        );
+        ui.label(
+            egui::RichText::new(&site.name)
+                .font(mono_font(11.0))
+                .color(TEXT_VALUE),
+        );
+        ui.label(
+            egui::RichText::new(format!(
+                "{:.0}\u{00B0},{:.0}\u{00B0}",
+                site.latitude, site.longitude
+            ))
+            .font(mono_font(9.0))
+            .color(TEXT_DIM),
+        );
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.label(
+                egui::RichText::new(format!("{composite_pct}%"))
+                    .font(mono_font(11.0))
+                    .color(color)
+                    .strong(),
+            );
+        });
+    });
+    response
+        .response
+        .on_hover_text(extraction_site_tooltip_text(site));
+    ui.add_space(2.0);
+}
+
+/// Build the hover-tooltip body for a landing site. Shows per-axis
+/// sub-scores and the explicit blocker list so the player can see
+/// *why* a building is infeasible.
+fn site_tooltip_text(site: &LandingSite) -> String {
+    let s = &site.scores;
+    let mut text = String::new();
+    text.push_str(&format!(
+        "Slope: {:.0}%\nRoughness: {:.0}%\nRadiation: {:.0}%\nTemperature: {:.0}%\nRegolith: {:.0}%\nComm: {:.0}%",
+        s.slope * 100.0,
+        s.roughness * 100.0,
+        s.radiation * 100.0,
+        s.temperature * 100.0,
+        s.regolith * 100.0,
+        s.comm * 100.0,
+    ));
+    if !site.feasible_for.is_empty() {
+        let mut feas: Vec<String> = site
+            .feasible_for
+            .iter()
+            .map(|b| b.display_name().to_string())
+            .collect();
+        feas.sort();
+        text.push_str("\n\nFeasible: ");
+        text.push_str(&feas.join(", "));
+    }
+    if !site.blockers.is_empty() {
+        let mut blocks: Vec<String> = site
+            .blockers
+            .iter()
+            .map(|b| b.display_name().to_string())
+            .collect();
+        blocks.sort();
+        text.push_str("\nBlocked: ");
+        text.push_str(&blocks.join(", "));
+    }
+    text
+}
+
+fn extraction_site_tooltip_text(site: &ExtractionSite) -> String {
+    let s = &site.scores;
+    let mut text = String::new();
+    text.push_str(&format!(
+        "Slope: {:.0}%\nRoughness: {:.0}%\nRadiation: {:.0}%\nTemperature: {:.0}%\nRegolith: {:.0}%\nComm: {:.0}%",
+        s.slope * 100.0,
+        s.roughness * 100.0,
+        s.radiation * 100.0,
+        s.temperature * 100.0,
+        s.regolith * 100.0,
+        s.comm * 100.0,
+    ));
+    if !site.feasible_for.is_empty() {
+        let mut feas: Vec<String> = site
+            .feasible_for
+            .iter()
+            .map(|b| b.display_name().to_string())
+            .collect();
+        feas.sort();
+        text.push_str("\n\nFeasible: ");
+        text.push_str(&feas.join(", "));
+    }
+    if !site.blockers.is_empty() {
+        let mut blocks: Vec<String> = site
+            .blockers
+            .iter()
+            .map(|b| b.display_name().to_string())
+            .collect();
+        blocks.sort();
+        text.push_str("\nBlocked: ");
+        text.push_str(&blocks.join(", "));
+    }
+    text
 }
 
 /// Flat sorted list of mineable deposits. Demonstrates the
