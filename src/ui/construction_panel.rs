@@ -1,4 +1,5 @@
 use super::dashboard::format_mass_compact;
+use super::economy_panel::ColonyRow;
 use super::*;
 use crate::colony::building_is_available_on;
 use crate::colony::ColonySynergies;
@@ -1025,52 +1026,66 @@ fn render_construction_overview_tab(
     ui.add_space(theme::Spacing::sm);
 
     // ── Resource depletion timeline (GRA-22d #3) ────────────────────────
-    theme::elevated_frame().show(ui, |ui| {
-        ui.label(egui::RichText::new("Resource Depletion").strong());
-        ui.separator();
-        let Some(per_resource) = depletion_timeline.by_colony.get(&colony_entity) else {
-            ui.label(
-                egui::RichText::new(
-                    "No tracked draws — colony is not consuming any measured resource.",
-                )
-                .size(11.0)
-                .color(theme::TEXT_DIM),
-            );
-            return;
-        };
-        if per_resource.is_empty() {
-            ui.label(
-                egui::RichText::new(
-                    "No tracked draws — colony is not consuming any measured resource.",
-                )
-                .size(11.0)
-                .color(theme::TEXT_DIM),
-            );
-            return;
-        }
-        // Stable sort by years remaining ascending — shortest first.
-        let mut rows: Vec<(&ResourceType, &f64)> = per_resource.iter().collect();
-        rows.sort_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal));
-        for (resource, &years) in rows {
-            let icon = super::resources_bar::get_resource_icon(resource);
-            let color = depletion_color(years);
-            let years_str = format_years_remaining(years);
-            ui.horizontal(|ui| {
+    // PR-F (GRA-71) wraps the resource-depletion list in
+    // `theme::ledger_panel<ColonyRow>` as the cross-panel reuse
+    // demonstration for the PR-B ledger primitive.  The body is
+    // identical to the pre-PR-F `theme::elevated_frame` block; only
+    // the wrapper changes.  The `ColonyRow` token is the same
+    // per-colony marker used in the Economy panel's Buildings
+    // ledger — same primitive, same T, different panel.
+    theme::ledger_panel(
+        ui,
+        "construction_resource_depletion",
+        "RESOURCE DEPLETION",
+        &ColonyRow,
+        |ui| {
+            let Some(per_resource) = depletion_timeline.by_colony.get(&colony_entity) else {
                 ui.label(
-                    egui::RichText::new(format!("{} {}", icon, resource.display_name()))
-                        .size(11.0)
-                        .color(theme::TEXT_VALUE),
+                    egui::RichText::new(
+                        "No tracked draws — colony is not consuming any measured resource.",
+                    )
+                    .size(11.0)
+                    .color(theme::TEXT_DIM),
                 );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                return;
+            };
+            if per_resource.is_empty() {
+                ui.label(
+                    egui::RichText::new(
+                        "No tracked draws — colony is not consuming any measured resource.",
+                    )
+                    .size(11.0)
+                    .color(theme::TEXT_DIM),
+                );
+                return;
+            }
+            // Stable sort by years remaining ascending — shortest first.
+            let mut rows: Vec<(&ResourceType, &f64)> = per_resource.iter().collect();
+            rows.sort_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal));
+            for (resource, &years) in rows {
+                let icon = super::resources_bar::get_resource_icon(resource);
+                let color = depletion_color(years);
+                let years_str = format_years_remaining(years);
+                ui.horizontal(|ui| {
                     ui.label(
-                        egui::RichText::new(format!("~{} remaining at current draw", years_str))
+                        egui::RichText::new(format!("{} {}", icon, resource.display_name()))
+                            .size(11.0)
+                            .color(theme::TEXT_VALUE),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "~{} remaining at current draw",
+                                years_str
+                            ))
                             .size(11.0)
                             .color(color),
-                    );
+                        );
+                    });
                 });
-            });
-        }
-    });
+            }
+        },
+    );
 
     ui.add_space(theme::Spacing::sm);
 

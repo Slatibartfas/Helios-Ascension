@@ -1,5 +1,7 @@
 use super::dashboard::format_mass;
+use super::tab::Tab;
 use super::*;
+use std::borrow::Cow;
 
 /// Persisted state for the economy panel's selected tab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -14,10 +16,40 @@ enum EconomyTab {
     PrivateShipping,
 }
 
-impl From<u8> for EconomyTab {
-    fn from(v: u8) -> Self {
+impl EconomyTab {
+    /// All seven variants in display order. Used by
+    /// `theme::tab_strip` to render the panel's sub-tab strip and
+    /// to gate the active-tab styling in `ui_economy_panels`. The
+    /// `Default` variant (Overview) is the first slot by the
+    /// `Default`-first convention from `Tab`.
+    const ALL: [EconomyTab; 7] = [
+        EconomyTab::Overview,
+        EconomyTab::Resources,
+        EconomyTab::Colonies,
+        EconomyTab::Mining,
+        EconomyTab::PowerGrid,
+        EconomyTab::Logistics,
+        EconomyTab::PrivateShipping,
+    ];
+
+    /// Stable `u8` discriminator for `egui::data::get_persisted` /
+    /// `insert_persisted`. Replaces the previous `From<u8>` /
+    /// `From<EconomyTab>` pair so the byte survives the Tab-trait
+    /// migration without a backwards-compat shim.
+    fn to_byte(self) -> u8 {
+        match self {
+            EconomyTab::Overview => 0,
+            EconomyTab::Resources => 1,
+            EconomyTab::Colonies => 2,
+            EconomyTab::Mining => 3,
+            EconomyTab::PowerGrid => 4,
+            EconomyTab::Logistics => 5,
+            EconomyTab::PrivateShipping => 6,
+        }
+    }
+
+    fn from_byte(v: u8) -> Self {
         match v {
-            0 => EconomyTab::Overview,
             1 => EconomyTab::Resources,
             2 => EconomyTab::Colonies,
             3 => EconomyTab::Mining,
@@ -29,19 +61,50 @@ impl From<u8> for EconomyTab {
     }
 }
 
-impl From<EconomyTab> for u8 {
-    fn from(t: EconomyTab) -> u8 {
-        match t {
-            EconomyTab::Overview => 0,
-            EconomyTab::Resources => 1,
-            EconomyTab::Colonies => 2,
-            EconomyTab::Mining => 3,
-            EconomyTab::PowerGrid => 4,
-            EconomyTab::Logistics => 5,
-            EconomyTab::PrivateShipping => 6,
+impl Tab for EconomyTab {
+    fn id(&self) -> &'static str {
+        match self {
+            Self::Overview => "overview",
+            Self::Resources => "resources",
+            Self::Colonies => "colonies",
+            Self::Mining => "mining",
+            Self::PowerGrid => "power_grid",
+            Self::Logistics => "logistics",
+            Self::PrivateShipping => "private_shipping",
+        }
+    }
+
+    fn label(&self) -> Cow<'static, str> {
+        Cow::Borrowed(match self {
+            Self::Overview => "Overview",
+            Self::Resources => "Resources",
+            Self::Colonies => "Colonies",
+            Self::Mining => "Mining",
+            Self::PowerGrid => "Power Grid",
+            Self::Logistics => "Logistics",
+            Self::PrivateShipping => "Private Shipping",
+        })
+    }
+
+    fn icon(&self) -> Option<&'static str> {
+        match self {
+            Self::Overview => Some("📊"),
+            Self::Resources => Some("📦"),
+            Self::Colonies => Some("🏠"),
+            Self::Mining => Some("⛏"),
+            Self::PowerGrid => Some("⚡"),
+            Self::Logistics => Some("🚚"),
+            Self::PrivateShipping => Some("🚢"),
         }
     }
 }
+
+/// Per-colony ledger row marker used by `theme::ledger_panel`
+/// in both the Economy panel's "📋 Buildings" breakdown and the
+/// Construction panel's "Resource Depletion" list. The same T
+/// token makes the cross-panel reuse explicit.
+#[allow(dead_code)]
+pub(super) struct ColonyRow;
 
 fn draw_menu_header(ui: &mut egui::Ui, title: &str, subtitle: &str) {
     ui.label(
@@ -73,33 +136,13 @@ fn draw_status_chip(ui: &mut egui::Ui, label: &str, value: String, color: egui::
     });
 }
 
-fn draw_tab_button(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
-    ui.add(
-        egui::Button::new(egui::RichText::new(label).size(13.5).color(if selected {
-            theme::ACCENT
-        } else {
-            theme::TEXT
-        }))
-        .fill(if selected {
-            theme::SURFACE_RAISED
-        } else {
-            theme::SURFACE
-        })
-        .stroke(if selected {
-            egui::Stroke::new(1.0, theme::ACCENT)
-        } else {
-            egui::Stroke::new(1.0, theme::BORDER)
-        })
-        .corner_radius(4.0),
-    )
-}
-
-fn draw_section_title(ui: &mut egui::Ui, title: &str, subtitle: &str) {
-    ui.label(
-        egui::RichText::new(title)
-            .font(theme::heading())
-            .color(theme::ACCENT),
-    );
+fn draw_tab_h1(ui: &mut egui::Ui, title: &str, subtitle: &str) {
+    // PR-F (GRA-71) replaces the bespoke `draw_section_title` with
+    // a thin wrapper over `theme::section_h1` + an optional
+    // subtitle. The title size and accent color match the
+    // `theme::section_h1` primitive; the subtitle is the 11pt dim
+    // line that used to live in `draw_section_title`.
+    theme::section_h1(ui, title);
     if !subtitle.is_empty() {
         ui.label(
             egui::RichText::new(subtitle)
@@ -107,7 +150,6 @@ fn draw_section_title(ui: &mut egui::Ui, title: &str, subtitle: &str) {
                 .color(theme::TEXT_DIM),
         );
     }
-    ui.add_space(6.0);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1213,11 +1255,14 @@ pub(super) fn ui_economy_panels(
     egui::CentralPanel::default()
         .frame(theme::central_frame())
         .show(ctx, |ui| {
-            // Tab state (persisted across frames)
+            // Tab state (persisted across frames as a `u8` byte so
+            // the on-disk format is stable across the PR-F
+            // Tab-trait migration; `from_byte` / `to_byte` replace
+            // the previous `From<u8>` / `From<EconomyTab>` shims).
             let tab_id = ui.id().with("economy_tab");
-            let mut current_tab: EconomyTab = ui
-                .data_mut(|data| data.get_persisted(tab_id).unwrap_or(0u8))
-                .into();
+            let mut current_tab: EconomyTab = EconomyTab::from_byte(
+                ui.data_mut(|data| data.get_persisted(tab_id).unwrap_or(0u8)),
+            );
 
             draw_menu_header(
                 ui,
@@ -1257,31 +1302,26 @@ pub(super) fn ui_economy_panels(
 
             theme::divider(ui);
 
-            // Tab bar
+            // Tab bar — PR-F (GRA-71) replaces the hand-rolled
+            // `for (tab, label) in tabs` loop + `draw_tab_button`
+            // with the PR-B `theme::tab_strip` primitive. The
+            // `EconomyTab::ALL` const carries the seven variants in
+            // display order; icons + labels come from the `Tab`
+            // trait impl. Click semantics match the previous
+            // bespoke version: the callback updates
+            // `current_tab`, the persistence write below keeps the
+            // selection across frames.
             ui.horizontal_wrapped(|ui| {
-                let tabs = [
-                    (EconomyTab::Overview, "📊 Overview"),
-                    (EconomyTab::Resources, "📦 Resources"),
-                    (EconomyTab::Colonies, "🏠 Colonies"),
-                    (EconomyTab::Mining, "⛏ Mining"),
-                    (EconomyTab::PowerGrid, "⚡ Power Grid"),
-                    (EconomyTab::Logistics, "🚚 Logistics"),
-                    (EconomyTab::PrivateShipping, "🚢 Private Shipping"),
-                ];
-                for (tab, label) in &tabs {
-                    let selected = current_tab == *tab;
-                    if draw_tab_button(ui, label, selected).clicked() {
-                        current_tab = *tab;
-                    }
-                }
+                theme::tab_strip(ui, &EconomyTab::ALL, current_tab, |tab| {
+                    current_tab = tab;
+                });
             });
 
             theme::divider(ui);
 
             // Persist tab
-            let tab_byte: u8 = current_tab.into();
             ui.data_mut(|data| {
-                data.insert_persisted(tab_id, tab_byte);
+                data.insert_persisted(tab_id, current_tab.to_byte());
             });
 
             match current_tab {
@@ -1679,7 +1719,7 @@ fn render_econ_resources(
     hierarchy: &[StarSystemGroup],
     buildings_data: Option<&BuildingsData>,
 ) {
-    draw_section_title(
+    draw_tab_h1(
         ui,
         "RESOURCE FLOWS",
         &format!(
@@ -2183,7 +2223,7 @@ fn render_econ_colonies(ui: &mut egui::Ui, budget: &GlobalBudget, hierarchy: &[S
     let net = total_income - total_cost;
     let net_color = if net >= 0.0 { theme::GREEN } else { theme::RED };
 
-    draw_section_title(
+    draw_tab_h1(
         ui,
         "COLONIES",
         "Population, housing, labor, and financial performance.",
@@ -2401,12 +2441,22 @@ fn render_econ_colonies(ui: &mut egui::Ui, budget: &GlobalBudget, hierarchy: &[S
                                 ui.end_row();
                             });
 
-                        // Buildings breakdown by category
+                        // Buildings breakdown by category.
+                        // PR-F (GRA-71) replaces the bespoke
+                        // `egui::CollapsingHeader` chain with
+                        // `theme::ledger_panel<ColonyRow>` — the
+                        // `ColonyRow` marker signals "this is a
+                        // per-colony ledger", and the `id_salt` is
+                        // stable per colony so egui can remember
+                        // open/closed state across frames.
                         if colony.total_buildings > 0 {
                             ui.add_space(4.0);
-                            egui::CollapsingHeader::new("📋 Buildings")
-                                .default_open(false)
-                                .show(ui, |ui| {
+                            theme::ledger_panel(
+                                ui,
+                                &format!("econ_colony_buildings_{}", colony.name),
+                                "📋 Buildings",
+                                &ColonyRow,
+                                |ui| {
                                     for category in BuildingCategory::all() {
                                         let in_cat: Vec<(BuildingType, u32)> = colony
                                             .buildings
@@ -2431,7 +2481,8 @@ fn render_econ_colonies(ui: &mut egui::Ui, budget: &GlobalBudget, hierarchy: &[S
                                             }
                                         }
                                     }
-                                });
+                                },
+                            );
                         }
                     });
                     ui.add_space(3.0);
@@ -2699,7 +2750,7 @@ fn render_mining_body_details(
     if let Some(colony) = &body_entry.colony {
         ui.add_space(theme::Spacing::sm);
         theme::elevated_frame().show(ui, |ui| {
-            draw_section_title(
+            draw_tab_h1(
                 ui,
                 "SITE SUPPORT",
                 "Industrial footprint and colony backing.",
@@ -2730,7 +2781,7 @@ fn render_mining_body_details(
     if active_ops > 0 {
         ui.add_space(theme::Spacing::sm);
         theme::elevated_frame().show(ui, |ui| {
-            draw_section_title(
+            draw_tab_h1(
                 ui,
                 "ACTIVE EXTRACTION",
                 "Current mining operations on this body.",
@@ -2774,7 +2825,7 @@ fn render_mining_body_details(
 
     ui.add_space(theme::Spacing::sm);
     theme::elevated_frame().show(ui, |ui| {
-        draw_section_title(
+        draw_tab_h1(
             ui,
             "SURVEYED DEPOSITS",
             "Known reserves filtered by the current mining view.",
@@ -2864,7 +2915,7 @@ fn render_econ_mining(
     hierarchy: &[StarSystemGroup],
     mining_ui_state: &mut MiningTabUiState,
 ) {
-    draw_section_title(
+    draw_tab_h1(
         ui,
         "MINING",
         "Surveyed deposits, reserve estimates, and extraction sites by orbital hierarchy.",
@@ -3208,7 +3259,7 @@ fn render_econ_power_grid(
     let utilization = grid.load_factor();
 
     // Grid status header
-    draw_section_title(
+    draw_tab_h1(
         ui,
         "POWER GRID",
         "Generation, load, and body-level power allocation.",
@@ -3582,7 +3633,7 @@ fn render_econ_logistics(
 ) {
     use crate::economy::{CompanyAIPolicy, CompanyBuildPolicy, RequestPriority, RequestState};
 
-    draw_section_title(
+    draw_tab_h1(
         ui,
         "LOGISTICS",
         "Freight capacity, open requests, and recent delivery activity.",
@@ -4006,7 +4057,7 @@ fn render_shipping_overview(
 ) -> Option<usize> {
     let mut clicked: Option<usize> = None;
 
-    draw_section_title(
+    draw_tab_h1(
         ui,
         "PRIVATE SHIPPING",
         "Per-company freight capacity, open demand, and recent throughput. \
