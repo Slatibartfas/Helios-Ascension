@@ -124,6 +124,13 @@ pub struct BuildingDefinition {
     /// field continue to parse.
     #[serde(default = "default_available_atmospheres")]
     pub available_atmospheres: Vec<AtmosphereKind>,
+    /// RON ids of anomalies that must be `Verified` on the body
+    /// before this building is available. Empty = no anomaly gate.
+    /// PR-C introduced this for the `DHe3FusionReactor` /
+    /// `magnetic_anomaly` pair.  Defaults to empty so existing
+    /// RON entries without the field continue to parse.
+    #[serde(default)]
+    pub required_anomalies: Vec<String>,
 }
 
 /// Default atmosphere availability: buildable on every body kind.

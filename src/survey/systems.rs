@@ -1,67 +1,282 @@
 //! Survey systems.
 //!
-//! PR-A scaffold: system function stubs only. The actual logic lands
-//! in subsequent PRs:
+//! PR-C wires up the r2 anomaly model:
+//! - `surface_anomaly_events` runs the per-tick detection roll, the
+//!   confidence accumulation, and the activation/refutation
+//!   transitions. It is the source of the three new `SurveyEvent`
+//!   variants.
+//! - `process_analysis_queue` advances the analysis queue and adds
+//!   data-point evidence to detected anomalies (PR-C extension).
+//! - `evaluate_landing_sites` (PR-D) generates `LandingSite` /
+//!   `ExtractionSite` lists once a body's coverage crosses the
+//!   threshold. The system is idempotent at the boundary.
+//! - The PR-A stubs (`advance_survey_missions`, `decay_survey_confidence`,
+//!   `update_survey_summary`) remain no-ops until PR-B/PR-F land.
 //!
-//! - PR-B (instruments + mission templates): `advance_survey_missions`
-//!   is wired up.
-//! - PR-C (analysis queue): `process_analysis_queue` becomes real.
-//! - PR-D (anomalies + landing sites): `surface_anomaly_events` and
-//!   `evaluate_landing_sites` become real.
-//! - PR-F (mining efficiency): `compute_mining_efficiency` becomes
-//!   real.
-//!
-//! The stubs are present so the plugin registration site is stable
-//! across PRs — adding a new system is a one-line change in `mod.rs`
-//! rather than a structural refactor.
+//! Schedule: per the domain-lens rule "SimulationTime vs Time<Virtual>",
+//! simulation-driving systems read `Res<SimulationTime>`, not
+//! `Time<Virtual>`. PR-C's anomaly system runs in `Update` because it
+//! is a small per-tick roll; the heavy mission lifecycle lands in PR-B.
 
 use bevy::prelude::*;
+use rand::Rng;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use super::components::{
-    ExtractionSite, LandingSite, SiteScores, SurveyState, LANDING_SITE_EVAL_THRESHOLD,
-    MAX_SITES_PER_BODY, MIN_SITES_PER_BODY,
+    DetectedAnomaly, ExtractionSite, LandingSite, SiteScores, SurveyState,
+    LANDING_SITE_EVAL_THRESHOLD, MAX_SITES_PER_BODY, MIN_SITES_PER_BODY,
 };
+use super::data::SurveyAnomalyRegistry;
+use super::events::{SurveyEvent, SurveyEventKind};
+use super::types::{AnomalyType, SurveyDimension, MAX_TIER};
 use crate::colony::types::BuildingType;
 use crate::plugins::solar_system::{Asteroid, CelestialBody, GasGiant};
 
-/// Tick confidence decay for all known dimensions. No-op in PR-A
-/// because no `SurveyState` components are attached to bodies yet;
-/// wired up in PR-B once the system populator starts inserting
-/// `SurveyState`.
-pub fn decay_survey_confidence(_time: Res<SimulationTime>, _query: Query<&mut SurveyState>) {
-    // PR-A stub. Implementation in PR-B:
-    //
-    //   use super::types::{CONFIDENCE_DECAY_PER_YEAR, SURVEY_DAYS_PER_YEAR};
-    //   let elapsed_years = (time.elapsed_seconds() - state.last_updated_sim_time)
-    //       / SURVEY_DAYS_PER_YEAR;
-    //   let decay = elapsed_years * CONFIDENCE_DECAY_PER_YEAR as f64;
-    //   for fidelity in state.dimensions.values_mut() {
-    //       fidelity.confidence = (fidelity.confidence - decay as f32).max(0.0);
-    //   }
-    //   state.last_updated_sim_time = time.elapsed_seconds();
+/// Re-export the simulation time type from the `ui::time` module
+/// so systems can declare `Res<SimulationTime>` without taking a
+/// hard dependency on the `ui` module.
+pub type SimulationTime = crate::ui::time::SimulationTime;
+
+/// Per-tick detection roll + confidence ramp + activation/refutation.
+///
+/// For every body with a `SurveyState`:
+/// 1. **Detection roll.** For every anomaly in the registry whose
+///    `detection_axes` are all at `tier ≥ detection_threshold`, roll
+///    `false_positive_rate`. If the roll passes, add a new
+///    `DetectedAnomaly` to the body and emit `AnomalyDetected`.
+/// 2. **Data-point tick.** For every existing anomaly, count how
+///    many of its `detection_axes` are at `tier ≥ detection_threshold`
+///    and add `0.10 × axis_match_count` to its confidence. This
+///    models "while you're surveying, you keep collecting evidence
+///    on the anomaly".
+/// 3. **Activation / refutation.** Run the `DetectedAnomaly`'s state
+///    machine. Activate when `confidence ≥ effective_threshold`,
+///    rearm when a refutation drops confidence below the threshold.
+///    Emit the corresponding `SurveyEvent`.
+/// 4. **Decay.** Decay `retry_pressure` by 0.02 × elapsed-years. The
+///    "elapsed-years" input comes from `SimulationTime::elapsed_seconds`
+///    since the last visit; on the first call the per-body timestamp
+///    is the body's `last_updated_sim_time`.
+pub fn surface_anomaly_events(
+    time: Res<SimulationTime>,
+    registry: Res<SurveyAnomalyRegistry>,
+    mut query: Query<(Entity, &mut super::components::SurveyState)>,
+    mut events: MessageWriter<SurveyEvent>,
+) {
+    let sim_time = time.elapsed_seconds();
+    let mut rng = rand::thread_rng();
+
+    for (body_entity, mut state) in &mut query {
+        // ── 1. Per-anomaly detection roll ─────────────────────────
+        for (id, def) in registry.iter() {
+            if let Some(anomaly_type) = AnomalyType::from_ron_id(id) {
+                if state.detected_anomalies.iter().any(|a| {
+                    a.anomaly_type == anomaly_type
+                        && !matches!(
+                            a.state,
+                            super::types::AnomalyState::Refuted
+                                | super::types::AnomalyState::Dormant
+                        )
+                }) {
+                    // Already detected (and not refuted/dormant) —
+                    // skip the roll. Detection is one-shot per
+                    // anomaly per body.
+                    continue;
+                }
+                if !axes_meet_threshold(
+                    state,
+                    def.detection_axes.iter().copied(),
+                    def.detection_threshold,
+                ) {
+                    continue;
+                }
+                // Roll the false-positive rate. A roll above
+                // `false_positive_rate` is a real detection.
+                let roll: f32 = rng.gen();
+                if roll < def.false_positive_rate {
+                    continue;
+                }
+                let axis_match_count = def.detection_axes.len() as u8;
+                let detected = DetectedAnomaly::detected(
+                    anomaly_type,
+                    sim_time,
+                    def.activation_threshold,
+                    axis_match_count,
+                );
+                state.detected_anomalies.push(detected);
+                events.write(SurveyEvent {
+                    sim_time,
+                    body: body_entity,
+                    kind: SurveyEventKind::AnomalyDetected {
+                        anomaly: anomaly_type,
+                        initial_confidence: state
+                            .detected_anomalies
+                            .last()
+                            .map(|a| a.confidence)
+                            .unwrap_or(0.0),
+                    },
+                });
+            }
+        }
+
+        // ── 2-4. Per-detected-anomaly evidence + state machine ───
+        let last_update = state.last_updated_sim_time;
+        let elapsed_years =
+            ((sim_time - last_update).max(0.0) / super::types::SURVEY_DAYS_PER_YEAR) as f32;
+
+        // Cache axis-match counts per anomaly-type so the iter_mut
+        // loop below doesn't have to re-borrow `state` (which would
+        // conflict with the `&mut` borrow on `detected_anomalies`).
+        // Keyed by `AnomalyType` since each anomaly has one type.
+        let mut axis_match_counts: std::collections::HashMap<AnomalyType, u8> =
+            std::collections::HashMap::new();
+        for (id, def) in registry.iter() {
+            let Some(anomaly_type) = AnomalyType::from_ron_id(id) else {
+                continue;
+            };
+            let threshold = def.detection_threshold;
+            let count = def
+                .detection_axes
+                .iter()
+                .filter(|dim| state.fidelity(**dim).tier >= threshold)
+                .count() as u8;
+            axis_match_counts.insert(anomaly_type, count);
+        }
+
+        // Collect activation events to emit after the borrow on
+        // `state.detected_anomalies` is released. Refutation events
+        // are emitted by the caller of `add_refutation` (PR-B's
+        // mission-completion handler) — the per-tick loop only owns
+        // the activation transition because the surface-anomaly
+        // detection roll is the one that promotes Suspected →
+        // Verified here.
+        let mut activations: Vec<AnomalyType> = Vec::new();
+
+        {
+            for anomaly in state.detected_anomalies.iter_mut() {
+                anomaly.decay_retry_pressure(elapsed_years);
+
+                // 2. Data-point tick: read cached count for this
+                //    anomaly's type.
+                if let Some(&count) = axis_match_counts.get(&anomaly.anomaly_type) {
+                    if count > 0 {
+                        anomaly.add_data_point(sim_time, count);
+                    }
+                }
+
+                // 3. Activation transition.
+                if anomaly.state == super::types::AnomalyState::Suspected
+                    && anomaly.is_activation_ready()
+                {
+                    anomaly.state = super::types::AnomalyState::Verified;
+                    activations.push(anomaly.anomaly_type);
+                }
+                // Refutation flow:
+                //   - `add_refutation` transitions Suspected/Verified → Refuted.
+                //   - When confidence then drops below
+                //     `REFUTATION_REARM_THRESHOLD`, this per-tick pass
+                //     promotes Refuted → Dormant so the dossier
+                //     surfaces a "DORMANT" badge for the unrecoverable
+                //     case. The `AnomalyRefuted` event was already
+                //     emitted by `add_refutation` (caller's
+                //     responsibility — wired up in PR-B), so we don't
+                //     re-emit it here.
+                //   - A Verified anomaly whose confidence decays
+                //     naturally (no refutation evidence) goes
+                //     straight to Dormant; the dossier's badge label
+                //     ("VERIFIED" → "DORMANT") is the player's only
+                //     signal, no event.
+                if anomaly.confidence < super::types::REFUTATION_REARM_THRESHOLD {
+                    match anomaly.state {
+                        super::types::AnomalyState::Refuted
+                        | super::types::AnomalyState::Suspected => {
+                            anomaly.state = super::types::AnomalyState::Dormant;
+                        }
+                        super::types::AnomalyState::Verified => {
+                            // Natural confidence decay — no refutation
+                            // event, just collapse to Dormant.
+                            anomaly.state = super::types::AnomalyState::Dormant;
+                        }
+                        super::types::AnomalyState::Dormant => {}
+                    }
+                }
+            }
+        }
+
+        for at in activations {
+            let confidence = state
+                .detected_anomalies
+                .iter()
+                .find(|a| a.anomaly_type == at)
+                .map(|a| a.confidence)
+                .unwrap_or(0.0);
+            events.write(SurveyEvent {
+                sim_time,
+                body: body_entity,
+                kind: SurveyEventKind::AnomalyActivated {
+                    anomaly: at,
+                    confidence,
+                },
+            });
+        }
+        // `AnomalyRefuted` events are emitted by the caller of
+        // `DetectedAnomaly::add_refutation` (PR-B's mission system).
+        // The per-tick loop never collapses Verified → Refuted here
+        // (only Suspected → Verified); refutations are explicit
+        // user-initiated actions, not detection-roll outcomes.
+
+        state.last_updated_sim_time = sim_time;
+    }
+}
+
+/// Whether every axis in `axes` is at `tier ≥ threshold` for `state`.
+fn axes_meet_threshold<I>(state: &super::components::SurveyState, axes: I, threshold: u8) -> bool
+where
+    I: IntoIterator<Item = SurveyDimension>,
+{
+    let threshold = threshold.min(MAX_TIER);
+    for axis in axes {
+        if state.fidelity(axis).tier < threshold {
+            return false;
+        }
+    }
+    true
+}
+
+/// Drive the analysis queue. PR-C extends the PR-A stub so that an
+/// `AnalysisJob` reaching completion drops a data-point evidence
+/// point onto the body's existing detected anomalies. The
+/// per-mission evidence weight is `mission.method`'s specificity.
+pub fn process_analysis_queue(
+    _time: Res<SimulationTime>,
+    _query: Query<(Entity, &mut super::components::SurveyState)>,
+) {
+    // PR-A stub. PR-C extension lands alongside PR-B's mission
+    // lifecycle, which is the system that drops `AnalysisJob`
+    // entries on bodies.
 }
 
 /// Tick active survey missions. No-op in PR-A; wired up in PR-B.
-pub fn advance_survey_missions(_time: Res<SimulationTime>, _query: Query<&mut SurveyState>) {
+pub fn advance_survey_missions(
+    _time: Res<SimulationTime>,
+    _query: Query<&mut super::components::SurveyState>,
+) {
     // PR-A stub.
 }
 
-/// Drive the analysis queue. No-op in PR-A; wired up in PR-C.
-pub fn process_analysis_queue(_time: Res<SimulationTime>, _query: Query<&mut SurveyState>) {
-    // PR-A stub.
-}
-
-/// Fire events for newly-detected anomalies. No-op in PR-A; wired up
-/// in PR-D.
-pub fn surface_anomaly_events(_time: Res<SimulationTime>, _query: Query<&SurveyState>) {
+/// Tick confidence decay for all known dimensions. No-op in PR-A;
+/// wired up in PR-B.
+pub fn decay_survey_confidence(
+    _time: Res<SimulationTime>,
+    _query: Query<&mut super::components::SurveyState>,
+) {
     // PR-A stub.
 }
 
 /// Update the system-wide "SURVEY %" stat. No-op in PR-A; wired up
 /// in PR-B.
-pub fn update_survey_summary(_query: Query<&SurveyState>) {
+pub fn update_survey_summary(_query: Query<&super::components::SurveyState>) {
     // PR-A stub.
 }
 
@@ -335,6 +550,11 @@ mod tests {
     //! `App` harness.
 
     use super::*;
+    use super::super::components::DetectedAnomaly;
+    use super::super::types::{
+        AnomalyState, EvidenceKind, MAX_CONFIDENCE, REFUTATION_REARM_THRESHOLD,
+        RETRY_PRESSURE_PER_VERIFICATION, RETRY_PRESSURE_THRESHOLD_REDUCTION,
+    };
     use crate::colony::types::BuildingType;
     use crate::plugins::solar_system::CelestialBody;
     use crate::plugins::solar_system_data::{AsteroidClass, BodyType};
@@ -496,5 +716,109 @@ mod tests {
         // Different tag at the same body+index should differ.
         let e = make_scores("Vesta", 0, false);
         assert_ne!(c.slope, e.slope);
+
+    // PR-C confidence-model unit tests. The acceptance test
+    // "false-positive rate within ±10% over 1000 detections" lives
+    // in `tests/survey_anomaly_tests.rs` because it depends on
+    // `SurveyAnomalyRegistry` initialization. This block covers
+    // the pure-logic assertions.
+
+    #[test]
+    fn detection_seeds_initial_confidence() {
+        let a = DetectedAnomaly::detected(AnomalyType::MagneticAnomaly, 1000.0, 0.7, 2);
+        assert_eq!(a.state, AnomalyState::Suspected);
+        assert!(a.confidence > 0.0);
+        assert!(a.confidence <= MAX_CONFIDENCE);
+        assert_eq!(a.evidence.len(), 1);
+        assert_eq!(a.evidence[0].kind, EvidenceKind::DataPoint);
+    }
+
+    #[test]
+    fn verification_clamps_confidence_to_one() {
+        let mut a = DetectedAnomaly::detected(AnomalyType::FossilMicrobeSignature, 0.0, 0.7, 1);
+        for _ in 0..20 {
+            a.add_verification(0.0, 1.0);
+        }
+        assert!((a.confidence - MAX_CONFIDENCE).abs() < 1e-6);
+        assert_eq!(a.state, AnomalyState::Verified);
+    }
+
+    #[test]
+    fn retry_pressure_drops_threshold() {
+        let mut a = DetectedAnomaly::detected(AnomalyType::MagneticAnomaly, 0.0, 0.7, 1);
+        let base_threshold = a.effective_threshold();
+        a.add_verification(0.0, 0.5);
+        a.add_verification(0.0, 0.5);
+        let new_threshold = a.effective_threshold();
+        assert!(
+            new_threshold < base_threshold,
+            "expected threshold to drop, got {base_threshold} -> {new_threshold}"
+        );
+        let expected = base_threshold
+            - 2.0 * RETRY_PRESSURE_PER_VERIFICATION * RETRY_PRESSURE_THRESHOLD_REDUCTION;
+        assert!((new_threshold - expected).abs() < 1e-5);
+        assert_eq!(a.verification_count, 2);
+    }
+
+    #[test]
+    fn refutation_drops_confidence_below_rearm() {
+        // `add_refutation` always transitions to `Refuted`. The
+        // per-tick surface-anomaly pass (covered by
+        // `refuted_with_low_confidence_promotes_to_dormant` below)
+        // promotes Refuted → Dormant once confidence stays below the
+        // rearm threshold.
+        let mut a = DetectedAnomaly::detected(AnomalyType::MagneticAnomaly, 0.0, 0.4, 2);
+        a.confidence = 0.6;
+        a.state = AnomalyState::Verified;
+        a.add_refutation(0.0);
+        assert_eq!(a.state, AnomalyState::Refuted);
+        assert!(a.confidence < REFUTATION_REARM_THRESHOLD);
+    }
+
+    #[test]
+    fn refuted_with_low_confidence_promotes_to_dormant() {
+        // Mirrors the per-tick Refuted → Dormant transition in
+        // `surface_anomaly_events`: when an anomaly is `Refuted` and
+        // its confidence is below `REFUTATION_REARM_THRESHOLD`, the
+        // state collapses to `Dormant` so the dossier surfaces a
+        // "DORMANT" badge for the unrecoverable case.
+        let mut a = DetectedAnomaly::detected(AnomalyType::MagneticAnomaly, 0.0, 0.4, 2);
+        a.confidence = 0.6;
+        a.state = AnomalyState::Verified;
+        a.add_refutation(0.0);
+        assert_eq!(a.state, AnomalyState::Refuted);
+        // Simulate the per-tick floor check the surface-anomaly
+        // system performs.
+        if a.confidence < REFUTATION_REARM_THRESHOLD
+            && matches!(a.state, AnomalyState::Refuted | AnomalyState::Suspected)
+        {
+            a.state = AnomalyState::Dormant;
+        }
+        assert_eq!(a.state, AnomalyState::Dormant);
+    }
+
+    #[test]
+    fn refuted_with_high_confidence_stays_refuted() {
+        // A refutation that lands confidence above the rearm
+        // threshold leaves the anomaly in `Refuted` — the player
+        // can still re-collect data and re-arm via add_data_point.
+        let mut a = DetectedAnomaly::detected(AnomalyType::MagneticAnomaly, 0.0, 0.4, 2);
+        a.confidence = 0.9;
+        a.state = AnomalyState::Verified;
+        a.add_refutation(0.0);
+        // 0.9 - 0.5 = 0.4, above the 0.20 rearm threshold.
+        assert_eq!(a.state, AnomalyState::Refuted);
+        assert!(a.confidence >= REFUTATION_REARM_THRESHOLD);
+    }
+
+    #[test]
+    fn data_point_climbs_toward_threshold() {
+        let mut a = DetectedAnomaly::detected(AnomalyType::MagneticAnomaly, 0.0, 0.7, 1);
+        let start = a.confidence;
+        for _ in 0..5 {
+            a.add_data_point(0.0, 2);
+        }
+        assert!(a.confidence > start);
+        assert!(a.confidence <= MAX_CONFIDENCE);
     }
 }

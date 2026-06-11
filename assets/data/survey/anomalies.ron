@@ -1,40 +1,278 @@
-// Modder-added anomaly types (GRA-98 / v0.5.0 survey rework).
+// Anomaly definitions for Helios Ascension (v0.5.0 PR-C).
 //
-// Loads into `SurveyAnomalyRegistry::modder_anomalies` (see
-// `src/survey/data.rs`, GRA-79 PR-A scaffold). The nine hardcoded
-// anomaly types in `AnomalyType` are always known to the binary
-// and are NOT in this file:
+// Drives the r2 anomaly confidence model: per-tick detection roll,
+// confidence accumulation, retry-pressure ramp, activation /
+// refutation. See `docs/design/SURVEY_REWORK.md` §12.
 //
-//   WaterIceDeposit, HydratedSilicates, MethanePlume, TholinSignature,
-//   MagneticAnomaly, RadioactiveHotspot, FossilMicrobeSignature,
-//   CryovolcanicFeature, UnidentifiedReflectance
-//
-// See SURVEY_REWORK.md §[Anomalies and Discoveries] for the canonical
-// set, effects, and the coolness-vs-effect split (coolness is
-// independent of the gameplay unlock — a `fossil_microbe_signature` is
-// top-tier coolness for media coverage but is a research unlock, not
-// a building unlock).
-//
-// Field reference (mirrors `ModderAnomalyDef` in `data.rs`):
-//   `id`                — stable RON id (snake_case; matches
-//                         `AnomalyType::ron_id` convention)
-//   `display_name`      — UI label (≤ 32 chars preferred)
-//   `description`       — one-line dossier tooltip
-//   `discovery_method`  — which `SurveyMethod` is most likely to
-//                         surface this anomaly (drives the per-mission
-//                         discovery roll; secondary methods can also
-//                         surface with lower probability)
-//   `coolness`          — "coolness" weight for media coverage, in
-//                         [0.0, 1.0]. Independent of gameplay effect
-//                         per SURVEY_REWORK §[Coolness weighting].
-//
-// Modder rebalance: adjust `coolness` to bias the media narrative
-// toward/away from this anomaly; pick a more accessible
-// `discovery_method` to make the anomaly easier to find.
-//
-// v0.5.0 ships with zero modder anomalies — this file exists so the
-// modder path is exercisable from day one.
+// Modding Guide:
+// - Add a new row to `hardcoded` to ship with the binary; the
+//   `id` must match an `AnomalyType::ron_id` variant.
+// - Add a new row to `modder_anomalies` for modder-added types —
+//   the loader turns each into an `AnomalyDef` at startup.
+// - `detection_axes` lists the dimensions whose tier must meet
+//   `detection_threshold` for the roll to fire.
+// - `false_positive_rate` is the per-roll probability the system
+//   ignores the candidate. Modders tune per anomaly in `[0.05, 0.30]`.
+// - `activation_threshold` is the confidence required to promote
+//   the anomaly to `Verified`. Retry-pressure reduces it.
+// - `evidence_methods` lists the methods that count as "verification"
+//   for this anomaly. `method_specificity` overrides the
+//   default per-method weight for any of them.
+// - `effect` is what the anomaly does on activation. `None` is
+//   flavor-only; the others route through research/buildings/events.
+
 (
-    modder_anomalies: [
+    hardcoded: [
+        // ── r1 terrestrial anomalies (9 from PR-A) ────────────────
+        (
+            id: "water_ice_deposit",
+            display_name: "Water Ice Deposit",
+            description: "Significant subsurface water-ice deposit. Routes to a water-extraction building.",
+            detection_axes: [MineralClasses, Subsurface],
+            detection_threshold: 2,
+            false_positive_rate: 0.10,
+            activation_threshold: 0.7,
+            evidence_methods: [RemoteSensing, SurfaceLander, Drill],
+            method_specificity: {SurfaceLander: 0.85, Drill: 1.0},
+            effect: (kind: "unlocks_building", building_id: "WaterExtractor"),
+            coolness: 0.6,
+        ),
+        (
+            id: "hydrated_silicates",
+            display_name: "Hydrated Silicates",
+            description: "Mineral spectral signature of past water interaction. Unlocks a research project.",
+            detection_axes: [MineralClasses],
+            detection_threshold: 2,
+            false_positive_rate: 0.12,
+            activation_threshold: 0.7,
+            evidence_methods: [RemoteSensing, SampleReturn],
+            method_specificity: {SampleReturn: 1.0},
+            effect: (kind: "unlocks_tech", tech_id: "water_history_confirmation"),
+            coolness: 0.5,
+        ),
+        (
+            id: "methane_plume",
+            display_name: "Methane Plume",
+            description: "Active outgassing of methane. Triggers follow-up atmospheric survey mission.",
+            detection_axes: [Atmosphere],
+            detection_threshold: 2,
+            false_positive_rate: 0.20,
+            activation_threshold: 0.7,
+            evidence_methods: [AtmosphericProbe, Orbital],
+            method_specificity: {AtmosphericProbe: 1.0},
+            effect: (kind: "triggers_event", event_id: "methane_followup"),
+            coolness: 0.7,
+        ),
+        (
+            id: "tholin_signature",
+            display_name: "Tholin Signature",
+            description: "Complex organic photochemistry in upper atmosphere. Unlocks prebiotic chemistry research.",
+            detection_axes: [Atmosphere, SurfaceFeatures],
+            detection_threshold: 2,
+            false_positive_rate: 0.15,
+            activation_threshold: 0.7,
+            evidence_methods: [RemoteSensing, AtmosphericProbe],
+            method_specificity: {AtmosphericProbe: 0.95},
+            effect: (kind: "unlocks_tech", tech_id: "prebiotic_chemistry"),
+            coolness: 0.7,
+        ),
+        (
+            id: "magnetic_anomaly",
+            display_name: "Magnetic Anomaly",
+            description: "Localized crustal magnetic field hinting at subsurface conducting layer. Helps target drilling.",
+            detection_axes: [OrbitalMech, Subsurface],
+            detection_threshold: 2,
+            false_positive_rate: 0.10,
+            activation_threshold: 0.7,
+            evidence_methods: [Flyby, Orbital, Drill],
+            method_specificity: {Drill: 1.0},
+            effect: (kind: "unlocks_building", building_id: "DHe3FusionReactor"),
+            coolness: 0.6,
+        ),
+        (
+            id: "radioactive_hotspot",
+            display_name: "Radioactive Hotspot",
+            description: "Concentrated uranium/thorium deposit. Unlocks the rare-earth prospect event chain.",
+            detection_axes: [MineralDeposits, Subsurface],
+            detection_threshold: 2,
+            false_positive_rate: 0.10,
+            activation_threshold: 0.7,
+            evidence_methods: [Rover, Drill, SampleReturn],
+            method_specificity: {Drill: 1.0},
+            effect: (kind: "triggers_event", event_id: "rare_earth_prospect"),
+            coolness: 0.6,
+        ),
+        (
+            id: "fossil_microbe_signature",
+            display_name: "Fossil Microbe Signature",
+            description: "Putative biosignature. Major research unlock; triggers media event.",
+            detection_axes: [Habitability, Subsurface],
+            detection_threshold: 3,
+            false_positive_rate: 0.25,
+            activation_threshold: 0.8,
+            evidence_methods: [Drill, SampleReturn],
+            method_specificity: {SampleReturn: 1.0},
+            effect: (kind: "unlocks_tech", tech_id: "fossil_microbe_confirmation"),
+            coolness: 0.95,
+        ),
+        (
+            id: "cryovolcanic_feature",
+            display_name: "Cryovolcanic Feature",
+            description: "Water/volatile eruption signature. Unlocks interior-ocean research branch.",
+            detection_axes: [SurfaceFeatures, Subsurface],
+            detection_threshold: 2,
+            false_positive_rate: 0.12,
+            activation_threshold: 0.7,
+            evidence_methods: [Orbital, SurfaceLander],
+            method_specificity: {SurfaceLander: 0.9},
+            effect: (kind: "unlocks_tech", tech_id: "interior_ocean_research"),
+            coolness: 0.75,
+        ),
+        (
+            id: "unidentified_reflectance",
+            display_name: "Unidentified Reflectance",
+            description: "Anomalous spectral feature with no clean model. Triggers a follow-up 'unknown' mission.",
+            detection_axes: [SurfaceFeatures, Anomalies],
+            detection_threshold: 2,
+            false_positive_rate: 0.30,
+            activation_threshold: 0.7,
+            evidence_methods: [RemoteSensing, SampleReturn],
+            method_specificity: {SampleReturn: 1.0},
+            effect: (kind: "triggers_event", event_id: "unknown_followup"),
+            coolness: 0.5,
+        ),
+        // ── r2 terrestrial anomalies (6 new in PR-C) ─────────────
+        (
+            id: "evaporite_mineralogy",
+            display_name: "Evaporite Mineralogy",
+            description: "Sulfate/chloride salt flats indicating past standing liquid water.",
+            detection_axes: [MineralClasses, SurfaceFeatures],
+            detection_threshold: 2,
+            false_positive_rate: 0.12,
+            activation_threshold: 0.7,
+            evidence_methods: [RemoteSensing, Rover, SampleReturn],
+            method_specificity: {SampleReturn: 1.0},
+            effect: (kind: "unlocks_tech", tech_id: "evaporite_water_history"),
+            coolness: 0.6,
+        ),
+        (
+            id: "polar_volatiles",
+            display_name: "Polar Volatiles",
+            description: "Frozen CO2 / water mix at the polar caps. Quantifiable seasonal exchange.",
+            detection_axes: [Atmosphere, SurfaceFeatures],
+            detection_threshold: 2,
+            false_positive_rate: 0.10,
+            activation_threshold: 0.65,
+            evidence_methods: [Orbital, RemoteSensing],
+            method_specificity: {Orbital: 0.95},
+            effect: (kind: "research_bonus", percentage: 5.0),
+            coolness: 0.5,
+        ),
+        (
+            id: "brine_aquifer",
+            display_name: "Brine Aquifer",
+            description: "Sub-surface briny aquifer detectable by deep-penetration radar.",
+            detection_axes: [Subsurface],
+            detection_threshold: 3,
+            false_positive_rate: 0.15,
+            activation_threshold: 0.75,
+            evidence_methods: [Orbital, Seismic, Drill],
+            method_specificity: {Seismic: 0.95, Drill: 1.0},
+            effect: (kind: "unlocks_building", building_id: "BrineExtractor"),
+            coolness: 0.7,
+        ),
+        (
+            id: "iron_oxide_outcrop",
+            display_name: "Iron Oxide Outcrop",
+            description: "Hematite / magnetite spectral signature. Mars-analog mineralogy.",
+            detection_axes: [MineralClasses, MineralDeposits],
+            detection_threshold: 2,
+            false_positive_rate: 0.10,
+            activation_threshold: 0.7,
+            evidence_methods: [RemoteSensing, Rover, SampleReturn],
+            method_specificity: {SampleReturn: 1.0},
+            effect: (kind: "research_bonus", percentage: 3.0),
+            coolness: 0.5,
+        ),
+        (
+            id: "tidally_heated_fracture",
+            display_name: "Tidally Heated Fracture",
+            description: "Captured-rotational resonance producing interior heat signature.",
+            detection_axes: [OrbitalMech, Subsurface],
+            detection_threshold: 3,
+            false_positive_rate: 0.20,
+            activation_threshold: 0.75,
+            evidence_methods: [Flyby, Orbital, Seismic],
+            method_specificity: {Seismic: 0.95},
+            effect: (kind: "unlocks_tech", tech_id: "tidal_heating_research"),
+            coolness: 0.7,
+        ),
+        (
+            id: "radar_bright_spot",
+            display_name: "Radar Bright Spot",
+            description: "S-band radar bright spot consistent with a sub-surface ice lens.",
+            detection_axes: [Subsurface, Anomalies],
+            detection_threshold: 3,
+            false_positive_rate: 0.18,
+            activation_threshold: 0.75,
+            evidence_methods: [Orbital, Seismic, Drill],
+            method_specificity: {Drill: 1.0},
+            effect: (kind: "unlocks_tech", tech_id: "subsurface_ice_lens"),
+            coolness: 0.65,
+        ),
+        // ── r2 gas-giant anomalies (4 new in PR-C) ───────────────
+        (
+            id: "giant_storm_tower",
+            display_name: "Giant Storm Tower",
+            description: "Sustained 400+ m/s convective storm tower. Trackable by orbital imaging.",
+            detection_axes: [Atmosphere, SurfaceFeatures],
+            detection_threshold: 2,
+            false_positive_rate: 0.08,
+            activation_threshold: 0.6,
+            evidence_methods: [Flyby, Orbital, AtmosphericProbe],
+            method_specificity: {AtmosphericProbe: 1.0},
+            effect: (kind: "triggers_event", event_id: "giant_storm_alert"),
+            coolness: 0.8,
+        ),
+        (
+            id: "metallic_hydrogen_layer",
+            display_name: "Metallic Hydrogen Layer",
+            description: "Magnetometry signature of metallic-hydrogen phase transition.",
+            detection_axes: [OrbitalMech, Subsurface],
+            detection_threshold: 3,
+            false_positive_rate: 0.20,
+            activation_threshold: 0.75,
+            evidence_methods: [Flyby, Orbital, AtmosphericProbe],
+            method_specificity: {AtmosphericProbe: 0.9},
+            effect: (kind: "unlocks_tech", tech_id: "metallic_hydrogen_physics"),
+            coolness: 0.85,
+        ),
+        (
+            id: "helium_rain_out",
+            display_name: "Helium Rain Out",
+            description: "Helium phase separation at the hydrogen/helium boundary. Modeled temperature inversion.",
+            detection_axes: [Atmosphere, Subsurface],
+            detection_threshold: 3,
+            false_positive_rate: 0.22,
+            activation_threshold: 0.75,
+            evidence_methods: [AtmosphericProbe, Orbital],
+            method_specificity: {AtmosphericProbe: 1.0},
+            effect: (kind: "research_bonus", percentage: 8.0),
+            coolness: 0.75,
+        ),
+        (
+            id: "diamond_rain_signature",
+            display_name: "Diamond Rain Signature",
+            description: "Carbon-rich giant interior with predicted diamond precipitation.",
+            detection_axes: [Atmosphere, Subsurface, Anomalies],
+            detection_threshold: 3,
+            false_positive_rate: 0.25,
+            activation_threshold: 0.8,
+            evidence_methods: [AtmosphericProbe, Seismic],
+            method_specificity: {AtmosphericProbe: 1.0},
+            effect: (kind: "triggers_event", event_id: "exotic_matter_event"),
+            coolness: 0.95,
+        ),
     ],
+    modder_anomalies: [],
 )

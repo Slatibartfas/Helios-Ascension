@@ -507,6 +507,7 @@ pub(super) fn ui_construction_panels(
         &Colony,
         &CelestialBody,
         Option<&AtmosphereComposition>,
+        Option<&crate::survey::components::SurveyState>,
     )>,
     construction_query: Query<(Entity, &ConstructionProject)>,
     mut construction_actions: ResMut<PendingConstructionActions>,
@@ -679,16 +680,16 @@ fn render_construction_panel(
     // -- Colony selector --
     let selected_valid = ui_state
         .selected_colony
-        .map(|e| colonies.iter().any(|(ce, _, _, _)| *ce == e))
+        .map(|e| colonies.iter().any(|(ce, _, _, _, _)| *ce == e))
         .unwrap_or(false);
     if !selected_valid {
-        ui_state.selected_colony = colonies.first().map(|(e, _, _, _)| *e);
+        ui_state.selected_colony = colonies.first().map(|(e, _, _, _, _)| *e);
     }
 
     let current_name = ui_state
         .selected_colony
-        .and_then(|e| colonies.iter().find(|(ce, _, _, _)| *ce == e))
-        .map(|(_, c, _, _)| c.name.clone())
+        .and_then(|e| colonies.iter().find(|(ce, _, _, _, _)| *ce == e))
+        .map(|(_, c, _, _, _)| c.name.clone())
         .unwrap_or_default();
 
     ui.horizontal(|ui| {
@@ -728,16 +729,33 @@ fn render_construction_panel(
         Some(e) => e,
         None => return,
     };
-    let (colony_entity, colony, body, atmosphere) =
-        match colonies.iter().find(|(e, _, _, _)| *e == selected_entity) {
-            Some(c) => c,
-            None => return,
-        };
+    let (colony_entity, colony, body, atmosphere, survey_state) = match colonies
+        .iter()
+        .find(|(e, _, _, _, _)| *e == selected_entity)
+    {
+        Some(c) => c,
+        None => return,
+    };
     // GRA-27: pull the body's `breathable` flag for the atmosphere
     // filter.  `None` means the body has no `AtmosphereComposition`
     // yet (pre-game-start, or an atmosphere-less body that hasn't
     // been populated); the UI filter treats that as a pass-through.
     let body_breathable: Option<bool> = atmosphere.map(|a| a.breathable);
+
+    // PR-C: build the set of verified anomaly RON ids on this
+    // body. Empty when the body has no `SurveyState` (older saves
+    // pre-PR-A). Used by the BUILD tab to gate buildings whose
+    // `required_anomalies` field is non-empty (e.g.
+    // `DHe3FusionReactor` requires `magnetic_anomaly`).
+    let verified_anomaly_ids: std::collections::HashSet<String> = survey_state
+        .map(|s| {
+            s.detected_anomalies
+                .iter()
+                .filter(|a| a.state == crate::survey::types::AnomalyState::Verified)
+                .map(|a| a.anomaly_type.ron_id().to_string())
+                .collect()
+        })
+        .unwrap_or_default();
 
     let bypass_tech = debug_settings.enabled && debug_settings.bypass_tech_requirements;
     let free_build = debug_settings.enabled && debug_settings.free_construction;
@@ -811,6 +829,7 @@ fn render_construction_panel(
                 free_build,
                 body_breathable,
                 synergies,
+                &verified_anomaly_ids,
             );
         }
         ConstructionTab::Stockpiles => {
@@ -1340,6 +1359,7 @@ fn render_construction_build_tab(
     free_build: bool,
     body_breathable: Option<bool>,
     synergies: &crate::colony::ColonySynergies,
+    verified_anomaly_ids: &std::collections::HashSet<String>,
 ) {
     // GRA-68: bespoke `RichText::new("BUILD").font(theme::heading())`
     // migrated to the PR-B `theme::section_h2` helper for consistency
@@ -1454,6 +1474,22 @@ fn render_construction_build_tab(
                 };
                 building_is_available_on(def, Some(breathable))
             })
+            // PR-C: anomaly-gate filter. Buildings whose
+            // `required_anomalies` field is non-empty only show as
+            // available when every required RON id is in
+            // `verified_anomaly_ids`. Tech requirement still applies
+            // — this filter is independent.
+            .filter(|b| {
+                let Some(def) = buildings_data.and_then(|d| d.get(b)) else {
+                    return true;
+                };
+                if def.required_anomalies.is_empty() {
+                    return true;
+                }
+                def.required_anomalies
+                    .iter()
+                    .all(|id| verified_anomaly_ids.contains(id))
+            })
             .collect();
 
         if !available.is_empty() {
@@ -1497,6 +1533,22 @@ fn render_construction_build_tab(
                     return true;
                 };
                 building_is_available_on(def, Some(breathable))
+            })
+            // PR-C: same anomaly-gate filter as the available chain.
+            // A building whose required anomalies aren't verified is
+            // hidden, not locked — the player can fix the gate, but
+            // a Locked entry with a "Tech required" hint would be
+            // misleading.
+            .filter(|b| {
+                let Some(def) = buildings_data.and_then(|d| d.get(b)) else {
+                    return true;
+                };
+                if def.required_anomalies.is_empty() {
+                    return true;
+                }
+                def.required_anomalies
+                    .iter()
+                    .all(|id| verified_anomaly_ids.contains(id))
             })
             .collect()
     };

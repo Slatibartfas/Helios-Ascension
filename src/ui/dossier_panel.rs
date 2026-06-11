@@ -29,6 +29,9 @@ use crate::astronomy::components::{
 use crate::astronomy::nearby_stars::NearbyStarsData;
 use crate::economy::components::{SpectralClass, StarSystem};
 use crate::plugins::solar_system_data::{AsteroidClass, BodyType};
+use crate::survey::components::DetectedAnomaly;
+use crate::survey::data::SurveyAnomalyRegistry;
+use crate::survey::types::{AnomalyState, AnomalyType};
 use crate::survey::{ExtractionSite, LandingSite, SurveyState, LANDING_SITE_EVAL_THRESHOLD};
 use bevy::ecs::query::QueryData;
 use std::borrow::Cow;
@@ -141,6 +144,8 @@ pub(super) fn ui_planet_dossier(
     selection: Res<Selection>,
     active_menu: Res<ActiveMenu>,
     nearby_stars: Res<NearbyStarsData>,
+    sim_time: Res<super::time::SimulationTime>,
+    anomaly_registry: Res<SurveyAnomalyRegistry>,
     mut body_query: Query<(Entity, DossierBodyParts)>,
     parent_coords_query: Query<&SpaceCoordinates>,
     all_bodies_query: Query<(
@@ -317,6 +322,12 @@ pub(super) fn ui_planet_dossier(
                                 next,
                             );
                         });
+                    }
+
+                    // ── Anomaly cards (PR-C) ───────────────────────
+                    if let Some(survey_state) = survey_state {
+                        section_divider(ui);
+                        draw_anomaly_section(ui, survey_state, &anomaly_registry, &sim_time);
                     }
 
                     // ── Outpost / Colony ───────────────────────────
@@ -2193,6 +2204,185 @@ fn draw_resource_grid(
         });
 
         ui.add_space(2.0);
+    }
+}
+
+// ─── Anomaly Cards (PR-C) ────────────────────────────────────────────
+
+/// Render the Anomaly section of the dossier. One card per detected
+/// anomaly, with a confidence bar (0–100%), threshold marker, retry
+/// count, time-since-last-data-point, and a three-state badge
+/// (CANDIDATE / VERIFIED / REFUTED). Empty section is suppressed.
+fn draw_anomaly_section(
+    ui: &mut egui::Ui,
+    survey_state: &crate::survey::components::SurveyState,
+    registry: &SurveyAnomalyRegistry,
+    sim_time: &super::time::SimulationTime,
+) {
+    if survey_state.detected_anomalies.is_empty() {
+        return;
+    }
+
+    theme::section_h3(ui, "ANOMALIES");
+
+    let now = sim_time.elapsed_seconds();
+    for detected in &survey_state.detected_anomalies {
+        draw_anomaly_card(ui, detected, registry, now);
+    }
+}
+
+/// One anomaly card: name, badge, confidence bar, threshold marker,
+/// retry count, time-since-last-data-point. Pulls display name /
+/// description from the registry; falls back to a derived label if
+/// the registry has no row (modder-only anomaly after a save reload).
+fn draw_anomaly_card(
+    ui: &mut egui::Ui,
+    detected: &DetectedAnomaly,
+    registry: &SurveyAnomalyRegistry,
+    sim_now: f64,
+) {
+    let def = registry.get(detected.anomaly_type.ron_id());
+    let display_name = def
+        .map(|d| d.display_name.as_str())
+        .unwrap_or_else(|| detected.anomaly_type.ron_id());
+    let description = def.map(|d| d.description.as_str()).unwrap_or("");
+
+    egui::Frame::group(ui.style())
+        .fill(SURFACE)
+        .stroke(egui::Stroke::new(1.0, BORDER))
+        .rounding(egui::Rounding::same(4.0))
+        .inner_margin(egui::Margin::same(8.0))
+        .show(ui, |ui| {
+            // Header row: name + badge.
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(display_name)
+                        .font(mono_font(11.0))
+                        .color(TEXT_VALUE)
+                        .strong(),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(
+                        egui::RichText::new(detected.state.badge_label())
+                            .font(mono_font(9.0))
+                            .color(badge_color(detected.state)),
+                    );
+                });
+            });
+
+            if !description.is_empty() {
+                ui.label(
+                    egui::RichText::new(description)
+                        .font(mono_font(9.0))
+                        .color(TEXT_DIM),
+                );
+            }
+
+            ui.add_space(4.0);
+
+            // Confidence bar.
+            let confidence = detected.confidence.clamp(0.0, 1.0);
+            let bar_height = 8.0;
+            let bar_width = ui.available_width();
+            let (rect, _) =
+                ui.allocate_exact_size(egui::vec2(bar_width, bar_height), egui::Sense::hover());
+            let painter = ui.painter_at(rect);
+            painter.rect_filled(rect, 2.0, BG);
+            let filled = egui::Rect::from_min_size(
+                rect.min,
+                egui::vec2(rect.width() * confidence, rect.height()),
+            );
+            painter.rect_filled(filled, 2.0, bar_color(detected.state));
+
+            // Threshold marker (vertical line at effective threshold).
+            let effective = detected.effective_threshold();
+            let x = rect.min.x + rect.width() * effective;
+            painter.line_segment(
+                [
+                    egui::pos2(x, rect.min.y - 1.0),
+                    egui::pos2(x, rect.max.y + 1.0),
+                ],
+                egui::Stroke::new(1.0, ACCENT),
+            );
+
+            // Numeric row below the bar.
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{:>3.0}% / {:.0}%",
+                        confidence * 100.0,
+                        effective * 100.0
+                    ))
+                    .font(mono_font(9.0))
+                    .color(TEXT_DIM),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "tries: {}  ·  last: {}d",
+                            detected.verification_count,
+                            sim_days_since(detected.last_updated_sim_time, sim_now),
+                        ))
+                        .font(mono_font(9.0))
+                        .color(TEXT_DIM),
+                    );
+                });
+            });
+        });
+
+    ui.add_space(2.0);
+}
+
+/// Days-since stamp. If the sim hasn't ticked yet (`last == 0`), show
+/// "—". Otherwise render `now - last` in sim-days.
+fn sim_days_since(last: f64, sim_now: f64) -> String {
+    if last <= 0.0 {
+        return "—".to_string();
+    }
+    let days = ((sim_now - last).max(0.0) / 86_400.0) as i64;
+    format!("{days}")
+}
+
+fn badge_color(state: AnomalyState) -> egui::Color32 {
+    match state {
+        AnomalyState::Suspected => AMBER,
+        AnomalyState::Verified => GREEN,
+        AnomalyState::Refuted => RED,
+        AnomalyState::Dormant => TEXT_DIM,
+    }
+}
+
+fn bar_color(state: AnomalyState) -> egui::Color32 {
+    match state {
+        AnomalyState::Suspected => AMBER,
+        AnomalyState::Verified => GREEN,
+        AnomalyState::Refuted => RED,
+        AnomalyState::Dormant => TEXT_DIM,
+    }
+}
+
+#[allow(dead_code)]
+fn _anomaly_type_marker(t: AnomalyType) -> &'static str {
+    match t {
+        AnomalyType::WaterIceDeposit => "💧",
+        AnomalyType::HydratedSilicates => "🪨",
+        AnomalyType::MethanePlume => "💨",
+        AnomalyType::TholinSignature => "🌫",
+        AnomalyType::MagneticAnomaly => "🧲",
+        AnomalyType::RadioactiveHotspot => "☢",
+        AnomalyType::FossilMicrobeSignature => "🦠",
+        AnomalyType::CryovolcanicFeature => "❄",
+        AnomalyType::UnidentifiedReflectance => "?",
+        AnomalyType::EvaporiteMineralogy => "🧂",
+        AnomalyType::PolarVolatiles => "❄",
+        AnomalyType::BrineAquifer => "🌊",
+        AnomalyType::IronOxideOutcrop => "🟤",
+        AnomalyType::TidallyHeatedFracture => "♨",
+        AnomalyType::RadarBrightSpot => "📡",
+        AnomalyType::GiantStormTower => "🌀",
+        AnomalyType::MetallicHydrogenLayer => "⚡",
+        AnomalyType::HeliumRainOut => "🌧",
+        AnomalyType::DiamondRainSignature => "💎",
     }
 }
 
