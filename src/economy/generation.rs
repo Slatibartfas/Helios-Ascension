@@ -1,9 +1,11 @@
 use bevy::prelude::*;
-use rand::Rng;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 
 use super::components::{MineralDeposit, OrbitsBody, PlanetResources, StarSystem};
 use super::types::{determine_resource_phase, ResourcePhase, ResourceType};
 use crate::astronomy::{AtmosphereComposition, SpaceCoordinates, SurfaceTemperature};
+use crate::game_state::GameSeed;
 use crate::plugins::solar_system::{
     Asteroid, CelestialBody, Comet, DwarfPlanet, Moon, Planet, Ring,
 };
@@ -13,6 +15,34 @@ use crate::plugins::solar_system_data::{AsteroidClass, BodyType};
 /// Used when no StarSystem component is found (single-star legacy mode)
 /// Beyond this distance, volatiles become more common
 const DEFAULT_FROST_LINE_AU: f64 = 2.5;
+
+/// Seeded RNG shared by all procedural resource generators.
+///
+/// Holding the RNG as a Bevy resource makes resource generation reproducible:
+/// production seeds it from [`GameSeed`] (so each game session is deterministic),
+/// and tests can insert a custom-seeded instance to get deterministic bodies
+/// without depending on the system that drives prod seeding.
+///
+/// See [`init_procedural_rng`].
+#[derive(Resource)]
+pub struct ProceduralRng(pub StdRng);
+
+impl ProceduralRng {
+    pub fn from_seed(seed: u64) -> Self {
+        Self(StdRng::seed_from_u64(seed))
+    }
+}
+
+/// Initialize [`ProceduralRng`] from the active [`GameSeed`].
+///
+/// Must run before [`generate_solar_system_resources`]; the chain in
+/// `EconomyPlugin::build` orders it first. Pulling from `GameSeed` keeps
+/// resource generation deterministic per game session (so save/load works
+/// and replays are stable) and — critically — makes resource-generation
+/// tests deterministic when they insert their own seeded `ProceduralRng`.
+pub fn init_procedural_rng(mut commands: Commands, game_seed: Res<GameSeed>) {
+    commands.insert_resource(ProceduralRng::from_seed(game_seed.value));
+}
 
 /// System that generates resources for all celestial bodies on startup
 /// Uses realistic accretion chemistry based on distance from parent star
@@ -43,8 +73,11 @@ pub fn generate_solar_system_resources(
     star_query: Query<(&StarSystem, &SpaceCoordinates)>,
     // Query to follow orbit parent chain (used to find the star entity for moons)
     parent_orbits_query: Query<&OrbitsBody>,
+    // Seeded RNG (see [`ProceduralRng`]). Required so generation is reproducible
+    // per game seed and tests can inject a deterministic seed.
+    mut proc_rng: ResMut<ProceduralRng>,
 ) {
-    let mut rng = rand::rng();
+    let rng: &mut StdRng = &mut proc_rng.0;
 
     for (entity, body, coords, orbits_body) in body_query.iter() {
         // Determine parent star, frost line, and metallicity multiplier
@@ -105,7 +138,7 @@ pub fn generate_solar_system_resources(
             body.asteroid_class,
             distance_from_star,
             frost_line,
-            &mut rng,
+            rng,
         );
 
         // Apply metallicity bonus to rare metals and fissile materials

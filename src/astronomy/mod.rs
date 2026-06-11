@@ -1098,7 +1098,7 @@ mod procedural_generation_tests {
         calculate_frost_line, map_star_to_system_architecture, PlanetType, SpaceCoordinates,
     };
     use crate::economy::components::{OrbitsBody, PlanetResources, SpectralClass, StarSystem};
-    use crate::economy::generation::generate_solar_system_resources;
+    use crate::economy::generation::{generate_solar_system_resources, ProceduralRng};
     use crate::economy::types::ResourceType;
     use crate::plugins::solar_system::{CelestialBody, Moon, Planet, Star};
     use crate::plugins::solar_system_data::BodyType;
@@ -1552,6 +1552,15 @@ mod procedural_generation_tests {
             .id();
 
         app.add_systems(Update, generate_solar_system_resources);
+
+        // Seed the procedural RNG so this test is deterministic (the system
+        // pulls from ResMut<ProceduralRng> rather than the thread-local RNG
+        // — see GRA-91).  Picking a seed that places the moon firmly in the
+        // inner-system profile is not required: with a fixed seed, the
+        // generated water fraction is the same on every run, so the assertion
+        // below either passes consistently or fails consistently.  We choose
+        // 0x1A2B_3C4D_5E6F_7081 so the seed is easy to spot in debug logs.
+        app.insert_resource(ProceduralRng::from_seed(0x1A2B_3C4D_5E6F_7081));
 
         // Run one update to generate resources
         app.update();
