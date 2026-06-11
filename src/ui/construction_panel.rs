@@ -740,7 +740,6 @@ fn render_construction_panel(
 
     let bypass_tech = debug_settings.enabled && debug_settings.bypass_tech_requirements;
     let free_build = debug_settings.enabled && debug_settings.free_construction;
-    let buildings_total = colony.total_buildings();
     let factories = colony.building_count(BuildingType::Factory) as f64;
     let bp_rate = 1.0 + factories * 10.0;
     let queue: Vec<_> = construction_query
