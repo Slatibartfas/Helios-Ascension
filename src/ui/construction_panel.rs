@@ -2,7 +2,9 @@ use super::dashboard::format_mass_compact;
 use super::*;
 use crate::colony::building_is_available_on;
 use crate::colony::ColonySynergies;
+use crate::ui::tab::Tab;
 use bevy::ecs::system::SystemParam;
+use std::borrow::Cow;
 
 /// Read-only data bundle for the construction panel.  Groups the eight
 /// resource reads so the system fits inside Bevy's 16-parameter limit
@@ -27,6 +29,46 @@ enum ConstructionTab {
     #[default]
     Build,
     Stockpiles,
+}
+
+impl ConstructionTab {
+    /// All four variants in display order. Used by `theme::tab_strip` to
+    /// render the top-level sub-tab strip in `render_construction_panel`.
+    const ALL: [ConstructionTab; 4] = [
+        ConstructionTab::Overview,
+        ConstructionTab::Buildings,
+        ConstructionTab::Build,
+        ConstructionTab::Stockpiles,
+    ];
+}
+
+impl Tab for ConstructionTab {
+    fn id(&self) -> &'static str {
+        match self {
+            Self::Overview => "overview",
+            Self::Buildings => "buildings",
+            Self::Build => "build",
+            Self::Stockpiles => "stockpiles",
+        }
+    }
+
+    fn label(&self) -> Cow<'static, str> {
+        Cow::Borrowed(match self {
+            Self::Overview => "Overview",
+            Self::Buildings => "Buildings",
+            Self::Build => "Build",
+            Self::Stockpiles => "Stockpiles",
+        })
+    }
+
+    fn icon(&self) -> Option<&'static str> {
+        match self {
+            Self::Overview => Some("📊"),
+            Self::Buildings => Some("🏢"),
+            Self::Build => Some("🛠"),
+            Self::Stockpiles => Some("⚖"),
+        }
+    }
 }
 
 /// UI state for the construction panel (persists across frames)
@@ -95,6 +137,19 @@ impl BuildFilter {
         }
     }
 
+    pub fn as_tab(self) -> &'static str {
+        // Stable snake_case token for `Tab::id`.  Distinct from
+        // `label()` (the user-facing chip text).
+        match self {
+            Self::All => "all",
+            Self::Food => "food",
+            Self::Power => "power",
+            Self::Industry => "industry",
+            Self::Research => "research",
+            Self::SynergyActive => "synergy_active",
+        }
+    }
+
     /// Does `building` qualify under this filter?  `colony_entity` is
     /// required for the SynergyActive filter (looks up the colony's
     /// current `SynergyState`).
@@ -148,6 +203,68 @@ impl BuildFilter {
                 })
             }
         }
+    }
+}
+
+impl Tab for BuildFilter {
+    fn id(&self) -> &'static str {
+        self.as_tab()
+    }
+
+    fn label(&self) -> Cow<'static, str> {
+        Cow::Borrowed(BuildFilter::label(*self))
+    }
+
+    fn icon(&self) -> Option<&'static str> {
+        None
+    }
+}
+
+/// A single tab in the Build view's second-level category strip
+/// (the 8 `BuildingCategory` rows + the optional Locked tab).
+/// Wraps the category (or the Locked sentinel) together with the
+/// per-frame *available count* so `theme::tab_strip`'s
+/// `Tab::label() -> Cow<'static, str>` extension point can render
+/// `Category (N)` without a bespoke label helper.
+///
+/// Built fresh each frame from `available_by_category` + the
+/// `locked` slice; the storage on `ConstructionUiState` remains a
+/// `usize` index into the visible list so the saved selection is
+/// robust to categories that fall in/out of visibility as research
+/// progresses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BuildCategoryTab {
+    kind: BuildCategoryTabKind,
+    available_count: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BuildCategoryTabKind {
+    Category(BuildingCategory),
+    Locked,
+}
+
+impl Tab for BuildCategoryTab {
+    fn id(&self) -> &'static str {
+        match self.kind {
+            BuildCategoryTabKind::Category(c) => c.display_name(),
+            BuildCategoryTabKind::Locked => "locked",
+        }
+    }
+
+    fn label(&self) -> Cow<'static, str> {
+        match self.kind {
+            BuildCategoryTabKind::Category(c) => {
+                Cow::Owned(format!("{} ({})", c.display_name(), self.available_count))
+            }
+            BuildCategoryTabKind::Locked => {
+                Cow::Owned(format!("Locked ({})", self.available_count))
+            }
+        }
+    }
+
+    fn icon(&self) -> Option<&'static str> {
+        None
     }
 }
 
@@ -230,34 +347,6 @@ fn draw_status_chip(ui: &mut egui::Ui, label: &str, value: String, color: egui::
                 .color(color),
         );
     });
-}
-
-fn draw_tab_button(
-    ui: &mut egui::Ui,
-    label: &str,
-    selected: bool,
-    enabled: bool,
-) -> egui::Response {
-    let text = egui::RichText::new(label).size(13.5).color(if selected {
-        theme::ACCENT
-    } else {
-        theme::TEXT
-    });
-    ui.add_enabled(
-        enabled,
-        egui::Button::new(text)
-            .fill(if selected {
-                theme::SURFACE_RAISED
-            } else {
-                theme::SURFACE
-            })
-            .stroke(if selected {
-                egui::Stroke::new(1.0, theme::ACCENT)
-            } else {
-                egui::Stroke::new(1.0, theme::BORDER)
-            })
-            .corner_radius(4.0),
-    )
 }
 
 /// Color for a depletion-timeline row based on years remaining.
@@ -408,31 +497,6 @@ fn predict_build_effect(
         }
         _ => None,
     }
-}
-
-/// Filter chip widget (smaller than `draw_tab_button`, used for the
-/// functional-role row in the Build view).
-fn draw_filter_chip(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
-    let text = egui::RichText::new(label).size(11.5).color(if selected {
-        theme::ACCENT
-    } else {
-        theme::TEXT_DIM
-    });
-    ui.add(
-        egui::Button::new(text)
-            .fill(if selected {
-                theme::SURFACE_RAISED
-            } else {
-                theme::SURFACE
-            })
-            .stroke(if selected {
-                egui::Stroke::new(1.0, theme::ACCENT)
-            } else {
-                egui::Stroke::new(1.0, theme::BORDER)
-            })
-            .corner_radius(12.0)
-            .min_size(egui::vec2(0.0, 22.0)),
-    )
 }
 
 pub(super) fn ui_construction_panels(
@@ -686,30 +750,19 @@ fn render_construction_panel(
     let has_stockpile_editor = minimum_stockpiles.get(*colony_entity).is_ok();
 
     ui.horizontal_wrapped(|ui| {
-        let tabs = [
-            (ConstructionTab::Overview, "📊 Overview".to_string()),
-            (
-                ConstructionTab::Buildings,
-                format!("🏢 Buildings ({buildings_total})"),
-            ),
-            (
-                ConstructionTab::Build,
-                format!("🛠 Build ({bp_rate:.1} BP/yr)"),
-            ),
-            (ConstructionTab::Stockpiles, "⚖ Stockpiles".to_string()),
-        ];
-
-        for (tab, label) in tabs {
-            let enabled = tab != ConstructionTab::Stockpiles || has_stockpile_editor;
-            let response = draw_tab_button(ui, &label, ui_state.selected_tab == tab, enabled);
-            if response.clicked() {
-                ui_state.selected_tab = tab;
-            }
+        // GRA-68: bespoke `for (tab, label) in tabs` + `draw_tab_button`
+        // loop replaced with the PR-B `theme::tab_strip` primitive.
+        // The four `ConstructionTab` variants are passed in enum
+        // order.  The Stockpiles-disabled hover tooltip and grey-out
+        // are a known limitation of the primitive; the click is
+        // filtered in the callback below, which preserves the
+        // no-state-change behaviour of the bespoke version.
+        theme::tab_strip(ui, &ConstructionTab::ALL, ui_state.selected_tab, |tab| {
             if tab == ConstructionTab::Stockpiles && !has_stockpile_editor {
-                response
-                    .on_hover_text("Minimum stockpile controls are not available for this colony.");
+                return;
             }
-        }
+            ui_state.selected_tab = tab;
+        });
     });
 
     theme::divider(ui);
@@ -1274,11 +1327,10 @@ fn render_construction_build_tab(
     body_breathable: Option<bool>,
     synergies: &crate::colony::ColonySynergies,
 ) {
-    ui.label(
-        egui::RichText::new("BUILD")
-            .font(theme::heading())
-            .color(theme::ACCENT),
-    );
+    // GRA-68: bespoke `RichText::new("BUILD").font(theme::heading())`
+    // migrated to the PR-B `theme::section_h2` helper for consistency
+    // with the dossier / economy / research panels.
+    theme::section_h2(ui, "BUILD");
     theme::elevated_frame().show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.label(
@@ -1333,13 +1385,14 @@ fn render_construction_build_tab(
                     .size(11.0)
                     .color(theme::TEXT_DIM),
             );
-            for &filter in BuildFilter::all() {
-                if draw_filter_chip(ui, filter.label(), ui_state.selected_filter == filter)
-                    .clicked()
-                {
-                    ui_state.selected_filter = filter;
-                }
-            }
+            // GRA-68: bespoke `draw_filter_chip` + 5-iteration loop
+            // replaced with the PR-B `theme::tab_strip<BuildFilter>`
+            // primitive.  The filter set is the static
+            // `BuildFilter::all()` slice; the active filter is the
+            // `selected_filter` field; the click handler updates it.
+            theme::tab_strip(ui, BuildFilter::all(), ui_state.selected_filter, |filter| {
+                ui_state.selected_filter = filter
+            });
         });
     });
     ui.add_space(4.0);
@@ -1442,27 +1495,31 @@ fn render_construction_build_tab(
         ui_state.selected_build_tab = visible_tabs.first().copied().unwrap_or(0);
     }
 
+    // GRA-68: build the per-frame `BuildCategoryTab` list from
+    // `available_by_category` + the (optional) Locked tab.  The
+    // `selected_build_tab: usize` index continues to point into
+    // this list so the saved selection survives categories that
+    // fall in/out of visibility as research progresses.
+    let category_tabs: Vec<BuildCategoryTab> = available_by_category
+        .iter()
+        .map(|(_, category, available)| BuildCategoryTab {
+            kind: BuildCategoryTabKind::Category(*category),
+            available_count: available.len(),
+        })
+        .chain(locked.iter().map(|_| BuildCategoryTab {
+            kind: BuildCategoryTabKind::Locked,
+            available_count: locked.len(),
+        }))
+        .collect();
+
     theme::elevated_frame().show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
-            for (index, category, available) in &available_by_category {
-                let label = format!("{} ({})", category.display_name(), available.len());
-                if draw_tab_button(ui, &label, ui_state.selected_build_tab == *index, true)
-                    .clicked()
-                {
-                    ui_state.selected_build_tab = *index;
-                }
-            }
-
-            if !locked.is_empty()
-                && draw_tab_button(
-                    ui,
-                    &format!("Locked ({})", locked.len()),
-                    ui_state.selected_build_tab == locked_tab_index,
-                    true,
-                )
-                .clicked()
-            {
-                ui_state.selected_build_tab = locked_tab_index;
+            if let Some(active) = category_tabs.get(ui_state.selected_build_tab).copied() {
+                theme::tab_strip(ui, &category_tabs, active, |clicked| {
+                    if let Some(idx) = category_tabs.iter().position(|t| *t == clicked) {
+                        ui_state.selected_build_tab = idx;
+                    }
+                });
             }
         });
     });
