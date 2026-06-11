@@ -7,7 +7,10 @@
 //! up as more panels migrate to the theme — suppress dead_code for this module.
 #![allow(dead_code)]
 
-use bevy::prelude::Color;
+use bevy::prelude::{
+    default, BackgroundColor, BorderColor, Button, Commands, Entity, Node, Text, TextColor,
+    TextFont, UiRect, Val,
+};
 use bevy_egui::egui;
 
 use crate::astronomy::OceanType;
@@ -572,30 +575,30 @@ pub fn category_color(category: &str) -> egui::Color32 {
 
 /// Accent colour for a ship-module category, used for slot borders and other
 /// heavy UI chrome where the visual emphasis must read at a glance.
-pub fn module_slot_accent_color(category: ShipModuleCategory) -> Color {
+pub fn module_slot_accent_color(category: ShipModuleCategory) -> bevy::prelude::Color {
     match category {
-        ShipModuleCategory::FlightSystems => Color::srgb(1.0, 0.62, 0.28),
+        ShipModuleCategory::FlightSystems => bevy::prelude::Color::srgb(1.0, 0.62, 0.28),
         ShipModuleCategory::Bridges
         | ShipModuleCategory::PowerThermal
         | ShipModuleCategory::Sensors
         | ShipModuleCategory::UtilitySupport
         | ShipModuleCategory::Maintenance
-        | ShipModuleCategory::SpecialScience => Color::srgb(0.26, 0.86, 1.0),
+        | ShipModuleCategory::SpecialScience => bevy::prelude::Color::srgb(0.26, 0.86, 1.0),
         ShipModuleCategory::Weapons
         | ShipModuleCategory::FireControl
         | ShipModuleCategory::ArmorDefense
         | ShipModuleCategory::Magazines
         | ShipModuleCategory::PointDefense
         | ShipModuleCategory::Armor
-        | ShipModuleCategory::ElectronicWarfare => Color::srgb(1.0, 0.34, 0.34),
+        | ShipModuleCategory::ElectronicWarfare => bevy::prelude::Color::srgb(1.0, 0.34, 0.34),
         ShipModuleCategory::FuelStorage | ShipModuleCategory::CargoStorage => {
-            Color::srgb(0.56, 0.92, 0.66)
+            bevy::prelude::Color::srgb(0.56, 0.92, 0.66)
         }
         ShipModuleCategory::CrewSystems
         | ShipModuleCategory::Habitats
-        | ShipModuleCategory::Medical => Color::srgb(0.9, 0.84, 0.58),
+        | ShipModuleCategory::Medical => bevy::prelude::Color::srgb(0.9, 0.84, 0.58),
         ShipModuleCategory::ConstructionISRU | ShipModuleCategory::Construction => {
-            Color::srgb(0.96, 0.72, 0.38)
+            bevy::prelude::Color::srgb(0.96, 0.72, 0.38)
         }
     }
 }
@@ -603,32 +606,32 @@ pub fn module_slot_accent_color(category: ShipModuleCategory) -> Color {
 /// Detail / chip colour for a ship-module category — used for category
 /// buttons, badges, and other small UI marks where the slot-accent palette
 /// would be too saturated.
-pub fn module_category_color(category: ShipModuleCategory) -> Color {
+pub fn module_category_color(category: ShipModuleCategory) -> bevy::prelude::Color {
     match category {
-        ShipModuleCategory::FlightSystems => Color::srgb(0.35, 0.88, 1.0),
-        ShipModuleCategory::Bridges => Color::srgb(0.56, 0.82, 1.0),
-        ShipModuleCategory::PowerThermal => Color::srgb(1.0, 0.76, 0.28),
+        ShipModuleCategory::FlightSystems => bevy::prelude::Color::srgb(0.35, 0.88, 1.0),
+        ShipModuleCategory::Bridges => bevy::prelude::Color::srgb(0.56, 0.82, 1.0),
+        ShipModuleCategory::PowerThermal => bevy::prelude::Color::srgb(1.0, 0.76, 0.28),
         ShipModuleCategory::FuelStorage | ShipModuleCategory::CargoStorage => {
-            Color::srgb(0.45, 0.85, 0.66)
+            bevy::prelude::Color::srgb(0.45, 0.85, 0.66)
         }
-        ShipModuleCategory::Weapons => Color::srgb(1.0, 0.46, 0.35),
-        ShipModuleCategory::FireControl => Color::srgb(0.8, 0.7, 1.0),
-        ShipModuleCategory::Sensors => Color::srgb(0.5, 0.92, 0.9),
-        ShipModuleCategory::Magazines => Color::srgb(0.94, 0.82, 0.58),
-        ShipModuleCategory::PointDefense => Color::srgb(1.0, 0.68, 0.54),
+        ShipModuleCategory::Weapons => bevy::prelude::Color::srgb(1.0, 0.46, 0.35),
+        ShipModuleCategory::FireControl => bevy::prelude::Color::srgb(0.8, 0.7, 1.0),
+        ShipModuleCategory::Sensors => bevy::prelude::Color::srgb(0.5, 0.92, 0.9),
+        ShipModuleCategory::Magazines => bevy::prelude::Color::srgb(0.94, 0.82, 0.58),
+        ShipModuleCategory::PointDefense => bevy::prelude::Color::srgb(1.0, 0.68, 0.54),
         ShipModuleCategory::Armor | ShipModuleCategory::ArmorDefense => {
-            Color::srgb(0.86, 0.92, 1.0)
+            bevy::prelude::Color::srgb(0.86, 0.92, 1.0)
         }
         ShipModuleCategory::CrewSystems
         | ShipModuleCategory::Habitats
-        | ShipModuleCategory::Medical => Color::srgb(0.85, 0.82, 0.64),
-        ShipModuleCategory::UtilitySupport => Color::srgb(0.62, 0.85, 1.0),
-        ShipModuleCategory::Maintenance => Color::srgb(0.72, 0.84, 0.94),
+        | ShipModuleCategory::Medical => bevy::prelude::Color::srgb(0.85, 0.82, 0.64),
+        ShipModuleCategory::UtilitySupport => bevy::prelude::Color::srgb(0.62, 0.85, 1.0),
+        ShipModuleCategory::Maintenance => bevy::prelude::Color::srgb(0.72, 0.84, 0.94),
         ShipModuleCategory::ConstructionISRU | ShipModuleCategory::Construction => {
-            Color::srgb(0.9, 0.72, 0.45)
+            bevy::prelude::Color::srgb(0.9, 0.72, 0.45)
         }
-        ShipModuleCategory::ElectronicWarfare => Color::srgb(1.0, 0.62, 0.78),
-        ShipModuleCategory::SpecialScience => Color::srgb(0.6, 1.0, 0.8),
+        ShipModuleCategory::ElectronicWarfare => bevy::prelude::Color::srgb(1.0, 0.62, 0.78),
+        ShipModuleCategory::SpecialScience => bevy::prelude::Color::srgb(0.6, 1.0, 0.8),
     }
 }
 
@@ -722,5 +725,300 @@ pub fn apply_global_visuals(ctx: &egui::Context) {
     ctx.set_visuals(visuals);
     ctx.style_mut(|style| {
         style.interaction.tooltip_delay = 0.2;
+    });
+}
+
+// ─── Bevy `Color` Mirror ─────────────────────────────────────────────────
+//
+// Bevy UI 0.18 (used by the Shipbuilding workspace — see `docs/UI.md` §1)
+// needs `bevy::prelude::Color`, not `egui::Color32`. Most panels use egui
+// and the egui constants above, but the three-pane shipbuilding shell (and
+// the audit in `scripts/audit_bevy_color_literals.py`) need a parallel
+// namespace with matching values. PR-B adds the mirror; PR-D wires
+// `populate_tab_strip` through it.
+//
+// Values are the sRGB counterparts of the matching `Color32` constants
+// above (divided by 255). Where the egui constant uses alpha, the Bevy
+// mirror uses `.set_a(...)` on the same RGB; the named `*_A` constants
+// carry the alpha explicitly for callers that need it.
+
+/// Bevy `Color` mirror of the egui tokens above. Most panels stay on
+/// egui's `Color32`; the Shipbuilding workspace (and any future Bevy UI
+/// shell) reads from this namespace so the literal `Color::srgb(...)`
+/// drift that triggered the GRA-54 regression can't recur.
+#[allow(non_snake_case, non_upper_case_globals)]
+pub mod Color {
+    use bevy::prelude::Color;
+
+    // ── Surfaces ────────────────────────────────────────────────
+    /// Deep navy opaque — mirrors `BG_SOLID`.
+    pub const BG_SOLID: Color = Color::srgb(0.031, 0.051, 0.102);
+    /// Panel surface — mirrors `SURFACE`.
+    pub const SURFACE: Color = Color::srgb(0.051, 0.067, 0.090);
+    /// Raised widget surface — mirrors `SURFACE_RAISED`.
+    pub const SURFACE_RAISED: Color = Color::srgb(0.078, 0.102, 0.141);
+    /// Bright input tint — mirrors `SURFACE_INPUT`.
+    pub const SURFACE_INPUT: Color = Color::srgb(0.063, 0.078, 0.118);
+
+    // ── Accent / Border ─────────────────────────────────────────
+    /// Primary cyan — mirrors `ACCENT`.
+    pub const ACCENT: Color = Color::srgb(0.0, 0.949, 1.0);
+    /// Faint accent border — mirrors `BORDER`.
+    pub const BORDER: Color = Color::srgb(0.0, 0.949, 1.0);
+
+    // ── Text ────────────────────────────────────────────────────
+    /// Primary foreground — mirrors `TEXT`.
+    pub const TEXT: Color = Color::srgb(0.824, 0.863, 0.922);
+    /// Brighter value foreground — mirrors `TEXT_VALUE`.
+    pub const TEXT_VALUE: Color = Color::srgb(0.784, 0.843, 0.941);
+
+    // ─── Tab Strip (Pattern 3 / Pattern 4) ──────────────────────
+    //
+    // Values preserve the visual identity chosen before the GRA-54
+    // theme consolidation. PR-D migrates the `populate_tab_strip` call
+    // site to read from these constants.
+
+    /// Active tab background (selected).
+    pub const TAB_ACTIVE_BG: Color = Color::srgb(0.1, 0.28, 0.34);
+    /// Active tab border (selected).
+    pub const TAB_ACTIVE_BORDER: Color = Color::srgb(0.0, 0.95, 1.0);
+    /// Inactive tab background.
+    pub const TAB_INACTIVE_BG: Color = Color::srgb(0.045, 0.07, 0.1);
+    /// Inactive tab border.
+    pub const TAB_INACTIVE_BORDER: Color = Color::srgb(0.18, 0.3, 0.36);
+    /// Active tab text.
+    pub const TAB_ACTIVE_TEXT: Color = Color::srgb(0.9, 0.98, 1.0);
+    /// Inactive tab text.
+    pub const TAB_INACTIVE_TEXT: Color = Color::srgb(0.78, 0.86, 0.9);
+
+    // ── Selected-button background (used by time-scale presets, etc.)
+    /// Mirrors `BUTTON_ACTIVE_BG`.
+    pub const BUTTON_ACTIVE_BG: Color = Color::srgb(0.0, 0.216, 0.275);
+}
+
+// ─── Section Headers (Pattern 2 + Pattern 4) ────────────────────────────
+//
+// Replaces ad-hoc `RichText::new("...").font(heading_font()).color(ACCENT)`
+// / `color(TEXT_DIM)` calls scattered across the dossier and other panels.
+// The three sizes form a small typographic scale: h1 ≈ panel title (already
+// covered by `title()`), h2 ≈ section header, h3 ≈ sub-section header.
+
+/// H2 — section header. Uppercase 13pt semi-bold in `ACCENT`. Mirrors the
+/// `STAR PROPERTIES` / `HABITABILITY` / `ATMOSPHERE` pattern in
+/// `dossier_panel.rs`. Adds 8px trailing space; the caller is expected
+/// to provide the leading space (typically via `section_divider` for
+/// Pattern 2 ledgers, or via the panel's inner margin for Pattern 4
+/// strip contents).
+pub fn section_h2(ui: &mut egui::Ui, label: impl Into<String>) {
+    ui.label(
+        egui::RichText::new(label.into())
+            .font(heading())
+            .color(ACCENT),
+    );
+    ui.add_space(Spacing::sm);
+}
+
+/// H3 — sub-section header. Uppercase 10pt mono in `TEXT_DIM` (the
+/// dimmer sibling of `section_h2` for nested sections). Adds 4px
+/// trailing space; the caller provides the leading space.
+pub fn section_h3(ui: &mut egui::Ui, label: impl Into<String>) {
+    ui.label(
+        egui::RichText::new(label.into())
+            .font(mono(10.0))
+            .color(TEXT_DIM)
+            .strong(),
+    );
+    ui.add_space(Spacing::xs);
+}
+
+/// H1 — panel title. Slightly larger and more padded than `title()`
+/// (which is just the font). Use this at the top of a Pattern 2 ledger
+/// or a full-screen modal; subsequent sections should use `section_h2`.
+/// Color is `ACCENT` to match the dossier's "body name" treatment — the
+/// only place this primitive is used in PR-B.
+pub fn section_h1(ui: &mut egui::Ui, label: impl Into<String>) {
+    ui.add_space(Spacing::sm);
+    ui.label(
+        egui::RichText::new(label.into())
+            .font(title())
+            .color(ACCENT),
+    );
+    ui.add_space(Spacing::md);
+}
+
+// ─── Sub-tab Strip (Pattern 4, egui) ─────────────────────────────────────
+//
+// Generic tab strip used by every in-panel sub-tab UI. The strip is a
+// horizontal `ui.horizontal(...)` block of buttons, not a separate
+// `TopBottomPanel`. The active tab is rendered with `ACCENT` text + a
+// 2px bottom underline; inactive tabs use `TEXT` with no underline.
+//
+// Generic over the `Tab` trait (`src/ui/tab.rs`) so a panel's `*Tab`
+// enum implements `Tab` once and is rendered uniformly everywhere.
+// `on_select` is invoked with the chosen tab when its button is
+// clicked; the caller is responsible for mutating its own state
+// (e.g. `ui_state.selected_tab = tab`). The return value is the tab
+// that should be treated as active *for the rest of this frame* —
+// useful when the caller wants the click to take effect immediately.
+
+/// Render a horizontal sub-tab strip. The active tab's label is in
+/// `ACCENT` with a 2px bottom underline; inactive tabs in `TEXT` with
+/// no underline.
+///
+/// `tabs` is the panel's full list (rendered in order), `active` is
+/// the currently selected tab, and `on_select` is called with the
+/// clicked tab. The return value is `active` (the caller can ignore
+/// it; it exists so panels that want the new selection to take
+/// effect within the same frame can `let next = tab_strip(...);
+/// ui_state.selected_tab = next;`).
+pub fn tab_strip<T: crate::ui::tab::Tab>(
+    ui: &mut egui::Ui,
+    tabs: &[T],
+    active: T,
+    mut on_select: impl FnMut(T),
+) -> T {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = Spacing::md;
+        for tab in tabs {
+            let is_active = *tab == active;
+            let label = match tab.icon() {
+                Some(icon) => format!("{icon} {}", tab.label()),
+                None => tab.label().into_owned(),
+            };
+            let text = egui::RichText::new(label)
+                .font(mono(11.0))
+                .color(if is_active { ACCENT } else { TEXT });
+            let response = ui.add(
+                egui::Button::new(text)
+                    .frame(false)
+                    .sense(egui::Sense::click()),
+            );
+            if response.clicked() {
+                on_select(*tab);
+            }
+            // 2px bottom underline for the active tab — matches the
+            // top-menu bar's accent treatment (Pattern 1) at a
+            // smaller font size.
+            if is_active {
+                let rect = response.rect;
+                let underline_y = rect.bottom() - 1.0;
+                ui.painter().hline(
+                    rect.left()..=rect.right(),
+                    underline_y,
+                    egui::Stroke::new(2.0, ACCENT),
+                );
+            }
+        }
+    });
+    active
+}
+
+// ─── Ledger Panel (Pattern 2, egui) ──────────────────────────────────────
+//
+// Wraps `panel_frame()` + a `CollapsingHeader` so a Pattern 2 ledger
+// can express a "this section is collapsible" affordance without
+// re-rolling the same paint code at every call site. Title is
+// rendered with `section_h2`; contents run inside a `CollapsingHeader`
+// that defaults to open on first render so the dossier's existing
+// always-open sections (Resources, Colony, …) don't disappear.
+//
+// The generic `T` is reserved for future typed callbacks (e.g. a
+// `Filter` token) so the signature can grow without churn; today it
+// only carries the `id` used by `CollapsingHeader::default_open` and
+// the section's egui `Id` salt.
+
+/// Render a collapsible ledger section. The title is drawn in the
+/// `section_h2` style; the body is a `CollapsingHeader` that defaults
+/// to open. `contents` is called with the `egui::Ui` for the body
+/// whenever the section is open.
+///
+/// `id` should be a stable per-section identifier so egui remembers
+/// the open/closed state across frames. The generic `T` is reserved
+/// for future typed tokens; pass `&()` if you don't need a filter.
+pub fn ledger_panel<T>(
+    ui: &mut egui::Ui,
+    id: &str,
+    title: impl Into<String>,
+    _token: &T,
+    contents: impl FnOnce(&mut egui::Ui),
+) {
+    section_h2(ui, title);
+    let header = egui::CollapsingHeader::new("")
+        .id_salt(id)
+        .default_open(true)
+        .show_unindented(ui, |ui| {
+            contents(ui);
+        });
+    let _ = header; // collapse-artifact; nothing to do with the response
+}
+
+// ─── Sub-tab Strip (Pattern 3 mirror, Bevy UI 0.18) ──────────────────────
+//
+// Bevy UI 0.18 sibling of the egui `tab_strip` above. Spawns a
+// `Button` per tab as a child of `tabs_root` and applies the same
+// `theme::Color::*` tokens (`TAB_ACTIVE_BG` / `TAB_INACTIVE_BG` /
+// `TAB_ACTIVE_BORDER` / `TAB_INACTIVE_BORDER` / `TAB_ACTIVE_TEXT` /
+// `TAB_INACTIVE_TEXT`). Per-tab width and per-tab extras (e.g. the
+// `ShipbuildingWorkspaceTabButton { tab }` marker) are out of scope
+// for the primitive — call sites that need a marker component
+// should re-implement the loop locally, or wrap the primitive and
+// add the marker after spawning.
+//
+// PR-B ships the primitive + the mirror; PR-D migrates
+// `populate_tab_strip` to read from `theme::Color`.
+
+/// Render a horizontal Bevy UI sub-tab strip as children of
+/// `tabs_root`. Each tab is a `Button` with the standard
+/// active/inactive palette from `theme::Color::*`. `width` and
+/// `min_height` are per-tab sizing; the caller can post-process the
+/// spawned entities (e.g. add a workspace-specific marker
+/// component) by `entity.get()`-ing the spawned children after
+/// the call returns — but the typical flow is to call this once
+/// per tab-strip refresh from a system that owns the workspace
+/// state.
+pub fn tab_strip_bevy<T: crate::ui::tab::Tab>(
+    commands: &mut Commands,
+    tabs_root: Entity,
+    tabs: &[T],
+    active: T,
+) {
+    commands.entity(tabs_root).with_children(|parent| {
+        for tab in tabs {
+            let selected = *tab == active;
+            let label = match tab.icon() {
+                Some(icon) => format!("{icon} {}", tab.label()),
+                None => tab.label().into_owned(),
+            };
+            parent.spawn((
+                Button,
+                Node {
+                    min_width: Val::Px(136.0),
+                    min_height: Val::Px(30.0),
+                    padding: UiRect::axes(Val::Px(12.0), Val::Px(6.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..default()
+                },
+                BackgroundColor(if selected {
+                    Color::TAB_ACTIVE_BG
+                } else {
+                    Color::TAB_INACTIVE_BG
+                }),
+                BorderColor::all(if selected {
+                    Color::TAB_ACTIVE_BORDER
+                } else {
+                    Color::TAB_INACTIVE_BORDER
+                }),
+                Text::new(label),
+                TextFont {
+                    font_size: 11.0,
+                    ..default()
+                },
+                TextColor(if selected {
+                    Color::TAB_ACTIVE_TEXT
+                } else {
+                    Color::TAB_INACTIVE_TEXT
+                }),
+            ));
+        }
     });
 }
