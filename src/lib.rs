@@ -3,11 +3,13 @@ pub mod colony;
 pub mod economy;
 pub mod fleets;
 pub mod game_state;
+pub mod personnel;
 pub mod plugins;
 pub mod render;
 pub mod research;
 pub mod shipbuilding;
 pub mod ships;
+pub mod survey;
 pub mod ui;
 
 #[cfg(test)]

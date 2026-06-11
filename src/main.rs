@@ -10,11 +10,13 @@ pub mod colony;
 pub mod economy;
 pub mod fleets;
 pub mod game_state;
+pub mod personnel;
 pub mod plugins;
 pub mod render;
 pub mod research;
 pub mod shipbuilding;
 pub mod ships;
+pub mod survey;
 pub mod ui;
 
 use astronomy::AstronomyPlugin;
@@ -22,6 +24,7 @@ use colony::ColonyPlugin;
 use economy::EconomyPlugin;
 use fleets::FleetPlugin;
 use game_state::GameStatePlugin;
+use personnel::PersonnelPlugin;
 use plugins::{
     atmosphere::AtmospherePlugin, camera::CameraPlugin, music::MusicPlugin,
     solar_system::SolarSystemPlugin, starmap::StarmapPlugin,
@@ -30,6 +33,7 @@ use plugins::{
 use render::backdrop::BackdropPlugin;
 use research::ResearchPlugin;
 use shipbuilding::ShipbuildingPlugin;
+use survey::SurveyPlugin;
 use ui::UIPlugin;
 
 /// Minimum supported window dimensions.
@@ -77,6 +81,8 @@ fn main() {
         .add_plugins(EconomyPlugin)
         .add_plugins(ColonyPlugin)
         .add_plugins(ResearchPlugin)
+        .add_plugins(SurveyPlugin)
+        .add_plugins(PersonnelPlugin)
         .add_plugins(FleetPlugin)
         .add_plugins(ShipbuildingPlugin)
         .add_plugins(SystemPopulatorPlugin)
