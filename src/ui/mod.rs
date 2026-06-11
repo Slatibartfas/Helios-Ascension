@@ -132,6 +132,12 @@ pub struct ResolutionWarning {
 pub struct ResearchUiPreferences {
     pub show_inactive_warning: bool,
     pub selected_engineering_target: Option<String>,
+    /// Currently selected category in the Archive tab's
+    /// `theme::tab_strip<TechCategory>` (PR-D / GRA-69). `None` means
+    /// the first category in `TechCategory::all()` — kept as `Option`
+    /// so a future "All categories" pseudo-tab can be added without
+    /// a schema change.
+    pub selected_archive_category: Option<crate::research::types::TechCategory>,
 }
 
 impl Default for ResearchUiPreferences {
@@ -139,6 +145,7 @@ impl Default for ResearchUiPreferences {
         Self {
             show_inactive_warning: true,
             selected_engineering_target: None,
+            selected_archive_category: None,
         }
     }
 }

@@ -108,13 +108,18 @@ pub(super) fn render_tech_tree_tab(
     pending_research: &mut crate::research::PendingResearchActions,
     debug_settings: &mut crate::research::ResearchDebugSettings,
 ) {
-    ui.heading("Technology Tree - Graph View");
-    ui.label("Pan: Middle mouse drag | Zoom: Mouse wheel | Click: Select tech & highlight path");
-    ui.label(
-        egui::RichText::new("Arrows: Move focus | Enter: Start research on selected | Esc: Clear")
-            .small()
-            .color(theme::TEXT_DIM),
-    );
+    // PR-D / GRA-69 — the panel title goes through `theme::section_h1`
+    // (Pattern 1 / Pattern 4 heading); the three control-hint lines
+    // below are captions, not section headers, so they use the
+    // `theme::caption` builder. The debug-only "right-click …" line
+    // stays amber so the debug affordance still reads as such.
+    theme::section_h1(ui, "Technology Tree - Graph View");
+    ui.label(theme::caption(
+        "Pan: Middle mouse drag | Zoom: Mouse wheel | Click: Select tech & highlight path",
+    ));
+    ui.label(theme::caption(
+        "Arrows: Move focus | Enter: Start research on selected | Esc: Clear",
+    ));
     if debug_enabled {
         ui.label(
             egui::RichText::new(

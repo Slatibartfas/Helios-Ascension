@@ -309,7 +309,7 @@ pub(super) fn ui_research_panels(
                 &mut ui_prefs.selected_engineering_target,
             ),
             4 => render_bonuses_tab(ui, &research_state, &tech_data, icon_textures),
-            5 => render_archive_tab(ui, &research_state, &tech_data, icon_textures),
+            5 => render_archive_tab(ui, &research_state, &tech_data, icon_textures, &mut ui_prefs),
             _ => {},
         }
     });
@@ -1549,6 +1549,7 @@ fn render_archive_tab(
     research_state: &ResearchState,
     tech_data: &TechnologiesData,
     icon_textures: &HashMap<TechCategory, egui::TextureId>,
+    ui_prefs: &mut ResearchUiPreferences,
 ) {
     draw_section_title(
         ui,
@@ -1557,19 +1558,38 @@ fn render_archive_tab(
     );
     theme::divider(ui);
 
+    // Category tab strip — PR-D / GRA-69. The first category in
+    // `TechCategory::all()` is the canonical default when no
+    // selection is persisted yet, matching the `Tab` trait's
+    // `Default`-first convention.
+    let categories = TechCategory::all();
+    let selected_category = ui_prefs.selected_archive_category.unwrap_or(categories[0]);
+    let mut new_selection = selected_category;
+    theme::tab_strip(ui, categories, selected_category, |tab| {
+        new_selection = tab;
+    });
+    ui_prefs.selected_archive_category = Some(new_selection);
+    ui.add_space(theme::Spacing::sm);
+
     egui::ScrollArea::vertical().show(ui, |ui| {
         // Completed Technologies
         theme::elevated_frame().show(ui, |ui| {
-            ui.label(
-                egui::RichText::new("Completed Technologies")
-                    .font(theme::heading())
-                    .color(theme::ACCENT),
-            );
+            theme::section_h2(ui, "Completed Technologies");
             ui.separator();
 
             let unlocked_count = research_state.unlocked_technologies.len();
             ui.label(format!("Total: {} technologies", unlocked_count));
             ui.add_space(5.0);
+
+            // Techs for the currently selected category — replaces
+            // the inline `for category in TechCategory::all()` group-by
+            // loop that PR-D collapses onto `theme::tab_strip`.
+            let category_techs = tech_data.get_by_category(selected_category);
+            let category_completed: Vec<_> = category_techs
+                .iter()
+                .filter(|t| research_state.is_unlocked(&t.id))
+                .copied()
+                .collect();
 
             if unlocked_count == 0 {
                 ui.label(
@@ -1577,71 +1597,75 @@ fn render_archive_tab(
                         .italics()
                         .color(theme::TEXT_DIM),
                 );
-            } else {
-                // Organize by category
-                for category in TechCategory::all() {
-                    let category_techs = tech_data.get_by_category(*category);
-                    let category_completed: Vec<_> = category_techs
-                        .iter()
-                        .filter(|t| research_state.is_unlocked(&t.id))
-                        .copied()
-                        .collect();
-
-                    if !category_completed.is_empty() {
-                        ui.horizontal(|ui| {
-                            if let Some(tex) = icon_textures.get(category) {
-                                ui.add(egui::Image::new(egui::load::SizedTexture::new(
-                                    *tex,
-                                    [16.0, 16.0],
-                                )));
-                            } else {
-                                ui.label(category.icon());
-                            }
-                            ui.label(
-                                egui::RichText::new(format!(
-                                    "{} ({} completed)",
-                                    category.display_name(),
-                                    category_completed.len()
-                                ))
-                                .strong(),
-                            );
-                        });
-
-                        ui.indent(format!("archive_cat_{}", category.display_name()), |ui| {
-                            for tech in category_completed {
-                                let row = ui.horizontal(|ui| {
-                                    ui.label("✔");
-                                    ui.label(
-                                        egui::RichText::new(&tech.name)
-                                            .color(tech_category_color(*category))
-                                            .strong(),
-                                    );
-                                    if tech.research_cost > 0.0 {
-                                        ui.label(
-                                            egui::RichText::new(format!(
-                                                "({:.0} RP)",
-                                                tech.research_cost
-                                            ))
-                                            .size(11.0)
-                                            .color(theme::RP_BLUE),
-                                        );
-                                    }
-                                });
-                                row.response.on_hover_ui(|ui| {
-                                    render_research_tech_tooltip_content(
-                                        ui,
-                                        tech,
-                                        tech_data,
-                                        research_state,
-                                        Some(icon_textures),
-                                        None,
-                                    );
-                                });
-                            }
-                        });
-
-                        ui.add_space(5.0);
+            } else if category_completed.is_empty() {
+                ui.horizontal(|ui| {
+                    if let Some(tex) = icon_textures.get(&selected_category) {
+                        ui.add(egui::Image::new(egui::load::SizedTexture::new(
+                            *tex,
+                            [16.0, 16.0],
+                        )));
+                    } else {
+                        ui.label(selected_category.icon());
                     }
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{} (0 completed)",
+                            selected_category.display_name()
+                        ))
+                        .strong(),
+                    );
+                });
+                ui.label(
+                    egui::RichText::new("No completed technologies in this category yet.")
+                        .italics()
+                        .color(theme::TEXT_DIM),
+                );
+            } else {
+                ui.horizontal(|ui| {
+                    if let Some(tex) = icon_textures.get(&selected_category) {
+                        ui.add(egui::Image::new(egui::load::SizedTexture::new(
+                            *tex,
+                            [16.0, 16.0],
+                        )));
+                    } else {
+                        ui.label(selected_category.icon());
+                    }
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{} ({} completed)",
+                            selected_category.display_name(),
+                            category_completed.len()
+                        ))
+                        .strong(),
+                    );
+                });
+
+                for tech in category_completed {
+                    let row = ui.horizontal(|ui| {
+                        ui.label("✔");
+                        ui.label(
+                            egui::RichText::new(&tech.name)
+                                .color(tech_category_color(selected_category))
+                                .strong(),
+                        );
+                        if tech.research_cost > 0.0 {
+                            ui.label(
+                                egui::RichText::new(format!("({:.0} RP)", tech.research_cost))
+                                    .size(11.0)
+                                    .color(theme::RP_BLUE),
+                            );
+                        }
+                    });
+                    row.response.on_hover_ui(|ui| {
+                        render_research_tech_tooltip_content(
+                            ui,
+                            tech,
+                            tech_data,
+                            research_state,
+                            Some(icon_textures),
+                            None,
+                        );
+                    });
                 }
             }
         });
