@@ -265,6 +265,29 @@ struct ShipbuildingModuleCard {
     base_height: f32,
 }
 
+/// Parameterised handle to the four dynamic regions of the
+/// shipbuilding tabbed workspace (Pattern 3, `docs/UI_LAYOUT_PATTERNS.md`
+/// §4). The `tabs_root` is the strip of `ShipbuildingWorkspaceTabButton`
+/// entities at the top of the workspace; the three `_root` entities
+/// are the content slots the per-tab populators
+/// (`populate_library_panel` / `populate_blueprint_panel` /
+/// `populate_analytics_panel`) drain and re-fill each frame the
+/// workspace content sync runs.
+///
+/// The struct is the only thing the per-tab populators need to
+/// know about the workspace layout — they don't reach into
+/// `Children` queries or scan for marker components, they just
+/// despawn children of the four roots and spawn new ones. The
+/// `Sync` system that builds a `WorkspaceShell` is the only
+/// place the entity-resolution queries live.
+#[derive(Clone, Copy, Debug)]
+struct WorkspaceShell {
+    tabs_root: Entity,
+    library_root: Entity,
+    blueprint_root: Entity,
+    analytics_root: Entity,
+}
+
 #[derive(SystemParam)]
 struct ShipbuildingWorkspacePanels<'w, 's> {
     status_text: Single<
@@ -319,6 +342,22 @@ struct ShipbuildingWorkspacePanels<'w, 's> {
         ),
     >,
     child_lists: Query<'w, 's, &'static Children>,
+}
+
+impl<'w, 's> ShipbuildingWorkspacePanels<'w, 's> {
+    /// Build a `WorkspaceShell` from the resolved pane-root entities.
+    /// The shell is a plain value (no `SystemParam` borrows) so it
+    /// can be passed by-copy to per-tab populators without dragging
+    /// the `&mut ShipbuildingWorkspacePanels` borrow through every
+    /// helper signature.
+    fn shell(&self) -> WorkspaceShell {
+        WorkspaceShell {
+            tabs_root: *self.tabs_root,
+            library_root: *self.library_root,
+            blueprint_root: *self.blueprint_root,
+            analytics_root: *self.analytics_root,
+        }
+    }
 }
 
 fn spawn_shipbuilding_workspace(mut commands: Commands) {
@@ -482,14 +521,8 @@ fn spawn_panel<T: Component>(
             BorderColor::all(Color::srgb(0.15, 0.78, 0.88)),
         ))
         .with_children(|panel| {
-            panel.spawn((
-                Text::new(title),
-                TextFont {
-                    font_size: 15.0,
-                    ..default()
-                },
-                TextColor(Color::srgb(0.55, 0.95, 1.0)),
-            ));
+            let parent_entity = panel.target_entity();
+            theme::section_h1_bevy(panel.commands_mut(), parent_entity, title);
             panel.spawn((
                 marker,
                 Node {

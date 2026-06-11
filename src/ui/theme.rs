@@ -992,6 +992,48 @@ pub fn ledger_panel<T>(
     let _ = header; // collapse-artifact; nothing to do with the response
 }
 
+// ─── Section Header (Pattern 3 mirror, Bevy UI 0.18) ─────────────────────
+//
+// Bevy UI 0.18 sibling of the egui `section_h1` above. Spawns a
+// `Text` child of `parent_entity` styled as the canonical "pane
+// title" — the 15-pt size the shipbuilding sub-panes (Logistics Hub /
+// Design Blueprint / Engineering Analytics) have used since the
+// pattern was introduced, paired with `Color::ACCENT` so the title
+// matches the rest of the design system rather than carrying its
+// own ad-hoc cyan.
+//
+// The 15-pt size is intentionally smaller than the egui
+// `section_h1` (which uses the 20-pt `title()` font) because the
+// Pattern 3 panes sit side-by-side in a 250-/Auto/270-px column
+// layout where 20-pt labels would crowd the chrome. A 20-pt
+// `section_h1` mirror can be added in a follow-up if a Bevy ledger
+// panel ever needs the full panel-title treatment.
+//
+// Spacing around the title is the caller's responsibility: the
+// parent `Node`'s `row_gap` and outer `padding` already produce the
+// `Spacing::sm` / `Spacing::md` rhythm that the egui variant adds
+// inline. Callers that need extra top/bottom air can spawn a
+// spacer `Node` before or after this call.
+
+/// Render a Bevy UI pane-title header. Spawns a `Text` child of
+/// `parent_entity` with the 15-pt body font and `Color::ACCENT`.
+///
+/// Mirrors the egui `section_h1` semantic (canonical "this section
+/// is the panel title" treatment) for Bevy UI 0.18 — used by the
+/// shipbuilding sub-pane headers via `spawn_panel`.
+pub fn section_h1_bevy(commands: &mut Commands, parent_entity: Entity, label: impl Into<String>) {
+    commands.entity(parent_entity).with_children(|parent| {
+        parent.spawn((
+            Text::new(label.into()),
+            TextFont {
+                font_size: 15.0,
+                ..default()
+            },
+            TextColor(Color::ACCENT),
+        ));
+    });
+}
+
 // ─── Sub-tab Strip (Pattern 3 mirror, Bevy UI 0.18) ──────────────────────
 //
 // Bevy UI 0.18 sibling of the egui `tab_strip` above. Spawns a
