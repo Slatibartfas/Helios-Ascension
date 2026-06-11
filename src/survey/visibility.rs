@@ -239,7 +239,7 @@ pub fn is_stale(fidelity: DimensionFidelity) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::economy::components::ResourcePhase;
+    use crate::economy::types::ResourcePhase;
 
     fn iron() -> MineralDeposit {
         MineralDeposit {
