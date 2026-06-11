@@ -30,6 +30,7 @@ use crate::astronomy::nearby_stars::NearbyStarsData;
 use crate::economy::components::{SpectralClass, StarSystem};
 use crate::plugins::solar_system_data::{AsteroidClass, BodyType};
 use crate::survey::{ExtractionSite, LandingSite, SurveyState, LANDING_SITE_EVAL_THRESHOLD};
+use bevy::ecs::query::QueryData;
 use std::borrow::Cow;
 use std::f32::consts::TAU;
 
@@ -99,6 +100,32 @@ fn mono_font(size: f32) -> egui::FontId {
 
 // ─── Main System ─────────────────────────────────────────────────────────
 
+/// QueryData bundle for the dossier body. The 16 fields here would
+/// otherwise blow past Bevy 0.18's `IntoSystem` / `Query` tuple arity
+/// cap (and the related `B0001` query-data limit). Deriving
+/// `QueryData` makes the whole set a single system-param item, and
+/// `SurveyState` (added in PR-D / GRA-82) slots in as just another
+/// optional field.
+#[derive(QueryData)]
+struct DossierBodyParts<'w> {
+    body: &'w CelestialBody,
+    coords: Option<&'w SpaceCoordinates>,
+    orbit: Option<&'w KeplerOrbit>,
+    resources: Option<&'w PlanetResources>,
+    atmosphere: Option<&'w AtmosphereComposition>,
+    category: Option<&'w crate::plugins::starmap::PlanetCategory>,
+    survey_level: Option<&'w mut SurveyLevel>,
+    survey_state: Option<&'w SurveyState>,
+    population: Option<&'w Population>,
+    surface_temp: Option<&'w SurfaceTemperature>,
+    stellar_props: Option<&'w StellarProperties>,
+    system_id: Option<&'w crate::astronomy::components::SystemId>,
+    star_system: Option<&'w StarSystem>,
+    logical_parent: Option<&'w LogicalParent>,
+    ocean_props: Option<&'w OceanProperties>,
+    existing_colony: Option<&'w Colony>,
+}
+
 /// Renders the right-side "Celestial Body Dossier" panel when a body is
 /// selected and no full-screen menu is active.
 #[allow(clippy::too_many_arguments)]
@@ -108,24 +135,7 @@ pub(super) fn ui_planet_dossier(
     selection: Res<Selection>,
     active_menu: Res<ActiveMenu>,
     nearby_stars: Res<NearbyStarsData>,
-    mut body_query: Query<(
-        &CelestialBody,
-        Option<&SpaceCoordinates>,
-        Option<&KeplerOrbit>,
-        Option<&PlanetResources>,
-        Option<&AtmosphereComposition>,
-        Option<&crate::plugins::starmap::PlanetCategory>,
-        Option<&mut SurveyLevel>,
-        Option<&SurveyState>,
-        Option<&Population>,
-        Option<&SurfaceTemperature>,
-        Option<&StellarProperties>,
-        Option<&crate::astronomy::components::SystemId>,
-        Option<&StarSystem>,
-        Option<&LogicalParent>,
-        Option<&OceanProperties>,
-        Option<&Colony>,
-    )>,
+    mut body_query: Query<(Entity, DossierBodyParts)>,
     parent_coords_query: Query<&SpaceCoordinates>,
     all_bodies_query: Query<(
         Entity,
@@ -166,27 +176,25 @@ pub(super) fn ui_planet_dossier(
         None => return,
     };
 
-    let Ok((
-        body,
-        opt_coords,
-        orbit,
-        resources,
-        atmosphere,
-        category_opt,
-        mut survey_level,
-        survey_state,
-        population,
-        surface_temp,
-        stellar_props,
-        system_id,
-        star_system,
-        logical_parent,
-        ocean_props,
-        existing_colony,
-    )) = body_query.get_mut(entity)
-    else {
+    let Ok((_, mut parts)) = body_query.get_mut(entity) else {
         return;
     };
+    let body = parts.body;
+    let opt_coords = parts.coords;
+    let orbit = parts.orbit;
+    let resources = parts.resources;
+    let atmosphere = parts.atmosphere;
+    let category_opt = parts.category;
+    let mut survey_level = parts.survey_level;
+    let survey_state = parts.survey_state;
+    let population = parts.population;
+    let surface_temp = parts.surface_temp;
+    let stellar_props = parts.stellar_props;
+    let system_id = parts.system_id;
+    let star_system = parts.star_system;
+    let logical_parent = parts.logical_parent;
+    let ocean_props = parts.ocean_props;
+    let existing_colony = parts.existing_colony;
 
     egui::SidePanel::right("selection_panel")
         .min_width(340.0)
