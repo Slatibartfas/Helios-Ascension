@@ -128,4 +128,3 @@ src/plugins/system_populator.rs:1975  OrbitPath::new(Color::srgba(0.25, 0.45, 0.
 src/plugins/system_populator.rs:2118  OrbitPath::with_fade(Color::srgba(0.3, 0.55, 0.22, 0.45), 5.0), // Dark green, steep fade — asteroids
 src/plugins/system_populator.rs:2229  OrbitPath::new(Color::srgba(1.0, 0.8, 0.3, 0.65)), // Yellow — comets
 src/plugins/system_populator.rs:2802  OrbitPath::new(Color::srgba(0.65, 0.65, 0.65, 0.5)), // Grey — moons
-src/ui/shipbuilding_workspace.rs:3220  Color::srgba(

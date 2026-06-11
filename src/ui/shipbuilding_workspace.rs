@@ -3258,14 +3258,7 @@ fn format_delta(delta: f64, decimals: usize) -> String {
 }
 
 fn mix_color(base: Color, target: Color, amount: f32) -> Color {
-    let base = base.to_srgba();
-    let target = target.to_srgba();
-    Color::srgba(
-        base.red + (target.red - base.red) * amount,
-        base.green + (target.green - base.green) * amount,
-        base.blue + (target.blue - base.blue) * amount,
-        base.alpha + (target.alpha - base.alpha) * amount,
-    )
+    base.mix(&target, amount)
 }
 
 fn animate_px(value: Val, target: f32, amount: f32) -> Val {
