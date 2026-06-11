@@ -245,10 +245,7 @@ impl KardashevTrendState {
 }
 
 fn surveyed_body_count(sample: &crate::economy::SimulationHistorySample) -> u32 {
-    sample
-        .survey
-        .total_bodies
-        .saturating_sub(sample.survey.unsurveyed)
+    sample.survey.surveyed_total()
 }
 
 fn build_kardashev_history(
@@ -1052,6 +1049,7 @@ pub(super) struct ResourceBarPowerQueries<'w, 's> {
             Option<&'static Colony>,
             Option<&'static PlanetResources>,
             Option<&'static SurveyLevel>,
+            Option<&'static crate::survey::SurveyState>,
             Option<&'static crate::economy::components::PowerGenerator>,
             Option<&'static MiningOperation>,
         ),

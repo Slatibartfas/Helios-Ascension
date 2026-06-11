@@ -308,8 +308,10 @@ pub(super) fn ui_planet_dossier(
                             draw_resource_section(
                                 ui,
                                 entity,
+                                body,
                                 res,
                                 survey_level.as_deref_mut(),
+                                survey_state,
                                 &mut commands,
                                 &rate_tracker,
                                 next,
@@ -1413,11 +1415,77 @@ fn draw_ocean_section(ui: &mut egui::Ui, ocean: &OceanProperties) {
 
 // ─── Resource Grid ───────────────────────────────────────────────────────
 
+/// A pre-computed (resource, deposit, estimate) row consumed by the
+/// dossier resource drawers. Built by `compute_deposit_rows` so the
+/// gas-giant filter and the `SurveyState`/`SurveyLevel` fallback
+/// live in one place.
+struct DepositRow {
+    resource: ResourceType,
+    deposit: MineralDeposit,
+    estimate: crate::survey::DepositEstimate,
+}
+
+/// Build the per-deposit rows for the dossier resource section.
+///
+/// Reads the body's `SurveyState` (preferred, post-PR-A) and falls
+/// back to the legacy `SurveyLevel` for bodies that only carry the
+/// old component. Filters out non-atmospheric deposits for gas
+/// giants (per SURVEY_REWORK.md §11, gas giants have no planetary
+/// bulk, so only the atmospheric gas rows show).
+fn compute_deposit_rows(
+    body: &CelestialBody,
+    resources: &PlanetResources,
+    survey_state: Option<&crate::survey::SurveyState>,
+    survey_level: Option<&SurveyLevel>,
+) -> Vec<DepositRow> {
+    let is_gas_giant = body.body_type == BodyType::GasGiant;
+    let fidelity = survey_state
+        .map(|s| s.fidelity(crate::survey::SurveyDimension::MineralDeposits))
+        .or_else(|| survey_level.map(|l| l.as_deposit_fidelity(0.0)))
+        .unwrap_or(crate::survey::DimensionFidelity::UNKNOWN);
+
+    let mut rows: Vec<DepositRow> = Vec::new();
+    for (_category, items) in ResourceType::by_category() {
+        for resource in &items {
+            if !resource.is_mineable() {
+                continue;
+            }
+            let Some(deposit) = resources.get_deposit(resource).copied() else {
+                continue;
+            };
+            if deposit.reserve.total_mass() <= 0.001 {
+                continue;
+            }
+            // Gas giants have no planetary_bulk — surface the
+            // atmospheric deposits only and hide the rest.
+            if is_gas_giant && !deposit.is_atmospheric {
+                continue;
+            }
+            let estimate = crate::survey::estimate_with_fidelity(&deposit, fidelity);
+            // Skip deposits the survey hasn't revealed at all.
+            if matches!(
+                estimate.visibility,
+                crate::survey::DepositVisibility::Unknown
+            ) {
+                continue;
+            }
+            rows.push(DepositRow {
+                resource: *resource,
+                deposit,
+                estimate,
+            });
+        }
+    }
+    rows
+}
+
 fn draw_resource_section(
     ui: &mut egui::Ui,
     entity: Entity,
+    body: &CelestialBody,
     resources: &PlanetResources,
     survey_level: Option<&mut SurveyLevel>,
+    survey_state: Option<&crate::survey::SurveyState>,
     commands: &mut Commands,
     rate_tracker: &ResourceRateTracker,
     view: DossierResourceView,
@@ -1427,6 +1495,13 @@ fn draw_resource_section(
         .as_deref()
         .copied()
         .unwrap_or(SurveyLevel::Unsurveyed);
+    // PR-F (GRA-84): copy out an immutable view of the legacy
+    // `SurveyLevel` BEFORE the upgrade button's `&mut` borrow runs
+    // — the button's `if let Some(survey) = survey_level` moves the
+    // inner `&mut` out, so we can't reach `survey_level` again
+    // afterward. The legacy enum is just a 1:1 adapter; the new
+    // `SurveyState` is read-only.
+    let survey_level_for_rows: Option<SurveyLevel> = current_level.into();
 
     ui.horizontal(|ui| {
         ui.label(
@@ -1481,6 +1556,21 @@ fn draw_resource_section(
         return;
     }
 
+    let rows = compute_deposit_rows(
+        body,
+        resources,
+        survey_state,
+        survey_level_for_rows.as_ref(),
+    );
+
+    if rows.is_empty() {
+        ui.colored_label(
+            TEXT_DIM,
+            "Scan complete — no resources detected at the current survey tier.",
+        );
+        return;
+    }
+
     ui.add_space(theme::Spacing::xs);
 
     // PR-B (GRA-67) — `theme::section_h3` introduces each sub-section.
@@ -1489,11 +1579,11 @@ fn draw_resource_section(
     match view {
         DossierResourceView::ByCategory => {
             theme::section_h3(ui, "DEPOSITS");
-            draw_resource_grid(ui, resources, current_level, rate_tracker, entity);
+            draw_resource_grid(ui, &rows, rate_tracker, entity);
         }
         DossierResourceView::Compact => {
             theme::section_h3(ui, "DEPOSITS \u{2014} COMPACT");
-            draw_resource_compact(ui, resources, current_level, rate_tracker, entity);
+            draw_resource_compact(ui, &rows, rate_tracker, entity);
         }
     }
 
@@ -1817,30 +1907,22 @@ fn extraction_site_tooltip_text(site: &ExtractionSite) -> String {
 /// rendered as one row: symbol, name, viable mass, monthly balance.
 fn draw_resource_compact(
     ui: &mut egui::Ui,
-    resources: &PlanetResources,
-    survey_level: SurveyLevel,
+    rows: &[DepositRow],
     rate_tracker: &ResourceRateTracker,
     entity: Entity,
 ) {
-    let mut rows: Vec<(ResourceType, f64)> = Vec::new();
-    for (_category, items) in ResourceType::by_category() {
-        for r in &items {
-            if !r.is_mineable() {
-                continue;
-            }
-            if let Some(d) = resources.get_deposit(r) {
-                if d.reserve.total_mass() > 0.001 {
-                    let discovered = survey_level.discovered_amount(&d.reserve);
-                    rows.push((*r, discovered));
-                }
-            }
-        }
-    }
-    // Sort by discovered mass descending so the most important deposits
+    let mut sorted: Vec<&DepositRow> = rows.iter().collect();
+    // Sort by mid estimate descending so the most important deposits
     // appear first; secondary sort by symbol for determinism.
-    rows.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    sorted.sort_by(|a, b| {
+        b.estimate
+            .mid_or_zero()
+            .partial_cmp(&a.estimate.mid_or_zero())
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.resource.symbol().cmp(b.resource.symbol()))
+    });
 
-    if rows.is_empty() {
+    if sorted.is_empty() {
         ui.colored_label(TEXT_DIM, "No deposits visible at current survey level.");
         return;
     }
@@ -1849,11 +1931,11 @@ fn draw_resource_compact(
         .num_columns(4)
         .spacing([12.0, 2.0])
         .show(ui, |ui| {
-            for (resource, discovered) in rows {
-                let sym = resource.symbol();
-                let name = resource.display_name();
-                let mass = format_mass_compact(discovered);
-                let rate = rate_tracker.get_entity_resource_rate(entity, &resource);
+            for row in sorted {
+                let sym = row.resource.symbol();
+                let name = row.resource.display_name();
+                let mass = format_estimate_mass(&row.estimate);
+                let rate = rate_tracker.get_entity_resource_rate(entity, &row.resource);
                 let (rate_text, _rate_color) = format_rate_monthly(rate);
                 ui.label(egui::RichText::new(sym).font(mono_font(11.0)).color(ACCENT));
                 ui.label(
@@ -1874,6 +1956,28 @@ fn draw_resource_compact(
                 ui.end_row();
             }
         });
+}
+
+/// Format a deposit estimate for the compact dossier view. Returns
+/// "Class" for `ClassOnly`, "low–high Mt" for `Range`, and the
+/// precise mass for `Precise`. `Unknown` is filtered out by
+/// `compute_deposit_rows` so the caller never sees it.
+fn format_estimate_mass(estimate: &crate::survey::DepositEstimate) -> String {
+    use crate::survey::DepositVisibility;
+    match estimate.visibility {
+        DepositVisibility::Unknown => "—".to_string(),
+        DepositVisibility::ClassOnly => "Class".to_string(),
+        DepositVisibility::Range => {
+            let low = estimate.low.unwrap_or(0.0);
+            let high = estimate.high.unwrap_or(0.0);
+            format!(
+                "{} \u{2013} {}",
+                format_mass_compact(low),
+                format_mass_compact(high)
+            )
+        }
+        DepositVisibility::Precise => format_mass_compact(estimate.mid.unwrap_or(0.0)),
+    }
 }
 
 /// Determine deposit magnitude tier (0–5) from total mass in megatons.
@@ -1898,7 +2002,7 @@ pub(super) enum ResourceTileDisplay {
     Unknown,
     None,
     Deposit {
-        discovered_megatons: f64,
+        estimate: crate::survey::DepositEstimate,
         concentration: Option<f32>,
     },
 }
@@ -1917,10 +2021,18 @@ pub(super) fn paint_resource_tile(
 
     match display {
         ResourceTileDisplay::Deposit {
-            discovered_megatons,
+            estimate,
             concentration,
         } => {
-            let (tier, _tier_label) = magnitude_tier(discovered_megatons);
+            // The magnitude tier uses the best estimate (mid) when
+            // available; class-only deposits show as a dim tile.
+            let mid_for_magnitude = estimate.mid.unwrap_or(0.0);
+            let (magnitude, _label) = magnitude_tier(mid_for_magnitude);
+            let is_class_only = matches!(
+                estimate.visibility,
+                crate::survey::DepositVisibility::ClassOnly
+            );
+            let display_tier = if is_class_only { 0 } else { magnitude };
 
             let brightness = concentration
                 .map(|conc| {
@@ -1928,9 +2040,10 @@ pub(super) fn paint_resource_tile(
                     let conc_norm = ((conc.log10() + 10.0) / 10.0).clamp(0.0, 1.0) as f32;
                     0.3 + 0.7 * conc_norm
                 })
-                .unwrap_or(0.8);
+                .unwrap_or(0.8)
+                * if is_class_only { 0.4 } else { 1.0 };
 
-            let fill_frac = match tier {
+            let fill_frac = match display_tier {
                 0 => 0.08,
                 1 => 0.25,
                 2 => 0.42,
@@ -1961,11 +2074,18 @@ pub(super) fn paint_resource_tile(
                 egui::Color32::WHITE,
             );
 
-            let compact = format_mass_compact(discovered_megatons);
+            // Mass label: precise/range uses format_mass_compact on
+            // the mid; class-only shows a "?" since the quantity is
+            // not yet known.
+            let mass_label = if is_class_only {
+                "?".to_string()
+            } else {
+                format_mass_compact(mid_for_magnitude)
+            };
             painter.text(
                 egui::Pos2::new(rect.center().x, rect.top() + size * 0.58),
                 egui::Align2::CENTER_CENTER,
-                &compact,
+                &mass_label,
                 mono_font(7.0),
                 egui::Color32::from_rgba_premultiplied(220, 230, 240, (180.0 * brightness) as u8),
             );
@@ -1977,7 +2097,7 @@ pub(super) fn paint_resource_tile(
             let pip_start_x = rect.center().x - total_pip_w * 0.5 + pip_r;
             for i in 0..5u8 {
                 let cx = pip_start_x + i as f32 * pip_spacing;
-                if i < tier {
+                if i < display_tier {
                     painter.circle_filled(egui::Pos2::new(cx, pip_y), pip_r, cat_color);
                 } else {
                     painter.circle_stroke(
@@ -2022,8 +2142,7 @@ pub(super) fn paint_resource_tile(
 /// symbol with magnitude pips and compact value.
 fn draw_resource_grid(
     ui: &mut egui::Ui,
-    resources: &PlanetResources,
-    survey_level: SurveyLevel,
+    rows: &[DepositRow],
     rate_tracker: &ResourceRateTracker,
     entity: Entity,
 ) {
@@ -2040,6 +2159,15 @@ fn draw_resource_grid(
             continue;
         }
 
+        // Skip categories where no deposit was revealed by the survey.
+        let category_rows: Vec<&DepositRow> = rows
+            .iter()
+            .filter(|r| mineable.contains(&r.resource))
+            .collect();
+        if category_rows.is_empty() {
+            continue;
+        }
+
         let cat_color = theme::category_color(category_name);
 
         // Category header with coloured label
@@ -2052,18 +2180,8 @@ fn draw_resource_grid(
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = egui::Vec2::splat(tile_spacing);
 
-            for resource_type in &mineable {
-                let deposit = resources.get_deposit(resource_type);
-                draw_resource_tile(
-                    ui,
-                    *resource_type,
-                    deposit,
-                    survey_level,
-                    tile_size,
-                    cat_color,
-                    rate_tracker,
-                    entity,
-                );
+            for row in &category_rows {
+                draw_resource_tile(ui, row, tile_size, cat_color, rate_tracker, entity);
             }
         });
 
@@ -2076,36 +2194,28 @@ fn draw_resource_grid(
 /// so different resource families are visually distinct.
 fn draw_resource_tile(
     ui: &mut egui::Ui,
-    resource: ResourceType,
-    deposit: Option<&MineralDeposit>,
-    survey_level: SurveyLevel,
+    row: &DepositRow,
     size: f32,
     cat_color: egui::Color32,
     rate_tracker: &ResourceRateTracker,
     entity: Entity,
 ) {
-    let has_deposit = deposit.is_some_and(|d| d.reserve.total_mass() > 0.001);
-    let response = if let Some(d) = deposit.filter(|d| d.reserve.total_mass() > 0.001) {
-        let discovered = survey_level.discovered_amount(&d.reserve);
-        paint_resource_tile(
-            ui,
-            resource,
-            ResourceTileDisplay::Deposit {
-                discovered_megatons: discovered,
-                concentration: Some(d.reserve.concentration),
-            },
-            size,
-            cat_color,
-        )
-    } else {
-        paint_resource_tile(ui, resource, ResourceTileDisplay::None, size, cat_color)
-    };
+    let response = paint_resource_tile(
+        ui,
+        row.resource,
+        ResourceTileDisplay::Deposit {
+            estimate: row.estimate,
+            concentration: Some(row.deposit.reserve.concentration),
+        },
+        size,
+        cat_color,
+    );
 
     // Hover tooltip
-    if response.hovered() && has_deposit {
-        let d = deposit.unwrap();
-        let discovered = survey_level.discovered_amount(&d.reserve);
-        let tooltip_id = egui::Id::new("resource_tile_tooltip").with(resource.symbol());
+    if response.hovered() {
+        let d = &row.deposit;
+        let estimate = row.estimate;
+        let tooltip_id = egui::Id::new("resource_tile_tooltip").with(row.resource.symbol());
 
         // Override the popup frame style on the ctx *before* show_tooltip is called.
         // egui::show_tooltip wraps content in Frame::popup(ctx.style()) which is
@@ -2134,31 +2244,26 @@ fn draw_resource_tile(
             tip_frame.show(ui, |ui| {
                 ui.set_min_width(180.0);
                 ui.label(
-                    egui::RichText::new(resource.display_name())
+                    egui::RichText::new(row.resource.display_name())
                         .font(mono_font(13.0))
                         .color(ACCENT),
                 );
 
-                // Phase badge + magnitude tier
-                let tier: u8 = match discovered {
-                    x if x >= 1e12 => 5,
-                    x if x >= 1e9 => 4,
-                    x if x >= 1e6 => 3,
-                    x if x >= 1e3 => 2,
-                    x if x > 0.0 => 1,
-                    _ => 0,
+                // Tier line uses the survey tier (0–5), not the
+                // magnitude tier, so the player sees how much of the
+                // resource is *known*.
+                let survey_tier = estimate.tier;
+                let tier_label = match survey_tier {
+                    5 => "Precisely characterized",
+                    4 => "Precisely characterized",
+                    3 => "Well characterized",
+                    2 => "Range estimate",
+                    1 => "Class known",
+                    _ => "Unknown",
                 };
-                let tier_label = match tier {
-                    5 => "Massive",
-                    4 => "Major",
-                    3 => "Moderate",
-                    2 => "Minor",
-                    1 => "Trace",
-                    _ => "None",
-                };
-                let tier_color = theme::tier_color(tier);
-                let tier_dots: String =
-                    "\u{25CF}".repeat(tier as usize) + &"\u{25CB}".repeat(5 - tier as usize);
+                let tier_color = theme::tier_color(survey_tier);
+                let tier_dots: String = "\u{25CF}".repeat(survey_tier as usize)
+                    + &"\u{25CB}".repeat(5 - survey_tier as usize);
                 ui.horizontal(|ui| {
                     ui.label(
                         egui::RichText::new(format!("{}", d.phase))
@@ -2173,32 +2278,44 @@ fn draw_resource_tile(
                 });
                 ui.add_space(4.0);
 
-                egui::Grid::new(format!("tooltip_{}", resource.symbol()))
+                egui::Grid::new(format!("tooltip_{}", row.resource.symbol()))
                     .num_columns(2)
                     .spacing([8.0, 1.0])
                     .show(ui, |ui| {
-                        tooltip_row(ui, "Discovered", &format_mass(discovered));
+                        // Discovered row adapts to the visibility
+                        // tier: precise value, range, or class only.
+                        let discovered_label = match estimate.visibility {
+                            crate::survey::DepositVisibility::Precise => {
+                                format_mass(estimate.mid.unwrap_or(0.0))
+                            }
+                            crate::survey::DepositVisibility::Range => {
+                                let low = estimate.low.unwrap_or(0.0);
+                                let high = estimate.high.unwrap_or(0.0);
+                                format!("{} \u{2013} {}", format_mass(low), format_mass(high))
+                            }
+                            crate::survey::DepositVisibility::ClassOnly => "Class only".to_string(),
+                            crate::survey::DepositVisibility::Unknown => "—".to_string(),
+                        };
+                        tooltip_row(ui, "Discovered", &discovered_label);
 
-                        // Tiered breakdown labels
+                        // Tiered breakdown labels: only show what
+                        // the survey tier currently reveals.
                         let is_atm = d.is_atmospheric;
                         let proven_label = if is_atm { "Atmospheric" } else { "Proven" };
                         let deep_label = if is_atm { "Trapped" } else { "Deep" };
                         let bulk_label = if is_atm { "Bound" } else { "Bulk" };
 
-                        tooltip_row(ui, proven_label, &format_mass(d.reserve.proven_crustal));
-
-                        if matches!(
-                            survey_level,
-                            SurveyLevel::SeismicSurvey | SurveyLevel::CoreSample
-                        ) {
+                        if survey_tier >= 2 {
+                            tooltip_row(ui, proven_label, &format_mass(d.reserve.proven_crustal));
+                        }
+                        if survey_tier >= 3 {
                             tooltip_row(ui, deep_label, &format_mass(d.reserve.deep_deposits));
                         }
-
-                        if matches!(survey_level, SurveyLevel::CoreSample) {
+                        if survey_tier >= 4 {
                             tooltip_row(ui, bulk_label, &format_mass(d.reserve.planetary_bulk));
                         }
 
-                        if !is_atm {
+                        if !is_atm && survey_tier >= 2 {
                             let conc = d.reserve.concentration;
                             let conc_text = if conc >= 0.01 {
                                 format!("{:.1}%", conc * 100.0)
@@ -2215,7 +2332,7 @@ fn draw_resource_tile(
 
                 // Balance (per-body production rate for this resource)
                 ui.add_space(2.0);
-                let rate = rate_tracker.get_entity_resource_rate(entity, &resource);
+                let rate = rate_tracker.get_entity_resource_rate(entity, &row.resource);
                 let (rate_text, rate_color) = format_rate_monthly(rate);
                 ui.horizontal(|ui| {
                     ui.label(

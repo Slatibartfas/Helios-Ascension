@@ -172,16 +172,16 @@ impl MiningSurveyFilter {
         }
     }
 
-    fn matches(self, survey_level: SurveyLevel) -> bool {
+    /// Match against a body's mean coverage in `[0.0, 1.0]`. The
+    /// thresholds mirror the legacy `SurveyLevel` enum values:
+    /// Unsurveyed=0.0, OrbitalScan=0.2, SeismicSurvey=0.4,
+    /// CoreSample=1.0. PR-F replaces the enum with `mean_coverage`
+    /// from `SurveyState::average_tier()`.
+    fn matches(self, mean_coverage: f32) -> bool {
         match self {
-            Self::Surveyed => survey_level != SurveyLevel::Unsurveyed,
-            Self::SeismicPlus => {
-                matches!(
-                    survey_level,
-                    SurveyLevel::SeismicSurvey | SurveyLevel::CoreSample
-                )
-            }
-            Self::CoreOnly => survey_level == SurveyLevel::CoreSample,
+            Self::Surveyed => mean_coverage > 0.0,
+            Self::SeismicPlus => mean_coverage >= 0.4,
+            Self::CoreOnly => mean_coverage >= 1.0,
         }
     }
 }
@@ -221,7 +221,7 @@ enum MiningSortMode {
     ReserveEstimate,
     DepositCount,
     Accessibility,
-    SurveyLevel,
+    MeanCoverage,
 }
 
 impl MiningSortMode {
@@ -232,7 +232,7 @@ impl MiningSortMode {
             Self::ReserveEstimate,
             Self::DepositCount,
             Self::Accessibility,
-            Self::SurveyLevel,
+            Self::MeanCoverage,
         ]
     }
 
@@ -243,7 +243,7 @@ impl MiningSortMode {
             Self::ReserveEstimate => "Reserve Estimate",
             Self::DepositCount => "Deposit Count",
             Self::Accessibility => "Accessibility",
-            Self::SurveyLevel => "Survey Level",
+            Self::MeanCoverage => "Mean Coverage",
         }
     }
 }
@@ -286,6 +286,26 @@ fn cmp_f64(left: f64, right: f64) -> std::cmp::Ordering {
         .unwrap_or(std::cmp::Ordering::Equal)
 }
 
+/// Map a body's `SurveyState` (preferred) or legacy `SurveyLevel`
+/// (fallback) to a 0..=1 mean coverage value. Used by the economy
+/// panel's filter and sort during the v0.5.0 migration window —
+/// the v0.5.0 source of truth is `SurveyState::average_tier()`,
+/// which already normalizes across all 8 dimensions.
+fn legacy_to_mean_coverage(
+    survey_level: Option<SurveyLevel>,
+    survey_state: Option<&crate::survey::SurveyState>,
+) -> f32 {
+    if let Some(state) = survey_state {
+        return state.average_tier();
+    }
+    match survey_level.unwrap_or(SurveyLevel::Unsurveyed) {
+        SurveyLevel::Unsurveyed => 0.0,
+        SurveyLevel::OrbitalScan => 0.2,
+        SurveyLevel::SeismicSurvey => 0.4,
+        SurveyLevel::CoreSample => 1.0,
+    }
+}
+
 fn mining_body_icon(body_type: BodyType) -> &'static str {
     match body_type {
         BodyType::Planet | BodyType::GasGiant => "🪐",
@@ -298,6 +318,11 @@ fn mining_body_icon(body_type: BodyType) -> &'static str {
     }
 }
 
+/// Legacy rank helper kept during the v0.5.0 migration window for
+/// any callers that haven't migrated to `mean_coverage` yet.
+/// Suppress the dead_code warning while the migration is in
+/// progress.
+#[allow(dead_code)]
 fn mining_survey_rank(level: SurveyLevel) -> u8 {
     match level {
         SurveyLevel::Unsurveyed => 0,
@@ -325,6 +350,14 @@ fn mining_survey_color(level: SurveyLevel) -> egui::Color32 {
     }
 }
 
+/// v0.5.0 mean-coverage bucket label. Rounds to the nearest
+/// 25% band — `0%`, `25%`, `50%`, `75%`, `100%` — so the mining
+/// panel row meta is comparable to the dossier's coverage readout.
+fn coverage_label(mean_coverage: f32) -> String {
+    let pct = (mean_coverage.clamp(0.0, 1.0) * 100.0).round() as u32;
+    format!("{pct}% surveyed")
+}
+
 fn mining_matching_active_ops_count(
     body_entry: &BodyEconomyEntry,
     resource_filter: Option<ResourceType>,
@@ -342,6 +375,11 @@ fn mining_visible_deposit_rows(
     body_entry: &BodyEconomyEntry,
     resource_filter: Option<ResourceType>,
 ) -> Vec<MiningDepositRow> {
+    // PR-F: route the legacy `discovered_amount(SurveyLevel)` call
+    // through the v0.5.0 estimate helper. The mid value is what we
+    // sum into the per-body total; the visibility class is dropped
+    // on this code path (the dossier/dashboard use it directly).
+    let fidelity = body_entry.survey_level.as_deposit_fidelity(0.0);
     let mut rows: Vec<_> = body_entry
         .deposits
         .iter()
@@ -349,10 +387,11 @@ fn mining_visible_deposit_rows(
             resource_filter.is_none_or(|resource| *resource_type == resource)
         })
         .filter_map(|(resource_type, deposit)| {
-            let estimated_mt = body_entry.survey_level.discovered_amount(&deposit.reserve);
-            if estimated_mt <= 0.0 {
+            let estimate = crate::survey::estimate_with_fidelity(deposit, fidelity);
+            if !estimate.is_quantified() {
                 return None;
             }
+            let estimated_mt = estimate.mid_or_zero();
 
             let active_rate_mt_per_year = body_entry
                 .mining_ops
@@ -425,7 +464,7 @@ fn mining_body_meta(
     if ops > 0 {
         parts.push(format!("{} op", ops));
     }
-    parts.push(mining_survey_label(body_entry.survey_level).to_string());
+    parts.push(coverage_label(body_entry.mean_coverage).to_string());
     parts.join(" • ")
 }
 
@@ -455,9 +494,10 @@ fn mining_compare_body_entries(
             mining_body_average_accessibility(right, state.resource_filter) as f64,
         )
         .then_with(|| left.body_name.cmp(&right.body_name)),
-        MiningSortMode::SurveyLevel => mining_survey_rank(left.survey_level)
-            .cmp(&mining_survey_rank(right.survey_level))
-            .then_with(|| left.body_name.cmp(&right.body_name)),
+        MiningSortMode::MeanCoverage => {
+            cmp_f64(left.mean_coverage as f64, right.mean_coverage as f64)
+                .then_with(|| left.body_name.cmp(&right.body_name))
+        }
     };
 
     if state.sort_descending {
@@ -580,7 +620,14 @@ pub(super) struct BodyEconomyEntry {
     /// Prepared for future use (stations, mining ships)
     #[allow(dead_code)]
     pub(super) body_type: BodyType,
+    /// Legacy survey level (kept for the 1:1 migration shim and
+    /// for the "is the body surveyed at all?" predicate).
     survey_level: SurveyLevel,
+    /// Mean coverage across all dimensions, in `[0.0, 1.0]`. The
+    /// v0.5.0 source of truth for the new tier-based filter and
+    /// sort. Derived from the body's `SurveyState` (preferred) or
+    /// the legacy `SurveyLevel` (fallback).
+    mean_coverage: f32,
     logical_parent: Option<Entity>,
     semi_major_axis_au: Option<f64>,
     source_kind: EconomySourceKind,
@@ -1024,6 +1071,7 @@ pub(super) fn build_economy_hierarchy(
         Option<&Colony>,
         Option<&PlanetResources>,
         Option<&SurveyLevel>,
+        Option<&crate::survey::SurveyState>,
         Option<&crate::economy::components::PowerGenerator>,
         Option<&MiningOperation>,
     )>,
@@ -1052,6 +1100,7 @@ pub(super) fn build_economy_hierarchy(
         colony_opt,
         resources_opt,
         survey_level,
+        survey_state,
         gen_opt,
         mining_opt,
     ) in body_query.iter()
@@ -1074,6 +1123,7 @@ pub(super) fn build_economy_hierarchy(
                         body_name: body.name.clone(),
                         body_type: body.body_type,
                         survey_level: SurveyLevel::Unsurveyed,
+                        mean_coverage: legacy_to_mean_coverage(survey_level.copied(), survey_state),
                         logical_parent: None,
                         semi_major_axis_au: None,
                         source_kind: EconomySourceKind::MiningOp,
@@ -1159,6 +1209,7 @@ pub(super) fn build_economy_hierarchy(
                 body_name: body.name.clone(),
                 body_type: body.body_type,
                 survey_level: survey_level.copied().unwrap_or(SurveyLevel::Unsurveyed),
+                mean_coverage: legacy_to_mean_coverage(survey_level.copied(), survey_state),
                 logical_parent: logical_parent.map(|parent| parent.0),
                 semi_major_axis_au: orbit.map(|orbit| orbit.semi_major_axis),
                 source_kind,
@@ -1231,6 +1282,7 @@ pub(super) fn ui_economy_panels(
         Option<&Colony>,
         Option<&PlanetResources>,
         Option<&SurveyLevel>,
+        Option<&crate::survey::SurveyState>,
         Option<&crate::economy::components::PowerGenerator>,
         Option<&MiningOperation>,
     )>,
@@ -2515,7 +2567,7 @@ fn mining_body_matches_filters(
     system_name: &str,
     state: &MiningTabUiState,
 ) -> bool {
-    if !state.survey_filter.matches(body_entry.survey_level) {
+    if !state.survey_filter.matches(body_entry.mean_coverage) {
         return false;
     }
 

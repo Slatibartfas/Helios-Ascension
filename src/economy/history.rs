@@ -20,13 +20,61 @@ const HISTORY_MEDIUM_STEP_SECONDS: f64 = 30.0 * 86_400.0;
 const HISTORY_LONG_STEP_SECONDS: f64 = 180.0 * 86_400.0;
 const HISTORY_ARCHIVE_STEP_SECONDS: f64 = 365.25 * 86_400.0;
 
+/// v0.5.0 replacement for the old `SurveyHistoryStats` enum-bucket
+/// counters. Bodies are bucketed by their mean survey coverage
+/// (4 bands: 0–25%, 25–50%, 50–75%, 75–100%). The 0% band is the
+/// "unsurveyed" bucket the dashboard and dossier surface as a
+/// count. Bodies with no survey data at all land in the 0% band.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
 pub struct SurveyHistoryStats {
     pub total_bodies: u32,
-    pub unsurveyed: u32,
-    pub orbital_scan: u32,
-    pub seismic_survey: u32,
-    pub core_sample: u32,
+    /// 0% — 0 < mean_coverage ≤ 25%
+    pub band_0_to_25: u32,
+    /// 25% — 25% < mean_coverage ≤ 50%
+    pub band_25_to_50: u32,
+    /// 50% — 50% < mean_coverage ≤ 75%
+    pub band_50_to_75: u32,
+    /// 75% — 75% < mean_coverage ≤ 100%
+    pub band_75_to_100: u32,
+}
+
+impl SurveyHistoryStats {
+    /// Number of bodies with any survey data at all (mean > 0).
+    /// Surfaces as the "surveyed" total in the dashboard and
+    /// dossier.
+    pub fn surveyed_total(&self) -> u32 {
+        self.band_0_to_25 + self.band_25_to_50 + self.band_50_to_75 + self.band_75_to_100
+    }
+
+    /// Number of bodies with no survey data (mean = 0).
+    pub fn unsurveyed(&self) -> u32 {
+        self.total_bodies.saturating_sub(self.surveyed_total())
+    }
+}
+
+/// Bucket a mean coverage value in `[0.0, 1.0]` into one of the
+/// four bands in `SurveyHistoryStats`. 0.0 → `band_0_to_25` (we
+/// consider 0% surveyed bodies part of the 0–25% bucket so the
+/// unsurveyed count is `total - surveyed`).
+fn coverage_band(mean_coverage: f32) -> Band {
+    let clamped = mean_coverage.clamp(0.0, 1.0);
+    if clamped <= 0.25 {
+        Band::B0To25
+    } else if clamped <= 0.50 {
+        Band::B25To50
+    } else if clamped <= 0.75 {
+        Band::B50To75
+    } else {
+        Band::B75To100
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Band {
+    B0To25,
+    B25To50,
+    B50To75,
+    B75To100,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -468,17 +516,18 @@ fn build_historic_earth_sample(
         .round()
         .clamp(0.0, current_ships) as u32;
 
-    let core_sample = (current.survey.core_sample as f64 * anchor.survey_factor.powf(1.8))
+    let band_75_to_100 = (current.survey.band_75_to_100 as f64 * anchor.survey_factor.powf(1.8))
         .round()
-        .clamp(0.0, current.survey.core_sample as f64) as u32;
-    let seismic_survey = (current.survey.seismic_survey as f64 * anchor.survey_factor.powf(1.45))
+        .clamp(0.0, current.survey.band_75_to_100 as f64) as u32;
+    let band_50_to_75 = (current.survey.band_50_to_75 as f64 * anchor.survey_factor.powf(1.45))
         .round()
-        .clamp(0.0, current.survey.seismic_survey as f64) as u32;
-    let orbital_scan = (current.survey.orbital_scan as f64 * anchor.survey_factor.powf(1.1))
+        .clamp(0.0, current.survey.band_50_to_75 as f64) as u32;
+    let band_25_to_50 = (current.survey.band_25_to_50 as f64 * anchor.survey_factor.powf(1.2))
         .round()
-        .clamp(0.0, current.survey.orbital_scan as f64) as u32;
-    let surveyed_total = orbital_scan + seismic_survey + core_sample;
-    let unsurveyed = current.survey.total_bodies.saturating_sub(surveyed_total);
+        .clamp(0.0, current.survey.band_25_to_50 as f64) as u32;
+    let band_0_to_25 = (current.survey.band_0_to_25 as f64 * anchor.survey_factor.powf(1.1))
+        .round()
+        .clamp(0.0, current.survey.band_0_to_25 as f64) as u32;
 
     let resource_stockpiles = ResourceType::all()
         .iter()
@@ -521,10 +570,10 @@ fn build_historic_earth_sample(
         power_consumed_watts: current.power_consumed_watts * anchor.power_factor * 0.92,
         survey: SurveyHistoryStats {
             total_bodies: current.survey.total_bodies,
-            unsurveyed,
-            orbital_scan,
-            seismic_survey,
-            core_sample,
+            band_0_to_25,
+            band_25_to_50,
+            band_50_to_75,
+            band_75_to_100,
         },
         resource_stockpiles,
         resource_net_rates_per_month,
@@ -541,20 +590,38 @@ fn collect_current_snapshot(
     populations: &Query<&Population>,
     colonies: &Query<&Colony>,
     ships: &Query<&ShipInstance>,
-    bodies: &Query<Option<&SurveyLevel>, With<CelestialBody>>,
+    bodies: &Query<
+        (Option<&SurveyLevel>, Option<&crate::survey::SurveyState>),
+        With<CelestialBody>,
+    >,
 ) -> SimulationHistorySample {
     let total_population = populations.iter().map(|population| population.count).sum();
     let colony_count = colonies.iter().count() as u32;
     let ship_count = ships.iter().count() as u32;
 
+    // PR-F: bucket by mean coverage (v0.5.0 source of truth) with
+    // the legacy `SurveyLevel` as a fallback during the migration
+    // window. The legacy `as_deposit_fidelity` adapter isn't needed
+    // here — we just want a 0..=1 mean, which the legacy enum
+    // maps to the same 0/0.2/0.4/1.0 series it always used.
     let mut survey = SurveyHistoryStats::default();
-    for survey_level in bodies.iter() {
+    for (survey_level, survey_state) in bodies.iter() {
         survey.total_bodies += 1;
-        match survey_level.copied().unwrap_or(SurveyLevel::Unsurveyed) {
-            SurveyLevel::Unsurveyed => survey.unsurveyed += 1,
-            SurveyLevel::OrbitalScan => survey.orbital_scan += 1,
-            SurveyLevel::SeismicSurvey => survey.seismic_survey += 1,
-            SurveyLevel::CoreSample => survey.core_sample += 1,
+        let mean_coverage = if let Some(state) = survey_state {
+            state.average_tier()
+        } else {
+            match survey_level.copied().unwrap_or(SurveyLevel::Unsurveyed) {
+                SurveyLevel::Unsurveyed => 0.0,
+                SurveyLevel::OrbitalScan => 0.2,
+                SurveyLevel::SeismicSurvey => 0.4,
+                SurveyLevel::CoreSample => 1.0,
+            }
+        };
+        match coverage_band(mean_coverage) {
+            Band::B0To25 => survey.band_0_to_25 += 1,
+            Band::B25To50 => survey.band_25_to_50 += 1,
+            Band::B50To75 => survey.band_50_to_75 += 1,
+            Band::B75To100 => survey.band_75_to_100 += 1,
         }
     }
 
@@ -623,7 +690,7 @@ pub fn record_simulation_history(
     populations: Query<&Population>,
     colonies: Query<&Colony>,
     ships: Query<&ShipInstance>,
-    bodies: Query<Option<&SurveyLevel>, With<CelestialBody>>,
+    bodies: Query<(Option<&SurveyLevel>, Option<&crate::survey::SurveyState>), With<CelestialBody>>,
 ) {
     let current_snapshot = collect_current_snapshot(
         sim_time.elapsed_seconds(),
@@ -653,10 +720,10 @@ mod tests {
             power_consumed_watts: 3.1e12,
             survey: SurveyHistoryStats {
                 total_bodies: 100,
-                unsurveyed: 40,
-                orbital_scan: 30,
-                seismic_survey: 20,
-                core_sample: 10,
+                band_0_to_25: 30,
+                band_25_to_50: 25,
+                band_50_to_75: 25,
+                band_75_to_100: 20,
             },
             resource_stockpiles: vec![100.0; resource_count],
             resource_net_rates_per_month: vec![10.0; resource_count],

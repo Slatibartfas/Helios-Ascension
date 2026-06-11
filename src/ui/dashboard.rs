@@ -922,6 +922,7 @@ pub(super) fn ui_dashboard(
         &CelestialBody,
         &PlanetResources,
         Option<&SurveyLevel>,
+        Option<&crate::survey::SurveyState>,
     )>,
     // Ledger queries
     all_bodies_query: Query<(
@@ -1526,6 +1527,7 @@ fn render_star_system_panel(
         &CelestialBody,
         &PlanetResources,
         Option<&SurveyLevel>,
+        Option<&crate::survey::SurveyState>,
     )>,
     nearby_stars: &Res<NearbyStarsData>,
 ) {
@@ -1720,25 +1722,26 @@ fn render_star_system_panel(
 
                     let resource_bodies: Vec<_> = resource_query
                         .iter()
-                        .filter(|(sys_id, _, _, _)| sys_id.0 == star_icon.id)
+                        .filter(|(sys_id, _, _, _, _)| sys_id.0 == star_icon.id)
                         .collect();
 
                     let total_resource_weight: f64 = resource_bodies
                         .iter()
-                        .map(|(_, _, resources, _)| total_resource_expectation_weight(resources))
+                        .map(|(_, _, resources, _, _)| total_resource_expectation_weight(resources))
                         .sum();
                     let discovered_resource_weight: f64 = resource_bodies
                         .iter()
-                        .map(|(_, _, resources, survey_level)| {
+                        .map(|(_, _, resources, survey_level, survey_state)| {
                             discovered_resource_expectation_weight(
                                 resources,
                                 survey_level.copied().unwrap_or(SurveyLevel::Unsurveyed),
+                                *survey_state,
                             )
                         })
                         .sum();
                     let surveyed_body_count = resource_bodies
                         .iter()
-                        .filter(|(_, _, _, survey_level)| {
+                        .filter(|(_, _, _, survey_level, _)| {
                             survey_level.copied().unwrap_or(SurveyLevel::Unsurveyed)
                                 != SurveyLevel::Unsurveyed
                         })
@@ -1758,17 +1761,23 @@ fn render_star_system_panel(
                         && (discovered_resource_weight / total_resource_weight) >= 0.999_999;
 
                     let mut discovered_resources: HashMap<ResourceType, f64> = HashMap::new();
-                    for (_, _, resources, survey_level) in &resource_bodies {
-                        let survey_level = survey_level.copied().unwrap_or(SurveyLevel::Unsurveyed);
-                        if survey_level == SurveyLevel::Unsurveyed {
+                    for (_, _, resources, survey_level, survey_state) in &resource_bodies {
+                        let legacy_level = survey_level.copied().unwrap_or(SurveyLevel::Unsurveyed);
+                        if legacy_level == SurveyLevel::Unsurveyed && survey_state.is_none() {
                             continue;
                         }
 
+                        let fidelity = survey_state
+                            .map(|s| s.fidelity(crate::survey::SurveyDimension::MineralDeposits))
+                            .unwrap_or_else(|| legacy_level.as_deposit_fidelity(0.0));
+
                         for (resource_type, deposit) in &resources.deposits {
-                            let discovered = survey_level.discovered_amount(&deposit.reserve);
-                            if discovered > 0.001 {
-                                *discovered_resources.entry(*resource_type).or_insert(0.0) +=
-                                    discovered;
+                            let estimate = crate::survey::estimate_with_fidelity(deposit, fidelity);
+                            if let Some(mid) = estimate.mid {
+                                if mid > 0.001 {
+                                    *discovered_resources.entry(*resource_type).or_insert(0.0) +=
+                                        mid;
+                                }
                             }
                         }
                     }
@@ -1812,11 +1821,26 @@ fn render_star_system_panel(
                             ui.spacing_mut().item_spacing = egui::Vec2::splat(3.0);
 
                             for resource_type in &mineable {
-                                let display = if let Some(discovered_megatons) =
+                                let display = if let Some(mid) =
                                     discovered_resources.get(resource_type)
                                 {
+                                    // The starmap aggregates the
+                                    // best-estimate mid across every
+                                    // body in the system. Surface
+                                    // that as a Precise estimate so
+                                    // the tile shows the system
+                                    // total, with confidence 1.0 so
+                                    // the band collapses.
+                                    let mid_value = *mid;
                                     ResourceTileDisplay::Deposit {
-                                        discovered_megatons: *discovered_megatons,
+                                        estimate: crate::survey::DepositEstimate {
+                                            visibility: crate::survey::DepositVisibility::Precise,
+                                            low: Some(mid_value),
+                                            mid: Some(mid_value),
+                                            high: Some(mid_value),
+                                            tier: crate::survey::MAX_TIER,
+                                            confidence: 1.0,
+                                        },
                                         concentration: None,
                                     }
                                 } else if fully_surveyed {
@@ -1861,10 +1885,14 @@ fn total_resource_expectation_weight(resources: &PlanetResources) -> f64 {
 fn discovered_resource_expectation_weight(
     resources: &PlanetResources,
     survey_level: SurveyLevel,
+    survey_state: Option<&crate::survey::SurveyState>,
 ) -> f64 {
+    let fidelity = survey_state
+        .map(|s| s.fidelity(crate::survey::SurveyDimension::MineralDeposits))
+        .unwrap_or_else(|| survey_level.as_deposit_fidelity(0.0));
     resources
         .deposits
         .values()
-        .map(|deposit| survey_level.discovered_amount(&deposit.reserve))
+        .map(|deposit| crate::survey::estimate_with_fidelity(deposit, fidelity).mid_or_zero())
         .sum()
 }

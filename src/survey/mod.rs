@@ -21,6 +21,7 @@ pub mod components;
 pub mod data;
 pub mod systems;
 pub mod types;
+pub mod visibility;
 
 pub use components::{
     ActiveSurveyMission, AnalysisJob, DetectedAnomaly, DimensionFidelity, ExtractionSite,
@@ -40,6 +41,7 @@ pub use types::{
     AnomalyType, SurveyDimension, SurveyMethod, CONFIDENCE_DECAY_PER_YEAR, INITIAL_CONFIDENCE,
     MAX_TIER, STALE_CONFIDENCE, SURVEY_DAYS_PER_YEAR, WARNING_CONFIDENCE,
 };
+pub use visibility::{estimate_with_fidelity, is_stale, DepositEstimate, DepositVisibility};
 
 /// Plugin that registers the survey system with the Bevy app.
 ///
