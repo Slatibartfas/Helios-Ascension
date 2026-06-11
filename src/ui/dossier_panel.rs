@@ -100,19 +100,19 @@ fn mono_font(size: f32) -> egui::FontId {
 
 // ─── Main System ─────────────────────────────────────────────────────────
 
-/// QueryData bundle for the dossier body. The 15 fields here would
+/// QueryData bundle for the dossier body. The 16 fields here would
 /// otherwise blow past Bevy 0.18's `IntoSystem` / `Query` tuple arity
 /// cap (and the related `B0001` query-data limit). Deriving
 /// `QueryData` makes the whole set a single system-param item, and
 /// `SurveyState` (added in PR-D / GRA-82) slots in as just another
 /// optional field.
 ///
-/// Note: `survey_level: &mut SurveyLevel` is NOT included — mutable
-/// references don't satisfy `ReadOnlyQueryData` which is required for
-/// `QueryData` derive. It is queried separately as
-/// `survey_level_query: Query<&mut SurveyLevel>` and fetched via
-/// `get_mut` only when the body has that component.
+/// `#[query_data(mutable)]` opts into the mutable variant of the
+/// derive so that `Option<&'w mut SurveyLevel>` is allowed (the
+/// default `QueryData` derive requires all fields to satisfy
+/// `ReadOnlyQueryData`, which `&mut T` does not).
 #[derive(QueryData)]
+#[query_data(mutable)]
 struct DossierBodyParts<'w> {
     body: &'w CelestialBody,
     coords: Option<&'w SpaceCoordinates>,
@@ -120,6 +120,7 @@ struct DossierBodyParts<'w> {
     resources: Option<&'w PlanetResources>,
     atmosphere: Option<&'w AtmosphereComposition>,
     category: Option<&'w crate::plugins::starmap::PlanetCategory>,
+    survey_level: Option<&'w mut SurveyLevel>,
     survey_state: Option<&'w SurveyState>,
     population: Option<&'w Population>,
     surface_temp: Option<&'w SurfaceTemperature>,
@@ -152,7 +153,6 @@ pub(super) fn ui_planet_dossier(
     star_system_query: Query<(Entity, &StarSystemIcon, Option<&SelectedStarSystem>)>,
     rate_tracker: Res<ResourceRateTracker>,
     mut pending_actions: ResMut<PendingConstructionActions>,
-    survey_level_query: Query<&mut SurveyLevel>,
 ) {
     // Don't show when full-screen menus are active
     if matches!(
@@ -182,7 +182,7 @@ pub(super) fn ui_planet_dossier(
         None => return,
     };
 
-    let Ok((_, parts)) = body_query.get(entity) else {
+    let Ok((_, mut parts)) = body_query.get_mut(entity) else {
         return;
     };
     let body = parts.body;
@@ -191,7 +191,7 @@ pub(super) fn ui_planet_dossier(
     let resources = parts.resources;
     let atmosphere = parts.atmosphere;
     let category_opt = parts.category;
-    let survey_level = survey_level_query.get_mut(entity).ok();
+    let mut survey_level = parts.survey_level;
     let survey_state = parts.survey_state;
     let population = parts.population;
     let surface_temp = parts.surface_temp;
