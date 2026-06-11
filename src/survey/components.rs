@@ -403,9 +403,15 @@ mod tests {
         for dim in SurveyDimension::ALL {
             let f = state.fidelity(dim);
             assert_eq!(f.tier, 5, "{dim} should be tier 5");
-            assert!(f.is_fully_characterized(), "{dim} should be fully characterized");
+            assert!(
+                f.is_fully_characterized(),
+                "{dim} should be fully characterized"
+            );
         }
-        assert_eq!(state.fully_characterized_count(), SurveyDimension::ALL.len());
+        assert_eq!(
+            state.fully_characterized_count(),
+            SurveyDimension::ALL.len()
+        );
         assert_eq!(state.average_tier(), 1.0);
     }
 
@@ -419,10 +425,7 @@ mod tests {
             DimensionFidelity::at_tier(4, 0.9, Some(sim_time())),
         );
         let avg = state.average_tier();
-        assert!(
-            (avg - 0.1).abs() < 1e-6,
-            "expected 0.1, got {avg}"
-        );
+        assert!((avg - 0.1).abs() < 1e-6, "expected 0.1, got {avg}");
         assert_eq!(state.known_dimension_count(), 1);
     }
 
