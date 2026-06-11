@@ -378,7 +378,7 @@ fn spawn_shipbuilding_workspace(mut commands: Commands) {
                 min_height: Val::Px(0.0),
                 ..default()
             },
-            BackgroundColor(Color::srgba(0.015, 0.02, 0.035, 0.96)),
+            BackgroundColor(theme::Color::LOADING_BG),
         ))
         .with_children(|parent| {
             parent
@@ -390,8 +390,8 @@ fn spawn_shipbuilding_workspace(mut commands: Commands) {
                         border: UiRect::all(Val::Px(1.0)),
                         ..default()
                     },
-                    BackgroundColor(Color::srgba(0.03, 0.08, 0.12, 0.96)),
-                    BorderColor::all(Color::srgb(0.22, 0.72, 0.86)),
+                    BackgroundColor(theme::Color::LOADING_BANNER_BG),
+                    BorderColor::all(theme::Color::STATUS_INFO_BORDER),
                 ))
                 .with_children(|banner| {
                     banner.spawn((
@@ -401,7 +401,7 @@ fn spawn_shipbuilding_workspace(mut commands: Commands) {
                             font_size: 12.5,
                             ..default()
                         },
-                        TextColor(Color::srgb(0.82, 0.94, 0.98)),
+                        TextColor(theme::Color::LOADING_BANNER_TEXT),
                     ));
                 });
 
@@ -465,8 +465,8 @@ fn spawn_shipbuilding_workspace(mut commands: Commands) {
                         border: UiRect::all(Val::Px(1.0)),
                         ..default()
                     },
-                    BackgroundColor(Color::srgba(0.02, 0.04, 0.07, 0.96)),
-                    BorderColor::all(Color::srgb(0.22, 0.72, 0.86)),
+                    BackgroundColor(theme::Color::TOOLTIP_BG),
+                    BorderColor::all(theme::Color::STATUS_INFO_BORDER),
                 ))
                 .with_children(|tooltip| {
                     tooltip.spawn((
@@ -476,7 +476,7 @@ fn spawn_shipbuilding_workspace(mut commands: Commands) {
                             font_size: 11.5,
                             ..default()
                         },
-                        TextColor(Color::srgb(0.55, 0.95, 1.0)),
+                        TextColor(theme::Color::STATUS_INFO_TEXT),
                     ));
                     tooltip.spawn((
                         ShipbuildingHoverTooltipBody,
@@ -517,8 +517,8 @@ fn spawn_panel<T: Component>(
         .spawn((
             Name::new(title.to_string()),
             node,
-            BackgroundColor(Color::srgba(0.03, 0.05, 0.08, 0.92)),
-            BorderColor::all(Color::srgb(0.15, 0.78, 0.88)),
+            BackgroundColor(theme::Color::PANEL_BG),
+            BorderColor::all(theme::Color::PANEL_BORDER),
         ))
         .with_children(|panel| {
             let parent_entity = panel.target_entity();
@@ -1316,7 +1316,7 @@ fn populate_tab_strip(commands: &mut Commands, shell: WorkspaceShell, active_tab
                     theme::Color::TAB_INACTIVE_BG
                 }),
                 BorderColor::all(if selected {
-                    theme::Color::TAB_ACTIVE_BORDER
+                    theme::Color::ACCENT
                 } else {
                     theme::Color::TAB_INACTIVE_BORDER
                 }),
@@ -1392,7 +1392,7 @@ fn populate_library_panel(
                 None => "No hull selected. Use the hull controls above to seed a design directly in the native workspace.".to_string(),
             },
             12.0,
-            Color::srgb(0.82, 0.87, 0.9),
+            theme::Color::CHIP_TEXT_BODY,
         ));
 
         parent
@@ -1415,14 +1415,14 @@ fn populate_library_panel(
                         border: UiRect::all(Val::Px(1.0)),
                         ..default()
                     },
-                    BackgroundColor(Color::srgb(0.08, 0.18, 0.14)),
-                    BorderColor::all(Color::srgb(0.38, 0.94, 0.7)),
+                    BackgroundColor(theme::Color::STATUS_SUCCESS_BG),
+                    BorderColor::all(theme::Color::STATUS_SUCCESS_BORDER),
                     Text::new("Save Design"),
                     TextFont {
                         font_size: 10.5,
                         ..default()
                     },
-                    TextColor(Color::srgb(0.92, 0.96, 0.98)),
+                    TextColor(theme::Color::CHIP_TEXT_LIGHT),
                 ));
                 row.spawn((
                     Button,
@@ -1434,14 +1434,14 @@ fn populate_library_panel(
                         border: UiRect::all(Val::Px(1.0)),
                         ..default()
                     },
-                    BackgroundColor(Color::srgb(0.12, 0.08, 0.09)),
-                    BorderColor::all(Color::srgb(0.86, 0.42, 0.38)),
+                    BackgroundColor(theme::Color::STATUS_DANGER_BG),
+                    BorderColor::all(theme::Color::STATUS_DANGER_BORDER),
                     Text::new("Reset Hull"),
                     TextFont {
                         font_size: 10.5,
                         ..default()
                     },
-                    TextColor(Color::srgb(0.92, 0.96, 0.98)),
+                    TextColor(theme::Color::CHIP_TEXT_LIGHT),
                 ));
             });
 
@@ -1466,14 +1466,14 @@ fn populate_library_panel(
                     border: UiRect::all(Val::Px(1.0)),
                     ..default()
                 },
-                BackgroundColor(Color::srgb(0.13, 0.08, 0.09)),
-                BorderColor::all(Color::srgb(0.58, 0.3, 0.32)),
+                BackgroundColor(theme::Color::STATUS_DANGER_BG_SOFT),
+                BorderColor::all(theme::Color::STATUS_DANGER_BORDER_SOFT),
                 Text::new("Clear Selected Slot"),
                 TextFont {
                     font_size: 10.5,
                     ..default()
                 },
-                TextColor(Color::srgb(0.94, 0.84, 0.84)),
+                TextColor(theme::Color::STATUS_DANGER_TEXT_SOFT),
             ));
 
             spawn_library_filter_row(parent, &ui_state.library_filter_query);
@@ -1505,14 +1505,14 @@ fn populate_library_panel(
                         border: UiRect::all(Val::Px(1.0)),
                         ..default()
                     },
-                    BackgroundColor(Color::srgba(0.12, 0.1, 0.07, 0.92)),
-                    BorderColor::all(Color::srgb(0.62, 0.42, 0.28)),
+                    BackgroundColor(theme::Color::STATUS_WARNING_BG_SOFT_ALPHA),
+                    BorderColor::all(theme::Color::STATUS_WARNING_BORDER_SOFT),
                 ))
                 .with_children(|empty| {
                     empty.spawn(text_block(
                         format!("No modules match '{}'.", query_trimmed),
                         11.0,
-                        Color::srgb(0.92, 0.78, 0.62),
+                        theme::Color::STATUS_WARNING_TEXT_SOFT,
                     ));
                     empty.spawn((
                         Button,
@@ -1523,14 +1523,14 @@ fn populate_library_panel(
                             border: UiRect::all(Val::Px(1.0)),
                             ..default()
                         },
-                        BackgroundColor(Color::srgb(0.18, 0.12, 0.08)),
-                        BorderColor::all(Color::srgb(0.78, 0.52, 0.36)),
+                        BackgroundColor(theme::Color::STATUS_WARNING_BG),
+                        BorderColor::all(theme::Color::STATUS_WARNING_BORDER),
                         Text::new("Clear"),
                         TextFont {
                             font_size: 10.0,
                             ..default()
                         },
-                        TextColor(Color::srgb(0.96, 0.86, 0.74)),
+                        TextColor(theme::Color::STATUS_WARNING_TEXT_CREAM),
                     ));
                 });
             } else {
@@ -1541,11 +1541,11 @@ fn populate_library_panel(
                         == Some(slot.slot_id.as_str())
                         && ui_state.preview_module_id.as_deref() == Some(module.id.as_str());
                     let color = if installed {
-                        Color::srgb(0.1, 0.32, 0.22)
+                        theme::Color::BUILDING_OPERATIONAL_BG
                     } else if previewed {
-                        Color::srgb(0.12, 0.22, 0.34)
+                        theme::Color::SURFACE_MODULE_CARD_PREVIEW
                     } else {
-                        Color::srgb(0.055, 0.08, 0.12)
+                        theme::Color::SURFACE_MODULE_CARD_BASE
                     };
 
                     parent.spawn((
@@ -1568,11 +1568,11 @@ fn populate_library_panel(
                         },
                         BackgroundColor(color),
                         BorderColor::all(if installed {
-                            Color::srgb(0.38, 0.94, 0.7)
+                            theme::Color::STATUS_SUCCESS_BORDER
                         } else if previewed {
-                            Color::srgb(0.55, 0.95, 1.0)
+                            theme::Color::STATUS_INFO_TEXT
                         } else {
-                            Color::srgb(0.22, 0.35, 0.42)
+                            theme::Color::MINE_BAND_NONE
                         }),
                         Text::new(format!(
                             "{}\n{}  {:.0} t  {:.0} BP\nNet {:+.0} MW  {:.0} kN",
@@ -1587,7 +1587,7 @@ fn populate_library_panel(
                             font_size: 10.0,
                             ..default()
                         },
-                        TextColor(Color::srgb(0.88, 0.93, 0.96)),
+                        TextColor(theme::Color::TEXT_PALE),
                     ));
                 }
             }
@@ -1595,7 +1595,7 @@ fn populate_library_panel(
             parent.spawn(text_block(
                 "Select a slot in the blueprint to narrow the module library. Compatible cards will appear here and can be clicked to install modules into the draft.".to_string(),
                 11.0,
-                Color::srgb(0.6, 0.7, 0.76),
+                theme::Color::TEXT_MEDIUM,
             ));
         }
     });
@@ -1609,9 +1609,9 @@ fn spawn_library_filter_row(parent: &mut ChildSpawnerCommands, query: &str) {
         query.to_string()
     };
     let display_color = if trimmed.is_empty() {
-        Color::srgb(0.5, 0.6, 0.66)
+        theme::Color::TEXT_DIM
     } else {
-        Color::srgb(0.95, 0.98, 1.0)
+        theme::Color::TEXT_BRIGHT_WHITE
     };
 
     parent
@@ -1626,15 +1626,15 @@ fn spawn_library_filter_row(parent: &mut ChildSpawnerCommands, query: &str) {
                 column_gap: Val::Px(6.0),
                 ..default()
             },
-            BackgroundColor(Color::srgba(0.04, 0.07, 0.11, 0.92)),
-            BorderColor::all(Color::srgb(0.22, 0.72, 0.86)),
+            BackgroundColor(theme::Color::SURFACE_ALPHA),
+            BorderColor::all(theme::Color::STATUS_INFO_BORDER),
             ShipbuildingLibraryFilterInput,
         ))
         .with_children(|row| {
             row.spawn(text_block(
                 "Filter:".to_string(),
                 11.0,
-                Color::srgb(0.55, 0.95, 1.0),
+                theme::Color::STATUS_INFO_TEXT,
             ));
             row.spawn(text_block(display_text, 11.0, display_color));
         });
@@ -1862,7 +1862,7 @@ fn populate_native_tooltip_body(
                                     font_size: 10.5,
                                     ..default()
                                 },
-                                TextColor(Color::srgb(0.86, 0.93, 0.98)),
+                                TextColor(theme::Color::TEXT_BLUISH_WHITE),
                             ));
                             row.spawn((
                                 Text::new(value.clone()),
@@ -1888,12 +1888,12 @@ fn populate_native_tooltip_body(
 
 fn tone_color_native(tone: ShipbuildingTooltipTone) -> Color {
     match tone {
-        ShipbuildingTooltipTone::Neutral => Color::srgb(0.84, 0.9, 0.94),
-        ShipbuildingTooltipTone::Positive => Color::srgb(0.5, 0.92, 0.62),
-        ShipbuildingTooltipTone::Warning => Color::srgb(0.98, 0.78, 0.36),
-        ShipbuildingTooltipTone::Negative => Color::srgb(1.0, 0.45, 0.4),
-        ShipbuildingTooltipTone::Accent => Color::srgb(0.55, 0.95, 1.0),
-        ShipbuildingTooltipTone::Muted => Color::srgb(0.66, 0.75, 0.8),
+        ShipbuildingTooltipTone::Neutral => theme::Color::TEXT_LIGHT,
+        ShipbuildingTooltipTone::Positive => theme::Color::STATUS_SUCCESS_TEXT,
+        ShipbuildingTooltipTone::Warning => theme::Color::STATUS_WARNING_TEXT,
+        ShipbuildingTooltipTone::Negative => theme::Color::STATUS_DANGER_TEXT,
+        ShipbuildingTooltipTone::Accent => theme::Color::STATUS_INFO_TEXT,
+        ShipbuildingTooltipTone::Muted => theme::Color::TEXT_MUTED,
     }
 }
 
@@ -1909,7 +1909,7 @@ fn populate_blueprint_panel(
             parent.spawn(text_block(
                 "No hull selected yet. The native blueprint becomes active once a hull is chosen in the existing ship design workflow.".to_string(),
                 14.0,
-                Color::srgb(0.82, 0.87, 0.9),
+                theme::Color::CHIP_TEXT_BODY,
             ));
             return;
         };
@@ -1923,7 +1923,7 @@ fn populate_blueprint_panel(
                 ui_state.selected_modules.len(),
             ),
             15.0,
-            Color::srgb(0.82, 0.87, 0.9),
+            theme::Color::CHIP_TEXT_BODY,
         ));
 
         parent
@@ -1935,8 +1935,8 @@ fn populate_blueprint_panel(
                     border: UiRect::all(Val::Px(1.0)),
                     ..default()
                 },
-                BackgroundColor(Color::srgba(0.018, 0.032, 0.055, 0.94)),
-                BorderColor::all(Color::srgb(0.15, 0.78, 0.88)),
+                BackgroundColor(theme::Color::BLUEPRINT_CANVAS_BG),
+                BorderColor::all(theme::Color::PANEL_BORDER),
             ))
             .with_children(|canvas| {
                 spawn_blueprint_guides(canvas);
@@ -1979,7 +1979,7 @@ fn populate_analytics_panel(
             parent.spawn(text_block(
                 "No design summary available yet. Once a hull and slots are selected, this panel will show live engineering metrics and bar-driven capacity usage.".to_string(),
                 14.0,
-                Color::srgb(0.82, 0.87, 0.9),
+                theme::Color::CHIP_TEXT_BODY,
             ));
             return;
         }
@@ -1994,7 +1994,7 @@ fn populate_analytics_panel(
                 preview.delta_v_ms,
                 gauge_capacity(summary.delta_v_ms, preview.delta_v_ms, 100.0),
                 "m/s",
-                Color::srgb(0.0, 0.95, 1.0),
+                theme::Color::ACCENT,
             );
             spawn_analytics_gauge(
                 parent,
@@ -2004,7 +2004,7 @@ fn populate_analytics_panel(
                 preview.thrust_kn,
                 gauge_capacity(summary.thrust_kn, preview.thrust_kn, 10.0),
                 "kN",
-                Color::srgb(0.96, 0.54, 0.28),
+                theme::Color::STATUS_BRIGHT_ORANGE,
             );
             spawn_analytics_gauge(
                 parent,
@@ -2014,7 +2014,7 @@ fn populate_analytics_panel(
                 preview.launch_mass_t,
                 gauge_capacity(summary.launch_mass_t, preview.launch_mass_t, 10.0),
                 "t",
-                Color::srgb(0.5, 0.86, 1.0),
+                theme::Color::ACCENT_BLUE_2,
             );
             spawn_analytics_gauge(
                 parent,
@@ -2024,7 +2024,7 @@ fn populate_analytics_panel(
                 preview.acceleration_ms2,
                 gauge_capacity(summary.acceleration_ms2, preview.acceleration_ms2, 0.1),
                 "m/s^2",
-                Color::srgb(0.66, 0.96, 0.7),
+                theme::Color::STATUS_BRIGHT_GREEN,
             );
             spawn_analytics_gauge(
                 parent,
@@ -2034,7 +2034,7 @@ fn populate_analytics_panel(
                 preview.power_balance_mw(),
                 gauge_capacity(summary.power_balance_mw(), preview.power_balance_mw(), 5.0),
                 "MW",
-                Color::srgb(0.0, 0.95, 1.0),
+                theme::Color::ACCENT,
             );
             spawn_analytics_gauge(
                 parent,
@@ -2044,7 +2044,7 @@ fn populate_analytics_panel(
                 preview.heat_sink_capacity,
                 gauge_capacity(summary.heat_sink_capacity, preview.heat_sink_capacity, 5.0),
                 "cap",
-                Color::srgb(1.0, 0.64, 0.24),
+                theme::Color::CHIP_TEXT_POWER_LOAD,
             );
             spawn_analytics_gauge(
                 parent,
@@ -2054,7 +2054,7 @@ fn populate_analytics_panel(
                 preview.sensor_range_au,
                 gauge_capacity(summary.sensor_range_au, preview.sensor_range_au, 0.1),
                 "AU",
-                Color::srgb(0.5, 0.92, 0.9),
+                theme::Color::CHIP_TEXT_BUILD,
             );
             spawn_analytics_gauge(
                 parent,
@@ -2064,7 +2064,7 @@ fn populate_analytics_panel(
                 preview.build_points,
                 gauge_capacity(summary.build_points, preview.build_points, 50.0),
                 "BP",
-                Color::srgb(0.5, 0.92, 0.58),
+                theme::Color::CHIP_TEXT_GREEN,
             );
             spawn_analytics_gauge(
                 parent,
@@ -2074,7 +2074,7 @@ fn populate_analytics_panel(
                 preview.fuel_capacity_t,
                 gauge_capacity(summary.fuel_capacity_t, preview.fuel_capacity_t, 5.0),
                 "t",
-                Color::srgb(0.45, 0.85, 0.66),
+                theme::Color::STATUS_GREEN_CYAN,
             );
             spawn_analytics_gauge(
                 parent,
@@ -2084,7 +2084,7 @@ fn populate_analytics_panel(
                 preview.cargo_capacity_t,
                 gauge_capacity(summary.cargo_capacity_t, preview.cargo_capacity_t, 5.0),
                 "t",
-                Color::srgb(0.86, 0.82, 0.58),
+                theme::Color::CHIP_TEXT_ORANGE,
             );
 
             spawn_analytics_chip_row(
@@ -2094,19 +2094,19 @@ fn populate_analytics_panel(
                         "CREW",
                         format!("{:.0}", summary.crew),
                         format_delta(preview.crew - summary.crew, 0),
-                        Color::srgb(0.86, 0.82, 0.58),
+                        theme::Color::CHIP_TEXT_ORANGE,
                     ),
                     (
                         "DOCK",
                         format!("{:.0}", summary.docking_ports),
                         format_delta(preview.docking_ports - summary.docking_ports, 0),
-                        Color::srgb(0.82, 0.9, 0.96),
+                        theme::Color::CHIP_TEXT_DOCK,
                     ),
                     (
                         "ISRU",
                         format!("{:.1}", summary.isru_rate_t_per_year),
                         format_delta(preview.isru_rate_t_per_year - summary.isru_rate_t_per_year, 1),
-                        Color::srgb(0.9, 0.72, 0.45),
+                        theme::Color::CHIP_TEXT_ISRU,
                     ),
                 ],
             );
@@ -2118,19 +2118,19 @@ fn populate_analytics_panel(
                         "GEN",
                         format!("{:.1} MW", summary.power_generation_mw),
                         format_delta(preview.power_generation_mw - summary.power_generation_mw, 1),
-                        Color::srgb(0.0, 0.95, 1.0),
+                        theme::Color::ACCENT,
                     ),
                     (
                         "LOAD",
                         format!("{:.1} MW", summary.power_draw_mw),
                         format_delta(preview.power_draw_mw - summary.power_draw_mw, 1),
-                        Color::srgb(1.0, 0.64, 0.24),
+                        theme::Color::CHIP_TEXT_POWER_LOAD,
                     ),
                     (
                         "ORD",
                         format!("{:.1} t", summary.ordnance_capacity_t + summary.magazine_capacity_t),
                         String::new(),
-                        Color::srgb(1.0, 0.46, 0.35),
+                        theme::Color::CHIP_TEXT_ORDNANCE,
                     ),
                 ],
             );
@@ -2144,7 +2144,7 @@ fn populate_analytics_panel(
                         .unwrap_or_else(|| "None".to_string())
                 ),
                 10.5,
-                Color::srgb(0.82, 0.87, 0.9),
+                theme::Color::CHIP_TEXT_BODY,
             ));
 
             if !summary.missing_required_slots.is_empty() {
@@ -2154,7 +2154,7 @@ fn populate_analytics_panel(
                         summary.missing_required_slots.join(", ")
                     ),
                     13.0,
-                    Color::srgb(1.0, 0.55, 0.45),
+                    theme::Color::CHIP_TEXT_WARN,
                 ));
             }
 
@@ -2171,7 +2171,7 @@ fn populate_analytics_panel(
                     }
                 ),
                 10.5,
-                Color::srgb(0.82, 0.87, 0.9),
+                theme::Color::CHIP_TEXT_BODY,
             ));
         }
     });
@@ -2334,9 +2334,9 @@ fn animate_shipbuilding_slot_feedback(
         let is_selected = ui_state.selected_slot.as_deref() == Some(frame.slot_id.as_str());
         let is_hovered = ui_state.hovered_slot.as_deref() == Some(frame.slot_id.as_str());
         let mut fill = if frame.filled {
-            Color::srgb(0.045, 0.12, 0.15)
+            theme::Color::SURFACE_DEEP_3
         } else {
-            Color::srgba(0.018, 0.032, 0.05, 0.94)
+            theme::Color::BLUEPRINT_CANVAS_BG_DIM
         };
 
         node.border = UiRect::all(animate_px(
@@ -2354,21 +2354,21 @@ fn animate_shipbuilding_slot_feedback(
         if is_selected {
             fill = mix_color(fill, frame.accent, 0.22 + pulse * 0.1);
             *border = BorderColor::all(mix_color(
-                Color::srgb(0.55, 0.95, 1.0),
+                theme::Color::STATUS_INFO_TEXT,
                 frame.accent,
                 0.62 + pulse * 0.18,
             ));
         } else if is_hovered {
             fill = mix_color(fill, frame.accent, 0.14 + pulse * 0.05);
             *border =
-                BorderColor::all(mix_color(Color::srgb(0.36, 0.88, 0.98), frame.accent, 0.38));
+                BorderColor::all(mix_color(theme::Color::ACCENT_BRIGHT_3, frame.accent, 0.38));
         } else if frame.previewed {
-            *border = BorderColor::all(Color::srgb(0.46, 0.78, 1.0));
+            *border = BorderColor::all(theme::Color::ACCENT_BLUE);
         } else if frame.filled {
             *border =
-                BorderColor::all(mix_color(Color::srgb(0.28, 0.72, 0.82), frame.accent, 0.18));
+                BorderColor::all(mix_color(theme::Color::ACCENT_CYAN_MID, frame.accent, 0.18));
         } else {
-            *border = BorderColor::all(Color::srgb(0.22, 0.45, 0.54));
+            *border = BorderColor::all(theme::Color::ACCENT_CYAN_DIM);
         }
 
         background.0 = fill;
@@ -2417,26 +2417,26 @@ fn animate_shipbuilding_module_card_feedback(
 
         background.0 = if installed {
             mix_color(
-                Color::srgb(0.1, 0.32, 0.22),
-                Color::srgb(0.38, 0.94, 0.7),
+                theme::Color::BUILDING_OPERATIONAL_BG,
+                theme::Color::STATUS_SUCCESS_BORDER,
                 0.08 + pulse * 0.06,
             )
         } else if hovered {
-            Color::srgb(0.08, 0.13, 0.19)
+            theme::Color::SURFACE_SLATE
         } else if previewed {
-            Color::srgb(0.1, 0.18, 0.28)
+            theme::Color::SURFACE_DIM_CYAN_4
         } else {
-            Color::srgb(0.055, 0.08, 0.12)
+            theme::Color::SURFACE_MODULE_CARD_BASE
         };
 
         *border = BorderColor::all(if installed {
-            Color::srgb(0.38, 0.94, 0.7)
+            theme::Color::STATUS_SUCCESS_BORDER
         } else if hovered {
-            Color::srgb(0.55, 0.95, 1.0)
+            theme::Color::STATUS_INFO_TEXT
         } else if previewed {
-            Color::srgb(0.46, 0.78, 1.0)
+            theme::Color::ACCENT_BLUE
         } else {
-            Color::srgb(0.22, 0.35, 0.42)
+            theme::Color::MINE_BAND_NONE
         });
     }
 }
@@ -2635,7 +2635,7 @@ fn spawn_blueprint_guides(parent: &mut ChildSpawnerCommands) {
                 height: Val::Percent(89.0),
                 ..default()
             },
-            BackgroundColor(Color::srgba(0.18, 0.55, 0.64, 0.18)),
+            BackgroundColor(theme::Color::ACCENT_ALPHA_FAINT_2),
         ));
 
         parent.spawn((
@@ -2650,7 +2650,7 @@ fn spawn_blueprint_guides(parent: &mut ChildSpawnerCommands) {
                 font_size: 9.5,
                 ..default()
             },
-            TextColor(Color::srgb(0.52, 0.8, 0.88)),
+            TextColor(theme::Color::ACCENT_CYAN),
         ));
     }
 
@@ -2664,7 +2664,7 @@ fn spawn_blueprint_guides(parent: &mut ChildSpawnerCommands) {
                 height: Val::Px(1.0),
                 ..default()
             },
-            BackgroundColor(Color::srgba(0.18, 0.55, 0.64, 0.12)),
+            BackgroundColor(theme::Color::ACCENT_ALPHA_FAINT),
         ));
     }
 }
@@ -2750,24 +2750,24 @@ fn spawn_blueprint_slot(
         accent.with_alpha(0.02)
     };
     let frame_fill = if is_selected {
-        mix_color(Color::srgb(0.04, 0.1, 0.14), accent, 0.26)
+        mix_color(theme::Color::SURFACE_DEEP_2, accent, 0.26)
     } else if is_hovered {
-        mix_color(Color::srgb(0.03, 0.08, 0.11), accent, 0.16)
+        mix_color(theme::Color::SURFACE_DEEP_4, accent, 0.16)
     } else if filled {
-        Color::srgb(0.045, 0.12, 0.15)
+        theme::Color::SURFACE_DEEP_3
     } else {
-        Color::srgba(0.018, 0.032, 0.05, 0.94)
+        theme::Color::BLUEPRINT_CANVAS_BG_DIM
     };
     let frame_border = if is_selected {
-        mix_color(Color::srgb(0.55, 0.95, 1.0), accent, 0.72)
+        mix_color(theme::Color::STATUS_INFO_TEXT, accent, 0.72)
     } else if is_hovered {
-        mix_color(Color::srgb(0.4, 0.9, 1.0), accent, 0.42)
+        mix_color(theme::Color::ACCENT_BRIGHT_4, accent, 0.42)
     } else if is_previewed {
-        Color::srgb(0.46, 0.78, 1.0)
+        theme::Color::ACCENT_BLUE
     } else if filled {
-        mix_color(Color::srgb(0.34, 0.86, 0.94), accent, 0.22)
+        mix_color(theme::Color::ACCENT_BRIGHT_2, accent, 0.22)
     } else {
-        Color::srgba(0.16, 0.34, 0.4, 0.45)
+        theme::Color::ACCENT_ALPHA_MID
     };
     let title = prettify_slot_name(&slot.slot_id);
     let category_text = slot.category.display_name();
@@ -2883,7 +2883,7 @@ fn spawn_blueprint_slot(
                                     font_size: 9.5,
                                     ..default()
                                 },
-                                TextColor(Color::srgb(0.88, 0.93, 0.96)),
+                                TextColor(theme::Color::TEXT_PALE),
                             ));
                             row.spawn((
                                 Text::new(format!(
@@ -2910,9 +2910,9 @@ fn spawn_blueprint_slot(
                             ..default()
                         },
                         TextColor(if filled {
-                            Color::srgb(0.78, 0.86, 0.9)
+                            theme::Color::TAB_INACTIVE_TEXT
                         } else {
-                            Color::srgba(0.7, 0.85, 0.92, 0.32)
+                            theme::Color::PALE_CYAN_ALPHA
                         }),
                     ));
 
@@ -2932,7 +2932,7 @@ fn spawn_blueprint_slot(
                                     font_size: 7.2,
                                     ..default()
                                 },
-                                TextColor(Color::srgb(0.82, 0.87, 0.9)),
+                                TextColor(theme::Color::CHIP_TEXT_BODY),
                             ));
                             row.spawn((
                                 Text::new(metric_corner_text(installed_module)),
@@ -2940,7 +2940,7 @@ fn spawn_blueprint_slot(
                                     font_size: 7.2,
                                     ..default()
                                 },
-                                TextColor(Color::srgb(0.78, 0.84, 0.88)),
+                                TextColor(theme::Color::TEXT_VERY_LIGHT),
                             ));
                         });
                 });
@@ -3148,7 +3148,7 @@ fn spawn_analytics_gauge(
                             font_size: 10.5,
                             ..default()
                         },
-                        TextColor(Color::srgb(0.84, 0.9, 0.94)),
+                        TextColor(theme::Color::TEXT_LIGHT),
                     ));
                 });
 
@@ -3160,8 +3160,8 @@ fn spawn_analytics_gauge(
                         border: UiRect::all(Val::Px(1.0)),
                         ..default()
                     },
-                    BackgroundColor(Color::srgba(0.03, 0.05, 0.08, 0.98)),
-                    BorderColor::all(Color::srgb(0.22, 0.35, 0.42)),
+                    BackgroundColor(theme::Color::PANEL_BG_SOLID),
+                    BorderColor::all(theme::Color::MINE_BAND_NONE),
                 ))
                 .with_children(|track| {
                     track.spawn((
@@ -3186,7 +3186,7 @@ fn spawn_analytics_gauge(
                                 top: Val::Px(0.0),
                                 ..default()
                             },
-                            BackgroundColor(Color::srgba(0.45, 0.92, 0.56, 0.55)),
+                            BackgroundColor(theme::Color::GREEN_ALPHA),
                         ));
                     } else if preview_pct < current_pct {
                         track.spawn((
@@ -3198,7 +3198,7 @@ fn spawn_analytics_gauge(
                                 top: Val::Px(0.0),
                                 ..default()
                             },
-                            BackgroundColor(Color::srgba(1.0, 0.38, 0.3, 0.55)),
+                            BackgroundColor(theme::Color::CORAL_RED_ALPHA),
                         ));
                     }
                 });
@@ -3232,16 +3232,12 @@ fn spawn_analytics_chip_row(
                 ))
                 .with_children(|chip| {
                     chip.spawn(text_block((*code).to_string(), 10.5, *color));
-                    chip.spawn(text_block(
-                        value.clone(),
-                        10.5,
-                        Color::srgb(0.84, 0.9, 0.94),
-                    ));
+                    chip.spawn(text_block(value.clone(), 10.5, theme::Color::TEXT_LIGHT));
                     if !delta.is_empty() {
                         chip.spawn(text_block(
                             delta.clone(),
                             10.5,
-                            Color::srgb(0.68, 0.9, 0.76),
+                            theme::Color::STATUS_SOFT_GREEN,
                         ));
                     }
                 });
@@ -3300,7 +3296,7 @@ fn spawn_hull_controls(
     parent.spawn(text_block(
         "Hull Control".to_string(),
         13.0,
-        Color::srgb(0.55, 0.95, 1.0),
+        theme::Color::STATUS_INFO_TEXT,
     ));
     parent.spawn(text_block(
         format!(
@@ -3310,7 +3306,7 @@ fn spawn_hull_controls(
                 .unwrap_or("None")
         ),
         11.5,
-        Color::srgb(0.82, 0.87, 0.9),
+        theme::Color::CHIP_TEXT_BODY,
     ));
     parent.spawn(dropdown_toggle_button(
         selected_hull
@@ -3330,8 +3326,8 @@ fn spawn_hull_controls(
                     border: UiRect::all(Val::Px(1.0)),
                     ..default()
                 },
-                BackgroundColor(Color::srgb(0.045, 0.07, 0.1)),
-                BorderColor::all(Color::srgb(0.22, 0.48, 0.58)),
+                BackgroundColor(theme::Color::TAB_INACTIVE_BG),
+                BorderColor::all(theme::Color::ACCENT_CYAN_DIM_2),
             ))
             .with_children(|column| {
                 for hull in available_hulls {
@@ -3349,7 +3345,7 @@ fn spawn_hull_controls(
         parent.spawn(text_block(
             "Use the hull controls to seed the native workspace without returning to the legacy designer.".to_string(),
             10.5,
-            Color::srgb(0.6, 0.7, 0.76),
+            theme::Color::TEXT_MEDIUM,
         ));
     }
 }
@@ -3366,7 +3362,7 @@ fn spawn_category_controls(
     parent.spawn(text_block(
         "Category Navigation".to_string(),
         13.0,
-        Color::srgb(0.55, 0.95, 1.0),
+        theme::Color::STATUS_INFO_TEXT,
     ));
 
     let present_categories: Vec<_> = ShipModuleCategory::all()
@@ -3428,18 +3424,18 @@ fn dropdown_toggle_button(label: String, open: bool) -> impl Bundle {
             border: UiRect::all(Val::Px(1.0)),
             ..default()
         },
-        BackgroundColor(Color::srgb(0.06, 0.11, 0.16)),
+        BackgroundColor(theme::Color::SURFACE_DEEP),
         BorderColor::all(if open {
-            Color::srgb(0.0, 0.95, 1.0)
+            theme::Color::ACCENT
         } else {
-            Color::srgb(0.22, 0.48, 0.58)
+            theme::Color::ACCENT_CYAN_DIM_2
         }),
         Text::new(format!("{} {}", if open { "▾" } else { "▸" }, label)),
         TextFont {
             font_size: 11.5,
             ..default()
         },
-        TextColor(Color::srgb(0.88, 0.93, 0.96)),
+        TextColor(theme::Color::TEXT_PALE),
     )
 }
 
@@ -3455,21 +3451,21 @@ fn hull_option_button(hull_id: String, label: String, selected: bool) -> impl Bu
             ..default()
         },
         BackgroundColor(if selected {
-            Color::srgb(0.1, 0.18, 0.22)
+            theme::Color::SURFACE_DIM_CYAN_3
         } else {
-            Color::srgb(0.045, 0.07, 0.1)
+            theme::Color::TAB_INACTIVE_BG
         }),
         BorderColor::all(if selected {
-            Color::srgb(0.0, 0.95, 1.0)
+            theme::Color::ACCENT
         } else {
-            Color::srgb(0.18, 0.3, 0.36)
+            theme::Color::TAB_INACTIVE_BORDER
         }),
         Text::new(label),
         TextFont {
             font_size: 11.0,
             ..default()
         },
-        TextColor(Color::srgb(0.88, 0.93, 0.96)),
+        TextColor(theme::Color::TEXT_PALE),
     )
 }
 
@@ -3485,21 +3481,21 @@ fn category_button(category: ShipModuleCategory, selected: bool) -> impl Bundle 
             ..default()
         },
         BackgroundColor(if selected {
-            Color::srgb(0.1, 0.18, 0.22)
+            theme::Color::SURFACE_DIM_CYAN_3
         } else {
-            Color::srgb(0.055, 0.08, 0.12)
+            theme::Color::SURFACE_MODULE_CARD_BASE
         }),
         BorderColor::all(if selected {
             theme::module_category_color(category)
         } else {
-            Color::srgb(0.22, 0.35, 0.42)
+            theme::Color::MINE_BAND_NONE
         }),
         Text::new(category.display_name()),
         TextFont {
             font_size: 10.5,
             ..default()
         },
-        TextColor(Color::srgb(0.88, 0.93, 0.96)),
+        TextColor(theme::Color::TEXT_PALE),
     )
 }
 
@@ -3651,7 +3647,7 @@ fn populate_archive_tab_native(
         parent.spawn(text_block(
             "Design Archive".to_string(),
             14.0,
-            Color::srgb(0.55, 0.95, 1.0),
+            theme::Color::STATUS_INFO_TEXT,
         ));
         parent.spawn(text_block(
             format!(
@@ -3661,14 +3657,14 @@ fn populate_archive_tab_native(
                 if ui_state.design_sort_descending { " desc" } else { " asc" }
             ),
             11.0,
-            Color::srgb(0.82, 0.87, 0.9),
+            theme::Color::CHIP_TEXT_BODY,
         ));
 
         if rows.is_empty() {
             parent.spawn(text_block(
                 "No saved designs yet. Save the current draft from the Design tab to populate the archive.".to_string(),
                 11.0,
-                Color::srgb(0.6, 0.7, 0.76),
+                theme::Color::TEXT_MEDIUM,
             ));
             parent.spawn((
                 Button,
@@ -3682,14 +3678,14 @@ fn populate_archive_tab_native(
                     border: UiRect::all(Val::Px(1.0)),
                     ..default()
                 },
-                BackgroundColor(Color::srgb(0.08, 0.2, 0.24)),
-                BorderColor::all(Color::srgb(0.2, 0.92, 0.98)),
+                BackgroundColor(theme::Color::SURFACE_DIM_CYAN_2),
+                BorderColor::all(theme::Color::ACCENT_BRIGHT),
                 Text::new("Open Ship Designer"),
                 TextFont {
                     font_size: 11.0,
                     ..default()
                 },
-                TextColor(Color::srgb(0.92, 0.96, 0.98)),
+                TextColor(theme::Color::CHIP_TEXT_LIGHT),
             ));
             return;
         }
@@ -3709,14 +3705,14 @@ fn populate_archive_tab_native(
                     ..default()
                 },
                 BackgroundColor(if selected {
-                    Color::srgb(0.1, 0.18, 0.24)
+                    theme::Color::BUILDING_CONSTRUCTION_BG
                 } else {
-                    Color::srgb(0.05, 0.08, 0.12)
+                    theme::Color::SURFACE_SLOT_BASE
                 }),
                 BorderColor::all(if selected {
-                    Color::srgb(0.0, 0.95, 1.0)
+                    theme::Color::ACCENT
                 } else {
-                    Color::srgb(0.22, 0.35, 0.42)
+                    theme::Color::MINE_BAND_NONE
                 }),
                 Text::new(format!(
                     "{} v{}\n{} | {} | Active {} | {:.0} m/s",
@@ -3731,7 +3727,7 @@ fn populate_archive_tab_native(
                     font_size: 10.0,
                     ..default()
                 },
-                TextColor(Color::srgb(0.88, 0.93, 0.96)),
+                TextColor(theme::Color::TEXT_PALE),
             ));
         }
     });
@@ -3740,14 +3736,14 @@ fn populate_archive_tab_native(
         parent.spawn(text_block(
             "Archive Detail".to_string(),
             15.0,
-            Color::srgb(0.55, 0.95, 1.0),
+            theme::Color::STATUS_INFO_TEXT,
         ));
 
         let Some(row) = selected_row else {
             parent.spawn(text_block(
                 "Select an archive entry to inspect it, upgrade it, or queue retrofits for older ships.".to_string(),
                 12.0,
-                Color::srgb(0.82, 0.87, 0.9),
+                theme::Color::CHIP_TEXT_BODY,
             ));
             return;
         };
@@ -3768,7 +3764,7 @@ fn populate_archive_tab_native(
                 selected_refit_count,
             ),
             12.0,
-            Color::srgb(0.84, 0.9, 0.94),
+            theme::Color::TEXT_LIGHT,
         ));
 
         parent.spawn((
@@ -3784,28 +3780,28 @@ fn populate_archive_tab_native(
                 "Open In Designer",
                 row.template_id,
                 ShipbuildingArchiveAction::Open,
-                Color::srgb(0.0, 0.95, 1.0),
+                theme::Color::ACCENT,
             );
             spawn_archive_action_button(
                 row_buttons,
                 "Upgrade Design",
                 row.template_id,
                 ShipbuildingArchiveAction::Upgrade,
-                Color::srgb(0.86, 0.78, 0.34),
+                theme::Color::STATUS_GOLD,
             );
             spawn_archive_action_button(
                 row_buttons,
                 "Queue Retrofits",
                 row.template_id,
                 ShipbuildingArchiveAction::QueueRetrofits,
-                Color::srgb(0.38, 0.94, 0.7),
+                theme::Color::STATUS_SUCCESS_BORDER,
             );
             spawn_archive_action_button(
                 row_buttons,
                 "Delete",
                 row.template_id,
                 ShipbuildingArchiveAction::Delete,
-                Color::srgb(1.0, 0.42, 0.38),
+                theme::Color::STATUS_BRIGHT_CORAL,
             );
         });
 
@@ -3816,7 +3812,7 @@ fn populate_archive_tab_native(
                     format_shipbuilding_resource_cost_lines(&row.summary.resource_costs, 6).join("\n")
                 ),
                 10.0,
-                Color::srgb(0.82, 0.87, 0.9),
+                theme::Color::CHIP_TEXT_BODY,
             ));
         }
     });
@@ -3825,13 +3821,13 @@ fn populate_archive_tab_native(
         parent.spawn(text_block(
             "Archive Metrics".to_string(),
             14.0,
-            Color::srgb(0.55, 0.95, 1.0),
+            theme::Color::STATUS_INFO_TEXT,
         ));
 
         parent.spawn(text_block(
             format!("Retrofit Site: {}", selected_site_name),
             11.0,
-            Color::srgb(0.82, 0.87, 0.9),
+            theme::Color::CHIP_TEXT_BODY,
         ));
 
         let mut colony_rows: Vec<_> = colonies
@@ -3853,14 +3849,14 @@ fn populate_archive_tab_native(
                     ..default()
                 },
                 BackgroundColor(if selected {
-                    Color::srgb(0.1, 0.18, 0.24)
+                    theme::Color::BUILDING_CONSTRUCTION_BG
                 } else {
-                    Color::srgb(0.05, 0.08, 0.12)
+                    theme::Color::SURFACE_SLOT_BASE
                 }),
                 BorderColor::all(if selected {
-                    Color::srgb(0.0, 0.95, 1.0)
+                    theme::Color::ACCENT
                 } else {
-                    Color::srgb(0.22, 0.35, 0.42)
+                    theme::Color::MINE_BAND_NONE
                 }),
                 Text::new(format!(
                     "{} | {} shipyards",
@@ -3871,7 +3867,7 @@ fn populate_archive_tab_native(
                     font_size: 10.0,
                     ..default()
                 },
-                TextColor(Color::srgb(0.88, 0.93, 0.96)),
+                TextColor(theme::Color::TEXT_PALE),
             ));
         }
 
@@ -3884,7 +3880,7 @@ fn populate_archive_tab_native(
                 row.summary.delta_v_ms,
                 gauge_capacity(row.summary.delta_v_ms, row.summary.delta_v_ms, 100.0),
                 "m/s",
-                Color::srgb(0.0, 0.95, 1.0),
+                theme::Color::ACCENT,
             );
             spawn_analytics_gauge(
                 parent,
@@ -3898,7 +3894,7 @@ fn populate_archive_tab_native(
                     10.0,
                 ),
                 "",
-                Color::srgb(1.0, 0.6, 0.32),
+                theme::Color::STATUS_ORANGE_RED,
             );
             spawn_analytics_gauge(
                 parent,
@@ -3912,7 +3908,7 @@ fn populate_archive_tab_native(
                     0.1,
                 ),
                 "AU",
-                Color::srgb(0.5, 0.92, 0.9),
+                theme::Color::CHIP_TEXT_BUILD,
             );
             spawn_analytics_chip_row(
                 parent,
@@ -3921,31 +3917,31 @@ fn populate_archive_tab_native(
                         "MASS",
                         format_mass_compact_tonnes(row.summary.launch_mass_t),
                         String::new(),
-                        Color::srgb(0.5, 0.86, 1.0),
+                        theme::Color::ACCENT_BLUE_2,
                     ),
                     (
                         "CREW",
                         format!("{:.0}", row.summary.crew),
                         String::new(),
-                        Color::srgb(0.86, 0.82, 0.58),
+                        theme::Color::CHIP_TEXT_ORANGE,
                     ),
                     (
                         "MODE",
                         row.construction_mode.display_name().to_string(),
                         String::new(),
-                        Color::srgb(0.68, 0.9, 0.76),
+                        theme::Color::STATUS_SOFT_GREEN,
                     ),
                     (
                         "ACTIVE",
                         row.active_ship_count.to_string(),
                         String::new(),
-                        Color::srgb(0.5, 0.92, 0.58),
+                        theme::Color::CHIP_TEXT_GREEN,
                     ),
                     (
                         "RETRO",
                         selected_retrofit_candidates.to_string(),
                         format!("{} total", total_retrofit_candidates),
-                        Color::srgb(0.86, 0.78, 0.34),
+                        theme::Color::STATUS_GOLD,
                     ),
                 ],
             );
@@ -3953,7 +3949,7 @@ fn populate_archive_tab_native(
             parent.spawn(text_block(
                 "Archive metrics appear here once an entry is selected.".to_string(),
                 11.0,
-                Color::srgb(0.6, 0.7, 0.76),
+                theme::Color::TEXT_MEDIUM,
             ));
         }
     });
@@ -4003,7 +3999,7 @@ fn populate_construction_tab_native(
         parent.spawn(text_block(
             "Build Site".to_string(),
             14.0,
-            Color::srgb(0.55, 0.95, 1.0),
+            theme::Color::STATUS_INFO_TEXT,
         ));
 
         let mut colony_rows: Vec<_> = colonies
@@ -4016,7 +4012,7 @@ fn populate_construction_tab_native(
             parent.spawn(text_block(
                 "No operational shipyards found.".to_string(),
                 11.0,
-                Color::srgb(1.0, 0.55, 0.45),
+                theme::Color::CHIP_TEXT_WARN,
             ));
         }
 
@@ -4033,14 +4029,14 @@ fn populate_construction_tab_native(
                     ..default()
                 },
                 BackgroundColor(if selected {
-                    Color::srgb(0.1, 0.18, 0.24)
+                    theme::Color::BUILDING_CONSTRUCTION_BG
                 } else {
-                    Color::srgb(0.05, 0.08, 0.12)
+                    theme::Color::SURFACE_SLOT_BASE
                 }),
                 BorderColor::all(if selected {
-                    Color::srgb(0.0, 0.95, 1.0)
+                    theme::Color::ACCENT
                 } else {
-                    Color::srgb(0.22, 0.35, 0.42)
+                    theme::Color::MINE_BAND_NONE
                 }),
                 Text::new(format!(
                     "{}\n{} shipyards | {:.0} t/yr launch",
@@ -4052,14 +4048,14 @@ fn populate_construction_tab_native(
                     font_size: 10.0,
                     ..default()
                 },
-                TextColor(Color::srgb(0.88, 0.93, 0.96)),
+                TextColor(theme::Color::TEXT_PALE),
             ));
         }
 
         parent.spawn(text_block(
             "Fleet Routing".to_string(),
             13.0,
-            Color::srgb(0.55, 0.95, 1.0),
+            theme::Color::STATUS_INFO_TEXT,
         ));
         parent.spawn((
             Button,
@@ -4072,21 +4068,21 @@ fn populate_construction_tab_native(
                 ..default()
             },
             BackgroundColor(if ui_state.construction_target_fleet.is_none() {
-                Color::srgb(0.1, 0.18, 0.24)
+                theme::Color::BUILDING_CONSTRUCTION_BG
             } else {
-                Color::srgb(0.05, 0.08, 0.12)
+                theme::Color::SURFACE_SLOT_BASE
             }),
             BorderColor::all(if ui_state.construction_target_fleet.is_none() {
-                Color::srgb(0.0, 0.95, 1.0)
+                theme::Color::ACCENT
             } else {
-                Color::srgb(0.22, 0.35, 0.42)
+                theme::Color::MINE_BAND_NONE
             }),
             Text::new("Standalone ship pool"),
             TextFont {
                 font_size: 10.5,
                 ..default()
             },
-            TextColor(Color::srgb(0.88, 0.93, 0.96)),
+            TextColor(theme::Color::TEXT_PALE),
         ));
 
         for fleet in &fleet_rows {
@@ -4104,14 +4100,14 @@ fn populate_construction_tab_native(
                     ..default()
                 },
                 BackgroundColor(if selected {
-                    Color::srgb(0.1, 0.18, 0.24)
+                    theme::Color::BUILDING_CONSTRUCTION_BG
                 } else {
-                    Color::srgb(0.05, 0.08, 0.12)
+                    theme::Color::SURFACE_SLOT_BASE
                 }),
                 BorderColor::all(if selected {
-                    Color::srgb(0.0, 0.95, 1.0)
+                    theme::Color::ACCENT
                 } else {
-                    Color::srgb(0.22, 0.35, 0.42)
+                    theme::Color::MINE_BAND_NONE
                 }),
                 Text::new(format!(
                     "{}\n{:.4} AU | {} ships{}",
@@ -4124,7 +4120,7 @@ fn populate_construction_tab_native(
                     font_size: 10.0,
                     ..default()
                 },
-                TextColor(Color::srgb(0.88, 0.93, 0.96)),
+                TextColor(theme::Color::TEXT_PALE),
             ));
         }
     });
@@ -4133,7 +4129,7 @@ fn populate_construction_tab_native(
         parent.spawn(text_block(
             "Queue Control".to_string(),
             15.0,
-            Color::srgb(0.55, 0.95, 1.0),
+            theme::Color::STATUS_INFO_TEXT,
         ));
 
         for row in &design_rows {
@@ -4151,14 +4147,14 @@ fn populate_construction_tab_native(
                     ..default()
                 },
                 BackgroundColor(if selected {
-                    Color::srgb(0.1, 0.18, 0.24)
+                    theme::Color::BUILDING_CONSTRUCTION_BG
                 } else {
-                    Color::srgb(0.05, 0.08, 0.12)
+                    theme::Color::SURFACE_SLOT_BASE
                 }),
                 BorderColor::all(if selected {
-                    Color::srgb(0.0, 0.95, 1.0)
+                    theme::Color::ACCENT
                 } else {
-                    Color::srgb(0.22, 0.35, 0.42)
+                    theme::Color::MINE_BAND_NONE
                 }),
                 Text::new(format!(
                     "{} v{}\n{} | {} | {:.0} BP",
@@ -4172,7 +4168,7 @@ fn populate_construction_tab_native(
                     font_size: 10.0,
                     ..default()
                 },
-                TextColor(Color::srgb(0.88, 0.93, 0.96)),
+                TextColor(theme::Color::TEXT_PALE),
             ));
         }
 
@@ -4193,7 +4189,7 @@ fn populate_construction_tab_native(
                         .unwrap_or_default(),
                 ),
                 11.5,
-                Color::srgb(0.84, 0.9, 0.94),
+                theme::Color::TEXT_LIGHT,
             ));
         }
 
@@ -4208,35 +4204,35 @@ fn populate_construction_tab_native(
                 ..default()
             },
             BackgroundColor(if queue_errors.is_empty() {
-                Color::srgb(0.08, 0.2, 0.14)
+                theme::Color::SURFACE_SOFT_GREEN
             } else {
-                Color::srgb(0.14, 0.08, 0.09)
+                theme::Color::BUILDING_OFFLINE_BG
             }),
             BorderColor::all(if queue_errors.is_empty() {
-                Color::srgb(0.38, 0.94, 0.7)
+                theme::Color::STATUS_SUCCESS_BORDER
             } else {
-                Color::srgb(1.0, 0.42, 0.38)
+                theme::Color::STATUS_BRIGHT_CORAL
             }),
             Text::new("Queue Selected Design"),
             TextFont {
                 font_size: 11.0,
                 ..default()
             },
-            TextColor(Color::srgb(0.92, 0.96, 0.98)),
+            TextColor(theme::Color::CHIP_TEXT_LIGHT),
         ));
 
         for error in &queue_errors {
             parent.spawn(text_block(
                 error.clone(),
                 10.0,
-                Color::srgb(1.0, 0.55, 0.45),
+                theme::Color::CHIP_TEXT_WARN,
             ));
         }
 
         parent.spawn(text_block(
             "If the selected fleet leaves the build site before launch or orbital completion, the ship falls back to an independent hull automatically.".to_string(),
             9.8,
-            Color::srgb(0.6, 0.7, 0.76),
+            theme::Color::TEXT_MEDIUM,
         ));
     });
 
@@ -4247,7 +4243,7 @@ fn populate_construction_tab_native(
                 crate::economy::format_currency(budget.treasury)
             ),
             14.0,
-            Color::srgb(0.55, 0.95, 1.0),
+            theme::Color::STATUS_INFO_TEXT,
         ));
 
         if projects.is_empty() {
@@ -4255,7 +4251,7 @@ fn populate_construction_tab_native(
                 "No ships are under construction. Save a design and queue it to begin building."
                     .to_string(),
                 11.0,
-                Color::srgb(0.6, 0.7, 0.76),
+                theme::Color::TEXT_MEDIUM,
             ));
             parent.spawn((
                 Button,
@@ -4269,14 +4265,14 @@ fn populate_construction_tab_native(
                     border: UiRect::all(Val::Px(1.0)),
                     ..default()
                 },
-                BackgroundColor(Color::srgb(0.08, 0.2, 0.24)),
-                BorderColor::all(Color::srgb(0.2, 0.92, 0.98)),
+                BackgroundColor(theme::Color::SURFACE_DIM_CYAN_2),
+                BorderColor::all(theme::Color::ACCENT_BRIGHT),
                 Text::new("Open Ship Designer"),
                 TextFont {
                     font_size: 11.0,
                     ..default()
                 },
-                TextColor(Color::srgb(0.92, 0.96, 0.98)),
+                TextColor(theme::Color::CHIP_TEXT_LIGHT),
             ));
         }
 
@@ -4308,7 +4304,7 @@ fn populate_construction_tab_native(
                     },
                 ),
                 11.0,
-                Color::srgb(0.84, 0.9, 0.94),
+                theme::Color::TEXT_LIGHT,
             ));
 
             if let Some(stockpile) = stockpile {
@@ -4320,7 +4316,7 @@ fn populate_construction_tab_native(
                         stockpile.get(&crate::economy::ResourceType::Polymers),
                     ),
                     9.8,
-                    Color::srgb(0.6, 0.7, 0.76),
+                    theme::Color::TEXT_MEDIUM,
                 ));
             }
 
@@ -4341,7 +4337,7 @@ fn populate_construction_tab_native(
                         }
                     ),
                     9.8,
-                    Color::srgb(0.82, 0.87, 0.9),
+                    theme::Color::CHIP_TEXT_BODY,
                 ));
             }
 
@@ -4391,19 +4387,19 @@ fn populate_components_tab_native(
             parent.spawn(text_block(
                 "Click a module in the list below to inspect its components.".to_string(),
                 11.0,
-                Color::srgb(0.6, 0.7, 0.76),
+                theme::Color::TEXT_MEDIUM,
             ));
         }
 
         parent.spawn(text_block(
             "Component Database".to_string(),
             14.0,
-            Color::srgb(0.55, 0.95, 1.0),
+            theme::Color::STATUS_INFO_TEXT,
         ));
         parent.spawn(text_block(
             format!("Available projects: {}", modules.len()),
             11.0,
-            Color::srgb(0.82, 0.87, 0.9),
+            theme::Color::CHIP_TEXT_BODY,
         ));
 
         parent
@@ -4430,28 +4426,28 @@ fn populate_components_tab_native(
                         research_state.is_component_completed(module.engineering_project_id());
                     let row_background = if selected {
                         if engineering_complete {
-                            Color::srgb(0.1, 0.18, 0.24)
+                            theme::Color::BUILDING_CONSTRUCTION_BG
                         } else {
-                            Color::srgb(0.14, 0.14, 0.16)
+                            theme::Color::SURFACE_NEUTRAL
                         }
                     } else if engineering_complete {
-                        Color::srgb(0.05, 0.08, 0.12)
+                        theme::Color::SURFACE_SLOT_BASE
                     } else {
-                        Color::srgb(0.08, 0.08, 0.09)
+                        theme::Color::SURFACE_BLACK
                     };
                     let row_border = if selected {
-                        Color::srgb(0.0, 0.95, 1.0)
+                        theme::Color::ACCENT
                     } else if engineering_complete {
-                        Color::srgb(0.22, 0.35, 0.42)
+                        theme::Color::MINE_BAND_NONE
                     } else {
-                        Color::srgb(0.28, 0.28, 0.3)
+                        theme::Color::TEXT_VERY_DIM
                     };
                     let row_text = if selected {
-                        Color::srgb(0.88, 0.93, 0.96)
+                        theme::Color::TEXT_PALE
                     } else if engineering_complete {
                         status.color
                     } else {
-                        Color::srgb(0.56, 0.58, 0.62)
+                        theme::Color::TEXT_MEDIUM_DIM
                     };
                     list.spawn((
                         Button,
@@ -4489,14 +4485,14 @@ fn populate_components_tab_native(
         parent.spawn(text_block(
             "Component Detail".to_string(),
             15.0,
-            Color::srgb(0.55, 0.95, 1.0),
+            theme::Color::STATUS_INFO_TEXT,
         ));
 
         let Some(module) = selected_module else {
             parent.spawn(text_block(
                 "No engineering projects available yet. Research new technologies to unlock ship components.".to_string(),
                 11.0,
-                Color::srgb(0.6, 0.7, 0.76),
+                theme::Color::TEXT_MEDIUM,
             ));
             return;
         };
@@ -4525,8 +4521,8 @@ fn populate_components_tab_native(
             engineering_projects,
         );
 
-        parent.spawn(text_block(module.display_name.clone(), 14.0, Color::srgb(0.84, 0.9, 0.94)));
-        parent.spawn(text_block(module.description.clone(), 10.5, Color::srgb(0.6, 0.7, 0.76)));
+        parent.spawn(text_block(module.display_name.clone(), 14.0, theme::Color::TEXT_LIGHT));
+        parent.spawn(text_block(module.description.clone(), 10.5, theme::Color::TEXT_MEDIUM));
         parent.spawn(text_block(
             format!(
                 "Category: {}\nSize: {}\nBuild: {:.0} BP\nMass: {}\nPower: {}",
@@ -4537,7 +4533,7 @@ fn populate_components_tab_native(
                 format_power_profile_native(module),
             ),
             11.0,
-            Color::srgb(0.82, 0.87, 0.9),
+            theme::Color::CHIP_TEXT_BODY,
         ));
         parent.spawn(text_block(
             format!(
@@ -4559,8 +4555,8 @@ fn populate_components_tab_native(
                 border: UiRect::all(Val::Px(2.0)),
                 ..default()
             },
-            BackgroundColor(Color::srgb(0.06, 0.2, 0.24)),
-            BorderColor::all(Color::srgb(0.2, 0.92, 0.98)),
+            BackgroundColor(theme::Color::SURFACE_DIM_CYAN),
+            BorderColor::all(theme::Color::ACCENT_BRIGHT),
             Text::new(match status.label {
                 "Engineering complete. Module can be installed now." => "Engineering Complete",
                 "Engineering in progress." => "Open Engineering Queue",
@@ -4570,7 +4566,7 @@ fn populate_components_tab_native(
                 font_size: 11.5,
                 ..default()
             },
-            TextColor(Color::srgb(0.92, 0.96, 0.98)),
+            TextColor(theme::Color::CHIP_TEXT_LIGHT),
         ));
     });
 
@@ -4578,7 +4574,7 @@ fn populate_components_tab_native(
         parent.spawn(text_block(
             "Component Analytics".to_string(),
             14.0,
-            Color::srgb(0.55, 0.95, 1.0),
+            theme::Color::STATUS_INFO_TEXT,
         ));
 
         if let Some(module) = selected_module {
@@ -4590,7 +4586,7 @@ fn populate_components_tab_native(
                 module.build_points,
                 gauge_capacity(module.build_points, module.build_points, 10.0),
                 "BP",
-                Color::srgb(0.5, 0.92, 0.58),
+                theme::Color::CHIP_TEXT_GREEN,
             );
             spawn_analytics_gauge(
                 parent,
@@ -4600,7 +4596,7 @@ fn populate_components_tab_native(
                 module.dry_mass_t,
                 gauge_capacity(module.dry_mass_t, module.dry_mass_t, 1.0),
                 "t",
-                Color::srgb(0.5, 0.86, 1.0),
+                theme::Color::ACCENT_BLUE_2,
             );
             spawn_analytics_gauge(
                 parent,
@@ -4614,7 +4610,7 @@ fn populate_components_tab_native(
                     1.0,
                 ),
                 "MW",
-                Color::srgb(0.0, 0.95, 1.0),
+                theme::Color::ACCENT,
             );
             spawn_analytics_chip_row(
                 parent,
@@ -4623,19 +4619,19 @@ fn populate_components_tab_native(
                         "THR",
                         format!("{:.0} kN", module.thrust_kn),
                         String::new(),
-                        Color::srgb(1.0, 0.6, 0.32),
+                        theme::Color::STATUS_ORANGE_RED,
                     ),
                     (
                         "BUILD",
                         format!("{:.0} BP/yr", module.construction_capacity_bp_per_year),
                         String::new(),
-                        Color::srgb(0.5, 0.92, 0.9),
+                        theme::Color::CHIP_TEXT_BUILD,
                     ),
                     (
                         "LAUNCH",
                         format!("{:.0} t/yr", module.launch_capacity_t_per_year),
                         String::new(),
-                        Color::srgb(0.86, 0.82, 0.58),
+                        theme::Color::CHIP_TEXT_ORANGE,
                     ),
                 ],
             );
@@ -4648,7 +4644,7 @@ fn populate_components_tab_native(
                             .join("\n")
                     ),
                     10.0,
-                    Color::srgb(0.82, 0.87, 0.9),
+                    theme::Color::CHIP_TEXT_BODY,
                 ));
             }
         }
@@ -4682,7 +4678,7 @@ fn spawn_archive_action_button(
             font_size: 10.0,
             ..default()
         },
-        TextColor(Color::srgb(0.92, 0.96, 0.98)),
+        TextColor(theme::Color::CHIP_TEXT_LIGHT),
     ));
 }
 
@@ -4925,14 +4921,14 @@ fn engineering_status_native(
     let Some(component_id) = component_id else {
         return EngineeringStatusNative {
             label: "Production-ready: no engineering project required.",
-            color: Color::srgb(0.6, 0.7, 0.76),
+            color: theme::Color::TEXT_MEDIUM,
         };
     };
 
     if research_state.is_component_completed(component_id) {
         return EngineeringStatusNative {
             label: "Engineering complete. Module can be installed now.",
-            color: Color::srgb(0.5, 0.92, 0.62),
+            color: theme::Color::STATUS_SUCCESS_TEXT,
         };
     }
 
@@ -4942,7 +4938,7 @@ fn engineering_status_native(
     {
         return EngineeringStatusNative {
             label: "Engineering in progress.",
-            color: Color::srgb(0.98, 0.78, 0.36),
+            color: theme::Color::STATUS_WARNING_TEXT,
         };
     }
 
@@ -4952,19 +4948,19 @@ fn engineering_status_native(
         {
             return EngineeringStatusNative {
                 label: "Engineering available. Open Research to start the project.",
-                color: Color::srgb(0.55, 0.95, 1.0),
+                color: theme::Color::STATUS_INFO_TEXT,
             };
         }
 
         return EngineeringStatusNative {
             label: "Locked by prerequisite technology.",
-            color: Color::srgb(1.0, 0.45, 0.4),
+            color: theme::Color::STATUS_DANGER_TEXT,
         };
     }
 
     EngineeringStatusNative {
         label: "Engineering definition missing from technology data.",
-        color: Color::srgb(1.0, 0.45, 0.4),
+        color: theme::Color::STATUS_DANGER_TEXT,
     }
 }
 
