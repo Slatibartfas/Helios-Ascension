@@ -20,6 +20,8 @@
 
 use std::borrow::Cow;
 
+use crate::research::types::TechCategory;
+
 /// A single sub-tab in a panel's tab strip.
 ///
 /// Panels implement this trait on their `*Tab` enum. The trait is
@@ -49,6 +51,43 @@ pub trait Tab: Copy + PartialEq {
     /// the label is rendered without a prefix.
     fn icon(&self) -> Option<&'static str> {
         None
+    }
+}
+
+/// `Tab` impl for the technology research category. Drives the
+/// `theme::tab_strip<TechCategory>` strip in the research Archive tab
+/// (PR-D / GRA-69). `id()` is the snake_case variant name so the egui
+/// `Id` salt is unique per category; `label()` reuses
+/// `TechCategory::display_name` for the tab caption; `icon()` reuses
+/// `TechCategory::icon` so the strip and the inline labels stay in
+/// sync.
+impl Tab for TechCategory {
+    fn id(&self) -> &'static str {
+        match self {
+            TechCategory::Electronics => "electronics",
+            TechCategory::Military => "military",
+            TechCategory::SpaceTechnology => "space_technology",
+            TechCategory::Biology => "biology",
+            TechCategory::Physics => "physics",
+            TechCategory::Energy => "energy",
+            TechCategory::Sociology => "sociology",
+            TechCategory::Construction => "construction",
+            TechCategory::Propulsion => "propulsion",
+            TechCategory::Materials => "materials",
+            TechCategory::Sensors => "sensors",
+            TechCategory::Weapons => "weapons",
+            TechCategory::DefensiveSystems => "defensive_systems",
+            TechCategory::LifeSupport => "life_support",
+            TechCategory::Industry => "industry",
+        }
+    }
+
+    fn label(&self) -> Cow<'static, str> {
+        Cow::Borrowed(self.display_name())
+    }
+
+    fn icon(&self) -> Option<&'static str> {
+        Some(self.icon())
     }
 }
 

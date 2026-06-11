@@ -1263,15 +1263,22 @@ fn populate_tab_strip(commands: &mut Commands, tabs_root: Entity, active_tab: Sh
                     border: UiRect::all(Val::Px(1.0)),
                     ..default()
                 },
+                // PR-D / GRA-69 — Bevy Color literals replaced with
+                // the `theme::Color` mirror (added in PR-B / GRA-67) so
+                // the GRA-54 regression can't recur in this function.
+                // Six call sites: BackgroundColor (active/inactive) +
+                // BorderColor (active/inactive) + TextColor
+                // (active/inactive). Matches the doc's stated range
+                // (`docs/UI_LAYOUT_PATTERNS.md` §4.2 — lines 1241-1283).
                 BackgroundColor(if selected {
-                    Color::srgb(0.1, 0.28, 0.34)
+                    theme::Color::TAB_ACTIVE_BG
                 } else {
-                    Color::srgb(0.045, 0.07, 0.1)
+                    theme::Color::TAB_INACTIVE_BG
                 }),
                 BorderColor::all(if selected {
-                    Color::srgb(0.0, 0.95, 1.0)
+                    theme::Color::TAB_ACTIVE_BORDER
                 } else {
-                    Color::srgb(0.18, 0.3, 0.36)
+                    theme::Color::TAB_INACTIVE_BORDER
                 }),
                 Text::new(label),
                 TextFont {
@@ -1279,9 +1286,9 @@ fn populate_tab_strip(commands: &mut Commands, tabs_root: Entity, active_tab: Sh
                     ..default()
                 },
                 TextColor(if selected {
-                    Color::srgb(0.9, 0.98, 1.0)
+                    theme::Color::TAB_ACTIVE_TEXT
                 } else {
-                    Color::srgb(0.78, 0.86, 0.9)
+                    theme::Color::TAB_INACTIVE_TEXT
                 }),
             ));
         }
