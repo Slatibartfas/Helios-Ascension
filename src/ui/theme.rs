@@ -834,6 +834,22 @@ pub mod Color {
     // ── Selected-button background (used by time-scale presets, etc.)
     /// Mirrors `BUTTON_ACTIVE_BG`.
     pub const BUTTON_ACTIVE_BG: Color = Color::srgb(0.0, 0.216, 0.275);
+
+    // ── Panel Titles (Bevy `section_h1_bevy` only) ─────────────────
+    //
+    // The 3-pane shell of the Shipbuilding workspace uses a slightly
+    // desaturated cyan-blue (`(0.55, 0.95, 1.0)`) for its pane titles
+    // (Logistics Hub / Design Blueprint / Engineering Analytics) so
+    // they read as a distinct category from the bright cyan used for
+    // interactive accents. Picked during the WorkspaceShell refactor
+    // in GRA-70 — previously an inline `Color::srgb(0.55, 0.95, 1.0)`
+    // call; promoted here so the audit + Kilo CR can verify the
+    // visual identity is preserved.
+
+    /// Desaturated cyan-blue used by `section_h1_bevy` for pane
+    /// titles. Distinct from `ACCENT` so headings don't compete with
+    /// interactive elements.
+    pub const PANEL_TITLE: Color = Color::srgb(0.55, 0.95, 1.0);
 }
 
 // ─── Section Headers (Pattern 2 + Pattern 4) ────────────────────────────
@@ -1016,11 +1032,14 @@ pub fn ledger_panel<T>(
 // spacer `Node` before or after this call.
 
 /// Render a Bevy UI pane-title header. Spawns a `Text` child of
-/// `parent_entity` with the 15-pt body font and `Color::ACCENT`.
+/// `parent_entity` with the 15-pt body font and the desaturated
+/// `Color::PANEL_TITLE`.
 ///
 /// Mirrors the egui `section_h1` semantic (canonical "this section
 /// is the panel title" treatment) for Bevy UI 0.18 — used by the
-/// shipbuilding sub-pane headers via `spawn_panel`.
+/// shipbuilding sub-pane headers via `spawn_panel`. The colour is
+/// intentionally distinct from `Color::ACCENT` so a heading reads
+/// as a label and not as an interactive element.
 pub fn section_h1_bevy(commands: &mut Commands, parent_entity: Entity, label: impl Into<String>) {
     commands.entity(parent_entity).with_children(|parent| {
         parent.spawn((
@@ -1029,7 +1048,7 @@ pub fn section_h1_bevy(commands: &mut Commands, parent_entity: Entity, label: im
                 font_size: 15.0,
                 ..default()
             },
-            TextColor(Color::ACCENT),
+            TextColor(Color::PANEL_TITLE),
         ));
     });
 }
