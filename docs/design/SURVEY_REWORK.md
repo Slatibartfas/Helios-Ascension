@@ -62,7 +62,7 @@ pub enum SurveyLevel {
 }
 ```
 
-A single `SurveyLevel` enum on the body entity. It is incremented by clicking an **UPGRADE** button in the body's dossier panel (`src/ui/dossier_panel.rs:1454`). The increment is instantaneous; there is no time cost, no resource cost, no personnel requirement, and no chance of failure. Earth starts at `CoreSample` (`src/plugins/solar_system.rs:922`); every other body in the system starts at `Unsurveyed`.
+A single `SurveyLevel` enum on the body entity. It is incremented by clicking an **UPGRADE** button in the body's dossier panel (`src/ui/dossier_panel.rs:1375`, inside `draw_resource_section` at `src/ui/dossier_panel.rs:1331-1421`). The increment is instantaneous; there is no time cost, no resource cost, no personnel requirement, and no chance of failure. Earth starts at `CoreSample` (`src/plugins/solar_system.rs:922`); every other body in the system starts at `Unsurveyed`.
 
 The `discovered_amount()` function (`src/economy/components.rs:280`) maps each level to a fixed slice of the `ResourceReserve` triple `(proven_crustal, deep_deposits, planetary_bulk)`. Three levels, three slices, no other information is gated.
 
