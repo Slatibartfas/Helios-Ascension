@@ -1260,8 +1260,9 @@ pub(super) fn ui_economy_panels(
             // Tab-trait migration; `from_byte` / `to_byte` replace
             // the previous `From<u8>` / `From<EconomyTab>` shims).
             let tab_id = ui.id().with("economy_tab");
-            let mut current_tab: EconomyTab =
-                EconomyTab::from_byte(ui.data(|data| data.get_persisted(tab_id).unwrap_or(0u8)));
+            let mut current_tab: EconomyTab = EconomyTab::from_byte(
+                ui.data_mut(|data| data.get_persisted(tab_id).unwrap_or(0u8)),
+            );
 
             draw_menu_header(
                 ui,
