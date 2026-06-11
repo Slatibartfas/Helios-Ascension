@@ -41,7 +41,9 @@ pub use components::{
     LocalStockpile, MineralDeposit, OrbitsBody, PlanetResources, PowerGenerator, PowerSourceType,
     SpectralClass, StarSystem,
 };
-pub use generation::{generate_ring_resources, generate_solar_system_resources};
+pub use generation::{
+    generate_ring_resources, generate_solar_system_resources, init_procedural_rng, ProceduralRng,
+};
 pub use history::{
     kardashev_scale_from_watts, record_simulation_history, SimulationHistory,
     SimulationHistorySample, SurveyHistoryStats, HISTORY_MAX_AGE_SECONDS, HISTORY_MAX_AGE_YEARS,
@@ -72,7 +74,11 @@ impl Plugin for EconomyPlugin {
             // Startup systems
             .add_systems(
                 PostStartup,
-                (generate_solar_system_resources, generate_ring_resources)
+                (
+                    init_procedural_rng,
+                    generate_solar_system_resources,
+                    generate_ring_resources,
+                )
                     .chain()
                     .before(generation::stamp_resource_phases),
             )
