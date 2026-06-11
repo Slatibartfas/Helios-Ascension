@@ -12,6 +12,12 @@ panel composes from, and mapping every current panel to one of them.
 > (GRA-53..GRA-59) closed clean at `32a8365a` and standardised tokens;
 > this doc standardises the *shells* so v2 work (GRA-66..GRA-72) has a
 > stable vocabulary.
+>
+> **Anchor refresh (2026-06-12, post-v2-UI chain).** The v2-UI chain
+> has landed (PRs #125, #127, #128, #129, #132, #133). All `src/...`
+> line references in this doc have been re-verified against `origin/main`
+> at SHA `83417334c6459e7429c45cf19fe2d33f88a5b5c6`. See issues
+> GRA-95 / GRA-96 / GRA-97 for the audit trail.
 
 ## 1. Overview
 
@@ -22,10 +28,10 @@ Every panel — egui or Bevy UI — is built from one or more of the four
 
 | # | Pattern | Stack | Reference implementation |
 | - | ------- | ----- | ------------------------ |
-| 1 | Top menu bar | egui | `src/ui/mod.rs:603-889` (`ui_top_menu_bar`) |
+| 1 | Top menu bar | egui | `src/ui/mod.rs:610-896` (`ui_top_menu_bar`) |
 | 2 | Right-side ledger | egui | `src/ui/dossier_panel.rs` (`ui_planet_dossier`) |
-| 3 | Tabbed workspace (3 panes) | Bevy UI | `src/ui/shipbuilding_workspace.rs:1241-1289` (`populate_tab_strip`) |
-| 4 | In-panel sub-tab strip | egui | `src/ui/construction_panel.rs:697-719` |
+| 3 | Tabbed workspace (3 panes) | Bevy UI | `src/ui/shipbuilding_workspace.rs:1241-1296` (`populate_tab_strip`) |
+| 4 | In-panel sub-tab strip | egui | `src/ui/construction_panel.rs:760-776` (`theme::tab_strip<ConstructionTab>` call site) |
 
 Panels can compose multiple patterns. The Shipbuilding workspace is
 *Pattern 3 + Pattern 4*. The Construction menu is *Pattern 4 + the
@@ -54,13 +60,14 @@ contract; this section codifies the *layout* contract.
   fixed-height strip). Rendered in `UiSystemSet::TopBar` so it
   reserves space before any side panel.
 - **Items:** one icon button per `GameMenu` variant, ordered by
-  `GameMenu::all()` (`src/game_state.rs:74-88`).
+  `GameMenu::all()` (`src/game_state.rs:75-89`).
 - **Active state:** icon tinted `theme::ACCENT` + 2px stroke ring around
   the widget at `theme::ACCENT`. Inactive icons tinted `theme::ICON_INACTIVE`.
 - **Tooltip:** `theme::tooltip_frame()` + bold-mono `theme::kbd_shortcut_label("F1")`
-  chip — see `src/ui/mod.rs:663-686` for the canonical tooltip block.
+  chip — see `src/ui/mod.rs:670-686` for the canonical tooltip block
+  (the `render_tooltip` closure).
 - **Hotkey:** `F1`..`F11` mapped by index into `GameMenu::all()`. Defined
-  in `src/ui/mod.rs:828-840`. **`Escape`** toggles between the active
+  in `src/ui/mod.rs:835-855`. **`Escape`** toggles between the active
   `GameMenu` and the base view (Survey for `ViewMode::System`, Starmap
   for `ViewMode::Starmap`).
 - **Click semantics:** clicking an icon switches `active_menu.current`
@@ -74,7 +81,7 @@ contract; this section codifies the *layout* contract.
   navigation goes through the `GameMenu` enum, not through a parallel
   row.
 - Do not use number-key 1..5 inside panels for sub-tab navigation —
-  the speed-preset bindings at `src/ui/dashboard.rs:1321-1326` (Digit1..5)
+  the speed-preset bindings at `src/ui/dashboard.rs:1320-1326` (Digit1..5)
   own those keys. (GRA-57's 1-9 numkey sub-tab aliases collided with
   those and were reverted in PR #119.)
 
@@ -158,19 +165,23 @@ UI panel** — see `docs/UI.md` §1.
 ### 4.2 Layout contract
 
 - **Container:** a `NodeBundle` root that owns the tab strip and the
-  three-pane child grid. `populate_tab_strip` (PR-D) replaces hardcoded
-  `Color::srgb(...)` literals with `theme::Color` (added in PR-B).
+  three-pane child grid. `populate_tab_strip` uses `theme::Color`
+  throughout (the PR-B Bevy Color mirror was landed in PR #122, and the
+  previous GRA-54 `Color::srgb(...)` regression was replaced in PR #127
+  / GRA-69).
 - **Tab strip:** `parent.spawn((Button, ShipbuildingWorkspaceTabButton { tab }, Node, BackgroundColor, BorderColor, Text, TextFont, TextColor))`
   per active tab. `min_width` is per-tab: `Components=188px`,
   `Construction=168px`, others `136px`. `min_height=30px`. Padding
   `UiRect::axes(12px, 6px)`. Border `1px`.
 - **Active / inactive state:** the active button uses the
   `theme::Color::TAB_ACTIVE_BG` and `theme::Color::TAB_ACTIVE_BORDER`
-  constants (added in PR-B as a Bevy Color mirror of the existing egui
-  tokens). Inactive uses `theme::Color::TAB_INACTIVE_BG` /
-  `theme::Color::TAB_INACTIVE_BORDER`. The current `Color::srgb(...)`
-  literals at `src/ui/shipbuilding_workspace.rs:1262-1278` are an
-  **unintentional regression of GRA-54** and PR-D will fix them.
+  constants (Bevy Color mirror of the existing egui tokens, added in
+  PR #122). Inactive uses `theme::Color::TAB_INACTIVE_BG` /
+  `theme::Color::TAB_INACTIVE_BORDER`. The six call sites in
+  `populate_tab_strip` (`src/ui/shipbuilding_workspace.rs:1274-1291`)
+  are now `theme::Color`-based; the post-merge note at
+  `src/ui/shipbuilding_workspace.rs:1262-1269` documents the
+  replacement.
 - **Three-pane grid:** columns of `Val::Percent(33.3)` (or `Flex` with
   weights). The centre pane (Design Blueprint) gets a heavy `1px` border
   on both sides, painted via `theme::Color::BORDER` (Bevy mirror).
@@ -179,9 +190,10 @@ UI panel** — see `docs/UI.md` §1.
 
 ### 4.3 What *not* to do
 
-- Do not bypass `theme::Color` once the Bevy Color mirror lands in PR-B.
-  The current `Color::srgb(0.0, 0.95, 1.0)` etc. are the regression we're
-  fixing.
+- Do not bypass `theme::Color`. The Bevy Color mirror landed in PR #122
+  and the previous `Color::srgb(0.0, 0.95, 1.0)` regression was
+  replaced in PR #127 — no new hardcoded Bevy `Color` literals
+  in this function (or its PR-D / PR-E successors).
 - Do not introduce a fourth pane. The three-pane structure mirrors the
   intended user flow (browse → design → measure); a fourth pane is a
   feature, not a layout pattern.
@@ -256,9 +268,9 @@ collapse bespoke implementations onto the patterns above.
 | Starmap            | `src/ui/dashboard.rs` (starmap view) | P1 + (none) | — | mostly tokens |
 | Main               | `src/ui/dashboard.rs` (main menu overlay) | P2 + modal | — | tokens; menu is a single ledger |
 | Construction       | `src/ui/construction_panel.rs:24` (`ConstructionTab` enum) | P4 + P4 (nested) | C (GRA-68) | bespoke `ConstructionTab` + `BuildFilter` |
-| Research           | `src/ui/research_panel.rs:1688-1690` + `src/ui/tech_tree.rs:1298` | P4 (categories) | D (GRA-69) | inline category loop at `research_panel.rs:1582`; duplicate group-by-category in Archive |
+| Research           | `src/ui/research_panel.rs:1568-1574` (P4 categories strip) + `src/ui/tech_tree.rs:233-300` (Archive tab category grouping) | P4 (categories) | D (GRA-69) | PR #127 replaced the inline category loop with `theme::tab_strip<TechCategory>` and the shipbuilding `Color::srgb(...)` literals with `theme::Color` |
 | Fleets             | `src/ui/fleets_panel.rs:286` (`ui_fleets_panel`) | P1 (only) | — | flat list, no sub-tabs; company-filter chip |
-| Shipbuilding       | `src/ui/shipbuilding_workspace.rs:1241-1289` (`populate_tab_strip`, Bevy UI) | P3 + P4 (mirror) | D + E (GRA-69 + GRA-70) | `populate_tab_strip` literal regression at lines 1241-1283 |
+| Shipbuilding       | `src/ui/shipbuilding_workspace.rs:1241-1296` (`populate_tab_strip`, Bevy UI) | P3 + P4 (mirror) | D + E (GRA-69 + GRA-70) | PR #127 replaced the `Color::srgb(...)` literals with `theme::Color`; PR #128 (GRA-70) consolidated the 3-pane shell |
 | Economy            | `src/ui/economy_panel.rs:6` (`EconomyTab` enum, 7 variants) | P4 (7-way) + P2 (Colonies tab) | F (GRA-71) | bespoke `EconomyTab` with 7 variants |
 | Personnel, Intel, Diplomacy | (panels not yet implemented) | P1 + TBD | future chain | not in scope for v2 |
 | (modal)            | `src/ui/dossier_panel.rs:103` (`ui_planet_dossier`) | P2 | ref only | the reference P2 implementation |
@@ -282,8 +294,8 @@ collapse bespoke implementations onto the patterns above.
 | --- | ----- | -------------------------------- | --------------- |
 | A   | GRA-66 (this doc) | (doc only) | `docs/UI_LAYOUT_PATTERNS.md` |
 | B   | GRA-67 (Coder) | `theme::tab_strip<T>`, `theme::section_h1/h2/h3`, `theme::ledger_panel<T>`, `theme::tab_strip_bevy` + `Tab` trait + `theme::Color` (Bevy mirror) | `src/ui/theme.rs` (+~200 lines), `src/ui/tab.rs` (new, ~50 lines) |
-| C   | GRA-68 (Coder) | replace `construction_panel.rs:697-719` bespoke strip with `theme::tab_strip<ConstructionTab>`; collapse `selected_build_tab: usize` + `BuildFilter` into a single primitive | `src/ui/construction_panel.rs` (-~100 lines net) |
-| D   | GRA-69 (Coder) | replace `research_panel.rs:1582` category loop with `theme::tab_strip<TechCategory>`; share the strip in Archive; replace shipbuilding `Color::srgb(...)` literals at lines 1241-1283 with `theme::Color` | `src/ui/research_panel.rs` (-~50 lines), `src/ui/shipbuilding_workspace.rs` (no semantic change) |
+| C   | GRA-68 (Coder) | replace `construction_panel.rs:760-776` bespoke strip with `theme::tab_strip<ConstructionTab>`; collapse `selected_build_tab: usize` + `BuildFilter` into a single primitive | `src/ui/construction_panel.rs` (-~100 lines net) |
+| D   | GRA-69 (Coder) | replace `research_panel.rs:1568-1574` category loop with `theme::tab_strip<TechCategory>`; share the strip in Archive (the Archive tab category grouping in `tech_tree.rs:233-300`); shipbuilding `Color::srgb(...)` literals at `populate_tab_strip` (L1241-1296) replaced with `theme::Color` | `src/ui/research_panel.rs` (-~50 lines), `src/ui/shipbuilding_workspace.rs` (no semantic change) |
 | E   | GRA-70 (Coder) | parameterise the 3-pane shell as `WorkspaceShell { tabs_root, library_root, canvas_root, analytics_root }`; apply `theme::section_h1` headers | `src/ui/shipbuilding_workspace.rs` (largest PR, ~1.5 d) |
 | F   | GRA-71 (Coder) | 7-way `theme::tab_strip<EconomyTab>`; `theme::ledger_panel<T>` for the Colonies tab + (demonstration) Construction Overview | `src/ui/economy_panel.rs` (~1 d) |
 | G   | GRA-72 (operator) | `docs/UI.md` §8 (new "Layout patterns" cross-reference) + visual sign-off | `docs/UI.md` (+~20 lines) |
@@ -293,7 +305,7 @@ collapse bespoke implementations onto the patterns above.
 When a new `GameMenu` variant lands (e.g. Personnel, Intel, Diplomacy):
 
 1. Open the *top menu bar* slot via the `GameMenu::all()` order in
-   `src/game_state.rs:74-88`. Add the icon asset under
+   `src/game_state.rs:75-89`. Add the icon asset under
    `assets/textures/ui/menu/<name>.png`. Pattern 1.
 2. Pick a primary pattern from the four above. Default to P2 (ledger)
    for read-only information; default to P4 (sub-tab strip) for
@@ -335,6 +347,11 @@ chain.
 *Document author:* CTO `d46efd74-4de0-46e6-92f9-28c2de107111`
 *Date:* 2026-06-10
 *Issue:* GRA-66 (v2 PR-A)
+*Anchor refresh:* 2026-06-12 (post-v2-UI chain landing). Authored by
+LGD `8b113021-…` on branch `lgd/gra-95-96-97-ui-layout-anchor-bundle`.
+Covers issues GRA-95 (wrong-context + 4 off-by-ones), GRA-96
+(`construction_panel.rs:697-719` wrong-context), and GRA-97 (3
+additional wrong-contexts + 2 off-by-ones).
 *Supersedes:* the v1 plan's deferred layout-level work (per
 `issue_comments.id=2ed30e26-…` and `df13b1ae-…` operator answer
 `four-named` 2026-06-10T22:43:15Z)
