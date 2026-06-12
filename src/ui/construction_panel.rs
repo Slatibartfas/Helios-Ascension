@@ -1567,17 +1567,25 @@ fn render_construction_build_tab(
     // `selected_build_tab: usize` index continues to point into
     // this list so the saved selection survives categories that
     // fall in/out of visibility as research progresses.
-    let category_tabs: Vec<BuildCategoryTab> = available_by_category
+    //
+    // The Locked tab is appended at most once (when `locked` is
+    // non-empty) — earlier iterations of this chain used
+    // `locked.iter().map(|_| ...)` and rendered one `Locked (N)`
+    // tab per locked building, which produced 16 duplicate tabs
+    // on Earth and made the strip scroll off the panel.
+    let mut category_tabs: Vec<BuildCategoryTab> = available_by_category
         .iter()
         .map(|(_, category, available)| BuildCategoryTab {
             kind: BuildCategoryTabKind::Category(*category),
             available_count: available.len(),
         })
-        .chain(locked.iter().map(|_| BuildCategoryTab {
+        .collect();
+    if !locked.is_empty() {
+        category_tabs.push(BuildCategoryTab {
             kind: BuildCategoryTabKind::Locked,
             available_count: locked.len(),
-        }))
-        .collect();
+        });
+    }
 
     theme::elevated_frame().show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
