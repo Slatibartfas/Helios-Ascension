@@ -2499,7 +2499,7 @@ impl OrbitalStationSummary {
     /// sub-struct provides in the render path.
     pub fn from_world(world: &World, body_entity: Entity, body_name: &str) -> Option<Self> {
         let mut bonuses_q = world.query::<&ContinuousStationBonus>();
-        let bonus = bonuses_q.get(body_entity).ok()?;
+        let bonus = bonuses_q.get(body_entity, world).ok()?;
         if !bonus.is_active() {
             // The cache may be present on a body but at neutral
             // values (the system resets rather than removes — see
@@ -2526,7 +2526,7 @@ impl OrbitalStationSummary {
         let mine_count = {
             let mut mining_q = world.query::<&MiningOperation>();
             mining_q
-                .get(body_entity)
+                .get(body_entity, world)
                 .map(|op| if op.active { 1 } else { 0 })
                 .unwrap_or(0)
         };
