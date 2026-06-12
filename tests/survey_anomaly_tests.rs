@@ -176,9 +176,7 @@ fn verification_mission_promotes_to_verified() {
     {
         let mut world = app.world_mut();
         let mut entity = world.entity_mut(body);
-        let mut state = entity
-            .get_mut::<SurveyState>()
-            .expect("SurveyState");
+        let mut state = entity.get_mut::<SurveyState>().expect("SurveyState");
         let detected = state
             .detected_anomalies
             .iter_mut()
