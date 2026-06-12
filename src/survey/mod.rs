@@ -26,8 +26,8 @@ pub mod visibility;
 
 pub use components::{
     default_activation_threshold, ActiveSurveyMission, AnalysisJob, DetectedAnomaly,
-    DimensionFidelity, EvidencePoint, ExtractionSite, LandingSite, SiteScoreWeights, SiteScores,
-    SurveyState, LANDING_SITE_EVAL_THRESHOLD, MAX_SITES_PER_BODY, MIN_SITES_PER_BODY,
+    DimensionFidelity, ExtractionSite, LandingSite, SiteScoreWeights, SiteScores, SurveyState,
+    LANDING_SITE_EVAL_THRESHOLD, MAX_SITES_PER_BODY, MIN_SITES_PER_BODY,
 };
 pub use data::{
     load_anomalies, AnalysisQueueIndex, AnomalyDef, AnomalyEffect, MiningEfficiencyRegistry,

@@ -280,14 +280,6 @@ pub fn update_survey_summary(_query: Query<&super::components::SurveyState>) {
     // PR-A stub.
 }
 
-/// Re-export the simulation time type from the `ui::time` module
-/// so systems can declare `Res<SimulationTime>` without taking a
-/// hard dependency on the `ui` module.
-///
-/// Mirrors the pattern used by `economy::systems` and
-/// `research::systems`.
-pub type SimulationTime = crate::ui::time::SimulationTime;
-
 /// Sim-days between landing-site re-evaluation passes. The system
 /// throttles itself so it doesn't re-roll sites every frame as
 /// confidence rises — the trigger is the cross from below-threshold
