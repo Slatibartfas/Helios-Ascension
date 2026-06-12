@@ -21,20 +21,34 @@ const HISTORY_LONG_STEP_SECONDS: f64 = 180.0 * 86_400.0;
 const HISTORY_ARCHIVE_STEP_SECONDS: f64 = 365.25 * 86_400.0;
 
 /// v0.5.0 replacement for the old `SurveyHistoryStats` enum-bucket
-/// counters. Bodies are bucketed by their mean survey coverage
-/// (4 bands: 0–25%, 25–50%, 50–75%, 75–100%). The 0% band is the
-/// "unsurveyed" bucket the dashboard and dossier surface as a
-/// count. Bodies with no survey data at all land in the 0% band.
+/// counters. Bodies with any survey data at all (mean coverage > 0)
+/// are bucketed into four bands — (0%, 25%], (25%, 50%],
+/// (50%, 75%], (75%, 100%]. Bodies with no survey data (mean
+/// coverage = 0) are NOT bucketed; they show up implicitly via
+/// `unsurveyed()` = `total_bodies - surveyed_total()`.
+///
+/// `#[serde(default)]` on each band keeps old saved samples
+/// (pre-PR-F, which only had `total_bodies` / `unsurveyed` /
+/// `orbital_scan` etc.) loadable. The old fields are gone, but
+/// defaults let the deserializer fill in zeros instead of erroring
+/// out.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
 pub struct SurveyHistoryStats {
+    #[serde(default)]
     pub total_bodies: u32,
-    /// 0% — 0 < mean_coverage ≤ 25%
+    /// (0%, 25%] — mean_coverage strictly greater than 0 and ≤ 25%.
+    /// Bodies with mean_coverage = 0 are NOT counted here; they
+    /// show up via `unsurveyed()` instead.
+    #[serde(default)]
     pub band_0_to_25: u32,
-    /// 25% — 25% < mean_coverage ≤ 50%
+    /// (25%, 50%]
+    #[serde(default)]
     pub band_25_to_50: u32,
-    /// 50% — 50% < mean_coverage ≤ 75%
+    /// (50%, 75%]
+    #[serde(default)]
     pub band_50_to_75: u32,
-    /// 75% — 75% < mean_coverage ≤ 100%
+    /// (75%, 100%]
+    #[serde(default)]
     pub band_75_to_100: u32,
 }
 
@@ -53,12 +67,16 @@ impl SurveyHistoryStats {
 }
 
 /// Bucket a mean coverage value in `[0.0, 1.0]` into one of the
-/// four bands in `SurveyHistoryStats`. 0.0 → `band_0_to_25` (we
-/// consider 0% surveyed bodies part of the 0–25% bucket so the
-/// unsurveyed count is `total - surveyed`).
-fn coverage_band(mean_coverage: f32) -> Band {
+/// four bands in `SurveyHistoryStats`. `mean_coverage == 0.0`
+/// returns `None` (these bodies are unsurveyed — they show up via
+/// `unsurveyed()`, not in any band). Otherwise bands are
+/// `(0%, 25%]`, `(25%, 50%]`, `(50%, 75%]`, `(75%, 100%]`.
+fn coverage_band(mean_coverage: f32) -> Option<Band> {
     let clamped = mean_coverage.clamp(0.0, 1.0);
-    if clamped <= 0.25 {
+    if clamped == 0.0 {
+        return None;
+    }
+    Some(if clamped <= 0.25 {
         Band::B0To25
     } else if clamped <= 0.50 {
         Band::B25To50
@@ -66,7 +84,7 @@ fn coverage_band(mean_coverage: f32) -> Band {
         Band::B50To75
     } else {
         Band::B75To100
-    }
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -617,11 +635,13 @@ fn collect_current_snapshot(
                 SurveyLevel::CoreSample => 1.0,
             }
         };
-        match coverage_band(mean_coverage) {
-            Band::B0To25 => survey.band_0_to_25 += 1,
-            Band::B25To50 => survey.band_25_to_50 += 1,
-            Band::B50To75 => survey.band_50_to_75 += 1,
-            Band::B75To100 => survey.band_75_to_100 += 1,
+        if let Some(band) = coverage_band(mean_coverage) {
+            match band {
+                Band::B0To25 => survey.band_0_to_25 += 1,
+                Band::B25To50 => survey.band_25_to_50 += 1,
+                Band::B50To75 => survey.band_50_to_75 += 1,
+                Band::B75To100 => survey.band_75_to_100 += 1,
+            }
         }
     }
 

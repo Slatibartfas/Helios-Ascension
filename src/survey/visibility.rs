@@ -121,8 +121,8 @@ fn visibility_for_tier(tier: u8) -> DepositVisibility {
     match tier {
         0 => DepositVisibility::Unknown,
         1 => DepositVisibility::ClassOnly,
-        2 | 3 => DepositVisibility::Range,
-        4..=u8::MAX => DepositVisibility::Precise,
+        2 | 3 | 4 => DepositVisibility::Range,
+        5..=u8::MAX => DepositVisibility::Precise,
     }
 }
 

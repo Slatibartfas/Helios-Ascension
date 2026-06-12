@@ -1739,11 +1739,18 @@ fn render_star_system_panel(
                             )
                         })
                         .sum();
+                    // PR-F (GRA-84): a body counts as surveyed when
+                    // it has a non-Unsurveyed legacy `SurveyLevel` OR
+                    // a v0.5.0 `SurveyState` (any dimensions
+                    // surveyed). Without this filter,
+                    // `SurveyState`-only bodies were treated as
+                    // unsurveyed in the starmap system panel.
                     let surveyed_body_count = resource_bodies
                         .iter()
-                        .filter(|(_, _, _, survey_level, _)| {
+                        .filter(|(_, _, _, survey_level, survey_state)| {
                             survey_level.copied().unwrap_or(SurveyLevel::Unsurveyed)
                                 != SurveyLevel::Unsurveyed
+                                || survey_state.is_some()
                         })
                         .count();
                     let survey_percent = if total_resource_weight > 0.0 {

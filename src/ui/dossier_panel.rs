@@ -1551,11 +1551,14 @@ fn draw_resource_section(
         }
     });
 
-    if current_level == SurveyLevel::Unsurveyed {
-        ui.colored_label(TEXT_DIM, "Perform orbital scan to detect resources.");
-        return;
-    }
-
+    // PR-F (GRA-84): compute rows FIRST so bodies that have
+    // migrated to `SurveyState` (post-PR-A) can still render rows
+    // even when the legacy `SurveyLevel` is `Unsurveyed`. The
+    // "Perform orbital scan" message now only fires when the body
+    // has neither a `SurveyState` nor a non-Unsurveyed
+    // `SurveyLevel`. Surveyed bodies with no mineable deposits
+    // (e.g. gas giants with no atmospheric gas resources) get the
+    // "Scan complete" message instead.
     let rows = compute_deposit_rows(
         body,
         resources,
@@ -1564,10 +1567,14 @@ fn draw_resource_section(
     );
 
     if rows.is_empty() {
-        ui.colored_label(
-            TEXT_DIM,
-            "Scan complete — no resources detected at the current survey tier.",
-        );
+        if survey_state.is_none() && current_level == SurveyLevel::Unsurveyed {
+            ui.colored_label(TEXT_DIM, "Perform orbital scan to detect resources.");
+        } else {
+            ui.colored_label(
+                TEXT_DIM,
+                "Scan complete — no resources detected at the current survey tier.",
+            );
+        }
         return;
     }
 

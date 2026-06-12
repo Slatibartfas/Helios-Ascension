@@ -306,6 +306,24 @@ fn legacy_to_mean_coverage(
     }
 }
 
+/// PR-F (GRA-84): look up the MineralDeposits axis fidelity for a
+/// body, preferring the v0.5.0 `SurveyState` and falling back to
+/// the legacy `SurveyLevel` adapter. Mirrors the dossier and
+/// dashboard path so the mining tab, the dossier rows, and the
+/// dashboard's resource totals all use the same effective
+/// fidelity.
+fn mineral_deposit_fidelity(
+    survey_level: Option<SurveyLevel>,
+    survey_state: Option<&crate::survey::SurveyState>,
+) -> crate::survey::DimensionFidelity {
+    if let Some(state) = survey_state {
+        return state.fidelity(crate::survey::SurveyDimension::MineralDeposits);
+    }
+    survey_level
+        .unwrap_or(SurveyLevel::Unsurveyed)
+        .as_deposit_fidelity(0.0)
+}
+
 fn mining_body_icon(body_type: BodyType) -> &'static str {
     match body_type {
         BodyType::Planet | BodyType::GasGiant => "🪐",
@@ -375,11 +393,13 @@ fn mining_visible_deposit_rows(
     body_entry: &BodyEconomyEntry,
     resource_filter: Option<ResourceType>,
 ) -> Vec<MiningDepositRow> {
-    // PR-F: route the legacy `discovered_amount(SurveyLevel)` call
-    // through the v0.5.0 estimate helper. The mid value is what we
-    // sum into the per-body total; the visibility class is dropped
-    // on this code path (the dossier/dashboard use it directly).
-    let fidelity = body_entry.survey_level.as_deposit_fidelity(0.0);
+    // PR-F (GRA-84): use the body's stored
+    // `SurveyState::MineralDeposits` fidelity (preferred) or the
+    // legacy `SurveyLevel` adapter as fallback. This matches the
+    // dossier and dashboard path so a body with a v0.5.0
+    // `SurveyState` (or a legacy `SurveyLevel` whose new tier is
+    // class-only) still shows its deposit rows in the mining tab.
+    let fidelity = body_entry.mineral_fidelity;
     let mut rows: Vec<_> = body_entry
         .deposits
         .iter()
@@ -628,6 +648,11 @@ pub(super) struct BodyEconomyEntry {
     /// sort. Derived from the body's `SurveyState` (preferred) or
     /// the legacy `SurveyLevel` (fallback).
     mean_coverage: f32,
+    /// PR-F (GRA-84): v0.5.0 `SurveyState` MineralDeposits axis
+    /// fidelity (or the legacy `SurveyLevel` adapter as fallback).
+    /// Used by the mining tab to filter and rank deposit rows so
+    /// it agrees with the dossier and dashboard views.
+    mineral_fidelity: crate::survey::DimensionFidelity,
     logical_parent: Option<Entity>,
     semi_major_axis_au: Option<f64>,
     source_kind: EconomySourceKind,
@@ -1124,6 +1149,10 @@ pub(super) fn build_economy_hierarchy(
                         body_type: body.body_type,
                         survey_level: SurveyLevel::Unsurveyed,
                         mean_coverage: legacy_to_mean_coverage(survey_level.copied(), survey_state),
+                        mineral_fidelity: mineral_deposit_fidelity(
+                            survey_level.copied(),
+                            survey_state,
+                        ),
                         logical_parent: None,
                         semi_major_axis_au: None,
                         source_kind: EconomySourceKind::MiningOp,
@@ -1210,6 +1239,7 @@ pub(super) fn build_economy_hierarchy(
                 body_type: body.body_type,
                 survey_level: survey_level.copied().unwrap_or(SurveyLevel::Unsurveyed),
                 mean_coverage: legacy_to_mean_coverage(survey_level.copied(), survey_state),
+                mineral_fidelity: mineral_deposit_fidelity(survey_level.copied(), survey_state),
                 logical_parent: logical_parent.map(|parent| parent.0),
                 semi_major_axis_au: orbit.map(|orbit| orbit.semi_major_axis),
                 source_kind,
