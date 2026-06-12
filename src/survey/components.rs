@@ -659,6 +659,16 @@ mod tests {
     // ── GRA-82 PR-D tests: landing-site coverage, score weights, and
     //    blocker derivation. ────────────────────────────────────────
 
+    // Shared state builder for the per-dimension coverage tests below.
+    // Reserved for GRA-82 PR-F (eval system consumers) — not yet wired
+    // into the round-D tests themselves.
+    #[allow(dead_code)]
+    fn state_with_dim(dim: SurveyDimension, tier: u8) -> SurveyState {
+        let mut s = SurveyState::default();
+        s.set_fidelity(dim, DimensionFidelity::at_tier(tier, 1.0, Some(sim_time())));
+        s
+    }
+
     #[test]
     fn coverage_is_zero_for_unsurveyed_body() {
         let s = SurveyState::default();
