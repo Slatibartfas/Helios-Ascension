@@ -1,0 +1,95 @@
+// Recovery mission templates (PR-G / GRA-85).
+//
+// Each entry is dispatched automatically when the matching
+// failure mode fires (RoverStuck → rover_rescue, DrillBitStuck
+// → drill_retrieval, ProbeLoss → probe_replacement) or by the
+// dossier "DISPATCH RECOVERY" button. The recovery mission runs
+// as a regular `ActiveSurveyMission` on the same body with
+// `recover_of: Some(original_mission_id)`; on `Succeeded` the
+// tick system flips the original from `Failed` to `Succeeded`.
+//
+// Field reference:
+//   `id`                — stable RON id (referenced by the
+//                         mission template's
+//                         `failure_modes[i].recovery_mission_id`)
+//   `display_name`      — UI label for the dossier card
+//   `kind`              — `equipment_recovery` |
+//                         `crew_extraction` |
+//                         `data_relay_replacement`
+//   `recovers_from`     — failure reasons this template can
+//                         recover from (the dossier filter
+//                         list when "DISPATCH RECOVERY" is
+//                         clicked from a card with multiple
+//                         compatible templates)
+//   `base_duration_days`— sim-days for the recovery mission
+//   `description`       — single-line hint under the dossier
+//                         card row
+(
+    missions: [
+        // ── Rover rescue ─────────────────────────────────
+        // The stuck-rover case. A chemical survey ship is
+        // sent to recover the asset (and crew, if any). Per
+        // the issue body: 1 chemical survey ship, 60-180
+        // sim-days, 10% chance unrecoverable (modelled as
+        // the recovery itself rolling SolarStorm at 2% +
+        // a modder-extensible failure path; a follow-up PR
+        // can introduce a "RECOVERY FAILED" event for the
+        // 10% unrecoverable branch).
+        (
+            id: "rover_rescue",
+            display_name: "Rover Rescue",
+            kind: equipment_recovery,
+            recovers_from: [RoverStuck],
+            base_duration_days: 120,
+            description: "Send a chemical survey ship to recover a stuck rover. 60–180 sim-days.",
+        ),
+        // ── Drill retrieval ──────────────────────────────
+        // A drill bit jammed in the formation. The rig is
+        // stranded; the player must retrieve it (1 NTR ship,
+        // 1 sim-year) or abandon the rig to skip the
+        // recovery. Modders can extend with a "drill_abandon"
+        // decision point on the dossier card.
+        (
+            id: "drill_retrieval",
+            display_name: "Drill Rig Retrieval",
+            kind: equipment_recovery,
+            recovers_from: [DrillBitStuck],
+            base_duration_days: 365,
+            description: "Dispatch an NTR tug to retrieve the stranded drill rig. ~1 sim-year.",
+        ),
+        // ── Probe replacement ────────────────────────────
+        // A probe or atmospheric probe was lost. The
+        // replacement is a fresh dispatch of the original
+        // mission template (the dossier surfaces a
+        // "RE-DISPATCH" button that fires a normal
+        // DispatchSurveyMission event for the original
+        // template id). This template is here for symmetry
+        // — it lets the dossier show a uniform recovery row
+        // even on ProbeLoss.
+        (
+            id: "probe_replacement",
+            display_name: "Probe Replacement",
+            kind: data_relay_replacement,
+            recovers_from: [ProbeLoss],
+            base_duration_days: 90,
+            description: "Dispatch a replacement probe (or relay). Faster than the original mission.",
+        ),
+        // ── Crew extraction ──────────────────────────────
+        // Extract a stranded or injured crew member.
+        // Usually paired with a `CrewInjury` failure (the
+        // 90-day injury cooldown is the cost of failing to
+        // extract) but the template can be auto-spawned on
+        // any failure kind that names it. Not wired into
+        // the auto-spawn path in PR-G; the dossier surfaces
+        // it as a manual "DISPATCH CREW EXTRACTION" button
+        // for failures on ground-team missions.
+        (
+            id: "crew_extraction",
+            display_name: "Crew Extraction",
+            kind: crew_extraction,
+            recovers_from: [CrewInjury, RoverStuck, DrillBitStuck, SolarStorm],
+            base_duration_days: 60,
+            description: "Send a recovery ship to extract stranded personnel. 60 sim-days.",
+        ),
+    ],
+)

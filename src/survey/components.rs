@@ -145,6 +145,21 @@ pub struct SurveyState {
     /// simulation day (avoids re-rolling sites every frame as
     /// confidence rises).
     pub last_landing_site_eval_sim_time: f64,
+    /// Failed mission notifications surfaced in the dossier
+    /// SURVEY tab. PR-G (GRA-85) populates this when a mission
+    /// finalises in the `Failed` state. The dossier "FAILED
+    /// MISSIONS" section lists the most recent entries
+    /// (capped at [`MAX_FAILED_MISSION_NOTIFICATIONS`]) with
+    /// the failure reason, recovery-mission id (if any), and
+    /// mode-specific action buttons (ACCEPT LOSS / DISPATCH
+    /// RECOVERY / ABORT RECOVERY).
+    ///
+    /// Modders / follow-up PRs can clear this list explicitly
+    /// (e.g. on body migration or new-game); the field is
+    /// additive so saves from before PR-G load with an empty
+    /// vec.
+    #[serde(default)]
+    pub failed_mission_notifications: Vec<FailedMissionRecord>,
 }
 
 impl Default for SurveyState {
@@ -158,6 +173,7 @@ impl Default for SurveyState {
             landing_sites: Vec::new(),
             extraction_sites: Vec::new(),
             last_landing_site_eval_sim_time: 0.0,
+            failed_mission_notifications: Vec::new(),
         }
     }
 }
@@ -190,6 +206,7 @@ impl SurveyState {
             landing_sites: Vec::new(),
             extraction_sites: Vec::new(),
             last_landing_site_eval_sim_time: 0.0,
+            failed_mission_notifications: Vec::new(),
         }
     }
 
@@ -240,6 +257,7 @@ impl SurveyState {
             landing_sites: Vec::new(),
             extraction_sites: Vec::new(),
             last_landing_site_eval_sim_time: 0.0,
+            failed_mission_notifications: Vec::new(),
         }
     }
 
@@ -385,6 +403,31 @@ pub struct ActiveSurveyMission {
     /// for solo probe missions.
     #[serde(default)]
     pub assigned_scientists: Vec<ScientistId>,
+    /// If this is a recovery mission, the id of the original
+    /// failed mission it is recovering. PR-G (GRA-85) sets this
+    /// when the auto-spawn path dispatches a recovery template in
+    /// response to a `RoverStuck` or `DrillBitStuck` failure.
+    /// On the recovery mission's `Succeeded` transition the
+    /// tick system flips the original mission from `Failed` back
+    /// to `Active` (the recovery's per-axis work is rolled into
+    /// the original's pre-mission tier snapshot).
+    ///
+    /// `None` for ordinary missions. Modders can read the field
+    /// in custom systems to render "recovery" badges in the
+    /// dossier.
+    #[serde(default)]
+    pub recover_of: Option<u64>,
+    /// RON id of the
+    /// [`SurveyMissionTemplate`](crate::survey::data::SurveyMissionTemplate)
+    /// this mission was instantiated from. PR-G (GRA-85) uses
+    /// this to look up the template's `failure_modes` list in
+    /// the typed-roll path; PR-B's hardcoded `probability(method)`
+    /// table is the fallback when the template has an empty
+    /// `failure_modes` (the common case for pre-PR-G saves).
+    /// Empty string for missions dispatched before this field
+    /// was added — the fallback path handles it.
+    #[serde(default)]
+    pub template_id: String,
 }
 
 fn default_axis_yield() -> f32 {
@@ -501,6 +544,69 @@ pub struct DetectedAnomaly {
 /// Coverage threshold below which no landing / extraction sites are
 /// generated. Mirrors the 0.6 trigger called out in GRA-82.
 pub const LANDING_SITE_EVAL_THRESHOLD: f32 = 0.6;
+
+/// Maximum number of [`FailedMissionRecord`] entries kept on a
+/// body's [`SurveyState::failed_mission_notifications`]. The
+/// dossier's "FAILED MISSIONS" section lists this many most-recent
+/// entries (oldest evicted on push). Set to 5 so the dossier card
+/// stays one-screen without scrolling; modders can change the
+/// constant if they want a longer history.
+pub const MAX_FAILED_MISSION_NOTIFICATIONS: usize = 5;
+
+/// A single failed-mission entry surfaced in the dossier's
+/// "FAILED MISSIONS" section. Created on the mission's
+/// `Completing → Failed` transition (PR-G, GRA-85) and pushed
+/// to [`SurveyState::failed_mission_notifications`].
+///
+/// The dossier UI uses the fields to render one card per record
+/// with the failure reason, the recovery template id (if the
+/// failure mode names one), and the mode-specific action
+/// buttons (ACCEPT LOSS / DISPATCH RECOVERY / ABORT RECOVERY).
+/// When `recover_of` is set on a `Succeeded` recovery mission,
+/// the original record stays in the list but the dossier
+/// surfaces a "RECOVERED" badge in place of the action buttons.
+///
+/// `display_name`, `method`, and `reason` are kept on the
+/// record (rather than looked up by id) so the dossier history
+/// stays readable after a save/load that drops the original
+/// `ActiveSurveyMission` (which moves to terminal `Failed`
+/// state and may be reaped by a follow-up retention sweep).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FailedMissionRecord {
+    /// Mission id (matches the original `ActiveSurveyMission::id`
+    /// that finalised in `Failed`).
+    pub mission_id: u64,
+    /// Display name as it appeared in the active-mission list.
+    pub display_name: String,
+    /// Survey method. Drives the dossier "method" badge.
+    pub method: super::types::SurveyMethod,
+    /// Failure reason. Drives the dossier "reason" badge label
+    /// and the action button list (e.g. only
+    /// `RoverStuck` / `DrillBitStuck` get a "DISPATCH RECOVERY"
+    /// button).
+    pub reason: super::types::MissionFailureReason,
+    /// Sim-time the mission finalised in `Failed`.
+    pub failed_sim_time: f64,
+    /// RON id of the recovery mission template, if the failure
+    /// mode names one (e.g. `RoverStuck { recovery_mission_id }`).
+    /// `None` for `ProbeLoss`, `SolarStorm`, and `CrewInjury`
+    /// because the recovery path for those failures is either
+    /// a fresh dispatch of the original mission template
+    /// (`ProbeLoss`) or no recovery at all (`SolarStorm`,
+    /// `CrewInjury`).
+    pub recovery_mission_id: Option<String>,
+    /// Display name of the recovery mission, if `recovery_mission_id`
+    /// is set. Resolved at push time by looking up the id in
+    /// `RecoveryMissionRegistry::get`. Cached on the record so
+    /// the dossier doesn't have to re-resolve on every redraw.
+    pub recovery_mission_display_name: Option<String>,
+    /// Id of the auto-spawned recovery mission that was dispatched
+    /// in response to this failure, if the auto-spawn path fired
+    /// (RoverStuck / DrillBitStuck with a known recovery template).
+    /// The dossier uses this to label the "ABORT RECOVERY" button
+    /// and to show "RECOVERED" once the linked mission `Succeeded`.
+    pub recovery_mission_active_id: Option<u64>,
+}
 
 /// Min / max count of candidate sites generated per body when
 /// coverage crosses the threshold. Bounds the visible list in the

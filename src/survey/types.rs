@@ -552,3 +552,157 @@ impl MissionFailureReason {
         self.probability(method) > 0.0
     }
 }
+
+/// The kind of failure a mission can suffer, with the per-kind
+/// payload the RON can express (recovery template id, confidence
+/// penalty, injury duration).
+///
+/// PR-G (GRA-85) attaches these to mission templates as
+/// `failure_modes: Vec<FailureMode>` (additive over PR-B's
+/// hardcoded `MissionFailureReason::probability(method)` table).
+/// Each variant mirrors one [`MissionFailureReason`] but carries
+/// the data the recovery path needs: `RoverStuck` and
+/// `DrillBitStuck` know which [`RecoveryMission`](crate::survey::data::RecoveryMission)
+/// template to auto-spawn, `SolarStormDataCorruption` knows the
+/// confidence penalty, and `CrewInjury` knows the injury
+/// duration. `ProbeLoss` carries no payload because the recovery
+/// is a fresh dispatch of the same mission template, not a
+/// specialised recovery template.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum FailureKind {
+    /// A probe or atmospheric probe was lost. No data; the
+    /// probe entity is consumed. The dispatch system fires
+    /// `SurveyEvent::ProbeLost` + the umbrella
+    /// `SurveyEvent::MissionFailed { reason: ProbeLoss }`. Default
+    /// probability 5% on Flyby / Orbital / RemoteSensing /
+    /// AtmosphericProbe (per design doc).
+    ProbeLoss,
+    /// The rover became stuck in terrain. The mission ends in
+    /// `Failed`; partial progress is rolled back. A
+    /// [`RecoveryMission`](crate::survey::data::RecoveryMission)
+    /// of the named template id is auto-spawned on the same
+    /// body, dispatched as a fresh `ActiveSurveyMission` with
+    /// `status: Queued`. Default probability 8% on Rover.
+    RoverStuck {
+        /// RON id of the recovery mission template to dispatch.
+        /// Must exist in the
+        /// [`RecoveryMissionRegistry`](crate::survey::data::RecoveryMissionRegistry).
+        recovery_mission_id: String,
+    },
+    /// A drill bit jammed in the formation. The mission ends
+    /// in `Failed`; a recovery mission is auto-spawned to
+    /// retrieve the rig (or the player can abandon the rig to
+    /// skip the recovery). Default probability 10% on Drill.
+    DrillBitStuck {
+        /// RON id of the recovery mission template to dispatch.
+        recovery_mission_id: String,
+    },
+    /// A solar storm hit during the survey. The mission ends
+    /// in `Failed`; the affected dimensions' confidence is
+    /// reduced by `confidence_penalty`. The reduction auto-
+    /// recovers on the next orbital pass over the body. Default
+    /// probability 2% on any method.
+    SolarStormDataCorruption {
+        /// Penalty applied to the affected dimensions'
+        /// confidence, in `[0.0, 1.0]`. The design doc calls
+        /// for 0.1–0.2; modders can rebalance per-template.
+        confidence_penalty: f32,
+    },
+    /// A crew member was injured on a ground-team mission. The
+    /// first assigned scientist is injured for
+    /// `injury_duration_days` sim-days and blocked from new
+    /// survey-mission assignments. Default probability 2% on
+    /// SurfaceLander / Rover / Drill / SampleReturn.
+    CrewInjury {
+        /// Injury duration in sim-days. The design doc calls
+        /// for 60–180 sim-days. PR-B's hardcoded default is 90
+        /// sim-days; modders can extend for severe events.
+        injury_duration_days: u32,
+    },
+}
+
+impl FailureKind {
+    /// Map to the corresponding [`MissionFailureReason`]. Used to
+    /// fire the existing `SurveyEvent::MissionFailed { reason }`
+    /// event without adding a new event variant.
+    pub fn reason(&self) -> MissionFailureReason {
+        match self {
+            FailureKind::ProbeLoss => MissionFailureReason::ProbeLoss,
+            FailureKind::RoverStuck { .. } => MissionFailureReason::RoverStuck,
+            FailureKind::DrillBitStuck { .. } => MissionFailureReason::DrillBitStuck,
+            FailureKind::SolarStormDataCorruption { .. } => MissionFailureReason::SolarStorm,
+            FailureKind::CrewInjury { .. } => MissionFailureReason::CrewInjury,
+        }
+    }
+
+    /// Whether this failure kind applies to the given method.
+    /// Mirrors the PR-B hardcoded table so templates that omit
+    /// the `failure_modes` field still get the design-doc rates
+    /// from the fallback path.
+    pub fn applies_to_method(&self, method: SurveyMethod) -> bool {
+        use SurveyMethod::*;
+        match self {
+            FailureKind::ProbeLoss => {
+                matches!(method, Flyby | Orbital | RemoteSensing | AtmosphericProbe)
+            }
+            FailureKind::RoverStuck { .. } => method == Rover,
+            FailureKind::DrillBitStuck { .. } => method == Drill,
+            FailureKind::SolarStormDataCorruption { .. } => true,
+            FailureKind::CrewInjury { .. } => {
+                matches!(method, SurfaceLander | Rover | Drill | SampleReturn)
+            }
+        }
+    }
+}
+
+/// One entry in a mission template's `failure_modes` list. Pairs
+/// a [`FailureKind`] (carrying the per-kind payload) with a
+/// probability. The typed roll in
+/// `roll_typed_mission_outcome` (PR-G) iterates these instead of
+/// consulting the hardcoded `MissionFailureReason::probability`
+/// table.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FailureMode {
+    /// Which kind of failure this is. The kind's payload
+    /// (recovery mission id, confidence penalty, etc.) is read
+    /// by the dispatch and finalise systems.
+    pub kind: FailureKind,
+    /// Probability of this failure firing on the mission, in
+    /// `[0.0, 1.0]`. Modders can rebalance per-template. The
+    /// design doc's defaults match PR-B's hardcoded table so
+    /// the new typed roll produces the same rate distribution
+    /// as the old code for any template that simply mirrors
+    /// the design rates in its RON.
+    pub probability: f32,
+}
+
+impl FailureMode {
+    /// Stable RON id for the kind. Used in tests and for
+    /// keying into the per-kind lookup helpers. The id is
+    /// the kebab-case of the variant's discriminant
+    /// (`probe_loss`, `rover_stuck`, etc.).
+    pub fn kind_ron_id(&self) -> &'static str {
+        match &self.kind {
+            FailureKind::ProbeLoss => "probe_loss",
+            FailureKind::RoverStuck { .. } => "rover_stuck",
+            FailureKind::DrillBitStuck { .. } => "drill_bit_stuck",
+            FailureKind::SolarStormDataCorruption { .. } => "solar_storm_data_corruption",
+            FailureKind::CrewInjury { .. } => "crew_injury",
+        }
+    }
+}
+
+/// Default injury duration for `CrewInjury` failure modes that
+/// omit the `injury_duration_days` field in the RON. Matches
+/// PR-B's hardcoded 90-sim-day default so the typed path
+/// preserves the same behaviour for templates that simply
+/// inherit the design rates.
+pub const DEFAULT_INJURY_DURATION_DAYS: u32 = 90;
+
+/// Default confidence penalty for `SolarStormDataCorruption`
+/// failure modes that omit the `confidence_penalty` field. The
+/// design doc's "corrupts ResourceEstimate + SubsurfaceImaging
+/// by 0.1-0.2" is modelled as a fixed penalty (modders can
+/// rebalance per-template); the design range is preserved by
+/// the RNG that picks the actual penalty at roll time.
+pub const DEFAULT_SOLAR_STORM_PENALTY: f32 = 0.15;

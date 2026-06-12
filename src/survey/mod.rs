@@ -26,26 +26,29 @@ pub mod visibility;
 
 pub use components::{
     ActiveSurveyMission, AnalysisJob, ContinuousStationBonus, ContinuousSurveyStation,
-    DetectedAnomaly, DimensionFidelity, ExtractionSite, LandingSite, SiteScoreWeights, SiteScores,
-    SurveyState, LANDING_SITE_EVAL_THRESHOLD, MAX_SITES_PER_BODY, MIN_SITES_PER_BODY,
+    DetectedAnomaly, DimensionFidelity, ExtractionSite, FailedMissionRecord, LandingSite,
+    SiteScoreWeights, SiteScores, SurveyState, LANDING_SITE_EVAL_THRESHOLD, MAX_SITES_PER_BODY,
+    MIN_SITES_PER_BODY,
 };
 pub use data::{
-    load_mission_templates, AnalysisQueueIndex, MiningEfficiencyRegistry, MiningEfficiencyRow,
-    ModderAnomalyDef, ModderDimensionDef, SurveyAnomalyRegistry, SurveyDimensionRegistry,
+    load_mission_templates, load_recovery_missions, AnalysisQueueIndex, MiningEfficiencyRegistry,
+    MiningEfficiencyRow, ModderAnomalyDef, ModderDimensionDef, RecoveryMission,
+    RecoveryMissionKind, RecoveryMissionRegistry, SurveyAnomalyRegistry, SurveyDimensionRegistry,
     SurveyInstrumentDef, SurveyInstrumentRegistry, SurveyMissionTemplate, SurveyMissionTemplates,
     SurveyMissionTemplatesFile,
 };
-pub use events::{AbortSurveyMission, DispatchSurveyMission, SurveyEvent};
+pub use events::{AbortSurveyMission, DismissFailedMission, DispatchSurveyMission, SurveyEvent};
 pub use systems::{
     abort_survey_mission, advance_survey_missions, apply_continuous_station_bonus,
-    decay_survey_confidence, dispatch_survey_mission, evaluate_landing_sites,
-    process_analysis_queue, surface_anomaly_events, update_survey_summary, SimulationTime,
-    INJURY_DURATION_DAYS,
+    decay_survey_confidence, dismiss_failed_mission, dispatch_survey_mission,
+    evaluate_landing_sites, process_analysis_queue, surface_anomaly_events, update_survey_summary,
+    SimulationTime, INJURY_DURATION_DAYS,
 };
 pub use types::{
-    axis_advance_rate_for_tier, mining_yield_delta_for_tier, AnomalyType, MissionFailureReason,
-    MissionStatus, SurveyDimension, SurveyMethod, CONFIDENCE_DECAY_PER_YEAR, INITIAL_CONFIDENCE,
-    MAX_TIER, STALE_CONFIDENCE, SURVEY_DAYS_PER_YEAR, WARNING_CONFIDENCE,
+    axis_advance_rate_for_tier, mining_yield_delta_for_tier, AnomalyType, FailureKind, FailureMode,
+    MissionFailureReason, MissionStatus, SurveyDimension, SurveyMethod, CONFIDENCE_DECAY_PER_YEAR,
+    DEFAULT_INJURY_DURATION_DAYS, DEFAULT_SOLAR_STORM_PENALTY, INITIAL_CONFIDENCE, MAX_TIER,
+    STALE_CONFIDENCE, SURVEY_DAYS_PER_YEAR, WARNING_CONFIDENCE,
 };
 pub use visibility::{estimate_with_fidelity, is_stale, DepositEstimate, DepositVisibility};
 
@@ -63,7 +66,7 @@ impl Plugin for SurveyPlugin {
             // PR-B; other registries (dimensions, instruments,
             // anomalies, mining efficiency) load in follow-up
             // PRs.
-            .add_systems(Startup, load_mission_templates)
+            .add_systems(Startup, (load_mission_templates, load_recovery_missions))
             // Messages — registered in PR-B. The dispatch/abort
             // handlers and the tick system read/write these.
             // Bevy 0.18's `Message` derive replaces the older
@@ -72,6 +75,7 @@ impl Plugin for SurveyPlugin {
             .add_message::<SurveyEvent>()
             .add_message::<DispatchSurveyMission>()
             .add_message::<AbortSurveyMission>()
+            .add_message::<DismissFailedMission>()
             // Resources — default-initialized empty registries.
             // The RON loaders land in a follow-up PR; until then
             // the app starts with the hardcoded defaults from the
@@ -83,6 +87,7 @@ impl Plugin for SurveyPlugin {
             .init_resource::<SurveyAnomalyRegistry>()
             .init_resource::<MiningEfficiencyRegistry>()
             .init_resource::<AnalysisQueueIndex>()
+            .init_resource::<RecoveryMissionRegistry>()
             // Update systems — PR-A stubs remain, PR-B replaces
             // `advance_survey_missions` with the real tick and
             // adds the dispatch/abort handlers. The systems are
@@ -103,6 +108,7 @@ impl Plugin for SurveyPlugin {
                 (
                     dispatch_survey_mission,
                     abort_survey_mission,
+                    dismiss_failed_mission,
                     decay_survey_confidence,
                     advance_survey_missions,
                     process_analysis_queue,

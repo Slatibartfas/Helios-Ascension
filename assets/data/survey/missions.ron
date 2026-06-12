@@ -1,4 +1,4 @@
-// Survey mission templates (PR-B / GRA-80).
+// Survey mission templates (PR-B / GRA-80, extended by PR-G / GRA-85).
 //
 // Each entry is a single "send probe" click. The dossier SURVEY
 // section's "DISPATCH MISSION" button lists these and lets the
@@ -22,6 +22,46 @@
 //   `is_ground_team`  — whether the mission needs a scientist team on
 //                       the surface (drives the CrewInjury failure
 //                       roll). Auto-inferred from `method` if omitted.
+//   `failure_modes`   — PR-G: per-template failure roll. Empty by
+//                       default (the dispatch + finalize systems
+//                       fall back to the hardcoded
+//                       `MissionFailureReason::probability(method)`
+//                       table from PR-B). Modders / LGD add
+//                       per-template rows to rebalance. Each entry:
+//
+//                         `kind`        — `probe_loss` |
+//                                          `rover_stuck` |
+//                                          `drill_bit_stuck` |
+//                                          `solar_storm` |
+//                                          `crew_injury`
+//                         `probability` — in `[0.0, 1.0]`; the
+//                                          typed roll picks one
+//                                          entry with probability
+//                                          proportional to this
+//                                          field. Sum can be
+//                                          `< 1.0` (the rest is
+//                                          success) or `> 1.0`
+//                                          (the modder-intentional
+//                                          "always fails" case).
+//
+//                       Variant-specific payload fields:
+//                         `rover_stuck.recovery_mission_id`  — RON
+//                            id in `recovery_missions.ron`;
+//                            auto-spawned on failure.
+//                         `drill_bit_stuck.recovery_mission_id` —
+//                            same, for the drill case.
+//                         `solar_storm.confidence_penalty` —
+//                            confidence reduction per targeted
+//                            axis (0.0..=1.0).
+//                         `crew_injury.injury_duration_days` —
+//                            injury length for the first scientist.
+//
+//  Rates match the issue body's design doc:
+//    ProbeLoss         5% on Flyby / Orbital / RemoteSensing / AtmosphericProbe
+//    RoverStuck        8% on Rover
+//    DrillBitStuck    10% on Drill
+//    SolarStorm        2% on every method
+//    CrewInjury        2% on ground-team methods
 (
     templates: [
         (
@@ -36,6 +76,17 @@
             base_duration_days: 540,
             axis_yield_per_day: 1.0,
             is_ground_team: false,
+            failure_modes: [
+                (
+                    kind: probe_loss,
+                    probability: 0.05,
+                ),
+                (
+                    kind: solar_storm,
+                    confidence_penalty: 0.15,
+                    probability: 0.02,
+                ),
+            ],
         ),
         (
             id: "orbital_imaging",
@@ -50,6 +101,17 @@
             base_duration_days: 1095,
             axis_yield_per_day: 0.9,
             is_ground_team: false,
+            failure_modes: [
+                (
+                    kind: probe_loss,
+                    probability: 0.05,
+                ),
+                (
+                    kind: solar_storm,
+                    confidence_penalty: 0.15,
+                    probability: 0.02,
+                ),
+            ],
         ),
         (
             id: "atmospheric_probe_drop",
@@ -63,6 +125,17 @@
             base_duration_days: 730,
             axis_yield_per_day: 1.0,
             is_ground_team: false,
+            failure_modes: [
+                (
+                    kind: probe_loss,
+                    probability: 0.05,
+                ),
+                (
+                    kind: solar_storm,
+                    confidence_penalty: 0.15,
+                    probability: 0.02,
+                ),
+            ],
         ),
         (
             id: "surface_lander_v1",
@@ -76,6 +149,18 @@
             base_duration_days: 1095,
             axis_yield_per_day: 0.8,
             is_ground_team: true,
+            failure_modes: [
+                (
+                    kind: solar_storm,
+                    confidence_penalty: 0.15,
+                    probability: 0.02,
+                ),
+                (
+                    kind: crew_injury,
+                    injury_duration_days: 90,
+                    probability: 0.02,
+                ),
+            ],
         ),
         (
             id: "rover_survey_v1",
@@ -90,6 +175,23 @@
             base_duration_days: 2555,
             axis_yield_per_day: 0.6,
             is_ground_team: true,
+            failure_modes: [
+                (
+                    kind: rover_stuck,
+                    recovery_mission_id: "rover_rescue",
+                    probability: 0.08,
+                ),
+                (
+                    kind: solar_storm,
+                    confidence_penalty: 0.15,
+                    probability: 0.02,
+                ),
+                (
+                    kind: crew_injury,
+                    injury_duration_days: 90,
+                    probability: 0.02,
+                ),
+            ],
         ),
         (
             id: "seismic_pass",
@@ -102,6 +204,18 @@
             base_duration_days: 1825,
             axis_yield_per_day: 0.7,
             is_ground_team: true,
+            failure_modes: [
+                (
+                    kind: solar_storm,
+                    confidence_penalty: 0.15,
+                    probability: 0.02,
+                ),
+                (
+                    kind: crew_injury,
+                    injury_duration_days: 90,
+                    probability: 0.02,
+                ),
+            ],
         ),
         (
             id: "drill_core_sample",
@@ -115,6 +229,23 @@
             base_duration_days: 730,
             axis_yield_per_day: 0.9,
             is_ground_team: true,
+            failure_modes: [
+                (
+                    kind: drill_bit_stuck,
+                    recovery_mission_id: "drill_retrieval",
+                    probability: 0.10,
+                ),
+                (
+                    kind: solar_storm,
+                    confidence_penalty: 0.15,
+                    probability: 0.02,
+                ),
+                (
+                    kind: crew_injury,
+                    injury_duration_days: 90,
+                    probability: 0.02,
+                ),
+            ],
         ),
         (
             id: "sample_return",
@@ -128,6 +259,18 @@
             base_duration_days: 2920,
             axis_yield_per_day: 0.5,
             is_ground_team: true,
+            failure_modes: [
+                (
+                    kind: solar_storm,
+                    confidence_penalty: 0.15,
+                    probability: 0.02,
+                ),
+                (
+                    kind: crew_injury,
+                    injury_duration_days: 90,
+                    probability: 0.02,
+                ),
+            ],
         ),
         (
             id: "remote_sensing_pass",
@@ -141,6 +284,17 @@
             base_duration_days: 365,
             axis_yield_per_day: 1.0,
             is_ground_team: false,
+            failure_modes: [
+                (
+                    kind: probe_loss,
+                    probability: 0.05,
+                ),
+                (
+                    kind: solar_storm,
+                    confidence_penalty: 0.15,
+                    probability: 0.02,
+                ),
+            ],
         ),
     ],
 )

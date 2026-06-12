@@ -170,3 +170,22 @@ pub struct AbortSurveyMission {
     pub body: Entity,
     pub mission_id: u64,
 }
+
+/// Dismiss a failed-mission notification from the dossier
+/// "FAILED MISSIONS" section. Fired by the dossier UI's
+/// "ACCEPT LOSS" button (PR-G, GRA-85). The corresponding
+/// [`FailedMissionRecord`](crate::survey::components::FailedMissionRecord)
+/// is removed from the body's
+/// [`SurveyState::failed_mission_notifications`](crate::survey::components::SurveyState::failed_mission_notifications)
+/// vec; if the record's `recovery_mission_active_id` is set,
+/// the linked recovery mission is left running in the body's
+/// `active_missions` (the player is signalling "I accept the
+/// failed mission's data loss; the recovery is still in
+/// flight").
+#[derive(Message, Debug, Clone)]
+pub struct DismissFailedMission {
+    pub body: Entity,
+    /// Matches
+    /// [`FailedMissionRecord::mission_id`](crate::survey::components::FailedMissionRecord::mission_id).
+    pub mission_id: u64,
+}
