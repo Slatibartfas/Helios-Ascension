@@ -268,6 +268,18 @@ View and select celestial bodies or star systems.
 
 Manage colony buildings and construction projects.
 
+#### Sub-tab strip
+
+The panel opens with a `theme::tab_strip<ConstructionTab>` (Pattern 4 in
+[`UI_LAYOUT_PATTERNS.md` §5](UI_LAYOUT_PATTERNS.md#5-pattern-4--in-panel-sub-tab-strip-egui))
+that exposes the panel's top-level sub-tabs (Overview, Buildings, Build,
+Stockpiles). The Build tab nests a second
+`theme::tab_strip<BuildingCategory>` strip with eight `BuildingCategory`
+rows indented by `theme::Spacing::md` — see §8 for the primitive
+contract. Bespoke `ConstructionTab` + `BuildFilter` state is gone; the
+two strips are the single source of truth for "which sub-view is
+active".
+
 #### Features
 
 - **Colony Selection** — Dropdown to choose which colony to manage.
@@ -322,9 +334,27 @@ Each building card shows (top to bottom):
 > For a complete building reference with per-building outputs, capacities,
 > and tech requirements see `docs/COLONIES.md`.
 
+#### Construction Overview
+
+The Overview sub-tab renders its top-level summary as a
+`theme::ledger_panel` (see §8.2) so the section structure matches the
+planet dossier's right-side ledger.
+
 ### 3.4 Research Panel
 
 Browse and select technologies to research.
+
+#### Archive sub-tab categories
+
+The Archive tab groups technologies by `TechCategory` using a
+`theme::tab_strip<TechCategory>` (Pattern 4 in
+[`UI_LAYOUT_PATTERNS.md` §5](UI_LAYOUT_PATTERNS.md#5-pattern-4--in-panel-sub-tab-strip-egui)).
+`TechCategory` implements `Tab` in `src/ui/tab.rs` — `id()` is the
+snake_case variant name, `label()` reuses `TechCategory::display_name`,
+`icon()` reuses `TechCategory::icon` so the strip and the inline labels
+stay in sync. The strip replaces the bespoke loop that used to live at
+`src/ui/research_panel.rs:1568-1574`. See §8.2 for the primitive
+contract.
 
 #### Technology tree
 
@@ -360,6 +390,16 @@ the brighter of the two per state.
 ### 3.5 Economy Panel
 
 Track resources, production, and budget.
+
+#### Sub-tab strip
+
+The panel opens with a 7-way `theme::tab_strip<EconomyTab>` (Pattern 4
+in [`UI_LAYOUT_PATTERNS.md` §5](UI_LAYOUT_PATTERNS.md#5-pattern-4--in-panel-sub-tab-strip-egui))
+that exposes the panel's sub-tabs. The Colonies tab is a
+`theme::ledger_panel<ColonyRow>` (Pattern 2 ledger) — see §8.2 for the
+primitive contract and
+[`UI_LAYOUT_PATTERNS.md` §3](UI_LAYOUT_PATTERNS.md#3-pattern-2--right-side-ledger-egui)
+for the full Pattern 2 layout contract.
 
 #### Resource overview
 
@@ -400,22 +440,39 @@ Track resources, production, and budget.
 
 Native Bevy UI workspace. There is no egui fallback — it is the only path
 for designing hull layouts, picking modules into slots, queueing ships, and
-inspecting live engineering metrics.
+inspecting live engineering metrics. See §8.3 for the Bevy UI
+`theme::Color` mirror and the two Bevy primitives; the full Pattern 3
+contract lives in
+[`UI_LAYOUT_PATTERNS.md` §4](UI_LAYOUT_PATTERNS.md#4-pattern-3--tabbed-workspace-bevy-ui-018).
+
+#### Tab strip
+
+`populate_tab_strip` (`src/ui/shipbuilding_workspace.rs:1241-1296`)
+uses `theme::tab_strip_bevy<ShipbuildingTab>` for the active/inactive
+tab palette. The previous hardcoded `Color::srgb(0.0, 0.95, 1.0)`
+literals (six sites in `populate_tab_strip`) were replaced with
+`theme::Color::TAB_ACTIVE_BG` / `TAB_ACTIVE_BORDER` / `TAB_INACTIVE_BG`
+/ `TAB_INACTIVE_BORDER` / `TAB_ACTIVE_TEXT` / `TAB_INACTIVE_TEXT` in
+PR-D / GRA-69; the `theme::Color` mirror itself landed in PR-B /
+GRA-67.
 
 #### Workspace layout
 
-Three panes:
+Three panes (per the 3-pane shell parameterised in PR-E / GRA-70):
 
 1. **Logistics Hub** — Hull selector, slot-category navigation, and the
    compatible module list for the focused slot. Slot borders are coloured
-   via `module_slot_accent_color`.
+   via `module_slot_accent_color`. Pane header rendered with
+   `theme::section_h1_bevy`.
 2. **Design Blueprint** — Slot cards arranged on a schematic canvas, with
    hover and selection states for slot inspection. Click a slot to focus
-   it, then click a module card to install it.
+   it, then click a module card to install it. Pane header rendered with
+   `theme::section_h1_bevy`.
 3. **Engineering Analytics** — Gauge-style metrics for delta-v, thrust,
    mass, acceleration, power, thermal capacity, sensor range, build
    points, fuel, and cargo, plus supplemental chip metrics for crew,
-   docking, ISRU, generation/load, and ordnance.
+   docking, ISRU, generation/load, and ordnance. Pane header rendered with
+   `theme::section_h1_bevy`.
 
 #### Known constraints
 
@@ -588,3 +645,70 @@ Beyond the lint:
   in the PR description.
 - Re-run `python3 scripts/audit_color32_literals.py --strict --baseline
   scripts/audit_color32_literals_baseline.txt` before pushing.
+
+## 8. Layout Patterns
+
+§2 covers *components* (frames, tokens, builders) and §3 covers *panels*
+(per-domain anatomy). This section covers the *layout primitives* the
+panels compose from — the shared skeletons that re-appear across
+Construction, Research, Shipbuilding, and Economy. The full layout
+contract (skeletons, per-pattern do/don't, panel-to-pattern mapping,
+contribution rules) lives in
+[`docs/UI_LAYOUT_PATTERNS.md`](UI_LAYOUT_PATTERNS.md); this section is
+the at-a-glance index for which primitive a panel calls where.
+
+### 8.1 The `Tab` trait
+
+`src/ui/tab.rs` defines the `Tab` trait (`id()`, `label()`,
+`icon() -> Option<&'static str>`, `Default` is the canonical first tab).
+Every panel's `*Tab` enum (`ConstructionTab`, `EconomyTab`, …) implements
+it once; both the egui and the Bevy UI sub-tab primitives are generic
+over `T: Tab`. The trait is the contract — see the doc comment for
+extension points (dynamic `Cow::Owned` labels, per-tab icons).
+
+### 8.2 egui primitives (Pattern 2 + Pattern 4)
+
+| Primitive | Purpose | Used by |
+| --------- | ------- | ------- |
+| `theme::section_h1(ui, label)` | Panel title (20pt `title()` font, `ACCENT`). | Pattern 2 ledgers (planet dossier). |
+| `theme::section_h2(ui, label)` | Section header (13pt `heading()` font, `ACCENT`). | Top of every collapsible section in a Pattern 2 ledger. |
+| `theme::section_h3(ui, label)` | Sub-section header (10pt mono `TEXT_DIM`). | Nested inside a `section_h2` body. |
+| `theme::tab_strip<T: Tab>(ui, tabs, active, on_select) -> T` | Horizontal sub-tab strip. Active tab in `ACCENT` + 2px bottom underline; inactive in `TEXT`. Returns `active` so callers that want the click to take effect within the same frame can re-assign their state. | Construction (top-level + 8-way `BuildingCategory` second-level), Research (Archive tab categories), Economy (7-way `EconomyTab`). |
+| `theme::ledger_panel<T>(ui, id, title, _token, contents)` | Collapsible ledger section: `section_h2` title + `CollapsingHeader` (default-open). Generic `T` is reserved for future typed tokens; pass `&()` if you don't need a filter. | Economy Colonies tab, Construction Overview. |
+
+### 8.3 Bevy UI 0.18 primitives (Pattern 3 mirror)
+
+The Shipbuilding workspace is the only native Bevy UI panel
+(`docs/UI.md` §1). PR-B added a `theme::Color` mirror of the egui
+tokens and two Bevy-side primitives; PR-D replaced the previous
+`Color::srgb(0.0, 0.95, 1.0)` literals at
+`src/ui/shipbuilding_workspace.rs:1241-1296` with `theme::Color`, and
+PR-E consolidated the 3-pane shell.
+
+| Primitive | Purpose |
+| --------- | ------- |
+| `theme::section_h1_bevy(commands, parent_entity, label)` | Spawn a `Text` child of `parent_entity` styled as the canonical pane title (15pt body font, `Color::PANEL_TITLE`). |
+| `theme::tab_strip_bevy<T: Tab>(commands, tabs_root, tabs, active)` | Spawn one `Button` per tab as a child of `tabs_root`, with the standard `Color::TAB_*` palette. |
+
+### 8.4 Per-panel use
+
+The §3 anatomy subsections reference these primitives inline at the
+call site they appear in:
+
+- **Construction** (§3.3) — `theme::tab_strip<ConstructionTab>` (top-level
+  4-way) + nested `theme::tab_strip<BuildingCategory>` (8-way
+  `BuildingCategory` second-level strip), `theme::ledger_panel` in
+  Overview.
+- **Research** (§3.4) — `theme::tab_strip<TechCategory>` in the Archive
+  tab category grouping (replaces the bespoke loop in
+  `src/ui/research_panel.rs:1568-1574`).
+- **Economy** (§3.5) — `theme::tab_strip<EconomyTab>` (7-way) +
+  `theme::ledger_panel<ColonyRow>` in the Colonies tab.
+- **Shipbuilding** (§3.6) — `theme::tab_strip_bevy` in
+  `populate_tab_strip` (Pattern 3 mirror), `theme::section_h1_bevy` for
+  each sub-pane header, `theme::Color::TAB_*` for the active/inactive
+  palette.
+
+For the full contract — skeletons, "what *not* to do", composition
+rules, contribution checklist for new panels — see
+[`docs/UI_LAYOUT_PATTERNS.md`](UI_LAYOUT_PATTERNS.md) §1–§8.
