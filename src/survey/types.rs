@@ -158,8 +158,11 @@ impl SurveyMethod {
 ///
 /// Each anomaly has a discovery method affinity, a "coolness" weight, and
 /// a gameplay effect (research unlock, building unlock, or event chain).
+/// PR-C extends the r1 set with 6 additional terrestrial anomalies and
+/// 4 gas-giant anomalies; the full set is now 19 types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AnomalyType {
+    // ── r1 terrestrial anomalies (9 from PR-A) ──────────────────────
     WaterIceDeposit,
     HydratedSilicates,
     MethanePlume,
@@ -169,9 +172,56 @@ pub enum AnomalyType {
     FossilMicrobeSignature,
     CryovolcanicFeature,
     UnidentifiedReflectance,
+    // ── r2 terrestrial anomalies (6 new) ────────────────────────────
+    /// Evaporite deposits indicating past liquid water.
+    EvaporiteMineralogy,
+    /// Frozen CO2 / dry ice deposit at the pole.
+    PolarVolatiles,
+    /// Sub-surface briny aquifer detectable by deep-penetration radar.
+    BrineAquifer,
+    /// Iron-oxide spectral signature (e.g. Mars hematite).
+    IronOxideOutcrop,
+    /// Tidal-flexing heat signature from a captured-rotational resonance.
+    TidallyHeatedFracture,
+    /// S-band radar bright spot (putative subsurface ice lens).
+    RadarBrightSpot,
+    // ── r2 gas-giant anomalies (4 new) ──────────────────────────────
+    /// Deep convective storm tower with sustained 400 m/s winds.
+    GiantStormTower,
+    /// Metallic-hydrogen phase transition detectable by magnetometry.
+    MetallicHydrogenLayer,
+    /// Helium rain-out at the hydrogen/helium phase boundary.
+    HeliumRainOut,
+    /// Radiative-layer diamond precipitation (carbon-rich giants).
+    DiamondRainSignature,
 }
 
 impl AnomalyType {
+    /// Canonical 19-anomaly set. Modders can add new types via
+    /// `anomalies.ron` without touching this enum; this list is the
+    /// set the binary recognizes at compile time.
+    pub const ALL: [AnomalyType; 19] = [
+        AnomalyType::WaterIceDeposit,
+        AnomalyType::HydratedSilicates,
+        AnomalyType::MethanePlume,
+        AnomalyType::TholinSignature,
+        AnomalyType::MagneticAnomaly,
+        AnomalyType::RadioactiveHotspot,
+        AnomalyType::FossilMicrobeSignature,
+        AnomalyType::CryovolcanicFeature,
+        AnomalyType::UnidentifiedReflectance,
+        AnomalyType::EvaporiteMineralogy,
+        AnomalyType::PolarVolatiles,
+        AnomalyType::BrineAquifer,
+        AnomalyType::IronOxideOutcrop,
+        AnomalyType::TidallyHeatedFracture,
+        AnomalyType::RadarBrightSpot,
+        AnomalyType::GiantStormTower,
+        AnomalyType::MetallicHydrogenLayer,
+        AnomalyType::HeliumRainOut,
+        AnomalyType::DiamondRainSignature,
+    ];
+
     pub fn ron_id(self) -> &'static str {
         match self {
             AnomalyType::WaterIceDeposit => "water_ice_deposit",
@@ -183,6 +233,16 @@ impl AnomalyType {
             AnomalyType::FossilMicrobeSignature => "fossil_microbe_signature",
             AnomalyType::CryovolcanicFeature => "cryovolcanic_feature",
             AnomalyType::UnidentifiedReflectance => "unidentified_reflectance",
+            AnomalyType::EvaporiteMineralogy => "evaporite_mineralogy",
+            AnomalyType::PolarVolatiles => "polar_volatiles",
+            AnomalyType::BrineAquifer => "brine_aquifer",
+            AnomalyType::IronOxideOutcrop => "iron_oxide_outcrop",
+            AnomalyType::TidallyHeatedFracture => "tidally_heated_fracture",
+            AnomalyType::RadarBrightSpot => "radar_bright_spot",
+            AnomalyType::GiantStormTower => "giant_storm_tower",
+            AnomalyType::MetallicHydrogenLayer => "metallic_hydrogen_layer",
+            AnomalyType::HeliumRainOut => "helium_rain_out",
+            AnomalyType::DiamondRainSignature => "diamond_rain_signature",
         }
     }
 
@@ -197,6 +257,16 @@ impl AnomalyType {
             "fossil_microbe_signature" => Some(AnomalyType::FossilMicrobeSignature),
             "cryovolcanic_feature" => Some(AnomalyType::CryovolcanicFeature),
             "unidentified_reflectance" => Some(AnomalyType::UnidentifiedReflectance),
+            "evaporite_mineralogy" => Some(AnomalyType::EvaporiteMineralogy),
+            "polar_volatiles" => Some(AnomalyType::PolarVolatiles),
+            "brine_aquifer" => Some(AnomalyType::BrineAquifer),
+            "iron_oxide_outcrop" => Some(AnomalyType::IronOxideOutcrop),
+            "tidally_heated_fracture" => Some(AnomalyType::TidallyHeatedFracture),
+            "radar_bright_spot" => Some(AnomalyType::RadarBrightSpot),
+            "giant_storm_tower" => Some(AnomalyType::GiantStormTower),
+            "metallic_hydrogen_layer" => Some(AnomalyType::MetallicHydrogenLayer),
+            "helium_rain_out" => Some(AnomalyType::HeliumRainOut),
+            "diamond_rain_signature" => Some(AnomalyType::DiamondRainSignature),
             _ => None,
         }
     }
@@ -221,3 +291,118 @@ pub const INITIAL_CONFIDENCE: f32 = 0.5;
 /// Number of sim-days per year. Used by `decay_survey_confidence` to
 /// convert elapsed sim-time to decay multipliers.
 pub const SURVEY_DAYS_PER_YEAR: f64 = 365.25;
+
+// ── Anomaly confidence model (PR-C, r2 design) ────────────────────────
+
+/// Lifecycle of a single detected anomaly on a body.
+///
+/// `Suspected` is the initial state right after a detection roll passes
+/// the false-positive check. `Verified` is reached when confidence
+/// climbs past the (pressure-adjusted) activation threshold. `Refuted`
+/// is reached when a contradicting verification mission drops
+/// confidence below the re-roll flag. `Dormant` is reserved for
+/// anomalies that lose confidence and won't be re-rolled until new
+/// evidence arrives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum AnomalyState {
+    Suspected,
+    Verified,
+    Refuted,
+    Dormant,
+}
+
+impl AnomalyState {
+    /// Short upper-case badge label for the dossier UI.
+    pub fn badge_label(self) -> &'static str {
+        match self {
+            AnomalyState::Suspected => "CANDIDATE",
+            AnomalyState::Verified => "VERIFIED",
+            AnomalyState::Refuted => "REFUTED",
+            AnomalyState::Dormant => "DORMANT",
+        }
+    }
+}
+
+/// One piece of evidence that contributed to a detected anomaly's
+/// confidence. PR-C's confidence model is the sum over these.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvidencePoint {
+    /// What produced the evidence.
+    pub kind: EvidenceKind,
+    /// Sim-time the evidence was recorded.
+    pub sim_time: f64,
+    /// How many detection axes this evidence matched (used for
+    /// `0.10 × axis_match_count` data-point contribution).
+    pub axis_match_count: u8,
+    /// Magnitude multiplier applied to the base confidence bump
+    /// (0.10 for data points, 0.40 × specificity for verification
+    /// missions). Always positive.
+    pub magnitude: f32,
+}
+
+/// Source of one piece of evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum EvidenceKind {
+    /// Routine data-point collection (per-tick dimension check).
+    DataPoint,
+    /// Explicit verification mission dispatched to confirm/refute.
+    Verification,
+    /// Contradicting verification mission (drops confidence by 0.50).
+    Refutation,
+    /// Effect re-activation from a follow-up event chain.
+    Reactivation,
+}
+
+/// Default activation threshold before retry_pressure is applied.
+pub const DEFAULT_ACTIVATION_THRESHOLD: f32 = 0.7;
+
+/// Confidence bump per data-point tick, scaled by axis match count.
+pub const DATA_POINT_CONFIDENCE_BUMP: f32 = 0.10;
+
+/// Confidence bump per verification mission, scaled by method
+/// specificity (the registry's `evidence_specificity`).
+pub const VERIFICATION_CONFIDENCE_BUMP: f32 = 0.40;
+
+/// Confidence drop on a refutation mission.
+pub const REFUTATION_CONFIDENCE_DROP: f32 = 0.50;
+
+/// Retry-pressure added per additional verification mission beyond
+/// the first. Decays at `RETRY_PRESSURE_DECAY_PER_YEAR` per sim-year.
+pub const RETRY_PRESSURE_PER_VERIFICATION: f32 = 0.10;
+
+/// Per-year decay rate for `retry_pressure` (sim-year units).
+pub const RETRY_PRESSURE_DECAY_PER_YEAR: f32 = 0.02;
+
+/// Per-axis reduction of activation threshold from retry pressure.
+/// Effective threshold = `activation_threshold - retry_pressure ×
+/// RETRY_PRESSURE_THRESHOLD_REDUCTION`, clamped to a minimum of 0.3.
+pub const RETRY_PRESSURE_THRESHOLD_REDUCTION: f32 = 0.1;
+
+/// Lower bound on the effective activation threshold.
+pub const MIN_ACTIVATION_THRESHOLD: f32 = 0.3;
+
+/// Hard cap on accumulated confidence.
+pub const MAX_CONFIDENCE: f32 = 1.0;
+
+/// Minimum confidence at which a refuted anomaly re-arms for a new
+/// detection roll. Below this the anomaly is moved to `Dormant` until
+/// new evidence arrives.
+pub const REFUTATION_REARM_THRESHOLD: f32 = 0.20;
+
+/// How strong each survey method's evidence counts when a
+/// verification mission is dispatched. Used as the multiplier on
+/// `VERIFICATION_CONFIDENCE_BUMP`. Modders override per-anomaly in
+/// `anomalies.ron`; the table here is the canonical default.
+pub fn default_method_specificity(method: SurveyMethod) -> f32 {
+    match method {
+        SurveyMethod::Flyby => 0.4,
+        SurveyMethod::Orbital => 0.5,
+        SurveyMethod::RemoteSensing => 0.6,
+        SurveyMethod::AtmosphericProbe => 0.7,
+        SurveyMethod::SurfaceLander => 0.8,
+        SurveyMethod::Rover => 0.9,
+        SurveyMethod::Seismic => 0.9,
+        SurveyMethod::Drill => 1.0,
+        SurveyMethod::SampleReturn => 1.0,
+    }
+}

@@ -979,6 +979,7 @@ mod tests {
                 replaces: None,
                 synergy: vec![],
                 available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
+                required_anomalies: vec![],
             },
         );
         BuildingsData { definitions: defs }
@@ -1117,6 +1118,7 @@ mod tests {
                 replaces: None,
                 synergy: vec![],
                 available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
+                required_anomalies: vec![],
             },
         );
         defs.insert(
@@ -1145,6 +1147,7 @@ mod tests {
                 replaces: Some("Farm".to_string()),
                 synergy: vec![],
                 available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
+                required_anomalies: vec![],
             },
         );
         BuildingsData { definitions: defs }
@@ -1198,6 +1201,7 @@ mod tests {
                     },
                 ],
                 available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
+                required_anomalies: vec![],
             },
         );
         defs.insert(
@@ -1226,6 +1230,7 @@ mod tests {
                 replaces: None,
                 synergy: vec![],
                 available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
+                required_anomalies: vec![],
             },
         );
         defs.insert(
@@ -1254,6 +1259,7 @@ mod tests {
                 replaces: None,
                 synergy: vec![],
                 available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
+                required_anomalies: vec![],
             },
         );
         BuildingsData { definitions: defs }
@@ -1495,6 +1501,7 @@ mod tests {
                 replaces: None,
                 synergy: vec![],
                 available_atmospheres: vec![AtmosphereKind::Breathable, AtmosphereKind::None],
+                required_anomalies: vec![],
             },
         );
         BuildingsData { definitions: defs }

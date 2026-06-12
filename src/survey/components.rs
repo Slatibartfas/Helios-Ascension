@@ -11,7 +11,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::types::{
-    AnomalyType, SurveyDimension, SurveyMethod, INITIAL_CONFIDENCE, MAX_TIER, WARNING_CONFIDENCE,
+    AnomalyState, AnomalyType, EvidenceKind, EvidencePoint, SurveyDimension, SurveyMethod,
+    DEFAULT_ACTIVATION_THRESHOLD, INITIAL_CONFIDENCE, MAX_TIER, MIN_ACTIVATION_THRESHOLD,
+    RETRY_PRESSURE_PER_VERIFICATION, RETRY_PRESSURE_THRESHOLD_REDUCTION, WARNING_CONFIDENCE,
 };
 use crate::colony::types::BuildingType;
 use crate::economy::components::SurveyLevel;
@@ -390,14 +392,41 @@ pub struct AnalysisJob {
 }
 
 /// An anomaly that has been detected and logged on a body's dossier.
+///
+/// PR-C extends the r1 shape with the r2 confidence model: state,
+/// per-anomaly `activation_threshold`, an `evidence: Vec<EvidencePoint>`
+/// trail, `retry_pressure` (the player leaning in with more missions),
+/// and a `last_updated_sim_time` stamp for retry-pressure decay.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DetectedAnomaly {
     /// Anomaly type. Modders add new types via `anomalies.ron`.
     pub anomaly_type: AnomalyType,
     /// Sim-time of detection.
     pub detected_sim_time: f64,
-    /// Confidence in the detection (rises with re-observation).
+    /// Sim-time of the most recent evidence point. Used to drive
+    /// `retry_pressure` decay and the "time since last data point"
+    /// dossier readout.
+    pub last_updated_sim_time: f64,
+    /// Lifecycle state. `Suspected` → `Verified` (or `Refuted`).
+    pub state: AnomalyState,
+    /// Confidence in the detection (rises with re-observation,
+    /// capped at `MAX_CONFIDENCE`).
     pub confidence: f32,
+    /// Base activation threshold (loaded from `anomalies.ron`).
+    /// Effective threshold = this minus `retry_pressure ×
+    /// RETRY_PRESSURE_THRESHOLD_REDUCTION`, clamped to
+    /// `MIN_ACTIVATION_THRESHOLD`.
+    pub activation_threshold: f32,
+    /// Player-applied retry pressure. Each additional verification
+    /// mission adds `RETRY_PRESSURE_PER_VERIFICATION`; decays at
+    /// `RETRY_PRESSURE_DECAY_PER_YEAR` per sim-year.
+    pub retry_pressure: f32,
+    /// Number of verification missions that have been dispatched.
+    /// Powers the dossier's "Tries" badge.
+    pub verification_count: u32,
+    /// Trail of every evidence point that contributed to the
+    /// confidence total. UI shows the latest 3.
+    pub evidence: Vec<EvidencePoint>,
     /// Whether the player has acknowledged the anomaly in the dossier
     /// (used to suppress repeat notifications).
     pub acknowledged: bool,
@@ -487,7 +516,7 @@ pub struct SiteScoreWeights {
 /// Sites are immutable once generated: when survey improves, the
 /// composite ranking of *known* sites stays stable. Re-survey work
 /// would land in a follow-up PR (likely PR-F "mining yield" /
-///// dossier refresh).
+/// dossier refresh).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LandingSite {
     /// Stable id (unique per body, but not globally). Index into the
@@ -548,6 +577,151 @@ impl ExtractionSite {
     pub fn composite_score(&self) -> f32 {
         self.scores.composite()
     }
+}
+
+impl DetectedAnomaly {
+    /// Build a fresh `Suspected` anomaly from a successful detection
+    /// roll. Used by `surface_anomaly_events` on the first pass through
+    /// `false_positive_rate`. Evidence is seeded with a single data
+    /// point whose `axis_match_count` is whatever the caller observed
+    /// at detection time.
+    pub fn detected(
+        anomaly_type: AnomalyType,
+        sim_time: f64,
+        base_threshold: f32,
+        axis_match_count: u8,
+    ) -> Self {
+        let initial_confidence = (super::types::DATA_POINT_CONFIDENCE_BUMP
+            * axis_match_count as f32)
+            .min(super::types::MAX_CONFIDENCE);
+        let evidence = vec![EvidencePoint {
+            kind: EvidenceKind::DataPoint,
+            sim_time,
+            axis_match_count,
+            magnitude: super::types::DATA_POINT_CONFIDENCE_BUMP,
+        }];
+        Self {
+            anomaly_type,
+            detected_sim_time: sim_time,
+            last_updated_sim_time: sim_time,
+            state: AnomalyState::Suspected,
+            confidence: initial_confidence,
+            activation_threshold: base_threshold,
+            retry_pressure: 0.0,
+            verification_count: 0,
+            evidence,
+            acknowledged: false,
+        }
+    }
+
+    /// Effective activation threshold after retry-pressure reduction.
+    /// Clamped to [`MIN_ACTIVATION_THRESHOLD`].
+    pub fn effective_threshold(&self) -> f32 {
+        (self.activation_threshold - self.retry_pressure * RETRY_PRESSURE_THRESHOLD_REDUCTION)
+            .max(MIN_ACTIVATION_THRESHOLD)
+    }
+
+    /// Whether the anomaly currently meets the activation criterion
+    /// (`confidence ≥ effective_threshold`).
+    pub fn is_activation_ready(&self) -> bool {
+        self.confidence >= self.effective_threshold()
+    }
+
+    /// Drop a `Verification` evidence point on the anomaly. Adds
+    /// `0.40 × specificity` to confidence (capped at 1.0), bumps
+    /// `retry_pressure` and `verification_count`, and rolls a state
+    /// transition if the threshold is now met.
+    ///
+    /// Returns `true` if the call promoted the anomaly to `Verified`.
+    pub fn add_verification(&mut self, sim_time: f64, method_specificity: f32) -> bool {
+        let bump = super::types::VERIFICATION_CONFIDENCE_BUMP * method_specificity;
+        self.confidence = (self.confidence + bump).min(super::types::MAX_CONFIDENCE);
+        self.retry_pressure = (self.retry_pressure + RETRY_PRESSURE_PER_VERIFICATION)
+            .min(super::types::MAX_CONFIDENCE);
+        self.verification_count = self.verification_count.saturating_add(1);
+        self.evidence.push(EvidencePoint {
+            kind: EvidenceKind::Verification,
+            sim_time,
+            axis_match_count: 0,
+            magnitude: bump,
+        });
+        self.last_updated_sim_time = sim_time;
+        self.maybe_activate()
+    }
+
+    /// Drop a `Refutation` evidence point: subtract
+    /// `REFUTATION_CONFIDENCE_DROP` and transition to `Refuted`.
+    /// The per-tick surface-anomaly system later promotes
+    /// `Refuted` → `Dormant` when confidence falls below
+    /// `REFUTATION_REARM_THRESHOLD`. New data points re-arm
+    /// `Refuted` → `Suspected` via [`Self::add_data_point`].
+    ///
+    /// Returns `true` if the refutation flipped the state out of
+    /// `Verified`.
+    pub fn add_refutation(&mut self, sim_time: f64) -> bool {
+        let was_verified = self.state == AnomalyState::Verified;
+        self.confidence = (self.confidence - super::types::REFUTATION_CONFIDENCE_DROP).max(0.0);
+        self.evidence.push(EvidencePoint {
+            kind: EvidenceKind::Refutation,
+            sim_time,
+            axis_match_count: 0,
+            magnitude: -super::types::REFUTATION_CONFIDENCE_DROP,
+        });
+        self.last_updated_sim_time = sim_time;
+        self.state = AnomalyState::Refuted;
+        was_verified
+    }
+
+    /// Drop a `DataPoint` evidence point on the anomaly. Adds
+    /// `0.10 × axis_match_count` to confidence (capped at 1.0).
+    /// Drives the per-tick confidence climb in `process_analysis_queue`.
+    pub fn add_data_point(&mut self, sim_time: f64, axis_match_count: u8) {
+        let bump = super::types::DATA_POINT_CONFIDENCE_BUMP * axis_match_count as f32;
+        self.confidence = (self.confidence + bump).min(super::types::MAX_CONFIDENCE);
+        self.evidence.push(EvidencePoint {
+            kind: EvidenceKind::DataPoint,
+            sim_time,
+            axis_match_count,
+            magnitude: bump,
+        });
+        self.last_updated_sim_time = sim_time;
+        // Re-arm a `Dormant` or `Refuted` anomaly back to `Suspected`
+        // if the player is actively surveying the body again.
+        if matches!(self.state, AnomalyState::Dormant | AnomalyState::Refuted)
+            && self.confidence > 0.0
+        {
+            self.state = AnomalyState::Suspected;
+        }
+        self.maybe_activate();
+    }
+
+    /// Tick `retry_pressure` decay. Called once per sim-year by the
+    /// surface-anomaly system. Mods with different decay rates can
+    /// call this from a custom system.
+    pub fn decay_retry_pressure(&mut self, years: f32) {
+        self.retry_pressure =
+            (self.retry_pressure - years * super::types::RETRY_PRESSURE_DECAY_PER_YEAR).max(0.0);
+    }
+
+    /// State transition: if `confidence ≥ effective_threshold` and
+    /// the anomaly is `Suspected`, promote to `Verified`. Returns
+    /// `true` on promotion.
+    fn maybe_activate(&mut self) -> bool {
+        if self.state == AnomalyState::Suspected && self.is_activation_ready() {
+            self.state = AnomalyState::Verified;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+/// Pure helper: resolve a default activation threshold for an anomaly
+/// that doesn't have one set in the RON. Mirrors the r2 design's
+/// `DEFAULT_ACTIVATION_THRESHOLD`. Exposed as a function so tests can
+/// call it without a registry.
+pub fn default_activation_threshold() -> f32 {
+    DEFAULT_ACTIVATION_THRESHOLD
 }
 
 #[cfg(test)]

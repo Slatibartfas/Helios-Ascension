@@ -640,6 +640,12 @@
                 (modifier_type: "PowerGeneration", value: 2500.0),
             ],
             power_demand_mw: 220.0,
+            // PR-C (GRA-81): gating the D-He3 reactor on a verified
+            // `magnetic_anomaly` gives the survey system a tangible
+            // late-game hook. The anomaly surfaces naturally from a
+            // Flyby+Orbital survey, the player leans in with a Drill
+            // verification mission, the reactor unlocks.
+            required_anomalies: ["magnetic_anomaly"],
         ),
         (
             id: "ThoriumReactor",
