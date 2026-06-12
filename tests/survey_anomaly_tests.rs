@@ -23,6 +23,7 @@ use helios_ascension::survey::types::{
     AnomalyState, AnomalyType, DATA_POINT_CONFIDENCE_BUMP, DEFAULT_ACTIVATION_THRESHOLD,
 };
 use helios_ascension::ui::time::SimulationTime;
+use rand::Rng;
 
 /// Build a Bevy `App` with the survey registries initialized and the
 /// `surface_anomaly_events` system registered. The `SimulationTime`
@@ -173,8 +174,8 @@ fn verification_mission_promotes_to_verified() {
     // anomalies.ron's `method_specificity`).
     let drill_specificity = 1.0;
     {
-        let mut state = app
-            .world_mut()
+        let mut world = app.world_mut();
+        let mut state = world
             .entity_mut(body)
             .get_mut::<SurveyState>()
             .expect("SurveyState");
