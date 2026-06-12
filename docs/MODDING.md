@@ -485,15 +485,226 @@ This would allow:
 - Mod priority ordering
 - Automatic conflict resolution
 
+## v0.5.0 Survey RON Files (Survey Rework)
+
+> **v0.5.0 status** — schema is stable on `main` (PR #140 / GRA-98, PR #137 / GRA-80, PR #136 / GRA-81). This section pre-drafts the modder walkthrough for the six new RON files in `assets/data/survey/`. It is reconciled against the Coder-authored tech tree and 9-row mission roster as the chain lands.
+
+The v0.5.0 survey rework added six RON files to `assets/data/survey/`. The first three are the **discovery primitives** (dimensions, instruments, anomalies), the next two are the **progression tables** (tiers, mining efficiency), and the last is the **player-actionable mission roster**. Together they let a modder rebalance the entire exploration loop without touching Rust.
+
+### The discovery primitive trio
+
+#### `dimensions.ron` — adding a 9th discovery dimension
+
+The eight canonical dimensions are hardcoded in `SurveyDimension::ALL` (Rust enum) and are NOT in this file. The file is the **modder escape hatch** for adding a ninth.
+
+```ron
+(
+    modder_dimensions: [
+        // Example: a "Magnetosphere" dimension for magnetometer missions
+        // (
+        //     id: "magnetosphere",
+        //     display_name: "Magnetosphere",
+        //     description: "Strength and structure of the body's magnetic field.",
+        // ),
+    ],
+)
+```
+
+To add a ninth dimension end-to-end:
+
+1. Add one entry above with a stable RON `id`, `display_name`, and `description`.
+2. Add tier semantics to `tiers.ron` (six rows: tier 0..5).
+3. Add 1–2 instruments that advance the dimension to `instruments.ron` (set their `method` accordingly).
+4. (Optionally) add an anomaly type that surfaces under the new dimension to `anomalies.ron`.
+
+No Rust change. No recompile. The modder surface is the RON path.
+
+#### `instruments.ron` — the physical-instrument catalog
+
+Each row is a single physical instrument — a phased-array radar, a core sampler, a rover payload — that a mission can be dispatched with.
+
+```ron
+(
+    instruments: [
+        (
+            id: "passive_sensor_array",
+            display_name: "Passive Sensor Array",
+            description: "Cheap flyby payload. Gives orbital mechanics + gross atmosphere at L1.",
+            method: Flyby,                              // see SurveyMethod enum
+            required_tech: Some("basic_sensors"),      // tech gate; None = always available
+            base_duration_days: 540,                   // typical mission wall-clock
+            scientist_requirement: 1,                  // scientists needed to process data
+            accuracy_tier: 1,                          // 0..5; caps the dimension tier
+            produces_anomalies: true,                  // can surface discoveries
+        ),
+        // …
+    ],
+)
+```
+
+**LGD rule (per `SURVEY_REWORK.md` §5): an instrument only does what its `method` permits.** A `phased_array_radar` (`RemoteSensing`) cannot advance `Subsurface` past accuracy tier 1 — that requires a `seismic_network`. `accuracy_tier` is the per-instrument cap; a follow-up by a higher-accuracy instrument is the only way to push a dimension further.
+
+Method → tech-gate convention (existing techs from the v0.4 tree):
+
+| Method             | Tech gate                | Notes                                            |
+|--------------------|--------------------------|--------------------------------------------------|
+| `Flyby`            | `basic_sensors`          | Cheapest entry; no in-situ contact.              |
+| `Orbital`          | `satellite_networks`     | Sustained orbital observation.                   |
+| `RemoteSensing`    | `remote_sensing`         | Radar variants use `advanced_radar`.              |
+| `AtmosphericProbe` | `radio_astronomy`        | Drops a probe into the gas envelope.             |
+| `SurfaceLander`    | `closed_loop_ecology`    | Required for biological assays.                  |
+| `Rover`            | `roving_autonomy`        | v0.5.0 new tech (PR-B area).                     |
+| `Seismic`          | `deep_seismic_array`     | v0.5.0 new tech (PR-B area).                     |
+| `Drill`            | `deep_drilling`          | `laser_drilling` for hard rock.                  |
+| `SampleReturn`     | `sample_return_architecture` + `asteroid_prospecting` | v0.5.0 new tech (PR-B area). |
+
+Modder rebalance levers: edit `base_duration_days` and `accuracy_tier` to shift early/mid-game exploration cost without recompiling. Setting `produces_anomalies: false` on a survey-grade instrument narrows the discovery funnel and is a clean way to gate the anomaly system to dedicated follow-up payloads.
+
+#### `anomalies.ron` — what the world can surprise the player with
+
+Drives the r2 anomaly confidence model: per-tick detection roll, confidence accumulation, retry-pressure ramp, activation / refutation. See `docs/design/SURVEY_REWORK.md` §12.
+
+```ron
+(
+    hardcoded: [ /* r1 terrestrial anomalies (9 from PR-A) */ ],
+    modder_anomalies: [
+        (
+            id: "cryovolcanic_plume",
+            display_name: "Cryovolcanic Plume",
+            description: "Active water-ammonia eruption on a cold moon. Unlocks a research project on cryovolcanism.",
+            detection_axes: [SurfaceFeatures, Anomalies], // dimensions whose tier must meet `detection_threshold`
+            detection_threshold: 3,
+            false_positive_rate: 0.18,                    // per-roll probability the system ignores the candidate (modder tune in [0.05, 0.30])
+            activation_threshold: 0.75,                   // confidence required to promote to Verified; retry-pressure reduces it
+            evidence_methods: [Flyby, Orbital, RemoteSensing],
+            method_specificity: {Flyby: 0.60, Orbital: 0.85, RemoteSensing: 0.95},
+            effect: (kind: "unlocks_tech", tech_id: "cryovolcanism"),  // None | unlocks_building | unlocks_tech | triggers_event
+            coolness: 0.8,
+        ),
+    ],
+)
+```
+
+Effect kinds:
+
+- `None` — flavor-only; surfaces in the dossier's anomaly log but routes to no system.
+- `unlocks_building` — the anomaly activation adds the named `building_id` to the construction catalog at the body.
+- `unlocks_tech` — fires a research project (`tech_id`).
+- `triggers_event` — emits a follow-up event (`event_id`), e.g. `methane_followup` for the r1 `methane_plume` anomaly.
+
+`coolness` (0.0..1.0) tunes the dossier headline and the propaganda broadcast chance. Modders should keep this in `[0.3, 0.9]` — outside the band the UI either ignores it (`< 0.3`) or spams it (`> 0.9`).
+
+### The progression tables
+
+#### `tiers.ron` — what each tier of each dimension means
+
+Six rows per dimension (tier 0..5). Tiers 0 is "no data", tier 5 is "exhaustive survey". The dossier SURVEY tab uses the row's `display_name` and `description` to label the dimension progress bar.
+
+```ron
+(
+    dimension_tiers: [
+        (
+            dimension: OrbitalMech,
+            tier: 0,
+            display_name: "Unknown",
+            description: "No orbital data. Only the body's mass and rough position are known.",
+        ),
+        // … tier 1..5 for OrbitalMech, then Atmosphere, then …
+    ],
+)
+```
+
+To add a 9th dimension (using the `dimensions.ron` path above), you must add a full 6-row tier block for it; otherwise the dossier falls back to a generic "Surveyed to tier N" string for that dimension.
+
+#### `mining_efficiency.ron` — coupling survey to the economy
+
+Each row binds a (dimension, tier) pair to a mining-yield multiplier for a specific resource. The mining system reads this on each extraction tick; it is the bridge between the survey rework and the v0.4 localized-resource economy.
+
+```ron
+(
+    efficiency: [
+        (
+            resource: "Water",
+            dimension: Subsurface,
+            tier: 2,
+            multiplier: 1.0,
+        ),
+        (
+            resource: "Water",
+            dimension: Subsurface,
+            tier: 4,
+            multiplier: 1.8,        // mid-game extraction doubles when you know the deposit
+        ),
+        // …
+    ],
+)
+```
+
+Modders tune the multiplier curve to gate resource availability against survey progression. Tier 0 entries are a no-op (you can't extract without data); tier 5 entries are the cap.
+
+### The player-actionable mission roster
+
+#### `missions.ron` — the nine dispatch buttons
+
+This is the file the player sees most directly: the dossier SURVEY tab's "DISPATCH MISSION" button lists these and lets the player pick one. The dispatch system instantiates an `ActiveSurveyMission` from the chosen template.
+
+```ron
+(
+    templates: [
+        (
+            id: "flyby_recon",
+            display_name: "Flyby Recon",
+            method: Flyby,
+            instrument_id: "passive_sensor_array",            // must match an entry in instruments.ron
+            target_tiers: { OrbitalMech: 1, Atmosphere: 1 },  // (dimension → target_tier) map
+            base_duration_days: 540,                          // sim-days, before team modifiers
+            axis_yield_per_day: 1.0,                          // coverage gain per day
+            is_ground_team: false,                            // true = needs scientists on the surface (drives the CrewInjury failure roll)
+        ),
+        // … 8 more templates, covering Orbital / AtmosphericProbe / SurfaceLander / Rover /
+        //     Seismic / Drill / SampleReturn / RemoteSensing
+    ],
+)
+```
+
+Per the SURVEY_REWORK design doc §5, durations and dimension targets are placeholders that LGD will tune over subsequent passes. The values in the shipped file are "reasonable defaults" — modders can rebalance without touching Rust.
+
+**The full v0.5.0 template roster** (9 entries, in dispatch order):
+
+| `id`                    | `display_name`         | `method`            | `target_tiers`                                                                  | `is_ground_team` |
+|-------------------------|------------------------|---------------------|---------------------------------------------------------------------------------|------------------|
+| `flyby_recon`           | Flyby Recon            | `Flyby`             | `OrbitalMech:1, Atmosphere:1`                                                    | false            |
+| `remote_sensing_pass`   | Remote Sensing Pass    | `RemoteSensing`     | `MineralClasses:1, SurfaceFeatures:1`                                            | false            |
+| `orbital_imaging`       | Orbital Imaging        | `Orbital`           | `SurfaceFeatures:2, MineralClasses:2, Atmosphere:2`                              | false            |
+| `atmospheric_probe_drop`| Atmospheric Probe      | `AtmosphericProbe`  | `Atmosphere:3, Habitability:1`                                                   | false            |
+| `surface_lander_v1`     | Surface Lander         | `SurfaceLander`     | `MineralDeposits:2, SurfaceFeatures:3`                                           | true             |
+| `seismic_pass`          | Seismic Pass           | `Seismic`           | `Subsurface:3`                                                                  | true             |
+| `drill_core_sample`     | Drill Core Sample      | `Drill`             | `MineralDeposits:4, Subsurface:4`                                                | true             |
+| `rover_survey_v1`       | Rover Survey           | `Rover`             | `MineralDeposits:3, SurfaceFeatures:4, Habitability:2`                            | true             |
+| `sample_return`         | Sample Return          | `SampleReturn`      | `MineralDeposits:5, MineralClasses:4`                                            | true             |
+
+The progression is: cheap remote (Flyby / RemoteSensing) → orbital mapping → in-situ (Lander / Rover / Seismic) → deep access (Drill) → return-to-Earth (SampleReturn). Modders can reorder, but `target_tiers` should form a DAG — a tier 3 entry should require tier 2 results on the same dimension from a prior mission.
+
+### Modder recipe: adding a tenth survey tech (full chain)
+
+This is the canonical "add a new exploration lever" recipe. It exercises every file in this section end-to-end.
+
+1. **`assets/data/technologies.ron`** — add a new tech row in the Survey / Geology family with the prerequisite chain from `SURVEY_REWORK.md` §[Tech Tree Integration] and `unlocks_instruments: ["your_new_instrument"]`. (See `docs/RESEARCH_MODDING.md` §[v0.5.0 Additions] for the existing 9 techs and the 8 reused as method gates.)
+2. **`assets/data/survey/instruments.ron`** — add the new instrument with `method` matching the new tech, `required_tech: Some("your_new_tech_id")`, an `accuracy_tier` in `1..3`, and `produces_anomalies: true` if the player should be able to discover things with it.
+3. **`assets/data/survey/missions.ron`** — add a mission template that uses the new `instrument_id`, with a `target_tiers` map pointing at one or two dimensions and a `base_duration_days` that fits the tier jump.
+4. **`assets/data/survey/mining_efficiency.ron`** — add a tier curve for the dimensions the new instrument advances, so the survey-to-economy bridge is wired. (Skip this for purely anomaly-driven instruments.)
+
+No Rust recompile. The RON loader picks up the new entries on next launch.
+
 ## Conclusion
 
 The texture override system is already built into Helios Ascension! You can:
 
-✅ Replace any texture by adding it to the RON file  
-✅ Add textures to bodies that use procedural ones  
-✅ Create new bodies with custom textures  
-✅ Build complete texture packs  
-✅ Prepare for future multi-solar-system support  
+✅ Replace any texture by adding it to the RON file
+✅ Add textures to bodies that use procedural ones
+✅ Create new bodies with custom textures
+✅ Build complete texture packs
+✅ Prepare for future multi-solar-system support
 
 **The dedicated texture ALWAYS takes priority** - just add it to the RON file and it works!
 

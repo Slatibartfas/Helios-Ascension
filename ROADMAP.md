@@ -4,6 +4,8 @@
 
 The building system overhaul and localized logistics network are now live. Resources are stored per-body, freighters (player and AI) carry them, and private shipping companies automate long-haul deliveries. v0.4.x follow-ups (late-game hardening, Mega/Gigaton freighters, inter-system logistics) are tracked in a new section below.
 
+**v0.5.0 is 🟡 IN FLIGHT** — the survey rework is mostly shipped (8-dimension model, 6 RON files, 9-mission roster, dossier SURVEY tab); the personnel system is partially shipped (data layer only, UI panel pending). See §5.1, §5.2 below for the per-item status.
+
 ## v0.3.0: Fleet & Orbital Transfer System Complete ✅
 
 The game has a fully implemented fleet management system with realistic orbital mechanics, transfer planning, gravity-assist routing, and Lagrange-point targeting. Core gameplay loop is functional and ships fly!
@@ -106,23 +108,25 @@ See `helios-lgd/docs/design/` for the working design notes.
 
 ---
 
-## v0.5.0: Exploration & Progression System
+## v0.5.0: Exploration & Progression System 🟡 IN FLIGHT
 
-Sequential exploration where you send probes first, then rovers, establish stations, then bases.
+Sequential exploration where you send probes first, then rovers, establish stations, then bases. The survey rework (5.1) is **mostly shipped** as a series of PRs; the personnel system (5.2) is **partially shipped** (data layer only, UI pending); 5.3 and 5.4 are still open.
 
-### 5.1 Survey System Rework
-- [ ] Remove three-tier survey system
-- [ ] Progressive discovery with probes
-- [ ] Survey teams with scientist personnel
-- [ ] Gradually reveal resources, anomalies, landing sites
-- [ ] Survey data collection and analysis
+### 5.1 Survey System Rework 🟡 MOSTLY SHIPPED
+- [x] Remove three-tier survey system — replaced by the 8-dimension tiered model (PR #140 / GRA-98, 2026-06-10)
+- [x] Progressive discovery with probes — 9-mission roster in `missions.ron`, dispatched from the dossier SURVEY tab (PR #137 / GRA-80, PR #135 / GRA-82, 2026-06-08)
+- [x] Survey teams with scientist personnel — `Scientist` component + specialty + seniority enums live (PR #137)
+- [x] Gradually reveal resources, anomalies, landing sites — anomaly confidence model live (PR #136 / GRA-81); resource estimate tier display in Economy panel (PR #138 / GRA-84, 2026-06-08)
+- [x] Survey data collection and analysis — 6 RON files (dimensions, instruments, anomalies, tiers, mining efficiency, missions) on `main`
+- [ ] 9 new techs from `SURVEY_REWORK.md` §[Tech Tree Integration] land in `technologies.ron` (Coder-side PR; design contract documented in `docs/RESEARCH_MODDING.md` §[v0.5.0 Additions] and reconciled in PR #142)
+- [ ] §10/§11 reconciliation in `docs/SURVEY.md` once the Coder-side finalization lands
 
-### 5.2 Personnel System
-- [ ] Scientists for survey missions and research
-- [ ] Generals for fleet operations
-- [ ] Governors for colony management
-- [ ] Personnel training and advancement
-- [ ] Mission assignment interface
+### 5.2 Personnel System 🟡 PARTIAL
+- [x] Scientists for survey missions and research — `Scientist` component, 8 specialties, 3 seniority tiers in `src/personnel/`
+- [ ] Generals for fleet operations — not yet specced (v0.6 candidate)
+- [ ] Governors for colony management — not yet specced (v0.6 candidate)
+- [x] Personnel training and advancement — `seniority_promotion` system live; driven by completed survey missions
+- [ ] Mission assignment interface — `GameMenu::Personnel` wired in `dashboard.rs:1249`, panel UI is the design contract in `docs/UI.md` §8.3 (Preview; `src/ui/personnel_panel.rs` not yet implemented)
 
 ### 5.3 Progressive Expansion
 - [ ] Probe deployment (cheap, expendable)
@@ -309,11 +313,13 @@ Progression-locked tech tree aligned with exploration milestones.
   - Private shipping overview subpanel + in-transit freighter filter in Fleet panel
   - 0.4.x follow-ups (late-game logistics hardening) tracked above
 
-- **v0.5.0** - Exploration & Progression (NEXT)
-  - Survey system rework (progressive discovery)
-  - Personnel system (scientists, generals, governors)
-  - Sequential expansion (probes → rovers → stations → bases)
-  - Notification and event system
+- **v0.5.0** - Exploration & Progression (NEXT, 🟡 IN FLIGHT)
+  - 8-dimension survey rework (6 RON files, 9-mission roster, anomaly confidence model, dossier SURVEY tab) — **shipped** 2026-06-08
+  - Scientist data layer (specialty, seniority, hiring, promotion) — **shipped**; **PersonnelRoster UI panel pending** (Preview in `docs/UI.md` §8.3)
+  - 9 new survey / personnel / geology techs from `SURVEY_REWORK.md` §[Tech Tree Integration] — **Coder-side PR pending**
+  - Generals / Governors / Auto-Assign — not yet specced (5.2 partial)
+  - Sequential expansion (probes → rovers → stations → bases) — open (5.3)
+  - Notification and event system — open (5.4)
 
 - **v0.6.0** - AI Competition
   - AI factions with distinct behaviors
@@ -359,4 +365,4 @@ Priority areas for contribution:
 
 *This roadmap is subject to change based on development priorities.*
 
-Last Updated: 2026-06-08
+Last Updated: 2026-06-12
