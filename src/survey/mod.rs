@@ -25,28 +25,26 @@ pub mod types;
 pub mod visibility;
 
 pub use components::{
-    default_activation_threshold, ActiveSurveyMission, AnalysisJob, DetectedAnomaly,
-    DimensionFidelity, ExtractionSite, LandingSite, SiteScoreWeights, SiteScores, SurveyState,
-    LANDING_SITE_EVAL_THRESHOLD, MAX_SITES_PER_BODY, MIN_SITES_PER_BODY,
+    ActiveSurveyMission, AnalysisJob, DetectedAnomaly, DimensionFidelity, ExtractionSite,
+    LandingSite, SiteScoreWeights, SiteScores, SurveyState, LANDING_SITE_EVAL_THRESHOLD,
+    MAX_SITES_PER_BODY, MIN_SITES_PER_BODY,
 };
 pub use data::{
-    load_anomalies, AnalysisQueueIndex, AnomalyDef, AnomalyEffect, MiningEfficiencyRegistry,
-    MiningEfficiencyRow, ModderAnomalyDef, ModderDimensionDef, SurveyAnomalyRegistry,
-    SurveyDimensionRegistry, SurveyInstrumentDef, SurveyInstrumentRegistry, SurveyMissionTemplate,
-    SurveyMissionTemplates,
+    load_mission_templates, AnalysisQueueIndex, MiningEfficiencyRegistry, MiningEfficiencyRow,
+    ModderAnomalyDef, ModderDimensionDef, SurveyAnomalyRegistry, SurveyDimensionRegistry,
+    SurveyInstrumentDef, SurveyInstrumentRegistry, SurveyMissionTemplate, SurveyMissionTemplates,
+    SurveyMissionTemplatesFile,
 };
-pub use events::{SurveyEvent, SurveyEventKind};
+pub use events::{AbortSurveyMission, DispatchSurveyMission, SurveyEvent};
 pub use systems::{
-    advance_survey_missions, decay_survey_confidence, evaluate_landing_sites,
-    process_analysis_queue, surface_anomaly_events, update_survey_summary, SimulationTime,
+    abort_survey_mission, advance_survey_missions, decay_survey_confidence,
+    dispatch_survey_mission, evaluate_landing_sites, process_analysis_queue,
+    surface_anomaly_events, update_survey_summary, SimulationTime, INJURY_DURATION_DAYS,
 };
 pub use types::{
-    default_method_specificity, AnomalyState, AnomalyType, EvidenceKind, EvidencePoint,
-    SurveyDimension, SurveyMethod, CONFIDENCE_DECAY_PER_YEAR, DATA_POINT_CONFIDENCE_BUMP,
-    DEFAULT_ACTIVATION_THRESHOLD, INITIAL_CONFIDENCE, MAX_CONFIDENCE, MAX_TIER,
-    MIN_ACTIVATION_THRESHOLD, REFUTATION_REARM_THRESHOLD, RETRY_PRESSURE_DECAY_PER_YEAR,
-    RETRY_PRESSURE_PER_VERIFICATION, RETRY_PRESSURE_THRESHOLD_REDUCTION, STALE_CONFIDENCE,
-    SURVEY_DAYS_PER_YEAR, VERIFICATION_CONFIDENCE_BUMP, WARNING_CONFIDENCE,
+    AnomalyType, MissionFailureReason, MissionStatus, SurveyDimension, SurveyMethod,
+    CONFIDENCE_DECAY_PER_YEAR, INITIAL_CONFIDENCE, MAX_TIER, STALE_CONFIDENCE,
+    SURVEY_DAYS_PER_YEAR, WARNING_CONFIDENCE,
 };
 pub use visibility::{estimate_with_fidelity, is_stale, DepositEstimate, DepositVisibility};
 
@@ -54,49 +52,56 @@ pub use visibility::{estimate_with_fidelity, is_stale, DepositEstimate, DepositV
 ///
 /// PR-A registers the registries as default-initialized resources
 /// and the system stubs. The stubs are no-ops in PR-A; they are
-/// wired up in PR-B (missions) and PR-C (analysis queue). PR-C
-/// registers the `SurveyEvent` message and replaces
-/// `surface_anomaly_events` with the r2 detection roll +
-/// confidence model.
+/// wired up in PR-B (missions) and PR-C (analysis queue).
 pub struct SurveyPlugin;
 
 impl Plugin for SurveyPlugin {
     fn build(&self, app: &mut App) {
         app
-            // Resources — default-initialized empty registries. The
-            // RON loaders land in PR-B; until then the app starts
-            // with the hardcoded defaults from the binary (the eight
-            // dimensions in `SurveyDimension::ALL`, the nine methods
-            // in `SurveyMethod`, etc.).
+            // Startup — load RON data. Mission templates land in
+            // PR-B; other registries (dimensions, instruments,
+            // anomalies, mining efficiency) load in follow-up
+            // PRs.
+            .add_systems(Startup, load_mission_templates)
+            // Messages — registered in PR-B. The dispatch/abort
+            // handlers and the tick system read/write these.
+            // Bevy 0.18's `Message` derive replaces the older
+            // `Event` derive; see
+            // `src/economy/auto_build.rs` for the same pattern.
+            .add_message::<SurveyEvent>()
+            .add_message::<DispatchSurveyMission>()
+            .add_message::<AbortSurveyMission>()
+            // Resources — default-initialized empty registries.
+            // The RON loaders land in a follow-up PR; until then
+            // the app starts with the hardcoded defaults from the
+            // binary (the eight dimensions in `SurveyDimension::ALL`,
+            // the nine methods in `SurveyMethod`, etc.).
             .init_resource::<SurveyDimensionRegistry>()
             .init_resource::<SurveyInstrumentRegistry>()
             .init_resource::<SurveyMissionTemplates>()
-            // `SurveyAnomalyRegistry` is initialized by the
-            // `load_anomalies` startup system, which reads
-            // `anomalies.ron` and inserts the populated resource. We
-            // skip the default-initialization here so the
-            // startup system is the single source of truth.
+            .init_resource::<SurveyAnomalyRegistry>()
             .init_resource::<MiningEfficiencyRegistry>()
             .init_resource::<AnalysisQueueIndex>()
-            // PR-C: load `anomalies.ron` at startup so the registry
-            // is populated before the first per-tick detection roll.
-            .add_systems(Startup, data::load_anomalies)
-            // PR-C: register the `SurveyEvent` message so the
-            // notification surface and the per-tick detection
-            // system can communicate.
-            .add_message::<SurveyEvent>()
-            // Update systems — PR-A stubs plus the PR-C
-            // `surface_anomaly_events` implementation. The systems
-            // are listed in execution order so PR-B/C/D can swap
-            // each stub for its real implementation in place.
+            // Update systems — PR-A stubs remain, PR-B replaces
+            // `advance_survey_missions` with the real tick and
+            // adds the dispatch/abort handlers. The systems are
+            // ordered so dispatch runs before advance: a mission
+            // dispatched in frame N is available for the tick
+            // system in frame N+1.
             //
-            // Schedule: `Update` for now. Once `SimulationTime` is
-            // tick-based (it already is — see `ui::time`), these
-            // could move to a fixed-tick schedule. PR-B will make
-            // that call.
+            // Each of these systems takes `&mut World` rather than
+            // separate `Res` / `Query` system params. Bevy 0.18
+            // forbids two `Query<...>` params that both yield
+            // mutable access to the same component (B0001), and
+            // the tick / dispatch / abort handlers all need to
+            // mutate scientists via a `QueryState` constructed on
+            // the fly. Going through `&mut World` keeps the borrow
+            // graph simple.
             .add_systems(
                 Update,
                 (
+                    dispatch_survey_mission,
+                    abort_survey_mission,
                     decay_survey_confidence,
                     advance_survey_missions,
                     process_analysis_queue,

@@ -11,12 +11,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::types::{
-    AnomalyState, AnomalyType, EvidenceKind, EvidencePoint, SurveyDimension, SurveyMethod,
-    DEFAULT_ACTIVATION_THRESHOLD, INITIAL_CONFIDENCE, MAX_TIER, MIN_ACTIVATION_THRESHOLD,
-    RETRY_PRESSURE_PER_VERIFICATION, RETRY_PRESSURE_THRESHOLD_REDUCTION, WARNING_CONFIDENCE,
+    AnomalyState, AnomalyType, EvidenceKind, EvidencePoint, MissionStatus, SurveyDimension,
+    SurveyMethod, DEFAULT_ACTIVATION_THRESHOLD, INITIAL_CONFIDENCE, MAX_TIER,
+    MIN_ACTIVATION_THRESHOLD, RETRY_PRESSURE_PER_VERIFICATION,
+    RETRY_PRESSURE_THRESHOLD_REDUCTION, WARNING_CONFIDENCE,
 };
 use crate::colony::types::BuildingType;
 use crate::economy::components::SurveyLevel;
+use crate::personnel::types::ScientistId;
 
 /// Per-dimension survey fidelity on a body.
 ///
@@ -334,9 +336,9 @@ impl SurveyState {
 
 /// A running survey mission on a body. Lives on [`SurveyState`].
 ///
-/// PR-A: the struct is defined for shape stability, but no system
-/// creates or ticks missions yet — that lands in PR-B (instruments)
-/// and PR-C (analysis queue).
+/// PR-A defined the struct for shape stability; PR-B (GRA-80) wires
+/// the lifecycle, progress, and scientist-team fields. PR-C adds
+/// the [`AnalysisJob`] enqueue on completion.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActiveSurveyMission {
     /// Stable id so the UI can correlate a row in the "Active Missions"
@@ -346,6 +348,12 @@ pub struct ActiveSurveyMission {
     pub name: String,
     /// Method used by this mission.
     pub method: SurveyMethod,
+    /// Lifecycle state. Walks `Queued → Inflight → Active →
+    /// Completing → Succeeded` on the happy path, or branches to
+    /// `Failed` / `Aborted` on the unhappy path. See
+    /// [`MissionStatus`].
+    #[serde(default)]
+    pub status: MissionStatus,
     /// Sim-time the mission was launched.
     pub launched_sim_time: f64,
     /// Sim-time the mission is expected to complete. The
@@ -354,8 +362,66 @@ pub struct ActiveSurveyMission {
     /// [`AnalysisJob`] is enqueued.
     pub expected_completion_sim_time: f64,
     /// Mission progress in `[0.0, 1.0]`. The dossier UI shows this as
-    /// a bar.
+    /// a bar. Equals the slowest per-axis progress.
     pub progress: f32,
+    /// Per-dimension progress in `[0.0, 1.0]`. Each entry maps a
+    /// dimension the mission is advancing to its current progress.
+    /// The mission completes when every entry reaches 1.0 (i.e.
+    /// `progress` is the minimum of the per-axis values).
+    ///
+    /// Empty for PR-A saves; the tick system in PR-B populates this
+    /// from the mission template's `target_tiers` on dispatch.
+    #[serde(default)]
+    pub per_axis_progress: HashMap<SurveyDimension, f32>,
+    /// Base yield (per-dimension, per-day) before team modifiers.
+    /// Drives `delta_progress = yield * team_modifier *
+    /// (1 - coverage) / total_days`. Defaults to 1.0 for missions
+    /// dispatched without a RON template.
+    #[serde(default = "default_axis_yield")]
+    pub axis_yield_per_day: f32,
+    /// Scientists assigned to this mission. The mission's progress
+    /// speed is multiplied by the average of the scientists'
+    /// `(seniority_throughput * specialty_match)` factors. Empty
+    /// for solo probe missions.
+    #[serde(default)]
+    pub assigned_scientists: Vec<ScientistId>,
+}
+
+fn default_axis_yield() -> f32 {
+    1.0
+}
+
+impl ActiveSurveyMission {
+    /// Total duration of the mission in sim-seconds. Used by the
+    /// tick system to convert `SimulationTime` deltas to per-axis
+    /// progress deltas.
+    pub fn total_duration_seconds(&self) -> f64 {
+        (self.expected_completion_sim_time - self.launched_sim_time).max(0.0)
+    }
+
+    /// Update the overall `progress` field from the per-axis values.
+    /// `progress` is the minimum — the mission finishes when the
+    /// slowest axis catches up.
+    pub fn recompute_overall_progress(&mut self) {
+        if self.per_axis_progress.is_empty() {
+            return;
+        }
+        let min = self
+            .per_axis_progress
+            .values()
+            .copied()
+            .fold(f32::INFINITY, f32::min);
+        self.progress = min.clamp(0.0, 1.0);
+    }
+
+    /// Whether every target axis has reached 1.0.
+    pub fn axes_saturated(&self) -> bool {
+        !self.per_axis_progress.is_empty()
+            && self
+                .per_axis_progress
+                .values()
+                .all(|p| *p >= 1.0 - f32::EPSILON)
+    }
 }
 
 /// A pending data analysis job. The analysis queue (PR-C) drives these.

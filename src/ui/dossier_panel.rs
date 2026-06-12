@@ -19,8 +19,7 @@ use super::dashboard::{format_mass, format_mass_compact, format_rate_monthly};
 use super::resources_bar::format_population;
 use super::tab::Tab;
 use super::theme::{
-    self, ACCENT, ACCENT_DIM, AMBER, BG, BORDER, GREEN, RED, SURFACE, SURFACE_RAISED, TEXT_DIM,
-    TEXT_VALUE,
+    self, ACCENT, ACCENT_DIM, AMBER, BG, BORDER, GREEN, RED, SURFACE, TEXT_DIM, TEXT_VALUE,
 };
 use super::*;
 use crate::astronomy::components::{
@@ -29,11 +28,11 @@ use crate::astronomy::components::{
 use crate::astronomy::nearby_stars::NearbyStarsData;
 use crate::economy::components::{SpectralClass, StarSystem};
 use crate::plugins::solar_system_data::{AsteroidClass, BodyType};
-use crate::survey::components::DetectedAnomaly;
-use crate::survey::data::SurveyAnomalyRegistry;
-use crate::survey::types::{AnomalyState, AnomalyType};
-use crate::survey::{ExtractionSite, LandingSite, SurveyState, LANDING_SITE_EVAL_THRESHOLD};
-use bevy::ecs::query::QueryData;
+use crate::survey::components::{ActiveSurveyMission, SurveyState};
+use crate::survey::data::SurveyMissionTemplates;
+use crate::survey::events::{AbortSurveyMission, DispatchSurveyMission};
+use crate::survey::types::MissionStatus;
+use bevy::ecs::system::SystemParam;
 use std::borrow::Cow;
 use std::f32::consts::TAU;
 
@@ -103,109 +102,132 @@ fn mono_font(size: f32) -> egui::FontId {
 
 // ─── Main System ─────────────────────────────────────────────────────────
 
-/// QueryData bundle for the dossier body. The 16 fields here would
-/// otherwise blow past Bevy 0.18's `IntoSystem` / `Query` tuple arity
-/// cap (and the related `B0001` query-data limit). Deriving
-/// `QueryData` makes the whole set a single system-param item, and
-/// `SurveyState` (added in PR-D / GRA-82) slots in as just another
-/// optional field.
+/// Bundled `SystemParam` for [`ui_planet_dossier`].
 ///
-/// `#[query_data(mutable)]` opts into the mutable variant of the
-/// derive so that `Option<&'w mut SurveyLevel>` is allowed (the
-/// default `QueryData` derive requires all fields to satisfy
-/// `ReadOnlyQueryData`, which `&mut T` does not).
-#[derive(QueryData)]
-#[query_data(mutable)]
-pub(super) struct DossierBodyParts<'w> {
-    body: &'w CelestialBody,
-    coords: Option<&'w SpaceCoordinates>,
-    orbit: Option<&'w KeplerOrbit>,
-    resources: Option<&'w PlanetResources>,
-    atmosphere: Option<&'w AtmosphereComposition>,
-    category: Option<&'w crate::plugins::starmap::PlanetCategory>,
-    survey_level: Option<&'w mut SurveyLevel>,
-    survey_state: Option<&'w SurveyState>,
-    population: Option<&'w Population>,
-    surface_temp: Option<&'w SurfaceTemperature>,
-    stellar_props: Option<&'w StellarProperties>,
-    system_id: Option<&'w crate::astronomy::components::SystemId>,
-    star_system: Option<&'w StarSystem>,
-    logical_parent: Option<&'w LogicalParent>,
-    ocean_props: Option<&'w OceanProperties>,
-    existing_colony: Option<&'w Colony>,
+/// The function takes too many SystemParams for `IntoSystem` to derive
+/// directly (Bevy 0.18's `SystemParam` chain breaks at ~16 fields). We
+/// pack everything into a single struct so the system has exactly one
+/// generic parameter at the function level.
+///
+/// This is the same workaround the resources-bar / construction-panel
+/// systems use for the same Bevy 0.18 limit.
+#[derive(SystemParam)]
+pub(super) struct DossierUiParams<'w, 's> {
+    pub commands: Commands<'w, 's>,
+    pub contexts: EguiContexts<'w, 's>,
+    pub selection: Res<'w, Selection>,
+    pub active_menu: Res<'w, ActiveMenu>,
+    pub nearby_stars: Res<'w, NearbyStarsData>,
+    /// Immutable body tuple (15 components — Bevy 0.18's tuple limit
+    /// for queries). `&mut SurveyLevel` lives in a separate query to
+    /// keep this tuple under the cap.
+    pub body_query: Query<
+        'w,
+        's,
+        (
+            &'static CelestialBody,
+            Option<&'static SpaceCoordinates>,
+            Option<&'static KeplerOrbit>,
+            Option<&'static PlanetResources>,
+            Option<&'static AtmosphereComposition>,
+            Option<&'static crate::plugins::starmap::PlanetCategory>,
+            Option<&'static Population>,
+            Option<&'static SurfaceTemperature>,
+            Option<&'static StellarProperties>,
+            Option<&'static crate::astronomy::components::SystemId>,
+            Option<&'static StarSystem>,
+            Option<&'static LogicalParent>,
+            Option<&'static OceanProperties>,
+            Option<&'static Colony>,
+            Option<&'static SurveyState>,
+        ),
+    >,
+    /// `SurveyLevel` is the one body component the dossier mutates in
+    /// place (the "UPGRADE" button). Splitting it out keeps the
+    /// immutable body tuple at 15 components.
+    pub survey_level_query: Query<'w, 's, &'static mut SurveyLevel>,
+    pub parent_coords_query: Query<'w, 's, &'static SpaceCoordinates>,
+    pub all_bodies_query: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static CelestialBody,
+            Option<&'static LogicalParent>,
+            Option<&'static KeplerOrbit>,
+            Option<&'static crate::astronomy::components::SystemId>,
+        ),
+    >,
+    pub star_system_query: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static StarSystemIcon,
+            Option<&'static SelectedStarSystem>,
+        ),
+    >,
+    pub rate_tracker: Res<'w, ResourceRateTracker>,
+    pub mission_templates: Res<'w, SurveyMissionTemplates>,
+    pub pending_actions: ResMut<'w, PendingConstructionActions>,
 }
 
 /// Renders the right-side "Celestial Body Dossier" panel when a body is
 /// selected and no full-screen menu is active.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn ui_planet_dossier(
-    mut commands: Commands,
-    mut contexts: EguiContexts,
-    selection: Res<Selection>,
-    active_menu: Res<ActiveMenu>,
-    nearby_stars: Res<NearbyStarsData>,
-    sim_time: Res<super::time::SimulationTime>,
-    anomaly_registry: Res<SurveyAnomalyRegistry>,
-    mut body_query: Query<(Entity, DossierBodyParts)>,
-    parent_coords_query: Query<&SpaceCoordinates>,
-    all_bodies_query: Query<(
-        Entity,
-        &CelestialBody,
-        Option<&LogicalParent>,
-        Option<&KeplerOrbit>,
-        Option<&crate::astronomy::components::SystemId>,
-    )>,
-    star_system_query: Query<(Entity, &StarSystemIcon, Option<&SelectedStarSystem>)>,
-    rate_tracker: Res<ResourceRateTracker>,
-    mut pending_actions: ResMut<PendingConstructionActions>,
-) {
+pub(super) fn ui_planet_dossier(mut params: DossierUiParams) {
     // Don't show when full-screen menus are active
     if matches!(
-        active_menu.current,
+        params.active_menu.current,
         GameMenu::Research | GameMenu::Construction | GameMenu::Economy | GameMenu::Fleets
     ) {
         return;
     }
 
-    let ctx = match contexts.ctx_mut() {
+    let ctx = match params.contexts.ctx_mut() {
         Ok(ctx) => ctx,
         Err(_) => return,
     };
 
     // If a star system is selected (starmap view), don't show body dossier
-    let has_selected_star = star_system_query.iter().any(|(_, _, sel)| sel.is_some());
+    let has_selected_star = params
+        .star_system_query
+        .iter()
+        .any(|(_, _, sel)| sel.is_some());
     if has_selected_star {
         return;
     }
 
-    if !selection.has_selection() {
+    if !params.selection.has_selection() {
         return;
     }
 
-    let entity = match selection.get() {
+    let entity = match params.selection.get() {
         Some(e) => e,
         None => return,
     };
 
-    let Ok((_, parts)) = body_query.get_mut(entity) else {
+    let Ok((
+        body,
+        opt_coords,
+        orbit,
+        resources,
+        atmosphere,
+        category_opt,
+        population,
+        surface_temp,
+        stellar_props,
+        system_id,
+        star_system,
+        logical_parent,
+        ocean_props,
+        existing_colony,
+        survey_state,
+    )) = params.body_query.get(entity)
+    else {
         return;
     };
-    let body = parts.body;
-    let opt_coords = parts.coords;
-    let orbit = parts.orbit;
-    let resources = parts.resources;
-    let atmosphere = parts.atmosphere;
-    let category_opt = parts.category;
-    let mut survey_level = parts.survey_level;
-    let survey_state = parts.survey_state;
-    let population = parts.population;
-    let surface_temp = parts.surface_temp;
-    let stellar_props = parts.stellar_props;
-    let system_id = parts.system_id;
-    let star_system = parts.star_system;
-    let logical_parent = parts.logical_parent;
-    let ocean_props = parts.ocean_props;
-    let existing_colony = parts.existing_colony;
+    let mut survey_level_bind = params.survey_level_query.get_mut(entity).ok();
+    let survey_level_opt: Option<&mut SurveyLevel> = survey_level_bind.as_deref_mut();
 
     egui::SidePanel::right("selection_panel")
         .min_width(340.0)
@@ -224,8 +246,8 @@ pub(super) fn ui_planet_dossier(
                         population,
                         opt_coords,
                         logical_parent,
-                        &parent_coords_query,
-                        &all_bodies_query,
+                        &params.parent_coords_query,
+                        &params.all_bodies_query,
                     );
 
                     if body.body_type == BodyType::Star {
@@ -236,7 +258,7 @@ pub(super) fn ui_planet_dossier(
                             stellar_props,
                             system_id,
                             star_system,
-                            &nearby_stars,
+                            &params.nearby_stars,
                         );
                         return;
                     }
@@ -313,21 +335,16 @@ pub(super) fn ui_planet_dossier(
                             draw_resource_section(
                                 ui,
                                 entity,
-                                body,
+                                &body.name,
                                 res,
-                                survey_level.as_deref_mut(),
+                                survey_level_opt,
                                 survey_state,
-                                &mut commands,
-                                &rate_tracker,
+                                &mut params.commands,
+                                &params.rate_tracker,
+                                &params.mission_templates,
                                 next,
                             );
                         });
-                    }
-
-                    // ── Anomaly cards (PR-C) ───────────────────────
-                    if let Some(survey_state) = survey_state {
-                        section_divider(ui);
-                        draw_anomaly_section(ui, survey_state, &anomaly_registry, &sim_time);
                     }
 
                     // ── Outpost / Colony ───────────────────────────
@@ -346,26 +363,8 @@ pub(super) fn ui_planet_dossier(
                             atmosphere,
                             surface_temp,
                             ocean_props,
-                            &mut pending_actions,
+                            &mut params.pending_actions,
                         );
-                    }
-
-                    // ── Landing / Extraction Sites (PR-D GRA-82) ──
-                    // Asteroids show extraction sites, all other solid
-                    // bodies show landing sites. Stars / rings / gas
-                    // giants skip this section. When no `SurveyState`
-                    // is attached, show a stub "perform a survey
-                    // mission" hint.
-                    let show_sites = matches!(
-                        body.body_type,
-                        BodyType::Planet
-                            | BodyType::Moon
-                            | BodyType::DwarfPlanet
-                            | BodyType::Asteroid
-                    );
-                    if show_sites {
-                        section_divider(ui);
-                        draw_landing_sites_section(ui, body, survey_state, entity);
                     }
                 });
         });
@@ -1426,79 +1425,16 @@ fn draw_ocean_section(ui: &mut egui::Ui, ocean: &OceanProperties) {
 
 // ─── Resource Grid ───────────────────────────────────────────────────────
 
-/// A pre-computed (resource, deposit, estimate) row consumed by the
-/// dossier resource drawers. Built by `compute_deposit_rows` so the
-/// gas-giant filter and the `SurveyState`/`SurveyLevel` fallback
-/// live in one place.
-struct DepositRow {
-    resource: ResourceType,
-    deposit: MineralDeposit,
-    estimate: crate::survey::DepositEstimate,
-}
-
-/// Build the per-deposit rows for the dossier resource section.
-///
-/// Reads the body's `SurveyState` (preferred, post-PR-A) and falls
-/// back to the legacy `SurveyLevel` for bodies that only carry the
-/// old component. Filters out non-atmospheric deposits for gas
-/// giants (per SURVEY_REWORK.md §11, gas giants have no planetary
-/// bulk, so only the atmospheric gas rows show).
-fn compute_deposit_rows(
-    body: &CelestialBody,
-    resources: &PlanetResources,
-    survey_state: Option<&crate::survey::SurveyState>,
-    survey_level: Option<&SurveyLevel>,
-) -> Vec<DepositRow> {
-    let is_gas_giant = body.body_type == BodyType::GasGiant;
-    let fidelity = survey_state
-        .map(|s| s.fidelity(crate::survey::SurveyDimension::MineralDeposits))
-        .or_else(|| survey_level.map(|l| l.as_deposit_fidelity(0.0)))
-        .unwrap_or(crate::survey::DimensionFidelity::UNKNOWN);
-
-    let mut rows: Vec<DepositRow> = Vec::new();
-    for (_category, items) in ResourceType::by_category() {
-        for resource in &items {
-            if !resource.is_mineable() {
-                continue;
-            }
-            let Some(deposit) = resources.get_deposit(resource).copied() else {
-                continue;
-            };
-            if deposit.reserve.total_mass() <= 0.001 {
-                continue;
-            }
-            // Gas giants have no planetary_bulk — surface the
-            // atmospheric deposits only and hide the rest.
-            if is_gas_giant && !deposit.is_atmospheric {
-                continue;
-            }
-            let estimate = crate::survey::estimate_with_fidelity(&deposit, fidelity);
-            // Skip deposits the survey hasn't revealed at all.
-            if matches!(
-                estimate.visibility,
-                crate::survey::DepositVisibility::Unknown
-            ) {
-                continue;
-            }
-            rows.push(DepositRow {
-                resource: *resource,
-                deposit,
-                estimate,
-            });
-        }
-    }
-    rows
-}
-
 fn draw_resource_section(
     ui: &mut egui::Ui,
     entity: Entity,
-    body: &CelestialBody,
+    body_name: &str,
     resources: &PlanetResources,
     survey_level: Option<&mut SurveyLevel>,
-    survey_state: Option<&crate::survey::SurveyState>,
+    survey_state: Option<&SurveyState>,
     commands: &mut Commands,
     rate_tracker: &ResourceRateTracker,
+    mission_templates: &SurveyMissionTemplates,
     view: DossierResourceView,
 ) {
     // Survey status
@@ -1506,13 +1442,6 @@ fn draw_resource_section(
         .as_deref()
         .copied()
         .unwrap_or(SurveyLevel::Unsurveyed);
-    // PR-F (GRA-84): copy out an immutable view of the legacy
-    // `SurveyLevel` BEFORE the upgrade button's `&mut` borrow runs
-    // — the button's `if let Some(survey) = survey_level` moves the
-    // inner `&mut` out, so we can't reach `survey_level` again
-    // afterward. The legacy enum is just a 1:1 adapter; the new
-    // `SurveyState` is read-only.
-    let survey_level_for_rows: Option<SurveyLevel> = current_level.into();
 
     ui.horizontal(|ui| {
         ui.label(
@@ -1562,31 +1491,18 @@ fn draw_resource_section(
         }
     });
 
-    // PR-F (GRA-84): compute rows FIRST so bodies that have
-    // migrated to `SurveyState` (post-PR-A) can still render rows
-    // even when the legacy `SurveyLevel` is `Unsurveyed`. The
-    // "Perform orbital scan" message now only fires when the body
-    // has neither a `SurveyState` nor a non-Unsurveyed
-    // `SurveyLevel`. Surveyed bodies with no mineable deposits
-    // (e.g. gas giants with no atmospheric gas resources) get the
-    // "Scan complete" message instead.
-    let rows = compute_deposit_rows(
-        body,
-        resources,
-        survey_state,
-        survey_level_for_rows.as_ref(),
-    );
-
-    if rows.is_empty() {
-        if survey_state.is_none() && current_level == SurveyLevel::Unsurveyed {
-            ui.colored_label(TEXT_DIM, "Perform orbital scan to detect resources.");
-        } else {
-            ui.colored_label(
-                TEXT_DIM,
-                "Scan complete — no resources detected at the current survey tier.",
-            );
-        }
+    if current_level == SurveyLevel::Unsurveyed {
+        ui.colored_label(TEXT_DIM, "Perform orbital scan to detect resources.");
         return;
+    }
+
+    // PR-B (GRA-80) — Active missions live on `SurveyState`. We render
+    // them above the deposit grid so the player sees the "in progress"
+    // content first, then the result the missions are working toward.
+    if let Some(state) = survey_state {
+        ui.add_space(theme::Spacing::xs);
+        theme::section_h3(ui, "ACTIVE MISSIONS");
+        draw_active_missions_list(ui, entity, &state.active_missions, commands);
     }
 
     ui.add_space(theme::Spacing::xs);
@@ -1597,11 +1513,11 @@ fn draw_resource_section(
     match view {
         DossierResourceView::ByCategory => {
             theme::section_h3(ui, "DEPOSITS");
-            draw_resource_grid(ui, &rows, rate_tracker, entity);
+            draw_resource_grid(ui, resources, current_level, rate_tracker, entity);
         }
         DossierResourceView::Compact => {
             theme::section_h3(ui, "DEPOSITS \u{2014} COMPACT");
-            draw_resource_compact(ui, &rows, rate_tracker, entity);
+            draw_resource_compact(ui, resources, current_level, rate_tracker, entity);
         }
     }
 
@@ -1618,306 +1534,165 @@ fn draw_resource_section(
         .font(mono_font(10.0))
         .color(TEXT_VALUE),
     );
+
+    // PR-B (GRA-80) — dispatch UI sits at the end of the SURVEY section
+    // so the player's eye reads: [STATUS] → [IN FLIGHT] → [DEPOSITS] →
+    // [SUMMARY] → [DISPATCH NEW]. Only available when `SurveyState`
+    // exists; the legacy `SurveyLevel` system has no mission concept.
+    if survey_state.is_some() {
+        ui.add_space(theme::Spacing::xs);
+        theme::section_h3(ui, "DISPATCH MISSION");
+        draw_dispatch_mission_picker(ui, entity, body_name, mission_templates, commands);
+    }
 }
 
-// ─── Landing / Extraction Sites (PR-D GRA-82) ─────────────────────────────
-
-/// Section title shown for non-asteroid solid bodies.
-const LANDING_SITES_HEADER: &str = "LANDING SITES";
-/// Section title shown for asteroids.
-const EXTRACTION_SITES_HEADER: &str = "EXTRACTION SITES";
-
-/// Draw the landing / extraction site evaluation section.
+/// Render the active-mission list for the dossier SURVEY section.
 ///
-/// Renders one of three states:
-/// 1. **No `SurveyState`** — the legacy `SurveyLevel` enum hasn't been
-///    migrated to a `SurveyState` component yet. Show a hint to
-///    "perform a survey mission" so the player knows the dependency.
-/// 2. **Below threshold** — survey is in progress but the
-///    `landing_site_eval_coverage` is below the 0.6 trigger. Show
-///    the coverage bar with a "continue surveying" hint.
-/// 3. **At or above threshold** — list the candidate sites
-///    (top 5 by composite score) with their blocker annotations.
-fn draw_landing_sites_section(
+/// Each row shows the mission's name + method, a `ProgressBar` driven
+/// by `mission.progress`, the current `MissionStatus`, and an ABORT
+/// button for in-progress missions. Aborts fire an
+/// `AbortSurveyMission` message — the actual removal is performed by
+/// the sim system, not the UI (action-queue decoupling).
+fn draw_active_missions_list(
     ui: &mut egui::Ui,
-    body: &CelestialBody,
-    survey_state: Option<&SurveyState>,
-    _entity: Entity,
+    body: Entity,
+    missions: &[ActiveSurveyMission],
+    commands: &mut Commands,
 ) {
-    let is_asteroid = body.body_type == BodyType::Asteroid;
-    let header = if is_asteroid {
-        EXTRACTION_SITES_HEADER
-    } else {
-        LANDING_SITES_HEADER
-    };
-    theme::section_h2(ui, header);
-
-    let Some(state) = survey_state else {
-        ui.colored_label(
-            TEXT_DIM,
-            "Run a survey mission to evaluate candidate sites.",
-        );
-        return;
-    };
-
-    let coverage = state.landing_site_eval_coverage();
-    draw_coverage_bar(ui, coverage);
-
-    if coverage < LANDING_SITE_EVAL_THRESHOLD {
-        let pct = (coverage * 100.0) as u32;
-        ui.colored_label(
-            TEXT_DIM,
-            format!(
-                "Survey coverage {}% — {}% required to evaluate sites.",
-                pct,
-                (LANDING_SITE_EVAL_THRESHOLD * 100.0) as u32
-            ),
-        );
+    if missions.is_empty() {
+        ui.colored_label(TEXT_DIM, "No missions in progress.");
         return;
     }
 
-    if is_asteroid {
-        draw_extraction_site_list(ui, &state.extraction_sites);
-    } else {
-        draw_landing_site_list(ui, &state.landing_sites);
-    }
-}
-
-/// Draw the landing-site-evaluation coverage bar (a thin progress
-/// strip with a tick mark at the 0.6 trigger). Used as the visual
-/// cue that "you can see sites" vs "keep surveying".
-fn draw_coverage_bar(ui: &mut egui::Ui, coverage: f32) {
-    let (response, painter) = ui.allocate_painter(
-        egui::Vec2::new(ui.available_width(), 6.0),
-        egui::Sense::hover(),
-    );
-    let rect = response.rect;
-    let bar_bg = SURFACE_RAISED;
-    painter.rect_filled(rect, 1.0, bar_bg);
-
-    // Filled portion — green above threshold, blue below.
-    let fill_w = rect.width() * coverage.clamp(0.0, 1.0);
-    let fill_color = if coverage >= LANDING_SITE_EVAL_THRESHOLD {
-        GREEN_ACCENT
-    } else {
-        egui::Color32::LIGHT_BLUE
-    };
-    if fill_w > 0.0 {
-        let fill_rect = egui::Rect::from_min_size(rect.min, egui::Vec2::new(fill_w, rect.height()));
-        painter.rect_filled(fill_rect, 1.0, fill_color);
-    }
-
-    // Threshold tick mark.
-    let tick_x = rect.min.x + rect.width() * LANDING_SITE_EVAL_THRESHOLD;
-    let tick_top = egui::Pos2::new(tick_x, rect.min.y);
-    let tick_bottom = egui::Pos2::new(tick_x, rect.max.y);
-    painter.line_segment(
-        [tick_top, tick_bottom],
-        egui::Stroke::new(1.0, egui::Color32::WHITE),
-    );
-
-    ui.add_space(theme::Spacing::xs);
-}
-
-/// Draw the sorted, top-5 list of landing sites. The composite score
-/// is the sort key (descending). Each row shows the site name, lat /
-/// lon, composite, and a tooltip with the per-axis sub-scores +
-/// blockers.
-fn draw_landing_site_list(ui: &mut egui::Ui, sites: &[LandingSite]) {
-    if sites.is_empty() {
-        ui.colored_label(TEXT_DIM, "No candidate sites yet.");
-        return;
-    }
-    let mut sorted: Vec<&LandingSite> = sites.iter().collect();
-    sorted.sort_by(|a, b| {
-        b.composite_score()
-            .partial_cmp(&a.composite_score())
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    let top = sorted.iter().take(5);
-    ui.add_space(theme::Spacing::xs);
-    for (idx, site) in top.enumerate() {
-        draw_landing_site_row(ui, idx + 1, site);
-    }
-}
-
-fn draw_extraction_site_list(ui: &mut egui::Ui, sites: &[ExtractionSite]) {
-    if sites.is_empty() {
-        ui.colored_label(TEXT_DIM, "No candidate extraction sites yet.");
-        return;
-    }
-    let mut sorted: Vec<&ExtractionSite> = sites.iter().collect();
-    sorted.sort_by(|a, b| {
-        b.composite_score()
-            .partial_cmp(&a.composite_score())
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    let top = sorted.iter().take(5);
-    ui.add_space(theme::Spacing::xs);
-    for (idx, site) in top.enumerate() {
-        draw_extraction_site_row(ui, idx + 1, site);
-    }
-}
-
-fn draw_landing_site_row(ui: &mut egui::Ui, rank: usize, site: &LandingSite) {
-    let composite = site.composite_score();
-    let composite_pct = (composite * 100.0) as u32;
-    let color = if composite >= 0.7 {
-        GREEN_ACCENT
-    } else if composite >= 0.5 {
-        egui::Color32::LIGHT_BLUE
-    } else {
-        AMBER
-    };
-
-    let response = ui.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new(format!("#{rank}"))
-                .font(mono_font(9.0))
-                .color(TEXT_DIM),
-        );
-        ui.label(
-            egui::RichText::new(&site.name)
-                .font(mono_font(11.0))
-                .color(TEXT_VALUE),
-        );
-        ui.label(
-            egui::RichText::new(format!(
-                "{:.0}\u{00B0},{:.0}\u{00B0}",
-                site.latitude, site.longitude
-            ))
-            .font(mono_font(9.0))
-            .color(TEXT_DIM),
-        );
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+    for mission in missions {
+        ui.horizontal(|ui| {
             ui.label(
-                egui::RichText::new(format!("{composite_pct}%"))
+                egui::RichText::new(&mission.name)
                     .font(mono_font(11.0))
-                    .color(color)
-                    .strong(),
+                    .color(TEXT_VALUE),
+            );
+            ui.label(
+                egui::RichText::new(mission.method.ron_id())
+                    .font(mono_font(9.0))
+                    .color(TEXT_DIM),
             );
         });
-    });
-    response.response.on_hover_text(site_tooltip_text(site));
-    ui.add_space(2.0);
-}
 
-fn draw_extraction_site_row(ui: &mut egui::Ui, rank: usize, site: &ExtractionSite) {
-    let composite = site.composite_score();
-    let composite_pct = (composite * 100.0) as u32;
-    let color = if composite >= 0.7 {
-        GREEN_ACCENT
-    } else if composite >= 0.5 {
-        egui::Color32::LIGHT_BLUE
-    } else {
-        AMBER
-    };
+        let progress = mission.progress.clamp(0.0, 1.0);
+        let bar = egui::ProgressBar::new(progress)
+            .desired_width(ui.available_width())
+            .text(format!("{:.0}%", progress * 100.0));
+        ui.add(bar);
 
-    let response = ui.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new(format!("#{rank}"))
-                .font(mono_font(9.0))
-                .color(TEXT_DIM),
-        );
-        ui.label(
-            egui::RichText::new(&site.name)
-                .font(mono_font(11.0))
-                .color(TEXT_VALUE),
-        );
-        ui.label(
-            egui::RichText::new(format!(
-                "{:.0}\u{00B0},{:.0}\u{00B0}",
-                site.latitude, site.longitude
-            ))
-            .font(mono_font(9.0))
-            .color(TEXT_DIM),
-        );
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.horizontal(|ui| {
+            let (status_color, status_label) = match mission.status {
+                MissionStatus::Queued => (TEXT_DIM, "QUEUED"),
+                MissionStatus::Inflight => (egui::Color32::LIGHT_BLUE, "INFLIGHT"),
+                MissionStatus::Active => (ACCENT, "ACTIVE"),
+                MissionStatus::Completing => (AMBER, "COMPLETING"),
+                MissionStatus::Succeeded => (GREEN_ACCENT, "SUCCEEDED"),
+                MissionStatus::Failed => (RED_ACCENT, "FAILED"),
+                MissionStatus::Aborted => (RED_ACCENT, "ABORTED"),
+            };
             ui.label(
-                egui::RichText::new(format!("{composite_pct}%"))
-                    .font(mono_font(11.0))
-                    .color(color)
-                    .strong(),
+                egui::RichText::new(status_label)
+                    .font(mono_font(9.0))
+                    .color(status_color),
             );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if mission.status.is_in_progress()
+                    && ui
+                        .small_button(
+                            egui::RichText::new("\u{26D4} ABORT")
+                                .font(mono_font(9.0))
+                                .color(RED_ACCENT),
+                        )
+                        .clicked()
+                {
+                    commands.write_message(AbortSurveyMission {
+                        body,
+                        mission_id: mission.id,
+                    });
+                }
+            });
         });
+
+        ui.add_space(4.0);
+    }
+}
+
+/// Render the dispatch-mission picker: a combo box of available
+/// templates, plus a DISPATCH button. The selected template id and a
+/// per-body counter live in `egui::data` so the choice persists across
+/// frames. Pressing DISPATCH writes a `DispatchSurveyMission` message
+/// that the sim system consumes.
+fn draw_dispatch_mission_picker(
+    ui: &mut egui::Ui,
+    body: Entity,
+    body_name: &str,
+    mission_templates: &SurveyMissionTemplates,
+    commands: &mut Commands,
+) {
+    if mission_templates.templates.is_empty() {
+        ui.colored_label(TEXT_DIM, "No mission templates loaded.");
+        return;
+    }
+
+    let template_id_key = egui::Id::new(("dispatch_template_id", body));
+    let counter_key = egui::Id::new(("dispatch_counter", body));
+
+    // Default to the first template's id on first render per body.
+    let mut selected_id: String = ui.data(|d| d.get_temp(template_id_key)).unwrap_or_else(|| {
+        mission_templates
+            .templates
+            .keys()
+            .next()
+            .cloned()
+            .unwrap_or_default()
     });
-    response
-        .response
-        .on_hover_text(extraction_site_tooltip_text(site));
+    let counter: u32 = ui.data(|d| d.get_temp(counter_key)).unwrap_or(1);
+
+    let prev_selected = selected_id.clone();
+    egui::ComboBox::from_id_salt(("dispatch_combo", body))
+        .selected_text(
+            mission_templates
+                .templates
+                .get(&selected_id)
+                .map(|t| t.display_name.clone())
+                .unwrap_or_else(|| selected_id.clone()),
+        )
+        .show_ui(ui, |ui| {
+            for (id, tpl) in &mission_templates.templates {
+                let label = format!("{}  ({} d)", tpl.display_name, tpl.base_duration_days);
+                ui.selectable_value(&mut selected_id, id.clone(), label);
+            }
+        });
+    let _ = prev_selected;
+
     ui.add_space(2.0);
-}
 
-/// Build the hover-tooltip body for a landing site. Shows per-axis
-/// sub-scores and the explicit blocker list so the player can see
-/// *why* a building is infeasible.
-fn site_tooltip_text(site: &LandingSite) -> String {
-    let s = &site.scores;
-    let mut text = String::new();
-    text.push_str(&format!(
-        "Slope: {:.0}%\nRoughness: {:.0}%\nRadiation: {:.0}%\nTemperature: {:.0}%\nRegolith: {:.0}%\nComm: {:.0}%",
-        s.slope * 100.0,
-        s.roughness * 100.0,
-        s.radiation * 100.0,
-        s.temperature * 100.0,
-        s.regolith * 100.0,
-        s.comm * 100.0,
-    ));
-    if !site.feasible_for.is_empty() {
-        let mut feas: Vec<String> = site
-            .feasible_for
-            .iter()
-            .map(|b| b.display_name().to_string())
-            .collect();
-        feas.sort();
-        text.push_str("\n\nFeasible: ");
-        text.push_str(&feas.join(", "));
+    if ui
+        .add(
+            egui::Button::new(
+                egui::RichText::new("\u{25B6}  DISPATCH")
+                    .font(mono_font(11.0))
+                    .color(ACCENT),
+            )
+            .min_size(egui::Vec2::new(140.0, 24.0)),
+        )
+        .clicked()
+    {
+        let name = format!("{body_name} Mission {counter}");
+        commands.write_message(DispatchSurveyMission {
+            body,
+            template_id: selected_id.clone(),
+            name,
+            scientist_ids: vec![],
+        });
+        ui.data_mut(|d| d.insert_temp(counter_key, counter + 1));
     }
-    if !site.blockers.is_empty() {
-        let mut blocks: Vec<String> = site
-            .blockers
-            .iter()
-            .map(|b| b.display_name().to_string())
-            .collect();
-        blocks.sort();
-        text.push_str("\nBlocked: ");
-        text.push_str(&blocks.join(", "));
-    }
-    text
-}
 
-fn extraction_site_tooltip_text(site: &ExtractionSite) -> String {
-    let s = &site.scores;
-    let mut text = String::new();
-    text.push_str(&format!(
-        "Slope: {:.0}%\nRoughness: {:.0}%\nRadiation: {:.0}%\nTemperature: {:.0}%\nRegolith: {:.0}%\nComm: {:.0}%",
-        s.slope * 100.0,
-        s.roughness * 100.0,
-        s.radiation * 100.0,
-        s.temperature * 100.0,
-        s.regolith * 100.0,
-        s.comm * 100.0,
-    ));
-    if !site.feasible_for.is_empty() {
-        let mut feas: Vec<String> = site
-            .feasible_for
-            .iter()
-            .map(|b| b.display_name().to_string())
-            .collect();
-        feas.sort();
-        text.push_str("\n\nFeasible: ");
-        text.push_str(&feas.join(", "));
-    }
-    if !site.blockers.is_empty() {
-        let mut blocks: Vec<String> = site
-            .blockers
-            .iter()
-            .map(|b| b.display_name().to_string())
-            .collect();
-        blocks.sort();
-        text.push_str("\nBlocked: ");
-        text.push_str(&blocks.join(", "));
-    }
-    text
+    ui.data_mut(|d| d.insert_temp(template_id_key, selected_id));
 }
 
 /// Flat sorted list of mineable deposits. Demonstrates the
@@ -1925,22 +1700,30 @@ fn extraction_site_tooltip_text(site: &ExtractionSite) -> String {
 /// rendered as one row: symbol, name, viable mass, monthly balance.
 fn draw_resource_compact(
     ui: &mut egui::Ui,
-    rows: &[DepositRow],
+    resources: &PlanetResources,
+    survey_level: SurveyLevel,
     rate_tracker: &ResourceRateTracker,
     entity: Entity,
 ) {
-    let mut sorted: Vec<&DepositRow> = rows.iter().collect();
-    // Sort by mid estimate descending so the most important deposits
+    let mut rows: Vec<(ResourceType, f64)> = Vec::new();
+    for (_category, items) in ResourceType::by_category() {
+        for r in &items {
+            if !r.is_mineable() {
+                continue;
+            }
+            if let Some(d) = resources.get_deposit(r) {
+                if d.reserve.total_mass() > 0.001 {
+                    let discovered = survey_level.discovered_amount(&d.reserve);
+                    rows.push((*r, discovered));
+                }
+            }
+        }
+    }
+    // Sort by discovered mass descending so the most important deposits
     // appear first; secondary sort by symbol for determinism.
-    sorted.sort_by(|a, b| {
-        b.estimate
-            .mid_or_zero()
-            .partial_cmp(&a.estimate.mid_or_zero())
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.resource.symbol().cmp(b.resource.symbol()))
-    });
+    rows.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-    if sorted.is_empty() {
+    if rows.is_empty() {
         ui.colored_label(TEXT_DIM, "No deposits visible at current survey level.");
         return;
     }
@@ -1949,11 +1732,11 @@ fn draw_resource_compact(
         .num_columns(4)
         .spacing([12.0, 2.0])
         .show(ui, |ui| {
-            for row in sorted {
-                let sym = row.resource.symbol();
-                let name = row.resource.display_name();
-                let mass = format_estimate_mass(&row.estimate);
-                let rate = rate_tracker.get_entity_resource_rate(entity, &row.resource);
+            for (resource, discovered) in rows {
+                let sym = resource.symbol();
+                let name = resource.display_name();
+                let mass = format_mass_compact(discovered);
+                let rate = rate_tracker.get_entity_resource_rate(entity, &resource);
                 let (rate_text, _rate_color) = format_rate_monthly(rate);
                 ui.label(egui::RichText::new(sym).font(mono_font(11.0)).color(ACCENT));
                 ui.label(
@@ -1974,28 +1757,6 @@ fn draw_resource_compact(
                 ui.end_row();
             }
         });
-}
-
-/// Format a deposit estimate for the compact dossier view. Returns
-/// "Class" for `ClassOnly`, "low–high Mt" for `Range`, and the
-/// precise mass for `Precise`. `Unknown` is filtered out by
-/// `compute_deposit_rows` so the caller never sees it.
-fn format_estimate_mass(estimate: &crate::survey::DepositEstimate) -> String {
-    use crate::survey::DepositVisibility;
-    match estimate.visibility {
-        DepositVisibility::Unknown => "—".to_string(),
-        DepositVisibility::ClassOnly => "Class".to_string(),
-        DepositVisibility::Range => {
-            let low = estimate.low.unwrap_or(0.0);
-            let high = estimate.high.unwrap_or(0.0);
-            format!(
-                "{} \u{2013} {}",
-                format_mass_compact(low),
-                format_mass_compact(high)
-            )
-        }
-        DepositVisibility::Precise => format_mass_compact(estimate.mid.unwrap_or(0.0)),
-    }
 }
 
 /// Determine deposit magnitude tier (0–5) from total mass in megatons.
@@ -2020,7 +1781,7 @@ pub(super) enum ResourceTileDisplay {
     Unknown,
     None,
     Deposit {
-        estimate: crate::survey::DepositEstimate,
+        discovered_megatons: f64,
         concentration: Option<f32>,
     },
 }
@@ -2039,18 +1800,10 @@ pub(super) fn paint_resource_tile(
 
     match display {
         ResourceTileDisplay::Deposit {
-            estimate,
+            discovered_megatons,
             concentration,
         } => {
-            // The magnitude tier uses the best estimate (mid) when
-            // available; class-only deposits show as a dim tile.
-            let mid_for_magnitude = estimate.mid.unwrap_or(0.0);
-            let (magnitude, _label) = magnitude_tier(mid_for_magnitude);
-            let is_class_only = matches!(
-                estimate.visibility,
-                crate::survey::DepositVisibility::ClassOnly
-            );
-            let display_tier = if is_class_only { 0 } else { magnitude };
+            let (tier, _tier_label) = magnitude_tier(discovered_megatons);
 
             let brightness = concentration
                 .map(|conc| {
@@ -2058,10 +1811,9 @@ pub(super) fn paint_resource_tile(
                     let conc_norm = ((conc.log10() + 10.0) / 10.0).clamp(0.0, 1.0) as f32;
                     0.3 + 0.7 * conc_norm
                 })
-                .unwrap_or(0.8)
-                * if is_class_only { 0.4 } else { 1.0 };
+                .unwrap_or(0.8);
 
-            let fill_frac = match display_tier {
+            let fill_frac = match tier {
                 0 => 0.08,
                 1 => 0.25,
                 2 => 0.42,
@@ -2092,18 +1844,11 @@ pub(super) fn paint_resource_tile(
                 egui::Color32::WHITE,
             );
 
-            // Mass label: precise/range uses format_mass_compact on
-            // the mid; class-only shows a "?" since the quantity is
-            // not yet known.
-            let mass_label = if is_class_only {
-                "?".to_string()
-            } else {
-                format_mass_compact(mid_for_magnitude)
-            };
+            let compact = format_mass_compact(discovered_megatons);
             painter.text(
                 egui::Pos2::new(rect.center().x, rect.top() + size * 0.58),
                 egui::Align2::CENTER_CENTER,
-                &mass_label,
+                &compact,
                 mono_font(7.0),
                 egui::Color32::from_rgba_premultiplied(220, 230, 240, (180.0 * brightness) as u8),
             );
@@ -2115,7 +1860,7 @@ pub(super) fn paint_resource_tile(
             let pip_start_x = rect.center().x - total_pip_w * 0.5 + pip_r;
             for i in 0..5u8 {
                 let cx = pip_start_x + i as f32 * pip_spacing;
-                if i < display_tier {
+                if i < tier {
                     painter.circle_filled(egui::Pos2::new(cx, pip_y), pip_r, cat_color);
                 } else {
                     painter.circle_stroke(
@@ -2160,7 +1905,8 @@ pub(super) fn paint_resource_tile(
 /// symbol with magnitude pips and compact value.
 fn draw_resource_grid(
     ui: &mut egui::Ui,
-    rows: &[DepositRow],
+    resources: &PlanetResources,
+    survey_level: SurveyLevel,
     rate_tracker: &ResourceRateTracker,
     entity: Entity,
 ) {
@@ -2177,15 +1923,6 @@ fn draw_resource_grid(
             continue;
         }
 
-        // Skip categories where no deposit was revealed by the survey.
-        let category_rows: Vec<&DepositRow> = rows
-            .iter()
-            .filter(|r| mineable.contains(&r.resource))
-            .collect();
-        if category_rows.is_empty() {
-            continue;
-        }
-
         let cat_color = theme::category_color(category_name);
 
         // Category header with coloured label
@@ -2198,191 +1935,22 @@ fn draw_resource_grid(
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = egui::Vec2::splat(tile_spacing);
 
-            for row in &category_rows {
-                draw_resource_tile(ui, row, tile_size, cat_color, rate_tracker, entity);
+            for resource_type in &mineable {
+                let deposit = resources.get_deposit(resource_type);
+                draw_resource_tile(
+                    ui,
+                    *resource_type,
+                    deposit,
+                    survey_level,
+                    tile_size,
+                    cat_color,
+                    rate_tracker,
+                    entity,
+                );
             }
         });
 
         ui.add_space(2.0);
-    }
-}
-
-// ─── Anomaly Cards (PR-C) ────────────────────────────────────────────
-
-/// Render the Anomaly section of the dossier. One card per detected
-/// anomaly, with a confidence bar (0–100%), threshold marker, retry
-/// count, time-since-last-data-point, and a three-state badge
-/// (CANDIDATE / VERIFIED / REFUTED). Empty section is suppressed.
-fn draw_anomaly_section(
-    ui: &mut egui::Ui,
-    survey_state: &crate::survey::components::SurveyState,
-    registry: &SurveyAnomalyRegistry,
-    sim_time: &super::time::SimulationTime,
-) {
-    if survey_state.detected_anomalies.is_empty() {
-        return;
-    }
-
-    theme::section_h3(ui, "ANOMALIES");
-
-    let now = sim_time.elapsed_seconds();
-    for detected in &survey_state.detected_anomalies {
-        draw_anomaly_card(ui, detected, registry, now);
-    }
-}
-
-/// One anomaly card: name, badge, confidence bar, threshold marker,
-/// retry count, time-since-last-data-point. Pulls display name /
-/// description from the registry; falls back to a derived label if
-/// the registry has no row (modder-only anomaly after a save reload).
-fn draw_anomaly_card(
-    ui: &mut egui::Ui,
-    detected: &DetectedAnomaly,
-    registry: &SurveyAnomalyRegistry,
-    sim_now: f64,
-) {
-    let def = registry.get(detected.anomaly_type.ron_id());
-    let display_name = def
-        .map(|d| d.display_name.as_str())
-        .unwrap_or_else(|| detected.anomaly_type.ron_id());
-    let description = def.map(|d| d.description.as_str()).unwrap_or("");
-
-    egui::Frame::group(ui.style())
-        .fill(SURFACE)
-        .stroke(egui::Stroke::new(1.0, BORDER))
-        .corner_radius(4.0)
-        .inner_margin(egui::Margin::same(8))
-        .show(ui, |ui| {
-            // Header row: name + badge.
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new(display_name)
-                        .font(mono_font(11.0))
-                        .color(TEXT_VALUE)
-                        .strong(),
-                );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(
-                        egui::RichText::new(detected.state.badge_label())
-                            .font(mono_font(9.0))
-                            .color(badge_color(detected.state)),
-                    );
-                });
-            });
-
-            if !description.is_empty() {
-                ui.label(
-                    egui::RichText::new(description)
-                        .font(mono_font(9.0))
-                        .color(TEXT_DIM),
-                );
-            }
-
-            ui.add_space(4.0);
-
-            // Confidence bar.
-            let confidence = detected.confidence.clamp(0.0, 1.0);
-            let bar_height = 8.0;
-            let bar_width = ui.available_width();
-            let (rect, _) =
-                ui.allocate_exact_size(egui::vec2(bar_width, bar_height), egui::Sense::hover());
-            let painter = ui.painter_at(rect);
-            painter.rect_filled(rect, 2.0, BG);
-            let filled = egui::Rect::from_min_size(
-                rect.min,
-                egui::vec2(rect.width() * confidence, rect.height()),
-            );
-            painter.rect_filled(filled, 2.0, bar_color(detected.state));
-
-            // Threshold marker (vertical line at effective threshold).
-            let effective = detected.effective_threshold();
-            let x = rect.min.x + rect.width() * effective;
-            painter.line_segment(
-                [
-                    egui::pos2(x, rect.min.y - 1.0),
-                    egui::pos2(x, rect.max.y + 1.0),
-                ],
-                egui::Stroke::new(1.0, ACCENT),
-            );
-
-            // Numeric row below the bar.
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new(format!(
-                        "{:>3.0}% / {:.0}%",
-                        confidence * 100.0,
-                        effective * 100.0
-                    ))
-                    .font(mono_font(9.0))
-                    .color(TEXT_DIM),
-                );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "tries: {}  ·  last: {}d",
-                            detected.verification_count,
-                            sim_days_since(detected.last_updated_sim_time, sim_now),
-                        ))
-                        .font(mono_font(9.0))
-                        .color(TEXT_DIM),
-                    );
-                });
-            });
-        });
-
-    ui.add_space(2.0);
-}
-
-/// Days-since stamp. If the sim hasn't ticked yet (`last == 0`), show
-/// "—". Otherwise render `now - last` in sim-days.
-fn sim_days_since(last: f64, sim_now: f64) -> String {
-    if last <= 0.0 {
-        return "—".to_string();
-    }
-    let days = ((sim_now - last).max(0.0) / 86_400.0) as i64;
-    format!("{days}")
-}
-
-fn badge_color(state: AnomalyState) -> egui::Color32 {
-    match state {
-        AnomalyState::Suspected => AMBER,
-        AnomalyState::Verified => GREEN,
-        AnomalyState::Refuted => RED,
-        AnomalyState::Dormant => TEXT_DIM,
-    }
-}
-
-fn bar_color(state: AnomalyState) -> egui::Color32 {
-    match state {
-        AnomalyState::Suspected => AMBER,
-        AnomalyState::Verified => GREEN,
-        AnomalyState::Refuted => RED,
-        AnomalyState::Dormant => TEXT_DIM,
-    }
-}
-
-#[allow(dead_code)]
-fn _anomaly_type_marker(t: AnomalyType) -> &'static str {
-    match t {
-        AnomalyType::WaterIceDeposit => "💧",
-        AnomalyType::HydratedSilicates => "🪨",
-        AnomalyType::MethanePlume => "💨",
-        AnomalyType::TholinSignature => "🌫",
-        AnomalyType::MagneticAnomaly => "🧲",
-        AnomalyType::RadioactiveHotspot => "☢",
-        AnomalyType::FossilMicrobeSignature => "🦠",
-        AnomalyType::CryovolcanicFeature => "❄",
-        AnomalyType::UnidentifiedReflectance => "?",
-        AnomalyType::EvaporiteMineralogy => "🧂",
-        AnomalyType::PolarVolatiles => "❄",
-        AnomalyType::BrineAquifer => "🌊",
-        AnomalyType::IronOxideOutcrop => "🟤",
-        AnomalyType::TidallyHeatedFracture => "♨",
-        AnomalyType::RadarBrightSpot => "📡",
-        AnomalyType::GiantStormTower => "🌀",
-        AnomalyType::MetallicHydrogenLayer => "⚡",
-        AnomalyType::HeliumRainOut => "🌧",
-        AnomalyType::DiamondRainSignature => "💎",
     }
 }
 
@@ -2391,28 +1959,36 @@ fn _anomaly_type_marker(t: AnomalyType) -> &'static str {
 /// so different resource families are visually distinct.
 fn draw_resource_tile(
     ui: &mut egui::Ui,
-    row: &DepositRow,
+    resource: ResourceType,
+    deposit: Option<&MineralDeposit>,
+    survey_level: SurveyLevel,
     size: f32,
     cat_color: egui::Color32,
     rate_tracker: &ResourceRateTracker,
     entity: Entity,
 ) {
-    let response = paint_resource_tile(
-        ui,
-        row.resource,
-        ResourceTileDisplay::Deposit {
-            estimate: row.estimate,
-            concentration: Some(row.deposit.reserve.concentration),
-        },
-        size,
-        cat_color,
-    );
+    let has_deposit = deposit.is_some_and(|d| d.reserve.total_mass() > 0.001);
+    let response = if let Some(d) = deposit.filter(|d| d.reserve.total_mass() > 0.001) {
+        let discovered = survey_level.discovered_amount(&d.reserve);
+        paint_resource_tile(
+            ui,
+            resource,
+            ResourceTileDisplay::Deposit {
+                discovered_megatons: discovered,
+                concentration: Some(d.reserve.concentration),
+            },
+            size,
+            cat_color,
+        )
+    } else {
+        paint_resource_tile(ui, resource, ResourceTileDisplay::None, size, cat_color)
+    };
 
     // Hover tooltip
-    if response.hovered() {
-        let d = &row.deposit;
-        let estimate = row.estimate;
-        let tooltip_id = egui::Id::new("resource_tile_tooltip").with(row.resource.symbol());
+    if response.hovered() && has_deposit {
+        let d = deposit.unwrap();
+        let discovered = survey_level.discovered_amount(&d.reserve);
+        let tooltip_id = egui::Id::new("resource_tile_tooltip").with(resource.symbol());
 
         // Override the popup frame style on the ctx *before* show_tooltip is called.
         // egui::show_tooltip wraps content in Frame::popup(ctx.style()) which is
@@ -2441,26 +2017,31 @@ fn draw_resource_tile(
             tip_frame.show(ui, |ui| {
                 ui.set_min_width(180.0);
                 ui.label(
-                    egui::RichText::new(row.resource.display_name())
+                    egui::RichText::new(resource.display_name())
                         .font(mono_font(13.0))
                         .color(ACCENT),
                 );
 
-                // Tier line uses the survey tier (0–5), not the
-                // magnitude tier, so the player sees how much of the
-                // resource is *known*.
-                let survey_tier = estimate.tier;
-                let tier_label = match survey_tier {
-                    5 => "Precisely characterized",
-                    4 => "Precisely characterized",
-                    3 => "Well characterized",
-                    2 => "Range estimate",
-                    1 => "Class known",
-                    _ => "Unknown",
+                // Phase badge + magnitude tier
+                let tier: u8 = match discovered {
+                    x if x >= 1e12 => 5,
+                    x if x >= 1e9 => 4,
+                    x if x >= 1e6 => 3,
+                    x if x >= 1e3 => 2,
+                    x if x > 0.0 => 1,
+                    _ => 0,
                 };
-                let tier_color = theme::tier_color(survey_tier);
-                let tier_dots: String = "\u{25CF}".repeat(survey_tier as usize)
-                    + &"\u{25CB}".repeat(5 - survey_tier as usize);
+                let tier_label = match tier {
+                    5 => "Massive",
+                    4 => "Major",
+                    3 => "Moderate",
+                    2 => "Minor",
+                    1 => "Trace",
+                    _ => "None",
+                };
+                let tier_color = theme::tier_color(tier);
+                let tier_dots: String =
+                    "\u{25CF}".repeat(tier as usize) + &"\u{25CB}".repeat(5 - tier as usize);
                 ui.horizontal(|ui| {
                     ui.label(
                         egui::RichText::new(format!("{}", d.phase))
@@ -2475,44 +2056,32 @@ fn draw_resource_tile(
                 });
                 ui.add_space(4.0);
 
-                egui::Grid::new(format!("tooltip_{}", row.resource.symbol()))
+                egui::Grid::new(format!("tooltip_{}", resource.symbol()))
                     .num_columns(2)
                     .spacing([8.0, 1.0])
                     .show(ui, |ui| {
-                        // Discovered row adapts to the visibility
-                        // tier: precise value, range, or class only.
-                        let discovered_label = match estimate.visibility {
-                            crate::survey::DepositVisibility::Precise => {
-                                format_mass(estimate.mid.unwrap_or(0.0))
-                            }
-                            crate::survey::DepositVisibility::Range => {
-                                let low = estimate.low.unwrap_or(0.0);
-                                let high = estimate.high.unwrap_or(0.0);
-                                format!("{} \u{2013} {}", format_mass(low), format_mass(high))
-                            }
-                            crate::survey::DepositVisibility::ClassOnly => "Class only".to_string(),
-                            crate::survey::DepositVisibility::Unknown => "—".to_string(),
-                        };
-                        tooltip_row(ui, "Discovered", &discovered_label);
+                        tooltip_row(ui, "Discovered", &format_mass(discovered));
 
-                        // Tiered breakdown labels: only show what
-                        // the survey tier currently reveals.
+                        // Tiered breakdown labels
                         let is_atm = d.is_atmospheric;
                         let proven_label = if is_atm { "Atmospheric" } else { "Proven" };
                         let deep_label = if is_atm { "Trapped" } else { "Deep" };
                         let bulk_label = if is_atm { "Bound" } else { "Bulk" };
 
-                        if survey_tier >= 2 {
-                            tooltip_row(ui, proven_label, &format_mass(d.reserve.proven_crustal));
-                        }
-                        if survey_tier >= 3 {
+                        tooltip_row(ui, proven_label, &format_mass(d.reserve.proven_crustal));
+
+                        if matches!(
+                            survey_level,
+                            SurveyLevel::SeismicSurvey | SurveyLevel::CoreSample
+                        ) {
                             tooltip_row(ui, deep_label, &format_mass(d.reserve.deep_deposits));
                         }
-                        if survey_tier >= 4 {
+
+                        if matches!(survey_level, SurveyLevel::CoreSample) {
                             tooltip_row(ui, bulk_label, &format_mass(d.reserve.planetary_bulk));
                         }
 
-                        if !is_atm && survey_tier >= 2 {
+                        if !is_atm {
                             let conc = d.reserve.concentration;
                             let conc_text = if conc >= 0.01 {
                                 format!("{:.1}%", conc * 100.0)
@@ -2529,7 +2098,7 @@ fn draw_resource_tile(
 
                 // Balance (per-body production rate for this resource)
                 ui.add_space(2.0);
-                let rate = rate_tracker.get_entity_resource_rate(entity, &row.resource);
+                let rate = rate_tracker.get_entity_resource_rate(entity, &resource);
                 let (rate_text, rate_color) = format_rate_monthly(rate);
                 ui.horizontal(|ui| {
                     ui.label(

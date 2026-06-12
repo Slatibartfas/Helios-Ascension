@@ -1,0 +1,146 @@
+// Survey mission templates (PR-B / GRA-80).
+//
+// Each entry is a single "send probe" click. The dossier SURVEY
+// section's "DISPATCH MISSION" button lists these and lets the
+// player pick one. The dispatch system instantiates an
+// `ActiveSurveyMission` from the chosen template.
+//
+// Per the SURVEY_REWORK design doc §5, durations and dimensions
+// are placeholders that LGD will tune over subsequent passes.
+// The values here are "reasonable defaults" — modders can
+// rebalance without touching Rust.
+//
+// Field reference:
+//   `id`              — stable RON id (used by the dispatch event)
+//   `display_name`    — UI label
+//   `method`          — `Flyby` | `Orbital` | `RemoteSensing` | `AtmosphericProbe` | `SurfaceLander` | `Rover` | `Seismic` | `Drill` | `SampleReturn`
+//   `instrument_id`   — RON id in `instruments.ron` (PR-followup)
+//   `target_tiers`    — `(dimension → target_tier)` map; the mission
+//                       advances each listed dimension to that tier
+//   `base_duration_days` — mission wall-clock in sim-days
+//   `axis_yield_per_day` — coverage gain per day, before team modifiers
+//   `is_ground_team`  — whether the mission needs a scientist team on
+//                       the surface (drives the CrewInjury failure
+//                       roll). Auto-inferred from `method` if omitted.
+(
+    templates: [
+        (
+            id: "flyby_recon",
+            display_name: "Flyby Recon",
+            method: Flyby,
+            instrument_id: "passive_sensor_array",
+            target_tiers: {
+                OrbitalMech: 1,
+                Atmosphere: 1,
+            },
+            base_duration_days: 540,
+            axis_yield_per_day: 1.0,
+            is_ground_team: false,
+        ),
+        (
+            id: "orbital_imaging",
+            display_name: "Orbital Imaging",
+            method: Orbital,
+            instrument_id: "multispectral_imager",
+            target_tiers: {
+                SurfaceFeatures: 2,
+                MineralClasses: 2,
+                Atmosphere: 2,
+            },
+            base_duration_days: 1095,
+            axis_yield_per_day: 0.9,
+            is_ground_team: false,
+        ),
+        (
+            id: "atmospheric_probe_drop",
+            display_name: "Atmospheric Probe",
+            method: AtmosphericProbe,
+            instrument_id: "atmospheric_sampler",
+            target_tiers: {
+                Atmosphere: 3,
+                Habitability: 1,
+            },
+            base_duration_days: 730,
+            axis_yield_per_day: 1.0,
+            is_ground_team: false,
+        ),
+        (
+            id: "surface_lander_v1",
+            display_name: "Surface Lander",
+            method: SurfaceLander,
+            instrument_id: "core_sampler",
+            target_tiers: {
+                MineralDeposits: 2,
+                SurfaceFeatures: 3,
+            },
+            base_duration_days: 1095,
+            axis_yield_per_day: 0.8,
+            is_ground_team: true,
+        ),
+        (
+            id: "rover_survey_v1",
+            display_name: "Rover Survey",
+            method: Rover,
+            instrument_id: "rover_payload",
+            target_tiers: {
+                MineralDeposits: 3,
+                SurfaceFeatures: 4,
+                Habitability: 2,
+            },
+            base_duration_days: 2555,
+            axis_yield_per_day: 0.6,
+            is_ground_team: true,
+        ),
+        (
+            id: "seismic_pass",
+            display_name: "Seismic Pass",
+            method: Seismic,
+            instrument_id: "seismic_network",
+            target_tiers: {
+                Subsurface: 3,
+            },
+            base_duration_days: 1825,
+            axis_yield_per_day: 0.7,
+            is_ground_team: true,
+        ),
+        (
+            id: "drill_core_sample",
+            display_name: "Drill Core Sample",
+            method: Drill,
+            instrument_id: "deep_drill",
+            target_tiers: {
+                MineralDeposits: 4,
+                Subsurface: 4,
+            },
+            base_duration_days: 730,
+            axis_yield_per_day: 0.9,
+            is_ground_team: true,
+        ),
+        (
+            id: "sample_return",
+            display_name: "Sample Return",
+            method: SampleReturn,
+            instrument_id: "sample_return_capsule",
+            target_tiers: {
+                MineralDeposits: 5,
+                MineralClasses: 4,
+            },
+            base_duration_days: 2920,
+            axis_yield_per_day: 0.5,
+            is_ground_team: true,
+        ),
+        (
+            id: "remote_sensing_pass",
+            display_name: "Remote Sensing Pass",
+            method: RemoteSensing,
+            instrument_id: "phased_array_radar",
+            target_tiers: {
+                MineralClasses: 1,
+                SurfaceFeatures: 1,
+            },
+            base_duration_days: 365,
+            axis_yield_per_day: 1.0,
+            is_ground_team: false,
+        ),
+    ],
+)
