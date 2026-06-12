@@ -2842,13 +2842,18 @@ mod tests {
             ContinuousStationBonus::multiplier_or_neutral(Some(&ContinuousStationBonus::NEUTRAL)),
             1.0
         );
+        // Use `1.05` as a real-world tier-1 value, but compare
+        // against the same value after the same `f32 → f64`
+        // promotion the helper performs. This avoids the
+        // `1.05_f32 → 1.0499999523162842_f64` rounding trap
+        // that breaks a direct `== 1.05_f64` comparison.
         let tier_1 = ContinuousStationBonus {
             axis_advance_per_year: 0.05,
             mining_yield_multiplier: 1.05,
         };
         assert_eq!(
             ContinuousStationBonus::multiplier_or_neutral(Some(&tier_1)),
-            1.05
+            tier_1.mining_yield_multiplier as f64
         );
     }
 }
