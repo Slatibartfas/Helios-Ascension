@@ -1,0 +1,258 @@
+// Survey instruments (GRA-98 / v0.5.0 survey rework).
+//
+// Loads into `SurveyInstrumentRegistry::instruments` (see
+// `src/survey/data.rs`, GRA-79 PR-A scaffold). Each row is a single
+// physical instrument — a phased-array radar, a core sampler, a rover
+// payload — that a mission can be dispatched with.
+//
+// Field reference (mirrors `SurveyInstrumentDef` in `data.rs`):
+//   `id`                     — stable RON id (used by missions.ron)
+//   `display_name`           — UI label (≤ 24 chars preferred)
+//   `description`            — one-line tooltip for the dossier
+//   `method`                 — `Flyby` | `Orbital` | `RemoteSensing` |
+//                              `AtmosphericProbe` | `SurfaceLander` |
+//                              `Rover` | `Seismic` | `Drill` |
+//                              `SampleReturn` (see `SurveyMethod` enum)
+//   `required_tech`          — `Some("tech_id")` of the tech the player
+//                              must research to unlock this instrument;
+//                              `None` for always-available
+//   `base_duration_days`     — typical mission duration in sim-days,
+//                              modder-overridable per-instrument
+//   `scientist_requirement`  — number of scientists to process the data
+//                              (drives analysis queue; see SURVEY_REWORK
+//                              §7 "The Gameplay Loop")
+//   `accuracy_tier`          — 0..5; gates the resolution of the data
+//                              returned. An instrument cannot advance a
+//                              dimension past its accuracy tier without
+//                              a follow-up by a higher-accuracy
+//                              instrument.
+//   `produces_anomalies`     — whether the instrument can surface
+//                              anomaly discoveries (e.g. cryovolcanic
+//                              feature on a thermal mapper pass)
+//
+// Per SURVEY_REWORK.md §5 (Survey Methods and Instruments), the
+// LGD rule is: **an instrument only does what its method permits**.
+// A `phased_array_radar` (RemoteSensing) cannot advance
+// `Subsurface` past accuracy tier 1 — that requires a `seismic_network`.
+//
+// Modder rebalance: edit `base_duration_days` and `accuracy_tier` to
+// shift the early/mid-game exploration cost without recompiling.
+//
+// Method → tech-gate convention (per SURVEY_REWORK §[Tech Tree
+// Integration] / existing techs):
+//   Flyby           — `basic_sensors`
+//   Orbital         — `satellite_networks`
+//   RemoteSensing   — `remote_sensing` (radar variants: `advanced_radar`)
+//   AtmosphericProbe — `radio_astronomy`
+//   SurfaceLander   — `closed_loop_ecology` (for biological assays)
+//   Rover           — `roving_autonomy` (v0.5.0 new tech, PR-B area)
+//   Seismic         — `deep_seismic_array` (v0.5.0 new tech, PR-B area)
+//   Drill           — `deep_drilling` (or `laser_drilling` for hard rock)
+//   SampleReturn    — `sample_return_architecture` (v0.5.0 new tech,
+//                     PR-B area) + `asteroid_prospecting`
+(
+    instruments: [
+        // ----- Remote sensing / radar family (no in-situ contact) -----
+        (
+            id: "passive_sensor_array",
+            display_name: "Passive Sensor Array",
+            description: "Cheap flyby payload. Gives orbital mechanics + gross atmosphere at L1.",
+            method: Flyby,
+            required_tech: Some("basic_sensors"),
+            base_duration_days: 540,
+            scientist_requirement: 1,
+            accuracy_tier: 1,
+            produces_anomalies: true,
+        ),
+        (
+            id: "phased_array_radar",
+            display_name: "Phased-Array Radar",
+            description: "Synthetic-aperture radar for surface and shallow-subsurface imaging through cloud and dust.",
+            method: RemoteSensing,
+            required_tech: Some("advanced_radar"),
+            base_duration_days: 365,
+            scientist_requirement: 2,
+            accuracy_tier: 2,
+            produces_anomalies: true,
+        ),
+        (
+            id: "multispectral_imager",
+            display_name: "Multispectral Imager",
+            description: "Orbital imager with mineralogical band set. Surface features + mineral classes.",
+            method: Orbital,
+            required_tech: Some("satellite_networks"),
+            base_duration_days: 1095,
+            scientist_requirement: 2,
+            accuracy_tier: 2,
+            produces_anomalies: true,
+        ),
+        (
+            id: "hyperspectral_imager_v2",
+            display_name: "Hyperspectral Imager v2",
+            description: "Tighter spectral resolution than the multispectral imager. Refines mineral classes to specific minerals.",
+            method: Orbital,
+            required_tech: Some("satellite_networks"),
+            base_duration_days: 1825,
+            scientist_requirement: 3,
+            accuracy_tier: 3,
+            produces_anomalies: true,
+        ),
+
+        // ----- Atmospheric family -----
+        (
+            id: "atmospheric_sampler",
+            display_name: "Atmospheric Sampler",
+            description: "Entry probe that returns pressure/temperature/composition down to the surface.",
+            method: AtmosphericProbe,
+            required_tech: Some("radio_astronomy"),
+            base_duration_days: 730,
+            scientist_requirement: 2,
+            accuracy_tier: 3,
+            produces_anomalies: true,
+        ),
+        (
+            id: "deep_atmospheric_sonde",
+            display_name: "Deep Atmospheric Sonde",
+            description: "Long-lived descent sonde. Full climate model at the surface; methane/plume anomaly catch.",
+            method: AtmosphericProbe,
+            required_tech: Some("radio_astronomy"),
+            base_duration_days: 1825,
+            scientist_requirement: 3,
+            accuracy_tier: 5,
+            produces_anomalies: true,
+        ),
+
+        // ----- Surface lander family -----
+        (
+            id: "core_sampler",
+            display_name: "Core Sampler",
+            description: "Single-site surface lander with a short core drill. One deposit site per mission.",
+            method: SurfaceLander,
+            required_tech: Some("closed_loop_ecology"),
+            base_duration_days: 1095,
+            scientist_requirement: 2,
+            accuracy_tier: 2,
+            produces_anomalies: true,
+        ),
+        (
+            id: "biology_assay_payload",
+            display_name: "Biology Assay Payload",
+            description: "Surface lander instrument for biological assays. Required for habitability tier 3+.",
+            method: SurfaceLander,
+            required_tech: Some("closed_loop_ecology"),
+            base_duration_days: 1460,
+            scientist_requirement: 3,
+            accuracy_tier: 3,
+            produces_anomalies: true,
+        ),
+
+        // ----- Rover family -----
+        (
+            id: "rover_payload",
+            display_name: "Rover Survey Payload",
+            description: "Multi-site rover with multispectral camera + sample grabber. Mineral deposits broad sweep.",
+            method: Rover,
+            required_tech: Some("roving_autonomy"),
+            base_duration_days: 2555,
+            scientist_requirement: 3,
+            accuracy_tier: 3,
+            produces_anomalies: true,
+        ),
+        (
+            id: "cryogenic_sampling_arm",
+            display_name: "Cryogenic Sampling Arm",
+            description: "Rover instrument for ices and volatiles. Required for tier-4 habitability in cold traps.",
+            method: Rover,
+            required_tech: Some("cryogenic_sampling"),
+            base_duration_days: 3650,
+            scientist_requirement: 3,
+            accuracy_tier: 4,
+            produces_anomalies: true,
+        ),
+
+        // ----- Seismic / subsurface family -----
+        (
+            id: "seismic_network",
+            display_name: "Seismic Network",
+            description: "Surface-deploy seismometer array. Subsurface structure to tier 3 + deep deposit hints.",
+            method: Seismic,
+            required_tech: Some("deep_seismic_array"),
+            base_duration_days: 1825,
+            scientist_requirement: 2,
+            accuracy_tier: 3,
+            produces_anomalies: false,
+        ),
+        (
+            id: "deep_seismic_array_v2",
+            display_name: "Deep Seismic Array v2",
+            description: "Long-baseline seismic network. Subsurface structure to tier 4 + magnetic anomaly catch.",
+            method: Seismic,
+            required_tech: Some("deep_seismic_array"),
+            base_duration_days: 3650,
+            scientist_requirement: 3,
+            accuracy_tier: 4,
+            produces_anomalies: true,
+        ),
+
+        // ----- Drill family -----
+        (
+            id: "deep_drill",
+            display_name: "Deep Drill",
+            description: "Drill rig for 1-2 km cores. Mineral deposits deep + planetary bulk hints.",
+            method: Drill,
+            required_tech: Some("deep_drilling"),
+            base_duration_days: 730,
+            scientist_requirement: 2,
+            accuracy_tier: 4,
+            produces_anomalies: true,
+        ),
+        (
+            id: "laser_drill",
+            display_name: "Laser Drill",
+            description: "High-temperature laser drill for hard rock. Faster than deep_drill on basaltic/iron bodies.",
+            method: Drill,
+            required_tech: Some("laser_drilling"),
+            base_duration_days: 540,
+            scientist_requirement: 2,
+            accuracy_tier: 4,
+            produces_anomalies: true,
+        ),
+
+        // ----- Sample return family -----
+        (
+            id: "sample_return_capsule",
+            display_name: "Sample Return Capsule",
+            description: "Lander + ascent + return capsule. Confirmed mineral deposit, full mineral map on return.",
+            method: SampleReturn,
+            required_tech: Some("sample_return_architecture"),
+            base_duration_days: 2920,
+            scientist_requirement: 4,
+            accuracy_tier: 5,
+            produces_anomalies: true,
+        ),
+        (
+            id: "asteroid_prospector_kit",
+            display_name: "Asteroid Prospector Kit",
+            description: "Specialized sample-return kit for small-body targets (asteroids, dormant comets).",
+            method: SampleReturn,
+            required_tech: Some("asteroid_prospecting"),
+            base_duration_days: 2190,
+            scientist_requirement: 3,
+            accuracy_tier: 5,
+            produces_anomalies: true,
+        ),
+
+        // ----- Specialty (interstellar, v0.6+ gated) -----
+        (
+            id: "interstellar_probe_payload",
+            display_name: "Interstellar Probe Payload",
+            description: "Long-baseline probe for nearby-star flyby. v0.6+ tech gate.",
+            method: Flyby,
+            required_tech: Some("interstellar_probe"),
+            base_duration_days: 7300,
+            scientist_requirement: 4,
+            accuracy_tier: 3,
+            produces_anomalies: true,
+        ),
+    ],
+)

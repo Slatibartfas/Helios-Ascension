@@ -1,0 +1,180 @@
+// Per-(resource class, dimension, tier) mining efficiency curve
+// (GRA-98 / v0.5.0 survey rework).
+//
+// Loads into `MiningEfficiencyRegistry::rows` (see
+// `src/survey/data.rs`, GRA-79 PR-A scaffold). Powers
+// SURVEY_REWORK.md §11 (Resource Reveal Matrix).
+//
+// The numbers below are the **default** balance curve: tier 2 of the
+// gating dimension unlocks mining at a low efficiency, tier 4–5
+// unlocks full yield. Modders can rebalance by editing the rows
+// directly — e.g. make tier 2 mining 25% instead of 40%, or push
+// full efficiency to tier 5 instead of tier 4 — without recompiling
+// Rust.
+//
+// Field reference (mirrors `MiningEfficiencyRow` in `data.rs`):
+//   `id`                    — stable RON id, format
+//                              "<resource_class>_<dimension>_t<tier>"
+//   `resource_class`        — tag matching `solar_system.ron` deposit
+//                              entries. Canonical v0.5.0 classes
+//                              (per SURVEY_REWORK §[Resource Reveal
+//                              Matrix]):
+//                                ShallowOre       — "proven crustal"
+//                                DeepOre          — "deep deposits"
+//                                PlanetaryBulk    — "mantle / core"
+//                                AtmosphericGas   — atmospheric gases
+//                                TraceIsotope     — He-3, lunar volatiles
+//   `dimension`             — which `SurveyDimension` tier gates the
+//                              unlock (e.g. MineralDeposits for
+//                              ShallowOre)
+//   `min_tier`              — minimum `DimensionFidelity.tier` required
+//                              to begin mining for this row
+//   `efficiency_pct`        — efficiency in [0.0, 1.0] of nominal yield
+//                              at `min_tier`. At higher tiers the
+//                              Coder interpolates per the
+//                              `interpolation_strategy` field (see
+//                              data.rs; default = linear to next row).
+//   `requires_confirmation` — whether a follow-up confirmation (e.g.
+//                              drill rig, sample return) is required
+//                              before mining actually starts. Per
+//                              SURVEY_REWORK §11, `DeepOre` and
+//                              `PlanetaryBulk` are `true`; the rest are
+//                              `false`.
+//
+// Note on `resource_class` (v0.5.0 aspirational): the current
+// `solar_system.ron` does not yet use the class tags above — the
+// deposit entries still use the v0.4.x scheme. PR-B / PR-D area
+// adds the resource_class migration. Until then, the Coder's
+// mining filter is a 1:1 adapter on the existing tag set; the
+// rows below are correct for v0.5.0 intent.
+(
+    rows: [
+        // ===== ShallowOre (proven crustal) =====
+        // Gated by MineralDeposits. Full yield at tier 4.
+        (
+            id: "ShallowOre_MineralDeposits_t2",
+            resource_class: "ShallowOre",
+            dimension: MineralDeposits,
+            min_tier: 2,
+            efficiency_pct: 0.40,
+            requires_confirmation: false,
+        ),
+        (
+            id: "ShallowOre_MineralDeposits_t3",
+            resource_class: "ShallowOre",
+            dimension: MineralDeposits,
+            min_tier: 3,
+            efficiency_pct: 0.70,
+            requires_confirmation: false,
+        ),
+        (
+            id: "ShallowOre_MineralDeposits_t4",
+            resource_class: "ShallowOre",
+            dimension: MineralDeposits,
+            min_tier: 4,
+            efficiency_pct: 1.00,
+            requires_confirmation: false,
+        ),
+
+        // ===== DeepOre (deep deposits) =====
+        // Dual-gated: MineralDeposits tier 2 + Subsurface tier 3.
+        // The Coder's loader should AND the conditions; the row
+        // below with the higher gating dimension (Subsurface)
+        // is the authoritative tier table for ramp.
+        (
+            id: "DeepOre_Subsurface_t3",
+            resource_class: "DeepOre",
+            dimension: Subsurface,
+            min_tier: 3,
+            efficiency_pct: 0.30,
+            requires_confirmation: true,
+        ),
+        (
+            id: "DeepOre_Subsurface_t4",
+            resource_class: "DeepOre",
+            dimension: Subsurface,
+            min_tier: 4,
+            efficiency_pct: 0.70,
+            requires_confirmation: true,
+        ),
+        (
+            id: "DeepOre_Subsurface_t5",
+            resource_class: "DeepOre",
+            dimension: Subsurface,
+            min_tier: 5,
+            efficiency_pct: 1.00,
+            requires_confirmation: true,
+        ),
+
+        // ===== PlanetaryBulk (mantle / core) =====
+        // Gated by Subsurface tier 5 + drill confirmation.
+        // Single row: 20% efficiency at the unlock tier, scaling to
+        // 100% only after a drill_core_sample mission completes
+        // (tracked as a per-body mission flag, not a dimension).
+        (
+            id: "PlanetaryBulk_Subsurface_t5",
+            resource_class: "PlanetaryBulk",
+            dimension: Subsurface,
+            min_tier: 5,
+            efficiency_pct: 0.20,
+            requires_confirmation: true,
+        ),
+        (
+            id: "PlanetaryBulk_Subsurface_t5_post_drill",
+            resource_class: "PlanetaryBulk",
+            dimension: Subsurface,
+            min_tier: 5,
+            efficiency_pct: 1.00,
+            requires_confirmation: true,
+        ),
+
+        // ===== AtmosphericGas =====
+        // Gated by Atmosphere. 60% at tier 3, 100% at tier 5.
+        (
+            id: "AtmosphericGas_Atmosphere_t3",
+            resource_class: "AtmosphericGas",
+            dimension: Atmosphere,
+            min_tier: 3,
+            efficiency_pct: 0.60,
+            requires_confirmation: false,
+        ),
+        (
+            id: "AtmosphericGas_Atmosphere_t4",
+            resource_class: "AtmosphericGas",
+            dimension: Atmosphere,
+            min_tier: 4,
+            efficiency_pct: 0.80,
+            requires_confirmation: false,
+        ),
+        (
+            id: "AtmosphericGas_Atmosphere_t5",
+            resource_class: "AtmosphericGas",
+            dimension: Atmosphere,
+            min_tier: 5,
+            efficiency_pct: 1.00,
+            requires_confirmation: false,
+        ),
+
+        // ===== TraceIsotope (He-3, lunar volatiles) =====
+        // Gated by Anomalies tier 2 + sample-return confirmation.
+        // 10% at unlock, 100% only after a sample_return mission
+        // completes per-body. The 10% is the headline number from
+        // the design doc §11.
+        (
+            id: "TraceIsotope_Anomalies_t2",
+            resource_class: "TraceIsotope",
+            dimension: Anomalies,
+            min_tier: 2,
+            efficiency_pct: 0.10,
+            requires_confirmation: true,
+        ),
+        (
+            id: "TraceIsotope_Anomalies_t2_post_return",
+            resource_class: "TraceIsotope",
+            dimension: Anomalies,
+            min_tier: 2,
+            efficiency_pct: 1.00,
+            requires_confirmation: true,
+        ),
+    ],
+)

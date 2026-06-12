@@ -1,0 +1,406 @@
+// Per-dimension tier semantics (GRA-98 / v0.5.0 survey rework).
+//
+// Schema is **provisional** — the Coder's `load_tier_table` loader
+// and the corresponding `DimensionTier` (or equivalent) struct land
+// in the Coder's next PR. The on-disk shape below matches the
+// design doc's §6 (Progressive Survey Levels — Tier semantics per
+// dimension) table; the Coder is free to amend the field names if
+// a tighter schema lands during the loader PR.
+//
+// Each row says: "When a body's `DimensionFidelity` for `dimension`
+// reaches `tier`, the player sees `description` in the dossier and
+// the gameplay layer unlocks `unlocks`."
+//
+// Field reference (provisional):
+//   `id`          — stable RON id, format
+//                    "<dimension_ron_id>_t<tier>" (e.g.
+//                    "MineralDeposits_t3"). Used by the dossier UI
+//                    for tooltip lookup.
+//   `dimension`   — one of the eight `SurveyDimension` ron_ids
+//                    (OrbitalMech, Atmosphere, SurfaceFeatures,
+//                    MineralClasses, MineralDeposits, Subsurface,
+//                    Habitability, Anomalies)
+//   `tier`        — 0..5; 0 = "none", 5 = "fully characterized"
+//   `description` — one-line dossier tooltip for this (dimension,
+//                    tier) combination. Drives the player's mental
+//                    model of "what do I know at this tier?"
+//   `unlocks`     — gameplay unlocks at this tier. Examples:
+//                    "first_named_anomaly", "mining_unlocked",
+//                    "drill_targettable", "biological_assay_ready".
+//                    Empty list if purely informational.
+//
+// Source of truth: SURVEY_REWORK.md §6 (Tier semantics per dimension).
+// The 8 × 6 = 48 rows below are a literal transcription of that
+// table's right-hand columns, plus an `unlocks` interpretation that
+// gates the gameplay effects the design calls out:
+//
+//   - MineralDeposits tier 2 = "suspected" (unlocks mining at 40%)
+//   - MineralDeposits tier 3 = "first site pin"
+//   - MineralDeposits tier 4 = "3 sites pinned" (unlocks full yield)
+//   - Subsurface tier 3 = "shallow crust mapped" (unlocks
+//     deep_drill targeting)
+//   - Subsurface tier 5 = "mantle hints" (unlocks planetary bulk
+//     mining at 20%)
+//   - Atmosphere tier 3 = "breathability assessed" (unlocks
+//     atmospheric gas mining at 60%)
+//   - Anomalies tier 1 = "anomaly detected" (no name yet)
+//   - Anomalies tier 2 = "first named anomaly" (UI surfaces id)
+//
+// Modder rebalance: edit `description` strings for narrative tone,
+// or add new entries to `unlocks` to gate additional gameplay
+// without recompiling.
+(
+    tier_table: [
+        // ========== Orbital mechanics ==========
+        (
+            id: "OrbitalMech_t0",
+            dimension: OrbitalMech,
+            tier: 0,
+            description: "No data.",
+            unlocks: [],
+        ),
+        (
+            id: "OrbitalMech_t1",
+            dimension: OrbitalMech,
+            tier: 1,
+            description: "Mass, radius, orbit.",
+            unlocks: ["orbital_insertion_unlocked"],
+        ),
+        (
+            id: "OrbitalMech_t2",
+            dimension: OrbitalMech,
+            tier: 2,
+            description: "+ axial tilt, rotation.",
+            unlocks: [],
+        ),
+        (
+            id: "OrbitalMech_t3",
+            dimension: OrbitalMech,
+            tier: 3,
+            description: "+ moons, libration.",
+            unlocks: ["moon_targeting_unlocked"],
+        ),
+        (
+            id: "OrbitalMech_t4",
+            dimension: OrbitalMech,
+            tier: 4,
+            description: "+ dust/torus.",
+            unlocks: [],
+        ),
+        (
+            id: "OrbitalMech_t5",
+            dimension: OrbitalMech,
+            tier: 5,
+            description: "Full ephemeris.",
+            unlocks: ["high_precision_navigation"],
+        ),
+
+        // ========== Atmosphere ==========
+        (
+            id: "Atmosphere_t0",
+            dimension: Atmosphere,
+            tier: 0,
+            description: "No data.",
+            unlocks: [],
+        ),
+        (
+            id: "Atmosphere_t1",
+            dimension: Atmosphere,
+            tier: 1,
+            description: "Pressure, gross composition.",
+            unlocks: [],
+        ),
+        (
+            id: "Atmosphere_t2",
+            dimension: Atmosphere,
+            tier: 2,
+            description: "+ temperature, gas %.",
+            unlocks: [],
+        ),
+        (
+            id: "Atmosphere_t3",
+            dimension: Atmosphere,
+            tier: 3,
+            description: "+ breathability.",
+            unlocks: ["atmospheric_gas_mining_unlocked_60pct"],
+        ),
+        (
+            id: "Atmosphere_t4",
+            dimension: Atmosphere,
+            tier: 4,
+            description: "+ escape velocity, weather.",
+            unlocks: [],
+        ),
+        (
+            id: "Atmosphere_t5",
+            dimension: Atmosphere,
+            tier: 5,
+            description: "Full climate model.",
+            unlocks: ["atmospheric_gas_mining_full_yield"],
+        ),
+
+        // ========== Surface features ==========
+        (
+            id: "SurfaceFeatures_t0",
+            dimension: SurfaceFeatures,
+            tier: 0,
+            description: "No data.",
+            unlocks: [],
+        ),
+        (
+            id: "SurfaceFeatures_t1",
+            dimension: SurfaceFeatures,
+            tier: 1,
+            description: "Crater density.",
+            unlocks: [],
+        ),
+        (
+            id: "SurfaceFeatures_t2",
+            dimension: SurfaceFeatures,
+            tier: 2,
+            description: "+ major features (oceans, ice caps).",
+            unlocks: [],
+        ),
+        (
+            id: "SurfaceFeatures_t3",
+            dimension: SurfaceFeatures,
+            tier: 3,
+            description: "+ minor features.",
+            unlocks: ["lander_targetting_unlocked"],
+        ),
+        (
+            id: "SurfaceFeatures_t4",
+            dimension: SurfaceFeatures,
+            tier: 4,
+            description: "+ surface age.",
+            unlocks: [],
+        ),
+        (
+            id: "SurfaceFeatures_t5",
+            dimension: SurfaceFeatures,
+            tier: 5,
+            description: "Full topographic map.",
+            unlocks: ["rover_pathfinding_optimized"],
+        ),
+
+        // ========== Mineral classes ==========
+        (
+            id: "MineralClasses_t0",
+            dimension: MineralClasses,
+            tier: 0,
+            description: "No data.",
+            unlocks: [],
+        ),
+        (
+            id: "MineralClasses_t1",
+            dimension: MineralClasses,
+            tier: 1,
+            description: "Family hints (silicates?).",
+            unlocks: [],
+        ),
+        (
+            id: "MineralClasses_t2",
+            dimension: MineralClasses,
+            tier: 2,
+            description: "+ class (carbonaceous?).",
+            unlocks: [],
+        ),
+        (
+            id: "MineralClasses_t3",
+            dimension: MineralClasses,
+            tier: 3,
+            description: "+ specific minerals (olivine).",
+            unlocks: ["targeted_prospecting_unlocked"],
+        ),
+        (
+            id: "MineralClasses_t4",
+            dimension: MineralClasses,
+            tier: 4,
+            description: "+ deposit type.",
+            unlocks: [],
+        ),
+        (
+            id: "MineralClasses_t5",
+            dimension: MineralClasses,
+            tier: 5,
+            description: "Full mineral map.",
+            unlocks: ["sample_return_high_yield"],
+        ),
+
+        // ========== Mineral deposits ==========
+        (
+            id: "MineralDeposits_t0",
+            dimension: MineralDeposits,
+            tier: 0,
+            description: "No data.",
+            unlocks: [],
+        ),
+        (
+            id: "MineralDeposits_t1",
+            dimension: MineralDeposits,
+            tier: 1,
+            description: "—",
+            unlocks: [],
+        ),
+        (
+            id: "MineralDeposits_t2",
+            dimension: MineralDeposits,
+            tier: 2,
+            description: "Suspected.",
+            unlocks: ["mining_unlocked_shallow_ore_40pct"],
+        ),
+        (
+            id: "MineralDeposits_t3",
+            dimension: MineralDeposits,
+            tier: 3,
+            description: "+ 1 site.",
+            unlocks: ["first_deposit_pinned"],
+        ),
+        (
+            id: "MineralDeposits_t4",
+            dimension: MineralDeposits,
+            tier: 4,
+            description: "+ 3 sites.",
+            unlocks: ["mining_full_yield_shallow_ore"],
+        ),
+        (
+            id: "MineralDeposits_t5",
+            dimension: MineralDeposits,
+            tier: 5,
+            description: "+ concentration, depth.",
+            unlocks: ["deep_deposit_targettable"],
+        ),
+
+        // ========== Subsurface structure ==========
+        (
+            id: "Subsurface_t0",
+            dimension: Subsurface,
+            tier: 0,
+            description: "No data.",
+            unlocks: [],
+        ),
+        (
+            id: "Subsurface_t1",
+            dimension: Subsurface,
+            tier: 1,
+            description: "—",
+            unlocks: [],
+        ),
+        (
+            id: "Subsurface_t2",
+            dimension: Subsurface,
+            tier: 2,
+            description: "—",
+            unlocks: [],
+        ),
+        (
+            id: "Subsurface_t3",
+            dimension: Subsurface,
+            tier: 3,
+            description: "Shallow crust.",
+            unlocks: ["deep_drill_targettable"],
+        ),
+        (
+            id: "Subsurface_t4",
+            dimension: Subsurface,
+            tier: 4,
+            description: "+ deep crust.",
+            unlocks: ["deep_deposit_mining_30pct"],
+        ),
+        (
+            id: "Subsurface_t5",
+            dimension: Subsurface,
+            tier: 5,
+            description: "Mantle hints.",
+            unlocks: ["planetary_bulk_mining_unlocked_20pct"],
+        ),
+
+        // ========== Habitability ==========
+        (
+            id: "Habitability_t0",
+            dimension: Habitability,
+            tier: 0,
+            description: "No data.",
+            unlocks: [],
+        ),
+        (
+            id: "Habitability_t1",
+            dimension: Habitability,
+            tier: 1,
+            description: "—",
+            unlocks: [],
+        ),
+        (
+            id: "Habitability_t2",
+            dimension: Habitability,
+            tier: 2,
+            description: "—",
+            unlocks: [],
+        ),
+        (
+            id: "Habitability_t3",
+            dimension: Habitability,
+            tier: 3,
+            description: "Soil chemistry.",
+            unlocks: ["biological_assay_unlocked"],
+        ),
+        (
+            id: "Habitability_t4",
+            dimension: Habitability,
+            tier: 4,
+            description: "+ water availability.",
+            unlocks: ["colony_terraforming_preview"],
+        ),
+        (
+            id: "Habitability_t5",
+            dimension: Habitability,
+            tier: 5,
+            description: "Full biological assay.",
+            unlocks: ["habitable_body_flagged"],
+        ),
+
+        // ========== Anomalies ==========
+        (
+            id: "Anomalies_t0",
+            dimension: Anomalies,
+            tier: 0,
+            description: "No anomalies detected.",
+            unlocks: [],
+        ),
+        (
+            id: "Anomalies_t1",
+            dimension: Anomalies,
+            tier: 1,
+            description: "Anomaly detected (untyped).",
+            unlocks: ["anomaly_alert_logged"],
+        ),
+        (
+            id: "Anomalies_t2",
+            dimension: Anomalies,
+            tier: 2,
+            description: "+ 1 named anomaly.",
+            unlocks: ["anomaly_dossier_entry_surfaced"],
+        ),
+        (
+            id: "Anomalies_t3",
+            dimension: Anomalies,
+            tier: 3,
+            description: "+ multiple named.",
+            unlocks: ["anomaly_follow_up_mission_unlocked"],
+        ),
+        (
+            id: "Anomalies_t4",
+            dimension: Anomalies,
+            tier: 4,
+            description: "Refined catalog.",
+            unlocks: [],
+        ),
+        (
+            id: "Anomalies_t5",
+            dimension: Anomalies,
+            tier: 5,
+            description: "Full catalog.",
+            unlocks: ["trace_isotope_mining_unlocked_10pct"],
+        ),
+    ],
+)

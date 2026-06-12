@@ -1,0 +1,40 @@
+// Modder-added anomaly types (GRA-98 / v0.5.0 survey rework).
+//
+// Loads into `SurveyAnomalyRegistry::modder_anomalies` (see
+// `src/survey/data.rs`, GRA-79 PR-A scaffold). The nine hardcoded
+// anomaly types in `AnomalyType` are always known to the binary
+// and are NOT in this file:
+//
+//   WaterIceDeposit, HydratedSilicates, MethanePlume, TholinSignature,
+//   MagneticAnomaly, RadioactiveHotspot, FossilMicrobeSignature,
+//   CryovolcanicFeature, UnidentifiedReflectance
+//
+// See SURVEY_REWORK.md §[Anomalies and Discoveries] for the canonical
+// set, effects, and the coolness-vs-effect split (coolness is
+// independent of the gameplay unlock — a `fossil_microbe_signature` is
+// top-tier coolness for media coverage but is a research unlock, not
+// a building unlock).
+//
+// Field reference (mirrors `ModderAnomalyDef` in `data.rs`):
+//   `id`                — stable RON id (snake_case; matches
+//                         `AnomalyType::ron_id` convention)
+//   `display_name`      — UI label (≤ 32 chars preferred)
+//   `description`       — one-line dossier tooltip
+//   `discovery_method`  — which `SurveyMethod` is most likely to
+//                         surface this anomaly (drives the per-mission
+//                         discovery roll; secondary methods can also
+//                         surface with lower probability)
+//   `coolness`          — "coolness" weight for media coverage, in
+//                         [0.0, 1.0]. Independent of gameplay effect
+//                         per SURVEY_REWORK §[Coolness weighting].
+//
+// Modder rebalance: adjust `coolness` to bias the media narrative
+// toward/away from this anomaly; pick a more accessible
+// `discovery_method` to make the anomaly easier to find.
+//
+// v0.5.0 ships with zero modder anomalies — this file exists so the
+// modder path is exercisable from day one.
+(
+    modder_anomalies: [
+    ],
+)
