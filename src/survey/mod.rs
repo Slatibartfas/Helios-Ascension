@@ -25,9 +25,9 @@ pub mod types;
 pub mod visibility;
 
 pub use components::{
-    ActiveSurveyMission, AnalysisJob, DetectedAnomaly, DimensionFidelity, ExtractionSite,
-    LandingSite, SiteScoreWeights, SiteScores, SurveyState, LANDING_SITE_EVAL_THRESHOLD,
-    MAX_SITES_PER_BODY, MIN_SITES_PER_BODY,
+    ActiveSurveyMission, AnalysisJob, ContinuousStationBonus, ContinuousSurveyStation,
+    DetectedAnomaly, DimensionFidelity, ExtractionSite, LandingSite, SiteScoreWeights, SiteScores,
+    SurveyState, LANDING_SITE_EVAL_THRESHOLD, MAX_SITES_PER_BODY, MIN_SITES_PER_BODY,
 };
 pub use data::{
     load_mission_templates, AnalysisQueueIndex, MiningEfficiencyRegistry, MiningEfficiencyRow,
@@ -37,14 +37,15 @@ pub use data::{
 };
 pub use events::{AbortSurveyMission, DispatchSurveyMission, SurveyEvent};
 pub use systems::{
-    abort_survey_mission, advance_survey_missions, decay_survey_confidence,
-    dispatch_survey_mission, evaluate_landing_sites, process_analysis_queue,
-    surface_anomaly_events, update_survey_summary, SimulationTime, INJURY_DURATION_DAYS,
+    abort_survey_mission, advance_survey_missions, apply_continuous_station_bonus,
+    decay_survey_confidence, dispatch_survey_mission, evaluate_landing_sites,
+    process_analysis_queue, surface_anomaly_events, update_survey_summary, SimulationTime,
+    INJURY_DURATION_DAYS,
 };
 pub use types::{
-    AnomalyType, MissionFailureReason, MissionStatus, SurveyDimension, SurveyMethod,
-    CONFIDENCE_DECAY_PER_YEAR, INITIAL_CONFIDENCE, MAX_TIER, STALE_CONFIDENCE,
-    SURVEY_DAYS_PER_YEAR, WARNING_CONFIDENCE,
+    axis_advance_rate_for_tier, mining_yield_delta_for_tier, AnomalyType, MissionFailureReason,
+    MissionStatus, SurveyDimension, SurveyMethod, CONFIDENCE_DECAY_PER_YEAR, INITIAL_CONFIDENCE,
+    MAX_TIER, STALE_CONFIDENCE, SURVEY_DAYS_PER_YEAR, WARNING_CONFIDENCE,
 };
 pub use visibility::{estimate_with_fidelity, is_stale, DepositEstimate, DepositVisibility};
 
@@ -107,6 +108,7 @@ impl Plugin for SurveyPlugin {
                     process_analysis_queue,
                     surface_anomaly_events,
                     evaluate_landing_sites,
+                    apply_continuous_station_bonus,
                     update_survey_summary,
                 )
                     .chain(),

@@ -292,6 +292,42 @@ pub const INITIAL_CONFIDENCE: f32 = 0.5;
 /// convert elapsed sim-time to decay multipliers.
 pub const SURVEY_DAYS_PER_YEAR: f64 = 365.25;
 
+// ── GRA-83 PR-E: Continuous orbital survey station tier table ────────────
+
+/// Per-tier axis-advance rate per sim-year, applied to *every*
+/// dimension on the orbited body by
+/// [`apply_continuous_station_bonus`](super::systems::apply_continuous_station_bonus).
+/// The CTO recipe locks the tier-1 rate at `0.05` and the tier-3
+/// cap at `0.10`; tier-2 sits at the midpoint.
+///
+/// `0` is returned for unknown tiers — defends against a buggy RON
+/// or a future tier-0 stub. Multiple stations stack additively.
+pub fn axis_advance_rate_for_tier(tier: u8) -> f32 {
+    match tier {
+        1 => 0.05,
+        2 => 0.075,
+        3 => 0.10,
+        _ => 0.0,
+    }
+}
+
+/// Per-tier mining yield *delta* (additive to a base of 1.0). The
+/// cached [`ContinuousStationBonus::mining_yield_multiplier`](super::components::ContinuousStationBonus)
+/// is `1.0 + Σ deltas` across every station orbiting the body.
+///
+/// Two tier-1 stations on Mars stack to `1.0 + 0.05 + 0.05 = 1.10`
+/// (10% bonus). A tier-1 and a tier-2 stack to `1.0 + 0.05 + 0.10
+/// = 1.15`. The CTO recipe locks the tier-1 delta at 0.05 and the
+/// tier-3 delta at 0.15.
+pub fn mining_yield_delta_for_tier(tier: u8) -> f32 {
+    match tier {
+        1 => 0.05,
+        2 => 0.10,
+        3 => 0.15,
+        _ => 0.0,
+    }
+}
+
 // ── Anomaly confidence model (PR-C, r2 design) ────────────────────────
 
 /// Lifecycle of a single detected anomaly on a body.

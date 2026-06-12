@@ -141,6 +141,12 @@ pub enum BuildingType {
     // Storage
     /// Bulk resource depot expanding civilisation-wide stockpile capacity
     Warehouse,
+
+    // Survey (v0.5.0, GRA-83 PR-E)
+    /// Permanent orbital installation that continuously surveys the host
+    /// body and grants a mining yield bonus to local mines. Per-body:
+    /// effect does not transfer to moons or parent planets.
+    OrbitalSurveyStation,
 }
 
 impl BuildingType {
@@ -199,6 +205,7 @@ impl BuildingType {
             SpacePort,
             GroundDefenseBattery,
             Warehouse,
+            OrbitalSurveyStation,
         ]
     }
 
@@ -256,6 +263,7 @@ impl BuildingType {
             BuildingType::SpacePort => "Space Port",
             BuildingType::GroundDefenseBattery => "Ground Defense Battery",
             BuildingType::Warehouse => "Resource Depot",
+            BuildingType::OrbitalSurveyStation => "Orbital Survey Station",
         }
     }
     pub fn description(&self) -> &'static str {
@@ -313,6 +321,9 @@ impl BuildingType {
             BuildingType::SpacePort => "High-throughput orbital launch complex with multiple pads",
             BuildingType::GroundDefenseBattery => "Anti-orbital and anti-missile ground defense installation",
             BuildingType::Warehouse => "Bulk storage depot that expands global resource stockpile capacity by 2.5% per depot",
+            BuildingType::OrbitalSurveyStation => {
+                "Permanent orbital installation that continuously surveys the host body and boosts local mining yield. Place in orbit of a single body; effect does not transfer to moons or parent planets."
+            }
         }
     }
 
@@ -403,6 +414,11 @@ impl BuildingType {
             // ── Advanced Industry ────────────────────────────────────────
             BuildingType::RecyclingCenter => &["+3.2% mining efficiency", "Reduces waste"],
             BuildingType::Warehouse => &["+2.5% global stockpile capacity"],
+            BuildingType::OrbitalSurveyStation => &[
+                "Continuous low-yield survey of the host body",
+                "+5/10/15% mining yield (tier 1/2/3) on local mines",
+                "Per-body isolation — does not affect moons or parent planet",
+            ],
         }
     }
 
@@ -460,6 +476,7 @@ impl BuildingType {
             BuildingType::SpacePort => "🚀",
             BuildingType::GroundDefenseBattery => "🛡️",
             BuildingType::Warehouse => "🏗",
+            BuildingType::OrbitalSurveyStation => "🛰",
         }
     }
 
@@ -517,6 +534,7 @@ impl BuildingType {
             | BuildingType::SpacePort
             | BuildingType::GroundDefenseBattery => BuildingCategory::Military,
             BuildingType::Warehouse => BuildingCategory::Logistics,
+            BuildingType::OrbitalSurveyStation => BuildingCategory::Research,
         }
     }
 
@@ -574,6 +592,7 @@ impl BuildingType {
             BuildingType::SpacePort => 4000.0,
             BuildingType::GroundDefenseBattery => 2500.0,
             BuildingType::Warehouse => 300.0,
+            BuildingType::OrbitalSurveyStation => 1200.0,
         }
     }
 
@@ -652,6 +671,8 @@ impl BuildingType {
             BuildingType::GroundDefenseBattery => 3_000,
             // Storage
             BuildingType::Warehouse => 1_000,
+            // Survey (v0.5.0, GRA-83 PR-E)
+            BuildingType::OrbitalSurveyStation => 500,
         }
     }
 
@@ -677,6 +698,7 @@ impl BuildingType {
             BuildingType::DesalinationPlant => Some("desalination"),
             BuildingType::DataCenter => Some("neural_networks"),
             BuildingType::GroundDefenseBattery => Some("missile_systems"),
+            BuildingType::OrbitalSurveyStation => Some("advanced_radar"),
             _ => None,
         }
     }
@@ -761,7 +783,7 @@ mod tests {
     #[test]
     fn test_building_type_all() {
         let all = BuildingType::all();
-        assert_eq!(all.len(), 51, "Should have exactly 51 building types");
+        assert_eq!(all.len(), 52, "Should have exactly 52 building types");
     }
 
     #[test]

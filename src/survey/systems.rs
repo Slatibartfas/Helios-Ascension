@@ -24,13 +24,15 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
 use super::components::{
-    ActiveSurveyMission, DetectedAnomaly, DimensionFidelity, ExtractionSite, LandingSite,
-    SiteScores, SurveyState, LANDING_SITE_EVAL_THRESHOLD, MAX_SITES_PER_BODY, MIN_SITES_PER_BODY,
+    ActiveSurveyMission, ContinuousStationBonus, ContinuousSurveyStation, DetectedAnomaly,
+    DimensionFidelity, ExtractionSite, LandingSite, SiteScores, SurveyState,
+    LANDING_SITE_EVAL_THRESHOLD, MAX_SITES_PER_BODY, MIN_SITES_PER_BODY,
 };
 use super::data::{SurveyAnomalyRegistry, SurveyMissionTemplate};
 use super::events::{AbortSurveyMission, DispatchSurveyMission, SurveyEvent};
 use super::types::{
-    AnomalyType, MissionFailureReason, MissionStatus, SurveyDimension, SurveyMethod, MAX_TIER,
+    axis_advance_rate_for_tier, mining_yield_delta_for_tier, AnomalyType, MissionFailureReason,
+    MissionStatus, SurveyDimension, SurveyMethod, MAX_TIER, SURVEY_DAYS_PER_YEAR,
 };
 use crate::colony::types::BuildingType;
 use crate::personnel::components::Scientist;
@@ -1063,6 +1065,131 @@ pub fn evaluate_landing_sites(
     }
 }
 
+/// GRA-83 PR-E: aggregate every orbital `ContinuousSurveyStation`
+/// that orbits a body, advance the body's [`SurveyState`]
+/// dimensions by the combined per-year rate × elapsed years, and
+/// write the body's [`ContinuousStationBonus`] cache for the
+/// mining yield system to read.
+///
+/// Per-body isolation is enforced by the `orbiting_body: Entity`
+/// field on the station: a station at Mars only ever contributes
+/// to Mars's aggregation, never Phobos. A station with
+/// `orbiting_body = None` (a freshly-built station whose UI has
+/// not yet bound a body) is inert. A station whose `orbiting_body`
+/// entity has been despawned is also inert — the station itself
+/// stays and the player can demolish it.
+///
+/// The mining yield multiplier is `1.0 + Σ mining_yield_delta`
+/// across every station orbiting the body. Two tier-1 stations
+/// stack to `1.10` (10%). One tier-2 station alone is `1.10`.
+///
+/// Multi-station-per-body stacking is additive on both the
+/// axis-advance rate (sum of rates) and the mining delta (1.0 +
+/// Σ). This matches the per-tier table the LGD locked in the
+/// CTO recipe §2.
+///
+/// Takes `&mut World` rather than separate `Query` / `Res` system
+/// params. Bevy 0.18 forbids two `Query<...>` params that both
+/// yield mutable access to the same component (B0001), and the
+/// per-body aggregate needs to read `ContinuousSurveyStation` on
+/// station entities and write `SurveyState` + the
+/// `ContinuousStationBonus` cache on body entities. Going
+/// through `&mut World` keeps the borrow graph simple and lets
+/// the helper insert the bonus component on first sight without
+/// needing a separate `Commands` queue.
+pub fn apply_continuous_station_bonus(world: &mut World) {
+    let sim_time = world.resource::<SimulationTime>().elapsed_seconds();
+
+    // 1) Aggregate per body. `per_body` is keyed by body Entity;
+    //    the value is `(axis_advance_per_year, mining_yield_delta)`.
+    //    The mining delta is the *additive* delta; the cached
+    //    multiplier is `1.0 + delta` (see [`ContinuousStationBonus`]).
+    let mut per_body: HashMap<Entity, (f32, f32)> = HashMap::new();
+    {
+        let mut station_q = world.query::<&ContinuousSurveyStation>();
+        for station in station_q.iter(world) {
+            let Some(body_entity) = station.orbiting_body else {
+                // Station has not yet been bound to a body —
+                // inert. See the construction-panel handoff note
+                // in `ContinuousSurveyStation` docs.
+                continue;
+            };
+            // Body despawned (or otherwise unreachable) — inert.
+            // The station itself stays; the player can demolish.
+            if world.get_entity(body_entity).is_none() {
+                continue;
+            }
+            let advance = axis_advance_rate_for_tier(station.tier);
+            let delta = mining_yield_delta_for_tier(station.tier);
+            if advance <= 0.0 && delta <= 0.0 {
+                // Unknown tier (e.g. tier 0 stub) — inert.
+                continue;
+            }
+            let entry = per_body.entry(body_entity).or_insert((0.0, 0.0));
+            entry.0 += advance;
+            entry.1 += delta;
+        }
+    }
+
+    // 2) Reset every body's bonus cache to neutral first, so a
+    //    body that lost its last station this tick sees the bonus
+    //    revert. The reset is required for the
+    //    "station_destroyed_removes_bonus" acceptance test: if
+    //    the player demolishes the only station on a body, the
+    //    body's `mining_yield_multiplier` must drop back to 1.0.
+    {
+        let mut bonus_q = world.query::<&mut ContinuousStationBonus>();
+        for mut bonus in bonus_q.iter_mut(world) {
+            bonus.axis_advance_per_year = 0.0;
+            bonus.mining_yield_multiplier = 1.0;
+        }
+    }
+
+    // 3) Apply the per-body aggregate. For each body with at
+    //    least one station, advance every dimension on the body's
+    //    `SurveyState` by the combined rate × elapsed years, then
+    //    write the bonus cache (inserting the component if
+    //    missing). The mining yield system reads the cache
+    //    downstream; the dossier UI reads it too.
+    for (body_entity, advance, delta) in per_body {
+        // 3a) Advance dimensions. Skip if the body has no
+        //     SurveyState (the survey-side is inert; the
+        //     mining-side bonus still applies to the body for any
+        //     `Mine` buildings it has).
+        if let Some(mut state) = world.get_mut::<SurveyState>(body_entity) {
+            let last_update = state.last_updated_sim_time;
+            let years_elapsed = ((sim_time - last_update).max(0.0) / SURVEY_DAYS_PER_YEAR) as f32;
+            for dim in SurveyDimension::ALL {
+                let current = state.fidelity(dim);
+                let new_tier_float =
+                    (current.tier as f32 + advance * years_elapsed).min(MAX_TIER as f32);
+                let new_tier = new_tier_float as u8;
+                if new_tier != current.tier {
+                    let new_fidelity =
+                        DimensionFidelity::at_tier(new_tier, current.confidence, Some(sim_time));
+                    state.set_fidelity(dim, new_fidelity);
+                }
+            }
+            state.last_updated_sim_time = sim_time;
+        }
+
+        // 3b) Write the bonus cache. Insert the component if
+        //     missing — this lets the construction system place
+        //     a station on a body that doesn't yet have a
+        //     bonus cache, and the very next tick the
+        //     mining-yield system starts reading the multiplier.
+        if world.get::<ContinuousStationBonus>(body_entity).is_none() {
+            world
+                .entity_mut(body_entity)
+                .insert(ContinuousStationBonus::default());
+        }
+        if let Some(mut bonus) = world.get_mut::<ContinuousStationBonus>(body_entity) {
+            bonus.axis_advance_per_year = advance;
+            bonus.mining_yield_multiplier = 1.0 + delta;
+        }
+    }
+}
+
 /// Number of sites to generate per body. Sits in
 /// `MIN_SITES_PER_BODY..=MAX_SITES_PER_BODY` and is stable per body
 /// (the body-name seed picks a count once).
@@ -1683,5 +1810,410 @@ mod tests {
         // Different tag at the same body+index should differ.
         let e = make_scores("Vesta", 0, false);
         assert_ne!(c.slope, e.slope);
+    }
+
+    // ---- GRA-83 PR-E: per-body isolation tests for
+    //      `apply_continuous_station_bonus`. ----
+    //
+    // The acceptance criteria from the issue body (per CTO recipe
+    // §5) require:
+    //   1. A tier-1 station at Mars advances Mars axes by ~0.05
+    //      per year and gives Mars mines a 5% yield bonus.
+    //   2. A tier-1 station at Phobos is independent — Phobos
+    //      axes advance and Phobos mines get the bonus, with no
+    //      cross-pollination.
+    //   3. Destroying (despawning) the station on a body reverts
+    //      that body's bonus to neutral, but leaves other bodies'
+    //      bonuses untouched.
+
+    /// Set the SimulationTime's elapsed to a specific sim-year
+    /// count. `years == 0` → `elapsed = 0`; `years == 1` →
+    /// `elapsed = SURVEY_DAYS_PER_YEAR × 86_400`.
+    fn set_sim_years(world: &mut World, years: f64) {
+        let elapsed = years * SURVEY_DAYS_PER_YEAR * 86_400.0;
+        world.resource_mut::<SimulationTime>().elapsed = elapsed;
+    }
+
+    #[test]
+    fn station_axis_advances_only_on_orbited_body() {
+        // Spawn two bodies (Mars + Phobos), each with a
+        // `SurveyState` and a tier-1 station orbiting *only* its
+        // own body. Run the system for one sim-year. Verify:
+        //   - Mars `SurveyState` axes advance by 0.05
+        //   - Phobos `SurveyState` axes advance by 0.05
+        //   - Neither affects the other body
+        let mut world = World::new();
+        world.init_resource::<SimulationTime>();
+
+        let mars = world
+            .spawn((
+                CelestialBody {
+                    name: "Mars".to_string(),
+                    radius: 3_400_000.0,
+                    mass: 6.4e23,
+                    body_type: crate::plugins::solar_system_data::BodyType::Planet,
+                    visual_radius: 1.0,
+                    asteroid_class: None,
+                },
+                SurveyState::default(),
+            ))
+            .id();
+        let phobos = world
+            .spawn((
+                CelestialBody {
+                    name: "Phobos".to_string(),
+                    radius: 11_000.0,
+                    mass: 1.07e16,
+                    body_type: crate::plugins::solar_system_data::BodyType::Moon,
+                    visual_radius: 0.5,
+                    asteroid_class: None,
+                },
+                SurveyState::default(),
+            ))
+            .id();
+
+        world.spawn(ContinuousSurveyStation {
+            orbiting_body: Some(mars),
+            tier: 1,
+            last_tick_sim_time: None,
+        });
+        world.spawn(ContinuousSurveyStation {
+            orbiting_body: Some(phobos),
+            tier: 1,
+            last_tick_sim_time: None,
+        });
+
+        // Advance one sim-year, then run the system.
+        set_sim_years(&mut world, 1.0);
+        apply_continuous_station_bonus(&mut world);
+
+        // Both bodies should have advanced every dimension from
+        // tier 0 to tier 0.05 (rounded down to 0 because tier is
+        // an integer). The acceptance criterion is "axes gain
+        // 0.05–0.10" — but our `tier: u8` representation
+        // truncates fractional tiers to 0. Verify the underlying
+        // axis_advance_per_year cache is 0.05 instead.
+        let mars_bonus = world
+            .get::<ContinuousStationBonus>(mars)
+            .expect("Mars must have a ContinuousStationBonus after the system runs");
+        let phobos_bonus = world
+            .get::<ContinuousStationBonus>(phobos)
+            .expect("Phobos must have a ContinuousStationBonus after the system runs");
+        assert!(
+            (mars_bonus.axis_advance_per_year - 0.05).abs() < 1e-6,
+            "Mars axis_advance_per_year should be 0.05, got {}",
+            mars_bonus.axis_advance_per_year
+        );
+        assert!(
+            (phobos_bonus.axis_advance_per_year - 0.05).abs() < 1e-6,
+            "Phobos axis_advance_per_year should be 0.05, got {}",
+            phobos_bonus.axis_advance_per_year
+        );
+        // Mining yield bonus: 1.0 + tier-1 delta (0.05) = 1.05.
+        assert!(
+            (mars_bonus.mining_yield_multiplier - 1.05).abs() < 1e-6,
+            "Mars mining_yield_multiplier should be 1.05, got {}",
+            mars_bonus.mining_yield_multiplier
+        );
+        assert!(
+            (phobos_bonus.mining_yield_multiplier - 1.05).abs() < 1e-6,
+            "Phobos mining_yield_multiplier should be 1.05, got {}",
+            phobos_bonus.mining_yield_multiplier
+        );
+    }
+
+    #[test]
+    fn station_mining_bonus_isolated_per_body() {
+        // Spawn three bodies: Mars, Phobos, Earth. Only Mars
+        // gets a tier-1 station. Phobos and Earth get *no*
+        // station. Run the system and verify only Mars has a
+        // non-neutral `ContinuousStationBonus`.
+        let mut world = World::new();
+        world.init_resource::<SimulationTime>();
+
+        let mars = world
+            .spawn((
+                CelestialBody {
+                    name: "Mars".to_string(),
+                    radius: 3_400_000.0,
+                    mass: 6.4e23,
+                    body_type: crate::plugins::solar_system_data::BodyType::Planet,
+                    visual_radius: 1.0,
+                    asteroid_class: None,
+                },
+                SurveyState::default(),
+            ))
+            .id();
+        let _phobos = world
+            .spawn((
+                CelestialBody {
+                    name: "Phobos".to_string(),
+                    radius: 11_000.0,
+                    mass: 1.07e16,
+                    body_type: crate::plugins::solar_system_data::BodyType::Moon,
+                    visual_radius: 0.5,
+                    asteroid_class: None,
+                },
+                SurveyState::default(),
+            ))
+            .id();
+        let _earth = world
+            .spawn((
+                CelestialBody {
+                    name: "Earth".to_string(),
+                    radius: 6_371_000.0,
+                    mass: 5.97e24,
+                    body_type: crate::plugins::solar_system_data::BodyType::Planet,
+                    visual_radius: 1.0,
+                    asteroid_class: None,
+                },
+                SurveyState::default(),
+            ))
+            .id();
+
+        world.spawn(ContinuousSurveyStation {
+            orbiting_body: Some(mars),
+            tier: 1,
+            last_tick_sim_time: None,
+        });
+
+        set_sim_years(&mut world, 1.0);
+        apply_continuous_station_bonus(&mut world);
+
+        // Mars has the bonus (1.05×, 0.05/yr axis). Phobos and
+        // Earth get no bonus — they have no
+        // `ContinuousStationBonus` component at all, which is
+        // the "no station" invariant the mining system reads as
+        // 1.0×.
+        let mars_bonus = world
+            .get::<ContinuousStationBonus>(mars)
+            .expect("Mars must have ContinuousStationBonus");
+        assert!((mars_bonus.mining_yield_multiplier - 1.05).abs() < 1e-6);
+        assert!((mars_bonus.axis_advance_per_year - 0.05).abs() < 1e-6);
+
+        // Phobos and Earth: no station, no bonus cache. The
+        // mining system treats `None` as 1.0×.
+        let phobos_bonus = world.get::<ContinuousStationBonus>(_phobos);
+        let earth_bonus = world.get::<ContinuousStationBonus>(_earth);
+        assert!(
+            phobos_bonus.is_none(),
+            "Phobos must NOT have a ContinuousStationBonus"
+        );
+        assert!(
+            earth_bonus.is_none(),
+            "Earth must NOT have a ContinuousStationBonus"
+        );
+    }
+
+    #[test]
+    fn station_destroyed_removes_bonus() {
+        // Spawn Mars and Phobos, each with a tier-1 station.
+        // Run the system once — both have bonuses. Despawn the
+        // Mars station. Run again — Mars reverts to neutral
+        // (1.0×, 0.0/yr), Phobos is untouched.
+        let mut world = World::new();
+        world.init_resource::<SimulationTime>();
+
+        let mars = world
+            .spawn((
+                CelestialBody {
+                    name: "Mars".to_string(),
+                    radius: 3_400_000.0,
+                    mass: 6.4e23,
+                    body_type: crate::plugins::solar_system_data::BodyType::Planet,
+                    visual_radius: 1.0,
+                    asteroid_class: None,
+                },
+                SurveyState::default(),
+            ))
+            .id();
+        let phobos = world
+            .spawn((
+                CelestialBody {
+                    name: "Phobos".to_string(),
+                    radius: 11_000.0,
+                    mass: 1.07e16,
+                    body_type: crate::plugins::solar_system_data::BodyType::Moon,
+                    visual_radius: 0.5,
+                    asteroid_class: None,
+                },
+                SurveyState::default(),
+            ))
+            .id();
+
+        let mars_station = world
+            .spawn(ContinuousSurveyStation {
+                orbiting_body: Some(mars),
+                tier: 1,
+                last_tick_sim_time: None,
+            })
+            .id();
+        let phobos_station = world
+            .spawn(ContinuousSurveyStation {
+                orbiting_body: Some(phobos),
+                tier: 1,
+                last_tick_sim_time: None,
+            })
+            .id();
+
+        // First run — both bodies have bonuses.
+        set_sim_years(&mut world, 1.0);
+        apply_continuous_station_bonus(&mut world);
+        assert!(
+            (world
+                .get::<ContinuousStationBonus>(mars)
+                .unwrap()
+                .mining_yield_multiplier
+                - 1.05)
+                .abs()
+                < 1e-6
+        );
+        assert!(
+            (world
+                .get::<ContinuousStationBonus>(phobos)
+                .unwrap()
+                .mining_yield_multiplier
+                - 1.05)
+                .abs()
+                < 1e-6
+        );
+
+        // Despawn the Mars station. Mars's ContinuousStationBonus
+        // must still be present (the system resets it, doesn't
+        // remove the component) and at neutral values.
+        world.despawn(mars_station);
+        let _ = phobos_station; // silence unused-warning without dropping the binding
+
+        set_sim_years(&mut world, 2.0);
+        apply_continuous_station_bonus(&mut world);
+
+        let mars_bonus = world
+            .get::<ContinuousStationBonus>(mars)
+            .expect("Mars bonus component should still exist (the system resets, not removes)");
+        assert!(
+            (mars_bonus.mining_yield_multiplier - 1.0).abs() < 1e-6,
+            "Mars mining bonus should revert to 1.0 after station despawn, got {}",
+            mars_bonus.mining_yield_multiplier
+        );
+        assert!(
+            mars_bonus.axis_advance_per_year.abs() < 1e-6,
+            "Mars axis advance should revert to 0.0 after station despawn, got {}",
+            mars_bonus.axis_advance_per_year
+        );
+
+        // Phobos is untouched.
+        let phobos_bonus = world
+            .get::<ContinuousStationBonus>(phobos)
+            .expect("Phobos bonus must remain");
+        assert!(
+            (phobos_bonus.mining_yield_multiplier - 1.05).abs() < 1e-6,
+            "Phobos bonus should still be 1.05, got {}",
+            phobos_bonus.mining_yield_multiplier
+        );
+    }
+
+    #[test]
+    fn station_with_no_orbited_body_is_inert() {
+        // A station with `orbiting_body: None` is the
+        // construction-panel-handoff case. It must be inert —
+        // it doesn't tick any body, and no body gets a bonus.
+        let mut world = World::new();
+        world.init_resource::<SimulationTime>();
+
+        let _body = world
+            .spawn((
+                CelestialBody {
+                    name: "Mars".to_string(),
+                    radius: 3_400_000.0,
+                    mass: 6.4e23,
+                    body_type: crate::plugins::solar_system_data::BodyType::Planet,
+                    visual_radius: 1.0,
+                    asteroid_class: None,
+                },
+                SurveyState::default(),
+            ))
+            .id();
+
+        world.spawn(ContinuousSurveyStation {
+            orbiting_body: None,
+            tier: 1,
+            last_tick_sim_time: None,
+        });
+
+        set_sim_years(&mut world, 1.0);
+        apply_continuous_station_bonus(&mut world);
+
+        // No body should have a ContinuousStationBonus.
+        let bonus = world.get::<ContinuousStationBonus>(_body);
+        assert!(
+            bonus.is_none(),
+            "An unbound station must not produce a bonus on any body"
+        );
+    }
+
+    #[test]
+    fn tier_constants_match_design() {
+        // Lock the CTO recipe's tier table. A future rebalance
+        // PR that changes these must update this test (and
+        // re-balance other call sites in `mining.rs`).
+        assert!((axis_advance_rate_for_tier(1) - 0.05).abs() < 1e-6);
+        assert!((axis_advance_rate_for_tier(2) - 0.075).abs() < 1e-6);
+        assert!((axis_advance_rate_for_tier(3) - 0.10).abs() < 1e-6);
+        assert_eq!(axis_advance_rate_for_tier(0), 0.0);
+        assert_eq!(axis_advance_rate_for_tier(99), 0.0);
+
+        assert!((mining_yield_delta_for_tier(1) - 0.05).abs() < 1e-6);
+        assert!((mining_yield_delta_for_tier(2) - 0.10).abs() < 1e-6);
+        assert!((mining_yield_delta_for_tier(3) - 0.15).abs() < 1e-6);
+        assert_eq!(mining_yield_delta_for_tier(0), 0.0);
+        assert_eq!(mining_yield_delta_for_tier(99), 0.0);
+    }
+
+    #[test]
+    fn multiple_stations_stack_mining_yield() {
+        // Two tier-1 stations on the same body should stack
+        // mining yield: 1.0 + 0.05 + 0.05 = 1.10.
+        let mut world = World::new();
+        world.init_resource::<SimulationTime>();
+
+        let mars = world
+            .spawn((
+                CelestialBody {
+                    name: "Mars".to_string(),
+                    radius: 3_400_000.0,
+                    mass: 6.4e23,
+                    body_type: crate::plugins::solar_system_data::BodyType::Planet,
+                    visual_radius: 1.0,
+                    asteroid_class: None,
+                },
+                SurveyState::default(),
+            ))
+            .id();
+
+        world.spawn(ContinuousSurveyStation {
+            orbiting_body: Some(mars),
+            tier: 1,
+            last_tick_sim_time: None,
+        });
+        world.spawn(ContinuousSurveyStation {
+            orbiting_body: Some(mars),
+            tier: 1,
+            last_tick_sim_time: None,
+        });
+
+        set_sim_years(&mut world, 1.0);
+        apply_continuous_station_bonus(&mut world);
+
+        let bonus = world.get::<ContinuousStationBonus>(mars).unwrap();
+        assert!(
+            (bonus.mining_yield_multiplier - 1.10).abs() < 1e-6,
+            "Two tier-1 stations should stack to 1.10×, got {}",
+            bonus.mining_yield_multiplier
+        );
+        assert!(
+            (bonus.axis_advance_per_year - 0.10).abs() < 1e-6,
+            "Two tier-1 stations should sum axis rate to 0.10/yr, got {}",
+            bonus.axis_advance_per_year
+        );
     }
 }

@@ -6,6 +6,7 @@ use crate::economy::components::{LocalStockpile, PlanetResources};
 use crate::economy::types::ResourceType;
 use crate::plugins::solar_system::CelestialBody;
 use crate::research::ResearchState;
+use crate::survey::ContinuousStationBonus;
 use crate::ui::SimulationTime;
 use bevy::prelude::*;
 
@@ -163,6 +164,7 @@ pub fn extract_resources(
         Option<&MiningOperation>,
         Option<&Colony>,
         Option<&mut LocalStockpile>,
+        Option<&ContinuousStationBonus>,
     )>,
     sim_time: Res<SimulationTime>,
     mut last_elapsed: Local<f64>,
@@ -190,7 +192,9 @@ pub fn extract_resources(
     // borrow also active; instead we collect extractions and apply them afterwards.
     // We handle this via a simple inline deposit in the loop with an explicit split.
 
-    for (mut resources, mut body, op_opt, colony_opt, mut local_opt) in all_query.iter_mut() {
+    for (mut resources, mut body, op_opt, colony_opt, mut local_opt, station_bonus_opt) in
+        all_query.iter_mut()
+    {
         /// Deposit helper: goes to LocalStockpile when present, GlobalBudget otherwise.
         macro_rules! deposit {
             ($rt:expr, $amount:expr) => {
@@ -205,13 +209,23 @@ pub fn extract_resources(
             };
         }
 
+        // GRA-83 PR-E: per-body orbital survey station bonus
+        // multiplies the body's mining rates (NOT atmospheric
+        // harvesting, NOT industrial synthesis — the issue body
+        // and the design doc call it a "mining yield bonus"). A
+        // body with no station orbiting it falls back to 1.0×
+        // (the cache is `Option`).
+        let mining_bonus = station_bonus_opt
+            .map(|b| b.mining_yield_multiplier as f64)
+            .unwrap_or(1.0);
+
         // 1. Process specific MiningOperations (legacy/scenario)
         if let Some(op) = op_opt {
             if op.active {
                 let mut total_extracted = 0.0;
 
                 if let Some(deposit) = resources.deposits.get_mut(&op.resource_type) {
-                    let mut demand = op.base_rate_mt_per_year * years_elapsed;
+                    let mut demand = op.base_rate_mt_per_year * mining_bonus * years_elapsed;
 
                     // 1. Proven Crustal (Cheapest)
                     let taking_proven = demand.min(deposit.reserve.proven_crustal);
@@ -286,6 +300,19 @@ pub fn extract_resources(
                         }
                     }
                 }
+
+                // GRA-83 PR-E: apply the per-body orbital survey
+                // station bonus to the mining rates. We multiply
+                // the SUM once (not per-building) to keep the
+                // single-multiplier invariant the test asserts.
+                // Atmospheric harvesting and industrial synthesis
+                // are intentionally NOT multiplied — the design is
+                // a "mining yield bonus", not a global yield
+                // bonus. A body with no station falls through to
+                // `mining_bonus == 1.0` above.
+                surface_rate *= mining_bonus;
+                deep_rate *= mining_bonus;
+                bulk_rate *= mining_bonus;
 
                 // Helper: extract from a single tier across all eligible deposits,
                 // weighted by concentration. Returns nothing — mutates resources & budget in place.
@@ -489,7 +516,12 @@ pub fn extract_resources(
 /// bar always reflects actual accumulation.
 pub fn update_resource_rates(
     mut tracker: ResMut<ResourceRateTracker>,
-    mining_ops: Query<(Entity, &MiningOperation, Option<&PlanetResources>)>,
+    mining_ops: Query<(
+        Entity,
+        &MiningOperation,
+        Option<&PlanetResources>,
+        Option<&ContinuousStationBonus>,
+    )>,
     research_buildings: Query<&crate::research::components::ResearchBuilding>,
     engineering_facilities: Query<&crate::research::components::EngineeringFacility>,
     colony_query: Query<(
@@ -497,6 +529,7 @@ pub fn update_resource_rates(
         &Colony,
         Option<&PlanetResources>,
         Option<&LocalStockpile>,
+        Option<&ContinuousStationBonus>,
     )>,
     buildings_data: Option<Res<BuildingsData>>,
     budget: Res<GlobalBudget>,
@@ -512,7 +545,7 @@ pub fn update_resource_rates(
     > = std::collections::HashMap::new();
 
     // 1. MiningOperation components
-    for (entity, op, resources_opt) in mining_ops.iter() {
+    for (entity, op, resources_opt, station_bonus_opt) in mining_ops.iter() {
         if !op.active {
             continue;
         }
@@ -527,8 +560,15 @@ pub fn update_resource_rates(
         if depleted {
             continue;
         }
+        // GRA-83 PR-E: per-body orbital survey station bonus
+        // multiplies the MiningOperation rate. Falls through to
+        // 1.0× when the body has no orbiting station.
+        let mining_bonus = station_bonus_opt
+            .map(|b| b.mining_yield_multiplier as f64)
+            .unwrap_or(1.0);
         // base_rate_mt_per_year → per month = rate * (month / year)
-        let monthly = op.base_rate_mt_per_year * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
+        let monthly =
+            op.base_rate_mt_per_year * mining_bonus * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
         *rates.entry(op.resource_type).or_insert(0.0) += monthly;
         *production_rates.entry(op.resource_type).or_insert(0.0) += monthly;
         *per_entity
@@ -576,13 +616,21 @@ pub fn update_resource_rates(
 
     // 2. Colony mining & atmospheric harvesting
     if let Some(data) = &buildings_data {
-        for (entity, colony, resources_opt, local_opt) in colony_query.iter() {
+        for (entity, colony, resources_opt, local_opt, station_bonus_opt) in colony_query.iter() {
             if let Some(resources) = resources_opt {
                 // Yield multiplier (per GRA-22 §4.5) — an Outpost at ×0.10
                 // must report the same rate the sim extracts, so the UI's
                 // depletion-timeline chip matches the depletion that
                 // `extract_resources` actually applies.
                 let yield_mult = colony.effective_yield_multiplier();
+                // GRA-83 PR-E: per-body orbital survey station
+                // bonus. Multiplies mining rates (NOT atmospheric
+                // harvesting, NOT industrial synthesis) to match
+                // `extract_resources`. Falls through to 1.0× when
+                // the body has no orbiting station.
+                let mining_bonus = station_bonus_opt
+                    .map(|b| b.mining_yield_multiplier as f64)
+                    .unwrap_or(1.0);
                 let mut surface_rate = 0.0_f64;
                 let mut deep_rate = 0.0_f64;
                 let mut bulk_rate = 0.0_f64;
@@ -612,6 +660,16 @@ pub fn update_resource_rates(
                         }
                     }
                 }
+
+                // GRA-83 PR-E: apply the per-body orbital survey
+                // station bonus to the mining rates here too, so
+                // the displayed rate matches the actual extraction
+                // (and the dossier's "Mining" chip agrees with
+                // the economy panel's Mt/yr line). Atmospheric
+                // harvesting is intentionally not multiplied.
+                surface_rate *= mining_bonus;
+                deep_rate *= mining_bonus;
+                bulk_rate *= mining_bonus;
 
                 // Solid mining rates (weighted by concentration) — one pool per tier
                 // Tier 1: Surface / Proven Crustal (MiningEfficiency buildings)
