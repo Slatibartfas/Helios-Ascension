@@ -23,7 +23,8 @@ use helios_ascension::survey::types::{
     AnomalyState, AnomalyType, DATA_POINT_CONFIDENCE_BUMP, DEFAULT_ACTIVATION_THRESHOLD,
 };
 use helios_ascension::ui::time::SimulationTime;
-use rand::Rng;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 
 /// Build a Bevy `App` with the survey registries initialized and the
 /// `surface_anomaly_events` system registered. The `SimulationTime`
@@ -94,11 +95,15 @@ fn detection_roll_false_positive_rate_within_tolerance() {
     let n = 1000usize;
     let mut false_positives = 0usize;
 
+    // Seed the RNG so the empirical rate is deterministic across CI runs
+    // (GRA-100). An unseeded `rand::rng()` was a thread-local global that
+    // drifted outside the ±10% tolerance on roughly 1 in 4 runs, blocking
+    // unrelated PRs (same anti-pattern as GRA-91, fixed in f080210).
+    let mut rng = StdRng::seed_from_u64(0xDEAD_BEEF);
     for _ in 0..n {
         // Stand in for a single detection roll: `surface_anomaly_events`
         // would push a new anomaly only on a real detection. We model
-        // the same roll here with a fresh `rand::rng()` each iteration.
-        let mut rng = rand::rng();
+        // the same roll here, drawing from the seeded RNG.
         let roll: f32 = rng.random();
         if roll < target_rate {
             false_positives += 1;
