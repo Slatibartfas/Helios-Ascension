@@ -175,8 +175,8 @@ fn verification_mission_promotes_to_verified() {
     let drill_specificity = 1.0;
     {
         let mut world = app.world_mut();
-        let mut state = world
-            .entity_mut(body)
+        let mut entity = world.entity_mut(body);
+        let mut state = entity
             .get_mut::<SurveyState>()
             .expect("SurveyState");
         let detected = state
