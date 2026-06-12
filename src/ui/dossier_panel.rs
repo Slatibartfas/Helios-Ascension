@@ -145,10 +145,12 @@ pub(super) struct DossierUiParams<'w, 's> {
             Option<&'static SurveyState>,
         ),
     >,
-    /// `SurveyLevel` is the one body component the dossier mutates in
-    /// place (the "UPGRADE" button). Splitting it out keeps the
-    /// immutable body tuple at 15 components.
-    pub survey_level_query: Query<'w, 's, &'static mut SurveyLevel>,
+    /// `SurveyLevel` is the dossier's *display* adapter. The v0.5.0
+    /// `SurveyState` is the source of truth; the dossier derives a
+    /// `SurveyLevel` for the status badge and the resource-grid
+    /// fidelity slicing. The UI never mutates this enum — the legacy
+    /// click-to-upgrade button was removed in GRA-107.
+    pub survey_level_query: Query<'w, 's, &'static SurveyLevel>,
     pub parent_coords_query: Query<'w, 's, &'static SpaceCoordinates>,
     pub all_bodies_query: Query<
         'w,
@@ -241,8 +243,7 @@ pub(super) fn ui_planet_dossier(mut params: DossierUiParams) {
     else {
         return;
     };
-    let mut survey_level_bind = params.survey_level_query.get_mut(entity).ok();
-    let survey_level_opt: Option<&mut SurveyLevel> = survey_level_bind.as_deref_mut();
+    let survey_level_opt: Option<&SurveyLevel> = params.survey_level_query.get(entity).ok();
 
     egui::SidePanel::right("selection_panel")
         .min_width(340.0)
@@ -1454,23 +1455,58 @@ fn draw_ocean_section(ui: &mut egui::Ui, ocean: &OceanProperties) {
 
 // ─── Resource Grid ───────────────────────────────────────────────────────
 
+/// Derive a [`SurveyLevel`] for the dossier status badge and the
+/// resource-grid fidelity slicing.
+///
+/// v0.5.0: the source of truth is [`SurveyState`] (per-body multi-axis
+/// dimensions). We map the state's `average_tier()` to a legacy enum
+/// value so the deposit grid, the resource tile tooltips, and the
+/// status label all show a consistent "ORBITAL / SEISMIC / CORE SAMPLE"
+/// reading. The legacy `SurveyLevel` component is still attached to
+/// bodies at game start (e.g. Earth → `CoreSample`) — we prefer it when
+/// no `SurveyState` is present yet (Phase 1 migration window per
+/// SURVEY_REWORK.md §15).
+fn effective_survey_level(
+    legacy: Option<SurveyLevel>,
+    state: Option<&SurveyState>,
+) -> SurveyLevel {
+    if let Some(s) = state {
+        let avg = s.average_tier();
+        if avg >= 0.99 {
+            SurveyLevel::CoreSample
+        } else if avg >= 0.39 {
+            SurveyLevel::SeismicSurvey
+        } else if avg > 0.0 || s.has_active_missions() {
+            SurveyLevel::OrbitalScan
+        } else {
+            legacy.unwrap_or(SurveyLevel::Unsurveyed)
+        }
+    } else {
+        legacy.unwrap_or(SurveyLevel::Unsurveyed)
+    }
+}
+
 fn draw_resource_section(
     ui: &mut egui::Ui,
     entity: Entity,
     body_name: &str,
     resources: &PlanetResources,
-    survey_level: Option<&mut SurveyLevel>,
+    survey_level: Option<&SurveyLevel>,
     survey_state: Option<&SurveyState>,
     commands: &mut Commands,
     rate_tracker: &ResourceRateTracker,
     mission_templates: &SurveyMissionTemplates,
     view: DossierResourceView,
 ) {
-    // Survey status
-    let current_level = survey_level
-        .as_deref()
-        .copied()
-        .unwrap_or(SurveyLevel::Unsurveyed);
+    // Survey status — derived from the v0.5.0 `SurveyState` (preferred)
+    // or the legacy `SurveyLevel` (fallback, e.g. for Earth which boots
+    // at `CoreSample` via `src/plugins/solar_system.rs`). The UI no
+    // longer mutates this enum; the legacy click-to-upgrade button was
+    // removed in GRA-107. See SURVEY_REWORK.md §15 Phase 2: "the new
+    // system is the only way to advance past `OrbitalScan` for new
+    // bodies."
+    let current_level =
+        effective_survey_level(survey_level.copied(), survey_state);
 
     ui.horizontal(|ui| {
         ui.label(
@@ -1489,39 +1525,32 @@ fn draw_resource_section(
                 .font(mono_font(11.0))
                 .color(level_color),
         );
-
-        // Upgrade button
-        if let Some(survey) = survey_level {
-            if *survey != SurveyLevel::CoreSample
-                && ui
-                    .small_button(
-                        egui::RichText::new("\u{25B2} UPGRADE")
-                            .font(mono_font(9.0))
-                            .color(ACCENT),
-                    )
-                    .clicked()
-            {
-                *survey = match *survey {
-                    SurveyLevel::Unsurveyed => SurveyLevel::OrbitalScan,
-                    SurveyLevel::OrbitalScan => SurveyLevel::SeismicSurvey,
-                    SurveyLevel::SeismicSurvey => SurveyLevel::CoreSample,
-                    _ => SurveyLevel::CoreSample,
-                };
-            }
-        } else if ui
-            .small_button(
-                egui::RichText::new("\u{25CE} INIT SCAN")
-                    .font(mono_font(9.0))
-                    .color(ACCENT),
-            )
-            .clicked()
-        {
-            commands.entity(entity).insert(SurveyLevel::OrbitalScan);
-        }
     });
 
+    // Only show the dispatch + deposits sections when survey has begun.
+    // Bodies with neither legacy level nor a v0.5.0 `SurveyState` get
+    // a hint pointing at the new system (dispatch a mission).
     if current_level == SurveyLevel::Unsurveyed {
-        ui.colored_label(TEXT_DIM, "Perform orbital scan to detect resources.");
+        ui.colored_label(
+            TEXT_DIM,
+            "Dispatch a survey mission to begin resource detection.",
+        );
+        if let Some(state) = survey_state {
+            // Edge case: a fresh `SurveyState` was inserted but no
+            // dimension has been measured yet — show the active-mission
+            // / dispatch UI so the player isn't dead-ended.
+            if state.dimensions.is_empty() && state.active_missions.is_empty() {
+                ui.add_space(theme::Spacing::xs);
+                theme::section_h3(ui, "DISPATCH MISSION");
+                draw_dispatch_mission_picker(
+                    ui,
+                    entity,
+                    body_name,
+                    mission_templates,
+                    commands,
+                );
+            }
+        }
         return;
     }
 
