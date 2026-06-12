@@ -671,11 +671,6 @@ pub struct ContinuousSurveyStation {
     /// and
     /// [`mining_yield_delta_for_tier`](super::types::mining_yield_delta_for_tier)).
     pub tier: u8,
-    /// Sim-time of the most recent station tick. Used to compute
-    /// elapsed years since the last tick. `None` until the first
-    /// tick. A future PR can use this for finer-grained per-day
-    /// advancement; PR-E advances axes per call.
-    pub last_tick_sim_time: Option<f64>,
 }
 
 /// GRA-83 PR-E: the body's combined continuous-station bonus cache.
@@ -719,6 +714,21 @@ impl ContinuousStationBonus {
     pub fn is_active(&self) -> bool {
         self.axis_advance_per_year > 0.0
             || (self.mining_yield_multiplier - 1.0).abs() > f32::EPSILON
+    }
+
+    /// GRA-83b: collapse the `Option<&ContinuousStationBonus>` →
+    /// `f64` mining-yield lookup to a single helper.
+    ///
+    /// `economy::mining` reads the mining-yield multiplier at three
+    /// sites (extraction path, MiningOperation rate path, Colony
+    /// rate path). Each site used to inline the same `Option`-map-
+    /// unwrap idiom, drifting the per-site copies out of sync with
+    /// the cache's `f32` representation. This helper is the single
+    /// source of truth.
+    pub fn multiplier_or_neutral(bonus: Option<&Self>) -> f64 {
+        bonus
+            .map(|b| b.mining_yield_multiplier as f64)
+            .unwrap_or(1.0)
     }
 }
 

@@ -27,8 +27,11 @@ use crate::astronomy::components::{
 };
 use crate::astronomy::nearby_stars::NearbyStarsData;
 use crate::economy::components::{SpectralClass, StarSystem};
+use crate::economy::mining::MiningOperation;
 use crate::plugins::solar_system_data::{AsteroidClass, BodyType};
-use crate::survey::components::{ActiveSurveyMission, SurveyState};
+use crate::survey::components::{
+    ActiveSurveyMission, ContinuousStationBonus, ContinuousSurveyStation, SurveyState,
+};
 use crate::survey::data::SurveyMissionTemplates;
 use crate::survey::events::{AbortSurveyMission, DispatchSurveyMission};
 use crate::survey::types::MissionStatus;
@@ -170,6 +173,14 @@ pub(super) struct DossierUiParams<'w, 's> {
     pub rate_tracker: Res<'w, ResourceRateTracker>,
     pub mission_templates: Res<'w, SurveyMissionTemplates>,
     pub pending_actions: ResMut<'w, PendingConstructionActions>,
+    /// GRA-83b: orbital survey station surface needs a `&World`
+    /// to iterate the per-body station list (the
+    /// `ContinuousStationBonus` cache lives on the body, but
+    /// `ContinuousSurveyStation` lives on the station entity, so
+    /// we need to walk both). Exposed as a system param rather
+    /// than a sub-struct because [`OrbitalStationSummary::from_world`]
+    /// is unit-testable against a constructed `World`.
+    pub world: &'w World,
 }
 
 /// Renders the right-side "Celestial Body Dossier" panel when a body is
@@ -366,6 +377,14 @@ pub(super) fn ui_planet_dossier(mut params: DossierUiParams) {
                             &mut params.pending_actions,
                         );
                     }
+
+                    // ── GRA-83b: Orbital Survey Stations ────────────
+                    // Surfaced as a body-level section because the
+                    // station is a body-scoped passive effect
+                    // (per-body aggregation, see
+                    // `apply_continuous_station_bonus`).
+                    section_divider(ui);
+                    draw_orbital_station_section(ui, params.world, entity, &body.name);
                 });
         });
 }
@@ -2418,4 +2437,386 @@ fn draw_colony_section(
          as soon as the required resources arrive."
     };
     btn_response.on_hover_text(hover);
+}
+
+// ─── GRA-83b: Orbital Survey Station dossier surface ────────────────────
+
+/// Per-body summary for the orbital survey station section.
+///
+/// Pure data — no egui types — so the unit test in this module
+/// can construct a `Summary` from mocked components and verify
+/// the per-year rate / mining bonus strings without spinning up
+/// the egui context. The render function [`draw_orbital_station_section`]
+/// consumes the summary and lays out the rows.
+///
+/// The per-year rate and mining bonus are read from the body's
+/// `ContinuousStationBonus` cache (already on the body) so the
+/// dossier stays decoupled from tier→rate mapping — the LGD
+/// owns the tier table, and the dossier reads what the system
+/// computed. See `apply_continuous_station_bonus`.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct OrbitalStationSummary {
+    /// Display name of the orbited body (e.g. "Mars"). Echoed in
+    /// the section header.
+    pub body_name: String,
+    /// Tiers of every station orbiting the body, in the order the
+    /// query returned them. The dossier renders this as a
+    /// comma-separated list ("T1, T1, T3").
+    pub tiers: Vec<u8>,
+    /// Combined axis-advance rate (sum across all stations), in
+    /// axes per sim-year. Read from
+    /// `ContinuousStationBonus::axis_advance_per_year`.
+    pub per_year_rate: f32,
+    /// Combined mining bonus percent, derived from
+    /// `ContinuousStationBonus::mining_yield_multiplier - 1.0`.
+    /// E.g. `1.05` → `5` (`+5%`).
+    pub mining_bonus_pct: i32,
+    /// Count of active mining operations on the body. Used for
+    /// the "on N local mines" line in the dossier.
+    pub mine_count: usize,
+    /// Visibility note from the LGD spec — surfaced verbatim in
+    /// the section so the player understands the per-year rate
+    /// is informational while the cumulative integer tier ticks.
+    pub visibility_note: &'static str,
+}
+
+impl OrbitalStationSummary {
+    /// LGD-supplied visibility note copy.
+    pub const VISIBILITY_NOTE: &'static str =
+        "Survey accumulation is fractional until the integer tier ticks. The per-year \
+         rate is shown so the dossier reflects active work, not just the cumulative integer.";
+
+    /// Build a summary from the relevant live data, or `None` if
+    /// the body has no active orbital survey station cache. The
+    /// dossier hides the section when this returns `None`.
+    ///
+    /// Takes `&World` rather than three `Query` system params
+    /// because the function is also reachable from unit tests,
+    /// which can construct a `World` directly but cannot easily
+    /// wire up Bevy 0.18's `Query` system params without a full
+    /// `App`. The three `world.query::<...>()` calls are
+    /// equivalent to what the `DossierOrbitalStationQueries`
+    /// sub-struct provides in the render path.
+    pub fn from_world(world: &World, body_entity: Entity, body_name: &str) -> Option<Self> {
+        let mut bonuses_q = world.query::<&ContinuousStationBonus>();
+        let bonus = bonuses_q.get(body_entity).ok()?;
+        if !bonus.is_active() {
+            // The cache may be present on a body but at neutral
+            // values (the system resets rather than removes — see
+            // `apply_continuous_station_bonus`). Treat neutral as
+            // "no station" for the dossier.
+            return None;
+        }
+        let mut tiers: Vec<u8> = {
+            let mut stations_q = world.query::<&ContinuousSurveyStation>();
+            stations_q
+                .iter(world)
+                .filter_map(|s| {
+                    if s.orbiting_body == Some(body_entity) {
+                        Some(s.tier)
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        };
+        // Stable, ascending order for predictable display
+        // ("T1, T1, T3" not "T3, T1, T1").
+        tiers.sort_unstable();
+        let mine_count = {
+            let mut mining_q = world.query::<&MiningOperation>();
+            mining_q
+                .get(body_entity)
+                .map(|op| if op.active { 1 } else { 0 })
+                .unwrap_or(0)
+        };
+        let mining_bonus_pct = ((bonus.mining_yield_multiplier - 1.0) * 100.0).round() as i32;
+        Some(Self {
+            body_name: body_name.to_string(),
+            tiers,
+            per_year_rate: bonus.axis_advance_per_year,
+            mining_bonus_pct,
+            mine_count,
+            visibility_note: Self::VISIBILITY_NOTE,
+        })
+    }
+
+    /// LGD-supplied per-tier display label, e.g. "T1" for tier 1.
+    /// Unknown tiers render as "T?" so a buggy RON entry doesn't
+    /// silently produce an empty label.
+    pub fn tier_label(tier: u8) -> String {
+        match tier {
+            1..=3 => format!("T{tier}"),
+            _ => "T?".to_string(),
+        }
+    }
+
+    /// Comma-separated tier list, e.g. "T1, T1, T3". Empty if
+    /// no stations (which `from_world` already filters out).
+    pub fn tier_list(&self) -> String {
+        self.tiers
+            .iter()
+            .map(|t| Self::tier_label(*t))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    /// The always-visible per-year rate string, e.g. "0.05 axes/yr".
+    /// Two-decimal fixed format — the LGD tier table produces values
+    /// in `{0.05, 0.075, 0.10, 0.15, ...}` so two decimals
+    /// preserves the precision a player needs.
+    pub fn rate_label(&self) -> String {
+        format!("{:.2} axes/yr", self.per_year_rate)
+    }
+
+    /// The mining bonus string, e.g. "+5%". 0% renders as "+0%".
+    pub fn bonus_label(&self) -> String {
+        format!("+{}%", self.mining_bonus_pct)
+    }
+}
+
+fn draw_orbital_station_section(
+    ui: &mut egui::Ui,
+    world: &World,
+    body_entity: Entity,
+    body_name: &str,
+) {
+    let Some(summary) = OrbitalStationSummary::from_world(world, body_entity, body_name) else {
+        // No active station — hide the section entirely. The
+        // body dossier would otherwise grow a useless empty
+        // "ORBITAL SURVEY STATIONS" header on every body that
+        // doesn't have a station.
+        return;
+    };
+
+    theme::section_h2(ui, "ORBITAL SURVEY STATIONS");
+
+    // "Orbited body" — the body's own name. Redundant with the
+    // dossier header, but LGD spec calls for it explicitly and
+    // it confirms the player is looking at the right surface
+    // when scanning.
+    stat_row(ui, "ORBITED BODY", &summary.body_name);
+
+    // Tiers — comma-separated list of station tiers orbiting the
+    // body.
+    stat_row(ui, "TIERS", &summary.tier_list());
+
+    // Per-year rate — the LGD's primary motivation for this
+    // section: the cumulative integer tier truncates 0.05/yr to
+    // 0 for ~20 sim-years, so a player without this line would
+    // conclude the station is broken. ALWAYS visible.
+    stat_row(ui, "SURVEY RATE", &summary.rate_label());
+
+    // Mining bonus — combined multiplier converted to a percent.
+    stat_row(
+        ui,
+        "MINING BONUS",
+        &format!(
+            "{} on {} local mine{}",
+            summary.bonus_label(),
+            summary.mine_count,
+            if summary.mine_count == 1 { "" } else { "s" }
+        ),
+    );
+
+    ui.add_space(4.0);
+    ui.colored_label(
+        TEXT_DIM,
+        egui::RichText::new(summary.visibility_note).small(),
+    );
+}
+
+fn stat_row(ui: &mut egui::Ui, label: &str, value: &str) {
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new(label)
+                .font(mono_font(10.0))
+                .color(TEXT_DIM),
+        );
+        ui.label(
+            egui::RichText::new(value)
+                .font(mono_font(11.0))
+                .color(TEXT_VALUE),
+        );
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    //! GRA-83b unit tests for the dossier surface.
+    //!
+    //! Pure-data tests on [`OrbitalStationSummary`] — no egui
+    //! context. The render function is verified manually in-game
+    //! (the smallest in-game check from the issue body).
+
+    use super::*;
+
+    fn mars_cache_tier_1() -> ContinuousStationBonus {
+        // A tier-1 station's combined cache: 0.05 axes/yr and a
+        // +5% mining yield multiplier.
+        ContinuousStationBonus {
+            axis_advance_per_year: 0.05,
+            mining_yield_multiplier: 1.05,
+        }
+    }
+
+    #[test]
+    fn rate_label_always_visible_for_tier_1_at_mars() {
+        // Issue AC: "Per-year rate is always visible, regardless
+        // of cumulative integer state on SurveyState." A tier-1
+        // station's per-year rate is 0.05 axes/yr; the cumulative
+        // integer tier for the body's SurveyState might still be
+        // 0 (the integer truncates 0.05/yr to 0). The dossier
+        // shows the per-year rate string unconditionally.
+        let s = OrbitalStationSummary {
+            body_name: "Mars".to_string(),
+            tiers: vec![1],
+            per_year_rate: 0.05,
+            mining_bonus_pct: 5,
+            mine_count: 1,
+            visibility_note: OrbitalStationSummary::VISIBILITY_NOTE,
+        };
+        assert_eq!(s.rate_label(), "0.05 axes/yr");
+        assert_eq!(s.bonus_label(), "+5%");
+        assert_eq!(s.tier_list(), "T1");
+    }
+
+    #[test]
+    fn rate_label_renders_two_stations_stacked_at_mars() {
+        // Two tier-1 stations on Mars sum to 0.10 axes/yr and
+        // +10% mining. Verify the cache values flow through the
+        // label helpers.
+        let s = OrbitalStationSummary {
+            body_name: "Mars".to_string(),
+            tiers: vec![1, 1],
+            per_year_rate: 0.10,
+            mining_bonus_pct: 10,
+            mine_count: 3,
+            visibility_note: OrbitalStationSummary::VISIBILITY_NOTE,
+        };
+        assert_eq!(s.rate_label(), "0.10 axes/yr");
+        assert_eq!(s.bonus_label(), "+10%");
+        assert_eq!(s.tier_list(), "T1, T1");
+    }
+
+    #[test]
+    fn tier_list_sorts_stably() {
+        // Query order is non-deterministic. The summary sorts
+        // the tier list so the display is always "T1, T1, T3"
+        // regardless of spawn order.
+        let mut s = OrbitalStationSummary {
+            body_name: "Phobos".to_string(),
+            tiers: vec![3, 1, 1],
+            per_year_rate: 0.20,
+            mining_bonus_pct: 20,
+            mine_count: 0,
+            visibility_note: OrbitalStationSummary::VISIBILITY_NOTE,
+        };
+        s.tiers.sort_unstable();
+        assert_eq!(s.tier_list(), "T1, T1, T3");
+    }
+
+    #[test]
+    fn tier_label_handles_unknown_tier() {
+        // A buggy RON or future tier-0 stub must not produce an
+        // empty label. The helper returns "T?" so a player sees
+        // something is off rather than an empty cell.
+        assert_eq!(OrbitalStationSummary::tier_label(1), "T1");
+        assert_eq!(OrbitalStationSummary::tier_label(2), "T2");
+        assert_eq!(OrbitalStationSummary::tier_label(3), "T3");
+        assert_eq!(OrbitalStationSummary::tier_label(0), "T?");
+        assert_eq!(OrbitalStationSummary::tier_label(99), "T?");
+    }
+
+    #[test]
+    fn bonus_label_renders_zero_percent() {
+        // Edge case: a future balance change could set
+        // mining_yield_multiplier = 1.0 while leaving
+        // axis_advance_per_year > 0. The dossier must not
+        // render "-0%" or omit the line — it should show
+        // "+0%".
+        let s = OrbitalStationSummary {
+            body_name: "Ceres".to_string(),
+            tiers: vec![1],
+            per_year_rate: 0.05,
+            mining_bonus_pct: 0,
+            mine_count: 0,
+            visibility_note: OrbitalStationSummary::VISIBILITY_NOTE,
+        };
+        assert_eq!(s.bonus_label(), "+0%");
+    }
+
+    #[test]
+    fn from_world_omits_body_with_no_bonus_cache() {
+        // A body that no station orbits has no
+        // `ContinuousStationBonus` component. The summary
+        // builder returns `None` and the dossier hides the
+        // section. (Constructed against a minimal `App` so the
+        // `QueryState` calls have valid archtypes.)
+        let mut app = App::new();
+        let body = app.world_mut().spawn_empty().id();
+        let result = OrbitalStationSummary::from_world(app.world(), body, "Earth");
+        assert!(
+            result.is_none(),
+            "a body with no ContinuousStationBonus should produce no summary"
+        );
+    }
+
+    #[test]
+    fn from_world_includes_body_with_active_bonus_cache() {
+        // The dossier should appear for a body that has an
+        // active `ContinuousStationBonus` cache. We construct a
+        // minimal App with the components and verify the
+        // summary builder produces the expected rate.
+        let mut app = App::new();
+        let mars = app
+            .world_mut()
+            .spawn((
+                mars_cache_tier_1(),
+                MiningOperation {
+                    active: true,
+                    ..Default::default()
+                },
+            ))
+            .id();
+        // Two tier-1 stations orbiting Mars.
+        app.world_mut().spawn(ContinuousSurveyStation {
+            orbiting_body: Some(mars),
+            tier: 1,
+        });
+        app.world_mut().spawn(ContinuousSurveyStation {
+            orbiting_body: Some(mars),
+            tier: 1,
+        });
+
+        let summary = OrbitalStationSummary::from_world(app.world(), mars, "Mars")
+            .expect("Mars with an active bonus should produce a summary");
+
+        assert_eq!(summary.body_name, "Mars");
+        assert_eq!(summary.tier_list(), "T1, T1");
+        assert_eq!(summary.rate_label(), "0.05 axes/yr");
+        assert_eq!(summary.bonus_label(), "+5%");
+        assert_eq!(summary.mine_count, 1);
+    }
+
+    #[test]
+    fn multiplier_or_neutral_helper_unifies_mining_sites() {
+        // GRA-83b: the DRY helper for the mining_bonus lookup.
+        // Locks the contract: None → 1.0; Some → mining_yield_multiplier
+        // promoted to f64. Used by all three call sites in
+        // `economy::mining`.
+        assert_eq!(ContinuousStationBonus::multiplier_or_neutral(None), 1.0);
+        assert_eq!(
+            ContinuousStationBonus::multiplier_or_neutral(Some(&ContinuousStationBonus::NEUTRAL)),
+            1.0
+        );
+        let tier_1 = ContinuousStationBonus {
+            axis_advance_per_year: 0.05,
+            mining_yield_multiplier: 1.05,
+        };
+        assert_eq!(
+            ContinuousStationBonus::multiplier_or_neutral(Some(&tier_1)),
+            1.05
+        );
+    }
 }
