@@ -1828,33 +1828,34 @@ fn render_star_system_panel(
                             ui.spacing_mut().item_spacing = egui::Vec2::splat(3.0);
 
                             for resource_type in &mineable {
-                                let display = if let Some(mid) =
-                                    discovered_resources.get(resource_type)
-                                {
-                                    // The starmap aggregates the
-                                    // best-estimate mid across every
-                                    // body in the system. Surface
-                                    // that as a Precise estimate so
-                                    // the tile shows the system
-                                    // total, with confidence 1.0 so
-                                    // the band collapses.
-                                    let mid_value = *mid;
-                                    ResourceTileDisplay::Deposit {
-                                        estimate: crate::survey::DepositEstimate {
-                                            visibility: crate::survey::DepositVisibility::Precise,
-                                            low: Some(mid_value),
-                                            mid: Some(mid_value),
-                                            high: Some(mid_value),
-                                            tier: crate::survey::MAX_TIER,
-                                            confidence: 1.0,
-                                        },
-                                        concentration: None,
-                                    }
-                                } else if fully_surveyed {
-                                    ResourceTileDisplay::None
-                                } else {
-                                    ResourceTileDisplay::Unknown
-                                };
+                                let display =
+                                    if let Some(mid) = discovered_resources.get(resource_type) {
+                                        // The starmap aggregates the
+                                        // best-estimate mid across every
+                                        // body in the system. Surface
+                                        // that as a Precise estimate so
+                                        // the tile shows the system
+                                        // total, with confidence 1.0 so
+                                        // the band collapses.
+                                        let mid_value = *mid;
+                                        // PR-F (GRA-84) refactored the
+                                        // tile display to carry the raw
+                                        // megaton value directly. The
+                                        // legacy `DepositEstimate`
+                                        // envelope was dropped in PR-F
+                                        // because the system-total mid is
+                                        // already a single precise number
+                                        // (the starmap aggregator rounds
+                                        // to the most-confident body).
+                                        ResourceTileDisplay::Deposit {
+                                            discovered_megatons: mid_value,
+                                            concentration: None,
+                                        }
+                                    } else if fully_surveyed {
+                                        ResourceTileDisplay::None
+                                    } else {
+                                        ResourceTileDisplay::Unknown
+                                    };
 
                                 paint_resource_tile(ui, *resource_type, display, 44.0, cat_color);
                             }

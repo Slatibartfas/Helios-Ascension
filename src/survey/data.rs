@@ -94,6 +94,42 @@ pub struct SurveyMissionTemplate {
     pub target_tiers: HashMap<SurveyDimension, u8>,
     /// Typical mission duration in sim-days.
     pub base_duration_days: u32,
+    /// Per-dimension, per-day yield before team modifiers. PR-B
+    /// (GRA-80) uses this to compute
+    /// `delta_progress = yield * team_modifier * (1 - coverage) /
+    /// total_days`. Defaults to `1.0` for templates that omit the
+    /// field (and for legacy saves loaded before this column
+    /// existed).
+    #[serde(default = "default_template_yield")]
+    pub axis_yield_per_day: f32,
+    /// Whether this mission requires a scientist team on the
+    /// ground. Used by the failure-roll table: ground-team missions
+    /// are eligible for `CrewInjury` (2%). Set automatically based
+    /// on the method at the loader (see
+    /// [`SurveyMissionTemplate::is_ground_team`]) and stored on the
+    /// template for fast dispatch-time lookup.
+    #[serde(default)]
+    pub is_ground_team: bool,
+}
+
+fn default_template_yield() -> f32 {
+    1.0
+}
+
+impl SurveyMissionTemplate {
+    /// Heuristic: surface methods (Flyby, Orbital, RemoteSensing,
+    /// AtmosphericProbe) are not ground-team. Everything else is.
+    /// Used by the RON loader to set `is_ground_team` from the
+    /// method if the field is missing.
+    pub fn method_is_ground_team(method: SurveyMethod) -> bool {
+        !matches!(
+            method,
+            SurveyMethod::Flyby
+                | SurveyMethod::Orbital
+                | SurveyMethod::RemoteSensing
+                | SurveyMethod::AtmosphericProbe
+        )
+    }
 }
 
 /// Registry of anomaly types. Loaded from
@@ -378,4 +414,46 @@ pub fn load_anomalies(mut commands: Commands) {
     }
 
     commands.insert_resource(registry);
+}
+
+/// On-disk shape of `assets/data/survey/missions.ron`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SurveyMissionTemplatesFile {
+    pub templates: Vec<SurveyMissionTemplate>,
+}
+
+/// Load `assets/data/survey/missions.ron` into the
+/// [`SurveyMissionTemplates`] resource. PR-B (GRA-80) is the first
+/// PR to ship this loader; a future PR extends the same pattern
+/// for `dimensions.ron`, `instruments.ron`, `anomalies.ron`, and
+/// `mining_efficiency.ron`.
+///
+/// Returns silently on missing-file (the registry stays empty,
+/// the app starts). Logs `warn!` on parse error so the dev can
+/// spot a malformed RON.
+pub fn load_mission_templates(mut commands: Commands) {
+    let path = "assets/data/survey/missions.ron";
+    let templates = match std::fs::read_to_string(path) {
+        Ok(contents) => match ron::from_str::<SurveyMissionTemplatesFile>(&contents) {
+            Ok(file) => file.templates,
+            Err(error) => {
+                warn!("Failed to parse {}: {}", path, error);
+                Vec::new()
+            }
+        },
+        Err(_) => Vec::new(),
+    };
+    let mut map: HashMap<String, SurveyMissionTemplate> = HashMap::new();
+    for t in templates {
+        // If the RON omits `is_ground_team`, infer from the
+        // method. Keeps modder-edited RONs short.
+        let t = SurveyMissionTemplate {
+            is_ground_team: t.is_ground_team
+                || SurveyMissionTemplate::method_is_ground_team(t.method),
+            ..t
+        };
+        map.insert(t.id.clone(), t);
+    }
+    info!("Loaded {} survey mission templates", map.len());
+    commands.insert_resource(SurveyMissionTemplates { templates: map });
 }

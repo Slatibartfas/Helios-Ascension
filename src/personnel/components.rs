@@ -10,7 +10,8 @@ use super::types::{ScientistId, ScientistSpecialty, SeniorityTier};
 
 /// A scientist entity. The analysis queue (PR-C) drives
 /// `current_analysis` and updates `lifetime_data_processed` /
-/// `lifetime_anomalies_flagged` on job completion.
+/// `lifetime_anomalies_flagged` on job completion. PR-B (GRA-80)
+/// adds the survey-mission assignment and injury fields.
 #[derive(Debug, Clone, Component, Serialize, Deserialize)]
 pub struct Scientist {
     /// Stable id, used by the analysis queue to index this scientist
@@ -29,8 +30,26 @@ pub struct Scientist {
     /// Body the scientist is currently assigned to. `None` if the
     /// scientist is unassigned (idle in the roster).
     pub assigned_body: Option<Entity>,
-    /// Active analysis job. `None` if idle.
+    /// Active survey mission the scientist is currently attached to.
+    /// Set by the mission dispatch system (PR-B) and cleared on
+    /// mission completion (success, failure, or abort). `None` when
+    /// the scientist is idle in the roster.
+    ///
+    /// Distinct from `current_analysis`: a scientist on a survey
+    /// mission collects data in the field, then (PR-C) processes it
+    /// on the analysis queue. The two states are sequential, not
+    /// concurrent — a scientist that just finished a survey mission
+    /// becomes available for the analysis queue.
+    #[serde(default)]
+    pub current_survey_mission: Option<u64>,
+    /// Active analysis job. `None` if idle. PR-C drives this.
     pub current_analysis: Option<u64>,
+    /// Sim-time the scientist is uninjured. While `current_time <
+    /// injured_until_sim_time`, the scientist is blocked from new
+    /// survey mission assignments (PR-B sets this on crew-injury
+    /// failure; `injured_until = current_time + 90 sim_days`).
+    #[serde(default)]
+    pub injured_until_sim_time: Option<f64>,
     /// Cumulative megabytes (or gigabytes — units are in
     /// `survey_datasets.ron`) of data processed across the
     /// scientist's career. Used for promotion gating and the
@@ -59,7 +78,9 @@ impl Scientist {
             specialty,
             seniority: SeniorityTier::Junior,
             assigned_body: None,
+            current_survey_mission: None,
             current_analysis: None,
+            injured_until_sim_time: None,
             lifetime_data_processed: 0.0,
             lifetime_anomalies_flagged: 0,
             hired_sim_time: sim_time,
@@ -67,9 +88,28 @@ impl Scientist {
     }
 
     /// Whether the scientist is currently idle (no body assigned,
-    /// no analysis in progress).
+    /// no analysis in progress, no active survey mission).
     pub fn is_idle(&self) -> bool {
-        self.assigned_body.is_none() && self.current_analysis.is_none()
+        self.assigned_body.is_none()
+            && self.current_analysis.is_none()
+            && self.current_survey_mission.is_none()
+    }
+
+    /// Whether the scientist is injured at `sim_time`. An injury
+    /// blocks new survey-mission assignments until the sim time
+    /// advances past `injured_until_sim_time`. Set by the mission
+    /// failure system on a `CrewInjury` failure.
+    pub fn is_injured(&self, sim_time: f64) -> bool {
+        self.injured_until_sim_time
+            .map(|until| sim_time < until)
+            .unwrap_or(false)
+    }
+
+    /// Mark the scientist as injured until `until_sim_time`. The
+    /// mission system sets this on a `CrewInjury` failure; the
+    /// personnel UI surfaces it as "Injured (NN days)".
+    pub fn injure(&mut self, until_sim_time: f64) {
+        self.injured_until_sim_time = Some(until_sim_time);
     }
 
     /// Whether the scientist can be promoted to the next tier.
