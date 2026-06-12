@@ -688,10 +688,8 @@ impl DetectedAnomaly {
         self.last_updated_sim_time = sim_time;
         // Re-arm a `Dormant` or `Refuted` anomaly back to `Suspected`
         // if the player is actively surveying the body again.
-        if matches!(
-            self.state,
-            AnomalyState::Dormant | AnomalyState::Refuted
-        ) && self.confidence > 0.0
+        if matches!(self.state, AnomalyState::Dormant | AnomalyState::Refuted)
+            && self.confidence > 0.0
         {
             self.state = AnomalyState::Suspected;
         }

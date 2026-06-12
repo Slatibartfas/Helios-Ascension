@@ -549,12 +549,12 @@ mod tests {
     //! `tests/survey_systems_tests.rs` so they can use the full
     //! `App` harness.
 
-    use super::*;
     use super::super::components::DetectedAnomaly;
     use super::super::types::{
         AnomalyState, AnomalyType, EvidenceKind, MAX_CONFIDENCE, REFUTATION_REARM_THRESHOLD,
         RETRY_PRESSURE_PER_VERIFICATION, RETRY_PRESSURE_THRESHOLD_REDUCTION,
     };
+    use super::*;
     use crate::colony::types::BuildingType;
     use crate::plugins::solar_system::CelestialBody;
     use crate::plugins::solar_system_data::{AsteroidClass, BodyType};
@@ -716,6 +716,7 @@ mod tests {
         // Different tag at the same body+index should differ.
         let e = make_scores("Vesta", 0, false);
         assert_ne!(c.slope, e.slope);
+    }
 
     // PR-C confidence-model unit tests. The acceptance test
     // "false-positive rate within ±10% over 1000 detections" lives
