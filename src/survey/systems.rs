@@ -1116,7 +1116,7 @@ pub fn apply_continuous_station_bonus(world: &mut World) {
             };
             // Body despawned (or otherwise unreachable) — inert.
             // The station itself stays; the player can demolish.
-            if world.get_entity(body_entity).is_none() {
+            if world.get_entity(body_entity).is_err() {
                 continue;
             }
             let advance = axis_advance_rate_for_tier(station.tier);
@@ -1151,7 +1151,7 @@ pub fn apply_continuous_station_bonus(world: &mut World) {
     //    write the bonus cache (inserting the component if
     //    missing). The mining yield system reads the cache
     //    downstream; the dossier UI reads it too.
-    for (body_entity, advance, delta) in per_body {
+    for (body_entity, (advance, delta)) in per_body {
         // 3a) Advance dimensions. Skip if the body has no
         //     SurveyState (the survey-side is inert; the
         //     mining-side bonus still applies to the body for any

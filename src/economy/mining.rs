@@ -873,7 +873,7 @@ pub fn update_resource_rates(
     }
 
     // 3. Add net colony food rate (production - population consumption)
-    for (entity, colony, _, _) in colony_query.iter() {
+    for (entity, colony, _, _, _) in colony_query.iter() {
         // Per GRA-22 §4.5: agricultural production scales with the colony's
         // `ColonyDevelopment` yield multiplier, matching the rest of the
         // rates in this function.  An Outpost at ×0.10 reports the same rate
@@ -909,7 +909,7 @@ pub fn update_resource_rates(
 
     // 4. Subtract maintenance consumption so rates show NET balance
     if let Some(data) = &buildings_data {
-        for (entity, colony, _, _) in colony_query.iter() {
+        for (entity, colony, _, _, _) in colony_query.iter() {
             // Per GRA-22 §4.7: maintenance is scaled by the same yield
             // multiplier as the production it costs.  Reported rate must
             // match the actual draw in `deduct_maintenance_resources`.
@@ -957,7 +957,7 @@ pub fn update_resource_rates(
 
     // From colony buildings
     if let Some(data) = &buildings_data {
-        for (_entity, colony, _, _) in colony_query.iter() {
+        for (_entity, colony, _, _, _) in colony_query.iter() {
             for (building_type, &count) in &colony.buildings {
                 if count == 0 {
                     continue;
@@ -990,7 +990,7 @@ pub fn update_resource_rates(
 
     // From colony buildings
     if let Some(data) = &buildings_data {
-        for (_entity, colony, _, _) in colony_query.iter() {
+        for (_entity, colony, _, _, _) in colony_query.iter() {
             for (building_type, &count) in &colony.buildings {
                 if count == 0 {
                     continue;
