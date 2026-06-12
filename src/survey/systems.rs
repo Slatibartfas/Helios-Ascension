@@ -65,7 +65,7 @@ pub fn surface_anomaly_events(
     mut events: MessageWriter<SurveyEvent>,
 ) {
     let sim_time = time.elapsed_seconds();
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     for (body_entity, mut state) in &mut query {
         // ── 1. Per-anomaly detection roll ─────────────────────────
@@ -85,7 +85,7 @@ pub fn surface_anomaly_events(
                     continue;
                 }
                 if !axes_meet_threshold(
-                    &*state,
+                    &state,
                     def.detection_axes.iter().copied(),
                     def.detection_threshold,
                 ) {

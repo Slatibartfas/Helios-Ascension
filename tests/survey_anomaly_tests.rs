@@ -96,9 +96,9 @@ fn detection_roll_false_positive_rate_within_tolerance() {
     for _ in 0..n {
         // Stand in for a single detection roll: `surface_anomaly_events`
         // would push a new anomaly only on a real detection. We model
-        // the same roll here with a fresh thread_rng each iteration.
-        let mut rng = rand::thread_rng();
-        let roll: f32 = rng.gen();
+        // the same roll here with a fresh `rand::rng()` each iteration.
+        let mut rng = rand::rng();
+        let roll: f32 = rng.random();
         if roll < target_rate {
             false_positives += 1;
         }

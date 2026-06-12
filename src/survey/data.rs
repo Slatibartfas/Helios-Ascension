@@ -180,10 +180,11 @@ pub struct ModderAnomalyDef {
 /// Effect a verified anomaly has on the game. Modders and LGD pick
 /// one variant per anomaly. The Coder routes the effect to the right
 /// subsystem (research, buildings, events) at activation time.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AnomalyEffect {
     /// Anomaly activates nothing — a flavor-only discovery.
+    #[default]
     None,
     /// Adds `building_id` to the available-buildings list at the
     /// activated body. Tech is NOT bypassed: the building's
@@ -197,12 +198,6 @@ pub enum AnomalyEffect {
     /// Adds a one-time research bonus (percentage) to all RP
     /// generated for the duration of the campaign.
     ResearchBonus { percentage: f32 },
-}
-
-impl Default for AnomalyEffect {
-    fn default() -> Self {
-        AnomalyEffect::None
-    }
 }
 
 /// One row in `assets/data/survey/anomalies.ron`. Loaded by
