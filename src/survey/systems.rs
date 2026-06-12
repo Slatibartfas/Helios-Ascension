@@ -2749,7 +2749,7 @@ mod tests {
         // + 2% CrewInjury = 14% total. After filtering for Drill
         // applicability the typed roll should produce failures at
         // ~14% over 1000 runs. DrillBitStuck specifically at ~10%.
-        let mut rng = ProceduralRng(StdRng::seed_from_u64(0xC0FFEE_42));
+        let mut rng = ProceduralRng(StdRng::seed_from_u64(0xC0FF_EE42));
         let modes = design_failure_modes_for_method(SurveyMethod::Drill);
         let n = 1000;
         let mut drill_stuck = 0;
@@ -2783,7 +2783,7 @@ mod tests {
     fn typed_roll_1000_runs_probe_loss_at_about_5_percent() {
         // Flyby method, design rate = 5% ProbeLoss + 2% SolarStorm
         // = 7% total. ProbeLoss specifically at ~5%.
-        let mut rng = ProceduralRng(StdRng::seed_from_u64(0xCAFE_F0_0D));
+        let mut rng = ProceduralRng(StdRng::seed_from_u64(0xCAFE_F00D));
         let modes = design_failure_modes_for_method(SurveyMethod::Flyby);
         let n = 1000;
         let mut probe_loss = 0;

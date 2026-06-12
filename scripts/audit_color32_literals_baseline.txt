@@ -5,14 +5,16 @@
 
 src/ui/dashboard.rs:1361  egui::Color32::from_rgba_unmultiplied(231, 76, 60, alpha),
 src/ui/dashboard.rs:1367  egui::RichText::new("⏸ PAUSED").color(egui::Color32::from_rgba_unmultiplied(
-src/ui/dossier_panel.rs:1072  egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(0, 242, 255, 60)),
-src/ui/dossier_panel.rs:1090  let fill_color = egui::Color32::from_rgba_premultiplied(0, 242, 255, 18);
-src/ui/dossier_panel.rs:1283  egui::Color32::from_rgba_premultiplied(20, 20, 30, 230)
-src/ui/dossier_panel.rs:1285  egui::Color32::from_rgba_premultiplied(255, 255, 255, 220)
-src/ui/dossier_panel.rs:1334  egui::Color32::from_rgba_premultiplied(255, 255, 255, 60)
-src/ui/dossier_panel.rs:1336  egui::Color32::from_rgba_premultiplied(0, 0, 0, 80)
-src/ui/dossier_panel.rs:1860  let fill_color = egui::Color32::from_rgba_premultiplied(
-src/ui/dossier_panel.rs:1882  egui::Color32::from_rgba_premultiplied(220, 230, 240, (180.0 * brightness) as u8),
+src/ui/dossier_panel.rs:1043  egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(0, 242, 255, 60)),
+src/ui/dossier_panel.rs:1061  let fill_color = egui::Color32::from_rgba_premultiplied(0, 242, 255, 18);
+src/ui/dossier_panel.rs:1254  egui::Color32::from_rgba_premultiplied(20, 20, 30, 230)
+src/ui/dossier_panel.rs:1256  egui::Color32::from_rgba_premultiplied(255, 255, 255, 220)
+src/ui/dossier_panel.rs:1305  egui::Color32::from_rgba_premultiplied(255, 255, 255, 60)
+src/ui/dossier_panel.rs:1307  egui::Color32::from_rgba_premultiplied(0, 0, 0, 80)
+src/ui/dossier_panel.rs:1831  let fill_color = egui::Color32::from_rgba_premultiplied(
+src/ui/dossier_panel.rs:1853  egui::Color32::from_rgba_premultiplied(220, 230, 240, (180.0 * brightness) as u8),
+src/ui/dossier_panel.rs:1993  let fill_color = egui::Color32::from_rgba_premultiplied(
+src/ui/dossier_panel.rs:2015  egui::Color32::from_rgba_premultiplied(220, 230, 240, (180.0 * brightness) as u8),
 src/ui/fleets_panel.rs:171  egui::Color32::from_rgba_premultiplied(0, 140, 160, 42)
 src/ui/research_panel.rs:1278  egui::Color32::from_rgba_unmultiplied(13, 17, 23, 120),
 src/ui/research_panel.rs:1359  egui::Color32::from_rgba_unmultiplied(13, 17, 23, 120),
