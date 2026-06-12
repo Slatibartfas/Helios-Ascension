@@ -1404,20 +1404,16 @@ fn roll_typed_mission_outcome(
     if applicable.is_empty() {
         return MissionOutcome::Success;
     }
-    let total: f32 = applicable.iter().map(|m| m.probability).sum();
-    // If the modder set `total > 1.0`, the success branch has
-    // negative probability — the roll still picks a failure with
-    // the modder's relative weights, which is the
-    // modder-intentional interpretation. We don't clamp so the
-    // mod-ecosystem can express "always fails" if they want.
-    if total <= 0.0 {
-        return MissionOutcome::Success;
-    }
-    let roll: f32 = rng.random::<f32>() * total;
-    let mut cumulative = 0.0_f32;
+    // Independent-threshold sampling. Each applicable mode rolls
+    // `rng.random() < probability`; the first to fire is the
+    // outcome. The per-mode `probability` is the *absolute* rate of
+    // that specific kind, not a relative weight — that is what the
+    // Monte Carlo tests assert (e.g. DrillBitStuck at ~10% for
+    // Drill, ProbeLoss at ~5% for Flyby). A cumulative-weight
+    // scheme would scale each rate by `1/sum`, producing ~71% for
+    // DrillBitStuck when the total is 0.14.
     for m in &applicable {
-        cumulative += m.probability;
-        if roll < cumulative {
+        if m.probability > 0.0 && rng.random::<f32>() < m.probability {
             let reason = m.kind.reason();
             return MissionOutcome::Failure {
                 reason,
@@ -1425,11 +1421,6 @@ fn roll_typed_mission_outcome(
             };
         }
     }
-    // `roll < total` always holds (rng.random() is `[0, 1)`), so
-    // falling through the loop means the success branch — the
-    // remaining probability mass is `(1 - total)` when `total < 1`,
-    // or zero when `total >= 1` (the modder-intentional "always
-    // fails" case).
     MissionOutcome::Success
 }
 
@@ -2900,7 +2891,13 @@ mod tests {
                 kind: FailureKind::RoverStuck {
                     recovery_mission_id: "rover_rescue".to_string(),
                 },
-                probability: 0.08,
+                // `probability: 1.0` makes this test deterministic
+                // — the typed roll always fires RoverStuck on the
+                // first attempt. The 0.08 design rate is verified
+                // by the `typed_roll_1000_runs_*` Monte Carlo tests
+                // above; this test is concerned with the
+                // failure→recovery spawn path, not the rate.
+                probability: 1.0,
             }],
         };
         template
@@ -3108,7 +3105,13 @@ mod tests {
                 kind: FailureKind::DrillBitStuck {
                     recovery_mission_id: "drill_retrieval".to_string(),
                 },
-                probability: 0.10,
+                // `probability: 1.0` makes this test deterministic
+                // — the typed roll always fires DrillBitStuck on
+                // the first attempt. The 0.10 design rate is
+                // verified by the `typed_roll_1000_runs_*` Monte
+                // Carlo tests above; this test is concerned with
+                // the failure→recovery spawn path, not the rate.
+                probability: 1.0,
             }],
         };
         template
@@ -3318,6 +3321,5 @@ mod tests {
             s.failed_mission_notifications.last().unwrap().mission_id,
             (MAX_FAILED_MISSION_NOTIFICATIONS + 2) as u64
         );
-
     }
 }

@@ -82,8 +82,7 @@
                     probability: 0.05,
                 ),
                 (
-                    kind: solar_storm,
-                    confidence_penalty: 0.15,
+                    kind: solar_storm(confidence_penalty: 0.15),
                     probability: 0.02,
                 ),
             ],
@@ -107,8 +106,7 @@
                     probability: 0.05,
                 ),
                 (
-                    kind: solar_storm,
-                    confidence_penalty: 0.15,
+                    kind: solar_storm(confidence_penalty: 0.15),
                     probability: 0.02,
                 ),
             ],
@@ -131,8 +129,7 @@
                     probability: 0.05,
                 ),
                 (
-                    kind: solar_storm,
-                    confidence_penalty: 0.15,
+                    kind: solar_storm(confidence_penalty: 0.15),
                     probability: 0.02,
                 ),
             ],
@@ -151,13 +148,11 @@
             is_ground_team: true,
             failure_modes: [
                 (
-                    kind: solar_storm,
-                    confidence_penalty: 0.15,
+                    kind: solar_storm(confidence_penalty: 0.15),
                     probability: 0.02,
                 ),
                 (
-                    kind: crew_injury,
-                    injury_duration_days: 90,
+                    kind: crew_injury(injury_duration_days: 90),
                     probability: 0.02,
                 ),
             ],
@@ -177,18 +172,15 @@
             is_ground_team: true,
             failure_modes: [
                 (
-                    kind: rover_stuck,
-                    recovery_mission_id: "rover_rescue",
+                    kind: rover_stuck(recovery_mission_id: "rover_rescue"),
                     probability: 0.08,
                 ),
                 (
-                    kind: solar_storm,
-                    confidence_penalty: 0.15,
+                    kind: solar_storm(confidence_penalty: 0.15),
                     probability: 0.02,
                 ),
                 (
-                    kind: crew_injury,
-                    injury_duration_days: 90,
+                    kind: crew_injury(injury_duration_days: 90),
                     probability: 0.02,
                 ),
             ],
@@ -206,13 +198,11 @@
             is_ground_team: true,
             failure_modes: [
                 (
-                    kind: solar_storm,
-                    confidence_penalty: 0.15,
+                    kind: solar_storm(confidence_penalty: 0.15),
                     probability: 0.02,
                 ),
                 (
-                    kind: crew_injury,
-                    injury_duration_days: 90,
+                    kind: crew_injury(injury_duration_days: 90),
                     probability: 0.02,
                 ),
             ],
@@ -231,18 +221,15 @@
             is_ground_team: true,
             failure_modes: [
                 (
-                    kind: drill_bit_stuck,
-                    recovery_mission_id: "drill_retrieval",
+                    kind: drill_bit_stuck(recovery_mission_id: "drill_retrieval"),
                     probability: 0.10,
                 ),
                 (
-                    kind: solar_storm,
-                    confidence_penalty: 0.15,
+                    kind: solar_storm(confidence_penalty: 0.15),
                     probability: 0.02,
                 ),
                 (
-                    kind: crew_injury,
-                    injury_duration_days: 90,
+                    kind: crew_injury(injury_duration_days: 90),
                     probability: 0.02,
                 ),
             ],
@@ -261,13 +248,11 @@
             is_ground_team: true,
             failure_modes: [
                 (
-                    kind: solar_storm,
-                    confidence_penalty: 0.15,
+                    kind: solar_storm(confidence_penalty: 0.15),
                     probability: 0.02,
                 ),
                 (
-                    kind: crew_injury,
-                    injury_duration_days: 90,
+                    kind: crew_injury(injury_duration_days: 90),
                     probability: 0.02,
                 ),
             ],
@@ -290,8 +275,7 @@
                     probability: 0.05,
                 ),
                 (
-                    kind: solar_storm,
-                    confidence_penalty: 0.15,
+                    kind: solar_storm(confidence_penalty: 0.15),
                     probability: 0.02,
                 ),
             ],
