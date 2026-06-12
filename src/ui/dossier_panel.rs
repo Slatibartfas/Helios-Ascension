@@ -174,13 +174,17 @@ pub(super) struct DossierUiParams<'w, 's> {
     pub mission_templates: Res<'w, SurveyMissionTemplates>,
     pub pending_actions: ResMut<'w, PendingConstructionActions>,
     /// GRA-83b: orbital survey station surface needs a `&World`
-    /// to iterate the per-body station list (the
-    /// `ContinuousStationBonus` cache lives on the body, but
-    /// `ContinuousSurveyStation` lives on the station entity, so
-    /// we need to walk both). Exposed as a system param rather
-    /// than a sub-struct because [`OrbitalStationSummary::from_world`]
-    /// is unit-testable against a constructed `World`.
+    /// to fetch per-body components (the `ContinuousStationBonus`
+    /// cache lives on the body). The `ContinuousSurveyStation`
+    /// lives on the station entity and is walked via
+    /// [`Self::stations_query`] because `World::query` requires
+    /// `&mut self` and we only have an immutable `&World`
+    /// reference here.
     pub world: &'w World,
+    /// GRA-83b: enumerate every `ContinuousSurveyStation` in the
+    /// world to compute the per-tier list for the orbited body.
+    /// Immutable (we read `tier` and `orbiting_body` only).
+    pub stations_query: Query<'w, 's, &'static ContinuousSurveyStation>,
 }
 
 /// Renders the right-side "Celestial Body Dossier" panel when a body is
@@ -384,7 +388,13 @@ pub(super) fn ui_planet_dossier(mut params: DossierUiParams) {
                     // (per-body aggregation, see
                     // `apply_continuous_station_bonus`).
                     section_divider(ui);
-                    draw_orbital_station_section(ui, params.world, entity, &body.name);
+                    draw_orbital_station_section(
+                        ui,
+                        params.world,
+                        params.stations_query.iter(),
+                        entity,
+                        &body.name,
+                    );
                 });
         });
 }
@@ -2490,16 +2500,25 @@ impl OrbitalStationSummary {
     /// the body has no active orbital survey station cache. The
     /// dossier hides the section when this returns `None`.
     ///
-    /// Takes `&World` rather than three `Query` system params
-    /// because the function is also reachable from unit tests,
-    /// which can construct a `World` directly but cannot easily
-    /// wire up Bevy 0.18's `Query` system params without a full
-    /// `App`. The three `world.query::<...>()` calls are
-    /// equivalent to what the `DossierOrbitalStationQueries`
-    /// sub-struct provides in the render path.
-    pub fn from_world(world: &World, body_entity: Entity, body_name: &str) -> Option<Self> {
-        let mut bonuses_q = world.query::<&ContinuousStationBonus>();
-        let bonus = bonuses_q.get(world, body_entity).ok()?;
+    /// Takes `&World` plus a stations iterator rather than three
+    /// `Query` system params because the function is also
+    /// reachable from unit tests, which can construct a `World`
+    /// directly but cannot easily wire up Bevy 0.18's `Query`
+    /// system params without a full `App`. `World::query` itself
+    /// requires `&mut self`, so we use `World::get::<T>(entity)`
+    /// (an immutable `&self` method) for the two single-entity
+    /// lookups and accept the stations collection as a slice
+    /// from the caller.
+    pub fn from_world<'w, I>(
+        world: &'w World,
+        body_entity: Entity,
+        body_name: &str,
+        stations: I,
+    ) -> Option<Self>
+    where
+        I: IntoIterator<Item = &'w ContinuousSurveyStation>,
+    {
+        let bonus = world.get::<ContinuousStationBonus>(body_entity)?;
         if !bonus.is_active() {
             // The cache may be present on a body but at neutral
             // values (the system resets rather than removes — see
@@ -2507,29 +2526,23 @@ impl OrbitalStationSummary {
             // "no station" for the dossier.
             return None;
         }
-        let mut tiers: Vec<u8> = {
-            let mut stations_q = world.query::<&ContinuousSurveyStation>();
-            stations_q
-                .iter(world)
-                .filter_map(|s| {
-                    if s.orbiting_body == Some(body_entity) {
-                        Some(s.tier)
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        };
+        let mut tiers: Vec<u8> = stations
+            .into_iter()
+            .filter_map(|s| {
+                if s.orbiting_body == Some(body_entity) {
+                    Some(s.tier)
+                } else {
+                    None
+                }
+            })
+            .collect();
         // Stable, ascending order for predictable display
         // ("T1, T1, T3" not "T3, T1, T1").
         tiers.sort_unstable();
-        let mine_count = {
-            let mut mining_q = world.query::<&MiningOperation>();
-            mining_q
-                .get(world, body_entity)
-                .map(|op| if op.active { 1 } else { 0 })
-                .unwrap_or(0)
-        };
+        let mine_count = world
+            .get::<MiningOperation>(body_entity)
+            .map(|op| if op.active { 1 } else { 0 })
+            .unwrap_or(0);
         let mining_bonus_pct = ((bonus.mining_yield_multiplier - 1.0) * 100.0).round() as i32;
         Some(Self {
             body_name: body_name.to_string(),
@@ -2575,13 +2588,17 @@ impl OrbitalStationSummary {
     }
 }
 
-fn draw_orbital_station_section(
+fn draw_orbital_station_section<'w, I>(
     ui: &mut egui::Ui,
-    world: &World,
+    world: &'w World,
+    stations: I,
     body_entity: Entity,
     body_name: &str,
-) {
-    let Some(summary) = OrbitalStationSummary::from_world(world, body_entity, body_name) else {
+) where
+    I: IntoIterator<Item = &'w ContinuousSurveyStation>,
+{
+    let Some(summary) = OrbitalStationSummary::from_world(world, body_entity, body_name, stations)
+    else {
         // No active station — hide the section entirely. The
         // body dossier would otherwise grow a useless empty
         // "ORBITAL SURVEY STATIONS" header on every body that
@@ -2752,10 +2769,12 @@ mod tests {
         // `ContinuousStationBonus` component. The summary
         // builder returns `None` and the dossier hides the
         // section. (Constructed against a minimal `App` so the
-        // `QueryState` calls have valid archtypes.)
+        // `World::get::<T>(entity)` lookups and the station
+        // slice have valid archtypes.)
         let mut app = App::new();
         let body = app.world_mut().spawn_empty().id();
-        let result = OrbitalStationSummary::from_world(app.world(), body, "Earth");
+        let stations: Vec<&ContinuousSurveyStation> = Vec::new();
+        let result = OrbitalStationSummary::from_world(app.world(), body, "Earth", stations);
         assert!(
             result.is_none(),
             "a body with no ContinuousStationBonus should produce no summary"
@@ -2780,16 +2799,29 @@ mod tests {
             ))
             .id();
         // Two tier-1 stations orbiting Mars.
-        app.world_mut().spawn(ContinuousSurveyStation {
-            orbiting_body: Some(mars),
-            tier: 1,
-        });
-        app.world_mut().spawn(ContinuousSurveyStation {
-            orbiting_body: Some(mars),
-            tier: 1,
-        });
+        let s1 = app
+            .world_mut()
+            .spawn(ContinuousSurveyStation {
+                orbiting_body: Some(mars),
+                tier: 1,
+            })
+            .id();
+        let s2 = app
+            .world_mut()
+            .spawn(ContinuousSurveyStation {
+                orbiting_body: Some(mars),
+                tier: 1,
+            })
+            .id();
+        // Borrow the stations through `app.world()` (immutable)
+        // so we can hand a `Vec<&ContinuousSurveyStation>` to
+        // the function's `IntoIterator` bound.
+        let world = app.world();
+        let s1_ref: &ContinuousSurveyStation = world.get::<ContinuousSurveyStation>(s1).unwrap();
+        let s2_ref: &ContinuousSurveyStation = world.get::<ContinuousSurveyStation>(s2).unwrap();
+        let stations = vec![s1_ref, s2_ref];
 
-        let summary = OrbitalStationSummary::from_world(app.world(), mars, "Mars")
+        let summary = OrbitalStationSummary::from_world(world, mars, "Mars", stations)
             .expect("Mars with an active bonus should produce a summary");
 
         assert_eq!(summary.body_name, "Mars");
