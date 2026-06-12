@@ -215,9 +215,7 @@ pub fn extract_resources(
         // and the design doc call it a "mining yield bonus"). A
         // body with no station orbiting it falls back to 1.0×
         // (the cache is `Option`).
-        let mining_bonus = station_bonus_opt
-            .map(|b| b.mining_yield_multiplier as f64)
-            .unwrap_or(1.0);
+        let mining_bonus = ContinuousStationBonus::multiplier_or_neutral(station_bonus_opt);
 
         // 1. Process specific MiningOperations (legacy/scenario)
         if let Some(op) = op_opt {
@@ -563,9 +561,7 @@ pub fn update_resource_rates(
         // GRA-83 PR-E: per-body orbital survey station bonus
         // multiplies the MiningOperation rate. Falls through to
         // 1.0× when the body has no orbiting station.
-        let mining_bonus = station_bonus_opt
-            .map(|b| b.mining_yield_multiplier as f64)
-            .unwrap_or(1.0);
+        let mining_bonus = ContinuousStationBonus::multiplier_or_neutral(station_bonus_opt);
         // base_rate_mt_per_year → per month = rate * (month / year)
         let monthly =
             op.base_rate_mt_per_year * mining_bonus * (SECONDS_PER_MONTH / SECONDS_PER_YEAR);
@@ -628,9 +624,7 @@ pub fn update_resource_rates(
                 // harvesting, NOT industrial synthesis) to match
                 // `extract_resources`. Falls through to 1.0× when
                 // the body has no orbiting station.
-                let mining_bonus = station_bonus_opt
-                    .map(|b| b.mining_yield_multiplier as f64)
-                    .unwrap_or(1.0);
+                let mining_bonus = ContinuousStationBonus::multiplier_or_neutral(station_bonus_opt);
                 let mut surface_rate = 0.0_f64;
                 let mut deep_rate = 0.0_f64;
                 let mut bulk_rate = 0.0_f64;

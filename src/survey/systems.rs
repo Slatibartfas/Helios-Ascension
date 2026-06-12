@@ -1875,12 +1875,10 @@ mod tests {
         world.spawn(ContinuousSurveyStation {
             orbiting_body: Some(mars),
             tier: 1,
-            last_tick_sim_time: None,
         });
         world.spawn(ContinuousSurveyStation {
             orbiting_body: Some(phobos),
             tier: 1,
-            last_tick_sim_time: None,
         });
 
         // Advance one sim-year, then run the system.
@@ -1974,7 +1972,6 @@ mod tests {
         world.spawn(ContinuousSurveyStation {
             orbiting_body: Some(mars),
             tier: 1,
-            last_tick_sim_time: None,
         });
 
         set_sim_years(&mut world, 1.0);
@@ -2045,14 +2042,12 @@ mod tests {
             .spawn(ContinuousSurveyStation {
                 orbiting_body: Some(mars),
                 tier: 1,
-                last_tick_sim_time: None,
             })
             .id();
         let phobos_station = world
             .spawn(ContinuousSurveyStation {
                 orbiting_body: Some(phobos),
                 tier: 1,
-                last_tick_sim_time: None,
             })
             .id();
 
@@ -2137,7 +2132,6 @@ mod tests {
         world.spawn(ContinuousSurveyStation {
             orbiting_body: None,
             tier: 1,
-            last_tick_sim_time: None,
         });
 
         set_sim_years(&mut world, 1.0);
@@ -2193,12 +2187,10 @@ mod tests {
         world.spawn(ContinuousSurveyStation {
             orbiting_body: Some(mars),
             tier: 1,
-            last_tick_sim_time: None,
         });
         world.spawn(ContinuousSurveyStation {
             orbiting_body: Some(mars),
             tier: 1,
-            last_tick_sim_time: None,
         });
 
         set_sim_years(&mut world, 1.0);
