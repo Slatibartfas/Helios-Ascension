@@ -659,12 +659,6 @@ mod tests {
     // ── GRA-82 PR-D tests: landing-site coverage, score weights, and
     //    blocker derivation. ────────────────────────────────────────
 
-    fn state_with_dim(dim: SurveyDimension, tier: u8) -> SurveyState {
-        let mut s = SurveyState::default();
-        s.set_fidelity(dim, DimensionFidelity::at_tier(tier, 1.0, Some(sim_time())));
-        s
-    }
-
     #[test]
     fn coverage_is_zero_for_unsurveyed_body() {
         let s = SurveyState::default();
@@ -801,6 +795,8 @@ mod tests {
         // rebalances.
         assert_eq!(MIN_SITES_PER_BODY, 2);
         assert_eq!(MAX_SITES_PER_BODY, 5);
-        assert!(LANDING_SITE_EVAL_THRESHOLD > 0.0 && LANDING_SITE_EVAL_THRESHOLD < 1.0);
+        const {
+            assert!(LANDING_SITE_EVAL_THRESHOLD > 0.0 && LANDING_SITE_EVAL_THRESHOLD < 1.0);
+        }
     }
 }
