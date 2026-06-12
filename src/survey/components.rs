@@ -516,7 +516,7 @@ pub struct SiteScoreWeights {
 /// Sites are immutable once generated: when survey improves, the
 /// composite ranking of *known* sites stays stable. Re-survey work
 /// would land in a follow-up PR (likely PR-F "mining yield" /
-//// dossier refresh).
+/// dossier refresh).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LandingSite {
     /// Stable id (unique per body, but not globally). Index into the
