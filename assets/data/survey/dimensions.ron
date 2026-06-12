@@ -1,0 +1,31 @@
+// Modder-added discovery dimensions (GRA-98 / v0.5.0 survey rework).
+//
+// Loads into `SurveyDimensionRegistry::modder_dimensions` (see
+// `src/survey/data.rs`, GRA-79 PR-A scaffold). The eight hardcoded
+// dimensions in `SurveyDimension::ALL` are always known to the binary
+// and are NOT in this file:
+//
+//   OrbitalMech, Atmosphere, SurfaceFeatures, MineralClasses,
+//   MineralDeposits, Subsurface, Habitability, Anomalies
+//
+// See SURVEY_REWORK.md §4 (Discovery Dimensions) for the canonical set
+// and §[Data-Driven Surface: New RON Files] for the modder contract:
+//
+//   To add a ninth dimension (e.g. "Magnetosphere"):
+//     1. Add one entry below with a stable RON id, display name, and
+//        description.
+//     2. Add tier semantics to `tiers.ron` (6 rows: tier 0..5).
+//     3. Add 1–2 instruments that advance the dimension to
+//        `instruments.ron` (set their `method` accordingly).
+//     4. (Optionally) add an anomaly type that surfaces under the
+//        new dimension to `anomalies.ron`.
+//
+// No Rust change. No recompile. RON modding is the player-influence
+// path per the design doc.
+//
+// v0.5.0 ships with zero modder dimensions — this file exists so the
+// modder path is exercisable from day one.
+(
+    modder_dimensions: [
+    ],
+)
