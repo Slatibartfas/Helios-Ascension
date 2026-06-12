@@ -62,15 +62,15 @@ pub enum SurveyLevel {
 }
 ```
 
-A single `SurveyLevel` enum on the body entity. It is incremented by clicking an **UPGRADE** button in the body's dossier panel (`src/ui/dossier_panel.rs:1375`, inside `draw_resource_section` at `src/ui/dossier_panel.rs:1331-1421`). The increment is instantaneous; there is no time cost, no resource cost, no personnel requirement, and no chance of failure. Earth starts at `CoreSample` (`src/plugins/solar_system.rs:922`); every other body in the system starts at `Unsurveyed`.
+A single `SurveyLevel` enum on the body entity. It is incremented by clicking an **UPGRADE** button in the body's dossier panel (`src/ui/dossier_panel.rs:1418`, inside `draw_resource_section` at `src/ui/dossier_panel.rs:1380-1477`). The increment is instantaneous; there is no time cost, no resource cost, no personnel requirement, and no chance of failure. Earth starts at `CoreSample` (`src/plugins/solar_system.rs:922`); every other body in the system starts at `Unsurveyed`.
 
 The `discovered_amount()` function (`src/economy/components.rs:280`) maps each level to a fixed slice of the `ResourceReserve` triple `(proven_crustal, deep_deposits, planetary_bulk)`. Three levels, three slices, no other information is gated.
 
 ### UI surface
 
-- **Body dossier** (`src/ui/dossier_panel.rs:1331-1421`, function `draw_resource_section`): shows `SURVEY: ORBITAL / SEISMIC / CORE SAMPLE` plus an UPGRADE button (currently at `src/ui/dossier_panel.rs:1375`). Click to bump one level. The button is always enabled.
-- **Mining panel** (`src/ui/economy_panel.rs:111-142`): a `MiningSurveyFilter` enum filters the mining body list by `Surveyed / Seismic+ / CoreOnly`. The filter is a UI-only view-state — it does not affect what the body actually yields, which is already gated by `discovered_amount()`.
-- **Starmap system summary** (`src/ui/dashboard.rs:1722-1852`): a system-wide `SURVEY %` and a `SURVEYED BODIES` count, plus a tile grid showing the union of resources discovered across all bodies in the active system. The percentage is `(discovered_weight / total_weight) × 100` over the `ResourceReserve.total_mass()` sum.
+- **Body dossier** (`src/ui/dossier_panel.rs:1380-1477`, function `draw_resource_section`): shows `SURVEY: ORBITAL / SEISMIC / CORE SAMPLE` plus an UPGRADE button (currently at `src/ui/dossier_panel.rs:1418`). Click to bump one level. The button is always enabled.
+- **Mining panel** (`src/ui/economy_panel.rs:114-142`): a `MiningSurveyFilter` enum filters the mining body list by `Surveyed / Seismic+ / CoreOnly`. The filter is a UI-only view-state — it does not affect what the body actually yields, which is already gated by `discovered_amount()`.
+- **Starmap system summary** (`src/ui/dashboard.rs:1732-1851`): a system-wide `SURVEY %` and a `SURVEYED BODIES` count, plus a tile grid showing the union of resources discovered across all bodies in the active system. The percentage is `(discovered_weight / total_weight) × 100` over the `ResourceReserve.total_mass()` sum.
 - **History ledger** (`src/economy/history.rs:553-557`, the `match survey_level` arm): per-era count of bodies in each level for analytics.
 
 ### What it doesn't do
@@ -292,6 +292,8 @@ The current tech tree has **good coverage already**. Many existing techs become 
 | Closed-Loop Ecology | `closed_loop_ecology` | Biological assay payload (habitability tier 4+) |
 | Cryogenics (if present) | — | Cryogenic sample handling for icy bodies |
 
+> **Note:** the PR #123 commit message listed 7 reused techs; the canonical list above has 8 confirmed (`basic_sensors`, `satellite_networks`, `remote_sensing`, `radio_astronomy`, `advanced_radar`, `deep_drilling`, `laser_drilling`, `asteroid_prospecting`) plus 1 conditional (`closed_loop_ecology`, gates the habitability tier 4+ bio-assay) and 1 tentative (`cryogenics`, present in `technologies.ron` but its prereq role for `cryogenic_sampling` is provisional). The table above is authoritative; the commit-message undercount did not reflect `radio_astronomy`.
+
 The existing tech tree already covers the **instrument** side. The new design adds techs for the **methodology** and **personnel** side.
 
 ### New techs to add
@@ -456,7 +458,7 @@ No Rust change. No recompile. RON modding is the player-influence path.
 ```ron
 (
     id: "proven_crustal_min_deposits_t2",
-    resource_class: "ShallowOre",        // matches a tag in solar_system.ron's deposit entries
+    resource_class: "ShallowOre",        // v0.5.0 design slot — see note below
     dimension: "MineralDeposits",
     min_tier: 2,                         // mining unlocks at this dimension tier
     efficiency_pct: 40.0,                // 40% of nominal yield until tier 4
@@ -479,6 +481,8 @@ No Rust change. No recompile. RON modding is the player-influence path.
     requires_confirmation: true,         // mantle/core access requires drill rig
 ),
 ```
+
+> **Note on `resource_class` (v0.5.0 aspirational):** the current `solar_system.ron` has no per-deposit `resource_class` tags — deposits are generated at runtime by `src/economy/generation.rs` and stored as the `ResourceReserve` triple `(proven_crustal, deep_deposits, planetary_bulk)` in `src/economy/components.rs:271`. There is no `ShallowOre` / `DeepOre` enum on deposits today. The `resource_class` field in this schema is a forward-looking tag for v0.5.0: when the Coder lands the new deposit model, deposit entries in `solar_system.ron` (or a new generated-deposit RON) will carry a `resource_class` tag, and this row keys the efficiency curve to that tag. Until that lands, the Coder can either (a) ignore `resource_class` and key efficiency on `(dimension, min_tier)` alone, or (b) define a small `ResourceClass` enum in `components.rs` and stub the deposit-side field. The schema in this doc is the v0.5.0 target shape.
 
 Modders rebalance the curve by editing this file. The Coder exposes a `MiningEfficiencyRegistry` resource; the dossier UI looks up the relevant row to show the player the current `low / mid / high` estimate.
 
