@@ -1240,7 +1240,6 @@ pub fn abort_survey_mission(world: &mut World) {
     }
 }
 
-/// Generate a stable mission id. PR-B uses `len + 1`; a future PR
 /// Consume [`DismissFailedMission`] events: remove the matching
 /// [`FailedMissionRecord`](super::components::FailedMissionRecord)
 /// from the body's `failed_mission_notifications` vec. The
