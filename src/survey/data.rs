@@ -480,6 +480,7 @@ pub fn load_mission_templates(mut commands: Commands) {
 /// (`equipment_recovery`, `crew_extraction`,
 /// `data_relay_replacement`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RecoveryMissionKind {
     /// Send a retrieval ship / rover to recover stuck equipment
     /// (rover, drill rig, etc.). 1 chemical survey ship + 60-180

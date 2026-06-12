@@ -1425,12 +1425,12 @@ fn roll_typed_mission_outcome(
             };
         }
     }
-    // Floating-point tail: pick the last applicable entry.
-    let last = applicable.last().unwrap();
-    MissionOutcome::Failure {
-        reason: last.kind.reason(),
-        kind: Some(last.kind.clone()),
-    }
+    // `roll < total` always holds (rng.random() is `[0, 1)`), so
+    // falling through the loop means the success branch — the
+    // remaining probability mass is `(1 - total)` when `total < 1`,
+    // or zero when `total >= 1` (the modder-intentional "always
+    // fails" case).
+    MissionOutcome::Success
 }
 
 /// Sim-days between landing-site re-evaluation passes. The system

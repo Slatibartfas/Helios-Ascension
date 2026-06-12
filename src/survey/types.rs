@@ -569,6 +569,7 @@ impl MissionFailureReason {
 /// is a fresh dispatch of the same mission template, not a
 /// specialised recovery template.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum FailureKind {
     /// A probe or atmospheric probe was lost. No data; the
     /// probe entity is consumed. The dispatch system fires
