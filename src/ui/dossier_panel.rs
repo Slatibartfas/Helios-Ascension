@@ -113,7 +113,7 @@ fn mono_font(size: f32) -> egui::FontId {
 /// `ReadOnlyQueryData`, which `&mut T` does not).
 #[derive(QueryData)]
 #[query_data(mutable)]
-struct DossierBodyParts<'w> {
+pub(super) struct DossierBodyParts<'w> {
     body: &'w CelestialBody,
     coords: Option<&'w SpaceCoordinates>,
     orbit: Option<&'w KeplerOrbit>,
@@ -182,7 +182,7 @@ pub(super) fn ui_planet_dossier(
         None => return,
     };
 
-    let Ok((_, mut parts)) = body_query.get_mut(entity) else {
+    let Ok((_, parts)) = body_query.get_mut(entity) else {
         return;
     };
     let body = parts.body;
