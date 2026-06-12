@@ -1518,5 +1518,40 @@
             ],
             power_demand_mw: 30.0,
         ),
+
+        // ========================================
+        // SURVEY (v0.5.0, GRA-83 PR-E)
+        // ========================================
+        // Continuous orbital survey station. Per-body: a station
+        // orbiting Mars does NOT boost Phobos. Effect is
+        // implemented in `src/survey/systems.rs`
+        // `apply_continuous_station_bonus` (ticks dimensions
+        // per-year) and `src/economy/mining.rs` `extract_resources`
+        // (multiplies the body's mining yield by the per-body
+        // `ContinuousStationBonus::mining_yield_multiplier` cache).
+        (
+            id: "OrbitalSurveyStation",
+            display_name: "Orbital Survey Station",
+            description: "Permanent orbital installation that continuously surveys the host body and grants a local mining yield bonus. Per-body: effect does not transfer to moons or parent planets.",
+            icon: "🛰",
+            category: "Research",
+            build_points: 1200.0,
+            workforce: 500,
+            required_tech: "advanced_radar",
+            resource_costs: [
+                ("Iron", 80.0),
+                ("Silicates", 40.0),
+                ("Copper", 15.0),
+                ("Polymers", 8.0),
+            ],
+            maintenance_resources: [
+                ("Iron", 0.002),
+                ("Polymers", 0.001),
+                ("Copper", 0.0005),
+                ("Water", 0.005),
+            ],
+            modifiers: [],
+            power_demand_mw: 25.0,
+        ),
     ],
 )

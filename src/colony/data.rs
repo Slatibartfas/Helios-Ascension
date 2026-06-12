@@ -342,6 +342,7 @@ pub(super) fn parse_building_type(id: &str) -> Option<BuildingType> {
         "SpacePort" => Some(BuildingType::SpacePort),
         "GroundDefenseBattery" => Some(BuildingType::GroundDefenseBattery),
         "Warehouse" => Some(BuildingType::Warehouse),
+        "OrbitalSurveyStation" => Some(BuildingType::OrbitalSurveyStation),
         _ => None,
     }
 }

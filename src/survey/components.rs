@@ -638,6 +638,90 @@ pub struct ExtractionSite {
     pub blockers: Vec<BuildingType>,
 }
 
+/// GRA-83 PR-E: an orbital survey station orbiting a single body.
+///
+/// A station is a permanent passive effect — it does not consume
+/// mission slots or scientist teams. Each tick the
+/// [`apply_continuous_station_bonus`](super::systems::apply_continuous_station_bonus)
+/// system aggregates every station orbiting a given body and
+/// advances the body's [`SurveyState`] dimensions + writes a
+/// [`ContinuousStationBonus`] cache that the mining yield system
+/// reads.
+///
+/// Per-body isolation is enforced by the `orbiting_body: Entity`
+/// field: a station's effect never crosses body boundaries. A
+/// station at Mars does *not* boost Phobos axes, and a station at
+/// Phobos does *not* bonus Mars mines. (See CTO recipe §1 and
+/// SURVEY_REWORK.md §Progressive Survey Levels.)
+#[derive(Component, Debug, Clone, Serialize, Deserialize)]
+pub struct ContinuousSurveyStation {
+    /// The body this station orbits. The station ticks axes on
+    /// *only* this body's `SurveyState`; mining bonus applies to
+    /// *only* this body's `MiningOperation` / `Colony` mines.
+    ///
+    /// **`None` → the station is inert.** This is the documented
+    /// escape hatch for a freshly-built station whose UI has not
+    /// yet bound an orbited body (the construction panel defers
+    /// the body-picker dropdown to GRA-83b, per the LGD scope
+    /// split). The systems skip a `None` orbiting_body.
+    pub orbiting_body: Option<Entity>,
+    /// Station tier 1/2/3. Drives both the axis-advance rate and
+    /// the mining yield bonus (see
+    /// [`axis_advance_rate_for_tier`](super::types::axis_advance_rate_for_tier)
+    /// and
+    /// [`mining_yield_delta_for_tier`](super::types::mining_yield_delta_for_tier)).
+    pub tier: u8,
+    /// Sim-time of the most recent station tick. Used to compute
+    /// elapsed years since the last tick. `None` until the first
+    /// tick. A future PR can use this for finer-grained per-day
+    /// advancement; PR-E advances axes per call.
+    pub last_tick_sim_time: Option<f64>,
+}
+
+/// GRA-83 PR-E: the body's combined continuous-station bonus cache.
+///
+/// Computed each tick by
+/// [`apply_continuous_station_bonus`](super::systems::apply_continuous_station_bonus)
+/// by aggregating every [`ContinuousSurveyStation`] that orbits
+/// this body. The dossier reads this; the mining yield system
+/// reads this. Caching it avoids an O(stations × bodies) join on
+/// every mining tick.
+///
+/// Lives on the body entity, not on the building — so the cache
+/// reads the body's perspective, not the station's. The same
+/// `Entity` is referenced by zero or more `ContinuousSurveyStation`
+/// components (typically zero or one in early gameplay, more in
+/// late game).
+#[derive(Component, Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ContinuousStationBonus {
+    /// Combined axis-advance rate across all dimensions, per
+    /// sim-year. Sum of every station's
+    /// `axis_advance_rate_for_year` for this body.
+    pub axis_advance_per_year: f32,
+    /// Combined mining yield multiplier in `[1.0, ∞)`. Sum of
+    /// `(tier_multiplier - 1.0)` from all stations orbiting this
+    /// body plus 1.0. Two tier-1 stations on Mars = `1.05 + 0.05
+    /// = 1.10`.
+    pub mining_yield_multiplier: f32,
+}
+
+impl ContinuousStationBonus {
+    /// A body with no stations orbiting it: 1.0× mining yield, 0
+    /// axis-advance.
+    pub const NEUTRAL: Self = Self {
+        axis_advance_per_year: 0.0,
+        mining_yield_multiplier: 1.0,
+    };
+
+    /// Whether at least one station is currently contributing to
+    /// this body. Returns `true` if either the axis-advance rate
+    /// or the mining multiplier differs from neutral.
+    pub fn is_active(&self) -> bool {
+        self.axis_advance_per_year > 0.0
+            || (self.mining_yield_multiplier - 1.0).abs() > f32::EPSILON
+    }
+}
+
 impl ExtractionSite {
     /// Convenience: the composite score for this site.
     pub fn composite_score(&self) -> f32 {
