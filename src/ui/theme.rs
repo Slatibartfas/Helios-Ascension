@@ -850,6 +850,379 @@ pub mod Color {
     /// titles. Distinct from `ACCENT` so headings don't compete with
     /// interactive elements.
     pub const PANEL_TITLE: Color = Color::srgb(0.55, 0.95, 1.0);
+
+    // ── Status Surfaces (info / success / warning / danger) ─────────
+    //
+    // Triples for the four canonical status surfaces used by the
+    // shipbuilding workspace chips, the building state pills, and
+    // the ship state indicators. Each status has a dim background,
+    // a saturated border, and a text colour that matches the
+    // border. Pre-GRA-93 these were 12+ inline `Color::srgb` literals
+    // scattered through `shipbuilding_workspace.rs`; the
+    // migration to these tokens is the GRA-93 follow-up to the
+    // GRA-67 Bevy `Color` mirror.
+
+    /// Info-status background (cool blue-black, ~3% lightness).
+    pub const STATUS_INFO_BG: Color = Color::srgb(0.02, 0.04, 0.07);
+    /// Info-status border (mid-cyan, brighter than `BORDER`).
+    pub const STATUS_INFO_BORDER: Color = Color::srgb(0.22, 0.72, 0.86);
+    /// Info-status text (light cyan, mirrors `PANEL_TITLE`).
+    pub const STATUS_INFO_TEXT: Color = Color::srgb(0.55, 0.95, 1.0);
+
+    /// Success-status background (dim green-black).
+    pub const STATUS_SUCCESS_BG: Color = Color::srgb(0.08, 0.18, 0.14);
+    /// Success-status border (bright spring green).
+    pub const STATUS_SUCCESS_BORDER: Color = Color::srgb(0.38, 0.94, 0.7);
+    /// Success-status text (mint green).
+    pub const STATUS_SUCCESS_TEXT: Color = Color::srgb(0.5, 0.92, 0.62);
+
+    /// Warning-status background (dim amber-black).
+    pub const STATUS_WARNING_BG: Color = Color::srgb(0.18, 0.12, 0.08);
+    /// Warning-status border (saturated orange).
+    pub const STATUS_WARNING_BORDER: Color = Color::srgb(0.78, 0.52, 0.36);
+    /// Warning-status text (warm gold).
+    pub const STATUS_WARNING_TEXT: Color = Color::srgb(0.98, 0.78, 0.36);
+
+    /// Danger-status background (dim red-black).
+    pub const STATUS_DANGER_BG: Color = Color::srgb(0.12, 0.08, 0.09);
+    /// Danger-status border (saturated coral red).
+    pub const STATUS_DANGER_BORDER: Color = Color::srgb(0.86, 0.42, 0.38);
+    /// Danger-status text (coral red).
+    pub const STATUS_DANGER_TEXT: Color = Color::srgb(1.0, 0.45, 0.4);
+
+    // ── Tooltips & Overlays ─────────────────────────────────────────
+    //
+    // Mirrors the egui `TOOLTIP_BG` / `TOOLTIP_BG_ALT` set above. Used
+    // by the shipbuilding hover tooltip, the analytics tooltip, and
+    // the WorkspaceShell banner. The alpha 0.96 lets the starfield
+    // backdrop show through faintly.
+
+    /// Tooltip background — semi-transparent deep navy.
+    pub const TOOLTIP_BG: Color = Color::srgba(0.02, 0.04, 0.07, 0.96);
+    /// Tooltip border — mid-cyan accent.
+    pub const TOOLTIP_BORDER: Color = Color::srgb(0.22, 0.72, 0.86);
+    /// Tooltip title text — light cyan, mirrors `PANEL_TITLE`.
+    pub const TOOLTIP_TITLE: Color = Color::srgb(0.55, 0.95, 1.0);
+
+    // ── Panel Containers (workspace shells) ─────────────────────────
+    //
+    // The `spawn_panel` helper and the WorkspaceShell status banner
+    // use these three pairs. The 0.92 alpha lets the backdrop show
+    // through subtly so the panels feel "screen-glassy" rather than
+    // opaque boxes.
+
+    /// Generic panel background — semi-transparent dark navy.
+    pub const PANEL_BG: Color = Color::srgba(0.03, 0.05, 0.08, 0.92);
+    /// Generic panel border — slightly dimmer cyan than the tooltip
+    /// border, so panels read as "less interactive" than tooltips.
+    pub const PANEL_BORDER: Color = Color::srgb(0.15, 0.78, 0.88);
+    /// Panel title text — light cyan, mirrors `PANEL_TITLE`.
+    pub const PANEL_TITLE_TEXT: Color = Color::srgb(0.55, 0.95, 1.0);
+
+    // ── Workspace Loading State (WorkspaceShell) ───────────────────
+    //
+    // The "Initializing shipbuilding workspace..." banner uses these
+    // three values. Distinct from the panel pair above because the
+    // banner is rendered as a sub-element of the shell root, not as
+    // a freestanding panel.
+
+    /// Loading-state background for the WorkspaceShell root.
+    pub const LOADING_BG: Color = Color::srgba(0.015, 0.02, 0.035, 0.96);
+    /// Loading-state banner background.
+    pub const LOADING_BANNER_BG: Color = Color::srgba(0.03, 0.08, 0.12, 0.96);
+    /// Loading-state banner border — same cyan as the tooltip border.
+    pub const LOADING_BANNER_BORDER: Color = Color::srgb(0.22, 0.72, 0.86);
+    /// Loading-state banner text — pale cyan.
+    pub const LOADING_BANNER_TEXT: Color = Color::srgb(0.82, 0.94, 0.98);
+
+    // ── Blueprint Canvas ────────────────────────────────────────────
+    //
+    // The blueprint canvas is a sub-element of the Blueprint panel
+    // with its own (slightly darker) background. The border matches
+    // the panel border so the canvas reads as "nested inside panel".
+
+    /// Blueprint canvas background — slightly darker than `PANEL_BG`.
+    pub const BLUEPRINT_CANVAS_BG: Color = Color::srgba(0.018, 0.032, 0.055, 0.94);
+    /// Blueprint canvas border — matches `PANEL_BORDER`.
+    pub const BLUEPRINT_CANVAS_BORDER: Color = Color::srgb(0.15, 0.78, 0.88);
+
+    // ── Stat Chip Text Colours ──────────────────────────────────────
+    //
+    // The chip-row text colours that `spawn_analytics_chip_row`
+    // consumes. Each chip has a (label, value, delta, accent) tuple
+    // and the accent is one of these values. Pre-GRA-93 the values
+    // were inline literals in every chip row call; the migration
+    // routes them through these named constants so the
+    // `audit_bevy_color_literals` baseline can shrink to ≈0.
+
+    /// Chip text — body grey (used for Material Cost body lines, etc.).
+    pub const CHIP_TEXT_BODY: Color = Color::srgb(0.82, 0.87, 0.9);
+    /// Chip text — light text (used for "Save Design" / "Reset Hull"
+    /// button labels and other action-button text).
+    pub const CHIP_TEXT_LIGHT: Color = Color::srgb(0.92, 0.96, 0.98);
+    /// Chip text — pure cyan accent.
+    pub const CHIP_TEXT_CYAN: Color = Color::srgb(0.0, 0.95, 1.0);
+    /// Chip text — green (positive deltas).
+    pub const CHIP_TEXT_GREEN: Color = Color::srgb(0.5, 0.92, 0.58);
+    /// Chip text — orange (load / build stats).
+    pub const CHIP_TEXT_ORANGE: Color = Color::srgb(0.86, 0.82, 0.58);
+    /// Chip text — pale blue (DOCK stat).
+    pub const CHIP_TEXT_DOCK: Color = Color::srgb(0.82, 0.9, 0.96);
+    /// Chip text — power-load (warm orange).
+    pub const CHIP_TEXT_POWER_LOAD: Color = Color::srgb(1.0, 0.64, 0.24);
+    /// Chip text — ordnance (coral).
+    pub const CHIP_TEXT_ORDNANCE: Color = Color::srgb(1.0, 0.46, 0.35);
+    /// Chip text — ISRU (golden brown).
+    pub const CHIP_TEXT_ISRU: Color = Color::srgb(0.9, 0.72, 0.45);
+    /// Chip text — build (mint).
+    pub const CHIP_TEXT_BUILD: Color = Color::srgb(0.5, 0.92, 0.9);
+    /// Chip text — launch (cream).
+    pub const CHIP_TEXT_LAUNCH: Color = Color::srgb(0.86, 0.82, 0.58);
+    /// Chip text — warning (coral red, used for "Missing required
+    /// slots" lines).
+    pub const CHIP_TEXT_WARN: Color = Color::srgb(1.0, 0.55, 0.45);
+
+    // ── Building State Pills (4 background colours) ────────────────
+    //
+    // The 4-state building status indicator used in the shipbuilding
+    // workspace and the dossier. Pre-GRA-93 these were inline
+    // literals; the migration to these tokens is part of the GRA-93
+    // follow-up.
+
+    /// Building state — Operational (dim green-black).
+    pub const BUILDING_OPERATIONAL_BG: Color = Color::srgb(0.1, 0.32, 0.22);
+    /// Building state — Construction (dim cyan-blue).
+    pub const BUILDING_CONSTRUCTION_BG: Color = Color::srgb(0.1, 0.18, 0.24);
+    /// Building state — Degraded (dim amber).
+    pub const BUILDING_DEGRADED_BG: Color = Color::srgb(0.18, 0.12, 0.08);
+    /// Building state — Offline (dim red).
+    pub const BUILDING_OFFLINE_BG: Color = Color::srgb(0.14, 0.08, 0.09);
+
+    // ── Mining Efficiency Bands (4 band colours) ───────────────────
+    //
+    // The 4-band mine-efficiency display used by the analytics panel.
+    // Pre-GRA-93 these were inline literals; the migration to these
+    // tokens is part of the GRA-93 follow-up.
+
+    /// Mining band — High (≥75% yield, bright green).
+    pub const MINE_BAND_HIGH: Color = Color::srgb(0.5, 0.92, 0.58);
+    /// Mining band — Mid (50–75% yield, amber).
+    pub const MINE_BAND_MID: Color = Color::srgb(0.98, 0.78, 0.36);
+    /// Mining band — Low (25–50% yield, coral).
+    pub const MINE_BAND_LOW: Color = Color::srgb(0.86, 0.42, 0.38);
+    /// Mining band — None (≤25% yield, dim grey).
+    pub const MINE_BAND_NONE: Color = Color::srgb(0.22, 0.35, 0.42);
+
+    // ── Soft Status Variants (danger / warning softer alternatives) ─
+    //
+    // The Save/Reset/Clear button rows (lines ~1371-1429) and the
+    // "no modules match" empty filter row (lines ~1461-1486) use
+    // softer danger and warning pairs than the canonical
+    // `STATUS_DANGER_*` / `STATUS_WARNING_*` triples. These are the
+    // four pairs in that softer family.
+
+    /// Soft danger-status background (warmer than `STATUS_DANGER_BG`).
+    pub const STATUS_DANGER_BG_SOFT: Color = Color::srgb(0.13, 0.08, 0.09);
+    /// Soft danger-status border (dim coral, not the saturated
+    /// `STATUS_DANGER_BORDER`).
+    pub const STATUS_DANGER_BORDER_SOFT: Color = Color::srgb(0.58, 0.3, 0.32);
+    /// Soft danger-status text (pale coral pink).
+    pub const STATUS_DANGER_TEXT_SOFT: Color = Color::srgb(0.94, 0.84, 0.84);
+
+    /// Soft warning-status border (dim amber, not the saturated
+    /// `STATUS_WARNING_BORDER`).
+    pub const STATUS_WARNING_BORDER_SOFT: Color = Color::srgb(0.62, 0.42, 0.28);
+    /// Soft warning-status text (warm peach).
+    pub const STATUS_WARNING_TEXT_SOFT: Color = Color::srgb(0.92, 0.78, 0.62);
+    /// Soft warning-status background (with alpha — used for the
+    /// "no modules match" empty filter row).
+    pub const STATUS_WARNING_BG_SOFT_ALPHA: Color = Color::srgba(0.12, 0.1, 0.07, 0.92);
+    /// Soft warning text — cream (used by the "Clear" button inside
+    /// the soft-warning empty-filter row).
+    pub const STATUS_WARNING_TEXT_CREAM: Color = Color::srgb(0.96, 0.86, 0.74);
+
+    // ── Bright status accents (chip / pill outlines, etc.) ───────
+    //
+    // The chip-row palette and the analytics tooltip use saturated
+    // accents that don't quite fit the softer "status" family. These
+    // are the unique per-chip values seen in
+    // `shipbuilding_workspace.rs` (and a few in the engineering-status
+    // helper at L4872-4920).
+
+    /// Bright coral red — stronger than `STATUS_DANGER_TEXT`; used
+    /// for the "Locked by prerequisite technology" / "engineering
+    /// definition missing" labels and the engineering status
+    /// "Negative" tone.
+    pub const STATUS_BRIGHT_CORAL: Color = Color::srgb(1.0, 0.42, 0.38);
+    /// Bright orange-red — used for power-load chip text and the
+    /// launch-tower power-load chip variant.
+    pub const STATUS_ORANGE_RED: Color = Color::srgb(1.0, 0.6, 0.32);
+    /// Bright orange — used for the "Power Load" chip colour.
+    pub const STATUS_BRIGHT_ORANGE: Color = Color::srgb(0.96, 0.54, 0.28);
+    /// Gold / saturated yellow — used for the EngineeringStatus
+    /// "in progress" tone.
+    pub const STATUS_GOLD: Color = Color::srgb(0.86, 0.78, 0.34);
+    /// Bright green — used for engineering "complete" tone and the
+    /// analytics throughput chip.
+    pub const STATUS_BRIGHT_GREEN: Color = Color::srgb(0.66, 0.96, 0.7);
+    /// Soft green — used for the delta-suffix on chip rows.
+    pub const STATUS_SOFT_GREEN: Color = Color::srgb(0.68, 0.9, 0.76);
+    /// Green-cyan — used for the "shield" / "mitigation" chip
+    /// accent and the dossier_secondary chip rows.
+    pub const STATUS_GREEN_CYAN: Color = Color::srgb(0.45, 0.85, 0.66);
+
+    // ── Cyan accent shades (chip outlines, focused-row borders) ─
+    //
+    // The chip outlines and the blueprint panel focused-row
+    // borders use a small palette of cyan-leaning values. These
+    // constants cover the unique ones in `shipbuilding_workspace.rs`
+    // that aren't already covered by the existing `ACCENT` /
+    // `STATUS_INFO_BORDER` / `TAB_ACTIVE_BORDER` triples.
+
+    /// Bright cyan — used for the Blueprint panel "selected" border
+    /// and the focused-row outline.
+    pub const ACCENT_BRIGHT: Color = Color::srgb(0.2, 0.92, 0.98);
+    /// Bright cyan (slightly dimmer than `ACCENT_BRIGHT`).
+    pub const ACCENT_BRIGHT_2: Color = Color::srgb(0.34, 0.86, 0.94);
+    /// Bright cyan (mid-bright, used for focused-row mix).
+    pub const ACCENT_BRIGHT_3: Color = Color::srgb(0.36, 0.88, 0.98);
+    /// Bright cyan (lighter, used for blueprint-mix base).
+    pub const ACCENT_BRIGHT_4: Color = Color::srgb(0.4, 0.9, 1.0);
+    /// Bright blue — used for the focused-row mix in the Blueprint
+    /// panel and the dossier-tonal accents.
+    pub const ACCENT_BLUE: Color = Color::srgb(0.46, 0.78, 1.0);
+    /// Bright blue (slightly lighter than `ACCENT_BLUE`).
+    pub const ACCENT_BLUE_2: Color = Color::srgb(0.5, 0.86, 1.0);
+    /// Pale cyan — used for the slot card "outlined" accent.
+    pub const ACCENT_CYAN: Color = Color::srgb(0.52, 0.8, 0.88);
+    /// Dim cyan border (used for disabled / unfocused tab borders).
+    pub const ACCENT_CYAN_DIM: Color = Color::srgb(0.22, 0.45, 0.54);
+    /// Dim cyan border (slightly lighter than `ACCENT_CYAN_DIM`).
+    pub const ACCENT_CYAN_DIM_2: Color = Color::srgb(0.22, 0.48, 0.58);
+    /// Mid cyan — used for the focused-row mix target.
+    pub const ACCENT_CYAN_MID: Color = Color::srgb(0.28, 0.72, 0.82);
+
+    // ── Body / text / label shades ───────────────────────────────
+    //
+    // The shipbuilding workspace uses a small palette of
+    // blueish-grey / cyan-grey / warm-grey / peach text shades that
+    // don't fit the "primary" / "dim" / "hint" egui-mirror
+    // `TEXT` / `TEXT_VALUE` / `TEXT_DIM` triple. These constants
+    // cover the unique ones in `shipbuilding_workspace.rs`.
+
+    /// Body text — bright white (used for the workspace filter
+    /// "type to filter" hint when a query is active).
+    pub const TEXT_BRIGHT_WHITE: Color = Color::srgb(0.95, 0.98, 1.0);
+    /// Body text — bluish white (used for the secondary
+    /// panel text).
+    pub const TEXT_BLUISH_WHITE: Color = Color::srgb(0.86, 0.93, 0.98);
+    /// Body text — pale cyan-grey (used as the slot/card label
+    /// text).
+    pub const TEXT_PALE: Color = Color::srgb(0.88, 0.93, 0.96);
+    /// Body text — light grey (used for descriptions, secondary
+    /// "section" labels, and the queue text block).
+    pub const TEXT_LIGHT: Color = Color::srgb(0.84, 0.9, 0.94);
+    /// Body text — medium grey (used for "module description"
+    /// lines and the "no hull selected" hint).
+    pub const TEXT_MEDIUM: Color = Color::srgb(0.6, 0.7, 0.76);
+    /// Body text — dim grey (used for the empty-filter-row
+    /// placeholder when no query is typed).
+    pub const TEXT_DIM: Color = Color::srgb(0.5, 0.6, 0.66);
+    /// Body text — muted grey (used for the engineering "no
+    /// project" status line).
+    pub const TEXT_MUTED: Color = Color::srgb(0.66, 0.75, 0.8);
+    /// Body text — very light grey (used for the "cell sub-label").
+    pub const TEXT_VERY_LIGHT: Color = Color::srgb(0.78, 0.84, 0.88);
+    /// Body text — medium-dim grey (used for the rating cell).
+    pub const TEXT_MEDIUM_DIM: Color = Color::srgb(0.56, 0.58, 0.62);
+    /// Body text — very dim grey (used for the
+    /// "shadow / inset" surface).
+    pub const TEXT_VERY_DIM: Color = Color::srgb(0.28, 0.28, 0.3);
+
+    // ── Workspace Surface Variants (slot / module / panel) ─────
+    //
+    // The slot / module card / queue row / empty-filter row
+    // patterns use a small palette of "deep navy" surface
+    // backgrounds. The selection / unselected / previewed / dim
+    // states cycle through these values. The numeric suffix is the
+    // rough-lightness ordering — `SURFACE_SLOT` is the
+    // "selected slot" highlight, lower numbers are darker.
+
+    /// Slot surface — selected / highlighted (matches
+    /// `BUILDING_CONSTRUCTION_BG`).
+    pub const SURFACE_SLOT: Color = Color::srgb(0.1, 0.18, 0.24);
+    /// Slot surface — base (used for unselected slot / fleet /
+    /// design row backgrounds).
+    pub const SURFACE_SLOT_BASE: Color = Color::srgb(0.05, 0.08, 0.12);
+    /// Module card surface — base (slightly lighter than
+    /// `SURFACE_SLOT_BASE` for the module card row).
+    pub const SURFACE_MODULE_CARD_BASE: Color = Color::srgb(0.055, 0.08, 0.12);
+    /// Module card surface — previewed (highlight when a card is
+    /// being previewed but not yet installed).
+    pub const SURFACE_MODULE_CARD_PREVIEW: Color = Color::srgb(0.12, 0.22, 0.34);
+    /// Surface — dim cyan variant (used for the active
+    /// "Loaded" surface row).
+    pub const SURFACE_DIM_CYAN: Color = Color::srgb(0.06, 0.2, 0.24);
+    /// Surface — dim cyan variant 2.
+    pub const SURFACE_DIM_CYAN_2: Color = Color::srgb(0.08, 0.2, 0.24);
+    /// Surface — deep navy (slightly different from
+    /// `SURFACE_RAISED`).
+    pub const SURFACE_DEEP: Color = Color::srgb(0.06, 0.11, 0.16);
+    /// Surface — almost-black (used for the
+    /// "cell separator" / "very dim" background).
+    pub const SURFACE_BLACK: Color = Color::srgb(0.08, 0.08, 0.09);
+    /// Surface — slate (used for the "module availability" panel).
+    pub const SURFACE_SLATE: Color = Color::srgb(0.08, 0.13, 0.19);
+    /// Surface — soft green (used for the "Saved!" status
+    /// confirmation surface).
+    pub const SURFACE_SOFT_GREEN: Color = Color::srgb(0.08, 0.2, 0.14);
+    /// Surface — dim cyan mid (used for the "Loaded" surface row).
+    pub const SURFACE_DIM_CYAN_3: Color = Color::srgb(0.1, 0.18, 0.22);
+    /// Surface — dim cyan mid 2.
+    pub const SURFACE_DIM_CYAN_4: Color = Color::srgb(0.1, 0.18, 0.28);
+    /// Surface — neutral grey (used for the
+    /// "no project" placeholder).
+    pub const SURFACE_NEUTRAL: Color = Color::srgb(0.14, 0.14, 0.16);
+    /// Surface — deep navy variant 1.
+    pub const SURFACE_DEEP_2: Color = Color::srgb(0.04, 0.1, 0.14);
+    /// Surface — deep navy variant 2 (used for the blueprint
+    /// canvas-outer surface).
+    pub const SURFACE_DEEP_3: Color = Color::srgb(0.045, 0.12, 0.15);
+    /// Surface — deep navy variant 3 (used for the
+    /// "subtle" inline background).
+    pub const SURFACE_DEEP_4: Color = Color::srgb(0.03, 0.08, 0.11);
+
+    // ── Alpha overlay surfaces (sub-elements inside panels) ────
+    //
+    // The blueprint canvas, panel-internal sub-panels, and
+    // surface-alpha highlights use these. The alpha is
+    // preserved in the constant so callers can read the
+    // translucency directly from the name.
+
+    /// Blueprint canvas background — slightly dimmer than
+    /// `BLUEPRINT_CANVAS_BG`.
+    pub const BLUEPRINT_CANVAS_BG_DIM: Color = Color::srgba(0.018, 0.032, 0.05, 0.94);
+    /// Panel background — solid (matches `PANEL_BG` with 0.98
+    /// alpha for the "fully opaque" feel).
+    pub const PANEL_BG_SOLID: Color = Color::srgba(0.03, 0.05, 0.08, 0.98);
+    /// Surface alpha (used for the dossier "in-line" surface
+    /// background).
+    pub const SURFACE_ALPHA: Color = Color::srgba(0.04, 0.07, 0.11, 0.92);
+    /// Mid cyan alpha (used for the "section sub-heading" border).
+    pub const ACCENT_ALPHA_MID: Color = Color::srgba(0.16, 0.34, 0.4, 0.45);
+    /// Faint accent alpha (used for the "subtle" background tint).
+    pub const ACCENT_ALPHA_FAINT: Color = Color::srgba(0.18, 0.55, 0.64, 0.12);
+    /// Faint accent alpha (slightly stronger than
+    /// `ACCENT_ALPHA_FAINT`).
+    pub const ACCENT_ALPHA_FAINT_2: Color = Color::srgba(0.18, 0.55, 0.64, 0.18);
+    /// Green alpha (used for the analytics throughput chip
+    /// background).
+    pub const GREEN_ALPHA: Color = Color::srgba(0.45, 0.92, 0.56, 0.55);
+    /// Pale cyan alpha (used for the "cell sub-label"
+    /// background).
+    pub const PALE_CYAN_ALPHA: Color = Color::srgba(0.7, 0.85, 0.92, 0.32);
+    /// Coral red alpha (used for the "Locked!" chip background).
+    pub const CORAL_RED_ALPHA: Color = Color::srgba(1.0, 0.38, 0.3, 0.55);
 }
 
 // ─── Section Headers (Pattern 2 + Pattern 4) ────────────────────────────
