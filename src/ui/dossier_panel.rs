@@ -1466,10 +1466,7 @@ fn draw_ocean_section(ui: &mut egui::Ui, ocean: &OceanProperties) {
 /// bodies at game start (e.g. Earth → `CoreSample`) — we prefer it when
 /// no `SurveyState` is present yet (Phase 1 migration window per
 /// SURVEY_REWORK.md §15).
-fn effective_survey_level(
-    legacy: Option<SurveyLevel>,
-    state: Option<&SurveyState>,
-) -> SurveyLevel {
+fn effective_survey_level(legacy: Option<SurveyLevel>, state: Option<&SurveyState>) -> SurveyLevel {
     if let Some(s) = state {
         let avg = s.average_tier();
         if avg >= 0.99 {
@@ -1505,8 +1502,7 @@ fn draw_resource_section(
     // removed in GRA-107. See SURVEY_REWORK.md §15 Phase 2: "the new
     // system is the only way to advance past `OrbitalScan` for new
     // bodies."
-    let current_level =
-        effective_survey_level(survey_level.copied(), survey_state);
+    let current_level = effective_survey_level(survey_level.copied(), survey_state);
 
     ui.horizontal(|ui| {
         ui.label(
@@ -1542,13 +1538,7 @@ fn draw_resource_section(
             if state.dimensions.is_empty() && state.active_missions.is_empty() {
                 ui.add_space(theme::Spacing::xs);
                 theme::section_h3(ui, "DISPATCH MISSION");
-                draw_dispatch_mission_picker(
-                    ui,
-                    entity,
-                    body_name,
-                    mission_templates,
-                    commands,
-                );
+                draw_dispatch_mission_picker(ui, entity, body_name, mission_templates, commands);
             }
         }
         return;
