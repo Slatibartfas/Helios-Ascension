@@ -174,7 +174,7 @@ fn verification_mission_promotes_to_verified() {
     // anomalies.ron's `method_specificity`).
     let drill_specificity = 1.0;
     {
-        let mut world = app.world_mut();
+        let world = app.world_mut();
         let mut entity = world.entity_mut(body);
         let mut state = entity.get_mut::<SurveyState>().expect("SurveyState");
         let detected = state
