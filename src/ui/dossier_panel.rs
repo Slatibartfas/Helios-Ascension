@@ -227,7 +227,7 @@ pub(super) fn ui_planet_dossier(mut params: DossierUiParams) {
         return;
     };
     let mut survey_level_bind = params.survey_level_query.get_mut(entity).ok();
-    let mut survey_level_opt: Option<&mut SurveyLevel> = survey_level_bind.as_deref_mut();
+    let survey_level_opt: Option<&mut SurveyLevel> = survey_level_bind.as_deref_mut();
 
     egui::SidePanel::right("selection_panel")
         .min_width(340.0)
@@ -337,7 +337,7 @@ pub(super) fn ui_planet_dossier(mut params: DossierUiParams) {
                                 entity,
                                 &body.name,
                                 res,
-                                survey_level_opt.as_deref_mut(),
+                                survey_level_opt,
                                 survey_state,
                                 &mut params.commands,
                                 &params.rate_tracker,
