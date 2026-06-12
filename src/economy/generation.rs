@@ -33,6 +33,17 @@ impl ProceduralRng {
     }
 }
 
+impl FromWorld for ProceduralRng {
+    /// Default seed (0) for `World::init_resource` callers. Production
+    /// seeding happens in [`init_procedural_rng`] which pulls the
+    /// seed from [`GameSeed`]. Tests that need a specific seed should
+    /// insert the resource directly via `world.insert_resource(...)`
+    /// rather than `init_resource`.
+    fn from_world(_world: &mut World) -> Self {
+        Self::from_seed(0)
+    }
+}
+
 /// Initialize [`ProceduralRng`] from the active [`GameSeed`].
 ///
 /// Must run before [`generate_solar_system_resources`]; the chain in

@@ -404,5 +404,113 @@ pub fn default_method_specificity(method: SurveyMethod) -> f32 {
         SurveyMethod::Seismic => 0.9,
         SurveyMethod::Drill => 1.0,
         SurveyMethod::SampleReturn => 1.0,
+/// Mission lifecycle states. A mission walks
+/// `Queued → Inflight → Active → Completing → Succeeded` on the happy
+/// path, or branches to `Failed` / `Aborted` on the unhappy path.
+///
+/// PR-B (GRA-80) wires these into the
+/// [`advance_survey_missions`](crate::survey::systems) tick system.
+/// `Aborted` is set by the abort handler in PR-B; further statuses
+/// (e.g. `Analyzing`) land with PR-C's analysis queue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum MissionStatus {
+    /// Mission has been dispatched but the probe/rover has not yet
+    /// started its timeline. The duration is 0 in this state — used
+    /// for queued missions that are waiting for a free dispatch slot.
+    #[default]
+    Queued,
+    /// Probe/rover is travelling to the body. The mission progress
+    /// bar shows the travel fraction.
+    Inflight,
+    /// Probe/rover is on-station, gathering data. This is the bulk
+    /// of the mission duration.
+    Active,
+    /// Data has been collected; the system is finalizing the mission
+    /// (rolling for failure, awarding XP, freeing scientists). This
+    /// is a single-tick state.
+    Completing,
+    /// Mission finished successfully. The terminal state on the
+    /// happy path. Dimensional tiers have been advanced.
+    Succeeded,
+    /// Mission failed (probe loss, rover stuck, drill bit stuck,
+    /// solar storm, or crew injury). Some partial progress may be
+    /// retained. The terminal state on the unhappy path.
+    Failed,
+    /// Player aborted the mission. The terminal state for an
+    /// explicit abort.
+    Aborted,
+}
+
+impl MissionStatus {
+    /// Whether the mission is still ticking (progress is advancing).
+    pub fn is_in_progress(self) -> bool {
+        matches!(
+            self,
+            MissionStatus::Queued
+                | MissionStatus::Inflight
+                | MissionStatus::Active
+                | MissionStatus::Completing
+        )
+    }
+
+    /// Whether the mission has reached a terminal state. Succeeded,
+    /// Failed, and Aborted are all terminal.
+    pub fn is_terminal(self) -> bool {
+        matches!(
+            self,
+            MissionStatus::Succeeded | MissionStatus::Failed | MissionStatus::Aborted
+        )
+    }
+}
+
+/// The reason a mission ended in `Failed`. Mirrors
+/// [`SurveyEvent::MissionFailed`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum MissionFailureReason {
+    /// A probe or atmospheric probe was lost (5% on probe-using
+    /// methods). No data is returned; the probe entity is consumed.
+    ProbeLoss,
+    /// A rover became stuck in terrain (8% on Rover). Mission ends
+    /// early; partial data retained.
+    RoverStuck,
+    /// A drill bit jammed in the formation (10% on Drill). Mission
+    /// ends early; partial data retained.
+    DrillBitStuck,
+    /// A solar storm hit during the survey (2% on any method).
+    /// Electronics may have been damaged; partial data retained.
+    SolarStorm,
+    /// A crew member was injured on a ground-team mission (2% on
+    /// SurfaceLander, Rover, Drill, SampleReturn). The mission ends
+    /// in `Failed`; the scientist transitions to `Injured`.
+    CrewInjury,
+}
+
+impl MissionFailureReason {
+    /// Per-mission probability of this failure mode, by method.
+    /// Returns `0.0` for method/reason pairs that don't apply (e.g.
+    /// `ProbeLoss` on a Rover mission).
+    ///
+    /// Numbers come from the issue's GRA-80 scope and
+    /// `docs/design/SURVEY_REWORK.md` §Gameplay Loop.
+    pub fn probability(self, method: SurveyMethod) -> f32 {
+        use SurveyMethod::*;
+        match (self, method) {
+            (MissionFailureReason::ProbeLoss, Flyby)
+            | (MissionFailureReason::ProbeLoss, Orbital)
+            | (MissionFailureReason::ProbeLoss, RemoteSensing)
+            | (MissionFailureReason::ProbeLoss, AtmosphericProbe) => 0.05,
+            (MissionFailureReason::RoverStuck, Rover) => 0.08,
+            (MissionFailureReason::DrillBitStuck, Drill) => 0.10,
+            (MissionFailureReason::SolarStorm, _) => 0.02,
+            (MissionFailureReason::CrewInjury, SurfaceLander | Rover | Drill | SampleReturn) => {
+                0.02
+            }
+            _ => 0.0,
+        }
+    }
+
+    /// Whether this reason applies to the given method at all.
+    pub fn applies_to(self, method: SurveyMethod) -> bool {
+        self.probability(method) > 0.0
     }
 }

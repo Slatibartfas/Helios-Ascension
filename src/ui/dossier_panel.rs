@@ -34,6 +34,11 @@ use crate::survey::data::SurveyAnomalyRegistry;
 use crate::survey::types::{AnomalyState, AnomalyType};
 use crate::survey::{ExtractionSite, LandingSite, SurveyState, LANDING_SITE_EVAL_THRESHOLD};
 use bevy::ecs::query::QueryData;
+use crate::survey::components::{ActiveSurveyMission, SurveyState};
+use crate::survey::data::SurveyMissionTemplates;
+use crate::survey::events::{AbortSurveyMission, DispatchSurveyMission};
+use crate::survey::types::MissionStatus;
+use bevy::ecs::system::SystemParam;
 use std::borrow::Cow;
 use std::f32::consts::TAU;
 
@@ -133,6 +138,74 @@ pub(super) struct DossierBodyParts<'w> {
     logical_parent: Option<&'w LogicalParent>,
     ocean_props: Option<&'w OceanProperties>,
     existing_colony: Option<&'w Colony>,
+/// Bundled `SystemParam` for [`ui_planet_dossier`].
+///
+/// The function takes too many SystemParams for `IntoSystem` to derive
+/// directly (Bevy 0.18's `SystemParam` chain breaks at ~16 fields). We
+/// pack everything into a single struct so the system has exactly one
+/// generic parameter at the function level.
+///
+/// This is the same workaround the resources-bar / construction-panel
+/// systems use for the same Bevy 0.18 limit.
+#[derive(SystemParam)]
+pub(super) struct DossierUiParams<'w, 's> {
+    pub commands: Commands<'w, 's>,
+    pub contexts: EguiContexts<'w, 's>,
+    pub selection: Res<'w, Selection>,
+    pub active_menu: Res<'w, ActiveMenu>,
+    pub nearby_stars: Res<'w, NearbyStarsData>,
+    /// Immutable body tuple (15 components — Bevy 0.18's tuple limit
+    /// for queries). `&mut SurveyLevel` lives in a separate query to
+    /// keep this tuple under the cap.
+    pub body_query: Query<
+        'w,
+        's,
+        (
+            &'static CelestialBody,
+            Option<&'static SpaceCoordinates>,
+            Option<&'static KeplerOrbit>,
+            Option<&'static PlanetResources>,
+            Option<&'static AtmosphereComposition>,
+            Option<&'static crate::plugins::starmap::PlanetCategory>,
+            Option<&'static Population>,
+            Option<&'static SurfaceTemperature>,
+            Option<&'static StellarProperties>,
+            Option<&'static crate::astronomy::components::SystemId>,
+            Option<&'static StarSystem>,
+            Option<&'static LogicalParent>,
+            Option<&'static OceanProperties>,
+            Option<&'static Colony>,
+            Option<&'static SurveyState>,
+        ),
+    >,
+    /// `SurveyLevel` is the one body component the dossier mutates in
+    /// place (the "UPGRADE" button). Splitting it out keeps the
+    /// immutable body tuple at 15 components.
+    pub survey_level_query: Query<'w, 's, &'static mut SurveyLevel>,
+    pub parent_coords_query: Query<'w, 's, &'static SpaceCoordinates>,
+    pub all_bodies_query: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static CelestialBody,
+            Option<&'static LogicalParent>,
+            Option<&'static KeplerOrbit>,
+            Option<&'static crate::astronomy::components::SystemId>,
+        ),
+    >,
+    pub star_system_query: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static StarSystemIcon,
+            Option<&'static SelectedStarSystem>,
+        ),
+    >,
+    pub rate_tracker: Res<'w, ResourceRateTracker>,
+    pub mission_templates: Res<'w, SurveyMissionTemplates>,
+    pub pending_actions: ResMut<'w, PendingConstructionActions>,
 }
 
 /// Renders the right-side "Celestial Body Dossier" panel when a body is
@@ -159,30 +232,34 @@ pub(super) fn ui_planet_dossier(
     rate_tracker: Res<ResourceRateTracker>,
     mut pending_actions: ResMut<PendingConstructionActions>,
 ) {
+pub(super) fn ui_planet_dossier(mut params: DossierUiParams) {
     // Don't show when full-screen menus are active
     if matches!(
-        active_menu.current,
+        params.active_menu.current,
         GameMenu::Research | GameMenu::Construction | GameMenu::Economy | GameMenu::Fleets
     ) {
         return;
     }
 
-    let ctx = match contexts.ctx_mut() {
+    let ctx = match params.contexts.ctx_mut() {
         Ok(ctx) => ctx,
         Err(_) => return,
     };
 
     // If a star system is selected (starmap view), don't show body dossier
-    let has_selected_star = star_system_query.iter().any(|(_, _, sel)| sel.is_some());
+    let has_selected_star = params
+        .star_system_query
+        .iter()
+        .any(|(_, _, sel)| sel.is_some());
     if has_selected_star {
         return;
     }
 
-    if !selection.has_selection() {
+    if !params.selection.has_selection() {
         return;
     }
 
-    let entity = match selection.get() {
+    let entity = match params.selection.get() {
         Some(e) => e,
         None => return,
     };
@@ -206,6 +283,28 @@ pub(super) fn ui_planet_dossier(
     let logical_parent = parts.logical_parent;
     let ocean_props = parts.ocean_props;
     let existing_colony = parts.existing_colony;
+    let Ok((
+        body,
+        opt_coords,
+        orbit,
+        resources,
+        atmosphere,
+        category_opt,
+        population,
+        surface_temp,
+        stellar_props,
+        system_id,
+        star_system,
+        logical_parent,
+        ocean_props,
+        existing_colony,
+        survey_state,
+    )) = params.body_query.get(entity)
+    else {
+        return;
+    };
+    let mut survey_level_bind = params.survey_level_query.get_mut(entity).ok();
+    let survey_level_opt: Option<&mut SurveyLevel> = survey_level_bind.as_deref_mut();
 
     egui::SidePanel::right("selection_panel")
         .min_width(340.0)
@@ -224,8 +323,8 @@ pub(super) fn ui_planet_dossier(
                         population,
                         opt_coords,
                         logical_parent,
-                        &parent_coords_query,
-                        &all_bodies_query,
+                        &params.parent_coords_query,
+                        &params.all_bodies_query,
                     );
 
                     if body.body_type == BodyType::Star {
@@ -236,7 +335,7 @@ pub(super) fn ui_planet_dossier(
                             stellar_props,
                             system_id,
                             star_system,
-                            &nearby_stars,
+                            &params.nearby_stars,
                         );
                         return;
                     }
@@ -319,6 +418,13 @@ pub(super) fn ui_planet_dossier(
                                 survey_state,
                                 &mut commands,
                                 &rate_tracker,
+                                &body.name,
+                                res,
+                                survey_level_opt,
+                                survey_state,
+                                &mut params.commands,
+                                &params.rate_tracker,
+                                &params.mission_templates,
                                 next,
                             );
                         });
@@ -346,7 +452,7 @@ pub(super) fn ui_planet_dossier(
                             atmosphere,
                             surface_temp,
                             ocean_props,
-                            &mut pending_actions,
+                            &mut params.pending_actions,
                         );
                     }
 
@@ -1497,8 +1603,13 @@ fn draw_resource_section(
     resources: &PlanetResources,
     survey_level: Option<&mut SurveyLevel>,
     survey_state: Option<&crate::survey::SurveyState>,
+    body_name: &str,
+    resources: &PlanetResources,
+    survey_level: Option<&mut SurveyLevel>,
+    survey_state: Option<&SurveyState>,
     commands: &mut Commands,
     rate_tracker: &ResourceRateTracker,
+    mission_templates: &SurveyMissionTemplates,
     view: DossierResourceView,
 ) {
     // Survey status
@@ -1589,6 +1700,15 @@ fn draw_resource_section(
         return;
     }
 
+    // PR-B (GRA-80) — Active missions live on `SurveyState`. We render
+    // them above the deposit grid so the player sees the "in progress"
+    // content first, then the result the missions are working toward.
+    if let Some(state) = survey_state {
+        ui.add_space(theme::Spacing::xs);
+        theme::section_h3(ui, "ACTIVE MISSIONS");
+        draw_active_missions_list(ui, entity, &state.active_missions, commands);
+    }
+
     ui.add_space(theme::Spacing::xs);
 
     // PR-B (GRA-67) — `theme::section_h3` introduces each sub-section.
@@ -1618,6 +1738,165 @@ fn draw_resource_section(
         .font(mono_font(10.0))
         .color(TEXT_VALUE),
     );
+
+    // PR-B (GRA-80) — dispatch UI sits at the end of the SURVEY section
+    // so the player's eye reads: [STATUS] → [IN FLIGHT] → [DEPOSITS] →
+    // [SUMMARY] → [DISPATCH NEW]. Only available when `SurveyState`
+    // exists; the legacy `SurveyLevel` system has no mission concept.
+    if survey_state.is_some() {
+        ui.add_space(theme::Spacing::xs);
+        theme::section_h3(ui, "DISPATCH MISSION");
+        draw_dispatch_mission_picker(ui, entity, body_name, mission_templates, commands);
+    }
+}
+
+/// Render the active-mission list for the dossier SURVEY section.
+///
+/// Each row shows the mission's name + method, a `ProgressBar` driven
+/// by `mission.progress`, the current `MissionStatus`, and an ABORT
+/// button for in-progress missions. Aborts fire an
+/// `AbortSurveyMission` message — the actual removal is performed by
+/// the sim system, not the UI (action-queue decoupling).
+fn draw_active_missions_list(
+    ui: &mut egui::Ui,
+    body: Entity,
+    missions: &[ActiveSurveyMission],
+    commands: &mut Commands,
+) {
+    if missions.is_empty() {
+        ui.colored_label(TEXT_DIM, "No missions in progress.");
+        return;
+    }
+
+    for mission in missions {
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(&mission.name)
+                    .font(mono_font(11.0))
+                    .color(TEXT_VALUE),
+            );
+            ui.label(
+                egui::RichText::new(mission.method.ron_id())
+                    .font(mono_font(9.0))
+                    .color(TEXT_DIM),
+            );
+        });
+
+        let progress = mission.progress.clamp(0.0, 1.0);
+        let bar = egui::ProgressBar::new(progress)
+            .desired_width(ui.available_width())
+            .text(format!("{:.0}%", progress * 100.0));
+        ui.add(bar);
+
+        ui.horizontal(|ui| {
+            let (status_color, status_label) = match mission.status {
+                MissionStatus::Queued => (TEXT_DIM, "QUEUED"),
+                MissionStatus::Inflight => (egui::Color32::LIGHT_BLUE, "INFLIGHT"),
+                MissionStatus::Active => (ACCENT, "ACTIVE"),
+                MissionStatus::Completing => (AMBER, "COMPLETING"),
+                MissionStatus::Succeeded => (GREEN_ACCENT, "SUCCEEDED"),
+                MissionStatus::Failed => (RED_ACCENT, "FAILED"),
+                MissionStatus::Aborted => (RED_ACCENT, "ABORTED"),
+            };
+            ui.label(
+                egui::RichText::new(status_label)
+                    .font(mono_font(9.0))
+                    .color(status_color),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if mission.status.is_in_progress()
+                    && ui
+                        .small_button(
+                            egui::RichText::new("\u{26D4} ABORT")
+                                .font(mono_font(9.0))
+                                .color(RED_ACCENT),
+                        )
+                        .clicked()
+                {
+                    commands.write_message(AbortSurveyMission {
+                        body,
+                        mission_id: mission.id,
+                    });
+                }
+            });
+        });
+
+        ui.add_space(4.0);
+    }
+}
+
+/// Render the dispatch-mission picker: a combo box of available
+/// templates, plus a DISPATCH button. The selected template id and a
+/// per-body counter live in `egui::data` so the choice persists across
+/// frames. Pressing DISPATCH writes a `DispatchSurveyMission` message
+/// that the sim system consumes.
+fn draw_dispatch_mission_picker(
+    ui: &mut egui::Ui,
+    body: Entity,
+    body_name: &str,
+    mission_templates: &SurveyMissionTemplates,
+    commands: &mut Commands,
+) {
+    if mission_templates.templates.is_empty() {
+        ui.colored_label(TEXT_DIM, "No mission templates loaded.");
+        return;
+    }
+
+    let template_id_key = egui::Id::new(("dispatch_template_id", body));
+    let counter_key = egui::Id::new(("dispatch_counter", body));
+
+    // Default to the first template's id on first render per body.
+    let mut selected_id: String = ui.data(|d| d.get_temp(template_id_key)).unwrap_or_else(|| {
+        mission_templates
+            .templates
+            .keys()
+            .next()
+            .cloned()
+            .unwrap_or_default()
+    });
+    let counter: u32 = ui.data(|d| d.get_temp(counter_key)).unwrap_or(1);
+
+    let prev_selected = selected_id.clone();
+    egui::ComboBox::from_id_salt(("dispatch_combo", body))
+        .selected_text(
+            mission_templates
+                .templates
+                .get(&selected_id)
+                .map(|t| t.display_name.clone())
+                .unwrap_or_else(|| selected_id.clone()),
+        )
+        .show_ui(ui, |ui| {
+            for (id, tpl) in &mission_templates.templates {
+                let label = format!("{}  ({} d)", tpl.display_name, tpl.base_duration_days);
+                ui.selectable_value(&mut selected_id, id.clone(), label);
+            }
+        });
+    let _ = prev_selected;
+
+    ui.add_space(2.0);
+
+    if ui
+        .add(
+            egui::Button::new(
+                egui::RichText::new("\u{25B6}  DISPATCH")
+                    .font(mono_font(11.0))
+                    .color(ACCENT),
+            )
+            .min_size(egui::Vec2::new(140.0, 24.0)),
+        )
+        .clicked()
+    {
+        let name = format!("{body_name} Mission {counter}");
+        commands.write_message(DispatchSurveyMission {
+            body,
+            template_id: selected_id.clone(),
+            name,
+            scientist_ids: vec![],
+        });
+        ui.data_mut(|d| d.insert_temp(counter_key, counter + 1));
+    }
+
+    ui.data_mut(|d| d.insert_temp(template_id_key, selected_id));
 }
 
 // ─── Landing / Extraction Sites (PR-D GRA-82) ─────────────────────────────
