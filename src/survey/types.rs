@@ -603,6 +603,7 @@ pub enum FailureKind {
     /// reduced by `confidence_penalty`. The reduction auto-
     /// recovers on the next orbital pass over the body. Default
     /// probability 2% on any method.
+    #[serde(rename = "solar_storm")]
     SolarStormDataCorruption {
         /// Penalty applied to the affected dimensions'
         /// confidence, in `[0.0, 1.0]`. The design doc calls
@@ -679,15 +680,16 @@ pub struct FailureMode {
 
 impl FailureMode {
     /// Stable RON id for the kind. Used in tests and for
-    /// keying into the per-kind lookup helpers. The id is
-    /// the kebab-case of the variant's discriminant
-    /// (`probe_loss`, `rover_stuck`, etc.).
+    /// keying into the per-kind lookup helpers. Matches the
+    /// serde rename of the variant (snake_case for the four
+    /// auto-derived variants; `solar_storm` is explicitly
+    /// renamed on the variant itself).
     pub fn kind_ron_id(&self) -> &'static str {
         match &self.kind {
             FailureKind::ProbeLoss => "probe_loss",
             FailureKind::RoverStuck { .. } => "rover_stuck",
             FailureKind::DrillBitStuck { .. } => "drill_bit_stuck",
-            FailureKind::SolarStormDataCorruption { .. } => "solar_storm_data_corruption",
+            FailureKind::SolarStormDataCorruption { .. } => "solar_storm",
             FailureKind::CrewInjury { .. } => "crew_injury",
         }
     }
