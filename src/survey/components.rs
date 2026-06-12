@@ -13,8 +13,8 @@ use std::collections::HashMap;
 use super::types::{
     AnomalyState, AnomalyType, EvidenceKind, EvidencePoint, MissionStatus, SurveyDimension,
     SurveyMethod, DEFAULT_ACTIVATION_THRESHOLD, INITIAL_CONFIDENCE, MAX_TIER,
-    MIN_ACTIVATION_THRESHOLD, RETRY_PRESSURE_PER_VERIFICATION,
-    RETRY_PRESSURE_THRESHOLD_REDUCTION, WARNING_CONFIDENCE,
+    MIN_ACTIVATION_THRESHOLD, RETRY_PRESSURE_PER_VERIFICATION, RETRY_PRESSURE_THRESHOLD_REDUCTION,
+    WARNING_CONFIDENCE,
 };
 use crate::colony::types::BuildingType;
 use crate::economy::components::SurveyLevel;
