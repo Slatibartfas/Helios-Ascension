@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use super::types::{
     AnomalyType, SurveyDimension, SurveyMethod, INITIAL_CONFIDENCE, MAX_TIER, WARNING_CONFIDENCE,
 };
+use crate::colony::types::BuildingType;
 use crate::economy::components::SurveyLevel;
 
 /// Per-dimension survey fidelity on a body.
@@ -124,6 +125,22 @@ pub struct SurveyState {
     /// the player discovered (currently always empty in PR-A — anomaly
     /// events land in PR-D).
     pub detected_anomalies: Vec<DetectedAnomaly>,
+    /// Candidate landing sites on this body. Populated by the
+    /// `evaluate_landing_sites` system (PR-D) when the body is a
+    /// planet / dwarf planet / moon and the
+    /// `landing_site_eval_coverage` crosses the
+    /// [`LANDING_SITE_EVAL_THRESHOLD`]. Empty until then.
+    pub landing_sites: Vec<LandingSite>,
+    /// Candidate extraction sites on this body. Populated by
+    /// `evaluate_landing_sites` for asteroids at the same coverage
+    /// threshold. Gas giants stay empty (no sites are generated
+    /// for them — see GRA-82 acceptance).
+    pub extraction_sites: Vec<ExtractionSite>,
+    /// Sim-time of the last landing-site evaluation. Used by the
+    /// system to throttle the regeneration check to once per
+    /// simulation day (avoids re-rolling sites every frame as
+    /// confidence rises).
+    pub last_landing_site_eval_sim_time: f64,
 }
 
 impl Default for SurveyState {
@@ -134,6 +151,9 @@ impl Default for SurveyState {
             last_updated_sim_time: 0.0,
             total_science_points_invested: 0.0,
             detected_anomalies: Vec::new(),
+            landing_sites: Vec::new(),
+            extraction_sites: Vec::new(),
+            last_landing_site_eval_sim_time: 0.0,
         }
     }
 }
@@ -163,6 +183,9 @@ impl SurveyState {
             last_updated_sim_time: sim_time,
             total_science_points_invested: 0.0,
             detected_anomalies: Vec::new(),
+            landing_sites: Vec::new(),
+            extraction_sites: Vec::new(),
+            last_landing_site_eval_sim_time: 0.0,
         }
     }
 
@@ -210,6 +233,9 @@ impl SurveyState {
             last_updated_sim_time: sim_time,
             total_science_points_invested: 0.0,
             detected_anomalies: Vec::new(),
+            landing_sites: Vec::new(),
+            extraction_sites: Vec::new(),
+            last_landing_site_eval_sim_time: 0.0,
         }
     }
 
@@ -259,6 +285,48 @@ impl SurveyState {
     /// Whether at least one mission is currently running.
     pub fn has_active_missions(&self) -> bool {
         !self.active_missions.is_empty()
+    }
+
+    /// Landing-site evaluation coverage in `0.0..=1.0`.
+    ///
+    /// Derived (not stored) from the per-dimension tiers: site
+    /// evaluation needs surface + habitability + atmosphere data. The
+    /// weighting matches the 0.6 threshold requirement in GRA-82 —
+    /// SurfaceFeatures dominates because slope/roughness/regolith all
+    /// come from the surface characterization, with Habitability and
+    /// Atmosphere as supporting axes. Other dimensions contribute a
+    /// small slice (10% combined) so that a body with all surface +
+    /// habitability data but no mineral survey still crosses the
+    /// threshold at high coverage.
+    ///
+    /// Result is in `0.0..=1.0`; callers compare against
+    /// [`LANDING_SITE_EVAL_THRESHOLD`].
+    pub fn landing_site_eval_coverage(&self) -> f32 {
+        const W_SURFACE: f32 = 0.5;
+        const W_HABITABILITY: f32 = 0.25;
+        const W_ATMOSPHERE: f32 = 0.15;
+        const W_OTHER: f32 = 0.10;
+
+        let norm =
+            |dim: SurveyDimension| -> f32 { (self.fidelity(dim).tier as f32) / (MAX_TIER as f32) };
+
+        let surface = norm(SurveyDimension::SurfaceFeatures);
+        let hab = norm(SurveyDimension::Habitability);
+        let atmo = norm(SurveyDimension::Atmosphere);
+
+        // Other 5 dimensions equally share the W_OTHER slice.
+        let other_dims = [
+            SurveyDimension::OrbitalMech,
+            SurveyDimension::MineralClasses,
+            SurveyDimension::MineralDeposits,
+            SurveyDimension::Subsurface,
+            SurveyDimension::Anomalies,
+        ];
+        let other_sum: f32 = other_dims.iter().map(|d| norm(*d)).sum();
+        let other_avg = other_sum / (other_dims.len() as f32);
+
+        (surface * W_SURFACE + hab * W_HABITABILITY + atmo * W_ATMOSPHERE + other_avg * W_OTHER)
+            .clamp(0.0, 1.0)
     }
 }
 
@@ -333,6 +401,153 @@ pub struct DetectedAnomaly {
     /// Whether the player has acknowledged the anomaly in the dossier
     /// (used to suppress repeat notifications).
     pub acknowledged: bool,
+}
+
+/// Coverage threshold below which no landing / extraction sites are
+/// generated. Mirrors the 0.6 trigger called out in GRA-82.
+pub const LANDING_SITE_EVAL_THRESHOLD: f32 = 0.6;
+
+/// Min / max count of candidate sites generated per body when
+/// coverage crosses the threshold. Bounds the visible list in the
+/// dossier to 2–5 rows by default (see GRA-82 acceptance criteria).
+pub const MIN_SITES_PER_BODY: usize = 2;
+pub const MAX_SITES_PER_BODY: usize = 5;
+
+/// Per-site subscores that feed the composite. All values are
+/// `0.0..=1.0` where 1.0 is the most favorable for the player.
+///
+/// The composite is the weighted average defined in
+/// [`LandingSite::composite_score`]; the dossier surfaces both the
+/// composite and the per-axis bars so the player can see why a site
+/// ranks where it does.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub struct SiteScores {
+    /// Surface slope (1.0 = flat, 0.0 = impassable cliffs).
+    pub slope: f32,
+    /// Surface roughness (1.0 = smooth regolith, 0.0 = boulder field).
+    pub roughness: f32,
+    /// Background radiation (1.0 = safe, 0.0 = lethal).
+    pub radiation: f32,
+    /// Surface temperature (1.0 = in life-support band, 0.0 = cryogenic
+    /// or molten).
+    pub temperature: f32,
+    /// Regolith quality for foundations / excavation (1.0 = solid
+    /// bedrock with shallow regolith, 0.0 = unconsolidated dust).
+    pub regolith: f32,
+    /// Comm line-of-sight to the parent body / relay (1.0 = always
+    /// visible, 0.0 = occluded most of the day).
+    pub comm: f32,
+}
+
+impl SiteScores {
+    /// Default weights for the composite (see SURVEY_REWORK follow-up
+    /// spec for GRA-82). Sum is 1.0; tweak here to rebalance the
+    /// ranking without changing the data model.
+    pub const WEIGHTS: SiteScoreWeights = SiteScoreWeights {
+        slope: 0.20,
+        roughness: 0.15,
+        radiation: 0.20,
+        temperature: 0.20,
+        regolith: 0.15,
+        comm: 0.10,
+    };
+
+    /// Weighted average. Each component is clamped to `0.0..=1.0`
+    /// defensively (a buggy RON bias should never produce a score
+    /// outside the display range).
+    pub fn composite(&self) -> f32 {
+        let w = Self::WEIGHTS;
+        let clamp = |v: f32| v.clamp(0.0, 1.0);
+        clamp(self.slope) * w.slope
+            + clamp(self.roughness) * w.roughness
+            + clamp(self.radiation) * w.radiation
+            + clamp(self.temperature) * w.temperature
+            + clamp(self.regolith) * w.regolith
+            + clamp(self.comm) * w.comm
+    }
+}
+
+/// Plain-old-data record of the composite weights. Kept separate from
+/// [`SiteScores`] so the const initializer can be a public constant.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct SiteScoreWeights {
+    pub slope: f32,
+    pub roughness: f32,
+    pub radiation: f32,
+    pub temperature: f32,
+    pub regolith: f32,
+    pub comm: f32,
+}
+
+/// A candidate landing site on a planet or moon. Generated by
+/// [`evaluate_landing_sites`](super::systems::evaluate_landing_sites)
+/// when a body's [`SurveyState::landing_site_eval_coverage`] crosses
+/// the [`LANDING_SITE_EVAL_THRESHOLD`].
+///
+/// Sites are immutable once generated: when survey improves, the
+/// composite ranking of *known* sites stays stable. Re-survey work
+/// would land in a follow-up PR (likely PR-F "mining yield" /
+///// dossier refresh).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LandingSite {
+    /// Stable id (unique per body, but not globally). Index into the
+    /// parent [`SurveyState::landing_sites`] vec, kept explicit so
+    /// save/load round-trips don't depend on Vec order.
+    pub id: u32,
+    /// Display name (e.g. "Mare Imbrium Alpha", "Hellas Basin — Site
+    /// 2"). Generated from a stable name table plus the body name.
+    pub name: String,
+    /// Latitude in degrees (-90..=90). Stored in the body-local
+    /// rotating frame; the starmap focus call projects to ecliptic
+    /// using the body's `AxialTilt` (PR-E work).
+    pub latitude: f32,
+    /// Longitude in degrees (-180..=180).
+    pub longitude: f32,
+    /// Per-axis sub-scores + weighted composite.
+    pub scores: SiteScores,
+    /// Buildings that can be constructed at this site.
+    pub feasible_for: Vec<BuildingType>,
+    /// Buildings that are explicitly blocked (e.g. HeavyIndustry on
+    /// steep slopes). Surfaced in the dossier as a tooltip warning.
+    pub blockers: Vec<BuildingType>,
+}
+
+impl LandingSite {
+    /// Convenience: the composite score for this site.
+    pub fn composite_score(&self) -> f32 {
+        self.scores.composite()
+    }
+}
+
+/// A candidate extraction site on an asteroid. Same data shape as
+/// [`LandingSite`] but with a different default
+/// `feasible_for` list (mining equipment, mass-driver pads).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractionSite {
+    /// See [`LandingSite::id`].
+    pub id: u32,
+    /// See [`LandingSite::name`].
+    pub name: String,
+    /// See [`LandingSite::latitude`].
+    pub latitude: f32,
+    /// See [`LandingSite::longitude`].
+    pub longitude: f32,
+    /// Per-axis sub-scores (slope/roughness/regolith are the dominant
+    /// drivers on an asteroid; radiation/temperature/comm matter
+    /// less, but the same six-axis schema is reused so the UI
+    /// table renders the same way).
+    pub scores: SiteScores,
+    /// Mining / extraction buildings feasible here.
+    pub feasible_for: Vec<BuildingType>,
+    /// See [`LandingSite::blockers`].
+    pub blockers: Vec<BuildingType>,
+}
+
+impl ExtractionSite {
+    /// Convenience: the composite score for this site.
+    pub fn composite_score(&self) -> f32 {
+        self.scores.composite()
+    }
 }
 
 #[cfg(test)]
@@ -439,5 +654,159 @@ mod tests {
         assert_eq!(over.confidence, 1.0);
         let under = DimensionFidelity::at_tier(1, -1.0, Some(sim_time()));
         assert_eq!(under.confidence, 0.0);
+    }
+
+    // ── GRA-82 PR-D tests: landing-site coverage, score weights, and
+    //    blocker derivation. ────────────────────────────────────────
+
+    // Shared state builder for the per-dimension coverage tests below.
+    // Reserved for GRA-82 PR-F (eval system consumers) — not yet wired
+    // into the round-D tests themselves.
+    #[allow(dead_code)]
+    fn state_with_dim(dim: SurveyDimension, tier: u8) -> SurveyState {
+        let mut s = SurveyState::default();
+        s.set_fidelity(dim, DimensionFidelity::at_tier(tier, 1.0, Some(sim_time())));
+        s
+    }
+
+    #[test]
+    fn coverage_is_zero_for_unsurveyed_body() {
+        let s = SurveyState::default();
+        assert_eq!(s.landing_site_eval_coverage(), 0.0);
+    }
+
+    #[test]
+    fn coverage_stays_below_threshold_for_orbital_only() {
+        // Just OrbitalMech + MineralClasses at tier 1 (the OrbitalScan
+        // migration shim). Surface/Habitability/Atmosphere are zero,
+        // so coverage should be far below the 0.6 trigger.
+        let mut s = SurveyState::default();
+        s.set_fidelity(
+            SurveyDimension::OrbitalMech,
+            DimensionFidelity::at_tier(1, 1.0, Some(sim_time())),
+        );
+        s.set_fidelity(
+            SurveyDimension::MineralClasses,
+            DimensionFidelity::at_tier(1, 1.0, Some(sim_time())),
+        );
+        let cov = s.landing_site_eval_coverage();
+        assert!(cov < LANDING_SITE_EVAL_THRESHOLD, "got {cov}");
+    }
+
+    #[test]
+    fn coverage_crosses_threshold_for_fully_surveyed_body() {
+        // A fully-surveyed body should clear the 0.6 gate with
+        // margin (all eight dimensions at tier 5).
+        let s = SurveyState::fully_surveyed(sim_time());
+        let cov = s.landing_site_eval_coverage();
+        assert!(
+            cov >= LANDING_SITE_EVAL_THRESHOLD,
+            "fully_surveyed coverage {cov} should be ≥ {LANDING_SITE_EVAL_THRESHOLD}"
+        );
+    }
+
+    #[test]
+    fn coverage_weights_surface_heavily() {
+        // A body with only SurfaceFeatures at tier 5 should clear the
+        // threshold (SurfaceFeatures is weighted 0.5 by itself, so
+        // 5/5 * 0.5 = 0.5; we need a bit more from the other axes
+        // to reach 0.6 — push SurfaceFeatures even harder and add
+        // Habitability at low tier to confirm Surface dominates).
+        let mut s = SurveyState::default();
+        s.set_fidelity(
+            SurveyDimension::SurfaceFeatures,
+            DimensionFidelity::at_tier(5, 1.0, Some(sim_time())),
+        );
+        s.set_fidelity(
+            SurveyDimension::Habitability,
+            DimensionFidelity::at_tier(1, 1.0, Some(sim_time())),
+        );
+        let cov_with_surface = s.landing_site_eval_coverage();
+
+        // Compare to a body with NO surface data but other dims at
+        // tier 5. The surface-dominated body must score higher.
+        let mut other = SurveyState::default();
+        for dim in [
+            SurveyDimension::OrbitalMech,
+            SurveyDimension::Atmosphere,
+            SurveyDimension::Habitability,
+            SurveyDimension::MineralClasses,
+            SurveyDimension::MineralDeposits,
+            SurveyDimension::Subsurface,
+            SurveyDimension::Anomalies,
+        ] {
+            other.set_fidelity(dim, DimensionFidelity::at_tier(5, 1.0, Some(sim_time())));
+        }
+        let cov_other = other.landing_site_eval_coverage();
+        assert!(
+            cov_with_surface > cov_other,
+            "surface-dominated {cov_with_surface} should beat other-only {cov_other}"
+        );
+    }
+
+    #[test]
+    fn site_scores_weights_sum_to_one() {
+        // The composite must be a proper weighted average; if a
+        // future PR rebalances the weights this test catches a
+        // missing close-paren.
+        let w = SiteScores::WEIGHTS;
+        let sum = w.slope + w.roughness + w.radiation + w.temperature + w.regolith + w.comm;
+        assert!(
+            (sum - 1.0).abs() < 1e-5,
+            "weights sum to {sum}, expected 1.0"
+        );
+    }
+
+    #[test]
+    fn site_scores_composite_matches_weighted_average() {
+        // Spot-check the composite calculation against a hand
+        // computation.
+        let s = SiteScores {
+            slope: 0.8,
+            roughness: 0.6,
+            radiation: 0.7,
+            temperature: 0.5,
+            regolith: 0.9,
+            comm: 1.0,
+        };
+        let w = SiteScores::WEIGHTS;
+        let expected = 0.8 * w.slope
+            + 0.6 * w.roughness
+            + 0.7 * w.radiation
+            + 0.5 * w.temperature
+            + 0.9 * w.regolith
+            + 1.0 * w.comm;
+        let got = s.composite();
+        assert!(
+            (got - expected).abs() < 1e-6,
+            "expected {expected}, got {got}"
+        );
+    }
+
+    #[test]
+    fn site_scores_composite_clamps_out_of_range_inputs() {
+        // A buggy RON bias should not produce a score outside [0, 1].
+        let s = SiteScores {
+            slope: 2.0,
+            roughness: -1.0,
+            radiation: 0.5,
+            temperature: 0.5,
+            regolith: 0.5,
+            comm: 0.5,
+        };
+        let c = s.composite();
+        assert!((0.0..=1.0).contains(&c), "composite {c} not in [0,1]");
+    }
+
+    #[test]
+    fn site_count_constants_bound_the_per_body_window() {
+        // The dossier renders MIN..MAX rows; locking these to
+        // GRA-82's 2-5 acceptance range catches accidental
+        // rebalances.
+        assert_eq!(MIN_SITES_PER_BODY, 2);
+        assert_eq!(MAX_SITES_PER_BODY, 5);
+        const {
+            assert!(LANDING_SITE_EVAL_THRESHOLD > 0.0 && LANDING_SITE_EVAL_THRESHOLD < 1.0);
+        }
     }
 }

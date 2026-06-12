@@ -5,14 +5,14 @@
 
 src/ui/dashboard.rs:1360  egui::Color32::from_rgba_unmultiplied(231, 76, 60, alpha),
 src/ui/dashboard.rs:1366  egui::RichText::new("⏸ PAUSED").color(egui::Color32::from_rgba_unmultiplied(
-src/ui/dossier_panel.rs:995  egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(0, 242, 255, 60)),
-src/ui/dossier_panel.rs:1013  let fill_color = egui::Color32::from_rgba_premultiplied(0, 242, 255, 18);
-src/ui/dossier_panel.rs:1206  egui::Color32::from_rgba_premultiplied(20, 20, 30, 230)
-src/ui/dossier_panel.rs:1208  egui::Color32::from_rgba_premultiplied(255, 255, 255, 220)
-src/ui/dossier_panel.rs:1257  egui::Color32::from_rgba_premultiplied(255, 255, 255, 60)
-src/ui/dossier_panel.rs:1259  egui::Color32::from_rgba_premultiplied(0, 0, 0, 80)
-src/ui/dossier_panel.rs:1612  let fill_color = egui::Color32::from_rgba_premultiplied(
-src/ui/dossier_panel.rs:1634  egui::Color32::from_rgba_premultiplied(220, 230, 240, (180.0 * brightness) as u8),
+src/ui/dossier_panel.rs:1031  egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(0, 242, 255, 60)),
+src/ui/dossier_panel.rs:1049  let fill_color = egui::Color32::from_rgba_premultiplied(0, 242, 255, 18);
+src/ui/dossier_panel.rs:1242  egui::Color32::from_rgba_premultiplied(20, 20, 30, 230)
+src/ui/dossier_panel.rs:1244  egui::Color32::from_rgba_premultiplied(255, 255, 255, 220)
+src/ui/dossier_panel.rs:1293  egui::Color32::from_rgba_premultiplied(255, 255, 255, 60)
+src/ui/dossier_panel.rs:1295  egui::Color32::from_rgba_premultiplied(0, 0, 0, 80)
+src/ui/dossier_panel.rs:1948  let fill_color = egui::Color32::from_rgba_premultiplied(
+src/ui/dossier_panel.rs:1970  egui::Color32::from_rgba_premultiplied(220, 230, 240, (180.0 * brightness) as u8),
 src/ui/fleets_panel.rs:171  egui::Color32::from_rgba_premultiplied(0, 140, 160, 42)
 src/ui/mod.rs:1016  .fill(egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245))
 src/ui/mod.rs:1107  .fill(egui::Color32::from_rgba_unmultiplied(12, 16, 28, 245))

@@ -23,7 +23,9 @@ pub mod systems;
 pub mod types;
 
 pub use components::{
-    ActiveSurveyMission, AnalysisJob, DetectedAnomaly, DimensionFidelity, SurveyState,
+    ActiveSurveyMission, AnalysisJob, DetectedAnomaly, DimensionFidelity, ExtractionSite,
+    LandingSite, SiteScoreWeights, SiteScores, SurveyState, LANDING_SITE_EVAL_THRESHOLD,
+    MAX_SITES_PER_BODY, MIN_SITES_PER_BODY,
 };
 pub use data::{
     AnalysisQueueIndex, MiningEfficiencyRegistry, MiningEfficiencyRow, ModderAnomalyDef,
@@ -31,8 +33,8 @@ pub use data::{
     SurveyInstrumentRegistry, SurveyMissionTemplate, SurveyMissionTemplates,
 };
 pub use systems::{
-    advance_survey_missions, decay_survey_confidence, process_analysis_queue,
-    surface_anomaly_events, update_survey_summary, SimulationTime,
+    advance_survey_missions, decay_survey_confidence, evaluate_landing_sites,
+    process_analysis_queue, surface_anomaly_events, update_survey_summary, SimulationTime,
 };
 pub use types::{
     AnomalyType, SurveyDimension, SurveyMethod, CONFIDENCE_DECAY_PER_YEAR, INITIAL_CONFIDENCE,
@@ -75,6 +77,7 @@ impl Plugin for SurveyPlugin {
                     advance_survey_missions,
                     process_analysis_queue,
                     surface_anomaly_events,
+                    evaluate_landing_sites,
                     update_survey_summary,
                 )
                     .chain(),
