@@ -2079,7 +2079,7 @@
             research_cost: 900000.0,
             prerequisites: ["antimatter_beam_weapons"],
             unlocks_components: [],
-            unlocks_engineering: ["plasma_lance"],
+            unlocks_engineering: ["plasma_lance_turret"],
             modifiers: [],
             tier: 7,
         ),
@@ -3536,7 +3536,7 @@
             tier: 7,
         ),
         (
-            id: "plasma_lance",
+            id: "plasma_lance_turret",
             name: "Plasma Lance",
             category: Weapons,
             description: "Magnetically focused stellar-temperature plasma weapon.",
