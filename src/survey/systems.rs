@@ -1368,7 +1368,12 @@ pub fn dispatch_survey_mission(world: &mut World) {
 /// entities in the world), so a fresh game-state with no
 /// freighters yet reports the gate as unsatisfied rather than
 /// silently passing.
-fn count_ships_with_hull_class(world: &World, hull_class_id: &str) -> u32 {
+fn count_ships_with_hull_class(world: &mut World, hull_class_id: &str) -> u32 {
+    // Bevy 0.18: `World::query` takes `&mut self` because the
+    // query borrows the world for its lifetime. The dispatch
+    // system already runs with `&mut World`, so we thread the
+    // mutable borrow through. (See [[helios-bevy-018-world-get-vs-query]]
+    // — the same constraint applies to `QueryState::get(world, entity)`.)
     let mut q = world.query::<&crate::ships::ShipTemplateRef>();
     let count = q
         .iter(world)
@@ -2280,6 +2285,9 @@ mod tests {
                     axis_yield_per_day: 1.0,
                     is_ground_team: false,
                     failure_modes: Vec::new(),
+                    requires_ship_class: None,
+                    requires_min_ship_count: 1,
+                    min_assigned_scientists: 0,
                 },
             );
 
@@ -3121,6 +3129,9 @@ mod tests {
                 // failure→recovery spawn path, not the rate.
                 probability: 1.0,
             }],
+            requires_ship_class: None,
+            requires_min_ship_count: 1,
+            min_assigned_scientists: 0,
         };
         template
             .target_tiers
@@ -3335,6 +3346,9 @@ mod tests {
                 // the failure→recovery spawn path, not the rate.
                 probability: 1.0,
             }],
+            requires_ship_class: None,
+            requires_min_ship_count: 1,
+            min_assigned_scientists: 0,
         };
         template
             .target_tiers

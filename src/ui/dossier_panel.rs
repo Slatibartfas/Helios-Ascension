@@ -3916,6 +3916,9 @@ mod tests {
             axis_yield_per_day: 1.0,
             is_ground_team: false,
             failure_modes: vec![],
+            requires_ship_class: None,
+            requires_min_ship_count: 1,
+            min_assigned_scientists: 0,
         }
     }
 
