@@ -2058,7 +2058,14 @@ fn draw_resource_section(
         }
         DossierResourceView::Compact => {
             theme::section_h3(ui, "DEPOSITS \u{2014} COMPACT");
-            draw_resource_compact(ui, resources, current_level, rate_tracker, entity);
+            draw_resource_compact(
+                ui,
+                resources,
+                current_level,
+                survey_state,
+                rate_tracker,
+                entity,
+            );
         }
     }
 
@@ -2553,10 +2560,22 @@ fn draw_resource_compact(
     ui: &mut egui::Ui,
     resources: &PlanetResources,
     survey_level: SurveyLevel,
+    survey_state: Option<&SurveyState>,
     rate_tracker: &ResourceRateTracker,
     entity: Entity,
 ) {
     let mut rows: Vec<(ResourceType, f64)> = Vec::new();
+    // GRA-120 (range render): prefer the v0.5.0 `SurveyState`
+    // fidelity for the MineralDeposits axis and route the deposit
+    // through `estimate_with_fidelity`. The legacy
+    // `SurveyLevel::discovered_amount` returns the proven/deep/
+    // bulk split as a single scalar, but the v0.5.0 fidelity
+    // already includes the (low, mid, high) range the UI is
+    // supposed to render. `mid_or_zero()` is the equivalent scalar
+    // for legacy callers — the cell renderer stays the same.
+    let fidelity = survey_state
+        .map(|s| s.fidelity(crate::survey::SurveyDimension::MineralDeposits))
+        .unwrap_or_else(|| survey_level.as_deposit_fidelity(0.0));
     for (_category, items) in ResourceType::by_category() {
         for r in &items {
             if !r.is_mineable() {
@@ -2564,7 +2583,8 @@ fn draw_resource_compact(
             }
             if let Some(d) = resources.get_deposit(r) {
                 if d.reserve.total_mass() > 0.001 {
-                    let discovered = survey_level.discovered_amount(&d.reserve);
+                    let discovered =
+                        crate::survey::estimate_with_fidelity(d, fidelity).mid_or_zero();
                     rows.push((*r, discovered));
                 }
             }
@@ -2966,8 +2986,17 @@ fn draw_resource_tile(
     entity: Entity,
 ) {
     let has_deposit = deposit.is_some_and(|d| d.reserve.total_mass() > 0.001);
+    // GRA-120 (range render): compute the estimate once for both
+    // the tile and the hover tooltip so the two readouts agree.
+    // The legacy `discovered_amount` returns a scalar only; the
+    // v0.5.0 fidelity already encodes the (low, mid, high) range
+    // the cell renderer is supposed to show. `mid_or_zero()` is
+    // the scalar the existing `paint_resource_tile` cell expects.
+    let fidelity = survey_state
+        .map(|s| s.fidelity(crate::survey::SurveyDimension::MineralDeposits))
+        .unwrap_or_else(|| survey_level.as_deposit_fidelity(0.0));
     let response = if let Some(d) = deposit.filter(|d| d.reserve.total_mass() > 0.001) {
-        let discovered = survey_level.discovered_amount(&d.reserve);
+        let discovered = crate::survey::estimate_with_fidelity(d, fidelity).mid_or_zero();
         paint_resource_tile(
             ui,
             resource,
@@ -2985,7 +3014,10 @@ fn draw_resource_tile(
     // Hover tooltip
     if response.hovered() && has_deposit {
         let d = deposit.unwrap();
-        let discovered = survey_level.discovered_amount(&d.reserve);
+        // GRA-120 (range render): reuse the fidelity computed above
+        // so the tooltip mid matches the tile mid. See comment
+        // above the `fidelity` binding for the back-compat chain.
+        let discovered = crate::survey::estimate_with_fidelity(d, fidelity).mid_or_zero();
         let tooltip_id = egui::Id::new("resource_tile_tooltip").with(resource.symbol());
 
         // Override the popup frame style on the ctx *before* show_tooltip is called.

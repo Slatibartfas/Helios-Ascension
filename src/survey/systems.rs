@@ -34,7 +34,7 @@ use super::data::{
 };
 use super::events::{
     AbortSurveyMission, DismissFailedMission, DismissSurveyMission, DispatchSurveyMission,
-    SurveyEvent,
+    MissionLaunchReason, SurveyEvent,
 };
 use super::types::{
     axis_advance_rate_for_tier, mining_yield_delta_for_tier, AnomalyType, FailureKind, FailureMode,
@@ -1125,8 +1125,12 @@ pub fn dispatch_survey_mission(world: &mut World) {
     };
 
     for ev in events {
-        // Resolve template. A missing template is a UI bug — warn
-        // and drop the event.
+        // Resolve template. A missing template is a UI bug — emit
+        // `MissionLaunchBlocked::TemplateUnknown` and drop the event.
+        // The `method` field on the event defaults to `Flyby` when
+        // the template id doesn't resolve: the dossier toast layer
+        // will surface the unknown-template reason verbatim, so the
+        // method value is best-effort only.
         let template: &SurveyMissionTemplate = match templates.templates.get(&ev.template_id) {
             Some(t) => t,
             None => {
@@ -1134,20 +1138,77 @@ pub fn dispatch_survey_mission(world: &mut World) {
                     "DispatchSurveyMission: unknown template_id {:?}; dropping",
                     ev.template_id
                 );
+                world.write_message(SurveyEvent::MissionLaunchBlocked {
+                    body: ev.body,
+                    mission_id: 0,
+                    name: ev.name.clone(),
+                    method: SurveyMethod::Flyby,
+                    reason: MissionLaunchReason::TemplateUnknown,
+                });
                 continue;
             }
         };
 
-        // Validate the scientist team. The empty-team case is
-        // valid for solo probe missions; ground-team missions
-        // require at least one scientist.
-        if template.is_ground_team && ev.scientist_ids.is_empty() {
+        // GRA-120 (mission dispatch gates): validate the new
+        // template-level gates. Order matters: scientist-count is
+        // checked first because it's the cheapest query and
+        // usually the most common failure mode. The
+        // ship-class/count gate runs after, since it requires a
+        // world-wide `ShipTemplateRef` scan.
+        //
+        // The legacy `is_ground_team && empty` check is preserved
+        // as a fallback for templates that pre-date the new
+        // `min_assigned_scientists` field. The new field takes
+        // priority when it is non-zero.
+        let min_scientists = if template.min_assigned_scientists > 0 {
+            template.min_assigned_scientists
+        } else if template.is_ground_team {
+            1
+        } else {
+            0
+        };
+        if min_scientists > 0 && (ev.scientist_ids.len() as u32) < min_scientists {
             warn!(
-                "DispatchSurveyMission: ground-team template {:?} dispatched with no scientists; dropping",
-                ev.template_id
+                "DispatchSurveyMission: template {:?} requires at least {} scientists; dispatched with {}; dropping",
+                ev.template_id,
+                min_scientists,
+                ev.scientist_ids.len()
             );
+            world.write_message(SurveyEvent::MissionLaunchBlocked {
+                body: ev.body,
+                mission_id: 0,
+                name: ev.name.clone(),
+                method: template.method,
+                reason: MissionLaunchReason::NoScientists,
+            });
             continue;
         }
+        if let Some(required_hull) = template.requires_ship_class.as_deref() {
+            let available = count_ships_with_hull_class(world, required_hull);
+            if available < template.requires_min_ship_count {
+                warn!(
+                    "DispatchSurveyMission: template {:?} requires {} × ship class {:?}; found {}; dropping",
+                    ev.template_id,
+                    template.requires_min_ship_count,
+                    required_hull,
+                    available
+                );
+                world.write_message(SurveyEvent::MissionLaunchBlocked {
+                    body: ev.body,
+                    mission_id: 0,
+                    name: ev.name.clone(),
+                    method: template.method,
+                    reason: MissionLaunchReason::NoShipAvailable,
+                });
+                continue;
+            }
+        }
+
+        // Per-scientist validation. The `min_assigned_scientists`
+        // gate above already enforced the headcount, so this
+        // loop only needs to verify the *specific* scientists
+        // are eligible (not injured, not already on a mission,
+        // and exist in the world).
         for sid in &ev.scientist_ids {
             let scientist = {
                 let mut state = world.query::<&Scientist>();
@@ -1159,6 +1220,13 @@ pub fn dispatch_survey_mission(world: &mut World) {
                         "DispatchSurveyMission: scientist {} is injured; dropping dispatch",
                         s.name
                     );
+                    world.write_message(SurveyEvent::MissionLaunchBlocked {
+                        body: ev.body,
+                        mission_id: 0,
+                        name: ev.name.clone(),
+                        method: template.method,
+                        reason: MissionLaunchReason::ScientistInjured,
+                    });
                     continue;
                 }
                 Some(s) if s.current_survey_mission.is_some() => {
@@ -1166,6 +1234,13 @@ pub fn dispatch_survey_mission(world: &mut World) {
                         "DispatchSurveyMission: scientist {} is already on a mission; dropping",
                         s.name
                     );
+                    world.write_message(SurveyEvent::MissionLaunchBlocked {
+                        body: ev.body,
+                        mission_id: 0,
+                        name: ev.name.clone(),
+                        method: template.method,
+                        reason: MissionLaunchReason::ScientistOnOtherMission,
+                    });
                     continue;
                 }
                 None => {
@@ -1173,6 +1248,13 @@ pub fn dispatch_survey_mission(world: &mut World) {
                         "DispatchSurveyMission: scientist id {} not found; dropping",
                         sid
                     );
+                    world.write_message(SurveyEvent::MissionLaunchBlocked {
+                        body: ev.body,
+                        mission_id: 0,
+                        name: ev.name.clone(),
+                        method: template.method,
+                        reason: MissionLaunchReason::ScientistMissing,
+                    });
                     continue;
                 }
                 _ => {}
@@ -1268,6 +1350,31 @@ pub fn dispatch_survey_mission(world: &mut World) {
             method,
         });
     }
+}
+
+/// GRA-120: Count entities at `body` whose hull class matches
+/// `hull_class_id`. The body→hull inventory is a coarse best-
+/// effort match: any ship in the world whose `ShipTemplateRef`'s
+/// `template_id` equals the requested hull id counts. Body-relative
+/// scoping (i.e. "ships at the body's starmap location") is not
+/// yet tracked in the ECS — the body location concept lives on
+/// `Fleet::orbit_body`, not on individual ship entities. The
+/// follow-on LGD RON edit that wires per-body ship inventories
+/// will tighten this check; the minimum bar for this PR is that
+/// the gate is in place and the event is emitted when the count
+/// falls short.
+///
+/// Returns `0` if the registry is empty (no `ShipTemplateRef`
+/// entities in the world), so a fresh game-state with no
+/// freighters yet reports the gate as unsatisfied rather than
+/// silently passing.
+fn count_ships_with_hull_class(world: &World, hull_class_id: &str) -> u32 {
+    let mut q = world.query::<&crate::ships::ShipTemplateRef>();
+    let count = q
+        .iter(world)
+        .filter(|ship_ref| ship_ref.template_id == hull_class_id)
+        .count();
+    count as u32
 }
 
 /// Consume [`AbortSurveyMission`] events: remove the mission from

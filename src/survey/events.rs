@@ -132,6 +132,91 @@ pub enum SurveyEvent {
         /// failure event).
         injured_until_sim_time: f64,
     },
+    // ── GRA-120: pre-dispatch gate failures ─────────────────────
+    /// The dispatcher rejected the [`DispatchSurveyMission`] event
+    /// because the template's gate(s) were not satisfied. The
+    /// mission is NOT added to the body's `active_missions` and
+    /// the assigned scientists (if any) are not bound. The dossier
+    /// UI subscribes to this event to surface a one-line toast
+    /// naming the `reason` — the visual toast itself is a
+    /// follow-on UI PR; this PR only guarantees the event is
+    /// emitted in place of the previous silent `warn!` + drop.
+    ///
+    /// GRA-120 (mission dispatch gates): the same gate also
+    /// applies to legacy `warn!` sites that pre-date this event
+    /// — the dispatcher is migrating drop sites one at a time,
+    /// starting with the gate failures introduced by the new
+    /// `SurveyMissionTemplate` fields. Sites that are not
+    /// gate-related (e.g. body-missing `SurveyState`, template
+    /// unknown) keep the warn! + drop behaviour for now and
+    /// are routed to the matching `MissionLaunchReason` variant
+    /// below.
+    MissionLaunchBlocked {
+        body: Entity,
+        /// Matches the request's `name` (the dispatch UI's
+        /// auto-generated mission name). `mission_id` is `0` for
+        /// launch-blocked events because the mission was never
+        /// instantiated — consumers that key off `mission_id`
+        /// should fall back to `name` + `body` when the id is
+        /// zero.
+        mission_id: u64,
+        name: String,
+        method: SurveyMethod,
+        reason: MissionLaunchReason,
+    },
+}
+
+/// Why a [`SurveyEvent::MissionLaunchBlocked`] event was emitted.
+///
+/// One variant per dispatch-time gate (or per legacy warn! site
+/// that has been migrated to the event). New gates should add a
+/// new variant here; the dossier UI's toast layer maps each
+/// variant to a one-line human-readable string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MissionLaunchReason {
+    /// The template's `min_assigned_scientists` was not met.
+    /// Ground-team templates (Rover, Drill, SampleReturn) reach
+    /// this path when the dossier dispatched with an empty
+    /// scientist team. The legacy `is_ground_team && empty` warn
+    /// in `dispatch_survey_mission` now routes here.
+    NoScientists,
+    /// The template's `requires_ship_class` / `requires_min_ship_count`
+    /// gate was not met. Either the body has no ships of the
+    /// required hull class at its starmap location, or the count
+    /// of matching ships is below the template's minimum.
+    NoShipAvailable,
+    /// The template id does not exist in the
+    /// [`SurveyMissionTemplates`](crate::survey::data::SurveyMissionTemplates)
+    /// resource. Almost always a UI bug (stale RON id, typo) —
+    /// surfaced as an event so the dossier can flag the
+    /// "RECOMMENDED" CTA as broken rather than silently
+    /// dispatching nothing.
+    TemplateUnknown,
+    /// One of the assigned scientists is in the `Injured` state
+    /// and cannot accept new missions until
+    /// `INJURY_DURATION_DAYS` have elapsed. The legacy
+    /// `s.is_injured(sim_time)` warn site now routes here.
+    ScientistInjured,
+    /// One of the assigned scientists already has a
+    /// `current_survey_mission` set. The legacy
+    /// `s.current_survey_mission.is_some()` warn site now
+    /// routes here.
+    ScientistOnOtherMission,
+    /// The body the dispatch targeted does not have a
+    /// `SurveyState` component AND did not have a legacy
+    /// `SurveyLevel` either. The system populator fills in
+    /// `SurveyLevel` for celestial bodies, so this should not
+    /// fire in normal play — kept as an explicit event variant
+    /// so the dossier's missing-state guard is observable
+    /// from the event stream.
+    BodyMissingSurveyState,
+    /// The referenced scientist id was not found in the
+    /// `Scientist` component query. Distinct from
+    /// `ScientistInjured` (the scientist exists but is
+    /// unavailable) — this is a desync between the UI's
+    /// roster snapshot and the live `Scientist` set (e.g. a
+    /// scientist was deleted between menu-open and dispatch).
+    ScientistMissing,
 }
 
 /// Dispatch a survey mission. Fired by the dossier UI's
