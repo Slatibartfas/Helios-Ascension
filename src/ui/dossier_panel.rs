@@ -185,17 +185,15 @@ pub(super) struct DossierUiParams<'w, 's> {
     pub rate_tracker: Res<'w, ResourceRateTracker>,
     pub mission_templates: Res<'w, SurveyMissionTemplates>,
     pub pending_actions: ResMut<'w, PendingConstructionActions>,
-    /// GRA-83b: orbital survey station surface needs a `&World`
-    /// to fetch per-body components (the `ContinuousStationBonus`
-    /// cache lives on the body). The `ContinuousSurveyStation`
-    /// lives on the station entity and is walked via
-    /// [`Self::stations_query`] because `World::query` requires
-    /// `&mut self` and we only have an immutable `&World`
-    /// reference here.
-    pub world: &'w World,
-    /// GRA-83b: enumerate every `ContinuousSurveyStation` in the
-    /// world to compute the per-tier list for the orbited body.
-    /// Immutable (we read `tier` and `orbiting_body` only).
+    /// GRA-83b: orbital survey station surface needs the per-body
+    /// bonus cache plus the active mining flag to render the
+    /// aggregated section. Keep these as normal immutable queries so
+    /// the egui system can coexist with mutable params.
+    pub station_bonus_query: Query<'w, 's, &'static ContinuousStationBonus>,
+    pub mining_query: Query<'w, 's, &'static MiningOperation>,
+    /// Enumerate every `ContinuousSurveyStation` in the world to
+    /// compute the per-tier list for the orbited body. Immutable
+    /// (we read `tier` and `orbiting_body` only).
     pub stations_query: Query<'w, 's, &'static ContinuousSurveyStation>,
 }
 
@@ -428,7 +426,8 @@ pub(super) fn ui_planet_dossier(mut params: DossierUiParams) {
                     section_divider(ui);
                     draw_orbital_station_section(
                         ui,
-                        params.world,
+                        params.station_bonus_query.get(entity).ok(),
+                        params.mining_query.get(entity).ok(),
                         params.stations_query.iter(),
                         entity,
                         &body.name,
@@ -3397,18 +3396,9 @@ impl OrbitalStationSummary {
     /// Build a summary from the relevant live data, or `None` if
     /// the body has no active orbital survey station cache. The
     /// dossier hides the section when this returns `None`.
-    ///
-    /// Takes `&World` plus a stations iterator rather than three
-    /// `Query` system params because the function is also
-    /// reachable from unit tests, which can construct a `World`
-    /// directly but cannot easily wire up Bevy 0.18's `Query`
-    /// system params without a full `App`. `World::query` itself
-    /// requires `&mut self`, so we use `World::get::<T>(entity)`
-    /// (an immutable `&self` method) for the two single-entity
-    /// lookups and accept the stations collection as a slice
-    /// from the caller.
-    pub fn from_world<'w, I>(
-        world: &'w World,
+    pub fn from_components<'w, I>(
+        bonus: Option<&ContinuousStationBonus>,
+        mining_operation: Option<&MiningOperation>,
         body_entity: Entity,
         body_name: &str,
         stations: I,
@@ -3416,7 +3406,7 @@ impl OrbitalStationSummary {
     where
         I: IntoIterator<Item = &'w ContinuousSurveyStation>,
     {
-        let bonus = world.get::<ContinuousStationBonus>(body_entity)?;
+        let bonus = bonus?;
         if !bonus.is_active() {
             // The cache may be present on a body but at neutral
             // values (the system resets rather than removes — see
@@ -3437,8 +3427,7 @@ impl OrbitalStationSummary {
         // Stable, ascending order for predictable display
         // ("T1, T1, T3" not "T3, T1, T1").
         tiers.sort_unstable();
-        let mine_count = world
-            .get::<MiningOperation>(body_entity)
+        let mine_count = mining_operation
             .map(|op| if op.active { 1 } else { 0 })
             .unwrap_or(0);
         let mining_bonus_pct = ((bonus.mining_yield_multiplier - 1.0) * 100.0).round() as i32;
@@ -3488,14 +3477,21 @@ impl OrbitalStationSummary {
 
 fn draw_orbital_station_section<'w, I>(
     ui: &mut egui::Ui,
-    world: &'w World,
+    bonus: Option<&ContinuousStationBonus>,
+    mining_operation: Option<&MiningOperation>,
     stations: I,
     body_entity: Entity,
     body_name: &str,
 ) where
     I: IntoIterator<Item = &'w ContinuousSurveyStation>,
 {
-    let Some(summary) = OrbitalStationSummary::from_world(world, body_entity, body_name, stations)
+    let Some(summary) = OrbitalStationSummary::from_components(
+        bonus,
+        mining_operation,
+        body_entity,
+        body_name,
+        stations,
+    )
     else {
         // No active station — hide the section entirely. The
         // body dossier would otherwise grow a useless empty
@@ -3675,17 +3671,15 @@ mod tests {
     }
 
     #[test]
-    fn from_world_omits_body_with_no_bonus_cache() {
+    fn from_components_omits_body_with_no_bonus_cache() {
         // A body that no station orbits has no
         // `ContinuousStationBonus` component. The summary
         // builder returns `None` and the dossier hides the
-        // section. (Constructed against a minimal `App` so the
-        // `World::get::<T>(entity)` lookups and the station
-        // slice have valid archtypes.)
+        // section.
         let mut app = App::new();
         let body = app.world_mut().spawn_empty().id();
         let stations: Vec<&ContinuousSurveyStation> = Vec::new();
-        let result = OrbitalStationSummary::from_world(app.world(), body, "Earth", stations);
+        let result = OrbitalStationSummary::from_components(None, None, body, "Earth", stations);
         assert!(
             result.is_none(),
             "a body with no ContinuousStationBonus should produce no summary"
@@ -3693,7 +3687,7 @@ mod tests {
     }
 
     #[test]
-    fn from_world_includes_body_with_active_bonus_cache() {
+    fn from_components_includes_body_with_active_bonus_cache() {
         // The dossier should appear for a body that has an
         // active `ContinuousStationBonus` cache. We construct a
         // minimal App with the components and verify the
@@ -3732,7 +3726,13 @@ mod tests {
         let s2_ref: &ContinuousSurveyStation = world.get::<ContinuousSurveyStation>(s2).unwrap();
         let stations = vec![s1_ref, s2_ref];
 
-        let summary = OrbitalStationSummary::from_world(world, mars, "Mars", stations)
+        let summary = OrbitalStationSummary::from_components(
+            world.get::<ContinuousStationBonus>(mars),
+            world.get::<MiningOperation>(mars),
+            mars,
+            "Mars",
+            stations,
+        )
             .expect("Mars with an active bonus should produce a summary");
 
         assert_eq!(summary.body_name, "Mars");
