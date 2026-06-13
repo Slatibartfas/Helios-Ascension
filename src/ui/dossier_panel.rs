@@ -1586,14 +1586,7 @@ fn draw_resource_section(
     match view {
         DossierResourceView::ByCategory => {
             theme::section_h3(ui, "DEPOSITS");
-            draw_resource_grid(
-                ui,
-                resources,
-                current_level,
-                survey_state,
-                rate_tracker,
-                entity,
-            );
+            draw_resource_grid(ui, resources, current_level, rate_tracker, entity);
         }
         DossierResourceView::Compact => {
             theme::section_h3(ui, "DEPOSITS \u{2014} COMPACT");
@@ -2020,13 +2013,6 @@ pub(super) enum ResourceTileDisplay {
     Deposit {
         discovered_megatons: f64,
         concentration: Option<f32>,
-        /// GRA-111: per-tier breakdown for the dossier's
-        /// `REVEAL MATRIX` sub-section. The 3 entries are in
-        /// `TierLabel::ALL` order (`Proven Crustal`, `Deep
-        /// Deposits`, `Planetary Bulk`). The matrix is dossier-only,
-        /// so callers that don't need the matrix pass
-        /// `[TierReveal::default(); 3]` (the dashboard).
-        tiers: [crate::economy::TierReveal; 3],
     },
 }
 
@@ -2046,10 +2032,6 @@ pub(super) fn paint_resource_tile(
         ResourceTileDisplay::Deposit {
             discovered_megatons,
             concentration,
-            // The dossier's reveal matrix reads this elsewhere; the
-            // tile renderer itself only needs the aggregate megaton
-            // figure for the magnitude pips.
-            tiers: _,
         } => {
             let (tier, _tier_label) = magnitude_tier(discovered_megatons);
 
@@ -2155,7 +2137,6 @@ fn draw_resource_grid(
     ui: &mut egui::Ui,
     resources: &PlanetResources,
     survey_level: SurveyLevel,
-    survey_state: Option<&SurveyState>,
     rate_tracker: &ResourceRateTracker,
     entity: Entity,
 ) {
@@ -2191,7 +2172,6 @@ fn draw_resource_grid(
                     *resource_type,
                     deposit,
                     survey_level,
-                    survey_state,
                     tile_size,
                     cat_color,
                     rate_tracker,
@@ -2463,7 +2443,6 @@ fn draw_resource_tile(
     resource: ResourceType,
     deposit: Option<&MineralDeposit>,
     survey_level: SurveyLevel,
-    survey_state: Option<&SurveyState>,
     size: f32,
     cat_color: egui::Color32,
     rate_tracker: &ResourceRateTracker,
@@ -2472,14 +2451,12 @@ fn draw_resource_tile(
     let has_deposit = deposit.is_some_and(|d| d.reserve.total_mass() > 0.001);
     let response = if let Some(d) = deposit.filter(|d| d.reserve.total_mass() > 0.001) {
         let discovered = survey_level.discovered_amount(&d.reserve);
-        let tiers = d.tier_breakdown(survey_state);
         paint_resource_tile(
             ui,
             resource,
             ResourceTileDisplay::Deposit {
                 discovered_megatons: discovered,
                 concentration: Some(d.reserve.concentration),
-                tiers,
             },
             size,
             cat_color,

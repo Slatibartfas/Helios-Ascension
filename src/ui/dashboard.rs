@@ -1850,15 +1850,6 @@ fn render_star_system_panel(
                                         ResourceTileDisplay::Deposit {
                                             discovered_megatons: mid_value,
                                             concentration: None,
-                                            // The reveal matrix is
-                                            // dossier-only; the dashboard
-                                            // tile renderer doesn't
-                                            // surface it. Pass a
-                                            // `Default::default()` triple
-                                            // so the existing
-                                            // `paint_resource_tile` call
-                                            // site stays trivial.
-                                            tiers: [Default::default(); 3],
                                         }
                                     } else if fully_surveyed {
                                         ResourceTileDisplay::None
