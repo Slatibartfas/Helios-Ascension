@@ -2311,11 +2311,7 @@ fn mission_result_summary(mission: &ActiveSurveyMission) -> String {
                 .keys()
                 .map(|d| d.ron_id().to_string())
                 .collect();
-            let prefix = if dim_count == 1 {
-                "Advanced"
-            } else {
-                "Advanced"
-            };
+            let prefix = "Advanced";
             let drill_suffix = if mission.method == crate::survey::types::SurveyMethod::Drill {
                 "  \u{2022}  Drill gate opened (+1 to T3 unlock)"
             } else {
