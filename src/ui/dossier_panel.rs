@@ -1847,26 +1847,23 @@ fn recommended_survey_action<'a>(
     // sort key so it sorts ahead of a non-warning dim at the same
     // tier. Skips fully-characterized dims.
     const WARNING_BOOST: f32 = 0.5;
+    let primary_sort_key = |d: SurveyDimension| -> (f32, f32) {
+        let f = state.fidelity(d);
+        let adj_conf = if f.confidence < WARNING_CONFIDENCE {
+            f.confidence - WARNING_BOOST
+        } else {
+            f.confidence
+        };
+        (f.tier as f32, adj_conf)
+    };
     let primary = SurveyDimension::ALL
         .iter()
         .copied()
         .filter(|d| !state.fidelity(*d).is_fully_characterized())
         .min_by(|a, b| {
-            let fa = state.fidelity(*a);
-            let fb = state.fidelity(*b);
-            let ka = (fa.tier as f32, fa.confidence)
-                - if fa.confidence < WARNING_CONFIDENCE {
-                    WARNING_BOOST
-                } else {
-                    0.0
-                };
-            let kb = (fb.tier as f32, fb.confidence)
-                - if fb.confidence < WARNING_CONFIDENCE {
-                    WARNING_BOOST
-                } else {
-                    0.0
-                };
-            ka.partial_cmp(&kb).unwrap_or(std::cmp::Ordering::Equal)
+            primary_sort_key(*a)
+                .partial_cmp(&primary_sort_key(*b))
+                .unwrap_or(std::cmp::Ordering::Equal)
         })?;
 
     // Step 2: filter candidates to templates that target the
