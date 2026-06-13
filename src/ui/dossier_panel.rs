@@ -1921,11 +1921,11 @@ fn recommended_survey_action<'a>(
             .then_with(|| a.id.cmp(&b.id))
     });
 
-    candidates.first().map(|t| {
+    candidates.first().copied().map(|t| {
         (
             primary,
-            *t,
-            reason_for_tag(*t, state, primary, scientist_roster),
+            t,
+            reason_for_tag(t, state, primary, scientist_roster),
         )
     })
 }
