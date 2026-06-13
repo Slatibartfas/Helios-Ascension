@@ -37,6 +37,39 @@ pub struct ScientistSummary {
     pub seniority: SeniorityTier,
 }
 
+/// Why the recommender picked this template — surfaced in the
+/// dossier's RECOMMENDED NEXT STEP block. Closed grammar:
+/// modders cannot extend this enum (they would need a new Rust
+/// PR). The five variants form a 5-step priority — exactly one
+/// is selected per recommendation.
+///
+/// GRA-114: the priority surfaces the player's strategic choice
+/// first (specialist) and degrades to a generic tie-breaker last,
+/// matching the dossier player's mental model of "why this
+/// mission, now?".
+///
+/// Render the human-readable form via
+/// [`crate::ui::dossier_panel::reason_text`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReasonTag {
+    /// A scientist on the roster matches this template's method
+    /// and is at a seniority that contributes a non-zero roster
+    /// bonus. The player invested in the roster — name them.
+    SpecialistOnStation { specialty: ScientistSpecialty },
+    /// Primary dim is below `WARNING_CONFIDENCE`; the survey
+    /// rescues the dim's confidence out of the warning tier.
+    ConfidenceRescue,
+    /// Template covers multiple dimensions; one survey closes
+    /// multiple gaps at once.
+    CrossDim,
+    /// Closes the largest tier gap on the primary dimension.
+    TierGap { from_tier: u8, to_tier: u8 },
+    /// Fallback when no other reason applies (e.g. all other
+    /// factors zero — the template was picked purely by
+    /// tiebreaker).
+    BestFit,
+}
+
 /// Registry of discovery dimensions. Loaded from
 /// `assets/data/survey/dimensions.ron` (PR-B).
 ///

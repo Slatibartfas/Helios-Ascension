@@ -38,7 +38,7 @@ use crate::survey::components::{
     ActiveSurveyMission, ContinuousStationBonus, ContinuousSurveyStation, FailedMissionRecord,
     SurveyState,
 };
-use crate::survey::data::{ScientistSummary, SurveyMissionTemplate, SurveyMissionTemplates};
+use crate::survey::data::{ReasonTag, ScientistSummary, SurveyMissionTemplate, SurveyMissionTemplates};
 use crate::survey::events::{AbortSurveyMission, DismissFailedMission, DispatchSurveyMission};
 use crate::survey::types::{
     AnomalyState, MissionFailureReason, MissionStatus, SurveyDimension, MAX_TIER, STALE_CONFIDENCE,
@@ -1695,7 +1695,9 @@ fn draw_survey_section(
     // the personnel plugin). The dispatch picker in the Personnel
     // menu (not in this file) passes `Some(&on_station_roster)`.
     theme::section_h3(ui, "RECOMMENDED NEXT STEP");
-    if let Some((dim, recommended)) = recommended_survey_action(state, mission_templates, None) {
+    if let Some((dim, recommended, reason)) =
+        recommended_survey_action(state, mission_templates, None)
+    {
         let target_tier = recommended.target_tiers.get(&dim).copied().unwrap_or(1);
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("→").font(mono_font(11.0)).color(ACCENT));
@@ -1717,6 +1719,14 @@ fn draw_survey_section(
             ))
             .font(mono_font(9.0))
             .color(TEXT_DIM),
+        );
+        // GRA-114: second line — the reason the recommender
+        // picked this template. Fixed 5-step priority (specialist,
+        // confidence-rescue, cross-dim, tier-gap, best-fit).
+        ui.label(
+            egui::RichText::new(format!("Reason: {}", reason_text(&reason)))
+                .font(mono_font(9.0))
+                .color(TEXT_DIM),
         );
     } else {
         ui.colored_label(GREEN_ACCENT, "All dimensions adequately characterized.");
@@ -1836,11 +1846,17 @@ fn draw_confidence_bar(ui: &mut egui::Ui, confidence: f32) {
 /// 4. Return `None` if every dim is fully characterized, no
 ///    template covers an under-characterized dim, or the template
 ///    registry is empty.
+///
+/// GRA-114: the return widens to a 3-tuple — the third element is
+/// a [`ReasonTag`] the dossier surfaces as a one-line "Reason: …"
+/// explanation. The reason is picked by
+/// [`reason_for_tag`] in a fixed 5-step priority: specialist,
+/// confidence-rescue, cross-dim, tier-gap, best-fit.
 fn recommended_survey_action<'a>(
     state: &SurveyState,
     mission_templates: &'a SurveyMissionTemplates,
     scientist_roster: Option<&[ScientistSummary]>,
-) -> Option<(SurveyDimension, &'a SurveyMissionTemplate)> {
+) -> Option<(SurveyDimension, &'a SurveyMissionTemplate, ReasonTag)> {
     // Step 1: pick the primary dim. A warning-tier dim (confidence
     // below WARNING_CONFIDENCE) gets a synthetic -0.5 boost on its
     // sort key so it sorts ahead of a non-warning dim at the same
@@ -1903,7 +1919,7 @@ fn recommended_survey_action<'a>(
             .then_with(|| a.id.cmp(&b.id))
     });
 
-    candidates.first().map(|t| (primary, *t))
+    candidates.first().map(|t| (primary, *t, reason_for_tag(*t, state, primary, scientist_roster)))
 }
 
 /// GRA-112: weighted multi-factor scoring function.
@@ -1981,6 +1997,98 @@ fn score_template(
         + W_DUPS * cross_dim_bonus
         + W_COST * cost_penalty
         + W_ROSTER * roster_bonus
+}
+
+/// GRA-114: pick the single most-applicable [`ReasonTag`] for a
+/// recommended template. Fixed 5-step priority; the first match
+/// wins. The priority surfaces the player's strategic choice first
+/// (specialist) and degrades to a generic tie-breaker last:
+///
+/// 1. [`ReasonTag::SpecialistOnStation`] — a roster scientist's
+///    specialty matches the template's method AND contributes a
+///    non-zero roster bonus.
+/// 2. [`ReasonTag::ConfidenceRescue`] — the primary dim's confidence
+///    is below `WARNING_CONFIDENCE`.
+/// 3. [`ReasonTag::CrossDim`] — the template covers ≥2 dimensions.
+/// 4. [`ReasonTag::TierGap`] — closes a positive tier gap on the
+///    primary dim. Default for any tier-gap win.
+/// 5. [`ReasonTag::BestFit`] — fallback (no other reason applies).
+fn reason_for_tag(
+    template: &SurveyMissionTemplate,
+    state: &SurveyState,
+    primary: SurveyDimension,
+    scientist_roster: Option<&[ScientistSummary]>,
+) -> ReasonTag {
+    // Priority 1: specialist on station. Pick the first matching
+    // scientist (deterministic — the roster is a small slice, the
+    // player understands the first match is "their" pick).
+    if let Some(roster) = scientist_roster {
+        if let Some(s) = roster
+            .iter()
+            .find(|s| s.specialty.matches_method(template.method))
+        {
+            return ReasonTag::SpecialistOnStation {
+                specialty: s.specialty,
+            };
+        }
+    }
+
+    // Priority 2: confidence rescue. The primary dim is below
+    // WARNING_CONFIDENCE — this survey lifts it out of the warning
+    // tier.
+    let primary_conf = state.fidelity(primary).confidence;
+    if primary_conf < WARNING_CONFIDENCE {
+        return ReasonTag::ConfidenceRescue;
+    }
+
+    // Priority 3: cross-dim bonus. Template covers multiple
+    // dimensions; one survey closes multiple gaps.
+    if template.target_tiers.len() >= 2 {
+        return ReasonTag::CrossDim;
+    }
+
+    // Priority 4: tier gap. Default for any positive tier-gap win
+    // on the primary dim. If the gap is 0 (already at target tier
+    // somehow), still surface TierGap so the player sees the dim
+    // mapping rather than a generic "BestFit".
+    let from_tier = state.fidelity(primary).tier;
+    let to_tier = template
+        .target_tiers
+        .get(&primary)
+        .copied()
+        .unwrap_or(from_tier);
+    if to_tier > from_tier || to_tier > 0 {
+        return ReasonTag::TierGap {
+            from_tier,
+            to_tier,
+        };
+    }
+
+    // Priority 5: fallback. All other factors were zero or the
+    // template is a no-op on tier gap.
+    ReasonTag::BestFit
+}
+
+/// GRA-114: human-readable rendering of a [`ReasonTag`] for the
+/// dossier's RECOMMENDED NEXT STEP block. i18n-friendly in shape
+/// (a future PR can swap the `&'static str` table for a localization
+/// key lookup without changing the enum shape). English-only for
+/// v0.5.0.
+pub(crate) fn reason_text(tag: &ReasonTag) -> String {
+    match tag {
+        ReasonTag::SpecialistOnStation { specialty } => {
+            format!("Specialist on station ({})", specialty.display_name())
+        }
+        ReasonTag::ConfidenceRescue => {
+            "Rescues dim below confidence threshold".to_string()
+        }
+        ReasonTag::CrossDim => "Closes gaps on multiple dimensions at once".to_string(),
+        ReasonTag::TierGap {
+            from_tier,
+            to_tier,
+        } => format!("Closes largest gap (tier {from_tier}→{to_tier})"),
+        ReasonTag::BestFit => "Best available fit".to_string(),
+    }
 }
 
 // ─── Resource Grid ───────────────────────────────────────────────────────
@@ -3849,7 +3957,7 @@ mod tests {
         );
         let templates = test_templates(vec![template.clone()]);
         let result = recommended_survey_action(&state, &templates, None);
-        let (dim, recommended) = result.expect("single-template should recommend");
+        let (dim, recommended, _reason) = result.expect("single-template should recommend");
         assert_eq!(dim, SurveyDimension::OrbitalMech);
         assert_eq!(recommended.id, template.id);
         assert_eq!(recommended.target_tiers[&dim], 3);
@@ -3897,7 +4005,7 @@ mod tests {
             90,
         );
         let templates = test_templates(vec![a.clone(), b.clone()]);
-        let (dim, recommended) = recommended_survey_action(&state, &templates, None)
+        let (dim, recommended, _reason) = recommended_survey_action(&state, &templates, None)
             .expect("non-empty templates + non-fully-characterized body must recommend");
         // Primary dim is OrbitalMech (canonical-first on tier-0 tie).
         assert_eq!(dim, SurveyDimension::OrbitalMech);
@@ -3959,7 +4067,7 @@ mod tests {
             180,
         );
         let templates = test_templates(vec![a.clone(), b.clone()]);
-        let (dim, recommended) = recommended_survey_action(&state, &templates, None)
+        let (dim, recommended, _reason) = recommended_survey_action(&state, &templates, None)
             .expect("warning-tier dim with a target template must recommend");
         // Warning-tier dim gets boosted to primary; A targeting
         // OrbitalMech is filtered out, B targeting the
@@ -3999,7 +4107,7 @@ mod tests {
             730,
         );
         let templates = test_templates(vec![a.clone(), b.clone()]);
-        let (dim, recommended) = recommended_survey_action(&state, &templates, None)
+        let (dim, recommended, _reason) = recommended_survey_action(&state, &templates, None)
             .expect("non-empty templates + non-fully-characterized body must recommend");
         assert_eq!(dim, SurveyDimension::OrbitalMech);
         assert_eq!(
@@ -4033,7 +4141,7 @@ mod tests {
         let templates = test_templates(vec![a.clone(), b.clone()]);
 
         // No roster: A wins (cheaper cost).
-        let (dim_no, rec_no) = recommended_survey_action(&state, &templates, None)
+        let (dim_no, rec_no, _reason_no) = recommended_survey_action(&state, &templates, None)
             .expect("must recommend with no roster");
         assert_eq!(dim_no, SurveyDimension::OrbitalMech);
         assert_eq!(rec_no.id, "orbital_short");
@@ -4049,7 +4157,7 @@ mod tests {
             specialty: ScientistSpecialty::Geology,
             seniority: SeniorityTier::Principal,
         }];
-        let (dim_yes, rec_yes) = recommended_survey_action(&state, &templates, Some(&roster))
+        let (dim_yes, rec_yes, _reason_yes) = recommended_survey_action(&state, &templates, Some(&roster))
             .expect("must recommend with a roster");
         assert_eq!(dim_yes, SurveyDimension::OrbitalMech);
         assert_eq!(
@@ -4081,5 +4189,161 @@ mod tests {
             90,
         )]);
         assert!(recommended_survey_action(&state, &templates, None).is_none());
+    }
+
+    // ─── GRA-114 ReasonTag tests ────────────────────────────────
+    //
+    // 3 acceptance tests for the 3-tuple return + reason picker:
+    // 6. specialist_reason_wins
+    // 7. cross_dim_reason_wins_over_single_dim
+    // 8. confidence_rescue_reason_wins
+    //
+    // The 5-step priority is locked in by these three: a test
+    // that fails for a wrong priority surfaces which variant
+    // should have won.
+
+    #[test]
+    fn specialist_reason_wins() {
+        // GRA-114 acceptance Test 6. Roster has a principal
+        // PlanetaryScience scientist; template B is a Flyby
+        // (PlanetaryScience matches Flyby in
+        // `matches_method`). The specialist match lifts B
+        // above A on the score (W_ROSTER * 1.5 * 2.0 = 1.5
+        // outweighs the +1 tier-gap differential on A).
+        //
+        // Template A is a Drill — PlanetaryScience does NOT
+        // match Drill, so A's roster_bonus = 0 and the
+        // specialist tag is unique to B.
+        //
+        // Note: the LGD brief's verbatim example had a much
+        // larger tier gap on the non-specialist template (4),
+        // but at gap 4 the tier_gap term dominates the
+        // specialist bonus and the test no longer
+        // discriminates the *reason picker*. The point of
+        // this test is the ReasonTag priority, not the score
+        // ranking — a 1-gap-differential setup is enough to
+        // exercise both.
+        let state = SurveyState::default();
+        let a = test_template(
+            "big_gap",
+            SurveyMethod::Drill,
+            vec![(SurveyDimension::OrbitalMech, 2)],
+            90,
+        );
+        let b = test_template(
+            "specialist_match",
+            SurveyMethod::Flyby,
+            vec![(SurveyDimension::OrbitalMech, 1)],
+            90,
+        );
+        let templates = test_templates(vec![a.clone(), b.clone()]);
+        let roster = vec![ScientistSummary {
+            id: 42,
+            specialty: ScientistSpecialty::PlanetaryScience,
+            seniority: SeniorityTier::Principal,
+        }];
+        let (_dim, recommended, reason) =
+            recommended_survey_action(&state, &templates, Some(&roster))
+                .expect("non-empty templates + non-fully-characterized body must recommend");
+        // Specialist tag wins on priority 1; tier_gap (priority
+        // 4) is skipped.
+        assert_eq!(
+            recommended.id, "specialist_match",
+            "specialist match must win on the roster bonus, not the bigger gap"
+        );
+        assert_eq!(
+            reason,
+            ReasonTag::SpecialistOnStation {
+                specialty: ScientistSpecialty::PlanetaryScience
+            },
+            "reason must surface the specialist, not the tier gap"
+        );
+    }
+
+    #[test]
+    fn cross_dim_reason_wins_over_single_dim() {
+        // GRA-114 acceptance Test 7. Template A covers 1 dim
+        // at tier gap 2; template B covers 2 dims at tier gap
+        // 1 each. B wins (W_DUPS = 0.25 per dim beyond the
+        // first). Reason is CrossDim (priority 3), not
+        // TierGap (priority 4) or ConfidenceRescue
+        // (priority 2).
+        //
+        // Setup: all dims at tier 0 with HEALTHY confidence
+        // (0.5) so that:
+        //   * Primary dim is OrbitalMech (canonical-first on
+        //     tier-0 tiebreak; no warning boost applies
+        //     because no dim is below WARNING_CONFIDENCE).
+        //   * Priority 2 (ConfidenceRescue) does not fire.
+        //   * CrossDim priority 3 fires for B (≥2 dims).
+        let mut state = SurveyState::default();
+        for dim in SurveyDimension::ALL {
+            set_dim(&mut state, dim, 0, 0.5);
+        }
+        let a = test_template(
+            "single_dim_big_gap",
+            SurveyMethod::Orbital,
+            vec![(SurveyDimension::OrbitalMech, 2)],
+            90,
+        );
+        let b = test_template(
+            "multi_dim_smaller_gap",
+            SurveyMethod::Orbital,
+            vec![
+                (SurveyDimension::OrbitalMech, 1),
+                (SurveyDimension::SurfaceFeatures, 1),
+            ],
+            90,
+        );
+        let templates = test_templates(vec![a.clone(), b.clone()]);
+        let (_dim, recommended, reason) = recommended_survey_action(&state, &templates, None)
+            .expect("non-empty templates + non-fully-characterized body must recommend");
+        assert_eq!(
+            recommended.id, "multi_dim_smaller_gap",
+            "multi-dim template must win per cross-dim scoring"
+        );
+        assert_eq!(
+            reason,
+            ReasonTag::CrossDim,
+            "reason must surface the cross-dim win, not the tier gap or confidence rescue"
+        );
+    }
+
+    #[test]
+    fn confidence_rescue_reason_wins() {
+        // GRA-114 acceptance Test 8. Primary dim (OrbitalMech)
+        // is at confidence 0.2 (below WARNING_CONFIDENCE = 0.3);
+        // template covers 1 dim at tier gap 0 (no tier gain).
+        // The confidence-deficit term in the score still
+        // lifts the template above the alternatives (no
+        // templates in the registry → only one option, but
+        // its score is non-zero thanks to W_CONF * 1). Reason
+        // is ConfidenceRescue (priority 2), not BestFit
+        // (priority 5) — the confidence-deficit boost is the
+        // dominant why.
+        let mut state = SurveyState::default();
+        for dim in SurveyDimension::ALL {
+            let conf = if dim == SurveyDimension::OrbitalMech {
+                0.2
+            } else {
+                0.5
+            };
+            set_dim(&mut state, dim, 0, conf);
+        }
+        let template = test_template(
+            "tier0_no_gain",
+            SurveyMethod::Orbital,
+            vec![(SurveyDimension::OrbitalMech, 0)],
+            90,
+        );
+        let templates = test_templates(vec![template]);
+        let (_dim, _recommended, reason) =
+            recommended_survey_action(&state, &templates, None)
+                .expect("non-empty templates + non-fully-characterized body must recommend");
+        assert_eq!(
+            reason,
+            ReasonTag::ConfidenceRescue,
+            "warning-tier primary dim must surface as ConfidenceRescue, not BestFit"
+        );
     }
 }

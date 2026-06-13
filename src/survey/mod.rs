@@ -32,7 +32,7 @@ pub use components::{
 };
 pub use data::{
     load_mission_templates, load_recovery_missions, AnalysisQueueIndex, MiningEfficiencyRegistry,
-    MiningEfficiencyRow, ModderAnomalyDef, ModderDimensionDef, RecoveryMission,
+    MiningEfficiencyRow, ModderAnomalyDef, ModderDimensionDef, ReasonTag, RecoveryMission,
     RecoveryMissionKind, RecoveryMissionRegistry, ScientistSummary, SurveyAnomalyRegistry,
     SurveyDimensionRegistry, SurveyInstrumentDef, SurveyInstrumentRegistry, SurveyMissionTemplate,
     SurveyMissionTemplates, SurveyMissionTemplatesFile,
