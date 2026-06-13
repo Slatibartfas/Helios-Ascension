@@ -24,7 +24,6 @@
 //! No regressions to the existing `survey::` test suite (the tests
 //! here only add coverage; nothing in the existing tests changes).
 
-use bevy::prelude::*;
 use helios_ascension::economy::components::{
     MineralDeposit, PlanetResources, ResourceReserve, SurveyLevel,
 };
