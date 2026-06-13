@@ -603,6 +603,17 @@ fn finalize_mission(
                 duration_days * mission.per_axis_progress.len() as f64 * DATA_PER_AXIS_DAY_MB;
             award_scientist_xp(world, mission, data_mb);
 
+            // GRA-111: a successful drill mission opens the T3
+            // (Planetary Bulk) gate in the dossier's 3-tier reveal
+            // matrix. We bump the counter on the body before firing
+            // the completion event so the dossier sees the new count
+            // by the time it next renders.
+            if mission.method == SurveyMethod::Drill {
+                if let Some(mut state) = world.get_mut::<SurveyState>(body_entity) {
+                    state.record_drill_mission_completed();
+                }
+            }
+
             // Fire the completion event.
             world.write_message(SurveyEvent::MissionCompleted {
                 body: body_entity,
