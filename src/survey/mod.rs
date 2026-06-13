@@ -37,12 +37,16 @@ pub use data::{
     SurveyDimensionRegistry, SurveyInstrumentDef, SurveyInstrumentRegistry, SurveyMissionTemplate,
     SurveyMissionTemplates, SurveyMissionTemplatesFile,
 };
-pub use events::{AbortSurveyMission, DismissFailedMission, DispatchSurveyMission, SurveyEvent};
+pub use events::{
+    AbortSurveyMission, DismissFailedMission, DismissSurveyMission, DispatchSurveyMission,
+    SurveyEvent,
+};
 pub use systems::{
     abort_survey_mission, advance_survey_missions, apply_continuous_station_bonus,
-    decay_survey_confidence, dismiss_failed_mission, dispatch_survey_mission,
-    evaluate_landing_sites, process_analysis_queue, surface_anomaly_events, update_survey_summary,
-    SimulationTime, INJURY_DURATION_DAYS,
+    decay_survey_confidence, dismiss_failed_mission, dismiss_survey_mission,
+    dispatch_survey_mission, evaluate_landing_sites, process_analysis_queue,
+    surface_anomaly_events, update_survey_summary, SimulationTime, ARCHIVE_LINGER_DAYS,
+    INJURY_DURATION_DAYS,
 };
 pub use types::{
     axis_advance_rate_for_tier, mining_yield_delta_for_tier, AnomalyType, FailureKind, FailureMode,
@@ -76,6 +80,11 @@ impl Plugin for SurveyPlugin {
             .add_message::<DispatchSurveyMission>()
             .add_message::<AbortSurveyMission>()
             .add_message::<DismissFailedMission>()
+            // PR-F (GRA-117): player-driven archive of completed
+            // missions from the dossier ACTIVE MISSIONS list. The
+            // tick system's archive pass also handles time-based
+            // pruning for any mission the player has ignored.
+            .add_message::<DismissSurveyMission>()
             // Resources — default-initialized empty registries.
             // The RON loaders land in a follow-up PR; until then
             // the app starts with the hardcoded defaults from the
@@ -109,6 +118,7 @@ impl Plugin for SurveyPlugin {
                     dispatch_survey_mission,
                     abort_survey_mission,
                     dismiss_failed_mission,
+                    dismiss_survey_mission,
                     decay_survey_confidence,
                     advance_survey_missions,
                     process_analysis_queue,

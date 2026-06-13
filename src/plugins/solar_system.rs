@@ -919,7 +919,23 @@ pub fn setup_solar_system(
 
         // Initialize Earth as a colony
         if body_data.name == "Earth" {
-            entity_commands.insert(SurveyLevel::CoreSample);
+            // PR-F (GRA-117): Earth keeps a `SurveyLevel` for
+            // backward compatibility (legacy code paths still
+            // look at the enum), but the canonical state is the
+            // `SurveyState` inserted below — and it deliberately
+            // does NOT map to `CoreSample`. The homeworld is
+            // well-surveyed in 2026, but it is not 100% explored
+            // (no full mantle drilling, no full ocean floor
+            // mapping, etc.), and the v0.5.0 dossier wants
+            // "Recommended next step" prompts to drive gameplay.
+            // The tier-4 / tier-3 starter matches the real-world
+            // record; the player can advance it with missions.
+            entity_commands.insert(SurveyLevel::SeismicSurvey);
+            // SurveyState is seeded further down by the
+            // per-body helper (`for_named_solar_system_body`),
+            // which gives Earth a tier-4 baseline and 0 drill
+            // missions — the T3 (Planetary Bulk) gate stays
+            // locked until the player actually drills.
 
             // Earth is a Civilisation-tier homeworld (× 1.00 yield).  Founding
             // a colony (i.e. `Colony::new()`) defaults to the Outpost tier
@@ -988,6 +1004,42 @@ pub fn setup_solar_system(
 
             entity_commands.insert(colony);
             info!("Established Earth colony with 8.2B population");
+        }
+
+        // PR-F (GRA-117): every solar-system body gets a baseline
+        // `SurveyState` at game start so the dossier SURVEY ledger
+        // is visible from the moment the player selects a planet.
+        //
+        // Bodies in this spawn system are exclusively loaded from
+        // `assets/data/solar_system.ron` (the Sol catalogue).
+        // Procedurally-generated bodies in other star systems are
+        // spawned by `system_populator` and never go through this
+        // path — they remain unsurveyed until the player dispatches
+        // a survey mission, at which point the dispatch handler
+        // inserts a fresh `SurveyState` (see
+        // `dispatch_survey_mission` in `survey::systems`).
+        //
+        // The per-body tier map reflects the real 2026 record:
+        // - Stars: no `SurveyState` (the dossier's star-properties
+        //   section is the authoritative read-out).
+        // - Earth: tier-4 on well-explored dims, tier-3 on
+        //   subsurface/anomalies, drill_missions_completed = 0
+        //   so the T3 (Planetary Bulk) gate is still locked.
+        // - Moon, Mars, Mercury, Venus, Titan, Ceres, Vesta:
+        //   tier-5 on the dimensions the actual missions covered.
+        // - Pluto, Charon, Triton, Galilean moons, Titan-class
+        //   moons: tier-3/2 on the dimensions a flyby mapped.
+        // - Phobos, Deimos, outer-planet minor moons, asteroids,
+        //   comets: tier-1 ("telescope spotted") floor.
+        // - Anything else in the RON catalogue (KBOs, dwarf
+        //   planets past Pluto): tier-1 floor.
+        if let Some(state) = crate::survey::components::SurveyState::for_named_solar_system_body(
+            &body_data.name,
+            body_data.body_type,
+            body_data.atmosphere.is_some(),
+            sim_time.elapsed_seconds(),
+        ) {
+            entity_commands.insert(state);
         }
 
         // Add type-specific component

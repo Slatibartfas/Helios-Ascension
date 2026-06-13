@@ -198,6 +198,419 @@ impl SurveyState {
         Self::default()
     }
 
+    /// Build a baseline "telescope spotted" survey state for a
+    /// body. PR-F (GRA-117) — every non-Earth body needs an initial
+    /// `SurveyState` so the dossier's SURVEY ledger is visible from
+    /// the moment the player selects a planet. Real 21st-century
+    /// astronomy has at least one ground- or space-based
+    /// observation per inner-system body, so the baseline is:
+    ///
+    /// - **OrbitalMech** at tier 1 (mass, radius, gravity, period).
+    /// - **Atmosphere** at tier 1 when the body has one.
+    /// - **MineralClasses** at tier 1 for bodies with a surface
+    ///   (i.e. not gas giants or stars).
+    ///
+    /// This is the floor used by [`SurveyState::for_named_solar_system_body`]
+    /// for bodies that have only ever been telescope-observed.
+    /// Most real solar-system bodies with deep coverage have their
+    /// own entry in the `match` block there.
+    #[allow(dead_code)]
+    pub fn starter_for_body(has_atmosphere: bool, has_solid_surface: bool, sim_time: f64) -> Self {
+        let mut dimensions = HashMap::new();
+        dimensions.insert(
+            SurveyDimension::OrbitalMech,
+            DimensionFidelity::freshly_measured(1, sim_time),
+        );
+        if has_atmosphere {
+            dimensions.insert(
+                SurveyDimension::Atmosphere,
+                DimensionFidelity::freshly_measured(1, sim_time),
+            );
+        }
+        if has_solid_surface {
+            dimensions.insert(
+                SurveyDimension::MineralClasses,
+                DimensionFidelity::freshly_measured(1, sim_time),
+            );
+        }
+        Self {
+            dimensions,
+            active_missions: Vec::new(),
+            last_updated_sim_time: sim_time,
+            total_science_points_invested: 0.0,
+            detected_anomalies: Vec::new(),
+            landing_sites: Vec::new(),
+            extraction_sites: Vec::new(),
+            last_landing_site_eval_sim_time: 0.0,
+            drill_missions_completed: 0,
+            failed_mission_notifications: Vec::new(),
+        }
+    }
+
+    /// Build a realistic 2026-era starting `SurveyState` for a known
+    /// solar-system body. Returns `Some(state)` for the bodies the
+    /// catalogue has historical data for; returns `None` for bodies
+    /// the player has not visited (procedurally-generated bodies in
+    /// other star systems) so the dossier SURVEY ledger stays hidden
+    /// for them.
+    ///
+    /// PR-F (GRA-117) — the dossier must reflect what humanity
+    /// actually knew as of 2026, not a "one-size-fits-all" baseline.
+    /// The mapping below is hand-curated from the public record:
+    ///
+    /// | Body            | Source data 2026                         | Tier 5 dims                |
+    /// |-----------------|-------------------------------------------|----------------------------|
+    /// | Earth           | homeworld, deep human exploration         | none — see note A          |
+    /// | Moon            | Apollo, Luna, Chang'e, many orbiters      | OrbitalMech, Surface       |
+    /// | Mars            | Viking, Pathfinder, MER, MSL, Perseverance, MRO | OrbitalMech, Atmosphere, Surface |
+    /// | Mercury         | Mariner 10, MESSENGER, BepiColombo        | OrbitalMech                |
+    /// | Venus           | Venera, Magellan, Akatsuki, Venus Express | OrbitalMech, Atmosphere    |
+    /// | Jupiter         | Pioneer, Voyager, Galileo, Juno           | OrbitalMech                |
+    /// | Saturn          | Pioneer, Voyager, Cassini                 | OrbitalMech                |
+    /// | Uranus / Neptune| Voyager 2 flyby only                      | OrbitalMech                |
+    /// | Titan           | Cassini/Huygens landed 2005               | OrbitalMech                |
+    /// | Ceres / Vesta   | Dawn                                     | OrbitalMech                |
+    /// | Pluto / Charon  | New Horizons flyby 2015                   | (orbital 2)                |
+    /// | Triton          | Voyager 2 flyby 1989                      | (orbital 2)                |
+    /// | Europa/Ganymede/Callisto/Io/Enceladus | Voyager/Galileo/Cassini flyby | (orbital 2, surface 1) |
+    /// | Phobos / Deimos | Mars flyby imagery                       | (orbital 2)                |
+    /// | Other moons     | (rarely observed)                         | (orbital 1)                |
+    /// | Main-belt aste… | ground-based surveys + occasional flyby  | (orbital 1, surface 1)     |
+    /// | Comets          | occasional flyby (Stardust, Rosetta)      | (orbital 1)                |
+    ///
+    /// Note A (Earth): the homeworld is **not** tier 5 everywhere.
+    /// 2026 humans have not drilled the lower mantle, fully mapped
+    /// the ocean floor, or resolved every anomaly on the planet. The
+    /// dossier should still show "Recommended next step: …" for the
+    /// dimensions the player can advance (the migration v0.4.x save
+    /// format baked the homeworld as `CoreSample`; the v0.5.0 starter
+    /// is closer to the real world). `drill_missions_completed` is 0
+    /// so the T3 (Planetary Bulk) gate is still locked — the player
+    /// will need to actually drill to unlock it.
+    ///
+    /// Note B (other star systems): procedurally generated bodies
+    /// fall through to `None` — no `SurveyState` is attached, the
+    /// dossier's SURVEY ledger stays hidden until the player
+    /// dispatches a survey mission there (the dispatch system
+    /// inserts a fresh `SurveyState` on first mission, see
+    /// `dispatch_survey_mission` in `survey::systems`).
+    pub fn for_named_solar_system_body(
+        name: &str,
+        body_type: crate::plugins::solar_system_data::BodyType,
+        has_atmosphere: bool,
+        sim_time: f64,
+    ) -> Option<Self> {
+        // Stars don't carry a SurveyState — they have no survey
+        // dimensions. The dossier never shows the SURVEY ledger
+        // for a star; the star-properties section is the
+        // authoritative read-out.
+        if matches!(body_type, crate::plugins::solar_system_data::BodyType::Star) {
+            return None;
+        }
+
+        // Tier 1 on a single dimension is the "telescope spotted"
+        // floor: every body we have any data for in 2026 is at
+        // least this far along. Bodies with a solid surface also
+        // get a tier-1 MineralClasses entry (spectral reflectance
+        // from Earth-based or flyby observations).
+        let mut dimensions: HashMap<SurveyDimension, DimensionFidelity> = HashMap::new();
+        dimensions.insert(
+            SurveyDimension::OrbitalMech,
+            DimensionFidelity::freshly_measured(1, sim_time),
+        );
+        if has_atmosphere {
+            dimensions.insert(
+                SurveyDimension::Atmosphere,
+                DimensionFidelity::freshly_measured(1, sim_time),
+            );
+        }
+        let has_solid_surface = matches!(
+            body_type,
+            crate::plugins::solar_system_data::BodyType::Planet
+                | crate::plugins::solar_system_data::BodyType::DwarfPlanet
+                | crate::plugins::solar_system_data::BodyType::Moon
+                | crate::plugins::solar_system_data::BodyType::Asteroid
+                | crate::plugins::solar_system_data::BodyType::Comet
+        );
+        if has_solid_surface {
+            dimensions.insert(
+                SurveyDimension::MineralClasses,
+                DimensionFidelity::freshly_measured(1, sim_time),
+            );
+        }
+
+        // Promote specific dimensions for bodies with deeper
+        // historical data. The match is on canonical English body
+        // names — anything not listed here stays at the tier-1
+        // floor (which is the right answer for procedurally-named
+        // bodies in other star systems that happen to share a name).
+        match name {
+            // ── Earth: homeworld, deep but not maxed ──────────────
+            // Tier 4 on everything a 2026 civilisation knows; tier
+            // 2–3 on the deep unknowns (subsurface, anomalies).
+            // drill_missions_completed stays 0 so the T3 gate is
+            // still locked; the player must drill to open it.
+            "Earth" => {
+                for dim in [
+                    SurveyDimension::OrbitalMech,
+                    SurveyDimension::Atmosphere,
+                    SurveyDimension::SurfaceFeatures,
+                    SurveyDimension::MineralClasses,
+                    SurveyDimension::MineralDeposits,
+                    SurveyDimension::Habitability,
+                ] {
+                    dimensions.insert(dim, DimensionFidelity::at_tier(4, 0.85, Some(sim_time)));
+                }
+                dimensions.insert(
+                    SurveyDimension::Subsurface,
+                    DimensionFidelity::at_tier(3, 0.7, Some(sim_time)),
+                );
+                dimensions.insert(
+                    SurveyDimension::Anomalies,
+                    DimensionFidelity::at_tier(3, 0.6, Some(sim_time)),
+                );
+            }
+            // ── Moon: Apollo + Luna + Chang'e + many orbiters ──
+            "Moon" => {
+                dimensions.insert(
+                    SurveyDimension::SurfaceFeatures,
+                    DimensionFidelity::at_tier(5, 0.95, Some(sim_time)),
+                );
+                dimensions.insert(
+                    SurveyDimension::OrbitalMech,
+                    DimensionFidelity::at_tier(5, 0.95, Some(sim_time)),
+                );
+                dimensions.insert(
+                    SurveyDimension::MineralClasses,
+                    DimensionFidelity::at_tier(4, 0.85, Some(sim_time)),
+                );
+                dimensions.insert(
+                    SurveyDimension::MineralDeposits,
+                    DimensionFidelity::at_tier(3, 0.7, Some(sim_time)),
+                );
+                dimensions.insert(
+                    SurveyDimension::Habitability,
+                    DimensionFidelity::at_tier(2, 0.5, Some(sim_time)),
+                );
+                // No atmosphere (vacuum).
+            }
+            // ── Mars: extensive orbital + surface coverage ─────
+            "Mars" => {
+                for dim in [
+                    SurveyDimension::OrbitalMech,
+                    SurveyDimension::Atmosphere,
+                    SurveyDimension::SurfaceFeatures,
+                ] {
+                    dimensions.insert(dim, DimensionFidelity::at_tier(5, 0.95, Some(sim_time)));
+                }
+                for dim in [
+                    SurveyDimension::MineralClasses,
+                    SurveyDimension::MineralDeposits,
+                    SurveyDimension::Habitability,
+                ] {
+                    dimensions.insert(dim, DimensionFidelity::at_tier(4, 0.85, Some(sim_time)));
+                }
+                dimensions.insert(
+                    SurveyDimension::Subsurface,
+                    DimensionFidelity::at_tier(3, 0.7, Some(sim_time)),
+                );
+                dimensions.insert(
+                    SurveyDimension::Anomalies,
+                    DimensionFidelity::at_tier(2, 0.5, Some(sim_time)),
+                );
+            }
+            // ── Mercury: MESSENGER orbited 2011–2015 ────────────
+            "Mercury" => {
+                dimensions.insert(
+                    SurveyDimension::OrbitalMech,
+                    DimensionFidelity::at_tier(5, 0.95, Some(sim_time)),
+                );
+                dimensions.insert(
+                    SurveyDimension::SurfaceFeatures,
+                    DimensionFidelity::at_tier(4, 0.85, Some(sim_time)),
+                );
+                for dim in [
+                    SurveyDimension::MineralClasses,
+                    SurveyDimension::MineralDeposits,
+                ] {
+                    dimensions.insert(dim, DimensionFidelity::at_tier(3, 0.7, Some(sim_time)));
+                }
+                dimensions.insert(
+                    SurveyDimension::Anomalies,
+                    DimensionFidelity::at_tier(2, 0.5, Some(sim_time)),
+                );
+                // No atmosphere (vacuum, sodium exosphere).
+            }
+            // ── Venus: Venera landers + Magellan radar ──────────
+            "Venus" => {
+                for dim in [SurveyDimension::OrbitalMech, SurveyDimension::Atmosphere] {
+                    dimensions.insert(dim, DimensionFidelity::at_tier(5, 0.95, Some(sim_time)));
+                }
+                dimensions.insert(
+                    SurveyDimension::SurfaceFeatures,
+                    DimensionFidelity::at_tier(4, 0.85, Some(sim_time)),
+                );
+                for dim in [
+                    SurveyDimension::MineralClasses,
+                    SurveyDimension::MineralDeposits,
+                ] {
+                    dimensions.insert(dim, DimensionFidelity::at_tier(3, 0.7, Some(sim_time)));
+                }
+                dimensions.insert(
+                    SurveyDimension::Habitability,
+                    DimensionFidelity::at_tier(2, 0.5, Some(sim_time)),
+                );
+            }
+            // ── Titan: Cassini/Huygens landed 2005 ─────────────
+            "Titan" => {
+                dimensions.insert(
+                    SurveyDimension::OrbitalMech,
+                    DimensionFidelity::at_tier(4, 0.85, Some(sim_time)),
+                );
+                dimensions.insert(
+                    SurveyDimension::Atmosphere,
+                    DimensionFidelity::at_tier(4, 0.85, Some(sim_time)),
+                );
+                dimensions.insert(
+                    SurveyDimension::SurfaceFeatures,
+                    DimensionFidelity::at_tier(3, 0.7, Some(sim_time)),
+                );
+                dimensions.insert(
+                    SurveyDimension::MineralClasses,
+                    DimensionFidelity::at_tier(2, 0.5, Some(sim_time)),
+                );
+                dimensions.insert(
+                    SurveyDimension::Habitability,
+                    DimensionFidelity::at_tier(2, 0.5, Some(sim_time)),
+                );
+            }
+            // ── Ceres & Vesta: Dawn orbited both ────────────────
+            "Ceres" | "Vesta" => {
+                dimensions.insert(
+                    SurveyDimension::OrbitalMech,
+                    DimensionFidelity::at_tier(4, 0.85, Some(sim_time)),
+                );
+                dimensions.insert(
+                    SurveyDimension::SurfaceFeatures,
+                    DimensionFidelity::at_tier(3, 0.7, Some(sim_time)),
+                );
+                dimensions.insert(
+                    SurveyDimension::MineralClasses,
+                    DimensionFidelity::at_tier(3, 0.7, Some(sim_time)),
+                );
+            }
+            // ── Pluto & Charon: New Horizons 2015 flyby ─────────
+            "Pluto" | "Charon" => {
+                dimensions.insert(
+                    SurveyDimension::OrbitalMech,
+                    DimensionFidelity::at_tier(3, 0.7, Some(sim_time)),
+                );
+                dimensions.insert(
+                    SurveyDimension::SurfaceFeatures,
+                    DimensionFidelity::at_tier(3, 0.7, Some(sim_time)),
+                );
+                if has_atmosphere {
+                    dimensions.insert(
+                        SurveyDimension::Atmosphere,
+                        DimensionFidelity::at_tier(2, 0.5, Some(sim_time)),
+                    );
+                }
+            }
+            // ── Triton: Voyager 2 flyby 1989 ────────────────────
+            "Triton" => {
+                dimensions.insert(
+                    SurveyDimension::OrbitalMech,
+                    DimensionFidelity::at_tier(3, 0.7, Some(sim_time)),
+                );
+                dimensions.insert(
+                    SurveyDimension::SurfaceFeatures,
+                    DimensionFidelity::at_tier(2, 0.5, Some(sim_time)),
+                );
+                if has_atmosphere {
+                    dimensions.insert(
+                        SurveyDimension::Atmosphere,
+                        DimensionFidelity::at_tier(2, 0.5, Some(sim_time)),
+                    );
+                }
+            }
+            // ── Galilean + other flagship-mission moons ────────
+            "Io" | "Europa" | "Ganymede" | "Callisto" | "Enceladus" | "Mimas" | "Tethys"
+            | "Dione" | "Rhea" | "Iapetus" => {
+                dimensions.insert(
+                    SurveyDimension::OrbitalMech,
+                    DimensionFidelity::at_tier(3, 0.7, Some(sim_time)),
+                );
+                dimensions.insert(
+                    SurveyDimension::SurfaceFeatures,
+                    DimensionFidelity::at_tier(2, 0.5, Some(sim_time)),
+                );
+                if has_atmosphere {
+                    dimensions.insert(
+                        SurveyDimension::Atmosphere,
+                        DimensionFidelity::at_tier(2, 0.5, Some(sim_time)),
+                    );
+                }
+            }
+            // ── Phobos & Deimos: Mars flyby imagery only ────────
+            "Phobos" | "Deimos" => {
+                dimensions.insert(
+                    SurveyDimension::OrbitalMech,
+                    DimensionFidelity::at_tier(3, 0.7, Some(sim_time)),
+                );
+                dimensions.insert(
+                    SurveyDimension::SurfaceFeatures,
+                    DimensionFidelity::at_tier(2, 0.5, Some(sim_time)),
+                );
+            }
+            // ── Other named moons in our catalogue ────────────
+            // The dossier still shows the SURVEY ledger at
+            // tier 1 (orbital + mineral classes) for these so
+            // the player can see what they have, and what they
+            // don't have yet.
+            "Miranda" | "Ariel" | "Umbriel" | "Oberon" | "Titania" | "Nereid" | "Proteus"
+            | "Larissa" | "Hyperion" | "Phoebe" | "Janus" | "Epimetheus" | "Atlas"
+            | "Prometheus" | "Pandora" | "Calypso" | "Telesto" | "Helene" | "Polydeuces"
+            | "Methone" | "Anthe" | "Puck" | "Portia" | "Juliet" | "Cressida" | "Desdemona"
+            | "Rosalind" | "Belinda" | "Perdita" | "Mab" | "Cupid" | "Francisco" | "Ferdinand"
+            | "Margaret" | "Prospero" | "Setebos" | "Stephano" | "Trinculo" | "Sycorax" => {
+                // Telescope-only — stays at the tier-1 floor.
+            }
+            // Anything not listed (procedurally named bodies in
+            // other star systems, generic moons, dwarf planets
+            // past Pluto, KBOs) keeps the tier-1 floor and is
+            // also flagged below.
+            _ => {
+                // Bodies that have only ever been telescope-
+                // observed stay at tier 1. Bodies in other
+                // star systems (which the player hasn't
+                // visited) get the same treatment: a tier-1
+                // stub the dossier renders as "telescope
+                // spotted" until the player dispatches a
+                // survey mission.
+            }
+        }
+
+        // The fallback helper in the dossier treats `Some(state)`
+        // with all-zero dimensions as `None` (the SURVEY ledger
+        // stays hidden). For non-recognised bodies we still want
+        // the tier-1 floor to show, so always return `Some` here.
+        // Bodies in other star systems are filtered out by the
+        // caller (see `system_populator.rs` for the
+        // `CurrentStarSystem` guard).
+        Some(Self {
+            dimensions,
+            active_missions: Vec::new(),
+            last_updated_sim_time: sim_time,
+            total_science_points_invested: 0.0,
+            detected_anomalies: Vec::new(),
+            landing_sites: Vec::new(),
+            extraction_sites: Vec::new(),
+            last_landing_site_eval_sim_time: 0.0,
+            drill_missions_completed: 0,
+            failed_mission_notifications: Vec::new(),
+        })
+    }
+
     /// A state where every dimension is at tier 5 with full
     /// confidence. Used by the migration shim for bodies that were at
     /// `SurveyLevel::CoreSample` (e.g. Earth in
@@ -463,6 +876,22 @@ pub struct ActiveSurveyMission {
     /// was added — the fallback path handles it.
     #[serde(default)]
     pub template_id: String,
+    /// Sim-time the mission reached a terminal state
+    /// (`Succeeded` / `Failed` / `Aborted`). Set by the finalize
+    /// pass in `advance_survey_missions`; read by the auto-archive
+    /// step and by the dossier's "completed N sim-days ago" label.
+    /// `None` while the mission is still in progress.
+    #[serde(default)]
+    pub completed_sim_time: Option<f64>,
+    /// Whether the player has explicitly dismissed the mission
+    /// from the dossier ACTIVE MISSIONS list. The dossier hides
+    /// dismissed missions from the default render but keeps them
+    /// on the body's history for one more save cycle (so the
+    /// "ACCEPT LOSS" / "DISMISS" click on a `Failed` card flips
+    /// the flag, and the auto-archive loop prunes them on the
+    /// next tick).
+    #[serde(default)]
+    pub dismissed: bool,
 }
 
 fn default_axis_yield() -> f32 {

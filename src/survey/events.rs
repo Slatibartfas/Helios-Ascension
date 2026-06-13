@@ -189,3 +189,24 @@ pub struct DismissFailedMission {
     /// [`FailedMissionRecord::mission_id`](crate::survey::components::FailedMissionRecord::mission_id).
     pub mission_id: u64,
 }
+
+/// Dismiss a completed mission from the dossier ACTIVE MISSIONS
+/// list. PR-F (GRA-117) — terminal missions (Succeeded / Failed
+/// recovery paths) linger in `active_missions` for a few sim-days
+/// so the player can read the result and decide what to do next.
+/// Hitting "DISMISS" hides the mission immediately; the next
+/// auto-archive sweep also removes any mission that has been
+/// terminal for more than [`ARCHIVE_LINGER_DAYS`](crate::survey::systems::ARCHIVE_LINGER_DAYS).
+///
+/// The handler sets `mission.dismissed = true` and the dossier
+/// filters dismissed missions out of the default render. The
+/// mission is physically removed on the next archive sweep (a
+/// "soft delete" — keeps the data on disk through the rest of the
+/// current Update tick in case another system reads it).
+#[derive(Message, Debug, Clone)]
+pub struct DismissSurveyMission {
+    pub body: Entity,
+    /// Matches
+    /// [`ActiveSurveyMission::id`](crate::survey::components::ActiveSurveyMission::id).
+    pub mission_id: u64,
+}

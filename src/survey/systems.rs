@@ -32,13 +32,17 @@ use super::components::{
 use super::data::{
     RecoveryMission, RecoveryMissionRegistry, SurveyAnomalyRegistry, SurveyMissionTemplate,
 };
-use super::events::{AbortSurveyMission, DismissFailedMission, DispatchSurveyMission, SurveyEvent};
+use super::events::{
+    AbortSurveyMission, DismissFailedMission, DismissSurveyMission, DispatchSurveyMission,
+    SurveyEvent,
+};
 use super::types::{
     axis_advance_rate_for_tier, mining_yield_delta_for_tier, AnomalyType, FailureKind, FailureMode,
     MissionFailureReason, MissionStatus, SurveyDimension, SurveyMethod, MAX_TIER,
     SURVEY_DAYS_PER_YEAR,
 };
 use crate::colony::types::BuildingType;
+use crate::economy::components::SurveyLevel;
 use crate::personnel::components::Scientist;
 use crate::plugins::solar_system::{Asteroid, CelestialBody, GasGiant};
 
@@ -53,6 +57,13 @@ pub const INJURY_DURATION_DAYS: f64 = 90.0;
 /// via `personnel_promotion.ron` (PR-C).
 const DATA_PER_AXIS_DAY_MB: f64 = 50.0;
 
+/// PR-F (GRA-117): linger window in sim-days for terminal
+/// missions on the body's `active_missions` list. The dossier
+/// keeps the result visible for this long so the player can read
+/// the outcome; the auto-archive sweep then prunes the mission
+/// from `active_missions` on the next tick. The player can also
+/// click "DISMISS" on the dossier card to hide it immediately.
+pub const ARCHIVE_LINGER_DAYS: f64 = 30.0;
 /// Re-export the simulation time type from the `ui::time` module
 /// so systems can declare `Res<SimulationTime>` without taking a
 /// hard dependency on the `ui` module.
@@ -386,6 +397,33 @@ pub fn advance_survey_missions(world: &mut World) {
     for body_entity in completing_bodies {
         finalize_completing_missions_on_body(body_entity, sim_time, world);
     }
+
+    // PR-F (GRA-117): auto-archive pass. Terminal missions linger
+    // on the body's `active_missions` list for
+    // `ARCHIVE_LINGER_DAYS` so the dossier can show the player
+    // what each mission produced. After that window we prune the
+    // mission from the active list (its result is still in the
+    // event log / planet_history resource; this just cleans the
+    // per-body list so the dossier doesn't accumulate dead
+    // entries forever).
+    let linger_seconds = ARCHIVE_LINGER_DAYS * 86_400.0;
+    {
+        let mut state_iter = world.query::<&mut SurveyState>();
+        for mut state in state_iter.iter_mut(world) {
+            state.active_missions.retain(|m| {
+                if !m.status.is_terminal() {
+                    return true;
+                }
+                if m.dismissed {
+                    return false;
+                }
+                match m.completed_sim_time {
+                    Some(t) => (sim_time - t) < linger_seconds,
+                    None => true,
+                }
+            });
+        }
+    }
 }
 
 /// Process every `Completing` mission on a single body's
@@ -651,6 +689,10 @@ fn finalize_mission(
                 method: mission.method,
             });
             mission.status = MissionStatus::Succeeded;
+            // PR-F (GRA-117): record the completion sim-time so
+            // the dossier can show "Completed N sim-days ago" and
+            // the auto-archive loop can prune old entries.
+            mission.completed_sim_time = Some(sim_time);
 
             // PR-G (GRA-85): if this success was for a recovery
             // mission, flip the original failed mission to
@@ -785,6 +827,10 @@ fn finalize_mission(
             );
 
             mission.status = MissionStatus::Failed;
+            // PR-F (GRA-117): record the failure sim-time so the
+            // dossier can show "Failed N sim-days ago" and the
+            // auto-archive loop can prune old entries.
+            mission.completed_sim_time = Some(sim_time);
             // No fidelity updates on failure — the body's tier map
             // is unchanged. The mission's per-axis progress is
             // discarded with the mission.
@@ -983,6 +1029,11 @@ fn dispatch_recovery_mission(
         assigned_scientists: Vec::new(),
         recover_of: Some(original.id),
         template_id: template.id.clone(),
+        // PR-F (GRA-117): new missions start in-flight; no
+        // completion timestamp until finalize fires. The
+        // `dismissed` flag is reset for the fresh mission.
+        completed_sim_time: None,
+        dismissed: false,
     };
     let new_id = recovery.id;
     let new_name = recovery.name.clone();
@@ -1134,11 +1185,21 @@ pub fn dispatch_survey_mission(world: &mut World) {
         // is parked for a follow-up PR). The first dispatch on a
         // body is dropped this tick; the second attempt sees the
         // freshly-inserted state and succeeds.
+        //
+        // PR-F (GRA-117): when the body has a legacy `SurveyLevel`,
+        // project it into a `SurveyState` so we don't clobber
+        // existing survey progress with an empty default (e.g. Earth
+        // would lose its CoreSample state on first dispatch).
         let body_has_state = world.get::<SurveyState>(ev.body).is_some();
         if !body_has_state {
-            world.entity_mut(ev.body).insert(SurveyState::default());
+            let fallback = world
+                .get::<SurveyLevel>(ev.body)
+                .copied()
+                .map(|level| SurveyState::from_legacy_level(level, sim_time))
+                .unwrap_or_default();
+            world.entity_mut(ev.body).insert(fallback);
             warn!(
-                "DispatchSurveyMission: body {:?} has no SurveyState; inserted fresh, retry on next dispatch",
+                "DispatchSurveyMission: body {:?} has no SurveyState; inserted from legacy level, retry on next dispatch",
                 ev.body
             );
             continue;
@@ -1172,6 +1233,9 @@ pub fn dispatch_survey_mission(world: &mut World) {
             assigned_scientists: ev.scientist_ids.clone(),
             recover_of: None,
             template_id: ev.template_id.clone(),
+            // PR-F (GRA-117): new dispatch starts in-flight.
+            completed_sim_time: None,
+            dismissed: false,
         };
         let mission_id = mission.id;
         let method = mission.method;
@@ -1278,6 +1342,44 @@ pub fn dismiss_failed_mission(world: &mut World) {
         if state.failed_mission_notifications.len() == before {
             warn!(
                 "DismissFailedMission: no record for mission_id {} on body {:?}; dropping",
+                ev.mission_id, ev.body
+            );
+        }
+    }
+}
+
+/// Consume [`DismissSurveyMission`] events: mark the matching
+/// mission on the body as `dismissed = true` and immediately prune
+/// it from `active_missions`.
+///
+/// PR-F (GRA-117): the dossier's ACTIVE MISSIONS list shows
+/// terminal missions for `ARCHIVE_LINGER_DAYS` sim-days so the
+/// player can read the outcome. The "DISMISS" button on the
+/// dossier card short-circuits the linger and removes the
+/// mission on the next tick. The mission's result is preserved
+/// in the `SurveyEvent::MissionCompleted` / `MissionFailed`
+/// event log (see `apply_continuous_station_bonus` /
+/// `update_survey_summary` for the consumer list) — only the
+/// on-body record is removed.
+pub fn dismiss_survey_mission(world: &mut World) {
+    let events: Vec<DismissSurveyMission> = {
+        let mut buf = world.resource_mut::<Messages<DismissSurveyMission>>();
+        buf.update_drain().collect()
+    };
+
+    for ev in events {
+        let Some(mut state) = world.get_mut::<SurveyState>(ev.body) else {
+            warn!(
+                "DismissSurveyMission: body {:?} has no SurveyState; dropping",
+                ev.body
+            );
+            continue;
+        };
+        let before = state.active_missions.len();
+        state.active_missions.retain(|m| m.id != ev.mission_id);
+        if state.active_missions.len() == before {
+            warn!(
+                "DismissSurveyMission: no mission with id {} on body {:?}; dropping",
                 ev.mission_id, ev.body
             );
         }
@@ -1854,6 +1956,9 @@ mod tests {
             assigned_scientists: Vec::new(),
             recover_of: None,
             template_id: String::new(),
+            // PR-F (GRA-117): test fixtures start in-flight.
+            completed_sim_time: None,
+            dismissed: false,
         }
     }
 
