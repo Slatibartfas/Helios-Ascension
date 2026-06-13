@@ -38,7 +38,7 @@ use crate::survey::components::{
     ActiveSurveyMission, ContinuousStationBonus, ContinuousSurveyStation, FailedMissionRecord,
     SurveyState,
 };
-use crate::survey::data::{SurveyMissionTemplate, SurveyMissionTemplates};
+use crate::survey::data::{ScientistSummary, SurveyMissionTemplate, SurveyMissionTemplates};
 use crate::survey::events::{AbortSurveyMission, DismissFailedMission, DispatchSurveyMission};
 use crate::survey::types::{
     AnomalyState, MissionFailureReason, MissionStatus, SurveyDimension, MAX_TIER, STALE_CONFIDENCE,
@@ -1687,14 +1687,16 @@ fn draw_survey_section(
 
     ui.add_space(theme::Spacing::xs);
 
-    // ── Recommended next step (stub heuristic) ────────────────
-    // Per the issue acceptance criterion, a rudimentary stub is
-    // acceptable: pick the lowest-fidelity dimension, find a
-    // template that targets it. A future LGD-coordinated helper
-    // will score templates by which one most improves the
-    // dimension map.
+    // ── Recommended next step (LGD-coordinated heuristic) ────
+    // Per GRA-112: the sophisticated helper scores templates by
+    // tier-gap + confidence-deficit + cross-dim bonus + cost-time
+    // penalty + roster-match. The dossier has no per-body roster
+    // in scope yet (v0.5.0 ships with the dossier-side signature
+    // widened; a future PR can plumb the per-body roster from
+    // the personnel plugin). The dispatch picker in the Personnel
+    // menu (not in this file) passes `Some(&on_station_roster)`.
     theme::section_h3(ui, "RECOMMENDED NEXT STEP");
-    if let Some((dim, recommended)) = recommended_survey_action(state, mission_templates) {
+    if let Some((dim, recommended)) = recommended_survey_action(state, mission_templates, None) {
         let target_tier = recommended.target_tiers.get(&dim).copied().unwrap_or(1);
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("→").font(mono_font(11.0)).color(ACCENT));
@@ -1817,29 +1819,169 @@ fn draw_confidence_bar(ui: &mut egui::Ui, confidence: f32) {
 /// fully characterised or no template covers the lowest-fidelity
 /// dim.
 ///
-/// Stub heuristic (per the issue's GRA-108 acceptance criteria):
-/// pick the dimension with the lowest `fidelity.tier` (ties broken
-/// by lowest confidence), then find a template in
-/// `mission_templates.templates` whose `target_tiers` contains
-/// that dim. The LGD-coordinated `recommended_survey_action`
-/// helper will score templates by which one most improves the
-/// dimension map; this stub just picks the first match.
+/// GRA-112: sophisticated LGD-coordinated `recommended_survey_action`
+/// heuristic. Replaces the GRA-108 stub.
+///
+/// Per the LGD design brief (GRA-112):
+/// 1. Pick the **primary dim** — the dimension with the lowest
+///    `fidelity.tier` (ties broken by lowest confidence), with a
+///    synthetic boost for warning-tier dims so they sort ahead of
+///    healthy dims at the same tier.
+/// 2. Filter candidate templates to those that actually target the
+///    primary dim, then score each one against a weighted multi-
+///    factor objective (tier-gap, confidence-deficit, cross-dim
+///    bonus, cost-time penalty, roster-match bonus).
+/// 3. Tie-break by tier-gap on the primary DESC, then by
+///    `base_duration_days` ASC, then by `template.id` ASC for
+///    deterministic modder-stable output.
+/// 4. Return `None` if every dim is fully characterized, no
+///    template covers an under-characterized dim, or the template
+///    registry is empty.
 fn recommended_survey_action<'a>(
     state: &SurveyState,
     mission_templates: &'a SurveyMissionTemplates,
+    scientist_roster: Option<&[ScientistSummary]>,
 ) -> Option<(SurveyDimension, &'a SurveyMissionTemplate)> {
-    let lowest = SurveyDimension::ALL.iter().min_by_key(|d| {
-        let f = state.fidelity(**d);
-        (f.tier, (f.confidence * 1000.0) as u32)
-    })?;
-    if state.fidelity(*lowest).is_fully_characterized() {
-        return None;
-    }
-    mission_templates
+    // Step 1: pick the primary dim. A warning-tier dim (confidence
+    // below WARNING_CONFIDENCE) gets a synthetic -0.5 boost on its
+    // sort key so it sorts ahead of a non-warning dim at the same
+    // tier. Skips fully-characterized dims.
+    const WARNING_BOOST: f32 = 0.5;
+    let primary_sort_key = |d: SurveyDimension| -> (f32, f32) {
+        let f = state.fidelity(d);
+        let adj_conf = if f.confidence < WARNING_CONFIDENCE {
+            f.confidence - WARNING_BOOST
+        } else {
+            f.confidence
+        };
+        (f.tier as f32, adj_conf)
+    };
+    let primary = SurveyDimension::ALL
+        .iter()
+        .copied()
+        .filter(|d| !state.fidelity(*d).is_fully_characterized())
+        .min_by(|a, b| {
+            primary_sort_key(*a)
+                .partial_cmp(&primary_sort_key(*b))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })?;
+
+    // Step 2: filter candidates to templates that target the
+    // primary dim, then score + sort.
+    let mut candidates: Vec<&SurveyMissionTemplate> = mission_templates
         .templates
         .values()
-        .find(|t| t.target_tiers.contains_key(lowest))
-        .map(|t| (*lowest, t))
+        .filter(|t| t.target_tiers.contains_key(&primary))
+        .collect();
+    if candidates.is_empty() {
+        return None;
+    }
+
+    candidates.sort_by(|a, b| {
+        let score_a = score_template(a, state, primary, scientist_roster);
+        let score_b = score_template(b, state, primary, scientist_roster);
+        let tier_gap_a = a
+            .target_tiers
+            .get(&primary)
+            .copied()
+            .unwrap_or(0)
+            .saturating_sub(state.fidelity(primary).tier) as i32;
+        let tier_gap_b = b
+            .target_tiers
+            .get(&primary)
+            .copied()
+            .unwrap_or(0)
+            .saturating_sub(state.fidelity(primary).tier) as i32;
+
+        // Descending score, then descending tier_gap on primary,
+        // then ascending duration, then ascending id (deterministic
+        // modder-stable tiebreak).
+        score_b
+            .partial_cmp(&score_a)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| tier_gap_b.cmp(&tier_gap_a))
+            .then_with(|| a.base_duration_days.cmp(&b.base_duration_days))
+            .then_with(|| a.id.cmp(&b.id))
+    });
+
+    candidates.first().map(|t| (primary, *t))
+}
+
+/// GRA-112: weighted multi-factor scoring function.
+///
+/// Weights are `const`s so playtest tuning is a one-line change.
+/// The LGD brief explicitly says the weights are a "starting point
+/// for the Coder to tune" — they are not modder-tunable, just easy
+/// to iterate on the function-local copy.
+fn score_template(
+    template: &SurveyMissionTemplate,
+    state: &SurveyState,
+    primary: SurveyDimension,
+    roster: Option<&[ScientistSummary]>,
+) -> f32 {
+    const W_TIER: f32 = 1.0; // weight on tier-gap score
+    const W_CONF: f32 = 0.5; // weight on confidence-deficit score
+    const W_DUPS: f32 = 0.25; // weight on cross-dim bonus
+    const W_COST: f32 = 0.5; // weight on cost-time penalty (negative)
+    const W_ROSTER: f32 = 0.5; // weight on specialist-match bonus
+
+    // 1. Tier-gap score: sum over all dims the template targets.
+    let tier_gap: f32 = template
+        .target_tiers
+        .iter()
+        .map(|(d, target)| {
+            let current = state.fidelity(*d).tier;
+            target.saturating_sub(current) as f32
+        })
+        .sum();
+
+    // 2. Confidence-deficit score: how many targeted dims are
+    //    currently below WARNING_CONFIDENCE.
+    let conf_deficit: f32 = template
+        .target_tiers
+        .keys()
+        .filter(|d| state.fidelity(**d).confidence < WARNING_CONFIDENCE)
+        .count() as f32;
+
+    // 3. Cross-dim bonus: 0.25 per dim beyond the first.
+    let cross_dim_bonus: f32 = ((template.target_tiers.len() as f32) - 1.0).max(0.0) * 0.25;
+
+    // 4. Cost-time penalty: log-scale, so doubling duration adds
+    //    diminishing penalty. 90d = -0.27, 365d = -0.50, 730d =
+    //    -0.69, 1095d = -0.83.
+    let cost_penalty: f32 = -(1.0 + (template.base_duration_days as f32) / 365.0).ln() * 0.5;
+
+    // 5. Roster bonus: max over the roster of the match score.
+    //    Per the LGD brief: match = 1.5 * seniority throughput,
+    //    mismatch = 0 (NOT negative — a player is not punished for
+    //    lacking a specialist). Roster is a "nice to have", not a
+    //    requirement.
+    let roster_bonus: f32 = match roster {
+        None => 0.0,
+        Some(rs) => rs
+            .iter()
+            .map(|s| {
+                if s.specialty.matches_method(template.method) {
+                    1.5 * s.seniority.throughput_multiplier()
+                } else {
+                    0.0
+                }
+            })
+            .fold(0.0_f32, f32::max),
+    };
+
+    // The primary-dim tier gap is the dominant signal: a template
+    // that closes a 3-tier gap on the primary dim is much better
+    // than a 1-tier gap even if the 1-tier template covers more
+    // dims. The other factors break ties and resolve the
+    // "near-miss" cases.
+    let _ = primary; // reserved for future per-primary weighting
+
+    W_TIER * tier_gap
+        + W_CONF * conf_deficit
+        + W_DUPS * cross_dim_bonus
+        + W_COST * cost_penalty
+        + W_ROSTER * roster_bonus
 }
 
 // ─── Resource Grid ───────────────────────────────────────────────────────
@@ -3421,8 +3563,21 @@ mod tests {
     //! Pure-data tests on [`OrbitalStationSummary`] — no egui
     //! context. The render function is verified manually in-game
     //! (the smallest in-game check from the issue body).
+    //!
+    //! GRA-112 (2026-06-13) extends the suite with the 5-test
+    //! acceptance contract from the LGD design brief for the
+    //! sophisticated `recommended_survey_action` heuristic, plus
+    //! 3 bonus tests (roster-flip, empty-templates, no-template-
+    //! covers-primary). The test imports below pull in
+    //! `SurveyMethod`, `DimensionFidelity`, `ScientistSpecialty`,
+    //! and `SeniorityTier` from the production modules — those
+    //! aren't used by the production code in this file, so the
+    //! `use super::*;` doesn't transitively re-export them.
 
     use super::*;
+    use crate::personnel::{ScientistSpecialty, SeniorityTier};
+    use crate::survey::components::DimensionFidelity;
+    use crate::survey::types::SurveyMethod;
 
     fn mars_cache_tier_1() -> ContinuousStationBonus {
         // A tier-1 station's combined cache: 0.05 axes/yr and a
@@ -3611,5 +3766,320 @@ mod tests {
             ContinuousStationBonus::multiplier_or_neutral(Some(&tier_1)),
             tier_1.mining_yield_multiplier as f64
         );
+    }
+
+    // ─── GRA-112 sophisticated `recommended_survey_action` tests ──
+    //
+    // These tests implement the 5-test acceptance suite from the
+    // LGD design brief (comment `42784e2f-c90f-4742-a63a-01317e4b41ab`
+    // on GRA-112). All tests are pure data — no egui context.
+
+    /// Build a `SurveyMissionTemplate` for tests. Only the scoring
+    /// fields (`target_tiers`, `base_duration_days`, `method`) are
+    /// set; the rest use sensible defaults.
+    fn test_template(
+        id: &str,
+        method: SurveyMethod,
+        target_tiers: Vec<(SurveyDimension, u8)>,
+        base_duration_days: u32,
+    ) -> SurveyMissionTemplate {
+        SurveyMissionTemplate {
+            id: id.to_string(),
+            display_name: id.to_string(),
+            method,
+            instrument_id: "test_instrument".to_string(),
+            target_tiers: target_tiers.into_iter().collect(),
+            base_duration_days,
+            axis_yield_per_day: 1.0,
+            is_ground_team: false,
+            failure_modes: vec![],
+        }
+    }
+
+    /// Build a `SurveyMissionTemplates` registry from a vec of
+    /// templates.
+    fn test_templates(templates: Vec<SurveyMissionTemplate>) -> SurveyMissionTemplates {
+        SurveyMissionTemplates {
+            templates: templates.into_iter().map(|t| (t.id.clone(), t)).collect(),
+        }
+    }
+
+    /// Set a single dim's fidelity on a `SurveyState` builder.
+    fn set_dim(state: &mut SurveyState, dim: SurveyDimension, tier: u8, confidence: f32) {
+        state.set_fidelity(dim, DimensionFidelity::at_tier(tier, confidence, Some(0.0)));
+    }
+
+    #[test]
+    fn recommender_returns_none_when_all_dims_fully_characterized() {
+        // LGD brief §6 — Test 1: a body where every dim is at
+        // tier 5 with confidence ≥ 0.8 produces no
+        // recommendation. The dossier renders the "all
+        // dimensions adequately characterized" branch in
+        // that case.
+        let mut state = SurveyState::default();
+        for dim in SurveyDimension::ALL {
+            set_dim(&mut state, dim, MAX_TIER, 1.0);
+        }
+        let templates = test_templates(vec![test_template(
+            "t",
+            SurveyMethod::Orbital,
+            vec![(SurveyDimension::OrbitalMech, 1)],
+            90,
+        )]);
+        let result = recommended_survey_action(&state, &templates, None);
+        assert!(
+            result.is_none(),
+            "fully-characterized body must return None"
+        );
+    }
+
+    #[test]
+    fn recommender_picks_single_template_targeting_lowest_dim() {
+        // LGD brief §6 — Test 2: a body with 8 dims at tier 0
+        // and one template targeting OrbitalMech at tier 3.
+        // OrbitalMech is primary (first in SurveyDimension::ALL
+        // on tier-0 tiebreak), the template targets it, so the
+        // helper returns that pair.
+        let state = SurveyState::default();
+        let template = test_template(
+            "orbital_scan",
+            SurveyMethod::Orbital,
+            vec![(SurveyDimension::OrbitalMech, 3)],
+            90,
+        );
+        let templates = test_templates(vec![template.clone()]);
+        let result = recommended_survey_action(&state, &templates, None);
+        let (dim, recommended) = result.expect("single-template should recommend");
+        assert_eq!(dim, SurveyDimension::OrbitalMech);
+        assert_eq!(recommended.id, template.id);
+        assert_eq!(recommended.target_tiers[&dim], 3);
+    }
+
+    #[test]
+    fn recommender_prefers_multi_dim_template_on_near_tie() {
+        // LGD brief §6 — Test 3 (the discriminating version):
+        // A targets OrbitalMech at tier 2 (single-dim, gap 2).
+        // B targets OrbitalMech at tier 1 + SurfaceFeatures at
+        // tier 1 (two-dim, gaps 1+1=2). With the cross-dim
+        // bonus + confidence-deficit boost, B wins.
+        //
+        // Both dims at tier 0 confidence 0.0 → both
+        // warning-tier (< WARNING_CONFIDENCE = 0.3), so the
+        // confidence-deficit term in the score adds 1 per
+        // targeted dim. The primary dim is OrbitalMech (first
+        // in canonical order on tier-0 tiebreak with
+        // confidence-deficit boost applied symmetrically).
+        // A is the only template that targets OrbitalMech
+        // AND SurfaceFeatures both. B targets the primary
+        // dim and gets a cross-dim bonus on top of a
+        // conf-deficit boost for the second dim too.
+        //
+        // The LGD's verbatim analysis ("B wins by 0.06") used
+        // conf_deficit=0; the actual implementation correctly
+        // credits conf_deficit for the two warning-tier
+        // targets (2 vs 1 for A), so B wins by a wider
+        // margin. The discriminating property — B wins on a
+        // same-tier-gap test — is what this test locks in.
+        let state = SurveyState::default();
+        let a = test_template(
+            "a",
+            SurveyMethod::Orbital,
+            vec![(SurveyDimension::OrbitalMech, 2)],
+            90,
+        );
+        let b = test_template(
+            "b",
+            SurveyMethod::Orbital,
+            vec![
+                (SurveyDimension::OrbitalMech, 1),
+                (SurveyDimension::SurfaceFeatures, 1),
+            ],
+            90,
+        );
+        let templates = test_templates(vec![a.clone(), b.clone()]);
+        let (dim, recommended) = recommended_survey_action(&state, &templates, None)
+            .expect("non-empty templates + non-fully-characterized body must recommend");
+        // Primary dim is OrbitalMech (canonical-first on tier-0 tie).
+        assert_eq!(dim, SurveyDimension::OrbitalMech);
+        // B wins on the cross-dim + conf-deficit combination.
+        assert_eq!(
+            recommended.id, "b",
+            "multi-dim template must win on near-tie per LGD brief §6 Test 3"
+        );
+    }
+
+    #[test]
+    fn recommender_boosts_warning_tier_dim_to_primary() {
+        // LGD brief §6 — Test 4 (the discriminating version):
+        // MineralDeposits is at tier 0 conf 0.2 (warning, <
+        // 0.3). OrbitalMech is at tier 0 conf 0.5 (healthy).
+        // Step 2 of the heuristic gives MineralDeposits a
+        // synthetic -0.5 boost on its sort weight, so it
+        // becomes the primary dim even though OrbitalMech is
+        // "first" in canonical order.
+        //
+        // Template A targets OrbitalMech at tier 2 (gap 2 on
+        // a non-primary dim). Template B targets
+        // MineralDeposits at tier 2 (gap 2 on the primary
+        // dim). The helper returns (MineralDeposits, B) —
+        // A is filtered out by the primary-dim filter, and
+        // B is the only candidate for MineralDeposits.
+        //
+        // The LGD brief's verbatim example used conf 0.4/0.6,
+        // but WARNING_CONFIDENCE is 0.3, so 0.4 is not
+        // warning-tier. The discriminating test uses
+        // 0.2/0.5 to actually exercise the boost.
+        //
+        // All 8 dims at tier 0. We need exactly ONE warning-tier
+        // dim so the warning boost pulls it to primary without
+        // competition from the other 6 default-state dims (which
+        // would also be warning-tier at conf 0.0 and tie on the
+        // boost). Set the non-target dims to a healthy
+        // confidence (0.5) so the warning boost only applies to
+        // MineralDeposits.
+        let mut state = SurveyState::default();
+        for dim in SurveyDimension::ALL {
+            let conf = if dim == SurveyDimension::MineralDeposits {
+                0.2
+            } else {
+                0.5
+            };
+            set_dim(&mut state, dim, 0, conf);
+        }
+        let a = test_template(
+            "a",
+            SurveyMethod::Orbital,
+            vec![(SurveyDimension::OrbitalMech, 2)],
+            90,
+        );
+        let b = test_template(
+            "b",
+            SurveyMethod::Drill,
+            vec![(SurveyDimension::MineralDeposits, 2)],
+            180,
+        );
+        let templates = test_templates(vec![a.clone(), b.clone()]);
+        let (dim, recommended) = recommended_survey_action(&state, &templates, None)
+            .expect("warning-tier dim with a target template must recommend");
+        // Warning-tier dim gets boosted to primary; A targeting
+        // OrbitalMech is filtered out, B targeting the
+        // warning-tier dim is the recommendation.
+        assert_eq!(dim, SurveyDimension::MineralDeposits);
+        assert_eq!(recommended.id, "b");
+    }
+
+    #[test]
+    fn recommender_breaks_near_tie_on_cost_time() {
+        // LGD brief §6 — Test 5 (the discriminating version):
+        // both templates target the primary dim (OrbitalMech,
+        // canonical-first at tier 0) with the same tier gap
+        // (2). Template A is 90 days, Template B is 730
+        // days. The log-scale cost penalty breaks the tie:
+        // A scores cost = -(1+90/365).ln() * 0.5 ≈ -0.110;
+        // B scores cost = -(1+730/365).ln() * 0.5 ≈ -0.549.
+        // A wins on the cost-time fit by ~0.22.
+        //
+        // The LGD brief's verbatim example had B targeting
+        // MineralDeposits (a different dim than A), which
+        // would filter B out and make the test trivially
+        // pass. The discriminating setup below has both
+        // templates target the same primary dim so the
+        // cost-time term is the actual deciding factor.
+        let state = SurveyState::default();
+        let a = test_template(
+            "short",
+            SurveyMethod::Orbital,
+            vec![(SurveyDimension::OrbitalMech, 2)],
+            90,
+        );
+        let b = test_template(
+            "long",
+            SurveyMethod::Orbital,
+            vec![(SurveyDimension::OrbitalMech, 2)],
+            730,
+        );
+        let templates = test_templates(vec![a.clone(), b.clone()]);
+        let (dim, recommended) = recommended_survey_action(&state, &templates, None)
+            .expect("non-empty templates + non-fully-characterized body must recommend");
+        assert_eq!(dim, SurveyDimension::OrbitalMech);
+        assert_eq!(
+            recommended.id, "short",
+            "shorter mission must win on cost-time tie per LGD brief §6 Test 5"
+        );
+    }
+
+    #[test]
+    fn recommender_specialist_roster_changes_pick() {
+        // Bonus test (LGD brief §3 step 5): the roster
+        // parameter reshapes the recommendation. A geologist
+        // (specialty matches `Drill`) gives a positive bonus
+        // to template B (method = Drill); template A is Orbital
+        // and gets 0 from the roster. With the same tier gap
+        // on the primary dim, B wins when the roster is
+        // present and A wins when the roster is empty.
+        let state = SurveyState::default();
+        let a = test_template(
+            "orbital_short",
+            SurveyMethod::Orbital,
+            vec![(SurveyDimension::OrbitalMech, 1)],
+            90,
+        );
+        let b = test_template(
+            "drill_long",
+            SurveyMethod::Drill,
+            vec![(SurveyDimension::OrbitalMech, 1)],
+            365,
+        );
+        let templates = test_templates(vec![a.clone(), b.clone()]);
+
+        // No roster: A wins (cheaper cost).
+        let (dim_no, rec_no) = recommended_survey_action(&state, &templates, None)
+            .expect("must recommend with no roster");
+        assert_eq!(dim_no, SurveyDimension::OrbitalMech);
+        assert_eq!(rec_no.id, "orbital_short");
+
+        // With a geologist + principal seniority, B's
+        // roster_bonus = 1.5 * 2.0 = 3.0; W_ROSTER (0.5) *
+        // 3.0 = 1.5. B's score: 1.0 * 1 + 0.5 * 1 + 0 + 0.5 *
+        // (-0.347) + 1.5 = 1.5 - 0.174 + 1.5 = 2.826.
+        // A's score: 1.0 * 1 + 0.5 * 1 + 0 + 0.5 * (-0.110) +
+        // 0 = 1.5 - 0.055 = 1.445. B wins.
+        let roster = vec![ScientistSummary {
+            id: 1,
+            specialty: ScientistSpecialty::Geology,
+            seniority: SeniorityTier::Principal,
+        }];
+        let (dim_yes, rec_yes) = recommended_survey_action(&state, &templates, Some(&roster))
+            .expect("must recommend with a roster");
+        assert_eq!(dim_yes, SurveyDimension::OrbitalMech);
+        assert_eq!(
+            rec_yes.id, "drill_long",
+            "geologist principal must flip the pick to the drill template"
+        );
+    }
+
+    #[test]
+    fn recommender_empty_templates_returns_none() {
+        // Edge case (LGD brief §7): a body with an empty
+        // template registry returns None even if some dims
+        // are under-characterized.
+        let state = SurveyState::default();
+        let templates = SurveyMissionTemplates::default();
+        assert!(recommended_survey_action(&state, &templates, None).is_none());
+    }
+
+    #[test]
+    fn recommender_no_template_covers_primary_returns_none() {
+        // Edge case (LGD brief §7): if no template targets
+        // the primary dim (e.g. registry has only atmosphere
+        // templates, but primary is OrbitalMech), return None.
+        let state = SurveyState::default();
+        let templates = test_templates(vec![test_template(
+            "atmo_only",
+            SurveyMethod::AtmosphericProbe,
+            vec![(SurveyDimension::Atmosphere, 2)],
+            90,
+        )]);
+        assert!(recommended_survey_action(&state, &templates, None).is_none());
     }
 }

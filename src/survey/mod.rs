@@ -33,9 +33,9 @@ pub use components::{
 pub use data::{
     load_mission_templates, load_recovery_missions, AnalysisQueueIndex, MiningEfficiencyRegistry,
     MiningEfficiencyRow, ModderAnomalyDef, ModderDimensionDef, RecoveryMission,
-    RecoveryMissionKind, RecoveryMissionRegistry, SurveyAnomalyRegistry, SurveyDimensionRegistry,
-    SurveyInstrumentDef, SurveyInstrumentRegistry, SurveyMissionTemplate, SurveyMissionTemplates,
-    SurveyMissionTemplatesFile,
+    RecoveryMissionKind, RecoveryMissionRegistry, ScientistSummary, SurveyAnomalyRegistry,
+    SurveyDimensionRegistry, SurveyInstrumentDef, SurveyInstrumentRegistry, SurveyMissionTemplate,
+    SurveyMissionTemplates, SurveyMissionTemplatesFile,
 };
 pub use events::{AbortSurveyMission, DismissFailedMission, DispatchSurveyMission, SurveyEvent};
 pub use systems::{

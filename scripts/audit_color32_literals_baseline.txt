@@ -11,8 +11,8 @@ src/ui/dossier_panel.rs:1321  egui::Color32::from_rgba_premultiplied(20, 20, 30,
 src/ui/dossier_panel.rs:1323  egui::Color32::from_rgba_premultiplied(255, 255, 255, 220)
 src/ui/dossier_panel.rs:1372  egui::Color32::from_rgba_premultiplied(255, 255, 255, 60)
 src/ui/dossier_panel.rs:1374  egui::Color32::from_rgba_premultiplied(0, 0, 0, 80)
-src/ui/dossier_panel.rs:2365  let fill_color = egui::Color32::from_rgba_premultiplied(
-src/ui/dossier_panel.rs:2387  egui::Color32::from_rgba_premultiplied(220, 230, 240, (180.0 * brightness) as u8),
+src/ui/dossier_panel.rs:2507  let fill_color = egui::Color32::from_rgba_premultiplied(
+src/ui/dossier_panel.rs:2529  egui::Color32::from_rgba_premultiplied(220, 230, 240, (180.0 * brightness) as u8),
 src/ui/fleets_panel.rs:171  egui::Color32::from_rgba_premultiplied(0, 140, 160, 42)
 src/ui/research_panel.rs:1278  egui::Color32::from_rgba_unmultiplied(13, 17, 23, 120),
 src/ui/research_panel.rs:1359  egui::Color32::from_rgba_unmultiplied(13, 17, 23, 120),

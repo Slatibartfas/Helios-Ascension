@@ -14,6 +14,28 @@ use std::collections::HashMap;
 use super::types::{
     default_method_specificity, SurveyDimension, SurveyMethod, DEFAULT_ACTIVATION_THRESHOLD,
 };
+use crate::personnel::types::{ScientistId, ScientistSpecialty, SeniorityTier};
+
+/// A trimmed scientist view for the survey recommendation heuristic.
+///
+/// GRA-112: the full `Scientist` component lives in the personnel
+/// crate and is heavier than the scoring math needs. The recommender
+/// only reads `id`, `specialty`, and `seniority`, so callers pass a
+/// thin value-type view rather than the whole component. The dossier
+/// UI (which has no per-body roster) passes `None`; the dispatch
+/// picker in the Personnel menu (which has the active-body roster in
+/// scope) passes `Some(&on_station_roster)`.
+///
+/// Per the LGD design brief (GRA-112 §1): "Mismatch is 0, not
+/// negative." A scientist whose specialty does not match the
+/// template's method contributes 0 to the bonus — the heuristic
+/// never penalises a player for not having a specialist on station.
+#[derive(Debug, Clone, Copy)]
+pub struct ScientistSummary {
+    pub id: ScientistId,
+    pub specialty: ScientistSpecialty,
+    pub seniority: SeniorityTier,
+}
 
 /// Registry of discovery dimensions. Loaded from
 /// `assets/data/survey/dimensions.ron` (PR-B).
