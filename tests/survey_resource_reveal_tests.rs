@@ -26,13 +26,15 @@
 
 use bevy::prelude::*;
 use helios_ascension::economy::components::{
-    MineralDeposit, PlanetResources, ResourcePhase, ResourceReserve, SurveyLevel,
+    MineralDeposit, PlanetResources, ResourceReserve, SurveyLevel,
 };
 use helios_ascension::economy::discovery::{
     body_aggregate_tier_breakdown, tier_breakdown_for_reserve, TierLabel, TierReveal,
     RESERVE_PRESENT_THRESHOLD,
 };
-use helios_ascension::survey::components::{DimensionFidelity, SurveyDimension, SurveyState};
+use helios_ascension::economy::ResourceType;
+use helios_ascension::survey::components::{DimensionFidelity, SurveyState};
+use helios_ascension::survey::SurveyDimension;
 use std::collections::HashMap;
 
 /// Build a `SurveyState` with the given per-dimension tier
@@ -286,11 +288,11 @@ fn body_aggregate_sums_revealed_tier_megatons() {
         mineral_deposit(reserve_with(100.0, 200.0, 300.0)),
     );
     deposits.insert(
-        ResourceType::Silicon,
+        ResourceType::Silicates,
         mineral_deposit(reserve_with(50.0, 80.0, 120.0)),
     );
     deposits.insert(
-        ResourceType::Aluminium,
+        ResourceType::Aluminum,
         mineral_deposit(reserve_with(0.0, 0.0, 50.0)),
     );
     resources.deposits = deposits;
@@ -308,7 +310,7 @@ fn body_aggregate_sums_revealed_tier_megatons() {
 
 #[test]
 fn body_aggregate_marks_tier_revealed_when_at_least_one_deposit() {
-    // Iron has 100 Mt of proven_crustal; silicon has zero across
+    // Iron has 100 Mt of proven_crustal; silicates has zero across
     // the board. The aggregate T1 row should still be marked
     // `revealed: true` because at least one deposit has T1 open.
     let mut resources = PlanetResources::default();
@@ -318,7 +320,7 @@ fn body_aggregate_marks_tier_revealed_when_at_least_one_deposit() {
         mineral_deposit(reserve_with(100.0, 0.0, 0.0)),
     );
     deposits.insert(
-        ResourceType::Silicon,
+        ResourceType::Silicates,
         mineral_deposit(reserve_with(0.0, 0.0, 0.0)),
     );
     resources.deposits = deposits;
