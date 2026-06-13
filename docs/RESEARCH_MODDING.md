@@ -122,6 +122,71 @@ And its component:
 - **Tier 6-8**: Advanced technology (30,000-50,000 RP)
 - **Tier 9-10**: Late-game wonder tech (75,000+ RP)
 
+### Prerequisites
+- Keep dependency chains reasonable (2-3 levels deep max)
+- Technologies can have multiple prerequisites
+- Empty prerequisites `[]` means available from start
+
+### Balancing Research Costs
+Consider the tech tree position:
+- **Foundation techs**: Lower cost, many dependents
+- **Specialist techs**: Higher cost, fewer dependents
+- **Wonder techs**: Very high cost, game-changing effects
+
+### Modifier Balance
+- Keep percentage bonuses modest (5-20% per tech)
+- Stack multiplicatively for realism
+- Category bonuses should be meaningful but not overpowered
+
+## Testing Your Changes
+
+1. Edit `assets/data/technologies.ron`
+2. Run the game: `cargo run --release`
+3. Open the Research menu (🔬 icon)
+4. Check that your tech appears in the correct category
+5. Verify prerequisites work correctly
+
+## Common Issues
+
+**Tech doesn't appear**:
+- Check the RON syntax (commas, parentheses)
+- Verify the category name matches exactly
+- Ensure the file is valid RON format
+
+**Prerequisites not working**:
+- Check that prerequisite IDs match exactly (case-sensitive)
+- Verify prerequisite techs exist in the file
+
+**Component not appearing**:
+- Ensure component ID in `unlocks_components` matches a component definition
+- Check that `required_tech` in component points to correct tech ID
+
+## Advanced: Technology Chains
+
+Create progression paths by linking related technologies:
+
+```ron
+// Basic → Advanced → Expert progression
+(id: "basic_materials", prerequisites: [], tier: 1),
+(id: "materials_science", prerequisites: ["basic_materials"], tier: 2),
+(id: "metamaterials", prerequisites: ["materials_science"], tier: 3),
+```
+
+## Mod Distribution
+
+When creating a mod:
+1. Copy the entire `technologies.ron` file
+2. Make your changes
+3. Document what you changed
+4. Share with attribution
+
+## Community Resources
+
+- Example tech tree: See `assets/data/technologies.ron`
+- RON syntax guide: https://github.com/ron-rs/ron
+- Report issues: GitHub Issues
+- Share mods: Community Discord
+
 ## v0.5.0 Additions: Survey / Personnel / Geology Techs
 
 > **v0.5.0 status (2026-06-12)** — pre-draft ahead of the v0.5.0 engineering chain (PR-A through PR-G). The 9 new tech names, tiers, prerequisites, and effects below are the design contract per `docs/design/SURVEY_REWORK.md` §[Tech Tree Integration]. The RON entries land in `assets/data/technologies.ron` with the v0.5.0 chain (PR-A's RON files were pre-staged in [PR #140](https://github.com/Slatibartfas/Helios-Ascension/pull/140) / GRA-98; the tech entries themselves land with PR-A and PR-B). If the Coder renames, drops, or reorders entries, this section mirrors the Coder's final tree at PR-H open.
@@ -191,71 +256,6 @@ A modder can add a 10th survey / personnel / geology tech — e.g. a "magnetomet
 4. (Optionally) tier semantics to `assets/data/survey/tiers.ron` and an anomaly type to `assets/data/survey/anomalies.ron` that the new method can surface.
 
 No Rust recompile. No new components. The RON modding surface is the player-influence path — see `docs/MODDING.md` and `docs/SURVEY.md` §[See Also] for the canonical modder references.
-
-### Prerequisites
-- Keep dependency chains reasonable (2-3 levels deep max)
-- Technologies can have multiple prerequisites
-- Empty prerequisites `[]` means available from start
-
-### Balancing Research Costs
-Consider the tech tree position:
-- **Foundation techs**: Lower cost, many dependents
-- **Specialist techs**: Higher cost, fewer dependents
-- **Wonder techs**: Very high cost, game-changing effects
-
-### Modifier Balance
-- Keep percentage bonuses modest (5-20% per tech)
-- Stack multiplicatively for realism
-- Category bonuses should be meaningful but not overpowered
-
-## Testing Your Changes
-
-1. Edit `assets/data/technologies.ron`
-2. Run the game: `cargo run --release`
-3. Open the Research menu (🔬 icon)
-4. Check that your tech appears in the correct category
-5. Verify prerequisites work correctly
-
-## Common Issues
-
-**Tech doesn't appear**:
-- Check the RON syntax (commas, parentheses)
-- Verify the category name matches exactly
-- Ensure the file is valid RON format
-
-**Prerequisites not working**:
-- Check that prerequisite IDs match exactly (case-sensitive)
-- Verify prerequisite techs exist in the file
-
-**Component not appearing**:
-- Ensure component ID in `unlocks_components` matches a component definition
-- Check that `required_tech` in component points to correct tech ID
-
-## Advanced: Technology Chains
-
-Create progression paths by linking related technologies:
-
-```ron
-// Basic → Advanced → Expert progression
-(id: "basic_materials", prerequisites: [], tier: 1),
-(id: "materials_science", prerequisites: ["basic_materials"], tier: 2),
-(id: "metamaterials", prerequisites: ["materials_science"], tier: 3),
-```
-
-## Mod Distribution
-
-When creating a mod:
-1. Copy the entire `technologies.ron` file
-2. Make your changes
-3. Document what you changed
-4. Share with attribution
-
-## Community Resources
-
-- Example tech tree: See `assets/data/technologies.ron`
-- RON syntax guide: https://github.com/ron-rs/ron
-- Report issues: GitHub Issues
-- Share mods: Community Discord
 
 ## Future Expansion
 

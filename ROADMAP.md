@@ -118,7 +118,7 @@ Sequential exploration where you send probes first, then rovers, establish stati
 - [x] Survey teams with scientist personnel — `Scientist` component + specialty + seniority enums live (PR #137)
 - [x] Gradually reveal resources, anomalies, landing sites — anomaly confidence model live (PR #136 / GRA-81); resource estimate tier display in Economy panel (PR #138 / GRA-84, 2026-06-08)
 - [x] Survey data collection and analysis — 6 RON files (dimensions, instruments, anomalies, tiers, mining efficiency, missions) on `main`
-- [ ] 9 new techs from `SURVEY_REWORK.md` §[Tech Tree Integration] land in `technologies.ron` (Coder-side PR; design contract documented in `docs/RESEARCH_MODDING.md` §[v0.5.0 Additions] and reconciled in PR #142)
+- [ ] 9 new techs from `SURVEY_REWORK.md` §[Tech Tree Integration] land in `technologies.ron` (Coder-side PR; design contract documented in `docs/RESEARCH_MODDING.md` §[v0.5.0 Additions] and reconciled in [PR #154](https://github.com/Slatibartfas/Helios-Ascension/pull/154))
 - [ ] §10/§11 reconciliation in `docs/SURVEY.md` once the Coder-side finalization lands
 
 ### 5.2 Personnel System 🟡 PARTIAL

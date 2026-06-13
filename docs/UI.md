@@ -616,6 +616,36 @@ Beyond the lint:
 | **ESC** | Close current panel or deselect. |
 | **Shift+F12** | Capture a screenshot into the next slot (`overview` → `shipbuilding` → `research` → `construction` → `starmap`, then wrap; manual-only). |
 
+## 7. Troubleshooting
+
+### 7.1 UI not responding
+
+- Check if time is paused.
+- Ensure you've selected the correct colony / body.
+- Try clicking away and reselecting.
+
+### 7.2 Missing information
+
+- Some data requires specific technologies to be researched.
+- Mineral deposits require survey operations.
+- Resource information needs time to update after changes.
+
+### 7.3 Performance issues
+
+- Close unused panels.
+- Zoom closer when not using starmap.
+- Lower time acceleration if simulation is slow.
+
+### 7.4 CI fails the UI token lint
+
+- Run `python3 scripts/audit_color32_literals.py` locally to see what
+  regressed. New violations show with `[NEW]`.
+- Either move the literal to a `theme.rs` constant, or (only for true
+  one-off values) add it to the baseline file with a one-line justification
+  in the PR description.
+- Re-run `python3 scripts/audit_color32_literals.py --strict --baseline
+  scripts/audit_color32_literals_baseline.txt` before pushing.
+
 ## 8. Survey & Personnel Panels (v0.5.0)
 
 > **v0.5.0 status** — the dossier SURVEY tab is **shipped** (PR #135 / GRA-82 PR-D, 2026-06-08). The PersonnelRoster tab is **Preview**: the data layer is in `src/personnel/` (scientists, specialties, seniority) and `GameMenu::Personnel` is wired in `src/ui/dashboard.rs:1249`, but the panel UI is not yet implemented. The layout below is the design contract; reconcile the row order, column headers, and any chip types against the eventual `src/ui/personnel_panel.rs` once it lands.
@@ -687,6 +717,8 @@ The dossier SURVEY tab uses the following theme tokens (all defined in `src/ui/t
 - `theme::SURVEY_TIER_ACTIVE` — in-progress segment (the one being filled by an active mission).
 - `theme::SURVEY_TIER_UNDISCOVERED` — tier-0 segments (uses the "no data" tint).
 - `theme::ANOMALY_CANDIDATE` / `ANOMALY_VERIFIED` / `ANOMALY_REFUTED` — the status glyph colors.
+
+> **Preview / design contract.** As of v0.5.0 these tokens are the *forward-looking* contract for the dossier SURVEY branch. The current `src/ui/dossier_panel.rs` ships with hardcoded `Color32::from_rgba_premultiplied(...)` literals (8 entries in `scripts/audit_color32_literals_baseline.txt` for `dossier_panel.rs`) — the audit tolerates them via the baseline file, not because they have been promoted to theme tokens. A future PR should (a) add the six `theme::SURVEY_*` / `theme::ANOMALY_*` constants to `src/ui/theme.rs` and (b) replace the baseline-allowed literals in `dossier_panel.rs`'s SURVEY branch with the named tokens. The lint rule below remains in force: no *new* `Color32` literals may be added to the SURVEY branch.
 
 No `Color32` literals are allowed in `dossier_panel.rs`'s SURVEY branch; the audit (`scripts/audit_color32_literals.py`) is run in CI and any new literal must be lifted to a theme token first.
 
@@ -765,36 +797,6 @@ When `src/ui/personnel_panel.rs` lands, the doc above should be reconciled again
 - **Hire dialog source** (the design contract assumes `hire_scientists` can be called explicitly; if the Coder keeps it milestone-only, the `[Hire]` button is gated and disabled with a tooltip explaining the trigger).
 
 A 1-row or 3-row table edit is the worst case. The modder surface (`assets/data/personnel_specialties.ron`, the eight specialty variants, the seniority enum) is stable on `main` and should not drift.
-
-## 7. Troubleshooting
-
-### 7.1 UI not responding
-
-- Check if time is paused.
-- Ensure you've selected the correct colony / body.
-- Try clicking away and reselecting.
-
-### 7.2 Missing information
-
-- Some data requires specific technologies to be researched.
-- Mineral deposits require survey operations.
-- Resource information needs time to update after changes.
-
-### 7.3 Performance issues
-
-- Close unused panels.
-- Zoom closer when not using starmap.
-- Lower time acceleration if simulation is slow.
-
-### 7.4 CI fails the UI token lint
-
-- Run `python3 scripts/audit_color32_literals.py` locally to see what
-  regressed. New violations show with `[NEW]`.
-- Either move the literal to a `theme.rs` constant, or (only for true
-  one-off values) add it to the baseline file with a one-line justification
-  in the PR description.
-- Re-run `python3 scripts/audit_color32_literals.py --strict --baseline
-  scripts/audit_color32_literals_baseline.txt` before pushing.
 
 ## 9. Layout Patterns
 
