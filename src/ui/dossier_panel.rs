@@ -3491,8 +3491,7 @@ fn draw_orbital_station_section<'w, I>(
         body_entity,
         body_name,
         stations,
-    )
-    else {
+    ) else {
         // No active station — hide the section entirely. The
         // body dossier would otherwise grow a useless empty
         // "ORBITAL SURVEY STATIONS" header on every body that
@@ -3733,7 +3732,7 @@ mod tests {
             "Mars",
             stations,
         )
-            .expect("Mars with an active bonus should produce a summary");
+        .expect("Mars with an active bonus should produce a summary");
 
         assert_eq!(summary.body_name, "Mars");
         assert_eq!(summary.tier_list(), "T1, T1");
