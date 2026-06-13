@@ -28,7 +28,8 @@
 
 use crate::economy::components::{MineralDeposit, ResourceReserve, SurveyLevel};
 use crate::economy::types::ResourceType;
-use crate::survey::components::{DimensionFidelity, SurveyDimension, SurveyState};
+use crate::survey::components::{DimensionFidelity, SurveyState};
+use crate::survey::types::SurveyDimension;
 
 /// Per-tier label used by the dossier's `draw_reveal_matrix` render
 /// function. Modders can add new tier labels by extending this enum,
@@ -389,7 +390,7 @@ pub fn body_aggregate_tier_breakdown(
             revealed: any_revealed[2],
         },
     ]
-    .map(|mut reveal| {
+    .map(|reveal| {
         // Drop the resource-count bookkeeping — the dossier's
         // render fn reads `revealed` / `megatons` / `concentration`
         // and surfaces the per-body counts separately.
@@ -415,15 +416,11 @@ pub fn is_follow_up_only_resource(resource: ResourceType) -> bool {
     )
 }
 
-#[allow(dead_code)]
-const fn _dimension_tier_is_known(_f: DimensionFidelity) -> bool {
-    _f.is_known()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::economy::components::{MineralDeposit, ResourcePhase, ResourceReserve};
+    use crate::economy::components::{MineralDeposit, ResourceReserve};
+    use crate::economy::types::ResourcePhase;
 
     fn make_state(mineral_tier: u8, subsurface_tier: u8, drill_done: u32) -> SurveyState {
         let mut s = SurveyState::default();
@@ -605,7 +602,7 @@ mod tests {
             mineral_deposit(mineral_reserve(100.0, 200.0, 300.0)),
         );
         deposits.insert(
-            ResourceType::Silicon,
+            ResourceType::Silicates,
             mineral_deposit(mineral_reserve(50.0, 80.0, 120.0)),
         );
         resources.deposits = deposits;
