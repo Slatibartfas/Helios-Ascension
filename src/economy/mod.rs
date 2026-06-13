@@ -15,6 +15,7 @@ pub mod auto_freight;
 pub mod budget;
 pub mod company;
 pub mod components;
+pub mod discovery;
 pub mod generation;
 pub mod history;
 pub mod logistics;
@@ -40,6 +41,10 @@ pub use company::{ShippingCompanies, ShippingCompany};
 pub use components::{
     LocalStockpile, MineralDeposit, OrbitsBody, PlanetResources, PowerGenerator, PowerSourceType,
     SpectralClass, StarSystem,
+};
+pub use discovery::{
+    body_aggregate_tier_breakdown, is_follow_up_only_resource, tier_breakdown_for_reserve,
+    TierLabel, TierReveal, RESERVE_PRESENT_THRESHOLD,
 };
 pub use generation::{
     generate_ring_resources, generate_solar_system_resources, init_procedural_rng, ProceduralRng,

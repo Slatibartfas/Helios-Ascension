@@ -19,7 +19,8 @@ use super::dashboard::{format_mass, format_mass_compact, format_rate_monthly};
 use super::resources_bar::format_population;
 use super::tab::Tab;
 use super::theme::{
-    self, ACCENT, ACCENT_DIM, AMBER, BG, BORDER, GREEN, RED, SURFACE, TEXT_DIM, TEXT_VALUE,
+    self, ACCENT, ACCENT_DIM, AMBER, BG, BORDER, BORDER_DIM, GREEN, RED, SURFACE, TEXT_DIM,
+    TEXT_VALUE,
 };
 use super::*;
 use crate::astronomy::components::{
@@ -27,6 +28,9 @@ use crate::astronomy::components::{
 };
 use crate::astronomy::nearby_stars::NearbyStarsData;
 use crate::economy::components::{SpectralClass, StarSystem};
+use crate::economy::discovery::{
+    body_aggregate_tier_breakdown, is_follow_up_only_resource, TierLabel, TierReveal,
+};
 use crate::economy::mining::MiningOperation;
 use crate::plugins::solar_system_data::{AsteroidClass, BodyType};
 use crate::survey::components::{
@@ -146,10 +150,12 @@ pub(super) struct DossierUiParams<'w, 's> {
             Option<&'static SurveyState>,
         ),
     >,
-    /// `SurveyLevel` is the one body component the dossier mutates in
-    /// place (the "UPGRADE" button). Splitting it out keeps the
-    /// immutable body tuple at 15 components.
-    pub survey_level_query: Query<'w, 's, &'static mut SurveyLevel>,
+    /// `SurveyLevel` is the dossier's *display* adapter. The v0.5.0
+    /// `SurveyState` is the source of truth; the dossier derives a
+    /// `SurveyLevel` for the status badge and the resource-grid
+    /// fidelity slicing. The UI never mutates this enum — the legacy
+    /// click-to-upgrade button was removed in GRA-107.
+    pub survey_level_query: Query<'w, 's, &'static SurveyLevel>,
     pub parent_coords_query: Query<'w, 's, &'static SpaceCoordinates>,
     pub all_bodies_query: Query<
         'w,
@@ -242,8 +248,7 @@ pub(super) fn ui_planet_dossier(mut params: DossierUiParams) {
     else {
         return;
     };
-    let mut survey_level_bind = params.survey_level_query.get_mut(entity).ok();
-    let survey_level_opt: Option<&mut SurveyLevel> = survey_level_bind.as_deref_mut();
+    let survey_level_opt: Option<&SurveyLevel> = params.survey_level_query.get(entity).ok();
 
     egui::SidePanel::right("selection_panel")
         .min_width(340.0)
@@ -1455,23 +1460,54 @@ fn draw_ocean_section(ui: &mut egui::Ui, ocean: &OceanProperties) {
 
 // ─── Resource Grid ───────────────────────────────────────────────────────
 
+/// Derive a [`SurveyLevel`] for the dossier status badge and the
+/// resource-grid fidelity slicing.
+///
+/// v0.5.0: the source of truth is [`SurveyState`] (per-body multi-axis
+/// dimensions). We map the state's `average_tier()` to a legacy enum
+/// value so the deposit grid, the resource tile tooltips, and the
+/// status label all show a consistent "ORBITAL / SEISMIC / CORE SAMPLE"
+/// reading. The legacy `SurveyLevel` component is still attached to
+/// bodies at game start (e.g. Earth → `CoreSample`) — we prefer it when
+/// no `SurveyState` is present yet (Phase 1 migration window per
+/// SURVEY_REWORK.md §15).
+fn effective_survey_level(legacy: Option<SurveyLevel>, state: Option<&SurveyState>) -> SurveyLevel {
+    if let Some(s) = state {
+        let avg = s.average_tier();
+        if avg >= 0.99 {
+            SurveyLevel::CoreSample
+        } else if avg >= 0.39 {
+            SurveyLevel::SeismicSurvey
+        } else if avg > 0.0 || s.has_active_missions() {
+            SurveyLevel::OrbitalScan
+        } else {
+            legacy.unwrap_or(SurveyLevel::Unsurveyed)
+        }
+    } else {
+        legacy.unwrap_or(SurveyLevel::Unsurveyed)
+    }
+}
+
 fn draw_resource_section(
     ui: &mut egui::Ui,
     entity: Entity,
     body_name: &str,
     resources: &PlanetResources,
-    survey_level: Option<&mut SurveyLevel>,
+    survey_level: Option<&SurveyLevel>,
     survey_state: Option<&SurveyState>,
     commands: &mut Commands,
     rate_tracker: &ResourceRateTracker,
     mission_templates: &SurveyMissionTemplates,
     view: DossierResourceView,
 ) {
-    // Survey status
-    let current_level = survey_level
-        .as_deref()
-        .copied()
-        .unwrap_or(SurveyLevel::Unsurveyed);
+    // Survey status — derived from the v0.5.0 `SurveyState` (preferred)
+    // or the legacy `SurveyLevel` (fallback, e.g. for Earth which boots
+    // at `CoreSample` via `src/plugins/solar_system.rs`). The UI no
+    // longer mutates this enum; the legacy click-to-upgrade button was
+    // removed in GRA-107. See SURVEY_REWORK.md §15 Phase 2: "the new
+    // system is the only way to advance past `OrbitalScan` for new
+    // bodies."
+    let current_level = effective_survey_level(survey_level.copied(), survey_state);
 
     ui.horizontal(|ui| {
         ui.label(
@@ -1490,39 +1526,26 @@ fn draw_resource_section(
                 .font(mono_font(11.0))
                 .color(level_color),
         );
-
-        // Upgrade button
-        if let Some(survey) = survey_level {
-            if *survey != SurveyLevel::CoreSample
-                && ui
-                    .small_button(
-                        egui::RichText::new("\u{25B2} UPGRADE")
-                            .font(mono_font(9.0))
-                            .color(ACCENT),
-                    )
-                    .clicked()
-            {
-                *survey = match *survey {
-                    SurveyLevel::Unsurveyed => SurveyLevel::OrbitalScan,
-                    SurveyLevel::OrbitalScan => SurveyLevel::SeismicSurvey,
-                    SurveyLevel::SeismicSurvey => SurveyLevel::CoreSample,
-                    _ => SurveyLevel::CoreSample,
-                };
-            }
-        } else if ui
-            .small_button(
-                egui::RichText::new("\u{25CE} INIT SCAN")
-                    .font(mono_font(9.0))
-                    .color(ACCENT),
-            )
-            .clicked()
-        {
-            commands.entity(entity).insert(SurveyLevel::OrbitalScan);
-        }
     });
 
+    // Only show the dispatch + deposits sections when survey has begun.
+    // Bodies with neither legacy level nor a v0.5.0 `SurveyState` get
+    // a hint pointing at the new system (dispatch a mission).
     if current_level == SurveyLevel::Unsurveyed {
-        ui.colored_label(TEXT_DIM, "Perform orbital scan to detect resources.");
+        ui.colored_label(
+            TEXT_DIM,
+            "Dispatch a survey mission to begin resource detection.",
+        );
+        if let Some(state) = survey_state {
+            // Edge case: a fresh `SurveyState` was inserted but no
+            // dimension has been measured yet — show the active-mission
+            // / dispatch UI so the player isn't dead-ended.
+            if state.dimensions.is_empty() && state.active_missions.is_empty() {
+                ui.add_space(theme::Spacing::xs);
+                theme::section_h3(ui, "DISPATCH MISSION");
+                draw_dispatch_mission_picker(ui, entity, body_name, mission_templates, commands);
+            }
+        }
         return;
     }
 
@@ -1571,8 +1594,23 @@ fn draw_resource_section(
         }
     }
 
+    // GRA-111: REVEAL MATRIX sub-section — per-resource 3-row
+    // sub-tables + body-aggregate header. The matrix is the
+    // dossier's data-driven view of the SURVEY_REWORK.md
+    // §Resource Reveal Matrix spec. Visual hierarchy now reads as
+    // `[RESOURCES] → [DEPOSITS] → [REVEAL MATRIX] → [SUMMARY]`.
+    //
+    // The matrix is the canonical ByCategory-only surface (the
+    // compact view is a summary, the 3-tier detail lives in the
+    // grid). Skip the section in the compact tab to keep the
+    // compact view flat.
+    if matches!(view, DossierResourceView::ByCategory) {
+        ui.add_space(theme::Spacing::xs);
+        draw_reveal_matrix(ui, resources, survey_state);
+    }
+
     // Summary line — `section_h3` frames the totals so the visual
-    // hierarchy reads as [RESOURCES] → [DEPOSITS] → [SUMMARY].
+    // hierarchy reads as [RESOURCES] → [DEPOSITS] → [REVEAL MATRIX] → [SUMMARY].
     ui.add_space(theme::Spacing::xs);
     theme::section_h3(ui, "SUMMARY");
     ui.label(
@@ -2143,6 +2181,257 @@ fn draw_resource_grid(
         });
 
         ui.add_space(2.0);
+    }
+}
+
+/// GRA-111: per-resource 3-row sub-tables + body-aggregate header row
+/// showing the discovery state of the body's `ResourceReserve` per
+/// depth tier (Proven Crustal / Deep Deposits / Planetary Bulk).
+///
+/// Lives between `draw_resource_grid` (the deposit tiles) and the
+/// `SUMMARY` section. Visual hierarchy: `[RESOURCES] → [DEPOSITS] →
+/// [REVEAL MATRIX] → [SUMMARY]`. The matrix is the
+/// data-driven `SURVEY_REWORK.md` §Resource Reveal Matrix spec
+/// in the dossier — three rows per resource, one per tier, dimmed
+/// when the body's `SurveyState` has not reached the tier.
+///
+/// Tier colour signature (matches the existing `SurveyLevel` palette
+/// at `dossier_panel.rs:1513-1518`):
+/// - T1 = `egui::Color32::LIGHT_BLUE`
+/// - T2 = `egui::Color32::YELLOW` (the `SeismicSurvey` chip uses YELLOW)
+/// - T3 = `GREEN_ACCENT`
+fn draw_reveal_matrix(
+    ui: &mut egui::Ui,
+    resources: &PlanetResources,
+    survey_state: Option<&SurveyState>,
+) {
+    // Filter to resources that have any deposit at all (above the
+    // existing 0.001 Mt threshold). A body with no deposits at any
+    // tier is degenerate; we skip the section rather than render a
+    // 3-row all-dimmed stub.
+    let relevant: Vec<(ResourceType, &MineralDeposit)> = resources
+        .deposits
+        .iter()
+        .filter(|(_, d)| d.reserve.total_mass() > 0.001)
+        .map(|(r, d)| (*r, d))
+        .collect();
+
+    if relevant.is_empty() {
+        return;
+    }
+
+    // Body-aggregate header row — collapses the per-resource
+    // breakdowns into a single 3-row "Mars total" view, so the
+    // player can see the at-a-glance total without scrolling.
+    let aggregate = body_aggregate_tier_breakdown(resources, survey_state);
+
+    // ── Body-aggregate header row ─────────────────────────────────
+    theme::section_h3(ui, "REVEAL MATRIX");
+    ui.horizontal(|ui| {
+        for (i, label) in TierLabel::ALL.iter().enumerate() {
+            let color = tier_color_for_label(*label);
+            ui.label(
+                egui::RichText::new(label.tier_badge())
+                    .font(mono_font(9.0))
+                    .color(color),
+            );
+            ui.label(
+                egui::RichText::new(label.display(false))
+                    .font(mono_font(10.0))
+                    .color(TEXT_DIM),
+            );
+            draw_tier_reveal_value(ui, &aggregate[i], format_mass_compact, "v0.5.x follow-up");
+            if i + 1 < TierLabel::ALL.len() {
+                ui.label(
+                    egui::RichText::new("\u{2502}")
+                        .font(mono_font(10.0))
+                        .color(BORDER_DIM),
+                );
+            }
+        }
+    });
+    ui.add_space(theme::Spacing::xs);
+
+    // ── Per-resource 3-row sub-tables ─────────────────────────────
+    // Resources with `is_follow_up_only == true` (e.g. He-3) collapse
+    // to a single dimmed row per LGD design contract. We use a
+    // static allowlist for v0.5.0; modder-facing `follow_up_only: bool`
+    // in the RON data is parked for v0.5.x.
+    for (resource, deposit) in &relevant {
+        if is_follow_up_only_resource(*resource) || deposit.is_atmospheric {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(resource.symbol())
+                        .font(mono_font(11.0))
+                        .color(ACCENT),
+                );
+                ui.label(
+                    egui::RichText::new(resource.display_name())
+                        .font(mono_font(10.0))
+                        .color(TEXT_DIM),
+                );
+                ui.label(
+                    egui::RichText::new("\u{2014} v0.5.x follow-up")
+                        .font(mono_font(9.0))
+                        .color(TEXT_DIM)
+                        .italics(),
+                );
+            });
+            continue;
+        }
+
+        let tiers = deposit.tier_breakdown(survey_state);
+
+        // Per-resource 3-row sub-table. The 3 rows are in
+        // `TierLabel::ALL` order: Proven Crustal (T1), Deep
+        // Deposits (T2), Planetary Bulk (T3). The leading chevron
+        // matches the active/dimmed visual state.
+        egui::Grid::new(format!("reveal_matrix_{}", resource.symbol()))
+            .num_columns(4)
+            .spacing([12.0, 2.0])
+            .show(ui, |ui| {
+                for (i, label) in TierLabel::ALL.iter().enumerate() {
+                    let reveal = &tiers[i];
+                    let color = tier_color_for_label(*label);
+
+                    // Leading chevron — `▶` when the tier is
+                    // revealed, `▢` (outline) when gated. The
+                    // colour is the tier's signature (so a fully
+                    // revealed body reads as `[▶][▶][▶]` in the
+                    // 3-tier colour progression).
+                    let (chevron, chevron_color) = if reveal.revealed {
+                        ("\u{25B6}", color)
+                    } else {
+                        ("\u{25A2}", BORDER_DIM)
+                    };
+                    ui.label(
+                        egui::RichText::new(chevron)
+                            .font(mono_font(10.0))
+                            .color(chevron_color),
+                    );
+
+                    // Row label — the tier's display name (or the
+                    // atmospheric variant). Dimmed + italic when
+                    // the tier is not revealed.
+                    let label_text = deposit.tier_label(*label);
+                    let label_color = if reveal.revealed {
+                        TEXT_VALUE
+                    } else {
+                        TEXT_DIM
+                    };
+                    let mut rich = egui::RichText::new(label_text)
+                        .font(mono_font(10.0))
+                        .color(label_color);
+                    if !reveal.revealed {
+                        rich = rich.italics();
+                    }
+                    ui.label(rich);
+
+                    // Mass value — `format_mass_compact` when
+                    // revealed, em-dash (U+2014) otherwise. The
+                    // threshold text replaces the mass slot when
+                    // gated so the player sees what to survey.
+                    if reveal.revealed {
+                        let mt = reveal.megatons.unwrap_or(0.0);
+                        ui.label(
+                            egui::RichText::new(format_mass_compact(mt))
+                                .font(mono_font(10.0))
+                                .color(TEXT_VALUE),
+                        );
+                        // Concentration shown only for mineral
+                        // rows (atmospheric collapses earlier).
+                        if let Some(conc) = reveal.concentration {
+                            let conc_text = format_concentration(conc);
+                            ui.label(
+                                egui::RichText::new(conc_text)
+                                    .font(mono_font(9.0))
+                                    .color(TEXT_DIM),
+                            );
+                        } else {
+                            ui.label(egui::RichText::new("").font(mono_font(9.0)).color(TEXT_DIM));
+                        }
+                    } else {
+                        ui.label(
+                            egui::RichText::new("\u{2014}")
+                                .font(mono_font(10.0))
+                                .color(TEXT_DIM),
+                        );
+                        ui.label(
+                            egui::RichText::new(label.threshold_text())
+                                .font(mono_font(9.0))
+                                .color(TEXT_DIM)
+                                .italics(),
+                        );
+                    }
+
+                    ui.end_row();
+                }
+            });
+
+        ui.add_space(theme::Spacing::xs);
+    }
+}
+
+/// Helper for the body-aggregate header row. Renders either the
+/// mass value (when revealed) or the em-dash placeholder. Kept
+/// separate so the per-resource sub-table can stay focused on its
+/// own 4-column grid layout.
+fn draw_tier_reveal_value(
+    ui: &mut egui::Ui,
+    reveal: &TierReveal,
+    format_mass: fn(f64) -> String,
+    follow_up_text: &str,
+) {
+    if reveal.revealed {
+        let mt = reveal.megatons.unwrap_or(0.0);
+        ui.label(
+            egui::RichText::new(format_mass(mt))
+                .font(mono_font(10.0))
+                .color(TEXT_VALUE),
+        );
+    } else {
+        // An aggregate row that's not revealed surfaces the
+        // threshold text instead of the em-dash, mirroring the
+        // per-resource row behaviour. The follow-up text is
+        // reserved for resources that don't have a 3-tier mining
+        // path (currently unused at the aggregate level).
+        let _ = follow_up_text;
+        ui.label(
+            egui::RichText::new("\u{2014}")
+                .font(mono_font(10.0))
+                .color(TEXT_DIM),
+        );
+    }
+}
+
+/// Tier → colour signature mapping. Mirrors the existing dossier
+/// palette at `dossier_panel.rs:1513-1518` (the `SurveyLevel`
+/// status badge). T1 = OrbitalScan, T2 = SeismicSurvey, T3 =
+/// CoreSample. Per LGD design contract: no new colour tokens —
+/// the player already knows the ORBITAL/SEISMIC/CORE colour from
+/// the legacy header badge.
+fn tier_color_for_label(label: TierLabel) -> egui::Color32 {
+    match label {
+        TierLabel::ProvenCrustal => egui::Color32::LIGHT_BLUE,
+        TierLabel::DeepDeposits => egui::Color32::YELLOW,
+        TierLabel::PlanetaryBulk => GREEN_ACCENT,
+    }
+}
+
+/// Format a concentration value as a percentage / ppm / ppb / e-format
+/// string. Mirrors the `conc_text` block at
+/// `dossier_panel.rs:2134-2142` so the matrix matches the existing
+/// dossier tooltip formatting.
+fn format_concentration(conc: f32) -> String {
+    let conc = conc.clamp(0.0, 1.0);
+    if conc >= 0.01 {
+        format!("{:.1}%", conc * 100.0)
+    } else if conc >= 0.000_01 {
+        format!("{:.1} ppm", conc * 1_000_000.0)
+    } else if conc >= 0.000_000_01 {
+        format!("{:.2} ppb", conc * 1_000_000_000.0)
+    } else {
+        format!("{conc:.2e}")
     }
 }
 

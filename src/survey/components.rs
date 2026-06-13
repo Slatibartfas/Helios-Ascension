@@ -145,6 +145,18 @@ pub struct SurveyState {
     /// simulation day (avoids re-rolling sites every frame as
     /// confidence rises).
     pub last_landing_site_eval_sim_time: f64,
+    /// GRA-111: count of `SurveyMethod::Drill` missions that have
+    /// successfully completed on this body. Drives the T3
+    /// (Planetary Bulk) unlock gate: a body needs
+    /// `SubsurfaceStructure.tier >= 5` **and** at least one
+    /// completed drill mission before the planetary-bulk estimate
+    /// is shown as "proved" in the dossier's 3-tier reveal matrix.
+    /// Incremented by the mission-completion system on a
+    /// `MissionOutcome::Success` whose `method == SurveyMethod::Drill`.
+    /// See [`crate::economy::discovery::tier_breakdown`] for the
+    /// gate logic.
+    #[serde(default)]
+    pub drill_missions_completed: u32,
     /// Failed mission notifications surfaced in the dossier
     /// SURVEY tab. PR-G (GRA-85) populates this when a mission
     /// finalises in the `Failed` state. The dossier "FAILED
@@ -173,6 +185,7 @@ impl Default for SurveyState {
             landing_sites: Vec::new(),
             extraction_sites: Vec::new(),
             last_landing_site_eval_sim_time: 0.0,
+            drill_missions_completed: 0,
             failed_mission_notifications: Vec::new(),
         }
     }
@@ -206,6 +219,11 @@ impl SurveyState {
             landing_sites: Vec::new(),
             extraction_sites: Vec::new(),
             last_landing_site_eval_sim_time: 0.0,
+            // A body that booted at `CoreSample` (Earth) is treated
+            // as having a completed drill mission in the past — the
+            // tier-3 (Planetary Bulk) gate is open by default. PR-A
+            // tests rely on this so the legacy shim path is closed.
+            drill_missions_completed: 1,
             failed_mission_notifications: Vec::new(),
         }
     }
@@ -257,6 +275,7 @@ impl SurveyState {
             landing_sites: Vec::new(),
             extraction_sites: Vec::new(),
             last_landing_site_eval_sim_time: 0.0,
+            drill_missions_completed: 0,
             failed_mission_notifications: Vec::new(),
         }
     }
@@ -307,6 +326,22 @@ impl SurveyState {
     /// Whether at least one mission is currently running.
     pub fn has_active_missions(&self) -> bool {
         !self.active_missions.is_empty()
+    }
+
+    /// GRA-111: record a successful drill mission on this body. Called
+    /// by `finalize_mission` when `method == SurveyMethod::Drill` and
+    /// the outcome is `Success`. Saturates at `u32::MAX` for safety.
+    /// Drives the T3 (Planetary Bulk) unlock gate.
+    pub fn record_drill_mission_completed(&mut self) {
+        self.drill_missions_completed = self.drill_missions_completed.saturating_add(1);
+    }
+
+    /// GRA-111: whether the T3 (Planetary Bulk) gate is open — i.e.
+    /// `SubsurfaceStructure.tier >= 5` **and** at least one drill
+    /// mission has completed. Used by the dossier's reveal-matrix
+    /// `tier_breakdown` helper.
+    pub fn planetary_bulk_unlocked(&self) -> bool {
+        self.drill_missions_completed >= 1 && self.fidelity(SurveyDimension::Subsurface).tier >= 5
     }
 
     /// Landing-site evaluation coverage in `0.0..=1.0`.
