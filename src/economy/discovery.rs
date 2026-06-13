@@ -332,7 +332,6 @@ pub fn body_aggregate_tier_breakdown(
     resources: &crate::economy::components::PlanetResources,
     state: Option<&SurveyState>,
 ) -> [TierReveal; 3] {
-    let mut counts = [0u32; 3];
     let mut total_megatons = [0.0_f64; 3];
     let mut max_concentration = [None; 3];
     let mut any_revealed = [false; 3];
@@ -342,7 +341,6 @@ pub fn body_aggregate_tier_breakdown(
         for (i, reveal) in breakdown.iter().enumerate() {
             if reveal.revealed {
                 any_revealed[i] = true;
-                counts[i] += 1;
                 if let Some(mt) = reveal.megatons {
                     total_megatons[i] += mt;
                 }
@@ -389,13 +387,6 @@ pub fn body_aggregate_tier_breakdown(
             revealed: any_revealed[2],
         },
     ]
-    .map(|reveal| {
-        // Drop the resource-count bookkeeping — the dossier's
-        // render fn reads `revealed` / `megatons` / `concentration`
-        // and surfaces the per-body counts separately.
-        let _ = counts;
-        reveal
-    })
 }
 
 /// Resource-type helper: returns `true` for `ResourceType`s that
