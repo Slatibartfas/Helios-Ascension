@@ -27,6 +27,7 @@ use crate::astronomy::components::{
     AtmosphericGas, OceanProperties, OceanType, StellarProperties, SurfaceTemperature,
 };
 use crate::astronomy::nearby_stars::NearbyStarsData;
+use crate::economy::components::SurveyLevel;
 use crate::economy::components::{SpectralClass, StarSystem};
 use crate::economy::discovery::{
     body_aggregate_tier_breakdown, is_follow_up_only_resource, TierLabel, TierReveal,
@@ -37,11 +38,15 @@ use crate::survey::components::{
     ActiveSurveyMission, ContinuousStationBonus, ContinuousSurveyStation, FailedMissionRecord,
     SurveyState,
 };
-use crate::survey::data::SurveyMissionTemplates;
+use crate::survey::data::{SurveyMissionTemplate, SurveyMissionTemplates};
 use crate::survey::events::{AbortSurveyMission, DismissFailedMission, DispatchSurveyMission};
-use crate::survey::types::{MissionFailureReason, MissionStatus};
+use crate::survey::types::{
+    AnomalyState, MissionFailureReason, MissionStatus, SurveyDimension, MAX_TIER, STALE_CONFIDENCE,
+    WARNING_CONFIDENCE,
+};
 use bevy::ecs::system::SystemParam;
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::f32::consts::TAU;
 
 /// Format asteroid class for display with description
@@ -329,6 +334,36 @@ pub(super) fn ui_planet_dossier(mut params: DossierUiParams) {
                         }
                     }
 
+                    // Compute the v0.5.0 effective level once at the
+                    // dossier level so the SURVEY ledger's status badge
+                    // and the RESOURCES grid's fidelity slicing both
+                    // share the same source of truth (the legacy
+                    // click-to-upgrade button was removed in GRA-107).
+                    let current_level =
+                        effective_survey_level(survey_level_opt.copied(), survey_state);
+
+                    // ── Survey Ledger (SURVEY_REWORK.md §10) ──────
+                    // PR-F (GRA-108): the dossier gains a top-level
+                    // SURVEY section. The legacy layout buried survey
+                    // content (status / active missions / dispatch) inside
+                    // the RESOURCES ledger; §10 lifts them out into their
+                    // own `theme::ledger_panel` shell. The deposit grid
+                    // stays in RESOURCES (issue AC #8).
+                    if let Some(state) = survey_state {
+                        section_divider(ui);
+                        theme::ledger_panel(ui, "dossier_survey", "SURVEY", &(), |ui| {
+                            draw_survey_section(
+                                ui,
+                                entity,
+                                &body.name,
+                                state,
+                                current_level,
+                                &mut params.commands,
+                                &params.mission_templates,
+                            );
+                        });
+                    }
+
                     // ── Resource Grid ───────────────────────────────
                     if let Some(res) = resources {
                         section_divider(ui);
@@ -356,13 +391,10 @@ pub(super) fn ui_planet_dossier(mut params: DossierUiParams) {
                             draw_resource_section(
                                 ui,
                                 entity,
-                                &body.name,
                                 res,
-                                survey_level_opt,
-                                survey_state,
-                                &mut params.commands,
+                                current_level,
                                 &params.rate_tracker,
-                                &params.mission_templates,
+                                survey_state,
                                 next,
                             );
                         });
@@ -1458,6 +1490,358 @@ fn draw_ocean_section(ui: &mut egui::Ui, ocean: &OceanProperties) {
     });
 }
 
+// ─── Survey Ledger (SURVEY_REWORK.md §10) ────────────────────────────────
+
+/// Render the dossier's top-level SURVEY ledger. Layout follows
+/// `docs/design/SURVEY_REWORK.md` §10 verbatim:
+///
+/// ```text
+/// Progress: 32% (target: 100%)
+/// Scientists assigned: 3
+/// Active missions: 2
+/// Status: ORBITAL                    (read-only badge; GRA-107)
+/// DIMENSIONS                          TIER   CONFIDENCE   BAR
+/// ● Orbital mechanics                 5/5   98%  ▓▓▓▓▓
+/// ● Atmosphere                        4/5   82%  ▓▓▓▓▓
+/// …
+/// RECOMMENDED NEXT STEP
+/// → Surface lander at equatorial site
+///   Targeting Subsurface; tier 0→2 over ~730 sim-days.
+/// ACTIVE MISSIONS
+/// • Orbital satellite "Mare Imbrium 1" (…)
+/// FAILED MISSIONS                     (PR-G, hidden when empty)
+/// • "Ariel-2" ROVER STUCK on sim-day 1,234
+/// ANOMALIES DETECTED
+/// • "Anomalous reflectance, suspected hydrated silicates" 65% SUSPECTED
+/// DISPATCH MISSION
+/// [pick template ▼] [DISPATCH]
+/// ```
+///
+/// The deposit grid stays in the RESOURCES section (per the issue
+/// out-of-scope note). This function reuses `draw_active_missions_list`
+/// and `draw_failed_missions_list` so mission-state rendering lives in
+/// one place across the dossier.
+#[allow(clippy::too_many_arguments)]
+fn draw_survey_section(
+    ui: &mut egui::Ui,
+    body: Entity,
+    body_name: &str,
+    state: &SurveyState,
+    current_level: SurveyLevel,
+    commands: &mut Commands,
+    mission_templates: &SurveyMissionTemplates,
+) {
+    // ── Progress % ─────────────────────────────────────────────
+    // `state.average_tier()` is the per-dimension weighted average
+    // (normalised over all 8 dimensions and `MAX_TIER`). 100% means
+    // every dim is fully characterised.
+    let progress_pct = (state.average_tier() * 100.0).round() as u32;
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new("PROGRESS")
+                .font(mono_font(10.0))
+                .color(TEXT_DIM),
+        );
+        ui.label(
+            egui::RichText::new(format!("{progress_pct}%"))
+                .font(mono_font(11.0))
+                .color(TEXT_VALUE),
+        );
+        ui.label(
+            egui::RichText::new("(target: 100%)")
+                .font(mono_font(9.0))
+                .color(TEXT_DIM),
+        );
+    });
+
+    // ── Scientists assigned (deduped across active missions) ────
+    // `ActiveSurveyMission::assigned_scientists: Vec<ScientistId>` is
+    // a per-mission roster; a single scientist on two missions should
+    // count once. A future GRA may also want scientists who are
+    // "assigned" to a body but not yet on a mission; the
+    // LGD-coordinated `recommended_survey_action` helper can widen
+    // the heuristic when the personnel-roster data model supports it.
+    let assigned_scientist_ids: HashSet<u64> = state
+        .active_missions
+        .iter()
+        .flat_map(|m| m.assigned_scientists.iter().copied())
+        .collect();
+    let active_mission_count = state
+        .active_missions
+        .iter()
+        .filter(|m| m.status.is_in_progress())
+        .count();
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new("SCIENTISTS ASSIGNED")
+                .font(mono_font(10.0))
+                .color(TEXT_DIM),
+        );
+        ui.label(
+            egui::RichText::new(format!("{}", assigned_scientist_ids.len()))
+                .font(mono_font(11.0))
+                .color(TEXT_VALUE),
+        );
+    });
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new("ACTIVE MISSIONS")
+                .font(mono_font(10.0))
+                .color(TEXT_DIM),
+        );
+        ui.label(
+            egui::RichText::new(format!("{active_mission_count}"))
+                .font(mono_font(11.0))
+                .color(TEXT_VALUE),
+        );
+    });
+
+    // ── Status badge (read-only; GRA-107 removed the click-to-cycle) ──
+    let (status_color, status_label) = match current_level {
+        SurveyLevel::Unsurveyed => (TEXT_DIM, "UNSURVEYED"),
+        SurveyLevel::OrbitalScan => (egui::Color32::LIGHT_BLUE, "ORBITAL"),
+        SurveyLevel::SeismicSurvey => (egui::Color32::YELLOW, "SEISMIC"),
+        SurveyLevel::CoreSample => (GREEN_ACCENT, "CORE SAMPLE"),
+    };
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new("STATUS")
+                .font(mono_font(10.0))
+                .color(TEXT_DIM),
+        );
+        ui.label(
+            egui::RichText::new(status_label)
+                .font(mono_font(11.0))
+                .color(status_color),
+        );
+    });
+
+    ui.add_space(theme::Spacing::xs);
+
+    // ── Dimensions table ───────────────────────────────────────
+    // 8 rows, canonical order from `SurveyDimension::ALL`. Per-row
+    // dot (filled if tier > 0) + display name + tier + confidence + 5-cell
+    // bar — the visual hits the §10 ASCII diagram.
+    theme::section_h3(ui, "DIMENSIONS");
+    egui::Grid::new("survey_dimensions_grid")
+        .num_columns(4)
+        .spacing([8.0, 4.0])
+        .min_col_width(0.0)
+        .show(ui, |ui| {
+            ui.label(
+                egui::RichText::new("DIMENSION")
+                    .font(mono_font(9.0))
+                    .color(TEXT_DIM),
+            );
+            ui.label(
+                egui::RichText::new("TIER")
+                    .font(mono_font(9.0))
+                    .color(TEXT_DIM),
+            );
+            ui.label(
+                egui::RichText::new("CONF.")
+                    .font(mono_font(9.0))
+                    .color(TEXT_DIM),
+            );
+            ui.label(
+                egui::RichText::new("BAR")
+                    .font(mono_font(9.0))
+                    .color(TEXT_DIM),
+            );
+            ui.end_row();
+
+            for dim in SurveyDimension::ALL {
+                let fidelity = state.fidelity(dim);
+                let known = fidelity.is_known();
+                let dot = if known { '●' } else { '○' };
+                let dot_color = if known { ACCENT } else { TEXT_DIM };
+
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(dot)
+                            .font(mono_font(11.0))
+                            .color(dot_color),
+                    );
+                    ui.label(
+                        egui::RichText::new(dim.display_name())
+                            .font(mono_font(10.0))
+                            .color(TEXT_VALUE),
+                    );
+                });
+                ui.label(
+                    egui::RichText::new(format!("{}/{}", fidelity.tier, MAX_TIER))
+                        .font(mono_font(10.0))
+                        .color(TEXT_VALUE),
+                );
+                let conf_pct = (fidelity.confidence * 100.0).round() as u32;
+                let conf_color = if fidelity.is_stale() { AMBER } else { TEXT_DIM };
+                ui.label(
+                    egui::RichText::new(format!("{conf_pct}%"))
+                        .font(mono_font(10.0))
+                        .color(conf_color),
+                );
+                draw_confidence_bar(ui, fidelity.confidence);
+                ui.end_row();
+            }
+        });
+
+    ui.add_space(theme::Spacing::xs);
+
+    // ── Recommended next step (stub heuristic) ────────────────
+    // Per the issue acceptance criterion, a rudimentary stub is
+    // acceptable: pick the lowest-fidelity dimension, find a
+    // template that targets it. A future LGD-coordinated helper
+    // will score templates by which one most improves the
+    // dimension map.
+    theme::section_h3(ui, "RECOMMENDED NEXT STEP");
+    if let Some((dim, recommended)) = recommended_survey_action(state, mission_templates) {
+        let target_tier = recommended.target_tiers.get(&dim).copied().unwrap_or(1);
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("→").font(mono_font(11.0)).color(ACCENT));
+            ui.label(
+                egui::RichText::new(format!(
+                    "{}  ({})",
+                    recommended.display_name,
+                    dim.display_name()
+                ))
+                .font(mono_font(11.0))
+                .color(TEXT_VALUE),
+            );
+        });
+        ui.label(
+            egui::RichText::new(format!(
+                "Targeting {}; tier 0→{target_tier} over ~{} sim-days.",
+                dim.display_name(),
+                recommended.base_duration_days
+            ))
+            .font(mono_font(9.0))
+            .color(TEXT_DIM),
+        );
+    } else {
+        ui.colored_label(GREEN_ACCENT, "All dimensions adequately characterized.");
+    }
+
+    ui.add_space(theme::Spacing::xs);
+
+    // ── Active missions (reuses draw_active_missions_list) ────
+    theme::section_h3(ui, "ACTIVE MISSIONS");
+    draw_active_missions_list(ui, body, &state.active_missions, commands);
+
+    // ── Failed missions (reuses draw_failed_missions_list) ────
+    if !state.failed_mission_notifications.is_empty() {
+        ui.add_space(theme::Spacing::xs);
+        theme::section_h3(ui, "FAILED MISSIONS");
+        draw_failed_missions_list(
+            ui,
+            body,
+            &state.failed_mission_notifications,
+            &state.active_missions,
+            commands,
+        );
+    }
+
+    ui.add_space(theme::Spacing::xs);
+
+    // ── Anomalies (PR-C r2 readiness) ──────────────────────────
+    // `state.detected_anomalies` is currently always empty in PR-F
+    // (anomaly events land in PR-D / PR-C). The empty-state message
+    // tells the player the panel is wired but no anomalies have
+    // surfaced yet. When verification missions land, the same row
+    // format will be reused.
+    theme::section_h3(ui, "ANOMALIES DETECTED");
+    if state.detected_anomalies.is_empty() {
+        ui.colored_label(
+            TEXT_DIM,
+            "None detected yet. Anomalies surface as verification missions complete.",
+        );
+    } else {
+        for anomaly in &state.detected_anomalies {
+            let (badge_color, badge) = match anomaly.state {
+                AnomalyState::Suspected => (AMBER, anomaly.state.badge_label()),
+                AnomalyState::Verified => (GREEN_ACCENT, anomaly.state.badge_label()),
+                AnomalyState::Refuted => (RED_ACCENT, anomaly.state.badge_label()),
+                AnomalyState::Dormant => (TEXT_DIM, anomaly.state.badge_label()),
+            };
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(format!("• {:?}", anomaly.anomaly_type))
+                        .font(mono_font(10.0))
+                        .color(TEXT_VALUE),
+                );
+                ui.label(
+                    egui::RichText::new(badge)
+                        .font(mono_font(9.0))
+                        .color(badge_color),
+                );
+                ui.label(
+                    egui::RichText::new(format!("{:.0}%", anomaly.confidence * 100.0))
+                        .font(mono_font(9.0))
+                        .color(TEXT_DIM),
+                );
+            });
+        }
+    }
+
+    ui.add_space(theme::Spacing::xs);
+
+    // ── Dispatch picker ────────────────────────────────────────
+    // Sits at the end of the SURVEY section so the player's eye
+    // reads: [PROGRESS] → [DIMS] → [RECOMMENDED] → [ACTIVE] →
+    // [ANOMALIES] → [DISPATCH NEW].
+    theme::section_h3(ui, "DISPATCH MISSION");
+    draw_dispatch_mission_picker(ui, body, body_name, mission_templates, commands);
+}
+
+/// Render a 5-cell confidence bar in the dossier's dimensions table.
+/// Filled cells = `confidence × 5`, rounded to the nearest cell.
+/// Stale (`< STALE_CONFIDENCE`) bars use `AMBER`; warning-tier
+/// (`< WARNING_CONFIDENCE`) use `TEXT_DIM`; otherwise `ACCENT`.
+fn draw_confidence_bar(ui: &mut egui::Ui, confidence: f32) {
+    let filled = ((confidence * 5.0).round() as i32).clamp(0, 5);
+    let mut s = String::with_capacity(5);
+    for i in 0..5 {
+        s.push(if i < filled { '▓' } else { '░' });
+    }
+    let color = if confidence < STALE_CONFIDENCE {
+        AMBER
+    } else if confidence < WARNING_CONFIDENCE {
+        TEXT_DIM
+    } else {
+        ACCENT
+    };
+    ui.label(egui::RichText::new(s).font(mono_font(11.0)).color(color));
+}
+
+/// Recommend a single mission template that targets the body's
+/// lowest-fidelity dimension. Returns `None` if every dimension is
+/// fully characterised or no template covers the lowest-fidelity
+/// dim.
+///
+/// Stub heuristic (per the issue's GRA-108 acceptance criteria):
+/// pick the dimension with the lowest `fidelity.tier` (ties broken
+/// by lowest confidence), then find a template in
+/// `mission_templates.templates` whose `target_tiers` contains
+/// that dim. The LGD-coordinated `recommended_survey_action`
+/// helper will score templates by which one most improves the
+/// dimension map; this stub just picks the first match.
+fn recommended_survey_action<'a>(
+    state: &SurveyState,
+    mission_templates: &'a SurveyMissionTemplates,
+) -> Option<(SurveyDimension, &'a SurveyMissionTemplate)> {
+    let lowest = SurveyDimension::ALL.iter().min_by_key(|d| {
+        let f = state.fidelity(**d);
+        (f.tier, (f.confidence * 1000.0) as u32)
+    })?;
+    if state.fidelity(*lowest).is_fully_characterized() {
+        return None;
+    }
+    mission_templates
+        .templates
+        .values()
+        .find(|t| t.target_tiers.contains_key(lowest))
+        .map(|t| (*lowest, t))
+}
+
 // ─── Resource Grid ───────────────────────────────────────────────────────
 
 /// Derive a [`SurveyLevel`] for the dossier status badge and the
@@ -1491,94 +1875,20 @@ fn effective_survey_level(legacy: Option<SurveyLevel>, state: Option<&SurveyStat
 fn draw_resource_section(
     ui: &mut egui::Ui,
     entity: Entity,
-    body_name: &str,
     resources: &PlanetResources,
-    survey_level: Option<&SurveyLevel>,
-    survey_state: Option<&SurveyState>,
-    commands: &mut Commands,
+    current_level: SurveyLevel,
     rate_tracker: &ResourceRateTracker,
-    mission_templates: &SurveyMissionTemplates,
+    survey_state: Option<&SurveyState>,
     view: DossierResourceView,
 ) {
-    // Survey status — derived from the v0.5.0 `SurveyState` (preferred)
-    // or the legacy `SurveyLevel` (fallback, e.g. for Earth which boots
-    // at `CoreSample` via `src/plugins/solar_system.rs`). The UI no
-    // longer mutates this enum; the legacy click-to-upgrade button was
-    // removed in GRA-107. See SURVEY_REWORK.md §15 Phase 2: "the new
-    // system is the only way to advance past `OrbitalScan` for new
-    // bodies."
-    let current_level = effective_survey_level(survey_level.copied(), survey_state);
-
-    ui.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new("SURVEY")
-                .font(mono_font(10.0))
-                .color(TEXT_DIM),
-        );
-        let (level_color, level_text) = match current_level {
-            SurveyLevel::Unsurveyed => (TEXT_DIM, "UNSURVEYED"),
-            SurveyLevel::OrbitalScan => (egui::Color32::LIGHT_BLUE, "ORBITAL"),
-            SurveyLevel::SeismicSurvey => (egui::Color32::YELLOW, "SEISMIC"),
-            SurveyLevel::CoreSample => (GREEN_ACCENT, "CORE SAMPLE"),
-        };
-        ui.label(
-            egui::RichText::new(level_text)
-                .font(mono_font(11.0))
-                .color(level_color),
-        );
-    });
-
-    // Only show the dispatch + deposits sections when survey has begun.
-    // Bodies with neither legacy level nor a v0.5.0 `SurveyState` get
-    // a hint pointing at the new system (dispatch a mission).
-    if current_level == SurveyLevel::Unsurveyed {
-        ui.colored_label(
-            TEXT_DIM,
-            "Dispatch a survey mission to begin resource detection.",
-        );
-        if let Some(state) = survey_state {
-            // Edge case: a fresh `SurveyState` was inserted but no
-            // dimension has been measured yet — show the active-mission
-            // / dispatch UI so the player isn't dead-ended.
-            if state.dimensions.is_empty() && state.active_missions.is_empty() {
-                ui.add_space(theme::Spacing::xs);
-                theme::section_h3(ui, "DISPATCH MISSION");
-                draw_dispatch_mission_picker(ui, entity, body_name, mission_templates, commands);
-            }
-        }
-        return;
-    }
-
-    // PR-B (GRA-80) — Active missions live on `SurveyState`. We render
-    // them above the deposit grid so the player sees the "in progress"
-    // content first, then the result the missions are working toward.
-    if let Some(state) = survey_state {
-        ui.add_space(theme::Spacing::xs);
-        theme::section_h3(ui, "ACTIVE MISSIONS");
-        draw_active_missions_list(ui, entity, &state.active_missions, commands);
-    }
-
-    // PR-G (GRA-85) — Failed-mission notifications live on `SurveyState`
-    // too. The dossier renders them under ACTIVE MISSIONS so the
-    // player's eye reads [IN FLIGHT] → [FAILED] → [DEPOSITS]. Only
-    // shown when the list is non-empty; the "FAILED MISSIONS" section
-    // is hidden on bodies with no recent failures to keep the dossier
-    // uncluttered.
-    if let Some(state) = survey_state {
-        if !state.failed_mission_notifications.is_empty() {
-            ui.add_space(theme::Spacing::xs);
-            theme::section_h3(ui, "FAILED MISSIONS");
-            draw_failed_missions_list(
-                ui,
-                entity,
-                &state.failed_mission_notifications,
-                &state.active_missions,
-                commands,
-            );
-        }
-    }
-
-    ui.add_space(theme::Spacing::xs);
+    // PR-F (GRA-108): the survey-status badge, ACTIVE MISSIONS list,
+    // FAILED MISSIONS, and DISPATCH MISSION picker all moved into the
+    // new top-level `draw_survey_section` (SURVEY_REWORK.md §10). What
+    // remains here is the data-driven deposit grid + reveal matrix +
+    // summary. `current_level` is the pre-computed v0.5.0 effective
+    // level shared with the SURVEY ledger so the two sections read
+    // consistently. `survey_state` is still needed for the reveal
+    // matrix's T1/T2/T3 gate logic (per GRA-110 / GRA-111).
 
     // PR-B (GRA-67) — `theme::section_h3` introduces each sub-section.
     // The "By Category" tab keeps the existing visual identity; the
@@ -1603,7 +1913,11 @@ fn draw_resource_section(
     // The matrix is the canonical ByCategory-only surface (the
     // compact view is a summary, the 3-tier detail lives in the
     // grid). Skip the section in the compact tab to keep the
-    // compact view flat.
+    // compact view flat. The `survey_state` drives the T1/T2/T3
+    // gate logic — without it the matrix would collapse to
+    // dimmed placeholders (see
+    // `tier_breakdown_for_reserve`'s "No SurveyState" branch in
+    // `src/economy/discovery.rs`).
     if matches!(view, DossierResourceView::ByCategory) {
         ui.add_space(theme::Spacing::xs);
         draw_reveal_matrix(ui, resources, survey_state);
@@ -1622,16 +1936,6 @@ fn draw_resource_section(
         .font(mono_font(10.0))
         .color(TEXT_VALUE),
     );
-
-    // PR-B (GRA-80) — dispatch UI sits at the end of the SURVEY section
-    // so the player's eye reads: [STATUS] → [IN FLIGHT] → [DEPOSITS] →
-    // [SUMMARY] → [DISPATCH NEW]. Only available when `SurveyState`
-    // exists; the legacy `SurveyLevel` system has no mission concept.
-    if survey_state.is_some() {
-        ui.add_space(theme::Spacing::xs);
-        theme::section_h3(ui, "DISPATCH MISSION");
-        draw_dispatch_mission_picker(ui, entity, body_name, mission_templates, commands);
-    }
 }
 
 /// Render the active-mission list for the dossier SURVEY section.
