@@ -84,13 +84,13 @@ src/plugins/solar_system.rs:481  Color::srgb(brightness * 1.05, brightness * 0.9
 src/plugins/solar_system.rs:487  Color::srgb(
 src/plugins/solar_system.rs:727  let base_color = Color::srgb(body_data.color.0, body_data.color.1, body_data.color.2);
 src/plugins/solar_system.rs:730  (Color::srgb(1.0, 1.0, 1.0), 0.7, 0.0)
-src/plugins/solar_system.rs:1510  (Color::srgba(1.0, 0.82, 0.5, 0.82), true)
-src/plugins/solar_system.rs:1514  (Color::srgba(0.4, 0.75, 1.0, 0.85), true)
-src/plugins/solar_system.rs:1518  (Color::srgba(0.25, 0.45, 0.75, 0.7), false)
-src/plugins/solar_system.rs:1522  (Color::srgba(0.65, 0.65, 0.65, 0.5), true)
-src/plugins/solar_system.rs:1527  (Color::srgba(0.3, 0.55, 0.22, 0.45), false)
-src/plugins/solar_system.rs:1531  (Color::srgba(1.0, 0.8, 0.3, 0.65), false)
-src/plugins/solar_system.rs:1533  BodyType::Ring => (Color::srgba(0.0, 0.0, 0.0, 0.0), false),
+src/plugins/solar_system.rs:1562  (Color::srgba(1.0, 0.82, 0.5, 0.82), true)
+src/plugins/solar_system.rs:1566  (Color::srgba(0.4, 0.75, 1.0, 0.85), true)
+src/plugins/solar_system.rs:1570  (Color::srgba(0.25, 0.45, 0.75, 0.7), false)
+src/plugins/solar_system.rs:1574  (Color::srgba(0.65, 0.65, 0.65, 0.5), true)
+src/plugins/solar_system.rs:1579  (Color::srgba(0.3, 0.55, 0.22, 0.45), false)
+src/plugins/solar_system.rs:1583  (Color::srgba(1.0, 0.8, 0.3, 0.65), false)
+src/plugins/solar_system.rs:1585  BodyType::Ring => (Color::srgba(0.0, 0.0, 0.0, 0.0), false),
 src/plugins/solar_system_data.rs:343  Color::srgb(
 src/plugins/starmap.rs:348  base_color: Color::srgb(1.0, 0.95, 0.7),
 src/plugins/starmap.rs:405  base_color: Color::srgb(r, g, b),

@@ -1766,7 +1766,7 @@ fn draw_dimension_progress_bar(ui: &mut egui::Ui, tier: u8, active_progress: Opt
                 egui::Vec2::new(segment.width() * fill, segment.height()),
             );
             let color = if fill < 1.0 {
-                egui::Color32::from_rgba_premultiplied(ACCENT.r(), ACCENT.g(), ACCENT.b(), 150)
+                theme::with_alpha(ACCENT, 150)
             } else {
                 ACCENT
             };
