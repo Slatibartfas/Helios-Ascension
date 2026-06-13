@@ -3929,9 +3929,23 @@ mod tests {
         // but WARNING_CONFIDENCE is 0.3, so 0.4 is not
         // warning-tier. The discriminating test uses
         // 0.2/0.5 to actually exercise the boost.
+        //
+        // All 8 dims at tier 0. We need exactly ONE warning-tier
+        // dim so the warning boost pulls it to primary without
+        // competition from the other 6 default-state dims (which
+        // would also be warning-tier at conf 0.0 and tie on the
+        // boost). Set the non-target dims to a healthy
+        // confidence (0.5) so the warning boost only applies to
+        // MineralDeposits.
         let mut state = SurveyState::default();
-        set_dim(&mut state, SurveyDimension::OrbitalMech, 0, 0.5);
-        set_dim(&mut state, SurveyDimension::MineralDeposits, 0, 0.2);
+        for dim in SurveyDimension::ALL {
+            let conf = if dim == SurveyDimension::MineralDeposits {
+                0.2
+            } else {
+                0.5
+            };
+            set_dim(&mut state, dim, 0, conf);
+        }
         let a = test_template(
             "a",
             SurveyMethod::Orbital,
