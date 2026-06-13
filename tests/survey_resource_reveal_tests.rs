@@ -32,7 +32,7 @@ use helios_ascension::economy::discovery::{
     body_aggregate_tier_breakdown, tier_breakdown_for_reserve, TierLabel, TierReveal,
     RESERVE_PRESENT_THRESHOLD,
 };
-use helios_ascension::economy::ResourceType;
+use helios_ascension::economy::{ResourcePhase, ResourceType};
 use helios_ascension::survey::components::{DimensionFidelity, SurveyState};
 use helios_ascension::survey::SurveyDimension;
 use std::collections::HashMap;
