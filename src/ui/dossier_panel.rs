@@ -38,7 +38,9 @@ use crate::survey::components::{
     ActiveSurveyMission, ContinuousStationBonus, ContinuousSurveyStation, FailedMissionRecord,
     SurveyState,
 };
-use crate::survey::data::{ReasonTag, ScientistSummary, SurveyMissionTemplate, SurveyMissionTemplates};
+use crate::survey::data::{
+    ReasonTag, ScientistSummary, SurveyMissionTemplate, SurveyMissionTemplates,
+};
 use crate::survey::events::{AbortSurveyMission, DismissFailedMission, DispatchSurveyMission};
 use crate::survey::types::{
     AnomalyState, MissionFailureReason, MissionStatus, SurveyDimension, MAX_TIER, STALE_CONFIDENCE,
@@ -1919,7 +1921,13 @@ fn recommended_survey_action<'a>(
             .then_with(|| a.id.cmp(&b.id))
     });
 
-    candidates.first().map(|t| (primary, *t, reason_for_tag(*t, state, primary, scientist_roster)))
+    candidates.first().map(|t| {
+        (
+            primary,
+            *t,
+            reason_for_tag(*t, state, primary, scientist_roster),
+        )
+    })
 }
 
 /// GRA-112: weighted multi-factor scoring function.
@@ -2058,10 +2066,7 @@ fn reason_for_tag(
         .copied()
         .unwrap_or(from_tier);
     if to_tier > from_tier || to_tier > 0 {
-        return ReasonTag::TierGap {
-            from_tier,
-            to_tier,
-        };
+        return ReasonTag::TierGap { from_tier, to_tier };
     }
 
     // Priority 5: fallback. All other factors were zero or the
@@ -2079,14 +2084,11 @@ pub(crate) fn reason_text(tag: &ReasonTag) -> String {
         ReasonTag::SpecialistOnStation { specialty } => {
             format!("Specialist on station ({})", specialty.display_name())
         }
-        ReasonTag::ConfidenceRescue => {
-            "Rescues dim below confidence threshold".to_string()
-        }
+        ReasonTag::ConfidenceRescue => "Rescues dim below confidence threshold".to_string(),
         ReasonTag::CrossDim => "Closes gaps on multiple dimensions at once".to_string(),
-        ReasonTag::TierGap {
-            from_tier,
-            to_tier,
-        } => format!("Closes largest gap (tier {from_tier}→{to_tier})"),
+        ReasonTag::TierGap { from_tier, to_tier } => {
+            format!("Closes largest gap (tier {from_tier}→{to_tier})")
+        }
         ReasonTag::BestFit => "Best available fit".to_string(),
     }
 }
@@ -3599,8 +3601,7 @@ fn draw_orbital_station_section<'w, I>(
         body_entity,
         body_name,
         stations,
-    )
-    else {
+    ) else {
         // No active station — hide the section entirely. The
         // body dossier would otherwise grow a useless empty
         // "ORBITAL SURVEY STATIONS" header on every body that
@@ -3841,7 +3842,7 @@ mod tests {
             "Mars",
             stations,
         )
-            .expect("Mars with an active bonus should produce a summary");
+        .expect("Mars with an active bonus should produce a summary");
 
         assert_eq!(summary.body_name, "Mars");
         assert_eq!(summary.tier_list(), "T1, T1");
@@ -4157,8 +4158,9 @@ mod tests {
             specialty: ScientistSpecialty::Geology,
             seniority: SeniorityTier::Principal,
         }];
-        let (dim_yes, rec_yes, _reason_yes) = recommended_survey_action(&state, &templates, Some(&roster))
-            .expect("must recommend with a roster");
+        let (dim_yes, rec_yes, _reason_yes) =
+            recommended_survey_action(&state, &templates, Some(&roster))
+                .expect("must recommend with a roster");
         assert_eq!(dim_yes, SurveyDimension::OrbitalMech);
         assert_eq!(
             rec_yes.id, "drill_long",
@@ -4337,9 +4339,8 @@ mod tests {
             90,
         );
         let templates = test_templates(vec![template]);
-        let (_dim, _recommended, reason) =
-            recommended_survey_action(&state, &templates, None)
-                .expect("non-empty templates + non-fully-characterized body must recommend");
+        let (_dim, _recommended, reason) = recommended_survey_action(&state, &templates, None)
+            .expect("non-empty templates + non-fully-characterized body must recommend");
         assert_eq!(
             reason,
             ReasonTag::ConfidenceRescue,
